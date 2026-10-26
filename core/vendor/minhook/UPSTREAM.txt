@@ -1,0 +1,5 @@
+MinHook v1.3.4
+https://github.com/TsudaKageyu/minhook
+Commit: c3fcafdc10146beb5919319d0683e44e3c30d537
+Vendored include/, src/, LICENSE.txt and AUTHORS.txt; Windows x64 build uses hde64.
+Source and license files retained from the upstream tag.

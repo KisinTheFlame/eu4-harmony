@@ -1,0 +1,13 @@
+[package]
+name = "eu4-harmony-hello"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Smallest EU4 Harmony extension: a button that logs clicks"
+
+[lib]
+name = "hello"
+crate-type = ["cdylib"]
+
+[dependencies]
+eu4-harmony-sdk = { path = "../../../sdk" }
