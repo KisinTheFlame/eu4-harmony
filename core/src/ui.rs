@@ -1,17 +1,20 @@
-//! Binds the spliced elements of the single-army panel each time the game
-//! builds that panel, applies the state extensions ask for, and turns button
-//! clicks into events. Ported from eu4-regional-combat's native UI; the ABI
-//! evidence is in that repository's docs/native-{ui,settings}-findings.txt.
+//! Binds spliced elements in the vanilla windows that host them, applies the
+//! state extensions ask for, and turns button clicks into events. Ported from
+//! eu4-regional-combat's native UI; the ABI evidence is in
+//! docs/research/regional-combat/native-{ui,settings}-findings.txt and
+//! ui-polish-validation.md (tooltip aggregate). The top bar and main-menu
+//! hosts, and window teardown, are in docs/research/notice-window.md.
 //!
-//! Extensions state what they want (visible, enabled, text, tooltip) and the
-//! panel hook applies it every update, so state survives the game rebuilding
-//! the panel and never needs a callback inside the game's UI code.
+//! Extensions state what they want (visible, enabled, text, tooltip) and each
+//! host's update hook applies it, so state survives the game rebuilding the
+//! window and never needs a callback inside the game's UI code.
 use crate::{
     baseline::Dependency,
     game::{self, fail, GResult, ARMY_VT},
     hooks::{self, HookFrame},
     memory::Memory,
-    splice::{Element, ElementKind},
+    notice,
+    splice::{Element, ElementKind, Owner},
     Result,
 };
 use eu4_harmony_abi as abi;
@@ -24,6 +27,8 @@ const PANEL_VT: usize = 0x1d87088;
 const ROOT_VT: usize = 0x1d926b0;
 const ROOT_GUI_VT: usize = 0x1d929d0;
 const TEXT_VT: usize = 0x1d8fd10;
+const TOPBAR_VT: usize = 0x1d84250;
+const FRONTEND_VT: usize = 0x1d5a8c8;
 /// Callback wrapper class the panel uses for its own buttons.
 const WRAPPER_VT: usize = 0x1cb80c8;
 
@@ -31,6 +36,12 @@ const PANEL_UPDATE: usize = 0x1450660;
 const PANEL_DESTROY: usize = 0x144f560;
 const PANEL_RECREATE: usize = 0x1450580;
 const BUTTON_DESTROY: usize = 0x10b5670;
+/// Root window `+0x130`: marks the window and its children dead; memory is
+/// freed later in the frame by the GUI manager's sweep.
+const WINDOW_KILL: usize = 0x1547520;
+/// Root window deleting destructor, reached from that sweep.
+const WINDOW_DELETE: usize = 0x1546510;
+const MENU_FRAME: usize = 0x10d2e80;
 const TOOLTIP: usize = 0x1453b70;
 const STRING_APPEND: usize = 0x932f0;
 const TEXT_SET: usize = 0x152ae10;
@@ -46,6 +57,17 @@ pub const DEPENDENCIES: &[Dependency] = &[
     Dependency { rva: PANEL_DESTROY, bytes: "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 41", what: "army panel destructor" },
     Dependency { rva: PANEL_RECREATE, bytes: "40 53 48 83 ec 40 48 8b d9 48 8b 05 e8 f8 ee 00", what: "army panel rebuild" },
     Dependency { rva: BUTTON_DESTROY, bytes: "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8", what: "button destructor" },
+    Dependency {
+        rva: WINDOW_KILL,
+        bytes: "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 c6 81 f4 00 00 00 01",
+        what: "window kill",
+    },
+    Dependency {
+        rva: WINDOW_DELETE,
+        bytes: "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 0c 02 00 00 f6 c3 01 74 0d ba 80 0a 00 00",
+        what: "window destructor",
+    },
+    Dependency { rva: MENU_FRAME, bytes: "48 8b c4 48 89 58 10 55 56 57 41 54 41 55 41 56", what: "main menu frame" },
     Dependency { rva: TOOLTIP, bytes: "48 89 5c 24 08 48 89 74 24 10 55 57 41 54 41 56", what: "army panel tooltip" },
     Dependency { rva: STRING_APPEND, bytes: "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20", what: "string append" },
     Dependency { rva: TEXT_SET, bytes: "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", what: "text box setter" },
@@ -57,6 +79,28 @@ pub const DEPENDENCIES: &[Dependency] = &[
     Dependency { rva: SET_ENABLED, bytes: "48 8b 01 84 d2 74 07 48 ff a0 68 02 00 00 48 ff", what: "button enable" },
 ];
 
+/// A vanilla window that spliced elements are bound in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Host {
+    /// `single_unitpanel`, rebuilt by the game as armies are shown.
+    ArmyPanel,
+    /// `topbar`, present for the whole campaign.
+    Topbar,
+    /// `country_selection_panel`, present while the main menu is up.
+    MainMenu,
+}
+
+impl Host {
+    fn of_window(window: &str) -> Option<Self> {
+        match window {
+            "single_unitpanel" => Some(Self::ArmyPanel),
+            "topbar" => Some(Self::Topbar),
+            "country_selection_panel" => Some(Self::MainMenu),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Default, Clone)]
 struct Desired {
     visible: Option<bool>,
@@ -67,6 +111,7 @@ struct Desired {
 
 struct Declared {
     element: Element,
+    host: Host,
     /// Index of the extension that receives this element's clicks.
     extension: Option<usize>,
     desired: Desired,
@@ -85,7 +130,10 @@ struct Bound {
 }
 
 struct Binding {
-    panel: usize,
+    host: Host,
+    /// The game object that owns the root: the army panel, the top bar
+    /// object, or the main menu.
+    holder: usize,
     root: usize,
     bound: Vec<Bound>,
 }
@@ -100,7 +148,7 @@ pub struct Click {
 #[derive(Default)]
 struct Ui {
     declared: Vec<Declared>,
-    binding: Option<Binding>,
+    bindings: Vec<Binding>,
     /// Wrappers of detached bindings; the game may still hold pointers to them.
     retired: Vec<Box<[usize; 15]>>,
     clicks: Vec<Click>,
@@ -130,7 +178,16 @@ fn report_once(ui: &mut Ui, message: String) {
 /// Elements spliced this run, with the extension index that owns each.
 pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
     with_ui(|ui| {
-        ui.declared = elements.into_iter().map(|(element, extension)| Declared { element, extension, desired: Desired::default() }).collect();
+        ui.declared = elements
+            .into_iter()
+            .filter_map(|(element, extension)| match Host::of_window(&element.window) {
+                Some(host) => Some(Declared { element, host, extension, desired: Desired::default() }),
+                None => {
+                    log!("ui: {} is in window {:?}, which is not bound", element.prefixed, element.window);
+                    None
+                }
+            })
+            .collect();
     });
 }
 
@@ -148,6 +205,17 @@ fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
     m.msvc_string(m.call(getter, &[object])?)
 }
 
+/// A root window the game created and has not killed.
+fn live_root(m: &Memory, root: usize) -> Result<bool> {
+    if root == 0 {
+        return Ok(false);
+    }
+    if m.ptr(root)? != m.at(ROOT_VT) || m.ptr(root + 0x30)? != m.at(ROOT_GUI_VT) {
+        return Err("unexpected root window class".into());
+    }
+    Ok(m.u8(root + 0xf4)? == 0)
+}
+
 fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Option<Bound>> {
     let slot = match d.element.kind {
         ElementKind::Button => 0x68,
@@ -157,7 +225,7 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
     };
     let object = lookup(m, root, slot, &d.element.prefixed)?;
     if object == 0 {
-        return Err(format!("{} not found in the panel", d.element.prefixed));
+        return Err(format!("{} not found in {:?}", d.element.prefixed, d.element.window));
     }
     let vt = m.ptr(object)?;
     let expected_vt = match d.element.kind {
@@ -211,40 +279,50 @@ fn subscribed(m: &Memory, b: &Bound) -> Result<bool> {
     Err("signal listener list too long".into())
 }
 
-fn detach(m: &Memory, ui: &mut Ui) -> Result<()> {
-    let Some(mut binding) = ui.binding.take() else { return Ok(()) };
-    let result = (|| {
-        for b in &mut binding.bound {
-            if !b.linked {
-                continue;
+/// Detaches every binding `which` selects; their objects must still be alive.
+fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<()> {
+    let (gone, kept) = std::mem::take(&mut ui.bindings).into_iter().partition(|b| which(b));
+    ui.bindings = kept;
+    let mut result = Ok(());
+    for mut binding in gone {
+        let unlinked = (|| {
+            for b in &mut binding.bound {
+                if !b.linked {
+                    continue;
+                }
+                if m.ptr(b.signal)? != m.at(SIGNAL_VT) || m.u8(b.signal + 0x1c)? != 0 {
+                    return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
+                }
+                m.call(m.at(UNSUBSCRIBE), &[b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
+                if subscribed(m, b)? {
+                    return Err("observer still subscribed after unsubscribe".into());
+                }
+                b.linked = false;
+                m.call(m.at(SET_RIGHT_CLICK), &[b.object, b.old_right_click as usize])?;
             }
-            if m.ptr(b.signal)? != m.at(SIGNAL_VT) || m.u8(b.signal + 0x1c)? != 0 {
-                return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
-            }
-            m.call(m.at(UNSUBSCRIBE), &[b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
-            if subscribed(m, b)? {
-                return Err("observer still subscribed after unsubscribe".into());
-            }
-            b.linked = false;
-            m.call(m.at(SET_RIGHT_CLICK), &[b.object, b.old_right_click as usize])?;
-        }
-        Ok(())
-    })();
-    ui.retired.extend(binding.bound.into_iter().filter_map(|b| b.wrapper));
+            Ok(())
+        })();
+        ui.retired.extend(binding.bound.into_iter().filter_map(|b| b.wrapper));
+        result = result.and(unlinked);
+    }
     result
 }
 
-fn bind(m: &Memory, ui: &mut Ui, panel: usize) -> Result<()> {
-    let root = m.ptr(panel + 0x38)?;
-    if ui.binding.as_ref().is_some_and(|b| b.panel == panel && b.root == root) {
+fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Result<()> {
+    if ui.bindings.iter().any(|b| b.host == host && b.holder == holder && b.root == root) {
         return Ok(());
     }
-    detach(m, ui)?;
-    if root == 0 || ui.declared.is_empty() {
+    detach(m, ui, |b| b.host == host)?;
+    if root == 0 || !ui.declared.iter().any(|d| d.host == host) {
         return Ok(());
     }
-    let mut binding = Binding { panel, root, bound: Vec::new() };
-    for (index, d) in ui.declared.iter().enumerate() {
+    // Teardown is noticed through the kill hook, so it must be this window's.
+    if m.vslot(root, 0x130)? != m.at(WINDOW_KILL) {
+        return Err(format!("{host:?} window has an unexpected kill method"));
+    }
+    let mut binding = Binding { host, holder, root, bound: Vec::new() };
+    let mut notice_failure = None;
+    for (index, d) in ui.declared.iter().enumerate().filter(|(_, d)| d.host == host) {
         match bind_one(m, root, index, d) {
             Ok(Some(b)) => binding.bound.push(b),
             Ok(None) => {}
@@ -253,12 +331,18 @@ fn bind(m: &Memory, ui: &mut Ui, panel: usize) -> Result<()> {
                 if ui.reported.insert(message.clone()) {
                     log!("ui: {message}");
                 }
+                if d.element.owner == Owner::Framework {
+                    notice_failure = Some(message);
+                }
             }
         }
     }
+    if let Some(reason) = notice_failure {
+        notice::fall_back(&reason);
+    }
     // Keep every wrapper reachable before the first subscription.
-    ui.binding = Some(binding);
-    let binding = ui.binding.as_mut().unwrap();
+    ui.bindings.push(binding);
+    let binding = ui.bindings.last_mut().unwrap();
     for b in &mut binding.bound {
         if let Some(wrapper) = &b.wrapper {
             b.linked = true;
@@ -269,7 +353,7 @@ fn bind(m: &Memory, ui: &mut Ui, panel: usize) -> Result<()> {
             m.call(m.at(SET_RIGHT_CLICK), &[b.object, 1])?;
         }
     }
-    log!("ui: bound {} element(s) on panel {panel:#x}", binding.bound.len());
+    log!("ui: bound {} element(s) in {host:?} {holder:#x}", binding.bound.len());
     Ok(())
 }
 
@@ -285,8 +369,8 @@ fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn apply(m: &Memory, ui: &mut Ui) -> Result<()> {
-    let Some(binding) = ui.binding.as_mut() else { return Ok(()) };
+fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
+    let Some(binding) = ui.bindings.iter_mut().find(|b| b.host == host) else { return Ok(()) };
     for b in &mut binding.bound {
         let d = &ui.declared[b.index];
         // Text boxes' show/hide methods are unverified on this build; a hidden
@@ -326,6 +410,90 @@ fn apply(m: &Memory, ui: &mut Ui) -> Result<()> {
     Ok(())
 }
 
+/// Points the framework's notice window, in every host, at the notice to show.
+fn drive_notice(ui: &mut Ui) {
+    let current = notice::current();
+    let plugin = crate::text::plugin_loaded();
+    let title = current.as_ref().map(|(_, waiting)| match waiting {
+        0 => "EU4 Harmony".to_string(),
+        n => format!("EU4 Harmony ({n} more)"),
+    });
+    for d in ui.declared.iter_mut().filter(|d| d.element.owner == Owner::Framework) {
+        d.desired.visible = Some(current.is_some());
+        let text = match d.element.name.as_str() {
+            notice::TITLE => title.as_deref(),
+            notice::TEXT => current.as_ref().map(|(text, _)| text.as_str()),
+            _ => continue,
+        };
+        if let Some(text) = text {
+            d.desired.text = Some(crate::text::encode(text, plugin).0);
+        }
+    }
+}
+
+/// Binds `host` to the root `found` names (when the game has one), shows the
+/// current notice and applies the desired state.
+fn host_frame(m: &Memory, host: Host, found: Result<Option<(usize, usize)>>) {
+    with_ui(|ui| {
+        if ui.fatal.is_some() {
+            return;
+        }
+        let result = (|| -> Result<()> {
+            // A root that is gone or dying was detached by the kill hook.
+            let Some((holder, root)) = found? else { return Ok(()) };
+            if !live_root(m, root)? {
+                return Ok(());
+            }
+            bind(m, ui, host, holder, root)?;
+            drive_notice(ui);
+            apply(m, ui, host)
+        })();
+        if let Err(e) = result {
+            report_once(ui, format!("{host:?}: {e}"));
+        }
+    });
+}
+
+/// Run after the in-game idler's frame (`idler` is its `this`): binds the top bar.
+pub fn ingame_frame(idler: usize) {
+    let Some(m) = memory() else { return };
+    if crate::thread_id() != crate::main_thread() || crate::saves::load_in_progress() {
+        return;
+    }
+    let found = (|| -> Result<Option<(usize, usize)>> {
+        if m.ptr(idler)? != m.at(game::MAP_MANAGER_VT) {
+            return Ok(None);
+        }
+        let topbar = m.ptr(idler + 0x12d8)?;
+        if topbar == 0 {
+            return Ok(None);
+        }
+        if m.ptr(topbar)? != m.at(TOPBAR_VT) || m.ptr(topbar + 0x648)? != idler {
+            return Err("unexpected top bar object".into());
+        }
+        Ok(Some((topbar, m.ptr(topbar + 0x658)?)))
+    })();
+    host_frame(&m, Host::Topbar, found);
+}
+
+extern "C" fn menu_after(frame: *mut HookFrame) {
+    crate::guarded("main menu frame", || {
+        let frame = unsafe { &*frame };
+        let Some(m) = memory() else { return };
+        if frame.fault != 0 || crate::thread_id() != crate::main_thread() {
+            return;
+        }
+        let frontend = frame.args[0];
+        let found = (|| -> Result<Option<(usize, usize)>> {
+            if m.ptr(frontend)? != m.at(FRONTEND_VT) {
+                return Err("unexpected main menu object".into());
+            }
+            Ok(Some((frontend, m.ptr(frontend + 0x790)?)))
+        })();
+        host_frame(&m, Host::MainMenu, found);
+    });
+}
+
 extern "C" fn panel_after(frame: *mut HookFrame) {
     crate::guarded("panel update", || {
         let frame = unsafe { &*frame };
@@ -342,8 +510,8 @@ extern "C" fn panel_after(frame: *mut HookFrame) {
                 if m.ptr(panel)? != m.at(PANEL_VT) {
                     return Err("unexpected army panel class".into());
                 }
-                bind(&m, ui, panel)?;
-                apply(&m, ui)
+                bind(&m, ui, Host::ArmyPanel, panel, m.ptr(panel + 0x38)?)?;
+                apply(&m, ui, Host::ArmyPanel)
             })();
             if let Err(e) = result {
                 report_once(ui, e);
@@ -352,30 +520,42 @@ extern "C" fn panel_after(frame: *mut HookFrame) {
     });
 }
 
-fn retire(panel: Option<usize>, button: Option<usize>) {
+/// Detaches the bindings `which` selects while their objects are still alive.
+fn retire(which: impl Fn(&Binding) -> bool) {
     let Some(m) = memory() else { return };
     with_ui(|ui| {
-        let matches = ui
-            .binding
-            .as_ref()
-            .is_some_and(|b| panel == Some(b.panel) || button.is_some_and(|p| b.bound.iter().any(|x| x.object == p)));
-        if matches {
-            if let Err(e) = detach(&m, ui) {
-                log!("ui: binding could not be detached, UI binding stops: {e}");
-                ui.fatal = Some(e);
-            }
+        if !ui.bindings.iter().any(&which) {
+            return;
+        }
+        if let Err(e) = detach(&m, ui, which) {
+            log!("ui: binding could not be detached, UI binding stops: {e}");
+            ui.fatal = Some(e.clone());
+            notice::fall_back(&format!("UI binding stopped: {e}"));
         }
     });
 }
 
 extern "C" fn panel_destroy(frame: *mut HookFrame) {
-    crate::guarded("panel destroy", || retire(Some(unsafe { (*frame).args[0] }), None));
-}
-extern "C" fn button_destroy(frame: *mut HookFrame) {
-    crate::guarded("button destroy", || retire(None, Some(unsafe { (*frame).args[0] })));
+    let panel = unsafe { (*frame).args[0] };
+    crate::guarded("panel destroy", || retire(|b| b.host == Host::ArmyPanel && b.holder == panel));
 }
 extern "C" fn panel_recreate(frame: *mut HookFrame) {
-    crate::guarded("panel rebuild", || retire(unsafe { (*frame).args[0] }.checked_sub(0x10), None));
+    let panel = unsafe { (*frame).args[0] }.checked_sub(0x10);
+    crate::guarded("panel rebuild", || retire(|b| b.host == Host::ArmyPanel && Some(b.holder) == panel));
+}
+extern "C" fn button_destroy(frame: *mut HookFrame) {
+    let button = unsafe { (*frame).args[0] };
+    crate::guarded("button destroy", || retire(|b| b.bound.iter().any(|x| x.object == button)));
+}
+/// Every teardown path of a root window passes here first (notice-window.md §3).
+extern "C" fn window_kill(frame: *mut HookFrame) {
+    let window = unsafe { (*frame).args[0] };
+    crate::guarded("window kill", || retire(|b| b.root == window));
+}
+/// Backstop for a root freed without passing the kill hook.
+extern "C" fn window_delete(frame: *mut HookFrame) {
+    let window = unsafe { (*frame).args[0] };
+    crate::guarded("window delete", || retire(|b| b.root == window));
 }
 
 fn modifiers() -> u32 {
@@ -394,11 +574,20 @@ fn enqueue(context: usize, button: usize, click: u32) {
     // The game may dispatch while our UI lock is held further up this thread.
     let Ok(mut guard) = UI.try_lock() else { return };
     let Some(ui) = guard.as_mut() else { return };
-    let Some(binding) = &ui.binding else { return };
-    let Some(b) = binding.bound.iter().find(|b| b.linked && b.object == button && b.wrapper.as_ref().is_some_and(|w| w.as_ptr() as usize == context)) else {
+    let Some(b) = ui
+        .bindings
+        .iter()
+        .flat_map(|binding| &binding.bound)
+        .find(|b| b.linked && b.object == button && b.wrapper.as_ref().is_some_and(|w| w.as_ptr() as usize == context))
+    else {
         return;
     };
     let d = &ui.declared[b.index];
+    if d.element.owner == Owner::Framework {
+        // The notice window's only button closes it.
+        notice::dismiss();
+        return;
+    }
     let Some(extension) = d.extension else { return };
     if ui.clicks.len() < 64 {
         ui.clicks.push(Click { extension, name: d.element.name.clone(), click, modifiers: modifiers() });
@@ -433,10 +622,7 @@ extern "C" fn tooltip_after(frame: *mut HookFrame) {
         }
         let Ok(guard) = UI.try_lock() else { return };
         let Some(ui) = guard.as_ref() else { return };
-        let Some(binding) = &ui.binding else { return };
-        if binding.panel != frame.args[0] {
-            return;
-        }
+        let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == frame.args[0]) else { return };
         let Some(b) = binding.bound.iter().find(|b| b.object == frame.args[2] && b.wrapper.is_some()) else { return };
         let Some(text) = ui.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
         drop(guard);
@@ -459,6 +645,9 @@ pub fn install(m: Memory) -> Result<()> {
     hooks::observe(m.at(PANEL_DESTROY), 2, Some(panel_destroy), None)?;
     hooks::observe(m.at(BUTTON_DESTROY), 2, Some(button_destroy), None)?;
     hooks::observe(m.at(PANEL_RECREATE), 1, Some(panel_recreate), None)?;
+    hooks::observe(m.at(WINDOW_KILL), 1, Some(window_kill), None)?;
+    hooks::observe(m.at(WINDOW_DELETE), 2, Some(window_delete), None)?;
+    hooks::observe(m.at(MENU_FRAME), 2, None, Some(menu_after))?;
     hooks::observe(m.at(TOOLTIP), 3, None, Some(tooltip_after))?;
     Ok(())
 }
@@ -501,7 +690,8 @@ pub fn hide_extension(extension: usize) {
 
 /// The own land army shown in the open single-army panel.
 pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
-    let (panel, root) = with_ui(|ui| ui.binding.as_ref().map(|b| (b.panel, b.root))).ok_or_else(|| game::Fail { code: abi::NOT_FOUND, message: "army panel not open".into() })?;
+    let (panel, root) = with_ui(|ui| ui.bindings.iter().find(|b| b.host == Host::ArmyPanel).map(|b| (b.holder, b.root)))
+        .ok_or_else(|| game::Fail { code: abi::NOT_FOUND, message: "army panel not open".into() })?;
     if m.ptr(panel)? != m.at(PANEL_VT) || m.ptr(panel + 0x38)? != root || m.ptr(root)? != m.at(ROOT_VT) || m.ptr(root + 0x30)? != m.at(ROOT_GUI_VT) {
         return Err("army panel changed".to_string().into());
     }

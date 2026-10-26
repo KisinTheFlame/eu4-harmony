@@ -1,7 +1,8 @@
 //! Game-state capabilities: reading the campaign, finding routes and giving
 //! orders. Ported from eu4-regional-combat's native adapter; addresses are
-//! RVAs in the 1.37.5 layout (see `baseline`). Everything here runs on the game
-//! thread at a safe point, which `events` establishes.
+//! RVAs in the 1.37.5 layout (see `baseline`), with the evidence in
+//! docs/research/regional-combat/. Everything here runs on the game thread at
+//! a safe point, which `events` establishes.
 pub mod events;
 pub mod orders;
 pub mod world;

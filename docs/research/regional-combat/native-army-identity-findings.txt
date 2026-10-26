@@ -1,0 +1,106 @@
+军队持久身份——静态定点逆向
+日期：2026-10-26
+底本 SHA256：97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e。
+仅分析冻结exe和已有静态材料；未读取、附加或操纵运行中游戏进程。
+全部RVA按实际加载基址重定位。Ghidra 12.1.4，-noanalysis -readOnly，原始结果保留于work/native-identity。
+
+结论
+army+0x20的完整64位值确实是原生存档读写的对象身份，而非裸对象地址：
+  low32 = type；high32 = id序号。
+样例28394028793910 = 0x000019d300000036 = type54、id6611。
+所查保存路径只写这两个组成部分，没有额外generation字段；不能从该qword中再拆出一份generation。
+推荐外置持久键使用完整uint64原生ID，generation保留0，另以精确slot+存档hash和新session验证守住边界。
+这不是对所有分配/重用路径的全覆盖证明，实际保存重载保持同ID仍应由runtime测试确认。
+
+1. 关键发现：序列化接口在第二vtable
+军队主vtable RVA0x1c42540的早期槽多数是游戏/UI行为，不能误把+0x18的大函数当作序列化。
+ctor0x1a20a0和带参数ctor0x1a21a0均明确设置：
+  *(army+0x00) = module+0x1c42540
+  *(army+0x10) = module+0x1c424f0
+第二vtable的this是army+0x10，因此其this+0x10正是army+0x20。
+第二vtable槽：
+  +0x10 -> 0x1a6320，军队writer；
+  +0x18 -> 0x17068b0，通用读取入口候选；
+  +0x20 -> 0x1a5e50，军队token-reader；
+  +0x40 -> 0x14cf190，对象ID注册；
+  +0x48 -> 0x14cf120，未进一步命名。
+证据：work/native-identity/pseudocode2.txt；二级vtable直接取8字节指针；vtable-xrefs.json。
+
+2. 保存链路：确定写入army+0x20
+0x1a6320(this=army+0x10, writer)首先调用通用unit writer 0xd3d2f0。
+0xd3d2f0第一条有效序列化调用：
+  0xcd8f0(writer, token=0xb, this+0x10)
+这把army+0x20指向的8字节身份写为一个ID块。
+0xcd8f0写块名token，再调用0xce610写其值。
+0xce610使用：
+  ID指针+4 -> token0xb，以%u写出；
+  ID指针+0 -> token0xe1，以%u写出。
+写入恰为两个32位组成部分，没有对象地址、单独generation或运行期epoch。
+证据：work/native-identity/pseudocode3.txt:3-115、pseudocode4.txt:3-35、pseudocode5.txt。
+token文本名字尚未独立导出完整token字典；位布局和两字段数据流直接可见，不依赖猜测文本名字。
+
+3. 加载链路：确定读回相同8字节位置
+军队token-reader 0x1a5e50对自身不识别的token委派unit reader0xd3c640。
+unit reader遇token0xb：
+  0x14cece0(reader, secondary_this+0x10)
+也就是将ID读取至army+0x20。
+通用ID reader0x14cece0：
+  token0xb读取unsigned id序号；
+  token0xe1或0x15读取type；
+  最后写 *output = CONCAT44(id32,type32)。
+实现中type解析后取ushort再零扩展为32位；不能把低32位中的高16位臆定为可持久generation。
+代码另容忍token0x16读入临时空间，但该临时值不参与最终64位身份组合。
+此处没有发现可恢复的generation输出字段。
+证据：work/native-identity/pseudocode3.txt中unit委派尾部的param_3==0xb分支；
+pseudocode4.txt:510-866，尤其最后的CONCAT44写入。
+
+4. 新建unit身份分配
+army ctor0x1a21a0先调用共用unit ctor0xd3b0a0。
+0xd3b0a0先执行默认初始化0xd3acd0，然后：
+  type = 0x36；
+  id = 0x771be0(world_global, 9, 0xffffffff, ...)
+  id==0则整份身份置0；否则拼接CONCAT44(id,0x36)；
+  0x14cf190(army+0x10, &identity, 0)注册到原生对象表。
+默认初始化把army+0x20设为全局空ID（RVA0x233fea8），并把army+0x28注册标志清零。
+army+0x28是一个布尔注册状态，不能拿它当generation。
+证据：work/native-identity/pseudocode3.txt尾部两个ctor。
+
+0x771be0分配器：
+  world+0x2508/0x2510/0x2518是32位计数器vector；参数9选择对应计数器；
+  参数0xffffffff表示取当前counter并将counter加1；
+  带显式候选ID时会按上界更新counter；碰到-1时抛“ID range overflow”。
+这支持“正常新建以递增序号分配”的结论；本轮未追踪counter vector的所有保存/加载及重置路径，
+不能宣称跨所有异常、脚本和第三方修改场景绝不复用ID。
+证据：work/native-identity/pseudocode4.txt:1030之后；字符串RVA0x1cb1298。
+
+5. 注册与冲突处理
+0x14cf190在赋值前调用0x14cf730查找同ID；已有ID会记录：
+  “Failed to create id ... Already exists in game.”（源文件clausewitzlib/id.cpp）
+低type与高type存在不同冲突分支；generic高type可重新分配通用编号。
+成功后把对象写进以type和id索引的原生表，并设置注册标志。
+该函数没有另读一个generation字段参与查询或写入。
+因此读取完整ID之后还需做唯一性验证：目标军队必须唯一存在、是玩家陆军、属于当前session，
+不能因匹配了低32位type就接受，也不能把碰撞日志/注册冲突忽略后继续恢复任务。
+证据：work/native-identity/pseudocode4.txt:868-1028。
+
+6. 适配建议及边界
+持久化：
+  StoredArmy.armyKey = 原生完整64位ID。
+  StoredArmy.generation = 0，直到存在独立可靠的持久generation证据；不要使用裸地址。
+  Restore必须先绑定准确slot+完整存档hash，读档后用完整ID重新查找唯一玩家陆军。
+  本轮不能保证上述重载映射已经在实际游戏验证。
+运行期：
+  每次加载/返回菜单都换session并清空旧指针与目标；对象消失即关闭对应任务。
+  可以额外记录会话内指针/实例跟踪信息用于检测变化，但不能将其作为跨读档持久generation。
+  即使ID保持，拆分、合并、控制权转移的生命周期也需独立处理。
+对象类型：
+  0x36来自共用unit ctor，本轮没有证明它专属于陆军。必须保留陆军vtable/类型核验，
+  不可仅凭type54就把舰队纳入区域陆战。
+  owner+0xd0示例0x010000b900534143是另一套国家身份表示，低字节可见CAS；它不是军队generation。
+
+最小runtime验证清单（未执行）
+1. 记录同一支军队完整ID及陆军类型，保存后返回菜单再读相同hash的档，核对ID相同且唯一。
+2. 新建/拆分后检查新军队获得不同完整ID，原军队ID不变。
+3. 合并后检查主体ID保留、被合并对象消失；捕获/控制权变化时重新核验玩家所有权。
+4. 销毁后再创建新军队，观察counter递增与旧ID是否消失；不得只比较对象地址。
+5. 同名军队、同type军队、不同存档恰有相同ID不能串档恢复；精确hash/session必须先通过。

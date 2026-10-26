@@ -1,10 +1,15 @@
-//! Hooks on the PhysFS functions that `eu4.exe` exports by name. `.gui` files
-//! are read whole into a buffer before the game's lexer sees them, so the
-//! hooks serve a spliced copy of the chosen files from a buffer of our own.
+//! Hooks on the PhysFS functions that `eu4.exe` exports by name. Script files
+//! (`.gui`, `.gfx`) are read whole into a buffer before the game's lexer sees
+//! them, so the hooks serve a spliced copy of the chosen files from a buffer
+//! of our own.
 //!
 //! The detours run on whichever thread the game reads files from (GUI
 //! definitions load on the game's LoadingThread) and never call extension code.
-use crate::{hooks::{self, HookFrame}, splice::Plan, Result};
+use crate::{
+    hooks::{self, HookFrame},
+    splice::{self, Addition, Plan},
+    Result,
+};
 use std::{
     collections::HashMap,
     ffi::{c_char, c_void, CStr},
@@ -95,9 +100,6 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
         }
         let raw = c_str(path);
         let normalized = normalize(&raw);
-        if !normalized.ends_with(".gui") {
-            return;
-        }
         let Some(additions) = state().plan.as_ref().and_then(|p| p.for_file(&normalized)) else { return };
         let real_dir = match GET_REAL_DIR.load(Ordering::Acquire) {
             0 => "<n/a>".into(),
@@ -120,7 +122,7 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
 }
 
 /// Reads the whole original file through the trampolines and applies the plan.
-fn splice_handle(handle: File, additions: &[(String, String)]) -> Result<(usize, Vec<u8>)> {
+fn splice_handle(handle: File, additions: &[Addition]) -> Result<(usize, Vec<u8>)> {
     let len = unsafe { load::<FileLengthFn>(&ORIG_FILE_LENGTH)(handle) };
     if !(0..=64 * 1024 * 1024).contains(&len) {
         return Err(format!("unexpected file length {len}"));
@@ -130,11 +132,8 @@ fn splice_handle(handle: File, additions: &[(String, String)]) -> Result<(usize,
     if read != len {
         return Err(format!("short read {read} of {len}"));
     }
-    let mut text = String::from_utf8(data).map_err(|e| format!("file is not UTF-8: {e}"))?;
-    for (window, addition) in additions {
-        text = crate::pdx::splice_window(&text, window, addition)?;
-    }
-    Ok((len as usize, text.into_bytes()))
+    let text = String::from_utf8(data).map_err(|e| format!("file is not UTF-8: {e}"))?;
+    Ok((len as usize, splice::apply(&text, additions)?.into_bytes()))
 }
 
 unsafe extern "C" fn file_length_detour(handle: File) -> i64 {

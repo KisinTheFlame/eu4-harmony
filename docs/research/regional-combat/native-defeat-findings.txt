@@ -1,0 +1,127 @@
+EU4 unrestricted: precise land-defeat settlement evidence
+2026-10-26. Static baseline SHA256:
+97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e
+All addresses below are RVAs, preferred image base 0x140000000.
+
+Result
+The minimal defeat observer needs TWO settlement entry points: 22BEA0 and
+22B5A0. Both receive (Battle* RCX, WinningSide* RDX, LosingSide* R8,
+uint8 winnerSideIndex R9B). Capture LosingSide members on entry, before
+retreat/deletion. 22B5A0 can occur inside 22BEA0; deduplicate the same event.
+Do not use all retreat flags, all 21EB30 calls, or all 239FF0 calls as defeat.
+These are static-verified semantics plus three existing live land-retreat
+samples; the new two-entry observer itself has not been run against the game.
+
+Side selection proof
+22C080 is battle DailyUpdate (explicit log). Battle+20 and +28 are the two
+Side pointers. Near 22CE87:
+  if (21D470(side0) || 21D540(side1)): winner=side1, loser=side0, index=1
+  else if (21D470(side1) || 21D540(side0)): winner=side0, loser=side1, index=0
+  else: continue combat or execute 22ACB0 overrun test.
+The selected values are passed to 22BEA0 at 22CF5D (return address22CF62).
+21D470 returns true for side+169 nonzero, empty list, total regiment strength
+below10, certain all-unit+210 conditions, or side vslot+A0. Do not simplify it
+to a single morale field. 21D540 is a different predicate: raw instructions
+first test world byte+23A2, then compare current-player country to side country
+vector+100/+108. Its gameplay label is NOT established; do not call it morale.
+At 22BEA0 the R8 side is sent to 21EB30 in the regular outcome, or to22B5A0.
+At22B5A0 the R8 side gets side+169=1, full remaining losses processed, and
+21EF40(R8,...) which destroys its units. This proves losing-side polarity
+without depending on inferred names for the above predicates.
+239FF0 uses winnerIndex0 => side+20 is winner, +28 loser; index1 reverses.
+239FF0 sets battle+44=1 once and produces the results. Byte44 is therefore
+an already-settled guard, not a loser bit. Battle identity is dword+14.
+
+Exact member walk
+Side+E8: head Node*, +F0: tail Node*, +F8: signed32 count.
+Node+00: Unit*, +08: previous Node*, +10: next Node* (null-terminated).
+Unit+20: raw uint64 typed identity (read as string, never JavaScript Number).
+Unit+20/+24 are low/high uint32 components; preserve both or exact uint64.
+Unit vtable1C42540 is the proven land-army class. Filter this class for the
+current prototype; unknown types must fail closed rather than become land.
+Unit+C0 is main battle pointer; +C8 is secondary/siege pointer. Capture list
+BEFORE calling original; deletion paths make post-return pointers unsafe.
+Copy identity and session epoch; do not persist pointers as army identity.
+Production should verify list count, termination/cycle cap, side relation,
+known caller, world/session, alreadySettled==0, army type, own-country filter,
+and controlled army identity before feeding Controller.defeated().
+
+Regular, overrun, and no-retreat cases
+22BEA0 sums regiment strengths over both sides. Ratio thresholds choose:
+ A. log 'Combat ended (regular)' at1C492D0; 239FF0(battle,index), then
+    21EB30(loser). Direct retreat call22C054, return address22C059.
+ B. 22B5A0(battle,winner,loser,index), call22C002/return22C007.
+22B5A0 logs 'Combat ended (overrun)' at1C492E8, marks loser+169=1,
+processes losses, calls239FF0, then21EF40(loser,...).
+21EF40 copies the losing-side list, processes regiments, then calls
+768E20(world,unit,...) to remove each unit. It is not a retreat-only path.
+22ACB0 can call22B5A0 directly, without22BEA0: side0 wins at22B0AF
+(return22B0B4); side1 wins at22B127(return22B12C). Thus a hook only at
+22BEA0 misses immediate overrun/stackwipe. 22ACB0 first rejects battle kind2.
+22C080 invokes22ACB0 both before normal fighting and in a later overrun test.
+21EB30 computes each unit's retreat target through D4B270/D4A9E0. If no
+retreat target is available, it calls768E20 and removes that losing army.
+Other special unit+210 branches also remove units. The entry capture at
+22BEA0 covers this no-route removal, even though no stable retreating army
+remains in the following daily snapshot. Do not wait for flag203/204.
+Already-empty-side22C080 returns1 early without either settlement. This is
+not proof of a new defeat: previously removed units may already be gone.
+A completely missing army should be retired by identity/session handling;
+absence alone must not generate a fake defeat notification.
+
+Exclusions: why generic hooks are not sufficient
+21EB30 is also invoked from23FCE0 (siege path), call24036E/return240373.
+239FF0 also has caller23B1D0. That function removes an arbitrary unit from
+battle and, if it was its side's last unit, logs 'Combat ended (Unit removed)'
+at1C49B18 and creates results. It is not intrinsically involuntary defeat.
+D6B910 retreat command and A9E160 rebel-combat removal can set203/204.
+Therefore status203, status204, side+205, or239FF0 alone cannot distinguish
+active retreat, scripted removal, siege exit, and genuine land defeat.
+Do not broaden the two verified settlement hooks to these generic helpers.
+Unresolved separate problem: identifying a local human movement order;
+D5CF10 movement-command-execute has now been observed during automation too.
+
+Existing runtime evidence (no new attach performed for this task)
+Source: work/native-integration/scheduler-trace-01.jsonl, produced by parent.
+Extract: work/native-defeat/scheduler-retreat-evidence.json.
+Three side-retreat-enter records have caller22C059, stack22CF62 ->75C274
+->758AF4 ->B795DF, thread23700, dailyUpdating1, insideManagerFrame=true,
+and vtable1C42540. These establish live traversal of regular land settlement:
+ record20 rawday56679720: low54 high6684, one losing land army
+ record49 rawday56679768: low54 high6683, one losing land army
+ record140 rawday56680152: low54 high6682, one losing land army
+All three had203/204/205 zero at entry, consistent with capture BEFORE flags.
+Several other records use caller240373 and empty sides; those are the siege
+chain and are excluded. The on-screen Marmara defeat popup was a naval
+battle and is NOT used as evidence for these land events. These records do
+not prove that the three losing armies belonged to the local player.
+
+Passive observer for parent-run validation
+work/native-defeat/observe-defeat.js hooks only22BEA0 and22B5A0. It has no
+NativeFunction, replacement, game-memory writes, process attach, or game
+calls. It requires the staged-game module path, x64, exact entry prefixes,
+and host verification of the baseline SHA. Logs capped at48 entries.
+Known return addresses and side-index/pointer agreement are checked. Each
+side is copied with bounded count/cycle validation. landCandidate requires
+nonempty complete losing list, known caller, side agreement, unset44, and
+all members proven land class. This remains a candidate for controlled-own
+army filtering by host. Nested overrun emits parentSettlement so host can
+deduplicate. onLeave only emits numeric event identity, never reads saved
+army or side pointers. RPC status()/dispose(). node --check passed.
+Recommended runtime acceptance: observe a regular land defeat and overrun;
+verify entry losers against UI/controlled army identity, nested dedup, no
+hostile win, naval, siege, or voluntary retreat event misclassified. A
+no-retreat deletion sample remains useful but static coverage is established.
+
+Independent evidence
+work/native-defeat/project: isolated temporary Ghidra projects (deleted by
+headless after output). No shared analysis database, no attach.
+pseudocode1.txt:22B5A0,22BEA0,22C080,239FF0 full assembly/decompile.
+pseudocode2.txt:21D470,21EB30,21EF40,22ACB0,22B3D0,23B1D0.
+prepare.py/prepare2.py: PE .pdata/callsite selection and script generation.
+NativeDefeat.java: bounded selected function disassembly/decompile script.
+leaf.py: raw21D540 leaf bytes and Unit removed log string.
+
+Entry prefixes, baseline verified
+22BEA0:48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57
+22B5A0:44 88 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55

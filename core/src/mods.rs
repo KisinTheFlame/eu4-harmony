@@ -72,9 +72,22 @@ pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
     Descriptor { name, path, archive }
 }
 
-/// Returns the enabled mods that carry a manifest, in playset order, plus a
-/// report line for every entry that was skipped and why.
-pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<String>)> {
+/// An enabled mod that discovery skipped, and why.
+pub struct Skipped {
+    pub text: String,
+    /// The mod carries an EU4 Harmony manifest, so the player expects it to run.
+    pub harmony: bool,
+}
+
+impl Skipped {
+    fn other(text: String) -> Self {
+        Self { text, harmony: false }
+    }
+}
+
+/// Returns the enabled mods that carry a manifest, in playset order, plus
+/// every entry that was skipped and why.
+pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
     let dlc_load = user_dir.join("dlc_load.json");
     let text = std::fs::read_to_string(&dlc_load).map_err(|e| format!("read {}: {e}", dlc_load.display()))?;
     let load: DlcLoad = serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", dlc_load.display()))?;
@@ -85,15 +98,15 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<String>)> {
         let text = match std::fs::read_to_string(&descriptor_file) {
             Ok(t) => t,
             Err(e) => {
-                notes.push(format!("{}: cannot read descriptor: {e}", descriptor_file.display()));
+                notes.push(Skipped::other(format!("{}: cannot read descriptor: {e}", descriptor_file.display())));
                 continue;
             }
         };
         let descriptor = parse_descriptor(&text, user_dir);
         let Some(dir) = descriptor.path.clone() else {
             match &descriptor.archive {
-                Some(a) => notes.push(format!("{}: archive mods are not supported ({a})", descriptor.name)),
-                None => notes.push(format!("{}: descriptor has no path", descriptor_file.display())),
+                Some(a) => notes.push(Skipped::other(format!("{}: archive mods are not supported ({a})", descriptor.name))),
+                None => notes.push(Skipped::other(format!("{}: descriptor has no path", descriptor_file.display()))),
             }
             continue;
         };
@@ -107,12 +120,12 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<String>)> {
         {
             Ok(m) => m,
             Err(e) => {
-                notes.push(format!("{}: bad manifest: {e}", descriptor.name));
+                notes.push(Skipped { text: format!("{}: bad manifest: {e}", descriptor.name), harmony: true });
                 continue;
             }
         };
         if mods.iter().any(|m: &DiscoveredMod| m.manifest.id == manifest.id) {
-            notes.push(format!("{}: duplicate id {:?}, skipped", descriptor.name, manifest.id));
+            notes.push(Skipped { text: format!("{}: id {:?} is already used by an earlier mod in the playset", descriptor.name, manifest.id), harmony: true });
             continue;
         }
         mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest });

@@ -34,28 +34,85 @@ impl ElementKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Owner {
+    /// Index of the owning mod in discovery order.
+    Mod(usize),
+    /// The framework's own elements, such as the notice window.
+    Framework,
+}
+
 /// A spliced element as the runtime knows it.
 #[derive(Clone, Debug)]
 pub struct Element {
-    /// Index of the owning mod in discovery order.
-    pub owner: usize,
+    pub owner: Owner,
+    /// The vanilla `windowType` it was spliced into.
+    pub window: String,
     pub name: String,
     pub prefixed: String,
     pub kind: ElementKind,
 }
 
+/// A change to one game file.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Addition {
+    /// Text inserted before the closing brace of the named `windowType`.
+    Window { window: String, text: String },
+    /// Text appended to the end of the file.
+    Append(String),
+}
+
 #[derive(Default)]
 pub struct Plan {
-    /// normalized file path -> (window name, text to insert), in order
-    by_file: HashMap<String, Vec<(String, String)>>,
+    /// normalized file path -> additions, applied in order
+    by_file: HashMap<String, Vec<Addition>>,
     pub elements: Vec<Element>,
     pub slots: usize,
 }
 
 impl Plan {
-    pub fn for_file(&self, normalized: &str) -> Option<Vec<(String, String)>> {
+    pub fn for_file(&self, normalized: &str) -> Option<Vec<Addition>> {
         self.by_file.get(normalized).cloned()
     }
+
+    pub fn add(&mut self, normalized: &str, addition: Addition) {
+        self.by_file.entry(normalized.to_string()).or_default().push(addition);
+    }
+}
+
+/// Applies `additions` to the text of a game file.
+pub fn apply(text: &str, additions: &[Addition]) -> Result<String> {
+    let mut text = text.to_string();
+    for addition in additions {
+        match addition {
+            Addition::Window { window, text: added } => text = pdx::splice_window(&text, window, added)?,
+            Addition::Append(added) => {
+                text.push('\n');
+                text.push_str(added);
+            }
+        }
+    }
+    Ok(text)
+}
+
+/// Element-name prefix of the framework's own elements. Mod prefixes always
+/// continue `eu4harmony_`, so the two cannot collide.
+pub const FRAMEWORK_PREFIX: &str = "eu4harmonyfw_";
+
+/// Splices a framework fragment into `window` of `file`.
+pub fn add_framework(plan: &mut Plan, file: &str, window: &str, fragment: &str) -> Result<()> {
+    let rendered = pdx::render_fragment(fragment, FRAMEWORK_PREFIX, None)?;
+    for e in rendered.elements {
+        plan.elements.push(Element {
+            owner: Owner::Framework,
+            window: window.to_string(),
+            prefixed: format!("{FRAMEWORK_PREFIX}{}", e.name),
+            name: e.name,
+            kind: ElementKind::from_key(&e.key),
+        });
+    }
+    plan.add(file, Addition::Window { window: window.to_string(), text: rendered.text });
+    Ok(())
 }
 
 /// Element-name prefix for a mod: `eu4harmony_<id>_` with non-identifier characters replaced.
@@ -104,7 +161,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
                     continue;
                 }
             };
-            if let Some(clash) = rendered.elements.iter().find(|e| plan.elements.iter().any(|p| p.owner == index && p.name == e.name)) {
+            if let Some(clash) = rendered.elements.iter().find(|e| plan.elements.iter().any(|p| p.owner == Owner::Mod(index) && p.name == e.name)) {
                 notes.push(format!("{}: {}: element {:?} already declared", m.manifest.id, ui.file, clash.name));
                 continue;
             }
@@ -113,13 +170,14 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
             }
             for e in rendered.elements {
                 plan.elements.push(Element {
-                    owner: index,
+                    owner: Owner::Mod(index),
+                    window: ui.into.clone(),
                     prefixed: format!("{prefix}{}", e.name),
                     name: e.name,
                     kind: ElementKind::from_key(&e.key),
                 });
             }
-            plan.by_file.entry(file.to_string()).or_default().push((ui.into.clone(), rendered.text));
+            plan.add(file, Addition::Window { window: ui.into.clone(), text: rendered.text });
         }
     }
     plan.slots = slots as usize;
@@ -128,12 +186,20 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
 
 #[cfg(test)]
 mod tests {
-    use super::{prefix, slot};
+    use super::{apply, prefix, slot, Addition};
 
     #[test]
     fn prefix_is_identifier_safe() {
         assert_eq!(prefix("regional-combat"), "eu4harmony_regional_combat_");
         assert_eq!(prefix("Hello.World"), "eu4harmony_hello_world_");
+    }
+
+    #[test]
+    fn appends_follow_window_splices_in_order() {
+        let file = "guiTypes = { windowType = { name = \"w\" } }";
+        let out = apply(file, &[Addition::Append("spriteTypes = {}".into()), Addition::Window { window: "w".into(), text: " X ".into() }]).unwrap();
+        assert!(out.ends_with("\nspriteTypes = {}"));
+        assert!(out.contains(" X }"));
     }
 
     #[test]

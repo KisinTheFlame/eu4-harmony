@@ -40,9 +40,11 @@ struct Loaded {
     _host_api: Box<abi::HostApi>,
     game_api: Box<abi::GameApi>,
     vtable: abi::ExtensionVTable,
-    stopped: bool,
+    stopped: Option<String>,
+    calls: u64,
     slow_calls: u64,
     total: Duration,
+    max: Duration,
 }
 // The raw pointers in the tables are only used on the game thread.
 unsafe impl Send for Loaded {}
@@ -458,32 +460,41 @@ fn wide(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain([0]).collect()
 }
 
-/// Loads every enabled mod's extension. Returns, per mod, whether it may take
-/// part (its extension loaded, or it declares none).
-pub fn load(memory: Option<Memory>, mods: &[DiscoveredMod], log_dir: &Path) -> Vec<bool> {
+/// What loading one mod's extension came to.
+pub struct LoadOutcome {
+    /// The mod takes part: its extension loaded, or it declares none.
+    pub included: bool,
+    pub status: String,
+}
+
+/// Loads every enabled mod's extension, in playset order.
+pub fn load(memory: Option<Memory>, mods: &[DiscoveredMod], log_dir: &Path) -> Vec<LoadOutcome> {
     if let Some(m) = memory {
         let _ = MEMORY.set(m);
     }
     let _ = LOG_DIR.set(log_dir.to_path_buf());
-    let mut included = Vec::new();
+    let mut outcomes = Vec::new();
     for m in mods {
         let Some(relative) = &m.manifest.extension else {
-            included.push(true);
+            outcomes.push(LoadOutcome { included: true, status: "no extension".into() });
             continue;
         };
         match load_one(memory, m, relative) {
             Ok(()) => {
                 log!("extension {:?} loaded", m.manifest.id);
-                included.push(true);
+                outcomes.push(LoadOutcome { included: true, status: format!("extension {relative} loaded") });
             }
             Err(e) => {
                 log!("extension {:?} not loaded: {e}", m.manifest.id);
-                crate::notice(&format!("load:{}", m.manifest.id), &format!("Mod \"{}\" was not loaded:\n{e}", m.descriptor.name));
-                included.push(false);
+                outcomes.push(LoadOutcome { included: false, status: format!("extension NOT loaded: {e}") });
+                // An unsupported executable has its own notice.
+                if memory.is_some() {
+                    crate::notice::post(&format!("load:{}", m.manifest.id), &format!("Mod \"{}\" was not loaded:\n{e}", m.descriptor.name));
+                }
             }
         }
     }
-    included
+    outcomes
 }
 
 fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate::Result<()> {
@@ -521,7 +532,7 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     if code as u32 as i32 != abi::OK {
         return Err(format!("entry point returned {}", code as u32 as i32));
     }
-    list.push(Loaded { host, _host_api: host_api, game_api, vtable, stopped: false, slow_calls: 0, total: Duration::ZERO });
+    list.push(Loaded { host, _host_api: host_api, game_api, vtable, stopped: None, calls: 0, slow_calls: 0, total: Duration::ZERO, max: Duration::ZERO });
     Ok(())
 }
 
@@ -539,7 +550,7 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
     let (target, user, game) = {
         let list = extensions();
         let Some(l) = list.get(index) else { return };
-        if l.stopped {
+        if l.stopped.is_some() {
             return;
         }
         let Some(target) = pick(&l.vtable) else { return };
@@ -560,13 +571,15 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
     let id = {
         let mut list = extensions();
         let l = &mut list[index];
+        l.calls += 1;
         l.total += elapsed;
+        l.max = l.max.max(elapsed);
         if elapsed > SLOW {
             l.slow_calls += 1;
             extension_log(&l.host, &format!("slow callback {name}: {} ms", elapsed.as_millis()));
         }
-        if failure.is_some() {
-            l.stopped = true;
+        if let Some(reason) = &failure {
+            l.stopped = Some(reason.clone());
         }
         l.host.id.clone()
     };
@@ -576,7 +589,7 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
         if let Some(m) = MEMORY.get() {
             map::release(m, index);
         }
-        crate::notice(
+        crate::notice::post(
             &format!("stopped:{id}"),
             &format!("Extension \"{id}\" failed and was stopped: {reason}\n\nThe game state may be inconsistent; avoid overwriting your saves."),
         );
@@ -610,6 +623,7 @@ pub fn frame() {
         for i in 0..n {
             call(i, "on_session", |v| v.on_session.map(|f| f as usize), &[]);
         }
+        refresh_report(true);
     }
     for change in state.changes {
         match change {
@@ -642,14 +656,38 @@ pub fn frame() {
     for i in 0..n {
         call(i, "on_frame", |v| v.on_frame.map(|f| f as usize), &[]);
     }
+    refresh_report(false);
 }
 
-/// Timing summary for the log, written when the game exits is not observable,
-/// so it is logged every time a session starts instead.
-pub fn timing_summary() -> String {
+/// Rewrites the startup report at session starts and every few minutes.
+fn refresh_report(now: bool) {
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if now || last.is_none_or(|t| t.elapsed() > Duration::from_secs(300)) {
+        *last = Some(Instant::now());
+        drop(last);
+        crate::report::write();
+    }
+}
+
+/// One line per extension: calls, time spent in them, and whether it was stopped.
+pub fn timing_lines() -> Vec<String> {
     extensions()
         .iter()
-        .map(|l| format!("{}: {} ms total, {} slow call(s){}", l.host.id, l.total.as_millis(), l.slow_calls, if l.stopped { ", stopped" } else { "" }))
-        .collect::<Vec<_>>()
-        .join("; ")
+        .map(|l| {
+            let mut line = format!(
+                "{}: {} call(s), {} ms in total, longest {} ms, {} over {} ms",
+                l.host.id,
+                l.calls,
+                l.total.as_millis(),
+                l.max.as_millis(),
+                l.slow_calls,
+                SLOW.as_millis()
+            );
+            if let Some(reason) = &l.stopped {
+                line.push_str(&format!("; STOPPED: {reason}"));
+            }
+            line
+        })
+        .collect()
 }

@@ -1,0 +1,158 @@
+EU4 unrestricted: local manual-order boundary investigation
+2026-10-26. Baseline SHA256:
+97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e
+All addresses are RVAs, preferred base0x140000000.
+
+Verified ordinary map-order source
+Live trace and static control flow now close the ordinary map right-click
+source. Reliable minimum: known map-input -> selected-object action -> unit
+order helper -> matching accepted Move command. See conditions below.
+
+Underlying action boundary
+D423A0 is the land army's vtable+30 action method (vtable1C42540).
+Exact bytes:41 B1 01 E9 38 06 00 00. It sets R9B=1 and tail-jumps D429E0.
+D429E0 ABI: uint8(Unit* RCX, Province* RDX, uint8 flagR8, uint8 uiOptions R9B).
+The fourth parameter enables local modifier/dialog handling; it is NOT an
+intrinsic proof of human origin. The shared function accepts automated
+retreat calls too:21EB30 directly calls D429E0(unit,retreatProvince,0,0).
+This function is a much narrower input/action boundary than D5CF10 but
+requires the specific UI caller/context described below before classification.
+
+Evidence for input-action semantics
+D429E0 needs unit+140 manager. It checks legality, keyboard/modifier helper
+CFC70, local-player identity, and the selected-object list at
+world->manager+1B80 -> +28. It may open access/transport confirmation dialogs.
+It builds and dispatches commands via14CA2D0(network,command). It plays
+army_move/navy_move sound strings1D1A760/1D1A750 for local units, and uses
+illegal_moveorder string1D1A618 on rejection. Thus entry alone can be invalid
+intent or a modal-dialog request, not an accepted movement command.
+R8 is inverted to command+90 (replaceExisting) for movement; hence queue
+behavior should be verified with Shift-right-click. Do not name other bits
+without runtime evidence.
+
+Known command outcomes within this action
+Move: vtable1D1D3F8, type dword+44 =28A5, execute vslot+48 =D5CF10.
+  Unit cached pointer+50, exact uint64 identity+58, destinations vector+60,
+  path list+78, flags+90/+91, origin province+94, flags+98/+99.
+  D5CD20 constructs from a destination ID. D5CE40 constructs from a path list.
+Current-province cancel/stop: vtable1D1DA88, type28B2,
+  validate+40 =D5E450, execute+48 =D5E1A0. D429E0 constructs this when target
+  equals unit currentProvince and (!queue || pathCount==0) and not locked.
+  Sets word command+60 =0101. This covers map right-click-current-province;
+  a dedicated Stop button/hotkey source is not established by this branch.
+Retreat: vtable1D1C438, type2B34, validate+40 =D6BB30,
+  execute+48 =D6B910. D429E0 constructs it when unit+C0 battle nonnull and
+  unit vslot+B0 permits that branch. Treat this as voluntary action, not
+  defeat. Defeat is independently covered by native-defeat-findings.txt.
+The command validator vslot+40 is called before14CA2D0; its result is returned
+in AL by the order helper. Dispatcher14CA2D0 can independently reject. Its
+AL=1 means it wrote sender+38/session+48 and invoked session vslot+30 to
+enqueue/send; AL=0 means it did not dispatch. The probe now records this
+result separately. D5E1A0 resolves unit identity then tail-jumps D4FCB0
+(unit,command.byte61,command.byte60), the shared movement cancellation helper.
+The result is not a path-install acknowledgement for the core's Move command.
+
+Rejected broad approaches
+D5CF10 is shared execution, invoked directly from unit DailyUpdate D3E110
+and native missions1D0E20; parent live observer saw it during hands-off days.
+D5CF90, D5D680, and D50340 are also shared. None alone marks human input.
+Neither MovementCommand constructor is manual-only. D5CE40's three direct
+callersEC760/F2E90/109EE0 are AI routines: ancestorEAB50 contains an explicit
+source/ai_army.cpp log. D5CD20 also has AI, daily, retreat, and world callers.
+E4F80 builds a movement command inline and sends throughBFE50 from AI.
+Address proximity to UI-like code must not substitute for actual UI evidence.
+
+Passive parent-run probe
+work/native-manual/observe-manual.js. No native calls, writes, replacements,
+or process attach. It only observes D429E0 and14CA2D0 while that order helper
+is active on the same thread, plus a selected-action context hook. Requires
+staged module path, x64, exact prefix;
+host must check fileSHA. Caps32 order records and16 commands per order.
+Logs actual return address and up to12 stackframes, exact army uint64 string,
+local/army country indices, destination, rawday, dailyUpdating, R8/R9 bytes,
+command type/vtable/identity, and order helper returnAL. This allows manual
+UI calls to be separated from forced retreat, AI calls, and invalid clicks.
+RPC status/dispose includes stopped==disposed. Node syntax check passed.
+No new game attach was performed by this analysis task.
+
+Static closure from the runtime caller
+116D6C0 processes the input-event list. In the event-field+18==2 branch it
+converts screen coordinates+20/+24 to a map province using10A3DD0, resolves
+that province, and checks1170B00 selection/action availability. It calls
+AD0BA0(selectedList at selectionManager+28,Province*,inputModifier) at
+116E3EA, return116E3EF. Physical right-click interpretation is supported by
+the actual parent-driven right-click trace, not inferred from enum2 alone.
+AD0BA0 iterates selected objects (node payload+00,next+10). For each object:
+ - virtual+38(obj,confirmationCollector,Province*,modifier) checks/prepares it;
+ - if true, virtual+30(obj,Province*,modifier) atAD0C29, returnAD0C2C;
+ - otherwise it may show a mission-cancellation confirmation dialog.
+The land object virtual+30 is D423A0 -> D429E0. This exactly matches the live
+returnAD0C2C and upstream116E3EF. AD0BA0 embeds CANCEL_DRILLING_MOVE_CONFIRM,
+CANCEL_REBEL_HUNT_MOVE_CONFIRM, CANCEL_CARPET_SIEGE_MOVE_CONFIRM, and grouped
+mission cancellation strings, corroborating its selected-object UI action.
+A second direct AD0BA0 caller116CD81 exists in a separate input-function
+fragment. Its semantics are not yet closed; the first production allowlist
+should use116E3EF only, not all callers of AD0BA0.
+817254 is a return site in a manager input-update function split across PE
+runtime-function entries. Do not hook8171E0 as a whole function: that .pdata
+entry starts inside a loop, not at an independent ABI boundary. It dispatches
+116D6C0 on manager+1B80. This static caveat does not affect the selected-action
+and order-entry hooks, whose real prologues are established.
+
+Live acceptance evidence
+work/native-integration/manual-trace-01.jsonl, staged PID69884, thread6600,
+paused rawday56678904, dailyUpdating0. Parent physically right-clicked a map
+province with Guardia selected. Army identity28394028793910, own/local country
+index185, land vtable1C42540, current149, target159. D429E0 callerAD0C2C,
+R8=0/R9=1, upstream116E3EF ->817254 ->831137 ->81502D.
+The nested14CA2D0 call fromD43A55 received vtable1D1D3F8/type10405(28A5),
+matching exact army identity. DispatcherAL was1 and order helperAL was1.
+Thus a real paused map-order followed the precise static chain, created the
+correct army's Move command, and successfully dispatched it. This establishes
+ordinary manual movement; it is not evidence for all other manual commands.
+
+Minimal reliable detection conditions
+1. Verify exact executable identity and entry/callsite prefixes. Run on the
+   validated main/UI thread in the currently bound world/session epoch.
+2. Maintain a same-thread synchronous AD0BA0 context entered from116E3EF.
+   Within it D429E0 must have returnAD0C2C; do not key on R9B alone.
+3. Capture the unit's exact uint64 ID on entry, require known land vtable and
+   current local-country ownership. Host must additionally match its enabled
+   controlled ArmyKey+generation and the current session, not raw pointer.
+4. During that order, capture14CA2D0 command and exact identity. For minimum
+   movement coverage require vtable1D1D3F8, type28A5, identity equal to the
+   captured unit. Confirm14CA2D0 returnAL==1 (dispatch succeeded).
+5. Deliver a single manual-command cancellation for the captured ArmyKey.
+   Never submit Stop over the player's new command. A shared movement execute
+   later can be asynchronous; classify at verified source/dispatch instead.
+The updated observer implements sourceVerified and manualMoveCandidate for
+steps2/ordinary3/4, and leaves session+controlled ArmyKey filtering to host.
+It adds a bounded AD0BA0 context hook; no full-stack allowlist is necessary.
+Its refined predicate is static-tested/syntax-checked but has not itself been
+rerun. The prior trace already contains the relevant exact caller evidence.
+
+Coverage limits and next acceptance checks
+Ordinary paused right-click passed. Shift queue uses the same propagated
+modifier structurally but has no separate live sample yet. Map right-click
+current-province Stop and in-battle voluntary retreat have known command
+branches; conservatively keep them out of manualMoveCandidate until sampled.
+Dedicated Stop button/hotkeys and alternate mission clicks remain untraced.
+Original-mission cancellation dialogs use a deferred functor vtable1CE2A28;
+its confirmation callback is not covered by the immediate116E3EF context.
+A dialog appearing, an invalid click, or a cancelled dialog alone must not be
+reported as a successfully dispatched Move. Multi-selection may yield several
+commands; filter/deduplicate per exact controlled army. Scripts or replay
+layers that deliberately inject native input are outside the verified scope.
+
+Independent evidence
+work/native-manual/pseudocode1.txt: E4F80 and movement command constructors.
+pseudocode2.txt: EC760/F2E90/109EE0 AI callers and ancestors (negative evidence).
+pseudocode3.txt: D429E0 full assembly/decompile and760250 daily producer.
+pseudocode4.txt: dispatcher, stop/retreat validate and execute (follow-up).
+scan*.py: bounded target direct-call and RIP-vtable-reference scans.
+vslot.py/scan_wrapper.py: D423A0 land virtual action and exact tail wrapper.
+strings.py/prefix.py: embedded source-path/audio strings and entry prefixes.
+All Ghidra work is in independent work/native-manual/project temporary projects.
+
+pseudocode-ui.txt: AD0BA0,116D6C0 and manager input callsite fragments.
+confirm.py: selection-action direct callers, callback vtable, exact call bytes.

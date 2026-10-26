@@ -1,0 +1,437 @@
+Native range-preview findings — static evidence and runtime probe contract
+2026-10-26. Target SHA256 97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e.
+All addresses below are RVAs, relative to the verified staged eu4.exe module.
+Do not use Process.mainModule: the third-party loader exposes dbghelp.dll there.
+
+Result
+======
+A concrete route exists to draw a custom province set without creating or
+changing the vanilla suppress-rebels mission: intercept the CPU secondary
+province-color buffer after its native generator returns, then allow the
+existing renderer to upload it. This is a proposed implementation boundary,
+not yet a claim that a working range preview has been tested.
+
+The vanilla suppress-rebels window constructor at RVA 0x1462AA0 is unsuitable
+as a pure preview API. It calls 0x1C7A60 to create/change the army's task when
+the current task is absent or not type 0xD. Do not call it just to draw a range.
+
+Map mode 0xC is MAPMODE_UNREST, confirmed by the label switch at 0x822580;
+it is not a dedicated suppression-area map mode. The existing suppression
+window switches to unrest and restores the previous mode on destruction.
+Its task mutation is independent of the renderer and unnecessary for our set.
+
+Native data flow
+================
+game = *(base + 0x233FE78)
+manager = *(game + 0x1E00)
+manager + 0x2C: current mode (int32)
+manager + 0x30: previous mode (int32)
+manager + 0x40: secondary overlay option (int32)
+
+manager virtual +0xC8 -> 0x821FF0(manager, mode, optionResetByte, forceByte)
+  -> 0x6EC450 with four arguments
+  -> renderer = *(*(manager + 0x330) + 0x360)
+  -> 0x10A8C30(renderer, mode, overlayOption)
+       mapRender = *(renderer + 0x58)
+       mapRender + 0x16C8 = mode
+       mapRender + 0x16CC = overlayOption
+       descriptor = mapRender + 0x16D8
+       0x12FD9B0(descriptor, mode, overlayOption)
+         -> 0x12F0B40(firstLayer, 3 or 4)
+         -> 0x12FDCB0(secondLayer, overlayOption)
+       create/update existing GPU texture at mapRender + 0x1698
+
+0x6EC450 maps unrest mode 0xC to overlay option 0x1A when the native DLC
+capability gate at global 0x233FF98 succeeds, otherwise option 1.
+When mode is unchanged and force is zero, this path can return without refresh.
+Meaning of reset is inferred from the option field being set to zero; runtime
+call-site observations must precede invoking this method ourselves.
+
+Descriptor layout at 0x12FD9B0:
+  +0x00 pointer to contiguous 4-byte pixels
+  +0x08 int32 dimension 0
+  +0x0C int32 dimension 1
+  secondLayer = data + dim0 * dim1 * 4
+The upload is two stacked layers. The decompiler swaps conventional width/height
+names in the upload descriptor, so use the product for indexing rather than
+assuming a particular naming convention. The upload uses native format enum 0xB.
+Do not treat this enum as a public DXGI enum without resolving its adapter.
+
+0x12FDCB0 takes output pointer in RCX and overlay option in EDX. It writes
+one 4-byte value per province in this vector:
+  mapData = *(base + 0x233FED8)
+  first = *(mapData + 0x6F0), end = *(mapData + 0x6F8)
+  stride = 0x2E10; count = (end - first) / stride
+  province ID = int32(province + 0x20)
+  output address = secondLayer + enumerationIndex * 4
+Do not assume province ID == enumerationIndex until checked. Resolve custom
+province IDs against the vector; both buffers and vector are borrowed and must
+not be retained across unload/load transitions.
+
+Vanilla area-to-province source
+==============================
+Secondary overlay cases 1, 2 and 0x1A share code. Only 0x1A builds suppression
+sets. Selected army comes from manager + 0x1B80 selection list: count +0x38,
+first item through +0x28, then virtual +8 type test == 0. Player armies come
+from country + 0xD18 linked-list nodes (payload +0, next +0x10).
+Each army passing virtual +0x80 is sent to 0x1A9890. Selected army provinces
+go in one local hash set; all other army provinces go in a second local set.
+
+0x1A9890(army, set, unrestOut, provinceCountOut):
+  mission = *(army + 0x1F8)
+  proceeds only if mission virtual +0x50 reports type 0xD
+  builds eligible country-tag list through 0x1C7CF0(ownerCountry, temporaryList)
+  calls 0x1C7B40(mission, countryList, set, unrestOut, provinceCountOut)
+
+0x1C7B40 reads mission area array pointer +0x30, count +0x3C.
+For each area pointer, it reads int32 province-ID begin +0x88 and end +0x90.
+It obtains the province at *(game + 0x1CA8) + provinceId * 0x2E10,
+filters owner tag at province+0x468 against eligible tags, then inserts the
+province through 0x1AA6A0 and computes unrest summary. The renderer later
+tests the hash set using province+0x20 IDs. This completes the native selected
+area -> province set -> per-province color path. No vector need be replaced.
+
+Native bytes when a province is in a suppression set:
+  selected army: FF 4B 14 FF
+  other armies:  C8 32 00 FF
+No membership uses native occupation/country/unrest branches. Some branches
+first clear all four bytes. Native gradient writes B/G/R component order into
+the byte array, consistent with a BGRA texture, but final channel interpretation
+must be confirmed visually or through the native format adapter.
+
+Shader evidence in the staged installation
+==========================================
+gfx/FX/standardfuncsgfx.fxh:160 GetProvinceColor samples the indirection texture
+and selects a layer with TextureIndex * 0.5 in V. The two-layer interpretation
+is therefore supported independently of the executable's upload calls.
+gfx/FX/pdxmap.shader:276 calculate_secondary samples layer 1 and blends its RGB
+using alpha multiplied by OccupationMask alpha. This produces a province fill
+with the game's occupation mask, rather than a thin boundary outline.
+The terrain branch at :558 uses calculate_secondary_compressed; political-style
+color branch at :573 uses calculate_secondary. Do not apply arbitrary literal
+RGB to every map mode. Restrict the initial prototype to verified unrest mode.
+FoW/TI uses a separate shader texture; replacing this color layer does not
+implement enemy visibility filtering for the automation's target selection.
+
+Minimal runtime observer, no game data writes
+============================================
+tools/native_range_observer.js validates exact instruction prefixes and stages
+four hooks: mode request, renderer, fill descriptor, secondary generator.
+It logs the thread ID, mode/option, dimensions, province count, and sample
+province IDs 149/151/4703 with enumeration indexes and native pixel bytes.
+It confirms whether the secondary output equals the computed layer pointer.
+Only the first 12 occurrences per hook are sampled; RPC resetlog() restarts
+logging, status() returns counters, dispose() detaches these hooks.
+It makes no NativeFunction calls and creates no mission or window.
+node --check passed. Attachment/click/visual validation is owned by the parent.
+
+Before a two-province coloring experiment, require:
+  * exact module hash/path and matching prefixes;
+  * option 0x1A for unrest, or documented actual option when DLC-gated;
+  * matched second-layer pointer and count <= dim0*dim1;
+  * observed province IDs/indexes and renderer/fill/generator on one thread;
+  * saved current map mode, manual switch to unrest, and manual restoration;
+  * only in-scope temporary writes during generator onLeave before upload;
+  * after disabling the hook, a native refresh regenerates the original pixels.
+
+Proposed implementation boundary
+===============================
+Own an immutable preview membership set outside all game task objects.
+Enable it only while the RC settings panel/radius editor is open and the
+matching selected army remains valid. At secondary-generator onLeave, when
+the parent fill has the validated preview mode/option, overwrite selected
+province slots only. Preserve normal generated colors elsewhere. Changes in
+radius or anchor must request a fresh native map-color generation on the
+observed UI/render thread; an RPC thread must not call the renderer directly.
+Canceling/closing settings removes our override then forces one normal refresh;
+restore the prior map mode only if the user has not independently changed it.
+
+Unresolved / not claimed
+=======================
+No final writable preview hook, refresh API invocation or visual result has
+been tested by this sub-agent. 0x12F0B40 primary generator timed out in a 45s
+focused decompile; its internals are unnecessary for the chosen boundary.
+Buffer lifetime/thread scheduling needs the read-only trace. The renderer may
+be called from additional refresh paths. User map-mode changes, army removal,
+save load, and plugin detach require explicit invalidation in a real feature.
+The proposed hook draws a province membership set, not a circular geometry
+overlay; the set must come from the accepted radius/distance definition.
+
+Evidence files
+==============
+work/native-range/pseudocode1.txt: mission-mutating suppression constructor.
+work/native-range/pseudocode2.txt: map mode label switch.
+work/native-range/pseudocode3.txt: manager override setter.
+work/native-range/pseudocode4.txt: base setter and overlay selection.
+work/native-range/pseudocode5.txt: renderer -> CPU fill -> GPU upload.
+work/native-range/pseudocode6.txt: two-layer fill and padding.
+work/native-range/pseudocode7.txt: full secondary generator.
+work/native-range/pseudocode8.txt: army mission-type guard and gather helper.
+work/native-range/pseudocode9.txt: mission area vector expansion.
+All are focused Ghidra 12.1.4 read-only/noanalysis decompilations of the frozen
+baseline. Missing prototypes and recovered types require instruction/runtime
+corroboration before native calls; pseudocode alone is not an ABI guarantee.
+
+Runtime ABI verification and writable prototype update
+=====================================================
+work/native-integration/range-trace-01.jsonl records exact staged EXE/hash:
+  thread 74644, mode request (12,0,0), renderer overlay option 26,
+  descriptor dimensions 20x256, secondary pointer exactly data+20*256*4,
+  province count 4942; provinces 149,151,4703 mapped to those same indexes.
+This confirms the observed input ABI and index mapping for this loaded save.
+The prototype still remaps IDs every invocation rather than assuming equality.
+
+tools/native_range_preview.js is now a restricted writable prototype, not yet
+visually validated. It starts disabled and modifies only the selected four-byte
+province-color slots during the secondary generator return. It does not call
+the suppression constructor, change an army mission, or mutate area vectors.
+All prefix checks and staged module checks run before hooks are installed.
+
+RPC workflow (Python Frida sync API equivalents):
+  script.exports_sync.enable()  # default center149, provinceIds[149,151]
+  script.exports_sync.enable({"centerProvinceId":149,"provinceIds":[149,151]})
+  script.exports_sync.status()
+  script.exports_sync.disable()
+  script.exports_sync.dispose()
+  script.unload()              # only after dispose returns stopped=true
+
+enable/disable/dispose are queued to the next single-army panel update replacement;
+keep that panel updating. They can wait if no such UI update occurs. This is
+intentional: the RPC thread never invokes the renderer or map-mode setter.
+An RPC while another operation is pending is rejected. status is immediate.
+
+Enable stores manager current mode, calls its setter(mode12,reset0,force0) when
+switching modes, or force1 when already in mode12. The reset0/force0 path is
+runtime-observed; force1's meaning is statically established in 0x6EC450 but
+must still be confirmed in this prototype's live trace. Each refresh requires
+a matching validated fill, secondary generator and completed renderer before
+returning success. Enable additionally requires an actual override application.
+
+Disable first sets enabled=false, then calls setter(savedMode,0,1) to regenerate
+native colors. It reports restorationSuccessful=true only after the requested
+mode is read back and the validated secondary/renderer refresh has returned.
+This field proves native refresh completion, not screenshot appearance.
+Dispose performs that disable/restore sequence before detaching/unpinning.
+On restoration failure it retains saved mode and hooks and reports an error,
+allowing disable/dispose to be retried rather than claiming cleanup succeeded.
+
+Every write requires a valid parent fill, matching output offset, readable
+capacity, bounded province vector, complete requested-ID lookup, same UI thread
+and same manager. It is restricted to mode12/option26. Color bytes copy native
+selected-suppression appearance FF 4B 14 FF. Logs include center, explicit range
+set, each target index, prior pixel bytes, generation and restoration result.
+The optional radius field is metadata only: this test does not compute radius
+membership. The explicit provinceIds array is the actual preview scope.
+
+Prototype limitations: keep the game paused and the selected army panel open;
+do not load another save during testing. Save-load lifecycle and user-selected
+map mode conflict handling are still production integration work. This test
+restores the mode saved at enable, even if the tester changes modes meanwhile.
+node --check passed. The parent owns all attachment and visual testing.
+
+First writable test failure and corrected dispatch
+=================================================
+preview-trace-01.jsonl shows both enable and restore failed their confirmation
+because nested fill/renderer callbacks were absent. This is an instrumentation
+dispatch failure, not evidence that native force refresh failed. The original
+script called NativeFunction from an Interceptor.onLeave listener; Frida's
+interceptor TLS guard bypasses nested listener instrumentation in that scope.
+traps:'all' does not remove that guard.
+
+This behavior was reproduced independently in an owned Python dummy process
+using the same Frida 17.24.3, with a CModule trigger/target pair. The native target
+executes, but target listeners count zero when called inside trigger.onLeave,
+for both default and all traps. Calling it from a NativeCallback replacement
+produces the expected listener events. tools/frida_reentry_smoke.py reproduces
+both cases without attaching to EU4. Latest result:
+  {"frida":"17.24.3","listenerHits":0,"replacementHits":2,"result":3}
+Relevant primary source: https://github.com/frida/frida-gum/blob/main/gum/guminterceptor.c
+(_gum_function_context_begin_invocation guard, _end_invocation listener scope).
+API description: https://frida.re/docs/javascript-api/#nativefunction
+
+The updated prototype replaces UI update RVA 0x1450660 using the statically
+recovered void(panel*,uint8) signature. It first forwards to the original
+update, then processes one queued operation outside the listener guard on the
+same game thread. Thus its NativeFunction call can trigger fill/secondary/
+renderer hooks used for actual coloring and confirmation. Dispose reverts this
+replacement after restoration, detaches the read-only/color hooks, and unpins
+after returning from the native callback. node --check and the dummy reentry
+test pass; a new EU4 visual test remains necessary.
+
+Strict host exit contract
+=========================
+1. Always attempt dispose in a finally path while the staged process/UI remains
+   responsive, including after enable rejects. A successful dispose must report
+   stopped=true before calling script.unload() or session.detach().
+2. status is immediate. A queued request may be cancelled using cancelpending()
+   if activeOperation=false; the cancelled RPC rejects. This does not disable
+   an already-enabled preview. A native operation cannot be cancelled mid-call.
+3. If UI updates stop or restore fails, preserve the host/session and record
+   status plus failure. Do not blindly detach a pinned script: a separate dummy
+   test confirmed detach waits while pinned and makes later RPC unavailable.
+4. If normal disposal cannot complete, end only the owned isolated test game
+   process (with the parent handling that action), then let its termination end
+   the instrumentation session. Do not close an unrelated game process.
+5. The first failed script had no colored event and resets enabled=false before
+   restoration. It owns Interceptor hooks but no callbacks stored in game data.
+   No army mission or save file was modified by this prototype.
+
+Live validation 2026-10-26
+==========================
+Corrected replacement dispatch passed in isolated PID43680, approved staged exe.
+work/native-integration/preview-trace-02.jsonl: UI/render thread23700, 4942 provinces,
+5120 color capacity. Requested IDs149/151 mapped to indexes149/151; exact BGRA
+FF4B14FF applied only to those two entries. Mode1 was saved, mode12 enabled.
+Screenshot inspection showed the blue range stripes in the intended area.
+After60seconds dispose restored mode1 with nativeRefreshCompleted=true, then
+stopped=true, restorationSuccessful=true, unload-complete, detach-complete.
+A second screenshot confirmed the original political map. No task/order writes.
+This proves explicit-set rendering and restoration, not geographic BFS integration.
+
+Geographic core-to-render integration (2026-10-26)
+================================================
+range_demo.py now composes native_geography.js with the preview, obtains its
+range-only snapshot on the UI thread, then calls core_bridge.dll via ctypes in
+the external host. It uses only begin_settings/set_draft_radius/preview/cancel;
+it never enables the Controller or submits an army order. The actual native
+world produced 28/66/107 provinces for radius3/5/7 around fixed province149.
+All three refreshes completed, gold center and blue scope were visible. Final
+restore returned mode1; core remained disabled; unload/detach both completed.
+Evidence: work/native-integration/geographic-preview-06.jsonl.
+Observed five-step screenshot: outputs/regional-combat-range-preview.jpg.
+The current renderer distinguishes the fixed center using BGRA00C8FFFF, while
+other scope entries retain FF4B14FF. Geographic extraction took456ms in this
+world; this is a measured sample, not a general performance guarantee.
+
+Composable settings integration (2026-10-26, mock validated; live pending)
+========================================================================
+PROBE_CONFIG.settings === true activates createSettingsUI(mod,onEvent). Prepend
+native_settings_module.js and native_geography.js to native_range_preview.js.
+There is exactly one replacement of army-panel update RVA1450660; native update
+runs first, then settings.update(panel), reconciliation, and queued RPC work.
+Standalone settings script must not be loaded with this composition.
+
+Each selected army/draft/committed-enabled intent transition restores the prior
+map before emitting rc-preview preview-request {revision,intent,ordersPermitted:false}.
+Intent is null or {army,armyId,centerProvinceId,radius,draft}; armyId is normalized
+0x-prefixed hexadecimal. A disabled selected army has no preview except while
+its settings draft is open. Cancel restores the old draft overlay; if the army
+is enabled, the next event requests its committed scope. Apply does not enable.
+Turning on records the current province as the fixed center. All toggles here
+change prototype JS configuration only; no controller or army commands run.
+
+Host protocol:
+  event preview-request -> discard older calculations;
+  geography({revision,armyId}) -> native snapshot, revision, previewIntent;
+  external host computes BFS using intent.centerProvinceId and intent.radius;
+  enable({revision,armyId,centerProvinceId,radius,provinceIds}).
+Both RPCs recheck selection/revision when executed on the UI thread. Geography
+rechecks after extraction and matches returned armyId. Enable also requires the
+current center/radius and inclusion of center in the set. Any failed restoration
+invalidates authorization until a subsequent successful reconciliation. Settings
+false preserves existing range_demo geography()/enable(config) protocol.
+settingsstatus() exposes {available,revision,intent,panelCloseSupported,module}.
+
+Dispose restores map, requires module.disposeOnUi() stopped AND safeToUnload,
+then detaches renderer hooks, reverts shared update, and finally releases pin.
+Failure to detach borrowed callbacks leaves shared update/hook lifetime retained
+and reports failure; host must keep the session until retry or owned game exit.
+
+Explicit remaining limitation: panelCloseSupported=false. Shared update only
+runs for visible single-army panel. No close/hide callback has been proved to
+run outside Interceptor's nested-listener suppression, so closing the panel can
+leave preview and queued cleanup waiting until panel is reopened. For this
+isolated prototype keep one army selected until dispose succeeds; do not treat
+closed-panel cleanup as supported. Recreate/destructor hooks protect callback
+ownership but are not a proved render-safe map-restoration dispatch.
+Local probe work/native-settings/pseudocode-close.txt examined nearby generic
+UI helpers (10a08c0/10a08d0/10a0c10/10a0c30/10a09f0/10a0a10). They do not establish
+the army-panel close path or an ABI suitable for safe map refresh; neighboring
+vtable data must not be interpreted as one unbounded army-panel vtable.
+
+Regression: node tests/test_native_preview_settings.cjs executes actual guard,
+reconciliation and teardown functions against native-state mocks. It covers
+stale radius/army/revision, center omission, cancel/disabled selection, restore
+failure authorization, module cleanup refusal, cleanup ordering, legacy mode.
+node tests/test_native_settings_visibility.cjs also passes for both UI variants.
+
+Close-panel evidence and implementation update (2026-10-26)
+=========================================================
+This section supersedes the earlier panelCloseSupported=false limitation for
+PROBE_CONFIG.settings=true only. Legacy range_demo mode still pumps on visible
+army-panel update and preserves its original behavior.
+
+Live passive trace: work/native-integration/panel-close-01.jsonl. Root
+0x11393d0dd60 had primary vtable RVA1D926B0 and root+30 interface vtable1D929D0.
+Pressing the outer X called hide RVA1547B00 with receiver=root+30 and return
+address1453A63. Root+F5 changed1->0, panel+40 remained the same army pointer.
+Visible panel update count stopped at2010 while manager8137C0 continued.
+
+Frozen-binary decompilation work/native-settings/pseudocode-hide.txt confirms
+1547B00 is void(this), writes this+C5=0, processes child hide/notifications and
+returns. Prefix:48 89 5c 24 10 57 48 83 ec 30 48 8b f9 48 8b 89.
+Correct containing close function is1453970 (not the mid-function1453A10).
+work/native-settings/pseudocode-closecaller.txt shows void(panel*) tests
+*(panel+38)+F5, then invokes *(panel+38)+30 vslot90, matching the live callsite.
+It also performs native outer-panel bookkeeping; no substitute close call is
+introduced. Root visibility, not retained army pointer, is the close signal.
+
+Settings mode now additionally owns manager8137C0's verified void(manager,uint8)
+replacement. It forwards the native function first, only services the outermost
+manager return, and uses the established UI thread. Visible-panel updates keep
+the existing path. Closed-panel manager work calls module.suspendOnUi(), drops
+drafts/pending button actions, emits a null preview intent, restores the map,
+and processes pending dispose even when no army-panel update occurs. Enabled
+and committed radius/center stay unchanged; reopening can request committed
+scope again. GUI roots are checked against both live-verified vtables; retired
+module owners are never dereferenced through cached panel pointers.
+
+No hook or replacement is placed on generic window hide, and no map refresh
+is made from an Interceptor listener. Do not run another manager replacement
+(e.g. native_targets_probe.js) concurrently. A future combined runtime must own
+one manager dispatcher and call the same pump after original work. Settings
+cleanup proof precedes renderer detach, both replacements' reversion and unpin.
+
+Validation here: JS syntax checks; prior visibility regression for standalone
+and module; actual-function mocks for stale requests, failed restores, hidden
+root with non-null army, retired panel lifetime, closed-panel dispose pumping,
+and manager/update removal before unpin. New closing implementation awaits
+main agent's staged live acceptance; passive hide ABI evidence already passed.
+
+Daily-update and installation failure hardening (2026-10-26)
+==========================================================
+The main agent's settings-preview-02 live run passed open/edit preview, outer-X
+cancel with reason panel-closed, mapmode1 restoration, and dispose while closed.
+The following follow-up safeguards are mock-tested; no additional attachment
+was made by this sub-agent.
+
+All pump entry paths now require a readable current world and world+1E10==0.
+Manager recursion depth is not sufficient: a depth-one manager frame can itself
+be nested in daily world work. During that period the pump performs no settings
+GUI calls, map refresh, geography extraction or job consumption. Pending work,
+including cleanup, remains queued for the next valid frame. Missing/unreadable
+world also defers work and never establishes UI-thread ownership by inference.
+
+RPC exports now exist before renderer hooks, module creation and either update
+replacement are installed. install() is a transaction with explicit flags for
+successful UI/manager replacements. Partial failure attempts module proof,
+renderer detach, owned replacement rollback and unpin in that order. Only a
+confirmed finish marks stopped=true. No ready event is emitted on failure.
+installation-failed reports installation error, rollback error, retainedPin,
+remainingHooks and surviving replacement flags; status() exposes those fields
+plus installationReady. Hosts may check installationReady immediately after
+load and enter their ordinary finally/dispose path instead of waiting for UI.
+
+If rollback fails, retain the script/session and pin; only dispose is accepted.
+A surviving dispatcher can service a UI-thread retry. If no dispatcher remains,
+the RPC may retry teardown of an unbound module; module's established UI-thread
+check rejects GUI teardown from the RPC thread. A factory that throws without
+returning an ownership handle is explicitly unconfirmed: do not infer its
+internal cleanup succeeded, do not unpin, and keep the host until target exit.
+
+Extended test_native_preview_settings.cjs executes actual pump and install/
+finishDispose functions with fault injection: daily update preserves dispose
+queue, missing/unreadable world, manager replacement failure after UI success,
+module cleanup refusal, renderer detach failure and retry, failed partial
+renderer install, factory cleanup uncertainty, and cleanup RPC definition order.
+All passed together with existing settings visibility and JS syntax checks.

@@ -1,0 +1,166 @@
+EU4 区域自动作战：原生日调度、暂停及军队事件证据
+2026-10-26；静态分析，尚未由本子任务执行运行观察
+
+底本：work/eu4-unrestricted-baseline.exe
+SHA256：97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e
+地址均为首选VA 0x140000000 + RVA；运行时必须重定位并验证底本及prefix。
+独立Ghidra项目：work/native-scheduler/project/scheduler1..10（实际首个名称scheduler），未共享其他项目数据库。
+本轮没有attach进程、调用原生函数或修改游戏；仅产生静态报告及供父任务加载的被动observer源码。
+
+一、结论及可用于下一次运行验证的入口
+
+1. 首选“每日计算完成”候选：RVA 0x758430，ABI void fn(World* RCX)。
+   其上层DailyTick命令执行RVA 0xB79520，ABI void fn(Command* RCX)。
+   B79520有字符串“DailyTick without gamestate”，非空world时直接调用758430(world)。
+   758430在入口设置world.byte(+0x1E10)=1；world.i32(+0x1DD0)+=0x18；执行日更新及月/年边界工作；正常返回前清零+0x1E10。
+   精确指令：0x1407584A2写1，0x140758Aef调用0x14075BBE0(日内主体)，0x140758EEE写0。
+   在758430 onEnter读取日期会遇到旧日，函数中途会遇到日期已推进但世界更新未完成；因此应优先验证onLeave。
+   该函数并不依赖选中军队、army panel或原版平叛mission。
+   尚未运行验证线程身份、完整FOW刷新先后及嵌套/任务系统同步。静态调用返回和更新标志是强线索，不是已确认的跨线程安全承诺。
+
+2. 独立于军队面板的帧入口：RVA 0x8137C0，ABI void fn(Manager* RCX, uint8 flag DL)。
+   已确认manager = *(world+0x1E00)，主vtable RVA0x1CB8460，+0x20槽指向8137C0。
+   入口保存DL，没有证据表明其为多参数结构；未知flag语义应原样保留。
+   此函数检查暂停状态、执行UI/管理器更新并在未暂停时调用757AD0(world, manager+0x310的时间值)。
+   不依赖某个选中army panel，但包含特定UI对象的条件分支；本轮只将它列作观察和未来主线程队列pump候选。
+   必须观察其threadID是否等于已有正常UI/FOW观察线程，以及每日事件是否嵌套在该线程帧内。
+
+3. 每军队日更新：RVA 0xD3E110，ABI void fn(Unit* RCX)。
+   函数内源路径unit.cpp关联日志明确为“CUnit::DailyUpdate - Start, %u, %u, %d”和“CUnit::DailyUpdate %u %i”。
+   陆军vtable RVA0x1C42540 +0xD0 -> 0x1A2D30，该包装先调用D3E110；海军0x90E410也调用D3E110。
+   这能证明选中面板无关的军队更新时机，但不是全世界一致快照边界：同日其他单位可能尚未更新。
+   不能因为一个军队日更新刚返回，就把全图roster/FOW当作已经完成当日更新。
+
+4. 原版mission路径只能做交叉证据：
+   army.pointer(+0x1F8)指向mission对象；mission主vtable为RVA0x1C440C0；+0x80槽为0x1C9D30。
+   地址0x1C440A8是对象内另一个容器vtable，不能据此错误把主mission tick标成+0x98槽调用。
+   0xD3C560(Unit*)检查+1F8与mission槽+50，再调用+78和+80；+80非0返回码会传给D3B8B0处理。
+   D3C560位于陆军vtable+0x140。它本身依赖任务存在且状态合格，所以不能代替通用日调度。
+
+二、日期和安全快照界限
+world = *(module+0x233FE78)，manager = *(world+0x1E00)。
+world.i32(+0x1DD0)是原生日期标量，普通一游戏日增加24，不是“每次加1”的日序号。
+758430同时维护world.i32(+0x1DF0)=floor((rawDate-43800000)/24)。
+Observer同时记录day（原始+1DD0）、absoluteDay（+1DF0）和dailyUpdating（+1E10）。
+核心只要求同日去重和回退检测，使用原始日期作为不透明日token也能每日一次；host字段命名应避免把24当作24游戏日。
+即使+1E10为0，也必须验证world/session、army身份及FOW完整性；它不能替代加载生命周期标识。
+日期回退、world指针改变、存档加载都需旧session失效。world指针未变并不能证明没有load。
+
+三、暂停：可恢复完整谓词，不能简化成一个force字节
+0x7E01B0(PauseState* RCX) -> bool AL。
+调用点0xB7F87B使用manager.pointer(+0x418)；AL非0对应GAME_PAUSED字符串，AL为0对应GAME_UNPAUSED。
+PauseState布局：+0/+8为暂停请求vector begin/end，+0x48为force标志，+0x50为manager指针。
+准确语义：force48 != 0 || (!helper6EAA10(ownerManager) && ((end-begin)&~7) != 0)。
+不能只读取+0x48来代表所有暂停原因。
+
+helper6EAA10(Manager*) -> bool AL：
+  若manager.vslot(+0x318)为0，返回false。
+  此manager类型slot318为0x80FF80，leaf机器码读取manager.byte(+0x19F1)。
+  manager.vslot(+0x80)为0x811AA0，返回*(*(manager+0x330)+0x370)，以下称network/session对象。
+  若network.byte(+0x54)==0且byte(+0x55)==0，helper返回true。
+  否则遍历world.pointer(+0xA50)链，next=+0x60；任一node.i32(+0x18)与network.i32(+0x8C)不同则true；否则false。
+字段业务名称尚未完全恢复，不应仅凭+54/+55猜测单人/主机身份。
+Observer纯读取复刻上述逻辑，并被动监听7E01B0真实返回以供父任务交叉验证；不调用该函数。
+
+四、陆军战斗、撤退、锁定
+以下限定已验证陆军vtable RVA0x1C42540；其他unit类型不自动套用。
+
+inBattle：army.pointer(+0xC0) != NULL。
+  0xD45DE0的此条件进入NO_REORGANISE_UNIT_IN_COMBAT说明分支；
+  0xD55E70也在+0xC0非空的分支引用UNIT_IN_BATTLE。
+  +0xC8不是“撤退指针”：0xA9E160显式在日志“Removing REB unit from siege”分支操作+0xC8，必须保持独立语义。
+
+movementLocked：army.byte(+0x202) != 0。
+  陆军vslot+0x118 -> RVA0xD4F2A0；完整leaf字节为 0F B6 81 02 02 00 00 C3。
+  0x141229425调用该slot，随后真分支使用MOVEMENT_LOCKED_DESC。
+  不需要调用函数即可读取；运行测试仍需一次超过行军锁定阈值的比对。
+
+retreating：army.byte(+0x203) != 0 || army.byte(+0x204) != 0。
+  0xD45DE0在二者任意非0时使用NO_REORGANISE_UNIT_RETREATING。
+  +0x204还参与UNIT_MOVEMENT_RETREATING和SHATTERED_RETREAT_DESC分支。
+  0x21EB30会写word(+0x203)=0x0101，说明两个字节不能混作单个bool或互斥枚举。
+  正常/溃退业务命名应以UI交叉证据表达，+203的所有写入源尚未完整恢复。
+
+canAcceptOrders：本轮不声称找到完整统一谓词。
+  提交D50340还检查army+C0对象的vslot70；实际游戏可能允许某些战斗撤退请求，但我们的自动作战明确禁止战斗/撤退/锁定时发令。
+  host可先以这三项为必需的禁止条件，再结合所属/消失/transport/会话/合法路径等已验证事实。
+  D55E70还混合装载等条件，不能把其返回直接命名成“普通移动允许”。
+
+五、手动移动来源：已有更窄候选，但仍非完整证明
+D5D680 ABI：void(Unit* RCX, int32 destination EDX, uint8 replaceExisting R8B, uint8 alternatePolicy R9B)。
+  普通策略/替代策略选择、找路成功后调用D50340(army,path,replaceExisting,0x18)。
+  实测returnRVA D5D978与该直接提交call完全吻合。
+  D5D680由D5CF90调用；D5CF90同时有0x1D0E20等自动任务直接调用者。
+  因此D5D680或D50340“不是我们发的移动”不等于“玩家手动移动”，否则会误停AI/附属/原版任务。
+
+更窄候选：D5CF10 ABI void(MovementCommand* RCX)，指针在RVA0x1D1D440虚表区域。
+  对command+0x58调用1414CF730解析TypedRef，返回非空时减0x10得到army；写回command+0x50缓存。
+  使用command+0x60、+0x78等目标数组与+0x90/91/98/99字节，再调用D5CF90。
+  该函数是命令执行层线索，可被动观察玩家右键进入的链。
+  尚未证明其所有创建者都是本地玩家，也未恢复发令者country/client字段及Stop/拆分/合并的对应命令类型。
+  adapter应维护自身发令相关性与主动手动命令观察，不得仅以路径发生变化判定手动接管。
+
+六、战败：主要残留，禁止用退却标志简单代替“战败事件”
+0x21EB30(Side* RCX)遍历side+0xE8链中的army，从battle/siege中移除并设置退却状态；
+在有退路且非特殊移除分支设置army.byte(+0x205)=1，随后写+203/+204。
+其代码来自combat.cpp，但它是通用一方退出/退却处理：
+  0x22BEA0调用它；该路径有“Combat ended (regular)”日志。
+  0x23FCE0也调用它，该函数处理siege/land morale状态，不能将全部调用笼统命名为陆战失败。
+  0xD6B910命令执行路径也能设置+204=1，所以只观察+204上升沿不能区别玩家主动撤退与战败。
+  byte205唯一找到的常量1赋值在21EB30，但缺少所有读写与生命周期证明，当前不能作为精确defeated事件。
+必须进一步确认胜负结算的losingSide身份和单位列表（包括全歼/无退路移除），再触发core.defeated一次。
+本轮observer把该入口命名为side-retreat，明确不冒称defeat。
+
+七、父任务可执行的被动observer
+文件：tools/native_scheduler_observer.js。
+仅Interceptor监听与读取，没有NativeFunction、replace、write、原生函数调用或主动attach/launch。
+启动要求stage路径唯一、x64、10个入口prefix全部吻合；父任务另行验证完整SHA。
+观察点：manager-frame、daily-command、world-daily、unit-daily、mission-dispatch、pause-predicate、movement-command-execute、move-builder、path-submit、side-retreat。
+每种事件有全局日志上限；每单位日更新每日期最多3组，总计24组。counts/threadCounts仍累计以供status。
+manager-frame首4帧及日期/暂停变化打印enter/leave，总计最多32组。
+每条包含threadID、原始日期、world、日更新标志；日更新/命令记录enter/leave、callerRVA及短调用栈。
+RPC status()读取计数/当前状态；dispose()仅detach这些监听器。
+
+建议一次观察步骤：
+  1. 在已确认测试战局暂停加载observer，关闭选中军队面板，保留通常地图视图。
+  2. 取消暂停，低速推进2至3天，再暂停。
+  3. 如需手动来源证据，选军队正常右键一次；无需下达危险战斗命令。
+  4. 读取status并dispose。检查manager帧/日边界线程是否与已知UI/FOW线程一致。
+成功判断：world-daily进入前后rawDate增加24，leave时dailyUpdating=0；无面板仍出现manager-frame与daily事件；暂停时manager帧继续而day不增加；pause真实返回与纯读公式一致。
+即使符合，也须把FOW刷新时序和加载/存档边界接入完整adapter后再声明生产安全。
+
+八、可核对的机器码prefix（RVA；截断仅用于指纹检查，不可据此覆盖指令）
+8137C0：48 8B C4 88 50 10 55 53 56 57 41 54 41 55 41 56
+B79520：48 8B C4 48 89 58 08 48 89 68 18 48 89 70 20 57
+758430：48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57
+D3E110：48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57
+D3C560：48 89 5C 24 10 57 48 83 EC 30 48 8B F9 48 8B 89
+7E01B0：40 53 48 83 EC 20 80 79 48 00 48 8B D9 74 0E
+D5CF10：48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57
+D5D680：48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 20 55
+D50340：48 89 5C 24 20 44 88 44 24 18 48 89 54 24 10 55
+21EB30：40 53 55 56 57 41 54 41 56 41 57 48 83 EC 30
+
+验证：observer经过Node语法解析；全部10个prefix重新与底本PE原始字节逐个比较一致。
+未执行observer，因此本报告线程与运行行为部分仍是待父任务验证的候选。
+
+原始证据索引
+work/native-scheduler/pseudocode1.txt：mission布局、D5D680提交包装。
+work/native-scheduler/pseudocode2.txt：mission dispatch、单位路径更新、D5CF90。
+work/native-scheduler/pseudocode3.txt：暂停UI字符串、战斗/撤退/锁定UI判据。
+work/native-scheduler/pseudocode4.txt：暂停谓词、单位DailyUpdate及陆军包装、D5CF10。
+work/native-scheduler/pseudocode5.txt：暂停helper与相关manager调用者。
+work/native-scheduler/pseudocode6.txt：退却标志生产者；9A8760调查未用于结论。
+work/native-scheduler/pseudocode7.txt：manager帧更新8137C0。
+work/native-scheduler/pseudocode8.txt：通用退却的两个调用者及限制。
+work/native-scheduler/pseudocode9.txt：DailyTick命令执行B79520。
+work/native-scheduler/pseudocode10.txt：758430世界日期推进及更新标志。
+
+运行验证补充（2026-10-26，scheduler-trace-01.jsonl）
+隔离PID43680，关闭军队面板后普通地图下，manager-frame、daily-command、
+world-daily均在线程23700，与UI/FOW一致。首条每日更新entry rawDate56679696、
+absoluteDay536654，leave rawDate56679720、absoluteDay536655、dailyUpdating0。
+暂停predicate实际返回与纯读公式一致；暂停期间manager帧继续。日志也出现
+dailyUpdating1期间的嵌套manager帧，故不能仅凭manager.onLeave认定稳定边界，
+生产pump必须额外检查world+1E10==0并避开重入。正常自动推进也会出现大量
+movement-command-execute，因此该命令执行入口不能直接等价于用户手动操作。

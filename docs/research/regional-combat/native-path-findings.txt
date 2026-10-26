@@ -1,0 +1,299 @@
+EU4 区域作战：原生寻路与移动桥接聚焦调查
+日期：2026-10-26
+证据：静态机器码、PE .pdata 函数边界、Ghidra 12.1.4 局部反编译，以及父任务执行的被动日志 path-trace-01.jsonl。
+本子任务未调用游戏函数、未 attach、未改游戏或 core；父任务另行运行了被动观察并提供日志。
+底本：work/eu4-unrestricted-baseline.exe
+SHA-256：97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e
+地址均为首选 image base 0x140000000 下的 VA；运行时应按 module base + RVA 解析。
+
+结论
+1. 0x14096C520 是有可变边权、启发式、策略虚函数的搜索，不是最少省份步数 BFS。
+2. 其普通输出列表可用于描述实际选择的路线，但 count 只是该加权路线的边数，不能充当已证明的最短 hop 距离。
+3. 0x140D50340 是 void 路径提交器，会提前拒绝，也可能只复制相邻合法前缀。必须观察提交后的军队路径，不能把“函数返回”当 Accepted。
+4. 普通移动策略和原版平叛策略不是同一个 vtable；平叛策略有额外实力判断，不能原样复用以实现“不考虑胜算”。
+5. 已提供被动观察脚本 work/native-path/observe-path.js；父任务运行了第一版并记录真实普通策略与路径复制，见第九节。
+
+一、0x14096C520 的机器级 ABI
+返回值：AL 的布尔成功值；其余 RAX 位不可当结果使用。
+Windows x64，入口 RSP 记为 S：
+  RCX / arg1：策略对象 Policy*；首字为 vtable。
+  RDX / arg2：Army/Unit*。
+  R8  / arg3：起点 Province*，搜索首节点。
+  R9  / arg4：目标 Province*，传入终点谓词及启发式。
+  [S+0x28] / arg5：PathList*，可以为 nullptr。
+  [S+0x30] / arg6：Options*，至少可读到 +0x40。
+  [S+0x38] / arg7：没有发现任何先读；入口清零其低32位，随后用作异常清理位图 scratch。
+  [S+0x40] / arg8：可选 visited-byte-buffer*，可以为 nullptr。
+因此桥接声明应保留8个ABI槽，arg7传0，arg8在不需要时传nullptr；不能照部分伪代码的六参数call直接声明函数。
+
+直接证据：
+  prologue 0x14096C53A sub rsp,0x200，之前7次push；0x14096C541 rbp=rsp+0x40，故 rbp=S-0x1F8。
+  0x14096C561 读 [rbp+0x228]，即 arg6。
+  0x14096C598 读 [rbp+0x220]，即 arg5。
+  0x14096C555 写 [rbp+0x230]，即 arg7；后续只作为内部位图使用。
+  0x14096CE39 读 [rbp+0x238]，即 arg8。
+  平叛callsite 0x1401C87D5 写调用前 [rsp+0x38]=0，即被调函数的 arg8；arg7槽没有初始化。
+
+二、策略接口与区别
+普通策略 vtable：0x141C3AF98
+  +0x00 0x1400D0210：析构入口，本轮未展开。
+  +0x08 0x14096F860：7参数的边可行性谓词。
+  +0x10 0x14096F510：5参数的初始/目标可进入检查。
+  +0x18 0x14096FD50：目标谓词，只比较 target == candidate 指针（49 3B D0 0F 94 C0 C3）。
+原版平叛策略 vtable：0x141C3AF78
+  +0x00 0x1400D0240
+  +0x08 0x140970F60：先调用普通边谓词，再加实力、敌军/舰队等判断。
+  +0x10 和 +0x18 与普通策略相同。
+平叛策略对象另有 +8 单字节开关，0x1401C8420 中初始化为0。
+
+边谓词 ABI（0x14096F860/0x140970F60）：
+  (Policy*, Army*, goalProvince*, currentProvince*, adjacentProvince*, adjacencyRecord*, Options*) -> AL bool。
+  0x14096CC5A..0x14096CC7A 的寄存器/栈赋值证明此参数顺序。
+初始谓词 ABI（0x14096F510）：
+  (Policy*, Army*, originProvince*, goalProvince*, Options*) -> AL bool。
+  opts+2为0时调用 army vtable+0x120(goal, ..., tag@opts+0x14, ..., ptr@opts+0x38)。
+
+0x140970F60 除普通合法性检查，还比较 goal+0x590 /10 与军团数量*1000，并在一些类型分支调用0x14096FD60、0x1409713D0。
+0x14096FD60 会枚举省份/相邻省份军队并计算比值门槛。故“不设胜算门槛”至少不能直接选用该平叛策略。
+这不表示普通策略已被运行验证：普通策略仍含正常移动、通行、特殊类型、海陆转换和路径历史检查。
+
+三、Options 已恢复的字段用途（只给直接代码语义；没有原始字段名称）
+偏移   大小   已观察用途
+00     u8     为0时运行0x14096F650的边通行拒绝检查；为非0绕过该检查，另影响海陆转换分支。
+01     u8     非0时拒绝 adjacency+0x1C == 1 的边；类型1的游戏名称未独立核实。
+02     u8     非0时跳过 army vtable+0x120 的进入检查，以及相关限制分支；不可作为“让路径成功”的开关。
+03     u8     非0时跳过0x140D45250的阻止检查；该函数明确读取实际军队路径历史。
+04     u8     传给进入检查；改变多个区域类型分支与代价；还直接排除 province->(+0x28)->flags@+0x228 的0x10位。
+05     u8     改变跨区域类型的边代价；部分分支直接返回0代价，另一些增加400000等惩罚。
+06     u8     非0时跳过针对特定位/可见位图的边长放大。
+07     u8     非0：启发式乘10；为0：启发式乘900/1000。不是BFS开关。
+08     u8     允许一跳快速成功；只有outList非空且初始count==0时尝试。
+09     u8     传给0x140D45250；非0时复制并分析军队实际路径，可能加入当前省份。
+0A-0B  --     本轮选定路径未发现消费；不可赋予语义。
+0C     i32    传给0x1409DD6A0(候选省份,army,value)，用于某些区域类型转换；原始名称未知。
+10     i32    >0且army虚函数+0x100返回正值时，边代价增加 value*8。
+14     u64    未对齐的国家/tag式值，传入原生进入检查；该callsite默认低字节为ASCII '---' (0x2D2D2D)。
+1C-1F  --     未发现消费；可能为padding，不保证。
+20     i64    平叛扩展实力计算使用的下界/修正值；见0x14096FD60。
+28     float  平叛扩展策略对象+8开启时，传给0x1409713D0的辅助参数。
+2C     u8     控制一个带opts+0x30对象的附加代价分支。
+2D-2F  --     未发现消费；可能含padding，不保证。
+30     ptr    平叛策略传入0x1409713D0的上下文；为空时使用一个惰性初始化全局对象。
+38     ptr    传入army虚函数+0x120的额外上下文。
+40     u8     非0时改变输出列表为“链长度编码”，不改变搜索边权。
+
+0x1401C8420 平叛callsite的实际初始化：
+  +00..07=0；+08=1；+09=1；+0C=-1；+10=0；+14的tag为'---'；
+  +20=0；+28=0.0；+2C/2D=0；+30=0；+38=0；+40=0。
+这些是该callsite的默认值，不是已经确认适合区域作战的通用默认配置。
+
+四、列表格式与返回语义
+PathList对象：
+  +0x00 head node*；+0x08 tail node*；+0x10 signed int count；+0x14 mutation/deferred-delete flag。
+节点大小0x20：
+  +0x00 int payload；+0x08 prev*；+0x10 next*；+0x18 deleted/tombstone flag。
+正常模式(opts+0x40==0)：
+  0x1400E9720沿predecessor链从目标回溯，push_front省份ID，暂时包含起点；
+  搜索收尾0x14096CE31调用0x14010C9B0 pop_front，移除起点。
+  输出顺序为 下一站 -> ... -> 目标；count为这条所选路径的边数。
+  起点就是目标时可返回成功且count==0；不能用count==0单独判断搜索失败。
+  一跳快速成功直接push目标ID，返回true。
+
+链长编码模式(opts+0x40!=0)：
+  0x1400E9850计算predecessor链顶点数，0x1400E9720生成两个相同数字节点，最终pop一次，留下单节点。
+  payload=路径顶点数，即所选路径hops+1；不是省份ID，也不是列表count。
+  特别注意：opts+8的一跳快速路径完全绕过这段逻辑，仍输出省份ID。因此两开关同时开启会导致payload语义不统一。
+  该模式不适合直接交给0x140D50340。
+
+所有上述长度都指加权搜索选择的路线，并未证明是最短hop路线。
+outList必须由游戏兼容分配/释放规则管理；搜索有pop_front行为，不能传入无意保留的非空列表。
+临时节点由0x141A332D4(0x20)分配，0x1417394F0(node,0x20)释放；父级mission tick提交后会释放原临时列表，说明提交函数复制节点而非接管临时列表。
+visitedMask(arg8)复制的是按省份ID索引的closed/visited字节数组，长度来自 gameState+0x1C90..0x1C98 的元素数。
+找到目标就提前终止，visitedMask不是完整可达集合；一跳快速成功甚至不经过复制收尾。
+
+五、搜索代价：明确不是hop，也不能直接宣称纯旅行时间最短
+0x14096BD00边代价以adjacencyRecord+0x0C的int为基数，叠加国家/控制/区域类型/策略惩罚，值例如2000、8000、24000、32000、160000、200000、400000。
+0x14096C400启发式来自省份地图坐标距离，包含地图横向环绕，再进行固定点比例换算。
+0x14096CC9D..0x14096CD3F：gChild=gParent+edgeCost，fChild=gChild+scaledHeuristic，入优先队列。
+因此至少是“地图距离基数＋战略惩罚”的加权路线；本轮未证明其边基数等于真实行军耗时。
+opts+7的10倍启发式还意味着不能未经证明就称为严格最优cost。
+核心ExactRoutes需要最少合法省份步数；本函数原样的list count不能满足该契约。
+
+六、路径历史与snapshot必须包含的事实
+0x140D45250(army,candidate,current,opts+9)会读取：
+  army+0xE8 当前省份，+0xF0/+0xF8两个历史/返回上下文省份指针，+0x100实际已有路径；
+  当opts+9非0时复制当前路径并倒序分析，必要时加入army当前省份；还查询省份要塞/国家关系相关函数。
+故只改变pathfinder arg3为固定中心，不等于建立“军队假想驻在中心”的完整上下文；army仍指向实际位置和历史。
+不能把每条边在当前army上下文下一次性问出的真假拼成静态图并声称解决所有路径历史。
+在真实中心路径上下文与最少hop搜索方法尚未恢复前，生产ExactRoutes应保持Unavailable，而不是用加权路线长度冒充。
+
+七、0x140D50340最小提交形状与确认
+ABI：(Army* rcx, PathList* rdx, uint8 replaceExisting r8b, uint8 fourthFlag r9b) -> void。
+原版自动平叛调用：submit(army,&temporaryPath,1,0)。
+replaceExisting非0会清理旧army+0x100路径并复位相关状态；第四标志可引发额外任务处理，含义不完整，不能随意置1。
+入口若army+0xC0非空且其虚函数+0x70返回false，会跳过整个更新主体。
+更新主体从现有路径终点或当前省份开始，遍历传入ID；逐个查找相邻记录，复制到army+0x100路径；遇到不相邻则停止，可能保留前缀。
+函数还会清理/变更多个军队任务和附属单位状态，绝非无副作用的“验证路径”函数。
+
+Accepted的最小可验证证据应为：
+  1. 同一游戏线程、同一session、同一完整ArmyKey，在确认快照未失效后提交。
+  2. 读取army+0x100/+0x108/+0x110，确认预期完整路径及最终目标；仅发生部分前缀更新应视为未完成预期命令。
+  3. 检查过程中不能使用未确认的指针跨存档或跨军队重建复用。
+  4. 对当前省份已是目标的零边路径需独立判断，不要求产生非空路径。
+  5. Stop的原生调用与移动锁定/战斗/撤退判据尚需父任务运行核实；不能借空list提交偷换成已验证Stop。
+原版mission tick在army+0x110非0或+0xC0非空等情况直接返回，因此不能仅凭这条idle-only调用路径推断所有行军中改令规则。
+
+八、只读日志与下一步最小证据
+work/native-path/observe-path.js：
+  仅被动监听pathfinder和submit。第一版各最多32条；修订版每调用链最多2条完整query、全局最多64条、submit最多32条。
+  修订版保留最近16次query的紧凑摘要，submit附带同军队最近4条摘要，并读取tailValue，避免hover先耗尽全局query名额。
+  记录原始options0x41字节、policy、origin/goal、输入输出list和army路径前后值；新增调用链RVA用于区分hover与发令来源。
+  不创建NativeFunction，不调用未验证函数，不replace，不改参数或返回值，不自行attach/launch。
+  父任务需先确认运行模块SHA与静态底本一致，并通过现有session加载。
+最有价值的一次观察：玩家正常给一支驻守陆军下达1省和2省移动，然后原版平叛各一次。
+比较真实policy/opts、list顺序、提交参数和更新结果即可验证普通移动桥接形状。
+但即使观察成功，也不能解决最短hop及假想中心上下文的问题；二者应作为独立未完成项。
+
+九、父任务被动日志的有限运行验证
+输入：work/native-integration/path-trace-01.jsonl，36个JSONL记录；Frida 17.24.3。
+日志身份记录：运行进程45424，game-stage/eu4.exe，SHA256与本报告底本完全相同。
+module base：0x7FF7DEA40000；观察线程74644。父任务说明这是暂停的测试战局与玩家地图右键移动。
+
+32次pathfinder记录：
+  returnAddress全部为RVA0xD45D20（0x140D45C60包装器内部callsite）。
+  policy vtable全部为RVA0x1C3AF98，验证普通策略确实用于该真实预览路径。
+  arg8全部为0；arg7可见0x10000B900534143旧栈值，与未初始化/被调函数覆写slot吻合。
+  示例origin149、goal222、returnLowByte1、输出count33，首几个payload为2750,150,2746,156。
+  options已命名偏移值与静态默认一致；+0x1C..1F观测为DF 01 00 00，未消费/padding区域不能要求归零。
+  父任务指出前32次主要是hover preview，故不能把这些query和最后手动发令建立未经观察的逐条因果对应。
+
+2次submit记录（同一次根提交带来附属单位递归）：
+  根调用returnAddress RVA0xD5D978；army id24=6611(0x19D3)、id20=54(0x36)，origin149；replaceExisting=1，fourthFlag原始字节24。
+  递归调用returnAddress RVA0xD50BAB；army id24=6529、id20=54，origin149；replaceExisting=1，fourthFlag=0。
+  两支军队均pathBefore.count=0、input.count=35、pathAfter.count=35。
+  两个记录的输入与输出前32个payload完全一致，节点指针不同，证实复制而非接管临时节点。
+  第一版截断到32节点，没记录尾节点，因此尚不能单凭该日志证明最后3个节点及最终目标。
+  fourthFlag=24是实际byte值，代码按是否非0分支；不应把“bool语义”误写成ABI要求只能传原始字节1。
+  日志证明暂停状态下该手动请求进入并更新了路径；不证明战斗/撤退/移动锁定时可以提交。
+
+修订observer脚本已做JavaScript语法解析检查，尚未由本子任务加载执行。
+
+原始证据文件
+work/native-path/pseudocode1.txt：主要函数机器码＋反编译，含cost/heuristic/list/submit。
+work/native-path/pseudocode2.txt：普通边谓词、扩展实力谓词、目标指针相等、链长计算。
+work/native-path/pseudocode3.txt：边限制及路径历史判据0x140D45250。
+work/native-integration/pseudocode1.txt、work/focused-pseudocode.txt：原版任务callsite。
+
+十、自定义policy能否实现最少hop：静态证据结论
+本节只检查现有机器码与反编译，没有patch、进程调用、对象克隆或运行注入。
+
+结论：普通policy的四槽虚表不能覆写边代价或启发式；现有options也没有可证实的全边cost=1、heuristic=0模式。
+不能通过“复制普通policy虚表，只替换cost/heuristic槽”保留原有准入规则同时切换成BFS，因为这两个槽不存在。
+
+普通vtable VA 0x141C3AF98（运行日志已验证RVA 0x1C3AF98）：
+  +0x00 -> 0x1400D0210：析构。
+  +0x08 -> 0x14096F860：边准入，含实际army上下文与路径历史判断。
+  +0x10 -> 0x14096F510：起点/目标入口准入。
+  +0x18 -> 0x14096FD50：目标指针相等测试。
+搜索循环边代价分派是直接调用：
+  0x14096CC9D 将Options*放入第6参数槽；0x14096CCA2 将adjacencyIndex放入第5参数槽；
+  0x14096CCA7 R9=currentProvince，0x14096CCAB R8=army，0x14096CCB2 RDX=&cost，0x14096CCB6 RCX=policy；
+  0x14096CCB9 CALL 0x14096BD00（直接地址，不是CALL [vtable+slot]）。
+对应ABI为 int* edgeCost(policy, int*outCost, Army*, currentProvince*, uint32 adjacencyIndex, Options*)。
+policy形参虽然占RCX，却未被用于虚表分派。该函数0x14096BD0F将其存入home slot；稍后该栈槽被用作军队虚函数写出tag的缓冲。
+0x14096BDEC的CALL [R8+0x138]是army虚函数：R8在0x14096BDDE从[army]加载，RCX=army；不能误认为policy的cost回调。
+0x14096BD65从adjacencyRecord+0x0C读取基数，后续依赖地形/国家/控制/区域/军队以及options修改代价。
+
+启发式分派也直接调用：
+  0x14096CCC8 R8=candidateProvince，0x14096CCCB RDX=goalProvince，0x14096CCD2 RCX=&heuristic；
+  0x14096CCD6 CALL 0x14096C400。
+其ABI为 int* heuristic(int*out, goalProvince*, candidateProvince*)，没有policy参数。
+0x14096CCDF检查opts+7；非零分支用10*h，零分支在0x14096CCEF起计算900*h/1000。
+0x14096CD2F把edgeCost加入parent.g；0x14096CD39再加入scaledHeuristic形成队列优先级。
+因此即使假设只改变边cost为1，也还需要关闭直接调用的地图距离启发式，才能保证最少hop。
+
+options替代路径的范围：
+  +0x05只改变若干区域/类型转移分支，某些分支可返回0或增加400000；不是覆盖所有边的常数权重。
+  +0x10只在特定军队谓词成立时添加8*value；不能抵消每条边不同的基数及条件惩罚。
+  +0x07是0.9/10倍选择，无关闭启发式值。
+  +0x40只改变最终输出编码，仍然搜索同一加权路径。
+未发现可仅通过每次调用私有Options对象完成恒定权重的开关；不能据此尝试修改全局adjacency基数或坐标来实现该功能。
+
+固定中心的pathstate定义仍须解决：
+A. 若定义为“军队假想驻在中心、没有既存行军路径”，则必须为中心建立合法且一致的当前省份、历史/返回省份以及队列上下文；目前只改origin参数不满足。
+B. 若保留军队实际当前位置、历史与既存路径，只把origin改成中心，得到的是混合上下文查询；它会随真实军队行军变化，不能称为假想驻守中心的范围。
+本节不在未恢复语义前选择或伪造army+0xF0/+0xF8值。
+
+独立最少hop搜索只有在“准入状态及其沿每条路径的转换”被正确恢复后才能复用原生准入规则。
+对每对省份调用0x14096F860、却始终传同一真实army对象，不足以证明所有历史依赖成立；该接口不显式接收搜索节点的假想历史。
+下一最小静态任务应聚焦0x140D45250所读取历史值的生产/更新逻辑，明确中心根状态与步进状态；在此之前继续让生产ExactRoutes不可用。
+此结论不等价于不能开发该增强；它排除的是无需恢复路径状态、单靠policy虚表换权重的捷径。
+
+十一、实际原生路径查询调用（2026-10-26）
+独立tools/native_route_probe.js已在隔离PID43680选中CAS陆军
+28394028793910、province149、UI线程23700调用普通policy原生查询。
+选中面板update replacement转发原函数后处理RPC；不在RPC线程调用寻路。
+0x96C520八参数ABI以及0x17394F0(ptr,32)节点释放通过实际运行。
+149自身成功路径空；151和2750均成功1步；222成功33步，尾节点222。
+查询前后army原有路径及位置/身份完全一致。临时节点验证链表后全部释放。
+该次 route-query-01 使用的是旧 probe 的 opts+09=1；它验证八参数ABI、返回列表及释放，
+不能当作“替换当前位置路线”的正确 options 证明。后续已按下节 D5D680 分支改为 +09=0。
+dispose stopped=true并unload/detach完成。证据route-query-01.jsonl。
+尚未下发自动命令；query成功不代表submit一定接受。上述steps是native
+选中路径的步数，不是最少hop证明。核心已将地理range与此route证据分离。
+
+十二、当前位置选项纠正与非陆地路线的保守拒绝（2026-10-26）
+本轮仅复用局部静态证据及父任务 snapshot-live-03.jsonl；未 attach、未执行游戏调用。
+snapshot-live-03 只记录“Route contains non-land province”，并确认 poisoned=false、清理完成。
+旧日志没有 goal、失败节点和地形标志，故不能事后认定具体海区，也不能声称 +09 是其原因。
+
+1. D5D680 普通移动的两个不同分支
+证据 work/native-scheduler/pseudocode1.txt，VA 0x140D5D680：
+  0x140D5D740..76F：只有 replaceExisting==0、army+110已有路径且尾节点能解析时，
+  从尾节点起寻路；0x140D5D779 写 opts+08/+09=0x0101（两个字节均1）。
+  否则进入0x140D5D860，opts+08/+09=0x0001（+08=1、+09=0），起点army+E8。
+  普通 policy vtable仍为1C3AF98；替换分支其余字段零，+0C=-1、+14=0x2D2D2D、+40=0。
+组合模块始终查询军队实际当前位置，因此现已改为 +09=0，standalone probe 同步。
+其含义是匹配正确的路径历史模式；没有证据允许将 +09 命名为运输开关。
+早期普通 hover 以及第十一节旧 probe 的 +09=1 运行证据保留，但不替代这个分支判断。
+
+2. 普通 policy 并不保证输出全部是陆地节点
+证据 work/native-path/pseudocode2.txt，96F860：
+  0x14096FC67..FC92：当 army 的虚函数+88返回false、候选geometry+228的0x08位未设，
+  opts+04==0且opts+00==0时，调用9DD6A0(candidate,army,opts+0C)。
+  若其返回非空，且当前节点为陆地，仍会继续后面的进入/要塞检查；并非在这里一律拒绝。
+  该分支证明普通策略可以选择land→nonland，不证明具体 snapshot-live-03 经历了哪条转换。
+  本轮未把9DD6A0未恢复的对象名猜作运输舰队，也未改变任何准入/通行绕过位。
+
+3. 海峡 through 字段不是需要剥掉的路径节点
+96C520 扩展邻接时取 record+00 的省份ID，按province stride0x2E10解析候选，
+保存此候选与 predecessor；最终0E9720输出各 predecessor 的省份ID。
+邻接 record+08 的 through 海区不在此处自动插入输出链。
+因此 land→land 海峡的海区元数据不会使正常陆地链被本模块拒绝；若真实输出链含海区，
+不能删掉它、拼起两侧陆地后宣称得到原生合法路线。opts+01也不能用作禁运输开关，
+因为它会拒绝type1邻接，包含需要保留的陆地海峡。
+
+4. 当前可执行的保守契约
+对每个goal，先验证完整输出链、端点和每个省份的真实geometry，再决定是否可供自动任务使用。
+  - Native返回false：该goal无route steps。
+  - Native返回true、完整链全部为陆地：保留原始hop数。
+  - Native返回true、链含非陆地：结果reason=chosen_route_non_land、native_reachable=true，
+    reachable=false且steps缺席；全部节点按原链释放。此goal进入unreachable供core保守跳过。
+    这表示“本次选中的原生路线不符合禁运输要求”，不表示不存在另一条全陆地合法路线。
+    不重写policy、不剥节点、不自动运输，也没有声称重新求得最优陆路。
+  - 未知省份、不可读geometry、坏链、端点错误、世界/军队改变或释放失败：整批失败。
+    即使前面已遇到非陆地节点，也继续完整验证，不能把后面的ABI/内存错误掩盖成候选不可达。
+若只因单个goal的所选路线含海区，不再使其余合法候选和地理范围预览全部失效。
+core routes.complete现在指“每个决策goal都完成了所选路线的可用性分类”；
+不提供未查询目标的可达性证明，也不证明替代陆路的最短hop或不存在性。
+
+5. 下一次live的有界诊断
+routes.rejections最多8条，另有实际rejection_count；字段包括goal、origin、offending_province、
+path_index、previous、next、path_length、flags228、flags229、list_flags、policy_rva、
+options_09、options_40、native_success及cleanup_confirmed。不返回全路径或部分敌军扫描内容。
+成功快照将其置于evidence.route_rejections；失败快照用route_diagnostic.query/rejections。
+快照层逐字段白名单复制，避免意外引入模块大对象或部分敌军信息。
+失败释放仍使reader poisoned并停止继续查询；可清理的坏端点/未知ID不会误标poisoned。
+验证：23个native_routes mock测试、18个native_snapshot组合测试通过。
+新增覆盖当前起点options、候选海路跳过、海峡陆地链、诊断数量上限、海节点后出现未知ID、
+坏链清理隔离、成功/失败快照诊断白名单以及其他候选与地理预览保留。

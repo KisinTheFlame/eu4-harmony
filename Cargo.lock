@@ -61,6 +61,16 @@ name = "eu4-harmony-abi"
 version = "0.1.0"
 
 [[package]]
+name = "eu4-harmony-cli"
+version = "0.1.0"
+dependencies = [
+ "eu4-harmony-abi",
+ "serde",
+ "serde_json",
+ "windows-sys",
+]
+
+[[package]]
 name = "eu4-harmony-core"
 version = "0.1.0"
 dependencies = [

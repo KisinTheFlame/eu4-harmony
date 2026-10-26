@@ -4,7 +4,7 @@
 //!
 //! The observers follow the game's save pipeline (save request, local writer,
 //! file close, final move to the absolute path) and its loader, as recovered for
-//! eu4-regional-combat (docs/native-save-findings.txt there).
+//! eu4-regional-combat (docs/research/regional-combat/native-save-findings.txt).
 use crate::{baseline::Dependency, hooks::HookFrame, memory::Memory, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

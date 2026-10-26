@@ -1,0 +1,158 @@
+EU4 regional combat: native UI integration findings
+Date: 2026-10-26
+Target: work/eu4-unrestricted-baseline.exe
+SHA256: 97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e
+Preferred image base: 0x140000000. Addresses below are preferred VAs; use module base + RVA at runtime.
+Method: Ghidra 12.1.4 official analyzeHeadless, -readOnly -noanalysis -deleteProject; focused function disassembly and decompilation; raw PE section bytes. No game launch, injection, or target modification. No ABI or lifetime claim is runtime-verified.
+
+1. Independent button binding has a concrete engine path
+The shipped interface/unitpanel_main.gui has guiButtonType name="enable_rebel_button" at line 197 (block begins line 195), position x=378 y=325, GFX_unitpanel_button_hunt_rebels. Adding a differently named GUI object alone is insufficient: explicit native handler registration is required.
+
+Function 0x14144FB00 [end 0x141450576], panel initialization/registration:
+  root = *(panel + 0x38)
+  button = virtual(root, +0x68)(root, "enable_rebel_button")
+  virtual(button + 0xC8, +0x08)(button + 0xC8, panel + 0xF18)
+This is the actual native binding sequence, not a guessed textual name dispatch.
+The same function registers carpet siege, drill, forced march, and other controls.
+A post-original hook could look up and bind a new name using the same mechanism, provided wrapper ABI, ownership, and callback event ABI are verified first.
+Root +0x68 receives a literal char pointer in these call sites; do not substitute an std::string at this slot. Root creation uses a DIFFERENT slot and an engine string.
+
+Function 0x141450580 [end 0x14145065C] tears down/recreates a UI context and calls 0x14144FB00 with this-0x10. Hooking only the initial constructor would miss this rebinding path. The registration operation must tolerate UI recreation and avoid duplicate callbacks.
+
+2. Wrapper and action are different objects
+Panel constructor 0x14144DEF0 [end 0x14144F558] builds:
+  callback wrapper at panel+0xF18, total size 0x78
+  wrapper+0x00 = vtable 0x141CB80C8
+  wrapper+0x08 = panel+0x1468 (action object)
+  wrapper+0x10..+0x68 = zero in this wrapper
+  wrapper+0x70 = 0x141411CB0
+
+Action constructor collection 0x14147A360 is a leaf lacking a .pdata entry. Disassembly and pseudocode recover stores up to 0x1A0. It is called with panel+0x1378 and panel. The rebel action at collection+0xF0 = panel+0x1468 is:
+  action+0x00 = vtable 0x141D891A0
+  action+0x08 = panel
+Action destructor 0x14147A560 uses 0x10 as deleting size.
+
+Original rebel action vtable:
+  +0x00 0x14147A560 deleting destructor
+  +0x08 0x140E151A0: tail-dispatches action vslot+0x38 with argument zero
+  +0x10 0x14147E670: execute rebel task / open suppression selection UI
+  +0x18 0x14147D960: build tooltip aggregate via +0x40, +0x48, +0x38
+  +0x20 0x14147EA10: selected-unit query routed to army vslot+0x80
+  +0x28 0x14008F450
+  +0x30 0x14147EA40: active-state query, checks mission type 0xD
+  +0x38 0x14147E520
+  +0x40 0x14147E830 tooltip body
+  +0x48 0x14147E9E0 tooltip heading
+
+0x141411CB0(action,event) checks action+0x20 and action+0x08 virtual calls; if true it calls action+0x10 and writes byte(event+0x10)=1, else writes zero. This establishes a consumed flag but DOES NOT establish the full event structure or left/right mouse classification.
+
+3. Callback dispatch is partly mapped, left/right still unresolved
+The callback wrapper vtable 0x141CB80C8 contains:
+  vslot +0x08 -> 0x140836550 -> function pointer(wrapper+0x70)
+  vslot +0x10 -> 0x140836570 -> function pointer(wrapper+0x40)
+  vslot +0x18 -> 0x140836430 -> function pointer(wrapper+0x10)
+  vslot +0x20 -> 0x1408363D0 -> function pointer(wrapper+0x28)
+  vslot +0x30 -> 0x140836410 -> function pointer(wrapper+0x18)
+  vslot +0x40 -> 0x1408363F0 -> function pointer(wrapper+0x20)
+  vslot +0x50 -> 0x1408363B0 -> function pointer(wrapper+0x30)
+  vslot +0x58 -> 0x140836590 -> pointer(wrapper+0x50), fallback vslot+0x10
+  vslot +0x60 -> 0x1408365B0 -> pointer(wrapper+0x38), fallback vslot+0x18
+  vslot +0x68 -> 0x140836530 -> function pointer(wrapper+0x48)
+  vslot +0x70 -> 0x140836510 -> function pointer(wrapper+0x58)
+  vslot +0x78 -> 0x1408364D0 -> function pointer(wrapper+0x68), returns whether nonnull
+  vslot +0x80 -> 0x1408364F0 -> function pointer(wrapper+0x60), returns whether nonnull
+All substitute RCX=wrapper+0x08 context and tail-call callbacks. Ghidra's isolated pseudocode loses forwarded register arguments in tail calls. Do not copy its apparent one-argument function signatures into C++.
+
+UNRESOLVED: which event/virtual entry represents right click; complete event ABI; button+0xC8 setter's concrete implementation and ownership; detach/unregister semantics. Consequently a working left/right button is not implemented by this report.
+
+4. Selected army and panel lifetime
+Panel vtable 0x141D87088:
+  +0x00 -> 0x14144F560 destructor
+  +0x08 -> 0x140129270, exact bytes 48 8b 41 40 c3 (returns panel+0x40)
+  +0x10 -> 0x14025BA60, exact bytes 48 8b 41 48 c3 (returns panel+0x48)
+The original action uses +0x08 as selected army and +0x10 as game/UI context.
+
+Panel destructor 0x14144F560 [end 0x14144F71E] first calls 0x1406ECC80(manager,root), then root vslot+0x130; destroys action collection and rewrites embedded wrapper vtables; deletes panel with size 0x1518 when requested. A plugin must not append new objects into the existing allocation. External allocations require paired panel destruction handling, with callback storage kept alive until the native UI no longer references it. The observed destruction order supports a lifecycle design but does not prove thread safety or reference ownership.
+
+0x141450660 updates button visibility/state and glow every UI refresh; 0x141453B70 routes tooltips by the original control name. A new button also needs its own state and tooltip update route, beyond registration.
+
+5. Range preview: existing UI is not a pure reusable preview
+Original action allocates 0x120 bytes and calls 0x141462AA0(allocated,army), then places returned object at UI context->(+0x5BA0)->(+0x228), disposing old object via vslot+8.
+IMPORTANT: 0x141462AA0 creates or changes the army's rebel mission using 0x1401C7A60 when the current mission is absent or type !=0xD. Calling it merely to display our range would mutate gameplay and violate our independent-button requirement.
+It calls manager=*(global 0x14233FE78 + 0x1E00), manager vslot+0xC8(manager,0xC,0), consistent with a suppression selection map-mode transition.
+Destructor 0x141462E20 [end 0x141462EA8] destroys the window then invokes the same manager slot with mode read from manager+0x30, and zeros its embedded callback wrappers. This is evidence for switch/restore infrastructure, not proof of a custom arbitrary-province overlay API.
+UNRESOLVED: province-color update callback/buffer, arbitrary province membership overlay, correct mode restoration under user changes, preview center marker, settings slider/popup creation ABI.
+
+6. Concrete next verification targets
+- Read-only runtime trace on the new button prototype to confirm button lookup, setter, wrapper dispatch, event contents, selected army, and destruction/recreation sequencing before command actions.
+- Identify button+0xC8 setter and event dispatcher implementation, then map left/right and tooltip event signatures from native callers.
+- Identify current UI root creation/ownership and failure behavior when a custom control does not exist.
+- Hook registration + destruction with external per-panel storage only after this lifecycle is verified.
+- Implement overlay through a verified color-provider route, without calling the original suppression-window constructor.
+- Verify customized GUI mods do not change assumptions or remove required controls.
+
+7. Reproduction artifacts
+work/native-ui/analyze.py: PE sections, range generation and pointer inspection helper.
+work/native-ui/pseudocode1.txt: register, update, tooltip dispatcher.
+work/native-ui/pseudocode1-annotated.txt: same with literal strings resolved from target bytes.
+work/native-ui/pseudocode2.txt: action destructor and tooltip / selected-unit methods.
+work/native-ui/pseudocode3.txt: panel constructors, callback init, action collection.
+work/native-ui/pseudocode4.txt: wrapper dispatch and action-execute thunk.
+work/native-ui/pseudocode5.txt: panel and selection-window destruction.
+All are recovered pseudocode, not source; prototypes remain provisional.
+
+This investigation supports a plausible native integration path. It does not constitute an installed, safe, or playable UI implementation.
+
+8. Follow-up: callback subscription and right-click ABI resolved statically
+The earlier unresolved binding/right-click items are now narrowed by additional native decompilation.
+
+Native button base constructor 0x141592840 creates event signal at button+0xC8. GUI/sprite button derived constructor 0x1415AC670 calls that base and assigns:
+  primary vtable = 0x141D9A340
+  signal vtable = 0x141D99FA8
+The signal virtual slots are:
+  +0x08 -> 0x140FBE3F0 subscribe(signal, observer*)
+  +0x10 -> 0x140FBE370 unsubscribe(signal, observer*)
+  +0x18 -> 0x140FBE360 global/default observer accessor, NOT unregister-all.
+Subscribe allocates a native 0x20 node, stores observer pointer at node+0, prev/next at +8/+0x10, tombstone byte at +0x18. Signal keeps first at +8, last at +0x10, int count at +0x18, dispatch flag at +0x1C and optional exclusive observer at +0x20. Subscribe does not deduplicate: repeated calls append.
+Unsubscribe matches the exact observer pointer. Outside dispatch it unlinks and frees ONLY the 0x20 node; during dispatch it marks node+0x18. It never deletes the observer object.
+0x141593F80 signal destruction also frees all remaining list nodes without destroying their observer payloads. Its special global-observer lifetime path is separate. Plugin-owned wrapper memory therefore must outlive the subscription but need not use the game's allocator when it is never passed to a native deleting destructor.
+
+Actual event ingress: button vslot+0x48 -> base 0x141592BD0; GUI subtype overrides via 0x1415AEFC0 (full override not yet decompiled). Base input structure observed fields:
+  +0x50 device/category, zero for pointer events
+  +0x14 event kind, 3 press / 4 release
+  +0x18 button code, 1 primary / 2 secondary
+  +0x20/+0x24 coordinate pair
+  +0x54 consumption mask (16 bits)
+  +0x56 auxiliary filter flag
+These physical primary/secondary interpretations still need a live click trace; internal dispatch paths are established by native branch/slot evidence.
+
+Primary click path 0x141593C80 creates a separate CLICK payload on stack:
+  +0x00 button pointer
+  +0x08 int32 x
+  +0x0C int32 y
+  +0x10 byte consumed (initialized 1)
+Signal dispatch 0x141593260 invokes observer slots +0x18, +0x10, +0x08 in order, with separate adapter functors. The last entry receives (observer,ClickEvent*). For vtable0x141CB80C8, this is 0x140836550 -> wrapper+0x70(context,ClickEvent*). Existing native action thunk writes consumed and confirms this interpretation.
+
+Secondary release path in 0x141592BD0 calls 0x1415935B0(signal,button). This traverses observers and calls observer vslot+0x68(observer,button). In wrapper0x141CB80C8 it is 0x140836530 -> wrapper+0x48(context,button). This callback does not receive the click-payload structure; treating its second parameter as event+0x10 would corrupt a button object.
+The secondary path requires button+0x161 enabled and button+0x102 pressed state. Constructor initializes +0x161=0. Native setter 0x141593860 is exact bytes 88 91 61 01 00 00 C3, exposed at GUI button vslot+0x170. Call this setter(button,1) to opt in. Primary enable is vslot+0x168 -> 0x141593850 (button+0x160), and double-click enable is +0x160 -> 0x141593870 (button+0x162).
+
+Safety detail: 0x1415935B0 caches next node before invoking a callback and does not use the same copied-observer visitor as the primary click path. The prototype callbacks only log/update plugin state; they do not destroy buttons or mutate subscription lists from within a callback. Lifecycle unsubscribe is performed from UI hooks outside callback dispatch.
+
+Concrete prototype: tools/native_ui_probe.js. Details in docs/native-ui-prototype-usage.txt. It is a logging-only Frida implementation with original-byte checks, typed primary/secondary callbacks, native subscription/unsubscription, per-panel deduplication, external callback storage, and staged-executable path restriction. It has been syntax-checked; runtime testing belongs to the parent task. This addition does not change the earlier unresolved range-preview/color-provider API.
+
+Additional evidence:
+work/native-ui/pseudocode8.txt: signal remove; base and derived button constructors.
+work/native-ui/pseudocode9.txt: input events, primary release, GUI subclass constructor.
+work/native-ui/pseudocode10.txt: click/secondary dispatch, button destructor.
+work/native-ui/pseudocode11.txt: signal destruction and safe observer visitation.
+
+Runtime validation update (2026-10-26): work/native-integration/ui-trace-02.jsonl
+records the verified staged EXE/hash, one live binding, a primary toggle event
+and a secondary settings-request event for army opaque ID 19d300000036, then
+unbound(reason=dispose) and disposed(remainingBindings=0). This confirms both
+callback ABI paths and ordinary RPC disposal in this session. Reload/destructor
+transitions still require testing. Actual button vtables are game subclass
+0x141D58218 (primary) and 0x141D581F8 (signal), assigned by constructor
+0x1410B53E0 after GUI construction. The prototype hooks deleting destructor
+0x1410B5670 at entry, before base destructors replace those tables.
+Range rendering is now documented separately in native-range-preview-findings.txt.

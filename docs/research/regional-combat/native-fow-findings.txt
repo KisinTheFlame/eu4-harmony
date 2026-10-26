@@ -1,0 +1,76 @@
+当前玩家视野——console FOW入口到省份缓存及单位tooltip的静态闭环
+2026-10-26。批准底本SHA256：97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e。
+全部地址为RVA；只分析冻结exe，未附加、读取或操纵运行中游戏进程。
+本报告补充并更新native-hostility-findings.txt的“FOW尚未定位”结论。
+
+结果
+原生当前玩家fog-hidden缓存已经有直接静态证据：
+  bool FogHiddenForCurrentPlayer(Province* p) {
+      return (read_u8(p+0x959)&0x20) != 0 && (read_u8(p+0x958)&0x02) != 0;
+  }
+这不是镜头viewport筛选，不是单独的已发现省份bitset，也不要求调用原生函数。
+0x8275e0使用effective玩家CountryTag重算这些缓存；单位tooltip0xd47780用同一表达式过滤敌军。
+目标属于本次world、玩家tag和最近已完成视野刷新时，非己方军队所在省份FogHidden=false是原生FOW可见的静态依据。
+这只回答“当前玩家”，不能传入任意国家tag查询另一国家的视野。尚未运行时验证缓存更新时机/切国/读档边界。
+主adapter上线前应通过被动观察确认：默认FOW开启，附近与远方省份结果，普通游戏推进刷新，切国/载入失效。
+
+证据1：console fow文案明确区分两个bit
+string 0x1d2ef60="Fog of War is now ON."，0x1d2ef78="Fog of War is now OFF."。
+共同引用函数0xe7a990是fow console handler（不要调用它作查询）。
+无参数时调用0x76ed60(world,!world+0x23a6)，然后按world+0x23a6选择ON/OFF文案。
+0x76ed60把world+0x1c90..0x1c98的省份指针逐个更新province+0x959 bit0x20，并写world+0x23a6。
+所以province+0x959 bit0x20是FOW启用开关，不能单独用它判断该省份隐藏。
+带省份参数时，handler检查上述两个bit合取，再调用0xa0b150(province,1或0)，输出该省份开启/关闭FOW文案。
+0xa0b150把province+0x958 bit0x02及mapdata=*(province+0x28)的+0x228 bit0x04同步为参数。
+变化时向province+0x2d8关联渲染对象的+0x340队列放入mapdata+0x154，并设置+0x338刷新标志。
+这个setter确实写状态；只能被动观察，禁止作为可见性查询调用。
+证据：work/native-hostility/fow1.txt，fow2.txt。
+
+证据2：可见性计算明确绑定effective当前玩家
+0x8275e0入口读取world=*(base+0x233fe78)，effective tag规则与0x811b20相同：
+  byte(world+0x1e66)==7 && byte(world+0x1e6f)!=0 ? qword(world+0x1e68) : qword(world+0x1e60)
+正常国家/FOW模式分支分配临时省份字节数组，初始全部hidden=1。
+自己owner或controller省份及其邻接省份清零；国家关系helper0x3bb250参与共享视野筛选。
+继续遍历满足关系的国家军队country+0xd18，按军队当前省份army+0xe8及邻接省份清零。
+还有联属/特殊军队/关系路径；本实现不需要复制这些规则，直接消费原生结果。
+最后扫描world+0x1ca8的省份，stride0x2e10；未发现省份按province+0x5e0国家bitset强制hidden。
+对变化项调用0xa0b150(province,newHidden)。因此发现bitset与当前FOW缓存确实是两个不同层次。
+FOW关闭/无有效可观察国家等分支把所有province hidden清零；适配器需要独立验证可控制玩家而不是把观察者全图视野当有效任务身份。
+函数会分配临时数组和写缓存；不能主动调用于工作线程。可以在原生调用onLeave记录刷新epoch和effective tag。
+证据：work/native-hostility/fow3.txt，ADDRESS1408275e0。
+
+证据3：直接消费者阻止显示隐藏军队
+0xa075a0省份信息函数在两bit合取成立时立刻返回本地化键CANT_SEE_UNDER_FOW（字符串RVA0x1cd9270）。
+军队主vtable+0x18 ->0xd47780实际是单位tooltip生成，不是每日tick。
+它枚举所在省份的单位链表（province+0x350；payload+0,next+0x10），在两bit合取为true时跳过owner不是effective玩家的单位。
+另有军队/舰队地形区分、空军团等检查。因此FOW可见不等于所有单位都能被任务追击，仍需hostility/land/current-state等独立条件。
+这个生成函数会分配文本、读整个tooltip，不应作为查询调用；observer只监听原生调用入口。
+证据：work/native-hostility/fow2.txt，ADDRESS140a075a0和140d47780。
+
+最小可用只读适配契约（尚待runtime验证）
+  1. 确认当前session/world、可控制的effective玩家tag及军队归属。
+  2. 仅在原生游戏线程的稳定时点构造snapshot；借用指针不可跨load保留。
+  3. 从最近完成的0x8275e0刷新确认world/tag一致；切国、载入或刷新进行中必须先失效。
+  4. EnemyArmy的province取army+0xe8；省份id与snapshot图一致后读上述缓存。
+  5. FogHidden=true则排除。false只作为FOW条件通过，不替代hostility、通行、任务范围和军队状态。
+  6. 原生UI例外允许玩家自军在fog下显示；自动任务寻找敌军不应复制成“任何自军可攻击”。
+  7. 本函数直接使用原生FOW开关，用户若自行关闭FOW则原生可见范围扩大；工具不自行改开关。
+缓存新鲜度仍是集成条件：只有保存同world/tag的一次历史刷新不能无限证明当前状态；应随原生刷新epoch消费，并核对原生日推进时序。
+
+被动验证工具
+tools/native_fow_observer.js：Frida脚本，仅匹配/work/game-stage/eu4.exe并校验3个入口前缀。
+入口0x8275e0记录refresh完成epoch/world/tag；0xa0b150记录首32次setter前后位及caller；0xd47780记录首12次tooltip的军队/省份。
+首8次refresh完成输出全省hidden数量及默认省份149/151/4703样本；不把屏幕上可见当FOW判断。
+RPC status()给计数和epoch；samples([省份ID...])最多32个；snapshot()只读当前缓存；dispose()卸载自身hook。
+resetlog()只重置observer计数，不改变游戏。不调用NativeFunction、控制台命令或游戏数据write。
+脚本仅语法验证node --check通过；尚未附加执行。需先用inspect_baseline.py核对完整底本hash；入口前缀不是完整文件身份的替代。
+建议初始暂停观察数值，然后正常游戏时间推进/军队移动后检查更新；确认当前玩家本土邻省与远方未知省份差异。
+若没有refresh回调，不能把初始lastCompleted=null包装成已经验证完成；可继续被动观察已知原生UI刷新路径，禁止为了测试而随意调用setter。
+
+运行验证补充（2026-10-26）
+隔离PID43680，读档与正常推进期间被动observer已运行。fow-trace-01.jsonl
+记录同一玩家CAS索引185、有效tag、UI线程23700。载入刷新epoch1：4942省，
+hidden4557；随后正常推进记录到epoch8，hidden4561。149/151/4703均为
+当前可见；setter调用RVA828088已观察flags958从16->18使fogHidden变true。
+刷新前后world/tag一致。此处证明实际缓存位及刷新回调，不单独证明生产
+调度与每日snapshot消费顺序。日期推进仅发生在复制的测试存档中。

@@ -1,0 +1,28 @@
+Native userdir.txt serialization requirement — 2026-10-26
+
+Approved unrestricted EXE SHA-256:
+97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e
+
+Focused static analysis of RVA 0x1714B40–0x1715464 shows that the game reads
+up to 511 bytes of userdir.txt as one UTF-8 string. At RVA 0x1714D7C it calls
+0x17043C0, which creates a trimmed copy using LF/TAB/CR/space (the four bytes
+at RVA 0x1DBF598). At 0x1714D88 the caller destroys that copy without assigning
+it back. The original string reaches MultiByteToWideChar and CreateDirectoryW.
+Spaces within a path are not token separators. Quotes are unnecessary.
+
+Deployment validation reproduced the difference on the same installed game
+and private user profile: a path with final LF failed before normal profile
+logs appeared, with Application Error 1000 in pops_api.dll at offset 0x5BB39
+(exception 0xC0000005). Removing only the final LF allowed normal startup and
+profile logs (PID 58744). The exact known-good workspace profile path had no LF.
+This evidence identifies the malformed userdir path as the startup trigger;
+it does not establish the precise null dereference inside pops_api.dll.
+
+Installer contract: UTF-8 without BOM, forward slashes, no quotes, no trailing
+CR/LF. Write-Eu4UserDirectory writes only those path bytes. The Windows regression
+test extracts this actual helper through PowerShell AST and checks its output
+bytes for paths containing spaces and non-ASCII characters, without installing
+or touching any live profile. The installation uses the original Documents
+profile; no private-profile or save/mod junction workaround is needed.
+
+Intermediate disassembly/pseudocode: work/native-userdir/pseudocode.txt.

@@ -14,15 +14,16 @@ pub mod hooks;
 pub mod map;
 pub mod memory;
 pub mod mods;
+pub mod notice;
 pub mod paths;
 pub mod pdx;
 pub mod physfs;
+pub mod report;
 pub mod saves;
 pub mod splice;
 pub mod text;
 pub mod ui;
 
-use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Mutex, OnceLock,
@@ -52,21 +53,6 @@ pub fn guarded(what: &str, f: impl FnOnce()) {
     }
 }
 
-/// Tells the player about a problem once per `key`, without blocking the game.
-pub fn notice(key: &str, text: &str) {
-    static SHOWN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-    log!("notice: {}", text.replace('\n', " "));
-    if !SHOWN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashSet::new).insert(key.to_string()) {
-        return;
-    }
-    let text: Vec<u16> = text.encode_utf16().chain([0]).collect();
-    std::thread::spawn(move || {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND};
-        let title: Vec<u16> = "EU4 Harmony\0".encode_utf16().collect();
-        unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONWARNING | MB_SETFOREGROUND) };
-    });
-}
-
 fn dependencies() -> [&'static [baseline::Dependency]; 7] {
     [game::DEPENDENCIES, game::world::DEPENDENCIES, game::orders::DEPENDENCIES, game::events::DEPENDENCIES, ui::DEPENDENCIES, map::DEPENDENCIES, saves::DEPENDENCIES]
 }
@@ -79,10 +65,20 @@ fn install_game_hooks(m: memory::Memory) -> Result<()> {
     Ok(())
 }
 
+/// Log file in the game folder, used only when the user directory cannot be
+/// determined, so a failure is still written down somewhere.
+fn open_fallback_log() {
+    if !log::is_open() {
+        if let Some(dir) = GAME_DIR.get() {
+            let _ = log::open(&dir.join("eu4-harmony").join("logs").join("core.log"));
+        }
+    }
+}
+
 fn bootstrap() -> Result<()> {
     MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
-    log::open(&game_dir.join("eu4-harmony").join("logs").join("core.log")).map_err(|e| format!("open log: {e}"))?;
+    // The log stays buffered until the user directory is known (deferred_init).
     log!("eu4-harmony core {} (api {}) bootstrap in {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, game_dir.display());
     let _ = GAME_DIR.set(game_dir);
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
@@ -109,16 +105,29 @@ fn bootstrap() -> Result<()> {
 /// Runs once, on the game thread, from the first PhysFS call.
 pub(crate) fn deferred_init() {
     let game_dir = GAME_DIR.get().cloned().unwrap_or_default();
-    let logs = game_dir.join("eu4-harmony").join("logs");
     let user_dir = match paths::user_dir(&game_dir) {
         Ok(d) => d,
         Err(e) => {
             log!("user dir: {e}");
+            open_fallback_log();
             return;
         }
     };
+    let logs = user_dir.join("eu4-harmony").join("logs");
+    if let Err(e) = log::open(&logs.join("core.log")) {
+        open_fallback_log();
+        log!("cannot open {}: {e}", logs.join("core.log").display());
+    }
+    report::open(logs.join("report.txt"));
+    report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, log::now()));
+    report::line(format!("game: {}", game_dir.display()));
+    report::line(format!("user dir: {}", user_dir.display()));
     log!("user dir {}", user_dir.display());
     let supported = BASELINE_OK.load(Ordering::Acquire);
+    report::line(match BASELINE_ERROR.lock().unwrap().as_ref() {
+        None => "executable: supported".to_string(),
+        Some(e) => format!("executable: NOT supported, no extension runs: {e}"),
+    });
     let memory = MEMORY.get().copied().filter(|_| supported);
     if let Some(m) = memory {
         if let Err(e) = saves::initialize(m, user_dir.join("eu4-harmony").join("saves")) {
@@ -129,27 +138,59 @@ pub(crate) fn deferred_init() {
         Ok(v) => v,
         Err(e) => {
             log!("mod discovery failed: {e}");
+            report::line(format!("mods: discovery failed: {e}"));
+            report::write();
             return;
         }
     };
-    for note in notes {
-        log!("discovery: {note}");
+    for note in &notes {
+        log!("discovery: {}", note.text);
+        if note.harmony {
+            notice::post(&format!("skipped:{}", note.text), &format!("An EU4 Harmony mod in the playset was skipped:\n{}", note.text));
+        }
     }
     for m in &mods {
         log!("mod {:?} id={:?} api={} dir={} extension={:?} ui={}", m.descriptor.name, m.manifest.id, m.manifest.api_version, m.dir.display(), m.manifest.extension, m.manifest.ui.len());
     }
+    if !supported {
+        notice::fall_back("the executable is not supported");
+    }
     if !supported && mods.iter().any(|m| m.manifest.extension.is_some() || !m.manifest.ui.is_empty()) {
         let reason = BASELINE_ERROR.lock().unwrap().clone().unwrap_or_default();
-        notice("baseline", &format!("This eu4.exe is not supported by EU4 Harmony, so mods built on it are inactive.\n\n{reason}"));
+        notice::post("baseline", &format!("This eu4.exe is not supported by EU4 Harmony, so mods built on it are inactive.\n\n{reason}"));
     }
-    let included = ext::load(memory, &mods, &logs);
+    let outcomes = ext::load(memory, &mods, &logs);
     let indices = ext::extension_indices(&mods);
-    let (plan, notes) = splice::build(&mods, |i| supported && included[i]);
-    for note in notes {
+    let (mut plan, ui_notes) = splice::build(&mods, |i| supported && outcomes[i].included);
+    for note in &ui_notes {
         log!("ui: {note}");
     }
-    log!("splice plan ready: {} element(s), {} button slot(s)", plan.elements.len(), plan.slots);
-    ui::set_elements(plan.elements.iter().map(|e| (e.clone(), indices.get(&e.owner).copied())).collect());
+    let mod_elements = plan.elements.len();
+    let notices = if !supported {
+        "message boxes".to_string()
+    } else if let Err(e) = notice::splice(&mut plan) {
+        notice::fall_back(&format!("notice window: {e}"));
+        format!("message boxes ({e})")
+    } else {
+        "notice window in the main menu and the top bar".to_string()
+    };
+    log!("splice plan ready: {mod_elements} mod element(s), {} button slot(s); notices: {notices}", plan.slots);
+    report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
+    for (m, outcome) in mods.iter().zip(&outcomes) {
+        report::line(format!("  {} (id {}, api {}): {}; {} UI fragment(s)", m.descriptor.name, m.manifest.id, m.manifest.api_version, outcome.status, m.manifest.ui.len()));
+        report::line(format!("    {}", m.dir.display()));
+    }
+    for note in notes.iter().map(|n| format!("discovery: {}", n.text)).chain(ui_notes.iter().map(|n| format!("ui: {n}"))) {
+        report::line(format!("  {note}"));
+    }
+    report::line(format!("UI: {mod_elements} mod element(s) spliced, {} button-area slot(s)", plan.slots));
+    report::line(format!("notices: {notices}"));
+    report::write();
+    let extension = |owner: &splice::Owner| match owner {
+        splice::Owner::Mod(i) => indices.get(i).copied(),
+        splice::Owner::Framework => None,
+    };
+    ui::set_elements(plan.elements.iter().map(|e| (e.clone(), extension(&e.owner))).collect());
     physfs::set_plan(plan);
 }
 
@@ -160,6 +201,7 @@ pub extern "system" fn eu4_harmony_bootstrap() -> u32 {
         Ok(Ok(())) => 0,
         Ok(Err(e)) => {
             log!("bootstrap failed: {e}");
+            open_fallback_log();
             1
         }
         Err(_) => 2,

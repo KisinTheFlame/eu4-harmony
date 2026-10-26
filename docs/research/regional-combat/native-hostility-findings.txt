@@ -1,0 +1,92 @@
+敌对关系、玩家国家与可达性——静态定点逆向
+日期：2026-10-26
+底本 SHA256：97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e。
+仅分析冻结exe和已有静态材料；未读取、附加或操纵运行中游戏进程。
+RVA必须加实际模块基址。Ghidra 12.1.4，-noanalysis -readOnly；原始结果work/native-hostility。
+
+结论
+后续FOW静态闭环已记录于native-fow-findings.txt：省份+0x959 bit0x20与+0x958 bit0x02合取为当前玩家fog-hidden缓存。
+本文件保留下方早先探索的未确认状态；采用后续报告的证据、epoch/tag边界和runtime待验证条件。
+已定位可用于下一轮只读runtime验证的通用军队敌对谓词RVA0xd54a60，以及玩家国家tag getter RVA0x811b20。
+敌对谓词读取普通国家的敌对记录，兼容战争国家，具有特殊国家/叛军例外；不包含兵力门槛。
+军队vtable+0x120的地块准入谓词是RVA0x1a2280；它不等价于最终路径，也允许部分运输场景。
+当前尚未证明“当前可见敌军”的FOW谓词。领土已发现bitset不可当作当前视野，不能在此基础上启用透视目标搜索。
+以下均为静态依据；尚未实测函数调用返回值或跨版本兼容性。
+
+1. 通用军队敌对谓词
+  using HostileFn = uint8_t (__fastcall *)(void* armyA, void* armyB);
+  RVA 0xd54a60，Windows x64 RCX=armyA，RDX=armyB，返回仅AL有效。
+  不能把完整RAX当bool：返回路径只重写低8位，上方位可能保留country索引或指针。
+  两个对象必须是当前稳定world中的活对象；仅在经确认的原生游戏线程/安全时点调用。
+
+核心静态证据（work/native-integration/pseudocode1.txt，ADDRESS140d54a60）：
+  army+0xd0：所属国家CountryTag qword；索引为int16(tag >>32)。
+  country对象取自 *(*(global0x233d8d0)+0x118) 的8字节指针数组。
+  country+0x1548：敌对记录数组指针；country+0x1554：记录数；stride16，首int是对方国家索引。
+  同国直接返回false；普通国家命中上述记录则返回true。
+  特殊国家索引global0x233d8a4、0x233d8d8、0x233d8dc进入特殊敌对分支。
+  其中0x233d8a4与原平叛selector的rebel筛选一致；另两个身份未命名，不应硬编码推测。
+  army+0xe0的关联CountryTag用于交叉排除；语义尚未证明为控制国，避免仅按owner手写关系替代。
+  army+0x188的派系指针及0xa95f60处理叛军例外；同叛军派系不能直接当互相敌对。
+  部分全局/TLS模式启用vslot+0x90判断及vslot+0x60 -> 0x1a8b70转换，以选择另一关系国家。
+  因此直接调用这一原生谓词优于只复制country记录表。
+  查询不写军队、国家或路径，但可能通过0x1a334c0惰性初始化当前线程TLS；不应在任意外来工作线程调用。
+
+与原平叛逻辑的边界：
+  selector0x1c8860首先专门筛选rebel再调用此谓词，同时还调用0xd46800计算军力、另做比较。
+  这些外部rebel-only/兵力规则不属于HostileFn，新的策略层不应复制。
+  HostileFn不证明可见、不证明省份属于本国、不证明路径可行、不证明目标可追击。
+  应分别验证ownArmy/enemyArmy、ownArmy/friendlyArmy、ownArmy/neutralArmy、ownArmy/rebelArmy，以及反向参数。
+  保留caller所需方向，不能未经验证假设所有特殊例外完全对称。
+
+2. 当前玩家国家tag getter
+  using PlayerTagFn = uint64_t* (__fastcall *)(void* unused, uint64_t* out);
+  RVA0x811b20..0x811b55，RCX未使用，RDX=8字节输出缓冲，RAX=out。
+  source=*(base+0x233fe78)，即world。
+  if byte(world+0x1e66)==7 && byte(world+0x1e6f)!=0:
+      *out=uint64(world+0x1e68)
+  else:
+      *out=uint64(world+0x1e60)
+  原始定点结果：work/native-hostility/pseudocode2.txt。
+  独立单位UI路径0xd423b0重复该分支并与army+0xd0对应国家比较，支持其有效玩家国家意义。
+  不能只固定读world+0x1e60；特殊观察/切换模式下有另一来源。具体枚举7名称尚未证实。
+  Getter不验证world非空、tag合法或索引边界；适配器需要先确认游戏已载入、world稳定且是可控制国家。
+  国家指针解析仍需经理数组真实长度/有效tag校验，不能盲目使用signed索引。
+
+3. 原生省份准入谓词（不是完整寻路）
+  主军队vtable RVA0x1c42540 +0x120 -> RVA0x1a2280。
+  using ProvinceAccessFn = uint8_t (__fastcall *)(void* army, void* province,
+      uint8_t p3, uint8_t p4, uint8_t p5, uint64_t p6,
+      void* tooltip, uint8_t p8, uint64_t p9);
+  从原生平叛caller可复现的九参形式：
+      access(army, province, 0, 0, 0, 0x2d2d2d, nullptr, 0, 0)
+  p3/p4/p5/p8及p6的完整语义未命名，只使用这个已观察到的调用组合。
+  返回仅AL有效；不要用完整RAX。tooltip=null与p3=0避开可见文本构造/日志路径。
+  wrapper读取province地形/国家、army相关状态，主要委派0xd447d0。
+  当mapdata+0x228 bit3不满足土地分支时调用0x9dd6a0(province,army,-1)，成功也可能返回true。
+  因此“原生准入true”不能证明无需海运。增强需要土地/允许海峡的图边限制，再让原生移动命令验证路径。
+  还未递归证明所有callee完全无惰性缓存写入；应保持原生线程时点并监测结果，不从外部线程批量调用。
+  原始定点结果：work/native-hostility/pseudocode1.txt，ADDRESS1401a2280。
+
+4. FOW边界及排除掉的错误候选
+  0x1a2280里province+0x5e0按国家索引查bit，且受province+0x959 bit0x10控制。
+  这更像发现/通行约束；没有足够证据把它认定为当前省份或敌军可见性。
+  0xd41870只查army+0xc0战斗对象的两边参与列表/部队数组，不是FOW。
+  0xd3f490修改army owner和所属regiment owner，是转属行为，不能当只读查询调用。
+  主vslot+0xa8=0xd3fd30修改army+0xe8所在省份并通知UI/省份列表，是移动位置更新，不能当只读查询。
+  主vslot+0xb0=0xd4cbc0按regiment字段汇总并比较全局阈值，不是可见性。
+  主vslot+0x90=0x1a8b00读取army+0x227，主vslot+0x98=0x1a8c10读取army+0x233，均受相同global/TLS门控。
+  主vslot+0x10=0xd41ae0比较army+0x140对象提供的国家tag与owner，也没有证明FOW含义。
+  以上原始结果：work/native-hostility/pseudocode3.txt；排除记录避免后续重复猜测。
+  地图着色provider0x12fdcb0只输出省份颜色；不能据其存在推断敌军可见。
+  未验证FOW前，适配器必须让敌军可见性保持Unknown/false，避免把全量world军队表当可见列表。
+  若产品只先验证失陷省份目标，则仍应分别确认本国领土ownership/controller和可达性，不能以EnemyArmies替代。
+
+5. 入口字节（32字节，仅辅助底本身份之外的运行时入口核对）
+  0xd54a60:
+    48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80 3d c6 b4 5e 01 00 48 8b fa 48 8b f1 74 09 80 3d
+  0x811b20:
+    48 8b 05 51 e3 b2 01 80 b8 66 1e 00 00 07 75 17 80 b8 6f 1e 00 00 00 74 0e 48 8b 80 68 1e 00 00
+  0x1a2280:
+    48 89 5c 24 08 48 89 6c 24 10 56 57 41 56 48 83 ec 70 45 0f b6 f1 41 0f b6 e8 48 8b da 48 8b f9
+  地址及签名不适用于原版或其他第三方build；继续使用inspect_baseline.py全文件hash前置校验。

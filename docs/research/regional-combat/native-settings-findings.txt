@@ -1,0 +1,231 @@
+Native radius settings UI: minimal implementable path
+2026-10-26. Baseline SHA256 97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e.
+Addresses are RVAs in the exact verified staged EXE.
+
+Recommended first implementation
+================================
+Add independent controls directly under the existing single_unitpanel resource:
+  rc_settings_title, rc_settings_radius (instantTextBoxType)
+  rc_settings_minus, rc_settings_plus, rc_settings_apply, rc_settings_cancel
+This creates a small logically grouped settings area beside the army panel.
+It uses the panel's already-proven root ownership and GUI parser, so no new
+native window/controller object or original suppression mission is needed.
+The parser creates these controls during the ordinary single_unitpanel load.
+The controls are borrowed; the game's root destroys them with its other children.
+
+Copyable GUI fragment: work/native-settings/rc_settings_controls.gui.fragment.
+It is not installed. Its layout follows the existing native arrow/button/text
+definitions and must be checked at runtime for position, clipping and text.
+It is deliberately a nonmodal panel extension, not an already-verified modal
+dialog. Extra background, title bar, dragging, focus and Escape routing are
+not required for the initial -/+ Apply/Cancel interaction and remain separate.
+
+Why not create another native dialog now
+========================================
+single_unitpanel already contains mission_settings_win and attach_unit_window
+child windows (unitpanel_main.gui approximately lines 748 and 786). The native
+registration function 0x144FB00 obtains mission_settings_win through root
+virtual +0x180(root, MSVCString*, 1), then binds its child buttons with +0x68.
+The window has a secondary interface at +0x30 used for hiding; native callers
+also inspect childWindow+0xF5 for visibility. This is evidence of a reusable
+resource hierarchy, but the precise show/hide this-pointer adjustment and
+generic creation ownership API have not yet been recovered/verified.
+Do not guess those methods or allocate a native dialog object manually.
+The flat root-owned controls achieve the required editing workflow using fewer
+unverified native interfaces. No call to suppression ctor 0x1462AA0 is needed.
+
+Known root lookup/registration ABI
+==================================
+root = *(armyPanel + 0x38), borrowed for that panel generation.
+root virtual +0x68(root, null-terminated char* name) -> button.
+root virtual +0x98(root, null-terminated char* name) -> text object.
+The second method is used by native update 0x1450660 for repair_value and
+aggressiveness_value in mission_settings_win, followed by 0x152AE10 below.
+Name lookups may return fallback controls. Validate returned names/types before
+binding or writing, following the already-validated RC button checks.
+
+Buttons use actual game-layer vtable 0x1D58218 and signal vtable 0x1D581F8.
+Reuse the proven signal/wrapper binding protocol from native-ui-findings.txt:
+  signal = button+0xC8; virtual+8 subscribes borrowed wrapper;
+  wrapper+0x70 receives primary click(context,ClickEvent*);
+  wrapper+0x48 receives secondary release(context,button*).
+Only the RC entry button needs right-click enabled. Settings action buttons use
+primary callbacks. Give each action its own external context/wrapper, keep all
+wrappers alive, and unsubscribe before known panel/root/button destruction.
+
+Visibility and enabled state (new static verification)
+======================================================
+Actual button vtable slots:
+  +0x88 -> 0x15AEB30, void(button*): show
+  +0x90 -> 0x15AEAD0, void(button*): hide
+  +0x80 -> 0xFAAB30, void(button*, uint8 enabled): enabled state
+show sets button+0xC5=1 (unless +0x100 inhibits it) and shows its graphics/text.
+hide sets +0xC5=0 and hides its graphics/text/tooltip.
+enable delegates to virtual +0x268 when true, +0x270 when false.
+Use these methods instead of writing visibility bytes directly.
+
+Frozen 16-byte function prefixes:
+0x15AEB30: 40 53 48 83 EC 20 80 B9 00 01 00 00 00 48 8B D9
+0x15AEAD0: 40 53 48 83 EC 20 C6 81 C5 00 00 00 00 48 8B D9
+0xFAAB30:  48 8B 01 84 D2 74 07 48 FF A0 68 02 00 00 48 FF
+0x152AE10: 48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57
+
+Dynamic text ABI — ownership matters
+====================================
+0x152AE10(textObject*, MSVCString* movableSource, uint8 flag=0) -> void.
+This is a MOVE setter, not a borrowed const-string or UTF-8 pointer API.
+It destroys textObject+0x170's previous string, copies all 32 source bytes,
+resets source length=0/capacity=15/firstByte=0, then updates underlying text.
+The source object is consumed. Passing a Memory.allocUtf8String pointer as a
+native long-string allocation is unsafe: the engine later frees that pointer
+with its own allocator.
+
+For numeric radius display, safely use an SSO source containing <=15 ASCII bytes:
+  +0 inline bytes[16], null terminated
+  +0x10 uint64 byte length
+  +0x18 uint64 capacity=15
+Example values: "Radius: 2", "Radius: 12", "RC Settings", or empty string.
+The destination owns an inline copy, so no external memory lifetime is required
+after the call. The source becomes an empty native string. No native allocation
+or free is required for these short values. Longer/localized dynamic messages
+need a separately verified native string builder/allocator path.
+
+Use empty text to hide the two labels, avoiding a new text-visibility ABI.
+On opening, write the short title and draft radius. On close, move in empty
+strings and hide all four buttons. Hide buttons immediately after registration
+before the first normal render; late attachment may briefly show the GUI defaults.
+
+Reference integration helper (not an attached prototype):
+work/native-settings/settings_control_helpers.js.
+It validates prefixes and exact button slot targets, supplies show/hide/enable,
+and builds consumed SSO text. Caller must provide already-validated text objects;
+the helper does not guess text subtype/name metadata or attach any hooks.
+node --check passed. New show/hide/text calls are statically verified but still
+need a supervised runtime test in the staged game.
+
+Required editing transaction
+============================
+Maintain external/plugin state per open editor:
+  selected army identity/generation; committed radius; draft radius;
+  preview generation; prior map mode; editor open flag.
+Right-click RC:
+  snapshot this army's committed settings into draft, capture identity,
+  open controls and render draft scope using the custom preview pipeline.
+Minus/plus:
+  clamp/change draft only; update radius label and draft preview set.
+  Do not update active automation or sidecar settings here.
+Apply:
+  ensure same selected army and generation; finish/restore temporary preview,
+  then commit the draft once through the host's validated settings API;
+  hide controls only when commit/cleanup succeeds.
+Cancel:
+  restore/remove temporary preview, discard draft, leave committed settings
+  untouched, clear labels and hide controls.
+Selection change, root recreation, save load or selected-army disappearance:
+  cancel the edit; never apply old draft to whichever army is now selected.
+
+Click callbacks should enqueue these operations; process them after the native
+army-panel update in the existing NativeCallback replacement. Do not use an
+Interceptor onLeave listener to invoke preview refresh: the confirmed Frida
+recursion guard suppresses nested renderer observers there. Do not create a
+second replacement for the same update function; integrate into the one owner.
+Retire settings wrappers using the same proven panel/button lifecycle cleanup.
+Map-color preview must be restored before teardown reports successful disposal.
+
+Evidence / limitations
+======================
+work/native-settings/pseudocode1.txt: exact button methods and move text setter.
+work/native-ui/pseudocode1.txt: panel register/update, root lookup slots, native
+mission_settings_win child access, text setters and visibility call sites.
+work/game-stage/interface/unitpanel_main.gui: existing child-window/arrow/text
+resource syntax. The actual installation was not changed in this investigation.
+General modal-dialog creation/display/focus ABI remains unresolved. The supplied
+root-owned-controls route avoids that dependency and is concrete enough to test.
+No game attachment or writes to shared native_range_preview.js were performed.
+
+Runnable settings prototype update
+===================================
+tools/native_settings_probe.js now implements the independent settings controls.
+tools/regional_combat_settings.gui.fragment is its installable resource fragment;
+add it alongside the RC entry button under single_unitpanel, then reload the
+staged game's GUI. No stage modification was performed by this sub-agent.
+Load the script explicitly with --dispose-rpc. Do not also load native_ui_probe.js:
+both would register on the same RC entry button. The settings script only attaches
+to the UI update; it does not install another NativeCallback replacement or call
+map refresh. Prefix checks require original bytes at attachment time; combined
+preview/settings deployment should use one coordinated owner of these hooks.
+
+Default radius=5, minimum=0 (center only), maximum=1000000 corruption guard,
+step=1. Value label is "R N", so even the upper bound stays inside the safe SSO
+limit. All configuration remains in this script's prototype state; nothing is
+sent as an army command or persisted to a save/sidecar.
+
+RC primary click toggles enabled. Enabling reads province pointer army+0xE8,
+province ID +0x20 and fixes that center. Secondary click opens a draft: enabled
+army uses its fixed center; disabled army uses its current province. Apply changes
+the radius only and never implicitly enables. Cancel and selected-army changes
+discard the draft. Full uint64 army+0x20 is emitted as hexadecimal opaqueId.
+
+Host event contract (source=rc-settings):
+  toggle: enabled, radius/committedRadius, fixed centerProvinceId, army identity.
+  settings-open: draftRadius, committedRadius, candidate/fixed centerProvinceId.
+  radius-changed: draftRadius changed; committedRadius stays unchanged.
+  settings-applied: committed radius changed; enabled is preserved.
+  settings-cancelled: reason, discardedRadius, committedRadius, army identity.
+  selection-changed: previous key and new selected unit (or null).
+All carry prototypeOnly=true. No province set is fabricated; the host supplies
+geography/radius preview from these events through its own coordinated worker.
+
+Callback bodies enqueue actions; UI update drains them after the native update.
+Binding validates all five buttons and both distinct initially-empty text objects
+before subscriptions, then hides settings controls. Failed partial registration
+retains ownership for cleanup and does not process user actions. Known panel,
+root recreation and button destruction hooks unsubscribe before destruction.
+dispose hides settings, clears texts, removes native listeners and returns
+{stopped:true,remainingBindings:0} only when cleanup succeeds; otherwise it stays
+pinned for a later UI cleanup opportunity. Use status() for diagnostics.
+
+Validation: node --check passed. work/native-settings/logic-smoke.cjs runs only
+the actual transaction functions with fake controls/selection; it passed default,
+draft isolation, Cancel, Apply-without-enable, fixed center, bounds and army-change
+cancellation checks. Live GUI/button/text/destructor validation remains the
+parent's next step. No attachment was performed by this sub-agent.
+
+Outer army-panel close observer (2026-10-26; runtime validation pending)
+====================================================================
+The top-level single_unitpanel GUI resource has no outer close button. The close
+name bound at 144FB00 belongs to mission_settings_win, so it is NOT evidence for
+the screen's outer army-panel X action. Registration explicitly hides the root
+using root+0x30's vslot+0x90. It also adds the root to manager+0x90's list. The
+native child-window visibility test uses object+0xF5, which corresponds to this
+secondary interface+0xC5. Applicability to outer-panel closure needs live proof.
+
+Passive tools/native_panel_close_observer.js obtains the exact root interface
+vtable from a verified panel (vtable1D87088, root+38), hooks observed +88/+90
+in-module executable targets without calling them, and logs their prefixes,
+receiver adjustment, caller, backtrace and before/after bytes. Manager8137C0
+continues comparing rootF5/panel+40 after visible army-panel updates cease.
+It retires borrowed panel pointers before 144F560 destructor/1450580 recreate.
+No process attachment, native invocation, data writes, callback subscription,
+replacement or pin is performed. Thus dispose detaches its listeners directly.
+
+Test sequence: dispose preview/update replacements first; attach observer using
+probe_runtime.py --script tools/native_panel_close_observer.js --dispose-rpc.
+Select one army, press outer X, wait at least three seconds, reopen same army.
+Need: root visibility transition, whether panel+40 clears or remains, exact
+virtual target prefix/RVA, closure caller/backtrace, and manager-thread heartbeat
+while panel update count stops. Then verify observed target in frozen EXE before
+choosing a production restoration dispatch. node --check passed; not attached
+by this sub-agent. rootC5Candidate is explicitly diagnostic, not a visibility ABI.
+
+Composable suspend API (2026-10-26)
+==================================
+createSettingsUI now also exposes suspendOnUi(panel, reason='panel-closed'). It
+requires the already-established UI thread, discards any draft and pending
+button actions, and clears remembered selection so reopening reannounces it.
+It preserves committed enabled/radius/center and subscriptions. status().panels
+now includes root, allowing the integrator to validate ownership and actual
+root+F5 visibility. Caller must not infer closed state from panel+40: passive
+panel-close-01 proves that pointer remains non-null after closing. The verified
+native outer close path is1453970 -> root+30 virtual90 ->1547B00, which writes
+this+C5=0. See native-range-preview-findings.txt for proof and manager dispatch.

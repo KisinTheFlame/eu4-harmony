@@ -2,7 +2,7 @@
 //! color pass it can observe (mode 12, option 26) and overwrites the colors of
 //! the requested provinces; clearing restores the mode that was active before.
 //! Ported from eu4-regional-combat's range preview
-//! (docs/native-range-preview-findings.txt there).
+//! (docs/research/regional-combat/native-range-preview-findings.txt).
 use crate::{
     baseline::Dependency,
     game::{self, fail, GResult, MAP, MAP_MANAGER_VT, PROVINCE_STRIDE},
