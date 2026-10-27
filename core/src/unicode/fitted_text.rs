@@ -65,39 +65,44 @@ extern "C" fn rest(string: *const usize, index: u32) -> u32 {
     })
 }
 
-/// Saves the volatile registers but `rax`, calls `$call` with the arguments
-/// the lines in `$args` set up, and restores them; `rax` keeps the result.
+/// Saves the volatile registers but `rax` on a stack aligned for the call,
+/// calls `$call` with the arguments the lines in `$args` set up, and restores
+/// them; `rax` keeps the result.
 macro_rules! around_call {
     ($($args:literal,)* call $call:ident) => {
         concat!(
-            "push rcx\n",
-            "push rdx\n",
-            "push r8\n",
-            "push r9\n",
-            "push r10\n",
-            "push r11\n",
-            "sub rsp, 0x88\n",
-            "movdqu [rsp + 0x20], xmm0\n",
-            "movdqu [rsp + 0x30], xmm1\n",
-            "movdqu [rsp + 0x40], xmm2\n",
-            "movdqu [rsp + 0x50], xmm3\n",
-            "movdqu [rsp + 0x60], xmm4\n",
-            "movdqu [rsp + 0x70], xmm5\n",
+            "push rbp\n",
+            "mov rbp, rsp\n",
+            "and rsp, -16\n",
+            "sub rsp, 0xb0\n",
+            "mov [rsp + 0x20], rcx\n",
+            "mov [rsp + 0x28], rdx\n",
+            "mov [rsp + 0x30], r8\n",
+            "mov [rsp + 0x38], r9\n",
+            "mov [rsp + 0x40], r10\n",
+            "mov [rsp + 0x48], r11\n",
+            "movdqa [rsp + 0x50], xmm0\n",
+            "movdqa [rsp + 0x60], xmm1\n",
+            "movdqa [rsp + 0x70], xmm2\n",
+            "movdqa [rsp + 0x80], xmm3\n",
+            "movdqa [rsp + 0x90], xmm4\n",
+            "movdqa [rsp + 0xa0], xmm5\n",
             $($args, "\n",)*
             "call {", stringify!($call), "}\n",
-            "movdqu xmm0, [rsp + 0x20]\n",
-            "movdqu xmm1, [rsp + 0x30]\n",
-            "movdqu xmm2, [rsp + 0x40]\n",
-            "movdqu xmm3, [rsp + 0x50]\n",
-            "movdqu xmm4, [rsp + 0x60]\n",
-            "movdqu xmm5, [rsp + 0x70]\n",
-            "add rsp, 0x88\n",
-            "pop r11\n",
-            "pop r10\n",
-            "pop r9\n",
-            "pop r8\n",
-            "pop rdx\n",
-            "pop rcx\n",
+            "mov rcx, [rsp + 0x20]\n",
+            "mov rdx, [rsp + 0x28]\n",
+            "mov r8, [rsp + 0x30]\n",
+            "mov r9, [rsp + 0x38]\n",
+            "mov r10, [rsp + 0x40]\n",
+            "mov r11, [rsp + 0x48]\n",
+            "movdqa xmm0, [rsp + 0x50]\n",
+            "movdqa xmm1, [rsp + 0x60]\n",
+            "movdqa xmm2, [rsp + 0x70]\n",
+            "movdqa xmm3, [rsp + 0x80]\n",
+            "movdqa xmm4, [rsp + 0x90]\n",
+            "movdqa xmm5, [rsp + 0xa0]\n",
+            "mov rsp, rbp\n",
+            "pop rbp\n",
         )
     };
 }

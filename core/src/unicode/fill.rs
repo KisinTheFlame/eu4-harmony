@@ -54,6 +54,8 @@ struct Fill {
     /// Rows above the system glyphs: the font's own page, or none.
     top: u32,
     family: String,
+    /// The colour the glyphs are drawn in.
+    ink: u32,
     em: f32,
     /// From the top of a line to the baseline, in pixels.
     base: f32,
@@ -123,9 +125,34 @@ fn put(texture: &IDirect3DTexture9, x: u32, y: u32, width: u32, rows: &[u32]) ->
     }
 }
 
-/// White, with the coverage as alpha.
-fn white(alpha: &[u8]) -> Vec<u32> {
-    alpha.iter().map(|&a| (a as u32) << 24 | 0x00ff_ffff).collect()
+/// `ink`, with the coverage as alpha.
+fn inked(alpha: &[u8], ink: u32) -> Vec<u32> {
+    alpha.iter().map(|&a| (a as u32) << 24 | ink).collect()
+}
+
+/// The colour `font`'s own glyphs have: that of the most opaque pixel of its
+/// `H`. Body text is drawn tinted, so its pages are white; the map draws its
+/// names in the page's colour, black in the fonts the game ships. Without the
+/// page's pixels: black for a map font, white otherwise.
+fn ink(m: &Memory, font: usize, own: Option<&(u32, u32, Vec<u8>)>, map: bool) -> u32 {
+    let fallback = if map { 0 } else { 0x00ff_ffff };
+    let Some((width, height, pixels)) = own else { return fallback };
+    let Ok(record) = m.ptr(font + 0x120 + b'H' as usize * 8) else { return fallback };
+    if record == 0 {
+        return fallback;
+    }
+    let h = unsafe { *(record as *const Glyph) };
+    let mut best = (0u8, fallback);
+    for y in h.y as u32..(h.y as u32 + h.height as u32).min(*height) {
+        for x in h.x as u32..(h.x as u32 + h.width as u32).min(*width) {
+            let at = ((y * width + x) * 4) as usize;
+            let [b, g, r, a] = [pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]];
+            if a > best.0 {
+                best = (a, u32::from_le_bytes([b, g, r, 0]));
+            }
+        }
+    }
+    best.1
 }
 
 fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
@@ -143,7 +170,7 @@ fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
                 return None;
             }
         };
-        if let Err(e) = put(&fill.texture, x, fill.top + y, bitmap.width, &white(&bitmap.alpha)) {
+        if let Err(e) = put(&fill.texture, x, fill.top + y, bitmap.width, &inked(&bitmap.alpha, fill.ink)) {
             log!("fill: cannot write a glyph: {e}");
             return None;
         }
@@ -195,13 +222,15 @@ fn metrics(fonts: &SystemFonts, family: &str, line: f32) -> (f32, f32) {
     (em, em * ascent)
 }
 
-/// A page for `font`: its own pixels with room below (bitmap fonts first),
-/// or an empty one (the system font look).
-fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<(u32, u32, Vec<u8>)>) -> crate::Result<Fill> {
+/// A page for `font`: its own pixels (`own`, when the game decoded them) with
+/// room below (bitmap fonts first), or an empty one (the system font look).
+fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<(u32, u32, Vec<u8>)>, system: bool) -> crate::Result<Fill> {
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
     let line = m.i32(font + 0x960)?.max(1);
     let current = settings::current();
     let family = if line > MAP_LINE { current.map_font } else { current.body_font };
+    let ink = ink(m, font, own.as_ref(), line > MAP_LINE);
+    let own = if system { None } else { own };
     let (em, mut base) = metrics(fonts, &family, line as f32);
     let (width, height, top) = match &own {
         Some((w, h, _)) if h + EXTRA_ROWS <= 4096 => (*w, h + EXTRA_ROWS, *h),
@@ -245,7 +274,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<(u3
             base = (glyph.y_offset + glyph.height as i16) as f32;
         }
     }
-    Ok(Fill { texture, width, height, atlas: Page::new(width, height - top), top, family, em, base, drawn: HashMap::new(), full: false })
+    Ok(Fill { texture, width, height, atlas: Page::new(width, height - top), top, family, ink, em, base, drawn: HashMap::new(), full: false })
 }
 
 /// The system font look: the font's glyphs for Windows-1252 characters
@@ -315,13 +344,11 @@ extern "C" fn load_after(frame: *mut HookFrame) {
             }
             let mut pages = lock(&PAGES);
             if !pages.contains_key(&wrapper) {
-                let own = match (system, own) {
-                    (true, _) => None,
-                    (false, Some(own)) => Some(own),
-                    // A compressed or shared page keeps its own glyphs only.
-                    (false, None) => return Ok(()),
-                };
-                let fill = make_page(&m, font, &device(&m, manager)?, own)?;
+                // A compressed or shared page keeps its own glyphs only.
+                if !system && own.is_none() {
+                    return Ok(());
+                }
+                let fill = make_page(&m, font, &device(&m, manager)?, own, system)?;
                 // The wrapper holds the game's reference: it gets one of
                 // ours, and its old texture is released.
                 let old = m.ptr(wrapper)? as *mut c_void;
