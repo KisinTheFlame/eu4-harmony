@@ -4,6 +4,7 @@
 pub mod atlas;
 pub mod breaks;
 pub mod buttons;
+pub mod dxt;
 pub mod edit_box;
 pub mod encoding;
 pub mod fill;

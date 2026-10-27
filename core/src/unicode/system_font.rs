@@ -136,11 +136,23 @@ impl SystemFonts {
 
     /// How far `family`'s lines reach above and below the baseline, in ems.
     pub fn line_metrics(&self, family: &str) -> Option<(f32, f32)> {
+        let metrics = self.metrics(family)?;
+        let em = metrics.designUnitsPerEm as f32;
+        (em > 0.0).then(|| (metrics.ascent as f32 / em, metrics.descent as f32 / em))
+    }
+
+    /// How tall `family`'s capital letters are, in ems.
+    pub fn cap_height(&self, family: &str) -> Option<f32> {
+        let metrics = self.metrics(family)?;
+        let em = metrics.designUnitsPerEm as f32;
+        (em > 0.0 && metrics.capHeight > 0).then(|| metrics.capHeight as f32 / em)
+    }
+
+    fn metrics(&self, family: &str) -> Option<DWRITE_FONT_METRICS> {
         let font = self.font(family)?;
         let mut metrics = DWRITE_FONT_METRICS::default();
         unsafe { font.GetMetrics(&mut metrics) };
-        let em = metrics.designUnitsPerEm as f32;
-        (em > 0.0).then(|| (metrics.ascent as f32 / em, metrics.descent as f32 / em))
+        Some(metrics)
     }
 
     /// Draws `scalar` in `family` at an em size of `em` pixels.
