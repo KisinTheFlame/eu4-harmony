@@ -20,7 +20,7 @@
 //!   converted to and from the game's encoding on the way;
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
-use super::{encoding, scalar};
+use super::{breaks, encoding, scalar};
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
 use std::cell::{Cell, RefCell};
@@ -237,6 +237,12 @@ type Fit = unsafe extern "C" fn(usize, usize) -> i32;
 /// The bytes of a line (`std::string*`) that fit a multi-line box's width,
 /// ending before a character the game's count would split. At least the
 /// first character, so a line always moves on.
+///
+/// When the text goes on past them, they end where a line may break (by the
+/// Unicode rules, `breaks`), if there is such a place: the caller (0x1537480)
+/// breaks a line at the last space before them, and with no space, as in
+/// Chinese, right at them, which cut Latin names in two (the country history
+/// window lays its text out in such a box).
 unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
     let original: Fit = std::mem::transmute(ORIGINAL_FIT.load(Ordering::Acquire));
     let count = original(inner, line);
@@ -245,6 +251,7 @@ unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
         let end = scalar::floor_boundary(text, count.max(0) as usize);
         match end {
             0 if count > 0 && !text.is_empty() => scalar::decode(text).1 as i32,
+            end if end < text.len() => breaks::last_at_or_before(text, end).unwrap_or(end) as i32,
             end => end as i32,
         }
     })

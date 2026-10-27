@@ -43,6 +43,12 @@ fn opportunities(text: &[u8]) -> Vec<usize> {
     breaks.into_iter().filter_map(|b| starts.binary_search_by_key(&b.offset, |&(u, _)| u).ok().map(|i| starts[i].1)).collect()
 }
 
+/// The last place a line of `text` may break at or before byte `end`, after
+/// its start; None when there is none.
+pub fn last_at_or_before(text: &[u8], end: usize) -> Option<usize> {
+    opportunities(text).into_iter().take_while(|&b| b <= end).filter(|&b| b > 0).last()
+}
+
 /// The layout loop is on the character at `text[start..end]`.
 pub fn at(text: &[u8], start: usize, end: usize) {
     CURRENT.with(|c| {
@@ -129,6 +135,18 @@ mod tests {
         assert!(!after(&text, end_of("慎者")));
         assert!(!after(&text, end_of("Yuanzhang") - 1));
         assert!(after(&text, text.len()));
+    }
+
+    #[test]
+    fn a_line_cut_inside_a_latin_name_goes_back_to_its_start() {
+        let text = encoding::game_text("由于缺乏显著事迹，Yuanzhang被历史学家称为");
+        let name = text.windows(9).position(|w| w == b"Yuanzhang").unwrap();
+        // Cut after "Yu": back to before "Y".
+        assert_eq!(last_at_or_before(&text, name + 2), Some(name));
+        // Cut between two Chinese characters: right there.
+        assert_eq!(last_at_or_before(&text, 6), Some(6));
+        assert_eq!(last_at_or_before(b"Yuanzhang", 4), None);
+        assert_eq!(last_at_or_before(b"ab cd", 4), Some(3));
     }
 
     #[test]
