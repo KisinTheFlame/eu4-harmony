@@ -18,6 +18,7 @@ pub mod ext;
 pub mod framework_ui;
 pub mod game;
 pub mod hooks;
+pub mod hosts;
 pub mod icu;
 pub mod lang;
 pub mod loc;

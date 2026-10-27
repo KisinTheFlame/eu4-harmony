@@ -1,18 +1,7 @@
 //! Turns the discovered mods' UI declarations into per-file splice text and
 //! the list of elements the UI layer binds at runtime.
-use crate::{mods::DiscoveredMod, pdx, Result};
+use crate::{hosts, mods::DiscoveredMod, pdx, Result};
 use std::collections::HashMap;
-
-/// Vanilla windows a fragment may target, and the file each lives in.
-const WINDOWS: &[(&str, &str)] = &[("single_unitpanel", "interface/unitpanel_main.gui")];
-
-/// Button area of `single_unitpanel`: a third column right of the two vanilla
-/// button columns (x = 378, 421), on the vanilla 43 x 44 grid.
-const BUTTON_AREA_X: i32 = 464;
-const BUTTON_AREA_Y: i32 = 69;
-const COLUMN_STEP: i32 = 43;
-const ROW_STEP: i32 = 44;
-const BUTTONS_PER_COLUMN: i32 = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElementKind {
@@ -94,23 +83,19 @@ pub fn prefix(id: &str) -> String {
     format!("eu4harmony_{safe}_")
 }
 
-/// Position of the `index`-th button-area slot.
-pub fn slot(index: i32) -> (i32, i32) {
-    (BUTTON_AREA_X + COLUMN_STEP * (index / BUTTONS_PER_COLUMN), BUTTON_AREA_Y + ROW_STEP * (index % BUTTONS_PER_COLUMN))
-}
-
 /// `include(i)` decides whether mod `i` takes part (its extension loaded, or it has none).
 pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, Vec<String>) {
     let mut plan = Plan::default();
     let mut notes = Vec::new();
-    let mut slots = 0i32;
+    // Button-area slots taken, by window.
+    let mut slots: HashMap<&str, i32> = HashMap::new();
     for (index, m) in mods.iter().enumerate() {
         if !include(index) {
             continue;
         }
         let prefix = prefix(&m.manifest.id);
         for ui in &m.manifest.ui {
-            let Some((_, file)) = WINDOWS.iter().find(|(w, _)| *w == ui.into) else {
+            let Some(window) = hosts::window(&ui.into) else {
                 notes.push(format!("{}: window {:?} is not supported", m.manifest.id, ui.into));
                 continue;
             };
@@ -123,7 +108,10 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
                 }
             };
             let rendered: Result<pdx::Rendered> = match ui.area.as_deref() {
-                Some("buttons") => pdx::render_fragment(&fragment, &prefix, Some(slot(slots))),
+                Some("buttons") => match window.buttons {
+                    Some(area) => pdx::render_fragment(&fragment, &prefix, Some(area.slot(slots.get(window.name).copied().unwrap_or(0)))),
+                    None => Err(format!("window {:?} has no button area", window.name)),
+                },
                 None => pdx::render_fragment(&fragment, &prefix, None),
                 Some(other) => Err(format!("unknown area {other:?}")),
             };
@@ -139,7 +127,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
                 continue;
             }
             if ui.area.is_some() {
-                slots += 1;
+                *slots.entry(window.name).or_default() += 1;
             }
             for e in rendered.elements {
                 plan.elements.push(Element {
@@ -150,16 +138,16 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
                     kind: ElementKind::from_key(&e.key),
                 });
             }
-            plan.add(file, Addition::Window { window: ui.into.clone(), text: rendered.text });
+            plan.add(window.file, Addition::Window { window: ui.into.clone(), text: rendered.text });
         }
     }
-    plan.slots = slots as usize;
+    plan.slots = slots.values().sum::<i32>() as usize;
     (plan, notes)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{apply, prefix, slot, Addition};
+    use super::{apply, prefix, Addition};
 
     #[test]
     fn prefix_is_identifier_safe() {
@@ -173,12 +161,5 @@ mod tests {
         let out = apply(file, &[Addition::Append("spriteTypes = {}".into()), Addition::Window { window: "w".into(), text: " X ".into() }]).unwrap();
         assert!(out.ends_with("\nspriteTypes = {}"));
         assert!(out.contains(" X }"));
-    }
-
-    #[test]
-    fn slots_fill_columns_of_seven() {
-        assert_eq!(slot(0), (464, 69));
-        assert_eq!(slot(6), (464, 69 + 6 * 44));
-        assert_eq!(slot(7), (507, 69));
     }
 }

@@ -11,6 +11,7 @@
 use crate::{
     game::{self, fail, GResult, ARMY_VT},
     hooks::HookFrame,
+    hosts::{self, Host},
     memory::Memory,
     notice,
     points::Point,
@@ -50,22 +51,6 @@ const SET_RIGHT_CLICK: usize = 0x1593860;
 const SHOW: usize = 0x15aeb30;
 const HIDE: usize = 0x15aead0;
 const SET_ENABLED: usize = 0xfaab30;
-
-/// A vanilla window that spliced elements are bound in.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Host {
-    /// `single_unitpanel`, rebuilt by the game as armies are shown.
-    ArmyPanel,
-}
-
-impl Host {
-    fn of_window(window: &str) -> Option<Self> {
-        match window {
-            "single_unitpanel" => Some(Self::ArmyPanel),
-            _ => None,
-        }
-    }
-}
 
 #[derive(Default, Clone)]
 struct Desired {
@@ -145,7 +130,7 @@ pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
     with_ui(|ui| {
         ui.declared = elements
             .into_iter()
-            .filter_map(|(element, extension)| match Host::of_window(&element.window) {
+            .filter_map(|(element, extension)| match hosts::window(&element.window).map(|w| w.host) {
                 Some(host) => Some(Declared { element, host, extension, desired: Desired::default() }),
                 None => {
                     log!("ui: {} is in window {:?}, which is not bound", element.prefixed, element.window);
