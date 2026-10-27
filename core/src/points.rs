@@ -403,22 +403,9 @@ mod tests {
     /// Maps `eu4.exe` from disk the way the loader lays it out, without running
     /// it, and returns it with its exports.
     fn map_game(path: &std::path::Path) -> (Memory, std::collections::HashMap<String, usize>) {
-        let file = std::fs::read(path).unwrap();
-        let u16_at = |o: usize| u16::from_le_bytes(file[o..o + 2].try_into().unwrap()) as usize;
-        let u32_at = |o: usize| u32::from_le_bytes(file[o..o + 4].try_into().unwrap()) as usize;
-        let pe = u32_at(0x3c);
-        let optional = pe + 24;
-        let image = vec![0u8; u32_at(optional + 56)].leak();
-        let headers = u32_at(optional + 60);
-        image[..headers].copy_from_slice(&file[..headers]);
-        let table = optional + u16_at(pe + 20);
-        for i in 0..u16_at(pe + 6) {
-            let section = table + 40 * i;
-            let (va, raw_size, raw) = (u32_at(section + 12), u32_at(section + 16), u32_at(section + 20));
-            image[va..va + raw_size].copy_from_slice(&file[raw..raw + raw_size]);
-        }
+        let image = crate::analysis::map_file(&std::fs::read(path).unwrap()).leak();
         let rd = |rva: usize| u32::from_le_bytes(image[rva..rva + 4].try_into().unwrap()) as usize;
-        let export_dir = u32_at(optional + 112);
+        let export_dir = rd(rd(0x3c) + 24 + 112);
         let (names, ordinals, functions) = (rd(export_dir + 32), rd(export_dir + 36), rd(export_dir + 28));
         let mut exports = std::collections::HashMap::new();
         for i in 0..rd(export_dir + 24) {
@@ -455,16 +442,15 @@ mod tests {
         let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.at(rva)).ok_or_else(|| format!("no export {name:?}"));
         let points = crate::points();
         let addresses = check(m, &points, &lookup).unwrap();
-        let size = unsafe { *((m.base + *((m.base + 0x3c) as *const u32) as usize + 24 + 56) as *const u32) } as usize;
-        let image = unsafe { std::slice::from_raw_parts(m.base as *const u8, size) };
+        let image = unsafe { crate::analysis::loaded(m.base) };
         let mut short = Vec::new();
         for (point, &at) in points.iter().zip(&addresses) {
             let Action::Observe { argc, .. } = point.action else { continue };
             let rva = at - m.base;
             // Exports (PhysFS) live outside the game's code; their arity is
             // the library's documented one.
-            let Some(range) = crate::arity::bounds(image, rva) else { continue };
-            let needed = crate::arity::arguments(&image[range.clone()], rva);
+            let Some(range) = crate::analysis::bounds(image, rva) else { continue };
+            let needed = crate::analysis::arguments(&image[range.clone()], rva);
             if needed > argc {
                 short.push(format!("{} at {rva:#x}: forwards {argc}, reads {needed}", point.what));
             }
@@ -473,8 +459,8 @@ mod tests {
         // The check sees stack arguments: the main text method takes eleven,
         // the button text method fifteen (forwarding fewer once crashed the game).
         for (rva, count) in [(0x15988e0, 11), (0x1596660, 15)] {
-            let range = crate::arity::bounds(image, rva).unwrap();
-            assert_eq!(crate::arity::arguments(&image[range], rva), count, "{rva:#x}");
+            let range = crate::analysis::bounds(image, rva).unwrap();
+            assert_eq!(crate::analysis::arguments(&image[range], rva), count, "{rva:#x}");
         }
     }
 

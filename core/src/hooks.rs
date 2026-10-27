@@ -36,9 +36,10 @@ pub type Callback = extern "C" fn(*mut HookFrame);
 
 struct Registry {
     targets: Vec<usize>,
-    observers: usize,
+    /// The function each observer slot observes, by slot.
+    observed: Vec<usize>,
 }
-static REGISTRY: Mutex<Registry> = Mutex::new(Registry { targets: Vec::new(), observers: 0 });
+static REGISTRY: Mutex<Registry> = Mutex::new(Registry { targets: Vec::new(), observed: Vec::new() });
 
 fn registry() -> std::sync::MutexGuard<'static, Registry> {
     REGISTRY.lock().unwrap_or_else(|e| e.into_inner())
@@ -72,14 +73,14 @@ pub fn create(target: usize, detour: usize) -> Result<usize> {
 /// Observes a game function taking `argc` integer/pointer arguments.
 pub fn observe(target: usize, argc: u32, before: Option<Callback>, after: Option<Callback>) -> Result<()> {
     let mut registry = registry();
-    let slot = registry.observers;
+    let slot = registry.observed.len();
     if slot >= OBSERVER_SLOTS || argc > 12 {
         return Err("observer slots exhausted or too many arguments".into());
     }
     let thunk = unsafe { eu4h_observer_thunk(slot as u32, argc) };
     let original = create_locked(&mut registry, target, thunk)?;
     unsafe { eu4h_observer_setup(slot as u32, original, before, after) };
-    registry.observers += 1;
+    registry.observed.push(target);
     Ok(())
 }
 
@@ -96,6 +97,11 @@ pub fn enable(targets: &[usize]) -> Result<()> {
         MH_OK => Ok(()),
         code => Err(format!("MH_ApplyQueued failed: {code}")),
     }
+}
+
+/// The function observer slot `slot` ([`HookFrame::slot`]) observes.
+pub fn observed(slot: usize) -> Option<usize> {
+    registry().observed.get(slot).copied()
 }
 
 /// Removes a hook created by [`create`] or [`observe`], disabling it first if

@@ -11,8 +11,8 @@ pub type Result<T> = std::result::Result<T, String>;
 pub mod log;
 #[macro_use]
 pub mod stub;
-#[cfg(test)]
-mod arity;
+#[cfg(any(test, feature = "analysis"))]
+pub mod analysis;
 pub mod baseline;
 pub mod ext;
 pub mod framework_ui;
@@ -34,6 +34,8 @@ pub mod report;
 pub mod saves;
 pub mod settings;
 pub mod splice;
+#[cfg(feature = "trace")]
+mod trace;
 pub mod ui;
 pub mod unicode;
 
@@ -106,7 +108,11 @@ fn start(m: memory::Memory) -> Result<String> {
     if std::env::var_os("EU4HARMONY_FAIL_STARTUP").is_some() {
         return Err("EU4HARMONY_FAIL_STARTUP is set".into());
     }
-    let installed = points::install(m, &points())?;
+    #[allow(unused_mut)]
+    let mut all = points();
+    #[cfg(feature = "trace")]
+    all.extend(trace::points(&m));
+    let installed = points::install(m, &all)?;
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }
 

@@ -1,8 +1,10 @@
-//! How many arguments a game function takes, from its code: for the offline
+//! Reading the game's code: where a function ends, from the image's
+//! exception directory, and how many arguments it takes, for the offline
 //! check that every observe point forwards at least that many (an observer
 //! forwards exactly the count its point declares, so a function that reads
 //! more finds garbage there, and one that writes through an argument writes
-//! somewhere it should not). Test-only.
+//! somewhere it should not). Built for tests and with the `analysis` feature
+//! (the `disasm` example, call tracing).
 //!
 //! Register arguments count when the function reads `rcx`, `rdx`, `r8` or
 //! `r9` before writing it, up to its first call. Stack arguments count when
@@ -13,10 +15,41 @@
 //! from the exception directory.
 use iced_x86::{Code, Decoder, DecoderOptions, Instruction, InstructionInfoFactory, Mnemonic, OpAccess, OpKind, Register};
 
+fn u32_at(image: &[u8], at: usize) -> usize {
+    u32::from_le_bytes(image[at..at + 4].try_into().unwrap()) as usize
+}
+
+/// `file`, a PE image, laid out as the loader would: headers and sections at
+/// their RVAs.
+pub fn map_file(file: &[u8]) -> Vec<u8> {
+    let pe = u32_at(file, 0x3c);
+    let optional = pe + 24;
+    let mut image = vec![0u8; u32_at(file, optional + 56)];
+    let headers = u32_at(file, optional + 60);
+    image[..headers].copy_from_slice(&file[..headers]);
+    let table = optional + u16::from_le_bytes([file[pe + 20], file[pe + 21]]) as usize;
+    for i in 0..u16::from_le_bytes([file[pe + 6], file[pe + 7]]) as usize {
+        let section = table + 40 * i;
+        let (va, raw_size, raw) = (u32_at(file, section + 12), u32_at(file, section + 16), u32_at(file, section + 20));
+        image[va..va + raw_size].copy_from_slice(&file[raw..raw + raw_size]);
+    }
+    image
+}
+
+/// The image loaded at `base`, as far as its header says it reaches.
+///
+/// # Safety
+/// `base` is a loaded module, and only the parts of it the loader mapped
+/// readable are read through the slice (headers, exception directory, code).
+pub unsafe fn loaded<'a>(base: usize) -> &'a [u8] {
+    let size = *((base + *((base + 0x3c) as *const u32) as usize + 24 + 56) as *const u32);
+    std::slice::from_raw_parts(base as *const u8, size as usize)
+}
+
 /// The bounds of the function starting at `rva`, from the image's exception
 /// directory (the image as the loader lays it out).
 pub fn bounds(image: &[u8], rva: usize) -> Option<std::ops::Range<usize>> {
-    let u32_at = |o: usize| u32::from_le_bytes(image[o..o + 4].try_into().unwrap()) as usize;
+    let u32_at = |o: usize| u32_at(image, o);
     let pe = u32_at(0x3c);
     let directory = pe + 24 + 112 + 8 * 3;
     let (start, size) = (u32_at(directory), u32_at(directory + 4));

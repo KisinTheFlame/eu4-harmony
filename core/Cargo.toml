@@ -33,8 +33,22 @@ windows-sys = { workspace = true, features = [
 ] }
 windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_DirectWrite", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_Direct3D9"] }
 
+# Reading the game's code (src/analysis.rs, the disasm example). Tests use it
+# too, through the dev-dependency below.
+iced-x86 = { version = "=1.21.0", default-features = false, features = ["decoder", "std", "instr_info", "intel"], optional = true }
+
 [build-dependencies]
 cc = { workspace = true }
 
 [dev-dependencies]
 iced-x86 = { version = "=1.21.0", default-features = false, features = ["decoder", "std", "instr_info"] }
+
+[features]
+analysis = ["dep:iced-x86"]
+# Logs calls of the game functions EU4HARMONY_TRACE names (src/trace.rs). For
+# finding things out only: a player's build never has it.
+trace = ["analysis"]
+
+[[example]]
+name = "disasm"
+required-features = ["analysis"]

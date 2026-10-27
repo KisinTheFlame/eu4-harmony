@@ -46,5 +46,5 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |
 | `cli/` | `eu4-harmony.exe` |
-| `tools/dev-install.ps1` | 开发期把构建好的代理和核心装进游戏目录（`-Uninstall` 卸载） |
+| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理和核心装进游戏目录（`-Uninstall` 卸载），另有输入、截图、反汇编、崩溃转储和调用追踪，见 [tools/README.md](tools/README.md) |
 | `docs/` | 方案、ADR、调研、实测记录；`docs/research/regional-combat/` 是游戏能力所依据的逆向记录 |
