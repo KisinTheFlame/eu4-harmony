@@ -4,6 +4,7 @@
 pub mod atlas;
 pub mod breaks;
 pub mod buttons;
+pub mod costs;
 pub mod dxt;
 pub mod edit_box;
 pub mod fill;
@@ -58,5 +59,6 @@ pub fn log_once() {
         let (kept, legacy, left) = localisation::counts();
         let (loaded, duplicates) = font_load::loaded();
         log!("unicode: {kept} localisation entries kept ({legacy} with legacy escapes, {left} left to the game); {loaded} font glyphs above 0xFF ({duplicates} duplicates); {} script and save tokens had legacy escapes", scripts::decoded());
+        costs::log_now();
     });
 }

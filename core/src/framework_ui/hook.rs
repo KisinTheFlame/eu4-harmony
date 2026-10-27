@@ -29,6 +29,7 @@ type Present = unsafe extern "C" fn(usize) -> u8;
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
         crate::guarded("framework UI frame", || super::frame(*((renderer + 8) as *const *mut c_void)));
+        crate::unicode::costs::log_when_due();
     }
     let original: Present = std::mem::transmute(ORIGINAL_PRESENT.load(Ordering::Acquire));
     original(renderer)

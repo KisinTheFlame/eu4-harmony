@@ -18,6 +18,7 @@
 //! Direct3D 9Ex keeps across a device reset; on a plain Direct3D 9 device
 //! nothing is filled.
 use super::atlas::Page;
+use super::costs;
 use super::dxt;
 use super::game_text;
 use super::glyphs::{self, Glyph};
@@ -286,7 +287,7 @@ fn glyph_of(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
     if let Some(found) = fill.drawn.get(&scalar) {
         return *found;
     }
-    let glyph = draw(fill, scalar);
+    let glyph = costs::GLYPHS.time(|| draw(fill, scalar));
     fill.drawn.insert(scalar, glyph);
     glyph
 }
@@ -461,7 +462,7 @@ extern "C" fn load_after(frame: *mut HookFrame) {
                 if !system && own.is_none() {
                     return Ok(());
                 }
-                let fill = make_page(&m, font, &device(&m, manager)?, own, system)?;
+                let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own, system))?;
                 // The wrapper holds the game's reference: it gets one of
                 // ours, and its old texture is released.
                 let old = m.ptr(wrapper)? as *mut c_void;

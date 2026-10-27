@@ -8,7 +8,7 @@
 //! the one they were worked out for: another address or length, or other
 //! bytes where the loop now is, that is the character asked about and the
 //! one after it, on which a break there depends (the game reuses buffers).
-use super::game_text;
+use super::{costs, game_text};
 use crate::icu;
 use std::cell::RefCell;
 
@@ -24,10 +24,11 @@ struct Known {
 impl Known {
     /// The breaks of `text`, asked about at `text[start..end]`.
     fn breaks(&mut self, text: &[u8], start: usize, end: usize) -> &[usize] {
+        costs::BREAK_QUESTIONS.add();
         let near = start..(end + 4).min(text.len());
         let same = self.text == text.as_ptr() as usize && self.bytes.len() == text.len() && self.bytes.get(near.clone()) == text.get(near);
         if !same {
-            *self = Known { text: text.as_ptr() as usize, bytes: text.to_vec(), breaks: opportunities(text) };
+            *self = Known { text: text.as_ptr() as usize, bytes: text.to_vec(), breaks: costs::BREAKS.time(|| opportunities(text)) };
         }
         &self.breaks
     }
