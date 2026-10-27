@@ -5,10 +5,9 @@
 //!
 //! The game itself runs in the language of its settings: English, French,
 //! German or Spanish. Chinese players run it in English, with a Chinese
-//! localisation mod and the CJK font plugin (`text`) drawing the characters.
-//! The plugin serves Chinese, Japanese and Korean alike, so the Windows
-//! display language tells which; only Chinese is offered, since the framework
-//! encodes nothing but CJK ideographs for the plugin.
+//! localisation mod; the Unicode module draws the characters for anyone, so
+//! the Windows display language tells who reads Chinese (ADR 0010). Japanese
+//! and Korean are not offered.
 //!
 //! Decided once, at startup: the game reads its localisation files once, so
 //! the mod texts spliced into them (`loc`) could not follow a later change.
@@ -31,15 +30,12 @@ static DECISION: OnceLock<Decision> = OnceLock::new();
 #[derive(Clone, Copy, Debug)]
 struct Signals {
     game: Language,
-    font_plugin: bool,
     windows_chinese: bool,
 }
 
 fn choose(s: Signals) -> (Language, &'static str) {
-    if s.font_plugin && s.windows_chinese {
-        (Language::SimpChinese, "CJK font plugin loaded and Windows displays Chinese")
-    } else if s.font_plugin {
-        (s.game, "the game's language; CJK font plugin loaded, but Windows does not display Chinese")
+    if s.windows_chinese {
+        (Language::SimpChinese, "Windows displays Chinese")
     } else {
         (s.game, "the game's language")
     }
@@ -67,7 +63,7 @@ fn windows_chinese() -> bool {
 pub(crate) fn decide(user_dir: &Path) -> &'static Decision {
     DECISION.get_or_init(|| {
         let settings = std::fs::read_to_string(user_dir.join("settings.txt")).unwrap_or_default();
-        let signals = Signals { game: game_language(&settings), font_plugin: crate::text::plugin_loaded(), windows_chinese: windows_chinese() };
+        let signals = Signals { game: game_language(&settings), windows_chinese: windows_chinese() };
         let (player, why) = choose(signals);
         log!("language: {} ({why}; {signals:?})", player.id());
         Decision { player, game: signals.game, reason: why.to_string() }
@@ -89,13 +85,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chinese_needs_the_plugin_and_a_chinese_windows() {
-        let s = |font_plugin, windows_chinese| Signals { game: Language::English, font_plugin, windows_chinese };
-        assert_eq!(choose(s(true, true)).0, Language::SimpChinese);
-        assert_eq!(choose(s(true, false)).0, Language::English);
-        assert_eq!(choose(s(false, true)).0, Language::English);
-        let french = Signals { game: Language::French, font_plugin: false, windows_chinese: true };
-        assert_eq!(choose(french).0, Language::French);
+    fn chinese_follows_the_windows_display_language() {
+        assert_eq!(choose(Signals { game: Language::English, windows_chinese: true }).0, Language::SimpChinese);
+        assert_eq!(choose(Signals { game: Language::French, windows_chinese: true }).0, Language::SimpChinese);
+        assert_eq!(choose(Signals { game: Language::French, windows_chinese: false }).0, Language::French);
     }
 
     #[test]

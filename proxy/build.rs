@@ -1,13 +1,13 @@
-//! Generates one forwarding stub per winmm export and tells the linker to export
-//! it under the original name and ordinal. The stub list comes from
-//! `winmm-exports.txt`, extracted from the System32 winmm.dll export table.
+//! Generates one forwarding stub per version.dll export and tells the linker to
+//! export it under the original name and ordinal. The stub list comes from
+//! `version-exports.txt`, extracted from the System32 version.dll export table.
 use std::{env, fmt::Write as _, fs, path::PathBuf};
 
 fn main() {
     assert_eq!(env::var("CARGO_CFG_TARGET_OS").unwrap(), "windows");
     assert_eq!(env::var("CARGO_CFG_TARGET_ARCH").unwrap(), "x86_64");
-    println!("cargo:rerun-if-changed=winmm-exports.txt");
-    let list = fs::read_to_string("winmm-exports.txt").expect("winmm-exports.txt");
+    println!("cargo:rerun-if-changed=version-exports.txt");
+    let list = fs::read_to_string("version-exports.txt").expect("version-exports.txt");
     let mut names = Vec::new();
     for line in list.lines() {
         let line = line.trim();
@@ -25,7 +25,7 @@ fn main() {
     let mut table = String::new();
     for (i, (name, ordinal)) in names.iter().enumerate() {
         // Lazily resolve the real export on first call, preserving the caller's
-        // integer argument registers; winmm takes no floating-point arguments.
+        // integer argument registers; version.dll takes no floating-point arguments.
         write!(
             asm,
             "\

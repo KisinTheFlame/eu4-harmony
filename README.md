@@ -6,9 +6,11 @@
 
 ## 安装框架（玩家）
 
-把 `winmm.dll` 放进游戏根目录，把 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `winmm.dll` 时，先把它移进 `eu4-harmony\`，框架会接着加载它。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。
+把 `version.dll` 和 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `version.dll`（通常是双字节补丁的加载器）时，先把它移进 `eu4-harmony\backup\`；框架不会加载它，`plugins\` 里双字节补丁的文件也不再被加载，可以删掉。框架自己负责显示中文（[ADR 0010](docs/adr/0010-built-in-unicode-module.md)）。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。
 
-卸载：删掉根目录的 `winmm.dll` 和 `eu4-harmony\`，把移走的 `winmm.dll` 放回去。
+卸载：删掉根目录的 `version.dll` 和 `eu4-harmony\`，把备份的 `version.dll` 放回根目录。
+
+用框架玩出的存档里，玩家输入或改过的名字是 UTF-8；卸掉框架、换回双字节补丁后，这些名字会显示为乱码。
 
 日志、启动报告（`report.txt`）和扩展存档数据在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`。
 
@@ -38,8 +40,8 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 
 | 目录 | 内容 |
 | --- | --- |
-| `proxy/` | `winmm.dll` 代理：转发 winmm，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：底本校验、`.gui` 拼接、扩展加载、游戏能力、界面绑定、存档数据、玩家语言；`core/localisation/` 是框架自己的文字 |
+| `proxy/` | `version.dll` 代理：转发 version.dll，只在 `eu4.exe` 里加载核心 |
+| `core/` | 框架核心：依赖点与启动、`.gui` 拼接、扩展加载、游戏能力、界面绑定、存档数据、玩家语言、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
 | `loc/` | 本地化文件的格式、语言列表和查找，核心、SDK 和命令行工具共用 |
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |

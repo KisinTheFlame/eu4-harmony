@@ -22,7 +22,7 @@ pub enum Language {
     French,
     German,
     Spanish,
-    /// Shown only with the CJK font plugin.
+    /// The player language when Windows displays Chinese.
     SimpChinese,
 }
 

@@ -385,7 +385,6 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
 /// Points the framework's notice window, in every host, at the notice to show.
 fn drive_notice(ui: &mut Ui) {
     let current = notice::current();
-    let plugin = crate::text::plugin_loaded();
     for d in ui.declared.iter_mut().filter(|d| d.element.owner == Owner::Framework) {
         d.desired.visible = Some(current.is_some());
         let text = match d.element.name.as_str() {
@@ -394,7 +393,7 @@ fn drive_notice(ui: &mut Ui) {
             _ => continue,
         };
         if let Some(text) = text {
-            d.desired.text = Some(crate::text::encode(text, plugin).0);
+            d.desired.text = Some(crate::unicode::encoding::game_text(text));
         }
     }
 }
@@ -451,6 +450,7 @@ extern "C" fn menu_after(frame: *mut HookFrame) {
         if frame.fault != 0 || crate::thread_id() != crate::main_thread() {
             return;
         }
+        crate::unicode::log_once();
         let frontend = frame.args[0];
         let found = (|| -> Result<Option<(usize, usize)>> {
             if m.ptr(frontend)? != m.at(FRONTEND_VT) {

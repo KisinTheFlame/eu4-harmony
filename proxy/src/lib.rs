@@ -1,8 +1,10 @@
-//! `winmm.dll` proxy. The Windows loader maps this DLL into the game process
-//! because `eu4.exe` imports WINMM.dll and the game directory is searched
-//! before System32. Every winmm export is forwarded to the real DLL (or to a
-//! pre-existing third-party `winmm.dll` moved into `eu4-harmony/`); on process
-//! attach the EU4 Harmony core is loaded and bootstrapped.
+//! `version.dll` proxy (ADR 0011). The Windows loader maps this DLL into the
+//! game process because `eu4.exe` imports VERSION.dll and the game directory
+//! is searched before System32. Every export is forwarded to the System32
+//! version.dll; on process attach the EU4 Harmony core is loaded and
+//! bootstrapped. A `version.dll` that was in the game root before (a font
+//! plugin's loader, say) is kept as a backup in `eu4-harmony/` and never
+//! loaded, so only the framework changes the game's text code.
 //!
 //! DllMain runs under the loader lock, so it only loads the core and calls its
 //! bootstrap export; all further initialization is deferred by the core itself.
@@ -18,7 +20,6 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::{GetLastError, HMODULE},
-    Storage::FileSystem::GetFileAttributesW,
     System::{
         LibraryLoader::{
             DisableThreadLibraryCalls, GetModuleFileNameW, GetProcAddress, LoadLibraryExW,
@@ -31,13 +32,11 @@ use windows_sys::Win32::{
 
 include!(concat!(env!("OUT_DIR"), "/stubs.rs"));
 
-/// Resolved addresses of the real winmm exports, indexed like `EXPORT_NAMES`.
-/// Read by the assembly stubs; zero means "not resolved yet".
+/// Resolved addresses of the real version.dll exports, indexed like
+/// `EXPORT_NAMES`. Read by the assembly stubs; zero means "not resolved yet".
 static TABLE: [AtomicUsize; EXPORT_COUNT] = [const { AtomicUsize::new(0) }; EXPORT_COUNT];
 /// HMODULE of the DLL we forward to.
 static FORWARD: AtomicUsize = AtomicUsize::new(0);
-/// Full path of the DLL we forward to, decided at attach time.
-static FORWARD_PATH: OnceLock<Vec<u16>> = OnceLock::new();
 static GAME_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 fn wide(path: &Path) -> Vec<u16> {
@@ -45,15 +44,11 @@ fn wide(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain([0]).collect()
 }
 
-fn exists(path: &Path) -> bool {
-    unsafe { GetFileAttributesW(wide(path).as_ptr()) != u32::MAX }
-}
-
-fn system_winmm() -> Vec<u16> {
+fn system_version() -> Vec<u16> {
     let mut buf = [0u16; 512];
     let n = unsafe { GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
     let mut path = buf[..n.min(buf.len())].to_vec();
-    path.extend("\\winmm.dll".encode_utf16());
+    path.extend("\\version.dll".encode_utf16());
     path.push(0);
     path
 }
@@ -63,7 +58,7 @@ fn forward_module() -> HMODULE {
     if current != 0 {
         return current as HMODULE;
     }
-    let path = FORWARD_PATH.get_or_init(system_winmm);
+    let path = system_version();
     let module = unsafe { LoadLibraryExW(path.as_ptr(), std::ptr::null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH) };
     if module.is_null() {
         report(&format!("LoadLibrary of forward target failed: {}", unsafe { GetLastError() }));
@@ -103,7 +98,7 @@ extern "C" fn resolve(index: u32) -> usize {
     address
 }
 
-/// Stand-in for an export the forward target lacks: returns 0 (MMSYSERR_NOERROR / NULL).
+/// Stand-in for an export the forward target lacks: returns 0 (FALSE / NULL).
 extern "C" fn missing_export() -> usize {
     0
 }
@@ -126,14 +121,6 @@ fn attach(instance: HMODULE) {
     let Some(dir) = own.parent().map(Path::to_path_buf) else { return };
     let _ = GAME_DIR.set(dir.clone());
     let harmony = dir.join("eu4-harmony");
-
-    // A third-party winmm.dll that was already in the game root is moved into
-    // eu4-harmony/ by the install instructions; chain-load it instead of System32.
-    let chained = harmony.join("winmm.dll");
-    if exists(&chained) {
-        let _ = FORWARD_PATH.set(wide(&chained));
-        report("forwarding to chained eu4-harmony\\winmm.dll");
-    }
 
     // Other programs in the game folder (the launcher's helpers) can pull this
     // DLL in too; they only get forwarding.

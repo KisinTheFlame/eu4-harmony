@@ -3,11 +3,11 @@ name = "eu4-harmony-proxy"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "winmm.dll proxy that loads the EU4 Harmony core into the game process"
+description = "version.dll proxy that loads the EU4 Harmony core into the game process"
 build = "build.rs"
 
 [lib]
-name = "winmm"
+name = "version"
 crate-type = ["cdylib"]
 
 [dependencies]

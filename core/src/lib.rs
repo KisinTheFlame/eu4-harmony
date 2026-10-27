@@ -1,4 +1,4 @@
-//! EU4 Harmony core. Loaded by the `winmm.dll` proxy during process start;
+//! EU4 Harmony core. Loaded by the `version.dll` proxy during process start;
 //! `eu4_harmony_bootstrap` runs under the loader lock, so it only checks the
 //! executable and installs every dependency point, all or none (ADR 0012).
 //! Everything that needs the game's own setup (its file system, the user
@@ -27,8 +27,8 @@ pub mod points;
 pub mod report;
 pub mod saves;
 pub mod splice;
-pub mod text;
 pub mod ui;
+pub mod unicode;
 
 use std::sync::{
     atomic::{AtomicU32, Ordering},
@@ -87,6 +87,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(ui::points());
     all.extend(map::points());
     all.extend(saves::points());
+    all.extend(unicode::points());
     all
 }
 

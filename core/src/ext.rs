@@ -10,7 +10,7 @@ use crate::{
     memory::Memory,
     mods::DiscoveredMod,
     notice::Message,
-    saves, text, ui,
+    saves, ui,
 };
 use eu4_harmony_abi as abi;
 use std::{
@@ -143,13 +143,6 @@ unsafe fn utf8<'a>(ptr: *const u8, len: usize) -> GResult<&'a str> {
     std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).or_else(|_| fail(abi::INVALID_ARGUMENT, "text is not UTF-8"))
 }
 
-fn encode(h: &Host, text: &str) -> Vec<u8> {
-    let (bytes, lossy) = text::encode(text, text::plugin_loaded());
-    if lossy {
-        extension_log(h, &format!("some characters of {text:?} cannot be displayed and were replaced by '?'"));
-    }
-    bytes
-}
 
 unsafe extern "C" fn h_log(ptr: *mut c_void, text: *const u8, len: usize) {
     crate::guarded("extension log", || {
@@ -374,14 +367,14 @@ unsafe extern "C" fn h_ui_set_enabled(ptr: *mut c_void, name: *const u8, name_le
 
 unsafe extern "C" fn h_ui_set_text(ptr: *mut c_void, name: *const u8, name_len: usize, t: *const u8, t_len: usize) -> i32 {
     capability(ptr, |h, _| {
-        let text = encode(h, utf8(t, t_len)?);
+        let text = crate::unicode::encoding::game_text(utf8(t, t_len)?);
         ui::set_text(h.index, utf8(name, name_len)?, text)
     })
 }
 
 unsafe extern "C" fn h_ui_set_tooltip(ptr: *mut c_void, name: *const u8, name_len: usize, t: *const u8, t_len: usize) -> i32 {
     capability(ptr, |h, _| {
-        let text = encode(h, utf8(t, t_len)?);
+        let text = crate::unicode::encoding::game_text(utf8(t, t_len)?);
         ui::set_tooltip(h.index, utf8(name, name_len)?, text)
     })
 }

@@ -7,7 +7,6 @@ use crate::{
     lang,
     mods::DiscoveredMod,
     splice::{Addition, Plan},
-    text,
 };
 use eu4_harmony_loc::{self as format, Catalog, Language};
 use std::collections::BTreeMap;
@@ -44,7 +43,6 @@ fn target(game: Language) -> String {
 /// plans the splice of their keys. Returns problems for the log and the report.
 pub fn install(mods: &[&DiscoveredMod], plan: &mut Plan) -> Vec<String> {
     let player = lang::player();
-    let plugin = text::plugin_loaded();
     let mut notes = Vec::new();
     let mut catalogs = BTreeMap::new();
     let mut owners: BTreeMap<String, String> = BTreeMap::new();
@@ -60,11 +58,8 @@ pub fn install(mods: &[&DiscoveredMod], plan: &mut Plan) -> Vec<String> {
             }
             let Some(raw) = catalog.raw(player, key) else { continue };
             owners.insert(key.to_string(), id.clone());
-            let (bytes, lossy) = text::encode(raw, plugin);
-            if lossy {
-                notes.push(format!("{id}: some characters of {key} cannot be displayed and show as '?'"));
-            }
-            lines.push_str(&format!(" {key}:0 \"{}\"\n", text::file_text(&bytes)));
+            // As written: the Unicode module keeps the game's text in UTF-8.
+            lines.push_str(&format!(" {key}:0 \"{raw}\"\n"));
         }
         catalogs.insert(id.clone(), catalog);
     }

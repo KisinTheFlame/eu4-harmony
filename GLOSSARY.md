@@ -105,11 +105,11 @@ _Avoid_: 配置；游戏设置（指游戏自己的 `settings.txt`）
 _Avoid_: 游戏语言（指游戏设置里的语言，中文玩家的游戏语言通常是英文）
 
 **本地化文件 (Localisation file)**:
-Mod 在 `eu4-harmony/localisation/` 下按语言提供的文字文件，沿用游戏的格式，内容是普通 UTF-8；由框架转码后交给游戏。
+Mod 在 `eu4-harmony/localisation/` 下按语言提供的文字文件，沿用游戏的格式，内容是普通 UTF-8；由框架原样交给游戏。
 _Avoid_: 翻译文件、语言包
 
 **中文字体插件 (CJK font plugin)**:
-让游戏能画出汉字的第三方插件 `plugin64.dll`，俗称双字节补丁。框架按它的转义规则编码汉字。
+让游戏能画出汉字的第三方插件 `plugin64.dll`，俗称双字节补丁。Unicode 模块取代了它。
 _Avoid_: 汉化（指汉化 Mod 的文字内容）
 
 ### 文字
