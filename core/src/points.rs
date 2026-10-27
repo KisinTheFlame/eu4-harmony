@@ -445,6 +445,39 @@ mod tests {
         assert_eq!(addresses.len(), points.len());
     }
 
+    /// Every observe point forwards at least as many arguments as its function
+    /// reads, by the function's code: same environment variable as above.
+    #[test]
+    #[ignore]
+    fn observers_forward_every_argument_their_function_reads() {
+        let dir = std::path::PathBuf::from(std::env::var("EU4_GAME_DIR").expect("set EU4_GAME_DIR"));
+        let (m, exports) = map_game(&dir.join("eu4.exe"));
+        let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.at(rva)).ok_or_else(|| format!("no export {name:?}"));
+        let points = crate::points();
+        let addresses = check(m, &points, &lookup).unwrap();
+        let size = unsafe { *((m.base + *((m.base + 0x3c) as *const u32) as usize + 24 + 56) as *const u32) } as usize;
+        let image = unsafe { std::slice::from_raw_parts(m.base as *const u8, size) };
+        let mut short = Vec::new();
+        for (point, &at) in points.iter().zip(&addresses) {
+            let Action::Observe { argc, .. } = point.action else { continue };
+            let rva = at - m.base;
+            // Exports (PhysFS) live outside the game's code; their arity is
+            // the library's documented one.
+            let Some(range) = crate::arity::bounds(image, rva) else { continue };
+            let needed = crate::arity::arguments(&image[range.clone()], rva);
+            if needed > argc {
+                short.push(format!("{} at {rva:#x}: forwards {argc}, reads {needed}", point.what));
+            }
+        }
+        assert!(short.is_empty(), "{short:#?}");
+        // The check sees stack arguments: the main text method takes eleven,
+        // the button text method fifteen (forwarding fewer once crashed the game).
+        for (rva, count) in [(0x15988e0, 11), (0x1596660, 15)] {
+            let range = crate::arity::bounds(image, rva).unwrap();
+            assert_eq!(crate::arity::arguments(&image[range], rva), count, "{rva:#x}");
+        }
+    }
+
     #[test]
     fn a_late_failure_restores_written_bytes() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());

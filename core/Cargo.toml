@@ -35,3 +35,6 @@ windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Di
 
 [build-dependencies]
 cc = { workspace = true }
+
+[dev-dependencies]
+iced-x86 = { version = "=1.21.0", default-features = false, features = ["decoder", "std", "instr_info"] }

@@ -11,6 +11,8 @@ pub type Result<T> = std::result::Result<T, String>;
 pub mod log;
 #[macro_use]
 pub mod stub;
+#[cfg(test)]
+mod arity;
 pub mod baseline;
 pub mod ext;
 pub mod framework_ui;
