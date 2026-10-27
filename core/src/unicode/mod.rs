@@ -7,6 +7,7 @@ pub mod buttons;
 pub mod edit_box;
 pub mod encoding;
 pub mod fill;
+pub mod fitted_text;
 pub mod floating_text;
 pub mod font_load;
 pub mod glyphs;
@@ -33,6 +34,7 @@ pub fn points() -> Vec<Point> {
     points.extend(fill::points());
     points.extend(localisation::points());
     points.extend(main_text::points());
+    points.extend(fitted_text::points());
     points.extend(scripts::points());
     points.extend(buttons::points());
     points.extend(floating_text::points());
