@@ -1,5 +1,5 @@
-//! Text that floats up from the map and fades, drawn by a font's method at
-//! 0x159c600 (font vtable +0x48).
+//! Text that floats up and fades, drawn by a font's method at 0x159c600 (font
+//! vtable +0x48). A trace never saw single player call it (docs/unicode-module.md).
 //!
 //! The layout pass walks the text (`std::string*` in `rsi`, index `edi`),
 //! appends each byte to a word (`std::string` at `rbp+0x128`), looks the byte

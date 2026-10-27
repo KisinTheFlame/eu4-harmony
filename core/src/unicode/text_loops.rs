@@ -10,7 +10,7 @@
 //! |---|---|---|
 //! | main text, layout and drawing | 0x15988e0 (font vtable +0x50) | `main_text` |
 //! | buttons and instant text boxes | 0x1596660 (+0x40) | `buttons` |
-//! | text floating up from the map | 0x159c600 (+0x48) | `floating_text` |
+//! | text floating up and fading | 0x159c600 (+0x48) | `floating_text` |
 //! | text height, text width | 0x159b470 (+0x58), 0x159b7c0 (+0x60) | `text_height`, `text_width` |
 //! | text fitted into a box, with "..." | 0x159ec30 (+0x70), 0x159f510 (+0x80) | `fitted_text` |
 //! | map names: measure and wrap, mesh, glyph counts, letter spacing, curve | 0x159e510 (+0x78), 0x159da60, 0xfd7200, 0xfd5b70, 0xfd3850 | `map_names` |

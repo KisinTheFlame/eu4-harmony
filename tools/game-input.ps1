@@ -26,7 +26,7 @@ Text sent as Unicode key events, one character at a time.
 
 .PARAMETER Keys
 Key names, each optionally with modifiers: LEFT, SHIFT+END, CTRL+V. Names:
-the keys in $keys below.
+the keys in $keyCodes below.
 #>
 param([int]$Wheel = 0, [int[]]$At, [int[]]$Click, [int[]]$Drag, [string]$Type, [string[]]$Keys)
 $ErrorActionPreference = 'Stop'
@@ -47,8 +47,8 @@ public static class GameInput {
   }
 }
 "@
-$KEYUP = 0x2; $UNICODE = 0x4
-$LEFTDOWN = 0x02; $LEFTUP = 0x04; $WHEEL = 0x0800
+$KEY_UP = 0x2; $KEY_UNICODE = 0x4
+$MOUSE_LEFT_DOWN = 0x02; $MOUSE_LEFT_UP = 0x04; $MOUSE_WHEEL = 0x0800
 
 # Per-monitor DPI awareness v2: coordinates are physical pixels.
 [GameInput]::SetProcessDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
@@ -58,15 +58,15 @@ if (-not $game) { throw 'eu4.exe is not running' }
 [GameInput]::SetForegroundWindow($game.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 500
 
-function Press([int[]]$from) { [GameInput]::SetCursorPos($from[0], $from[1]) | Out-Null; Start-Sleep -Milliseconds 150; [GameInput]::mouse_event($LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero) }
-function Release { [GameInput]::mouse_event($LEFTUP, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300 }
+function Press([int[]]$from) { [GameInput]::SetCursorPos($from[0], $from[1]) | Out-Null; Start-Sleep -Milliseconds 150; [GameInput]::mouse_event($MOUSE_LEFT_DOWN, 0, 0, 0, [UIntPtr]::Zero) }
+function Release { [GameInput]::mouse_event($MOUSE_LEFT_UP, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300 }
 
 if ($Wheel) {
     Add-Type -AssemblyName System.Windows.Forms
     $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $where = if ($At) { $At } else { @([int]($bounds.Width / 2), [int]($bounds.Height / 2)) }
     [GameInput]::SetCursorPos($where[0], $where[1]) | Out-Null
-    for ($i = 0; $i -lt [Math]::Abs($Wheel); $i++) { [GameInput]::mouse_event($WHEEL, 0, 0, [Math]::Sign($Wheel) * 120, [UIntPtr]::Zero); Start-Sleep -Milliseconds 120 }
+    for ($i = 0; $i -lt [Math]::Abs($Wheel); $i++) { [GameInput]::mouse_event($MOUSE_WHEEL, 0, 0, [Math]::Sign($Wheel) * 120, [UIntPtr]::Zero); Start-Sleep -Milliseconds 120 }
 }
 if ($Click) { Press $Click; Start-Sleep -Milliseconds 60; Release }
 if ($Drag) {
@@ -79,27 +79,28 @@ if ($Drag) {
 }
 if ($Type) {
     foreach ($c in $Type.ToCharArray()) {
-        [GameInput]::Key(0, [uint16]$c, $UNICODE); [GameInput]::Key(0, [uint16]$c, $UNICODE -bor $KEYUP)
+        [GameInput]::Key(0, [uint16]$c, $KEY_UNICODE); [GameInput]::Key(0, [uint16]$c, $KEY_UNICODE -bor $KEY_UP)
         Start-Sleep -Milliseconds 80
     }
 }
 # Virtual key, scan code, extended-key flag.
-$keys = @{
+$keyCodes = @{
     LEFT = 0x25, 0x4B, 1; RIGHT = 0x27, 0x4D, 1; UP = 0x26, 0x48, 1; DOWN = 0x28, 0x50, 1
     HOME = 0x24, 0x47, 1; END = 0x23, 0x4F, 1; BACK = 0x08, 0x0E, 0; DELETE = 0x2E, 0x53, 1
     RETURN = 0x0D, 0x1C, 0; ESCAPE = 0x1B, 0x01, 0; SPACE = 0x20, 0x39, 0
     CTRL = 0x11, 0x1D, 0; SHIFT = 0x10, 0x2A, 0
-    C = 0x43, 0x2E, 0; F = 0x46, 0x21, 0; S = 0x53, 0x1F, 0; V = 0x56, 0x2F, 0; X = 0x58, 0x2D, 0
+    B = 0x42, 0x30, 0; C = 0x43, 0x2E, 0; F = 0x46, 0x21, 0; S = 0x53, 0x1F, 0; V = 0x56, 0x2F, 0; X = 0x58, 0x2D, 0
     F1 = 0x70, 0x3B, 0; F2 = 0x71, 0x3C, 0; F3 = 0x72, 0x3D, 0
+    PLUS = 0xBB, 0x0D, 0; MINUS = 0xBD, 0x0C, 0
 }
 foreach ($k in $Keys) {
     $parts = $k.ToUpperInvariant() -split '\+'
-    foreach ($p in $parts) { if (-not $keys.ContainsKey($p)) { throw "unknown key $p" } }
+    foreach ($p in $parts) { if (-not $keyCodes.ContainsKey($p)) { throw "unknown key $p" } }
     $modifiers = if ($parts.Count -gt 1) { $parts[0..($parts.Count - 2)] } else { @() }
-    foreach ($m in $modifiers) { $v, $s, $e = $keys[$m]; [GameInput]::Key($v, $s, $e); Start-Sleep -Milliseconds 30 }
-    $v, $s, $e = $keys[$parts[-1]]
-    [GameInput]::Key($v, $s, $e); Start-Sleep -Milliseconds 5; [GameInput]::Key($v, $s, $e -bor $KEYUP); Start-Sleep -Milliseconds 40
-    foreach ($m in $modifiers) { $v, $s, $e = $keys[$m]; [GameInput]::Key($v, $s, $e -bor $KEYUP); Start-Sleep -Milliseconds 30 }
+    foreach ($m in $modifiers) { $v, $s, $e = $keyCodes[$m]; [GameInput]::Key($v, $s, $e); Start-Sleep -Milliseconds 30 }
+    $v, $s, $e = $keyCodes[$parts[-1]]
+    [GameInput]::Key($v, $s, $e); Start-Sleep -Milliseconds 5; [GameInput]::Key($v, $s, $e -bor $KEY_UP); Start-Sleep -Milliseconds 40
+    foreach ($m in $modifiers) { $v, $s, $e = $keyCodes[$m]; [GameInput]::Key($v, $s, $e -bor $KEY_UP); Start-Sleep -Milliseconds 30 }
     Start-Sleep -Milliseconds 120
 }
 Start-Sleep -Milliseconds 600
