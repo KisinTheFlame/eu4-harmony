@@ -5,6 +5,7 @@
 //!
 //! A layout is recognised from the loop itself: the character it is on
 //! belongs to another text than the last, or lies before the last one.
+use super::encoding;
 use crate::icu;
 use std::cell::RefCell;
 
@@ -25,13 +26,21 @@ thread_local! {
 }
 
 fn opportunities(text: &[u8]) -> Vec<usize> {
-    // Text that is not UTF-8 (game text with 1252 bytes) is taken as far as it
-    // is; a wide character never follows such a byte without UTF-8 around it.
-    let valid = match std::str::from_utf8(text) {
-        Ok(s) => s,
-        Err(e) => std::str::from_utf8(&text[..e.valid_up_to()]).unwrap_or_default(),
-    };
-    icu::load().ok().and_then(|icu| icu.line_breaks(valid).ok()).map(|b| b.into_iter().map(|b| b.offset).collect()).unwrap_or_default()
+    // The game keeps every character Windows-1252 has as its single byte
+    // (`encoding`), so Chinese text holds lone bytes for `·`, `“` or `…`. ICU
+    // reads the text as UTF-8; each character's offset there maps back.
+    let mut utf8 = String::with_capacity(text.len());
+    let mut starts = Vec::with_capacity(text.len() + 1);
+    let mut at = 0;
+    while at < text.len() {
+        let (c, len) = encoding::char_at(&text[at..]);
+        starts.push((utf8.len(), at));
+        utf8.push(c);
+        at += len;
+    }
+    starts.push((utf8.len(), text.len()));
+    let Some(breaks) = icu::load().ok().and_then(|icu| icu.line_breaks(&utf8).ok()) else { return Vec::new() };
+    breaks.into_iter().filter_map(|b| starts.binary_search_by_key(&b.offset, |&(u, _)| u).ok().map(|i| starts[i].1)).collect()
 }
 
 /// The layout loop is on the character at `text[start..end]`.
@@ -104,6 +113,22 @@ mod tests {
         // Inside a character, or after ASCII, the game's rule stays.
         assert!(!after(text, 2));
         assert!(!after(text, text.len()));
+    }
+
+    #[test]
+    fn breaks_go_on_after_a_windows_1252_byte() {
+        // The game keeps ·, “ and ” as single bytes.
+        let text = encoding::game_text("匈雅提·亚诺什“谨慎者”Yuanzhang。");
+        let end_of = |part: &str| {
+            let part = encoding::game_text(part);
+            text.windows(part.len()).position(|w| w == part).unwrap() + part.len()
+        };
+        assert!(after(&text, end_of("亚")));
+        assert!(after(&text, end_of("谨")));
+        // Never before the closing quote or the full stop.
+        assert!(!after(&text, end_of("慎者")));
+        assert!(!after(&text, end_of("Yuanzhang") - 1));
+        assert!(after(&text, text.len()));
     }
 
     #[test]

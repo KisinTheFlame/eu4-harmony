@@ -59,18 +59,25 @@ pub fn game_text(text: &str) -> Vec<u8> {
     out
 }
 
+/// The character at the start of text the game keeps, and how many bytes it
+/// takes; ('\0', 0) for no text.
+pub fn char_at(text: &[u8]) -> (char, usize) {
+    let (scalar, len) = super::scalar::decode(text);
+    // A lone byte is its Windows-1252 character.
+    let scalar = match len {
+        1 => SPECIALS.iter().find(|&&(_, b)| b as u32 == scalar).map_or(scalar, |&(c, _)| c),
+        _ => scalar,
+    };
+    (char::from_u32(scalar).unwrap_or('\u{fffd}'), len)
+}
+
 /// Text the game keeps, as UTF-8.
 pub fn to_utf8(text: &[u8]) -> String {
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
     while at < text.len() {
-        let (scalar, len) = super::scalar::decode(&text[at..]);
-        // A lone byte is its Windows-1252 character.
-        let scalar = match len {
-            1 => SPECIALS.iter().find(|&&(_, b)| b as u32 == scalar).map_or(scalar, |&(c, _)| c),
-            _ => scalar,
-        };
-        out.push(char::from_u32(scalar).unwrap_or('\u{fffd}'));
+        let (c, len) = char_at(&text[at..]);
+        out.push(c);
         at += len;
     }
     out

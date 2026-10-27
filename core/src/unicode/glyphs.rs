@@ -70,13 +70,24 @@ pub fn get(table: usize, scalar: u32) -> *const Glyph {
 
 /// The glyph `font` draws for `scalar`: from its own table for a character
 /// Windows-1252 has, from the glyph table otherwise, then from a system font
-/// (`fill`), and its `?` when none has it. Null only where the game's own
-/// table is (control characters).
+/// (`fill`), and its `?` when none has it. A 1252 character missing from the
+/// own table is looked for the same way by its code point: fonts made for
+/// the CJK plugin keep `“ ” … —` there. Null only where the game's own table
+/// is and nothing else has the character (control characters).
 pub fn for_scalar(font: usize, scalar: u32) -> *const Glyph {
     let table = font + 0x120;
     let own = |byte: u8| unsafe { *(table as *const *const Glyph).add(byte as usize) };
     if let Some(byte) = super::encoding::single_byte(scalar) {
-        return own(byte);
+        let glyph = own(byte);
+        if !glyph.is_null() || byte < 0x80 {
+            return glyph;
+        }
+        let code = super::encoding::char_at(&[byte]).0 as u32;
+        let found = get(table, code);
+        if !found.is_null() {
+            return found;
+        }
+        return super::fill::glyph(font, code);
     }
     let found = get(table, scalar);
     if !found.is_null() {
@@ -193,6 +204,24 @@ mod tests {
         forget(a);
         assert!(get(a, 0x4e2d).is_null());
         assert_eq!(unsafe { *get(b, 0x4e2d) }.x, 3);
+    }
+
+    #[test]
+    fn a_1252_character_the_own_table_lacks_comes_from_its_code_point() {
+        // A font object: 256 own glyph pointers at + 0x120; only `a` is there.
+        let a = glyph(1);
+        let mut font = vec![0usize; 0x120 / 8 + 256];
+        font[0x120 / 8 + b'a' as usize] = &a as *const Glyph as usize;
+        let font = font.as_ptr() as usize;
+        // The font keeps … (1252 byte 0x85) at U+2026.
+        assert!(insert(font + 0x120, 0x2026, glyph(2)));
+        assert_eq!(unsafe { *for_scalar(font, 'a' as u32) }.x, 1);
+        assert_eq!(unsafe { *for_scalar(font, 0x85) }.x, 2);
+        assert_eq!(unsafe { *for_scalar(font, 0x2026) }.x, 2);
+        // Control characters stay null, as the game expects.
+        assert!(for_scalar(font, '\n' as u32).is_null());
+        assert!(for_scalar(font, 0x93).is_null());
+        forget(font + 0x120);
     }
 
     #[test]
