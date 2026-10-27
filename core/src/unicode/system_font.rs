@@ -86,6 +86,43 @@ impl SystemFonts {
         self.font(family).is_some()
     }
 
+    /// Installed families that have `scalar`, as (English name, name in the
+    /// player's language), sorted by the latter.
+    pub fn families_with(&self, scalar: u32, chinese: bool) -> Vec<(String, String)> {
+        let name = |names: &IDWriteLocalizedStrings, locale: &str| -> Option<String> {
+            unsafe {
+                let (mut index, mut exists) = (0u32, false.into());
+                names.FindLocaleName(&HSTRING::from(locale), &mut index, &mut exists).ok()?;
+                if !exists.as_bool() {
+                    return None;
+                }
+                let len = names.GetStringLength(index).ok()? as usize;
+                let mut buf = vec![0u16; len + 1];
+                names.GetString(index, &mut buf).ok()?;
+                Some(String::from_utf16_lossy(&buf[..len]))
+            }
+        };
+        let mut out = Vec::new();
+        unsafe {
+            for i in 0..self.collection.GetFontFamilyCount() {
+                let Ok(family) = self.collection.GetFontFamily(i) else { continue };
+                let Ok(names) = family.GetFamilyNames() else { continue };
+                let Some(english) = name(&names, "en-us") else { continue };
+                let has = family
+                    .GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL)
+                    .and_then(|f| f.HasCharacter(scalar))
+                    .is_ok_and(|h| h.as_bool());
+                if has && !english.starts_with('@') {
+                    let shown = if chinese { name(&names, "zh-cn").unwrap_or_else(|| english.clone()) } else { english.clone() };
+                    out.push((english, shown));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.1.cmp(&b.1));
+        out.dedup();
+        out
+    }
+
     /// The family that draws `scalar`: `family` when it has it, else the first
     /// fallback family that does.
     pub fn family_for<'a>(&self, family: &'a str, scalar: u32) -> Option<&'a str>
@@ -95,6 +132,15 @@ impl SystemFonts {
         std::iter::once(family).chain(FALLBACK.iter().copied()).find(|f| {
             self.font(f).is_some_and(|font| unsafe { font.HasCharacter(scalar).is_ok_and(|has| has.as_bool()) })
         })
+    }
+
+    /// How far `family`'s lines reach above and below the baseline, in ems.
+    pub fn line_metrics(&self, family: &str) -> Option<(f32, f32)> {
+        let font = self.font(family)?;
+        let mut metrics = DWRITE_FONT_METRICS::default();
+        unsafe { font.GetMetrics(&mut metrics) };
+        let em = metrics.designUnitsPerEm as f32;
+        (em > 0.0).then(|| (metrics.ascent as f32 / em, metrics.descent as f32 / em))
     }
 
     /// Draws `scalar` in `family` at an em size of `em` pixels.

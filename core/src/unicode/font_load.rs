@@ -9,6 +9,14 @@
 //! `[rbp+0x1130]`, its own table at font + 0x120. Then `cmp edi, 0xff; ja`
 //! skips large ids. The game frees a font's table with the function at
 //! 0x1594360, which takes the table.
+//!
+//! A font's page is a texture like any other (docs/research/font-textures.md).
+//! The game's texture loader (0x16c2980) silently skips a file of 16 MiB or
+//! more (`cmp r14d, 0x1000000` at 0x16c2cb7), leaving the texture empty. A
+//! font with every Chinese character needs a large page: the Chinese language
+//! mod's map font page is a 49 MB DXT5 file, so every name on the map drew
+//! with a texture of size 0 and vanished, with or without the framework (the
+//! old font plugin lifted the limit). The limit is raised to 256 MiB.
 use super::glyphs::{self, Glyph};
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
@@ -22,6 +30,7 @@ const STORED: usize = 0x1595cfa;
 /// The game's path for an id it rejects.
 const BAD_ID: usize = 0x1595f01;
 const DESTROY_TABLE: usize = 0x1594360;
+const TEXTURE_FILE_LIMIT: usize = 0x16c2cb7;
 
 static SMALL: AtomicUsize = AtomicUsize::new(0);
 static DONE: AtomicUsize = AtomicUsize::new(0);
@@ -88,7 +97,11 @@ extern "C" fn id_check() {
 }
 
 extern "C" fn destroy_before(frame: *mut HookFrame) {
-    crate::guarded("font destroy", || glyphs::forget(unsafe { (*frame).args[0] }));
+    crate::guarded("font destroy", || {
+        let table = unsafe { (*frame).args[0] };
+        glyphs::forget(table);
+        super::fill::forget(table - 0x120);
+    });
 }
 
 /// How many glyphs above 0xFF the fonts brought, for the report.
@@ -114,5 +127,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(STORED, "4c 8b 74 24 38 45 33 ed e9 00 fb ff ff", "font char line done"),
         Point::keep(BAD_ID, "e8 3a be 17 00", "font char id rejected"),
         Point::observe(DESTROY_TABLE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48", "font table destructor", 1, Some(destroy_before), None),
+        Point::write(TEXTURE_FILE_LIMIT, "41 81 fe 00 00 00 01", "texture file size limit", "41 81 fe 00 00 00 10"),
     ]
 }

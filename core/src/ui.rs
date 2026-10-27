@@ -2,8 +2,8 @@
 //! state extensions ask for, and turns button clicks into events. Ported from
 //! eu4-regional-combat's native UI; the ABI evidence is in
 //! docs/research/regional-combat/native-{ui,settings}-findings.txt and
-//! ui-polish-validation.md (tooltip aggregate). The top bar and main-menu
-//! hosts, and window teardown, are in docs/research/notice-window.md.
+//! ui-polish-validation.md (tooltip aggregate). Window teardown and the main
+//! menu's windows are in docs/research/notice-window.md.
 //!
 //! Extensions state what they want (visible, enabled, text, tooltip) and each
 //! host's update hook applies it, so state survives the game rebuilding the
@@ -14,7 +14,7 @@ use crate::{
     memory::Memory,
     notice,
     points::Point,
-    splice::{Element, ElementKind, Owner},
+    splice::{Element, ElementKind},
     Result,
 };
 use eu4_harmony_abi as abi;
@@ -27,7 +27,6 @@ const PANEL_VT: usize = 0x1d87088;
 const ROOT_VT: usize = 0x1d926b0;
 const ROOT_GUI_VT: usize = 0x1d929d0;
 const TEXT_VT: usize = 0x1d8fd10;
-const TOPBAR_VT: usize = 0x1d84250;
 const FRONTEND_VT: usize = 0x1d5a8c8;
 /// Callback wrapper class the panel uses for its own buttons.
 const WRAPPER_VT: usize = 0x1cb80c8;
@@ -57,18 +56,12 @@ const SET_ENABLED: usize = 0xfaab30;
 pub enum Host {
     /// `single_unitpanel`, rebuilt by the game as armies are shown.
     ArmyPanel,
-    /// `topbar`, present for the whole campaign.
-    Topbar,
-    /// `country_selection_panel`, present while the main menu is up.
-    MainMenu,
 }
 
 impl Host {
     fn of_window(window: &str) -> Option<Self> {
         match window {
             "single_unitpanel" => Some(Self::ArmyPanel),
-            "topbar" => Some(Self::Topbar),
-            "country_selection_panel" => Some(Self::MainMenu),
             _ => None,
         }
     }
@@ -177,17 +170,6 @@ fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
     m.msvc_string(m.call(getter, &[object])?)
 }
 
-/// A root window the game created and has not killed.
-fn live_root(m: &Memory, root: usize) -> Result<bool> {
-    if root == 0 {
-        return Ok(false);
-    }
-    if m.ptr(root)? != m.at(ROOT_VT) || m.ptr(root + 0x30)? != m.at(ROOT_GUI_VT) {
-        return Err("unexpected root window class".into());
-    }
-    Ok(m.u8(root + 0xf4)? == 0)
-}
-
 fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Option<Bound>> {
     let slot = match d.element.kind {
         ElementKind::Button => 0x68,
@@ -293,7 +275,6 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
         return Err(format!("{host:?} window has an unexpected kill method"));
     }
     let mut binding = Binding { host, holder, root, bound: Vec::new() };
-    let mut notice_failure = None;
     for (index, d) in ui.declared.iter().enumerate().filter(|(_, d)| d.host == host) {
         match bind_one(m, root, index, d) {
             Ok(Some(b)) => binding.bound.push(b),
@@ -303,14 +284,8 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
                 if ui.reported.insert(message.clone()) {
                     log!("ui: {message}");
                 }
-                if d.element.owner == Owner::Framework {
-                    notice_failure = Some(message);
-                }
             }
         }
-    }
-    if let Some(reason) = notice_failure {
-        notice::fall_back(&reason);
     }
     // Keep every wrapper reachable before the first subscription.
     ui.bindings.push(binding);
@@ -382,65 +357,14 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
     Ok(())
 }
 
-/// Points the framework's notice window, in every host, at the notice to show.
-fn drive_notice(ui: &mut Ui) {
-    let current = notice::current();
-    for d in ui.declared.iter_mut().filter(|d| d.element.owner == Owner::Framework) {
-        d.desired.visible = Some(current.is_some());
-        let text = match d.element.name.as_str() {
-            notice::TITLE => current.as_ref().map(|(title, _)| title.as_str()),
-            notice::TEXT => current.as_ref().map(|(_, text)| text.as_str()),
-            _ => continue,
-        };
-        if let Some(text) = text {
-            d.desired.text = Some(crate::unicode::encoding::game_text(text));
-        }
+/// Whether the main menu shows its first page. The main menu keeps its page
+/// at `+0x900` (0 first, then the single-player and multiplayer lobbies, the
+/// game's settings and so on); 0x10daf60 switches pages.
+fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
+    if m.ptr(frontend)? != m.at(FRONTEND_VT) {
+        return Err("unexpected main menu object".into());
     }
-}
-
-/// Binds `host` to the root `found` names (when the game has one), shows the
-/// current notice and applies the desired state.
-fn host_frame(m: &Memory, host: Host, found: Result<Option<(usize, usize)>>) {
-    with_ui(|ui| {
-        if ui.fatal.is_some() {
-            return;
-        }
-        let result = (|| -> Result<()> {
-            // A root that is gone or dying was detached by the kill hook.
-            let Some((holder, root)) = found? else { return Ok(()) };
-            if !live_root(m, root)? {
-                return Ok(());
-            }
-            bind(m, ui, host, holder, root)?;
-            drive_notice(ui);
-            apply(m, ui, host)
-        })();
-        if let Err(e) = result {
-            report_once(ui, format!("{host:?}: {e}"));
-        }
-    });
-}
-
-/// Run after the in-game idler's frame (`idler` is its `this`): binds the top bar.
-pub fn ingame_frame(idler: usize) {
-    let Some(m) = memory() else { return };
-    if crate::thread_id() != crate::main_thread() || crate::saves::load_in_progress() {
-        return;
-    }
-    let found = (|| -> Result<Option<(usize, usize)>> {
-        if m.ptr(idler)? != m.at(game::MAP_MANAGER_VT) {
-            return Ok(None);
-        }
-        let topbar = m.ptr(idler + 0x12d8)?;
-        if topbar == 0 {
-            return Ok(None);
-        }
-        if m.ptr(topbar)? != m.at(TOPBAR_VT) || m.ptr(topbar + 0x648)? != idler {
-            return Err("unexpected top bar object".into());
-        }
-        Ok(Some((topbar, m.ptr(topbar + 0x658)?)))
-    })();
-    host_frame(&m, Host::Topbar, found);
+    Ok(m.u32(frontend + 0x900)? == 0)
 }
 
 extern "C" fn menu_after(frame: *mut HookFrame) {
@@ -451,14 +375,15 @@ extern "C" fn menu_after(frame: *mut HookFrame) {
             return;
         }
         crate::unicode::log_once();
-        let frontend = frame.args[0];
-        let found = (|| -> Result<Option<(usize, usize)>> {
-            if m.ptr(frontend)? != m.at(FRONTEND_VT) {
-                return Err("unexpected main menu object".into());
+        match main_menu_page(&m, frame.args[0]) {
+            Ok(true) => crate::framework_ui::main_menu_frame(),
+            Ok(false) => {}
+            // The corner button then shows on every page of the main menu.
+            Err(e) => {
+                with_ui(|ui| report_once(ui, format!("main menu page unknown: {e}")));
+                crate::framework_ui::main_menu_frame();
             }
-            Ok(Some((frontend, m.ptr(frontend + 0x790)?)))
-        })();
-        host_frame(&m, Host::MainMenu, found);
+        }
     });
 }
 
@@ -551,11 +476,6 @@ fn enqueue(context: usize, button: usize, click: u32) {
         return;
     };
     let d = &ui.declared[b.index];
-    if d.element.owner == Owner::Framework {
-        // The notice window's only button closes it.
-        notice::dismiss();
-        return;
-    }
     let Some(extension) = d.extension else { return };
     if ui.clicks.len() < 64 {
         ui.clicks.push(Click { extension, name: d.element.name.clone(), click, modifiers: modifiers() });
@@ -624,6 +544,7 @@ pub fn points() -> Vec<Point> {
             None,
         ),
         Point::observe(MENU_FRAME, "48 8b c4 48 89 58 10 55 56 57 41 54 41 55 41 56", "main menu frame", 2, None, Some(menu_after)),
+        Point::keep(0x10db037usize, "41 8b 8e 00 09 00 00 49 8b 86 e8 08 00 00 48 8b 0c c8 48 8b 01 ff 50 18 41 89 be 00 09 00 00", "main menu page switch"),
         Point::observe(TOOLTIP, "48 89 5c 24 08 48 89 74 24 10 55 57 41 54 41 56", "army panel tooltip", 3, None, Some(tooltip_after)),
         Point::keep(STRING_APPEND, "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20", "string append"),
         Point::keep(TEXT_SET, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "text box setter"),

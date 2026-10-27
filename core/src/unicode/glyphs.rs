@@ -69,8 +69,9 @@ pub fn get(table: usize, scalar: u32) -> *const Glyph {
 }
 
 /// The glyph `font` draws for `scalar`: from its own table for a character
-/// Windows-1252 has, from the glyph table otherwise, and its `?` when it has
-/// none. Null only where the game's own table is (control characters).
+/// Windows-1252 has, from the glyph table otherwise, then from a system font
+/// (`fill`), and its `?` when none has it. Null only where the game's own
+/// table is (control characters).
 pub fn for_scalar(font: usize, scalar: u32) -> *const Glyph {
     let table = font + 0x120;
     let own = |byte: u8| unsafe { *(table as *const *const Glyph).add(byte as usize) };
@@ -78,11 +79,59 @@ pub fn for_scalar(font: usize, scalar: u32) -> *const Glyph {
         return own(byte);
     }
     let found = get(table, scalar);
-    if found.is_null() {
-        own(b'?')
-    } else {
-        found
+    if !found.is_null() {
+        return found;
     }
+    match super::fill::glyph(font, scalar) {
+        filled if !filled.is_null() => filled,
+        _ => own(b'?'),
+    }
+}
+
+/// The character starting at `text` (read no further than its NUL) and the
+/// glyph `font` draws for it.
+pub unsafe fn char_at(font: usize, text: *const u8) -> (*const Glyph, usize) {
+    let mut bytes = [0u8; 4];
+    let mut n = 0;
+    while n < 4 {
+        bytes[n] = *text.add(n);
+        n += 1;
+        if bytes[n - 1] == 0 {
+            break;
+        }
+    }
+    let (scalar, len) = super::scalar::decode(&bytes[..n]);
+    (for_scalar(font, scalar), len.max(1))
+}
+
+/// [`char_at`] for the text loops' stubs; the length goes to `*len`.
+pub extern "C" fn char_glyph(font: usize, text: *const u8, len: *mut u32) -> *const Glyph {
+    crate::guarded("text glyph", || {
+        let (glyph, n) = unsafe { char_at(font, text) };
+        unsafe { *len = n as u32 };
+        glyph
+    })
+}
+
+/// The game's `std::string::append(this, bytes, count)`, recorded at startup.
+pub static APPEND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub const STRING_APPEND: usize = 0x932f0;
+
+type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
+
+/// For layout passes that copy each byte into a word (`std::string*`) before
+/// looking it up: the glyph for the character at `text`, with the rest of its
+/// bytes appended to `word`; the length goes to `*len`.
+pub extern "C" fn layout_char(font: usize, text: *const u8, word: usize, len: *mut u32) -> *const Glyph {
+    crate::guarded("text layout glyph", || unsafe {
+        let (glyph, n) = char_at(font, text);
+        if n > 1 {
+            let append: Append = std::mem::transmute(APPEND.load(std::sync::atomic::Ordering::Acquire));
+            append(word, text.add(1), n - 1);
+        }
+        *len = n as u32;
+        glyph
+    })
 }
 
 /// The font whose own table is at `table` is being destroyed.

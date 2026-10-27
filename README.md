@@ -41,11 +41,10 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 | 目录 | 内容 |
 | --- | --- |
 | `proxy/` | `version.dll` 代理：转发 version.dll，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：依赖点与启动、`.gui` 拼接、扩展加载、游戏能力、界面绑定、存档数据、玩家语言、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
+| `core/` | 框架核心：依赖点与启动、`.gui` 拼接、扩展加载、游戏能力、界面绑定、存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
 | `loc/` | 本地化文件的格式、语言列表和查找，核心、SDK 和命令行工具共用 |
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |
 | `cli/` | `eu4-harmony.exe` |
-| `assets/` | 随核心一起放进游戏目录 `eu4-harmony\` 的文件（提示窗口的纹理，由 `tools/notice_textures.py` 生成） |
 | `tools/dev-install.ps1` | 开发期把构建好的代理和核心装进游戏目录（`-Uninstall` 卸载） |
 | `docs/` | 方案、ADR、调研、实测记录；`docs/research/regional-combat/` 是游戏能力所依据的逆向记录 |

@@ -2,9 +2,8 @@
 .SYNOPSIS
 Copies the built proxy and core into a game directory, or removes them.
 
-Mirrors the player install instructions: version.dll in the game root,
-everything else under eu4-harmony\ (the core plus the contents of assets\,
-which mirrors that folder). A foreign version.dll already in the root (a
+Mirrors the player install instructions: version.dll in the game root, the
+core under eu4-harmony\. A foreign version.dll already in the root (a
 font plugin's loader, say) is moved to eu4-harmony\backup\version.dll; the
 proxy never loads it (ADR 0011), and uninstalling puts it back. The winmm.dll
 proxy of earlier builds is removed.
@@ -18,7 +17,6 @@ $repo = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $repo 'target\x86_64-pc-windows-msvc\release'
 $proxySrc = Join-Path $out 'version.dll'
 $coreSrc = Join-Path $out 'eu4_harmony_core.dll'
-$assets = Join-Path $repo 'assets'
 $root = $GameDir
 $harmony = Join-Path $root 'eu4-harmony'
 $proxyDst = Join-Path $root 'version.dll'
@@ -53,7 +51,7 @@ if ($Uninstall) {
         Write-Host "restored the backed-up version.dll to $proxyDst"
     }
     RemoveOldProxy
-    # Everything else under eu4-harmony\ is ours: the core, assets and fallback logs.
+    # Everything else under eu4-harmony\ is ours: the core and fallback logs.
     if (Test-Path $harmony) { Remove-Item $harmony -Recurse -Force; Write-Host "removed $harmony" }
     Write-Host 'logs, reports and extension save data stay in Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony'
     return
@@ -64,6 +62,9 @@ New-Item -ItemType Directory -Force $harmony | Out-Null
 # Logs moved to the user directory; drop the game-folder logs of earlier builds.
 $oldLogs = Join-Path $harmony 'logs'
 if (Test-Path $oldLogs) { Remove-Item $oldLogs -Recurse -Force; Write-Host "removed old $oldLogs" }
+# The framework draws its notices itself now; drop the old notice textures.
+$oldGfx = Join-Path $harmony 'gfx'
+if (Test-Path $oldGfx) { Remove-Item $oldGfx -Recurse -Force; Write-Host "removed old $oldGfx" }
 if ((Test-Path $proxyDst) -and -not (IsOurs $proxyDst)) {
     if (Test-Path $backup) { throw "both $proxyDst and $backup exist and neither is ours" }
     New-Item -ItemType Directory -Force (Split-Path $backup) | Out-Null
@@ -73,8 +74,7 @@ if ((Test-Path $proxyDst) -and -not (IsOurs $proxyDst)) {
 RemoveOldProxy
 Copy-Item $proxySrc $proxyDst -Force
 Copy-Item $coreSrc $coreDst -Force
-Copy-Item (Join-Path $assets '*') $harmony -Recurse -Force
-Write-Host "installed:`n  $proxyDst`n  $coreDst`n  $assets\* -> $harmony"
+Write-Host "installed:`n  $proxyDst`n  $coreDst"
 $plugins = Join-Path $root 'plugins'
 if (Test-Path (Join-Path $plugins 'plugin64.dll')) {
     Write-Host "note: $plugins\plugin64.dll (the double-byte font plugin) is no longer loaded and can be deleted"

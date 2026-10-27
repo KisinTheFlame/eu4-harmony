@@ -34,18 +34,11 @@ impl ElementKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Owner {
-    /// Index of the owning mod in discovery order.
-    Mod(usize),
-    /// The framework's own elements, such as the notice window.
-    Framework,
-}
-
 /// A spliced element as the runtime knows it.
 #[derive(Clone, Debug)]
 pub struct Element {
-    pub owner: Owner,
+    /// Index of the owning mod in discovery order.
+    pub owner: usize,
     /// The vanilla `windowType` it was spliced into.
     pub window: String,
     pub name: String,
@@ -95,26 +88,6 @@ pub fn apply(text: &str, additions: &[Addition]) -> Result<String> {
     Ok(text)
 }
 
-/// Element-name prefix of the framework's own elements. Mod prefixes always
-/// continue `eu4harmony_`, so the two cannot collide.
-pub const FRAMEWORK_PREFIX: &str = "eu4harmonyfw_";
-
-/// Splices a framework fragment into `window` of `file`.
-pub fn add_framework(plan: &mut Plan, file: &str, window: &str, fragment: &str) -> Result<()> {
-    let rendered = pdx::render_fragment(fragment, FRAMEWORK_PREFIX, None)?;
-    for e in rendered.elements {
-        plan.elements.push(Element {
-            owner: Owner::Framework,
-            window: window.to_string(),
-            prefixed: format!("{FRAMEWORK_PREFIX}{}", e.name),
-            name: e.name,
-            kind: ElementKind::from_key(&e.key),
-        });
-    }
-    plan.add(file, Addition::Window { window: window.to_string(), text: rendered.text });
-    Ok(())
-}
-
 /// Element-name prefix for a mod: `eu4harmony_<id>_` with non-identifier characters replaced.
 pub fn prefix(id: &str) -> String {
     let safe: String = id.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' }).collect();
@@ -161,7 +134,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
                     continue;
                 }
             };
-            if let Some(clash) = rendered.elements.iter().find(|e| plan.elements.iter().any(|p| p.owner == Owner::Mod(index) && p.name == e.name)) {
+            if let Some(clash) = rendered.elements.iter().find(|e| plan.elements.iter().any(|p| p.owner == index && p.name == e.name)) {
                 notes.push(format!("{}: {}: element {:?} already declared", m.manifest.id, ui.file, clash.name));
                 continue;
             }
@@ -170,7 +143,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
             }
             for e in rendered.elements {
                 plan.elements.push(Element {
-                    owner: Owner::Mod(index),
+                    owner: index,
                     window: ui.into.clone(),
                     prefixed: format!("{prefix}{}", e.name),
                     name: e.name,

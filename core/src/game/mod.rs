@@ -36,6 +36,9 @@ pub const ARMY_VT: usize = 0x1c42540;
 pub const FLEET_VT: usize = 0x1cca7e0;
 pub const MAP_MANAGER_VT: usize = 0x1cb8460;
 const IS_PAUSED: usize = 0x7e01b0;
+/// The object whose floats at +0x4e0 and +0x4e4 scale GUI units to window
+/// pixels, across and down (docs/research/text-input.md §3).
+const GUI_SCALE: usize = 0x23494b8;
 
 pub const PROVINCE_STRIDE: usize = 0x2e10;
 pub const MAX_PROVINCES: usize = 50_000;
@@ -43,11 +46,23 @@ pub const MAX_UNITS: usize = 100_000;
 
 /// Game functions the game-state capabilities call or observe.
 pub fn points() -> Vec<Point> {
-    let mut points = vec![Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query")];
+    let mut points = vec![
+        Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query"),
+        // An edit box scaling its rectangle to pixels, as `gui_scale` does.
+        Point::keep(0x15352edusize, "48 8b 0d c4 41 e1 00 48 8d 54 24 48 66 0f 6e 44 24 40 0f 5b c0 f3 0f 59 81 e0 04 00 00", "GUI scale"),
+    ];
     points.extend(world::points());
     points.extend(orders::points());
     points.extend(events::points());
     points
+}
+
+/// How many window pixels a GUI unit takes, (across, down); None before the
+/// GUI exists.
+pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
+    let gui = m.ptr(m.at(GUI_SCALE)).ok().filter(|&g| g != 0)?;
+    let read = |at: usize| m.u32(gui + at).ok().map(f32::from_bits).filter(|s| s.is_finite() && *s > 0.0);
+    Some((read(0x4e0)?, read(0x4e4)?))
 }
 
 /// Country tag as stored by the game: three ASCII bytes, then index, kind and a

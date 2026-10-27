@@ -238,7 +238,6 @@ extern "C" fn manager_after(frame: *mut HookFrame) {
     crate::guarded("frame", || {
         if unsafe { (*frame).fault } == 0 {
             crate::ext::frame();
-            crate::ui::ingame_frame(unsafe { (*frame).args[0] });
         }
     });
 }

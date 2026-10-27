@@ -59,10 +59,34 @@ pub fn game_text(text: &str) -> Vec<u8> {
     out
 }
 
+/// Text the game keeps, as UTF-8.
+pub fn to_utf8(text: &[u8]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    while at < text.len() {
+        let (scalar, len) = super::scalar::decode(&text[at..]);
+        // A lone byte is its Windows-1252 character.
+        let scalar = match len {
+            1 => SPECIALS.iter().find(|&&(_, b)| b as u32 == scalar).map_or(scalar, |&(c, _)| c),
+            _ => scalar,
+        };
+        out.push(char::from_u32(scalar).unwrap_or('\u{fffd}'));
+        at += len;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::unicode::scalar::decode;
+
+    #[test]
+    fn game_text_reads_back_as_utf8() {
+        for text in ["§YGröße€ …", "中文£gold£", "plain"] {
+            assert_eq!(to_utf8(&game_text(text)), text);
+        }
+    }
 
     #[test]
     fn european_text_and_codes_are_single_bytes() {

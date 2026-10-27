@@ -11,6 +11,7 @@ pub type Result<T> = std::result::Result<T, String>;
 pub mod log;
 pub mod baseline;
 pub mod ext;
+pub mod framework_ui;
 pub mod game;
 pub mod hooks;
 pub mod icu;
@@ -26,6 +27,7 @@ pub mod physfs;
 pub mod points;
 pub mod report;
 pub mod saves;
+pub mod settings;
 pub mod splice;
 pub mod ui;
 pub mod unicode;
@@ -88,6 +90,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(map::points());
     all.extend(saves::points());
     all.extend(unicode::points());
+    all.extend(framework_ui::hook::points());
     all
 }
 
@@ -184,6 +187,8 @@ pub(crate) fn deferred_init() {
     report::line(format!("user dir: {}", user_dir.display()));
     log!("user dir {}", user_dir.display());
     let language = lang::decide(&user_dir);
+    let chosen = settings::load(&user_dir);
+    log!("settings: {chosen:?}");
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
     report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
     let memory = MEMORY.get().copied();
@@ -207,6 +212,12 @@ pub(crate) fn deferred_init() {
             notice::post(&format!("skipped:{}", note.text), message.clone());
         }
     }
+    // Lets the notice window be tried without a broken mod: run eu4.exe with it set.
+    if std::env::var_os("EU4HARMONY_TEST_NOTICE").is_some() {
+        for number in ["1", "2"] {
+            notice::post(&format!("test:{number}"), notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
+        }
+    }
     for m in &mods {
         log!("mod {:?} id={:?} api={} dir={} extension={:?} ui={}", m.descriptor.name, m.manifest.id, m.manifest.api_version, m.dir.display(), m.manifest.extension, m.manifest.ui.len());
     }
@@ -223,13 +234,7 @@ pub(crate) fn deferred_init() {
         log!("localisation: {note}");
     }
     let mod_elements = plan.elements.len();
-    let notices = if let Err(e) = notice::splice(&mut plan) {
-        notice::fall_back(&format!("notice window: {e}"));
-        format!("message boxes ({e})")
-    } else {
-        "notice window in the main menu and the top bar".to_string()
-    };
-    log!("splice plan ready: {mod_elements} mod element(s), {} button slot(s); notices: {notices}", plan.slots);
+    log!("splice plan ready: {mod_elements} mod element(s), {} button slot(s)", plan.slots);
     report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
     for (m, outcome) in mods.iter().zip(&outcomes) {
         report::line(format!("  {} (id {}, api {}): {}; {} UI fragment(s)", m.descriptor.name, m.manifest.id, m.manifest.api_version, outcome.status, m.manifest.ui.len()));
@@ -240,13 +245,8 @@ pub(crate) fn deferred_init() {
         report::line(format!("  {note}"));
     }
     report::line(format!("UI: {mod_elements} mod element(s) spliced, {} button-area slot(s)", plan.slots));
-    report::line(format!("notices: {notices}"));
     report::write();
-    let extension = |owner: &splice::Owner| match owner {
-        splice::Owner::Mod(i) => indices.get(i).copied(),
-        splice::Owner::Framework => None,
-    };
-    ui::set_elements(plan.elements.iter().map(|e| (e.clone(), extension(&e.owner))).collect());
+    ui::set_elements(plan.elements.iter().map(|e| (e.clone(), indices.get(&e.owner).copied())).collect());
     physfs::set_plan(plan);
 }
 

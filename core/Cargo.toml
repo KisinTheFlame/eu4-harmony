@@ -27,10 +27,11 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Com",
     "Win32_UI_Shell",
+    "Win32_UI_Input_Ime",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
-windows = { workspace = true, features = ["Win32_Graphics_DirectWrite", "Win32_Graphics_Direct2D_Common"] }
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_DirectWrite", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_Direct3D9"] }
 
 [build-dependencies]
 cc = { workspace = true }

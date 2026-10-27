@@ -56,6 +56,30 @@ pub fn wide_break_after() -> bool {
     })
 }
 
+/// Whether a line may break before `text[end]`, when the character before it
+/// is non-ASCII; ASCII keeps the game's own rule. For loops that know where a
+/// character ends rather than where it starts.
+pub fn after(text: &[u8], end: usize) -> bool {
+    if end == 0 || end > text.len() {
+        return false;
+    }
+    let mut start = end - 1;
+    while start > 0 && end - start < 4 && text[start] & 0xc0 == 0x80 {
+        start -= 1;
+    }
+    let (_, n) = super::scalar::decode(&text[start..]);
+    if start + n != end || text[start] < 0x80 {
+        return false;
+    }
+    at(text, start, end);
+    wide_break_after()
+}
+
+/// [`after`] for a stub: the text and its length, and where the character ends.
+pub extern "C" fn after_at(text: *const u8, len: u32, end: u32) -> bool {
+    crate::guarded("text wrap", || !text.is_null() && after(unsafe { std::slice::from_raw_parts(text, len as usize) }, end as usize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,6 +93,17 @@ mod tests {
         assert!(!wide_break_after());
         at(text, 6, 9);
         assert!(wide_break_after());
+    }
+
+    #[test]
+    fn breaks_are_found_from_where_a_character_ends() {
+        let text = "中文，测试 ok".as_bytes();
+        assert!(after(text, 3));
+        assert!(!after(text, 6));
+        assert!(after(text, 9));
+        // Inside a character, or after ASCII, the game's rule stays.
+        assert!(!after(text, 2));
+        assert!(!after(text, text.len()));
     }
 
     #[test]
