@@ -17,11 +17,13 @@
 //!   bytes, so it no longer strips continuation bytes that happen to equal
 //!   `£`, `¤` or `§`;
 //! - paste and copy go through SDL's clipboard, which is UTF-8, so text is
-//!   converted to and from the game's encoding on the way.
+//!   converted to and from the game's encoding on the way;
+//! - keys (0x15366c0): plain Home and End move instead of selecting, and
+//!   Shift with Left or Right selects a character.
 use super::{encoding, scalar};
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const LINE_COL_TO_INDEX: usize = 0x153aa90;
@@ -52,6 +54,9 @@ const PASTE_GET: usize = 0x1539250;
 const PASTE_GOT: usize = 0x1539255;
 const COPY_SET: usize = 0x1539604;
 const COPY_DONE: usize = 0x1539609;
+const KEY_UNMATCHED: usize = 0x1536a31;
+const KEY_NEXT: usize = 0x1536a38;
+const KEY_HANDLED: usize = 0x1536b54;
 
 static GET_CLIPBOARD: AtomicUsize = AtomicUsize::new(0);
 static SET_CLIPBOARD: AtomicUsize = AtomicUsize::new(0);
@@ -81,6 +86,9 @@ static APPEND_RESUME: [Resume; 1] = [Resume { rva: APPEND_CUT_DONE, address: &AP
 static PREPEND_RESUME: [Resume; 1] = [Resume { rva: PREPEND_CUT_DONE, address: &PREPEND_DONE }];
 static PASTE_RESUME: [Resume; 1] = [Resume { rva: PASTE_GOT, address: &PASTED }];
 static COPY_RESUME: [Resume; 1] = [Resume { rva: COPY_DONE, address: &COPIED }];
+static KEY_NEXT_AT: AtomicUsize = AtomicUsize::new(0);
+static KEY_HANDLED_AT: AtomicUsize = AtomicUsize::new(0);
+static KEY_RESUME: [Resume; 2] = [Resume { rva: KEY_NEXT, address: &KEY_NEXT_AT }, Resume { rva: KEY_HANDLED, address: &KEY_HANDLED_AT }];
 
 /// The bytes of an MSVC `std::string` (data or inline buffer, size +0x10,
 /// capacity +0x18).
@@ -123,11 +131,20 @@ fn erase(inner: usize, at: usize, count: usize) -> crate::Result<()> {
     Ok(())
 }
 
+thread_local! {
+    /// Backspace has erased a character's last byte and calls Left to step
+    /// back over that one byte.
+    static LEFT_ONE_BYTE: Cell<bool> = const { Cell::new(false) };
+}
+
 /// The column Left moves to from a column that is not 0.
 extern "C" fn left_column(inner: usize) -> u32 {
     crate::guarded("edit box left", || {
         let column = unsafe { *((inner + 0x54) as *const u16) } as usize;
-        let back = caret_index(inner).map_or(1, |at| scalar::previous_len(unsafe { text(inner) }, at).max(1));
+        let back = match LEFT_ONE_BYTE.replace(false) {
+            true => 1,
+            false => caret_index(inner).map_or(1, |at| scalar::previous_len(unsafe { text(inner) }, at).max(1)),
+        };
         column.saturating_sub(back) as u32
     })
 }
@@ -150,14 +167,18 @@ extern "C" fn backspace_prepare(inner: usize, index: u32) -> u32 {
         let at = index as usize;
         let len = scalar::previous_len(unsafe { text(inner) }, at).max(1);
         let start = at.saturating_sub(len);
+        let column = unsafe { &mut *((inner + 0x54) as *mut u16) };
         if len > 1 {
             if let Err(e) = erase(inner, start, len - 1) {
                 crate::fatal(&format!("edit box backspace: {e}"));
             }
-            // Left, which the game calls next, then lands on `start`.
-            let column = unsafe { &mut *((inner + 0x54) as *mut u16) };
             *column = column.saturating_sub(len as u16 - 1);
         }
+        // Left, which the game calls next, then steps back over the last
+        // byte and lands on `start`; it reads the text that is left, so it
+        // must not measure a character there. At a line's start it goes to
+        // the line before instead, without asking.
+        LEFT_ONE_BYTE.set(*column > 0);
         start as u32
     })
 }
@@ -330,6 +351,40 @@ extern "C" fn left_stub() {
     );
 }
 
+/// Replaces `mov ebx, 0x63; mov ecx, ebx`, where the key handler goes on to
+/// its Ctrl shortcuts once no plain key matched (key code at `[rsi]`,
+/// modifiers at `[rsi+8]`, 4 for Shift; the editor in `rdi`). Shift with
+/// Left or Right selects a character with the editor's own methods at vtable
+/// +0xd0 and +0xe0, which the game never called, so those keys used to fall
+/// through to the map.
+#[unsafe(naked)]
+extern "C" fn shift_arrow_stub() {
+    std::arch::naked_asm!(
+        "cmp dword ptr [rsi + 8], 4",
+        "jne 2f",
+        "mov eax, dword ptr [rsi]",
+        "cmp eax, 0x40000050",
+        "je 3f",
+        "cmp eax, 0x4000004f",
+        "jne 2f",
+        "mov rax, qword ptr [rdi]",
+        "mov rcx, rdi",
+        "call qword ptr [rax + 0xe0]",
+        "jmp qword ptr [rip + {handled}]",
+        "3:",
+        "mov rax, qword ptr [rdi]",
+        "mov rcx, rdi",
+        "call qword ptr [rax + 0xd0]",
+        "jmp qword ptr [rip + {handled}]",
+        "2:",
+        "mov ebx, 0x63",
+        "mov ecx, ebx",
+        "jmp qword ptr [rip + {next}]",
+        handled = sym KEY_HANDLED_AT,
+        next = sym KEY_NEXT_AT,
+    );
+}
+
 /// Replaces `mov rcx, rdi; lea edx, [rax+1]` before SetCaretFromIndex.
 #[unsafe(naked)]
 extern "C" fn right_stub() {
@@ -453,6 +508,18 @@ pub fn points() -> Vec<Point> {
         Point::keep(PASTE_GOT, "48 c7 44 24 20 00 00 00 00", "editor paste copies the text"),
         Point::jump(COPY_SET, "e8 b7 c1 1f 00", "editor copy writes the clipboard", copy_stub as *const () as usize, &COPY_RESUME),
         Point::keep(COPY_DONE, "48 8d 4c 24 20", "editor copy done"),
+        // The key handler (0x15366c0): plain Home and End called the methods
+        // that select to the line's start and end, whose "select" argument is
+        // ignored, so they always selected. They now call the ones that move.
+        Point::keep(0x15366dausize, "40 b5 01 8b 02 85 c0", "editor key handled flag and key code"),
+        Point::write(0x15369d9usize, "ff 90 d8 01 00 00", "editor Home moves", "ff 90 e0 01 00 00"),
+        Point::write(0x1536a26usize, "ff 90 e8 01 00 00", "editor End moves", "ff 90 f0 01 00 00"),
+        Point::jump(KEY_UNMATCHED, "bb 63 00 00 00 8b cb", "editor Shift with Left or Right", shift_arrow_stub as *const () as usize, &KEY_RESUME),
+        Point::keep(KEY_NEXT, "e8 ff 43 51 00", "editor Ctrl+C key"),
+        Point::keep(KEY_HANDLED, "40 0f b6 c5", "editor key handled"),
+        // The methods that select a character to the left and to the right.
+        Point::keep(0x1538560usize, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select left"),
+        Point::keep(0x1538670usize, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select right"),
         Point::keep(c"SDL_GetClipboardText", "48 ff 25 59 bd 87 00", "SDL clipboard read").recorded(&GET_CLIPBOARD),
         Point::keep(c"SDL_SetClipboardText", "48 ff 25 21 aa 87 00", "SDL clipboard write").recorded(&SET_CLIPBOARD),
         Point::keep(c"SDL_free", "48 ff 25 99 ac 87 00", "SDL free").recorded(&SDL_FREE),
