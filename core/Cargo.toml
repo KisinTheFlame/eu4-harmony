@@ -12,11 +12,13 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 eu4-harmony-abi = { path = "../abi" }
+eu4-harmony-loc = { path = "../loc" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
     "Win32_System_SystemInformation",

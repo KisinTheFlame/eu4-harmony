@@ -414,15 +414,11 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
 fn drive_notice(ui: &mut Ui) {
     let current = notice::current();
     let plugin = crate::text::plugin_loaded();
-    let title = current.as_ref().map(|(_, waiting)| match waiting {
-        0 => "EU4 Harmony".to_string(),
-        n => format!("EU4 Harmony ({n} more)"),
-    });
     for d in ui.declared.iter_mut().filter(|d| d.element.owner == Owner::Framework) {
         d.desired.visible = Some(current.is_some());
         let text = match d.element.name.as_str() {
-            notice::TITLE => title.as_deref(),
-            notice::TEXT => current.as_ref().map(|(text, _)| text.as_str()),
+            notice::TITLE => current.as_ref().map(|(title, _)| title.as_str()),
+            notice::TEXT => current.as_ref().map(|(_, text)| text.as_str()),
             _ => continue,
         };
         if let Some(text) = text {

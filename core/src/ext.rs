@@ -6,9 +6,10 @@
 //! loaded), its UI elements are hidden and its map coloring is released.
 use crate::{
     game::{self, events, fail, orders::Orders, world, GResult},
-    map,
+    lang, loc, map,
     memory::Memory,
     mods::DiscoveredMod,
+    notice::Message,
     saves, text, ui,
 };
 use eu4_harmony_abi as abi;
@@ -31,6 +32,8 @@ const SLOW: Duration = Duration::from_millis(5);
 struct Host {
     index: usize,
     id: String,
+    /// The mod's name, for the player.
+    name: String,
     last_error: Mutex<String>,
     log: Mutex<Option<File>>,
 }
@@ -421,6 +424,20 @@ unsafe extern "C" fn h_save_data_set(ptr: *mut c_void, json: *const u8, len: usi
     })
 }
 
+unsafe extern "C" fn h_language(ptr: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |_, _| list_out(lang::player().id().as_bytes(), buf, cap, len))
+}
+
+unsafe extern "C" fn h_text(ptr: *mut c_void, key: *const u8, key_len: usize, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |h, _| {
+        let key = utf8(key, key_len)?;
+        let Some(text) = loc::mod_text(&h.id, key) else {
+            return fail(abi::NOT_FOUND, format!("no localisation text for {key}"));
+        };
+        list_out(text.as_bytes(), buf, cap, len)
+    })
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -450,6 +467,8 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         map_clear: h_map_clear,
         save_data_get: h_save_data_get,
         save_data_set: h_save_data_set,
+        language: h_language,
+        text: h_text,
     }
 }
 
@@ -489,12 +508,21 @@ pub fn load(memory: Option<Memory>, mods: &[DiscoveredMod], log_dir: &Path) -> V
                 outcomes.push(LoadOutcome { included: false, status: format!("extension NOT loaded: {e}") });
                 // An unsupported executable has its own notice.
                 if memory.is_some() {
-                    crate::notice::post(&format!("load:{}", m.manifest.id), &format!("Mod \"{}\" was not loaded:\n{e}", m.descriptor.name));
+                    crate::notice::post(&format!("load:{}", m.manifest.id), not_loaded(m, &e));
                 }
             }
         }
     }
     outcomes
+}
+
+/// What the player is told about an extension that was not loaded. An API
+/// mismatch is the one they can fix, so it is spelled out.
+fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
+    if m.manifest.api_version != abi::API_VERSION {
+        return Message::new("EU4HARMONY_API_MISMATCH").arg("MOD", &m.descriptor.name).arg("BUILT", &m.manifest.api_version).arg("PROVIDED", abi::API_VERSION);
+    }
+    Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", &m.descriptor.name).arg("DETAIL", e)
 }
 
 fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate::Result<()> {
@@ -513,7 +541,7 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     let entry = unsafe { GetProcAddress(module, symbol.as_ptr()) }.ok_or_else(|| format!("{} has no {} export", path.display(), abi::ENTRY_SYMBOL))?;
     let mut list = extensions();
     let index = list.len();
-    let host = Box::new(Host { index, id: m.manifest.id.clone(), last_error: Mutex::new(String::new()), log: Mutex::new(None) });
+    let host = Box::new(Host { index, id: m.manifest.id.clone(), name: m.descriptor.name.clone(), last_error: Mutex::new(String::new()), log: Mutex::new(None) });
     let host_ptr = &*host as *const Host as *mut c_void;
     let host_api = Box::new(abi::HostApi { size: std::mem::size_of::<abi::HostApi>(), abi_version: abi::ABI_VERSION, host: host_ptr, log: h_log });
     let game_api = Box::new(game_api(host_ptr));
@@ -568,7 +596,7 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
         Ok(code) => Some(format!("{name} returned {}", code as u32 as i32)),
         Err(e) => Some(format!("{name} crashed: {e}")),
     };
-    let id = {
+    let (id, name) = {
         let mut list = extensions();
         let l = &mut list[index];
         l.calls += 1;
@@ -581,7 +609,7 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
         if let Some(reason) = &failure {
             l.stopped = Some(reason.clone());
         }
-        l.host.id.clone()
+        (l.host.id.clone(), l.host.name.clone())
     };
     if let Some(reason) = failure {
         log!("extension {id:?} stopped: {reason}");
@@ -589,10 +617,7 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
         if let Some(m) = MEMORY.get() {
             map::release(m, index);
         }
-        crate::notice::post(
-            &format!("stopped:{id}"),
-            &format!("Extension \"{id}\" failed and was stopped: {reason}\n\nThe game state may be inconsistent; avoid overwriting your saves."),
-        );
+        crate::notice::post(&format!("stopped:{id}"), Message::new("EU4HARMONY_STOPPED").arg("MOD", name).arg("DETAIL", reason));
     }
 }
 

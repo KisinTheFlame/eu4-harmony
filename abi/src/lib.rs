@@ -218,6 +218,20 @@ pub struct GameApi {
     pub save_data_get: unsafe extern "C" fn(host: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
     /// Replaces this extension's data; written alongside the next save.
     pub save_data_set: unsafe extern "C" fn(host: *mut c_void, json: *const u8, len: usize) -> i32,
+    /// The player language's Paradox name (UTF-8, for example `english` or
+    /// `simp_chinese`): the language texts are shown in this session.
+    pub language: unsafe extern "C" fn(host: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
+    /// This mod's localisation text for `key` (UTF-8, line breaks as `\n`)
+    /// in the player language, or else in English. [`NOT_FOUND`] when the mod
+    /// has neither.
+    pub text: unsafe extern "C" fn(
+        host: *mut c_void,
+        key: *const u8,
+        key_len: usize,
+        buf: *mut u8,
+        cap: usize,
+        len: *mut usize,
+    ) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs

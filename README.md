@@ -23,7 +23,7 @@ cargo build --release
 命令行工具在 `target\x86_64-pc-windows-msvc\release\eu4-harmony.exe`：
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、清单、一个按钮、Rust 扩展工程
+eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、清单、一个按钮、中英文字、Rust 扩展工程
 cd my-mod
 eu4-harmony build                         # 编译扩展，把 DLL 放到清单写的位置
 eu4-harmony link                          # 在用户目录 mod\ 下登记，之后在启动器里勾选
@@ -32,12 +32,15 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 
 扩展实现 `eu4_harmony_sdk::Extension`，每类事件一个方法；所有能力都是回调参数 `Game` 上的方法。单元测试用 `eu4_harmony_sdk::testing::FakeGame` 代替游戏。示例：[examples/hello](examples/hello)，以及 eu4-regional-combat 仓库里的区域作战 Mod。
 
+文字写在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`，格式同游戏的本地化文件，内容是普通 UTF-8，一个语言一份（`english`、`simp_chinese` 等）。界面片段直接引用其中的键，扩展用 `game.text("KEY")` 取文字；框架按玩家语言显示，见 [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md)。
+
 ## 仓库
 
 | 目录 | 内容 |
 | --- | --- |
 | `proxy/` | `winmm.dll` 代理：转发 winmm，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：底本校验、`.gui` 拼接、扩展加载、游戏能力、界面绑定、存档数据 |
+| `core/` | 框架核心：底本校验、`.gui` 拼接、扩展加载、游戏能力、界面绑定、存档数据、玩家语言；`core/localisation/` 是框架自己的文字 |
+| `loc/` | 本地化文件的格式、语言列表和查找，核心、SDK 和命令行工具共用 |
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |
 | `cli/` | `eu4-harmony.exe` |

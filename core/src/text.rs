@@ -1,4 +1,5 @@
-//! Converts UTF-8 text from extensions into the bytes the game draws.
+//! Converts UTF-8 text (from extensions, notices and localisation files) into
+//! the bytes the game draws.
 //!
 //! With the Chinese/Japanese font plugin (matanki-saito's EU4dll, loaded as
 //! `plugin64.dll`), CJK ideographs travel as 3-byte escapes; see
@@ -75,9 +76,24 @@ pub fn encode(text: &str, plugin: bool) -> (Vec<u8>, bool) {
     (out, lossy)
 }
 
+/// Encoded bytes as a line of a localisation file the game reads. The game
+/// reads those files as UTF-8 and converts them to Windows-1252, so each byte
+/// travels as the character Windows-1252 maps to it; that is also how Chinese
+/// localisation mods carry the plugin's escapes.
+pub fn file_text(bytes: &[u8]) -> String {
+    const C1: [u32; 32] = [
+        0x20ac, 0x81, 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021, 0x2c6, 0x2030, 0x160, 0x2039, 0x152, 0x8d, 0x17d, 0x8f,
+        0x90, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x2dc, 0x2122, 0x161, 0x203a, 0x153, 0x9d, 0x17e, 0x178,
+    ];
+    bytes
+        .iter()
+        .map(|&b| char::from_u32(if (0x80..=0x9f).contains(&b) { C1[usize::from(b - 0x80)] } else { u32::from(b) }).unwrap_or('?'))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::encode;
+    use super::{encode, file_text};
 
     #[test]
     fn ascii_and_markers_pass_through() {
@@ -98,5 +114,15 @@ mod tests {
         let (bytes, lossy) = encode("é区", false);
         assert_eq!(bytes, vec![0xe9, b'?']);
         assert!(lossy);
+    }
+
+    #[test]
+    fn file_text_matches_a_chinese_localisation_mod() {
+        // Workshop item 2976470733, localisation/00_lanfang_l_english.yml, PROV4790.
+        assert_eq!(
+            file_text(&encode("\u{52c3}\u{826f}\u{5b89}", true).0).as_bytes(),
+            [0x10, 0xc3, 0x83, 0x52, 0x10, 0x6f, 0xe2, 0x80, 0x9a, 0x12, 0xe2, 0x80, 0xb0, 0x52]
+        );
+        assert_eq!(file_text(&encode("Größe", false).0), "Größe");
     }
 }

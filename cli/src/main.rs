@@ -1,8 +1,8 @@
 //! `eu4-harmony`: create, build, register and package EU4 Harmony mods.
 //!
-//! A mod is a folder with `descriptor.mod`, `eu4-harmony/manifest.json` and an
-//! `extension/` Rust crate; game resources (`interface/`, `gfx/`,
-//! `localisation/`, ...) sit next to them as in any Paradox mod.
+//! A mod is a folder with `descriptor.mod`, `eu4-harmony/manifest.json`, its
+//! texts in `eu4-harmony/localisation/` and an `extension/` Rust crate; game
+//! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
 mod templates;
 
 use eu4_harmony_abi as abi;
@@ -22,7 +22,8 @@ eu4-harmony: create, build, register and package EU4 Harmony mods
 
 usage:
   eu4-harmony new <id> [--name <display name>] [--dir <parent dir>] [--sdk <sdk dir>]
-      Creates the mod folder <id>/ with a Rust extension and one button.
+      Creates the mod folder <id>/ with a Rust extension, one button and its
+      texts in English and Chinese.
   eu4-harmony build [<mod dir>] [--debug]
       Compiles the extension and copies the DLL to where the manifest says.
   eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>]
@@ -203,14 +204,19 @@ fn create_mod(parent: &Path, id: &str, name: &str, sdk: &Path) -> Result<PathBuf
         return Err(format!("{} already exists", root.display()));
     }
     let lib = id.replace('-', "_");
+    let key = lib.to_ascii_uppercase();
     let krate = format!("{id}-extension");
     let sdk = forward_slashes(sdk);
-    let values = [("id", id), ("name", name), ("lib", lib.as_str()), ("crate", krate.as_str()), ("sdk", sdk.as_str()), ("api", abi::API_VERSION)];
+    let values = [("id", id), ("name", name), ("lib", lib.as_str()), ("key", key.as_str()), ("crate", krate.as_str()), ("sdk", sdk.as_str()), ("api", abi::API_VERSION)];
+    let english = format!("eu4-harmony/localisation/{lib}_l_english.yml");
+    let chinese = format!("eu4-harmony/localisation/{lib}_l_simp_chinese.yml");
     let files = [
         ("descriptor.mod", templates::DESCRIPTOR),
         (".gitignore", templates::GITIGNORE),
         ("eu4-harmony/manifest.json", templates::MANIFEST),
         ("eu4-harmony/ui/button.gui", templates::BUTTON_GUI),
+        (english.as_str(), templates::LOC_ENGLISH),
+        (chinese.as_str(), templates::LOC_SIMP_CHINESE),
         ("extension/Cargo.toml", templates::CARGO_TOML),
         ("extension/.cargo/config.toml", templates::CARGO_CONFIG),
         ("extension/src/lib.rs", templates::LIB_RS),
@@ -373,6 +379,7 @@ fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
             return Err(format!("UI fragment eu4-harmony/{} is missing", ui.file));
         }
     }
+    let texts = localisation_files(&harmony.join("localisation"))?;
     if out.exists() {
         // Only replace an earlier package of this same mod.
         let ours = read_manifest(out).is_ok_and(|m| m.id == manifest.id) && out.join("descriptor.mod").is_file();
@@ -403,6 +410,22 @@ fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     if let Some(ext) = &manifest.extension {
         copy_file(&harmony.join(ext), &out.join("eu4-harmony").join(ext), &mut files)?;
     }
+    for path in texts {
+        copy_file(&path, &out.join("eu4-harmony").join("localisation").join(path.file_name().unwrap()), &mut files)?;
+    }
+    Ok(files)
+}
+
+/// The `.yml` files of a mod's `eu4-harmony/localisation/`, once each of them
+/// is one the framework reads.
+fn localisation_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let (_, problems) = eu4_harmony_loc::load_dir(dir);
+    if !problems.is_empty() {
+        return Err(format!("eu4-harmony/localisation has problems:\n  {}", problems.join("\n  ")));
+    }
+    let Ok(entries) = fs::read_dir(dir) else { return Ok(Vec::new()) };
+    let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yml")).collect();
+    files.sort();
     Ok(files)
 }
 
@@ -451,12 +474,16 @@ mod tests {
         let root = create_mod(&dir, "my-mod", "My Mod", Path::new("D:/sdk")).unwrap();
         let manifest = read_manifest(&root).unwrap();
         assert_eq!((manifest.id.as_str(), manifest.api_version.as_str(), manifest.extension.as_deref()), ("my-mod", abi::API_VERSION, Some("win64/my_mod.dll")));
-        for f in ["descriptor.mod", ".gitignore", "eu4-harmony/ui/button.gui", "extension/Cargo.toml", "extension/.cargo/config.toml", "extension/src/lib.rs"] {
+        let english = "eu4-harmony/localisation/my_mod_l_english.yml";
+        for f in ["descriptor.mod", ".gitignore", "eu4-harmony/ui/button.gui", english, "eu4-harmony/localisation/my_mod_l_simp_chinese.yml", "extension/Cargo.toml", "extension/.cargo/config.toml", "extension/src/lib.rs"] {
             let text = fs::read_to_string(root.join(f)).unwrap();
             assert!(!text.contains("@@"), "{f} has an unfilled placeholder");
         }
         let lib = fs::read_to_string(root.join("extension/src/lib.rs")).unwrap();
-        assert!(lib.contains("§YMy Mod§!") && lib.contains("log!(\"{name} clicked"));
+        assert!(lib.contains("game.text(\"MY_MOD_TOOLTIP\")") && lib.contains("log!(\"{name} clicked"));
+        let (texts, problems) = eu4_harmony_loc::load_dir(&root.join("eu4-harmony/localisation"));
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(texts.text(eu4_harmony_loc::Language::English, "MY_MOD_TOOLTIP").as_deref(), Some("§YMy Mod§!\nClick to write a line to the log."));
         assert!(fs::read_to_string(root.join("extension/Cargo.toml")).unwrap().contains("path = \"D:/sdk\""));
         assert!(create_mod(&dir, "my-mod", "My Mod", Path::new("D:/sdk")).is_err());
         assert!(create_mod(&dir, "Bad", "x", Path::new("D:/sdk")).is_err());
@@ -487,9 +514,23 @@ mod tests {
         write(&root.join("interface/pkg.gfx"), "spriteTypes = {}").unwrap();
         write(&root.join("extension/target/debug/junk.txt"), "x").unwrap();
         write(&root.join(".git/HEAD"), "ref").unwrap();
+        write(&root.join("eu4-harmony/localisation/broken_l_english.yml"), "l_english:\n PKG_X:0 missing quotes\n").unwrap();
+        assert!(package_mod(&root, &out).unwrap_err().contains("broken_l_english.yml: line 2"));
+        fs::remove_file(root.join("eu4-harmony/localisation/broken_l_english.yml")).unwrap();
         let mut files: Vec<String> = package_mod(&root, &out).unwrap().iter().map(|f| forward_slashes(f.strip_prefix(&out).unwrap())).collect();
         files.sort();
-        assert_eq!(files, ["descriptor.mod", "eu4-harmony/manifest.json", "eu4-harmony/ui/button.gui", "eu4-harmony/win64/pkg.dll", "interface/pkg.gfx"]);
+        assert_eq!(
+            files,
+            [
+                "descriptor.mod",
+                "eu4-harmony/localisation/pkg_l_english.yml",
+                "eu4-harmony/localisation/pkg_l_simp_chinese.yml",
+                "eu4-harmony/manifest.json",
+                "eu4-harmony/ui/button.gui",
+                "eu4-harmony/win64/pkg.dll",
+                "interface/pkg.gfx"
+            ]
+        );
         // A second run replaces the earlier package; an unrelated folder is never removed.
         assert!(package_mod(&root, &out).is_ok());
         let other = dir.join("other");

@@ -3,7 +3,7 @@
 //! The launcher writes the active playset to `<user_dir>/dlc_load.json`; each
 //! entry names a `.mod` descriptor whose `path=` points at the mod directory.
 //! A mod carries an extension when it has `eu4-harmony/manifest.json`.
-use crate::Result;
+use crate::{notice::Message, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -75,13 +75,14 @@ pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
 /// An enabled mod that discovery skipped, and why.
 pub struct Skipped {
     pub text: String,
-    /// The mod carries an EU4 Harmony manifest, so the player expects it to run.
-    pub harmony: bool,
+    /// What to tell the player when the mod carries an EU4 Harmony manifest,
+    /// since they expect it to run.
+    pub notice: Option<Message>,
 }
 
 impl Skipped {
     fn other(text: String) -> Self {
-        Self { text, harmony: false }
+        Self { text, notice: None }
     }
 }
 
@@ -120,12 +121,14 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
         {
             Ok(m) => m,
             Err(e) => {
-                notes.push(Skipped { text: format!("{}: bad manifest: {e}", descriptor.name), harmony: true });
+                let notice = Message::new("EU4HARMONY_SKIPPED_MANIFEST").arg("MOD", &descriptor.name).arg("DETAIL", &e);
+                notes.push(Skipped { text: format!("{}: bad manifest: {e}", descriptor.name), notice: Some(notice) });
                 continue;
             }
         };
         if mods.iter().any(|m: &DiscoveredMod| m.manifest.id == manifest.id) {
-            notes.push(Skipped { text: format!("{}: id {:?} is already used by an earlier mod in the playset", descriptor.name, manifest.id), harmony: true });
+            let notice = Message::new("EU4HARMONY_SKIPPED_DUPLICATE_ID").arg("MOD", &descriptor.name).arg("ID", &manifest.id);
+            notes.push(Skipped { text: format!("{}: id {:?} is already used by an earlier mod in the playset", descriptor.name, manifest.id), notice: Some(notice) });
             continue;
         }
         mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest });

@@ -9,7 +9,14 @@
 //! asks [`current`] what to show. When the window cannot be shown (the
 //! executable is not supported, or binding it failed), the queue is flushed to
 //! Windows message boxes and later notices go straight there.
-use crate::splice::{self, Addition, Plan};
+//!
+//! A notice is a framework localisation key with its values; it is put into
+//! words, in the player language, when it is shown.
+use crate::{
+    lang, loc,
+    splice::{self, Addition, Plan},
+};
+use eu4_harmony_loc::Language;
 use std::collections::{HashSet, VecDeque};
 use std::sync::{LazyLock, Mutex};
 
@@ -82,6 +89,30 @@ pub fn splice(plan: &mut Plan) -> crate::Result<()> {
     Ok(())
 }
 
+/// What a notice says: a key of the framework's localisation
+/// (`core/localisation/`) and the values of its `$NAME$`s.
+#[derive(Clone, Debug)]
+pub struct Message {
+    key: &'static str,
+    args: Vec<(&'static str, String)>,
+}
+
+impl Message {
+    pub fn new(key: &'static str) -> Self {
+        Self { key, args: Vec::new() }
+    }
+
+    pub fn arg(mut self, name: &'static str, value: impl Into<String>) -> Self {
+        self.args.push((name, value.into()));
+        self
+    }
+
+    fn words(&self, language: Language) -> String {
+        let args: Vec<(&str, &str)> = self.args.iter().map(|(n, v)| (*n, v.as_str())).collect();
+        loc::framework(language, self.key, &args)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Mode {
     /// The notice window takes them once it is bound.
@@ -92,9 +123,9 @@ enum Mode {
 struct Notices {
     mode: Mode,
     shown: HashSet<String>,
-    queue: VecDeque<String>,
+    queue: VecDeque<Message>,
     /// On screen in the notice window until the player closes it.
-    current: Option<String>,
+    current: Option<Message>,
 }
 
 static NOTICES: LazyLock<Mutex<Notices>> =
@@ -104,22 +135,22 @@ fn notices() -> std::sync::MutexGuard<'static, Notices> {
     NOTICES.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Tells the player about a problem once per `key`, without blocking the game.
-pub fn post(key: &str, text: &str) {
-    log!("notice: {}", text.replace('\n', " "));
+/// Tells the player about a problem once per `once`, without blocking the game.
+pub fn post(once: &str, message: Message) {
+    log!("notice: {}", message.words(Language::English).replace('\n', " "));
     let mut n = notices();
-    if !n.shown.insert(key.to_string()) {
+    if !n.shown.insert(once.to_string()) {
         return;
     }
     match n.mode {
-        Mode::Window => n.queue.push_back(text.to_string()),
-        Mode::MessageBox => message_box(text.to_string()),
+        Mode::Window => n.queue.push_back(message),
+        Mode::MessageBox => message_box(&message),
     }
 }
 
-/// What the bound notice window shows now, with how many notices wait behind
-/// it; takes the next one from the queue when none is showing.
-pub(crate) fn current() -> Option<(String, usize)> {
+/// The title and text the bound notice window shows now; takes the next
+/// notice from the queue when none is showing.
+pub(crate) fn current() -> Option<(String, String)> {
     let mut n = notices();
     if n.mode != Mode::Window {
         return None;
@@ -127,8 +158,12 @@ pub(crate) fn current() -> Option<(String, usize)> {
     if n.current.is_none() {
         n.current = n.queue.pop_front();
     }
-    let waiting = n.queue.len();
-    n.current.clone().map(|text| (text, waiting))
+    let language = lang::player();
+    let title = match n.queue.len() {
+        0 => Message::new("EU4HARMONY_NOTICE_TITLE"),
+        waiting => Message::new("EU4HARMONY_NOTICE_TITLE_MORE").arg("COUNT", waiting.to_string()),
+    };
+    n.current.as_ref().map(|m| (title.words(language), m.words(language)))
 }
 
 /// The player closed the notice window.
@@ -145,12 +180,12 @@ pub(crate) fn fall_back(reason: &str) {
     }
     log!("notices fall back to message boxes: {reason}");
     n.mode = Mode::MessageBox;
-    let pending: Vec<String> = n.current.take().into_iter().chain(n.queue.drain(..)).collect();
-    pending.into_iter().for_each(message_box);
+    let pending: Vec<Message> = n.current.take().into_iter().chain(n.queue.drain(..)).collect();
+    pending.iter().for_each(message_box);
 }
 
-fn message_box(text: String) {
-    let text: Vec<u16> = text.encode_utf16().chain([0]).collect();
+fn message_box(message: &Message) {
+    let text: Vec<u16> = message.words(lang::player()).encode_utf16().chain([0]).collect();
     std::thread::spawn(move || {
         use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND};
         let title: Vec<u16> = "EU4 Harmony\0".encode_utf16().collect();

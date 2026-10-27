@@ -1,5 +1,6 @@
 //! A button in the army panel's button area that logs its clicks and shows
-//! itself only while an own land army is selected.
+//! itself only while an own land army is selected. Its tooltip comes from
+//! `eu4-harmony/localisation/`, in the player's language.
 use eu4_harmony_sdk::{export_extension, log, Click, Extension, Game};
 
 #[derive(Default)]
@@ -9,8 +10,9 @@ struct Hello {
 
 impl Extension for Hello {
     fn on_session(&mut self, game: &mut Game) {
-        let _ = game.set_tooltip("hello", "§YHello§!\nLeft or right click to write a line to the log.");
-        log!("session started: {:?}", game.session());
+        let tooltip = game.text("HELLO_TOOLTIP");
+        let _ = game.set_tooltip("hello", &tooltip);
+        log!("session started: {:?}, language {:?}", game.session(), game.language());
     }
 
     fn on_frame(&mut self, game: &mut Game) {
@@ -41,5 +43,13 @@ mod tests {
         fake.selected = Some(ArmyId(7));
         hello.on_frame(&mut fake.game());
         assert_eq!(fake.element("hello").visible, Some(true));
+    }
+
+    #[test]
+    fn tooltip_is_in_the_player_language() {
+        let mut fake = FakeGame::new();
+        fake.load_localisation(concat!(env!("CARGO_MANIFEST_DIR"), "/.."), "simp_chinese").unwrap();
+        Hello::default().on_session(&mut fake.game());
+        assert_eq!(fake.element("hello").tooltip.as_deref(), Some("§Y你好§!\n左键或右键点击，在日志里写一行。"));
     }
 }

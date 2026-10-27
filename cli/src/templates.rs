@@ -1,5 +1,5 @@
 //! Files `eu4-harmony new` writes. `@@id@@`, `@@name@@`, `@@crate@@`,
-//! `@@lib@@`, `@@sdk@@` and `@@api@@` are substituted.
+//! `@@lib@@`, `@@key@@`, `@@sdk@@` and `@@api@@` are substituted.
 
 pub const DESCRIPTOR: &str = r#"version="0.1.0"
 tags={
@@ -25,6 +25,14 @@ guiButtonType = {
 	name = "button"
 	quadTextureSprite = "GFX_unitpanel_button_hunt_rebels"
 }
+"#;
+
+pub const LOC_ENGLISH: &str = r#"l_english:
+ @@key@@_TOOLTIP:0 "§Y@@name@@§!\nClick to write a line to the log."
+"#;
+
+pub const LOC_SIMP_CHINESE: &str = r#"l_simp_chinese:
+ @@key@@_TOOLTIP:0 "§Y@@name@@§!\n点击后在日志里写一行。"
 "#;
 
 pub const GITIGNORE: &str = "/extension/target/\n/eu4-harmony/win64/\n";
@@ -63,6 +71,7 @@ pub const LIB_RS: &str = r#"//! @@name@@: an EU4 Harmony extension.
 //! Its button sits in the army panel's button area. It shows while an own
 //! land army is selected and logs each click to
 //! `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\logs\@@id@@.log`.
+//! Its texts are in `eu4-harmony/localisation/`, one file per language.
 use eu4_harmony_sdk::{export_extension, log, Click, Extension, Game};
 
 #[derive(Default)]
@@ -72,7 +81,8 @@ pub struct Mod {
 
 impl Extension for Mod {
     fn on_session(&mut self, game: &mut Game) {
-        let _ = game.set_tooltip("button", "§Y@@name@@§!\nClick to write a line to the log.");
+        let tooltip = game.text("@@key@@_TOOLTIP");
+        let _ = game.set_tooltip("button", &tooltip);
     }
 
     fn on_frame(&mut self, game: &mut Game) {
@@ -103,6 +113,14 @@ mod tests {
         fake.selected = Some(ArmyId(1));
         m.on_frame(&mut fake.game());
         assert_eq!(fake.element("button").visible, Some(true));
+    }
+
+    #[test]
+    fn tooltip_comes_from_the_localisation() {
+        let mut fake = FakeGame::new();
+        fake.load_localisation(concat!(env!("CARGO_MANIFEST_DIR"), "/.."), "simp_chinese").unwrap();
+        Mod::default().on_session(&mut fake.game());
+        assert!(fake.element("button").tooltip.unwrap().contains("日志"));
     }
 }
 "#;

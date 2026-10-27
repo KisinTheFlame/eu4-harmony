@@ -10,5 +10,6 @@ name = "eu4_harmony_sdk"
 
 [dependencies]
 eu4-harmony-abi = { path = "../abi" }
+eu4-harmony-loc = { path = "../loc" }
 serde = { workspace = true }
 serde_json = { workspace = true }

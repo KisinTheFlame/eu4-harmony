@@ -11,6 +11,8 @@ pub mod baseline;
 pub mod ext;
 pub mod game;
 pub mod hooks;
+pub mod lang;
+pub mod loc;
 pub mod map;
 pub mod memory;
 pub mod mods;
@@ -123,6 +125,8 @@ pub(crate) fn deferred_init() {
     report::line(format!("game: {}", game_dir.display()));
     report::line(format!("user dir: {}", user_dir.display()));
     log!("user dir {}", user_dir.display());
+    let language = lang::decide(&user_dir);
+    report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
     let supported = BASELINE_OK.load(Ordering::Acquire);
     report::line(match BASELINE_ERROR.lock().unwrap().as_ref() {
         None => "executable: supported".to_string(),
@@ -145,8 +149,8 @@ pub(crate) fn deferred_init() {
     };
     for note in &notes {
         log!("discovery: {}", note.text);
-        if note.harmony {
-            notice::post(&format!("skipped:{}", note.text), &format!("An EU4 Harmony mod in the playset was skipped:\n{}", note.text));
+        if let Some(message) = &note.notice {
+            notice::post(&format!("skipped:{}", note.text), message.clone());
         }
     }
     for m in &mods {
@@ -157,13 +161,19 @@ pub(crate) fn deferred_init() {
     }
     if !supported && mods.iter().any(|m| m.manifest.extension.is_some() || !m.manifest.ui.is_empty()) {
         let reason = BASELINE_ERROR.lock().unwrap().clone().unwrap_or_default();
-        notice::post("baseline", &format!("This eu4.exe is not supported by EU4 Harmony, so mods built on it are inactive.\n\n{reason}"));
+        notice::post("baseline", notice::Message::new("EU4HARMONY_UNSUPPORTED_EXE").arg("DETAIL", reason));
     }
     let outcomes = ext::load(memory, &mods, &logs);
     let indices = ext::extension_indices(&mods);
-    let (mut plan, ui_notes) = splice::build(&mods, |i| supported && outcomes[i].included);
+    let included = |i: usize| supported && outcomes[i].included;
+    let (mut plan, ui_notes) = splice::build(&mods, included);
     for note in &ui_notes {
         log!("ui: {note}");
+    }
+    let taking_part: Vec<_> = mods.iter().enumerate().filter(|(i, _)| included(*i)).map(|(_, m)| m).collect();
+    let loc_notes = loc::install(&taking_part, &mut plan);
+    for note in &loc_notes {
+        log!("localisation: {note}");
     }
     let mod_elements = plan.elements.len();
     let notices = if !supported {
@@ -180,7 +190,8 @@ pub(crate) fn deferred_init() {
         report::line(format!("  {} (id {}, api {}): {}; {} UI fragment(s)", m.descriptor.name, m.manifest.id, m.manifest.api_version, outcome.status, m.manifest.ui.len()));
         report::line(format!("    {}", m.dir.display()));
     }
-    for note in notes.iter().map(|n| format!("discovery: {}", n.text)).chain(ui_notes.iter().map(|n| format!("ui: {n}"))) {
+    let all_notes = notes.iter().map(|n| format!("discovery: {}", n.text)).chain(ui_notes.iter().map(|n| format!("ui: {n}"))).chain(loc_notes.iter().map(|n| format!("localisation: {n}")));
+    for note in all_notes {
         report::line(format!("  {note}"));
     }
     report::line(format!("UI: {mod_elements} mod element(s) spliced, {} button-area slot(s)", plan.slots));

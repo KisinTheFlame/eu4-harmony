@@ -31,6 +31,10 @@ pub trait Backend {
     /// JSON text; empty when there is none.
     fn save_data_get(&mut self) -> Result<String>;
     fn save_data_set(&mut self, json: &str) -> Result<()>;
+    /// The player language's Paradox name.
+    fn language(&mut self) -> Result<String>;
+    /// This mod's text for `key`; `NotFound` when it has none.
+    fn text(&mut self, key: &str) -> Result<String>;
 }
 
 /// The core's capability table for the current callback.
@@ -80,6 +84,26 @@ impl RealBackend {
         self.check(call(&mut out))?;
         Ok(out != 0)
     }
+
+    /// Fails when the core's table ends before `end`, the offset just past a
+    /// field appended after the first release of the table.
+    fn require(&self, end: usize) -> Result<()> {
+        if self.api().size < end {
+            return Err(Error::new(Status::Unavailable, "the installed EU4 Harmony is older than this SDK"));
+        }
+        Ok(())
+    }
+
+    fn utf8(&self, bytes: Vec<u8>) -> Result<String> {
+        String::from_utf8(bytes).map_err(|e| Error::new(Status::Internal, e.to_string()))
+    }
+}
+
+/// Offset just past a function-pointer field of the game table.
+macro_rules! end_of {
+    ($field:ident) => {
+        std::mem::offset_of!(abi::GameApi, $field) + std::mem::size_of::<usize>()
+    };
 }
 
 impl Backend for RealBackend {
@@ -183,10 +207,22 @@ impl Backend for RealBackend {
     fn save_data_get(&mut self) -> Result<String> {
         let api = self.api();
         let bytes = self.list(|b, c, l| unsafe { (api.save_data_get)(api.host, b, c, l) })?;
-        String::from_utf8(bytes).map_err(|e| Error::new(Status::Internal, e.to_string()))
+        self.utf8(bytes)
     }
     fn save_data_set(&mut self, json: &str) -> Result<()> {
         let api = self.api();
         self.check(unsafe { (api.save_data_set)(api.host, json.as_ptr(), json.len()) })
+    }
+    fn language(&mut self) -> Result<String> {
+        self.require(end_of!(language))?;
+        let api = self.api();
+        let bytes = self.list(|b, c, l| unsafe { (api.language)(api.host, b, c, l) })?;
+        self.utf8(bytes)
+    }
+    fn text(&mut self, key: &str) -> Result<String> {
+        self.require(end_of!(text))?;
+        let api = self.api();
+        let bytes = self.list(|b, c, l| unsafe { (api.text)(api.host, key.as_ptr(), key.len(), b, c, l) })?;
+        self.utf8(bytes)
     }
 }

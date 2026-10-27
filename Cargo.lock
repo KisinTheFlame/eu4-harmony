@@ -65,6 +65,7 @@ name = "eu4-harmony-cli"
 version = "0.1.0"
 dependencies = [
  "eu4-harmony-abi",
+ "eu4-harmony-loc",
  "serde",
  "serde_json",
  "windows-sys",
@@ -76,6 +77,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "eu4-harmony-abi",
+ "eu4-harmony-loc",
  "serde",
  "serde_json",
  "sha2",
@@ -90,6 +92,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "eu4-harmony-loc"
+version = "0.1.0"
+
+[[package]]
 name = "eu4-harmony-proxy"
 version = "0.1.0"
 dependencies = [
@@ -101,6 +107,7 @@ name = "eu4-harmony-sdk"
 version = "0.1.0"
 dependencies = [
  "eu4-harmony-abi",
+ "eu4-harmony-loc",
  "serde",
  "serde_json",
 ]

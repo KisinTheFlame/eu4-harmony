@@ -4,8 +4,11 @@
 //! game rules. Tests set up provinces, armies and routes, call the extension's
 //! events with [`FakeGame::game`], and inspect [`FakeGame::commands`], the UI
 //! state and the map. Orders have no effect unless the test applies them.
+//! [`FakeGame::load_localisation`] gives it the mod's real texts.
 use crate::{backend::Backend, game::*};
+use eu4_harmony_loc::Language;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -48,6 +51,10 @@ pub struct FakeGame {
     pub map: Option<Vec<MapColor>>,
     pub save_data: String,
     pub commands: Vec<Command>,
+    /// The player language's Paradox name; English when empty.
+    pub language: String,
+    /// What `Game::text` answers, by key; see [`FakeGame::load_localisation`].
+    pub texts: BTreeMap<String, String>,
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -65,6 +72,21 @@ impl FakeGame {
 
     pub fn element(&self, name: &str) -> Element {
         self.elements.get(name).cloned().unwrap_or_default()
+    }
+
+    /// Sets the player language (a Paradox name such as `simp_chinese`) and
+    /// fills [`texts`](Self::texts) from the mod at `mod_dir`, the way the
+    /// core reads its `eu4-harmony/localisation/` files. Fails on files the
+    /// core would leave out.
+    pub fn load_localisation(&mut self, mod_dir: impl AsRef<Path>, language: &str) -> std::result::Result<(), String> {
+        let language = Language::from_id(language).ok_or_else(|| format!("unknown language {language}"))?;
+        let (catalog, problems) = eu4_harmony_loc::load_dir(&mod_dir.as_ref().join("eu4-harmony").join("localisation"));
+        if !problems.is_empty() {
+            return Err(problems.join("\n"));
+        }
+        self.language = language.id().to_string();
+        self.texts = catalog.keys().into_iter().filter_map(|k| Some((k.to_string(), catalog.text(language, k)?))).collect();
+        Ok(())
     }
 
     pub fn set_hostile(&mut self, a: CountryId, b: CountryId) {
@@ -183,5 +205,11 @@ impl Backend for FakeGame {
     fn save_data_set(&mut self, json: &str) -> Result<()> {
         self.save_data = json.into();
         Ok(())
+    }
+    fn language(&mut self) -> Result<String> {
+        Ok(if self.language.is_empty() { "english".into() } else { self.language.clone() })
+    }
+    fn text(&mut self, key: &str) -> Result<String> {
+        self.texts.get(key).cloned().ok_or_else(|| not_found(format!("no localisation text for {key}")))
     }
 }

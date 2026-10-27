@@ -314,4 +314,19 @@ impl<'a> Game<'a> {
         let text = serde_json::to_string(value).map_err(|e| Error::new(Status::InvalidArgument, e.to_string()))?;
         self.backend.save_data_set(&text)
     }
+    /// The language texts are shown in this session, by its Paradox name
+    /// (`english`, `simp_chinese`, ...).
+    pub fn language(&mut self) -> Result<String> {
+        self.backend.language()
+    }
+    /// This mod's text for `key`, from its `eu4-harmony/localisation/` files,
+    /// in the player language or else in English. As in the game, a key
+    /// without a text shows as itself.
+    pub fn text(&mut self, key: &str) -> String {
+        self.backend.text(key).unwrap_or_else(|_| key.to_string())
+    }
+    /// [`text`](Self::text) with each `$NAME$` replaced by its value.
+    pub fn text_with(&mut self, key: &str, args: &[(&str, &str)]) -> String {
+        eu4_harmony_loc::fill(&self.text(key), args)
+    }
 }

@@ -1,0 +1,9 @@
+[package]
+name = "eu4-harmony-loc"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "EU4 Harmony localisation files: languages, parsing and lookup"
+
+[lib]
+name = "eu4_harmony_loc"
