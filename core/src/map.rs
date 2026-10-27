@@ -4,17 +4,17 @@
 //! Ported from eu4-regional-combat's range preview
 //! (docs/research/regional-combat/native-range-preview-findings.txt).
 use crate::{
-    baseline::Dependency,
     game::{self, fail, GResult, MAP, MAP_MANAGER_VT, PROVINCE_STRIDE},
-    hooks::{self, HookFrame},
+    hooks::HookFrame,
     memory::Memory,
+    points::Point,
     Result,
 };
 use eu4_harmony_abi as abi;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
-    sync::{Mutex, OnceLock},
+    sync::Mutex,
 };
 
 const FILL: usize = 0x12fd9b0;
@@ -23,13 +23,6 @@ const RENDERER: usize = 0x10a8c30;
 const REFRESH: usize = 0x821ff0;
 const PAINT_MODE: i32 = 12;
 const PAINT_OPTION: u32 = 26;
-
-pub const DEPENDENCIES: &[Dependency] = &[
-    Dependency { rva: FILL, bytes: "48 89 5c 24 08 48 89 6c 24 18 56 57 41 54 41 56", what: "map color fill" },
-    Dependency { rva: SECONDARY, bytes: "48 8b c4 89 50 10 55 53 56 57 41 54 41 55 41 56", what: "map secondary colors" },
-    Dependency { rva: RENDERER, bytes: "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", what: "map renderer" },
-    Dependency { rva: REFRESH, bytes: "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", what: "map mode refresh" },
-];
 
 /// Proof collected by the hooks during one refresh.
 #[derive(Clone, Default)]
@@ -61,7 +54,6 @@ struct Fill {
     option: u32,
 }
 
-static MEMORY: OnceLock<Memory> = OnceLock::new();
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 thread_local! { static FILLS: RefCell<Vec<Option<Fill>>> = const { RefCell::new(Vec::new()) }; }
 
@@ -72,7 +64,7 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
 
 extern "C" fn fill_before(frame: *mut HookFrame) {
     crate::guarded("map fill", || {
-        let Some(m) = MEMORY.get() else { return };
+        let Some(m) = crate::memory() else { return };
         let a = unsafe { &(*frame).args };
         let fill = (|| -> Result<Fill> {
             let d0 = m.i32(a[0] + 8)?;
@@ -103,7 +95,7 @@ extern "C" fn fill_after(frame: *mut HookFrame) {
 /// After the game's secondary color pass for the paint mode, overwrite our provinces.
 extern "C" fn secondary_after(frame: *mut HookFrame) {
     crate::guarded("map colors", || {
-        let Some(m) = MEMORY.get() else { return };
+        let Some(m) = crate::memory() else { return };
         let frame = unsafe { &*frame };
         let Ok(mut guard) = STATE.try_lock() else { return };
         let Some(s) = guard.as_mut() else { return };
@@ -168,12 +160,14 @@ extern "C" fn renderer_after(frame: *mut HookFrame) {
     });
 }
 
-pub fn install(m: Memory) -> Result<()> {
-    MEMORY.set(m).map_err(|_| "map already installed".to_string())?;
-    hooks::observe(m.at(FILL), 3, Some(fill_before), Some(fill_after))?;
-    hooks::observe(m.at(SECONDARY), 2, None, Some(secondary_after))?;
-    hooks::observe(m.at(RENDERER), 3, None, Some(renderer_after))?;
-    Ok(())
+/// The color pass the core observes, and the refresh it calls.
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::observe(FILL, "48 89 5c 24 08 48 89 6c 24 18 56 57 41 54 41 56", "map color fill", 3, Some(fill_before), Some(fill_after)),
+        Point::observe(SECONDARY, "48 8b c4 89 50 10 55 53 56 57 41 54 41 55 41 56", "map secondary colors", 2, None, Some(secondary_after)),
+        Point::observe(RENDERER, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "map renderer", 3, None, Some(renderer_after)),
+        Point::keep(REFRESH, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "map mode refresh"),
+    ]
 }
 
 fn manager(m: &Memory, ctx: &game::Ctx) -> GResult<usize> {

@@ -1,7 +1,7 @@
 //! Reading provinces, armies and countries. Visibility rules follow the game:
 //! units in fogged provinces are never read.
 use super::{context, country, fail, special_countries, span, Ctx, GResult, Tag, ARMY_VT, FLEET_VT, MAP, MAX_PROVINCES, MAX_UNITS, PROVINCE_STRIDE};
-use crate::{baseline::Dependency, memory::Memory};
+use crate::{memory::Memory, points::Point};
 use eu4_harmony_abi as abi;
 use std::collections::BTreeSet;
 
@@ -10,12 +10,14 @@ const MILITARY_TAG: usize = 0x1a8d20;
 const STRAIT_BLOCKED: usize = 0x96f650;
 const CAN_ATTACK: usize = 0xd54a60;
 
-pub const DEPENDENCIES: &[Dependency] = &[
-    Dependency { rva: CAN_ENTER, bytes: "48 89 5c 24 08 48 89 6c 24 10 56 57 41 56 48 83", what: "army access query" },
-    Dependency { rva: MILITARY_TAG, bytes: "48 89 5c 24 08 57 48 83 ec 20 48 8b da 48 8b f9", what: "army military tag" },
-    Dependency { rva: STRAIT_BLOCKED, bytes: "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48", what: "strait blockade query" },
-    Dependency { rva: CAN_ATTACK, bytes: "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", what: "attack permission query" },
-];
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::keep(CAN_ENTER, "48 89 5c 24 08 48 89 6c 24 10 56 57 41 56 48 83", "army access query"),
+        Point::keep(MILITARY_TAG, "48 89 5c 24 08 57 48 83 ec 20 48 8b da 48 8b f9", "army military tag"),
+        Point::keep(STRAIT_BLOCKED, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48", "strait blockade query"),
+        Point::keep(CAN_ATTACK, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "attack permission query"),
+    ]
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Edge {

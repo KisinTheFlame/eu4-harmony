@@ -7,7 +7,7 @@ pub mod events;
 pub mod orders;
 pub mod world;
 
-use crate::{baseline::Dependency, memory::Memory};
+use crate::{memory::Memory, points::Point};
 use eu4_harmony_abi as abi;
 
 /// A failed capability call: an ABI status code and a message for `last_error`.
@@ -41,8 +41,14 @@ pub const PROVINCE_STRIDE: usize = 0x2e10;
 pub const MAX_PROVINCES: usize = 50_000;
 pub const MAX_UNITS: usize = 100_000;
 
-/// Game functions this module calls directly.
-pub const DEPENDENCIES: &[Dependency] = &[Dependency { rva: IS_PAUSED, bytes: "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", what: "pause query" }];
+/// Game functions the game-state capabilities call or observe.
+pub fn points() -> Vec<Point> {
+    let mut points = vec![Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query")];
+    points.extend(world::points());
+    points.extend(orders::points());
+    points.extend(events::points());
+    points
+}
 
 /// Country tag as stored by the game: three ASCII bytes, then index, kind and a
 /// validity byte.

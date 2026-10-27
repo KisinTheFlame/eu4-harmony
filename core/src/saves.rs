@@ -5,7 +5,7 @@
 //! The observers follow the game's save pipeline (save request, local writer,
 //! file close, final move to the absolute path) and its loader, as recovered for
 //! eu4-regional-combat (docs/research/regional-combat/native-save-findings.txt).
-use crate::{baseline::Dependency, hooks::HookFrame, memory::Memory, Result};
+use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -29,22 +29,12 @@ const LOCAL_IRONMAN: usize = 0x5c7ac0;
 const FINAL_MOVE: usize = 0x1715bb0;
 const ABSOLUTE_PATH: usize = 0x1a5ed40;
 const LOAD: usize = 0x5cdc60;
-const REAL_DIR: usize = 0x19f7530;
 /// Return addresses that tie a file close or move to the save writer that made it.
 const CLOSE_FROM_NORMAL: usize = 0x5c6c51;
 const CLOSE_FROM_IRONMAN: usize = 0x5c820f;
 const MOVE_FROM_NORMAL: usize = 0x5c788d;
 const MOVE_FROM_IRONMAN: usize = 0x5c88f4;
 const ABSOLUTE_FROM_MOVE: usize = 0x171614f;
-
-pub const DEPENDENCIES: &[Dependency] = &[
-    Dependency { rva: SAVE, bytes: "48 89 5c 24 10 57 48 83 ec 20 48 8b f9 e8 be 49", what: "save request" },
-    Dependency { rva: LOCAL_NORMAL, bytes: "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55 41", what: "normal save writer" },
-    Dependency { rva: LOCAL_IRONMAN, bytes: "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55 41", what: "ironman save writer" },
-    Dependency { rva: FINAL_MOVE, bytes: "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20 55", what: "save final move" },
-    Dependency { rva: ABSOLUTE_PATH, bytes: "48 83 ec 28 41 b8 02 00 00 00 ff 15 90 76 10 00", what: "save absolute move" },
-    Dependency { rva: LOAD, bytes: "48 89 5c 24 18 55 56 57 48 8b ec 48 81 ec 80 00", what: "save loader" },
-];
 
 const MAX_SAVE: u64 = 512 * 1024 * 1024;
 const MAX_JSON: usize = 16 * 1024 * 1024;
@@ -468,7 +458,7 @@ extern "C" fn load_before(f: *mut HookFrame) {
         let binding = (|| {
             let file = c.memory.ptr(h.args[0])?;
             let (path, data) = engine_path(&c.memory, file + 0x18)?;
-            let root = c.memory.call(c.memory.at(REAL_DIR), &[data])?;
+            let root = c.memory.call(crate::physfs::real_dir(), &[data])?;
             if root == 0 {
                 return Err("loaded path has no real directory".to_string());
             }
@@ -527,20 +517,22 @@ pub fn initialize(memory: Memory, directory: PathBuf) -> Result<()> {
     CONTEXT.set(Context { memory, store: Store { directory } }).map_err(|_| "save data already initialized".to_string())
 }
 
-/// Creates the save and load observers (disabled until hooks are enabled).
-pub fn install(memory: Memory) -> Result<()> {
-    type Callback = extern "C" fn(*mut HookFrame);
-    for (rva, argc, pre, post) in [
-        (SAVE, 1, save_before as Callback, save_after as Callback),
-        (LOCAL_NORMAL, 1, normal_before, local_after),
-        (LOCAL_IRONMAN, 1, ironman_before, local_after),
-        (FINAL_MOVE, 2, move_before, move_after),
-        (ABSOLUTE_PATH, 2, absolute_before, absolute_after),
-        (LOAD, 4, load_before, load_after),
-    ] {
-        crate::hooks::observe(memory.at(rva), argc, Some(pre), Some(post))?;
-    }
-    Ok(())
+/// The save and load functions the tracker observes, and the calls whose
+/// return addresses tie a file close or move to the writer that made it.
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::observe(SAVE, "48 89 5c 24 10 57 48 83 ec 20 48 8b f9 e8 be 49", "save request", 1, Some(save_before), Some(save_after)),
+        Point::observe(LOCAL_NORMAL, "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55 41", "normal save writer", 1, Some(normal_before), Some(local_after)),
+        Point::observe(LOCAL_IRONMAN, "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55 41", "ironman save writer", 1, Some(ironman_before), Some(local_after)),
+        Point::observe(FINAL_MOVE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20 55", "save final move", 2, Some(move_before), Some(move_after)),
+        Point::observe(ABSOLUTE_PATH, "48 83 ec 28 41 b8 02 00 00 00 ff 15 90 76 10 00", "save absolute move", 2, Some(absolute_before), Some(absolute_after)),
+        Point::observe(LOAD, "48 89 5c 24 18 55 56 57 48 8b ec 48 81 ec 80 00", "save loader", 4, Some(load_before), Some(load_after)),
+        Point::keep(CLOSE_FROM_NORMAL - 5, "e8 6f fa 42 01", "normal save writer closes its file"),
+        Point::keep(CLOSE_FROM_IRONMAN - 5, "e8 b1 e4 42 01", "ironman save writer closes its file"),
+        Point::keep(MOVE_FROM_NORMAL - 5, "e8 23 e3 14 01", "normal save writer moves its file"),
+        Point::keep(MOVE_FROM_IRONMAN - 5, "e8 bc d2 14 01", "ironman save writer moves its file"),
+        Point::keep(ABSOLUTE_FROM_MOVE - 5, "e8 f1 8b 34 00", "final move makes the path absolute"),
+    ]
 }
 
 #[cfg(test)]

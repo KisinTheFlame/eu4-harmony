@@ -1,14 +1,15 @@
 //! Notices to the player: problems the framework detects, such as an
-//! unsupported executable, an extension that failed and was stopped, or a mod
-//! that was skipped. Each kind is shown at most once per session.
+//! extension that failed and was stopped, or a mod that was skipped. Each kind
+//! is shown at most once per session.
 //!
 //! Notices wait in a queue for the framework's notice window, which shows
 //! them one at a time. The window is spliced into the main menu's
 //! `country_selection_panel` and the in-game `topbar`, both present for as
 //! long as their screen is (docs/research/notice-window.md); `ui` binds it and
-//! asks [`current`] what to show. When the window cannot be shown (the
-//! executable is not supported, or binding it failed), the queue is flushed to
-//! Windows message boxes and later notices go straight there.
+//! asks [`current`] what to show. When the window cannot be shown (binding it
+//! failed), the queue is flushed to Windows message boxes and later notices go
+//! straight there. A failed startup or a fatal error goes straight to a
+//! message box ([`tell_and_wait`]).
 //!
 //! A notice is a framework localisation key with its values; it is put into
 //! words, in the player language, when it is shown.
@@ -184,13 +185,25 @@ pub(crate) fn fall_back(reason: &str) {
     pending.iter().for_each(message_box);
 }
 
-fn message_box(message: &Message) {
+fn show(message: &Message, style: u32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK, MB_SETFOREGROUND};
     let text: Vec<u16> = message.words(lang::player()).encode_utf16().chain([0]).collect();
-    std::thread::spawn(move || {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND};
-        let title: Vec<u16> = "EU4 Harmony\0".encode_utf16().collect();
-        unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONWARNING | MB_SETFOREGROUND) };
-    });
+    let title: Vec<u16> = "EU4 Harmony\0".encode_utf16().collect();
+    unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_SETFOREGROUND | style) };
+}
+
+fn message_box(message: &Message) {
+    let message = Message { key: message.key, args: message.args.clone() };
+    std::thread::spawn(move || show(&message, windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONWARNING));
+}
+
+/// Shows `message` in a message box and waits until the player closes it. For
+/// a failed startup and a fatal error, where there is no notice window and no
+/// game to keep running alongside it.
+pub(crate) fn tell_and_wait(message: &Message) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_TOPMOST};
+    log!("notice: {}", message.words(Language::English).replace('\n', " "));
+    show(message, MB_ICONERROR | MB_TOPMOST);
 }
 
 #[cfg(test)]

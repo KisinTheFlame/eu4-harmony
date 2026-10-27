@@ -10,9 +10,9 @@
 //! Hook callbacks only touch `BOUNDARY`; they never take the runtime state,
 //! since some fire inside game functions that capabilities call.
 use super::{context, context_any, orders, Ctx, Tag, ARMY_VT};
-use crate::{baseline::Dependency, hooks::{self, HookFrame}, memory::Memory, Result};
+use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
 use std::collections::BTreeSet;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 const MANAGER_FRAME: usize = 0x8137c0;
 const FOW_REFRESH: usize = 0x8275e0;
@@ -23,16 +23,6 @@ const DEFEAT_A: usize = 0x22bea0;
 const DEFEAT_B: usize = 0x22b5a0;
 /// Classes of the movement command objects the dispatcher receives.
 const MOVE_COMMAND_VTS: [usize; 2] = [0x1d1d3f8, 0x1d1da88];
-
-pub const DEPENDENCIES: &[Dependency] = &[
-    Dependency { rva: MANAGER_FRAME, bytes: "48 8b c4 88 50 10 55 53 56 57 41 54 41 55 41 56", what: "map manager frame" },
-    Dependency { rva: FOW_REFRESH, bytes: "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57", what: "fog of war refresh" },
-    Dependency { rva: VISIBILITY, bytes: "48 89 5c 24 10 57 48 83 ec 20 4c 8b 41 28 0f b6", what: "visibility update" },
-    Dependency { rva: DAILY, bytes: "48 8b c4 55 53 56 57 41 54 41 55 41 56 41 57 48", what: "daily update" },
-    Dependency { rva: DISPATCH, bytes: "48 89 5c 24 08 57 48 83 ec 20 48 83 79 58 00 48", what: "command dispatch" },
-    Dependency { rva: DEFEAT_A, bytes: "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57", what: "battle defeat" },
-    Dependency { rva: DEFEAT_B, bytes: "44 88 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", what: "battle defeat" },
-];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Change {
@@ -75,7 +65,6 @@ impl Boundary {
     }
 }
 
-static MEMORY: OnceLock<Memory> = OnceLock::new();
 static BOUNDARY: Mutex<Option<Boundary>> = Mutex::new(None);
 
 fn boundary<T>(f: impl FnOnce(&mut Boundary) -> T) -> T {
@@ -93,7 +82,7 @@ fn fog_mode(m: &Memory, ctx: &Ctx) -> Result<u8> {
 
 extern "C" fn fow_before(_: *mut HookFrame) {
     crate::guarded("fog refresh", || {
-        let Some(m) = MEMORY.get() else { return };
+        let Some(m) = crate::memory() else { return };
         boundary(|b| {
             b.depth += 1;
             if b.depth != 1 {
@@ -111,7 +100,7 @@ extern "C" fn fow_before(_: *mut HookFrame) {
 
 extern "C" fn fow_after(frame: *mut HookFrame) {
     crate::guarded("fog refresh", || {
-        let Some(m) = MEMORY.get() else { return };
+        let Some(m) = crate::memory() else { return };
         let fault = unsafe { (*frame).fault } != 0;
         boundary(|b| {
             b.depth = b.depth.saturating_sub(1);
@@ -167,7 +156,7 @@ fn own_army_id(m: &Memory, address: usize) -> Option<u64> {
 
 extern "C" fn path_before(frame: *mut HookFrame) {
     crate::guarded("route change", || {
-        let Some(m) = MEMORY.get() else { return };
+        let Some(m) = crate::memory() else { return };
         if orders::own_mutation_thread() == crate::thread_id() || crate::saves::load_in_progress() {
             return;
         }
@@ -179,7 +168,7 @@ extern "C" fn path_before(frame: *mut HookFrame) {
 
 extern "C" fn dispatch_before(frame: *mut HookFrame) {
     crate::guarded("command dispatch", || {
-        let Some(m) = MEMORY.get() else { return };
+        let Some(m) = crate::memory() else { return };
         if orders::own_mutation_thread() == crate::thread_id() || crate::saves::load_in_progress() {
             return;
         }
@@ -201,7 +190,7 @@ extern "C" fn dispatch_before(frame: *mut HookFrame) {
 /// Battle resolution: args are (battle, winner side, loser side, side index).
 extern "C" fn defeat_before(frame: *mut HookFrame) {
     crate::guarded("battle defeat", || {
-        let Some(m) = MEMORY.get() else { return };
+        let Some(m) = crate::memory() else { return };
         if crate::saves::load_in_progress() {
             return;
         }
@@ -254,18 +243,19 @@ extern "C" fn manager_after(frame: *mut HookFrame) {
     });
 }
 
-pub fn install(m: Memory) -> Result<()> {
-    MEMORY.set(m).map_err(|_| "events already installed".to_string())?;
-    hooks::observe(m.at(FOW_REFRESH), 0, Some(fow_before), Some(fow_after))?;
-    hooks::observe(m.at(VISIBILITY), 2, Some(visibility_before), None)?;
-    hooks::observe(m.at(DAILY), 1, Some(daily_before), None)?;
-    hooks::observe(m.at(DISPATCH), 2, Some(dispatch_before), None)?;
-    hooks::observe(m.at(orders::MOVE), 4, Some(path_before), None)?;
-    hooks::observe(m.at(orders::STOP), 3, Some(path_before), None)?;
-    hooks::observe(m.at(DEFEAT_A), 4, Some(defeat_before), None)?;
-    hooks::observe(m.at(DEFEAT_B), 4, Some(defeat_before), None)?;
-    hooks::observe(m.at(MANAGER_FRAME), 2, None, Some(manager_after))?;
-    Ok(())
+/// The frame, fog, daily and command functions that drive events.
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::observe(FOW_REFRESH, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57", "fog of war refresh", 0, Some(fow_before), Some(fow_after)),
+        Point::observe(VISIBILITY, "48 89 5c 24 10 57 48 83 ec 20 4c 8b 41 28 0f b6", "visibility update", 2, Some(visibility_before), None),
+        Point::observe(DAILY, "48 8b c4 55 53 56 57 41 54 41 55 41 56 41 57 48", "daily update", 1, Some(daily_before), None),
+        Point::observe(DISPATCH, "48 89 5c 24 08 57 48 83 ec 20 48 83 79 58 00 48", "command dispatch", 2, Some(dispatch_before), None),
+        Point::observe(orders::MOVE, "48 89 5c 24 20 44 88 44 24 18 48 89 54 24 10 55", "army move", 4, Some(path_before), None),
+        Point::observe(orders::STOP, "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57", "army stop", 3, Some(path_before), None),
+        Point::observe(DEFEAT_A, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57", "battle defeat", 4, Some(defeat_before), None),
+        Point::observe(DEFEAT_B, "44 88 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "battle defeat", 4, Some(defeat_before), None),
+        Point::observe(MANAGER_FRAME, "48 8b c4 88 50 10 55 53 56 57 41 54 41 55 41 56", "map manager frame", 2, None, Some(manager_after)),
+    ]
 }
 
 /// What a frame needs to know before dispatching.

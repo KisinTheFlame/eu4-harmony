@@ -6,7 +6,8 @@
 //! The detours run on whichever thread the game reads files from (GUI
 //! definitions load on the game's LoadingThread) and never call extension code.
 use crate::{
-    hooks::{self, HookFrame},
+    hooks::HookFrame,
+    points::Point,
     splice::{self, Addition, Plan},
     Result,
 };
@@ -18,7 +19,6 @@ use std::{
         LazyLock, Mutex, Once,
     },
 };
-use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 
 type File = *mut c_void;
 
@@ -194,42 +194,32 @@ extern "C" fn close_before(frame: *mut HookFrame) {
         let handle = unsafe { (*frame).args[0] };
         state().open.remove(&handle);
     });
-    if crate::BASELINE_OK.load(Ordering::Acquire) {
-        crate::saves::close_before(frame);
-    }
+    crate::saves::close_before(frame);
 }
 
 extern "C" fn close_after(frame: *mut HookFrame) {
-    if crate::BASELINE_OK.load(Ordering::Acquire) {
-        crate::saves::close_after(frame);
-    }
+    crate::saves::close_after(frame);
 }
 
-fn export(name: &CStr) -> Result<usize> {
-    let module = unsafe { GetModuleHandleW(std::ptr::null()) };
-    unsafe { GetProcAddress(module, name.as_ptr() as *const u8) }
-        .map(|f| f as usize)
-        .ok_or_else(|| format!("eu4.exe does not export {}", name.to_string_lossy()))
+/// `PHYSFS_getRealDir`, which the save tracker calls too.
+pub fn real_dir() -> usize {
+    GET_REAL_DIR.load(Ordering::Acquire)
 }
 
-/// Creates (but does not enable) every PhysFS hook.
-pub fn install() -> Result<()> {
-    GET_REAL_DIR.store(export(c"PHYSFS_getRealDir")?, Ordering::Release);
-    let detours: [(&CStr, usize, &AtomicUsize); 7] = [
-        (c"PHYSFS_init", init_detour as *const () as usize, &ORIG_INIT),
-        (c"PHYSFS_openRead", open_read_detour as *const () as usize, &ORIG_OPEN_READ),
-        (c"PHYSFS_fileLength", file_length_detour as *const () as usize, &ORIG_FILE_LENGTH),
-        (c"PHYSFS_readBytes", read_bytes_detour as *const () as usize, &ORIG_READ_BYTES),
-        (c"PHYSFS_seek", seek_detour as *const () as usize, &ORIG_SEEK),
-        (c"PHYSFS_tell", tell_detour as *const () as usize, &ORIG_TELL),
-        (c"PHYSFS_eof", eof_detour as *const () as usize, &ORIG_EOF),
-    ];
-    for (name, detour, slot) in detours {
-        slot.store(hooks::create(export(name)?, detour)?, Ordering::Release);
-    }
-    hooks::observe(export(c"PHYSFS_close")?, 1, Some(close_before), Some(close_after))?;
-    log!("PhysFS hooks created");
-    Ok(())
+/// Every PhysFS function the core detours, observes or calls, by export name.
+pub fn points() -> Vec<Point> {
+    let replace = |name: &'static CStr, bytes, what, with: usize, original| Point::replace(name, bytes, what, with, original);
+    vec![
+        replace(c"PHYSFS_init", "40 56 48 83 ec 20 83 3d 33 1a 94 00 00 48 8b f1", "PhysFS init", init_detour as *const () as usize, &ORIG_INIT),
+        replace(c"PHYSFS_openRead", "40 55 48 83 ec 30 48 8d 6c 24 20 48 89 5d 20 48", "PhysFS open", open_read_detour as *const () as usize, &ORIG_OPEN_READ),
+        replace(c"PHYSFS_fileLength", "48 8b 01 48 8b c8 48 ff 60 30", "PhysFS file length", file_length_detour as *const () as usize, &ORIG_FILE_LENGTH),
+        replace(c"PHYSFS_readBytes", "40 53 56 41 56 48 83 ec 20 48 b8 ff ff ff ff ff", "PhysFS read", read_bytes_detour as *const () as usize, &ORIG_READ_BYTES),
+        replace(c"PHYSFS_seek", "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "PhysFS seek", seek_detour as *const () as usize, &ORIG_SEEK),
+        replace(c"PHYSFS_tell", "40 53 48 83 ec 20 48 8b 01 48 8b d9 48 8b c8 ff", "PhysFS tell", tell_detour as *const () as usize, &ORIG_TELL),
+        replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as *const () as usize, &ORIG_EOF),
+        Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), Some(close_after)),
+        Point::keep(c"PHYSFS_getRealDir", "48 83 ec 28 e8 37 38 00 00 48 85 c0 74 09 48 8b", "PhysFS real directory").recorded(&GET_REAL_DIR),
+    ]
 }
 
 #[cfg(test)]

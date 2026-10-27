@@ -9,17 +9,17 @@
 //! host's update hook applies it, so state survives the game rebuilding the
 //! window and never needs a callback inside the game's UI code.
 use crate::{
-    baseline::Dependency,
     game::{self, fail, GResult, ARMY_VT},
-    hooks::{self, HookFrame},
+    hooks::HookFrame,
     memory::Memory,
     notice,
+    points::Point,
     splice::{Element, ElementKind, Owner},
     Result,
 };
 use eu4_harmony_abi as abi;
 use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 const BUTTON_VT: usize = 0x1d58218;
 const SIGNAL_VT: usize = 0x1d581f8;
@@ -51,33 +51,6 @@ const SET_RIGHT_CLICK: usize = 0x1593860;
 const SHOW: usize = 0x15aeb30;
 const HIDE: usize = 0x15aead0;
 const SET_ENABLED: usize = 0xfaab30;
-
-pub const DEPENDENCIES: &[Dependency] = &[
-    Dependency { rva: PANEL_UPDATE, bytes: "48 89 5c 24 08 88 54 24 10 55 56 57 41 54 41 55", what: "army panel update" },
-    Dependency { rva: PANEL_DESTROY, bytes: "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 41", what: "army panel destructor" },
-    Dependency { rva: PANEL_RECREATE, bytes: "40 53 48 83 ec 40 48 8b d9 48 8b 05 e8 f8 ee 00", what: "army panel rebuild" },
-    Dependency { rva: BUTTON_DESTROY, bytes: "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8", what: "button destructor" },
-    Dependency {
-        rva: WINDOW_KILL,
-        bytes: "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 c6 81 f4 00 00 00 01",
-        what: "window kill",
-    },
-    Dependency {
-        rva: WINDOW_DELETE,
-        bytes: "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 0c 02 00 00 f6 c3 01 74 0d ba 80 0a 00 00",
-        what: "window destructor",
-    },
-    Dependency { rva: MENU_FRAME, bytes: "48 8b c4 48 89 58 10 55 56 57 41 54 41 55 41 56", what: "main menu frame" },
-    Dependency { rva: TOOLTIP, bytes: "48 89 5c 24 08 48 89 74 24 10 55 57 41 54 41 56", what: "army panel tooltip" },
-    Dependency { rva: STRING_APPEND, bytes: "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20", what: "string append" },
-    Dependency { rva: TEXT_SET, bytes: "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", what: "text box setter" },
-    Dependency { rva: SUBSCRIBE, bytes: "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", what: "signal subscribe" },
-    Dependency { rva: UNSUBSCRIBE, bytes: "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 85 c9", what: "signal unsubscribe" },
-    Dependency { rva: SET_RIGHT_CLICK, bytes: "88 91 61 01 00 00 c3", what: "button right-click enable" },
-    Dependency { rva: SHOW, bytes: "40 53 48 83 ec 20 80 b9 00 01 00 00 00 48 8b d9", what: "element show" },
-    Dependency { rva: HIDE, bytes: "40 53 48 83 ec 20 c6 81 c5 00 00 00 00 48 8b d9", what: "element hide" },
-    Dependency { rva: SET_ENABLED, bytes: "48 8b 01 84 d2 74 07 48 ff a0 68 02 00 00 48 ff", what: "button enable" },
-];
 
 /// A vanilla window that spliced elements are bound in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -157,7 +130,6 @@ struct Ui {
     fatal: Option<String>,
 }
 
-static MEMORY: OnceLock<Memory> = OnceLock::new();
 static UI: Mutex<Option<Ui>> = Mutex::new(None);
 
 fn with_ui<T>(f: impl FnOnce(&mut Ui) -> T) -> T {
@@ -166,7 +138,7 @@ fn with_ui<T>(f: impl FnOnce(&mut Ui) -> T) -> T {
 }
 
 fn memory() -> Option<Memory> {
-    MEMORY.get().copied()
+    crate::memory().copied()
 }
 
 fn report_once(ui: &mut Ui, message: String) {
@@ -635,17 +607,33 @@ extern "C" fn tooltip_after(frame: *mut HookFrame) {
     });
 }
 
-pub fn install(m: Memory) -> Result<()> {
-    MEMORY.set(m).map_err(|_| "UI already installed".to_string())?;
-    hooks::observe(m.at(PANEL_UPDATE), 2, None, Some(panel_after))?;
-    hooks::observe(m.at(PANEL_DESTROY), 2, Some(panel_destroy), None)?;
-    hooks::observe(m.at(BUTTON_DESTROY), 2, Some(button_destroy), None)?;
-    hooks::observe(m.at(PANEL_RECREATE), 1, Some(panel_recreate), None)?;
-    hooks::observe(m.at(WINDOW_KILL), 1, Some(window_kill), None)?;
-    hooks::observe(m.at(WINDOW_DELETE), 2, Some(window_delete), None)?;
-    hooks::observe(m.at(MENU_FRAME), 2, None, Some(menu_after))?;
-    hooks::observe(m.at(TOOLTIP), 3, None, Some(tooltip_after))?;
-    Ok(())
+/// The army panel, button and window functions the UI hooks or calls.
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::observe(PANEL_UPDATE, "48 89 5c 24 08 88 54 24 10 55 56 57 41 54 41 55", "army panel update", 2, None, Some(panel_after)),
+        Point::observe(PANEL_DESTROY, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 41", "army panel destructor", 2, Some(panel_destroy), None),
+        Point::observe(PANEL_RECREATE, "40 53 48 83 ec 40 48 8b d9 48 8b 05 e8 f8 ee 00", "army panel rebuild", 1, Some(panel_recreate), None),
+        Point::observe(BUTTON_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8", "button destructor", 2, Some(button_destroy), None),
+        Point::observe(WINDOW_KILL, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 c6 81 f4 00 00 00 01", "window kill", 1, Some(window_kill), None),
+        Point::observe(
+            WINDOW_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 0c 02 00 00 f6 c3 01 74 0d ba 80 0a 00 00",
+            "window destructor",
+            2,
+            Some(window_delete),
+            None,
+        ),
+        Point::observe(MENU_FRAME, "48 8b c4 48 89 58 10 55 56 57 41 54 41 55 41 56", "main menu frame", 2, None, Some(menu_after)),
+        Point::observe(TOOLTIP, "48 89 5c 24 08 48 89 74 24 10 55 57 41 54 41 56", "army panel tooltip", 3, None, Some(tooltip_after)),
+        Point::keep(STRING_APPEND, "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20", "string append"),
+        Point::keep(TEXT_SET, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "text box setter"),
+        Point::keep(SUBSCRIBE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "signal subscribe"),
+        Point::keep(UNSUBSCRIBE, "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 85 c9", "signal unsubscribe"),
+        Point::keep(SET_RIGHT_CLICK, "88 91 61 01 00 00 c3", "button right-click enable"),
+        Point::keep(SHOW, "40 53 48 83 ec 20 80 b9 00 01 00 00 00 48 8b d9", "element show"),
+        Point::keep(HIDE, "40 53 48 83 ec 20 c6 81 c5 00 00 00 00 48 8b d9", "element hide"),
+        Point::keep(SET_ENABLED, "48 8b 01 84 d2 74 07 48 ff a0 68 02 00 00 48 ff", "button enable"),
+    ]
 }
 
 pub fn take_clicks() -> Vec<Click> {

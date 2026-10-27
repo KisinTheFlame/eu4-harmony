@@ -1,7 +1,7 @@
 //! Native route queries and move/stop commands for own land armies, plus the
 //! record of which extension installed which route.
 use super::{fail, paused, span, world, Ctx, GResult, ARMY_VT, MAX_UNITS};
-use crate::{baseline::Dependency, memory::Memory};
+use crate::{memory::Memory, points::Point};
 use eu4_harmony_abi as abi;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -12,14 +12,15 @@ pub const MOVE: usize = 0xd50340;
 pub const STOP: usize = 0xd4fcb0;
 const ROUTE_POLICY: usize = 0x1c3af98;
 
-pub const DEPENDENCIES: &[Dependency] = &[
-    Dependency { rva: ROUTE_QUERY, bytes: "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", what: "route query" },
-    Dependency { rva: FREE_NODE, bytes: "e9 2b 45 02 00 cc cc cc cc cc cc cc cc cc cc cc", what: "route node free" },
-    Dependency { rva: MOVE, bytes: "48 89 5c 24 20 44 88 44 24 18 48 89 54 24 10 55", what: "army move" },
-    Dependency { rva: STOP, bytes: "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57", what: "army stop" },
-    Dependency { rva: 0x8f480, bytes: "33 c0 c3", what: "idle task slot" },
-    Dependency { rva: 0x8f450, bytes: "32 c0 c3", what: "idle task slot" },
-];
+/// `MOVE` and `STOP` are declared by `events`, which observes them.
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::keep(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query"),
+        Point::keep(FREE_NODE, "e9 2b 45 02 00 cc cc cc cc cc cc cc cc cc cc cc", "route node free"),
+        Point::keep(0x8f480usize, "33 c0 c3", "idle task slot"),
+        Point::keep(0x8f450usize, "32 c0 c3", "idle task slot"),
+    ]
+}
 
 /// Set after a native exception or an unsafe cleanup; routes stay off for the session.
 static POISONED: AtomicBool = AtomicBool::new(false);

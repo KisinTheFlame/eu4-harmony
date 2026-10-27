@@ -85,9 +85,10 @@ unsafe fn host<'a>(ptr: *mut c_void) -> &'a Host {
 }
 
 /// Runs a capability: checks it is called from this extension's callback on
-/// the game thread, and records the error message for `last_error`.
+/// the game thread, and records the error message for `last_error`. A panic
+/// here is in framework code and ends the game (ADR 0012).
 fn capability(ptr: *mut c_void, f: impl FnOnce(&Host, &Memory) -> GResult<()>) -> i32 {
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let (h, outcome) = crate::guarded("extension capability", || {
         let h = unsafe { host(ptr) };
         if CURRENT.with(Cell::get) != Some(h.index) || crate::thread_id() != crate::main_thread() {
             return (h, Err(game::Fail { code: abi::WRONG_CONTEXT, message: "called outside this extension's callback".into() }));
@@ -96,14 +97,13 @@ fn capability(ptr: *mut c_void, f: impl FnOnce(&Host, &Memory) -> GResult<()>) -
             return (h, Err(game::Fail { code: abi::UNAVAILABLE, message: "game capabilities unavailable".into() }));
         };
         (h, f(h, m))
-    }));
+    });
     match outcome {
-        Ok((_, Ok(()))) => abi::OK,
-        Ok((h, Err(e))) => {
+        Ok(()) => abi::OK,
+        Err(e) => {
             *h.last_error.lock().unwrap_or_else(|p| p.into_inner()) = e.message;
             e.code
         }
-        Err(_) => abi::INTERNAL,
     }
 }
 
@@ -152,7 +152,7 @@ fn encode(h: &Host, text: &str) -> Vec<u8> {
 }
 
 unsafe extern "C" fn h_log(ptr: *mut c_void, text: *const u8, len: usize) {
-    let _ = std::panic::catch_unwind(|| {
+    crate::guarded("extension log", || {
         let h = host(ptr);
         let message = match utf8(text, len) {
             Ok(s) => s.to_string(),
@@ -180,7 +180,7 @@ fn extension_log(h: &Host, message: &str) {
 }
 
 unsafe extern "C" fn h_last_error(ptr: *mut c_void, buf: *mut u8, cap: usize) -> usize {
-    std::panic::catch_unwind(|| {
+    crate::guarded("extension last error", || {
         let h = host(ptr);
         let message = h.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
         if !buf.is_null() {
@@ -189,7 +189,6 @@ unsafe extern "C" fn h_last_error(ptr: *mut c_void, buf: *mut u8, cap: usize) ->
         }
         message.len()
     })
-    .unwrap_or(0)
 }
 
 unsafe extern "C" fn h_session(ptr: *mut c_void, o: *mut abi::Session) -> i32 {

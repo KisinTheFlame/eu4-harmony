@@ -2,16 +2,9 @@
 //!
 //! Rule (docs/v1.md): the original sections must sit exactly where they do in
 //! a registered baseline (extra sections appended by a binary patch are fine),
-//! and every dependency point must still hold its expected bytes.
+//! and every dependency point must still hold its expected bytes; `points`
+//! checks the bytes.
 use crate::{memory::Memory, Result};
-
-/// A place in the game image the core relies on.
-pub struct Dependency {
-    pub rva: usize,
-    /// Expected bytes, as space-separated hex.
-    pub bytes: &'static str,
-    pub what: &'static str,
-}
 
 struct Baseline {
     name: &'static str,
@@ -52,23 +45,12 @@ fn sections(m: &Memory) -> Result<Vec<(String, u32, u32)>> {
         .collect()
 }
 
-fn parse_hex(hex: &str) -> Vec<u8> {
-    hex.split_whitespace().map(|b| u8::from_str_radix(b, 16).expect("dependency bytes")).collect()
-}
-
-/// Returns the matched baseline's name, or what did not match.
-pub fn check(m: &Memory, dependencies: &[&[Dependency]]) -> Result<&'static str> {
+/// Returns the name of the baseline whose section layout the image has.
+pub fn recognize(m: &Memory) -> Result<&'static str> {
     let actual = sections(m)?;
-    let baseline = BASELINES
+    BASELINES
         .iter()
         .find(|b| b.sections.iter().enumerate().all(|(i, (n, va, vs))| actual.get(i).is_some_and(|(an, ava, avs)| an == n && ava == va && avs == vs)))
-        .ok_or_else(|| format!("section layout matches no registered baseline: {actual:?}"))?;
-    for dep in dependencies.iter().flat_map(|d| d.iter()) {
-        let expected = parse_hex(dep.bytes);
-        let found = m.bytes(m.at(dep.rva), expected.len())?;
-        if found != expected {
-            return Err(format!("{} at {:#x} differs from baseline {}", dep.what, dep.rva, baseline.name));
-        }
-    }
-    Ok(baseline.name)
+        .map(|b| b.name)
+        .ok_or_else(|| format!("section layout matches no registered baseline: {actual:?}"))
 }

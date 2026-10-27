@@ -1,8 +1,10 @@
 //! EU4 Harmony core. Loaded by the `winmm.dll` proxy during process start;
 //! `eu4_harmony_bootstrap` runs under the loader lock, so it only checks the
-//! executable and creates hooks. Everything that needs the game's own setup
-//! (its file system, the user directory) waits for the game's first
-//! `PHYSFS_init`, on the game thread.
+//! executable and installs every dependency point, all or none (ADR 0012).
+//! Everything that needs the game's own setup (its file system, the user
+//! directory) waits for the game's first `PHYSFS_init`, on the game thread.
+//! When startup fails nothing is hooked; a thread of its own writes the report
+//! and tells the player.
 pub type Result<T> = std::result::Result<T, String>;
 
 #[macro_use]
@@ -11,6 +13,7 @@ pub mod baseline;
 pub mod ext;
 pub mod game;
 pub mod hooks;
+pub mod icu;
 pub mod lang;
 pub mod loc;
 pub mod map;
@@ -20,6 +23,7 @@ pub mod notice;
 pub mod paths;
 pub mod pdx;
 pub mod physfs;
+pub mod points;
 pub mod report;
 pub mod saves;
 pub mod splice;
@@ -27,17 +31,19 @@ pub mod text;
 pub mod ui;
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
-    Mutex, OnceLock,
+    atomic::{AtomicU32, Ordering},
+    OnceLock,
 };
-use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId};
+use windows_sys::Win32::System::{
+    LibraryLoader::GetModuleHandleW,
+    Threading::{GetCurrentProcess, GetCurrentThreadId, TerminateProcess},
+};
 
 static GAME_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
-/// The running executable matches a registered baseline; game hooks are live.
-pub(crate) static BASELINE_OK: AtomicBool = AtomicBool::new(false);
-static BASELINE_ERROR: Mutex<Option<String>> = Mutex::new(None);
 static MEMORY: OnceLock<memory::Memory> = OnceLock::new();
+/// What startup installed, for the report.
+static STARTUP: OnceLock<String> = OnceLock::new();
 
 pub fn thread_id() -> u32 {
     unsafe { GetCurrentThreadId() }
@@ -48,23 +54,51 @@ pub fn main_thread() -> u32 {
     MAIN_THREAD.load(Ordering::Relaxed)
 }
 
-/// Runs `f`, logging instead of unwinding into game code.
-pub fn guarded(what: &str, f: impl FnOnce()) {
-    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err() {
-        log!("panic contained in {what}");
+/// The game image, once startup has begun.
+pub(crate) fn memory() -> Option<&'static memory::Memory> {
+    MEMORY.get()
+}
+
+/// Runs framework code. A panic there is a framework bug, not something to
+/// carry on from: it is logged, the player is told, and the game ends
+/// (ADR 0012).
+pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(value) => value,
+        Err(payload) => {
+            let text = payload.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| payload.downcast_ref::<String>().cloned());
+            fatal(&format!("{what}: {}", text.unwrap_or_else(|| "panic".into())))
+        }
     }
 }
 
-fn dependencies() -> [&'static [baseline::Dependency]; 7] {
-    [game::DEPENDENCIES, game::world::DEPENDENCIES, game::orders::DEPENDENCIES, game::events::DEPENDENCIES, ui::DEPENDENCIES, map::DEPENDENCIES, saves::DEPENDENCIES]
+/// Ends the game after an unexpected error in framework code (ADR 0012).
+pub(crate) fn fatal(detail: &str) -> ! {
+    log!("fatal error, ending the game: {detail}");
+    notice::tell_and_wait(&notice::Message::new("EU4HARMONY_FATAL").arg("DETAIL", detail));
+    unsafe { TerminateProcess(GetCurrentProcess(), 3) };
+    unreachable!("the process was terminated")
 }
 
-fn install_game_hooks(m: memory::Memory) -> Result<()> {
-    game::events::install(m)?;
-    ui::install(m)?;
-    map::install(m)?;
-    saves::install(m)?;
-    Ok(())
+/// Every dependency point, in one declaration list.
+pub(crate) fn points() -> Vec<points::Point> {
+    let mut all = physfs::points();
+    all.extend(game::points());
+    all.extend(ui::points());
+    all.extend(map::points());
+    all.extend(saves::points());
+    all
+}
+
+fn start(m: memory::Memory) -> Result<String> {
+    let baseline = baseline::recognize(&m)?;
+    icu::load()?;
+    // Lets the failure path be tried on a supported game: run eu4.exe with it set.
+    if std::env::var_os("EU4HARMONY_FAIL_STARTUP").is_some() {
+        return Err("EU4HARMONY_FAIL_STARTUP is set".into());
+    }
+    let installed = points::install(m, &points())?;
+    Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }
 
 /// Log file in the game folder, used only when the user directory cannot be
@@ -85,23 +119,46 @@ fn bootstrap() -> Result<()> {
     let _ = GAME_DIR.set(game_dir);
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
     let _ = MEMORY.set(m);
-    match baseline::check(&m, &dependencies()) {
-        Ok(name) => match install_game_hooks(m) {
-            Ok(()) => {
-                log!("baseline {name} recognized; game hooks created");
-                BASELINE_OK.store(true, Ordering::Release);
-            }
-            Err(e) => *BASELINE_ERROR.lock().unwrap() = Some(format!("game hooks failed: {e}")),
-        },
-        Err(e) => *BASELINE_ERROR.lock().unwrap() = Some(e),
-    }
-    if let Some(e) = BASELINE_ERROR.lock().unwrap().as_ref() {
-        log!("executable not supported, extensions will not run: {e}");
-    }
-    physfs::install()?;
-    hooks::enable_all()?;
-    log!("hooks enabled");
+    let summary = start(m)?;
+    log!("startup: {summary}");
+    let _ = STARTUP.set(summary);
     Ok(())
+}
+
+/// Startup failed and nothing was hooked: writes the log and report and tells
+/// the player, from a thread of its own since the loader lock is held here.
+fn fail_startup(reason: String) {
+    let game_dir = GAME_DIR.get().cloned();
+    std::thread::spawn(move || {
+        let user_dir = game_dir.as_deref().and_then(|d| paths::user_dir(d).ok());
+        match &user_dir {
+            Some(dir) => {
+                let logs = dir.join("eu4-harmony").join("logs");
+                if log::open(&logs.join("core.log")).is_err() {
+                    open_fallback_log();
+                }
+                report::open(logs.join("report.txt"));
+            }
+            None => open_fallback_log(),
+        }
+        report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, log::now()));
+        if let Some(dir) = &game_dir {
+            report::line(format!("game: {}", dir.display()));
+        }
+        report::line(format!("startup FAILED; nothing was hooked and no extension runs:\n{reason}"));
+        report::write();
+        if let Some(dir) = &user_dir {
+            lang::decide(dir);
+        }
+        // A changed game can fail every point; the report keeps the full list.
+        const SHOWN: usize = 8;
+        let lines: Vec<&str> = reason.lines().collect();
+        let detail = match lines.len().checked_sub(SHOWN) {
+            Some(more) if more > 0 => format!("{}\n… ({more} more in eu4-harmony/logs/report.txt)", lines[..SHOWN].join("\n")),
+            _ => reason.clone(),
+        };
+        notice::tell_and_wait(&notice::Message::new("EU4HARMONY_STARTUP_FAILED").arg("DETAIL", detail));
+    });
 }
 
 /// Runs once, on the game thread, from the first PhysFS call.
@@ -127,12 +184,8 @@ pub(crate) fn deferred_init() {
     log!("user dir {}", user_dir.display());
     let language = lang::decide(&user_dir);
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
-    let supported = BASELINE_OK.load(Ordering::Acquire);
-    report::line(match BASELINE_ERROR.lock().unwrap().as_ref() {
-        None => "executable: supported".to_string(),
-        Some(e) => format!("executable: NOT supported, no extension runs: {e}"),
-    });
-    let memory = MEMORY.get().copied().filter(|_| supported);
+    report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
+    let memory = MEMORY.get().copied();
     if let Some(m) = memory {
         if let Err(e) = saves::initialize(m, user_dir.join("eu4-harmony").join("saves")) {
             log!("save data: {e}");
@@ -156,16 +209,9 @@ pub(crate) fn deferred_init() {
     for m in &mods {
         log!("mod {:?} id={:?} api={} dir={} extension={:?} ui={}", m.descriptor.name, m.manifest.id, m.manifest.api_version, m.dir.display(), m.manifest.extension, m.manifest.ui.len());
     }
-    if !supported {
-        notice::fall_back("the executable is not supported");
-    }
-    if !supported && mods.iter().any(|m| m.manifest.extension.is_some() || !m.manifest.ui.is_empty()) {
-        let reason = BASELINE_ERROR.lock().unwrap().clone().unwrap_or_default();
-        notice::post("baseline", notice::Message::new("EU4HARMONY_UNSUPPORTED_EXE").arg("DETAIL", reason));
-    }
     let outcomes = ext::load(memory, &mods, &logs);
     let indices = ext::extension_indices(&mods);
-    let included = |i: usize| supported && outcomes[i].included;
+    let included = |i: usize| outcomes[i].included;
     let (mut plan, ui_notes) = splice::build(&mods, included);
     for note in &ui_notes {
         log!("ui: {note}");
@@ -176,9 +222,7 @@ pub(crate) fn deferred_init() {
         log!("localisation: {note}");
     }
     let mod_elements = plan.elements.len();
-    let notices = if !supported {
-        "message boxes".to_string()
-    } else if let Err(e) = notice::splice(&mut plan) {
+    let notices = if let Err(e) = notice::splice(&mut plan) {
         notice::fall_back(&format!("notice window: {e}"));
         format!("message boxes ({e})")
     } else {
@@ -211,10 +255,14 @@ pub extern "system" fn eu4_harmony_bootstrap() -> u32 {
     match std::panic::catch_unwind(bootstrap) {
         Ok(Ok(())) => 0,
         Ok(Err(e)) => {
-            log!("bootstrap failed: {e}");
-            open_fallback_log();
+            log!("startup failed: {e}");
+            fail_startup(e);
             1
         }
-        Err(_) => 2,
+        Err(_) => {
+            log!("startup failed: panic");
+            fail_startup("panic during startup".into());
+            2
+        }
     }
 }

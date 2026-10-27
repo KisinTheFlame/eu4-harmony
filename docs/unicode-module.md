@@ -41,3 +41,17 @@
 - 不依赖游戏的逻辑（UTF-8 遍历、旧转义解码、断行、按字编辑、搜索匹配、图集）写单元测试。
 - 每个里程碑按清单在游戏里实测，结果记进 [prototype-log.md](prototype-log.md)。
 - 每个里程碑都用英、法、德、西四种游戏语言各打开一次主界面，确认和原版没有差别。
+- 全部依赖点可以不开游戏、对着安装好的 eu4.exe 核对：`EU4_GAME_DIR=<游戏目录> cargo test -p eu4-harmony-core -- --ignored`。
+
+### M0 清单
+
+M0 不改变游戏行为，所以清单就是把已有功能重测一遍。用 `cargo build --release` 和 `tools/dev-install.ps1` 装好，合集里启用 regional-combat 和一个 `eu4-harmony new` 生成的 Mod。2026-10-27 已实测通过，结果见 [prototype-log.md](prototype-log.md)。
+
+1. **启动报告**：`report.txt` 有一行 `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes`。
+2. **主菜单**：游戏照常进入主菜单，`error.log` 里没有新的错误。
+3. **军队面板**：选中一支陆军，按钮区出现；按钮左右键都起作用（区域战斗的左键开关区域模式，右键打开半径设置框；它的日志只记效果，不记点击），悬停提示正常。
+4. **区域战斗**：区域按钮、半径设置框照常工作，中文显示和以前一样；开启后按天决策、下达移动和停止命令；调整半径时地图着色正常。
+5. **存档**：自动存档后写出 `eu4-harmony/saves/` 下的数据文件；读这个存档，区域战斗恢复原来的状态。
+6. **重建**：回到主菜单再进游戏，军队面板的按钮和提示窗口都重新出现。
+7. **启动失败**：在命令行里设置 `EU4HARMONY_FAIL_STARTUP=1` 后直接运行 `eu4.exe`。应该弹出"EU4 Harmony 没能启动"的消息框；`report.txt` 写着 `startup FAILED`；游戏照常运行，但 Mod 的按钮都不出现。
+8. **四种语言**：分别把游戏语言设为英、法、德、西，主界面和原版一样。
