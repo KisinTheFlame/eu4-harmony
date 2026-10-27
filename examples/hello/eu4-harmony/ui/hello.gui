@@ -1,8 +1,0 @@
-# One button for the framework's button area. The framework assigns the
-# position and prefixes the name with eu4harmony_hello_.
-guiButtonType = {
-	name = "hello"
-	quadTextureSprite = "GFX_eu4harmony_hello_button"
-	Orientation = "UPPER_LEFT"
-	clicksound = click
-}

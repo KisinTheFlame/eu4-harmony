@@ -1,7 +1,0 @@
-spriteTypes = {
-	spriteType = {
-		name = "GFX_eu4harmony_hello_button"
-		# Prototype: borrow a vanilla 48x48 button texture instead of shipping one.
-		texturefile = "gfx/interface/unitpanel_button_hunt_rebels.dds"
-	}
-}

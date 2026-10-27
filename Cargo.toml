@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["abi", "cli", "core", "loc", "proxy", "sdk", "examples/hello/extension"]
+members = ["abi", "cli", "core", "loc", "proxy", "sdk"]
 
 [workspace.package]
 version = "0.1.0"

@@ -85,13 +85,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eu4-harmony-hello"
-version = "0.1.0"
-dependencies = [
- "eu4-harmony-sdk",
-]
-
-[[package]]
 name = "eu4-harmony-loc"
 version = "0.1.0"
 

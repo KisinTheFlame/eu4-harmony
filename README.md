@@ -30,7 +30,7 @@ eu4-harmony link                          # 在用户目录 mod\ 下登记，之
 eu4-harmony package                       # 生成上传用的干净目录 ..\my-mod-package
 ```
 
-扩展实现 `eu4_harmony_sdk::Extension`，每类事件一个方法；所有能力都是回调参数 `Game` 上的方法。单元测试用 `eu4_harmony_sdk::testing::FakeGame` 代替游戏。示例：[examples/hello](examples/hello)，以及 eu4-regional-combat 仓库里的区域作战 Mod。
+扩展实现 `eu4_harmony_sdk::Extension`，每类事件一个方法；所有能力都是回调参数 `Game` 上的方法。单元测试用 `eu4_harmony_sdk::testing::FakeGame` 代替游戏。最小的示例就是 `eu4-harmony new` 生成的 Mod；完整的例子是 eu4-regional-combat 仓库里的区域作战 Mod。
 
 文字写在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`，格式同游戏的本地化文件，内容是普通 UTF-8，一个语言一份（`english`、`simp_chinese` 等）。界面片段直接引用其中的键，扩展用 `game.text("KEY")` 取文字；框架按玩家语言显示，见 [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md)。
 
@@ -44,7 +44,6 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |
 | `cli/` | `eu4-harmony.exe` |
-| `examples/hello/` | 最小示例 Mod |
 | `assets/` | 随核心一起放进游戏目录 `eu4-harmony\` 的文件（提示窗口的纹理，由 `tools/notice_textures.py` 生成） |
 | `tools/dev-install.ps1` | 开发期把构建好的代理和核心装进游戏目录（`-Uninstall` 卸载） |
 | `docs/` | 方案、ADR、调研、实测记录；`docs/research/regional-combat/` 是游戏能力所依据的逆向记录 |

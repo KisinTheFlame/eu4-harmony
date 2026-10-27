@@ -1,8 +1,0 @@
-{
-  "id": "hello",
-  "api_version": "0.1",
-  "extension": "win64/hello.dll",
-  "ui": [
-    { "file": "ui/hello.gui", "into": "single_unitpanel", "area": "buttons" }
-  ]
-}

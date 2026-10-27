@@ -171,10 +171,6 @@ impl Catalog {
     pub fn keys_in(&self, language: Language) -> BTreeSet<&str> {
         self.texts.get(&language).map(|t| t.keys().map(String::as_str).collect()).unwrap_or_default()
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.texts.is_empty()
-    }
 }
 
 /// Loads every `*_l_<language>.yml` in `dir` (none when it does not exist).
