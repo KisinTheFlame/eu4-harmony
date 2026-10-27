@@ -15,6 +15,7 @@
 //! spread apart: each lookup takes a whole character and moves its index over
 //! it, the spacing loop appends whole characters, and the curve's length is
 //! counted in characters.
+use super::objects::font::OWN_GLYPHS;
 use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;
@@ -196,7 +197,7 @@ extern "C" fn curved_count_stub() {
     std::arch::naked_asm!(
         call_rust!(
             "lea rdx, [rax + rcx]",
-            "lea rcx, [r14 - 0x120]",
+            "lea rcx, [r14 - {own}]",
             "mov qword ptr [rsp + 0x40], 0",
             "lea r8, [rsp + 0x40]",
             call glyph,
@@ -208,6 +209,7 @@ extern "C" fn curved_count_stub() {
         "jmp qword ptr [rip + {done}]",
         glyph = sym text_loops::char_glyph,
         done = sym CURVED_COUNT_DONE,
+        own = const OWN_GLYPHS,
     );
 }
 
@@ -278,7 +280,7 @@ extern "C" fn bend_stub() {
         call_rust!(
             "mov r8, rdx",
             "lea rdx, [rax + rcx]",
-            "lea rcx, [r8 - 0x120]",
+            "lea rcx, [r8 - {own}]",
             "mov qword ptr [rsp + 0x40], 0",
             "lea r8, [rsp + 0x40]",
             call glyph,
@@ -293,6 +295,7 @@ extern "C" fn bend_stub() {
         "jmp qword ptr [rip + {done}]",
         glyph = sym text_loops::char_glyph,
         done = sym BEND_DONE,
+        own = const OWN_GLYPHS,
     );
 }
 

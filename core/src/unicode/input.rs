@@ -18,6 +18,7 @@
 //! and places the windows at the caret of the focused edit box from
 //! UpdateCaret (0x1534250). There is no input method of the framework's own.
 use super::game_text;
+use super::objects;
 use crate::points::{Point, Resume};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
@@ -143,15 +144,15 @@ unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lpar
 /// Where on screen, in GUI units, the caret of `edit_box` is, `offset` being
 /// its place in the text (x low, y high). UpdateCaret positions the caret
 /// sprite relative to the box's parent: the box's place there, plus the text
-/// inset (+0x28c, +0x240), plus a shift kept at `[[box+0x1e0]+0x32604]`, plus
-/// the offset. The box's place on screen is what its vtable +0xd8 gives, as
+/// insets, plus a shift (see [`objects::edit_box`]), plus the offset. The box's place on screen is what its vtable +0xd8 gives, as
 /// its click handling (0x1534560) takes it from the mouse.
 fn caret_on_screen(m: &crate::memory::Memory, edit_box: usize, offset: u32) -> crate::Result<(i32, i32)> {
     let mut place = [0i32; 2];
     m.call(m.vslot(edit_box, 0xd8)?, &[edit_box, place.as_mut_ptr() as usize])?;
-    let shift = m.ptr(edit_box + 0x1e0)? + 0x32604;
-    let x = place[0] + m.i32(edit_box + 0x28c)? + m.i32(edit_box + 0x240)? + m.i32(shift)? + (offset & 0xffff) as i32;
-    let y = place[1] + m.i32(edit_box + 0x290)? + m.i32(edit_box + 0x244)? + m.i32(shift + 4)? + (offset >> 16) as i32;
+    let shift = m.ptr(edit_box + objects::edit_box::SHIFT_HOLDER)? + objects::edit_box::SHIFT;
+    let inset = |[a, b]: [usize; 2]| Ok::<_, String>(m.i32(edit_box + a)? + m.i32(edit_box + b)?);
+    let x = place[0] + inset(objects::edit_box::INSET_X)? + m.i32(shift)? + (offset & 0xffff) as i32;
+    let y = place[1] + inset(objects::edit_box::INSET_Y)? + m.i32(shift + 4)? + (offset >> 16) as i32;
     Ok((x, y))
 }
 
@@ -167,18 +168,18 @@ fn caret_pixels((x, y): (i32, i32), line: i32, (across, down): (f32, f32)) -> (i
 /// the keyboard.
 extern "C" fn caret_at(edit_box: usize, offset: u32) {
     crate::guarded("input method position", || unsafe {
-        if *((edit_box + 0x260) as *const u8) == 0 {
+        if *((edit_box + objects::edit_box::FOCUSED) as *const u8) == 0 {
             return;
         }
         let window = GetFocus();
         let m = *crate::memory().expect("hooks run after startup");
-        let (Some((across, down)), Ok(font)) = (crate::game::gui_scale(&m), m.ptr(edit_box + 0xc8 + 0x98)) else { return };
+        let (Some((across, down)), Ok(font)) = (crate::game::gui_scale(&m), m.ptr(edit_box + objects::edit_box::EDITOR + objects::editor::FONT)) else { return };
         if window.is_null() || font == 0 {
             return;
         }
         let Ok((x, y)) = caret_on_screen(&m, edit_box, offset) else { return };
         // The font's line height, as its method at 0x159ba20 works it out.
-        let line = (*((font + 0x960) as *const i32) as f32 * *((font + 0x968) as *const f32)) as i32;
+        let line = (*((font + objects::font::LINE_HEIGHT) as *const i32) as f32 * *((font + objects::font::SCALE) as *const f32)) as i32;
         let (px, py, ph) = caret_pixels((x, y), line, (across, down));
         let key = (px as u16 as u64) | (py as u16 as u64) << 16 | (ph as u16 as u64) << 32;
         if PLACED.swap(key, Ordering::Relaxed) == key {
@@ -283,15 +284,8 @@ pub fn points() -> Vec<Point> {
         Point::jump(CARET, "48 8b 8f f0 01 00 00", "edit box caret position", caret_stub as *const () as usize, &CARET_RESUME),
         Point::keep(CARET_DONE, "48 85 c9", "edit box caret sprite"),
         Point::keep(0x15343b0usize, "48 8d 55 30 ff 50 58 8b 18 89 5d 38", "edit box caret offset"),
-        // How UpdateCaret places the caret relative to the box's parent: the
-        // text inset and the shift at [[box+0x1e0]+0x32604].
-        Point::keep(0x153427eusize, "48 8b 81 e0 01 00 00 4c 8b 98 04 26 03 00", "edit box caret shift"),
-        Point::keep(0x15342adusize, "44 8b bf 8c 02 00 00 44 03 bf 40 02 00 00 44 03 7d 30 45 03 fb", "edit box caret x"),
-        Point::keep(0x15342c2usize, "8b 87 90 02 00 00 03 87 44 02 00 00 03 45 34", "edit box caret y"),
         // The box's click handling takes its place on screen from vtable +0xd8.
         Point::keep(0x1534588usize, "48 8b 01 48 8d 55 30 ff 90 d8 00 00 00", "edit box place on screen"),
-        Point::keep(0x1535266usize, "c6 81 60 02 00 00 01", "edit box focus flag"),
-        Point::keep(0x159ba20usize, "66 0f 6e 81 60 09 00 00 0f 5b c0 f3 0f 59 81 68 09 00 00", "font line height"),
     ]
 }
 

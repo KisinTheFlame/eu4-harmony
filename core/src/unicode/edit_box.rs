@@ -1,7 +1,7 @@
-//! Edit boxes, a character at a time. The game's text editor (box + 0xc8,
-//! vtable 0x1d915c0) keeps its text as a `std::string` at +0x30 and its caret
-//! as a line (+0x56) and a byte column within it (+0x54); every operation
-//! moved, cut and deleted single bytes, which splits a UTF-8 sequence. Here
+//! Edit boxes, a character at a time. The game's text editor (inside the
+//! box, [`super::objects::editor`]) keeps its text as a `std::string` and its
+//! caret as a line and a byte column within it; every operation moved, cut
+//! and deleted single bytes, which splits a UTF-8 sequence. Here
 //! each one moves over, cuts before or deletes a whole character
 //! (docs/research/text-input.md §2–3):
 //!
@@ -20,6 +20,7 @@
 //!   converted to and from the game's encoding on the way;
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
+use super::objects::editor::{COLUMN, LINE, TEXT};
 use super::{breaks, game_text};
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
@@ -159,12 +160,12 @@ fn memory() -> crate::memory::Memory {
 
 /// The editor's text.
 unsafe fn text<'a>(inner: usize) -> &'a [u8] {
-    game_text::std_string((inner + 0x30) as *const u8)
+    game_text::std_string((inner + TEXT) as *const u8)
 }
 
 /// The caret's line and byte column.
 unsafe fn caret(inner: usize) -> (usize, usize) {
-    (*((inner + 0x56) as *const u16) as usize, *((inner + 0x54) as *const u16) as usize)
+    (*((inner + LINE) as *const u16) as usize, *((inner + COLUMN) as *const u16) as usize)
 }
 
 /// Where a line and column are in the text, as the editor counts (it never
@@ -206,7 +207,7 @@ extern "C" fn backspace_prepare(inner: usize, index: u32) -> u32 {
             if let Err(e) = erase(inner, start, len - 1) {
                 crate::fatal(&format!("edit box backspace: {e}"));
             }
-            let column = unsafe { &mut *((inner + 0x54) as *mut u16) };
+            let column = unsafe { &mut *((inner + COLUMN) as *mut u16) };
             *column = column.saturating_sub(len as u16 - 1);
         }
         start as u32

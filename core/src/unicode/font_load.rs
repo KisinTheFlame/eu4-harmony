@@ -18,6 +18,7 @@
 //! with a texture of size 0 and vanished, with or without the framework (the
 //! old font plugin lifted the limit). The limit is raised to 256 MiB.
 use super::glyphs::{self, Glyph};
+use super::objects::font::OWN_GLYPHS;
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -55,7 +56,7 @@ extern "C" fn store(font: usize, id: u32, x: i32, y: i32, width: i32, height: i3
             kerned: 0,
             page: 0,
         };
-        let counter = if glyphs::insert(font + 0x120, id, glyph) { &LOADED } else { &DUPLICATES };
+        let counter = if glyphs::insert(font + OWN_GLYPHS, id, glyph) { &LOADED } else { &DUPLICATES };
         counter.fetch_add(1, Ordering::Relaxed);
     })
 }
@@ -103,7 +104,7 @@ extern "C" fn destroy_before(frame: *mut HookFrame) {
     crate::guarded("font destroy", || {
         let table = unsafe { (*frame).args[0] };
         glyphs::forget(table);
-        super::fill::forget(table - 0x120);
+        super::fill::forget(table - OWN_GLYPHS);
     });
 }
 

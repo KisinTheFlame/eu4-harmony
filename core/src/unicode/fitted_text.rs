@@ -22,6 +22,7 @@
 //! a non-ASCII character (`breaks`) now counts as such a place too, and a line
 //! broken there skips nothing (0x159fba1).
 use super::glyphs::Glyph;
+use super::objects::font::OWN_GLYPHS;
 use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
 use std::cell::Cell;
@@ -84,7 +85,7 @@ thread_local! {
 /// table is at `table`.
 extern "C" fn glyph(table: usize, text: *const u8, index: usize) -> *const Glyph {
     crate::guarded("fitted text glyph", || {
-        let (glyph, len) = unsafe { text_loops::glyph_at(table - 0x120, text.add(index)) };
+        let (glyph, len) = unsafe { text_loops::glyph_at(table - OWN_GLYPHS, text.add(index)) };
         LOOKED_UP.set(LookedUp { text: text as usize, index, rest: len - 1 });
         glyph
     })

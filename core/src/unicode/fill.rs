@@ -21,6 +21,7 @@ use super::atlas::Page;
 use super::dxt;
 use super::game_text;
 use super::glyphs::{self, Glyph};
+use super::objects::{self, font::OWN_GLYPHS, textures};
 use super::system_font::SystemFonts;
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
@@ -150,22 +151,20 @@ fn memory() -> Memory {
     *crate::memory().expect("hooks run after startup")
 }
 
-/// The texture manager's entry for `font`'s page: the manager is
-/// `[[font+0x48]+0x480]`, its entries 0x48 bytes at `+8`, the wrapper first,
-/// the size at `+0x28`.
+/// The texture manager's entry for `font`'s page.
 fn page_entry(m: &Memory, font: usize) -> crate::Result<(usize, usize)> {
-    let index = m.i32(font + 0x970)?;
-    let manager = m.ptr(m.ptr(font + 0x48)? + 0x480)?;
-    let (begin, end) = (m.ptr(manager + 8)?, m.ptr(manager + 0x10)?);
-    if index < 0 || begin + (index as usize + 1) * 0x48 > end {
+    let index = m.i32(font + objects::font::PAGE_INDEX)?;
+    let manager = m.ptr(m.ptr(font + objects::font::CONTEXT)? + textures::MANAGER)?;
+    let (begin, end) = (m.ptr(manager + textures::ENTRIES)?, m.ptr(manager + textures::ENTRIES + 8)?);
+    if index < 0 || begin + (index as usize + 1) * textures::ENTRY > end {
         return Err("font page index out of range".into());
     }
-    Ok((manager, begin + index as usize * 0x48))
+    Ok((manager, begin + index as usize * textures::ENTRY))
 }
 
-/// The device, through the manager's renderer (`+0x60`, its device at `+8`).
+/// The device, through the manager's renderer.
 fn device(m: &Memory, manager: usize) -> crate::Result<IDirect3DDevice9> {
-    let raw = m.ptr(m.ptr(manager + 0x60)? + 8)? as *mut c_void;
+    let raw = m.ptr(m.ptr(manager + textures::RENDERER)? + 8)? as *mut c_void;
     let device = unsafe { IDirect3DDevice9::from_raw_borrowed(&raw) }.ok_or("no device")?.clone();
     device.cast::<IDirect3DDevice9Ex>().map_err(|_| "not a Direct3D 9Ex device".to_string())?;
     Ok(device)
@@ -217,7 +216,7 @@ struct Letter {
 }
 
 fn letter(m: &Memory, font: usize, own: &Own) -> Option<Letter> {
-    let record = m.ptr(font + 0x120 + b'H' as usize * 8).ok().filter(|&r| r != 0)?;
+    let record = m.ptr(font + OWN_GLYPHS + b'H' as usize * 8).ok().filter(|&r| r != 0)?;
     let h = unsafe { *(record as *const Glyph) };
     let (mut best, mut ink, mut rows) = (0, 0, None::<(u32, u32)>);
     for y in 0..(h.height as u32).min(own.height.saturating_sub(h.y as u32)) {
@@ -303,8 +302,8 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
     };
     match glyph {
         Some(g) => {
-            glyphs::insert(font + 0x120, scalar, g);
-            glyphs::get(font + 0x120, scalar)
+            glyphs::insert(font + OWN_GLYPHS, scalar, g);
+            glyphs::get(font + OWN_GLYPHS, scalar)
         }
         None => std::ptr::null(),
     }
@@ -327,7 +326,7 @@ fn own_rows(own_height: u32, band: u32, rows: u32, per: u32) -> std::ops::Range<
 /// room below (bitmap fonts first), or an empty one (the system font look).
 fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own>, system: bool) -> crate::Result<Fill> {
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
-    let line = m.i32(font + 0x960)?.max(1);
+    let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
     let family = if line > MAP_LINE { current.map_font } else { current.body_font };
     let letter = own.as_ref().and_then(|own| letter(m, font, own));
@@ -395,7 +394,7 @@ fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill) -> crate::Result
             continue;
         }
         let Some(glyph) = glyph_of(fill, c as u32) else { continue };
-        let slot = font + 0x120 + byte as usize * 8;
+        let slot = font + OWN_GLYPHS + byte as usize * 8;
         let mut record = m.ptr(slot)?;
         if record == 0 {
             record = m.call(m.at(ALLOCATE), &[std::mem::size_of::<Glyph>()])?;
@@ -469,8 +468,8 @@ extern "C" fn load_after(frame: *mut HookFrame) {
                 unsafe {
                     *(wrapper as *mut *mut c_void) = fill.texture.clone().into_raw();
                     drop(IDirect3DTexture9::from_raw(old));
-                    *((entry + 0x28) as *mut u32) = fill.width;
-                    *((entry + 0x2c) as *mut u32) = fill.height;
+                    *((entry + textures::ENTRY_SIZE) as *mut u32) = fill.width;
+                    *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = fill.height;
                 }
                 let look = match (system, fill.compressed) {
                     (true, _) => "system",
@@ -482,12 +481,12 @@ extern "C" fn load_after(frame: *mut HookFrame) {
             }
             let fill = pages.get_mut(&wrapper).expect("just made");
             unsafe {
-                *((font + 0x978) as *mut u32) = fill.width;
-                *((font + 0x97c) as *mut u32) = fill.height;
+                *((font + objects::font::PAGE_SIZE) as *mut u32) = fill.width;
+                *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = fill.height;
             }
             lock(&OWNERS).insert(font, wrapper);
             if system {
-                glyphs::forget(font + 0x120);
+                glyphs::forget(font + OWN_GLYPHS);
                 replace_own_glyphs(&m, font, fill)?;
             }
             Ok(())
@@ -515,13 +514,6 @@ pub fn forget(font: usize) {
 pub fn points() -> Vec<Point> {
     vec![
         Point::observe(LOAD_PAGE, "48 89 5c 24 08 57 48 81 ec 80 00 00 00 48 8b f9", "font page load", 1, Some(load_before), Some(load_after)),
-        // Where the page's index and size come from: the manager at
-        // context + 0x480, the entry's size at + 0x28.
-        Point::keep(0x15954a4usize, "48 8b 88 80 04 00 00", "font page manager"),
-        Point::keep(0x15954b0usize, "89 87 70 09 00 00", "font page index"),
-        Point::keep(0x15954e8usize, "48 8d 1c c0 48 8b 5c da 28 48 89 9f 78 09 00 00", "font page size"),
-        // The renderer the manager creates textures with.
-        Point::keep(0x16c2e84usize, "49 8b 4f 60", "texture manager renderer"),
         Point::observe(CREATE_TEXTURE, "48 89 5c 24 20 55 56 57 41 54 41 55 41 56 41 57", "texture creation", 5, Some(create_before), None),
         Point::observe(DESTROY_TEXTURE, "40 53 48 83 ec 20 48 8b d9 ff 15 51 91 8f 00 48", "texture destruction", 1, Some(destroy_before), None),
         Point::keep(ALLOCATE, "40 53 48 83 ec 20 48 8b d9 eb 0f 48 8b cb e8 95", "game allocator"),

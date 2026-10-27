@@ -25,12 +25,13 @@
 //! font's own `?`. Null only where the font's own table is and nothing else
 //! has the character (control characters), as the loops expect.
 use super::glyphs::{self, Glyph};
+use super::objects::font::OWN_GLYPHS;
 use super::{fill, game_text};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The glyph `font` draws for `c`.
 pub fn glyph(font: usize, c: char) -> *const Glyph {
-    let table = font + 0x120;
+    let table = font + OWN_GLYPHS;
     let own = |byte: u8| unsafe { *(table as *const *const Glyph).add(byte as usize) };
     if let Some(byte) = game_text::single_byte(c as u32) {
         let glyph = own(byte);
@@ -142,14 +143,14 @@ mod tests {
 
     #[test]
     fn a_1252_character_the_own_table_lacks_comes_from_its_code_point() {
-        // A font object: 256 own glyph pointers at + 0x120; only `a` and `?`.
+        // A font object: 256 own glyph pointers; only `a` and `?`.
         let (a, question) = (record(1), record(9));
-        let mut font = vec![0usize; 0x120 / 8 + 256];
-        font[0x120 / 8 + b'a' as usize] = &a as *const Glyph as usize;
-        font[0x120 / 8 + b'?' as usize] = &question as *const Glyph as usize;
+        let mut font = vec![0usize; OWN_GLYPHS / 8 + 256];
+        font[OWN_GLYPHS / 8 + b'a' as usize] = &a as *const Glyph as usize;
+        font[OWN_GLYPHS / 8 + b'?' as usize] = &question as *const Glyph as usize;
         let font = font.as_ptr() as usize;
         // The font keeps … (1252 byte 0x85) at U+2026.
-        assert!(glyphs::insert(font + 0x120, 0x2026, record(2)));
+        assert!(glyphs::insert(font + OWN_GLYPHS, 0x2026, record(2)));
         assert_eq!(unsafe { *glyph(font, 'a') }.x, 1);
         assert_eq!(unsafe { *glyph(font, '…') }.x, 2);
         let text = b"\x85";
@@ -159,14 +160,14 @@ mod tests {
         assert_eq!(unsafe { *glyph(font, '中') }.x, 9);
         assert!(glyph(font, '\n').is_null());
         assert!(glyph(font, '\u{201c}').is_null());
-        glyphs::forget(font + 0x120);
+        glyphs::forget(font + OWN_GLYPHS);
     }
 
     #[test]
     fn a_layout_word_gets_the_whole_character() {
         let a = record(1);
-        let mut font = vec![0usize; 0x120 / 8 + 256];
-        font[0x120 / 8 + b'?' as usize] = &a as *const Glyph as usize;
+        let mut font = vec![0usize; OWN_GLYPHS / 8 + 256];
+        font[OWN_GLYPHS / 8 + b'?' as usize] = &a as *const Glyph as usize;
         let font = font.as_ptr() as usize;
         let text = "x中".as_bytes();
         let mut word = [0u8; 4];

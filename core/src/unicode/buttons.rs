@@ -14,6 +14,7 @@
 //! Both lookups take a whole character and move the index over it; the
 //! measuring pass also appends the rest of its bytes to the word, and the word
 //! ends after a non-ASCII character a line may break after.
+use super::objects::font::OWN_GLYPHS;
 use super::{breaks, text_loops};
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;
@@ -100,7 +101,7 @@ extern "C" fn draw_stub() {
         call_rust!(
             "lea r8, [rsp + 0x40]",
             "add rax, rcx",
-            "lea rcx, [rdx - 0x120]",
+            "lea rcx, [rdx - {own}]",
             "mov rdx, rax",
             call glyph,
             "mov r8, [rsp + 0x48]",
@@ -113,6 +114,7 @@ extern "C" fn draw_stub() {
         "jmp qword ptr [rip + {done}]",
         glyph = sym text_loops::char_glyph,
         done = sym DRAW_DONE,
+        own = const OWN_GLYPHS,
     );
 }
 
