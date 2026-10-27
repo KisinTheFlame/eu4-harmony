@@ -2,7 +2,7 @@
 
 扩展通过能力声明要在原版界面上加的元素，由框架在运行时注入原版窗口；Mod 不覆盖任何原版 `.gui` 文件。Paradox mod 通常靠覆盖原版 `.gui` 加界面，但两个 Mod 覆盖同一个文件时只有一个生效；原生扩展多了以后，往同一个原版面板上加东西会很常见。
 
-注入方式是在游戏读取 `.gui` 文件时拼接文本：挂 eu4.exe 按名字导出的 PhysFS 函数（`PHYSFS_openRead`、`readBytes` 等），在目标窗口定义里插入元素定义，再交给游戏自己的解析器；控件的创建、生命周期和重新加载都沿用原版流程。拼接作用在实际生效的那份文件上，因此也能与覆盖同一文件的普通 Mod 共存。依据见 [research/ui-injection.md](../research/ui-injection.md)。
+注入方式是在游戏读取 `.gui` 文件时拼接文本：挂 eu4.exe 按名字导出的 PhysFS 函数（`PHYSFS_openRead`、`readBytes` 等），在宿主窗口定义里插入元素定义，再交给游戏自己的解析器；控件的创建、生命周期和重新加载都沿用原版流程。拼接作用在实际生效的那份文件上，因此也能与覆盖同一文件的普通 Mod 共存。依据见 [research/ui-injection.md](../research/ui-injection.md)。
 
 ## Considered Options
 
