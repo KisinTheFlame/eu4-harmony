@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0011
+---
+
 # 通过 winmm.dll 代理进入游戏进程
 
 框架以游戏根目录下的 `winmm.dll` 代理进入 eu4 进程，磁盘上的 `eu4.exe` 保持原样。Windows 加载器解析 eu4.exe 导入表时，对不在 KnownDLLs 中的 DLL 先查找 exe 所在目录；代理把 eu4 用到的 15 个 `waveOut*` / `waveIn*` 函数转发给 System32 的 winmm，同时在进程内启动框架。

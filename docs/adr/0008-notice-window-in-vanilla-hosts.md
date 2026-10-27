@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0013
+---
+
 # 提示窗口寄宿在原版常驻窗口里
 
 框架的提示窗口（背景、标题、正文、关闭按钮）用与 Mod 界面相同的拼接方式，拼进两个一直存在的原版窗口：主菜单的 `country_selection_panel` 和游戏内的 `topbar`。框架每帧找到当前的根窗口并绑定；窗口被销毁时，在根窗口的 Kill（`0x1547520`）入口解绑。外观用框架自带的纹理，刻意与原版对话框不同。依据见 [research/notice-window.md](../research/notice-window.md)。
