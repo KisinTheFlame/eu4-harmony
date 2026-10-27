@@ -147,7 +147,7 @@ impl Overlay {
             Move(x, y) => Move(x / s, y / s),
             Down(x, y) => Down(x / s, y / s),
             Up(x, y) => Up(x / s, y / s),
-            Escape => Escape,
+            other => other,
         };
         if let Move(x, y) | Down(x, y) | Up(x, y) = event {
             self.mouse = (x, y);
@@ -164,6 +164,10 @@ impl Overlay {
                 }
                 Down(x, y) if w.covers(&self.font, x, y) => w.mouse_down(&self.font, x, y),
                 Down(..) => None,
+                Wheel(notches) => {
+                    w.wheel(&self.font, notches);
+                    None
+                }
                 Escape => Some(Action::Closed),
             };
             match action {

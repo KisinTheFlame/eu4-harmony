@@ -71,6 +71,10 @@ pub struct Window {
     pub width: f32,
     /// The dropdown whose list is open, by body index.
     open: Option<usize>,
+    /// The first option the open list shows.
+    scroll: usize,
+    /// How tall the screen is; an open list stops at its bottom.
+    screen_h: f32,
     drag: Option<(f32, f32)>,
     mouse: (f32, f32),
 }
@@ -83,11 +87,12 @@ enum Slot {
 
 impl Window {
     pub fn new(title: impl Into<String>, body: Vec<Widget>, width: f32) -> Self {
-        Self { title: title.into(), body, x: 0.0, y: 0.0, width, open: None, drag: None, mouse: (-1.0, -1.0) }
+        Self { title: title.into(), body, x: 0.0, y: 0.0, width, open: None, scroll: 0, screen_h: f32::MAX, drag: None, mouse: (-1.0, -1.0) }
     }
 
     /// Puts the window in the middle of a screen.
     pub fn center(&mut self, measure: &dyn Measure, screen_w: f32, screen_h: f32) {
+        self.screen_h = screen_h;
         let h = self.height(measure);
         self.x = ((screen_w - self.width) / 2.0).round();
         self.y = ((screen_h - h) / 2.0).round();
@@ -139,8 +144,24 @@ impl Window {
         Rect { x: self.x + self.width - CLOSE - 4.0, y: self.y + 4.0, w: CLOSE, h: CLOSE }
     }
 
+    /// How many options an open list shows below `control`: all of them, or
+    /// as many as fit above the screen's bottom (at least three).
+    fn rows(&self, control: Rect, options: usize) -> usize {
+        let room = ((self.screen_h - control.y - ROW - PAD) / ROW).floor().max(3.0) as usize;
+        options.min(room)
+    }
+
     fn list_rect(&self, control: Rect, options: usize) -> Rect {
-        Rect { x: control.x, y: control.y + ROW, w: control.w, h: options as f32 * ROW }
+        Rect { x: control.x, y: control.y + ROW, w: control.w, h: self.rows(control, options) as f32 * ROW }
+    }
+
+    /// The mouse wheel turned `notches` (up is positive) over the window.
+    pub fn wheel(&mut self, measure: &dyn Measure, notches: i32) {
+        let Some(open) = self.open else { return };
+        let Some(Slot::Control(_, control)) = self.layout(measure).into_iter().find(|s| matches!(s, Slot::Control(i, _) if *i == open)) else { return };
+        let Widget::Dropdown { options, .. } = &self.body[open] else { return };
+        let last = options.len().saturating_sub(self.rows(control, options.len()));
+        self.scroll = (self.scroll as i64 - notches as i64).clamp(0, last as i64) as usize;
     }
 
     /// Whether the window, or an open list hanging below it, covers a point.
@@ -176,7 +197,7 @@ impl Window {
         if let Some((list, i)) = self.open_list(measure) {
             self.open = None;
             if list.contains(x, y) {
-                let index = ((y - list.y) / ROW) as usize;
+                let index = self.scroll + ((y - list.y) / ROW) as usize;
                 if let Widget::Dropdown { id, selected, options } = &mut self.body[i] {
                     if index < options.len() {
                         *selected = index;
@@ -198,7 +219,10 @@ impl Window {
                 if r.contains(x, y) {
                     return match &self.body[i] {
                         Widget::Button { id, .. } => Some(Action::Pressed(id)),
-                        Widget::Dropdown { .. } => {
+                        Widget::Dropdown { options, selected, .. } => {
+                            // The list opens with the chosen option in view.
+                            let rows = self.rows(r, options.len());
+                            self.scroll = selected.saturating_sub(rows / 2).min(options.len().saturating_sub(rows));
                             self.open = Some(i);
                             None
                         }
@@ -246,9 +270,10 @@ impl Window {
             out.push(Command::Fill { rect: Rect { x: list.x - 1.0, y: list.y - 1.0, w: list.w + 2.0, h: list.h + 2.0 }, color: BORDER });
             out.push(Command::Fill { rect: list, color: LIST });
             if let Widget::Dropdown { options, selected, .. } = &self.body[i] {
-                for (n, option) in options.iter().enumerate() {
+                let rows = (list.h / ROW).round() as usize;
+                for (n, (index, option)) in options.iter().enumerate().skip(self.scroll).take(rows).enumerate() {
                     let row = Rect { x: list.x, y: list.y + n as f32 * ROW, w: list.w, h: ROW };
-                    if hover(&row) || n == *selected {
+                    if hover(&row) || index == *selected {
                         out.push(Command::Fill { rect: row, color: if hover(&row) { HOVER } else { CONTROL } });
                     }
                     out.push(Command::Text { x: row.x + 8.0, y: row.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: option.clone(), size: TEXT_SIZE, color: TEXT });
@@ -328,6 +353,22 @@ mod tests {
         w.mouse_up();
         w.mouse_move(tx + 100.0, ty + 100.0);
         assert_eq!((w.x, w.y), (tx + 50.0 - 20.0, ty + 30.0 - 10.0));
+    }
+
+    #[test]
+    fn a_long_list_stops_at_the_screen_bottom_and_scrolls() {
+        let options: Vec<String> = (0..40).map(|n| format!("F{n}")).collect();
+        let mut w = Window::new("Settings", vec![Widget::Dropdown { id: "font", options, selected: 0 }], 300.0);
+        w.center(&Mono, 1000.0, 400.0);
+        let (x, y) = spot(&w, "F0");
+        assert_eq!(w.mouse_down(&Mono, x, y), None);
+        let shown = |w: &Window| w.draw(&Mono).iter().filter(|c| matches!(c, Command::Text { text, .. } if text.starts_with('F') && !text.contains('▾'))).count();
+        let rows = shown(&w);
+        assert!((3..40).contains(&rows), "{rows} rows on a 400-pixel screen");
+        w.wheel(&Mono, -5);
+        // The list now starts at F5; its first row picks it.
+        let (fx, fy) = spot(&w, "F5");
+        assert_eq!(w.mouse_down(&Mono, fx, fy), Some(Action::Chose("font", 5)));
     }
 
     #[test]

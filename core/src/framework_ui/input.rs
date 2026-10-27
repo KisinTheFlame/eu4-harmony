@@ -15,6 +15,9 @@ pub enum Event {
     Move(f32, f32),
     Down(f32, f32),
     Up(f32, f32),
+    /// The wheel turned, in notches (up is positive), with the mouse where
+    /// it last moved.
+    Wheel(i32),
     Escape,
 }
 
@@ -35,6 +38,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
         WM_MOUSEMOVE => Some(Event::Move(position(lparam).0, position(lparam).1)),
         WM_LBUTTONDOWN => Some(Event::Down(position(lparam).0, position(lparam).1)),
         WM_LBUTTONUP => Some(Event::Up(position(lparam).0, position(lparam).1)),
+        WM_MOUSEWHEEL => Some(Event::Wheel((wparam >> 16) as u16 as i16 as i32 / 120)),
         WM_KEYDOWN if wparam == 0x1b => Some(Event::Escape),
         _ => None,
     };
