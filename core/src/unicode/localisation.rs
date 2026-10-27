@@ -9,7 +9,7 @@
 //! context holding the line (`+0`, i32), whether the entry replaces an
 //! existing one (`+4`, u8) and the collection (`+0x10`). Registration:
 //! (collection, key, value: NUL-terminated, line, version, replace).
-use super::encoding::game_text;
+use super::game_text;
 use crate::points::Point;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
@@ -33,26 +33,11 @@ struct Context {
 type Import = unsafe extern "C" fn(*const u8, *const u8, u32, usize, *const Context);
 type Register = unsafe extern "C" fn(usize, *const u8, *const u8, i32, u32, u8);
 
-/// The NUL-terminated bytes of an MSVC `std::string`.
-unsafe fn c_str(string: *const u8) -> *const u8 {
-    let capacity = (string.add(0x18) as *const usize).read_unaligned();
-    if capacity >= 16 {
-        (string as *const *const u8).read_unaligned()
-    } else {
-        string
-    }
-}
-
-unsafe fn bytes<'a>(string: *const u8) -> &'a [u8] {
-    let len = (string.add(0x10) as *const usize).read_unaligned();
-    std::slice::from_raw_parts(c_str(string), len)
-}
-
 /// `string` as NUL-terminated game text, when it is UTF-8. A Chinese
 /// localisation mod made for the CJK font plugin carries legacy escapes as
 /// the 1252 characters of their bytes; they become plain characters here.
 unsafe fn converted(string: *const u8) -> Option<Vec<u8>> {
-    let mut text = game_text(std::str::from_utf8(bytes(string)).ok()?);
+    let mut text = game_text::from_str(std::str::from_utf8(game_text::std_string(string)).ok()?);
     if let Some(decoded) = super::legacy::decode(&text) {
         LEGACY.fetch_add(1, Ordering::Relaxed);
         text = decoded;

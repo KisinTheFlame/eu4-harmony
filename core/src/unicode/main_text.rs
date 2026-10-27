@@ -12,10 +12,10 @@
 //! `[rsp+0x40]`) and emits six vertices per glyph.
 //!
 //! Three jumps make both passes read characters: each looks the glyph up by
-//! code point and moves the index over the character's whole UTF-8 sequence,
-//! and the layout pass ends a word after a non-ASCII character that a line may
+//! character and moves the index over the character's whole sequence, and
+//! the layout pass ends a word after a non-ASCII character that a line may
 //! break after (`breaks`), as it does after a space.
-use super::{breaks, glyphs, scalar};
+use super::{breaks, text_loops};
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;
 
@@ -37,177 +37,85 @@ static LAYOUT_RESUME: [Resume; 1] = [Resume { rva: LAYOUT_GLYPH_DONE, address: &
 static WORD_END_RESUME: [Resume; 2] = [Resume { rva: LAYOUT_SPACE, address: &SPACE }, Resume { rva: LAYOUT_VISIBLE, address: &VISIBLE }];
 static DRAW_RESUME: [Resume; 1] = [Resume { rva: DRAW_GLYPH_DONE, address: &DRAW_DONE }];
 
-/// The word buffer holds 256 bytes.
-const WORD: usize = 0x100;
-
-/// Layout pass: the glyph for the character at `text[index]`. Copies the rest
-/// of its bytes into the word buffer after `word_at` and stores its length.
-extern "C" fn layout_glyph(font: usize, text: *const u8, index: u32, end: u32, word: *mut u8, word_at: u32, len: *mut u32) -> *const glyphs::Glyph {
-    crate::guarded("text layout", || {
-        let (index, end, word_at) = (index as usize, end as usize, word_at as usize);
-        let all = unsafe { std::slice::from_raw_parts(text, end) };
-        let (code, n) = scalar::decode(&all[index..]);
-        let n = n.max(1);
-        let extra = n - 1;
-        if extra > 0 && word_at + extra <= WORD {
-            unsafe { std::ptr::copy_nonoverlapping(text.add(index + 1), word.add(word_at), extra) };
-        }
-        breaks::at(all, index, index + n);
-        unsafe { *len = n as u32 };
-        glyphs::for_scalar(font, code)
-    })
-}
-
-extern "C" fn wide_break() -> bool {
-    crate::guarded("text wrap", breaks::wide_break_after)
-}
-
-/// Drawing pass: the glyph for the character at `text[index]` and its length.
-extern "C" fn draw_glyph(font: usize, text: *const u8, index: i64, end: u32, len: *mut u32) -> *const glyphs::Glyph {
-    crate::guarded("text draw", || {
-        let (code, n) = scalar::decode(unsafe { std::slice::from_raw_parts(text.add(index as usize), (end as usize).saturating_sub(index as usize)) });
-        unsafe { *len = n.max(1) as u32 };
-        glyphs::for_scalar(font, code)
-    })
-}
-
-/// Replaces `movzx eax, byte [r9]; mov rcx, [r14+rax*8+0x120]`. Everything
-/// but rax and rcx stays as it was, apart from the two indexes.
+/// Replaces `movzx eax, byte [r9]; mov rcx, [r14+rax*8+0x120]`: the text is
+/// at the game's `[rbp-8]`, its length at the game's `[rsp+0x78]`, the index
+/// in `edi`, the 256-byte word buffer at `r11` with its index in `esi`. Both
+/// indexes move over the character's other bytes; the glyph goes to `rcx`.
 #[unsafe(naked)]
 extern "C" fn layout_stub() {
     std::arch::naked_asm!(
-        "sub rsp, 0xd0",
-        "movdqu [rsp + 0x40], xmm0",
-        "movdqu [rsp + 0x50], xmm1",
-        "movdqu [rsp + 0x60], xmm2",
-        "movdqu [rsp + 0x70], xmm3",
-        "movdqu [rsp + 0x80], xmm4",
-        "movdqu [rsp + 0x90], xmm5",
-        "mov [rsp + 0xa0], rdx",
-        "mov [rsp + 0xa8], r8",
-        "mov [rsp + 0xb0], r9",
-        "mov [rsp + 0xb8], r10",
-        "mov [rsp + 0xc0], r11",
-        "mov [rsp + 0x20], r11",
-        "mov dword ptr [rsp + 0x28], esi",
-        "lea rax, [rsp + 0x38]",
-        "mov [rsp + 0x30], rax",
-        "mov rcx, r14",
-        "mov rdx, qword ptr [rbp - 8]",
-        "mov r8d, edi",
-        "mov r9d, dword ptr [rsp + 0x148]",
-        "call {glyph}",
-        "mov rcx, rax",
-        "mov eax, dword ptr [rsp + 0x38]",
-        "dec eax",
-        "add edi, eax",
-        "add esi, eax",
-        "movdqu xmm0, [rsp + 0x40]",
-        "movdqu xmm1, [rsp + 0x50]",
-        "movdqu xmm2, [rsp + 0x60]",
-        "movdqu xmm3, [rsp + 0x70]",
-        "movdqu xmm4, [rsp + 0x80]",
-        "movdqu xmm5, [rsp + 0x90]",
-        "mov rdx, [rsp + 0xa0]",
-        "mov r8, [rsp + 0xa8]",
-        "mov r9, [rsp + 0xb0]",
-        "mov r10, [rsp + 0xb8]",
-        "mov r11, [rsp + 0xc0]",
-        "lea rsp, [rsp + 0xd0]",
+        call_rust!(
+            "mov rax, [rbp]",
+            "mov rdx, qword ptr [rax - 8]",
+            "mov r9d, dword ptr [rbp + 8 + 0x78]",
+            "mov rcx, r14",
+            "mov r8d, edi",
+            "mov [rsp + 0x20], r11",
+            "mov dword ptr [rsp + 0x28], esi",
+            "mov dword ptr [rsp + 0x30], 0x100",
+            "lea rax, [rsp + 0x40]",
+            "mov [rsp + 0x38], rax",
+            call glyph,
+            "mov rcx, [rsp + 0x48]",
+            "add edi, dword ptr [rsp + 0x40]",
+            "dec edi",
+            "add esi, dword ptr [rsp + 0x40]",
+            "dec esi",
+        ),
         "jmp qword ptr [rip + {done}]",
-        glyph = sym layout_glyph,
+        glyph = sym text_loops::layout_char_in,
         done = sym LAYOUT_DONE,
     );
 }
 
-/// Replaces `cmp word [rcx+6], 0; jne LAYOUT_VISIBLE`.
+/// Replaces `cmp word [rcx+6], 0; jne LAYOUT_VISIBLE`: the word also ends
+/// after a character a line may break after, which ends at `edi + 1`.
 #[unsafe(naked)]
 extern "C" fn word_end_stub() {
     std::arch::naked_asm!(
         "cmp word ptr [rcx + 6], 0",
         "je 2f",
-        "sub rsp, 0xd0",
-        "movdqu [rsp + 0x40], xmm0",
-        "movdqu [rsp + 0x50], xmm1",
-        "movdqu [rsp + 0x60], xmm2",
-        "movdqu [rsp + 0x70], xmm3",
-        "movdqu [rsp + 0x80], xmm4",
-        "movdqu [rsp + 0x90], xmm5",
-        "mov [rsp + 0x20], rax",
-        "mov [rsp + 0x28], rcx",
-        "mov [rsp + 0x30], rdx",
-        "mov [rsp + 0xa0], r8",
-        "mov [rsp + 0xa8], r9",
-        "mov [rsp + 0xb0], r10",
-        "mov [rsp + 0xb8], r11",
-        "call {wide}",
-        "test al, al",
-        "movdqu xmm0, [rsp + 0x40]",
-        "movdqu xmm1, [rsp + 0x50]",
-        "movdqu xmm2, [rsp + 0x60]",
-        "movdqu xmm3, [rsp + 0x70]",
-        "movdqu xmm4, [rsp + 0x80]",
-        "movdqu xmm5, [rsp + 0x90]",
-        "mov rax, [rsp + 0x20]",
-        "mov rcx, [rsp + 0x28]",
-        "mov rdx, [rsp + 0x30]",
-        "mov r8, [rsp + 0xa0]",
-        "mov r9, [rsp + 0xa8]",
-        "mov r10, [rsp + 0xb0]",
-        "mov r11, [rsp + 0xb8]",
-        "lea rsp, [rsp + 0xd0]",
-        "jnz 2f",
+        call_rust!(
+            "mov rax, [rbp]",
+            "mov rcx, qword ptr [rax - 8]",
+            "mov edx, dword ptr [rbp + 8 + 0x78]",
+            "lea r8d, [rdi + 1]",
+            call after,
+            "cmp byte ptr [rsp + 0x48], 0",
+        ),
+        "jne 2f",
         "jmp qword ptr [rip + {visible}]",
         "2:",
         "jmp qword ptr [rip + {space}]",
-        wide = sym wide_break,
+        after = sym breaks::after_at,
         visible = sym VISIBLE,
         space = sym SPACE,
     );
 }
 
 /// Replaces `movzx r8d, byte [rcx+r9]; movss xmm3, [r14+0x968];
-/// mov rdx, [r14+r8*8+0x120]`, and moves `r15d` over the character.
+/// mov rdx, [r14+r8*8+0x120]`: the laid-out text is at `r9`, its length at
+/// the game's `[rsp+0x40]`, the index in `rcx` and `r15d`, which moves over
+/// the character's other bytes.
 #[unsafe(naked)]
 extern "C" fn draw_stub() {
     std::arch::naked_asm!(
-        "sub rsp, 0xd0",
-        "movdqu [rsp + 0x40], xmm0",
-        "movdqu [rsp + 0x50], xmm1",
-        "movdqu [rsp + 0x60], xmm2",
-        "movdqu [rsp + 0x80], xmm4",
-        "movdqu [rsp + 0x90], xmm5",
-        "mov [rsp + 0xa0], rax",
-        "mov [rsp + 0xa8], rcx",
-        "mov [rsp + 0xb0], r9",
-        "mov [rsp + 0xb8], r10",
-        "mov [rsp + 0xc0], r11",
-        "lea rdx, [rsp + 0x38]",
-        "mov [rsp + 0x20], rdx",
-        "mov r8, rcx",
-        "mov rdx, r9",
-        "mov r9d, dword ptr [rsp + 0x110]",
-        "mov rcx, r14",
-        "call {glyph}",
-        "mov rdx, rax",
-        "mov eax, dword ptr [rsp + 0x38]",
-        "dec eax",
-        "add r15d, eax",
-        "movdqu xmm0, [rsp + 0x40]",
-        "movdqu xmm1, [rsp + 0x50]",
-        "movdqu xmm2, [rsp + 0x60]",
-        "movdqu xmm4, [rsp + 0x80]",
-        "movdqu xmm5, [rsp + 0x90]",
-        "mov rax, [rsp + 0xa0]",
-        "mov rcx, [rsp + 0xa8]",
-        "mov r9, [rsp + 0xb0]",
-        "mov r10, [rsp + 0xb8]",
-        "mov r11, [rsp + 0xc0]",
-        "lea rsp, [rsp + 0xd0]",
+        call_rust!(
+            "mov r8, rcx",
+            "mov rdx, r9",
+            "mov r9d, dword ptr [rbp + 8 + 0x40]",
+            "mov rcx, r14",
+            "lea rax, [rsp + 0x40]",
+            "mov [rsp + 0x20], rax",
+            call glyph,
+            "mov rdx, [rsp + 0x48]",
+            "add r15d, dword ptr [rsp + 0x40]",
+            "dec r15d",
+        ),
         "movzx r8d, byte ptr [rcx + r9]",
         "movss xmm3, dword ptr [r14 + 0x968]",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym draw_glyph,
+        glyph = sym text_loops::glyph_in,
         done = sym DRAW_DONE,
     );
 }

@@ -6,11 +6,11 @@ pub mod breaks;
 pub mod buttons;
 pub mod dxt;
 pub mod edit_box;
-pub mod encoding;
 pub mod fill;
 pub mod fitted_text;
 pub mod floating_text;
 pub mod font_load;
+pub mod game_text;
 pub mod glyphs;
 pub mod input;
 pub mod legacy;
@@ -18,11 +18,11 @@ pub mod localisation;
 pub mod main_text;
 pub mod map_names;
 pub mod save_names;
-pub mod scalar;
 pub mod scripts;
 pub mod search;
 pub mod system_font;
 pub mod text_height;
+pub mod text_loops;
 pub mod text_width;
 
 use crate::points::Point;
@@ -30,7 +30,7 @@ use crate::points::Point;
 const STRING_APPEND_BYTES: &str = "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20";
 
 pub fn points() -> Vec<Point> {
-    let mut points = vec![Point::keep(glyphs::STRING_APPEND, STRING_APPEND_BYTES, "string append").recorded(&glyphs::APPEND)];
+    let mut points = vec![Point::keep(text_loops::STRING_APPEND, STRING_APPEND_BYTES, "string append").recorded(&text_loops::APPEND)];
     points.extend(font_load::points());
     points.extend(fill::points());
     points.extend(localisation::points());

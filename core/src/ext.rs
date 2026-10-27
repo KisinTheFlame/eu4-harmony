@@ -367,14 +367,14 @@ unsafe extern "C" fn h_ui_set_enabled(ptr: *mut c_void, name: *const u8, name_le
 
 unsafe extern "C" fn h_ui_set_text(ptr: *mut c_void, name: *const u8, name_len: usize, t: *const u8, t_len: usize) -> i32 {
     capability(ptr, |h, _| {
-        let text = crate::unicode::encoding::game_text(utf8(t, t_len)?);
+        let text = crate::unicode::game_text::from_str(utf8(t, t_len)?);
         ui::set_text(h.index, utf8(name, name_len)?, text)
     })
 }
 
 unsafe extern "C" fn h_ui_set_tooltip(ptr: *mut c_void, name: *const u8, name_len: usize, t: *const u8, t_len: usize) -> i32 {
     capability(ptr, |h, _| {
-        let text = crate::unicode::encoding::game_text(utf8(t, t_len)?);
+        let text = crate::unicode::game_text::from_str(utf8(t, t_len)?);
         ui::set_tooltip(h.index, utf8(name, name_len)?, text)
     })
 }

@@ -31,7 +31,7 @@ pub fn decode(text: &[u8]) -> Option<Vec<u8>> {
             }
             if let Some(c) = char::from_u32(u32::from(high) << 8 | u32::from(low)) {
                 // As the module keeps text: a character 1252 has as its byte.
-                match super::encoding::single_byte(c as u32) {
+                match super::game_text::single_byte(c as u32) {
                     Some(b) => out.push(b),
                     None => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
                 }

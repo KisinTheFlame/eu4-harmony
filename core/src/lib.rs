@@ -9,6 +9,8 @@ pub type Result<T> = std::result::Result<T, String>;
 
 #[macro_use]
 pub mod log;
+#[macro_use]
+pub mod stub;
 pub mod baseline;
 pub mod ext;
 pub mod framework_ui;

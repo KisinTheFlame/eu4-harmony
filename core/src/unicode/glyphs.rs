@@ -1,6 +1,6 @@
 //! The glyph table (GLOSSARY): glyphs for code points above 0xFF, which the
 //! game's own per-font table cannot hold, and the temporary glyphs of one draw
-//! call.
+//! call. It only keeps them; which glyph a character gets is `text_loops`'s.
 //!
 //! A font's own table is 256 glyph pointers at font + 0x120; the game frees it
 //! with the font (`font_load`). Glyphs for higher code points are kept here,
@@ -68,83 +68,6 @@ pub fn get(table: usize, scalar: u32) -> *const Glyph {
     TABLE.read().unwrap_or_else(|e| e.into_inner()).get(&(table, scalar)).map_or(std::ptr::null(), |g| &**g as *const Glyph)
 }
 
-/// The glyph `font` draws for `scalar`: from its own table for a character
-/// Windows-1252 has, from the glyph table otherwise, then from a system font
-/// (`fill`), and its `?` when none has it. A 1252 character missing from the
-/// own table is looked for the same way by its code point: fonts made for
-/// the CJK plugin keep `“ ” … —` there. Null only where the game's own table
-/// is and nothing else has the character (control characters).
-pub fn for_scalar(font: usize, scalar: u32) -> *const Glyph {
-    let table = font + 0x120;
-    let own = |byte: u8| unsafe { *(table as *const *const Glyph).add(byte as usize) };
-    if let Some(byte) = super::encoding::single_byte(scalar) {
-        let glyph = own(byte);
-        if !glyph.is_null() || byte < 0x80 {
-            return glyph;
-        }
-        let code = super::encoding::char_at(&[byte]).0 as u32;
-        let found = get(table, code);
-        if !found.is_null() {
-            return found;
-        }
-        return super::fill::glyph(font, code);
-    }
-    let found = get(table, scalar);
-    if !found.is_null() {
-        return found;
-    }
-    match super::fill::glyph(font, scalar) {
-        filled if !filled.is_null() => filled,
-        _ => own(b'?'),
-    }
-}
-
-/// The character starting at `text` (read no further than its NUL) and the
-/// glyph `font` draws for it.
-pub unsafe fn char_at(font: usize, text: *const u8) -> (*const Glyph, usize) {
-    let mut bytes = [0u8; 4];
-    let mut n = 0;
-    while n < 4 {
-        bytes[n] = *text.add(n);
-        n += 1;
-        if bytes[n - 1] == 0 {
-            break;
-        }
-    }
-    let (scalar, len) = super::scalar::decode(&bytes[..n]);
-    (for_scalar(font, scalar), len.max(1))
-}
-
-/// [`char_at`] for the text loops' stubs; the length goes to `*len`.
-pub extern "C" fn char_glyph(font: usize, text: *const u8, len: *mut u32) -> *const Glyph {
-    crate::guarded("text glyph", || {
-        let (glyph, n) = unsafe { char_at(font, text) };
-        unsafe { *len = n as u32 };
-        glyph
-    })
-}
-
-/// The game's `std::string::append(this, bytes, count)`, recorded at startup.
-pub static APPEND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub const STRING_APPEND: usize = 0x932f0;
-
-type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
-
-/// For layout passes that copy each byte into a word (`std::string*`) before
-/// looking it up: the glyph for the character at `text`, with the rest of its
-/// bytes appended to `word`; the length goes to `*len`.
-pub extern "C" fn layout_char(font: usize, text: *const u8, word: usize, len: *mut u32) -> *const Glyph {
-    crate::guarded("text layout glyph", || unsafe {
-        let (glyph, n) = char_at(font, text);
-        if n > 1 {
-            let append: Append = std::mem::transmute(APPEND.load(std::sync::atomic::Ordering::Acquire));
-            append(word, text.add(1), n - 1);
-        }
-        *len = n as u32;
-        glyph
-    })
-}
-
 /// The font whose own table is at `table` is being destroyed.
 pub fn forget(table: usize) {
     TABLE.write().unwrap_or_else(|e| e.into_inner()).retain(|&(t, _), _| t != table);
@@ -204,24 +127,6 @@ mod tests {
         forget(a);
         assert!(get(a, 0x4e2d).is_null());
         assert_eq!(unsafe { *get(b, 0x4e2d) }.x, 3);
-    }
-
-    #[test]
-    fn a_1252_character_the_own_table_lacks_comes_from_its_code_point() {
-        // A font object: 256 own glyph pointers at + 0x120; only `a` is there.
-        let a = glyph(1);
-        let mut font = vec![0usize; 0x120 / 8 + 256];
-        font[0x120 / 8 + b'a' as usize] = &a as *const Glyph as usize;
-        let font = font.as_ptr() as usize;
-        // The font keeps … (1252 byte 0x85) at U+2026.
-        assert!(insert(font + 0x120, 0x2026, glyph(2)));
-        assert_eq!(unsafe { *for_scalar(font, 'a' as u32) }.x, 1);
-        assert_eq!(unsafe { *for_scalar(font, 0x85) }.x, 2);
-        assert_eq!(unsafe { *for_scalar(font, 0x2026) }.x, 2);
-        // Control characters stay null, as the game expects.
-        assert!(for_scalar(font, '\n' as u32).is_null());
-        assert!(for_scalar(font, 0x93).is_null());
-        forget(font + 0x120);
     }
 
     #[test]

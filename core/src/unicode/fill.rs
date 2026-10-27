@@ -19,7 +19,7 @@
 //! nothing is filled.
 use super::atlas::Page;
 use super::dxt;
-use super::encoding;
+use super::game_text;
 use super::glyphs::{self, Glyph};
 use super::system_font::SystemFonts;
 use crate::hooks::HookFrame;
@@ -104,7 +104,42 @@ static OWNERS: LazyLock<Mutex<HashMap<usize, usize>>> = LazyLock::new(Default::d
 thread_local! {
     /// The font whose page is loading on this thread, and the page once the
     /// game has decoded it.
-    static LOADING: RefCell<Option<(usize, Option<Own>)>> = const { RefCell::new(None) };
+    static LOADING: RefCell<Loading> = const { RefCell::new(Loading { font: None, page: None }) };
+}
+
+/// The page a font is loading on this thread: begun when the font's method
+/// that loads its page (0x15953c0) starts, given the pixels of the first
+/// texture the game creates inside that call, and taken when the method
+/// returns. A texture created outside that call, or after the first, is not
+/// the font's page.
+struct Loading {
+    font: Option<usize>,
+    page: Option<Own>,
+}
+
+impl Loading {
+    fn begin(&mut self, font: usize) {
+        *self = Loading { font: Some(font), page: None };
+    }
+
+    /// Whether a texture created now would be the loading font's page.
+    fn wants_page(&self) -> bool {
+        self.font.is_some() && self.page.is_none()
+    }
+
+    fn give(&mut self, page: Own) {
+        if self.wants_page() {
+            self.page = Some(page);
+        }
+    }
+
+    /// The page `font` loaded, when it was `font` that was loading (None
+    /// otherwise); the inner None when the game made no page of a kind the
+    /// framework can grow.
+    fn finish(&mut self, font: usize) -> Option<Option<Own>> {
+        let done = std::mem::replace(self, Loading { font: None, page: None });
+        (done.font == Some(font)).then_some(done.page)
+    }
 }
 
 fn lock<T>(m: &'static LazyLock<Mutex<T>>) -> MutexGuard<'static, T> {
@@ -355,7 +390,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
 /// as the game allocates them, which it frees with the font).
 fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill) -> crate::Result<()> {
     for byte in 0x20u8..=0xff {
-        let Some(c) = encoding::to_utf8(&[byte]).chars().next() else { continue };
+        let (c, _) = game_text::char_at(&[byte]);
         if c.is_control() {
             continue;
         }
@@ -376,7 +411,7 @@ fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill) -> crate::Result
 
 extern "C" fn load_before(frame: *mut HookFrame) {
     let font = unsafe { (*frame).args[0] };
-    LOADING.with(|l| *l.borrow_mut() = Some((font, None)));
+    LOADING.with(|l| l.borrow_mut().begin(font));
 }
 
 extern "C" fn create_before(frame: *mut HookFrame) {
@@ -385,7 +420,9 @@ extern "C" fn create_before(frame: *mut HookFrame) {
         let (description, levels, count) = (args[2] as *const u32, args[3] as *const u8, args[4] as u32);
         LOADING.with(|l| {
             let mut l = l.borrow_mut();
-            let Some((_, pixels @ None)) = l.as_mut() else { return };
+            if !l.wants_page() {
+                return;
+            }
             // A 2D, single-level 32-bit or DXT5 page.
             if description.is_null() || *description.add(4) != 0 || count != 1 {
                 return;
@@ -401,7 +438,7 @@ extern "C" fn create_before(frame: *mut HookFrame) {
                 return;
             }
             let size = height as usize / if compressed { 4 } else { 1 } * row_bytes(compressed, width);
-            *pixels = Some(Own { width, height, compressed, data: std::slice::from_raw_parts(data, size).to_vec() });
+            l.give(Own { width, height, compressed, data: std::slice::from_raw_parts(data, size).to_vec() });
         });
     })
 }
@@ -409,10 +446,7 @@ extern "C" fn create_before(frame: *mut HookFrame) {
 extern "C" fn load_after(frame: *mut HookFrame) {
     crate::guarded("font page fill", || {
         let font = unsafe { (*frame).args[0] };
-        let Some((loading, own)) = LOADING.with(|l| l.borrow_mut().take()) else { return };
-        if loading != font {
-            return;
-        }
+        let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return };
         let system = settings::current().text_appearance == TextAppearance::System;
         let m = memory();
         let result = (|| -> crate::Result<()> {
@@ -498,7 +532,31 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::own_rows;
+    use super::{own_rows, Loading, Own};
+
+    fn page(width: u32) -> Own {
+        Own { width, height: 4, compressed: false, data: vec![0; width as usize * 16] }
+    }
+
+    #[test]
+    fn a_font_gets_the_first_texture_made_while_it_loads() {
+        let mut loading = Loading { font: None, page: None };
+        // Outside a font's load: no font's page.
+        loading.give(page(1));
+        assert!(loading.finish(0x10).is_none());
+        loading.begin(0x10);
+        loading.give(page(2));
+        loading.give(page(3));
+        assert_eq!(loading.finish(0x10).unwrap().unwrap().width, 2);
+        // Taken once.
+        assert!(loading.finish(0x10).is_none());
+        // Another font's return does not take this one's page.
+        loading.begin(0x20);
+        assert!(loading.finish(0x30).is_none());
+        // A page of no kind the framework grows.
+        loading.begin(0x40);
+        assert!(loading.finish(0x40).unwrap().is_none());
+    }
 
     #[test]
     fn bands_past_the_own_page_copy_nothing() {

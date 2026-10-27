@@ -6,7 +6,7 @@
 //! letters match inside Chinese names. The replacement folds the module's
 //! single bytes the same way and leaves UTF-8 sequences whole. It runs on the
 //! province finder's worker thread too.
-use super::scalar;
+use super::game_text;
 use crate::points::Point;
 use std::sync::atomic::AtomicUsize;
 
@@ -45,20 +45,17 @@ fn folded(byte: u8) -> u8 {
 pub fn fold(text: &mut [u8]) {
     let mut at = 0;
     while at < text.len() {
-        let (_, n) = scalar::decode(&text[at..]);
+        let n = game_text::len_at(text, at);
         if n == 1 {
             text[at] = folded(text[at]);
         }
-        at += n.max(1);
+        at += n;
     }
 }
 
 unsafe extern "C" fn fold_string(string: *mut u8) {
     crate::guarded("search fold", || {
-        let len = (string.add(0x10) as *const usize).read_unaligned();
-        let capacity = (string.add(0x18) as *const usize).read_unaligned();
-        let data = if capacity >= 16 { (string as *const *mut u8).read_unaligned() } else { string };
-        fold(std::slice::from_raw_parts_mut(data, len));
+        fold(game_text::std_string_mut(string));
     })
 }
 

@@ -15,9 +15,9 @@
 //! spread apart: each lookup takes a whole character and moves its index over
 //! it, the spacing loop appends whole characters, and the curve's length is
 //! counted in characters.
-use super::{breaks, glyphs, scalar};
+use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 
 macro_rules! resume {
     ($static:ident, $array:ident, $rva:expr) => {
@@ -41,88 +41,28 @@ static SHORT: AtomicUsize = AtomicUsize::new(0);
 static LONG: AtomicUsize = AtomicUsize::new(0);
 static GUARD_RESUME: [Resume; 2] = [Resume { rva: 0xfd415f, address: &SHORT }, Resume { rva: 0xfd4144, address: &LONG }];
 
-type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
-
-unsafe fn string_bytes<'a>(string: *const u8) -> &'a [u8] {
-    let len = (string.add(0x10) as *const usize).read_unaligned();
-    let capacity = (string.add(0x18) as *const usize).read_unaligned();
-    let data = if capacity >= 16 { (string as *const *const u8).read_unaligned() } else { string };
-    std::slice::from_raw_parts(data, len)
-}
-
 fn characters(text: &[u8]) -> Vec<&[u8]> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    while at < text.len() {
-        let n = scalar::decode(&text[at..]).1.max(1);
-        out.push(&text[at..(at + n).min(text.len())]);
-        at += n;
-    }
-    out
+    game_text::chars(text).map(|(_, r)| &text[r]).collect()
 }
 
 /// The spacing loop: `dst` gets each character of `src` with `spacer` after
 /// every one but the last.
 extern "C" fn space_letters(dst: usize, src: *const u8, spacer: *const u8) {
     crate::guarded("map name spacing", || unsafe {
-        let append: Append = std::mem::transmute(glyphs::APPEND.load(Ordering::Acquire));
-        let spacer = string_bytes(spacer);
-        let chars = characters(string_bytes(src));
+        let spacer = game_text::std_string(spacer);
+        let chars = characters(game_text::std_string(src));
         for (i, c) in chars.iter().enumerate() {
-            append(dst, c.as_ptr(), c.len());
+            text_loops::append(dst, c);
             if i + 1 < chars.len() && !spacer.is_empty() {
-                append(dst, spacer.as_ptr(), spacer.len());
+                text_loops::append(dst, spacer);
             }
         }
     })
 }
 
-/// How many characters the `std::string` at `string` holds.
-extern "C" fn character_count(string: *const u8) -> usize {
-    crate::guarded("map name length", || characters(unsafe { string_bytes(string) }).len())
-}
-
-/// Saves rax, rcx, rdx, r8–r11 and xmm0–xmm5 under a 16-byte aligned rsp,
-/// with rbp holding the rsp it came in with (the caller's rbp is at [rbp]).
-macro_rules! save {
-    () => {
-        concat!(
-            "push rbp\n",
-            "mov rbp, rsp\n",
-            "and rsp, -16\n",
-            "sub rsp, 0xd0\n",
-            "mov [rsp + 0x30], rax\n",
-            "mov [rsp + 0x38], rcx\n",
-            "mov [rsp + 0x40], rdx\n",
-            "mov [rsp + 0x48], r8\n",
-            "mov [rsp + 0x50], r9\n",
-            "mov [rsp + 0x58], r10\n",
-            "mov [rsp + 0x60], r11\n",
-            "movdqu [rsp + 0x70], xmm0\n",
-            "movdqu [rsp + 0x80], xmm1\n",
-            "movdqu [rsp + 0x90], xmm2\n",
-            "movdqu [rsp + 0xa0], xmm3\n",
-            "movdqu [rsp + 0xb0], xmm4\n",
-            "movdqu [rsp + 0xc0], xmm5\n",
-        )
-    };
-}
-
-/// Restores what [`save`] saved except the registers named (which keep the
-/// stub's values), then the caller's rsp and rbp.
-macro_rules! restore_xmm_and_leave {
-    () => {
-        concat!(
-            "movdqu xmm0, [rsp + 0x70]\n",
-            "movdqu xmm1, [rsp + 0x80]\n",
-            "movdqu xmm2, [rsp + 0x90]\n",
-            "movdqu xmm3, [rsp + 0xa0]\n",
-            "movdqu xmm4, [rsp + 0xb0]\n",
-            "movdqu xmm5, [rsp + 0xc0]\n",
-            "mov rsp, rbp\n",
-            "pop rbp\n",
-        )
-    };
+/// Writes how many characters the `std::string` at `string` holds to `count`.
+extern "C" fn store_character_count(string: *const u8, count: *mut usize) {
+    crate::guarded("map name length", || unsafe { *count = characters(game_text::std_string(string)).len() })
 }
 
 /// Layout pass (0x159da60): `movzx eax, byte [r15+rax]; mov r11,
@@ -131,27 +71,20 @@ macro_rules! restore_xmm_and_leave {
 #[unsafe(naked)]
 extern "C" fn layout_stub() {
     std::arch::naked_asm!(
-        save!(),
-        "lea rdx, [rax + r15]",
-        "lea r8, [rbp + 8 + 0x28]",
-        "mov rcx, r9",
-        "lea r9, [rsp + 0x28]",
-        "call {glyph}",
-        "mov r11, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "add r14d, eax",
-        "mov r15d, r14d",
-        "mov rax, [rsp + 0x30]",
-        "mov rcx, [rsp + 0x38]",
-        "mov rdx, [rsp + 0x40]",
-        "mov r8, [rsp + 0x48]",
-        "mov r9, [rsp + 0x50]",
-        "mov r10, [rsp + 0x58]",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "lea rdx, [rax + r15]",
+            "lea r8, [rbp + 8 + 0x28]",
+            "mov rcx, r9",
+            "lea r9, [rsp + 0x40]",
+            call glyph,
+            "mov r11, [rsp + 0x48]",
+            "add r14d, dword ptr [rsp + 0x40]",
+            "dec r14d",
+            "mov r15d, r14d",
+        ),
         "test r11, r11",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::layout_char,
+        glyph = sym text_loops::layout_char,
         done = sym LAYOUT_DONE,
     );
 }
@@ -161,25 +94,19 @@ extern "C" fn layout_stub() {
 #[unsafe(naked)]
 extern "C" fn draw_stub() {
     std::arch::naked_asm!(
-        save!(),
-        "lea rdx, [rax + r9]",
-        "mov rcx, r8",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov rdx, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "mov r11, [rsp + 0x60]",
-        "add r11d, eax",
-        "mov r9d, r11d",
-        "mov rax, [rsp + 0x30]",
-        "mov rcx, [rsp + 0x38]",
-        "mov r8, [rsp + 0x48]",
-        "mov r10, [rsp + 0x58]",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "lea rdx, [rax + r9]",
+            "mov rcx, r8",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov rdx, [rsp + 0x48]",
+            "add r11d, dword ptr [rsp + 0x40]",
+            "dec r11d",
+            "mov r9d, r11d",
+        ),
         "test rdx, rdx",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym DRAW_DONE,
     );
 }
@@ -190,26 +117,20 @@ extern "C" fn draw_stub() {
 #[unsafe(naked)]
 extern "C" fn measure_stub() {
     std::arch::naked_asm!(
-        save!(),
-        "add rdx, rax",
-        "mov rcx, r13",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov r11, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "add edi, eax",
-        "mov edx, edi",
-        "mov rax, [rsp + 0x30]",
-        "mov rcx, [rsp + 0x38]",
-        "mov r8, [rsp + 0x48]",
-        "mov r9, [rsp + 0x50]",
-        "mov r10, [rsp + 0x58]",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "add rdx, rax",
+            "mov rcx, r13",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov r11, [rsp + 0x48]",
+            "add edi, dword ptr [rsp + 0x40]",
+            "dec edi",
+            "mov edx, edi",
+        ),
         "movss xmm1, dword ptr [r13 + 0x968]",
         "test r11, r11",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym MEASURE_DONE,
     );
 }
@@ -225,25 +146,17 @@ extern "C" fn wrap_stub() {
         "movsx eax, word ptr [r11 + 6]",
         "test eax, eax",
         "jz 2f",
-        save!(),
-        "mov rcx, rbx",
-        "cmp qword ptr [rbx + 0x18], 16",
-        "jb 3f",
-        "mov rcx, [rbx]",
-        "3:",
-        "mov edx, dword ptr [rbx + 0x10]",
-        "lea r8d, [rdi + 1]",
-        "call {after}",
-        "mov byte ptr [rsp + 0x68], al",
-        "mov rax, [rsp + 0x30]",
-        "mov rcx, [rsp + 0x38]",
-        "mov rdx, [rsp + 0x40]",
-        "mov r8, [rsp + 0x48]",
-        "mov r9, [rsp + 0x50]",
-        "mov r10, [rsp + 0x58]",
-        "mov r11, [rsp + 0x60]",
-        "cmp byte ptr [rsp + 0x68], 0",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "mov rcx, rbx",
+            "cmp qword ptr [rbx + 0x18], 16",
+            "jb 3f",
+            "mov rcx, [rbx]",
+            "3:",
+            "mov edx, dword ptr [rbx + 0x10]",
+            "lea r8d, [rdi + 1]",
+            call after,
+            "cmp byte ptr [rsp + 0x48], 0",
+        ),
         "jnz 2f",
         "jmp qword ptr [rip + {in_word}]",
         "2:",
@@ -259,25 +172,19 @@ extern "C" fn wrap_stub() {
 #[unsafe(naked)]
 extern "C" fn straight_count_stub() {
     std::arch::naked_asm!(
-        save!(),
-        "lea rdx, [rax + rcx]",
-        "mov rcx, r12",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov rdx, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "mov rcx, [rsp + 0x38]",
-        "add rcx, rax",
-        "mov rax, [rsp + 0x30]",
-        "mov r8, [rsp + 0x48]",
-        "mov r9, [rsp + 0x50]",
-        "mov r10, [rsp + 0x58]",
-        "mov r11, [rsp + 0x60]",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "lea rdx, [rax + rcx]",
+            "mov rcx, r12",
+            "mov qword ptr [rsp + 0x40], 0",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov rdx, [rsp + 0x48]",
+            "add rcx, qword ptr [rsp + 0x40]",
+            "dec rcx",
+        ),
         "test rdx, rdx",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym STRAIGHT_COUNT_DONE,
     );
 }
@@ -287,46 +194,37 @@ extern "C" fn straight_count_stub() {
 #[unsafe(naked)]
 extern "C" fn curved_count_stub() {
     std::arch::naked_asm!(
-        save!(),
-        "lea rdx, [rax + rcx]",
-        "lea rcx, [r14 - 0x120]",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov rdx, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "mov rcx, [rsp + 0x38]",
-        "add rcx, rax",
-        "mov rax, [rsp + 0x30]",
-        "mov r8, [rsp + 0x48]",
-        "mov r9, [rsp + 0x50]",
-        "mov r10, [rsp + 0x58]",
-        "mov r11, [rsp + 0x60]",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "lea rdx, [rax + rcx]",
+            "lea rcx, [r14 - 0x120]",
+            "mov qword ptr [rsp + 0x40], 0",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov rdx, [rsp + 0x48]",
+            "add rcx, qword ptr [rsp + 0x40]",
+            "dec rcx",
+        ),
         "test rdx, rdx",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym CURVED_COUNT_DONE,
     );
 }
 
-/// Replaces the spacing loop: the spaced text goes to `[rbp+0x30]`, from the
-/// unspaced `[rbp+0x90]` and the spacer `[rbp+0x70]`; `rbx` ends as the
-/// loop left it (the last index, `r12`) and `rdi` holds the spacer's capacity.
+/// Replaces the spacing loop: the spaced text goes to the game frame's
+/// `[rbp+0x30]`, from the unspaced `[rbp+0x90]` and the spacer `[rbp+0x70]`;
+/// `rbx` ends as the loop left it (the last index, `r12`) and `rdi` holds the
+/// spacer's capacity.
 #[unsafe(naked)]
 extern "C" fn spacing_stub() {
     std::arch::naked_asm!(
-        "push rbp",
-        "mov rbp, rsp",
-        "and rsp, -16",
-        "sub rsp, 0x20",
-        "mov rax, [rbp]",
-        "lea rcx, [rax + 0x30]",
-        "lea rdx, [rax + 0x90]",
-        "lea r8, [rax + 0x70]",
-        "call {space}",
-        "mov rsp, rbp",
-        "pop rbp",
+        call_rust!(
+            "mov rax, [rbp]",
+            "lea rcx, [rax + 0x30]",
+            "lea rdx, [rax + 0x90]",
+            "lea r8, [rax + 0x70]",
+            call space,
+        ),
         "xor ebx, ebx",
         "test r12, r12",
         "cmovg rbx, r12",
@@ -338,26 +236,20 @@ extern "C" fn spacing_stub() {
 }
 
 /// Replaces `mov rcx, [rdi+0x10]; mov [rbp+0x168], rcx`: the curve's length
-/// in characters goes to `[rbp+0x168]`; `rcx` keeps the byte length, which
-/// still ends the loop.
+/// in characters goes to the game frame's `[rbp+0x168]`; `rcx` keeps the byte
+/// length, which still ends the loop.
 #[unsafe(naked)]
 extern "C" fn length_stub() {
     std::arch::naked_asm!(
-        save!(),
-        "mov rcx, rdi",
-        "call {count}",
-        "mov rcx, [rbp]",
-        "mov [rcx + 0x168], rax",
-        "mov rax, [rsp + 0x30]",
-        "mov rdx, [rsp + 0x40]",
-        "mov r8, [rsp + 0x48]",
-        "mov r9, [rsp + 0x50]",
-        "mov r10, [rsp + 0x58]",
-        "mov r11, [rsp + 0x60]",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "mov rcx, rdi",
+            "mov rdx, [rbp]",
+            "add rdx, 0x168",
+            call count,
+        ),
         "mov rcx, qword ptr [rdi + 0x10]",
         "jmp qword ptr [rip + {done}]",
-        count = sym character_count,
+        count = sym store_character_count,
         done = sym LENGTH_DONE,
     );
 }
@@ -383,31 +275,23 @@ extern "C" fn guard_stub() {
 #[unsafe(naked)]
 extern "C" fn bend_stub() {
     std::arch::naked_asm!(
-        save!(),
-        "movzx r8d, byte ptr [rax + rcx]",
-        "mov [rsp + 0x68], r8",
-        "lea rdx, [rax + rcx]",
-        "mov rcx, [rsp + 0x40]",
-        "sub rcx, 0x120",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov r14, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "mov rcx, [rsp + 0x38]",
-        "add rcx, rax",
-        "mov rax, [rsp + 0x68]",
-        "mov rdx, [rsp + 0x40]",
-        "mov r8, [rsp + 0x48]",
-        "mov r9, [rsp + 0x50]",
-        "mov r10, [rsp + 0x58]",
-        "mov r11, [rsp + 0x60]",
-        restore_xmm_and_leave!(),
+        call_rust!(
+            "mov r8, rdx",
+            "lea rdx, [rax + rcx]",
+            "lea rcx, [r8 - 0x120]",
+            "mov qword ptr [rsp + 0x40], 0",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov r14, [rsp + 0x48]",
+            "movzx eax, byte ptr [rax + rcx]",
+            "add rcx, qword ptr [rsp + 0x40]",
+            "dec rcx",
+        ),
         "mov [rbp + 0x118], rcx",
         "mov byte ptr [rbp + 0x808], al",
         "movss xmm12, dword ptr [rdx + 0x848]",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym BEND_DONE,
     );
 }

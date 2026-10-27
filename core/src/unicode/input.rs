@@ -17,7 +17,7 @@
 //! lets Windows show its windows, turns off TSF's UI-less mode (0x1764e7e),
 //! and places the windows at the caret of the focused edit box from
 //! UpdateCaret (0x1534250). There is no input method of the framework's own.
-use super::{encoding, scalar};
+use super::game_text;
 use crate::points::{Point, Resume};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
@@ -62,8 +62,7 @@ extern "C" fn post_text(receiver: usize, recorder: usize, event: *const u8) {
         let constant = *(CONSTANT.load(Ordering::Acquire) as *const [u8; 16]);
         let raw = std::slice::from_raw_parts(event.add(0xc), 32);
         let text = String::from_utf8_lossy(&raw[..raw.iter().position(|&b| b == 0).unwrap_or(raw.len())]).into_owned();
-        for c in text.chars() {
-            let bytes = encoding::game_text(c.encode_utf8(&mut [0; 4]));
+        for bytes in typed_chars(&text) {
             let mut e = CharEvent([0; 0x58]);
             e.0[0x10..0x10 + bytes.len()].copy_from_slice(&bytes);
             e.0[0x38..0x48].copy_from_slice(&constant);
@@ -73,20 +72,36 @@ extern "C" fn post_text(receiver: usize, recorder: usize, event: *const u8) {
     })
 }
 
-/// Copies the character at `from` (NUL-terminated) to `to` with a NUL after
-/// it; returns its length. An empty one is a single NUL, as the game had it.
-extern "C" fn copy_char(from: *const u8, to: *mut u8) -> usize {
+/// SDL's typed text as one character event each, in the game's encoding.
+fn typed_chars(text: &str) -> Vec<Vec<u8>> {
+    text.chars().map(|c| game_text::from_str(c.encode_utf8(&mut [0; 4]))).collect()
+}
+
+/// The bytes OnChar inserts for the NUL-terminated `typed`: the character it
+/// starts, or a single NUL for none, as the game had it.
+fn typed_char(typed: &[u8]) -> &[u8] {
+    let typed = &typed[..typed.iter().position(|&b| b == 0).unwrap_or(typed.len())];
+    match game_text::len_at(typed, 0) {
+        0 => &[0],
+        len => &typed[..len],
+    }
+}
+
+/// Makes the inline `std::string` at `string` (16 bytes of text, its size at
+/// +0x10) the character at `from`.
+extern "C" fn copy_char(from: *const u8, string: *mut u8) {
     crate::guarded("text input character", || unsafe {
-        let mut bytes = [0u8; 4];
-        let mut n = 0;
-        while n < 4 && *from.add(n) != 0 {
-            bytes[n] = *from.add(n);
-            n += 1;
+        let mut typed = [0u8; 4];
+        for (n, b) in typed.iter_mut().enumerate() {
+            *b = *from.add(n);
+            if *b == 0 {
+                break;
+            }
         }
-        let len = scalar::decode(&bytes[..n]).1.max(1);
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), to, len);
-        *to.add(len) = 0;
-        len
+        let bytes = typed_char(&typed);
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), string, bytes.len());
+        *string.add(bytes.len()) = 0;
+        *(string.add(0x10) as *mut usize) = bytes.len();
     })
 }
 
@@ -95,6 +110,11 @@ type ImeMessage = unsafe extern "C" fn(HWND, u32, usize, *mut isize, usize) -> i
 /// The result bits of WM_IME_COMPOSITION, which make DefWindowProc send the
 /// committed text again as WM_IME_CHAR.
 const RESULT_BITS: isize = (GCS_RESULTREADSTR | GCS_RESULTREADCLAUSE | GCS_RESULTSTR | GCS_RESULTCLAUSE) as isize;
+
+/// WM_IME_COMPOSITION's flags with the result ones cleared.
+fn without_result(lparam: isize) -> isize {
+    lparam & !RESULT_BITS
+}
 
 /// SDL's handling, then what Windows needs to draw its own windows. Returns
 /// non-zero when the game must not pass the message to DefWindowProc.
@@ -113,7 +133,7 @@ unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lpar
         WM_IME_STARTCOMPOSITION | WM_IME_NOTIFY => 0,
         // SDL has sent the committed text; Windows still updates its window.
         WM_IME_COMPOSITION => {
-            DefWindowProcW(window, message, wparam, sent & !RESULT_BITS);
+            DefWindowProcW(window, message, wparam, without_result(sent));
             1
         }
         _ => handled,
@@ -135,6 +155,13 @@ fn caret_on_screen(m: &crate::memory::Memory, edit_box: usize, offset: u32) -> c
     Ok((x, y))
 }
 
+/// A caret at (`x`, `y`) on a line `line` high, all in GUI units, in window
+/// pixels at the GUI scale `scale` (across, down): (x, y, line height), the
+/// height at least one pixel.
+fn caret_pixels((x, y): (i32, i32), line: i32, (across, down): (f32, f32)) -> (i32, i32, i32) {
+    ((x as f32 * across) as i32, (y as f32 * down) as i32, ((line as f32 * down) as i32).max(1))
+}
+
 /// The caret of edit box `edit_box` is at `offset` in its text (x low, y
 /// high, GUI units); puts the input method's windows there when the box has
 /// the keyboard.
@@ -152,7 +179,7 @@ extern "C" fn caret_at(edit_box: usize, offset: u32) {
         let Ok((x, y)) = caret_on_screen(&m, edit_box, offset) else { return };
         // The font's line height, as its method at 0x159ba20 works it out.
         let line = (*((font + 0x960) as *const i32) as f32 * *((font + 0x968) as *const f32)) as i32;
-        let (px, py, ph) = ((x as f32 * across) as i32, (y as f32 * down) as i32, ((line as f32 * down) as i32).max(1));
+        let (px, py, ph) = caret_pixels((x, y), line, (across, down));
         let key = (px as u16 as u64) | (py as u16 as u64) << 16 | (ph as u16 as u64) << 32;
         if PLACED.swap(key, Ordering::Relaxed) == key {
             return;
@@ -176,48 +203,34 @@ extern "C" fn caret_at(edit_box: usize, offset: u32) {
 }
 
 /// Replaces `mov eax, [rbp-0x44]; xor bl, bl`, the start of the text event's
-/// case: the receiver is in `r14`, the recorder in `r15`, the event at
-/// `rbp-0x50`.
+/// case: the receiver is in `r14`, the recorder in `r15`, the event at the
+/// game frame's `rbp-0x50`.
 #[unsafe(naked)]
 extern "C" fn text_event_stub() {
     std::arch::naked_asm!(
-        "lea r8, [rbp - 0x50]",
-        "mov rcx, r14",
-        "mov rdx, r15",
-        "push rbp",
-        "mov rbp, rsp",
-        "and rsp, -16",
-        "sub rsp, 0x20",
-        "call {post}",
-        "mov rsp, rbp",
-        "pop rbp",
+        call_rust!(
+            "mov rax, [rbp]",
+            "lea r8, [rax - 0x50]",
+            "mov rcx, r14",
+            "mov rdx, r15",
+            call post,
+        ),
         "jmp qword ptr [rip + {next}]",
         post = sym post_text,
         next = sym NEXT,
     );
 }
 
-/// Replaces the one-byte string OnChar builds at `rsp+0x20` (size at
-/// `rsp+0x30`) from the character at `r14`. Keeps `rax` and `rcx`, which the
-/// insertion call that follows uses.
+/// Replaces the one-byte `std::string` OnChar builds at the game's
+/// `rsp+0x20` from the character at `r14`.
 #[unsafe(naked)]
 extern "C" fn on_char_stub() {
     std::arch::naked_asm!(
-        "push rax",
-        "push rcx",
-        "push rbp",
-        "mov rbp, rsp",
-        "and rsp, -16",
-        "sub rsp, 0x20",
-        "mov rcx, r14",
-        // The string is at the function's rsp + 0x20: rbp + 0x18 + 0x20 here.
-        "lea rdx, [rbp + 0x38]",
-        "call {copy}",
-        "mov rsp, rbp",
-        "pop rbp",
-        "mov qword ptr [rsp + 0x40], rax",
-        "pop rcx",
-        "pop rax",
+        call_rust!(
+            "mov rcx, r14",
+            "lea rdx, [rbp + 8 + 0x20]",
+            call copy,
+        ),
         "jmp qword ptr [rip + {inserted}]",
         copy = sym copy_char,
         inserted = sym INSERTED,
@@ -230,15 +243,11 @@ extern "C" fn on_char_stub() {
 #[unsafe(naked)]
 extern "C" fn caret_stub() {
     std::arch::naked_asm!(
-        "push rbp",
-        "mov rbp, rsp",
-        "and rsp, -16",
-        "sub rsp, 0x20",
-        "mov rcx, rdi",
-        "mov edx, ebx",
-        "call {caret}",
-        "mov rsp, rbp",
-        "pop rbp",
+        call_rust!(
+            "mov rcx, rdi",
+            "mov edx, ebx",
+            call caret,
+        ),
         "mov rcx, qword ptr [rdi + 0x1f0]",
         "jmp qword ptr [rip + {done}]",
         caret = sym caret_at,
@@ -284,4 +293,29 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1535266usize, "c6 81 60 02 00 00 01", "edit box focus flag"),
         Point::keep(0x159ba20usize, "66 0f 6e 81 60 09 00 00 0f 5b c0 f3 0f 59 81 68 09 00 00", "font line height"),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_text_goes_one_character_at_a_time_in_the_game_encoding() {
+        assert_eq!(typed_chars("中a€"), [vec![0xe4, 0xb8, 0xad], vec![b'a'], vec![0x80]]);
+        assert_eq!(typed_char(b"\xe4\xb8\xad\0"), "中".as_bytes());
+        assert_eq!(typed_char(b"ab\0"), b"a");
+        assert_eq!(typed_char(b"\0"), b"\0");
+    }
+
+    #[test]
+    fn composition_keeps_everything_but_the_result() {
+        let flags = (GCS_COMPSTR | GCS_RESULTSTR | GCS_CURSORPOS) as isize;
+        assert_eq!(without_result(flags), (GCS_COMPSTR | GCS_CURSORPOS) as isize);
+    }
+
+    #[test]
+    fn the_caret_scales_to_window_pixels() {
+        assert_eq!(caret_pixels((224, 203), 16, (1.5, 1.5)), (336, 304, 24));
+        assert_eq!(caret_pixels((10, 10), 0, (1.0, 1.0)), (10, 10, 1));
+    }
 }

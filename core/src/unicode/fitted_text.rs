@@ -21,8 +21,8 @@
 //! width after it in `xmm8` (0x159f85b). A place where a line may break after
 //! a non-ASCII character (`breaks`) now counts as such a place too, and a line
 //! broken there skips nothing (0x159fba1).
-use super::breaks;
-use super::glyphs::{self, Glyph};
+use super::glyphs::Glyph;
+use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
 use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
@@ -53,83 +53,63 @@ static WRAP_LINE_STARTED_AT: AtomicUsize = AtomicUsize::new(0);
 static WRAP_BREAK_RESUME: [Resume; 1] = [Resume { rva: WRAP_BREAK_TESTED, address: &WRAP_BREAK_TESTED_AT }];
 static WRAP_LINE_RESUME: [Resume; 1] = [Resume { rva: WRAP_LINE_STARTED, address: &WRAP_LINE_STARTED_AT }];
 
+/// What a loop's lookup saw, for its step: between the two the loop's index
+/// stays on the character's first byte, where the game's own code cuts and
+/// breaks lines, and the step then moves past the rest of it. The step only
+/// skips what was looked up at that very place: the loops also step over
+/// formatting codes they read themselves, a byte at a time.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct LookedUp {
+    text: usize,
+    index: usize,
+    rest: usize,
+}
+
+impl LookedUp {
+    /// The bytes a step at `index` of `text` skips besides its own.
+    fn rest_at(self, text: usize, index: usize) -> usize {
+        if self.text == text && self.index == index {
+            self.rest
+        } else {
+            0
+        }
+    }
+}
+
 thread_local! {
-    /// The character the loop looked up last: its text, its offset and how
-    /// many bytes it has after the first.
-    static LOOKED_UP: Cell<(usize, usize, usize)> = const { Cell::new((0, 0, 0)) };
+    static LOOKED_UP: Cell<LookedUp> = const { Cell::new(LookedUp { text: 0, index: 0, rest: 0 }) };
 }
 
 /// The glyph for the character at `text[index]`, from the font whose own
 /// table is at `table`.
 extern "C" fn glyph(table: usize, text: *const u8, index: usize) -> *const Glyph {
     crate::guarded("fitted text glyph", || {
-        let (glyph, len) = unsafe { glyphs::char_at(table - 0x120, text.add(index)) };
-        LOOKED_UP.set((text as usize, index, len - 1));
+        let (glyph, len) = unsafe { text_loops::glyph_at(table - 0x120, text.add(index)) };
+        LOOKED_UP.set(LookedUp { text: text as usize, index, rest: len - 1 });
         glyph
     })
 }
 
-/// How many bytes the step skips besides its own: the rest of the character
-/// at `index` of `string` (a `std::string*`), if the loop looked it up.
-extern "C" fn rest(string: *const usize, index: u32) -> u32 {
+/// How many bytes the step at `index` of `string` (a `std::string*`) skips
+/// besides its own.
+extern "C" fn rest(string: *const u8, index: u32) -> u32 {
     crate::guarded("fitted text step", || {
-        // MSVC keeps up to 15 bytes inline; the capacity is at + 0x18.
-        let text = unsafe { if *string.add(3) >= 16 { *string } else { string as usize } };
-        match LOOKED_UP.replace((0, 0, 0)) {
-            (looked, at, rest) if looked == text && at == index as usize => rest as u32,
-            _ => 0,
-        }
+        let text = unsafe { game_text::std_string(string) }.as_ptr() as usize;
+        LOOKED_UP.replace(LookedUp::default()).rest_at(text, index as usize) as u32
     })
-}
-
-/// Saves the volatile registers but `rax` on a stack aligned for the call,
-/// calls `$call` with the arguments the lines in `$args` set up, and restores
-/// them; `rax` keeps the result.
-macro_rules! around_call {
-    ($($args:literal,)* call $call:ident) => {
-        concat!(
-            "push rbp\n",
-            "mov rbp, rsp\n",
-            "and rsp, -16\n",
-            "sub rsp, 0xb0\n",
-            "mov [rsp + 0x20], rcx\n",
-            "mov [rsp + 0x28], rdx\n",
-            "mov [rsp + 0x30], r8\n",
-            "mov [rsp + 0x38], r9\n",
-            "mov [rsp + 0x40], r10\n",
-            "mov [rsp + 0x48], r11\n",
-            "movdqa [rsp + 0x50], xmm0\n",
-            "movdqa [rsp + 0x60], xmm1\n",
-            "movdqa [rsp + 0x70], xmm2\n",
-            "movdqa [rsp + 0x80], xmm3\n",
-            "movdqa [rsp + 0x90], xmm4\n",
-            "movdqa [rsp + 0xa0], xmm5\n",
-            $($args, "\n",)*
-            "call {", stringify!($call), "}\n",
-            "mov rcx, [rsp + 0x20]\n",
-            "mov rdx, [rsp + 0x28]\n",
-            "mov r8, [rsp + 0x30]\n",
-            "mov r9, [rsp + 0x38]\n",
-            "mov r10, [rsp + 0x40]\n",
-            "mov r11, [rsp + 0x48]\n",
-            "movdqa xmm0, [rsp + 0x50]\n",
-            "movdqa xmm1, [rsp + 0x60]\n",
-            "movdqa xmm2, [rsp + 0x70]\n",
-            "movdqa xmm3, [rsp + 0x80]\n",
-            "movdqa xmm4, [rsp + 0x90]\n",
-            "movdqa xmm5, [rsp + 0xa0]\n",
-            "mov rsp, rbp\n",
-            "pop rbp\n",
-        )
-    };
 }
 
 /// Replaces `movzx eax, byte [rdx+rax]; mov r15, [r14+rax*8]`.
 #[unsafe(naked)]
 extern "C" fn fit_glyph_stub() {
     std::arch::naked_asm!(
-        around_call!("mov r8, rdx", "mov rdx, rax", "mov rcx, r14", call glyph),
-        "mov r15, rax",
+        call_rust!(
+            "mov r8, rdx",
+            "mov rdx, rax",
+            "mov rcx, r14",
+            call glyph,
+            "mov r15, [rsp + 0x48]",
+        ),
         "jmp qword ptr [rip + {found}]",
         glyph = sym glyph,
         found = sym FIT_FOUND_AT,
@@ -140,10 +120,12 @@ extern "C" fn fit_glyph_stub() {
 #[unsafe(naked)]
 extern "C" fn fit_step_stub() {
     std::arch::naked_asm!(
-        "push rax",
-        around_call!("mov rcx, rbx", "mov edx, edi", call rest),
-        "add edi, eax",
-        "pop rax",
+        call_rust!(
+            "mov rcx, rbx",
+            "mov edx, edi",
+            call rest,
+            "add edi, dword ptr [rsp + 0x48]",
+        ),
         "inc edi",
         "mov edx, edi",
         "mov r10d, dword ptr [rbx + 0x10]",
@@ -157,8 +139,13 @@ extern "C" fn fit_step_stub() {
 #[unsafe(naked)]
 extern "C" fn wrap_glyph_stub() {
     std::arch::naked_asm!(
-        around_call!("mov rcx, r8", "mov r8, rdx", "mov rdx, rax", call glyph),
-        "mov r12, rax",
+        call_rust!(
+            "mov rcx, r8",
+            "mov r8, rdx",
+            "mov rdx, rax",
+            call glyph,
+            "mov r12, [rsp + 0x48]",
+        ),
         "jmp qword ptr [rip + {found}]",
         glyph = sym glyph,
         found = sym WRAP_FOUND_AT,
@@ -169,10 +156,12 @@ extern "C" fn wrap_glyph_stub() {
 #[unsafe(naked)]
 extern "C" fn wrap_step_stub() {
     std::arch::naked_asm!(
-        "push rax",
-        around_call!("mov rcx, rdi", "mov edx, ebx", call rest),
-        "add ebx, eax",
-        "pop rax",
+        call_rust!(
+            "mov rcx, rdi",
+            "mov edx, ebx",
+            call rest,
+            "add ebx, dword ptr [rsp + 0x48]",
+        ),
         "inc ebx",
         "mov esi, ebx",
         "mov ecx, dword ptr [rdi + 0x10]",
@@ -190,9 +179,14 @@ extern "C" fn wrap_break_stub() {
     std::arch::naked_asm!(
         "cmp byte ptr [rax + rdx], 0x20",
         "je 3f",
-        around_call!("mov rcx, rax", "mov edx, dword ptr [rdi + 0x10]", "mov r8d, esi", call after),
-        "test al, al",
-        "jz 4f",
+        call_rust!(
+            "mov rcx, rax",
+            "mov edx, dword ptr [rdi + 0x10]",
+            "mov r8d, esi",
+            call after,
+            "cmp byte ptr [rsp + 0x48], 0",
+        ),
+        "je 4f",
         "3:",
         "xorps xmm8, xmm8",
         "mov r14d, esi",
@@ -257,4 +251,19 @@ pub fn points() -> Vec<Point> {
         Point::jump(WRAP_LINE_START, "45 8d 67 01 44 89 a5 28 01 00 00", "wrapped text next line start", wrap_line_stub as *const () as usize, &WRAP_LINE_RESUME),
         Point::keep(WRAP_LINE_STARTED, "45 8b f7", "wrapped text line started"),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LookedUp;
+
+    #[test]
+    fn a_step_skips_only_what_was_looked_up_there() {
+        let seen = LookedUp { text: 0x1000, index: 4, rest: 2 };
+        assert_eq!(seen.rest_at(0x1000, 4), 2);
+        // A formatting code the loop read itself, or another text.
+        assert_eq!(seen.rest_at(0x1000, 5), 0);
+        assert_eq!(seen.rest_at(0x2000, 4), 0);
+        assert_eq!(LookedUp::default().rest_at(0, 0), 0);
+    }
 }

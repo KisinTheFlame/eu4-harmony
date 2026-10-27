@@ -8,7 +8,7 @@
 //! The lookup takes a whole character and moves the index over it; after a
 //! non-ASCII character a line may break after, the width since the last
 //! "space" starts over too, so Chinese wraps between characters.
-use super::{breaks, glyphs};
+use super::{breaks, text_loops};
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;
 
@@ -23,37 +23,30 @@ static GLYPH_RESUME: [Resume; 1] = [Resume { rva: FOUND, address: &GLYPH_DONE }]
 static SPACE_RESUME: [Resume; 1] = [Resume { rva: NEXT_BYTE, address: &NEXT }];
 
 /// Replaces `movzx eax, byte [rdi+rax]; mov rcx, [r14+rax*8+0x120];
-/// test rcx, rcx`, keeping `r10` and `r11`.
+/// test rcx, rcx`: the text is at `rax`, the index in `edi`, which moves over
+/// the character's other bytes; the glyph goes to `rcx`.
 #[unsafe(naked)]
 extern "C" fn glyph_stub() {
     std::arch::naked_asm!(
-        "push rbp",
-        "mov rbp, rsp",
-        "and rsp, -16",
-        "sub rsp, 0x40",
-        "mov [rsp + 0x30], r10",
-        "mov [rsp + 0x38], r11",
-        "mov rcx, r14",
-        "lea rdx, [rax + rdi]",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov rcx, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "add edi, eax",
-        "mov r10, [rsp + 0x30]",
-        "mov r11, [rsp + 0x38]",
-        "mov rsp, rbp",
-        "pop rbp",
+        call_rust!(
+            "mov rcx, r14",
+            "lea rdx, [rax + rdi]",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov rcx, [rsp + 0x48]",
+            "add edi, dword ptr [rsp + 0x40]",
+            "dec edi",
+        ),
         "test rcx, rcx",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym GLYPH_DONE,
     );
 }
 
 /// Replaces `mov rax, rbx; cmp r11, 0x10; jb +3; mov rax, [rbx];
-/// cmp byte [rdi+rax], 0x20; jne +3; xorps xmm6, xmm6`, keeping `r11`.
+/// cmp byte [rdi+rax], 0x20; jne +3; xorps xmm6, xmm6`: a line may also
+/// break after the character ending at `rdi + 1`.
 #[unsafe(naked)]
 extern "C" fn space_stub() {
     std::arch::naked_asm!(
@@ -64,20 +57,14 @@ extern "C" fn space_stub() {
         "2:",
         "cmp byte ptr [rdi + rax], 0x20",
         "je 3f",
-        "push rbp",
-        "mov rbp, rsp",
-        "and rsp, -16",
-        "sub rsp, 0x30",
-        "mov [rsp + 0x20], r11",
-        "mov rcx, rax",
-        "mov edx, dword ptr [rbx + 0x10]",
-        "lea r8d, [rdi + 1]",
-        "call {after}",
-        "mov r11, [rsp + 0x20]",
-        "mov rsp, rbp",
-        "pop rbp",
-        "test al, al",
-        "jz 4f",
+        call_rust!(
+            "mov rcx, rax",
+            "mov edx, dword ptr [rbx + 0x10]",
+            "lea r8d, [rdi + 1]",
+            call after,
+            "cmp byte ptr [rsp + 0x48], 0",
+        ),
+        "je 4f",
         "3:",
         "xorps xmm6, xmm6",
         "4:",

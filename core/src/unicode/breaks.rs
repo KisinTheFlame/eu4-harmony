@@ -1,93 +1,70 @@
-//! Where text may wrap. The game wraps only after a glyph with no height (a
-//! space), so Chinese, which has no spaces, would never wrap. While the game
-//! lays out a text, its line break opportunities by the Unicode rules (ICU)
-//! are known here, and the layout loop asks after each character.
+//! Where text may wrap. The game's layout loops wrap only after a glyph with
+//! no height (a space), so Chinese, which has no spaces, would never wrap;
+//! they ask here after each character instead, and a line may also break
+//! wherever the Unicode rules (ICU) allow after a non-ASCII character.
 //!
-//! A layout is recognised from the loop itself: the character it is on
-//! belongs to another text than the last, or lies before the last one.
-use super::encoding;
+//! A loop asks once per character, so the breaks of the text it walks are
+//! kept between questions. They are worked out anew whenever the text is not
+//! the one they were worked out for: another address or length, or other
+//! bytes where the loop now is, that is the character asked about and the
+//! one after it, on which a break there depends (the game reuses buffers).
+use super::game_text;
 use crate::icu;
 use std::cell::RefCell;
 
+/// The breaks of the last text asked about.
 #[derive(Default)]
-struct Layout {
+struct Known {
     text: usize,
-    len: usize,
+    bytes: Vec<u8>,
     /// Byte offsets a line may break before, ascending.
     breaks: Vec<usize>,
-    /// The character the loop is on, as a byte range.
-    start: usize,
-    end: usize,
-    wide: bool,
+}
+
+impl Known {
+    /// The breaks of `text`, asked about at `text[start..end]`.
+    fn breaks(&mut self, text: &[u8], start: usize, end: usize) -> &[usize] {
+        let near = start..(end + 4).min(text.len());
+        let same = self.text == text.as_ptr() as usize && self.bytes.len() == text.len() && self.bytes.get(near.clone()) == text.get(near);
+        if !same {
+            *self = Known { text: text.as_ptr() as usize, bytes: text.to_vec(), breaks: opportunities(text) };
+        }
+        &self.breaks
+    }
 }
 
 thread_local! {
-    static CURRENT: RefCell<Layout> = RefCell::new(Layout::default());
+    static KNOWN: RefCell<Known> = RefCell::new(Known::default());
 }
 
+/// Where lines of `text` may break, by byte offset, ascending. The text is
+/// handed to ICU as UTF-8 and each break maps back to the game's bytes.
 fn opportunities(text: &[u8]) -> Vec<usize> {
-    // The game keeps every character Windows-1252 has as its single byte
-    // (`encoding`), so Chinese text holds lone bytes for `·`, `“` or `…`. ICU
-    // reads the text as UTF-8; each character's offset there maps back.
     let mut utf8 = String::with_capacity(text.len());
     let mut starts = Vec::with_capacity(text.len() + 1);
-    let mut at = 0;
-    while at < text.len() {
-        let (c, len) = encoding::char_at(&text[at..]);
-        starts.push((utf8.len(), at));
+    for (c, range) in game_text::chars(text) {
+        starts.push((utf8.len(), range.start));
         utf8.push(c);
-        at += len;
     }
     starts.push((utf8.len(), text.len()));
     let Some(breaks) = icu::load().ok().and_then(|icu| icu.line_breaks(&utf8).ok()) else { return Vec::new() };
     breaks.into_iter().filter_map(|b| starts.binary_search_by_key(&b.offset, |&(u, _)| u).ok().map(|i| starts[i].1)).collect()
 }
 
+/// Whether a line may break before `text[end]`, when the character before it
+/// is non-ASCII; ASCII keeps the game's own rule.
+pub fn after(text: &[u8], end: usize) -> bool {
+    match game_text::char_before(text, end) {
+        Some((c, start)) if !c.is_ascii() => KNOWN.with(|k| k.borrow_mut().breaks(text, start, end).binary_search(&end).is_ok()),
+        _ => false,
+    }
+}
+
 /// The last place a line of `text` may break at or before byte `end`, after
 /// its start; None when there is none.
 pub fn last_at_or_before(text: &[u8], end: usize) -> Option<usize> {
-    opportunities(text).into_iter().take_while(|&b| b <= end).filter(|&b| b > 0).last()
-}
-
-/// The layout loop is on the character at `text[start..end]`.
-pub fn at(text: &[u8], start: usize, end: usize) {
-    CURRENT.with(|c| {
-        let mut c = c.borrow_mut();
-        if c.text != text.as_ptr() as usize || c.len != text.len() || start < c.start {
-            *c = Layout { text: text.as_ptr() as usize, len: text.len(), breaks: opportunities(text), ..Layout::default() };
-        }
-        c.start = start;
-        c.end = end;
-        c.wide = text.get(start).is_some_and(|&b| b >= 0x80);
-    })
-}
-
-/// Whether the character the loop is on is a non-ASCII one after which a line
-/// may break. ASCII keeps the game's own rule.
-pub fn wide_break_after() -> bool {
-    CURRENT.with(|c| {
-        let c = c.borrow();
-        c.wide && c.breaks.binary_search(&c.end).is_ok()
-    })
-}
-
-/// Whether a line may break before `text[end]`, when the character before it
-/// is non-ASCII; ASCII keeps the game's own rule. For loops that know where a
-/// character ends rather than where it starts.
-pub fn after(text: &[u8], end: usize) -> bool {
-    if end == 0 || end > text.len() {
-        return false;
-    }
-    let mut start = end - 1;
-    while start > 0 && end - start < 4 && text[start] & 0xc0 == 0x80 {
-        start -= 1;
-    }
-    let (_, n) = super::scalar::decode(&text[start..]);
-    if start + n != end || text[start] < 0x80 {
-        return false;
-    }
-    at(text, start, end);
-    wide_break_after()
+    let end = end.min(text.len());
+    KNOWN.with(|k| k.borrow_mut().breaks(text, 0, end).iter().copied().take_while(|&b| b <= end).filter(|&b| b > 0).last())
 }
 
 /// [`after`] for a stub: the text and its length, and where the character ends.
@@ -101,17 +78,6 @@ mod tests {
 
     #[test]
     fn chinese_may_break_between_characters_but_not_before_a_comma() {
-        let text = "中文，测试".as_bytes();
-        at(text, 0, 3);
-        assert!(wide_break_after());
-        at(text, 3, 6);
-        assert!(!wide_break_after());
-        at(text, 6, 9);
-        assert!(wide_break_after());
-    }
-
-    #[test]
-    fn breaks_are_found_from_where_a_character_ends() {
         let text = "中文，测试 ok".as_bytes();
         assert!(after(text, 3));
         assert!(!after(text, 6));
@@ -124,9 +90,9 @@ mod tests {
     #[test]
     fn breaks_go_on_after_a_windows_1252_byte() {
         // The game keeps ·, “ and ” as single bytes.
-        let text = encoding::game_text("匈雅提·亚诺什“谨慎者”Yuanzhang。");
+        let text = game_text::from_str("匈雅提·亚诺什“谨慎者”Yuanzhang。");
         let end_of = |part: &str| {
-            let part = encoding::game_text(part);
+            let part = game_text::from_str(part);
             text.windows(part.len()).position(|w| w == part).unwrap() + part.len()
         };
         assert!(after(&text, end_of("亚")));
@@ -139,7 +105,7 @@ mod tests {
 
     #[test]
     fn a_line_cut_inside_a_latin_name_goes_back_to_its_start() {
-        let text = encoding::game_text("由于缺乏显著事迹，Yuanzhang被历史学家称为");
+        let text = game_text::from_str("由于缺乏显著事迹，Yuanzhang被历史学家称为");
         let name = text.windows(9).position(|w| w == b"Yuanzhang").unwrap();
         // Cut after "Yu": back to before "Y".
         assert_eq!(last_at_or_before(&text, name + 2), Some(name));
@@ -150,12 +116,13 @@ mod tests {
     }
 
     #[test]
-    fn ascii_keeps_the_game_rule_and_a_new_text_starts_over() {
-        let text = b"ab cd";
-        at(text, 2, 3);
-        assert!(!wide_break_after());
-        let other = "中文".as_bytes();
-        at(other, 0, 3);
-        assert!(wide_break_after());
+    fn another_text_in_the_same_buffer_gets_its_own_breaks() {
+        // Two texts of one length at one address, as when the game reuses a
+        // buffer: 中文 may break after 中, but 中， may not.
+        let mut buffer = "中文".as_bytes().to_vec();
+        buffer.extend_from_slice("文".as_bytes());
+        assert!(after(&buffer, 3));
+        buffer[3..9].copy_from_slice("，文".as_bytes());
+        assert!(!after(&buffer, 3));
     }
 }

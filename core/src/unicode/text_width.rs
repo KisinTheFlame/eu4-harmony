@@ -6,7 +6,7 @@
 //!
 //! The lookup takes a whole character and moves both indexes over it, leaving
 //! the lead byte in `edx` for the kerning call and the newline test after it.
-use super::glyphs;
+use super::text_loops;
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;
 
@@ -17,31 +17,31 @@ static DONE: AtomicUsize = AtomicUsize::new(0);
 static RESUME: [Resume; 1] = [Resume { rva: FOUND, address: &DONE }];
 
 /// Replaces `movzx edx, byte [rbx+rbp]; lea rcx, [r15+0x120];
-/// mov r11, [rcx+rdx*8]; test r11, r11`. No volatile register is live.
+/// mov r11, [rcx+rdx*8]; test r11, r11`: the text is at the game's `rbp`, the
+/// index in `rbx` and `edi`, which move over the character's other bytes;
+/// the glyph goes to `r11` and the character's first byte to `edx`.
 #[unsafe(naked)]
 extern "C" fn glyph_stub() {
     std::arch::naked_asm!(
-        "lea rax, [rbx + rbp]",
-        "push rbp",
-        "mov rbp, rsp",
-        "and rsp, -16",
-        "sub rsp, 0x30",
-        "mov rcx, r15",
-        "mov rdx, rax",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov r11, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "mov rsp, rbp",
-        "pop rbp",
-        "movzx edx, byte ptr [rbx + rbp]",
-        "add rbx, rax",
-        "add edi, eax",
+        call_rust!(
+            "mov rax, [rbp]",
+            "lea rdx, [rax + rbx]",
+            "mov rcx, r15",
+            "mov qword ptr [rsp + 0x40], 0",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov r11, [rsp + 0x48]",
+            "mov rdx, [rbp]",
+            "movzx edx, byte ptr [rbx + rdx]",
+            "add rbx, qword ptr [rsp + 0x40]",
+            "dec rbx",
+            "add edi, dword ptr [rsp + 0x40]",
+            "dec edi",
+        ),
         "lea rcx, [r15 + 0x120]",
         "test r11, r11",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym DONE,
     );
 }

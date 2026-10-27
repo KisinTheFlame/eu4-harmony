@@ -6,7 +6,7 @@
 //! replacement keeps UTF-8 sequences, which the game's file system (PhysFS)
 //! takes as they are, and turns the Windows-1252 bytes to ASCII as before, so
 //! a name without other characters gives the same file as it always did.
-use super::scalar;
+use super::game_text;
 use crate::points::Point;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -31,7 +31,7 @@ fn ascii(byte: u8, table: &[u8; 128]) -> u8 {
 pub fn transliterate(name: &mut [u8], table: &[u8; 128]) {
     let mut at = 0;
     while at < name.len() {
-        let len = scalar::decode(&name[at..]).1;
+        let len = game_text::len_at(name, at);
         if len == 1 && name[at] >= 0x80 {
             name[at] = ascii(name[at], table);
         }
@@ -41,11 +41,8 @@ pub fn transliterate(name: &mut [u8], table: &[u8; 128]) {
 
 unsafe extern "C" fn transliterate_string(string: *mut u8) {
     crate::guarded("save name", || {
-        let len = (string.add(0x10) as *const usize).read_unaligned();
-        let capacity = (string.add(0x18) as *const usize).read_unaligned();
-        let data = if capacity >= 16 { (string as *const *mut u8).read_unaligned() } else { string };
         let table = &*(TABLE_AT.load(Ordering::Acquire) as *const [u8; 128]);
-        transliterate(std::slice::from_raw_parts_mut(data, len), table);
+        transliterate(game_text::std_string_mut(string), table);
     })
 }
 

@@ -20,10 +20,10 @@
 //!   converted to and from the game's encoding on the way;
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
-use super::{breaks, encoding, scalar};
+use super::{breaks, game_text};
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const LINE_COL_TO_INDEX: usize = 0x153aa90;
@@ -90,22 +90,68 @@ static KEY_NEXT_AT: AtomicUsize = AtomicUsize::new(0);
 static KEY_HANDLED_AT: AtomicUsize = AtomicUsize::new(0);
 static KEY_RESUME: [Resume; 2] = [Resume { rva: KEY_NEXT, address: &KEY_NEXT_AT }, Resume { rva: KEY_HANDLED, address: &KEY_HANDLED_AT }];
 
-/// The bytes of an MSVC `std::string` (data or inline buffer, size +0x10,
-/// capacity +0x18).
-unsafe fn string_bytes<'a>(string: usize) -> &'a mut [u8] {
-    let len = *((string + 0x10) as *const usize);
-    let data = if *((string + 0x18) as *const usize) >= 16 { *(string as *const *mut u8) } else { string as *mut u8 };
-    std::slice::from_raw_parts_mut(data, len)
+// What the edit box operations do to the text, worked out without the game.
+
+/// The column Left moves to, from `column` on the line starting at byte
+/// `line_start`: the start of the character before the caret, or of the one
+/// the caret lies inside, or the end of the text when the caret lies past it.
+/// Backspace leaves the caret one byte into the character after the one it
+/// erased (or past the end of the text), so the Left it calls lands on the
+/// erased character's place.
+pub fn left_column_in(text: &[u8], line_start: usize, column: usize) -> usize {
+    let at = line_start + column;
+    if at > text.len() {
+        return text.len().saturating_sub(line_start);
+    }
+    column - game_text::previous_len(text, at).clamp(1, column.max(1))
 }
 
-/// A NUL-terminated string, read no further than `max` bytes.
-unsafe fn c_bytes<'a>(text: *const u8, max: usize) -> &'a [u8] {
-    let mut len = 0;
-    while len < max && *text.add(len) != 0 {
-        len += 1;
-    }
-    std::slice::from_raw_parts(text, len)
+/// The index Right moves to from `index`: past the character there.
+pub fn right_index_in(text: &[u8], index: usize) -> usize {
+    index + game_text::len_at(text, index).max(1)
 }
+
+/// Backspace at `index`: where the character before it starts and how many
+/// bytes it has.
+pub fn backspace_in(text: &[u8], index: usize) -> (usize, usize) {
+    let len = game_text::previous_len(text, index).max(1);
+    (index.saturating_sub(len), len)
+}
+
+/// Delete at `index`: how many bytes the character there has.
+pub fn delete_in(text: &[u8], index: usize) -> usize {
+    game_text::len_at(text, index).max(1)
+}
+
+/// How many bytes of `line` a multi-line box shows on one line, from the
+/// game's `count` of bytes that fit: never splitting a character, at least
+/// the first character, and, when the text goes on, ending where a line may
+/// break if there is such a place.
+pub fn fit_in(line: &[u8], count: i32) -> i32 {
+    match game_text::floor_boundary(line, count.max(0) as usize) {
+        0 if count > 0 && !line.is_empty() => game_text::len_at(line, 0) as i32,
+        end if end < line.len() => breaks::last_at_or_before(line, end).unwrap_or(end) as i32,
+        end => end as i32,
+    }
+}
+
+/// `text` without the characters `forbidden` has (read up to its NUL, as the
+/// game does), shifted down in place; returns the new length.
+pub fn remove_in(text: &mut [u8], forbidden: &[u8]) -> usize {
+    let forbidden = &forbidden[..forbidden.iter().position(|&b| b == 0).unwrap_or(forbidden.len())];
+    let forbidden: Vec<char> = game_text::chars(forbidden).map(|(c, _)| c).collect();
+    let mut write = 0;
+    for (c, range) in game_text::chars(&text.to_vec()) {
+        if !forbidden.contains(&c) {
+            let len = range.len();
+            text.copy_within(range, write);
+            write += len;
+        }
+    }
+    write
+}
+
+// The hooks, on the game's editor.
 
 fn memory() -> crate::memory::Memory {
     *crate::memory().expect("hooks run after startup")
@@ -113,13 +159,18 @@ fn memory() -> crate::memory::Memory {
 
 /// The editor's text.
 unsafe fn text<'a>(inner: usize) -> &'a [u8] {
-    string_bytes(inner + 0x30)
+    game_text::std_string((inner + 0x30) as *const u8)
 }
 
-/// The caret as a byte index into the text.
-fn caret_index(inner: usize) -> crate::Result<usize> {
+/// The caret's line and byte column.
+unsafe fn caret(inner: usize) -> (usize, usize) {
+    (*((inner + 0x56) as *const u16) as usize, *((inner + 0x54) as *const u16) as usize)
+}
+
+/// Where a line and column are in the text, as the editor counts (it never
+/// goes past the end of the text).
+fn index_of(inner: usize, line: usize, column: usize) -> crate::Result<usize> {
     let m = memory();
-    let (line, column) = (m.u16(inner + 0x56)? as usize, m.u16(inner + 0x54)? as usize);
     m.call(m.at(LINE_COL_TO_INDEX), &[inner, line, column]).map(|i| i as u32 as usize)
 }
 
@@ -131,54 +182,33 @@ fn erase(inner: usize, at: usize, count: usize) -> crate::Result<()> {
     Ok(())
 }
 
-thread_local! {
-    /// Backspace has erased a character's last byte and calls Left to step
-    /// back over that one byte.
-    static LEFT_ONE_BYTE: Cell<bool> = const { Cell::new(false) };
-}
-
 /// The column Left moves to from a column that is not 0.
 extern "C" fn left_column(inner: usize) -> u32 {
     crate::guarded("edit box left", || {
-        let column = unsafe { *((inner + 0x54) as *const u16) } as usize;
-        let back = match LEFT_ONE_BYTE.replace(false) {
-            true => 1,
-            false => caret_index(inner).map_or(1, |at| scalar::previous_len(unsafe { text(inner) }, at).max(1)),
-        };
-        column.saturating_sub(back) as u32
+        let (line, column) = unsafe { caret(inner) };
+        let line_start = index_of(inner, line, 0).unwrap_or_else(|e| crate::fatal(&format!("edit box left: {e}")));
+        left_column_in(unsafe { text(inner) }, line_start, column) as u32
     })
 }
 
 /// The index Right moves to from `index`.
 extern "C" fn right_index(inner: usize, index: u32) -> u32 {
-    crate::guarded("edit box right", || {
-        let text = unsafe { text(inner) };
-        let at = index as usize;
-        let step = if at < text.len() { scalar::decode(&text[at..]).1 } else { 1 };
-        index + step as u32
-    })
+    crate::guarded("edit box right", || right_index_in(unsafe { text(inner) }, index as usize) as u32)
 }
 
-/// Before Backspace erases the byte before `index`: erases the rest of the
-/// character that byte ends, moves the caret back by as many bytes, and
-/// returns where the game's own erase then goes.
+/// Before Backspace erases the byte before `index` and calls Left: erases
+/// the rest of the character that byte ends and moves the caret back by as
+/// many bytes. Returns where the game's own erase then goes.
 extern "C" fn backspace_prepare(inner: usize, index: u32) -> u32 {
     crate::guarded("edit box backspace", || {
-        let at = index as usize;
-        let len = scalar::previous_len(unsafe { text(inner) }, at).max(1);
-        let start = at.saturating_sub(len);
-        let column = unsafe { &mut *((inner + 0x54) as *mut u16) };
+        let (start, len) = backspace_in(unsafe { text(inner) }, index as usize);
         if len > 1 {
             if let Err(e) = erase(inner, start, len - 1) {
                 crate::fatal(&format!("edit box backspace: {e}"));
             }
+            let column = unsafe { &mut *((inner + 0x54) as *mut u16) };
             *column = column.saturating_sub(len as u16 - 1);
         }
-        // Left, which the game calls next, then steps back over the last
-        // byte and lands on `start`; it reads the text that is left, so it
-        // must not measure a character there. At a line's start it goes to
-        // the line before instead, without asking.
-        LEFT_ONE_BYTE.set(*column > 0);
         start as u32
     })
 }
@@ -187,11 +217,9 @@ extern "C" fn backspace_prepare(inner: usize, index: u32) -> u32 {
 /// character it starts. Returns `index`.
 extern "C" fn delete_prepare(inner: usize, index: u32) -> u32 {
     crate::guarded("edit box delete", || {
-        let text = unsafe { text(inner) };
-        let at = index as usize;
-        let len = if at < text.len() { scalar::decode(&text[at..]).1 } else { 1 };
+        let len = delete_in(unsafe { text(inner) }, index as usize);
         if len > 1 {
-            if let Err(e) = erase(inner, at + 1, len - 1) {
+            if let Err(e) = erase(inner, index as usize + 1, len - 1) {
                 crate::fatal(&format!("edit box delete: {e}"));
             }
         }
@@ -201,8 +229,8 @@ extern "C" fn delete_prepare(inner: usize, index: u32) -> u32 {
 
 /// A click's byte column in a line (`std::string*`), moved back to the start
 /// of the character it falls in.
-extern "C" fn line_column(line: usize, column: u32) -> u32 {
-    crate::guarded("edit box click", || scalar::floor_boundary(unsafe { string_bytes(line) }, column as usize) as u32)
+extern "C" fn line_column(line: *const u8, column: u32) -> u32 {
+    crate::guarded("edit box click", || game_text::floor_boundary(unsafe { game_text::std_string(line) }, column as usize) as u32)
 }
 
 /// Up and Down kept the byte column; the caret goes back to the start of the
@@ -211,8 +239,9 @@ extern "C" fn snap_caret(frame: *mut HookFrame) {
     crate::guarded("edit box caret", || {
         let inner = unsafe { (*frame).args[0] };
         let result = (|| -> crate::Result<()> {
-            let at = caret_index(inner)?;
-            let start = scalar::floor_boundary(unsafe { text(inner) }, at);
+            let (line, column) = unsafe { caret(inner) };
+            let at = index_of(inner, line, column)?;
+            let start = game_text::floor_boundary(unsafe { text(inner) }, at);
             if start != at {
                 let m = memory();
                 m.call(m.at(SET_CARET), &[inner, start])?;
@@ -228,74 +257,50 @@ extern "C" fn snap_caret(frame: *mut HookFrame) {
 }
 
 /// How many bytes of a `std::string` to keep when it is cut to `count`.
-extern "C" fn cut(string: usize, count: u32) -> u32 {
-    crate::guarded("edit box cut", || scalar::floor_boundary(unsafe { string_bytes(string) }, count as usize) as u32)
+extern "C" fn cut(string: *const u8, count: u32) -> u32 {
+    crate::guarded("edit box cut", || game_text::floor_boundary(unsafe { game_text::std_string(string) }, count as usize) as u32)
 }
 
 type Fit = unsafe extern "C" fn(usize, usize) -> i32;
 
-/// The bytes of a line (`std::string*`) that fit a multi-line box's width,
-/// ending before a character the game's count would split. At least the
-/// first character, so a line always moves on.
-///
-/// When the text goes on past them, they end where a line may break (by the
-/// Unicode rules, `breaks`), if there is such a place: the caller (0x1537480)
-/// breaks a line at the last space before them, and with no space, as in
-/// Chinese, right at them, which cut Latin names in two (the country history
-/// window lays its text out in such a box).
+/// The bytes of a line (`std::string*`) that fit a multi-line box's width
+/// ([`fit_in`]). The caller (0x1537480) breaks a line at the last space before
+/// them, and with no space, as in Chinese, right at them, which cut Latin
+/// names in two (the country history window lays its text out in such a box).
 unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
     let original: Fit = std::mem::transmute(ORIGINAL_FIT.load(Ordering::Acquire));
     let count = original(inner, line);
-    crate::guarded("edit box line fit", || {
-        let text = string_bytes(line);
-        let end = scalar::floor_boundary(text, count.max(0) as usize);
-        match end {
-            0 if count > 0 && !text.is_empty() => scalar::decode(text).1 as i32,
-            end if end < text.len() => breaks::last_at_or_before(text, end).unwrap_or(end) as i32,
-            end => end as i32,
-        }
-    })
+    crate::guarded("edit box line fit", || fit_in(game_text::std_string(line as *const u8), count))
 }
 
 /// Removes from `text` (`std::string*`) every character found in `chars`
-/// (`std::string*`, read up to its NUL as the game does). Returns whether
-/// the text got shorter.
-unsafe extern "C" fn remove_chars(text: usize, chars: usize) -> u8 {
+/// (`std::string*`). Returns whether the text got shorter.
+unsafe extern "C" fn remove_chars(text: *mut u8, chars: *const u8) -> u8 {
     crate::guarded("edit box filter", || {
-        let forbidden: Vec<u32> = {
-            let bytes = string_bytes(chars);
-            let bytes = &bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())];
-            let mut out = Vec::new();
-            let mut at = 0;
-            while at < bytes.len() {
-                let (c, len) = scalar::decode(&bytes[at..]);
-                out.push(c);
-                at += len;
-            }
-            out
-        };
-        let bytes = string_bytes(text);
-        let (mut read, mut write) = (0, 0);
-        while read < bytes.len() {
-            let (c, len) = scalar::decode(&bytes[read..]);
-            if !forbidden.contains(&c) {
-                bytes.copy_within(read..read + len, write);
-                write += len;
-            }
-            read += len;
-        }
-        let shorter = write < bytes.len();
+        let bytes = game_text::std_string_mut(text);
+        let len = remove_in(bytes, game_text::std_string(chars));
+        let shorter = len < bytes.len();
         if shorter {
             // The terminator lives one past the size, inside the capacity.
-            *bytes.as_mut_ptr().add(write) = 0;
-            *((text + 0x10) as *mut usize) = write;
+            *bytes.as_mut_ptr().add(len) = 0;
+            *(text.add(0x10) as *mut usize) = len;
         }
         shorter as u8
     })
 }
 
+/// A NUL-terminated string, read no further than `max` bytes.
+unsafe fn c_bytes<'a>(text: *const u8, max: usize) -> &'a [u8] {
+    let mut len = 0;
+    while len < max && *text.add(len) != 0 {
+        len += 1;
+    }
+    std::slice::from_raw_parts(text, len)
+}
+
 thread_local! {
-    /// The pasted text, until the next paste; the game copies it at once.
+    /// The pasted text, until the next paste: [`paste_text`] returns a
+    /// pointer into it, and the game copies the text at once.
     static PASTE: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -309,7 +314,7 @@ extern "C" fn paste_text() -> *const u8 {
         let get: GetText = std::mem::transmute(GET_CLIPBOARD.load(Ordering::Acquire));
         let free: Free = std::mem::transmute(SDL_FREE.load(Ordering::Acquire));
         let utf8 = get();
-        let mut converted = if utf8.is_null() { Vec::new() } else { encoding::game_text(&String::from_utf8_lossy(c_bytes(utf8, 1 << 20))) };
+        let mut converted = if utf8.is_null() { Vec::new() } else { game_text::from_str(&String::from_utf8_lossy(c_bytes(utf8, 1 << 20))) };
         if !utf8.is_null() {
             free(utf8);
         }
@@ -325,17 +330,10 @@ extern "C" fn paste_text() -> *const u8 {
 extern "C" fn copy_text(text: *const u8) -> i32 {
     crate::guarded("edit box copy", || unsafe {
         let set: SetText = std::mem::transmute(SET_CLIPBOARD.load(Ordering::Acquire));
-        let mut utf8 = encoding::to_utf8(c_bytes(text, 1 << 20)).into_bytes();
+        let mut utf8 = game_text::to_utf8(c_bytes(text, 1 << 20)).into_bytes();
         utf8.push(0);
         set(utf8.as_ptr())
     })
-}
-
-/// Saves the volatile registers a stub needs back around a call to Rust.
-macro_rules! call_rust {
-    ($($body:expr),* $(,)?) => {
-        concat!("push rbp\n", "mov rbp, rsp\n", "and rsp, -16\n", "sub rsp, 0x20\n", $($body, "\n",)* "mov rsp, rbp\n", "pop rbp\n")
-    };
 }
 
 /// Replaces `movzx eax, word [rcx+0x54]; mov rdi, rcx; test ax, ax; je;
@@ -349,7 +347,11 @@ extern "C" fn left_stub() {
         "jnz 2f",
         "jmp qword ptr [rip + {line_start}]",
         "2:",
-        call_rust!("mov rcx, rdi", "call {column}"),
+        call_rust!(
+            "mov rcx, rdi",
+            call column,
+            "mov eax, dword ptr [rsp + 0x48]",
+        ),
         "mov word ptr [rdi + 0x54], ax",
         "jmp qword ptr [rip + {done}]",
         line_start = sym LEFT_AT_LINE_START,
@@ -396,8 +398,12 @@ extern "C" fn shift_arrow_stub() {
 #[unsafe(naked)]
 extern "C" fn right_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, rdi", "mov edx, eax", "call {index}"),
-        "mov edx, eax",
+        call_rust!(
+            "mov rcx, rdi",
+            "mov edx, eax",
+            call index,
+            "mov edx, dword ptr [rsp + 0x48]",
+        ),
         "mov rcx, rdi",
         "jmp qword ptr [rip + {done}]",
         index = sym right_index,
@@ -409,8 +415,12 @@ extern "C" fn right_stub() {
 #[unsafe(naked)]
 extern "C" fn backspace_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, rdi", "mov edx, eax", "call {prepare}"),
-        "mov edx, eax",
+        call_rust!(
+            "mov rcx, rdi",
+            "mov edx, eax",
+            call prepare,
+            "mov edx, dword ptr [rsp + 0x48]",
+        ),
         "mov rcx, rdi",
         "jmp qword ptr [rip + {done}]",
         prepare = sym backspace_prepare,
@@ -422,8 +432,12 @@ extern "C" fn backspace_stub() {
 #[unsafe(naked)]
 extern "C" fn delete_stub() {
     std::arch::naked_asm!(
-        call_rust!("mov rcx, rbx", "mov edx, eax", "call {prepare}"),
-        "mov edx, eax",
+        call_rust!(
+            "mov rcx, rbx",
+            "mov edx, eax",
+            call prepare,
+            "mov edx, dword ptr [rsp + 0x48]",
+        ),
         "mov rcx, rbx",
         "jmp qword ptr [rip + {done}]",
         prepare = sym delete_prepare,
@@ -436,10 +450,12 @@ extern "C" fn delete_stub() {
 #[unsafe(naked)]
 extern "C" fn click_stub() {
     std::arch::naked_asm!(
-        "push rax",
-        call_rust!("mov rcx, rdi", "mov edx, esi", "call {column}"),
-        "mov esi, eax",
-        "pop rax",
+        call_rust!(
+            "mov rcx, rdi",
+            "mov edx, esi",
+            call column,
+            "mov esi, dword ptr [rsp + 0x48]",
+        ),
         "mov word ptr [r15 + 0x56], ax",
         "mov word ptr [r15 + 0x54], si",
         "jmp qword ptr [rip + {done}]",
@@ -457,9 +473,13 @@ macro_rules! cut_stub {
             std::arch::naked_asm!(
                 "cmp edx, ecx",
                 "cmovle ecx, edx",
-                call_rust!("mov edx, ecx", concat!("mov rcx, ", $text), "call {cut}"),
-                "mov ecx, eax",
-                "mov r8d, eax",
+                call_rust!(
+                    "mov edx, ecx",
+                    $text,
+                    call cut,
+                    "mov ecx, dword ptr [rsp + 0x48]",
+                ),
+                "mov r8d, ecx",
                 "jmp qword ptr [rip + {done}]",
                 cut = sym cut,
                 done = sym $done,
@@ -467,20 +487,31 @@ macro_rules! cut_stub {
         }
     };
 }
-cut_stub!(insert_cut_stub, "rdi", INSERT_DONE);
-cut_stub!(append_cut_stub, "rbx", APPEND_DONE);
-cut_stub!(prepend_cut_stub, "rbx", PREPEND_DONE);
+cut_stub!(insert_cut_stub, "mov rcx, rdi", INSERT_DONE);
+cut_stub!(append_cut_stub, "mov rcx, rbx", APPEND_DONE);
+cut_stub!(prepend_cut_stub, "mov rcx, rbx", PREPEND_DONE);
 
-/// Replaces `call SDL_GetClipboardText`.
+/// Replaces `call SDL_GetClipboardText`: the text goes to `rax`.
 #[unsafe(naked)]
 extern "C" fn paste_stub() {
-    std::arch::naked_asm!(call_rust!("call {text}"), "jmp qword ptr [rip + {done}]", text = sym paste_text, done = sym PASTED);
+    std::arch::naked_asm!(
+        call_rust!(call text, "mov rax, [rsp + 0x48]"),
+        "jmp qword ptr [rip + {done}]",
+        text = sym paste_text,
+        done = sym PASTED,
+    );
 }
 
-/// Replaces `call SDL_SetClipboardText` (text in `rcx`).
+/// Replaces `call SDL_SetClipboardText` (text in `rcx`); the result goes to
+/// `rax`.
 #[unsafe(naked)]
 extern "C" fn copy_stub() {
-    std::arch::naked_asm!(call_rust!("call {copy}"), "jmp qword ptr [rip + {done}]", copy = sym copy_text, done = sym COPIED);
+    std::arch::naked_asm!(
+        call_rust!(call copy, "mov rax, [rsp + 0x48]"),
+        "jmp qword ptr [rip + {done}]",
+        copy = sym copy_text,
+        done = sym COPIED,
+    );
 }
 
 pub fn points() -> Vec<Point> {
@@ -531,4 +562,71 @@ pub fn points() -> Vec<Point> {
         Point::keep(c"SDL_SetClipboardText", "48 ff 25 21 aa 87 00", "SDL clipboard write").recorded(&SET_CLIPBOARD),
         Point::keep(c"SDL_free", "48 ff 25 99 ac 87 00", "SDL free").recorded(&SDL_FREE),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the game's Backspace does with the hooks: erase all but the last
+    /// byte of the character before the caret and move the caret back by as
+    /// many, erase that byte, then call Left.
+    fn backspace(text: &mut Vec<u8>, column: &mut usize) {
+        let (start, len) = backspace_in(text, *column);
+        text.drain(start..start + len - 1);
+        *column -= len - 1;
+        text.remove(start);
+        *column = left_column_in(text, 0, *column);
+    }
+
+    #[test]
+    fn backspace_erases_whole_characters_at_the_end_and_in_the_middle() {
+        // "朝鲜" with two Backspaces left "œ" (the 0x9C of 朝) when Left
+        // measured the character before a caret past the end of the text.
+        let mut text = "朝鲜".as_bytes().to_vec();
+        let mut column = text.len();
+        backspace(&mut text, &mut column);
+        assert_eq!((text.as_slice(), column), ("朝".as_bytes(), 3));
+        backspace(&mut text, &mut column);
+        assert_eq!((text.as_slice(), column), (&b""[..], 0));
+        // In the middle, before a Chinese and before a Latin character.
+        for (before, after) in [("朝鲜中", "朝中"), ("朝鲜abc", "朝abc")] {
+            let mut text = before.as_bytes().to_vec();
+            let mut column = "朝鲜".len();
+            backspace(&mut text, &mut column);
+            assert_eq!((text.as_slice(), column), (after.as_bytes(), 3));
+        }
+    }
+
+    #[test]
+    fn left_and_right_step_over_whole_characters() {
+        let text = "朝a鲜".as_bytes();
+        assert_eq!(left_column_in(text, 0, 7), 4);
+        assert_eq!(left_column_in(text, 0, 4), 3);
+        assert_eq!(left_column_in(text, 0, 3), 0);
+        // On a later line, past the end of the text.
+        assert_eq!(left_column_in(text, 3, 9), 4);
+        assert_eq!([0, 3, 4, 7].map(|at| right_index_in(text, at)), [3, 4, 7, 8]);
+        assert_eq!(delete_in(text, 0), 3);
+        assert_eq!(delete_in(text, 3), 1);
+    }
+
+    #[test]
+    fn a_line_fits_whole_characters_and_breaks_where_it_may() {
+        let line = game_text::from_str("由于Yuanzhang被");
+        // The game's count cuts inside 由: at least that character.
+        assert_eq!(fit_in(&line, 1), 3);
+        // Inside "Yuanzhang": back to before it.
+        assert_eq!(fit_in(&line, 8), 6);
+        // All of it fits.
+        assert_eq!(fit_in(&line, line.len() as i32), line.len() as i32);
+    }
+
+    #[test]
+    fn forbidden_characters_go_whole_and_continuation_bytes_stay() {
+        // 称 is E7 A7 B0: its A7 is not the forbidden § (also A7).
+        let mut text = game_text::from_str("§Y称号{x}");
+        let len = remove_in(&mut text, &game_text::from_str("§{}\0ignored"));
+        assert_eq!(&text[..len], game_text::from_str("Y称号x").as_slice());
+    }
 }

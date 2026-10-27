@@ -60,8 +60,11 @@ extern "C" fn store(font: usize, id: u32, x: i32, y: i32, width: i32, height: i3
     })
 }
 
-/// Replaces `cmp edi, 0xff; ja BAD_ID`. Volatile registers are dead here: the
-/// game has just returned from parsing the last field.
+/// Replaces `cmp edi, 0xff; ja BAD_ID`: an id above 0xFF goes to the glyph
+/// table with the fields the loader has parsed (x `r14d`, y `r15d`, width
+/// `r12d`, height `esi`, x offset `r13d`, y offset the game frame's
+/// `[rbp+0x1148]`, advance the game's `[rsp+0x40]`; the font at
+/// `[rbp+0x1130]`).
 #[unsafe(naked)]
 extern "C" fn id_check() {
     std::arch::naked_asm!(
@@ -69,21 +72,21 @@ extern "C" fn id_check() {
         "jbe 2f",
         "cmp edi, 0x10ffff",
         "ja 3f",
-        // rsp is 16-byte aligned in the loader's body; 0x60 keeps it so.
-        "sub rsp, 0x60",
-        "mov rcx, qword ptr [rbp + 0x1130]",
-        "mov edx, edi",
-        "mov r8d, r14d",
-        "mov r9d, r15d",
-        "mov dword ptr [rsp + 0x20], r12d",
-        "mov dword ptr [rsp + 0x28], esi",
-        "mov dword ptr [rsp + 0x30], r13d",
-        "mov eax, dword ptr [rbp + 0x1148]",
-        "mov dword ptr [rsp + 0x38], eax",
-        "mov eax, dword ptr [rsp + 0xa0]",
-        "mov dword ptr [rsp + 0x40], eax",
-        "call {store}",
-        "add rsp, 0x60",
+        call_rust!(
+            "mov rax, [rbp]",
+            "mov rcx, qword ptr [rax + 0x1130]",
+            "mov edx, edi",
+            "mov r8d, r14d",
+            "mov r9d, r15d",
+            "mov dword ptr [rsp + 0x20], r12d",
+            "mov dword ptr [rsp + 0x28], esi",
+            "mov dword ptr [rsp + 0x30], r13d",
+            "mov r10d, dword ptr [rax + 0x1148]",
+            "mov dword ptr [rsp + 0x38], r10d",
+            "mov r10d, dword ptr [rbp + 8 + 0x40]",
+            "mov dword ptr [rsp + 0x40], r10d",
+            call store,
+        ),
         "jmp qword ptr [rip + {done}]",
         "2:",
         "jmp qword ptr [rip + {small}]",

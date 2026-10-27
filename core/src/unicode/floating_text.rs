@@ -11,7 +11,7 @@
 //! Both lookups take a whole character and move the index over it (the layout
 //! pass also appends the rest of its bytes to the word); the word also ends
 //! after a non-ASCII character a line may break after.
-use super::{breaks, glyphs};
+use super::{breaks, text_loops};
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;
 
@@ -32,47 +32,50 @@ static WORD_RESUME: [Resume; 2] = [Resume { rva: WORD_END, address: &END }, Resu
 static DRAW_RESUME: [Resume; 1] = [Resume { rva: DRAW_FOUND, address: &DRAW_DONE }];
 
 /// Replaces `movzx eax, byte [rdi+rax]; mov r12, [r15+rax*8+0x120];
-/// test r12, r12`. No volatile register is live; rsp is 16-byte aligned.
+/// test r12, r12`: the text is at `rax`, the index in `edi`, which moves over
+/// the character's other bytes; the word is at the game's `rbp+0x128`; the
+/// glyph goes to `r12`.
 #[unsafe(naked)]
 extern "C" fn layout_stub() {
     std::arch::naked_asm!(
-        "sub rsp, 0x30",
-        "mov rcx, r15",
-        "lea rdx, [rax + rdi]",
-        "lea r8, [rbp + 0x128]",
-        "lea r9, [rsp + 0x28]",
-        "call {glyph}",
-        "mov r12, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "add edi, eax",
-        "add rsp, 0x30",
+        call_rust!(
+            "lea rdx, [rax + rdi]",
+            "mov rax, [rbp]",
+            "lea r8, [rax + 0x128]",
+            "lea r9, [rsp + 0x40]",
+            "mov rcx, r15",
+            call glyph,
+            "mov r12, [rsp + 0x48]",
+            "add edi, dword ptr [rsp + 0x40]",
+            "dec edi",
+        ),
         "test r12, r12",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::layout_char,
+        glyph = sym text_loops::layout_char,
         done = sym LAYOUT_DONE,
     );
 }
 
 /// Replaces `cmp word [r12+6], 0; jne NEXT_BYTE`: the word also ends after a
-/// character a line may break after. The text is the `std::string` at `rsi`.
+/// character a line may break after. The text is the `std::string` at `rsi`;
+/// the character ends at `rdi + 1`.
 #[unsafe(naked)]
 extern "C" fn word_stub() {
     std::arch::naked_asm!(
         "cmp word ptr [r12 + 6], 0",
         "je 3f",
-        "sub rsp, 0x20",
-        "mov rcx, rsi",
-        "cmp qword ptr [rsi + 0x18], 0x10",
-        "jb 2f",
-        "mov rcx, qword ptr [rsi]",
-        "2:",
-        "mov edx, dword ptr [rsi + 0x10]",
-        "lea r8d, [rdi + 1]",
-        "call {after}",
-        "add rsp, 0x20",
-        "test al, al",
-        "jnz 3f",
+        call_rust!(
+            "mov rcx, rsi",
+            "cmp qword ptr [rsi + 0x18], 0x10",
+            "jb 2f",
+            "mov rcx, qword ptr [rsi]",
+            "2:",
+            "mov edx, dword ptr [rsi + 0x10]",
+            "lea r8d, [rdi + 1]",
+            call after,
+            "cmp byte ptr [rsp + 0x48], 0",
+        ),
+        "jne 3f",
         "jmp qword ptr [rip + {next}]",
         "3:",
         "jmp qword ptr [rip + {end}]",
@@ -83,27 +86,23 @@ extern "C" fn word_stub() {
 }
 
 /// Replaces `movzx eax, byte [rsi+rax]; mov r13, [r15+rax*8+0x120];
-/// test r13, r13`, keeping `r8` and `r9`.
+/// test r13, r13`: the text is at `rax`, the index in `esi`, which moves over
+/// the character's other bytes; the glyph goes to `r13`.
 #[unsafe(naked)]
 extern "C" fn draw_stub() {
     std::arch::naked_asm!(
-        "sub rsp, 0x40",
-        "mov [rsp + 0x30], r8",
-        "mov [rsp + 0x38], r9",
-        "mov rcx, r15",
-        "lea rdx, [rax + rsi]",
-        "lea r8, [rsp + 0x28]",
-        "call {glyph}",
-        "mov r13, rax",
-        "mov eax, dword ptr [rsp + 0x28]",
-        "dec eax",
-        "add esi, eax",
-        "mov r8, [rsp + 0x30]",
-        "mov r9, [rsp + 0x38]",
-        "add rsp, 0x40",
+        call_rust!(
+            "lea rdx, [rax + rsi]",
+            "mov rcx, r15",
+            "lea r8, [rsp + 0x40]",
+            call glyph,
+            "mov r13, [rsp + 0x48]",
+            "add esi, dword ptr [rsp + 0x40]",
+            "dec esi",
+        ),
         "test r13, r13",
         "jmp qword ptr [rip + {done}]",
-        glyph = sym glyphs::char_glyph,
+        glyph = sym text_loops::char_glyph,
         done = sym DRAW_DONE,
     );
 }
