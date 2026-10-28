@@ -14,7 +14,13 @@ use std::sync::{LazyLock, OnceLock};
 
 static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
     let mut catalog = Catalog::default();
-    for source in [include_str!("../localisation/eu4harmony_l_english.yml"), include_str!("../localisation/eu4harmony_l_simp_chinese.yml")] {
+    for source in [
+        include_str!("../localisation/eu4harmony_l_english.yml"),
+        include_str!("../localisation/eu4harmony_l_french.yml"),
+        include_str!("../localisation/eu4harmony_l_german.yml"),
+        include_str!("../localisation/eu4harmony_l_spanish.yml"),
+        include_str!("../localisation/eu4harmony_l_simp_chinese.yml"),
+    ] {
         catalog.add(format::parse(source).expect("the framework's localisation parses"));
     }
     catalog
@@ -74,14 +80,21 @@ pub fn install(mods: &[&DiscoveredMod], plan: &mut Plan) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     #[test]
-    fn framework_texts_exist_in_both_languages() {
-        for language in [Language::English, Language::SimpChinese] {
+    fn framework_texts_exist_in_every_language() {
+        // The `$NAME$` values a text fills in, and its line breaks.
+        let shape = |text: &str| (text.split('$').skip(1).step_by(2).map(str::to_string).collect::<BTreeSet<_>>(), text.matches("\\n").count());
+        for language in Language::ALL {
+            assert_eq!(FRAMEWORK.keys_in(language), FRAMEWORK.keys_in(Language::English), "{language:?}");
+            for key in FRAMEWORK.keys_in(language) {
+                let (text, english) = (FRAMEWORK.raw(language, key).unwrap(), FRAMEWORK.raw(Language::English, key).unwrap());
+                assert_eq!(shape(text), shape(english), "{language:?} {key}");
+            }
             let text = framework(language, "EU4HARMONY_NOTICE_TITLE_MORE", &[("COUNT", "2")]);
             assert!(text.contains('2') && !text.contains("$COUNT$"), "{text}");
         }
-        assert_eq!(FRAMEWORK.keys_in(Language::English), FRAMEWORK.keys_in(Language::SimpChinese));
         assert!(framework(Language::English, "EU4HARMONY_NOT_LOADED", &[("MOD", "X"), ("DETAIL", "d")]).contains("\"X\" was not loaded:\nd"));
     }
 
