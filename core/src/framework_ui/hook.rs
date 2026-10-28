@@ -1,5 +1,5 @@
 //! Where the framework UI meets the game's frame. The game reaches Direct3D 9
-//! through a renderer object (`+8` the device, `+0x10` the back buffer) and
+//! through a renderer object (its device at [`DEVICE`]) and
 //! wrappers; every frame ends in the Present wrapper at 0x16d4db0 (renderer),
 //! after the game's own EndScene. The framework draws its UI just before, in
 //! a scene of its own when there is anything to draw. Before a device reset
@@ -15,6 +15,7 @@
 //! hangs. So the framework draws only in frames the main thread presents: the
 //! main menu and the game.
 use crate::hooks::HookFrame;
+use crate::objects::text::renderer::DEVICE;
 use crate::points::Point;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,7 +29,11 @@ type Present = unsafe extern "C" fn(usize) -> u8;
 
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
-        crate::guarded("framework UI frame", || super::frame(*((renderer + 8) as *const *mut c_void)));
+        crate::guarded("framework UI frame", || {
+            if let Some(device) = crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()) {
+                super::frame(device as *mut c_void)
+            }
+        });
         crate::unicode::costs::log_when_due();
     }
     let original: Present = std::mem::transmute(ORIGINAL_PRESENT.load(Ordering::Acquire));
