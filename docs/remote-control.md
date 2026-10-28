@@ -200,6 +200,17 @@ One read of a province: its name (as game text, see GLOSSARY), development (tax,
 
 Done when: in the game, several provinces read correctly against what the game shows, a Chinese name included.
 
+Built (2026-10-29). C3 added one capability to the `provinces` group, `game::provinces::province` (`Snapshot`), seen by remote control as `province.get` and by extensions as `Game::province` (findings in [research/provinces.md](research/provinces.md)):
+
+| Capability | Arguments | Result | Needs a game |
+| --- | --- | --- | --- |
+| `province.get` | `province` | `id`; `name`, as the game shows it; `owner`, `controller` (null when none); `development`: `tax`, `production`, `manpower` (numbers, as the game's own getters give them); `terrain`, its key (`farmlands`); `fort`: `level` (what defends it now, 0 for none), `mothballed`; `buildings`, their keys (`fort_15th`, `marketplace`); `recruit`: for each kind in the order below, `kind`, `unit_type` (the key of the player's unit type of that kind, null when none), `allowed`, `reasons`; `not_found` for a number that names no province | yes |
+
+- **The name** is game text (GLOSSARY) in the game: the snapshot reads it as Unicode with `unicode::game_text::to_utf8`, the Unicode module's own reading, so JSON carries the real characters (a name mixing a Windows-1252 `·` with Chinese is a unit test). With the Chinese language mod in the playset the names are its Chinese ones (the Unicode module decodes its legacy escapes as the localisation is read); the player language plays no part in them.
+- **What can be recruited there** is the player's, now: for each kind the game asks the check its recruit command makes (`0x346570`, then `0xa1fe50`), with money, manpower and sailors counted. `reasons` are the game's own, in the game's language, one a line, with colors left out and an icon written as its name (`game_text::plain`: "没有足够的£icon_manpower£。" reads "没有足够的manpower。"); empty when allowed, and empty too where the game refuses without a reason (a ship in a province without a port). Special regiments (janissaries and the like) and mercenaries are not in it.
+- **For C6**: a kind is named in JSON as `infantry`, `cavalry`, `artillery`, `heavy_ship`, `light_ship`, `galley` or `transport` (`eu4_harmony_remote::provinces::UnitKind`, serde names; `remote::provinces::layer_kind` turns it into the layer's `game::provinces::UnitKind`, whose `index` is the game's own). In the layer, `game::provinces::unit_type(m, country, kind)` finds the unit type the player recruits of a kind (None when there is none), and `can_recruit(m, ctx, province, unit_type)` answers what the recruit command checks, with the game's reasons, so a refused order can say why. The buildunit command itself (vtable `0x1c4dff8`, its fields and check) is described in the research note; C6 posts it.
+- **Extensions** get the snapshot as UTF-8 JSON through the appended `GameApi::province` (ADR 0014), the shape written on the field; the SDK reads it into `ProvinceSnapshot` ([ADR 0018](adr/0018-snapshots-cross-the-abi-as-json.md)), and `FakeGame::province_snapshots` answers what a test sets up. A country there is a `CountryId`, as everywhere in the ABI.
+
 ### C4 Game console
 
 Run a command in the game console and return what it printed.
