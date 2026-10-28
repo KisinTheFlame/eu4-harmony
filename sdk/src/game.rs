@@ -152,6 +152,30 @@ pub struct MapColor {
     pub rgba: [u8; 4],
 }
 
+/// Where the map camera looks and how high it is. A map position is a pixel
+/// of the province map (`map/provinces.bmp`): `x` from its left edge, `y`
+/// from its bottom edge, as `map/positions.txt` writes them; a height is in
+/// the same unit, above the map's base plane.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Camera {
+    /// The map position at the middle of the view.
+    pub x: u32,
+    pub y: u32,
+    pub height: u32,
+    /// The province at that position.
+    pub province: Option<ProvinceId>,
+    /// The lowest and the highest the camera may be; over high ground the
+    /// game keeps it higher than the lowest.
+    pub min_height: u32,
+    pub max_height: u32,
+}
+
+impl From<abi::Camera> for Camera {
+    fn from(c: abi::Camera) -> Self {
+        Self { x: c.x, y: c.y, height: c.height, province: (c.province != 0).then_some(c.province), min_height: c.min_height, max_height: c.max_height }
+    }
+}
+
 impl From<abi::Session> for Session {
     fn from(s: abi::Session) -> Self {
         Self { id: s.session, date: s.date, paused: s.paused != 0, visibility_current: s.visibility_current != 0, player: CountryId(s.player) }
@@ -328,5 +352,23 @@ impl<'a> Game<'a> {
     /// [`text`](Self::text) with each `$NAME$` replaced by its value.
     pub fn text_with(&mut self, key: &str, args: &[(&str, &str)]) -> String {
         eu4_harmony_loc::fill(&self.text(key), args)
+    }
+    /// Where the map camera looks and how high it is.
+    pub fn camera(&mut self) -> Result<Camera> {
+        self.backend.camera()
+    }
+    /// Turns the camera to a province, at the position the game looks at it
+    /// from, keeping the height; the next frame shows it. `Rejected` while
+    /// the camera is locked.
+    pub fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
+        self.backend.camera_look_at_province(province)
+    }
+    /// Turns the camera to a map position, keeping the height.
+    pub fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera> {
+        self.backend.camera_look_at(x, y)
+    }
+    /// Raises or lowers the camera, looking at the same position.
+    pub fn camera_zoom(&mut self, height: u32) -> Result<Camera> {
+        self.backend.camera_zoom(height)
     }
 }

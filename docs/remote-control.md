@@ -236,6 +236,24 @@ Read where the camera looks and its zoom; look at a province; look at a map posi
 
 Done when: in the game, each moves the view as asked.
 
+Built (2026-10-29). The camera is the map manager's (`[map manager + 0x1200]`), found and moved through the game's own code ([research/camera.md](research/camera.md)); the capability layer is `core/src/game/camera.rs`, the camera's fields and the map's province grid `core/src/objects/camera.rs`. What the values mean:
+
+- **A map position** is a pixel of the province map, `map/provinces.bmp` (5632 by 2048 in the unmodded game): `x` counts pixels from the map's left edge, `y` from its bottom edge, so north is up and a larger `y` is further north. It is the unit and the origin `map/positions.txt` uses (Paris, 183, is written 2842, 1494 there). Both are whole numbers; off the map is `invalid_argument`. The map wraps from its right edge to its left, and a position read back is always on the map.
+- **Where the camera looks** is the map position at the middle of the view: where the line of sight meets the map's base plane, which lies below the land and the sea. The higher the camera, the closer that is to what the middle of the screen shows; close in, the middle of the screen shows a little south of it.
+- **Zoom** is the camera's height above that plane, in the same unit as a map position, from `min_height` to `max_height`: 50 and 3000 in the unmodded game (`NFrontend.CAMERA_MIN_HEIGHT` and `CAMERA_MAX_HEIGHT` in `common/defines.lua`). The view shows more of the map the higher the camera is, nearly in proportion: at 310, where a game starts, Iberia fills the screen; at 1500, Europe and the Mediterranean. Over high ground the game keeps the camera higher than `min_height`, and the answer says the height it took.
+- **From a province to a position and back**: every answer has the `province` at the position it looks at (null where the map has none), so `camera.look_at_province` answers the position the game looks at that province from (one its map data keeps, close to `positions.txt`'s but not the same: 2841, 1490 for Paris), and `camera.look_at` answers which province a position is in.
+- **A move is at once**: the game's own moves glide over some frames; the camera's capabilities put the camera where it was sent before they answer, so the next frame drawn, and the next screenshot, shows it. The player can move the camera again at any time, and `camera` then reads where the player left it.
+- **Locked camera**: while the game holds the camera still (the game console's `debug_lockcamera`, and moments of its own), a move is `rejected` with "the camera is locked".
+
+| Capability | Arguments | Result | Needs a game |
+| --- | --- | --- | --- |
+| `camera` | | `x`, `y` (the map position it looks at), `height`, `province` (or null), `min_height`, `max_height` | yes |
+| `camera.look_at_province` | `province` | the camera afterwards, as `camera` reads it; `not_found` for no such province | yes |
+| `camera.look_at` | `x`, `y` | the camera afterwards | yes |
+| `camera.zoom` | `height` | the camera afterwards, looking at the same position | yes |
+
+Extensions have the same four, appended to the ABI (ADR 0014): `GameApi::camera`, `camera_look_at_province`, `camera_look_at` and `camera_zoom`, each with an `abi::Camera` out (province 0 for none; the moves take a null `out`), the SDK's `Game::camera`, `camera_look_at_province`, `camera_look_at` and `camera_zoom` returning `Camera`, and `FakeGame::camera` with `province_positions` behind them. To see that the view moved, without C10's screenshot, the run used the development tools' own `tools/screenshot.ps1`.
+
 ### C10 Screenshot
 
 Remote control only: the frame as the player sees it, framework UI included, read back from the D3D9 device after the framework UI is drawn (`core/src/framework_ui/d3d9.rs`), as PNG; `--scale` shrinks it. The PNG is a `Binary` in the answer, which the command line's `--out` writes to a file (F4).

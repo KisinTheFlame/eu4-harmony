@@ -150,6 +150,24 @@ pub struct MapColor {
     pub rgba: [u8; 4],
 }
 
+/// Where the map camera looks and how high it is. A map position is a pixel
+/// of the province map (`map/provinces.bmp`): `x` from its left edge, `y`
+/// from its bottom edge, as `map/positions.txt` writes them; a height is in
+/// the same unit, above the map's base plane.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Camera {
+    /// The map position at the middle of the view.
+    pub x: u32,
+    pub y: u32,
+    pub height: u32,
+    /// The province at that position; 0 when there is none.
+    pub province: u32,
+    /// The lowest and the highest the camera may be.
+    pub min_height: u32,
+    pub max_height: u32,
+}
+
 /// Capabilities valid only for the duration of one callback, on the game thread.
 #[repr(C)]
 pub struct GameApi {
@@ -236,6 +254,20 @@ pub struct GameApi {
         cap: usize,
         len: *mut usize,
     ) -> i32,
+    /// Where the map camera looks and how high it is.
+    pub camera: unsafe extern "C" fn(host: *mut c_void, out: *mut Camera) -> i32,
+    /// Turns the camera to a province, at the position the game looks at it
+    /// from, keeping the height; `out`, unless null, gets the camera
+    /// afterwards. At once: the next frame shows it. [`REJECTED`] while the
+    /// camera is locked.
+    pub camera_look_at_province: unsafe extern "C" fn(host: *mut c_void, province: u32, out: *mut Camera) -> i32,
+    /// Turns the camera to a map position, keeping the height; as
+    /// `camera_look_at_province` otherwise. [`INVALID_ARGUMENT`] off the map.
+    pub camera_look_at: unsafe extern "C" fn(host: *mut c_void, x: u32, y: u32, out: *mut Camera) -> i32,
+    /// Raises or lowers the camera to `height`, looking at the same position;
+    /// as `camera_look_at_province` otherwise. [`INVALID_ARGUMENT`] outside
+    /// the camera's `min_height` to `max_height`.
+    pub camera_zoom: unsafe extern "C" fn(host: *mut c_void, height: u32, out: *mut Camera) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -306,10 +338,12 @@ layout!(Province, 24: id @ 0, flags @ 4, owner @ 8, controller @ 16);
 layout!(Neighbor, 8: to @ 0, flags @ 4);
 layout!(Army, 40: id @ 0, owner @ 8, province @ 16, flags @ 20, regiments @ 24, route_len @ 28, destination @ 32, route_source @ 36);
 layout!(MapColor, 8: province @ 0, rgba @ 4);
+layout!(Camera, 24: x @ 0, y @ 4, height @ 8, province @ 12, min_height @ 16, max_height @ 20);
 slots!(GameApi:
     size, host, last_error, session, country_tag, countries_hostile, provinces, province_neighbors, army, own_armies,
     province_armies, army_route, army_can_enter, army_strait_open, army_can_attack, find_route, army_move, army_stop,
     ui_selected_army, ui_set_visible, ui_set_enabled, ui_set_text, ui_set_tooltip, map_paint, map_clear, save_data_get,
     save_data_set, language, text,
+    camera, camera_look_at_province, camera_look_at, camera_zoom,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);

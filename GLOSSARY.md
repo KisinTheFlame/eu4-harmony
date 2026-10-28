@@ -64,6 +64,10 @@ _Avoid_: sidecar, companion file
 The game's own console, where commands such as `add_treasury` are typed. The framework offers running a command in it as a capability.
 _Avoid_: console on its own
 
+**Map position**:
+A point on the game's map, in pixels of the province map (`map/provinces.bmp`): x from its left edge, y from its bottom edge, as `map/positions.txt` writes them. The camera looks at a map position.
+_Avoid_: coordinates on their own; screen position (a pixel of the game's window)
+
 ### Remote control
 
 **Remote control**:

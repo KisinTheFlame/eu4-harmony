@@ -196,6 +196,8 @@ groups! {
     Events(events::EventsRequest, EventsAnswer),
     /// The capabilities, described.
     Describe(describe::DescribeRequest, DescribeAnswer),
+    /// The map camera.
+    Camera(camera::CameraRequest, CameraAnswer),
 }
 
 pub mod binary;

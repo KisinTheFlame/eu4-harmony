@@ -13,6 +13,7 @@
 //! calls and the layer's types into the answers. Tests put a fake game behind
 //! the traits.
 pub mod armies;
+pub mod camera;
 pub mod countries;
 pub mod describe;
 pub mod events;
@@ -40,8 +41,8 @@ use std::{
 pub const BUDGET: Duration = Duration::from_millis(5);
 
 /// The capability layer, as remote control sees it: every group's slice.
-pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer {}
-impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + ?Sized> Game for T {}
+pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer {}
+impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + ?Sized> Game for T {}
 
 /// The capability layer itself, called as remote control.
 pub struct Live;
@@ -287,6 +288,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
         Request::Text(r) => done(texts::run(r, game).map(Answer::Text)),
         Request::Events(r) => events::run(r, events),
         Request::Describe(r) => done(Ok(Answer::Describe(describe::run(r)))),
+        Request::Camera(r) => done(camera::run(r, game).map(Answer::Camera)),
     }
 }
 

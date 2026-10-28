@@ -1,6 +1,6 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, countries, provinces, session, texts};
+use super::{armies, camera, countries, provinces, session, texts};
 use crate::game::{self, fail, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
 use std::time::Duration;
@@ -169,5 +169,41 @@ impl texts::Layer for Fake {
     fn language(&mut self) -> GResult<&'static str> {
         self.call("language".into());
         Ok("simp_chinese")
+    }
+}
+
+/// The camera looking at Edirne (149) from 800 high.
+pub fn view() -> game::camera::Camera {
+    game::camera::Camera { x: 3248, y: 1376, height: 800, province: Some(149), min_height: 50, max_height: 3000 }
+}
+
+impl camera::Layer for Fake {
+    fn camera(&mut self) -> GResult<game::camera::Camera> {
+        self.call("camera".into());
+        Ok(view())
+    }
+
+    fn look_at_province(&mut self, province: u32) -> GResult<game::camera::Camera> {
+        self.call(format!("look at province {province}"));
+        match province {
+            151 => Ok(game::camera::Camera { x: 3270, y: 1366, province: Some(151), ..view() }),
+            _ => fail(Status::NotFound, format!("no province {province}")),
+        }
+    }
+
+    fn look_at(&mut self, x: u32, y: u32) -> GResult<game::camera::Camera> {
+        self.call(format!("look at {x} {y}"));
+        if x >= 5632 || y >= 2048 {
+            return fail(Status::InvalidArgument, "off the map");
+        }
+        Ok(game::camera::Camera { x, y, province: None, ..view() })
+    }
+
+    fn zoom(&mut self, height: u32) -> GResult<game::camera::Camera> {
+        self.call(format!("zoom {height}"));
+        if !(50..=3000).contains(&height) {
+            return fail(Status::InvalidArgument, "the height is from 50 to 3000");
+        }
+        Ok(game::camera::Camera { height, ..view() })
     }
 }

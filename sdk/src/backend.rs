@@ -35,6 +35,10 @@ pub trait Backend {
     fn language(&mut self) -> Result<String>;
     /// This mod's text for `key`; `NotFound` when it has none.
     fn text(&mut self, key: &str) -> Result<String>;
+    fn camera(&mut self) -> Result<Camera>;
+    fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera>;
+    fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera>;
+    fn camera_zoom(&mut self, height: u32) -> Result<Camera>;
 }
 
 /// The core's capability table for the current callback.
@@ -225,6 +229,34 @@ impl Backend for RealBackend {
         let bytes = self.list(|b, c, l| unsafe { (api.text)(api.host, key.as_ptr(), key.len(), b, c, l) })?;
         self.utf8(bytes)
     }
+    fn camera(&mut self) -> Result<Camera> {
+        self.require(end_of!(camera))?;
+        let api = self.api();
+        let mut out = abi::Camera::default();
+        self.check(unsafe { (api.camera)(api.host, &mut out) })?;
+        Ok(out.into())
+    }
+    fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
+        self.require(end_of!(camera_look_at_province))?;
+        let api = self.api();
+        let mut out = abi::Camera::default();
+        self.check(unsafe { (api.camera_look_at_province)(api.host, province, &mut out) })?;
+        Ok(out.into())
+    }
+    fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera> {
+        self.require(end_of!(camera_look_at))?;
+        let api = self.api();
+        let mut out = abi::Camera::default();
+        self.check(unsafe { (api.camera_look_at)(api.host, x, y, &mut out) })?;
+        Ok(out.into())
+    }
+    fn camera_zoom(&mut self, height: u32) -> Result<Camera> {
+        self.require(end_of!(camera_zoom))?;
+        let api = self.api();
+        let mut out = abi::Camera::default();
+        self.check(unsafe { (api.camera_zoom)(api.host, height, &mut out) })?;
+        Ok(out.into())
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -256,6 +288,8 @@ mod tests {
     unsafe extern "C" fn no_bytes(_: H, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
     unsafe extern "C" fn no_set(_: H, _: *const u8, _: usize) -> i32 { abi::INTERNAL }
     unsafe extern "C" fn no_text(_: H, _: *const u8, _: usize, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_camera_province(_: H, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_camera_position(_: H, _: u32, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
 
     unsafe extern "C" fn last_error(_: H, buf: *mut u8, cap: usize) -> usize {
         let message = b"no such army";
@@ -279,6 +313,10 @@ mod tests {
     }
     unsafe extern "C" fn army(_: H, _: u64, _: *mut abi::Army) -> i32 {
         abi::NOT_FOUND
+    }
+    unsafe extern "C" fn camera(_: H, out: *mut abi::Camera) -> i32 {
+        *out = abi::Camera { x: 2842, y: 1494, height: 800, province: 183, min_height: 50, max_height: 3000 };
+        abi::OK
     }
     unsafe extern "C" fn language(_: H, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
         let name = b"simp_chinese";
@@ -321,6 +359,10 @@ mod tests {
             save_data_set: no_set,
             language,
             text: no_text,
+            camera,
+            camera_look_at_province: no_camera_province,
+            camera_look_at: no_camera_position,
+            camera_zoom: no_camera_province,
         }
     }
 
@@ -335,6 +377,8 @@ mod tests {
         assert_eq!(provinces.len(), 2);
         assert_eq!((provinces[1].id, provinces[1].land, provinces[1].visible, provinces[1].owner, provinces[1].controller), (1, true, true, Some(CountryId(77)), None));
         assert_eq!(backend.language().unwrap(), "simp_chinese");
+        let camera = backend.camera().unwrap();
+        assert_eq!((camera.x, camera.y, camera.height, camera.province), (2842, 1494, 800, Some(183)));
     }
 
     #[test]
@@ -353,5 +397,17 @@ mod tests {
         assert_eq!(backend.language().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.text("KEY").unwrap_err().status, Status::Unavailable);
         assert!(backend.session().is_ok());
+    }
+
+    #[test]
+    fn a_core_from_before_the_camera_has_none() {
+        let mut api = table();
+        api.size = std::mem::offset_of!(abi::GameApi, camera);
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.camera().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.camera_look_at_province(183).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.camera_look_at(2842, 1494).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.camera_zoom(800).unwrap_err().status, Status::Unavailable);
+        assert!(backend.language().is_ok());
     }
 }
