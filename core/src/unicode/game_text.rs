@@ -192,9 +192,10 @@ pub fn to_utf8(text: &[u8]) -> String {
 }
 
 /// Text the game keeps, as UTF-8 without its formatting codes: a color
-/// (`§` and one character) and an icon (`£`, its name of letters and digits,
-/// and the character that ends it) are left out, as the game does not show
-/// them as text (docs/research/unicode-text.md).
+/// (`§` and one character) is left out, and an icon (`£`, its name of
+/// letters and digits, and the character that ends it) becomes its name
+/// without an `icon_` in front, since the game's texts use icons as words
+/// ("Not enough £icon_manpower£.") (docs/research/unicode-text.md).
 pub fn plain(text: &[u8]) -> String {
     let mut out = String::new();
     let mut chars = chars(text).map(|(c, _)| c).peekable();
@@ -204,8 +205,12 @@ pub fn plain(text: &[u8]) -> String {
                 chars.next();
             }
             '£' => {
-                while chars.next_if(|c| c.is_ascii_alphanumeric() || *c == '_').is_some() {}
+                let mut name = String::new();
+                while let Some(c) = chars.next_if(|c| c.is_ascii_alphanumeric() || *c == '_') {
+                    name.push(c);
+                }
                 chars.next();
+                out.push_str(name.strip_prefix("icon_").unwrap_or(&name));
             }
             c => out.push(c),
         }
@@ -261,8 +266,10 @@ mod tests {
 
     #[test]
     fn plain_text_leaves_formatting_codes_out() {
-        assert_eq!(plain(&from_str("§R没有足够的§Y10§!£gold£金钱")), "没有足够的10金钱");
-        assert_eq!(plain(&from_str("Costs £adm 50 points§")), "Costs 50 points");
+        // As the Chinese language mod words a missing resource and money.
+        assert_eq!(plain(&from_str("没有足够的£icon_manpower£。")), "没有足够的manpower。");
+        assert_eq!(plain(&from_str("§R建立需要10¤。§!")), "建立需要10¤。");
+        assert_eq!(plain(&from_str("Costs £adm 50 points§")), "Costs adm50 points");
         assert_eq!(plain(&from_str("Île-de-France · 巴黎")), "Île-de-France · 巴黎");
     }
 

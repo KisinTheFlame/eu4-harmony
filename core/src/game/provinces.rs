@@ -100,8 +100,9 @@ pub struct Recruit {
     /// `western_medieval_infantry`; None when the player has none.
     pub unit_type: Option<String>,
     pub allowed: bool,
-    /// Why not, in the game's words and the game's language, formatting
-    /// codes removed; empty when it is allowed or the game gives no reason.
+    /// Why not, in the game's words and the game's language, as plain text
+    /// ([`game_text::plain`]); empty when it is allowed or the game gives no
+    /// reason.
     pub reasons: Vec<String>,
 }
 
@@ -268,8 +269,8 @@ pub fn unit_type(m: &Memory, country_address: usize, kind: UnitKind) -> GResult<
 }
 
 /// Whether the player can recruit one of a unit type in a province now, and
-/// the game's reasons why not, as Unicode lines with formatting codes
-/// removed: what the game's recruit command checks.
+/// the game's reasons why not, as lines of plain text
+/// ([`game_text::plain`]): what the game's recruit command checks.
 pub fn can_recruit(m: &Memory, ctx: &Ctx, province: usize, unit_type: usize) -> GResult<(bool, Vec<String>)> {
     let mut reasons = game_string::empty();
     let string = reasons.as_mut_ptr() as usize;
