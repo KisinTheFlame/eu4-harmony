@@ -500,6 +500,8 @@ extern "C" fn create_before(frame: *mut HookFrame) {
 extern "C" fn load_after(frame: *mut HookFrame) {
     crate::guarded("font page fill", || {
         let font = unsafe { (*frame).args[0] };
+        // The font's file has been parsed: its glyphs above 0xFF are all in.
+        glyphs::seal(font + OWN_GLYPHS);
         let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return };
         let system = settings::current().text_appearance == TextAppearance::System;
         let m = memory();
@@ -541,7 +543,7 @@ extern "C" fn load_after(frame: *mut HookFrame) {
             }
             lock(&OWNERS).insert(font, wrapper);
             if system {
-                glyphs::forget(font + OWN_GLYPHS);
+                glyphs::clear(font + OWN_GLYPHS);
                 replace_own_glyphs(&m, font, fill)?;
             }
             Ok(())
