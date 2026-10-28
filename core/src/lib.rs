@@ -254,7 +254,7 @@ pub(crate) fn deferred_init() {
         log!("ui: {note}");
     }
     let taking_part: Vec<_> = mods.iter().enumerate().filter(|(i, _)| included(*i)).map(|(_, m)| m).collect();
-    let loc_notes = loc::install(&taking_part, &mut plan);
+    let loc_notes = loc::install(language, &taking_part, &mut plan);
     for note in &loc_notes {
         log!("localisation: {note}");
     }

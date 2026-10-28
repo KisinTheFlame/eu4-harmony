@@ -53,9 +53,11 @@ fn target(game: Language) -> String {
 }
 
 /// Loads the localisation of `mods` (those taking part, in playset order) and
-/// plans the splice of their keys. Returns problems for the log and the report.
-pub fn install(mods: &[&DiscoveredMod], plan: &mut Plan) -> Vec<String> {
-    let player = lang::player();
+/// plans the splice of their keys, in the player language and into the game
+/// language's file, as `language` decided them. Returns problems for the log
+/// and the report.
+pub fn install(language: &lang::Decision, mods: &[&DiscoveredMod], plan: &mut Plan) -> Vec<String> {
+    let player = language.player;
     let mut notes = Vec::new();
     let mut catalogs = BTreeMap::new();
     let mut owners: BTreeMap<String, String> = BTreeMap::new();
@@ -77,7 +79,7 @@ pub fn install(mods: &[&DiscoveredMod], plan: &mut Plan) -> Vec<String> {
         catalogs.insert(id.clone(), catalog);
     }
     if !lines.is_empty() {
-        plan.add(&target(lang::game()), Addition::Append(format!("# EU4 Harmony: mod texts in {}\n{lines}", player.id())));
+        plan.add(&target(language.game), Addition::Append(format!("# EU4 Harmony: mod texts in {}\n{lines}", player.id())));
     }
     log!("localisation: {} key(s) of {} mod(s) in {}", owners.len(), catalogs.len(), player.id());
     let _ = MODS.set(catalogs);
@@ -128,12 +130,13 @@ mod tests {
             manifest: serde_json::from_str(r#"{ "id": "t", "api_version": "0.1" }"#).unwrap(),
         };
         let mut plan = Plan::default();
-        let notes = install(&[&m], &mut plan);
+        // A German player in a game that runs in English.
+        let language = lang::Decision { player: Language::German, game: Language::English, reason: String::new() };
+        let notes = install(&language, &[&m], &mut plan);
         assert!(notes.is_empty(), "{notes:?}");
-        // Before a language is decided, the player and the game use English.
         let additions = plan.for_file("localisation/text_l_english.yml").unwrap();
         let Addition::Append(text) = &additions[0] else { panic!() };
-        assert!(text.contains(" T_APPLY:0 \"Apply\"\n") && text.contains(" T_ONLY:0 \"English\"\n"), "{text}");
+        assert!(text.contains(" T_APPLY:0 \"Übernehmen\"\n") && text.contains(" T_ONLY:0 \"English\"\n"), "{text}");
         assert_eq!(mod_text("t", "T_APPLY").as_deref(), Some("Apply"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
