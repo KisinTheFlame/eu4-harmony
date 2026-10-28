@@ -13,6 +13,7 @@
 //! in docs/research/regional-combat/.
 pub mod armies;
 pub mod camera;
+pub mod console;
 pub mod countries;
 pub mod events;
 pub mod interface;
@@ -177,6 +178,7 @@ pub fn points() -> Vec<Point> {
     points.extend(events::points());
     points.extend(camera::points());
     points.extend(provinces::points());
+    points.extend(console::points());
     points
 }
 
