@@ -194,6 +194,22 @@ One read of a country: treasury, manpower and its maximum, stability, prestige, 
 
 Done when: in the game, the player's country and another country read correctly against what the game shows.
 
+Built (2026-10-29). One capability in the countries group, for remote clients and extensions both, read from the fields the game writes into a save ([research/countries.md](research/countries.md), 14 new dependency points):
+
+| Capability | Arguments | Result | Needs a game |
+| --- | --- | --- | --- |
+| `country.get` | `country` | `tag`; `treasury` (ducats), `stability` (-3 to 3) and `prestige` (-100 to 100), which the game keeps in thousandths, so to the thousandth; `manpower` and `max_manpower` in men; `power` (`adm`, `dip`, `mil`), whole monarch points; `wars`, every war going on that the country takes part in, each with its `name` (as the game shows it), `attackers` and `defenders` (tags, each side's leader first); `relations`, its allies, its subjects, its overlord and the countries it rivals, in that order, each a `kind` (`ally`, `subject`, `overlord`, `rival`) and the other `country`'s tag | yes |
+
+- **In the capability layer**: `countries::snapshot(caller, tag)` answers a `Country` (the numbers as the game keeps them, i32 thousandths), its `War`s and `Relation`s; every tag in it is checked to be a country, and a war to be of the war class. `NotFound` for no such country; like the other reads, `NotInGame` while the player observes.
+- **For extensions** (ADR 0014): `GameApi::country`, appended after `text`, writes an `abi::Country` with the numbers (thousandths kept) and lists `abi::CountryLink`s in the two-call pattern: the relations (`LINK_ALLY`, `LINK_SUBJECT`, `LINK_OVERLORD`, `LINK_RIVAL`), then each war's attackers and defenders (`LINK_ATTACKER`, `LINK_DEFENDER`, with the war's number from 1); a link of an unknown kind is to be skipped, so kinds can be added. The SDK's `Game::country` puts them back together as a `Country` with `wars`, `relations`, `has_relation(kind, other)` and `at_war_with(other)`; it is unavailable on a core whose table ends before it. War names are not in the ABI, being text in a list; they can be appended when an extension needs them. `FakeGame::countries` holds what a test sets up.
+
+What C8 can rely on, read for its own country or the other one:
+
+- **At war with them**: they are on the other side of one of the country's `wars`: in `defenders` when the country is in `attackers`, or the other way round. A war's leaders are `attackers[0]` and `defenders[0]`; the game itself compares a country with these two first, and its war view stars the defenders' first. The others are in the order the game keeps them, which is not the war view's. A war has no identifier but its name; the snapshots of both sides' countries list it. `country.hostile` still says whether two countries are at war or either is a rebel faction.
+- **Allied, subject, overlord, rival**: a relation of that `kind` with their tag. `ally` is mutual; `subject` covers every kind of subject; `overlord` is at most one; `rival` is a rival the country chose, so whether they rival it is in their own snapshot. The lists are the game's own live state, which its triggers and AI read (a rival is what the `is_rival` trigger finds), not copies kept for saves.
+- **Not in the snapshot**: the kind of a subject relation, royal marriages, guarantees, military access, truces, opinions, and who rivals the country (the diplomacy page's enemies); C8 adds what it needs to the snapshot (by appending, for extensions).
+- **Tried in the game** (prototype-log.md, 2026-10-29): Castile and the Ottomans read as the top bar, the country view, the war view and the Ottomans' diplomacy view show them. A relation or a war changing between two reads was not seen, nor the extension side.
+
 ### C3 Province snapshot
 
 One read of a province: its name (as game text, see GLOSSARY), development (tax, production, manpower), terrain, fort, buildings, and what can be recruited there. C6 relies on the last.
