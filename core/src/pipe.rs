@@ -125,7 +125,8 @@ impl Pipe {
         Ok(unsafe { File::from_raw_handle(handle) })
     }
 
-    /// The next instance, trying again until there is one.
+    /// The next instance, trying again until there is one. Made while the
+    /// process still has one ([`accept`]), it joins the process's own pipe.
     fn next_instance(&self) -> File {
         loop {
             match self.instance(false) {
@@ -159,27 +160,40 @@ fn listen(pipe: &Arc<Pipe>) {
     };
     pipe.log(&format!("open at {}, to {} only", pipe.name, pipe.security.user));
     loop {
-        let connected = unsafe { ConnectNamedPipe(instance.as_raw_handle(), std::ptr::null_mut()) } != 0;
-        let error = io::Error::last_os_error();
-        if connected || error.raw_os_error() == Some(ERROR_PIPE_CONNECTED as i32) {
-            let number = pipe.clients.fetch_add(1, Ordering::Relaxed) + 1;
-            let client = Arc::clone(pipe);
-            let spawned = std::thread::Builder::new()
-                .name(format!("remote pipe client {number}"))
-                .spawn(move || guarded("remote control's pipe", || serve_client(&client, &instance, number)));
-            if let Err(e) = spawned {
-                pipe.log(&format!("client {number} cannot be served: {e}"));
-            }
-        } else if error.raw_os_error() == Some(ERROR_NO_DATA as i32) {
-            // The client came and went before it was seen.
-            drop(instance);
-        } else {
-            pipe.log(&format!("cannot wait for a client: {error}; trying again"));
-            drop(instance);
-            std::thread::sleep(RETRY);
-        }
-        instance = pipe.next_instance();
+        instance = accept(pipe, instance);
     }
+}
+
+/// Waits for a client on `instance` and hands it to a thread of its own;
+/// returns the instance for the client after it.
+///
+/// That one is made before `instance` is handed on or closed, so the process
+/// has an instance of the pipe all along. Were it to have none for a moment,
+/// as after a client that closed the pipe at once, the name would lapse:
+/// another process could make a pipe of that name, and the next instance
+/// would join it, under that process's access list.
+fn accept(pipe: &Arc<Pipe>, instance: File) -> File {
+    let connected = unsafe { ConnectNamedPipe(instance.as_raw_handle(), std::ptr::null_mut()) } != 0;
+    let error = io::Error::last_os_error();
+    let next = pipe.next_instance();
+    if connected || error.raw_os_error() == Some(ERROR_PIPE_CONNECTED as i32) {
+        let number = pipe.clients.fetch_add(1, Ordering::Relaxed) + 1;
+        let client = Arc::clone(pipe);
+        let spawned = std::thread::Builder::new()
+            .name(format!("remote pipe client {number}"))
+            .spawn(move || guarded("remote control's pipe", || serve_client(&client, &instance, number)));
+        if let Err(e) = spawned {
+            pipe.log(&format!("client {number} cannot be served: {e}"));
+        }
+    } else if error.raw_os_error() == Some(ERROR_NO_DATA as i32) {
+        // The client came and went before it was waited for.
+        drop(instance);
+    } else {
+        pipe.log(&format!("cannot wait for a client: {error}; trying again"));
+        drop(instance);
+        std::thread::sleep(RETRY);
+    }
+    next
 }
 
 /// Answers a client's requests, one line at a time, until it closes the

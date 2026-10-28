@@ -278,6 +278,44 @@ fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
 }
 
 #[test]
+fn the_pipe_keeps_its_name_while_clients_come_and_go() {
+    // A client that came and went before it was waited for.
+    let name = pipe_name("came-and-went");
+    let pipe = Arc::new(Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap());
+    let first = pipe.instance(true).unwrap();
+    drop(std::fs::OpenOptions::new().read(true).write(true).open(&name).unwrap());
+    let next = accept(&pipe, first);
+    assert_eq!(dacl(&next), format!("D:P(A;;FA;;;{})", user_sid().unwrap()));
+    let other = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    assert!(other.instance(true).is_err());
+    drop(next);
+    assert!(other.instance(true).is_ok());
+
+    let test = test_pipe!("name", Place::Game);
+    // Another process, trying all along to make a pipe of the same name.
+    let other = Pipe::new(&test.name, |_| unreachable!(), |_| {}).unwrap();
+    let stop = AtomicBool::new(false);
+    let made = std::thread::scope(|s| {
+        let other = s.spawn(|| {
+            let mut made = 0;
+            while !stop.load(Ordering::Relaxed) {
+                made += other.instance(true).is_ok() as u32;
+            }
+            made
+        });
+        // Clients that close the pipe as soon as they have it.
+        for _ in 0..1000 {
+            drop(test.connect());
+        }
+        stop.store(true, Ordering::Relaxed);
+        other.join().unwrap()
+    });
+    assert_eq!(made, 0, "the other process made the pipe {made} time(s)");
+    assert_eq!(test.connect().ask(r#"{"capability": "session"}"#)["ok"], true);
+    test.stop();
+}
+
+#[test]
 fn a_game_started_again_opens_the_pipe_once_the_one_before_is_gone() {
     let before = Pipe::new(&pipe_name("again"), |_| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
     let test = test_pipe!("again", Place::Game);
