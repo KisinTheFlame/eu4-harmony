@@ -61,6 +61,9 @@ pub struct FakeGame {
     /// The map position the camera looks at each province from; a province
     /// not here is not found.
     pub province_positions: BTreeMap<ProvinceId, (u32, u32)>,
+    /// What `Game::province` answers, by province; missing entries are not
+    /// found.
+    pub province_snapshots: BTreeMap<ProvinceId, ProvinceSnapshot>,
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -238,5 +241,22 @@ impl Backend for FakeGame {
         }
         self.camera.height = height;
         Ok(self.camera)
+    }
+    fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
+        self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_province_snapshot_is_what_the_test_set_up() {
+        let mut fake = FakeGame::new();
+        let snapshot = ProvinceSnapshot { id: 151, name: "君士坦丁堡".into(), fort: Fort { level: 2, mothballed: false }, ..Default::default() };
+        fake.province_snapshots.insert(151, snapshot.clone());
+        assert_eq!(fake.game().province(151).unwrap(), snapshot);
+        assert_eq!(fake.game().province(152).unwrap_err().status, Status::NotFound);
     }
 }

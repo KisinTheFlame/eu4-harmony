@@ -176,6 +176,97 @@ impl From<abi::Camera> for Camera {
     }
 }
 
+/// All of one province at one moment.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProvinceSnapshot {
+    pub id: ProvinceId,
+    /// Its name as the game shows it.
+    pub name: String,
+    pub owner: Option<CountryId>,
+    pub controller: Option<CountryId>,
+    pub development: Development,
+    /// The key of its terrain, such as `farmlands`.
+    pub terrain: Option<String>,
+    pub fort: Fort,
+    /// The keys of its buildings, such as `fort_15th` and `marketplace`.
+    pub buildings: Vec<String>,
+    /// One for each [`UnitKind`], in their order.
+    pub recruit: Vec<Recruit>,
+}
+
+/// Base development, as the game shows it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Deserialize)]
+pub struct Development {
+    pub tax: f64,
+    pub production: f64,
+    pub manpower: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct Fort {
+    /// The fort level that defends the province now; 0 for none.
+    pub level: i32,
+    /// Mothballed: only a capital's own level is left.
+    pub mothballed: bool,
+}
+
+/// A kind of regiment or ship.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnitKind {
+    Infantry,
+    Cavalry,
+    Artillery,
+    HeavyShip,
+    LightShip,
+    Galley,
+    Transport,
+}
+
+/// Whether the player can recruit one regiment or ship of a kind in a
+/// province now.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct Recruit {
+    pub kind: UnitKind,
+    /// The key of the unit type the player recruits of this kind, such as
+    /// `western_medieval_infantry`; None when the player has none.
+    pub unit_type: Option<String>,
+    pub allowed: bool,
+    /// Why not, in the game's words and language; empty when it is allowed
+    /// or the game gives no reason.
+    pub reasons: Vec<String>,
+}
+
+/// [`ProvinceSnapshot`] as the core writes it (`abi::GameApi::province`).
+#[derive(serde::Deserialize)]
+pub(crate) struct ProvinceJson {
+    id: ProvinceId,
+    name: String,
+    owner: Option<u64>,
+    controller: Option<u64>,
+    development: Development,
+    terrain: Option<String>,
+    fort: Fort,
+    buildings: Vec<String>,
+    recruit: Vec<Recruit>,
+}
+
+impl From<ProvinceJson> for ProvinceSnapshot {
+    fn from(p: ProvinceJson) -> Self {
+        Self {
+            id: p.id,
+            name: p.name,
+            owner: p.owner.map(CountryId),
+            controller: p.controller.map(CountryId),
+            development: p.development,
+            terrain: p.terrain,
+            fort: p.fort,
+            buildings: p.buildings,
+            recruit: p.recruit,
+        }
+    }
+}
+
 impl From<abi::Session> for Session {
     fn from(s: abi::Session) -> Self {
         Self { id: s.session, date: s.date, paused: s.paused != 0, visibility_current: s.visibility_current != 0, player: CountryId(s.player) }
@@ -370,5 +461,10 @@ impl<'a> Game<'a> {
     /// Raises or lowers the camera, looking at the same position.
     pub fn camera_zoom(&mut self, height: u32) -> Result<Camera> {
         self.backend.camera_zoom(height)
+    }
+    /// A province's snapshot: its name, development, terrain, fort,
+    /// buildings, and what the player can recruit there now.
+    pub fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
+        self.backend.province(province)
     }
 }

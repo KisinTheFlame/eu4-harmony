@@ -431,6 +431,27 @@ unsafe extern "C" fn h_camera_zoom(ptr: *mut c_void, height: u32, o: *mut abi::C
     capability(ptr, |caller| moved_out(o, game::camera::zoom(caller, height)?))
 }
 
+/// A province's snapshot as the JSON `abi::GameApi::province` describes.
+fn province_json(s: &provinces::Snapshot) -> serde_json::Value {
+    let thousandths = |value: i32| value as f64 / 1000.0;
+    let country = |t: Option<Tag>| t.map(|t| t.0);
+    serde_json::json!({
+        "id": s.id,
+        "name": s.name,
+        "owner": country(s.owner),
+        "controller": country(s.controller),
+        "development": {"tax": thousandths(s.development.tax), "production": thousandths(s.development.production), "manpower": thousandths(s.development.manpower)},
+        "terrain": s.terrain,
+        "fort": {"level": s.fort.level, "mothballed": s.fort.mothballed},
+        "buildings": s.buildings,
+        "recruit": s.recruit.iter().map(|r| serde_json::json!({"kind": r.kind.key(), "unit_type": r.unit_type, "allowed": r.allowed, "reasons": r.reasons})).collect::<Vec<_>>(),
+    })
+}
+
+unsafe extern "C" fn h_province(ptr: *mut c_void, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| list_out(province_json(&provinces::province(caller, id)?).to_string().as_bytes(), buf, cap, len))
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -466,6 +487,7 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         camera_look_at_province: h_camera_look_at_province,
         camera_look_at: h_camera_look_at,
         camera_zoom: h_camera_zoom,
+        province: h_province,
     }
 }
 
@@ -700,4 +722,38 @@ pub fn timing_lines() -> Vec<String> {
             line
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::provinces::{Development, Fort, Recruit, Snapshot, UnitKind};
+
+    /// The JSON an extension gets is what the SDK reads (its test reads this
+    /// same text).
+    #[test]
+    fn a_province_snapshot_is_written_as_the_abi_says() {
+        let byz = Some(Tag(281479271743810));
+        let snapshot = Snapshot {
+            id: 151,
+            name: "君士坦丁堡".into(),
+            owner: byz,
+            controller: byz,
+            development: Development { tax: 10_000, production: 9_500, manpower: 6_000 },
+            terrain: Some("farmlands".into()),
+            fort: Fort { level: 2, mothballed: false },
+            buildings: vec!["fort_15th".into(), "marketplace".into()],
+            recruit: vec![
+                Recruit {
+                    kind: UnitKind::Infantry,
+                    unit_type: Some("eastern_medieval_infantry".into()),
+                    allowed: false,
+                    reasons: vec!["君士坦丁堡不是我们的领土".into()],
+                },
+                Recruit { kind: UnitKind::HeavyShip, unit_type: None, allowed: false, reasons: vec![] },
+            ],
+        };
+        let expected = r#"{"id":151,"name":"君士坦丁堡","owner":281479271743810,"controller":281479271743810,"development":{"tax":10.0,"production":9.5,"manpower":6.0},"terrain":"farmlands","fort":{"level":2,"mothballed":false},"buildings":["fort_15th","marketplace"],"recruit":[{"kind":"infantry","unit_type":"eastern_medieval_infantry","allowed":false,"reasons":["君士坦丁堡不是我们的领土"]},{"kind":"heavy_ship","unit_type":null,"allowed":false,"reasons":[]}]}"#;
+        assert_eq!(province_json(&snapshot), serde_json::from_str::<serde_json::Value>(expected).unwrap());
+    }
 }

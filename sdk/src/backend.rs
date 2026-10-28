@@ -39,6 +39,8 @@ pub trait Backend {
     fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera>;
     fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera>;
     fn camera_zoom(&mut self, height: u32) -> Result<Camera>;
+    /// `NotFound` for a number that names no province.
+    fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot>;
 }
 
 /// The core's capability table for the current callback.
@@ -257,6 +259,13 @@ impl Backend for RealBackend {
         self.check(unsafe { (api.camera_zoom)(api.host, height, &mut out) })?;
         Ok(out.into())
     }
+    fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
+        self.require(end_of!(province))?;
+        let api = self.api();
+        let bytes = self.list(|b, c, l| unsafe { (api.province)(api.host, province, b, c, l) })?;
+        let json: ProvinceJson = serde_json::from_slice(&bytes).map_err(|e| Error::new(Status::Internal, format!("province snapshot: {e}")))?;
+        Ok(json.into())
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -328,6 +337,22 @@ mod tests {
         abi::OK
     }
 
+    /// Constantinople, as the core writes a snapshot.
+    const CONSTANTINOPLE: &str = r#"{"id":151,"name":"君士坦丁堡","owner":281479271743810,"controller":281479271743810,"development":{"tax":10.0,"production":9.5,"manpower":6.0},"terrain":"farmlands","fort":{"level":2,"mothballed":false},"buildings":["fort_15th","marketplace"],"recruit":[{"kind":"infantry","unit_type":"eastern_medieval_infantry","allowed":false,"reasons":["君士坦丁堡不是我们的领土"]},{"kind":"heavy_ship","unit_type":null,"allowed":false,"reasons":[]}]}"#;
+
+    unsafe extern "C" fn province(_: H, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        if id != 151 {
+            return abi::NOT_FOUND;
+        }
+        let json = CONSTANTINOPLE.as_bytes();
+        *len = json.len();
+        if cap < json.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(json.as_ptr(), buf, json.len());
+        abi::OK
+    }
+
     fn table() -> abi::GameApi {
         abi::GameApi {
             size: std::mem::size_of::<abi::GameApi>(),
@@ -363,6 +388,7 @@ mod tests {
             camera_look_at_province: no_camera_province,
             camera_look_at: no_camera_position,
             camera_zoom: no_camera_province,
+            province,
         }
     }
 
@@ -382,6 +408,22 @@ mod tests {
     }
 
     #[test]
+    fn a_province_snapshot_comes_as_json() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        let p = backend.province(151).unwrap();
+        assert_eq!((p.id, p.name.as_str(), p.owner, p.terrain.as_deref()), (151, "君士坦丁堡", Some(CountryId(281479271743810)), Some("farmlands")));
+        assert_eq!((p.development.tax, p.development.production, p.development.manpower), (10.0, 9.5, 6.0));
+        assert_eq!((p.fort.level, p.fort.mothballed), (2, false));
+        assert_eq!(p.buildings, ["fort_15th", "marketplace"]);
+        let infantry = &p.recruit[0];
+        assert_eq!((infantry.kind, infantry.unit_type.as_deref(), infantry.allowed), (UnitKind::Infantry, Some("eastern_medieval_infantry"), false));
+        assert_eq!(infantry.reasons, ["君士坦丁堡不是我们的领土"]);
+        assert_eq!((p.recruit[1].kind, p.recruit[1].unit_type.as_deref()), (UnitKind::HeavyShip, None));
+        assert_eq!(backend.province(1).unwrap_err().status, Status::NotFound);
+    }
+
+    #[test]
     fn a_failure_brings_the_core_s_message() {
         let api = table();
         let err = RealBackend::new(&api).army(ArmyId(5)).unwrap_err();
@@ -397,6 +439,10 @@ mod tests {
         assert_eq!(backend.language().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.text("KEY").unwrap_err().status, Status::Unavailable);
         assert!(backend.session().is_ok());
+        api.size = std::mem::offset_of!(abi::GameApi, province);
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.province(151).unwrap_err().status, Status::Unavailable);
+        assert!(backend.language().is_ok());
     }
 
     #[test]
