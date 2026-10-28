@@ -4,6 +4,7 @@
 //! build that moved one fails the startup check instead of the framework
 //! reading the wrong place. The points say which numbers they use, and a
 //! test checks that their bytes carry them.
+pub mod camera;
 pub mod campaign;
 pub mod gui;
 pub mod text;
@@ -31,5 +32,6 @@ pub fn points() -> Vec<Point> {
     let mut all = campaign::points();
     all.extend(gui::points());
     all.extend(text::points());
+    all.extend(camera::points());
     all
 }
