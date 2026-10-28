@@ -15,29 +15,29 @@ use crate::loc;
 use crate::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 /// The game's localisation lookup: (out, key, values, count); out is a
 /// `std::string` slot it constructs.
 const LOCALISE: usize = 0x14b34a0;
-/// Destroys a `std::string`.
-const DESTROY_STRING: usize = 0x95660;
 
 /// The kinds of name, by the game's key and the framework's template.
 const KINDS: [(&str, &str); 3] = [("BATTLE_OF", "EU4HARMONY_BATTLE"), ("SIEGE_OF", "EU4HARMONY_SIEGE"), ("OCCUPATION_OF", "EU4HARMONY_OCCUPATION")];
 
-/// The game's words for the kinds, as localised: looked up once, the first
-/// time a battle is named.
-static WORDS: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+/// The game's words for the kinds, as localised: looked up the first time a
+/// battle is named, and again while a lookup fails.
+static WORDS: Mutex<Option<Vec<Vec<u8>>>> = Mutex::new(None);
+/// Whether the player language words battle names its own way.
+static REWORDS: OnceLock<bool> = OnceLock::new();
 
 fn localised(key: &str) -> crate::Result<Vec<u8>> {
     let m = crate::memory().ok_or("no memory")?;
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-    let mut slot = [0u8; 0x20];
+    let mut slot = [0u8; game_string::OBJECT];
     let out = slot.as_mut_ptr() as usize;
     m.call(m.at(LOCALISE), &[out, key.as_ptr() as usize, 0, 0])?;
     let text = game_string::read(m, out);
-    m.call(m.at(DESTROY_STRING), &[out])?;
+    game_string::destroy_checked(m, out)?;
     text
 }
 
@@ -63,11 +63,18 @@ extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
     crate::guarded("battle name", || {
         let language = lang::player();
         // Most languages have no templates: leave their names, unlooked.
-        if KINDS.iter().all(|&(_, template)| loc::framework_own(language, template, &[]).is_none()) {
+        if !*REWORDS.get_or_init(|| KINDS.iter().any(|&(_, template)| loc::framework_own(language, template, &[]).is_some())) {
             return;
         }
-        let words = WORDS.get_or_init(|| KINDS.iter().map(|&(key, _)| localised(key).unwrap_or_default()).collect());
-        if let Some(name) = reordered(language, unsafe { game_string::text(out) }, words) {
+        let words = {
+            let mut words = WORDS.lock().unwrap_or_else(|e| e.into_inner());
+            if words.is_none() {
+                *words = KINDS.iter().map(|&(key, _)| localised(key)).collect::<crate::Result<Vec<_>>>().ok();
+            }
+            let Some(words) = words.clone() else { return };
+            words
+        };
+        if let Some(name) = reordered(language, unsafe { game_string::text(out) }, &words) {
             unsafe { game_string::assign(out, &name) };
         }
     });
@@ -78,7 +85,6 @@ pub fn points() -> Vec<Point> {
     vec![
         Point::replace(0x23a900usize, "48 89 5c 24 08 48 89 74 24 18 48 89 54 24 10 55", "battle name", battle_name as BattleName, &ORIGINAL_BATTLE_NAME),
         Point::keep(LOCALISE, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41", "localisation lookup"),
-        Point::keep(DESTROY_STRING, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor"),
     ]
 }
 

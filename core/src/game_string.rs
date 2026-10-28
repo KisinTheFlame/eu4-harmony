@@ -25,6 +25,8 @@ type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
 /// The game's `append(this, bytes, count)`, recorded at startup.
 static APPEND: Function<Append> = Function::new();
 const APPEND_AT: usize = 0x932f0;
+/// The game's destructor, which frees the text when it is not inline.
+const DESTROY_AT: usize = 0x95660;
 
 pub fn points() -> Vec<Point> {
     // The append itself: the size and capacity, the inline test, the text.
@@ -35,7 +37,8 @@ pub fn points() -> Vec<Point> {
         "string append",
     )
     .recorded(APPEND.slot())
-    .uses(&[CAPACITY, SIZE, INLINE + 1])]
+    .uses(&[CAPACITY, SIZE, INLINE + 1]),
+    Point::keep(DESTROY_AT, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor").uses(&[CAPACITY])]
 }
 
 /// Where the text of the string at `string` is, given its capacity.
@@ -121,6 +124,11 @@ pub unsafe fn append(string: usize, text: &[u8]) {
 /// [`append`], guarded: a fault in the game's code comes back as an error.
 pub fn append_checked(m: &Memory, string: usize, text: &[u8]) -> Result<()> {
     m.call(APPEND.get() as usize, &[string, text.as_ptr() as usize, text.len()]).map(|_| ())
+}
+
+/// Destroys the string at `string` as the game does, guarded.
+pub fn destroy_checked(m: &Memory, string: usize) -> Result<()> {
+    m.call(m.at(DESTROY_AT), &[string]).map(|_| ())
 }
 
 /// Builds `text` in `slot`, a string nothing has constructed yet; whoever
