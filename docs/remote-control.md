@@ -113,6 +113,42 @@ The `remote/` crate with the request and response types and their descriptions; 
 
 Done when: unit tests drive the engine through every existing capability with typed requests; in the game, requests submitted from another thread are answered at safe points in the main menu and during a game.
 
+Built (2026-10-29). The shared crate is `remote/` (`eu4_harmony_remote`), one file per group; each capability is declared once there, and its request, its answer and its description come from that declaration (`capabilities()` lists them all). In JSON a request is one flat object, `{"capability": "army.move", "army": "4294967377", "goal": 151}`: the group and the capability's own name, or the group alone for a group's one capability. The engine is `core/src/remote/`, one file per group, each with its slice of the capability layer as a trait, so that the tests put a fake game behind it. How it runs:
+
+- **Safe points** (`core/src/safe_point.rs`, [research/safe-points.md](research/safe-points.md)): a game's safe frame, after extensions, where every request runs; and every frame the main thread presents when remote control did not run at a game frame since the last. There, what needs no game runs, and what needs one is answered `not_in_game` in the main menu (any of its pages, the single player setup included) and waits for a game frame elsewhere (a game being set up, a frame that is not ready). While a save loads, nothing runs.
+- **Budget**: queued requests run in order of arrival until 5 ms have gone, at least one a frame; the rest run at the next frame, in order.
+- **Answering later**: running a request may come to an answer at a later safe point (`Outcome::Later`, a `Wait` asked at each safe point, with the game at a game frame). The first such request is `events` with `wait_ms`; C1's advancing time is the next.
+- **Giving up**: a transport waits on the `Reply` that `submit` returns; dropping it gives the request up, and one that has not run yet never runs, so a client that timed out does not move an army later.
+- **Events**: what extensions hear at a game's safe frame, in the same order (a new session, the changes, a new day), numbered from 1; the latest 10,000 are kept. A `since` beyond the last event (from before the game started again) reads every event kept, with `missed`.
+- **Log**: every request in the framework log, as JSON, with how it ended and how long it took; one that waits, again when it answers.
+- **Countries**: a request names a country by its tag, and the engine finds the country through a new capability in the layer, `countries::find` (the country manager's array, two new dependency points, [research/countries.md](research/countries.md)). The layer's `tag` has no remote counterpart, since a remote client already names countries by their tags.
+- **Trying it without a transport**: with `EU4HARMONY_TEST_REMOTE` set when `eu4.exe` starts, a thread of its own submits requests every 5 s and logs the answers (`core/src/remote/probe.rs`); set to `orders`, it also moves one of the player's armies one province and stops it, once a session.
+
+| Capability | Arguments | Result | Needs a game |
+| --- | --- | --- | --- |
+| `session` | | `session`, `date`, `paused`, `visibility_current`, `player` | yes |
+| `country.hostile` | `country`, `other` | whether they are at war, or either is a rebel faction | yes |
+| `province.list` | | every province: `id`, `land`, `lake`, `impassable`, `visible`, `owner`, `controller` | yes |
+| `province.neighbors` | `province` | `province`, `strait` for each neighbor over land | yes |
+| `army.get` | `army` (the player's) | an army: `id`, `owner`, `province` (null for a fleet), `land`, `in_battle`, `sieging`, `retreating`, `exiled`, `movement_locked`, `attached`, `has_followers`, `busy`, `regiments`, `route_len`, `destination`, `route_source` (`none`, `external`, `extension`) | yes |
+| `army.list` | | the player's armies and fleets | yes |
+| `army.in_province` | `province` | the land armies the player sees there; `not_ready` while visibility is not current | yes |
+| `army.route` | `army` | the provinces still to go | yes |
+| `army.can_enter` | `army`, `province` | whether it may enter | yes |
+| `army.strait_open` | `army`, `from`, `to` | whether the strait is open to it | yes |
+| `army.can_attack` | `army`, `target`, `province` | whether it may attack the target there | yes |
+| `army.find_route` | `army`, `goal` | the route the game would choose | yes |
+| `army.move` | `army`, `goal` | null once the route is set; the player's order | yes |
+| `army.stop` | `army` | null once it has no route; the player's order | yes |
+| `army.selected` | | the army in the open army panel; `not_found` when there is none | yes |
+| `text.language` | | the player language's Paradox name | no |
+| `events` | `since`, `wait_ms` (both optional; at most 60000) | `events` (each with its `number` and `event`: `session` with `session`, `day` with `date`, `army_ordered` or `army_defeated` with `army`), `last`, `missed` | no |
+| `describe` | | every capability: `capability`, `about`, `in_game`, `args` (`name`, `kind`, `optional`, `about`), `result` | no |
+
+An error's `code` is `not_in_game`, `not_ready`, `not_found`, `rejected`, `invalid_argument`, `unavailable`, `internal`, or, for a transport that cannot read a request, `bad_request` (`request_from_json`; `response_json` writes a response as F3 sends it).
+
+Found in the game: returning to the main menu starts `eu4.exe` again. A remote client loses the pipe until the new process opens it, and event numbers start again from 1.
+
 ### F3 Named pipe
 
 The transport of ADR 0016: the pipe open to the current user only, several clients at once, JSON lines in and out, errors as `{"ok": false, "error": {"code": ..., "message": ...}}`.
@@ -151,7 +187,7 @@ Done when: in the game, `add_treasury 100` raises the treasury, and a command's 
 
 ### C5 Main menu
 
-Remote control only: list the saves, load a save, start a game as a country (at the default start date at least), return to the main menu. Back up saves first, as AGENTS.md says.
+Remote control only: list the saves, load a save, start a game as a country (at the default start date at least), return to the main menu. Back up saves first, as AGENTS.md says. Returning to the main menu starts `eu4.exe` again (F2, [research/safe-points.md](research/safe-points.md)), so its answer cannot come from the process that was asked.
 
 Done when: in the game, a remote client gets from the main menu into a loaded save and into a new game, and back out.
 
