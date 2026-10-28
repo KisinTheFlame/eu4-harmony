@@ -31,6 +31,7 @@ pub mod classes {
     /// A kind of regiment or ship (see [`super::unit_type`]); the placeholder
     /// for none, `---`, has a class of its own.
     pub const UNIT_TYPE: usize = 0x1ce3830;
+    pub const WAR: usize = 0x1d1f768;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -63,6 +64,9 @@ pub mod world {
     pub const PROVINCES: usize = 0x1ca8;
     /// Nonzero while there is fog of war, u8.
     pub const FOG: usize = 0x23a6;
+    /// The wars going on: pointers to [`super::war`]s, and their count (i32).
+    pub const WARS: usize = 0x1e30;
+    pub const WAR_COUNT: usize = 0x1e3c;
 }
 
 /// The country manager, at [`globals::COUNTRY_MANAGER`].
@@ -90,6 +94,39 @@ pub mod country {
     /// ship, light ship, galley, transport).
     pub const UNIT_TYPES: usize = 0xd48;
     pub const UNIT_KINDS: usize = 7;
+    /// Fixed-point numbers, i32 thousandths, as the game keeps its numbers:
+    /// the treasury in ducats, stability, prestige, and manpower and its
+    /// maximum in thousands of men (so in men).
+    pub const TREASURY: usize = 0xbb0;
+    pub const STABILITY: usize = 0xbd8;
+    pub const PRESTIGE: usize = 0xcf8;
+    pub const MANPOWER: usize = 0xdb8;
+    pub const MAX_MANPOWER: usize = 0xdbc;
+    /// Monarch points, an i32 each: administrative, diplomatic, military.
+    pub const POWER: usize = 0x260;
+    pub const POWER_DIP: usize = POWER + 4;
+    pub const POWER_MIL: usize = POWER + 8;
+    /// Its overlord's tag, not valid when it has none.
+    pub const OVERLORD: usize = 0x18f0;
+    /// Its allies, a [`super::list`] whose items are the allies' tags.
+    pub const ALLIES: usize = 0x19b8;
+    /// Its subjects' tags, a vector (begin, end).
+    pub const SUBJECTS: usize = 0x1a18;
+    /// The countries it rivals: the first of a chain of nodes, each with the
+    /// rival's tag at [`RIVAL_TAG`] and the next node at [`RIVAL_NEXT`].
+    pub const RIVALS: usize = 0x2248;
+    pub const RIVAL_TAG: usize = 0x10;
+    pub const RIVAL_NEXT: usize = 0x28;
+}
+
+/// A war going on, of [`classes::WAR`].
+pub mod war {
+    /// Its name, a `std::string` (`crate::game_string`).
+    pub const NAME: usize = 0x28;
+    /// The tags of its attackers and of its defenders, each a vector (begin,
+    /// end); the first of each side is the side's leader.
+    pub const ATTACKERS: usize = 0x48;
+    pub const DEFENDERS: usize = 0x78;
 }
 
 pub mod province {
@@ -326,6 +363,86 @@ pub fn points() -> Vec<Point> {
         .uses(&[countries::COUNT - countries::ARRAY, countries::LIST - countries::ARRAY, country::TAG]),
         Point::keep(0xb252eusize, "49 8b 89 48 15 00 00 4d 63 81 54 15 00 00 49 c1 e0 04 4c 03 c1", "country wars")
             .uses(&[country::HOSTILE, country::HOSTILE_COUNT, 4]),
+        // The country snapshot (docs/research/countries.md). The country
+        // writer in saves: each field, then its key's token.
+        Point::keep(
+            0x2df116usize,
+            "49 8d 97 f8 0c 00 00 48 8d 8d 00 11 00 00 e8 c7 65 db ff 4c 8b c0 ba a1 29 00 00 48 8b ce e8 a7 89 42 01 \
+             49 8d 97 d8 0b 00 00 48 8d 8d 10 11 00 00 e8 a4 65 db ff 4c 8b c0 ba 86 28 00 00 48 8b ce e8 84 89 42 01 \
+             49 8d 97 b0 0b 00 00 48 8d 8d 18 11 00 00 e8 81 65 db ff 4c 8b c0 ba 76 28 00 00",
+            "country prestige, stability and treasury",
+        )
+        .uses(&[country::PRESTIGE, country::STABILITY, country::TREASURY]),
+        Point::keep(
+            0x2e00a9usize,
+            "49 8d 97 b8 0d 00 00 48 8d 8d 00 11 00 00 e8 34 56 db ff 4c 8b c0 ba 3f 28 00 00 48 8b ce e8 14 7a 42 01 \
+             49 8d 97 bc 0d 00 00 48 8d 8d 10 11 00 00 e8 11 56 db ff 4c 8b c0 ba 73 29 00 00",
+            "country manpower",
+        )
+        .uses(&[country::MANPOWER, country::MAX_MANPOWER]),
+        Point::keep(0x2e0b23usize, "4d 8d 87 60 02 00 00 ba b2 2a 00 00", "country monarch points").uses(&[country::POWER]),
+        Point::keep(
+            0x2ddee6usize,
+            "49 8d 8f f0 18 00 00 e8 ce a6 db ff 84 c0 74 1c 49 8d 8f f0 18 00 00 e8 1e 70 db ff 4c 8b c0 ba b6 2c 00 00",
+            "country overlord",
+        )
+        .uses(&[country::OVERLORD]),
+        Point::keep(
+            0x2def0cusize,
+            "49 8d 97 18 1a 00 00 41 b8 db 2e 00 00 48 8b ce e8 9f 20 14 00 49 8d 97 b8 19 00 00 41 b8 9b 2e 00 00",
+            "country subjects and allies",
+        )
+        .uses(&[country::SUBJECTS, country::ALLIES]),
+        // The triggers on monarch points, one for each kind: the country by
+        // its tag, then its points of that kind.
+        Point::keep(
+            0xcb4197usize,
+            "48 8b 4f 48 48 8b 05 2e 97 68 01 48 c1 e9 20 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 14 c8 8b 8a 60 02 00 00",
+            "administrative points",
+        )
+        .uses(&[COUNTRY_MANAGER, tag::INDEX, countries::LIST, country::POWER]),
+        Point::keep(0xcb4c0dusize, "48 8b 05 bc 8c 68 01 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 34 c8 48 81 c6 64 02 00 00", "diplomatic points")
+            .uses(&[COUNTRY_MANAGER, countries::LIST, country::POWER_DIP]),
+        Point::keep(0xcb566dusize, "48 8b 05 5c 82 68 01 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 34 c8 48 81 c6 68 02 00 00", "military points")
+            .uses(&[COUNTRY_MANAGER, countries::LIST, country::POWER_MIL]),
+        // Walking a country's allies, as the AI does.
+        Point::keep(0x3a37a7usize, "48 8b bf b8 19 00 00 48 85 ff 0f 84 19 07 00 00 44 8b 45 d8 0f 1f 44 00 00 48 8b 0f 48 8b 7f 10", "country allies")
+            .uses(&[country::ALLIES, list::ITEM, list::NEXT]),
+        // A country's diplomacy cleared: no subjects, their storage kept.
+        Point::keep(0x2e2ca7usize, "48 8b 87 18 1a 00 00 48 89 87 20 1a 00 00", "country subjects").uses(&[country::SUBJECTS, country::SUBJECTS + 8]),
+        // The `is_rival` trigger walking the country's rivals.
+        Point::keep(
+            0xc848d6usize,
+            "48 8b 83 48 22 00 00 48 85 c0 74 aa 48 c1 ea 20 66 66 0f 1f 84 00 00 00 00 00 48 8b 48 10 48 c1 e9 20 66 3b ca 74 0b 48 8b 40 28",
+            "country rivals",
+        )
+        .uses(&[country::RIVALS, country::RIVAL_TAG, country::RIVAL_NEXT]),
+        // The wars going on, walked; a war made: its class, its name, its
+        // sides; the leaders of the sides, the first of each.
+        Point::keep(0x291997usize, "48 8b 05 da e4 0a 02 48 8b b8 30 1e 00 00 48 63 80 3c 1e 00 00", "wars").uses(&[WORLD, world::WARS, world::WAR_COUNT]),
+        Point::keep(
+            0xd856ceusize,
+            "48 8d 05 93 a0 f9 00 48 89 01 66 c7 41 10 00 00 33 f6 48 89 71 18 40 88 71 20 c7 41 24 f8 77 9c 02 48 89 71 28 48 89 71 38 \
+             48 c7 41 40 0f 00 00 00 40 88 71 28 48 89 71 48 48 89 71 50 48 89 71 58 48 89 71 60 48 89 71 68 48 89 71 70 48 89 71 78 \
+             48 89 b1 80 00 00 00 48 89 b1 88 00 00 00",
+            "war",
+        )
+        .uses(&[
+            classes::WAR,
+            war::NAME,
+            war::NAME + crate::game_string::SIZE,
+            war::NAME + crate::game_string::CAPACITY,
+            war::ATTACKERS,
+            war::ATTACKERS + 8,
+            war::DEFENDERS,
+            war::DEFENDERS + 8,
+        ]),
+        Point::keep(
+            0xd8950ausize,
+            "48 8b 41 48 48 8b fa 48 8b da 48 c1 ef 20 41 0f b6 e8 48 8b f1 48 8b 10 48 c1 ea 20 66 3b d7 0f 84 b1 01 00 00 48 8b 41 78",
+            "war leaders",
+        )
+        .uses(&[war::ATTACKERS, war::DEFENDERS]),
         // The fog of war refresh walks a country's units.
         Point::keep(
             0x827c59usize,
