@@ -345,6 +345,8 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
     };
     let result = if m.ptr(frontend).ok() != Some(m.at(gui_classes::MAIN_MENU)) {
         Err("unexpected main menu object".to_string())
+    } else if m.u32(frontend + gui_menu::PAGE).ok() != Some(0) {
+        Err("the main menu left its first page before the game could take it up".to_string())
     } else {
         match &action {
             Action::Load(path) => load_now(m, frontend, path),
