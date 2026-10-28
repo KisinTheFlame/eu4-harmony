@@ -176,6 +176,7 @@ pub fn points() -> Vec<Point> {
     points.extend(orders::points());
     points.extend(events::points());
     points.extend(camera::points());
+    points.extend(provinces::points());
     points
 }
 

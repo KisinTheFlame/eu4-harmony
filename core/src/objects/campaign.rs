@@ -28,6 +28,9 @@ pub mod classes {
     pub const IDLE_TASK: usize = 0x1d1e800;
     /// The movement commands the command dispatcher receives.
     pub const MOVE_COMMANDS: [usize; 2] = [0x1d1d3f8, 0x1d1da88];
+    /// A kind of regiment or ship (see [`super::unit_type`]); the placeholder
+    /// for none, `---`, has a class of its own.
+    pub const UNIT_TYPE: usize = 0x1ce3830;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -82,6 +85,11 @@ pub mod country {
     pub const HOSTILE: usize = 0x1548;
     pub const HOSTILE_COUNT: usize = 0x1554;
     pub const HOSTILE_SIZE: usize = 16;
+    /// The regiments and ships it recruits now: [`UNIT_KINDS`] pointers to
+    /// [`super::unit_type`]s, by kind (infantry, cavalry, artillery, heavy
+    /// ship, light ship, galley, transport).
+    pub const UNIT_TYPES: usize = 0xd48;
+    pub const UNIT_KINDS: usize = 7;
 }
 
 pub mod province {
@@ -101,6 +109,25 @@ pub mod province {
     pub const HIDDEN_BIT: u8 = 2;
     pub const FOGGED: usize = 0x959;
     pub const FOGGED_BIT: u8 = 0x20;
+    /// Its base tax, production and manpower, i32 in thousandths. The game's
+    /// own getters add a native country's tribal development to its capital
+    /// (docs/research/provinces.md).
+    pub const BASE_MANPOWER: usize = 0x3e0;
+    pub const BASE_TAX: usize = 0x3e4;
+    pub const BASE_PRODUCTION: usize = 0x3e8;
+    /// Its buildings: a vector (begin, end) of [`BUILDING_SLOT`]-byte slots,
+    /// one per kind of building by its [`super::building::INDEX`], each
+    /// holding the building there (the placeholder, index 0, where there is
+    /// none) and the tag of who built it.
+    pub const BUILDINGS: usize = 0x3b0;
+    pub const BUILDING_SLOT: usize = 0x10;
+    /// Its fort's state, u8 ([`MOTHBALLED`] when mothballed), and its fort
+    /// levels (i32): [`FORT_LEVEL`], and [`FORT_LEVEL_MOTHBALLED`], what is
+    /// left of it while mothballed (a capital's own).
+    pub const MOTHBALL: usize = 0x8f4;
+    pub const MOTHBALLED: u8 = 2;
+    pub const FORT_LEVEL_MOTHBALLED: usize = 0x2ddc;
+    pub const FORT_LEVEL: usize = 0x2de0;
 }
 
 /// A province's map data, at [`province::GEOMETRY`].
@@ -116,6 +143,36 @@ pub mod geometry {
     /// The impassable bit, u8.
     pub const CLIMATE: usize = 0x229;
     pub const IMPASSABLE: u8 = 8;
+    /// The province's name, a `std::string` of game text: the localised
+    /// `PROV<id>`, or what it was renamed to.
+    pub const NAME: usize = 0x10;
+    /// Its terrain (see [`super::terrain`]), such as farmlands: not the land
+    /// and lake bits of [`TERRAIN`].
+    pub const TERRAIN_TYPE: usize = 0x30;
+}
+
+/// A kind of terrain, one of the map's [`map::TERRAINS`].
+pub mod terrain {
+    /// Its key as in map/terrain.txt (`farmlands`), a `std::string`.
+    pub const NAME: usize = 0x118;
+}
+
+/// A kind of building.
+pub mod building {
+    /// Its index in the building database, i32; 0 for the placeholder that
+    /// stands for none.
+    pub const INDEX: usize = 0x14;
+    /// Its key as in common/buildings (`marketplace`), a `std::string`.
+    pub const NAME: usize = 0x28;
+}
+
+/// A kind of regiment or ship, of class [`classes::UNIT_TYPE`].
+pub mod unit_type {
+    /// Which of a country's [`super::country::UNIT_KINDS`] it is, i32.
+    pub const KIND: usize = 0x10;
+    /// Its key as in common/units (`western_medieval_infantry`), a
+    /// `std::string`.
+    pub const NAME: usize = 0x60;
 }
 
 /// A connection to a neighbor, [`SIZE`] bytes: the neighbor's ID, the
@@ -138,6 +195,9 @@ pub mod map {
     /// The provinces: a vector (begin, end) of [`super::province::SIZE`]-byte
     /// records, the same the world's [`super::world::PROVINCES`] points to.
     pub const PROVINCES: usize = 0x6f0;
+    /// The kinds of terrain: a vector (begin, end) of pointers to
+    /// [`super::terrain`]s.
+    pub const TERRAINS: usize = 0x758;
 }
 
 /// An army or a fleet.
@@ -396,5 +456,46 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x8032deusize, "48 8d 05 7b 51 4b 01 48 89 06", "map manager class").uses(&[classes::MAP_MANAGER]),
         Point::keep(0xe5180usize, "48 8d 05 71 82 c3 01", "move command class").uses(&[classes::MOVE_COMMANDS[0]]),
         Point::keep(0xd4c3ausize, "48 8d 05 47 8e c4 01", "move command class").uses(&[classes::MOVE_COMMANDS[1]]),
+        // A province's snapshot (docs/research/provinces.md). The province
+        // writer in saves: its name.
+        Point::keep(0x9d6fb0usize, "49 8b 5f 28 48 83 c3 10", "province name").uses(&[province::GEOMETRY, geometry::NAME]),
+        // The has_terrain trigger compares the province's terrain; the
+        // map finds a terrain by its key among its terrains.
+        Point::keep(0xcd915eusize, "48 8b 54 0a 28 48 8b 47 68 48 39 42 30", "province terrain").uses(&[province::GEOMETRY, geometry::TERRAIN_TYPE]),
+        Point::keep(0x88a10ausize, "4c 8b b1 58 07 00 00 33 db 48 8b a9 60 07 00 00", "map terrains").uses(&[map::TERRAINS, map::TERRAINS + 8]),
+        Point::keep(0x88a139usize, "48 81 c1 18 01 00 00", "terrain name").uses(&[terrain::NAME]),
+        // The fort's defense: the level left while mothballed, or the
+        // level.
+        Point::keep(0xa0e890usize, "80 b9 f4 08 00 00 02 75 08 8b 81 dc 2d 00 00 eb 06 8b 81 e0 2d 00 00", "province fort level")
+            .uses(&[province::MOTHBALL, province::MOTHBALLED as usize, province::FORT_LEVEL_MOTHBALLED, province::FORT_LEVEL]),
+        // Whether a province has a building: the slot at the building's
+        // index holds a building whose index is not 0.
+        Point::keep(
+            0x26a3dfusize,
+            "4c 8b 8c 0a b0 03 00 00 48 8b 84 0a b8 03 00 00 49 2b c1 48 c1 f8 04 44 3b c0 7d 13 41 8b c0 48 03 c0 49 8b 04 c1 83 78 14 00",
+            "province buildings",
+        )
+        .uses(&[province::BUILDINGS, province::BUILDINGS + 8, building::INDEX]),
+        // The building database finds a building by its key.
+        Point::keep(0x1e5ea0usize, "48 8b 33 48 8b d7 48 8d 4e 28", "building name").uses(&[building::NAME]),
+        // The country writer in saves: each kind's unit type by its key,
+        // for the seven kinds, in the order of the kinds' tokens.
+        Point::keep(
+            0x2e0191usize,
+            "8b d7 49 8d 8f 48 0d 00 00 e8 81 de e3 ff 48 8b 08 e8 99 79 f8 ff 4c 8b c0 45 33 c9 41 8b d5 48 8b ce e8 08 7f 42 01 ff c7 83 ff 07",
+            "country unit types",
+        )
+        .uses(&[country::UNIT_TYPES, country::UNIT_KINDS]),
+        Point::keep(0x267b40usize, "48 8d 41 60 c3", "unit type name").uses(&[unit_type::NAME]),
+        // infantry, cavalry, artillery, heavy_ship (these four in data),
+        // light_ship, galley, transport.
+        Point::keep(0x1dc2380usize, "81 27 00 00 80 27 00 00 82 27 00 00 84 27 00 00", "unit kind tokens"),
+        Point::keep(
+            0x2c7341usize,
+            "66 0f 6f 05 37 b0 af 01 48 8d 0d 8c 39 19 02 f3 0f 7f 05 88 39 19 02 c7 05 8e 39 19 02 85 27 00 00 \
+             c7 05 88 39 19 02 87 27 00 00 c7 05 82 39 19 02 86 27 00 00",
+            "unit kind tokens",
+        ),
+        Point::keep(0xad8c5eusize, "48 8d 05 cb ab 20 01 48 89 01", "unit type class").uses(&[classes::UNIT_TYPE]),
     ]
 }
