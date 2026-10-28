@@ -57,7 +57,7 @@ CI (`.github/workflows/ci.yml`) runs the build and the tests on Windows for ever
 Work planned as a DAG of nodes (such as [docs/remote-control.md](docs/remote-control.md)) is developed with the `dag-dev` skill:
 
 - The requirement branch (such as `remote-control`) is checked out in its own worktree, `.claude/worktrees/<requirement>`; the main checkout stays on `master`.
-- A node is developed on `<requirement>/<node>`, in `.claude/worktrees/<requirement>-<node>`, cut from the requirement branch as it is when the node starts. `dev-install.ps1` installs the build of the worktree it is run from.
+- A node is developed on the branch `<requirement>-<node>` (git cannot keep `<requirement>/<node>` beside the branch `<requirement>`), in `.claude/worktrees/<requirement>-<node>`, cut from the requirement branch as it is when the node starts. `dev-install.ps1` installs the build of the worktree it is run from.
 - A node is done when it meets its plan's "done when" list; a reviewer then checks it, and it is merged into the requirement branch with `git merge --no-ff`, one node at a time. After the merge, its worktree and branch are deleted.
 - When a node finds that the plan cannot work as written, it changes the plan, says so in its report, and carries on; a changed decision still gets a new ADR.
 
