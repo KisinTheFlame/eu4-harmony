@@ -1,6 +1,6 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, provinces, screenshot, session, texts};
+use super::{armies, camera, console, countries, provinces, screenshot, session, texts, time};
 use crate::game::{self, fail, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
 use std::sync::Arc;
@@ -42,6 +42,8 @@ pub struct Fake {
     /// The screenshot asked for, taken or not; a 2x1 image taken at once
     /// when None.
     pub shot: Option<Arc<game::screenshot::Shot>>,
+    /// The clock the time capabilities read and set.
+    pub clock: Clock,
 }
 
 impl Fake {
@@ -334,5 +336,48 @@ impl console::Layer for Fake {
             "cash 100" => Ok("Gold changed by 100".into()),
             _ => fail(Status::Rejected, "Unknown command"),
         }
+    }
+}
+
+/// The game's clock, as the time capabilities see it: time passes when a test
+/// changes it. It starts at 1444.11.11, paused, at speed 2.
+pub struct Clock {
+    pub time: game::time::Time,
+}
+
+impl Default for Clock {
+    fn default() -> Self {
+        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player };
+        Self { time }
+    }
+}
+
+impl time::Layer for Fake {
+    fn time(&mut self) -> GResult<game::time::Time> {
+        self.call("time".into());
+        Ok(self.clock.time)
+    }
+
+    fn pause(&mut self) -> GResult<()> {
+        self.call("pause".into());
+        if !self.clock.time.paused() {
+            self.clock.time.pause = game::time::Pause::Player;
+        }
+        Ok(())
+    }
+
+    fn resume(&mut self) -> GResult<()> {
+        self.call("resume".into());
+        self.clock.time.pause = game::time::Pause::Running;
+        Ok(())
+    }
+
+    fn set_speed(&mut self, speed: u32) -> GResult<()> {
+        self.call(format!("speed {speed}"));
+        if !game::time::SPEEDS.contains(&speed) {
+            return fail(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}"));
+        }
+        self.clock.time.speed = speed;
+        Ok(())
     }
 }

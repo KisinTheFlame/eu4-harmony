@@ -26,6 +26,7 @@ pub mod session;
 #[cfg(test)]
 mod tests;
 pub mod texts;
+pub mod time;
 
 use crate::game;
 use eu4_harmony_remote::{Answer, Code, CountryTag, Error, Request, Response};
@@ -43,8 +44,8 @@ use std::{
 pub const BUDGET: Duration = Duration::from_millis(5);
 
 /// The capability layer, as remote control sees it: every group's slice.
-pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer {}
-impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + ?Sized> Game for T {}
+pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer {}
+impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + ?Sized> Game for T {}
 
 /// The capability layer itself, called as remote control.
 pub struct Live;
@@ -277,6 +278,7 @@ impl Engine {
             }
         }
     }
+
 }
 
 /// Runs one request, group by group.
@@ -284,6 +286,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
     let done = |response: Response| Outcome::Done(response);
     match request {
         Request::Session(r) => done(session::run(r, game).map(Answer::Session)),
+        Request::Time(r) => done(time::run(r, game).map(Answer::Time)),
         Request::Country(r) => done(countries::run(r, game).map(Answer::Country)),
         Request::Province(r) => done(provinces::run(r, game).map(Answer::Province)),
         Request::Army(r) => done(armies::run(r, game).map(Answer::Army)),
@@ -351,3 +354,4 @@ pub(crate) fn run_in_game(frame: &game::Frame) {
 pub(crate) fn run_outside(why: Option<game::Fail>) {
     ENGINE.run(&mut Live, &Place::Outside(why.map(Error::from)), BUDGET);
 }
+

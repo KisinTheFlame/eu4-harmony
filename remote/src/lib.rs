@@ -184,6 +184,8 @@ macro_rules! groups {
 groups! {
     /// The campaign being played.
     Session(session::SessionRequest, SessionAnswer),
+    /// Time: the date, pausing and resuming, and the speed.
+    Time(time::TimeRequest, TimeAnswer),
     /// Countries.
     Country(countries::CountryRequest, CountryAnswer),
     /// Provinces and their neighbors.
