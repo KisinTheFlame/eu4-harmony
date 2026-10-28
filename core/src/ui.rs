@@ -362,7 +362,7 @@ extern "C" fn menu_after(frame: *mut HookFrame) {
         if frame.fault != 0 || crate::thread_id() != crate::main_thread() {
             return;
         }
-        crate::safe_point::main_menu_frame();
+        crate::safe_point::main_menu_frame(frame.args[0]);
         crate::unicode::log_once();
         match main_menu_page(&m, frame.args[0]) {
             Ok(true) => crate::framework_ui::main_menu_frame(),

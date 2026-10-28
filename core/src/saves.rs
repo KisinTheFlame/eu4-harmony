@@ -177,6 +177,8 @@ struct Context {
 }
 static CONTEXT: OnceLock<Context> = OnceLock::new();
 static LOAD_DEPTH: AtomicUsize = AtomicUsize::new(0);
+/// How many loads the game said it finished.
+static LOADED_SAVES: AtomicUsize = AtomicUsize::new(0);
 
 /// Data loaded with the last save, waiting for the session that loaded it.
 static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
@@ -185,6 +187,11 @@ static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
 
 pub fn load_in_progress() -> bool {
     LOAD_DEPTH.load(Ordering::SeqCst) != 0
+}
+
+/// How many saves the game has loaded so far, by its own account.
+pub fn loads() -> usize {
+    LOADED_SAVES.load(Ordering::SeqCst)
 }
 
 /// Data the last load brought along, if the session has not taken it yet.
@@ -486,6 +493,9 @@ extern "C" fn load_after(f: *mut HookFrame) {
     after(f, |h, r| {
         let Record::Load(txn) = r else { return Ok(()) };
         let c = context()?;
+        if h.result == txn.success && c.memory.u8(txn.success).ok() == Some(1) {
+            LOADED_SAVES.fetch_add(1, Ordering::SeqCst);
+        }
         if let Some(e) = txn.error {
             return Err(format!("loaded save not identified: {e}"));
         }

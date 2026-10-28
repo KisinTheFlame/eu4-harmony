@@ -210,6 +210,9 @@ groups! {
     Camera(camera::CameraRequest, CameraAnswer),
     /// Recruiting regiments and ships.
     Recruit(recruiting::RecruitRequest, RecruitAnswer),
+    /// The main menu: where the game is, the saves, loading one, starting a
+    /// game and returning to the main menu.
+    Menu(menu::MenuRequest, MenuAnswer),
 }
 
 pub mod binary;

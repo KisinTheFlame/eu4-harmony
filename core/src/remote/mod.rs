@@ -10,11 +10,10 @@
 //! A request that needs a game belongs to the session it was sent in: one
 //! still queued when that session ends (a save loads, another game starts)
 //! is answered `session_changed` instead of acting on a campaign its client
-//! never saw.
-//!
-//! Every answer that numbers sessions or events says which process gave it
-//! ([`process`]): returning to the main menu starts the game again, and the
-//! numbers start again with it.
+//! never saw. Every answer that numbers sessions or events says which
+//! process gave it ([`process`]): returning to the main menu starts the game
+//! again, and the numbers start again with it. That return ends this
+//! process's engine ([`Outcome::Ends`]): from then on it answers at once.
 //!
 //! One file per group of capabilities, as in the capability layer: each has
 //! the group's slice of the layer as a trait ([`Game`] is all of them), the
@@ -29,6 +28,7 @@ pub mod describe;
 pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod menu;
 pub mod offers;
 pub mod provinces;
 pub mod questions;
@@ -56,8 +56,8 @@ use std::{
 pub const BUDGET: Duration = Duration::from_millis(5);
 
 /// The capability layer, as remote control sees it: every group's slice.
-pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer {}
-impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + ?Sized> Game for T {}
+pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer {}
+impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer + ?Sized> Game for T {}
 
 /// The capability layer itself, called as remote control.
 pub struct Live;
@@ -119,6 +119,10 @@ pub enum Outcome {
     Done(Response),
     /// The answer comes at a later safe point.
     Later(Box<dyn Wait>),
+    /// Answered, and this process ends (returning to the main menu starts
+    /// the game again): every request from then on, and every one queued or
+    /// waiting, is answered the error at once.
+    Ends(Response, Error),
 }
 
 /// A request that waits: asked at every safe point until it answers.
@@ -204,6 +208,13 @@ struct Queued {
     session: u64,
 }
 
+/// The requests waiting to run, and, once the process ends, what every
+/// request is answered.
+struct Queue {
+    requests: VecDeque<Queued>,
+    ending: Option<Error>,
+}
+
 /// A request that ran and waits to answer.
 struct Waiting {
     number: u64,
@@ -221,7 +232,7 @@ struct Running {
 
 /// The engine: a queue any thread adds to, and what runs at safe points.
 pub struct Engine {
-    queue: Mutex<VecDeque<Queued>>,
+    queue: Mutex<Queue>,
     running: Mutex<Running>,
     next: AtomicU64,
     /// The session of the last game frame; 0 when the campaign changed
@@ -234,7 +245,7 @@ impl Engine {
     /// An engine writing its log lines to `log`.
     pub const fn new(log: fn(&str)) -> Self {
         Self {
-            queue: Mutex::new(VecDeque::new()),
+            queue: Mutex::new(Queue { requests: VecDeque::new(), ending: None }),
             running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new() }),
             next: AtomicU64::new(1),
             session: AtomicU64::new(0),
@@ -242,12 +253,24 @@ impl Engine {
         }
     }
 
-    /// Queues a request, from any thread.
+    fn queue(&self) -> std::sync::MutexGuard<'_, Queue> {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Queues a request, from any thread; once the process ends, answers it
+    /// at once.
     pub fn submit(&self, request: Request) -> Reply {
         let slot = Arc::new(Slot::default());
         let number = self.next.fetch_add(1, Ordering::Relaxed);
-        let session = self.session.load(Ordering::Relaxed);
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(Queued { number, request, slot: slot.clone(), session });
+        let q = Queued { number, request, slot: slot.clone(), session: self.session.load(Ordering::Relaxed) };
+        let mut queue = self.queue();
+        match queue.ending.clone() {
+            Some(error) => {
+                drop(queue);
+                self.answer(&q, Err(error), Duration::ZERO);
+            }
+            None => queue.requests.push_back(q),
+        }
         Reply(slot)
     }
 
@@ -279,7 +302,7 @@ impl Engine {
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         let running = &mut *running;
         self.poll(running, game, place);
-        let mut queued = std::mem::take(&mut *self.queue.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut queued = std::mem::take(&mut self.queue().requests);
         let mut kept = VecDeque::new();
         let mut ran = false;
         let session = self.session.load(Ordering::Relaxed);
@@ -312,15 +335,20 @@ impl Engine {
                 break;
             }
             ran = true;
-            self.start(running, game, q);
+            if let Some(why) = self.start(running, game, q) {
+                kept.append(&mut queued);
+                return self.end(running, why, kept);
+            }
         }
-        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        let mut queue = self.queue();
         while let Some(q) = kept.pop_back() {
-            queue.push_front(q);
+            queue.requests.push_front(q);
         }
     }
 
-    fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued) {
+    /// Runs a request; what every request is answered from now on, when
+    /// this process ends.
+    fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued) -> Option<Error> {
         let started = Instant::now();
         match dispatch(q.request.clone(), game, &running.events) {
             Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
@@ -328,6 +356,28 @@ impl Engine {
                 (self.log)(&format!("remote #{} {}: answers later", q.number, json(&q.request)));
                 running.waiting.push(Waiting { number: q.number, name: q.request.name(), started, slot: q.slot, wait });
             }
+            Outcome::Ends(response, why) => {
+                self.answer(&q, response, started.elapsed());
+                return Some(why);
+            }
+        }
+        None
+    }
+
+    /// This process ends: answers `why` to the requests `left` to run, to
+    /// those queued and waiting, and to every one sent from now on.
+    fn end(&self, running: &mut Running, why: Error, left: VecDeque<Queued>) {
+        let mut queue = self.queue();
+        queue.ending = Some(why.clone());
+        let left: Vec<Queued> = left.into_iter().chain(queue.requests.drain(..)).collect();
+        drop(queue);
+        (self.log)(&format!("remote: this process ends; every request is answered {why}"));
+        for q in &left {
+            self.answer(q, Err(why.clone()), Duration::ZERO);
+        }
+        for w in running.waiting.drain(..) {
+            (self.log)(&format!("remote #{} {}: {why}, while it waited", w.number, w.name));
+            w.slot.answer(Err(why.clone()));
         }
     }
 
@@ -407,6 +457,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
         Request::Describe(r) => done(Ok(Answer::Describe(describe::run(r)))),
         Request::Camera(r) => done(camera::run(r, game).map(Answer::Camera)),
         Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
+        Request::Menu(r) => menu::run(r, game),
     }
 }
 

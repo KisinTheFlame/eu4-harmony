@@ -1,9 +1,9 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, offers, provinces, questions, recruiting, screenshot, session, texts, time};
-use crate::game::{self, fail, GResult, Status, Tag};
+use super::{armies, camera, console, countries, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time};
+use crate::game::{self, fail, menu::Launch, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// A tag as the game keeps it: the letters, the index, kind 0, valid.
@@ -46,6 +46,8 @@ pub struct Fake {
     pub clock: Clock,
     /// The questions and offers answered.
     pub answered: Vec<(u32, u32)>,
+    /// What came of the last load or start, as the game would say.
+    pub launch: Arc<Mutex<Launch>>,
 }
 
 impl Fake {
@@ -271,6 +273,41 @@ impl armies::Layer for Fake {
     fn selected(&mut self) -> GResult<u64> {
         self.call("selected".into());
         fail(Status::NotFound, "army panel not open")
+    }
+}
+
+impl menu::Layer for Fake {
+    fn place(&mut self) -> GResult<game::menu::Place> {
+        self.call("place".into());
+        Ok(game::menu::Place::Game)
+    }
+
+    fn saves(&mut self) -> GResult<Vec<game::menu::Save>> {
+        self.call("saves".into());
+        Ok(vec![game::menu::Save { name: "奥斯曼1444_11_11".into(), file: "奥斯曼1444_11_11.eu4".into(), bytes: 3_266_935, modified: 1_761_700_000 }])
+    }
+
+    fn load(&mut self, save: &str) -> GResult<()> {
+        self.call(format!("load {save}"));
+        match save {
+            "missing" => fail(Status::NotFound, "no save \"missing\" in the save games folder"),
+            _ => Ok(()),
+        }
+    }
+
+    fn start(&mut self, country: CountryTag) -> GResult<()> {
+        self.call(format!("start {country}"));
+        Ok(())
+    }
+
+    fn launch(&mut self) -> Box<dyn FnMut() -> Launch + Send> {
+        let launch = self.launch.clone();
+        Box::new(move || launch.lock().unwrap().clone())
+    }
+
+    fn return_to_main_menu(&mut self) -> GResult<()> {
+        self.call("return".into());
+        Ok(())
     }
 }
 
