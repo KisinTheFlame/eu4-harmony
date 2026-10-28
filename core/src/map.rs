@@ -4,9 +4,10 @@
 //! Ported from eu4-regional-combat's range preview
 //! (docs/research/regional-combat/native-range-preview-findings.txt).
 use crate::{
-    game::{self, fail, GResult, MAP, MAP_MANAGER_VT, PROVINCE_STRIDE},
+    game::{self, fail, GResult},
     hooks::HookFrame,
     memory::Memory,
+    objects::campaign::{globals, map, map_manager, province},
     points::Point,
     Result,
 };
@@ -110,11 +111,11 @@ extern "C" fn secondary_after(frame: *mut HookFrame) {
             if fill.option != frame.args[1] as u32 || fill.data.checked_add(fill.capacity * 4) != Some(frame.args[0]) {
                 return Err("secondary buffer does not follow the fill buffer".into());
             }
-            let map = m.ptr(m.at(MAP))?;
-            let first = m.ptr(map + 0x6f0)?;
-            let end = m.ptr(map + 0x6f8)?;
+            let map = m.ptr(m.at(globals::MAP))?;
+            let first = m.ptr(map + map::PROVINCES)?;
+            let end = m.ptr(map + map::PROVINCES + 8)?;
             let bytes = end.checked_sub(first).ok_or("reversed province vector")?;
-            if first == 0 || bytes % PROVINCE_STRIDE != 0 || bytes / PROVINCE_STRIDE > fill.capacity {
+            if first == 0 || bytes % province::SIZE != 0 || bytes / province::SIZE > fill.capacity {
                 return Err("province vector exceeds color capacity".into());
             }
             if let Some(t) = s.ticket.as_mut() {
@@ -125,9 +126,9 @@ extern "C" fn secondary_after(frame: *mut HookFrame) {
             if fill.mode != PAINT_MODE || fill.option != PAINT_OPTION || s.colors.is_empty() {
                 return Ok(());
             }
-            let count = bytes / PROVINCE_STRIDE;
+            let count = bytes / province::SIZE;
             for (&id, color) in &s.colors {
-                if id as usize >= count || m.i32(first + id as usize * PROVINCE_STRIDE + 0x20)? != id as i32 {
+                if id as usize >= count || m.i32(first + id as usize * province::SIZE + province::ID)? != id as i32 {
                     return Err(format!("province {id} not in the color vector"));
                 }
                 m.write(frame.args[0] + id as usize * 4, color)?;
@@ -171,8 +172,8 @@ pub fn points() -> Vec<Point> {
 }
 
 fn manager(m: &Memory, ctx: &game::Ctx) -> GResult<usize> {
-    let object = m.ptr(ctx.world + 0x1e00)?;
-    if m.ptr(object)? != m.at(MAP_MANAGER_VT) || m.vslot(object, 0xc8)? != m.at(REFRESH) {
+    let object = game::map_manager(m, ctx)?;
+    if m.vslot(object, map_manager::REFRESH)? != m.at(REFRESH) {
         return Err("unexpected map manager".to_string().into());
     }
     Ok(object)
@@ -184,7 +185,7 @@ fn refresh(m: &Memory, manager: usize, mode: i32, require_color: bool) -> GResul
     let call = m.call(m.at(REFRESH), &[manager, mode as usize, 0, 1]);
     let ticket = with_state(|s| s.ticket.take()).unwrap_or_default();
     call?;
-    if m.i32(manager + 0x2c)? != mode || !ticket.validated || !ticket.rendered || (require_color && !ticket.applied) || ticket.error.is_some() {
+    if m.i32(manager + map_manager::MODE)? != mode || !ticket.validated || !ticket.rendered || (require_color && !ticket.applied) || ticket.error.is_some() {
         return Err(format!(
             "map refresh not confirmed: validated={} rendered={} applied={} error={:?}",
             ticket.validated, ticket.rendered, ticket.applied, ticket.error
@@ -206,7 +207,7 @@ pub fn paint(m: &Memory, ctx: &game::Ctx, extension: usize, colors: &[abi::MapCo
                 return Err("map manager changed during coloring".to_string().into());
             }
         } else {
-            let mode = m.i32(manager + 0x2c)?;
+            let mode = m.i32(manager + map_manager::MODE)?;
             if !(0..=0x4c).contains(&mode) {
                 return Err(format!("unexpected map mode {mode}").into());
             }
@@ -261,7 +262,7 @@ pub fn reset_session(m: &Memory, ctx: &game::Ctx) {
     });
     if let Some((old, old_mode)) = saved {
         if let Ok(current) = manager(m, ctx) {
-            let current_mode = m.i32(current + 0x2c).unwrap_or(-1);
+            let current_mode = m.i32(current + map_manager::MODE).unwrap_or(-1);
             let target = if current == old && current_mode == PAINT_MODE { old_mode } else { current_mode };
             if (0..=0x4c).contains(&target) {
                 if let Err(e) = refresh(m, current, target, false) {

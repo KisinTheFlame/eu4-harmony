@@ -27,6 +27,7 @@ pub mod map;
 pub mod memory;
 pub mod mods;
 pub mod notice;
+pub mod objects;
 pub mod paths;
 pub mod pdx;
 pub mod physfs;
@@ -94,6 +95,7 @@ pub(crate) fn fatal(detail: &str) -> ! {
 /// Every dependency point, in one declaration list.
 pub(crate) fn points() -> Vec<points::Point> {
     let mut all = physfs::points();
+    all.extend(objects::points());
     all.extend(game::points());
     all.extend(ui::points());
     all.extend(map::points());

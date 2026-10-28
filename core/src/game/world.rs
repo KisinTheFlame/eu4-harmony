@@ -1,7 +1,11 @@
 //! Reading provinces, armies and countries. Visibility rules follow the game:
 //! units in fogged provinces are never read.
-use super::{context, country, fail, special_countries, span, Ctx, GResult, Tag, ARMY_VT, FLEET_VT, MAP, MAX_PROVINCES, MAX_UNITS, PROVINCE_STRIDE};
-use crate::{memory::Memory, points::Point};
+use super::{context, country, fail, special_countries, span, Ctx, GResult, Tag, MAX_PROVINCES, MAX_UNITS};
+use crate::{
+    memory::Memory,
+    objects::campaign::{adjacency, classes, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world},
+    points::Point,
+};
 use eu4_harmony_abi as abi;
 use std::collections::BTreeSet;
 
@@ -64,52 +68,54 @@ pub struct Geography {
 fn le_u32(bytes: &[u8], offset: usize) -> GResult<u32> {
     Ok(u32::from_le_bytes(bytes.get(offset..offset + 4).ok_or_else(|| "truncated read".to_string())?.try_into().unwrap()))
 }
-fn le_u64(bytes: &[u8], offset: usize) -> GResult<u64> {
-    Ok(u64::from_le_bytes(bytes.get(offset..offset + 8).ok_or_else(|| "truncated read".to_string())?.try_into().unwrap()))
-}
 
 fn decode_edges(bytes: &[u8], id: usize, total: usize, address: usize) -> GResult<Vec<Edge>> {
-    if bytes.len() % 0x24 != 0 || bytes.len() / 0x24 > total {
+    if bytes.len() % adjacency::SIZE != 0 || bytes.len() / adjacency::SIZE > total {
         return Err("adjacency vector bound".to_string().into());
     }
-    let mut edges = Vec::with_capacity(bytes.len() / 0x24);
-    for (j, record) in bytes.chunks_exact(0x24).enumerate() {
-        let to = le_u32(record, 0)? as i32;
-        let from = le_u32(record, 4)? as i32;
-        let kind = le_u32(record, 0x1c)? as i32;
-        if from != id as i32 || to < 0 || to as usize >= total || to == from || !(0..=4).contains(&kind) {
+    let mut edges = Vec::with_capacity(bytes.len() / adjacency::SIZE);
+    for (j, record) in bytes.chunks_exact(adjacency::SIZE).enumerate() {
+        let to = le_u32(record, adjacency::TO)? as i32;
+        let from = le_u32(record, adjacency::FROM)? as i32;
+        let kind = le_u32(record, adjacency::KIND)? as i32;
+        if from != id as i32 || to < 0 || to as usize >= total || to == from || !(adjacency::LAND..=adjacency::CANAL).contains(&kind) {
             return Err("invalid adjacency record".to_string().into());
         }
-        edges.push(Edge { to: to as u32, through: le_u32(record, 8)? as i32, kind, address: address + j * 0x24 });
+        let through = le_u32(record, adjacency::THROUGH)? as i32;
+        edges.push(Edge { to: to as u32, through, kind, address: address + j * adjacency::SIZE });
     }
     Ok(edges)
 }
 
+/// A connection a land army can take: plain, across a strait or over a river.
+fn by_land(kind: i32) -> bool {
+    (adjacency::LAND..=adjacency::RIVER).contains(&kind)
+}
+
 fn read_node(m: &Memory, first: usize, id: usize, count: usize) -> GResult<Node> {
-    let address = first + id * PROVINCE_STRIDE;
-    let header = m.bytes(address + 0x20, 0x10)?;
-    if le_u32(&header, 0)? != id as u32 {
+    let address = first + id * province::SIZE;
+    if m.u32(address + province::ID)? != id as u32 {
         return Err("province ID does not match its index".to_string().into());
     }
-    let geometry = le_u64(&header, 8)? as usize;
+    let geometry = m.ptr(address + province::GEOMETRY)?;
     if geometry == 0 {
         return Err("province without geometry".to_string().into());
     }
-    let fields = m.bytes(geometry + 0x150, 0xe0)?;
-    if le_u32(&fields, 0)? != id as u32 {
+    if m.u32(geometry + geometry::ID)? != id as u32 {
         return Err("geometry ID mismatch".to_string().into());
     }
-    let adjacent = le_u64(&fields, 0x18)? as usize;
-    let adjacent_end = le_u64(&fields, 0x20)? as usize;
+    let adjacent = m.ptr(geometry + geometry::ADJACENT)?;
+    let adjacent_end = m.ptr(geometry + geometry::ADJACENT + 8)?;
     let bytes = adjacent_end.checked_sub(adjacent).ok_or_else(|| "reversed adjacency".to_string())?;
     let edges = if bytes == 0 { Vec::new() } else { decode_edges(&m.bytes(adjacent, bytes)?, id, count, adjacent)? };
+    let terrain = m.u8(geometry + geometry::TERRAIN)?;
     Ok(Node {
         id: id as u32,
         address,
         geometry,
-        land: fields[0xd8] & 8 != 0,
-        lake: fields[0xd8] & 0x10 != 0,
-        impassable: fields[0xd9] & 8 != 0,
+        land: terrain & geometry::LAND != 0,
+        lake: terrain & geometry::LAKE != 0,
+        impassable: m.u8(geometry + geometry::CLIMATE)? & geometry::IMPASSABLE != 0,
         adjacent,
         adjacent_end,
         edges,
@@ -119,7 +125,7 @@ fn read_node(m: &Memory, first: usize, id: usize, count: usize) -> GResult<Node>
 /// Re-reads a cached node's identity and adjacency so a changed map is never
 /// served from the cache.
 fn validate_node(m: &Memory, n: &Node, count: usize) -> GResult<()> {
-    let fresh = read_node(m, n.address - n.id as usize * PROVINCE_STRIDE, n.id as usize, count)?;
+    let fresh = read_node(m, n.address - n.id as usize * province::SIZE, n.id as usize, count)?;
     if fresh.geometry != n.geometry
         || fresh.adjacent != n.adjacent
         || fresh.adjacent_end != n.adjacent_end
@@ -135,11 +141,11 @@ fn validate_node(m: &Memory, n: &Node, count: usize) -> GResult<()> {
 
 /// First province and count, cross-checked between the map and the world.
 fn province_array(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
-    let map = m.ptr(m.at(MAP))?;
-    let first = m.ptr(map + 0x6f0)?;
-    let end = m.ptr(map + 0x6f8)?;
-    let count = span(first, end, PROVINCE_STRIDE, MAX_PROVINCES)?;
-    if count == 0 || m.ptr(ctx.world + 0x1ca8)? != first {
+    let map = m.ptr(m.at(globals::MAP))?;
+    let first = m.ptr(map + map::PROVINCES)?;
+    let end = m.ptr(map + map::PROVINCES + 8)?;
+    let count = span(first, end, province::SIZE, MAX_PROVINCES)?;
+    if count == 0 || m.ptr(ctx.world + world::PROVINCES)? != first {
         return Err("world and map province arrays differ".to_string().into());
     }
     Ok((first, count))
@@ -152,7 +158,7 @@ impl Geography {
 
     fn nodes(&mut self, m: &Memory, ctx: &Ctx) -> GResult<&[Node]> {
         let (first, count) = province_array(m, ctx)?;
-        let key = MapKey { world: ctx.world, map: m.ptr(m.at(MAP))?, first, count };
+        let key = MapKey { world: ctx.world, map: m.ptr(m.at(globals::MAP))?, first, count };
         if self.entry.as_ref().map(|(k, _)| *k) != Some(key) {
             self.entry = None;
             let nodes = (0..count).map(|id| read_node(m, first, id, count)).collect::<GResult<Vec<_>>>()?;
@@ -200,8 +206,8 @@ impl Geography {
             if visibility_current && !hidden(m, n.address)? {
                 flags |= abi::PROVINCE_VISIBLE;
             }
-            let owner = Tag(m.u64(n.address + 0x468)?);
-            let controller = Tag(m.u64(n.address + 0x470)?);
+            let owner = Tag(m.u64(n.address + province::OWNER)?);
+            let controller = Tag(m.u64(n.address + province::CONTROLLER)?);
             out.push(abi::Province {
                 id: n.id,
                 flags,
@@ -222,8 +228,8 @@ impl Geography {
         Ok(node
             .edges
             .iter()
-            .filter(|e| (0..=2).contains(&e.kind) && nodes.get(e.to as usize).is_some_and(Node::admissible))
-            .map(|e| abi::Neighbor { to: e.to, flags: abi::NEIGHBOR_LAND | if e.kind == 1 { abi::NEIGHBOR_STRAIT } else { 0 } })
+            .filter(|e| by_land(e.kind) && nodes.get(e.to as usize).is_some_and(Node::admissible))
+            .map(|e| abi::Neighbor { to: e.to, flags: abi::NEIGHBOR_LAND | if e.kind == adjacency::STRAIT { abi::NEIGHBOR_STRAIT } else { 0 } })
             .collect())
     }
 
@@ -231,10 +237,10 @@ impl Geography {
     /// straits this asks the game about blockades by the army's military tag.
     pub fn strait_open(&mut self, m: &Memory, ctx: &Ctx, army: usize, from: u32, to: u32) -> GResult<bool> {
         let node = self.node(m, ctx, from)?;
-        let Some(edge) = node.edges.iter().find(|e| e.to == to && (0..=2).contains(&e.kind)) else {
+        let Some(edge) = node.edges.iter().find(|e| e.to == to && by_land(e.kind)) else {
             return fail(abi::NOT_FOUND, format!("{to} is not a land neighbor of {from}"));
         };
-        if edge.kind != 1 {
+        if edge.kind != adjacency::STRAIT {
             return Ok(true);
         }
         if edge.through != 0 {
@@ -256,13 +262,13 @@ impl Geography {
 
 /// Fog of war hides this province.
 pub fn hidden(m: &Memory, province: usize) -> GResult<bool> {
-    let fog = (m.u8(province + 0x958)?, m.u8(province + 0x959)?);
-    Ok(fog.1 & 0x20 != 0 && fog.0 & 2 != 0)
+    let fogged = m.u8(province + province::FOGGED)? & province::FOGGED_BIT != 0;
+    Ok(fogged && m.u8(province + province::HIDDEN)? & province::HIDDEN_BIT != 0)
 }
 
 fn check_army_vtable(m: &Memory, army: usize) -> GResult<()> {
     let vt = m.ptr(army)?;
-    if vt != m.at(ARMY_VT) || m.ptr(vt + 0x120)? != m.at(CAN_ENTER) || m.ptr(vt + 0x138)? != m.at(MILITARY_TAG) {
+    if vt != m.at(classes::ARMY) || m.ptr(vt + unit::CAN_ENTER)? != m.at(CAN_ENTER) || m.ptr(vt + unit::MILITARY_TAG)? != m.at(MILITARY_TAG) {
         return fail(abi::INVALID_ARGUMENT, "not a land army");
     }
     Ok(())
@@ -285,7 +291,7 @@ fn military_tag(m: &Memory, ctx: &Ctx, army: usize) -> GResult<Tag> {
 
 pub fn can_enter(m: &Memory, army: usize, province: usize) -> GResult<bool> {
     check_army_vtable(m, army)?;
-    Ok(m.call(m.at(CAN_ENTER), &[army, province, 0, 0, 0, 0x2d2d2d, 0, 0, 0])? as u8 != 0)
+    Ok(m.call(m.at(CAN_ENTER), &[army, province, 0, 0, 0, route_options::NO_TAG as usize, 0, 0, 0])? as u8 != 0)
 }
 
 pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
@@ -295,7 +301,7 @@ pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
 
 /// Every own army and fleet: (id, address, land).
 pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
-    let head = m.ptr(ctx.country + 0xd18)?;
+    let head = m.ptr(ctx.country + country_fields::UNITS)?;
     let mut node = head;
     let mut nodes = BTreeSet::new();
     let mut ids = BTreeSet::new();
@@ -304,19 +310,19 @@ pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
         if nodes.len() >= MAX_UNITS || !nodes.insert(node) {
             return Err("own unit list cycle".to_string().into());
         }
-        let army = m.ptr(node)?;
+        let army = m.ptr(node + list::ITEM)?;
         let vt = m.ptr(army)?;
-        let id = m.u64(army + 0x20)?;
-        if id == 0 || !ids.insert(id) || m.u64(army + 0xd0)? != ctx.player.0 {
+        let id = m.u64(army + unit::ID)?;
+        if id == 0 || !ids.insert(id) || m.u64(army + unit::OWNER)? != ctx.player.0 {
             return Err("own unit identity or owner".to_string().into());
         }
-        if vt != m.at(ARMY_VT) && vt != m.at(FLEET_VT) {
+        if vt != m.at(classes::ARMY) && vt != m.at(classes::FLEET) {
             return Err("unknown own unit class".to_string().into());
         }
-        out.push((id, army, vt == m.at(ARMY_VT)));
-        node = m.ptr(node + 0x10)?;
+        out.push((id, army, vt == m.at(classes::ARMY)));
+        node = m.ptr(node + list::NEXT)?;
     }
-    if m.ptr(ctx.country + 0xd18)? != head {
+    if m.ptr(ctx.country + country_fields::UNITS)? != head {
         return Err("own unit list changed while reading".to_string().into());
     }
     Ok(out)
@@ -333,26 +339,24 @@ pub fn own_land_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
 
 /// Province ID of a unit's location.
 pub fn location(m: &Memory, army: usize) -> GResult<u32> {
-    let p = m.ptr(army + 0xe8)?;
+    let p = m.ptr(army + unit::LOCATION)?;
     if p == 0 {
         return Ok(0);
     }
-    Ok(m.u32(p + 0x20)?)
+    Ok(m.u32(p + province::ID)?)
 }
 
 /// Native task attached to the army: 0 for none or the idle default task.
 fn busy_mission(m: &Memory, army: usize) -> GResult<bool> {
-    const IDLE_SINGLETON: usize = 0x2340020;
-    const IDLE_VT: usize = 0x1d1e800;
-    let mission = m.ptr(army + 0x1f8)?;
+    let mission = m.ptr(army + unit::TASK)?;
     if mission == 0 {
         return Ok(false);
     }
-    if mission != m.ptr(m.at(IDLE_SINGLETON))? || m.ptr(mission)? != m.at(IDLE_VT) {
+    if mission != m.ptr(m.at(globals::IDLE_TASK))? || m.ptr(mission)? != m.at(classes::IDLE_TASK) {
         return Ok(true);
     }
     let vt = m.ptr(mission)?;
-    for (slot, rva) in [(0x50, 0x8f480), (0x78, 0x8f450), (0x80, 0x8f450)] {
+    for (slot, rva) in task::IDLE_METHODS.into_iter().zip([0x8f480, 0x8f450, 0x8f450]) {
         if m.ptr(vt + slot)? != m.at(rva) {
             return Ok(true);
         }
@@ -362,9 +366,9 @@ fn busy_mission(m: &Memory, army: usize) -> GResult<bool> {
 
 /// Snapshot of a land army; `route_source` is filled in by the caller.
 pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<abi::Army> {
-    let land = m.ptr(army)? == m.at(ARMY_VT);
-    let id = m.u64(army + 0x20)?;
-    let owner = Tag(m.u64(army + 0xd0)?);
+    let land = m.ptr(army)? == m.at(classes::ARMY);
+    let id = m.u64(army + unit::ID)?;
+    let owner = Tag(m.u64(army + unit::OWNER)?);
     if !land {
         return Ok(abi::Army { id, owner: owner.0, ..Default::default() });
     }
@@ -374,17 +378,19 @@ pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<abi:
             *flags |= bit
         }
     };
-    set(&mut flags, m.ptr(army + 0xc0)? != 0, abi::ARMY_IN_BATTLE);
-    set(&mut flags, m.ptr(army + 0xc8)? != 0, abi::ARMY_SIEGING);
-    set(&mut flags, m.u8(army + 0x203)? != 0 || m.u8(army + 0x204)? != 0, abi::ARMY_RETREATING);
-    let exile = owner.kind() != 7 && !specials.contains(&(owner.index() as i32)) && m.u8(army + 0x207)? != 0;
+    set(&mut flags, m.ptr(army + unit::BATTLE)? != 0, abi::ARMY_IN_BATTLE);
+    set(&mut flags, m.ptr(army + unit::SIEGE)? != 0, abi::ARMY_SIEGING);
+    set(&mut flags, m.u8(army + unit::RETREATING[0])? != 0 || m.u8(army + unit::RETREATING[1])? != 0, abi::ARMY_RETREATING);
+    let exile = owner.kind() != tag::REBELS && !specials.contains(&(owner.index() as i32)) && m.u8(army + unit::EXILED)? != 0;
     set(&mut flags, exile, abi::ARMY_EXILED);
-    set(&mut flags, m.u8(army + 0x202)? != 0, abi::ARMY_MOVEMENT_LOCKED);
-    set(&mut flags, m.ptr(army + 0x50)? != 0, abi::ARMY_ATTACHED);
-    set(&mut flags, m.ptr(army + 0x58)? != 0, abi::ARMY_HAS_FOLLOWERS);
-    let contexts = m.ptr(army + 0x98)? != 0 || m.ptr(army + 0xa0)? != 0 || m.ptr(army + 0xa8)? != m.ptr(army + 0xb0)?;
+    set(&mut flags, m.u8(army + unit::MOVEMENT_LOCKED)? != 0, abi::ARMY_MOVEMENT_LOCKED);
+    set(&mut flags, m.ptr(army + unit::ATTACHED_TO)? != 0, abi::ARMY_ATTACHED);
+    set(&mut flags, m.ptr(army + unit::FOLLOWERS)? != 0, abi::ARMY_HAS_FOLLOWERS);
+    let busy = |at: usize| -> GResult<bool> { Ok(m.ptr(army + at)? != 0) };
+    let vector = unit::CONTEXT_VECTOR;
+    let contexts = busy(unit::CONTEXTS[0])? || busy(unit::CONTEXTS[1])? || m.ptr(army + vector)? != m.ptr(army + vector + 8)?;
     set(&mut flags, contexts || busy_mission(m, army)?, abi::ARMY_BUSY);
-    let regiments = span(m.ptr(army + 0x30)?, m.ptr(army + 0x38)?, 8, MAX_UNITS)? as u32;
+    let regiments = span(m.ptr(army + unit::REGIMENTS)?, m.ptr(army + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32;
     Ok(abi::Army { id, owner: owner.0, province: location(m, army)?, flags, regiments, ..Default::default() })
 }
 
@@ -394,7 +400,7 @@ pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<(a
         return Ok(Vec::new());
     }
     let specials = special_countries(m)?;
-    let head = m.ptr(province + 0x350)?;
+    let head = m.ptr(province + province::UNITS)?;
     let mut node = head;
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
@@ -402,21 +408,21 @@ pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<(a
         if seen.len() >= MAX_UNITS || !seen.insert(node) {
             return Err("province unit list cycle".to_string().into());
         }
-        let unit = m.ptr(node)?;
-        let next = m.ptr(node + 0x10)?;
-        let vt = m.ptr(unit)?;
-        if vt == m.at(FLEET_VT) {
+        let item = m.ptr(node + list::ITEM)?;
+        let next = m.ptr(node + list::NEXT)?;
+        let vt = m.ptr(item)?;
+        if vt == m.at(classes::FLEET) {
             node = next;
             continue;
         }
-        if vt != m.at(ARMY_VT) || m.ptr(unit + 0xe8)? != province {
+        if vt != m.at(classes::ARMY) || m.ptr(item + unit::LOCATION)? != province {
             return Err("unexpected unit in province list".to_string().into());
         }
-        country(m, ctx, Tag(m.u64(unit + 0xd0)?))?;
-        out.push((army_record(m, &specials, unit)?, unit));
+        country(m, ctx, Tag(m.u64(item + unit::OWNER)?))?;
+        out.push((army_record(m, &specials, item)?, item));
         node = next;
     }
-    if m.ptr(province + 0x350)? != head || hidden(m, province)? {
+    if m.ptr(province + province::UNITS)? != head || hidden(m, province)? {
         return Err("province units changed while reading".to_string().into());
     }
     Ok(out)
@@ -433,13 +439,13 @@ pub fn hostile(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
     }
     let c = country(m, ctx, a)?;
     country(m, ctx, b)?;
-    let count = m.i32(c + 0x1554)?;
+    let count = m.i32(c + country_fields::HOSTILE_COUNT)?;
     if !(0..=32767).contains(&count) {
         return Err("hostility table bound".to_string().into());
     }
-    let entries = m.ptr(c + 0x1548)?;
+    let entries = m.ptr(c + country_fields::HOSTILE)?;
     for i in 0..count as usize {
-        let index = m.i32(entries + i * 16)?;
+        let index = m.i32(entries + i * country_fields::HOSTILE_SIZE)?;
         if !(0..=32767).contains(&index) {
             return Err("invalid hostility entry".to_string().into());
         }

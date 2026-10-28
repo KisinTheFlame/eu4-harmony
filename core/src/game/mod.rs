@@ -7,7 +7,11 @@ pub mod events;
 pub mod orders;
 pub mod world;
 
-use crate::{memory::Memory, points::Point};
+use crate::{
+    memory::Memory,
+    objects::campaign::{self, countries, country, globals, map_manager, pause, tag},
+    points::Point,
+};
 use eu4_harmony_abi as abi;
 
 /// A failed capability call: an ABI status code and a message for `last_error`.
@@ -27,20 +31,11 @@ pub fn fail<T>(code: i32, message: impl Into<String>) -> GResult<T> {
     Err(Fail { code, message: message.into() })
 }
 
-pub const WORLD: usize = 0x233fe78;
-pub const COUNTRY_MANAGER: usize = 0x233d8d0;
-pub const MAP: usize = 0x233fed8;
-/// Indices of the rebel-like special countries that are hostile to everyone.
-pub const SPECIAL_COUNTRIES: [usize; 3] = [0x233d8a4, 0x233d8d8, 0x233d8dc];
-pub const ARMY_VT: usize = 0x1c42540;
-pub const FLEET_VT: usize = 0x1cca7e0;
-pub const MAP_MANAGER_VT: usize = 0x1cb8460;
 const IS_PAUSED: usize = 0x7e01b0;
 /// The object whose floats at +0x4e0 and +0x4e4 scale GUI units to window
 /// pixels, across and down (docs/research/text-input.md §3).
 const GUI_SCALE: usize = 0x23494b8;
 
-pub const PROVINCE_STRIDE: usize = 0x2e10;
 pub const MAX_PROVINCES: usize = 50_000;
 pub const MAX_UNITS: usize = 100_000;
 
@@ -65,23 +60,22 @@ pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
     Some((read(0x4e0)?, read(0x4e4)?))
 }
 
-/// Country tag as stored by the game: three ASCII bytes, then index, kind and a
-/// validity byte.
+/// Country tag as stored by the game (see [`tag`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tag(pub u64);
 impl Tag {
     pub fn index(self) -> i16 {
-        (self.0 >> 32) as u16 as i16
+        (self.0 >> tag::INDEX) as u16 as i16
     }
     pub fn kind(self) -> u8 {
-        (self.0 >> 48) as u8
+        (self.0 >> tag::KIND) as u8
     }
     pub fn valid(self) -> bool {
-        self.0 >> 56 != 0
+        self.0 >> tag::VALID != 0
     }
     /// A real country (not a rebel faction or an empty tag).
     pub fn normal(self) -> bool {
-        self.valid() && self.index() > 0 && self.kind() != 7
+        self.valid() && self.index() > 0 && self.kind() != tag::REBELS
     }
     pub fn letters(self) -> [u8; 3] {
         let b = self.0.to_le_bytes();
@@ -110,25 +104,25 @@ pub fn context_any(m: &Memory) -> GResult<Ctx> {
 }
 
 fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
-    let world = m.ptr(m.at(WORLD))?;
+    let world = m.ptr(m.at(globals::WORLD))?;
     if world == 0 {
         return fail(abi::NOT_IN_GAME, "no world");
     }
-    if require_stable && m.u8(world + 0x1e10)? != 0 {
+    if require_stable && m.u8(world + campaign::world::DAILY_UPDATE)? != 0 {
         return fail(abi::NOT_READY, "daily update in progress");
     }
-    let offset = if m.u8(world + 0x1e66)? == 7 && m.u8(world + 0x1e6f)? != 0 { 0x1e68 } else { 0x1e60 };
-    let player = Tag(m.u64(world + offset)?);
+    let switched = m.u8(world + campaign::world::PLAYER_MODE)? == campaign::world::SWITCHED && m.u8(world + campaign::world::PLAYER_SWITCHED)? != 0;
+    let player = Tag(m.u64(world + if switched { campaign::world::SWITCHED_PLAYER } else { campaign::world::PLAYER })?);
     if !player.normal() {
         return fail(abi::NOT_IN_GAME, "no controllable player");
     }
-    let manager = m.ptr(m.at(COUNTRY_MANAGER))?;
-    let countries = m.ptr(manager + 0x118)?;
+    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
+    let countries = m.ptr(manager + countries::LIST)?;
     let country = m.ptr(countries + player.index() as usize * 8)?;
-    if m.u64(country + 0x20)? != player.0 {
+    if m.u64(country + country::TAG)? != player.0 {
         return fail(abi::NOT_IN_GAME, "player country does not match its tag");
     }
-    Ok(Ctx { world, date: m.i32(world + 0x1dd0)?, player, country, countries })
+    Ok(Ctx { world, date: m.i32(world + campaign::world::DATE)?, player, country, countries })
 }
 
 /// Country object for a tag, verified against the tag it stores.
@@ -137,7 +131,7 @@ pub fn country(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<usize> {
         return fail(abi::NOT_FOUND, "invalid country");
     }
     let p = m.ptr(ctx.countries + tag.index() as usize * 8)?;
-    if p == 0 || m.u64(p + 0x20)? != tag.0 {
+    if p == 0 || m.u64(p + country::TAG)? != tag.0 {
         return fail(abi::NOT_FOUND, "country does not match its tag");
     }
     Ok(p)
@@ -145,7 +139,7 @@ pub fn country(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<usize> {
 
 pub fn special_countries(m: &Memory) -> GResult<[i32; 3]> {
     let mut out = [0; 3];
-    for (slot, rva) in out.iter_mut().zip(SPECIAL_COUNTRIES) {
+    for (slot, rva) in out.iter_mut().zip(globals::SPECIAL_COUNTRIES) {
         *slot = m.i32(m.at(rva))?;
         if !(0..=32767).contains(slot) {
             return Err(format!("invalid special country index {slot}").into());
@@ -156,15 +150,21 @@ pub fn special_countries(m: &Memory) -> GResult<[i32; 3]> {
 
 /// Whether the game is paused (the map manager's pause owner says so).
 pub fn paused(m: &Memory, ctx: &Ctx) -> GResult<bool> {
-    let manager = m.ptr(ctx.world + 0x1e00)?;
-    if m.ptr(manager)? != m.at(MAP_MANAGER_VT) {
-        return Err("unexpected map manager".to_string().into());
-    }
-    let pause = m.ptr(manager + 0x418)?;
-    if m.ptr(pause + 0x50)? != manager {
+    let manager = map_manager(m, ctx)?;
+    let pause = m.ptr(manager + map_manager::PAUSE)?;
+    if m.ptr(pause + pause::MANAGER)? != manager {
         return Err("unexpected pause owner".to_string().into());
     }
     Ok(m.call(m.at(IS_PAUSED), &[pause])? as u8 != 0)
+}
+
+/// The world's map manager, checked by its class.
+pub fn map_manager(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+    let manager = m.ptr(ctx.world + campaign::world::MAP_MANAGER)?;
+    if m.ptr(manager)? != m.at(campaign::classes::MAP_MANAGER) {
+        return Err("unexpected map manager".to_string().into());
+    }
+    Ok(manager)
 }
 
 /// Bounded element count of a `[begin, end)` vector of `stride`-byte items.

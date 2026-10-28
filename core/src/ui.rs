@@ -9,7 +9,8 @@
 //! host's update hook applies it, so state survives the game rebuilding the
 //! window and never needs a callback inside the game's UI code.
 use crate::{
-    game::{self, fail, GResult, ARMY_VT},
+    game::{self, fail, GResult},
+    objects::campaign::{classes, unit},
     hooks::HookFrame,
     hosts::{self, Host},
     memory::Memory,
@@ -589,8 +590,8 @@ pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
         return fail(abi::NOT_FOUND, "army panel not open");
     }
     let army = m.ptr(panel + 0x40)?;
-    if army == 0 || m.ptr(army)? != m.at(ARMY_VT) || m.u64(army + 0xd0)? != ctx.player.0 {
+    if army == 0 || m.ptr(army)? != m.at(classes::ARMY) || m.u64(army + unit::OWNER)? != ctx.player.0 {
         return fail(abi::NOT_FOUND, "no own land army selected");
     }
-    Ok(m.u64(army + 0x20)?)
+    Ok(m.u64(army + unit::ID)?)
 }

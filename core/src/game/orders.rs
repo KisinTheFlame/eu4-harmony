@@ -1,7 +1,11 @@
 //! Native route queries and move/stop commands for own land armies, plus the
 //! record of which extension installed which route.
-use super::{fail, paused, span, world, Ctx, GResult, ARMY_VT, MAX_UNITS};
-use crate::{memory::Memory, points::Point};
+use super::{fail, paused, span, world, Ctx, GResult, MAX_UNITS};
+use crate::{
+    memory::Memory,
+    objects::campaign::{classes, globals, path, province, route_options, unit},
+    points::Point,
+};
 use eu4_harmony_abi as abi;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -10,7 +14,6 @@ pub const ROUTE_QUERY: usize = 0x96c520;
 const FREE_NODE: usize = 0x17394f0;
 pub const MOVE: usize = 0xd50340;
 pub const STOP: usize = 0xd4fcb0;
-const ROUTE_POLICY: usize = 0x1c3af98;
 
 /// `MOVE` and `STOP` are declared by `events`, which observes them.
 pub fn points() -> Vec<Point> {
@@ -38,13 +41,13 @@ pub struct Path {
     pub nodes: Vec<usize>,
 }
 
-/// Reads a native route (doubly linked list behind a 0x18-byte header).
+/// Reads a native route (see [`path`]).
 pub fn read_path(m: &Memory, header: usize) -> GResult<Path> {
-    let count = m.i32(header + 0x10)?;
-    if !(0..=50_000).contains(&count) || m.u8(header + 0x14)? != 0 {
+    let count = m.i32(header + path::COUNT)?;
+    if !(0..=50_000).contains(&count) || m.u8(header + path::CHANGING)? != 0 {
         return Err("invalid or pending path header".to_string().into());
     }
-    let mut node = m.ptr(header)?;
+    let mut node = m.ptr(header + path::HEAD)?;
     let mut previous = 0;
     let mut seen = BTreeSet::new();
     let mut path = Path::default();
@@ -52,19 +55,19 @@ pub fn read_path(m: &Memory, header: usize) -> GResult<Path> {
         if node == 0 || !seen.insert(node) {
             return Err("path cycle or null link".to_string().into());
         }
-        if m.ptr(node + 8)? != previous || m.u8(node + 0x18)? != 0 {
+        if m.ptr(node + path::PREVIOUS)? != previous || m.u8(node + path::REMOVED)? != 0 {
             return Err("path back link or tombstone".to_string().into());
         }
-        let id = m.i32(node)?;
+        let id = m.i32(node + path::PROVINCE)?;
         if id <= 0 {
             return Err("invalid path province".to_string().into());
         }
         path.ids.push(id as u32);
         path.nodes.push(node);
         previous = node;
-        node = m.ptr(node + 0x10)?;
+        node = m.ptr(node + path::NEXT)?;
     }
-    if node != 0 || m.ptr(header + 8)? != previous {
+    if node != 0 || m.ptr(header + path::TAIL)? != previous {
         return Err("path tail mismatch".to_string().into());
     }
     Ok(path)
@@ -81,7 +84,7 @@ struct OrderState {
 /// Refuses armies the game would not let us order reliably: paused game,
 /// battle, siege, retreat, movement lock, attachments or a native task.
 fn preflight(m: &Memory, ctx: &Ctx, army: usize) -> GResult<OrderState> {
-    if m.ptr(army)? != m.at(ARMY_VT) {
+    if m.ptr(army)? != m.at(classes::ARMY) {
         return fail(abi::INVALID_ARGUMENT, "not a land army");
     }
     if paused(m, ctx)? {
@@ -105,18 +108,18 @@ fn preflight(m: &Memory, ctx: &Ctx, army: usize) -> GResult<OrderState> {
     if record.regiments == 0 {
         return fail(abi::REJECTED, "army has no regiments");
     }
-    let origin_ptr = m.ptr(army + 0xe8)?;
-    let origin = m.u32(origin_ptr + 0x20)?;
+    let origin_ptr = m.ptr(army + unit::LOCATION)?;
+    let origin = m.u32(origin_ptr + province::ID)?;
     if origin == 0 {
         return Err("army has no location".to_string().into());
     }
-    let begin = m.ptr(army + 0x30)?;
-    let end = m.ptr(army + 0x38)?;
+    let begin = m.ptr(army + unit::REGIMENTS)?;
+    let end = m.ptr(army + unit::REGIMENTS + 8)?;
     span(begin, end, 8, MAX_UNITS)?;
     Ok(OrderState {
         origin,
-        path: read_path(m, army + 0x100)?,
-        identity: vec![ctx.world, army, m.u64(army + 0x20)? as usize, ctx.player.0 as usize, ctx.date as usize, origin_ptr, begin, end],
+        path: read_path(m, army + unit::PATH)?,
+        identity: vec![ctx.world, army, m.u64(army + unit::ID)? as usize, ctx.player.0 as usize, ctx.date as usize, origin_ptr, begin, end],
     })
 }
 
@@ -167,7 +170,7 @@ impl Orders {
     }
 
     pub fn route_source(&self, m: &Memory, army: usize, id: u64, caller: usize) -> GResult<u32> {
-        let path = read_path(m, army + 0x100)?;
+        let path = read_path(m, army + unit::PATH)?;
         if path.ids.is_empty() {
             return Ok(abi::ROUTE_NONE);
         }
@@ -199,16 +202,16 @@ impl Orders {
             return fail(abi::UNAVAILABLE, "routes disabled after an earlier native failure");
         }
         let before = preflight(m, ctx, army)?;
-        let origin = m.ptr(army + 0xe8)?;
+        let origin = m.ptr(army + unit::LOCATION)?;
         let goal_address = geography.province_address(m, ctx, goal)?;
-        let mut policy = m.at(ROUTE_POLICY);
+        let mut policy = m.at(globals::ROUTE_POLICY);
         // Options as the native "replace route" branch builds them.
-        let mut options = [0u64; 9];
+        let mut options = [0u64; route_options::SIZE / 8];
         let options_ptr = options.as_mut_ptr() as usize;
-        m.write(options_ptr + 8, &[1])?;
-        m.write(options_ptr + 12, &(-1i32).to_le_bytes())?;
-        m.write(options_ptr + 0x14, &0x2d2d2du64.to_le_bytes())?;
-        let mut header = [0u64; 3];
+        m.write(options_ptr + route_options::ONE_HOP, &[1])?;
+        m.write(options_ptr + route_options::LIMIT, &(-1i32).to_le_bytes())?;
+        m.write(options_ptr + route_options::TAG, &route_options::NO_TAG.to_le_bytes())?;
+        let mut header = [0u64; path::SIZE / 8];
         let h = header.as_mut_ptr() as usize;
         let queried = m.call(m.at(ROUTE_QUERY), &[&mut policy as *mut usize as usize, army, origin, goal_address, h, options_ptr, 0, 0]);
         let result = (|| {
@@ -238,14 +241,14 @@ impl Orders {
         })();
         // Free the temporary list, after making sure it shares no node with the army's route.
         let cleaned = (|| -> GResult<()> {
-            let current = read_path(m, army + 0x100)?;
+            let current = read_path(m, army + unit::PATH)?;
             let protected: BTreeSet<_> = before.path.nodes.iter().chain(current.nodes.iter()).copied().collect();
             let temp = read_path(m, h)?;
             if temp.nodes.iter().any(|n| protected.contains(n)) {
                 return Err("temporary route shares nodes with the army route".to_string().into());
             }
             for node in temp.nodes {
-                m.call(m.at(FREE_NODE), &[node, 0x20])?;
+                m.call(m.at(FREE_NODE), &[node, path::NODE_SIZE])?;
             }
             Ok(())
         })();
@@ -281,7 +284,7 @@ impl Orders {
             } else if !before.path.ids.is_empty() {
                 m.call(m.at(STOP), &[army, 0, 0])?;
             }
-            let after = read_path(m, army + 0x100)?;
+            let after = read_path(m, army + unit::PATH)?;
             if after.ids != route.ids {
                 return Err("installed route differs from the queried route".to_string().into());
             }
@@ -304,7 +307,7 @@ impl Orders {
             let _own = OwnGuard::new();
             m.call(m.at(STOP), &[army, 0, 0])?;
         }
-        if !read_path(m, army + 0x100)?.ids.is_empty() {
+        if !read_path(m, army + unit::PATH)?.ids.is_empty() {
             return Err("army still has a route after stop".to_string().into());
         }
         self.receipts.remove(&id);

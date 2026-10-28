@@ -209,11 +209,12 @@ pub fn replace_all(data: BTreeMap<String, Value>) {
 }
 
 fn world_date(m: &Memory) -> Result<(usize, i32, u8)> {
-    let world = m.ptr(m.at(crate::game::WORLD))?;
-    if world == 0 {
+    use crate::objects::campaign::{globals, world};
+    let at = m.ptr(m.at(globals::WORLD))?;
+    if at == 0 {
         return Err("no world".into());
     }
-    Ok((world, m.i32(world + 0x1dd0)?, m.u8(world + 0x1e10)?))
+    Ok((at, m.i32(at + world::DATE)?, m.u8(at + world::DAILY_UPDATE)?))
 }
 
 fn wide_cstring(m: &Memory, p: usize) -> Result<String> {

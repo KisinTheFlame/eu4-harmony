@@ -9,8 +9,14 @@
 //!
 //! Hook callbacks only touch `BOUNDARY`; they never take the runtime state,
 //! since some fire inside game functions that capabilities call.
-use super::{context, context_any, orders, Ctx, Tag, ARMY_VT};
-use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
+use super::{context, context_any, orders, Ctx, Tag};
+use crate::{
+    hooks::HookFrame,
+    memory::Memory,
+    objects::campaign::{battle, classes, command, list, side, unit, world},
+    points::Point,
+    Result,
+};
 use std::collections::BTreeSet;
 use std::sync::Mutex;
 
@@ -21,8 +27,6 @@ const DAILY: usize = 0x758430;
 const DISPATCH: usize = 0x14ca2d0;
 const DEFEAT_A: usize = 0x22bea0;
 const DEFEAT_B: usize = 0x22b5a0;
-/// Classes of the movement command objects the dispatcher receives.
-const MOVE_COMMAND_VTS: [usize; 2] = [0x1d1d3f8, 0x1d1da88];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Change {
@@ -77,7 +81,7 @@ pub fn load_begin() {
 }
 
 fn fog_mode(m: &Memory, ctx: &Ctx) -> Result<u8> {
-    m.u8(ctx.world + 0x23a6)
+    m.u8(ctx.world + world::FOG)
 }
 
 extern "C" fn fow_before(_: *mut HookFrame) {
@@ -148,10 +152,10 @@ fn record(change: Change) {
 /// Own land army at `address`, if it is one.
 fn own_army_id(m: &Memory, address: usize) -> Option<u64> {
     let ctx = context_any(m).ok()?;
-    if address == 0 || m.ptr(address).ok()? != m.at(ARMY_VT) || m.u64(address + 0xd0).ok()? != ctx.player.0 {
+    if address == 0 || m.ptr(address).ok()? != m.at(classes::ARMY) || m.u64(address + unit::OWNER).ok()? != ctx.player.0 {
         return None;
     }
-    m.u64(address + 0x20).ok()
+    m.u64(address + unit::ID).ok()
 }
 
 extern "C" fn path_before(frame: *mut HookFrame) {
@@ -174,10 +178,10 @@ extern "C" fn dispatch_before(frame: *mut HookFrame) {
         }
         let command = unsafe { (*frame).args[1] };
         let Ok(vt) = m.ptr(command) else { return };
-        if !MOVE_COMMAND_VTS.iter().any(|&v| m.at(v) == vt) {
+        if !classes::MOVE_COMMANDS.iter().any(|&v| m.at(v) == vt) {
             return;
         }
-        let Ok(id) = m.u64(command + 0x58) else { return };
+        let Ok(id) = m.u64(command + command::UNIT) else { return };
         let Ok(ctx) = context_any(m) else { return };
         if let Ok(roster) = super::world::own_roster(m, &ctx) {
             if roster.iter().any(|&(i, _, land)| land && i == id) {
@@ -199,31 +203,31 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
             let ctx = context_any(m).map_err(|e| e.message)?;
             let index = a[3] & 255;
             if index > 1
-                || m.u8(a[0] + 0x44)? != 0
-                || m.ptr(a[0] + if index == 0 { 0x20 } else { 0x28 })? != a[1]
-                || m.ptr(a[0] + if index == 0 { 0x28 } else { 0x20 })? != a[2]
+                || m.u8(a[0] + battle::SETTLED)? != 0
+                || m.ptr(a[0] + battle::SIDES[index])? != a[1]
+                || m.ptr(a[0] + battle::SIDES[1 - index])? != a[2]
             {
                 return Ok(Vec::new());
             }
-            let count = m.i32(a[2] + 0xf8)?;
+            let count = m.i32(a[2] + side::COUNT)?;
             if !(0..=1024).contains(&count) {
                 return Err("defeated side roster bound".into());
             }
-            let mut node = m.ptr(a[2] + 0xe8)?;
+            let mut node = m.ptr(a[2] + side::UNITS)?;
             let mut seen = BTreeSet::new();
             let mut ids = Vec::new();
             while node != 0 {
                 if seen.len() >= count as usize || !seen.insert(node) {
                     return Err("defeated side roster cycle".into());
                 }
-                let army = m.ptr(node)?;
-                if m.ptr(army)? != m.at(ARMY_VT) {
+                let army = m.ptr(node + list::ITEM)?;
+                if m.ptr(army)? != m.at(classes::ARMY) {
                     return Ok(Vec::new());
                 }
-                if Tag(m.u64(army + 0xd0)?) == ctx.player {
-                    ids.push(m.u64(army + 0x20)?);
+                if Tag(m.u64(army + unit::OWNER)?) == ctx.player {
+                    ids.push(m.u64(army + unit::ID)?);
                 }
-                node = m.ptr(node + 0x10)?;
+                node = m.ptr(node + list::NEXT)?;
             }
             Ok(ids)
         })();

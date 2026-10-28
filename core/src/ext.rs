@@ -6,6 +6,7 @@
 //! loaded), its UI elements are hidden and its map coloring is released.
 use crate::{
     game::{self, events, fail, orders::Orders, world, GResult},
+    objects::campaign::unit,
     lang, loc, map,
     memory::Memory,
     mods::DiscoveredMod,
@@ -237,7 +238,7 @@ unsafe extern "C" fn h_province_neighbors(ptr: *mut c_void, id: u32, buf: *mut a
 fn army_out(m: &Memory, ctx: &game::Ctx, h: &Host, address: usize, id: u64) -> GResult<abi::Army> {
     let mut record = world::army_record(m, &game::special_countries(m)?, address)?;
     if record.flags & abi::ARMY_LAND != 0 {
-        let path = game::orders::read_path(m, address + 0x100)?;
+        let path = game::orders::read_path(m, address + unit::PATH)?;
         record.route_len = path.ids.len() as u32;
         record.destination = path.ids.last().copied().unwrap_or(0);
         record.route_source = with_runtime(|rt| rt.orders.route_source(m, address, id, h.index))?;
@@ -283,7 +284,7 @@ unsafe extern "C" fn h_army_route(ptr: *mut c_void, id: u64, buf: *mut u32, cap:
     capability(ptr, |_, m| {
         let ctx = game::context(m)?;
         let address = world::own_land_army(m, &ctx, id)?;
-        list_out(&game::orders::read_path(m, address + 0x100)?.ids, buf, cap, len)
+        list_out(&game::orders::read_path(m, address + unit::PATH)?.ids, buf, cap, len)
     })
 }
 
