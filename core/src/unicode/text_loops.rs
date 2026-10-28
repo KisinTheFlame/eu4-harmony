@@ -55,16 +55,7 @@ pub fn glyph(font: usize, c: char) -> *const Glyph {
 /// # Safety
 /// `text` points at NUL-terminated bytes, or at least four readable ones.
 pub unsafe fn glyph_at(font: usize, text: *const u8) -> (*const Glyph, usize) {
-    let mut bytes = [0u8; 4];
-    let mut n = 0;
-    while n < 4 {
-        bytes[n] = *text.add(n);
-        n += 1;
-        if bytes[n - 1] == 0 {
-            break;
-        }
-    }
-    let (c, len) = game_text::char_at(&bytes[..n]);
+    let (c, len) = game_text::char_at(game_text::up_to_nul(text, 4));
     (glyph(font, c), len.max(1))
 }
 
@@ -137,7 +128,7 @@ mod tests {
         assert!(glyphs::insert(font + OWN_GLYPHS, 0x2026, record(2)));
         assert_eq!(unsafe { *glyph(font, 'a') }.x, 1);
         assert_eq!(unsafe { *glyph(font, '…') }.x, 2);
-        let text = b"\x85";
+        let text = b"\x85\0";
         assert_eq!(unsafe { *glyph_at(font, text.as_ptr()).0 }.x, 2);
         // A character no font has is `?`; control characters stay null, as
         // the game expects.

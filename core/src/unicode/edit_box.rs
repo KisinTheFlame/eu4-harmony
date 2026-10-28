@@ -275,15 +275,6 @@ unsafe extern "C" fn remove_chars(text: *mut u8, chars: *const u8) -> u8 {
     })
 }
 
-/// A NUL-terminated string, read no further than `max` bytes.
-unsafe fn c_bytes<'a>(text: *const u8, max: usize) -> &'a [u8] {
-    let mut len = 0;
-    while len < max && *text.add(len) != 0 {
-        len += 1;
-    }
-    std::slice::from_raw_parts(text, len)
-}
-
 thread_local! {
     /// The pasted text, until the next paste: [`paste_text`] returns a
     /// pointer into it, and the game copies the text at once.
@@ -299,7 +290,7 @@ extern "C" fn paste_text() -> *const u8 {
     crate::guarded("edit box paste", || unsafe {
         let (get, free) = (GET_CLIPBOARD.get(), SDL_FREE.get());
         let utf8 = get();
-        let mut converted = if utf8.is_null() { Vec::new() } else { game_text::from_str(&String::from_utf8_lossy(c_bytes(utf8, 1 << 20))) };
+        let mut converted = if utf8.is_null() { Vec::new() } else { game_text::from_str(&String::from_utf8_lossy(game_text::up_to_nul(utf8, 1 << 20))) };
         if !utf8.is_null() {
             free(utf8);
         }
@@ -315,7 +306,7 @@ extern "C" fn paste_text() -> *const u8 {
 extern "C" fn copy_text(text: *const u8) -> i32 {
     crate::guarded("edit box copy", || unsafe {
         let set = SET_CLIPBOARD.get();
-        let mut utf8 = game_text::to_utf8(c_bytes(text, 1 << 20)).into_bytes();
+        let mut utf8 = game_text::to_utf8(game_text::up_to_nul(text, 1 << 20)).into_bytes();
         utf8.push(0);
         set(utf8.as_ptr())
     })

@@ -99,14 +99,7 @@ fn typed_char(typed: &[u8]) -> &[u8] {
 /// Makes the inline `std::string` at `string` the character at `from`.
 extern "C" fn copy_char(from: *const u8, string: *mut u8) {
     crate::guarded("text input character", || unsafe {
-        let mut typed = [0u8; 4];
-        for (n, b) in typed.iter_mut().enumerate() {
-            *b = *from.add(n);
-            if *b == 0 {
-                break;
-            }
-        }
-        crate::game_string::set_inline(string, &typed_char(&typed));
+        crate::game_string::set_inline(string, typed_char(game_text::up_to_nul(from, 4)));
     })
 }
 

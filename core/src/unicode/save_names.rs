@@ -32,14 +32,7 @@ fn ascii(byte: u8, table: &[u8; 128]) -> u8 {
 
 /// Transliterates `name` in place, keeping its length.
 pub fn transliterate(name: &mut [u8], table: &[u8; 128]) {
-    let mut at = 0;
-    while at < name.len() {
-        let len = game_text::len_at(name, at);
-        if len == 1 && name[at] >= 0x80 {
-            name[at] = ascii(name[at], table);
-        }
-        at += len;
-    }
+    game_text::map_single_bytes(name, |byte| if byte >= 0x80 { ascii(byte, table) } else { byte });
 }
 
 unsafe extern "C" fn transliterate_string(string: *mut u8) {

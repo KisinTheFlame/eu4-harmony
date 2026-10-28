@@ -147,12 +147,43 @@ pub fn single_byte(scalar: u32) -> Option<u8> {
 pub fn from_str(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len());
     for c in text.chars() {
-        match single_byte(c as u32) {
-            Some(b) => out.push(b),
-            None => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
-        }
+        push(&mut out, c);
     }
     out
+}
+
+/// Appends `c` to game text: its Windows-1252 byte when it has one, or its
+/// UTF-8.
+pub fn push(out: &mut Vec<u8>, c: char) {
+    match single_byte(c as u32) {
+        Some(b) => out.push(b),
+        None => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
+    }
+}
+
+/// Changes, in place, every byte of `text` that is a character of its own
+/// (ASCII or Windows-1252) to what `change` makes of it.
+pub fn map_single_bytes(text: &mut [u8], change: impl Fn(u8) -> u8) {
+    let mut at = 0;
+    while at < text.len() {
+        let n = len_at(text, at);
+        if n == 1 {
+            text[at] = change(text[at]);
+        }
+        at += n;
+    }
+}
+
+/// The bytes at `text` up to its NUL, or up to `most` of them.
+///
+/// # Safety
+/// `text` is readable up to its NUL or for `most` bytes.
+pub unsafe fn up_to_nul<'a>(text: *const u8, most: usize) -> &'a [u8] {
+    let mut len = 0;
+    while len < most && *text.add(len) != 0 {
+        len += 1;
+    }
+    std::slice::from_raw_parts(text, len)
 }
 
 /// Text the game keeps, as UTF-8.

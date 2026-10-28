@@ -45,14 +45,7 @@ fn folded(byte: u8) -> u8 {
 
 /// Folds `text` in place, keeping its length.
 pub fn fold(text: &mut [u8]) {
-    let mut at = 0;
-    while at < text.len() {
-        let n = game_text::len_at(text, at);
-        if n == 1 {
-            text[at] = folded(text[at]);
-        }
-        at += n;
-    }
+    game_text::map_single_bytes(text, folded);
 }
 
 unsafe extern "C" fn fold_string(string: *mut u8) {
