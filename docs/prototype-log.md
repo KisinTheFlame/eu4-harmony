@@ -196,7 +196,7 @@ Backups as above. Framework settings as the user had them: system fonts, Microso
 
 ## 2026-10-28 Performance (measured by me)
 
-Framework with bitmap fonts and with system fonts, the CJK font plugin, and vanilla, each two or three times with `tools/perf-run.ps1`; results and method in [performance.md](performance.md). Backups as above; the runs rotated the three autosaves, which were restored and checked against the backup's hashes. Vanilla (neither the framework nor the plugin in the game folder) crashed twice on entering single player, in the Epic Online Services SDK; the two crash folders were removed afterwards.
+Framework with bitmap fonts and with system fonts, the CJK font plugin, and neither, each two or three times with `tools/perf-run.ps1`; results and method in [performance.md](performance.md). Backups as above; the runs rotated the three autosaves, which were restored and checked against the backup's hashes. With neither the framework nor the plugin, but the Chinese language mod still in the playset (so not vanilla), the game crashed twice on entering single player, in the Epic Online Services SDK; the two crash folders were removed afterwards, so the dumps are gone.
 
 ## How the implementation differs from the final design
 

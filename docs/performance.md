@@ -13,11 +13,11 @@ What the framework costs the game, measured on 2026-10-28 with the framework at 
 | Framework, bitmap fonts | the framework; framework settings "Keep the fonts as they are" (the default) |
 | Framework, system fonts | the framework; "System fonts", Microsoft YaHei for text, KaiTi for the map |
 | CJK font plugin | the plugin's `version.dll` loader and `plugins\`, no framework |
-| Vanilla | neither |
+| Neither | neither the framework nor the plugin |
 
 The playset was the same throughout: a Chinese language mod, the regional combat mod (inert without the framework) and a few others. The game ran in English with Windows in Chinese, so the player language was Simplified Chinese.
 
-Vanilla was measured up to the main menu only. With neither the framework nor the plugin, entering single player crashed the game both times it was tried, in the Epic Online Services SDK (`EOSSDK-Win64-Shipping.dll`, `EOS_Presence_RemoveNotifyJoinGameAccepted`); it was not looked into further.
+"Neither" is not vanilla EU4: the playset stayed the same, so the Chinese language mod, made for the CJK font plugin, ran without it. It was measured up to the main menu only, because entering single player crashed the game both times it was tried, in the Epic Online Services SDK (`EOSSDK-Win64-Shipping.dll`, `EOS_Presence_RemoveNotifyJoinGameAccepted`), which the game calls as it reports what the player is doing. Possibly the mod's legacy escapes, which nothing turned into text in that setup, reached the SDK; this was not checked, and vanilla without the mod was not tried.
 
 ## Machine
 
@@ -41,7 +41,7 @@ CPU is given in cores: the process's CPU seconds per second of wall time (the ma
 
 Means, with the single runs in brackets where there were several.
 
-| | Vanilla | CJK font plugin | Framework, bitmap fonts | Framework, system fonts |
+| | Neither | CJK font plugin | Framework, bitmap fonts | Framework, system fonts |
 | --- | --- | --- | --- | --- |
 | Launch to main menu (s) | 35.2 (34.9, 35.5) | 35.5 (36.0, 35.3, 35.3) | 33.5 (33.1, 33.1, 34.2) | 36.8 (37.4, 36.3, 36.8) |
 | Main menu: working set / private (MB) | 2350 / 3638 | 2440 / 3769 | 2856 / 4194 | 2466 / 3787 |
@@ -59,7 +59,7 @@ Days per second and CPU differ between setups by less than between two runs of t
 
 ### Starting the game
 
-With bitmap fonts the main menu came about 2 s sooner than with the plugin or vanilla, in every run. The cause was not looked into; one candidate is that the framework turns the localisation into game text itself (255,864 entries, none left to the game's own conversion).
+With bitmap fonts the main menu came about 2 s sooner than with the plugin or with neither, in every run. The cause was not looked into; one candidate is that the framework turns the localisation into game text itself (255,864 entries, none left to the game's own conversion).
 
 System fonts take about 3.3 s longer than bitmap fonts. The framework's log accounts for it: every character of the text fonts and the map font is drawn at startup, about 3150 glyphs at 1.1 ms each (3.4 to 3.5 s, on the thread that loads the fonts). Bitmap fonts draw only the few characters the mod's fonts lack (7 glyphs, 15 ms).
 
