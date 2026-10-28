@@ -1,0 +1,15 @@
+# The extension `eu4-harmony new` writes (cli/src/templates.rs), built and
+# tested with the workspace so that the scaffold always compiles. The
+# scaffold writes its own Cargo.toml for a new mod.
+[package]
+name = "template-mod-extension"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "template_mod"
+crate-type = ["cdylib"]
+
+[dependencies]
+eu4-harmony-sdk = { path = "../../../sdk" }

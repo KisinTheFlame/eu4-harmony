@@ -1,0 +1,8 @@
+{
+  "id": "template-mod",
+  "api_version": "0.1",
+  "extension": "win64/template_mod.dll",
+  "ui": [
+    { "file": "ui/button.gui", "into": "single_unitpanel", "area": "buttons" }
+  ]
+}

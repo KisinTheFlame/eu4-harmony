@@ -257,6 +257,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "template-mod-extension"
+version = "0.1.0"
+dependencies = [
+ "eu4-harmony-sdk",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

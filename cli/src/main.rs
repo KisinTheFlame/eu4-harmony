@@ -204,10 +204,9 @@ fn create_mod(parent: &Path, id: &str, name: &str, sdk: &Path) -> Result<PathBuf
         return Err(format!("{} already exists", root.display()));
     }
     let lib = id.replace('-', "_");
-    let key = lib.to_ascii_uppercase();
     let krate = format!("{id}-extension");
     let sdk = forward_slashes(sdk);
-    let values = [("id", id), ("name", name), ("lib", lib.as_str()), ("key", key.as_str()), ("crate", krate.as_str()), ("sdk", sdk.as_str()), ("api", abi::API_VERSION)];
+    let values = [("lib", lib.as_str()), ("crate", krate.as_str()), ("sdk", sdk.as_str())];
     let english = format!("eu4-harmony/localisation/{lib}_l_english.yml");
     let chinese = format!("eu4-harmony/localisation/{lib}_l_simp_chinese.yml");
     let files = [
@@ -222,7 +221,7 @@ fn create_mod(parent: &Path, id: &str, name: &str, sdk: &Path) -> Result<PathBuf
         ("extension/src/lib.rs", templates::LIB_RS),
     ];
     for (relative, template) in files {
-        write(&root.join(relative), &templates::fill(template, &values))?;
+        write(&root.join(relative), &templates::fill(template, id, name, &values))?;
     }
     Ok(root)
 }
@@ -468,6 +467,14 @@ mod tests {
         assert_eq!(strip_location(d), "name=\"X\"\nversion=\"1\"\n");
     }
 
+    /// The template mod, which the workspace builds, claims the interface
+    /// version the framework implements.
+    #[test]
+    fn the_template_mod_is_for_this_interface_version() {
+        let manifest: Manifest = serde_json::from_str(templates::MANIFEST).unwrap();
+        assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), (templates::ID, abi::API_VERSION));
+    }
+
     #[test]
     fn new_mod_has_every_file_filled_in() {
         let dir = temp("new");
@@ -478,6 +485,9 @@ mod tests {
         for f in ["descriptor.mod", ".gitignore", "eu4-harmony/ui/button.gui", english, "eu4-harmony/localisation/my_mod_l_simp_chinese.yml", "extension/Cargo.toml", "extension/.cargo/config.toml", "extension/src/lib.rs"] {
             let text = fs::read_to_string(root.join(f)).unwrap();
             assert!(!text.contains("@@"), "{f} has an unfilled placeholder");
+            for name in [templates::ID, templates::NAME, templates::LIB, templates::KEY] {
+                assert!(!text.contains(name), "{f} still names the template mod");
+            }
         }
         let lib = fs::read_to_string(root.join("extension/src/lib.rs")).unwrap();
         assert!(lib.contains("game.text(\"MY_MOD_TOOLTIP\")") && lib.contains("log!(\"{name} clicked"));
