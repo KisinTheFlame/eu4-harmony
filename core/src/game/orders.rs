@@ -20,8 +20,6 @@ pub fn points() -> Vec<Point> {
     vec![
         Point::keep(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query"),
         Point::keep(FREE_NODE, "e9 2b 45 02 00 cc cc cc cc cc cc cc cc cc cc cc", "route node free"),
-        Point::keep(0x8f480usize, "33 c0 c3", "idle task slot"),
-        Point::keep(0x8f450usize, "32 c0 c3", "idle task slot"),
     ]
 }
 

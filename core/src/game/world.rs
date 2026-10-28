@@ -13,6 +13,10 @@ const CAN_ENTER: usize = 0x1a2280;
 const MILITARY_TAG: usize = 0x1a8d20;
 const STRAIT_BLOCKED: usize = 0x96f650;
 const CAN_ATTACK: usize = 0xd54a60;
+/// What the idle task answers: no task kind, and false.
+const NO_KIND: usize = 0x8f480;
+const NO: usize = 0x8f450;
+const IDLE_ANSWERS: [usize; 3] = [NO_KIND, NO, NO];
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -20,6 +24,13 @@ pub fn points() -> Vec<Point> {
         Point::keep(MILITARY_TAG, "48 89 5c 24 08 57 48 83 ec 20 48 8b da 48 8b f9", "army military tag"),
         Point::keep(STRAIT_BLOCKED, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48", "strait blockade query"),
         Point::keep(CAN_ATTACK, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "attack permission query"),
+        Point::keep(NO_KIND, "33 c0 c3", "no task kind"),
+        Point::keep(NO, "32 c0 c3", "false"),
+        Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER, "army access method"),
+        Point::method(classes::ARMY, unit::MILITARY_TAG, MILITARY_TAG, "army military tag method"),
+        Point::method(classes::IDLE_TASK, task::IDLE_METHODS[0], IDLE_ANSWERS[0], "idle task method"),
+        Point::method(classes::IDLE_TASK, task::IDLE_METHODS[1], IDLE_ANSWERS[1], "idle task method"),
+        Point::method(classes::IDLE_TASK, task::IDLE_METHODS[2], IDLE_ANSWERS[2], "idle task method"),
     ]
 }
 
@@ -356,7 +367,7 @@ fn busy_mission(m: &Memory, army: usize) -> GResult<bool> {
         return Ok(true);
     }
     let vt = m.ptr(mission)?;
-    for (slot, rva) in task::IDLE_METHODS.into_iter().zip([0x8f480, 0x8f450, 0x8f450]) {
+    for (slot, rva) in task::IDLE_METHODS.into_iter().zip(IDLE_ANSWERS) {
         if m.ptr(vt + slot)? != m.at(rva) {
             return Ok(true);
         }
