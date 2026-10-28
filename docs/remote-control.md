@@ -205,10 +205,10 @@ Built (2026-10-29). One capability in the countries group, for remote clients an
 
 What C8 can rely on, read for its own country or the other one:
 
-- **At war with them**: they are on the other side of one of the country's `wars`: in `defenders` when the country is in `attackers`, or the other way round. A war's leaders are `attackers[0]` and `defenders[0]`; the game itself compares a country with these two first, and its war view stars the defenders' first. The others are in the order the game keeps them, which is not the war view's. A war has no identifier but its name; the snapshots of both sides' countries list it. `country.hostile` still says whether two countries are at war or either is a rebel faction.
+- **At war with them**: they are on the other side of one of the country's `wars`: in `defenders` when the country is in `attackers`, or the other way round. A war's leaders are `attackers[0]` and `defenders[0]`; the game itself compares a country with these two first, and its war panel stars the defenders' first. The others are in the order the game keeps them, which is not the war panel's. A war has no identifier but its name; the snapshots of both sides' countries list it. `country.hostile` still says whether two countries are at war or either is a rebel faction.
 - **Allied, subject, overlord, rival**: a relation of that `kind` with their tag. `ally` is mutual; `subject` covers every kind of subject; `overlord` is at most one; `rival` is a rival the country chose, so whether they rival it is in their own snapshot. The lists are the game's own live state, which its triggers and AI read (a rival is what the `is_rival` trigger finds), not copies kept for saves.
 - **Not in the snapshot**: the kind of a subject relation, royal marriages, guarantees, military access, truces, opinions, and who rivals the country (the diplomacy page's enemies); C8 adds what it needs to the snapshot (by appending, for extensions).
-- **Tried in the game** (prototype-log.md, 2026-10-29): Castile and the Ottomans read as the top bar, the country view, the war view and the Ottomans' diplomacy view show them. A relation or a war changing between two reads was not seen, nor the extension side.
+- **Tried in the game** (prototype-log.md, 2026-10-29): Castile and the Ottomans read as the top bar, the country panel, the war panel and the Ottomans' diplomacy panel show them. A relation or a war changing between two reads was not seen, nor the extension side.
 
 ### C3 Province snapshot
 
