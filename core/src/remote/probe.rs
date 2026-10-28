@@ -62,7 +62,7 @@ fn run(orders: bool) {
         }
         let Some(Answer::Session(SessionAnswer::Get(session))) = ask(Request::Session(SessionRequest::Get {})) else { continue };
         ask(Request::Country(CountryRequest::Hostile { country: session.player, other: CountryTag(*b"BYZ") }));
-        ask(Request::Country(CountryRequest::Hostile { country: session.player, other: CountryTag(*b"ZZZ") }));
+        ask(Request::Country(CountryRequest::Hostile { country: session.player, other: CountryTag(*b"QQQ") }));
         if let Some(Answer::Province(ProvinceAnswer::List(all))) = ask(Request::Province(ProvinceRequest::List {})) {
             let owned = all.iter().filter(|p| p.owner == Some(session.player)).count();
             log!("remote probe: {} provinces, {owned} of them the player's", all.len());
