@@ -34,6 +34,13 @@ The font's vtable is at `0x1d99120`. The methods that walk text byte by byte:
 
 Besides these, `0x159da60` builds the meshes for map names (called from country name placement around `0xfd7200` and `0xfd63a0`), and `0xfd7342` counts the visible characters in a country name; both are taken over in `map_names.rs`. The `0xb7f578` listed earlier looks up an array on the stack, not the glyph table.
 
+Bending a country name along its curve (`0xfd3850`):
+
+- Each glyph has a place `t` along the curve: `i / (n - 1)` for glyph `i` of `n`, or 1.0 (`0x1dc1604`) when the name has one letter (`0xfd413e`). The curve is two cubic halves split at `t` = 0.5 (`xmm9`), evaluated by `0xfd8570`. The glyph's direction is the curve's at `t`, from a second sample 0.01 away (`0xfd4331`, `0xfd447e`), normalized by `0x8b3080` into two floats at `[rbp]`; the normal is `(-y, x)` (`0xfd46af`).
+- A single glyph therefore takes the direction at the curve's very end, which can hook back: 明 (Ming), one Chinese character, lay upside down (tested in the game 2026-10-28).
+- For names of one or two bytes, `0xfd3ef5` sets `ebx` = 1000, and at `0xfd459e` the direction is blended fully (`ebx` / 1000) towards another vector at `[rbp+0x20]`. That vector is built as doubles (`0xfd3e15`) but read here as floats (`0xfd45d4`, `0xfd464b`), so the result is arbitrary: counting the length in characters made 明 lie on its side instead.
+- The framework leaves both rules as the game has them and sets the direction to (1, 0) at `0xfd4683` for a name of one character, which then stands upright.
+
 - **Main text layout**: each byte is first copied into the 256-byte word buffer (`0x2433cd0`; the ordinary path does no bounds check), then measured. A glyph without height (a space) ends the word; if the word does not fit on this line, a line break is added first and the word follows it. A glyph with height continues the word; but if the line is already full and the output buffer (`0x242bf90`) is not empty, the half word gathered so far is moved to a new line and the rest starts a new word, while the new line's width is counted from the part that was moved. So a "word" longer than a line is cut into "full line, short line, full line, short line…".
 - **Formatting codes**: `§` plus one byte is a color (looked up by `0x15a0390`, which logs "Could not find coloring" when it finds none); an icon name starting with `£` runs up to the first byte that is not a letter or digit, and that byte is swallowed too; `@` swallows the three bytes after it; `$` swallows the one byte after it; `¤` is followed by a number.
 

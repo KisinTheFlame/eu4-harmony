@@ -15,6 +15,14 @@
 //! spread apart: each lookup takes a whole character and moves its index over
 //! it, the spacing loop appends whole characters, and the curve's length is
 //! counted in characters.
+//!
+//! A name of one character stands upright. The curve turns each glyph to its
+//! direction at the glyph's place along it (`t`, 0 to 1), and a single glyph
+//! takes `t` = 1, the curve's end, where the curve may hook back: 明 (Ming)
+//! lay upside down. The game's own
+//! rule for one- and two-letter names (0xfd3ef5, `ebx` = 1000) blends in
+//! another direction instead, but reads it from a vector of doubles as floats
+//! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
 use super::objects::font::OWN_GLYPHS;
 use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
@@ -35,6 +43,7 @@ resume!(CURVED_COUNT_DONE, CURVED_COUNT_RESUME, 0xfd6bda);
 resume!(SPACED_DONE, SPACED_RESUME, 0xfd6727);
 resume!(LENGTH_DONE, LENGTH_RESUME, 0xfd3ef5);
 resume!(BEND_DONE, BEND_RESUME, 0xfd3f57);
+resume!(UPRIGHT_DONE, UPRIGHT_RESUME, 0xfd468e);
 static WORD_END: AtomicUsize = AtomicUsize::new(0);
 static IN_WORD: AtomicUsize = AtomicUsize::new(0);
 static WRAP_RESUME: [Resume; 2] = [Resume { rva: 0x159e7f0, address: &WORD_END }, Resume { rva: 0x159e841, address: &IN_WORD }];
@@ -299,6 +308,25 @@ extern "C" fn bend_stub() {
     );
 }
 
+/// Replaces `lea rdx, [rbp]; lea rcx, [rbp+0x320]` after the glyph's
+/// direction, two floats at the game frame's `[rbp]`, is normalized (by
+/// 0x8b3080): a name of one character (`[rbp+0x168]`, see [`length_stub`])
+/// gets (1, 0), so its glyph stands upright.
+#[unsafe(naked)]
+extern "C" fn upright_stub() {
+    std::arch::naked_asm!(
+        "cmp qword ptr [rbp + 0x168], 1",
+        "jne 2f",
+        "mov dword ptr [rbp], 0x3f800000",
+        "mov dword ptr [rbp + 4], 0",
+        "2:",
+        "lea rdx, [rbp]",
+        "lea rcx, [rbp + 0x320]",
+        "jmp qword ptr [rip + {done}]",
+        done = sym UPRIGHT_DONE,
+    );
+}
+
 pub fn points() -> Vec<Point> {
     let stub = |f: extern "C" fn()| f as *const () as usize;
     vec![
@@ -339,6 +367,9 @@ pub fn points() -> Vec<Point> {
         Point::jump(0xfd413eusize, "83 7f 10 01 7e 1b", "map name curve position guard", stub(guard_stub), &GUARD_RESUME),
         Point::keep(0xfd4144usize, "66 0f 6e f6 0f 5b f6 48 8b 85 68 01 00 00", "map name curve position"),
         Point::keep(0xfd415fusize, "f2 0f 10 85 30 01 00 00", "map name curve after position"),
+        Point::keep(0xfd467eusize, "e8 fd e9 8d ff", "map name curve normalizes the glyph direction"),
+        Point::jump(0xfd4683usize, "48 8d 55 00 48 8d 8d 20 03 00 00", "map name curve upright single character", stub(upright_stub), &UPRIGHT_RESUME),
+        Point::keep(0xfd468eusize, "e8 bd 5b 0f ff", "map name curve glyph normal"),
         Point::keep(0xfd53a9usize, "48 8b 8d 18 01 00 00", "map name curve reloads its index"),
         Point::keep(0xfd53c4usize, "ff c6 89 b5 e8 07 00 00 48 ff c1 48 89 8d 18 01 00 00", "map name curve next glyph"),
     ]
