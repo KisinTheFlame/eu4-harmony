@@ -7,7 +7,7 @@
 use crate::Result;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use windows::core::{Interface, HSTRING};
+use windows::core::HSTRING;
 use windows::Win32::Graphics::DirectWrite::*;
 
 /// Tried after the chosen family, in order.
@@ -200,10 +200,6 @@ impl SystemFonts {
         }
     }
 }
-
-/// Keeps `Interface` in use for `clone()` on COM pointers.
-#[allow(dead_code)]
-fn _interface<T: Interface>(_: &T) {}
 
 #[cfg(test)]
 mod tests {

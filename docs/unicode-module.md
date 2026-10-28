@@ -14,11 +14,11 @@ Status: final (2026-10-27). Terms are in [GLOSSARY.md](../GLOSSARY.md). The deci
 
 Kept in `eu4-harmony/settings.txt` in the user directory, written the way the game writes its own `settings.txt`. They are changed in the settings window and take effect at the next start.
 
-| Setting | Options | Default |
+| Setting (in the file) | Options | Default |
 |---|---|---|
-| Text appearance | Keep the fonts as they are (bitmap fonts first, with characters they lack filled in from the system font) / System fonts (all text in system fonts) | Keep the fonts as they are |
-| Text font | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
-| Map font | Same as above | KaiTi |
+| Text appearance (`text_appearance`) | Keep the fonts as they are (bitmap fonts first, with characters they lack filled in from the system font) / System fonts (all text in system fonts) | Keep the fonts as they are |
+| Text font (`body_font`) | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
+| Map font (`map_font`) | Same as above | KaiTi |
 
 Characters neither font has are left to the system's font fallback. The framework UI always uses the text font, whatever "Text appearance" is set to.
 

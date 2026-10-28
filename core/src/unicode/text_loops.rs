@@ -14,7 +14,7 @@
 //! | text height, text width | 0x159b470 (+0x58), 0x159b7c0 (+0x60) | `text_height`, `text_width` |
 //! | text fitted into a box, with "..." | 0x159ec30 (+0x70), 0x159f510 (+0x80) | `fitted_text` |
 //! | map names: measure and wrap, mesh, glyph counts, letter spacing, curve | 0x159e510 (+0x78), 0x159da60, 0xfd7200, 0xfd5b70, 0xfd3850 | `map_names` |
-//! | multi-line text widget: line fit and line breaks | 0x1537210, 0x1537480 | `edit_box` |
+//! | multi-line text widget: line fit, by which 0x1537480 breaks lines | 0x1537210 | `edit_box` |
 //! | edit boxes: caret, keys, cuts, forbidden characters | 0x15384d0 and others | `edit_box` |
 //! | `.fnt` loading | 0x15953c0 | `font_load` |
 //! | save names to ASCII, search folding | 0x1705180, 0x1704d70 | `save_names`, `search` |

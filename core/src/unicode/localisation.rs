@@ -2,7 +2,7 @@
 //! a localisation file through the function at 0x16fd650, which converts both
 //! from UTF-8 to Windows-1252 into static buffers (a character 1252 lacks
 //! becomes `?`) and passes them to the registration at 0x16fa8d0. The
-//! replacement converts UTF-8 to the module's game text instead (`encoding`);
+//! replacement converts UTF-8 to the module's game text instead (`game_text`);
 //! anything that is not UTF-8 still takes the game's path.
 //!
 //! Import: (key, value: `std::string*`, version: u32, unused, context*), the
@@ -20,7 +20,8 @@ const REGISTER: usize = 0x16fa8d0;
 static ORIGINAL: Function<Import> = Function::new();
 static REGISTER_AT: Function<Register> = Function::new();
 static KEPT: AtomicU64 = AtomicU64::new(0);
-static CONVERTED: AtomicU64 = AtomicU64::new(0);
+/// Entries that are not UTF-8, left to the game's own conversion.
+static LEFT: AtomicU64 = AtomicU64::new(0);
 static LEGACY: AtomicU64 = AtomicU64::new(0);
 
 #[repr(C)]
@@ -56,7 +57,7 @@ unsafe extern "C" fn import(key: *const u8, value: *const u8, version: u32, unus
         let c = &*context;
         register(c.collection, key.as_ptr(), value.as_ptr(), c.line, version, c.replace);
     } else {
-        CONVERTED.fetch_add(1, Ordering::Relaxed);
+        LEFT.fetch_add(1, Ordering::Relaxed);
         let original = ORIGINAL.get();
         original(key, value, version, unused, context);
     }
@@ -65,7 +66,7 @@ unsafe extern "C" fn import(key: *const u8, value: *const u8, version: u32, unus
 /// Entries converted here, of them those with legacy escapes, and entries
 /// left to the game's conversion.
 pub fn counts() -> (u64, u64, u64) {
-    (KEPT.load(Ordering::Relaxed), LEGACY.load(Ordering::Relaxed), CONVERTED.load(Ordering::Relaxed))
+    (KEPT.load(Ordering::Relaxed), LEGACY.load(Ordering::Relaxed), LEFT.load(Ordering::Relaxed))
 }
 
 pub fn points() -> Vec<Point> {
