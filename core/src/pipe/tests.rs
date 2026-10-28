@@ -12,9 +12,12 @@ use std::{
     thread::JoinHandle,
     time::Instant,
 };
-use windows_sys::Win32::Security::{
-    Authorization::{ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SE_KERNEL_OBJECT},
-    DACL_SECURITY_INFORMATION,
+use windows_sys::Win32::{
+    Security::{
+        Authorization::{ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SE_KERNEL_OBJECT},
+        DACL_SECURITY_INFORMATION,
+    },
+    System::Pipes::PeekNamedPipe,
 };
 
 const PLENTY: Duration = Duration::from_secs(10);
@@ -244,6 +247,22 @@ fn a_client_that_closes_the_pipe_gives_its_request_up() {
     drop(reader);
     assert!(test.logged("events: given up by its client while it waited"), "{:#?}", test.log());
     assert!(test.stop().calls.iter().all(|c| !c.starts_with("move")));
+}
+
+#[test]
+fn a_client_that_closes_the_pipe_gives_its_request_up_with_later_ones_unread() {
+    let test = test_pipe!("give-up-unread", Place::Outside(None));
+    let mut client = test.connect();
+    client.send(format!("{{\"capability\": \"army.move\", \"army\": \"{ARMY}\", \"goal\": 151}}\n"));
+    std::thread::sleep(Duration::from_millis(200));
+    // The transport reads the next line only once the first is answered, so
+    // this one is still in the pipe when the client closes it.
+    client.send("{\"capability\": \"session\"}\n");
+    drop(client);
+    assert!(test.logged("remote pipe: client 1 closed the pipe before its answer came, which gave the request up, after 0 answer(s)"), "{:#?}", test.log());
+    test.set(Place::Game);
+    assert!(test.logged(&format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":151}}: given up by its client before it ran"#)), "{:#?}", test.log());
+    assert!(test.stop().calls.is_empty());
 }
 
 /// The access list of a pipe, written in SDDL.

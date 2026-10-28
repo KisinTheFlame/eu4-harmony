@@ -11,9 +11,10 @@
 //! for a game. A client that wants to wait for events while it does other
 //! things opens the pipe a second time.
 //!
-//! A client gives a request up by closing the pipe before the answer comes:
-//! the transport drops the request's reply, so the engine never runs it if it
-//! has not yet. The pipe lasts as long as the process. When the game ends, or
+//! A client gives a request up by closing the pipe before the answer comes,
+//! even with requests it wrote after it still unread: the transport drops the
+//! request's reply, so the engine never runs it if it has not yet. The pipe
+//! lasts as long as the process. When the game ends, or
 //! returns to the main menu, which starts `eu4.exe` again
 //! (docs/research/safe-points.md), every client finds its pipe broken; the
 //! new process opens the pipe once the old one is gone.
@@ -32,16 +33,20 @@ use std::{
     },
     time::Duration,
 };
-use windows_sys::Win32::{
-    Foundation::{LocalFree, ERROR_ACCESS_DENIED, ERROR_NO_DATA, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE},
-    Security::{
-        Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
-        GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
-    },
-    Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX},
-    System::{
-        Pipes::{ConnectNamedPipe, CreateNamedPipeW, PeekNamedPipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT},
-        Threading::{GetCurrentProcess, OpenProcessToken},
+use windows_sys::{
+    Wdk::Storage::FileSystem::{FilePipeLocalInformation, NtQueryInformationFile, FILE_PIPE_CONNECTED_STATE, FILE_PIPE_LOCAL_INFORMATION},
+    Win32::{
+        Foundation::{LocalFree, ERROR_ACCESS_DENIED, ERROR_NO_DATA, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE},
+        Security::{
+            Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
+            GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+        },
+        Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX},
+        System::{
+            Pipes::{ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT},
+            Threading::{GetCurrentProcess, OpenProcessToken},
+            IO::IO_STATUS_BLOCK,
+        },
     },
 };
 
@@ -289,10 +294,16 @@ fn answer(reply: Reply, instance: &File) -> Option<Response> {
     }
 }
 
-/// Whether the client still has the pipe open.
+/// Whether the client still has the pipe open, as the pipe's state tells:
+/// connected, or closing once the client closed it. PeekNamedPipe cannot
+/// tell: it goes on succeeding after the client closed the pipe while bytes
+/// it wrote are still unread, such as its next request.
 fn open(instance: &File) -> bool {
-    let null = std::ptr::null_mut();
-    unsafe { PeekNamedPipe(instance.as_raw_handle(), null, 0, null.cast(), null.cast(), null.cast()) != 0 }
+    let mut status: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
+    let mut pipe = FILE_PIPE_LOCAL_INFORMATION::default();
+    let size = size_of::<FILE_PIPE_LOCAL_INFORMATION>() as u32;
+    let queried = unsafe { NtQueryInformationFile(instance.as_raw_handle(), &mut status, (&raw mut pipe).cast(), size, FilePipeLocalInformation) };
+    queried >= 0 && pipe.NamedPipeState == FILE_PIPE_CONNECTED_STATE
 }
 
 /// A security descriptor that lets the Windows user the process runs as, and
