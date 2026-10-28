@@ -7,6 +7,7 @@ Tools for trying things in a running game, finding dependency points and looking
 | `dev-install.ps1` | Installs the built proxy and core into the game directory (`-Uninstall` removes them) |
 | `game-input.ps1` | Brings the game window to the front and sends it mouse and keyboard input: `-Click x,y`, `-Drag x1,y1,x2,y2`, `-Wheel n -At x,y`, `-Type text` (Unicode characters, past any input method), `-Keys LEFT,SHIFT+END,CTRL+V` (key presses, letters and digits included, which an input method takes) |
 | `screenshot.ps1` | Captures the primary screen: `-Out a.png` (the whole screen, shrunk by `-Scale`) or `-Crop x,y,width,height` (at full size) |
+| `perf-run.ps1` | Measures one run of the game for [docs/performance.md](../docs/performance.md): launch to main menu, memory, CPU paused and at speed 5, game days per run; read its notes before the first run |
 | `crash-dump.py` | Runs debugger commands on a crash dump with Windows' own dbgeng.dll, with no debugger to install |
 | `core/examples/disasm.rs` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments |
 | `trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value |

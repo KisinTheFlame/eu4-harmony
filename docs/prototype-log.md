@@ -194,6 +194,10 @@ Backups as above. Framework settings as the user had them: system fonts, Microso
 - **Enter during composition** (reported by the user): in the lobby's Find box, with Microsoft Pinyin in Chinese mode, `ming` showed its candidates next to the box; Enter put the letters `ming` into the box and the box stayed open. Backspace during the composition `ab` removed only `b` from the composition, leaving the box's `ming` alone; Escape cancelled the composition and the box stayed open. Before the fix, Enter also closed the box.
 - **Tools**: `game-input.ps1 -Keys` now presses any letter or digit, so pinyin can be typed through the input method; `-Type` sends Unicode characters past it.
 
+## 2026-10-28 Performance (measured by me)
+
+Framework with bitmap fonts and with system fonts, the CJK font plugin, and vanilla, each two or three times with `tools/perf-run.ps1`; results and method in [performance.md](performance.md). Backups as above; the runs rotated the three autosaves, which were restored and checked against the backup's hashes. Vanilla (neither the framework nor the plugin in the game folder) crashed twice on entering single player, in the Epic Online Services SDK; the two crash folders were removed afterwards.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
