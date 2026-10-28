@@ -6,11 +6,19 @@
 //! A loop asks once per character, so the breaks of the text it walks are
 //! kept between questions. They are worked out anew whenever the text is not
 //! the one they were worked out for: another address or length, or other
-//! bytes where the loop now is, that is the character asked about and the
-//! one after it, on which a break there depends (the game reuses buffers).
+//! bytes around where the loop now is (the game reuses buffers). Comparing
+//! the whole text at every character would make a pass quadratic in its
+//! length; a break depends on the characters next to it, and the rules that
+//! reach further do so across spaces, so [`AROUND`] bytes on each side are
+//! compared, and a loop meets any change on its way through the text.
 use super::{costs, game_text};
 use crate::icu;
 use std::cell::RefCell;
+use std::sync::Once;
+
+/// How many bytes before and after the place asked about must be as they
+/// were for the breaks worked out to stand.
+const AROUND: usize = 16;
 
 /// The breaks of the last text asked about.
 #[derive(Default)]
@@ -25,7 +33,7 @@ impl Known {
     /// The breaks of `text`, asked about at `text[start..end]`.
     fn breaks(&mut self, text: &[u8], start: usize, end: usize) -> &[usize] {
         costs::BREAK_QUESTIONS.add();
-        let near = start..(end + 4).min(text.len());
+        let near = start.saturating_sub(AROUND)..(end + AROUND).min(text.len());
         let same = self.text == text.as_ptr() as usize && self.bytes.len() == text.len() && self.bytes.get(near.clone()) == text.get(near);
         if !same {
             *self = Known { text: text.as_ptr() as usize, bytes: text.to_vec(), breaks: costs::BREAKS.time(|| opportunities(text)) };
@@ -48,7 +56,15 @@ fn opportunities(text: &[u8]) -> Vec<usize> {
         utf8.push(c);
     }
     starts.push((utf8.len(), text.len()));
-    let Some(breaks) = icu::load().ok().and_then(|icu| icu.line_breaks(&utf8).ok()) else { return Vec::new() };
+    let breaks = match icu::load().and_then(|icu| icu.line_breaks(&utf8)) {
+        Ok(breaks) => breaks,
+        Err(e) => {
+            // Text then wraps only at spaces.
+            static TOLD: Once = Once::new();
+            TOLD.call_once(|| log!("breaks: ICU cannot find line breaks, text wraps only at spaces: {e}"));
+            return Vec::new();
+        }
+    };
     breaks.into_iter().filter_map(|b| starts.binary_search_by_key(&b.offset, |&(u, _)| u).ok().map(|i| starts[i].1)).collect()
 }
 
@@ -130,5 +146,23 @@ mod tests {
         assert!(after(&buffer, 3));
         buffer[3..9].copy_from_slice("，文".as_bytes());
         assert!(!after(&buffer, 3));
+    }
+
+    #[test]
+    fn breaks_are_worked_out_again_when_the_bytes_around_change() {
+        let mut known = Known::default();
+        let mut text = "中文中文中文中文中文中文".as_bytes().to_vec();
+        known.breaks(&text, 3, 6);
+        // Within AROUND of the place asked about: noticed.
+        text[6 + AROUND - 1] = b'x';
+        known.breaks(&text, 3, 6);
+        assert_eq!(known.bytes, text);
+        // Further on: left for the loop to meet when it gets there.
+        let last = text.len() - 1;
+        text[last] = b'y';
+        known.breaks(&text, 3, 6);
+        assert_ne!(known.bytes, text);
+        known.breaks(&text, last - 3, last);
+        assert_eq!(known.bytes, text);
     }
 }
