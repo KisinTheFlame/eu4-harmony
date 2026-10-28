@@ -100,6 +100,40 @@ fn sends_a_request_and_reads_its_answer() {
     served.join().unwrap();
 }
 
+/// The process serving the pipe can tell who the client is, but not act as
+/// it.
+#[test]
+fn the_process_serving_the_pipe_can_only_identify_the_client() {
+    use windows_sys::Win32::{
+        Security::{RevertToSelf, SecurityIdentification, TokenImpersonationLevel, SECURITY_IMPERSONATION_LEVEL},
+        System::{
+            Pipes::ImpersonateNamedPipeClient,
+            Threading::{GetCurrentThread, OpenThreadToken},
+        },
+    };
+    let name = pipe_name("identify");
+    let (told, level) = mpsc::channel();
+    let served = serve_one(&name, move |pipe, _| {
+        assert_ne!(unsafe { ImpersonateNamedPipeClient(pipe.as_raw_handle()) }, 0, "{}", io::Error::last_os_error());
+        let mut token = std::ptr::null_mut();
+        let opened = unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 1, &mut token) };
+        let error = io::Error::last_os_error();
+        unsafe { RevertToSelf() };
+        assert_ne!(opened, 0, "{error}");
+        let token = unsafe { OwnedHandle::from_raw_handle(token) };
+        let mut found: SECURITY_IMPERSONATION_LEVEL = -1;
+        let mut size = 0;
+        let read = unsafe { GetTokenInformation(token.as_raw_handle(), TokenImpersonationLevel, (&raw mut found).cast(), size_of::<SECURITY_IMPERSONATION_LEVEL>() as u32, &mut size) };
+        assert_ne!(read, 0, "{}", io::Error::last_os_error());
+        told.send(found).unwrap();
+        answer(pipe, "{\"ok\":true,\"result\":null}\n");
+    });
+    let mut client = connect_to(&name);
+    client.ask("{\"capability\":\"session\"}", None).unwrap();
+    assert_eq!(level.recv_timeout(PLENTY).unwrap(), SecurityIdentification);
+    served.join().unwrap();
+}
+
 #[test]
 fn reads_an_answer_that_comes_in_pieces() {
     let name = pipe_name("pieces");
