@@ -127,15 +127,54 @@ const FLAGS: Capability = Capability {
 
 #[test]
 fn a_boolean_alone_is_true() {
-    let fields = |text: &str| Value::Object(arguments(&FLAGS, &words(text)).unwrap());
+    let fields = |text: &str| Value::Object(arguments(&FLAGS, &words(text), &[]).unwrap());
     assert_eq!(fields("--paused"), json!({"paused": true}));
     assert_eq!(fields("--paused false"), json!({"paused": false}));
     assert_eq!(fields("--paused --province 5"), json!({"paused": true, "province": 5}));
     assert_eq!(fields("--paused 5"), json!({"paused": true, "province": 5}));
     assert_eq!(fields("true 5"), json!({"paused": true, "province": 5}));
     assert_eq!(fields(""), json!({}));
-    assert!(arguments(&FLAGS, &words("yes")).unwrap_err().contains("--paused is a boolean, such as true; \"yes\" is not one"));
+    assert!(arguments(&FLAGS, &words("yes"), &[]).unwrap_err().contains("--paused is a boolean, such as true; \"yes\" is not one"));
     assert_eq!(signature(&FLAGS), "[--paused [<boolean>]] [--province <province>]");
+}
+
+/// A capability of the tests' own, with a text.
+const SAY: Capability = Capability {
+    group: "test",
+    action: "say",
+    about: " Says a text.",
+    in_game: false,
+    args: &[
+        Parameter { name: "text", kind: Kind::Text, optional: false, about: " The text." },
+        Parameter { name: "times", kind: Kind::Integer, optional: true, about: " How often." },
+    ],
+    result: "nothing",
+};
+
+#[test]
+fn after_a_double_dash_every_word_is_a_value() {
+    let said = |text: &str| {
+        let words = words(text);
+        let at = words.iter().position(|w| w == "--").unwrap_or(words.len());
+        Value::Object(arguments(&SAY, &words[..at], words.get(at + 1..).unwrap_or_default()).unwrap())
+    };
+    // Words the command line would take as its own options, or as names.
+    for text in ["--out", "--timeout", "--compact", "--help", "-h", "--times", "--", "--text"] {
+        assert_eq!(said(&format!("-- {text}")), json!({"text": text}), "{text}");
+    }
+    assert_eq!(said("--times 2 -- --help"), json!({"text": "--help", "times": 2}));
+    assert_eq!(said("-- --out 2"), json!({"text": "--out", "times": 2}));
+    assert!(arguments(&SAY, &[], &words("a 2 3")).unwrap_err().contains("\"3\" is one value too many"));
+
+    // The command line's own options before it still count, and nothing after it does.
+    let a = ask("--compact army move --timeout 2 -- 4294967377 151");
+    assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), goal: ProvinceId(151) }));
+    assert_eq!((a.compact, a.timeout), (true, Some(Duration::from_secs(2))));
+    assert_eq!(ask("events -- 3").request, Request::Events(EventsRequest::Read { since: Some(3), wait_ms: None }));
+    assert!(wrong("session -- --compact").contains("session takes no arguments"));
+    assert!(wrong("events -- --help").contains("--since is a integer, such as 3; \"--help\" is not one"));
+    assert!(wrong("-- session").contains("name the capability before --"));
+    assert_eq!(help("--help army move --"), Some("army.move".into()));
 }
 
 /// Every capability, and so every one added later, can be called from the

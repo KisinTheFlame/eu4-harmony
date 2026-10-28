@@ -101,12 +101,18 @@ impl Outcome {
 // ---------- the command line ----------
 
 /// The command `raw` writes: the command line's own options wherever they
-/// are, then the capability's name and its arguments.
+/// are, then the capability's name and its arguments. A `--` ends the
+/// options: every word after it is a value, even one that starts with `--`.
 fn parse(raw: &[String]) -> Result<Command, String> {
     let (mut timeout, mut out, mut compact, mut help) = (None, None, false, false);
     let mut words = Vec::new();
+    let mut values: &[String] = &[];
     let mut i = 0;
     while i < raw.len() {
+        if raw[i] == "--" {
+            values = &raw[i + 1..];
+            break;
+        }
         let option = raw[i].strip_prefix("--").map(|key| key.replace('-', "_")).filter(|key| OPTIONS.contains(&key.as_str()));
         match option.as_deref() {
             Some("timeout") => timeout = Some(seconds(option_value(raw, &mut i)?)?),
@@ -119,6 +125,7 @@ fn parse(raw: &[String]) -> Result<Command, String> {
         i += 1;
     }
     match words.first().map(String::as_str) {
+        None if !values.is_empty() => Err("name the capability before --: eu4-harmony game <capability> -- <value>...".into()),
         None => Ok(Command::Help(None)),
         Some("help") if words.len() == 1 => Ok(Command::Help(None)),
         Some("help") => Ok(Command::Help(Some(name(&words[1..])?.0))),
@@ -127,7 +134,7 @@ fn parse(raw: &[String]) -> Result<Command, String> {
             if help {
                 return Ok(Command::Help(Some(capability)));
             }
-            let request = request(&capability, &words[used..])?;
+            let request = request(&capability, &words[used..], values)?;
             Ok(Command::Ask(Ask { request, timeout, out, compact }))
         }
     }
@@ -175,9 +182,10 @@ fn name(words: &[String]) -> Result<(Capability, usize), String> {
     Err(format!("no capability {asked}; the {group} group has {}", in_group.join(", ")))
 }
 
-/// The request for `capability` from the words after its name.
-fn request(capability: &Capability, words: &[String]) -> Result<Request, String> {
-    let fields = arguments(capability, words)?;
+/// The request for `capability` from the words after its name and the
+/// values after `--`.
+fn request(capability: &Capability, words: &[String], values: &[String]) -> Result<Request, String> {
+    let fields = arguments(capability, words, values)?;
     let mut object = Map::new();
     object.insert("capability".into(), Value::String(capability.name()));
     object.extend(fields);
@@ -186,8 +194,9 @@ fn request(capability: &Capability, words: &[String]) -> Result<Request, String>
 
 /// The arguments `words` give `capability`, in JSON: `--name value`, the
 /// name's `_` also written `-`, or values alone, which fill the arguments
-/// not named, in order. A boolean standing alone is true.
-fn arguments(capability: &Capability, words: &[String]) -> Result<Map<String, Value>, String> {
+/// not named, in order; `values`, the words after `--`, are values alone
+/// whatever they look like. A boolean standing alone is true.
+fn arguments(capability: &Capability, words: &[String], values: &[String]) -> Result<Map<String, Value>, String> {
     let name = capability.name();
     let mut fields = Map::new();
     let mut alone = Vec::new();
@@ -217,6 +226,7 @@ fn arguments(capability: &Capability, words: &[String]) -> Result<Map<String, Va
         fields.insert(arg.name.into(), value(arg, text)?);
         i += 1;
     }
+    alone.extend(values);
     let unnamed: Vec<&Parameter> = capability.args.iter().filter(|a| !fields.contains_key(a.name)).collect();
     if alone.len() > unnamed.len() {
         return Err(format!("{:?} is one value too many: {}", alone[unnamed.len()], its_arguments(capability)));
@@ -279,7 +289,7 @@ fn usage() -> String {
 eu4-harmony game: use the running game through remote control
 
 usage:
-  eu4-harmony game <capability> [--<argument> <value>]... [--timeout <seconds>] [--out <file>] [--compact]
+  eu4-harmony game <capability> [--<argument> <value>]... [--timeout <seconds>] [--out <file>] [--compact] [-- <value>...]
       Sends the game one request and prints the result as JSON. Values may
       also come without their names, in the order of the arguments, and a
       name's dot may be a space: eu4-harmony game army move <army> 151.
@@ -297,6 +307,8 @@ options:
                        extension (shot.png, then shot-2.png, shot-3.png...),
                        and prints the files in their place.
   --compact            Prints the JSON on one line.
+  --                   Ends the options: every word after it is a value, even
+                       one that starts with --.
 
 exit codes:
   0  the game answered; the result is printed
