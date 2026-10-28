@@ -311,6 +311,7 @@ fn the_pipe_keeps_its_name_while_clients_come_and_go() {
     assert!(other.instance(true).is_ok());
 
     let test = test_pipe!("name", Place::Game);
+    assert!(test.logged("remote pipe: open at"), "{:#?}", test.log());
     // Another process, trying all along to make a pipe of the same name.
     let other = Pipe::new(&test.name, |_| unreachable!(), |_| {}).unwrap();
     let stop = AtomicBool::new(false);
