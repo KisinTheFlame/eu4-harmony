@@ -4,14 +4,13 @@
 //! Ported from eu4-regional-combat's range preview
 //! (docs/research/regional-combat/native-range-preview-findings.txt).
 use crate::{
-    game::{self, fail, GResult},
+    game::{self, fail, map_coloring::MapColor, GResult, Status},
     hooks::HookFrame,
     memory::Memory,
     objects::campaign::{classes, globals, map, map_manager, province},
     points::Point,
     Result,
 };
-use eu4_harmony_abi as abi;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -197,9 +196,9 @@ fn refresh(m: &Memory, manager: usize, mode: i32, require_color: bool) -> GResul
 }
 
 /// Replaces `extension`'s coloring (memory order B, G, R, A per province).
-pub fn paint(m: &Memory, ctx: &game::Ctx, extension: usize, colors: &[abi::MapColor]) -> GResult<()> {
+pub fn paint(m: &Memory, ctx: &game::Ctx, extension: usize, colors: &[MapColor]) -> GResult<()> {
     if colors.is_empty() || colors.len() > game::MAX_PROVINCES {
-        return fail(abi::INVALID_ARGUMENT, "color list is empty or too long");
+        return fail(Status::InvalidArgument, "color list is empty or too long");
     }
     let manager = manager(m, ctx)?;
     with_state(|s| -> GResult<()> {

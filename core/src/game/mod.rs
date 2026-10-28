@@ -1,34 +1,156 @@
-//! Game-state capabilities: reading the campaign, finding routes and giving
-//! orders. Ported from eu4-regional-combat's native adapter; addresses are
-//! RVAs in the 1.37.5 layout (see `baseline`), with the evidence in
-//! docs/research/regional-combat/. Everything here runs on the game thread at
-//! a safe point, which `events` establishes.
+//! The capability layer: every capability extensions and remote clients use,
+//! implemented once (ADR 0015). Each capability is a function taking the
+//! [`Caller`] and returning the framework's own types; the C ABI for
+//! extensions (`crate::ext`) only converts to and from them. One file per
+//! group: [`session`], [`countries`], [`provinces`], [`armies`],
+//! [`interface`], [`map_coloring`], [`save_data`] and [`texts`].
+//!
+//! Under them, reading the campaign, finding routes and giving orders, ported
+//! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
+//! [`events`], which establishes the safe point everything here runs at);
+//! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
+//! in docs/research/regional-combat/.
+pub mod armies;
+pub mod countries;
 pub mod events;
+pub mod interface;
+pub mod map_coloring;
 pub mod orders;
+pub mod provinces;
+pub mod save_data;
+pub mod session;
+pub mod texts;
 pub mod world;
 
 use crate::{
     memory::Memory,
-    objects::campaign::{self, countries, country, globals, map_manager, pause, tag},
+    objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::Point,
 };
-use eu4_harmony_abi as abi;
+use std::sync::Mutex;
 
-/// A failed capability call: an ABI status code and a message for `last_error`.
+/// Who calls a capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Caller {
+    /// The extension with this index, from one of its callbacks.
+    Extension(usize),
+    /// Remote control. It acts as the player: its orders are the player's.
+    Remote,
+}
+
+impl Caller {
+    /// The calling extension, for what only an extension has (`what`, such as
+    /// "interface elements").
+    pub fn extension(self, what: &str) -> GResult<usize> {
+        match self {
+            Caller::Extension(index) => Ok(index),
+            Caller::Remote => fail(Status::Unavailable, format!("only extensions have {what}")),
+        }
+    }
+
+    /// The id of the calling extension's mod.
+    fn mod_id(self, what: &str) -> GResult<String> {
+        let index = self.extension(what)?;
+        crate::ext::mod_id(index).ok_or_else(|| format!("no extension {index}").into())
+    }
+}
+
+/// Why a capability failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    /// No campaign is running, or one is being loaded.
+    NotInGame,
+    /// The game state cannot be read right now; a later frame may succeed.
+    NotReady,
+    NotFound,
+    /// A command was refused; the message says why.
+    Rejected,
+    InvalidArgument,
+    /// Not available in this state, to this caller, or after an unexpected
+    /// game-side failure.
+    Unavailable,
+    /// Called off the game's main thread.
+    WrongContext,
+    Internal,
+}
+
+/// A failed capability call.
 #[derive(Debug, Clone)]
 pub struct Fail {
-    pub code: i32,
+    pub status: Status,
     pub message: String,
 }
 pub type GResult<T> = std::result::Result<T, Fail>;
 
 impl From<String> for Fail {
     fn from(message: String) -> Self {
-        Self { code: abi::INTERNAL, message }
+        Self { status: Status::Internal, message }
     }
 }
-pub fn fail<T>(code: i32, message: impl Into<String>) -> GResult<T> {
-    Err(Fail { code, message: message.into() })
+pub fn fail<T>(status: Status, message: impl Into<String>) -> GResult<T> {
+    Err(Fail { status, message: message.into() })
+}
+
+/// The game, for a capability: on the game's main thread only, once startup
+/// has found it.
+fn game() -> GResult<&'static Memory> {
+    if crate::thread_id() != crate::main_thread() {
+        return fail(Status::WrongContext, "called off the game's main thread");
+    }
+    crate::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })
+}
+
+/// What the capabilities keep between calls: the map's topology and the
+/// routes extensions installed. Both belong to one session.
+#[derive(Default)]
+struct State {
+    geography: world::Geography,
+    orders: orders::Orders,
+    session: u64,
+}
+
+static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
+    let mut guard = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    f(guard.get_or_insert_with(State::default))
+}
+
+/// What a safe frame starts from: the campaign, its session, and what
+/// happened since the last one.
+pub struct Frame {
+    pub ctx: Ctx,
+    pub session: u64,
+    /// The session differs from the last frame's: a campaign was loaded or
+    /// started, and what the capabilities kept from the old one is gone.
+    pub new_session: bool,
+    pub visibility_current: bool,
+    pub changes: Vec<events::Change>,
+}
+
+/// Starts a safe frame (see [`events`]); None when this is not one. At a new
+/// session, forgets the old one's map, routes and map coloring.
+pub fn begin_frame(m: &Memory) -> Option<Frame> {
+    let state = events::begin_frame(m)?;
+    let new_session = with_state(|s| {
+        if s.session == state.session {
+            return false;
+        }
+        s.session = state.session;
+        s.geography.clear();
+        s.orders.clear();
+        true
+    });
+    if new_session {
+        crate::map::reset_session(m, &state.ctx);
+    }
+    Some(Frame { ctx: state.ctx, session: state.session, new_session, visibility_current: state.visibility_current, changes: state.changes })
+}
+
+/// The player gave an army an order: the route an extension installed for it,
+/// if any, is no longer that extension's.
+pub fn player_ordered(army: u64) {
+    with_state(|s| s.orders.revoke(army));
 }
 
 const IS_PAUSED: usize = 0x7e01b0;
@@ -55,7 +177,7 @@ pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
 }
 
 /// Country tag as stored by the game (see [`tag`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tag(pub u64);
 impl Tag {
     pub fn index(self) -> i16 {
@@ -100,21 +222,21 @@ pub fn context_any(m: &Memory) -> GResult<Ctx> {
 fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
     let world = m.ptr(m.at(globals::WORLD))?;
     if world == 0 {
-        return fail(abi::NOT_IN_GAME, "no world");
+        return fail(Status::NotInGame, "no world");
     }
     if require_stable && m.u8(world + campaign::world::DAILY_UPDATE)? != 0 {
-        return fail(abi::NOT_READY, "daily update in progress");
+        return fail(Status::NotReady, "daily update in progress");
     }
     let switched = m.u8(world + campaign::world::PLAYER_MODE)? == campaign::world::SWITCHED && m.u8(world + campaign::world::PLAYER_SWITCHED)? != 0;
     let player = Tag(m.u64(world + if switched { campaign::world::SWITCHED_PLAYER } else { campaign::world::PLAYER })?);
     if !player.normal() {
-        return fail(abi::NOT_IN_GAME, "no controllable player");
+        return fail(Status::NotInGame, "no controllable player");
     }
     let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    let countries = m.ptr(manager + countries::LIST)?;
+    let countries = m.ptr(manager + country_list::LIST)?;
     let country = m.ptr(countries + player.index() as usize * 8)?;
-    if m.u64(country + country::TAG)? != player.0 {
-        return fail(abi::NOT_IN_GAME, "player country does not match its tag");
+    if m.u64(country + country_fields::TAG)? != player.0 {
+        return fail(Status::NotInGame, "player country does not match its tag");
     }
     Ok(Ctx { world, date: m.i32(world + campaign::world::DATE)?, player, country, countries })
 }
@@ -122,11 +244,11 @@ fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
 /// Country object for a tag, verified against the tag it stores.
 pub fn country(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<usize> {
     if !tag.valid() || tag.index() < 0 {
-        return fail(abi::NOT_FOUND, "invalid country");
+        return fail(Status::NotFound, "invalid country");
     }
     let p = m.ptr(ctx.countries + tag.index() as usize * 8)?;
-    if p == 0 || m.u64(p + country::TAG)? != tag.0 {
-        return fail(abi::NOT_FOUND, "country does not match its tag");
+    if p == 0 || m.u64(p + country_fields::TAG)? != tag.0 {
+        return fail(Status::NotFound, "country does not match its tag");
     }
     Ok(p)
 }
