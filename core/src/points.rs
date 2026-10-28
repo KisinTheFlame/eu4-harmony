@@ -109,8 +109,10 @@ pub struct Installed {
 /// A JMP rel32, which is what a hook writes at its target.
 const HOOK_LEN: usize = 5;
 
-fn hex(text: &str) -> Vec<u8> {
-    text.split_whitespace().map(|b| u8::from_str_radix(b, 16).expect("dependency point bytes")).collect()
+fn hex(text: &str) -> Result<Vec<u8>> {
+    text.split_whitespace()
+        .map(|b| u8::from_str_radix(b, 16).ok().filter(|_| b.len() == 2).ok_or_else(|| format!("{b:?} is not a byte in hex")))
+        .collect()
 }
 
 fn spaced(bytes: &[u8]) -> String {
@@ -151,36 +153,36 @@ fn changed_len(point: &Point, expected: usize) -> usize {
     }
 }
 
-/// Resolves every point and compares its bytes, reporting every mismatch.
-fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
-    let mut addresses = Vec::with_capacity(points.len());
+/// What is wrong with how a point is written, whatever the game holds: bytes
+/// that do not parse, a replacement of another length, too little to hook.
+fn malformed(point: &Point) -> Vec<String> {
     let mut problems = Vec::new();
-    for point in points {
-        let expected = hex(point.bytes);
-        let found = resolve(m, point.place, exports).and_then(|at| m.bytes(at, expected.len()).map(|found| (at, found)));
-        match found {
-            Ok((at, found)) if found == expected => addresses.push(at),
-            Ok((_, found)) => problems.push(format!("{}: expected {}, found {}", describe(point), point.bytes, spaced(&found))),
-            Err(e) => problems.push(format!("{}: {e}", describe(point))),
-        }
-        if let Action::Write(bytes) = point.action {
-            if hex(bytes).len() != expected.len() {
-                problems.push(format!("{}: replacement is not {} bytes long", describe(point), expected.len()));
-            }
-        }
-        if let Action::Jump { .. } | Action::Observe { .. } | Action::Replace { .. } = point.action {
-            if expected.len() < HOOK_LEN {
-                problems.push(format!("{}: fewer than {HOOK_LEN} bytes to hook", describe(point)));
-            }
+    let expected = match hex(point.bytes) {
+        Ok(bytes) if !bytes.is_empty() => bytes,
+        Ok(_) => return vec![format!("{}: no bytes", describe(point))],
+        Err(e) => return vec![format!("{}: {e}", describe(point))],
+    };
+    if let Action::Write(bytes) = point.action {
+        match hex(bytes) {
+            Ok(replacement) if replacement.len() == expected.len() => {}
+            Ok(_) => problems.push(format!("{}: replacement is not {} bytes long", describe(point), expected.len())),
+            Err(e) => problems.push(format!("{}: replacement: {e}", describe(point))),
         }
     }
-    if !problems.is_empty() {
-        return Err(format!("{} of {} dependency points do not match:\n{}", problems.len(), points.len(), problems.join("\n")));
+    if let Action::Jump { .. } | Action::Observe { .. } | Action::Replace { .. } = point.action {
+        if expected.len() < HOOK_LEN {
+            problems.push(format!("{}: fewer than {HOOK_LEN} bytes to hook", describe(point)));
+        }
     }
+    problems
+}
+
+/// Refuses two points that change the same bytes, given their addresses.
+fn disjoint(points: &[Point], addresses: &[usize]) -> Result<()> {
     let mut changed: Vec<(usize, usize, &Point)> = points
         .iter()
-        .zip(&addresses)
-        .map(|(p, &at)| (at, at + changed_len(p, hex(p.bytes).len()), p))
+        .zip(addresses)
+        .map(|(p, &at)| (at, at + changed_len(p, p.bytes.split_whitespace().count()), p))
         .filter(|(start, end, _)| end > start)
         .collect();
     changed.sort_by_key(|&(start, _, _)| start);
@@ -189,6 +191,33 @@ fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
             return Err(format!("{} and {} change the same bytes", describe(pair[0].2), describe(pair[1].2)));
         }
     }
+    Ok(())
+}
+
+/// Resolves every point and compares its bytes, reporting every mismatch.
+fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
+    let mut addresses = Vec::with_capacity(points.len());
+    let mut problems = Vec::new();
+    for point in points {
+        let wrong = malformed(point);
+        if !wrong.is_empty() {
+            problems.extend(wrong);
+            continue;
+        }
+        let expected = hex(point.bytes)?;
+        let found = resolve(m, point.place, exports).and_then(|at| m.bytes(at, expected.len()).map(|found| (at, found)));
+        match found {
+            Ok((at, found)) if found == expected => addresses.push(at),
+            Ok((_, found)) => problems.push(format!("{}: expected {}, found {}", describe(point), point.bytes, spaced(&found))),
+            Err(e) => problems.push(format!("{}: {e}", describe(point))),
+        }
+    }
+    if !problems.is_empty() {
+        return Err(format!("{} of {} dependency points do not match:
+{}", problems.len(), points.len(), problems.join("
+")));
+    }
+    disjoint(points, &addresses)?;
     Ok(addresses)
 }
 
@@ -242,7 +271,7 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
     }
     for (point, &at) in points.iter().zip(addresses) {
         if let Action::Write(bytes) = point.action {
-            let replacement = hex(bytes);
+            let replacement = hex(bytes)?;
             let original = m.bytes(at, replacement.len())?;
             write_code(m, at, &replacement).map_err(|e| format!("{}: {e}", describe(point)))?;
             undo.writes.push((at, original));
@@ -281,7 +310,7 @@ mod tests {
 
     /// Code in a fresh page, as a stand-in for the game image.
     fn code(bytes: &str, protection: u32) -> Memory {
-        let bytes = hex(bytes);
+        let bytes = hex(bytes).unwrap();
         let base = unsafe { VirtualAlloc(std::ptr::null(), 4096, MEM_COMMIT | MEM_RESERVE, protection) } as usize;
         assert_ne!(base, 0);
         let m = Memory { base };
@@ -366,7 +395,7 @@ mod tests {
         assert!(err.starts_with("2 of 3 dependency points do not match"), "{err}");
         assert!(err.contains("first wrong at 0x3: expected 48 83 c0 09, found 48 83 c0 01"), "{err}");
         assert!(err.contains("second wrong at 0x7"), "{err}");
-        assert_eq!(m.bytes(m.base, 16).unwrap(), hex(ADDER));
+        assert_eq!(m.bytes(m.base, 16).unwrap(), hex(ADDER).unwrap());
     }
 
     #[test]
@@ -379,7 +408,7 @@ mod tests {
         ];
         let err = install(m, &points).unwrap_err();
         assert!(err.contains("change the same bytes"), "{err}");
-        assert_eq!(m.bytes(m.base, 16).unwrap(), hex(ADDER));
+        assert_eq!(m.bytes(m.base, 16).unwrap(), hex(ADDER).unwrap());
     }
 
     #[test]
@@ -393,11 +422,46 @@ mod tests {
         ];
         let err = install(ANYWHERE, &points).unwrap_err();
         assert!(err.contains("not code"), "{err}");
-        assert_eq!(good.bytes(good.base, 16).unwrap(), hex(ADDER));
+        assert_eq!(good.bytes(good.base, 16).unwrap(), hex(ADDER).unwrap());
         assert_eq!(call(good, 10), 17);
         // The target was released, so it can be hooked again.
         assert!(install(ANYWHERE, &points[..1]).is_ok());
         assert_eq!(call(good, 10), 34);
+    }
+
+    /// How every point is written, without the game: its bytes parse, a
+    /// replacement keeps their length, a hook has room, and no two points
+    /// change the same bytes.
+    #[test]
+    fn every_point_is_well_formed() {
+        let points = crate::points();
+        let problems: Vec<String> = points.iter().flat_map(malformed).collect();
+        assert!(problems.is_empty(), "{problems:#?}");
+        // Exports are far from the image and from each other.
+        let addresses: Vec<usize> = points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| match p.place {
+                Place::Rva(rva) => rva,
+                Place::Export(_) => 0x1_0000_0000 + 0x1000 * i,
+            })
+            .collect();
+        disjoint(&points, &addresses).unwrap();
+    }
+
+    #[test]
+    fn malformed_points_are_named() {
+        let bad = [
+            Point::keep(1usize, "48 8g", "not hex"),
+            Point::keep(2usize, "488b", "run together"),
+            Point::write(3usize, "90 90", "short replacement", "90"),
+            Point::observe(4usize, "48 89 c8", "too short to hook", 1, None, None),
+        ];
+        let problems: Vec<String> = bad.iter().flat_map(malformed).collect();
+        assert_eq!(problems.len(), 4, "{problems:#?}");
+        for (problem, what) in problems.iter().zip(["not hex", "run together", "short replacement", "too short to hook"]) {
+            assert!(problem.starts_with(what), "{problem}");
+        }
     }
 
     /// Maps `eu4.exe` from disk the way the loader lays it out, without running
@@ -478,6 +542,6 @@ mod tests {
         FAIL_BEFORE_ENABLE.store(false, Ordering::SeqCst);
         assert_eq!(err, "injected failure");
         assert_eq!(call(written, 0), 1);
-        assert_eq!(hooked.bytes(hooked.base, 16).unwrap(), hex(ADDER));
+        assert_eq!(hooked.bytes(hooked.base, 16).unwrap(), hex(ADDER).unwrap());
     }
 }
