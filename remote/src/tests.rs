@@ -49,7 +49,7 @@ fn a_request_is_one_flat_object() {
     assert_eq!(serde_json::to_value(&session).unwrap(), json!({"capability": "session"}));
 
     let events = request(json!({"capability": "events", "since": 5})).unwrap();
-    assert_eq!(events, Request::Events(events::EventsRequest::Read { since: Some(5), wait_ms: None }));
+    assert_eq!(events, Request::Events(events::EventsRequest::Read { since: Some(5), wait_ms: None, process: None }));
     assert_eq!(serde_json::to_value(&events).unwrap(), json!({"capability": "events", "since": 5}));
 }
 
@@ -119,6 +119,7 @@ fn responses_in_json() {
     assert_eq!(failed.unwrap_err().to_string(), "not_in_game: no game is running");
 
     let events = events::Events {
+        process: 1_761_700_000_000,
         events: vec![
             events::Numbered { number: 7, event: events::Event::ArmyOrdered { army: ArmyId(12) } },
             events::Numbered { number: 8, event: events::Event::Day { date: Date::from_ymd(1444, 11, 12).unwrap() } },
@@ -128,7 +129,12 @@ fn responses_in_json() {
     };
     assert_eq!(
         serde_json::to_value(&events).unwrap(),
-        json!({"events": [{"number": 7, "event": "army_ordered", "army": "12"}, {"number": 8, "event": "day", "date": "1444.11.12"}], "last": 8, "missed": false})
+        json!({
+            "process": 1_761_700_000_000u64,
+            "events": [{"number": 7, "event": "army_ordered", "army": "12"}, {"number": 8, "event": "day", "date": "1444.11.12"}],
+            "last": 8,
+            "missed": false,
+        })
     );
 }
 

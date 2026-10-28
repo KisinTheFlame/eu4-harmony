@@ -1,6 +1,6 @@
 //! The time capabilities driven through the engine, a fake clock behind them.
 use super::*;
-use crate::remote::{events::KEPT, fake::Fake, Engine, Place, Reply};
+use crate::remote::{events::KEPT, fake::Fake, process, Engine, Place, Reply};
 use eu4_harmony_remote::{response_json, ArmyId, Request};
 use serde_json::{json, Value};
 
@@ -94,6 +94,7 @@ fn an_advance_runs_to_its_date_and_answers_with_the_events_on_the_way() {
             "stopped": "date",
             "reason": "the date was reached",
             "date": date(3),
+            "process": process(),
             "events": [
                 {"number": 2, "event": "day", "date": date(1)},
                 {"number": 3, "event": "day", "date": date(2)},
@@ -210,7 +211,7 @@ fn an_advance_does_not_run_past_a_question_waiting_already() {
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(
         answer(&reply),
-        ok(json!({"stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.11", "events": [], "last": 0, "missed": false}))
+        ok(json!({"stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.11", "process": process(), "events": [], "last": 0, "missed": false}))
     );
     assert!(game.clock.time.paused());
     assert!(!game.calls.iter().any(|c| c == "resume" || c.starts_with("speed") || c.starts_with("stop at")), "{:#?}", game.calls);
@@ -291,7 +292,7 @@ fn an_advance_answers_before_the_process_ends() {
     let reply = ENGINE.submit(advance(30, None));
     ENGINE.run(&mut game, &Place::Game, PLENTY);
     next_day(&ENGINE, &mut game);
-    let events = ENGINE.submit(Request::Events(eu4_harmony_remote::events::EventsRequest::Read { since: Some(1), wait_ms: Some(60_000) }));
+    let events = ENGINE.submit(Request::Events(eu4_harmony_remote::events::EventsRequest::Read { since: Some(1), wait_ms: Some(60_000), process: None }));
     ENGINE.run(&mut game, &Place::Game, PLENTY);
     let client = std::thread::spawn(move || reply.wait(PLENTY).map(|r| response_json(&r)));
     let started = Instant::now();

@@ -64,7 +64,7 @@ fn every_capability_runs_at_a_game_frame() {
     let cases: Vec<(Request, Box<dyn Fn(&Value) -> bool>)> = vec![
         (
             Request::Session(SessionRequest::Get {}),
-            Box::new(|v: &Value| *v == ok(json!({"session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
+            Box::new(|v: &Value| *v == ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
         ),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
         (Request::Time(TimeRequest::Speed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
@@ -166,8 +166,8 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Offer(OfferRequest::Decline { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Offer(OfferRequest::Decline { offer: 4 }), Box::new(error("not_found"))),
         (
-            Request::Events(EventsRequest::Read { since: None, wait_ms: None }),
-            Box::new(|v: &Value| *v == ok(json!({"events": [], "last": 0, "missed": false}))),
+            Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }),
+            Box::new(|v: &Value| *v == ok(json!({"process": process(), "events": [], "last": 0, "missed": false}))),
         ),
         (
             Request::Camera(CameraRequest::Get {}),
@@ -349,7 +349,7 @@ fn a_request_given_up_before_it_runs_never_runs() {
 fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms) });
+    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms), process: None });
 
     let next = engine.submit(read(10_000));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
@@ -362,25 +362,28 @@ fn a_read_that_waits_is_answered_at_a_later_safe_point() {
 
     engine.record([Event::ArmyOrdered { army: army(ARMY) }]);
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(answer(&next), ok(json!({"events": [{"number": 1, "event": "army_ordered", "army": ARMY.to_string()}], "last": 1, "missed": false})));
+    assert_eq!(
+        answer(&next),
+        ok(json!({"process": process(), "events": [{"number": 1, "event": "army_ordered", "army": ARMY.to_string()}], "last": 1, "missed": false}))
+    );
     assert!(log().iter().any(|l| l.contains("events: ok after ")));
 
     // With something to read already, it answers at once; with nothing, when
     // its time is up, in the main menu too.
     let at_once = engine.submit(read(10_000));
-    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1) }));
+    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1), process: None }));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     assert_eq!(answer(&at_once)["result"]["last"], 1);
     std::thread::sleep(Duration::from_millis(5));
     engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "no game"))), PLENTY);
-    assert_eq!(answer(&short), ok(json!({"events": [], "last": 1, "missed": false})));
+    assert_eq!(answer(&short), ok(json!({"process": process(), "events": [], "last": 1, "missed": false})));
 
     let too_long = engine.submit(read(events::LONGEST_WAIT + 1));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert!(error("invalid_argument")(&answer(&too_long)));
 
     // A waiting read given up is dropped.
-    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000) }));
+    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000), process: None }));
     engine.run(&mut game, &Place::Game, PLENTY);
     drop(given_up);
     engine.run(&mut game, &Place::Game, PLENTY);
@@ -425,7 +428,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     };
     let engine = Engine::new(remember);
     engine.record(happened(&frame));
-    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None }));
+    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     assert_eq!(
         answer(&read)["result"]["events"],
@@ -455,4 +458,21 @@ fn the_layer_s_failures_keep_their_meaning() {
     for (status, code) in cases {
         assert_eq!(Error::from(game::Fail { status, message: "why".into() }), Error::new(code, "why"));
     }
+}
+
+#[test]
+fn events_say_which_process_numbered_them() {
+    let engine = Engine::new(remember);
+    engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);
+    let read = |since, from| engine.submit(Request::Events(EventsRequest::Read { since: Some(since), wait_ms: Some(10_000), process: Some(from) }));
+    let (here, other) = (read(1, process()), read(1, process() - 1));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    // From this process, the events after since; from another, every event
+    // kept, at once, with missed: since meant something else there.
+    let (here, other) = (answer(&here), answer(&other));
+    assert_eq!(here["result"]["events"].as_array().map(Vec::len), Some(1));
+    assert_eq!(here["result"]["missed"], false);
+    assert_eq!(other["result"]["events"].as_array().map(Vec::len), Some(2));
+    assert_eq!(other["result"]["missed"], true);
+    assert_eq!(other["result"]["process"], process());
 }

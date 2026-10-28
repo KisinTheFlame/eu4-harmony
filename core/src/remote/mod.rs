@@ -7,6 +7,10 @@
 //! extensions hear, numbered, and writes every request to the framework log
 //! (ADR 0017). It knows nothing of connections or JSON.
 //!
+//! Every answer that numbers sessions or events says which process gave it
+//! ([`process`]): returning to the main menu starts the game again, and the
+//! numbers start again with it.
+//!
 //! One file per group of capabilities, as in the capability layer: each has
 //! the group's slice of the layer as a trait ([`Game`] is all of them), the
 //! layer itself behind it ([`Live`]), and turns the group's requests into
@@ -37,9 +41,9 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, OnceLock,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 /// How long the requests run at one safe point may take together; at least
@@ -66,6 +70,28 @@ impl From<game::Fail> for Error {
         };
         Error::new(code, fail.message)
     }
+}
+
+/// The game process remote control answers for: when it started, in
+/// milliseconds since 1970. Returning to the main menu starts the game
+/// again, as a new process, in which sessions and events are numbered from
+/// 1 again; a client tells the two apart by this.
+pub fn process() -> u64 {
+    static PROCESS: OnceLock<u64> = OnceLock::new();
+    *PROCESS.get_or_init(|| started().unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)))
+}
+
+/// When this process started, in milliseconds since 1970.
+fn started() -> Option<u64> {
+    use windows_sys::Win32::{Foundation::FILETIME, System::Threading::{GetCurrentProcess, GetProcessTimes}};
+    let mut times = [FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }; 4];
+    let [created, exited, kernel, user] = &mut times;
+    if unsafe { GetProcessTimes(GetCurrentProcess(), created, exited, kernel, user) } == 0 {
+        return None;
+    }
+    // 100-nanosecond intervals since 1601.
+    let since_1601 = (u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime)) / 10_000;
+    since_1601.checked_sub(11_644_473_600_000)
 }
 
 /// A country's tag as remote clients write it.

@@ -9,7 +9,7 @@
 //! the game paused until it resumes it, not running on once the window is
 //! closed. Not when another game was loaded or the game returns to the main
 //! menu, which leave the advance no game of its own.
-use super::{events, Live, Outcome, Poll, Wait};
+use super::{events, process, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
     time::{Pause, SPEEDS},
@@ -115,7 +115,7 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     let since = events.last();
     if game.questions_waiting()? > 0 {
         game.pause()?;
-        let advanced = Advanced { stopped: Stop::Question, reason: QUESTION.into(), date: Date(time.date), events: events.read(since) };
+        let advanced = Advanced { stopped: Stop::Question, reason: QUESTION.into(), date: Date(time.date), events: events.read(since, process()) };
         return Ok(Started::Stopped(advanced));
     }
     if let Some(speed) = speed {
@@ -161,7 +161,7 @@ impl Advance {
             game.pause()?;
             let reached = *self.reached.get_or_insert(now);
             let until = self.until;
-            let heard = events.read(self.since).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
+            let heard = events.read(self.since, process()).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
             return Ok((heard || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
         }
         if game.questions_waiting()? > 0 {
@@ -180,7 +180,7 @@ impl Advance {
 
     /// Where it stopped, and why.
     fn stopped(&self, stopped: Stop, reason: &str, events: &events::Buffer) -> Response {
-        Ok(Answer::Time(TimeAnswer::Advance(Advanced { stopped, reason: reason.into(), date: Date(self.date), events: events.read(self.since) })))
+        Ok(Answer::Time(TimeAnswer::Advance(Advanced { stopped, reason: reason.into(), date: Date(self.date), events: events.read(self.since, process()) })))
     }
 
     /// Answers with `response`, whatever it is: the stop goes, so that it

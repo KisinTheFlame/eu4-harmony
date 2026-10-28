@@ -1,5 +1,5 @@
 //! The campaign being played.
-use super::{tag, Live};
+use super::{process, tag, Live};
 use crate::game::{self, Caller, GResult};
 use eu4_harmony_remote::{
     session::{Session, SessionAnswer, SessionRequest},
@@ -19,15 +19,11 @@ impl Layer for Live {
 
 pub fn run(request: SessionRequest, game: &mut (impl Layer + ?Sized)) -> Result<SessionAnswer, Error> {
     match request {
-        SessionRequest::Get {} => {
-            let s = game.session()?;
-            Ok(SessionAnswer::Get(Session {
-                session: s.session,
-                date: Date(s.date),
-                paused: s.paused,
-                visibility_current: s.visibility_current,
-                player: tag(s.player),
-            }))
-        }
+        SessionRequest::Get {} => Ok(SessionAnswer::Get(answer(game.session()?))),
     }
+}
+
+/// The session as remote clients read it.
+pub fn answer(s: game::session::Session) -> Session {
+    Session { process: process(), session: s.session, date: Date(s.date), paused: s.paused, visibility_current: s.visibility_current, player: tag(s.player) }
 }

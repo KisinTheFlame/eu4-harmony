@@ -155,7 +155,7 @@ fn a_client_reads_the_session_and_errors_come_as_json() {
     let mut client = test.connect();
     assert_eq!(
         client.ask(r#"{"capability": "session"}"#),
-        json!({"ok": true, "result": {"session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}})
+        json!({"ok": true, "result": {"process": crate::remote::process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}})
     );
     let missing = client.ask(r#"{"capability": "army.get", "army": "1"}"#);
     assert_eq!(missing, json!({"ok": false, "error": {"code": "not_found", "message": "no own army 1"}}), "{missing}");

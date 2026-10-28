@@ -21,19 +21,28 @@ group! {
         /// How many milliseconds to wait for an event, at most 60000; absent
         /// to answer at once.
         wait_ms: Option<u32>,
-    } -> Events, "the events, the number of the last one, and whether some after since are gone unread: dropped, or since is beyond the last one (from before the game started again)";
+        /// The process since came from, as an earlier answer gave it. When
+        /// it is not the one answering, since is from before the game
+        /// started again: every event kept is read, with missed.
+        process: Option<u64>,
+    } -> Events, "the process answering, the events, the number of the last one, and whether some after since are gone unread: dropped, or since is from before the game started again (another process, or beyond the last one)";
 }
 
 /// Events read from remote control.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Events {
+    /// When the game process answering started, in milliseconds since 1970
+    /// (as menu answers it). Events are numbered from 1 again in a new
+    /// process: pass it back with since.
+    pub process: u64,
     pub events: Vec<Numbered>,
     /// The number of the latest event; 0 before the first. Read from here
     /// next time.
     pub last: u64,
     /// Some events after `since` are gone unread: they were dropped before
-    /// this read, or `since` is beyond `last` (from before the game started
-    /// again) and the events that followed it then are gone.
+    /// this read, or `since` is from before the game started again (its
+    /// process is another, or it is beyond `last`) and the events that
+    /// followed it then are gone.
     pub missed: bool,
 }
 
