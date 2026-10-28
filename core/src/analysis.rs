@@ -39,6 +39,35 @@ pub fn map_file(file: &[u8]) -> Vec<u8> {
     image
 }
 
+/// Where the PE header starts.
+pub fn pe(image: &[u8]) -> usize {
+    u32_at(image, 0x3c)
+}
+
+/// Applies the image's base relocations as if it were loaded at `base`, so
+/// that its pointers (vtables, for one) hold what they hold in the game.
+pub fn relocate(image: &mut [u8], base: u64) {
+    let optional = pe(image) + 24;
+    let preferred = u64::from_le_bytes(image[optional + 24..optional + 32].try_into().unwrap());
+    let delta = base.wrapping_sub(preferred);
+    let directory = optional + 112 + 8 * 5;
+    let (start, size) = (u32_at(image, directory), u32_at(image, directory + 4));
+    let mut block = start;
+    while block < start + size {
+        let (page, length) = (u32_at(image, block), u32_at(image, block + 4));
+        for entry in (block + 8..block + length).step_by(2) {
+            let entry = u16::from_le_bytes([image[entry], image[entry + 1]]);
+            // IMAGE_REL_BASED_DIR64; the rest are padding.
+            if entry >> 12 == 10 {
+                let at = page + (entry & 0xfff) as usize;
+                let value = u64::from_le_bytes(image[at..at + 8].try_into().unwrap()).wrapping_add(delta);
+                image[at..at + 8].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        block += length;
+    }
+}
+
 /// The image loaded at `base`, as far as its header says it reaches.
 ///
 /// # Safety

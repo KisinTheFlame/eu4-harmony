@@ -19,6 +19,8 @@
 //!   dependency point can keep;
 //! - `refs:VALUE[:N]`: the first N (20) such instructions anywhere in the
 //!   game's functions, for globals and vtables;
+//! - `slots:VTABLE:OFFSET...`: the functions a vtable holds at those
+//!   offsets;
 //! - `chain:GLOBAL:OFFSET[:N]`: the first N (5) places that load a pointer
 //!   from the global and soon use OFFSET from it, with the bytes from the
 //!   load to the use: one dependency point that keeps both.
@@ -143,6 +145,15 @@ fn main() {
                 });
                 for (start, instruction) in hits.take(limit) {
                     println!("{} (in {start:#x})", with_bytes(&image, &mut formatter, &instruction));
+                }
+            }
+            ["slots", vtable, offsets @ ..] => {
+                let vtable = hex(vtable);
+                let preferred = u64::from_le_bytes(image[analysis::pe(&image) + 24 + 24..][..8].try_into().unwrap());
+                for offset in offsets.iter().map(|o| hex(o)) {
+                    let at = vtable + offset;
+                    let target = u64::from_le_bytes(image[at..at + 8].try_into().unwrap()).wrapping_sub(preferred);
+                    println!("{vtable:#x} + {offset:#x}: {target:#x}");
                 }
             }
             ["chain", global, offset, rest @ ..] => {
