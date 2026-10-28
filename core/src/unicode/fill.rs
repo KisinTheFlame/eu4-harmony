@@ -464,8 +464,10 @@ fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill) -> crate::Result
 }
 
 extern "C" fn load_before(frame: *mut HookFrame) {
-    let font = unsafe { (*frame).args[0] };
-    LOADING.with(|l| l.borrow_mut().begin(font));
+    crate::guarded("font page load", || {
+        let font = unsafe { (*frame).args[0] };
+        LOADING.with(|l| l.borrow_mut().begin(font));
+    })
 }
 
 extern "C" fn create_before(frame: *mut HookFrame) {
