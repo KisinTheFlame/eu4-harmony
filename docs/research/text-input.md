@@ -128,7 +128,10 @@ The outer edit box: `+0x1d0` keyboard listener interface, `+0x1f0` caret sprite,
   - The position on screen: the edit box's `vt[0xd8]` (0x15357a0) gives the edit box's position on screen (in GUI units); its click handler (0x1534560) subtracts it from the mouse position to get coordinates within the box. The caret's screen position = this position + the inset + that offset + the caret offset.
   - Multiplying by the two floats at `[[0x23494b8]+0x4e0]` / `+0x4e4` gives window pixels; the focus function converts the same way. The font's line height is `font[+0x960] * font[+0x968]` (method 0x159ba20).
   - The framework places both windows at the caret with `ImmSetCompositionWindow` and `ImmSetCandidateWindow`, keeping the candidate window clear of the current line.
-- **To be tested**: whether Backspace, Enter and the arrow keys pressed during composition also reach the edit box (no check for VK_PROCESSKEY was found in the window procedure).
+- **Keys during composition** (tested in the game 2026-10-28): they reach the game. A key the input method takes arrives as WM_KEYDOWN with `VK_PROCESSKEY`, but SDL makes its key event from the scan code in lParam, and neither the window procedure nor IME_HandleMessage looks at `VK_PROCESSKEY` (IME_HandleMessage handles only WM_INPUTLANGCHANGE and the WM_IME_* messages). So Enter that commits the composition also closed the search box, and Backspace that edits it also deleted text.
+  - The framework returns non-zero from IME_HandleMessage for WM_KEYDOWN and WM_KEYUP with `VK_PROCESSKEY` while an edit box has the keyboard; the window procedure then returns at `0x173ad10` before SDL sees the key.
+  - An edit box has the keyboard when the GUI manager (`[0x23494f0]`) holds, at `+0x210`, a keyboard listener whose vtable is the edit box's (`0x1d917d8`, at box `+0x1d0`) and the box's focus flag (`+0x260`) is set. The focus function stores the listener at `0x153539b`; the game may leave it there after the box lets go, hence the flag.
+  - Elsewhere such keys still reach the game, so its shortcuts keep working while a Chinese input method is switched on.
 
 ## 4. Save file names
 

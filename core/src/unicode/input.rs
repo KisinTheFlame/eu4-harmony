@@ -17,14 +17,21 @@
 //! lets Windows show its windows, turns off TSF's UI-less mode (0x1764e7e),
 //! and places the windows at the caret of the focused edit box from
 //! UpdateCaret (0x1534250). There is no input method of the framework's own.
+//!
+//! SDL turns every key press into a game key from its scan code, even one the
+//! input method took (`VK_PROCESSKEY`): Enter that picks a candidate also
+//! closed the search box, and Backspace that edits the composition also
+//! deleted text. While an edit box has the keyboard, such presses go to the
+//! input method alone. Elsewhere they still reach the game, so its shortcuts
+//! keep working with a Chinese input method switched on.
 use super::game_text;
 use super::objects;
 use crate::points::{Point, Resume};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::UI::Input::Ime::*;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetFocus;
-use windows_sys::Win32::UI::WindowsAndMessaging::{DefWindowProcW, WM_IME_COMPOSITION, WM_IME_NOTIFY, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, VK_PROCESSKEY};
+use windows_sys::Win32::UI::WindowsAndMessaging::{DefWindowProcW, WM_IME_COMPOSITION, WM_IME_NOTIFY, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP};
 
 const TEXT_EVENT: usize = 0x1569f91;
 const NEXT_EVENT: usize = 0x156a22a;
@@ -117,9 +124,28 @@ fn without_result(lparam: isize) -> isize {
     lparam & !RESULT_BITS
 }
 
+/// Whether an edit box has the keyboard.
+fn edit_box_focused(m: &crate::memory::Memory) -> bool {
+    use objects::{edit_box, gui};
+    let focused = || -> crate::Result<bool> {
+        let listener = m.ptr(m.ptr(m.at(gui::MANAGER))? + gui::FOCUSED_LISTENER)?;
+        Ok(listener != 0 && m.ptr(listener)? == m.at(edit_box::LISTENER_VT) && m.u8(listener - edit_box::LISTENER + edit_box::FOCUSED)? != 0)
+    };
+    focused().unwrap_or(false)
+}
+
+/// Whether `message` is a key the input method took (see the module notes).
+fn taken_by_input_method(message: u32, wparam: usize) -> bool {
+    matches!(message, WM_KEYDOWN | WM_KEYUP) && wparam == VK_PROCESSKEY as usize
+}
+
 /// SDL's handling, then what Windows needs to draw its own windows. Returns
-/// non-zero when the game must not pass the message to DefWindowProc.
+/// non-zero when SDL's window procedure must stop there: neither SDL nor
+/// DefWindowProc then sees the message.
 unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lparam: *mut isize, video: usize) -> i32 {
+    if taken_by_input_method(message, wparam) && crate::memory().is_some_and(|m| edit_box_focused(m)) {
+        return 1;
+    }
     let original: ImeMessage = std::mem::transmute(ORIGINAL_IME.load(Ordering::Acquire));
     let sent = *lparam;
     let handled = original(window, message, wparam, lparam, video);
@@ -299,6 +325,15 @@ mod tests {
         assert_eq!(typed_char(b"\xe4\xb8\xad\0"), "中".as_bytes());
         assert_eq!(typed_char(b"ab\0"), b"a");
         assert_eq!(typed_char(b"\0"), b"\0");
+    }
+
+    #[test]
+    fn only_keys_the_input_method_took_are_held_back() {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_RETURN;
+        assert!(taken_by_input_method(WM_KEYDOWN, VK_PROCESSKEY as usize));
+        assert!(taken_by_input_method(WM_KEYUP, VK_PROCESSKEY as usize));
+        assert!(!taken_by_input_method(WM_KEYDOWN, VK_RETURN as usize));
+        assert!(!taken_by_input_method(WM_IME_COMPOSITION, VK_PROCESSKEY as usize));
     }
 
     #[test]

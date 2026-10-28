@@ -34,8 +34,20 @@ pub mod textures {
     pub const RENDERER: usize = 0x60;
 }
 
+/// The GUI manager, held by the global [`gui::MANAGER`].
+pub mod gui {
+    pub const MANAGER: usize = 0x23494f0;
+    /// The keyboard listener that has the keyboard: an edit box's
+    /// [`super::edit_box::LISTENER`] once one takes it, or null. The game
+    /// may leave it set after the box lets go, so check the box too.
+    pub const FOCUSED_LISTENER: usize = 0x210;
+}
+
 /// An edit box (vtable 0x1d91358).
 pub mod edit_box {
+    /// Its keyboard listener interface, whose vtable is [`LISTENER_VT`].
+    pub const LISTENER: usize = 0x1d0;
+    pub const LISTENER_VT: usize = 0x1d917d8;
     /// Its text editor (see [`super::editor`]).
     pub const EDITOR: usize = 0xc8;
     /// Whether it has the keyboard, u8.
@@ -76,7 +88,11 @@ pub fn points() -> Vec<Point> {
             "font page lookup",
         ),
         Point::keep(0x16c2e84usize, "49 8b 4f 60", "texture manager renderer"),
+        // GUI manager: an edit box taking the keyboard stores its listener.
+        Point::keep(0x153537cusize, "48 8b 05 6d 41 e1 00", "GUI manager"),
+        Point::keep(0x1535394usize, "48 8d 8f d0 01 00 00 48 89 88 10 02 00 00", "edit box takes the keyboard"),
         // Edit box.
+        Point::keep(0x15333ebusize, "48 8d 05 e6 e3 85 00 49 89 86 d0 01 00 00", "edit box keyboard listener"),
         Point::keep(0x1534216usize, "48 81 c1 c8 00 00 00", "edit box editor"),
         Point::keep(0x1535266usize, "c6 81 60 02 00 00 01", "edit box focus flag"),
         Point::keep(0x153427eusize, "48 8b 81 e0 01 00 00 4c 8b 98 04 26 03 00", "edit box caret shift"),
