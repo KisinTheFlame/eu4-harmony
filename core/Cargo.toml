@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 eu4-harmony-abi = { path = "../abi" }
 eu4-harmony-loc = { path = "../loc" }
 eu4-harmony-manifest = { path = "../manifest" }
+eu4-harmony-remote = { path = "../remote" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

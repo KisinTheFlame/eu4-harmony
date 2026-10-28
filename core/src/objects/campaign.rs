@@ -4,7 +4,8 @@
 
 /// Globals, by RVA.
 pub mod globals {
-    /// The world, the campaign's state; null when no campaign runs.
+    /// The world, the campaign's state. It is not null in the main menu
+    /// either, so it is no sign of a game (docs/research/safe-points.md).
     pub const WORLD: usize = 0x233fe78;
     /// The country manager.
     pub const COUNTRY_MANAGER: usize = 0x233d8d0;
@@ -63,8 +64,11 @@ pub mod world {
 
 /// The country manager, at [`globals::COUNTRY_MANAGER`].
 pub mod countries {
-    /// The countries, pointers by tag index.
-    pub const LIST: usize = 0x118;
+    /// The countries: an array whose data, pointers by tag index, is at
+    /// [`LIST`] and whose length (i32) is at [`COUNT`].
+    pub const ARRAY: usize = 0x110;
+    pub const LIST: usize = ARRAY + 8;
+    pub const COUNT: usize = ARRAY + 0x14;
 }
 
 pub mod country {
@@ -251,6 +255,15 @@ pub fn points() -> Vec<Point> {
         // A country finding itself by its tag.
         Point::keep(0xb239cusize, "4c 8b 05 2d b5 28 02 48 8b 41 20 48 c1 e8 20 48 0f bf d0 49 8b 80 18 01 00 00 48 8b 1c d0", "country by tag")
             .uses(&[COUNTRY_MANAGER, country::TAG, tag::INDEX, countries::LIST]),
+        // The country manager, made, hands its country array to 0xb510f0,
+        // which walks it to its length, reading each country's tag.
+        Point::keep(0xb510c6usize, "48 89 05 03 c8 7e 01 48 8d 90 10 01 00 00", "country array").uses(&[COUNTRY_MANAGER, countries::ARRAY]),
+        Point::keep(
+            0xb5113fusize,
+            "41 8b 46 14 4d 8b 76 08 48 98 49 8d 2c c6 4c 3b f5 0f 84 1c 01 00 00 48 89 74 24 50 4c 89 64 24 58 4c 8d 25 39 ea 15 01              4c 89 7c 24 60 45 33 ff 90 8b 57 14 49 8b 1e 8b 77 10 8d 42 01 48 8b 5b 20",
+            "country array walk",
+        )
+        .uses(&[countries::COUNT - countries::ARRAY, countries::LIST - countries::ARRAY, country::TAG]),
         Point::keep(0xb252eusize, "49 8b 89 48 15 00 00 4d 63 81 54 15 00 00 49 c1 e0 04 4c 03 c1", "country wars")
             .uses(&[country::HOSTILE, country::HOSTILE_COUNT, 4]),
         // The fog of war refresh walks a country's units.

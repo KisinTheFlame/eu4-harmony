@@ -101,12 +101,14 @@ fn game() -> GResult<&'static Memory> {
 }
 
 /// What the capabilities keep between calls: the map's topology and the
-/// routes extensions installed. Both belong to one session.
+/// routes extensions installed. Both belong to one session, as does the last
+/// day announced.
 #[derive(Default)]
 struct State {
     geography: world::Geography,
     orders: orders::Orders,
     session: u64,
+    day: Option<i32>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -117,7 +119,8 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
 }
 
 /// What a safe frame starts from: the campaign, its session, and what
-/// happened since the last one.
+/// happened since the last one, which extensions and remote control hear in
+/// this order: a new session, the changes, a new day.
 pub struct Frame {
     pub ctx: Ctx,
     pub session: u64,
@@ -126,31 +129,36 @@ pub struct Frame {
     pub new_session: bool,
     pub visibility_current: bool,
     pub changes: Vec<events::Change>,
+    /// The date differs from the last day announced in this session, and
+    /// visibility reflects it.
+    pub new_day: bool,
 }
 
-/// Starts a safe frame (see [`events`]); None when this is not one. At a new
-/// session, forgets the old one's map, routes and map coloring.
-pub fn begin_frame(m: &Memory) -> Option<Frame> {
+/// Starts a safe frame (see [`events`]); fails when this is not one, saying
+/// why. At a new session, forgets the old one's map, routes and map coloring.
+/// An army the player gave an order is no longer an extension's to move.
+pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     let state = events::begin_frame(m)?;
-    let new_session = with_state(|s| {
-        if s.session == state.session {
-            return false;
+    let (new_session, new_day) = with_state(|s| {
+        let new_session = s.session != state.session;
+        if new_session {
+            s.session = state.session;
+            s.geography.clear();
+            s.orders.clear();
+            s.day = None;
         }
-        s.session = state.session;
-        s.geography.clear();
-        s.orders.clear();
-        true
+        for change in &state.changes {
+            if let events::Change::Ordered(army) = change {
+                s.orders.revoke(*army);
+            }
+        }
+        let new_day = state.visibility_current && s.day.replace(state.ctx.date) != Some(state.ctx.date);
+        (new_session, new_day)
     });
     if new_session {
         crate::map::reset_session(m, &state.ctx);
     }
-    Some(Frame { ctx: state.ctx, session: state.session, new_session, visibility_current: state.visibility_current, changes: state.changes })
-}
-
-/// The player gave an army an order: the route an extension installed for it,
-/// if any, is no longer that extension's.
-pub fn player_ordered(army: u64) {
-    with_state(|s| s.orders.revoke(army));
+    Ok(Frame { ctx: state.ctx, session: state.session, new_session, visibility_current: state.visibility_current, changes: state.changes, new_day })
 }
 
 const IS_PAUSED: usize = 0x7e01b0;

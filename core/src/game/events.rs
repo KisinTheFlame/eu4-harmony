@@ -1,7 +1,8 @@
 //! When extensions run, and what they hear about.
 //!
-//! * The map manager's frame (also while paused) is the safe point: the core
-//!   dispatches every queued event and `on_frame` there.
+//! * The map manager's frame (also while paused) is the safe point in a game
+//!   (`crate::safe_point`): the core dispatches every queued event and
+//!   `on_frame` there, and remote control runs.
 //! * Visibility is "current" only after a complete fog-of-war refresh with no
 //!   daily update or external change since; `on_day` waits for that.
 //! * Route changes and defeats of own armies are observed in the game's own
@@ -9,7 +10,7 @@
 //!
 //! Hook callbacks only touch `BOUNDARY`; they never take the runtime state,
 //! since some fire inside game functions that capabilities call.
-use super::{context, context_any, orders, Ctx, Tag};
+use super::{context, context_any, fail, orders, Ctx, GResult, Status, Tag};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -248,7 +249,7 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
 extern "C" fn manager_after(frame: *mut HookFrame) {
     crate::guarded("frame", || {
         if unsafe { (*frame).fault } == 0 {
-            crate::ext::frame();
+            crate::safe_point::game_frame();
         }
     });
 }
@@ -276,14 +277,19 @@ pub struct FrameState {
     pub changes: Vec<Change>,
 }
 
-/// Called at the start of a safe frame: tracks the session and collects changes.
-pub fn begin_frame(m: &Memory) -> Option<FrameState> {
-    if crate::saves::load_in_progress() || crate::thread_id() != crate::main_thread() {
-        return None;
+/// Called at the start of a safe frame: tracks the session and collects
+/// changes. Fails when the frame is not one: while a save loads, off the main
+/// thread, or when the campaign cannot be read.
+pub fn begin_frame(m: &Memory) -> GResult<FrameState> {
+    if crate::saves::load_in_progress() {
+        return fail(Status::NotReady, "a save is being loaded");
     }
-    let ctx = context(m).ok()?;
-    let fog = fog_mode(m, &ctx).ok()?;
-    Some(boundary(|b| {
+    if crate::thread_id() != crate::main_thread() {
+        return fail(Status::WrongContext, "off the game's main thread");
+    }
+    let ctx = context(m)?;
+    let fog = fog_mode(m, &ctx)?;
+    Ok(boundary(|b| {
         let identity = (ctx.world, ctx.player.0);
         if b.identity != Some(identity) {
             b.identity = Some(identity);
