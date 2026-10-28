@@ -31,7 +31,7 @@ mod pending {
 
 /// The map manager's popups: a [`list`] of the windows it shows, each asked
 /// every frame, through [`UPDATE`] in its vtable, whether it stays.
-pub(super) const POPUPS: usize = 0x78;
+const POPUPS: usize = 0x78;
 const UPDATE: usize = 0x18;
 
 /// An event window, by its vtable.
