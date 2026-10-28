@@ -34,6 +34,8 @@ eu4-harmony link                          # register it under mod\ in the user f
 eu4-harmony package                       # make a clean folder to upload, ..\my-mod-package
 ```
 
+With the game running, `eu4-harmony game` asks it things through remote control and prints the answer as JSON: `eu4-harmony game session` reads the date and the player's country, `eu4-harmony game army move <army> <province>` orders one of the player's armies, and `eu4-harmony game help` lists every capability.
+
 An extension implements `eu4_harmony_sdk::Extension`, with one method per kind of event; every capability is a method on the `Game` passed to the callbacks. Unit tests use `eu4_harmony_sdk::testing::FakeGame` in place of the game. The smallest example is the mod `eu4-harmony new` creates; a full one is the regional combat mod in the eu4-regional-combat repository.
 
 Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of the game's localisation files but as plain UTF-8, one file per language (`english`, `french`, `german`, `spanish`, `simp_chinese`). Interface fragments use the keys directly, and an extension gets a text with `game.text("KEY")`; the framework shows the player language, see [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md).

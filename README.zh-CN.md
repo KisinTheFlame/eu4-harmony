@@ -34,6 +34,8 @@ eu4-harmony link                          # 在用户目录 mod\ 下登记，之
 eu4-harmony package                       # 生成上传用的干净目录 ..\my-mod-package
 ```
 
+游戏运行时，`eu4-harmony game` 通过远程控制向游戏发请求，以 JSON 打印回答：`eu4-harmony game session` 读出日期和玩家的国家，`eu4-harmony game army move <军队> <省份>` 给玩家的一支军队下令，`eu4-harmony game help` 列出全部能力。
+
 扩展实现 `eu4_harmony_sdk::Extension`，每类事件一个方法；所有能力都是回调参数 `Game` 上的方法。单元测试用 `eu4_harmony_sdk::testing::FakeGame` 代替游戏。最小的示例就是 `eu4-harmony new` 生成的 Mod；完整的例子是 eu4-regional-combat 仓库里的区域作战 Mod。
 
 文字写在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`，格式同游戏的本地化文件，内容是普通 UTF-8，一个语言一份（`english`、`french`、`german`、`spanish`、`simp_chinese`）。界面片段直接引用其中的键，扩展用 `game.text("KEY")` 取文字；框架按玩家语言显示，见 [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md)。
