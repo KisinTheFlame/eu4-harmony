@@ -164,7 +164,7 @@ Built (2026-10-29). F3 added no capability. The transport is `core/src/pipe.rs`,
 - **A game started again**: returning to the main menu starts `eu4.exe` again, and the new process starts while the old one still has the pipe, for a few seconds ([research/safe-points.md](research/safe-points.md)); the new one tries every second until it can open the pipe. A client on the old pipe finds it broken (a read ends, a write fails) and opens the pipe again.
 - **Log**: the transport logs when the pipe opens, each `bad_request` with its client's number, and each client leaving, with how many answers it got and whether it gave a request up; the engine logs every request as JSON, a request given up before it ran included.
 - **`events` with `wait_ms`** waits up to that long from when the engine runs the request. Nothing runs at startup until the main menu shows (40 s in the first run) nor while a save loads: a request sent then runs only after that, and an answer due then comes late, after it, load time included. The description now says so. Keeping "at most that long" would mean answering off the safe points, or a transport that knows one capability's arguments; a client that cannot wait closes the pipe.
-- **Trying it**: the probe thread F2 added is gone; `tools/remote-pipe.ps1` sends JSON requests down the pipe and prints the answers ([tools/README.md](../tools/README.md)).
+- **Trying it**: the probe thread F2 added is gone; `tools/remote-pipe.ps1` sent JSON requests down the pipe and printed the answers. F4 removed it: the command line does the same, and checks who serves the pipe before it sends anything.
 
 ### F4 Command line
 
