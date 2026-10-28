@@ -1,0 +1,161 @@
+# Remote control plan
+
+Status: final (2026-10-29). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0015](adr/0015-remote-control-uses-capabilities.md) (built in, capabilities only, acting as the player), [ADR 0016](adr/0016-remote-control-engine-and-transports.md) (engine and transports) and [ADR 0017](adr/0017-remote-control-is-always-on.md) (always on).
+
+## Goal and scope
+
+- **Goal**: programs outside the game process use the game through the framework's capabilities. Two uses drive it: debugging the framework from the command line, and an AI playing a whole game through `eu4-harmony game`, from the main menu on.
+- **In scope**: the capability layer shared by extensions and remote control; the remote control engine; the named pipe transport; the command line client; time control; country and province snapshots; the game console; the main menu; recruiting; answering events and offers; diplomacy; the camera; screenshots.
+- **Out of scope**: map coloring by remote clients; a setting or a mark on screen for remote control; any way to read memory or call game functions from outside; multiplayer; transports other than the named pipe.
+
+## How it fits together
+
+```
+ remote client ── transport (named pipe, JSON lines) ── engine ──┐
+                                                                 ├── capability layer ── game
+ extension ── C ABI (GameApi, host functions in ext.rs) ─────────┘
+```
+
+- **Capability layer** (`core/src/game/`, one file per group): each capability is a function taking a `Caller` (`Extension(index)` or `Remote`) and returning the framework's own Rust types, not `abi::*`. It holds all the logic: looking objects up, checking state, calling the game. With `Caller::Remote`, an order is the player's: it takes the army back from the extension that owned it and raises "the player gave an army an order".
+- **Engine** (`core/src/remote/`): requests are nested enums, one variant per group (`Request::Country(CountryRequest)`), each group in its own file. Requests from transport threads are queued and run at a safe point on the main thread, every frame, in the main menu as well as in a game, within a time budget per frame. A request that waits (advancing time) gets its response at a later safe point. The engine keeps a bounded buffer of numbered events (the same events extensions hear) and writes every request to the framework log.
+- **Shared crate** (`remote/`, like `loc/` and `manifest/`): the request and response types, their serde form and a description of every capability and argument, used by the core and the command line tool.
+- **Transport** (named pipe, see ADR 0016): many clients at once, each request handled in order of arrival; it encodes and decodes, and never touches game state.
+- **Command line client** (`cli/`): `eu4-harmony game <capability> --<argument> <value>`, `eu4-harmony game describe`, `eu4-harmony game events --since <n>`; JSON on standard output, a non-zero exit code on an error; `--out <file>` writes a binary result to a file and prints its path.
+
+### Identifiers in JSON
+
+A country is its tag (`"FRA"`), a province its number, an army its ID as a decimal string. Dates are `"1444.11.11"`.
+
+### Which side sees which capability
+
+| Capability | Extensions | Remote control |
+| --- | --- | --- |
+| Session, countries, provinces, neighbors, armies, routes, pathfinding, move and stop, selected army | yes | yes |
+| Time control: pause, resume, speed | yes | yes |
+| Advance time and wait for it, with the events on the way | no | yes |
+| Events | callbacks | read from the buffer |
+| Country snapshot, province snapshot | yes | yes |
+| Game console | yes | yes |
+| Main menu: list saves, load a save, start a game, return to the main menu | no | yes |
+| Recruiting, diplomacy, answering events and offers, camera | yes | yes |
+| Screenshot | no | yes |
+| Interface elements, extension save data, the mod's texts, logging | yes | no |
+| Map coloring | yes | no |
+
+An extension-side capability is added to the ABI by appending (ADR 0014): a `GameApi` field, the host function, the SDK method and `FakeGame` support.
+
+### Granularity
+
+A command is one action per capability (choose an event option, accept an offer, declare war). A read fetches one object's snapshot in one go. The exact list of capabilities in each group is decided by the node that builds it, once its reverse engineering is done, and written into its section below.
+
+## Nodes
+
+```mermaid
+graph LR
+  F1[F1 capability layer] --> F2[F2 engine] --> F3[F3 named pipe] --> F4[F4 command line]
+  F4 --> C1[C1 time] & C2[C2 country] & C3[C3 province] & C4[C4 game console] & C5[C5 main menu] & C7[C7 events and offers] & C9[C9 camera] & C10[C10 screenshot]
+  C2 --> C8[C8 diplomacy]
+  C3 --> C6[C6 recruiting]
+  C1 & C2 & C3 & C4 & C5 & C6 & C7 & C8 & C9 & C10 --> Z[Z wrap-up]
+```
+
+F1 to F4 run one after another: they set the shape of the files every later node adds to, and F4 gives the later nodes the command line to try their capabilities in the game. The C nodes run in parallel. How nodes are developed and merged is in [AGENTS.md](../AGENTS.md#parallel-development).
+
+### Every node is done when
+
+1. It is rebased on the latest requirement branch, conflicts resolved.
+2. `cargo build --release` and `cargo test --release` pass.
+3. The offline checks (`cargo test --release -p eu4-harmony-core -- --ignored`, with the game) pass.
+4. What it adds was tried in the running game, and [prototype-log.md](prototype-log.md) has a dated section for the run, saying as plainly what was not verified.
+5. New findings about the game are in [research/](research/), with addresses as RVAs into the 1.37.5 baseline, and every new place in the game is a dependency point.
+6. Its section below lists the capabilities it added, with their arguments and results.
+
+### F1 Capability layer
+
+Move the logic of every capability out of the host functions in `core/src/ext.rs` into the capability layer, one file per group, taking a `Caller` and returning the framework's own types. The host functions only convert to and from the ABI. Implement the `Caller::Remote` order semantics (the player's order: ownership taken back, the event raised once) even though nothing calls it yet, with a unit test.
+
+Done when: the game behaves exactly as before, through extensions; the existing in-game checks pass.
+
+### F2 Engine
+
+The `remote/` crate with the request and response types and their descriptions; `core/src/remote/` with the queue, the safe point in the main menu and in a game, the time budget, requests that answer later, the event buffer, logging. Wire up every capability that exists and that remote control sees (see the table). The engine is driven by typed requests in its tests.
+
+Done when: unit tests drive the engine through every existing capability with typed requests; in the game, requests submitted from another thread are answered at safe points in the main menu and during a game.
+
+### F3 Named pipe
+
+The transport of ADR 0016: the pipe open to the current user only, several clients at once, JSON lines in and out, errors as `{"ok": false, "error": {"code": ..., "message": ...}}`.
+
+Done when: a test client talks to the transport in a unit test; in the game, a client on the pipe reads the session.
+
+### F4 Command line
+
+`eu4-harmony game ...` as described above, built from the descriptions in the shared crate, with a timeout option.
+
+Done when: in the game, the command line reads the session, lists the player's armies, moves one and stops it; `describe` lists every capability.
+
+### C1 Time
+
+Pause, resume, read and set the speed, read the date. `time advance <days> [--speed <s>]`, remote control only: resume, pause when the date is reached, answer with the events on the way; answer early, with the reason and the date, when the player pauses, a game event needs an answer, the game returns to the main menu or the session changes.
+
+Done when: in the game, advancing 30 days stops on the right date with the day events in the answer, and an early stop says why.
+
+### C2 Country snapshot
+
+One read of a country: treasury, manpower and its maximum, stability, prestige, the three kinds of monarch points, wars (each with its attackers and defenders) and diplomatic relations (allies, subjects, overlord, rivals, at least). C8 relies on the wars and relations.
+
+Done when: in the game, the player's country and another country read correctly against what the game shows.
+
+### C3 Province snapshot
+
+One read of a province: its name (as game text, see GLOSSARY), development (tax, production, manpower), terrain, fort, buildings, and what can be recruited there. C6 relies on the last.
+
+Done when: in the game, several provinces read correctly against what the game shows, a Chinese name included.
+
+### C4 Game console
+
+Run a command in the game console and return what it printed.
+
+Done when: in the game, `add_treasury 100` raises the treasury, and a command's output comes back.
+
+### C5 Main menu
+
+Remote control only: list the saves, load a save, start a game as a country (at the default start date at least), return to the main menu. Back up saves first, as AGENTS.md says.
+
+Done when: in the game, a remote client gets from the main menu into a loaded save and into a new game, and back out.
+
+### C6 Recruiting
+
+Recruit a regiment of a given kind in a given province.
+
+Done when: in the game, a regiment is queued for recruiting, and a refusal says why.
+
+### C7 Events and offers
+
+List the game events waiting for the player's answer, with their options; choose an option. List the diplomatic offers waiting for an answer; accept or decline one. C1's early stop on "a game event needs an answer" comes from here if C1 cannot see it on its own.
+
+Done when: in the game, an event (raised with the game console if need be) is listed and answered, and an offer is accepted or declined.
+
+### C8 Diplomacy
+
+The player's diplomatic actions, one per capability: at least declaring war, offering peace (white peace at least) and proposing an alliance.
+
+Done when: in the game, each action takes effect, and a refusal says why.
+
+### C9 Camera
+
+Read where the camera looks and its zoom; look at a province; look at a map position; set the zoom.
+
+Done when: in the game, each moves the view as asked.
+
+### C10 Screenshot
+
+Remote control only: the frame as the player sees it, framework UI included, read back from the D3D9 device after the framework UI is drawn (`core/src/framework_ui/d3d9.rs`), as PNG; `--scale` shrinks it.
+
+Done when: in the game, a screenshot taken through the command line matches the screen, in the main menu and in a game.
+
+### Z Wrap-up
+
+Play through the command line only, as an AI would: from the main menu into a game, observe, advance time, answer events and offers, move armies, recruit, use diplomacy, take screenshots, return to the main menu. Fix what that turns up. Document remote control in README.md and README.zh-CN.md, check that the player's installation contains `eu4-harmony.exe`, and record the play-through in prototype-log.md.
+
+Done when: the play-through works start to end and README.md, README.zh-CN.md and prototype-log.md say how and what was seen.
