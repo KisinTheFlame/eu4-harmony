@@ -20,6 +20,7 @@
 //!   converted to and from the game's encoding on the way;
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
+use crate::resume;
 use crate::game_string;
 use crate::objects::gui::{
     editor::{CARET_MOVED, COLUMN, LINE, SELECT_LEFT, SELECT_RIGHT, TEXT},
@@ -27,9 +28,8 @@ use crate::objects::gui::{
 };
 use super::{breaks, game_text};
 use crate::hooks::HookFrame;
-use crate::points::{Point, Resume};
+use crate::points::{Function, Point};
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 const LINE_COL_TO_INDEX: usize = 0x153aa90;
 const SET_CARET: usize = 0x1536f50;
@@ -63,37 +63,23 @@ const KEY_UNMATCHED: usize = 0x1536a31;
 const KEY_NEXT: usize = 0x1536a38;
 const KEY_HANDLED: usize = 0x1536b54;
 
-static GET_CLIPBOARD: AtomicUsize = AtomicUsize::new(0);
-static SET_CLIPBOARD: AtomicUsize = AtomicUsize::new(0);
-static SDL_FREE: AtomicUsize = AtomicUsize::new(0);
-static ORIGINAL_FIT: AtomicUsize = AtomicUsize::new(0);
-static ORIGINAL_REMOVE: AtomicUsize = AtomicUsize::new(0);
+static GET_CLIPBOARD: Function<GetText> = Function::new();
+static SET_CLIPBOARD: Function<SetText> = Function::new();
+static SDL_FREE: Function<Free> = Function::new();
+static ORIGINAL_FIT: Function<Fit> = Function::new();
+static ORIGINAL_REMOVE: Function<RemoveChars> = Function::new();
 
-static LEFT_RESUME: [Resume; 2] =
-    [Resume { rva: LEFT_LINE_START, address: &LEFT_AT_LINE_START }, Resume { rva: LEFT_MOVED, address: &LEFT_DONE }];
-static LEFT_AT_LINE_START: AtomicUsize = AtomicUsize::new(0);
-static LEFT_DONE: AtomicUsize = AtomicUsize::new(0);
-static RIGHT_DONE: AtomicUsize = AtomicUsize::new(0);
-static BACKSPACE_DONE: AtomicUsize = AtomicUsize::new(0);
-static DELETE_DONE: AtomicUsize = AtomicUsize::new(0);
-static CLICKED: AtomicUsize = AtomicUsize::new(0);
-static INSERT_DONE: AtomicUsize = AtomicUsize::new(0);
-static APPEND_DONE: AtomicUsize = AtomicUsize::new(0);
-static PREPEND_DONE: AtomicUsize = AtomicUsize::new(0);
-static PASTED: AtomicUsize = AtomicUsize::new(0);
-static COPIED: AtomicUsize = AtomicUsize::new(0);
-static RIGHT_RESUME: [Resume; 1] = [Resume { rva: RIGHT_SET, address: &RIGHT_DONE }];
-static BACKSPACE_RESUME: [Resume; 1] = [Resume { rva: BACKSPACE_ERASE, address: &BACKSPACE_DONE }];
-static DELETE_RESUME: [Resume; 1] = [Resume { rva: DELETE_ERASE, address: &DELETE_DONE }];
-static CLICK_RESUME: [Resume; 1] = [Resume { rva: CLICK_DONE, address: &CLICKED }];
-static INSERT_RESUME: [Resume; 1] = [Resume { rva: INSERT_CUT_DONE, address: &INSERT_DONE }];
-static APPEND_RESUME: [Resume; 1] = [Resume { rva: APPEND_CUT_DONE, address: &APPEND_DONE }];
-static PREPEND_RESUME: [Resume; 1] = [Resume { rva: PREPEND_CUT_DONE, address: &PREPEND_DONE }];
-static PASTE_RESUME: [Resume; 1] = [Resume { rva: PASTE_GOT, address: &PASTED }];
-static COPY_RESUME: [Resume; 1] = [Resume { rva: COPY_DONE, address: &COPIED }];
-static KEY_NEXT_AT: AtomicUsize = AtomicUsize::new(0);
-static KEY_HANDLED_AT: AtomicUsize = AtomicUsize::new(0);
-static KEY_RESUME: [Resume; 2] = [Resume { rva: KEY_NEXT, address: &KEY_NEXT_AT }, Resume { rva: KEY_HANDLED, address: &KEY_HANDLED_AT }];
+resume!(LEFT_RESUME: LEFT_AT_LINE_START = LEFT_LINE_START, LEFT_DONE = LEFT_MOVED);
+resume!(RIGHT_RESUME: RIGHT_DONE = RIGHT_SET);
+resume!(BACKSPACE_RESUME: BACKSPACE_DONE = BACKSPACE_ERASE);
+resume!(DELETE_RESUME: DELETE_DONE = DELETE_ERASE);
+resume!(CLICK_RESUME: CLICKED = CLICK_DONE);
+resume!(INSERT_RESUME: INSERT_DONE = INSERT_CUT_DONE);
+resume!(APPEND_RESUME: APPEND_DONE = APPEND_CUT_DONE);
+resume!(PREPEND_RESUME: PREPEND_DONE = PREPEND_CUT_DONE);
+resume!(PASTE_RESUME: PASTED = PASTE_GOT);
+resume!(COPY_RESUME: COPIED = COPY_DONE);
+resume!(KEY_RESUME: KEY_NEXT_AT = KEY_NEXT, KEY_HANDLED_AT = KEY_HANDLED);
 
 // What the edit box operations do to the text, worked out without the game.
 
@@ -158,10 +144,6 @@ pub fn remove_in(text: &mut [u8], forbidden: &[u8]) -> usize {
 
 // The hooks, on the game's editor.
 
-fn memory() -> crate::memory::Memory {
-    *crate::memory().expect("hooks run after startup")
-}
-
 /// The editor's text.
 unsafe fn text<'a>(inner: usize) -> &'a [u8] {
     game_string::text((inner + TEXT) as *const u8)
@@ -175,12 +157,12 @@ unsafe fn caret(inner: usize) -> (usize, usize) {
 /// Where a line and column are in the text, as the editor counts (it never
 /// goes past the end of the text).
 fn index_of(inner: usize, line: usize, column: usize) -> crate::Result<usize> {
-    let m = memory();
+    let m = crate::hooked_memory();
     m.call(m.at(LINE_COL_TO_INDEX), &[inner, line, column]).map(|i| i as u32 as usize)
 }
 
 fn erase(inner: usize, at: usize, count: usize) -> crate::Result<()> {
-    let m = memory();
+    let m = crate::hooked_memory();
     for _ in 0..count {
         m.call(m.at(ERASE_AT), &[inner, at])?;
     }
@@ -248,7 +230,7 @@ extern "C" fn snap_caret(frame: *mut HookFrame) {
             let at = index_of(inner, line, column)?;
             let start = game_text::floor_boundary(unsafe { text(inner) }, at);
             if start != at {
-                let m = memory();
+                let m = crate::hooked_memory();
                 m.call(m.at(SET_CARET), &[inner, start])?;
                 // The editor's own "caret moved" method, as Up and Down end.
                 m.call(m.vslot(inner, CARET_MOVED)?, &[inner])?;
@@ -267,13 +249,14 @@ extern "C" fn cut(string: *const u8, count: u32) -> u32 {
 }
 
 type Fit = unsafe extern "C" fn(usize, usize) -> i32;
+type RemoveChars = unsafe extern "C" fn(*mut u8, *const u8) -> u8;
 
 /// The bytes of a line (`std::string*`) that fit a multi-line box's width
 /// ([`fit_in`]). The caller (0x1537480) breaks a line at the last space before
 /// them, and with no space, as in Chinese, right at them, which cut Latin
 /// names in two (the country history window lays its text out in such a box).
 unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
-    let original: Fit = std::mem::transmute(ORIGINAL_FIT.load(Ordering::Acquire));
+    let original = ORIGINAL_FIT.get();
     let count = original(inner, line);
     crate::guarded("edit box line fit", || fit_in(game_string::text(line as *const u8), count))
 }
@@ -314,8 +297,7 @@ type Free = unsafe extern "C" fn(*mut u8);
 /// SDL's clipboard text in the game's encoding, NUL-terminated.
 extern "C" fn paste_text() -> *const u8 {
     crate::guarded("edit box paste", || unsafe {
-        let get: GetText = std::mem::transmute(GET_CLIPBOARD.load(Ordering::Acquire));
-        let free: Free = std::mem::transmute(SDL_FREE.load(Ordering::Acquire));
+        let (get, free) = (GET_CLIPBOARD.get(), SDL_FREE.get());
         let utf8 = get();
         let mut converted = if utf8.is_null() { Vec::new() } else { game_text::from_str(&String::from_utf8_lossy(c_bytes(utf8, 1 << 20))) };
         if !utf8.is_null() {
@@ -332,7 +314,7 @@ extern "C" fn paste_text() -> *const u8 {
 /// Puts the selection (`text`, in the game's encoding) on SDL's clipboard.
 extern "C" fn copy_text(text: *const u8) -> i32 {
     crate::guarded("edit box copy", || unsafe {
-        let set: SetText = std::mem::transmute(SET_CLIPBOARD.load(Ordering::Acquire));
+        let set = SET_CLIPBOARD.get();
         let mut utf8 = game_text::to_utf8(c_bytes(text, 1 << 20)).into_bytes();
         utf8.push(0);
         set(utf8.as_ptr())
@@ -548,8 +530,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(APPEND_CUT_DONE, "4c 39 43 10", "editor append cut done"),
         Point::jump(PREPEND_CUT, "3b d1 0f 4e ca 44 8b c1", "editor prepend length cut", prepend_cut_stub as *const () as usize, &PREPEND_RESUME),
         Point::keep(PREPEND_CUT_DONE, "4c 39 43 10", "editor prepend cut done"),
-        Point::replace(FIT_PREFIX, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "editor line fit", fit_prefix as *const () as usize, &ORIGINAL_FIT),
-        Point::replace(REMOVE_CHARS, "40 53 56 57 41 54 48 83 ec 48 48 83 7a 18 10 4c", "remove forbidden characters", remove_chars as *const () as usize, &ORIGINAL_REMOVE),
+        Point::replace(FIT_PREFIX, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "editor line fit", fit_prefix as Fit, &ORIGINAL_FIT),
+        Point::replace(REMOVE_CHARS, "40 53 56 57 41 54 48 83 ec 48 48 83 7a 18 10 4c", "remove forbidden characters", remove_chars as RemoveChars, &ORIGINAL_REMOVE),
         Point::jump(PASTE_GET, "e8 3b b2 1f 00", "editor paste reads the clipboard", paste_stub as *const () as usize, &PASTE_RESUME),
         Point::keep(PASTE_GOT, "48 c7 44 24 20 00 00 00 00", "editor paste copies the text"),
         Point::jump(COPY_SET, "e8 b7 c1 1f 00", "editor copy writes the clipboard", copy_stub as *const () as usize, &COPY_RESUME),
@@ -566,9 +548,9 @@ pub fn points() -> Vec<Point> {
         // The methods that select a character to the left and to the right.
         Point::keep(EDITOR_SELECT_LEFT, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select left"),
         Point::keep(EDITOR_SELECT_RIGHT, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select right"),
-        Point::keep(c"SDL_GetClipboardText", "48 ff 25 59 bd 87 00", "SDL clipboard read").recorded(&GET_CLIPBOARD),
-        Point::keep(c"SDL_SetClipboardText", "48 ff 25 21 aa 87 00", "SDL clipboard write").recorded(&SET_CLIPBOARD),
-        Point::keep(c"SDL_free", "48 ff 25 99 ac 87 00", "SDL free").recorded(&SDL_FREE),
+        Point::keep(c"SDL_GetClipboardText", "48 ff 25 59 bd 87 00", "SDL clipboard read").recorded(GET_CLIPBOARD.slot()),
+        Point::keep(c"SDL_SetClipboardText", "48 ff 25 21 aa 87 00", "SDL clipboard write").recorded(SET_CLIPBOARD.slot()),
+        Point::keep(c"SDL_free", "48 ff 25 99 ac 87 00", "SDL free").recorded(SDL_FREE.slot()),
     ]
 }
 

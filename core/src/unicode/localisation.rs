@@ -11,14 +11,14 @@
 //! (collection, key, value: NUL-terminated, line, version, replace).
 use crate::game_string;
 use super::game_text;
-use crate::points::Point;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use crate::points::{Function, Point};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const IMPORT: usize = 0x16fd650;
 const REGISTER: usize = 0x16fa8d0;
 
-static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
-static REGISTER_AT: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL: Function<Import> = Function::new();
+static REGISTER_AT: Function<Register> = Function::new();
 static KEPT: AtomicU64 = AtomicU64::new(0);
 static CONVERTED: AtomicU64 = AtomicU64::new(0);
 static LEGACY: AtomicU64 = AtomicU64::new(0);
@@ -52,12 +52,12 @@ unsafe extern "C" fn import(key: *const u8, value: *const u8, version: u32, unus
     let texts = crate::guarded("localisation import", || converted(key).zip(converted(value)));
     if let Some((key, value)) = texts {
         KEPT.fetch_add(1, Ordering::Relaxed);
-        let register: Register = std::mem::transmute(REGISTER_AT.load(Ordering::Acquire));
+        let register = REGISTER_AT.get();
         let c = &*context;
         register(c.collection, key.as_ptr(), value.as_ptr(), c.line, version, c.replace);
     } else {
         CONVERTED.fetch_add(1, Ordering::Relaxed);
-        let original: Import = std::mem::transmute(ORIGINAL.load(Ordering::Acquire));
+        let original = ORIGINAL.get();
         original(key, value, version, unused, context);
     }
 }
@@ -70,8 +70,8 @@ pub fn counts() -> (u64, u64, u64) {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::replace(IMPORT, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "localisation entry import", import as *const () as usize, &ORIGINAL),
-        Point::keep(REGISTER, "44 89 4c 24 20 4c 89 44 24 18 53 57 41 55 41 56", "localisation entry registration").recorded(&REGISTER_AT),
+        Point::replace(IMPORT, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "localisation entry import", import as Import, &ORIGINAL),
+        Point::keep(REGISTER, "44 89 4c 24 20 4c 89 44 24 18 53 57 41 55 41 56", "localisation entry registration").recorded(REGISTER_AT.slot()),
         // How the import reads its context and calls the registration.
         Point::keep(
             0x16fd720usize,

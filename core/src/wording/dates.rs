@@ -17,10 +17,9 @@
 use crate::game_string;
 use crate::lang;
 use crate::loc;
-use crate::points::Point;
+use crate::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The days of each month: the game's calendar has no leap years.
 const DAYS: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -81,14 +80,14 @@ fn text(language: Language, shape: Shape, date: Date) -> Option<String> {
 
 type DateText = unsafe extern "C" fn(*const i32, *mut u8, usize) -> *mut u8;
 
-static ORIGINAL_FORMAT: AtomicUsize = AtomicUsize::new(0);
-static ORIGINAL_MONTH: AtomicUsize = AtomicUsize::new(0);
-static ORIGINAL_NEXT_MONTH: AtomicUsize = AtomicUsize::new(0);
-static ORIGINAL_DAY: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_FORMAT: Function<DateText> = Function::new();
+static ORIGINAL_MONTH: Function<DateText> = Function::new();
+static ORIGINAL_NEXT_MONTH: Function<DateText> = Function::new();
+static ORIGINAL_DAY: Function<DateText> = Function::new();
 
 /// The date at `date` written in the player language's template for the
 /// shape `choose` picks, or by the game's own function when there is none.
-unsafe fn write(original: &AtomicUsize, date: *const i32, out: *mut u8, extra: usize, choose: impl FnOnce(Date) -> Option<(Shape, Date)>) -> *mut u8 {
+unsafe fn write(original: &Function<DateText>, date: *const i32, out: *mut u8, extra: usize, choose: impl FnOnce(Date) -> Option<(Shape, Date)>) -> *mut u8 {
     let written = crate::guarded("date text", || {
         let (shape, date) = choose(Date::from_hours(*date))?;
         let text = text(lang::player(), shape, date)?;
@@ -98,8 +97,7 @@ unsafe fn write(original: &AtomicUsize, date: *const i32, out: *mut u8, extra: u
     if written.is_some() {
         return out;
     }
-    let original: DateText = std::mem::transmute(original.load(Ordering::Acquire));
-    original(date, out, extra)
+    original.get()(date, out, extra)
 }
 
 /// The format language (0x14c7890): the three formats the game uses.
@@ -130,7 +128,7 @@ extern "C" fn year_month_day(date: *const i32, out: *mut u8, extra: usize) -> *m
 }
 
 pub fn points() -> Vec<Point> {
-    let f = |f: extern "C" fn(*const i32, *mut u8, usize) -> *mut u8| f as usize;
+    let f = |f: extern "C" fn(*const i32, *mut u8, usize) -> *mut u8| f as DateText;
     vec![
         // The calendar the dates are read in: hours since 5000 BC.
         Point::keep(0xcfd70usize, "44 8b 01 41 b9 01 00 00 00 41 81 e8 c0 55 9c 02", "date year"),

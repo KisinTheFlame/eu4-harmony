@@ -12,10 +12,9 @@
 use crate::game_string;
 use crate::lang;
 use crate::loc;
-use crate::points::Point;
+use crate::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 /// The game's localisation lookup: (out, key, values, count); out is a
@@ -55,11 +54,11 @@ fn reordered(language: Language, text: &[u8], words: &[Vec<u8>]) -> Option<Vec<u
 
 type BattleName = unsafe extern "C" fn(usize, *mut u8) -> *mut u8;
 
-static ORIGINAL_BATTLE_NAME: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_BATTLE_NAME: Function<BattleName> = Function::new();
 
 /// A battle's name (0x23a900): the game's, then reworded.
 extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
-    let original: BattleName = unsafe { std::mem::transmute(ORIGINAL_BATTLE_NAME.load(Ordering::Acquire)) };
+    let original = ORIGINAL_BATTLE_NAME.get();
     let out = unsafe { original(combat, out) };
     crate::guarded("battle name", || {
         let language = lang::player();
@@ -77,7 +76,7 @@ extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::replace(0x23a900usize, "48 89 5c 24 08 48 89 74 24 18 48 89 54 24 10 55", "battle name", battle_name as *const () as usize, &ORIGINAL_BATTLE_NAME),
+        Point::replace(0x23a900usize, "48 89 5c 24 08 48 89 74 24 18 48 89 54 24 10 55", "battle name", battle_name as BattleName, &ORIGINAL_BATTLE_NAME),
         Point::keep(LOCALISE, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41", "localisation lookup"),
         Point::keep(DESTROY_STRING, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor"),
     ]

@@ -16,10 +16,9 @@ use crate::game_string;
 use crate::lang;
 use crate::loc;
 use crate::memory::Memory;
-use crate::points::{Point, Resume};
+use crate::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A ruler, heir or consort: their given name (a `std::string`, regnal
 /// number included), their dynasty, whose name is a `std::string` at +8, and
@@ -79,12 +78,12 @@ fn reordered(language: Language, text: &[u8], given: &[u8], family: &[u8]) -> Op
 
 type FullName = unsafe extern "C" fn(usize, *mut u8) -> *mut u8;
 
-static ORIGINAL_FULL_NAME: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_FULL_NAME: Function<FullName> = Function::new();
 
 /// A ruler's, heir's or consort's full name (0xa4b2c0): the game's, then
 /// reordered.
 extern "C" fn full_name(person: usize, out: *mut u8) -> *mut u8 {
-    let original: FullName = unsafe { std::mem::transmute(ORIGINAL_FULL_NAME.load(Ordering::Acquire)) };
+    let original = ORIGINAL_FULL_NAME.get();
     let out = unsafe { original(person, out) };
     crate::guarded("full name", || {
         let reorder = || -> Option<()> {
@@ -127,8 +126,7 @@ extern "C" fn heir_name(name: *mut u8, suffix: *const u8, len: usize, heir: usiz
 
 macro_rules! heir_stub {
     ($stub:ident, $done:ident, $resume:ident, $rva:expr) => {
-        static $done: AtomicUsize = AtomicUsize::new(0);
-        static $resume: [Resume; 1] = [Resume { rva: $rva, address: &$done }];
+        crate::resume!($resume: $done = $rva);
 
         /// Replaces `call append` (0x932f0) of the heir's given name in
         /// `rcx` with " " + dynasty (`rdx`, `r8` bytes); the heir is in `rbx`.
@@ -150,7 +148,7 @@ heir_stub!(heir_regency_stub, REGENCY_DONE, REGENCY_RESUME, 0x319329);
 pub fn points() -> Vec<Point> {
     let stub = |f: extern "C" fn()| f as *const () as usize;
     vec![
-        Point::replace(0xa4b2c0usize, "48 89 5c 24 18 48 89 54 24 10 55 56 57 48 8b ec", "person's full name", full_name as *const () as usize, &ORIGINAL_FULL_NAME),
+        Point::replace(0xa4b2c0usize, "48 89 5c 24 18 48 89 54 24 10 55 56 57 48 8b ec", "person's full name", full_name as FullName, &ORIGINAL_FULL_NAME),
         // How 0xa4b2c0 joins them: the given name, a space, the dynasty's name.
         Point::keep(0xa4b2dfusize, "48 8d 51 28", "person given name"),
         Point::keep(0xa4b44cusize, "48 8b 57 68 48 83 c2 08", "person dynasty name"),

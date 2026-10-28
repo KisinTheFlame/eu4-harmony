@@ -10,8 +10,8 @@
 //! returns a token peeked before. Their "next token" methods are 0x170e700
 //! (text) and 0x170ebf0 (binary); each returns 1 for a token, 0 at the end.
 use super::legacy;
-use crate::points::Point;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use crate::points::{Function, Point};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const TEXT_TOKEN: usize = 0x170e700;
 const BINARY_TOKEN: usize = 0x170ebf0;
@@ -19,8 +19,8 @@ const TEXT: usize = 0x18;
 const TEXT_SIZE: usize = 0x200;
 const PEEKED: usize = 0x21c;
 
-static TEXT_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
-static BINARY_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+static TEXT_ORIGINAL: Function<NextToken> = Function::new();
+static BINARY_ORIGINAL: Function<NextToken> = Function::new();
 static DECODED: AtomicU64 = AtomicU64::new(0);
 
 type NextToken = unsafe extern "C" fn(usize) -> i32;
@@ -40,10 +40,10 @@ unsafe fn decode_token(lexer: usize) {
     }
 }
 
-unsafe fn next_token(lexer: usize, original: &AtomicUsize) -> i32 {
+unsafe fn next_token(lexer: usize, original: &Function<NextToken>) -> i32 {
     // A peeked token was decoded when it was read.
     let peeked = *((lexer + PEEKED) as *const u8) != 0;
-    let next: NextToken = std::mem::transmute(original.load(Ordering::Acquire));
+    let next = original.get();
     let result = next(lexer);
     if result != 0 && !peeked {
         crate::guarded("legacy escapes in a token", || decode_token(lexer));
@@ -66,8 +66,8 @@ pub fn decoded() -> u64 {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::replace(TEXT_TOKEN, "40 57 48 83 ec 40 80 b9 1c 02 00 00 01 48 8b f9", "script lexer next token", text_token as *const () as usize, &TEXT_ORIGINAL),
-        Point::replace(BINARY_TOKEN, "48 89 5c 24 20 55 56 57 48 8b ec 48 83 ec 40 48", "binary save lexer next token", binary_token as *const () as usize, &BINARY_ORIGINAL),
+        Point::replace(TEXT_TOKEN, "40 57 48 83 ec 40 80 b9 1c 02 00 00 01 48 8b f9", "script lexer next token", text_token as NextToken, &TEXT_ORIGINAL),
+        Point::replace(BINARY_TOKEN, "48 89 5c 24 20 55 56 57 48 8b ec 48 83 ec 40 48", "binary save lexer next token", binary_token as NextToken, &BINARY_ORIGINAL),
     ]
 }
 

@@ -72,6 +72,12 @@ pub(crate) fn memory() -> Option<&'static memory::Memory> {
     MEMORY.get()
 }
 
+/// The game image, for code only hooks run: startup records it before it
+/// installs them.
+pub(crate) fn hooked_memory() -> memory::Memory {
+    *MEMORY.get().expect("hooks run after startup")
+}
+
 /// Runs framework code. A panic there is a framework bug, not something to
 /// carry on from: it is logged, the player is told, and the game ends
 /// (ADR 0012).

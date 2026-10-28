@@ -11,9 +11,9 @@
 //! Both lookups take a whole character and move the index over it (the layout
 //! pass also appends the rest of its bytes to the word); the word also ends
 //! after a non-ASCII character a line may break after.
+use crate::resume;
 use super::{breaks, text_loops};
-use crate::points::{Point, Resume};
-use std::sync::atomic::AtomicUsize;
+use crate::points::Point;
 
 const LAYOUT_GLYPH: usize = 0x159c833;
 const LAYOUT_FOUND: usize = 0x159c842;
@@ -23,13 +23,9 @@ const NEXT_BYTE: usize = 0x159c9a1;
 const DRAW_GLYPH: usize = 0x159cec5;
 const DRAW_FOUND: usize = 0x159ced4;
 
-static LAYOUT_DONE: AtomicUsize = AtomicUsize::new(0);
-static END: AtomicUsize = AtomicUsize::new(0);
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-static DRAW_DONE: AtomicUsize = AtomicUsize::new(0);
-static LAYOUT_RESUME: [Resume; 1] = [Resume { rva: LAYOUT_FOUND, address: &LAYOUT_DONE }];
-static WORD_RESUME: [Resume; 2] = [Resume { rva: WORD_END, address: &END }, Resume { rva: NEXT_BYTE, address: &NEXT }];
-static DRAW_RESUME: [Resume; 1] = [Resume { rva: DRAW_FOUND, address: &DRAW_DONE }];
+resume!(LAYOUT_RESUME: LAYOUT_DONE = LAYOUT_FOUND);
+resume!(WORD_RESUME: END = WORD_END, NEXT = NEXT_BYTE);
+resume!(DRAW_RESUME: DRAW_DONE = DRAW_FOUND);
 
 /// Replaces `movzx eax, byte [rdi+rax]; mov r12, [r15+rax*8+0x120];
 /// test r12, r12`: the text is at `rax`, the index in `edi`, which moves over

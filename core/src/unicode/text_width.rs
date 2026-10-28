@@ -6,15 +6,14 @@
 //!
 //! The lookup takes a whole character and moves both indexes over it, leaving
 //! the lead byte in `edx` for the kerning call and the newline test after it.
+use crate::resume;
 use super::text_loops;
-use crate::points::{Point, Resume};
-use std::sync::atomic::AtomicUsize;
+use crate::points::Point;
 
 const GLYPH: usize = 0x159b91a;
 const FOUND: usize = 0x159b92c;
 
-static DONE: AtomicUsize = AtomicUsize::new(0);
-static RESUME: [Resume; 1] = [Resume { rva: FOUND, address: &DONE }];
+resume!(RESUME: DONE = FOUND);
 
 /// Replaces `movzx edx, byte [rbx+rbp]; lea rcx, [r15+0x120];
 /// mov r11, [rcx+rdx*8]; test r11, r11`: the text is at the game's `rbp`, the
@@ -27,7 +26,6 @@ extern "C" fn glyph_stub() {
             "mov rax, [rbp]",
             "lea rdx, [rax + rbx]",
             "mov rcx, r15",
-            "mov qword ptr [rsp + 0x40], 0",
             "lea r8, [rsp + 0x40]",
             call glyph,
             "mov r11, [rsp + 0x48]",

@@ -16,16 +16,15 @@
 //! main menu and the game.
 use crate::hooks::HookFrame;
 use crate::objects::text::renderer::DEVICE;
-use crate::points::Point;
+use crate::points::{Function, Point};
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 const PRESENT: usize = 0x16d4db0;
 const BEFORE_RESET: usize = 0x16d4bb0;
 
-static ORIGINAL_PRESENT: AtomicUsize = AtomicUsize::new(0);
-
 type Present = unsafe extern "C" fn(usize) -> u8;
+
+static ORIGINAL_PRESENT: Function<Present> = Function::new();
 
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
@@ -36,8 +35,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
         });
         crate::unicode::costs::log_when_due();
     }
-    let original: Present = std::mem::transmute(ORIGINAL_PRESENT.load(Ordering::Acquire));
-    original(renderer)
+    ORIGINAL_PRESENT.get()(renderer)
 }
 
 extern "C" fn before_reset(_frame: *mut HookFrame) {
@@ -46,7 +44,7 @@ extern "C" fn before_reset(_frame: *mut HookFrame) {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::replace(PRESENT, "40 53 48 83 ec 30 48 8b d9 48 c7 44 24 20 00 00", "frame present", present as *const () as usize, &ORIGINAL_PRESENT),
+        Point::replace(PRESENT, "40 53 48 83 ec 30 48 8b d9 48 c7 44 24 20 00 00", "frame present", present as Present, &ORIGINAL_PRESENT),
         Point::observe(BEFORE_RESET, "40 53 48 83 ec 20 48 8b d9 48 8b 49 10 48 85 c9", "before device reset", 1, Some(before_reset), None),
     ]
 }

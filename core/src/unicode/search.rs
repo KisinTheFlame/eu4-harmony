@@ -8,11 +8,12 @@
 //! province finder's worker thread too.
 use crate::game_string;
 use super::game_text;
-use crate::points::Point;
-use std::sync::atomic::AtomicUsize;
+use crate::points::{Function, Point};
 
 const FOLD: usize = 0x1704d70;
-static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+type Fold = unsafe extern "C" fn(*mut u8);
+
+static ORIGINAL: Function<Fold> = Function::new();
 
 /// The ASCII letter the game folds a Windows-1252 letter from 0xC0 up to.
 fn folded(byte: u8) -> u8 {
@@ -61,7 +62,7 @@ unsafe extern "C" fn fold_string(string: *mut u8) {
 }
 
 pub fn points() -> Vec<Point> {
-    vec![Point::replace(FOLD, "8b 41 10 85 c0 0f 84 7a 02 00 00 45 33 c0 44 8b", "search accent fold", fold_string as *const () as usize, &ORIGINAL)]
+    vec![Point::replace(FOLD, "8b 41 10 85 c0 0f 84 7a 02 00 00 45 33 c0 44 8b", "search accent fold", fold_string as Fold, &ORIGINAL)]
 }
 
 #[cfg(test)]

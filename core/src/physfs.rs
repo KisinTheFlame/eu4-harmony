@@ -7,7 +7,7 @@
 //! definitions load on the game's LoadingThread) and never call extension code.
 use crate::{
     hooks::HookFrame,
-    points::Point,
+    points::{Function, Point},
     splice::{self, Addition, Plan},
     Result,
 };
@@ -15,7 +15,6 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_void, CStr},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         LazyLock, Mutex, Once,
     },
 };
@@ -31,21 +30,14 @@ type TellFn = unsafe extern "C" fn(File) -> i64;
 type EofFn = unsafe extern "C" fn(File) -> i32;
 type GetRealDirFn = unsafe extern "C" fn(*const c_char) -> *const c_char;
 
-static ORIG_INIT: AtomicUsize = AtomicUsize::new(0);
-static ORIG_OPEN_READ: AtomicUsize = AtomicUsize::new(0);
-static ORIG_FILE_LENGTH: AtomicUsize = AtomicUsize::new(0);
-static ORIG_READ_BYTES: AtomicUsize = AtomicUsize::new(0);
-static ORIG_SEEK: AtomicUsize = AtomicUsize::new(0);
-static ORIG_TELL: AtomicUsize = AtomicUsize::new(0);
-static ORIG_EOF: AtomicUsize = AtomicUsize::new(0);
-static GET_REAL_DIR: AtomicUsize = AtomicUsize::new(0);
-
-fn load<F: Copy>(slot: &AtomicUsize) -> F {
-    let p = slot.load(Ordering::Acquire);
-    assert!(p != 0, "original not resolved");
-    assert_eq!(std::mem::size_of::<F>(), std::mem::size_of::<usize>());
-    unsafe { std::mem::transmute_copy(&p) }
-}
+static ORIG_INIT: Function<InitFn> = Function::new();
+static ORIG_OPEN_READ: Function<OpenReadFn> = Function::new();
+static ORIG_FILE_LENGTH: Function<FileLengthFn> = Function::new();
+static ORIG_READ_BYTES: Function<ReadBytesFn> = Function::new();
+static ORIG_SEEK: Function<SeekFn> = Function::new();
+static ORIG_TELL: Function<TellFn> = Function::new();
+static ORIG_EOF: Function<EofFn> = Function::new();
+static GET_REAL_DIR: Function<GetRealDirFn> = Function::new();
 
 struct Spliced {
     data: Vec<u8>,
@@ -86,13 +78,13 @@ pub fn normalize(path: &str) -> String {
 }
 
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
-    let result = load::<InitFn>(&ORIG_INIT)(argv0);
+    let result = ORIG_INIT.get()(argv0);
     crate::guarded("PHYSFS_init", || INIT_ONCE.call_once(crate::deferred_init));
     result
 }
 
 unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
-    let handle = load::<OpenReadFn>(&ORIG_OPEN_READ)(path);
+    let handle = ORIG_OPEN_READ.get()(path);
     crate::guarded("PHYSFS_openRead", || {
         INIT_ONCE.call_once(crate::deferred_init);
         if handle.is_null() {
@@ -101,9 +93,9 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
         let raw = c_str(path);
         let normalized = normalize(&raw);
         let Some(additions) = state().plan.as_ref().and_then(|p| p.for_file(&normalized)) else { return };
-        let real_dir = match GET_REAL_DIR.load(Ordering::Acquire) {
+        let real_dir = match GET_REAL_DIR.address() {
             0 => "<n/a>".into(),
-            _ => c_str(load::<GetRealDirFn>(&GET_REAL_DIR)(path)),
+            _ => c_str(GET_REAL_DIR.get()(path)),
         };
         match splice_handle(handle, &additions) {
             Ok((before, data)) => {
@@ -112,7 +104,7 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
             }
             Err(e) => {
                 log!("splice of {raw:?} failed, serving the original: {e}");
-                if load::<SeekFn>(&ORIG_SEEK)(handle, 0) == 0 {
+                if ORIG_SEEK.get()(handle, 0) == 0 {
                     log!("rewind after a failed splice also failed");
                 }
             }
@@ -123,12 +115,12 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
 
 /// Reads the whole original file through the trampolines and applies the plan.
 fn splice_handle(handle: File, additions: &[Addition]) -> Result<(usize, Vec<u8>)> {
-    let len = unsafe { load::<FileLengthFn>(&ORIG_FILE_LENGTH)(handle) };
+    let len = unsafe { ORIG_FILE_LENGTH.get()(handle) };
     if !(0..=64 * 1024 * 1024).contains(&len) {
         return Err(format!("unexpected file length {len}"));
     }
     let mut data = vec![0u8; len as usize];
-    let read = unsafe { load::<ReadBytesFn>(&ORIG_READ_BYTES)(handle, data.as_mut_ptr() as _, len as u64) };
+    let read = unsafe { ORIG_READ_BYTES.get()(handle, data.as_mut_ptr() as _, len as u64) };
     if read != len {
         return Err(format!("short read {read} of {len}"));
     }
@@ -140,7 +132,7 @@ unsafe extern "C" fn file_length_detour(handle: File) -> i64 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return s.data.len() as i64;
     }
-    load::<FileLengthFn>(&ORIG_FILE_LENGTH)(handle)
+    ORIG_FILE_LENGTH.get()(handle)
 }
 
 unsafe extern "C" fn read_bytes_detour(handle: File, buf: *mut c_void, len: u64) -> i64 {
@@ -156,7 +148,7 @@ unsafe extern "C" fn read_bytes_detour(handle: File, buf: *mut c_void, len: u64)
             return n as i64;
         }
     }
-    load::<ReadBytesFn>(&ORIG_READ_BYTES)(handle, buf, len)
+    ORIG_READ_BYTES.get()(handle, buf, len)
 }
 
 unsafe extern "C" fn seek_detour(handle: File, pos: u64) -> i32 {
@@ -170,21 +162,21 @@ unsafe extern "C" fn seek_detour(handle: File, pos: u64) -> i32 {
             return 1;
         }
     }
-    load::<SeekFn>(&ORIG_SEEK)(handle, pos)
+    ORIG_SEEK.get()(handle, pos)
 }
 
 unsafe extern "C" fn tell_detour(handle: File) -> i64 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return s.cursor as i64;
     }
-    load::<TellFn>(&ORIG_TELL)(handle)
+    ORIG_TELL.get()(handle)
 }
 
 unsafe extern "C" fn eof_detour(handle: File) -> i32 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return (s.cursor >= s.data.len()) as i32;
     }
-    load::<EofFn>(&ORIG_EOF)(handle)
+    ORIG_EOF.get()(handle)
 }
 
 /// `PHYSFS_close` is observed rather than detoured because the save tracker
@@ -203,22 +195,21 @@ extern "C" fn close_after(frame: *mut HookFrame) {
 
 /// `PHYSFS_getRealDir`, which the save tracker calls too.
 pub fn real_dir() -> usize {
-    GET_REAL_DIR.load(Ordering::Acquire)
+    GET_REAL_DIR.address()
 }
 
 /// Every PhysFS function the core detours, observes or calls, by export name.
 pub fn points() -> Vec<Point> {
-    let replace = |name: &'static CStr, bytes, what, with: usize, original| Point::replace(name, bytes, what, with, original);
     vec![
-        replace(c"PHYSFS_init", "40 56 48 83 ec 20 83 3d 33 1a 94 00 00 48 8b f1", "PhysFS init", init_detour as *const () as usize, &ORIG_INIT),
-        replace(c"PHYSFS_openRead", "40 55 48 83 ec 30 48 8d 6c 24 20 48 89 5d 20 48", "PhysFS open", open_read_detour as *const () as usize, &ORIG_OPEN_READ),
-        replace(c"PHYSFS_fileLength", "48 8b 01 48 8b c8 48 ff 60 30", "PhysFS file length", file_length_detour as *const () as usize, &ORIG_FILE_LENGTH),
-        replace(c"PHYSFS_readBytes", "40 53 56 41 56 48 83 ec 20 48 b8 ff ff ff ff ff", "PhysFS read", read_bytes_detour as *const () as usize, &ORIG_READ_BYTES),
-        replace(c"PHYSFS_seek", "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "PhysFS seek", seek_detour as *const () as usize, &ORIG_SEEK),
-        replace(c"PHYSFS_tell", "40 53 48 83 ec 20 48 8b 01 48 8b d9 48 8b c8 ff", "PhysFS tell", tell_detour as *const () as usize, &ORIG_TELL),
-        replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as *const () as usize, &ORIG_EOF),
+        Point::replace(c"PHYSFS_init", "40 56 48 83 ec 20 83 3d 33 1a 94 00 00 48 8b f1", "PhysFS init", init_detour as InitFn, &ORIG_INIT),
+        Point::replace(c"PHYSFS_openRead", "40 55 48 83 ec 30 48 8d 6c 24 20 48 89 5d 20 48", "PhysFS open", open_read_detour as OpenReadFn, &ORIG_OPEN_READ),
+        Point::replace(c"PHYSFS_fileLength", "48 8b 01 48 8b c8 48 ff 60 30", "PhysFS file length", file_length_detour as FileLengthFn, &ORIG_FILE_LENGTH),
+        Point::replace(c"PHYSFS_readBytes", "40 53 56 41 56 48 83 ec 20 48 b8 ff ff ff ff ff", "PhysFS read", read_bytes_detour as ReadBytesFn, &ORIG_READ_BYTES),
+        Point::replace(c"PHYSFS_seek", "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "PhysFS seek", seek_detour as SeekFn, &ORIG_SEEK),
+        Point::replace(c"PHYSFS_tell", "40 53 48 83 ec 20 48 8b 01 48 8b d9 48 8b c8 ff", "PhysFS tell", tell_detour as TellFn, &ORIG_TELL),
+        Point::replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as EofFn, &ORIG_EOF),
         Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), Some(close_after)),
-        Point::keep(c"PHYSFS_getRealDir", "48 83 ec 28 e8 37 38 00 00 48 85 c0 74 09 48 8b", "PhysFS real directory").recorded(&GET_REAL_DIR),
+        Point::keep(c"PHYSFS_getRealDir", "48 83 ec 28 e8 37 38 00 00 48 85 c0 74 09 48 8b", "PhysFS real directory").recorded(GET_REAL_DIR.slot()),
     ]
 }
 

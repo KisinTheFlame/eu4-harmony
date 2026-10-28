@@ -8,13 +8,15 @@
 //! a name without other characters gives the same file as it always did.
 use crate::game_string;
 use super::game_text;
-use crate::points::Point;
+use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const TRANSLITERATE: usize = 0x1705180;
 const TABLE: usize = 0x1c37af0;
 
-static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+type Transliterate = unsafe extern "C" fn(*mut u8);
+
+static ORIGINAL: Function<Transliterate> = Function::new();
 static TABLE_AT: AtomicUsize = AtomicUsize::new(0);
 
 /// The ASCII byte the game gives a Windows-1252 byte from 0x80 up.
@@ -49,7 +51,7 @@ unsafe extern "C" fn transliterate_string(string: *mut u8) {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::replace(TRANSLITERATE, "8b 41 10 85 c0 0f 84 0c 01 00 00 45 33 c0 4c 8d", "save name to ASCII", transliterate_string as *const () as usize, &ORIGINAL),
+        Point::replace(TRANSLITERATE, "8b 41 10 85 c0 0f 84 0c 01 00 00 45 33 c0 4c 8d", "save name to ASCII", transliterate_string as Transliterate, &ORIGINAL),
         Point::keep(TABLE, "3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f", "ASCII table for bytes from 0x80").recorded(&TABLE_AT),
     ]
 }

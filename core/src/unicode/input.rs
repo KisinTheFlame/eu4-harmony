@@ -24,12 +24,13 @@
 //! deleted text. While an edit box has the keyboard, such presses go to the
 //! input method alone. Elsewhere they still reach the game, so its shortcuts
 //! keep working with a Chinese input method switched on.
+use crate::resume;
 use super::game_text;
 use crate::objects::{
     gui::{self, edit_box, editor, events, manager},
     text::font,
 };
-use crate::points::{Point, Resume};
+use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::UI::Input::Ime::*;
@@ -46,14 +47,11 @@ const TSF_CREATE: usize = 0x1764e7e;
 const CARET: usize = 0x15343bc;
 const CARET_DONE: usize = 0x15343c3;
 
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-static INSERTED: AtomicUsize = AtomicUsize::new(0);
-static CARET_PLACED: AtomicUsize = AtomicUsize::new(0);
-static TEXT_RESUME: [Resume; 1] = [Resume { rva: NEXT_EVENT, address: &NEXT }];
-static INSERT_RESUME: [Resume; 1] = [Resume { rva: ON_CHAR_INSERTED, address: &INSERTED }];
-static CARET_RESUME: [Resume; 1] = [Resume { rva: CARET_DONE, address: &CARET_PLACED }];
+resume!(TEXT_RESUME: NEXT = NEXT_EVENT);
+resume!(INSERT_RESUME: INSERTED = ON_CHAR_INSERTED);
+resume!(CARET_RESUME: CARET_PLACED = CARET_DONE);
 static CONSTANT: AtomicUsize = AtomicUsize::new(0);
-static ORIGINAL_IME: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_IME: Function<ImeMessage> = Function::new();
 /// Where the input method's windows were last put: x, y, line height.
 static PLACED: AtomicU64 = AtomicU64::new(u64::MAX);
 
@@ -145,7 +143,7 @@ unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lpar
     if taken_by_input_method(message, wparam) && crate::memory().is_some_and(|m| edit_box_focused(m)) {
         return 1;
     }
-    let original: ImeMessage = std::mem::transmute(ORIGINAL_IME.load(Ordering::Acquire));
+    let original = ORIGINAL_IME.get();
     let sent = *lparam;
     let handled = original(window, message, wparam, lparam, video);
     crate::guarded("input method message", || match message {
@@ -198,7 +196,7 @@ extern "C" fn caret_at(edit_box: usize, offset: u32) {
             return;
         }
         let window = GetFocus();
-        let m = *crate::memory().expect("hooks run after startup");
+        let m = crate::hooked_memory();
         let (Some((across, down)), Ok(font)) = (crate::game::gui_scale(&m), m.ptr(edit_box + edit_box::EDITOR + editor::FONT)) else { return };
         if window.is_null() || font == 0 {
             return;
@@ -304,7 +302,7 @@ pub fn points() -> Vec<Point> {
             &INSERT_RESUME,
         ),
         Point::keep(ON_CHAR_INSERTED, "48 8d 54 24 20 ff 90 a0 00 00 00", "edit box inserts the character"),
-        Point::replace(IME_MESSAGE, "40 55 56 41 55 41 56 41 57 48 83 ec 20 48 8b 6c", "SDL input method messages", ime_message as *const () as usize, &ORIGINAL_IME),
+        Point::replace(IME_MESSAGE, "40 55 56 41 55 41 56 41 57 48 83 ec 20 48 8b 6c", "SDL input method messages", ime_message as ImeMessage, &ORIGINAL_IME),
         // WM_IME_SETCONTEXT: SDL zeroes the flags through the lParam pointer.
         Point::keep(0x1764c7cusize, "4d 89 29", "SDL hides the input method windows"),
         // CoCreateInstance of TSF's thread manager fails: no UI-less mode.

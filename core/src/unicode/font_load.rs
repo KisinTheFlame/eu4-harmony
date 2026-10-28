@@ -17,11 +17,12 @@
 //! mod's map font page is a 49 MB DXT5 file, so every name on the map drew
 //! with a texture of size 0 and vanished, with or without the framework (the
 //! old font plugin lifted the limit). The limit is raised to 256 MiB.
+use crate::resume;
 use super::glyphs::{self, Glyph};
 use crate::objects::text::font::OWN_GLYPHS;
 use crate::hooks::HookFrame;
-use crate::points::{Point, Resume};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use crate::points::Point;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const ID_CHECK: usize = 0x1595c86;
 /// Continues with an id of 0xFF or less, as the game does.
@@ -33,11 +34,7 @@ const BAD_ID: usize = 0x1595f01;
 const DESTROY_TABLE: usize = 0x1594360;
 const TEXTURE_FILE_LIMIT: usize = 0x16c2cb7;
 
-static SMALL: AtomicUsize = AtomicUsize::new(0);
-static DONE: AtomicUsize = AtomicUsize::new(0);
-static BAD: AtomicUsize = AtomicUsize::new(0);
-static RESUME: [Resume; 3] =
-    [Resume { rva: SMALL_ID, address: &SMALL }, Resume { rva: STORED, address: &DONE }, Resume { rva: BAD_ID, address: &BAD }];
+resume!(RESUME: SMALL = SMALL_ID, DONE = STORED, BAD = BAD_ID);
 
 static LOADED: AtomicU64 = AtomicU64::new(0);
 static DUPLICATES: AtomicU64 = AtomicU64::new(0);

@@ -15,9 +15,9 @@
 //! character and moves the index over the character's whole sequence, and
 //! the layout pass ends a word after a non-ASCII character that a line may
 //! break after (`breaks`), as it does after a space.
+use crate::resume;
 use super::{breaks, text_loops};
-use crate::points::{Point, Resume};
-use std::sync::atomic::AtomicUsize;
+use crate::points::Point;
 
 const LAYOUT_GLYPH: usize = 0x1599728;
 const LAYOUT_GLYPH_DONE: usize = 0x1599734;
@@ -29,13 +29,9 @@ const LAYOUT_VISIBLE: usize = 0x15998c7;
 const DRAW_GLYPH: usize = 0x159a796;
 const DRAW_GLYPH_DONE: usize = 0x159a7ac;
 
-static LAYOUT_DONE: AtomicUsize = AtomicUsize::new(0);
-static SPACE: AtomicUsize = AtomicUsize::new(0);
-static VISIBLE: AtomicUsize = AtomicUsize::new(0);
-static DRAW_DONE: AtomicUsize = AtomicUsize::new(0);
-static LAYOUT_RESUME: [Resume; 1] = [Resume { rva: LAYOUT_GLYPH_DONE, address: &LAYOUT_DONE }];
-static WORD_END_RESUME: [Resume; 2] = [Resume { rva: LAYOUT_SPACE, address: &SPACE }, Resume { rva: LAYOUT_VISIBLE, address: &VISIBLE }];
-static DRAW_RESUME: [Resume; 1] = [Resume { rva: DRAW_GLYPH_DONE, address: &DRAW_DONE }];
+resume!(LAYOUT_RESUME: LAYOUT_DONE = LAYOUT_GLYPH_DONE);
+resume!(WORD_END_RESUME: SPACE = LAYOUT_SPACE, VISIBLE = LAYOUT_VISIBLE);
+resume!(DRAW_RESUME: DRAW_DONE = DRAW_GLYPH_DONE);
 
 /// Replaces `movzx eax, byte [r9]; mov rcx, [r14+rax*8+0x120]`: the text is
 /// at the game's `[rbp-8]`, its length at the game's `[rsp+0x78]`, the index

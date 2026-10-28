@@ -4,8 +4,11 @@
 //! by a NUL inside the capacity. The framework reads and changes the game's
 //! strings only through here, and grows them only through the game's own
 //! append, so the game frees them as usual.
-use crate::{memory::Memory, points::Point, Result};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::{
+    memory::Memory,
+    points::{Function, Point},
+    Result,
+};
 
 pub const SIZE: usize = 0x10;
 pub const CAPACITY: usize = 0x18;
@@ -17,11 +20,11 @@ pub const OBJECT: usize = 0x20;
 /// The longest text [`read`] believes.
 const MOST: usize = 1 << 20;
 
-/// The game's `append(this, bytes, count)`, recorded at startup.
-static APPEND: AtomicUsize = AtomicUsize::new(0);
-const APPEND_AT: usize = 0x932f0;
-
 type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
+
+/// The game's `append(this, bytes, count)`, recorded at startup.
+static APPEND: Function<Append> = Function::new();
+const APPEND_AT: usize = 0x932f0;
 
 pub fn points() -> Vec<Point> {
     // The append itself: the size and capacity, the inline test, the text.
@@ -31,7 +34,7 @@ pub fn points() -> Vec<Point> {
          4c 3b c0 77 29 4b 8d 04 06 48 89 41 10 48 8b c1 48 83 fd 10 72 03 48 8b 01 4a 8d 1c 30 48 8b cb e8 14 24 9a 01 c6 04 33 00",
         "string append",
     )
-    .recorded(&APPEND)
+    .recorded(APPEND.slot())
     .uses(&[CAPACITY, SIZE, INLINE + 1])]
 }
 
@@ -112,13 +115,12 @@ pub fn untouched(m: &Memory, string: usize) -> Result<bool> {
 /// # Safety
 /// `string` is a live `std::string` and startup has recorded the append.
 pub unsafe fn append(string: usize, text: &[u8]) {
-    let append: Append = std::mem::transmute(APPEND.load(Ordering::Acquire));
-    append(string, text.as_ptr(), text.len());
+    APPEND.get()(string, text.as_ptr(), text.len());
 }
 
 /// [`append`], guarded: a fault in the game's code comes back as an error.
 pub fn append_checked(m: &Memory, string: usize, text: &[u8]) -> Result<()> {
-    m.call(APPEND.load(Ordering::Acquire), &[string, text.as_ptr() as usize, text.len()]).map(|_| ())
+    m.call(APPEND.get() as usize, &[string, text.as_ptr() as usize, text.len()]).map(|_| ())
 }
 
 /// Builds `text` in `slot`, a string nothing has constructed yet; whoever

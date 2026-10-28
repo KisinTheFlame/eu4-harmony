@@ -8,6 +8,7 @@ use crate::{
     Result,
 };
 use std::ffi::CStr;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
@@ -39,6 +40,55 @@ impl From<&'static CStr> for Place {
 pub struct Resume {
     pub rva: usize,
     pub address: &'static AtomicUsize,
+}
+
+/// Declares the places a jump stub continues at: a slot for each, which the
+/// stub jumps through (`jmp qword ptr [rip + {slot}]`), and the list its
+/// [`Point::jump`] takes.
+#[macro_export]
+macro_rules! resume {
+    ($list:ident: $($slot:ident = $rva:expr),+ $(,)?) => {
+        $(static $slot: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);)+
+        static $list: [$crate::points::Resume; [$(stringify!($slot)),+].len()] =
+            [$($crate::points::Resume { rva: $rva, address: &$slot }),+];
+    };
+}
+
+/// A function of the game's that startup fills in, of the type its callers
+/// call it as: the original code of a function a point replaces, or a point
+/// recorded to be called.
+pub struct Function<F> {
+    address: AtomicUsize,
+    kind: PhantomData<F>,
+}
+
+impl<F: Copy> Function<F> {
+    pub const fn new() -> Self {
+        Self { address: AtomicUsize::new(0), kind: PhantomData }
+    }
+
+    /// The function; startup must have filled it in.
+    pub fn get(&self) -> F {
+        let address = self.address.load(Ordering::Acquire);
+        assert!(address != 0, "a game function was called before startup found it");
+        unsafe { std::mem::transmute_copy(&address) }
+    }
+
+    /// Its address, 0 until startup has found it.
+    pub fn address(&self) -> usize {
+        self.address.load(Ordering::Acquire)
+    }
+
+    /// Where startup stores its address.
+    pub fn slot(&'static self) -> &'static AtomicUsize {
+        &self.address
+    }
+}
+
+/// The address of the function `f`, a function pointer.
+fn address<F: Copy>(f: F) -> usize {
+    assert_eq!(std::mem::size_of::<F>(), std::mem::size_of::<usize>(), "not a function pointer");
+    unsafe { std::mem::transmute_copy(&f) }
 }
 
 /// What the framework does at a dependency point.
@@ -85,8 +135,9 @@ impl Point {
         Self::new(place, bytes, what, Action::Observe { argc, before, after })
     }
 
-    pub fn replace(place: impl Into<Place>, bytes: &'static str, what: &'static str, with: usize, original: &'static AtomicUsize) -> Self {
-        Self::new(place, bytes, what, Action::Replace { with, original })
+    /// Replaces the function there with `with`, which has its type.
+    pub fn replace<F: Copy>(place: impl Into<Place>, bytes: &'static str, what: &'static str, with: F, original: &'static Function<F>) -> Self {
+        Self::new(place, bytes, what, Action::Replace { with: address(with), original: original.slot() })
     }
 
     pub fn jump(place: impl Into<Place>, bytes: &'static str, what: &'static str, stub: usize, resume: &'static [Resume]) -> Self {
@@ -356,8 +407,7 @@ mod tests {
     /// mov rax, rcx; add rax, 1; add rax, 2; add rax, 4; ret
     const ADDER: &str = "48 89 c8 48 83 c0 01 48 83 c0 02 48 83 c0 04 c3";
 
-    static RESUME: AtomicUsize = AtomicUsize::new(0);
-    static RESUME_AT: [Resume; 1] = [Resume { rva: 15, address: &RESUME }];
+    resume!(RESUME_AT: RESUME = 15);
 
     /// Does `add rax, 100` instead of the two additions it replaces.
     #[unsafe(naked)]
@@ -383,10 +433,10 @@ mod tests {
         SEEN.store(unsafe { (*frame).args[0] }, Ordering::SeqCst);
     }
 
-    static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
+    type Adder = extern "C" fn(usize) -> usize;
+    static ORIGINAL: Function<Adder> = Function::new();
     extern "C" fn doubled(x: usize) -> usize {
-        let original: extern "C" fn(usize) -> usize = unsafe { std::mem::transmute(ORIGINAL.load(Ordering::SeqCst)) };
-        original(x) * 2
+        ORIGINAL.get()(x) * 2
     }
 
     static RECORDED: AtomicUsize = AtomicUsize::new(0);
@@ -400,7 +450,7 @@ mod tests {
         let written = code("b8 01 00 00 00 c3", PAGE_EXECUTE_READWRITE);
         let points = [
             Point::observe(observed.base, "48 89 c8 48 83 c0 01", "observed", 1, Some(remember), None),
-            Point::replace(replaced.base, "48 89 c8 48 83 c0 01", "replaced", doubled as *const () as usize, &ORIGINAL),
+            Point::replace(replaced.base, "48 89 c8 48 83 c0 01", "replaced", doubled as Adder, &ORIGINAL),
             Point::write(written.base, "b8 01 00 00 00", "written", "b8 02 00 00 00"),
             Point::keep(observed.base + 15, "c3", "return").recorded(&RECORDED),
         ];
@@ -447,8 +497,8 @@ mod tests {
         let good = code(ADDER, PAGE_EXECUTE_READWRITE);
         let data = code(ADDER, PAGE_READWRITE);
         let points = [
-            Point::replace(good.base, "48 89 c8 48 83 c0 01", "good", doubled as *const () as usize, &ORIGINAL),
-            Point::replace(data.base, "48 89 c8 48 83 c0 01", "not code", doubled as *const () as usize, &ORIGINAL),
+            Point::replace(good.base, "48 89 c8 48 83 c0 01", "good", doubled as Adder, &ORIGINAL),
+            Point::replace(data.base, "48 89 c8 48 83 c0 01", "not code", doubled as Adder, &ORIGINAL),
         ];
         let err = install(ANYWHERE, &points).unwrap_err();
         assert!(err.contains("not code"), "{err}");

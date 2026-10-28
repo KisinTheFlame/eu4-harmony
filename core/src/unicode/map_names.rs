@@ -23,34 +23,23 @@
 //! rule for one- and two-letter names (0xfd3ef5, `ebx` = 1000) blends in
 //! another direction instead, but reads it from a vector of doubles as floats
 //! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
+use crate::resume;
 use crate::game_string;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
 use super::{breaks, game_text, text_loops};
-use crate::points::{Point, Resume};
-use std::sync::atomic::AtomicUsize;
+use crate::points::Point;
 
-macro_rules! resume {
-    ($static:ident, $array:ident, $rva:expr) => {
-        static $static: AtomicUsize = AtomicUsize::new(0);
-        static $array: [Resume; 1] = [Resume { rva: $rva, address: &$static }];
-    };
-}
-
-resume!(LAYOUT_DONE, LAYOUT_RESUME, 0x159dc13);
-resume!(DRAW_DONE, DRAW_RESUME, 0x159df9a);
-resume!(MEASURE_DONE, MEASURE_RESUME, 0x159e775);
-resume!(STRAIGHT_COUNT_DONE, STRAIGHT_COUNT_RESUME, 0xfd734d);
-resume!(CURVED_COUNT_DONE, CURVED_COUNT_RESUME, 0xfd6bda);
-resume!(SPACED_DONE, SPACED_RESUME, 0xfd6727);
-resume!(LENGTH_DONE, LENGTH_RESUME, 0xfd3ef5);
-resume!(BEND_DONE, BEND_RESUME, 0xfd3f57);
-resume!(UPRIGHT_DONE, UPRIGHT_RESUME, 0xfd468e);
-static WORD_END: AtomicUsize = AtomicUsize::new(0);
-static IN_WORD: AtomicUsize = AtomicUsize::new(0);
-static WRAP_RESUME: [Resume; 2] = [Resume { rva: 0x159e7f0, address: &WORD_END }, Resume { rva: 0x159e841, address: &IN_WORD }];
-static SHORT: AtomicUsize = AtomicUsize::new(0);
-static LONG: AtomicUsize = AtomicUsize::new(0);
-static GUARD_RESUME: [Resume; 2] = [Resume { rva: 0xfd415f, address: &SHORT }, Resume { rva: 0xfd4144, address: &LONG }];
+resume!(LAYOUT_RESUME: LAYOUT_DONE = 0x159dc13);
+resume!(DRAW_RESUME: DRAW_DONE = 0x159df9a);
+resume!(MEASURE_RESUME: MEASURE_DONE = 0x159e775);
+resume!(STRAIGHT_COUNT_RESUME: STRAIGHT_COUNT_DONE = 0xfd734d);
+resume!(CURVED_COUNT_RESUME: CURVED_COUNT_DONE = 0xfd6bda);
+resume!(SPACED_RESUME: SPACED_DONE = 0xfd6727);
+resume!(LENGTH_RESUME: LENGTH_DONE = 0xfd3ef5);
+resume!(BEND_RESUME: BEND_DONE = 0xfd3f57);
+resume!(UPRIGHT_RESUME: UPRIGHT_DONE = 0xfd468e);
+resume!(WRAP_RESUME: WORD_END = 0x159e7f0, IN_WORD = 0x159e841);
+resume!(GUARD_RESUME: SHORT = 0xfd415f, LONG = 0xfd4144);
 
 fn characters(text: &[u8]) -> Vec<&[u8]> {
     game_text::chars(text).map(|(_, r)| &text[r]).collect()
@@ -182,7 +171,6 @@ extern "C" fn straight_count_stub() {
         call_rust!(
             "lea rdx, [rax + rcx]",
             "mov rcx, r12",
-            "mov qword ptr [rsp + 0x40], 0",
             "lea r8, [rsp + 0x40]",
             call glyph,
             "mov rdx, [rsp + 0x48]",
@@ -204,7 +192,6 @@ extern "C" fn curved_count_stub() {
         call_rust!(
             "lea rdx, [rax + rcx]",
             "lea rcx, [r14 - {own}]",
-            "mov qword ptr [rsp + 0x40], 0",
             "lea r8, [rsp + 0x40]",
             call glyph,
             "mov rdx, [rsp + 0x48]",
@@ -287,7 +274,6 @@ extern "C" fn bend_stub() {
             "mov r8, rdx",
             "lea rdx, [rax + rcx]",
             "lea rcx, [r8 - {own}]",
-            "mov qword ptr [rsp + 0x40], 0",
             "lea r8, [rsp + 0x40]",
             call glyph,
             "mov r14, [rsp + 0x48]",

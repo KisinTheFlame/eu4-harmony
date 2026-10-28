@@ -15,7 +15,8 @@
 //!
 //! - `[rsp + 0x20]`..`[rsp + 0x38]` hold stack arguments 5 to 8;
 //! - `[rsp + 0x40]` is a slot an argument may point at, for a value the
-//!   function writes back (a length, say);
+//!   function writes back (a length, say), all 8 bytes of it, so the stub
+//!   may read it as a qword or a dword;
 //! - after the call, `[rsp + 0x48]` holds the result.
 //!
 //! The "then" instructions run after every register is restored, so they

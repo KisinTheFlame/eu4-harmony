@@ -21,13 +21,13 @@
 //! width after it in `xmm8` (0x159f85b). A place where a line may break after
 //! a non-ASCII character (`breaks`) now counts as such a place too, and a line
 //! broken there skips nothing (0x159fba1).
+use crate::resume;
 use crate::game_string;
 use super::glyphs::Glyph;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
 use super::{breaks, text_loops};
-use crate::points::{Point, Resume};
+use crate::points::Point;
 use std::cell::Cell;
-use std::sync::atomic::AtomicUsize;
 
 const FIT_GLYPH: usize = 0x159ef51;
 const FIT_FOUND: usize = 0x159ef59;
@@ -42,18 +42,12 @@ const WRAP_BREAK_TESTED: usize = 0x159f871;
 const WRAP_LINE_START: usize = 0x159fba1;
 const WRAP_LINE_STARTED: usize = 0x159fbac;
 
-static FIT_FOUND_AT: AtomicUsize = AtomicUsize::new(0);
-static FIT_NEXT_AT: AtomicUsize = AtomicUsize::new(0);
-static WRAP_FOUND_AT: AtomicUsize = AtomicUsize::new(0);
-static WRAP_NEXT_AT: AtomicUsize = AtomicUsize::new(0);
-static FIT_GLYPH_RESUME: [Resume; 1] = [Resume { rva: FIT_FOUND, address: &FIT_FOUND_AT }];
-static FIT_STEP_RESUME: [Resume; 1] = [Resume { rva: FIT_NEXT, address: &FIT_NEXT_AT }];
-static WRAP_GLYPH_RESUME: [Resume; 1] = [Resume { rva: WRAP_FOUND, address: &WRAP_FOUND_AT }];
-static WRAP_STEP_RESUME: [Resume; 1] = [Resume { rva: WRAP_NEXT, address: &WRAP_NEXT_AT }];
-static WRAP_BREAK_TESTED_AT: AtomicUsize = AtomicUsize::new(0);
-static WRAP_LINE_STARTED_AT: AtomicUsize = AtomicUsize::new(0);
-static WRAP_BREAK_RESUME: [Resume; 1] = [Resume { rva: WRAP_BREAK_TESTED, address: &WRAP_BREAK_TESTED_AT }];
-static WRAP_LINE_RESUME: [Resume; 1] = [Resume { rva: WRAP_LINE_STARTED, address: &WRAP_LINE_STARTED_AT }];
+resume!(FIT_GLYPH_RESUME: FIT_FOUND_AT = FIT_FOUND);
+resume!(FIT_STEP_RESUME: FIT_NEXT_AT = FIT_NEXT);
+resume!(WRAP_GLYPH_RESUME: WRAP_FOUND_AT = WRAP_FOUND);
+resume!(WRAP_STEP_RESUME: WRAP_NEXT_AT = WRAP_NEXT);
+resume!(WRAP_BREAK_RESUME: WRAP_BREAK_TESTED_AT = WRAP_BREAK_TESTED);
+resume!(WRAP_LINE_RESUME: WRAP_LINE_STARTED_AT = WRAP_LINE_STARTED);
 
 /// What a loop's lookup saw, for its step: between the two the loop's index
 /// stays on the character's first byte, where the game's own code cuts and

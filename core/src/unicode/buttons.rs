@@ -14,10 +14,10 @@
 //! Both lookups take a whole character and move the index over it; the
 //! measuring pass also appends the rest of its bytes to the word, and the word
 //! ends after a non-ASCII character a line may break after.
+use crate::resume;
 use crate::objects::text::font::OWN_GLYPHS;
 use super::{breaks, text_loops};
-use crate::points::{Point, Resume};
-use std::sync::atomic::AtomicUsize;
+use crate::points::Point;
 
 const MEASURE_GLYPH: usize = 0x1597074;
 const MEASURE_FOUND: usize = 0x1597080;
@@ -27,13 +27,9 @@ const NEXT_BYTE: usize = 0x15974cb;
 const DRAW_GLYPH: usize = 0x15983ad;
 const DRAW_FOUND: usize = 0x15983bc;
 
-static MEASURE_DONE: AtomicUsize = AtomicUsize::new(0);
-static END: AtomicUsize = AtomicUsize::new(0);
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-static DRAW_DONE: AtomicUsize = AtomicUsize::new(0);
-static MEASURE_RESUME: [Resume; 1] = [Resume { rva: MEASURE_FOUND, address: &MEASURE_DONE }];
-static WORD_RESUME: [Resume; 2] = [Resume { rva: WORD_END, address: &END }, Resume { rva: NEXT_BYTE, address: &NEXT }];
-static DRAW_RESUME: [Resume; 1] = [Resume { rva: DRAW_FOUND, address: &DRAW_DONE }];
+resume!(MEASURE_RESUME: MEASURE_DONE = MEASURE_FOUND);
+resume!(WORD_RESUME: END = WORD_END, NEXT = NEXT_BYTE);
+resume!(DRAW_RESUME: DRAW_DONE = DRAW_FOUND);
 
 /// Replaces `movzx eax, byte [r9+rax]; mov r11, [rcx+rax*8]; test r11, r11`,
 /// keeping `rax` (text) and `rcx` (table): the glyph goes to `r11`, the index

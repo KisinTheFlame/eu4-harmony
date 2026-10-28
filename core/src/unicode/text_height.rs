@@ -8,19 +8,17 @@
 //! The lookup takes a whole character and moves the index over it; after a
 //! non-ASCII character a line may break after, the width since the last
 //! "space" starts over too, so Chinese wraps between characters.
+use crate::resume;
 use super::{breaks, text_loops};
-use crate::points::{Point, Resume};
-use std::sync::atomic::AtomicUsize;
+use crate::points::Point;
 
 const GLYPH: usize = 0x159b687;
 const FOUND: usize = 0x159b696;
 const SPACE_TEST: usize = 0x159b73d;
 const NEXT_BYTE: usize = 0x159b752;
 
-static GLYPH_DONE: AtomicUsize = AtomicUsize::new(0);
-static NEXT: AtomicUsize = AtomicUsize::new(0);
-static GLYPH_RESUME: [Resume; 1] = [Resume { rva: FOUND, address: &GLYPH_DONE }];
-static SPACE_RESUME: [Resume; 1] = [Resume { rva: NEXT_BYTE, address: &NEXT }];
+resume!(GLYPH_RESUME: GLYPH_DONE = FOUND);
+resume!(SPACE_RESUME: NEXT = NEXT_BYTE);
 
 /// Replaces `movzx eax, byte [rdi+rax]; mov rcx, [r14+rax*8+0x120];
 /// test rcx, rcx`: the text is at `rax`, the index in `edi`, which moves over

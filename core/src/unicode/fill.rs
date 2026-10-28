@@ -155,10 +155,6 @@ fn lock<T>(m: &'static LazyLock<Mutex<T>>) -> MutexGuard<'static, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn memory() -> Memory {
-    *crate::memory().expect("hooks run after startup")
-}
-
 /// The texture manager's entry for `font`'s page.
 fn page_entry(m: &Memory, font: usize) -> crate::Result<(usize, usize)> {
     let index = m.i32(font + objects::font::PAGE_INDEX)?;
@@ -507,7 +503,7 @@ extern "C" fn load_after(frame: *mut HookFrame) {
         glyphs::seal(font + OWN_GLYPHS);
         let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return };
         let system = settings::current().text_appearance == TextAppearance::System;
-        let m = memory();
+        let m = crate::hooked_memory();
         let result = (|| -> crate::Result<()> {
             let (manager, entry) = page_entry(&m, font)?;
             let wrapper = m.ptr(entry)?;
