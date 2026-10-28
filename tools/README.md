@@ -8,11 +8,12 @@ Tools for trying things in a running game, finding dependency points and looking
 | `game-dir.ps1` | Prints the game folder: `EU4_GAME_DIR`, or else the Steam library that has the game; the other tools' default `-GameDir` |
 | `game-input.ps1` | Brings the game window to the front and sends it mouse and keyboard input: `-Click x,y`, `-RightClick x,y`, `-Drag x1,y1,x2,y2`, `-Wheel n -At x,y`, `-Type text` (Unicode characters, past any input method), `-Keys LEFT,SHIFT+END,CTRL+V` (key presses, letters and digits included, which an input method takes) |
 | `screenshot.ps1` | Captures the primary screen: `-Out a.png` (the whole screen, shrunk by `-Scale`) or `-Crop x,y,width,height` (at full size) |
-| `remote-pipe.ps1` | Sends JSON requests to remote control's named pipe and prints the answers, a line each: `& .\tools\remote-pipe.ps1 '{"capability": "session"}'`. It waits `-ConnectSeconds` (default 5) for a game to open the pipe; `-Together` writes every request before reading the answers. Exit code 1 when an answer is an error, 2 when the pipe cannot be opened or breaks |
 | `perf-run.ps1` | Measures one run of the game for [docs/performance.md](../docs/performance.md): launch to main menu, memory, CPU paused and at speed 5, game days per run; read its notes before the first run |
 | `crash-dump.py` | Runs debugger commands on a crash dump with Windows' own dbgeng.dll, with no debugger to install |
 | `core/examples/disasm.rs` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments |
 | `trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value |
+
+To ask the running game things through remote control, such as the session or the player's armies, use the command line tool: `eu4-harmony game session`, `eu4-harmony game help` for the rest.
 
 Coordinates are always physical pixels: both PowerShell scripts run per-monitor DPI aware, so coordinates read off a screenshot can be clicked as they are. Call them with `&` from PowerShell (`& .\tools\game-input.ps1 -Click 1815,2025`); `pwsh -File` takes `1815,2025` as one string.
 

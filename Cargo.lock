@@ -67,6 +67,7 @@ dependencies = [
  "eu4-harmony-abi",
  "eu4-harmony-loc",
  "eu4-harmony-manifest",
+ "eu4-harmony-remote",
  "serde",
  "serde_json",
  "windows-sys",

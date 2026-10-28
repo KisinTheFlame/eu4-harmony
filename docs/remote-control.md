@@ -164,13 +164,23 @@ Built (2026-10-29). F3 added no capability. The transport is `core/src/pipe.rs`,
 - **A game started again**: returning to the main menu starts `eu4.exe` again, and the new process starts while the old one still has the pipe, for a few seconds ([research/safe-points.md](research/safe-points.md)); the new one tries every second until it can open the pipe. A client on the old pipe finds it broken (a read ends, a write fails) and opens the pipe again.
 - **Log**: the transport logs when the pipe opens, each `bad_request` with its client's number, and each client leaving, with how many answers it got and whether it gave a request up; the engine logs every request as JSON, a request given up before it ran included.
 - **`events` with `wait_ms`** waits up to that long from when the engine runs the request. Nothing runs at startup until the main menu shows (40 s in the first run) nor while a save loads: a request sent then runs only after that, and an answer due then comes late, after it, load time included. The description now says so. Keeping "at most that long" would mean answering off the safe points, or a transport that knows one capability's arguments; a client that cannot wait closes the pipe.
-- **Trying it**: the probe thread F2 added is gone; `tools/remote-pipe.ps1` sends JSON requests down the pipe and prints the answers ([tools/README.md](../tools/README.md)).
+- **Trying it**: the probe thread F2 added is gone; `tools/remote-pipe.ps1` sent JSON requests down the pipe and printed the answers. F4 removed it: the command line does the same, and checks who serves the pipe before it sends anything.
 
 ### F4 Command line
 
 `eu4-harmony game ...` as described above, built from the descriptions in the shared crate, with a timeout option.
 
 Done when: in the game, the command line reads the session, lists the player's armies, moves one and stops it; `describe` lists every capability.
+
+Built (2026-10-29). F4 added no capability. `eu4-harmony game` is `cli/src/game.rs` and its side of the pipe `cli/src/pipe.rs`; `cli/` now depends on the shared crate. How it works:
+
+- **From the descriptions**: the tool knows a capability only from `capabilities()`: its full name, its arguments and their kinds. Each `Kind` says in the shared crate how its value is written in JSON from text (`Kind::json`: a number for a province or an integer, `true` or `false` for a boolean, the text for the rest), so a capability, or a kind, added later needs no change in `cli/`. The request is read back through the crate's `Request` before it is sent, so a wrong one fails with the crate's own reason and is never sent.
+- **The command line**: `eu4-harmony game <capability> --<argument> <value>`. The name's dot may be a space (`army move`); an argument's `_` may be a `-` (`--wait-ms`); values may come without their names, filling the arguments not named, in their order (`eu4-harmony game army move <army> 151`; C1's `time advance <days>` works so if `days` comes first); a boolean standing alone is true. The tool's own options go anywhere: `--timeout <seconds>`, `--out <file>`, `--compact` (the JSON on one line) and `--help`; no capability's argument may have one of their names (a unit test checks every capability). `eu4-harmony game help [<capability>]` describes the capabilities this tool knows, offline; `eu4-harmony game describe` asks the running game.
+- **Output and exit codes**: 0, the result as JSON on standard output; 1, the game answered an error, `{"code": ..., "message": ...}` on standard output; 2, the command line is wrong, and nothing was sent; 3, no answer: the pipe did not open in time, is not the game's, broke, or the time ran out (or the bytes in the answer could not be written). The reason for 2 and 3 goes to standard error.
+- **Who serves the pipe**: any process could make a pipe of the game's name before the game does, and would get the requests. The tool opens the pipe at the identification level only (`SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`), so the process serving it can tell who the user is but cannot act as them (a unit test reads the level), and sends nothing until the process serving it (`GetNamedPipeServerProcessId`) runs as this Windows user (its token's user, `EqualSid`) and is `eu4.exe` (`QueryFullProcessImageNameW`). Otherwise it fails with exit code 3 and says which process it found; a pipe that is there but not open to the user fails at once.
+- **Waiting**: without `--timeout` the pipe is waited for 10 s (it is gone for a few seconds while the game starts again after returning to the main menu) and the answer as long as it takes, since a request may wait in the game (`events` with `wait_ms`, C1's advancing time) and nothing is answered while a save loads. `--timeout` bounds the whole call, the wait for the pipe included; out of time, the tool closes the pipe, which gives the request up (F3). The answer is waited for by looking at the pipe every 5 ms, so a pipe that breaks ends the wait at once, with exit code 3, never a hang.
+- **Bytes in an answer**: in the shared crate a `Binary` (`remote/src/binary.rs`) is written `{"media_type": "image/png", "base64": "..."}`, base64 as ADR 0016 says, in an object of its own shape that a client can tell from any other value without knowing the capability. With `--out <file>` the tool writes the bytes of every such value in the result to the file (more of them to `<file>-2` and so on) and prints in their place `{"media_type": ..., "file": <its full path>, "bytes": <size>}`; without it they are printed as they came. C10's screenshot answers with a `Binary`. No capability answers bytes yet, so this is covered by unit tests only.
+- **`tools/remote-pipe.ps1`** is removed: it sent requests to whatever process had the pipe's name, and the command line does everything the game runs used it for. Several requests down one opening of the pipe, which only the script could send, are covered by the pipe's unit tests.
 
 ### C1 Time
 
@@ -228,7 +238,7 @@ Done when: in the game, each moves the view as asked.
 
 ### C10 Screenshot
 
-Remote control only: the frame as the player sees it, framework UI included, read back from the D3D9 device after the framework UI is drawn (`core/src/framework_ui/d3d9.rs`), as PNG; `--scale` shrinks it.
+Remote control only: the frame as the player sees it, framework UI included, read back from the D3D9 device after the framework UI is drawn (`core/src/framework_ui/d3d9.rs`), as PNG; `--scale` shrinks it. The PNG is a `Binary` in the answer, which the command line's `--out` writes to a file (F4).
 
 Done when: in the game, a screenshot taken through the command line matches the screen, in the main menu and in a game.
 
