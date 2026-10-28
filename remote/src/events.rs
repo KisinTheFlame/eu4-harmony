@@ -8,8 +8,9 @@ group! {
     "events": EventsRequest, EventsAnswer;
 
     /// The events numbered above `since`, oldest first. With `wait_ms`, when
-    /// there is none yet, the answer waits for the first one, at most that
-    /// long.
+    /// there is none yet, the answer waits for the first one, up to that
+    /// long while the game runs. While a save loads the game answers
+    /// nothing, so an answer due then comes once the load is over.
     anywhere Read "" {
         /// The number of the last event already seen; 0 or absent for every
         /// event kept.
