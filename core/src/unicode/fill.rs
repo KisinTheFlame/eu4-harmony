@@ -40,8 +40,6 @@ use windows::core::Interface;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Direct3D9::*;
 
-/// The font method that loads its page, then parses its `.fnt` (font).
-const LOAD_PAGE: usize = 0x15953c0;
 /// Creates a texture: renderer, wrapper, description, mip levels, count.
 const CREATE_TEXTURE: usize = 0x16d7aa0;
 /// Releases a texture and frees its wrapper (wrapper).
@@ -331,6 +329,9 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
         None => None,
     };
     match glyph {
+        // The page keeps what it drew for every font that draws from it; the
+        // font gets the record the game reads in its glyph table, where the
+        // next lookup finds it first.
         Some(g) => {
             glyphs::insert(font + OWN_GLYPHS, scalar, g);
             glyphs::get(font + OWN_GLYPHS, scalar)
@@ -459,11 +460,9 @@ fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill) -> crate::Result
     Ok(())
 }
 
-extern "C" fn load_before(frame: *mut HookFrame) {
-    crate::guarded("font page load", || {
-        let font = unsafe { (*frame).args[0] };
-        LOADING.with(|l| l.borrow_mut().begin(font));
-    })
+/// `font` starts loading on this thread (see [`Loading`]).
+pub fn loading(font: usize) {
+    LOADING.with(|l| l.borrow_mut().begin(font));
 }
 
 extern "C" fn create_before(frame: *mut HookFrame) {
@@ -496,60 +495,58 @@ extern "C" fn create_before(frame: *mut HookFrame) {
     })
 }
 
-extern "C" fn load_after(frame: *mut HookFrame) {
-    crate::guarded("font page fill", || {
-        let font = unsafe { (*frame).args[0] };
-        // The font's file has been parsed: its glyphs above 0xFF are all in.
-        glyphs::seal(font + OWN_GLYPHS);
-        let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return };
-        let system = settings::current().text_appearance == TextAppearance::System;
-        let m = crate::hooked_memory();
-        let result = (|| -> crate::Result<()> {
-            let (manager, entry) = page_entry(&m, font)?;
-            let wrapper = m.ptr(entry)?;
-            if wrapper == 0 || m.ptr(wrapper)? == 0 {
-                return Ok(());
-            }
-            let mut pages = lock(&PAGES);
-            if !pages.contains_key(&wrapper) {
-                // A page loaded before, or in another format, keeps its own
-                // glyphs only.
-                if !system && own.is_none() {
-                    return Ok(());
-                }
-                let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own, system))?;
-                // The wrapper holds the game's reference: it gets one of
-                // ours, and its old texture is released.
-                let old = m.ptr(wrapper)? as *mut c_void;
-                unsafe {
-                    *(wrapper as *mut *mut c_void) = fill.texture.clone().into_raw();
-                    drop(IDirect3DTexture9::from_raw(old));
-                    *((entry + textures::ENTRY_SIZE) as *mut u32) = fill.width;
-                    *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = fill.height;
-                }
-                let look = match (system, fill.compressed) {
-                    (true, _) => "system",
-                    (false, true) => "grown DXT5",
-                    (false, false) => "grown",
-                };
-                log!("fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), ink {:06x}", fill.width, fill.height, fill.family, fill.em, fill.letter_em, fill.base, fill.ink);
-                pages.insert(wrapper, fill);
-            }
-            let fill = pages.get_mut(&wrapper).expect("just made");
-            unsafe {
-                *((font + objects::font::PAGE_SIZE) as *mut u32) = fill.width;
-                *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = fill.height;
-            }
-            lock(&OWNERS).insert(font, wrapper);
-            if system {
-                glyphs::clear(font + OWN_GLYPHS);
-                replace_own_glyphs(&m, font, fill)?;
-            }
-            Ok(())
-        })();
-        if let Err(e) = result {
-            log!("fill: font page left as it is: {e}");
+/// `font` has loaded: fills its page. Returns whether the font now draws
+/// every character from the system font, so that the glyphs its file brought
+/// no longer apply.
+pub fn loaded(font: usize) -> bool {
+    let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return false };
+    let system = settings::current().text_appearance == TextAppearance::System;
+    let m = crate::hooked_memory();
+    let result = (|| -> crate::Result<bool> {
+        let (manager, entry) = page_entry(&m, font)?;
+        let wrapper = m.ptr(entry)?;
+        if wrapper == 0 || m.ptr(wrapper)? == 0 {
+            return Ok(false);
         }
+        let mut pages = lock(&PAGES);
+        if !pages.contains_key(&wrapper) {
+            // A page loaded before, or in another format, keeps its own
+            // glyphs only.
+            if !system && own.is_none() {
+                return Ok(false);
+            }
+            let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own, system))?;
+            // The wrapper holds the game's reference: it gets one of
+            // ours, and its old texture is released.
+            let old = m.ptr(wrapper)? as *mut c_void;
+            unsafe {
+                *(wrapper as *mut *mut c_void) = fill.texture.clone().into_raw();
+                drop(IDirect3DTexture9::from_raw(old));
+                *((entry + textures::ENTRY_SIZE) as *mut u32) = fill.width;
+                *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = fill.height;
+            }
+            let look = match (system, fill.compressed) {
+                (true, _) => "system",
+                (false, true) => "grown DXT5",
+                (false, false) => "grown",
+            };
+            log!("fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), ink {:06x}", fill.width, fill.height, fill.family, fill.em, fill.letter_em, fill.base, fill.ink);
+            pages.insert(wrapper, fill);
+        }
+        let fill = pages.get_mut(&wrapper).expect("just made");
+        unsafe {
+            *((font + objects::font::PAGE_SIZE) as *mut u32) = fill.width;
+            *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = fill.height;
+        }
+        lock(&OWNERS).insert(font, wrapper);
+        if system {
+            replace_own_glyphs(&m, font, fill)?;
+        }
+        Ok(system)
+    })();
+    result.unwrap_or_else(|e| {
+        log!("fill: font page left as it is: {e}");
+        false
     })
 }
 
@@ -569,7 +566,6 @@ pub fn forget(font: usize) {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::observe(LOAD_PAGE, "48 89 5c 24 08 57 48 81 ec 80 00 00 00 48 8b f9", "font page load", 1, Some(load_before), Some(load_after)),
         Point::observe(CREATE_TEXTURE, "48 89 5c 24 20 55 56 57 41 54 41 55 41 56 41 57", "texture creation", 5, Some(create_before), None),
         Point::observe(DESTROY_TEXTURE, "40 53 48 83 ec 20 48 8b d9 ff 15 51 91 8f 00 48", "texture destruction", 1, Some(destroy_before), None),
         Point::keep(ALLOCATE, "40 53 48 83 ec 20 48 8b d9 eb 0f 48 8b cb e8 95", "game allocator"),

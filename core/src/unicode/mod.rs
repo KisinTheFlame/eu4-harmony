@@ -11,6 +11,7 @@ pub mod fill;
 pub mod fitted_text;
 pub mod floating_text;
 pub mod font_load;
+pub mod fonts;
 pub mod game_text;
 pub mod glyphs;
 pub mod input;
@@ -30,6 +31,7 @@ use crate::points::Point;
 
 pub fn points() -> Vec<Point> {
     let mut points = font_load::points();
+    points.extend(fonts::points());
     points.extend(fill::points());
     points.extend(localisation::points());
     points.extend(main_text::points());

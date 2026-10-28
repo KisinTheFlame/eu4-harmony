@@ -7,8 +7,8 @@
 //! into: id `edi`, x `r14d`, y `r15d`, width `r12d`, height `esi`, x offset
 //! `r13d`, y offset `[rbp+0x1148]`, advance `[rsp+0x40]`; the font is at
 //! `[rbp+0x1130]`, its own table at font + 0x120. Then `cmp edi, 0xff; ja`
-//! skips large ids. The game frees a font's table with the function at
-//! 0x1594360, which takes the table.
+//! skips large ids. What happens to the glyphs as the font loads and goes is
+//! `fonts`'s.
 //!
 //! A font's page is a texture like any other (docs/research/font-textures.md).
 //! The game's texture loader (0x16c2980) silently skips a file of 16 MiB or
@@ -20,7 +20,6 @@
 use crate::resume;
 use super::glyphs::{self, Glyph};
 use crate::objects::text::font::OWN_GLYPHS;
-use crate::hooks::HookFrame;
 use crate::points::Point;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -31,7 +30,6 @@ const SMALL_ID: usize = 0x1595c92;
 const STORED: usize = 0x1595cfa;
 /// The game's path for an id it rejects.
 const BAD_ID: usize = 0x1595f01;
-const DESTROY_TABLE: usize = 0x1594360;
 const TEXTURE_FILE_LIMIT: usize = 0x16c2cb7;
 
 resume!(RESUME: SMALL = SMALL_ID, DONE = STORED, BAD = BAD_ID);
@@ -97,14 +95,6 @@ extern "C" fn id_check() {
     );
 }
 
-extern "C" fn destroy_before(frame: *mut HookFrame) {
-    crate::guarded("font destroy", || {
-        let table = unsafe { (*frame).args[0] };
-        glyphs::forget(table);
-        super::fill::forget(table - OWN_GLYPHS);
-    });
-}
-
 /// How many glyphs above 0xFF the fonts brought, for the report.
 pub fn loaded() -> (u64, u64) {
     (LOADED.load(Ordering::Relaxed), DUPLICATES.load(Ordering::Relaxed))
@@ -127,7 +117,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(SMALL_ID, "83 ff 0a 0f 84 66 02 00 00", "font char id newline check"),
         Point::keep(STORED, "4c 8b 74 24 38 45 33 ed e9 00 fb ff ff", "font char line done"),
         Point::keep(BAD_ID, "e8 3a be 17 00", "font char id rejected"),
-        Point::observe(DESTROY_TABLE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48", "font table destructor", 1, Some(destroy_before), None),
         Point::write(TEXTURE_FILE_LIMIT, "41 81 fe 00 00 00 01", "texture file size limit", "41 81 fe 00 00 00 10"),
     ]
 }

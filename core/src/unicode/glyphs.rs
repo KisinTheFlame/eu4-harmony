@@ -3,7 +3,7 @@
 //! call. It only keeps them; which glyph a character gets is `text_loops`'s.
 //!
 //! A font's own table is 256 glyph pointers at font + 0x120; the game frees it
-//! with the font (`font_load`). Glyphs for higher code points are kept here,
+//! with the font (`fonts`, which also seals and clears a font's glyphs here). Glyphs for higher code points are kept here,
 //! by that table's address, in the same 16-byte layout, so text code can use
 //! them wherever it uses the game's own.
 //!
@@ -142,7 +142,7 @@ pub fn get(table: usize, scalar: u32) -> *const Glyph {
         let fonts = FONTS.read().unwrap_or_else(|e| e.into_inner());
         let Some(font) = fonts.get(&table) else { return std::ptr::null() };
         let Some(set) = &font.set else {
-            // Used before it was sealed: seal it now.
+            // A font whose load `fonts` did not see the end of: seal it now.
             drop(fonts);
             seal(table);
             continue;
