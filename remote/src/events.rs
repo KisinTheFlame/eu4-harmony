@@ -1,5 +1,5 @@
 //! The events remote control keeps: the ones extensions hear, numbered, the
-//! latest few thousand of them.
+//! latest 10,000 of them.
 use crate::{ArmyId, Date};
 use serde::{Deserialize, Serialize};
 
