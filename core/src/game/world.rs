@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     memory::Memory,
-    objects::campaign::{adjacency, classes, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world},
+    objects::campaign::{adjacency, classes, countries as country_list, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world},
     points::Point,
 };
 use std::collections::BTreeSet;
@@ -426,6 +426,35 @@ pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<(A
     }
     if m.ptr(province + province::UNITS)? != head || hidden(m, province)? {
         return Err("province units changed while reading".to_string().into());
+    }
+    Ok(out)
+}
+
+/// Every country's tag, by tag index; empty slots and invalid tags are
+/// skipped.
+pub fn countries(m: &Memory, ctx: &Ctx) -> GResult<Vec<Tag>> {
+    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
+    if m.ptr(manager + country_list::LIST)? != ctx.countries {
+        return Err("country array moved".to_string().into());
+    }
+    let count = m.i32(manager + country_list::COUNT)?;
+    if !(0..=32767).contains(&count) {
+        return Err("country array bound".to_string().into());
+    }
+    let mut out = Vec::with_capacity(count as usize);
+    for index in 0..count as usize {
+        let country = m.ptr(ctx.countries + index * 8)?;
+        if country == 0 {
+            continue;
+        }
+        let tag = Tag(m.u64(country + country_fields::TAG)?);
+        if !tag.valid() {
+            continue;
+        }
+        if tag.index() as usize != index {
+            return Err(format!("country {index} has the tag of country {}", tag.index()).into());
+        }
+        out.push(tag);
     }
     Ok(out)
 }
