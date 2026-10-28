@@ -1,8 +1,11 @@
-//! `eu4-harmony`: create, build, register and package EU4 Harmony mods.
+//! `eu4-harmony`: create, build, register and package EU4 Harmony mods, and
+//! use the running game through remote control (`game`, in `game.rs`).
 //!
 //! A mod is a folder with `descriptor.mod`, `eu4-harmony/manifest.json`, its
 //! texts in `eu4-harmony/localisation/` and an `extension/` Rust crate; game
 //! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
+mod game;
+mod pipe;
 mod templates;
 
 use eu4_harmony_abi as abi;
@@ -17,7 +20,8 @@ use std::{
 type Result<T> = std::result::Result<T, String>;
 
 const USAGE: &str = "\
-eu4-harmony: create, build, register and package EU4 Harmony mods
+eu4-harmony: create, build, register and package EU4 Harmony mods, and use
+the running game through remote control
 
 usage:
   eu4-harmony new <id> [--name <display name>] [--dir <parent dir>] [--sdk <sdk dir>]
@@ -29,6 +33,9 @@ usage:
       Registers the mod folder with the Paradox launcher (enable it in a playset).
   eu4-harmony package [<mod dir>] [--out <dir>]
       Writes a clean folder for upload: no sources, no build output.
+  eu4-harmony game <capability> [--<argument> <value>]...
+      Sends the running game one request through remote control and prints
+      the answer as JSON; eu4-harmony game help lists the capabilities.
 
 <mod dir> defaults to the current folder or the mod folder containing it.
 ";
@@ -78,6 +85,7 @@ fn main() {
         Some("build") => Args::parse(&raw[1..], &["debug"]).and_then(|a| cmd_build(&a)),
         Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
+        Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("help" | "-h" | "--help") | None => {
             print!("{USAGE}");
             Ok(())
