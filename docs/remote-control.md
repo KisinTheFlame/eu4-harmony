@@ -122,7 +122,7 @@ Built (2026-10-29). The shared crate is `remote/` (`eu4_harmony_remote`), one fi
 - **Events**: what extensions hear at a game's safe frame, in the same order (a new session, the changes, a new day), numbered from 1; the latest 10,000 are kept. A `since` beyond the last event (from before the game started again) reads every event kept, with `missed`, since the events that followed it then are gone; `missed` is set too when events after `since` were dropped before they were read.
 - **Log**: every request in the framework log, as JSON, with how it ended and how long it took; one that waits, again when it answers.
 - **Countries**: a request names a country by its tag, and the engine finds the country through a new capability in the layer, `countries::find` (the country manager's array, two new dependency points, [research/countries.md](research/countries.md)). The layer's `tag` has no remote counterpart, since a remote client already names countries by their tags.
-- **Trying it without a transport**: with `EU4HARMONY_TEST_REMOTE` set when `eu4.exe` starts, a thread of its own submits requests every 5 s and logs the answers (`core/src/remote/probe.rs`); set to `orders`, it also moves one of the player's armies one province and stops it, once a session.
+- **Trying it without a transport**: with `EU4HARMONY_TEST_REMOTE` set when `eu4.exe` starts, a thread of its own submitted requests every 5 s and logged the answers (`core/src/remote/probe.rs`); set to `orders`, it also moved one of the player's armies one province and stopped it, once a session. F3 removed it: the named pipe takes requests from real clients.
 
 | Capability | Arguments | Result | Needs a game |
 | --- | --- | --- | --- |

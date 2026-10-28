@@ -18,7 +18,6 @@ pub mod describe;
 pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
-pub mod probe;
 pub mod provinces;
 pub mod session;
 #[cfg(test)]
