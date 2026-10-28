@@ -36,13 +36,13 @@ windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_Di
 
 # Reading the game's code (src/analysis.rs, the disasm example). Tests use it
 # too, through the dev-dependency below.
-iced-x86 = { version = "=1.21.0", default-features = false, features = ["decoder", "std", "instr_info", "intel"], optional = true }
+iced-x86 = { workspace = true, features = ["decoder", "std", "instr_info", "intel"], optional = true }
 
 [build-dependencies]
 cc = { workspace = true }
 
 [dev-dependencies]
-iced-x86 = { version = "=1.21.0", default-features = false, features = ["decoder", "std", "instr_info"] }
+iced-x86 = { workspace = true, features = ["decoder", "std", "instr_info"] }
 
 [features]
 analysis = ["dep:iced-x86"]
