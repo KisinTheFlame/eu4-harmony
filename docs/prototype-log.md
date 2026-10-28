@@ -212,6 +212,14 @@ The grown pages are now ordinary video-memory textures, written through a small 
 - **Display**: the main menu, the lobby's text and every country name on the East Asia map show as before in both looks (bitmap: the Chinese language mod's KaiTi page; system: KaiTi drawn by the framework), so the pages' own glyphs were copied in where they belong.
 - **Glyphs drawn while playing**: typing "한글テスト" into the lobby's Find box showed the Korean and the kana in both looks; the Korean is not in the mod's fonts, so it was drawn into the page then, through the new path.
 
+## 2026-10-28 Shared glyph sets (tested by me)
+
+Fonts that bring the same glyphs above 0xFF now share one set. Chinese playset, to the lobby only, twice with each look; framework settings put back afterwards.
+
+- **Memory**: 994,216 glyph records kept as 6 shared sets of 115,053; the framework's heap at the main menu 3.2 MB instead of 66 MB, the process 3761 and 3763 MB instead of 3866 with bitmap fonts, 3767 and 3746 MB with system fonts.
+- **Display**: in both looks the lobby's text and the East Asia map's names show as before, and "한글テスト" typed into the Find box shows, so glyphs from the shared sets and glyphs drawn later are both found.
+- **Tools**: the first run clicked as soon as the log said the main menu was up, before it took clicks, and stayed on the menu; waiting 8 s first fixed it.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

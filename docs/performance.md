@@ -8,19 +8,25 @@ What the framework costs the game, measured on 2026-10-28 with the framework at 
 
 ## Since then
 
-The grown font pages are now written through a small system-memory texture instead of being locked in place (see [Memory](#memory)). Measured the same day from the framework's log, Chinese playset, to the main menu:
+Two changes the same day, both found by the measurements under [Memory](#memory):
 
-| | Bitmap fonts, before | Bitmap fonts, after | System fonts, before | System fonts, after |
-| --- | --- | --- | --- | --- |
-| Process private bytes at the main menu | 4353 MB | 3866 MB | 3860 MB | 3778 MB |
-| Writing the six pages | 560 MB | 40 MB | not measured | 9 MB |
-| Drawing a glyph into a page | 2.1 ms | 91 µs | 1.1 ms | 9 µs |
-| Making the six pages | 181 ms | 27 ms | 84 ms | 23 ms |
-| From the framework loading to the main menu | 30.8 s | 31.5 s | 34.9 s | 30.8 s |
+1. The grown font pages are written through a small system-memory texture instead of being locked in place.
+2. Fonts that bring the same glyphs from their `.fnt` files share one set of them, stored inline, instead of each keeping its own copy of every record.
 
-- **Memory**: bitmap fonts now hold what system fonts held before, so most of their 420 MB over the plugin should be gone; they were not measured against the plugin again. What is left of their difference to system fonts is mostly the glyph records each font keeps a copy of (66 MB of the framework's heap).
+Measured from the framework's log, Chinese playset, to the main menu:
+
+| | Bitmap fonts: before | after 1 | after 2 | System fonts: before | after 1 | after 2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Process private bytes at the main menu | 4353 MB | 3866 MB | 3761 MB, 3763 MB | 3860 MB | 3778 MB | 3767 MB, 3746 MB |
+| The framework's heap at the main menu | 66 MB | 66 MB | 3.2 MB | 2.8 MB | 2.8 MB | 1.3 MB |
+| Writing the six pages | 560 MB | 40 MB | 38 MB | not measured | 9 MB | 9 MB |
+| Drawing a glyph into a page | 2.1 ms | 91 µs | 58 µs | 1.1 ms | 9 µs | 9 µs |
+| Making the six pages | 181 ms | 27 ms | 27 ms | 84 ms | 23 ms | 22 ms |
+| From the framework loading to the main menu | 30.8 s | 31.5 s | 31.2 s | 34.9 s | 30.8 s | 30.6 s, 30.5 s |
+
+- **Memory**: bitmap fonts now hold about 590 MB less than before, and as much as system fonts. Against the plugin, both should now be within a few dozen MB of it; that was not measured again. The 994,216 glyph records the 46 fonts brought are kept as 6 shared sets of 115,053.
 - **Starting the game**: system fonts no longer take longer than bitmap fonts. Their 3,143 glyphs were drawn in 28 ms instead of 3.5 s; the time had been the locks.
-- The tables below are from before the change. Game speed was not measured again.
+- The tables below are from before the changes. Game speed was not measured again.
 
 ## Setups
 
