@@ -4,7 +4,8 @@
 
 /// Globals, by RVA.
 pub mod globals {
-    /// The world, the campaign's state; null when no campaign runs.
+    /// The world, the campaign's state. It is not null in the main menu
+    /// either, so it is no sign of a game (docs/research/safe-points.md).
     pub const WORLD: usize = 0x233fe78;
     /// The country manager.
     pub const COUNTRY_MANAGER: usize = 0x233d8d0;
