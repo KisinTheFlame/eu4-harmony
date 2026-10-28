@@ -78,6 +78,10 @@ _Avoid_: bot, agent
 How requests and responses travel between remote clients and remote control, such as the named pipe carrying JSON lines.
 _Avoid_: protocol adapter, channel, connection
 
+**Event**:
+Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.
+_Avoid_: notification, message; game event (one of the game's own events, whose options the player chooses from)
+
 ### Interface
 
 **Window**:
