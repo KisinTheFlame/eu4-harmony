@@ -108,6 +108,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "eu4-harmony-remote"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eu4-harmony-sdk"
 version = "0.1.0"
 dependencies = [
