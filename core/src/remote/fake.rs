@@ -345,7 +345,7 @@ pub struct Clock {
     pub time: game::time::Time,
     /// How many game events wait for the player's answer.
     pub game_events: usize,
-    /// The dates time stops at, while their holders keep them.
+    /// The dates time stops at, while advances hold them.
     pub stops: std::sync::Arc<std::sync::Mutex<Vec<i32>>>,
 }
 
@@ -356,14 +356,27 @@ impl Default for Clock {
     }
 }
 
-/// A date time stops at, kept in a [`Clock`] until dropped.
-struct Held(std::sync::Arc<std::sync::Mutex<Vec<i32>>>, i32);
+/// A date time stops at, kept in a [`Clock`] until released; dropped
+/// unreleased, it is called off, which the clock keeps as `i32::MIN`.
+struct Held(std::sync::Arc<std::sync::Mutex<Vec<i32>>>, i32, bool);
 
-impl Drop for Held {
-    fn drop(&mut self) {
+impl time::Held for Held {
+    fn release(mut self: Box<Self>) {
+        self.2 = true;
         let mut stops = self.0.lock().unwrap();
         if let Some(at) = stops.iter().position(|&d| d == self.1) {
             stops.remove(at);
+        }
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        if !self.2 {
+            let mut stops = self.0.lock().unwrap();
+            if let Some(at) = stops.iter().position(|&d| d == self.1) {
+                stops[at] = i32::MIN;
+            }
         }
     }
 }
@@ -402,9 +415,9 @@ impl time::Layer for Fake {
         Ok(self.clock.game_events)
     }
 
-    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Send>> {
+    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn time::Held>> {
         self.call(format!("stop at {date}"));
         self.clock.stops.lock().unwrap().push(date);
-        Ok(Box::new(Held(self.clock.stops.clone(), date)))
+        Ok(Box::new(Held(self.clock.stops.clone(), date, false)))
     }
 }

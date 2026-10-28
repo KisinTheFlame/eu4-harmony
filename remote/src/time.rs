@@ -30,7 +30,8 @@ group! {
     /// is loaded or started, and when the game returns to the main menu
     /// (eu4.exe starts again, and the answer comes just before the old
     /// process goes). The answer comes at a frame of the game's, however
-    /// long the days take at the speed.
+    /// long the days take at the speed; a client that gives the request up
+    /// calls the advance off, and time stops at the end of the day under way.
     game Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,

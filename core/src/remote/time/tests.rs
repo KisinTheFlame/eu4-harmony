@@ -177,15 +177,16 @@ fn an_advance_does_not_run_past_a_game_event_waiting_already() {
 }
 
 #[test]
-fn an_advance_given_up_lets_its_stop_go() {
+fn an_advance_given_up_is_called_off() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();
     let reply = engine.submit(advance(30, None));
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(game.clock.stops.lock().unwrap().len(), 1);
+    assert_eq!(*game.clock.stops.lock().unwrap(), [START + 30 * DAY]);
     drop(reply);
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert!(game.clock.stops.lock().unwrap().is_empty());
+    // The layer stops time at the end of the day under way.
+    assert_eq!(*game.clock.stops.lock().unwrap(), [i32::MIN]);
 }
 
 #[test]

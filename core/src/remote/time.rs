@@ -32,9 +32,21 @@ pub trait Layer {
     fn set_speed(&mut self, speed: u32) -> GResult<()>;
     /// How many game events wait for the player's answer.
     fn game_events_waiting(&mut self) -> GResult<usize>;
-    /// Pauses the game as the daily update reaches `date`, until what it
-    /// returns is dropped.
-    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Send>>;
+    /// Pauses the game as the daily update reaches `date`.
+    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Held>>;
+}
+
+/// A date time stops at, held for an advance: released when the advance
+/// answers; dropped unreleased, when its client gave the advance up, it calls
+/// the advance off, and time stops at the end of the day under way.
+pub trait Held: Send {
+    fn release(self: Box<Self>);
+}
+
+impl Held for game::time::Stop {
+    fn release(self: Box<Self>) {
+        game::time::Stop::release(*self);
+    }
 }
 
 impl Layer for Live {
@@ -58,7 +70,7 @@ impl Layer for Live {
         game::time::game_events_waiting(Caller::Remote)
     }
 
-    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Send>> {
+    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Held>> {
         Ok(Box::new(game::time::stop_at(Caller::Remote, date)?))
     }
 }
@@ -106,7 +118,7 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     // Before time runs, so that no day slips past the date.
     let stop = game.stop_at(until)?;
     game.resume()?;
-    Ok(Started::Running(Advance { session: time.session, since, until, date: time.date, reached: None, _stop: stop }))
+    Ok(Started::Running(Advance { session: time.session, since, until, date: time.date, reached: None, stop: Some(stop) }))
 }
 
 const GAME_EVENT: &str = "a game event waits for the player's answer";
@@ -123,9 +135,8 @@ struct Advance {
     /// When the date was reached, while the advance waits for its day's
     /// event.
     reached: Option<Instant>,
-    /// Holds the stop at the date in the layer; dropped with the advance,
-    /// answered or given up.
-    _stop: Box<dyn Send>,
+    /// The stop at the date, until the advance answers.
+    stop: Option<Box<dyn Held>>,
 }
 
 impl Advance {
@@ -154,7 +165,10 @@ impl Advance {
         })
     }
 
-    fn answer(&self, stopped: Stop, reason: &str, events: &events::Buffer) -> Response {
+    fn answer(&mut self, stopped: Stop, reason: &str, events: &events::Buffer) -> Response {
+        if let Some(stop) = self.stop.take() {
+            stop.release();
+        }
         Ok(Answer::Time(TimeAnswer::Advance(Advanced { stopped, reason: reason.into(), date: Date(self.date), events: events.read(self.since) })))
     }
 }
