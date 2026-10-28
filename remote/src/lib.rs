@@ -10,11 +10,12 @@
 //! {"capability": "army.move", "army": "4294967377", "goal": 151}
 //! ```
 //!
-//! A full name is the group's name, a dot and the capability's own name, or
-//! the group's name alone for a group's one capability (`"session"`,
-//! `"events"`). A country is its tag (`"FRA"`), a province its number, an army
-//! its ID as a decimal string (a 64-bit integer does not survive a JavaScript
-//! number), a date `"1444.11.11"`.
+//! A full name is the group's name, a dot and the capability's own name
+//! (`"army.move"`, `"country.hostile"`), or the group's name alone when the
+//! capability's own name is empty (`"session"`, `"events"`). A country is
+//! its tag (`"FRA"`), a province its number, an army its ID as a decimal
+//! string (a 64-bit integer does not survive a JavaScript number), a date
+//! `"1444.11.11"`.
 //!
 //! A response is the capability's [`Answer`] or an [`Error`]; in JSON
 //! `{"ok": true, "result": ...}` or `{"ok": false, "error": {"code": ...,
@@ -46,7 +47,7 @@ macro_rules! in_game {
 /// ```
 ///
 /// `game` for a capability that needs a game going on, `anywhere` for one
-/// that does not; `"name"` empty for a group's one capability.
+/// that does not; `"name"` empty for one the group's name alone names.
 macro_rules! group {
     (
         $(#[doc = $about:literal])*
@@ -292,7 +293,7 @@ impl<T: ArgKind> ArgKind for Option<T> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Capability {
     pub group: &'static str,
-    /// Its own name in the group; empty for a group's one capability.
+    /// Its own name in the group; empty when the group's name alone names it.
     pub action: &'static str,
     pub about: &'static str,
     /// It runs only while a game is going on.
