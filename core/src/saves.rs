@@ -454,6 +454,7 @@ extern "C" fn load_before(f: *mut HookFrame) {
     LOAD_DEPTH.fetch_add(1, Ordering::SeqCst);
     *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
     crate::game::events::load_begin();
+    crate::remote::campaign_changes();
     before(f, |h| {
         let c = context()?;
         let mut txn = LoadTxn { world: h.args[2], success: h.args[1], locked: None, error: None };

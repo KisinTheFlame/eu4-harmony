@@ -7,6 +7,11 @@
 //! extensions hear, numbered, and writes every request to the framework log
 //! (ADR 0017). It knows nothing of connections or JSON.
 //!
+//! A request that needs a game belongs to the session it was sent in: one
+//! still queued when that session ends (a save loads, another game starts)
+//! is answered `session_changed` instead of acting on a campaign its client
+//! never saw.
+//!
 //! Every answer that numbers sessions or events says which process gave it
 //! ([`process`]): returning to the main menu starts the game again, and the
 //! numbers start again with it.
@@ -195,6 +200,8 @@ struct Queued {
     number: u64,
     request: Request,
     slot: Arc<Slot>,
+    /// The session it was sent in, 0 for none.
+    session: u64,
 }
 
 /// A request that ran and waits to answer.
@@ -217,6 +224,9 @@ pub struct Engine {
     queue: Mutex<VecDeque<Queued>>,
     running: Mutex<Running>,
     next: AtomicU64,
+    /// The session of the last game frame; 0 when the campaign changed
+    /// since, or before the first.
+    session: AtomicU64,
     log: fn(&str),
 }
 
@@ -227,6 +237,7 @@ impl Engine {
             queue: Mutex::new(VecDeque::new()),
             running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new() }),
             next: AtomicU64::new(1),
+            session: AtomicU64::new(0),
             log,
         }
     }
@@ -235,8 +246,21 @@ impl Engine {
     pub fn submit(&self, request: Request) -> Reply {
         let slot = Arc::new(Slot::default());
         let number = self.next.fetch_add(1, Ordering::Relaxed);
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(Queued { number, request, slot: slot.clone() });
+        let session = self.session.load(Ordering::Relaxed);
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(Queued { number, request, slot: slot.clone(), session });
         Reply(slot)
+    }
+
+    /// A game's safe frame of `session` begins: the requests that need a
+    /// game sent from now on belong to it.
+    pub fn enter(&self, session: u64) {
+        self.session.store(session, Ordering::Relaxed);
+    }
+
+    /// The campaign changes, such as when a save begins to load: the
+    /// requests sent from now on belong to the session that comes next.
+    pub fn leave(&self) {
+        self.session.store(0, Ordering::Relaxed);
     }
 
     /// Keeps what happened, for remote clients to read.
@@ -258,6 +282,7 @@ impl Engine {
         let mut queued = std::mem::take(&mut *self.queue.lock().unwrap_or_else(|e| e.into_inner()));
         let mut kept = VecDeque::new();
         let mut ran = false;
+        let session = self.session.load(Ordering::Relaxed);
         while let Some(q) = queued.pop_front() {
             if q.slot.abandoned() {
                 (self.log)(&format!("remote #{} {}: given up by its client before it ran", q.number, json(&q.request)));
@@ -265,6 +290,11 @@ impl Engine {
             }
             if q.request.in_game() {
                 match place {
+                    Place::Game if q.session != 0 && q.session != session => {
+                        let why = format!("it was sent in session {}, which ended before it ran; this is session {session}", q.session);
+                        self.answer(&q, Err(Error::new(Code::SessionChanged, why)), Duration::ZERO);
+                        continue;
+                    }
                     Place::Game => {}
                     Place::Outside(None) => {
                         kept.push_back(q);
@@ -427,7 +457,14 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
 /// At a game's safe frame: keeps what extensions just heard, then runs.
 pub(crate) fn run_in_game(frame: &game::Frame) {
     ENGINE.record(happened(frame));
+    ENGINE.enter(frame.session);
     ENGINE.run(&mut Live, &Place::Game, BUDGET);
+}
+
+/// The campaign changes (a save begins to load): requests that need a game
+/// sent before it never act on the next one.
+pub(crate) fn campaign_changes() {
+    ENGINE.leave();
 }
 
 /// At a safe point with no game to read: `why` answers the requests that

@@ -461,6 +461,31 @@ fn the_layer_s_failures_keep_their_meaning() {
 }
 
 #[test]
+fn a_request_sent_in_one_session_never_runs_in_the_next() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    engine.enter(2);
+    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }));
+    let reads = engine.submit(Request::Text(TextRequest::Language {}));
+    // A save begins to load; what is sent while it loads is for the next.
+    engine.leave();
+    let new = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.enter(3);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    let old = answer(&old);
+    assert!(error("session_changed")(&old), "{old}");
+    assert_eq!(old["error"]["message"], "it was sent in session 2, which ended before it ran; this is session 3");
+    assert_eq!(answer(&reads)["ok"], true, "what needs no game has no session");
+    assert_eq!(answer(&new)["ok"], true);
+    assert_eq!(game.calls, ["language", "session"]);
+    // In the same session it runs, also after waiting outside a game frame.
+    let same = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&same), ok(Value::Null));
+}
+
+#[test]
 fn events_say_which_process_numbered_them() {
     let engine = Engine::new(remember);
     engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);
