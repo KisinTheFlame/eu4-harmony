@@ -228,6 +228,15 @@ Backups as above (the game was never unpaused, so nothing was autosaved). Chines
 - **Dates**: the top bar reads "1444年11月11日"; the admin technology tooltip "我们预计将在1448年10月拥有足够点数来完成它" (the rounded month and year). The ruler's "于1444年11月11日上台" is the long date, which the Chinese language mod already words.
 - **Not seen in the running game**: battle names (no battle was fought), plain month and year, year, month and day, the timeline and great projects; each is covered by unit tests only.
 
+## 2026-10-28 After the technical-debt work (tested by me)
+
+Every field, global, class and method the framework relies on is now a dependency point, game strings go through one module, the hook wiring is shared, and extensions report their ABI. The regional-combat extension was rebuilt with the new SDK. Backups as above; only `settings.txt` changed and was put back, no save was written and no crash folder made. Chinese playset, system fonts.
+
+- **Startup**: 365 dependency points match, the vtable methods among them checked against the relocated image; 102 hooks, 4 writes. The extension's exported ABI version was read and it loaded. The device was found multithreaded and the six font pages were filled.
+- **Display**: the main menu's continue box reads "1470年3月13日"; the lobby shows Korea's "国王 Yi Sejong Do" and the East Asia map's names, one-character names upright; started as Korea, the top bar reads "1444年11月11日", the start-of-game introduction wraps its Chinese with no punctuation at a line start, and messages read "同意结盟", "接受朝贡提议".
+- **Extension**: selecting the army in Hanseong bound 9 elements in the army panel; clicking the extension's button turned its task on ("army 2628519985206 task on: center 735 radius 5") and again off, its tooltip showed in Chinese, and its geography read ran in `on_frame` with no error. Three game days passed unpaused with nothing in the core log.
+- **Not seen in the running game**: the map preview (it needs a right click, which the input tool cannot send), an edit box after the change (its offsets are now named constants, which assemble to the same instructions, and the points check them), floating text, a save written with extension data, and a battle.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
