@@ -99,7 +99,8 @@ struct Fill {
     full: bool,
 }
 
-// The device was made multithreaded; each call takes its lock.
+// Pages are made only on a device made multithreaded (see `device`), which
+// takes its lock in each call, so any thread that draws text may fill one.
 unsafe impl Send for Fill {}
 
 static SYSTEM: LazyLock<Option<SystemFonts>> = LazyLock::new(|| SystemFonts::new().ok());
@@ -164,11 +165,18 @@ fn page_entry(m: &Memory, font: usize) -> crate::Result<(usize, usize)> {
     Ok((manager, begin + index as usize * textures::ENTRY))
 }
 
-/// The device, through the manager's renderer.
+/// The device, through the manager's renderer: a Direct3D 9Ex one, which
+/// keeps pages in video memory across a reset, made multithreaded, since
+/// text is drawn, and so glyphs filled in, on more threads than one.
 fn device(m: &Memory, manager: usize) -> crate::Result<IDirect3DDevice9> {
     let raw = m.ptr(m.ptr(manager + textures::RENDERER)? + objects::renderer::DEVICE)? as *mut c_void;
     let device = unsafe { IDirect3DDevice9::from_raw_borrowed(&raw) }.ok_or("no device")?.clone();
     device.cast::<IDirect3DDevice9Ex>().map_err(|_| "not a Direct3D 9Ex device".to_string())?;
+    let mut made = D3DDEVICE_CREATION_PARAMETERS::default();
+    unsafe { device.GetCreationParameters(&mut made) }.map_err(|e| format!("device creation parameters: {e}"))?;
+    if made.BehaviorFlags & D3DCREATE_MULTITHREADED as u32 == 0 {
+        return Err("the device is not multithreaded".into());
+    }
     Ok(device)
 }
 
