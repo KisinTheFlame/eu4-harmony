@@ -45,7 +45,7 @@ _Avoid_: patch point, hook point
 ### Capabilities
 
 **Capability**:
-One thing the framework lets an extension read or change in the game, such as reading an army, ordering a move, adding a button to a panel, or keeping data per save. Extensions reach the game only through capabilities.
+One thing the framework lets an extension or a remote client read or change in the game, such as reading an army, ordering a move, adding a button to a panel, or keeping data per save. Extensions and remote clients reach the game only through capabilities.
 _Avoid_: API, service, hook
 
 **Safe point**:
@@ -59,6 +59,24 @@ _Avoid_: view, reference
 **Extension save data**:
 An extension's own data kept with a particular save: tied to that save, but stored outside the save file.
 _Avoid_: sidecar, companion file
+
+**Game console**:
+The game's own console, where commands such as `add_treasury` are typed. The framework offers running a command in it as a capability.
+_Avoid_: console on its own
+
+### Remote control
+
+**Remote control**:
+The part of the framework that lets programs outside the game process use capabilities. It acts as the player: its orders count as orders the player gave by hand.
+_Avoid_: API, server, RPC, console (that is the game console)
+
+**Remote client**:
+A program outside the game process that uses remote control, such as `eu4-harmony game` or an AI driving it.
+_Avoid_: bot, agent
+
+**Transport**:
+How requests and responses travel between remote clients and remote control, such as the named pipe carrying JSON lines.
+_Avoid_: protocol adapter, channel, connection
 
 ### Interface
 
