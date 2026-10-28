@@ -1,6 +1,6 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, countries, provinces, screenshot, session, texts};
+use super::{armies, camera, console, countries, provinces, screenshot, session, texts};
 use crate::game::{self, fail, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
 use std::sync::Arc;
@@ -262,5 +262,15 @@ impl screenshot::Layer for Fake {
             shot.finish(Ok(game::screenshot::Image { png: vec![0x89, b'P', b'N', b'G'], width: 2, height: 1, frame_width: 2, frame_height: 1 }));
             shot
         }))
+    }
+}
+
+impl console::Layer for Fake {
+    fn console(&mut self, command: &str) -> GResult<String> {
+        self.call(format!("console {command}"));
+        match command {
+            "cash 100" => Ok("Gold changed by 100".into()),
+            _ => fail(Status::Rejected, "Unknown command"),
+        }
     }
 }

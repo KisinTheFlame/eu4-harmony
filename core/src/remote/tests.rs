@@ -3,7 +3,7 @@
 use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
     response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
@@ -116,6 +116,11 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),
         (Request::Army(ArmyRequest::Selected {}), Box::new(error("not_found"))),
         (Request::Text(TextRequest::Language {}), Box::new(|v: &Value| *v == ok(json!("simp_chinese")))),
+        (Request::Console(ConsoleRequest::Run { command: "cash 100".into() }), Box::new(|v: &Value| *v == ok(json!("Gold changed by 100")))),
+        (
+            Request::Console(ConsoleRequest::Run { command: "cahs 100".into() }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "Unknown command"),
+        ),
         (
             Request::Screenshot(ScreenshotRequest::Take { scale: Some(50) }),
             Box::new(|v: &Value| *v == ok(json!({"image": {"media_type": "image/png", "base64": "iVBORw=="}, "width": 2, "height": 1, "frame_width": 2, "frame_height": 1}))),
@@ -154,7 +159,7 @@ fn every_capability_runs_at_a_game_frame() {
     // The layer was called with what the requests said, in their order.
     let byz = format!("{:x}", fake::byz().0);
     let tur = format!("{:x}", fake::tur().0);
-    for call in [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316")] {
+    for call in [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316"), "console cash 100".into()] {
         assert!(game.calls.contains(&call), "{call} not in {:#?}", game.calls);
     }
     for call in ["look at province 151", "look at 100 200", "zoom 1200"] {
