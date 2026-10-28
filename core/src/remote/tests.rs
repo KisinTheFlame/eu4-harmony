@@ -69,6 +69,8 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Time(TimeRequest::Speed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Time(TimeRequest::Resume {}), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Time(TimeRequest::Pause {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        // An advance answers at once when it cannot run; time::tests has the rest.
+        (Request::Time(TimeRequest::Advance { days: 0, speed: None }), Box::new(error("invalid_argument"))),
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"TUR"), other: CountryTag(*b"BYZ") }), Box::new(|v: &Value| *v == ok(json!(true)))),
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"BYZ"), other: CountryTag(*b"TUR") }), Box::new(|v: &Value| *v == ok(json!(false)))),
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"TUR"), other: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),

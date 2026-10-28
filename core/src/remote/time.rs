@@ -1,10 +1,28 @@
-//! Time: the clock, pausing, resuming and the speed, as the player would.
-use super::Live;
-use crate::game::{self, Caller, GResult};
-use eu4_harmony_remote::{
-    time::{Time, TimeAnswer, TimeRequest},
-    Date, Error,
+//! Time: the clock, pausing, resuming and the speed, as the player would, and
+//! advancing time, which only remote control does. An advance answers at a
+//! later safe point: once the date is reached and the game paused there, or
+//! earlier, saying why; or, when the game starts `eu4.exe` again, just before
+//! this process ends.
+use super::{events, Live, Outcome, Poll, Wait};
+use crate::game::{
+    self,
+    time::{Pause, SPEEDS},
+    Caller, GResult, Status,
 };
+use eu4_harmony_remote::{
+    events::Event,
+    time::{Advanced, Stop, Time, TimeAnswer, TimeRequest},
+    Answer, Code, Date, Error, Response,
+};
+use std::time::{Duration, Instant};
+
+/// The most days one advance may ask for: a hundred years.
+pub const MOST_DAYS: u32 = 36_500;
+/// A day in the game's dates.
+const DAY: i32 = 24;
+/// How long an advance that reached its date waits for that day's event,
+/// which comes once visibility reflects the day, before it answers without.
+const DAY_EVENT_WAIT: Duration = Duration::from_secs(2);
 
 /// The group's slice of the capability layer.
 pub trait Layer {
@@ -12,6 +30,11 @@ pub trait Layer {
     fn pause(&mut self) -> GResult<()>;
     fn resume(&mut self) -> GResult<()>;
     fn set_speed(&mut self, speed: u32) -> GResult<()>;
+    /// How many game events wait for the player's answer.
+    fn game_events_waiting(&mut self) -> GResult<usize>;
+    /// Pauses the game as the daily update reaches `date`, until what it
+    /// returns is dropped.
+    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Send>>;
 }
 
 impl Layer for Live {
@@ -30,18 +53,127 @@ impl Layer for Live {
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
         game::time::set_speed(Caller::Remote, speed)
     }
+
+    fn game_events_waiting(&mut self) -> GResult<usize> {
+        game::time::game_events_waiting(Caller::Remote)
+    }
+
+    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Send>> {
+        Ok(Box::new(game::time::stop_at(Caller::Remote, date)?))
+    }
 }
 
-pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized)) -> Result<TimeAnswer, Error> {
-    Ok(match request {
-        TimeRequest::Get {} => {
-            let t = game.time()?;
-            TimeAnswer::Get(Time { date: Date(t.date), paused: t.paused(), speed: t.speed })
+pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), events: &events::Buffer) -> Outcome {
+    let answer = |result: GResult<TimeAnswer>| Outcome::Done(result.map(Answer::Time).map_err(Error::from));
+    match request {
+        TimeRequest::Get {} => answer(game.time().map(|t| TimeAnswer::Get(Time { date: Date(t.date), paused: t.paused(), speed: t.speed }))),
+        TimeRequest::Pause {} => answer(game.pause().map(TimeAnswer::Pause)),
+        TimeRequest::Resume {} => answer(game.resume().map(TimeAnswer::Resume)),
+        TimeRequest::Speed { speed } => answer(game.set_speed(speed).map(TimeAnswer::Speed)),
+        TimeRequest::Advance { days, speed } => match start(game, events, days, speed) {
+            Ok(Started::Running(advance)) => Outcome::Later(Box::new(advance)),
+            Ok(Started::Stopped(advanced)) => Outcome::Done(Ok(Answer::Time(TimeAnswer::Advance(advanced)))),
+            Err(error) => Outcome::Done(Err(error)),
+        },
+    }
+}
+
+/// What starting an advance comes to.
+enum Started {
+    Running(Advance),
+    /// It did not run, and says why.
+    Stopped(Advanced),
+}
+
+fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, speed: Option<u32>) -> Result<Started, Error> {
+    if !(1..=MOST_DAYS).contains(&days) {
+        return Err(Error::new(Code::InvalidArgument, format!("days is from 1 to {MOST_DAYS}, not {days}")));
+    }
+    if let Some(speed) = speed.filter(|s| !SPEEDS.contains(s)) {
+        return Err(Error::new(Code::InvalidArgument, format!("the speed is from 1 to 5, not {speed}")));
+    }
+    let time = game.time()?;
+    let since = events.last();
+    if game.game_events_waiting()? > 0 {
+        game.pause()?;
+        let advanced = Advanced { stopped: Stop::GameEvent, reason: GAME_EVENT.into(), date: Date(time.date), events: events.read(since) };
+        return Ok(Started::Stopped(advanced));
+    }
+    if let Some(speed) = speed {
+        game.set_speed(speed)?;
+    }
+    let until = time.date.checked_add(days as i32 * DAY).ok_or_else(|| Error::new(Code::InvalidArgument, "the date would run past the game's last"))?;
+    // Before time runs, so that no day slips past the date.
+    let stop = game.stop_at(until)?;
+    game.resume()?;
+    Ok(Started::Running(Advance { session: time.session, since, until, date: time.date, reached: None, _stop: stop }))
+}
+
+const GAME_EVENT: &str = "a game event waits for the player's answer";
+
+/// An advance under way.
+struct Advance {
+    session: u64,
+    /// The last event before time ran.
+    since: u64,
+    /// The date it stops at.
+    until: i32,
+    /// The date at the last safe point.
+    date: i32,
+    /// When the date was reached, while the advance waits for its day's
+    /// event.
+    reached: Option<Instant>,
+    /// Holds the stop at the date in the layer; dropped with the advance,
+    /// answered or given up.
+    _stop: Box<dyn Send>,
+}
+
+impl Advance {
+    /// Whether, and why, it stops at this safe point.
+    fn check(&mut self, game: &mut (impl Layer + ?Sized), events: &events::Buffer, now: Instant) -> GResult<Option<(Stop, &'static str)>> {
+        let time = game.time()?;
+        self.date = time.date;
+        if time.session != self.session {
+            return Ok(Some((Stop::Session, "another game was loaded or started")));
         }
-        TimeRequest::Pause {} => TimeAnswer::Pause(game.pause()?),
-        TimeRequest::Resume {} => TimeAnswer::Resume(game.resume()?),
-        TimeRequest::Speed { speed } => TimeAnswer::Speed(game.set_speed(speed)?),
-    })
+        if time.date >= self.until {
+            game.pause()?;
+            let reached = *self.reached.get_or_insert(now);
+            let until = self.until;
+            let heard = events.read(self.since).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
+            return Ok((heard || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
+        }
+        if game.game_events_waiting()? > 0 {
+            game.pause()?;
+            return Ok(Some((Stop::GameEvent, GAME_EVENT)));
+        }
+        Ok(match time.pause {
+            Pause::Running => None,
+            Pause::Player => Some((Stop::Paused, "the game was paused before the date, by the player, an extension or another remote client")),
+            Pause::Window => Some((Stop::Paused, "a window paused the game before the date, such as a message set to pause it")),
+        })
+    }
+
+    fn answer(&self, stopped: Stop, reason: &str, events: &events::Buffer) -> Response {
+        Ok(Answer::Time(TimeAnswer::Advance(Advanced { stopped, reason: reason.into(), date: Date(self.date), events: events.read(self.since) })))
+    }
+}
+
+impl Wait for Advance {
+    fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
+        let game = at.game.as_deref_mut()?;
+        match self.check(game, at.events, at.now) {
+            Ok(None) => None,
+            Ok(Some((stopped, reason))) => Some(self.answer(stopped, reason, at.events)),
+            // A frame where the game cannot be read comes and goes.
+            Err(fail) if fail.status == Status::NotReady => None,
+            Err(fail) => Some(Err(fail.into())),
+        }
+    }
+
+    fn ending(&mut self, events: &events::Buffer) -> Option<Response> {
+        Some(self.answer(Stop::MainMenu, "the game is returning to the main menu: eu4.exe starts again", events))
+    }
 }
 
 #[cfg(test)]

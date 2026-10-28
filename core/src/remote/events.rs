@@ -45,6 +45,11 @@ impl Buffer {
         Events { events: self.kept.iter().filter(|n| n.number > since).copied().collect(), last: self.last, missed: before_restart || since + 1 < first }
     }
 
+    /// The number of the latest event; 0 before the first.
+    pub fn last(&self) -> u64 {
+        self.last
+    }
+
     /// Whether there is something to read after `since`.
     fn news(&self, since: u64) -> bool {
         self.last != since

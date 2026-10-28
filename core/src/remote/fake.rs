@@ -343,12 +343,28 @@ impl console::Layer for Fake {
 /// changes it. It starts at 1444.11.11, paused, at speed 2.
 pub struct Clock {
     pub time: game::time::Time,
+    /// How many game events wait for the player's answer.
+    pub game_events: usize,
+    /// The dates time stops at, while their holders keep them.
+    pub stops: std::sync::Arc<std::sync::Mutex<Vec<i32>>>,
 }
 
 impl Default for Clock {
     fn default() -> Self {
         let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player };
-        Self { time }
+        Self { time, game_events: 0, stops: Default::default() }
+    }
+}
+
+/// A date time stops at, kept in a [`Clock`] until dropped.
+struct Held(std::sync::Arc<std::sync::Mutex<Vec<i32>>>, i32);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let mut stops = self.0.lock().unwrap();
+        if let Some(at) = stops.iter().position(|&d| d == self.1) {
+            stops.remove(at);
+        }
     }
 }
 
@@ -379,5 +395,16 @@ impl time::Layer for Fake {
         }
         self.clock.time.speed = speed;
         Ok(())
+    }
+
+    fn game_events_waiting(&mut self) -> GResult<usize> {
+        self.call("game events waiting".into());
+        Ok(self.clock.game_events)
+    }
+
+    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Send>> {
+        self.call(format!("stop at {date}"));
+        self.clock.stops.lock().unwrap().push(date);
+        Ok(Box::new(Held(self.clock.stops.clone(), date)))
     }
 }

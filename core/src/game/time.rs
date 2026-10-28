@@ -1,12 +1,16 @@
 //! Time: the date, whether the game is paused and by what, and its speed;
-//! pausing, resuming and setting the speed as the player would. The evidence
-//! is in docs/research/time.md.
-use super::{context, events, fail, game, map_manager, paused, Caller, Ctx, GResult, Status};
+//! pausing, resuming and setting the speed as the player would; stopping time
+//! as a date is reached, for remote control's advancing; and whether a game
+//! event waits for the player's answer. The evidence is in
+//! docs/research/time.md.
+use super::{context, context_any, events, fail, game, map_manager, paused, Caller, Ctx, GResult, Status};
 use crate::{
+    hooks::HookFrame,
     memory::Memory,
-    objects::campaign::{globals::WORLD, map_manager as manager, pause as pause_state},
+    objects::campaign::{classes, globals::WORLD, map_manager as manager, pause as pause_state},
     points::Point,
 };
+use std::sync::Mutex;
 
 /// `(world, index)`: sets the speed, clamped to 0..=4, as both speed commands
 /// do.
@@ -17,6 +21,13 @@ const SPEED_UP: usize = 0xb79970;
 /// it pauses as the player does; paused for any reason, it resumes and lets go
 /// of every window holding the game paused, as the player's resuming does.
 const TOGGLE_PAUSE: usize = 0x7e0250;
+/// The map manager's method that shows an event to the player: it makes an
+/// event window and adds it to the manager's popups.
+const SHOW_EVENT: usize = 0x828c00;
+const SHOW_EVENT_METHOD: usize = 0x108;
+/// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when
+/// the game returns to the main menu.
+const RESTART: usize = 0x14c3a10;
 
 /// The world's speed, i32: 0 for speed 1 to 4 for speed 5.
 const SPEED: usize = 0x1e08;
@@ -24,9 +35,24 @@ const SPEED: usize = 0x1e08;
 /// remote control or an extension, through [`pause`]); when it is zero and
 /// the game is paused, windows hold it paused.
 const PLAYER_PAUSED: usize = 0x48;
+/// The map manager's open popup windows: a list of nodes, the first here.
+const POPUPS: usize = 0x78;
+/// A node of the popups list.
+mod popup {
+    /// The window.
+    pub const WINDOW: usize = 0;
+    /// The next node.
+    pub const NEXT: usize = 0x10;
+    /// Nonzero (u8) once the window closed and the node waits to go.
+    pub const GONE: usize = 0x18;
+}
+/// An event window, by vtable.
+const EVENT_WINDOW: usize = 0x1d590f8;
 
 /// The game speeds, slowest first.
 pub const SPEEDS: std::ops::RangeInclusive<u32> = 1..=5;
+/// The most popups read; the game shows a few at a time.
+const MAX_POPUPS: usize = 1000;
 
 /// What holds the game paused.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -108,6 +134,96 @@ pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
     Ok(())
 }
 
+/// How many game events wait for the player's answer: the event windows open
+/// among the map manager's popups. Answering one closes its window.
+///
+/// This is where remote control's advancing time learns that a game event
+/// needs an answer; what the events are and answering them belongs to the
+/// events and offers capabilities.
+pub fn game_events_waiting(_: Caller) -> GResult<usize> {
+    let m = game()?;
+    let ctx = context(m)?;
+    let manager = map_manager(m, &ctx)?;
+    let mut node = m.ptr(manager + POPUPS)?;
+    let mut waiting = 0;
+    for _ in 0..MAX_POPUPS {
+        if node == 0 {
+            return Ok(waiting);
+        }
+        let window = m.ptr(node + popup::WINDOW)?;
+        if m.u8(node + popup::GONE)? == 0 && window != 0 && m.ptr(window)? == m.at(EVENT_WINDOW) {
+            waiting += 1;
+        }
+        node = m.ptr(node + popup::NEXT)?;
+    }
+    Err(format!("more than {MAX_POPUPS} popups").into())
+}
+
+/// A date time stops at once it is reached; dropping it forgets the date.
+#[derive(Debug)]
+pub struct Stop(u64);
+
+#[derive(Default)]
+struct Stops {
+    last: u64,
+    /// Each stop: its number, its date, and whether it was reached.
+    dates: Vec<(u64, i32, bool)>,
+}
+
+static STOPS: Mutex<Stops> = Mutex::new(Stops { last: 0, dates: Vec::new() });
+
+fn stops<T>(f: impl FnOnce(&mut Stops) -> T) -> T {
+    f(&mut STOPS.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+impl Drop for Stop {
+    fn drop(&mut self) {
+        stops(|s| s.dates.retain(|&(number, ..)| number != self.0));
+    }
+}
+
+/// Pauses the game as soon as the daily update reaches `date`, before
+/// another day can begin; for remote control's advancing only. The stop
+/// holds until the returned [`Stop`] is dropped, and pauses the game once.
+pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
+    if let Caller::Extension(_) = caller {
+        return fail(Status::Unavailable, "only remote control advances time");
+    }
+    Ok(stops(|s| {
+        s.last += 1;
+        s.dates.push((s.last, date, false));
+        Stop(s.last)
+    }))
+}
+
+/// After the daily update (`events`' observer): pauses the game when a stop's
+/// date is reached, so that the next frame begins no other day.
+pub(super) fn day_passed(m: &Memory) {
+    if crate::saves::load_in_progress() {
+        return;
+    }
+    let Ok(ctx) = context_any(m) else { return };
+    if reach(ctx.date) {
+        if let Err(e) = pause_game(m, &ctx) {
+            log!("time: cannot pause at the date: {}", e.message);
+        }
+    }
+}
+
+/// Whether `date` reaches a stop not reached before; each is reached once.
+fn reach(date: i32) -> bool {
+    stops(|s| {
+        let mut due = false;
+        for (_, at, reached) in &mut s.dates {
+            if !*reached && date >= *at {
+                *reached = true;
+                due = true;
+            }
+        }
+        due
+    })
+}
+
 /// The map manager's pause state, checked by its owner.
 fn pause_state_of(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     let manager = map_manager(m, ctx)?;
@@ -133,7 +249,17 @@ fn pause_game(m: &Memory, ctx: &Ctx) -> GResult<()> {
     Ok(())
 }
 
-/// The speed and the pause toggle.
+/// Before the game starts `eu4.exe` again: remote control answers what waits
+/// while this process can still write the answers.
+extern "C" fn restart_before(_: *mut HookFrame) {
+    crate::guarded("restart", || {
+        log!("the game starts eu4.exe again");
+        crate::remote::restarting();
+    });
+}
+
+/// The speed, the pause toggle, the event windows among the popups, and the
+/// restart.
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(
@@ -144,6 +270,42 @@ pub fn points() -> Vec<Point> {
         .uses(&[SPEED, 4]),
         Point::keep(SPEED_UP, "48 8b 0d 01 65 7c 01 8b 91 08 1e 00 00 ff c2 e9 6c e0 bd ff", "speed up command").uses(&[WORLD, SPEED]),
         Point::keep(TOGGLE_PAUSE, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 75 5c", "pause toggle").uses(&[PLAYER_PAUSED]),
+        Point::method(classes::MAP_MANAGER, SHOW_EVENT_METHOD, SHOW_EVENT, "map manager shows an event"),
+        // It makes the event window (0x10b9a50) and adds it to its own
+        // popups (0x6ecae0, this in rcx).
+        Point::keep(0x828c43usize, "4c 8b ce 4c 8b c5 48 8b d3 48 8b c8 e8 fc 0d 89 00 90 48 8b d0 48 8b cb e8 80 3e ec ff", "event window shown"),
+        // Adding a popup walks the list for one of its kind.
+        Point::keep(
+            0x6ecb14usize,
+            "48 8b 5e 78 48 85 db 74 1c 0f 1f 00 48 8b 0b 48 8b 01 ff 50 08 84 c0 75 60 48 8b 43 10 48 8b d8 48 85 c0 75 e7",
+            "map manager popups",
+        )
+        .uses(&[POPUPS, popup::NEXT]),
+        // A popup that closes while the list is walked is marked to go later.
+        Point::keep(0x6ea583usize, "41 80 bc 24 8c 00 00 00 00 74 06 c6 41 18 01", "popup gone").uses(&[popup::GONE]),
+        Point::keep(0x10b9b3busize, "48 8d 05 b6 f5 c9 00 48 89 03", "event window class").uses(&[EVENT_WINDOW]),
+        Point::observe(RESTART, "48 89 5c 24 08 48 89 74 24 18 55 57 41 56", "restart", 1, Some(restart_before), None),
     ]
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stop_is_reached_once_and_forgotten_when_let_go() {
+        let first = stop_at(Caller::Remote, 100).unwrap();
+        let second = stop_at(Caller::Remote, 124).unwrap();
+        assert_eq!(stop_at(Caller::Extension(0), 100).unwrap_err().status, Status::Unavailable);
+        assert!(!reach(99));
+        assert!(reach(100));
+        assert!(!reach(100), "a stop pauses the game once");
+        // A day past both, as when one was missed: one pause for both.
+        drop(first);
+        let third = stop_at(Caller::Remote, 148).unwrap();
+        assert!(reach(150));
+        assert!(!reach(172));
+        drop((second, third));
+        assert!(stops(|s| s.dates.is_empty()));
+    }
+}

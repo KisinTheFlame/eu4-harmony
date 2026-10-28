@@ -90,6 +90,13 @@ pub enum Outcome {
 /// A request that waits: asked at every safe point until it answers.
 pub trait Wait: Send {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response>;
+
+    /// The process is about to end, as the game starts `eu4.exe` again: the
+    /// answer to write while it can, if any. Without one, the client finds
+    /// the pipe broken.
+    fn ending(&mut self, _events: &events::Buffer) -> Option<Response> {
+        None
+    }
 }
 
 /// What a waiting request may look at.
@@ -117,6 +124,11 @@ impl Slot {
 
     fn abandoned(&self) -> bool {
         self.abandoned.load(Ordering::Relaxed)
+    }
+
+    /// The response given is no longer here: its submitter took it.
+    fn taken(&self) -> bool {
+        self.response.lock().unwrap_or_else(|e| e.into_inner()).is_none()
     }
 }
 
@@ -279,6 +291,38 @@ impl Engine {
         }
     }
 
+    /// The process is about to end (the game starts `eu4.exe` again): the
+    /// waiting requests that can answer now do, and their submitters get up
+    /// to `within` to take the answers, so that a transport writes them
+    /// before the process goes. The rest go unanswered.
+    pub fn ending(&self, within: Duration) {
+        let started = Instant::now();
+        let mut answered = Vec::new();
+        {
+            let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+            let running = &mut *running;
+            for mut w in std::mem::take(&mut running.waiting) {
+                if w.slot.abandoned() {
+                    continue;
+                }
+                match w.wait.ending(&running.events) {
+                    Some(response) => {
+                        (self.log)(&format!("remote #{} {}: {} as the process ends, after {} ms", w.number, w.name, outcome(&response), started.duration_since(w.started).as_millis()));
+                        w.slot.answer(response);
+                        answered.push(w.slot);
+                    }
+                    None => running.waiting.push(w),
+                }
+            }
+        }
+        while answered.iter().any(|slot| !slot.taken() && !slot.abandoned()) && started.elapsed() < within {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        if !answered.is_empty() {
+            // Taken, an answer is written at once; a moment more for that.
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
 
 /// Runs one request, group by group.
@@ -286,7 +330,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
     let done = |response: Response| Outcome::Done(response);
     match request {
         Request::Session(r) => done(session::run(r, game).map(Answer::Session)),
-        Request::Time(r) => done(time::run(r, game).map(Answer::Time)),
+        Request::Time(r) => time::run(r, game, events),
         Request::Country(r) => done(countries::run(r, game).map(Answer::Country)),
         Request::Province(r) => done(provinces::run(r, game).map(Answer::Province)),
         Request::Army(r) => done(armies::run(r, game).map(Answer::Army)),
@@ -355,3 +399,8 @@ pub(crate) fn run_outside(why: Option<game::Fail>) {
     ENGINE.run(&mut Live, &Place::Outside(why.map(Error::from)), BUDGET);
 }
 
+/// Before the game starts `eu4.exe` again, which ends this process: what
+/// waits answers while the pipe can still carry the answers.
+pub(crate) fn restarting() {
+    ENGINE.ending(Duration::from_secs(2));
+}
