@@ -6,6 +6,9 @@
 //! somewhere it should not). Built for tests and with the `analysis` feature
 //! (the `disasm` example, call tracing).
 //!
+//! [`values`] lists the numbers an instruction carries, so that a dependency
+//! point can be checked to use the field or global it is said to.
+//!
 //! Register arguments count when the function reads `rcx`, `rdx`, `r8` or
 //! `r9` before writing it, up to its first call. Stack arguments count when
 //! the function addresses `[entry rsp + 0x28 + 8k]` through `rsp`, or through
@@ -49,11 +52,49 @@ pub unsafe fn loaded<'a>(base: usize) -> &'a [u8] {
 /// The bounds of the function starting at `rva`, from the image's exception
 /// directory (the image as the loader lays it out).
 pub fn bounds(image: &[u8], rva: usize) -> Option<std::ops::Range<usize>> {
-    let u32_at = |o: usize| u32_at(image, o);
-    let pe = u32_at(0x3c);
+    functions(image).find(|f| f.start == rva)
+}
+
+/// The numbers `instruction` carries: its memory operand's displacement, or
+/// for a RIP-relative operand the RVA it reaches (when decoded at its RVA),
+/// and its immediates.
+pub fn values(instruction: &Instruction) -> Vec<u64> {
+    let mut out = Vec::new();
+    for (i, kind) in instruction.op_kinds().enumerate() {
+        match kind {
+            OpKind::Memory if instruction.is_ip_rel_memory_operand() => out.push(instruction.ip_rel_memory_address()),
+            OpKind::Memory => out.push(instruction.memory_displacement64()),
+            OpKind::Immediate8
+            | OpKind::Immediate8_2nd
+            | OpKind::Immediate16
+            | OpKind::Immediate32
+            | OpKind::Immediate64
+            | OpKind::Immediate8to16
+            | OpKind::Immediate8to32
+            | OpKind::Immediate8to64
+            | OpKind::Immediate32to64 => out.push(instruction.immediate(i as u32)),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Every instruction in `code`, decoded at `rva`.
+pub fn instructions(code: &[u8], rva: usize) -> Vec<Instruction> {
+    let mut decoder = Decoder::with_ip(64, code, rva as u64, DecoderOptions::NONE);
+    let mut out = Vec::new();
+    while decoder.can_decode() {
+        out.push(decoder.decode());
+    }
+    out
+}
+
+/// The start and end of every function in the exception directory.
+pub fn functions(image: &[u8]) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
+    let pe = u32_at(image, 0x3c);
     let directory = pe + 24 + 112 + 8 * 3;
-    let (start, size) = (u32_at(directory), u32_at(directory + 4));
-    (start..start + size).step_by(12).map(|e| (u32_at(e), u32_at(e + 4))).find(|&(begin, _)| begin == rva).map(|(b, e)| b..e)
+    let (start, size) = (u32_at(image, directory), u32_at(image, directory + 4));
+    (start..start + size).step_by(12).map(move |e| u32_at(image, e)..u32_at(image, e + 4))
 }
 
 fn arg_index(register: Register) -> Option<u32> {
@@ -156,7 +197,15 @@ pub fn arguments(code: &[u8], rva: usize) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::arguments;
+    use super::{arguments, instructions, values};
+
+    #[test]
+    fn values_are_displacements_targets_and_immediates() {
+        // mov rax, [rcx + 0x468]; lea rdx, [rip + 0x10]; cmp dword ptr [rax + 0x20], 7
+        let code = [0x48, 0x8b, 0x81, 0x68, 0x04, 0x00, 0x00, 0x48, 0x8d, 0x15, 0x10, 0x00, 0x00, 0x00, 0x83, 0x78, 0x20, 0x07];
+        let found: Vec<Vec<u64>> = instructions(&code, 0x1000).iter().map(values).collect();
+        assert_eq!(found, [vec![0x468], vec![0x1000 + 14 + 0x10], vec![0x20, 7]]);
+    }
 
     #[test]
     fn counts_register_and_stack_arguments() {

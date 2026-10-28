@@ -12,7 +12,16 @@
 //! - `RVA:N`: N instructions from RVA, which need not start a function;
 //! - `bytes:RVA:N`: N bytes from RVA in hex, as dependency points spell them;
 //! - `args:RVA`: how many arguments the function at RVA reads, which is what
-//!   an observe point on it must forward at least.
+//!   an observe point on it must forward at least;
+//! - `uses:RVA:VALUE...`: the instructions of the function at RVA that carry
+//!   one of the VALUEs, as a field offset, a RIP-relative target or an
+//!   immediate, with their bytes: the instructions a field's or a global's
+//!   dependency point can keep;
+//! - `refs:VALUE[:N]`: the first N (20) such instructions anywhere in the
+//!   game's functions, for globals and vtables;
+//! - `chain:GLOBAL:OFFSET[:N]`: the first N (5) places that load a pointer
+//!   from the global and soon use OFFSET from it, with the bytes from the
+//!   load to the use: one dependency point that keeps both.
 //!
 //! Numbers are hex, with or without `0x`. Addresses are RVAs, branch targets
 //! too; a RIP-relative operand gets its target and, when text is there, the
@@ -32,6 +41,32 @@ fn text_at(image: &[u8], rva: usize) -> Option<String> {
     (end > 2 && text.iter().all(|&b| (0x20..0x7f).contains(&b) || b >= 0x80)).then(|| String::from_utf8_lossy(text).into_owned())
 }
 
+fn formatter() -> IntelFormatter {
+    let mut formatter = IntelFormatter::new();
+    formatter.options_mut().set_hex_prefix("0x");
+    formatter.options_mut().set_hex_suffix("");
+    formatter.options_mut().set_uppercase_hex(false);
+    formatter.options_mut().set_branch_leading_zeros(false);
+    formatter.options_mut().set_show_branch_size(false);
+    formatter.options_mut().set_space_after_operand_separator(true);
+    formatter
+}
+
+/// An instruction with its bytes, as a dependency point spells them.
+fn with_bytes(image: &[u8], formatter: &mut IntelFormatter, instruction: &Instruction) -> String {
+    let (start, end) = (instruction.ip() as usize, instruction.next_ip() as usize);
+    let bytes: Vec<String> = image[start..end].iter().map(|b| format!("{b:02x}")).collect();
+    let mut text = String::new();
+    formatter.format(instruction, &mut text);
+    format!("{start:8x}: {:<44} {text}", bytes.join(" "))
+}
+
+/// The function at `rva`, from the exception directory or up to 40
+/// instructions for a leaf.
+fn function(image: &[u8], rva: usize) -> std::ops::Range<usize> {
+    analysis::bounds(image, rva).unwrap_or(rva..(rva + 40 * 15).min(image.len()))
+}
+
 fn disassemble(image: &[u8], rva: usize, count: Option<usize>) {
     // Without an entry (a leaf function) the function ends at a `ret`
     // followed by padding.
@@ -43,13 +78,7 @@ fn disassemble(image: &[u8], rva: usize, count: Option<usize>) {
         },
     };
     let mut decoder = Decoder::with_ip(64, &image[rva..end], rva as u64, DecoderOptions::NONE);
-    let mut formatter = IntelFormatter::new();
-    formatter.options_mut().set_hex_prefix("0x");
-    formatter.options_mut().set_hex_suffix("");
-    formatter.options_mut().set_uppercase_hex(false);
-    formatter.options_mut().set_branch_leading_zeros(false);
-    formatter.options_mut().set_show_branch_size(false);
-    formatter.options_mut().set_space_after_operand_separator(true);
+    let mut formatter = formatter();
     let (mut instruction, mut out) = (Instruction::default(), String::new());
     println!("--- {rva:#x}");
     for _ in 0..limit {
@@ -91,6 +120,64 @@ fn main() {
                 match analysis::bounds(&image, rva) {
                     Some(range) => println!("{rva:#x} reads {} argument(s)", analysis::arguments(&image[range], rva)),
                     None => println!("{rva:#x} starts no function in the exception directory"),
+                }
+            }
+            ["uses", rva, values @ ..] => {
+                let range = function(&image, hex(rva));
+                let values: Vec<u64> = values.iter().map(|v| hex(v) as u64).collect();
+                let mut formatter = formatter();
+                println!("--- {:#x} uses {values:x?}", range.start);
+                for instruction in analysis::instructions(&image[range.clone()], range.start) {
+                    if analysis::values(&instruction).iter().any(|v| values.contains(v)) {
+                        println!("{}", with_bytes(&image, &mut formatter, &instruction));
+                    }
+                }
+            }
+            ["refs", value, rest @ ..] => {
+                let value = hex(value) as u64;
+                let limit = rest.first().map_or(20, |n| hex(n));
+                let mut formatter = formatter();
+                println!("--- refs {value:#x}");
+                let hits = analysis::functions(&image).flat_map(|range| {
+                    analysis::instructions(&image[range.clone()], range.start).into_iter().filter(|i| analysis::values(i).contains(&value)).map(move |i| (range.start, i))
+                });
+                for (start, instruction) in hits.take(limit) {
+                    println!("{} (in {start:#x})", with_bytes(&image, &mut formatter, &instruction));
+                }
+            }
+            ["chain", global, offset, rest @ ..] => {
+                let (global, offset) = (hex(global) as u64, hex(offset) as u64);
+                let limit = rest.first().map_or(5, |n| hex(n));
+                let mut formatter = formatter();
+                println!("--- chain [{global:#x}] + {offset:#x}");
+                let mut shown = 0;
+                'all: for range in analysis::functions(&image) {
+                    let code = analysis::instructions(&image[range.clone()], range.start);
+                    for (i, load) in code.iter().enumerate() {
+                        if load.mnemonic() != Mnemonic::Mov || !load.is_ip_rel_memory_operand() || load.ip_rel_memory_address() != global || load.op_kind(0) != iced_x86::OpKind::Register {
+                            continue;
+                        }
+                        let held = load.op0_register();
+                        for (j, next) in code.iter().enumerate().skip(i + 1).take(6) {
+                            let uses = next.op_kinds().any(|k| k == iced_x86::OpKind::Memory) && next.memory_base() == held && next.memory_displacement64() == offset;
+                            if uses {
+                                let (start, end) = (load.ip() as usize, next.next_ip() as usize);
+                                let bytes: Vec<String> = image[start..end].iter().map(|b| format!("{b:02x}")).collect();
+                                println!("{start:8x}: {}", bytes.join(" "));
+                                for k in &code[i..=j] {
+                                    println!("    {}", with_bytes(&image, &mut formatter, k));
+                                }
+                                shown += 1;
+                                if shown == limit {
+                                    break 'all;
+                                }
+                                break;
+                            }
+                            if next.op_kind(0) == iced_x86::OpKind::Register && next.op0_register().full_register() == held.full_register() && !matches!(next.mnemonic(), Mnemonic::Cmp | Mnemonic::Test) {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             [rva, n] => disassemble(&image, hex(rva), Some(hex(n))),
