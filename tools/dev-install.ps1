@@ -3,13 +3,13 @@
 Copies the built proxy and core into a game directory, or removes them.
 
 Mirrors the player install instructions: version.dll in the game root, the
-core under eu4-harmony\. A foreign version.dll already in the root (a
+core under eu4-harmony\. A foreign version.dll already in the root (a CJK
 font plugin's loader, say) is moved to eu4-harmony\backup\version.dll; the
-proxy never loads it (ADR 0011), and uninstalling puts it back. The winmm.dll
-proxy of earlier builds is removed.
+proxy never loads it (ADR 0011), and uninstalling puts it back. The game
+folder is found by game-dir.ps1 unless -GameDir names it.
 #>
 param(
-    [string]$GameDir = 'E:\SteamLibrary\steamapps\common\Europa Universalis IV',
+    [string]$GameDir = (& (Join-Path $PSScriptRoot 'game-dir.ps1')),
     [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
@@ -22,7 +22,6 @@ $harmony = Join-Path $root 'eu4-harmony'
 $proxyDst = Join-Path $root 'version.dll'
 $coreDst = Join-Path $harmony 'eu4_harmony_core.dll'
 $backup = Join-Path $harmony 'backup\version.dll'
-$oldProxy = Join-Path $root 'winmm.dll'
 
 if (-not (Test-Path (Join-Path $root 'eu4.exe'))) { throw "no eu4.exe in $root" }
 if (Get-Process -Name eu4 -ErrorAction SilentlyContinue) { throw 'eu4.exe is running; close it first' }
@@ -30,16 +29,6 @@ if (Get-Process -Name eu4 -ErrorAction SilentlyContinue) { throw 'eu4.exe is run
 function IsOurs($path) {
     # Our proxy names the core's bootstrap export; a foreign DLL does not.
     (Test-Path $path) -and (Select-String -Path $path -Pattern 'eu4_harmony_bootstrap' -Quiet)
-}
-
-function RemoveOldProxy {
-    if (IsOurs $oldProxy) { Remove-Item $oldProxy; Write-Host "removed the earlier winmm.dll proxy $oldProxy" }
-    $chained = Join-Path $harmony 'winmm.dll'
-    if (Test-Path $chained) {
-        if (Test-Path $oldProxy) { throw "$chained was chain-loaded by the winmm proxy, but $oldProxy exists too" }
-        Move-Item $chained $oldProxy
-        Write-Host "restored the third-party winmm.dll from $chained to $oldProxy"
-    }
 }
 
 if ($Uninstall) {
@@ -50,8 +39,8 @@ if ($Uninstall) {
         Move-Item $backup $proxyDst
         Write-Host "restored the backed-up version.dll to $proxyDst"
     }
-    RemoveOldProxy
-    # Everything else under eu4-harmony\ is ours: the core and fallback logs.
+    # Everything else under eu4-harmony\ is ours: the core and the logs the
+    # proxy, and the core when it cannot find the user folder, write there.
     if (Test-Path $harmony) { Remove-Item $harmony -Recurse -Force; Write-Host "removed $harmony" }
     Write-Host 'logs, reports and extension save data stay in Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony'
     return
@@ -59,23 +48,12 @@ if ($Uninstall) {
 
 foreach ($f in $proxySrc, $coreSrc) { if (-not (Test-Path $f)) { throw "missing $f; run cargo build --release" } }
 New-Item -ItemType Directory -Force $harmony | Out-Null
-# Logs moved to the user directory; drop the game-folder logs of earlier builds.
-$oldLogs = Join-Path $harmony 'logs'
-if (Test-Path $oldLogs) { Remove-Item $oldLogs -Recurse -Force; Write-Host "removed old $oldLogs" }
-# The framework draws its notices itself now; drop the old notice textures.
-$oldGfx = Join-Path $harmony 'gfx'
-if (Test-Path $oldGfx) { Remove-Item $oldGfx -Recurse -Force; Write-Host "removed old $oldGfx" }
 if ((Test-Path $proxyDst) -and -not (IsOurs $proxyDst)) {
     if (Test-Path $backup) { throw "both $proxyDst and $backup exist and neither is ours" }
     New-Item -ItemType Directory -Force (Split-Path $backup) | Out-Null
     Move-Item $proxyDst $backup
     Write-Host "moved the existing version.dll to $backup (kept, never loaded)"
 }
-RemoveOldProxy
 Copy-Item $proxySrc $proxyDst -Force
 Copy-Item $coreSrc $coreDst -Force
 Write-Host "installed:`n  $proxyDst`n  $coreDst"
-$plugins = Join-Path $root 'plugins'
-if (Test-Path (Join-Path $plugins 'plugin64.dll')) {
-    Write-Host "note: $plugins\plugin64.dll (the double-byte font plugin) is no longer loaded and can be deleted"
-}

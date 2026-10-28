@@ -27,7 +27,7 @@ The run's name, used for its files.
 .PARAMETER Out
 The folder for results and references.
 #>
-param([string]$Name, [Parameter(Mandatory)][string]$Out, [string]$GameDir = 'E:\SteamLibrary\steamapps\common\Europa Universalis IV', [switch]$Reference, [switch]$MenuOnly)
+param([string]$Name, [Parameter(Mandatory)][string]$Out, [string]$GameDir = (& (Join-Path $PSScriptRoot 'game-dir.ps1')), [switch]$Reference, [switch]$MenuOnly)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $gdi = [AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -in 'System.Drawing.Common', 'System.Drawing.Primitives', 'System.Private.Windows.GdiPlus', 'System.Private.Windows.Core', 'System.Runtime', 'System.Runtime.InteropServices' } | ForEach-Object Location
