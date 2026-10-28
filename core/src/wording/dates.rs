@@ -156,7 +156,7 @@ mod tests {
     fn dates_read_as_the_game_keeps_them() {
         // 1444.11.11, as the game stores the start date.
         assert_eq!(Date::from_hours(0x035d7710), Date { year: 1444, month: 11, day: 11 });
-        let start = |year: i32| ((year + 5000) * 365 * 24);
+        let start = |year: i32| (year + 5000) * 365 * 24;
         assert_eq!(Date::from_hours(start(1450)), Date { year: 1450, month: 1, day: 1 });
         assert_eq!(Date::from_hours(start(1451) - 24), Date { year: 1450, month: 12, day: 31 });
         assert_eq!(Date::from_hours(start(-2560) + 24 * 59 + 5), Date { year: -2560, month: 3, day: 1 });
