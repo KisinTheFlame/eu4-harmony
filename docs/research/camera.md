@@ -10,7 +10,7 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29;
 
 ## The camera
 
-- **Where it is.** The map manager (`campaign::world::MAP_MANAGER`) keeps the camera at `+0x1200`. Its method at vtable offset `0x1a0` (`0x5c44e0`, `48 8b 81 00 12 00 00 c3`) reads it; the console command `debug_lockcamera` (`0xe85a90`) reaches the camera so, through the world's map manager. The map manager makes it at `0x80a179` (`new` of 0x7d0 bytes, constructor `0x109b830`, which names `eu3camera.cpp` in its asserts) and stores it at `0x80a17f`.
+- **Where it is.** The map manager (`campaign::world::MAP_MANAGER`) keeps the camera at `+0x1200`. Its method at vtable offset `0x1a0` (`0x5c44e0`, `48 8b 81 00 12 00 00 c3`) reads it; the game console command `debug_lockcamera` (`0xe85a90`) reaches the camera so, through the world's map manager. The map manager makes it at `0x80a179` (`new` of 0x7d0 bytes, constructor `0x109b830`, which names `eu3camera.cpp` in its asserts) and stores it at `0x80a17f`.
 - **Its class** is the vtable `0x1d57348`, which the constructor sets at `0x109b871` (`48 8d 05 d0 ba cb 00 48 89 01`).
 - **Its points**, three f32 each, x, y (the height) and z:
   - `+0x67c` where it is and `+0x688` where it looks, as drawn now. The debug readout's "Camera coords" prints `+0x67c`, `+0x680` and `+0x684` (`0x819c4f`–`0x819cb9`).
