@@ -3,7 +3,10 @@
 use super::{fail, paused, span, world, Ctx, GResult, MAX_UNITS};
 use crate::{
     memory::Memory,
-    objects::campaign::{classes, globals, path, province, route_options, unit},
+    objects::{
+        campaign::{classes, globals, province, route_options, unit},
+        list,
+    },
     points::Point,
 };
 use eu4_harmony_abi as abi;
@@ -39,13 +42,13 @@ pub struct Path {
     pub nodes: Vec<usize>,
 }
 
-/// Reads a native route (see [`path`]).
+/// Reads a native route (see [`list`]).
 pub fn read_path(m: &Memory, header: usize) -> GResult<Path> {
-    let count = m.i32(header + path::COUNT)?;
-    if !(0..=50_000).contains(&count) || m.u8(header + path::CHANGING)? != 0 {
+    let count = m.i32(header + list::COUNT)?;
+    if !(0..=50_000).contains(&count) || m.u8(header + list::CHANGING)? != 0 {
         return Err("invalid or pending path header".to_string().into());
     }
-    let mut node = m.ptr(header + path::HEAD)?;
+    let mut node = m.ptr(header + list::HEAD)?;
     let mut previous = 0;
     let mut seen = BTreeSet::new();
     let mut path = Path::default();
@@ -53,19 +56,19 @@ pub fn read_path(m: &Memory, header: usize) -> GResult<Path> {
         if node == 0 || !seen.insert(node) {
             return Err("path cycle or null link".to_string().into());
         }
-        if m.ptr(node + path::PREVIOUS)? != previous || m.u8(node + path::REMOVED)? != 0 {
+        if m.ptr(node + list::PREVIOUS)? != previous || m.u8(node + list::REMOVED)? != 0 {
             return Err("path back link or tombstone".to_string().into());
         }
-        let id = m.i32(node + path::PROVINCE)?;
+        let id = m.i32(node + list::ITEM)?;
         if id <= 0 {
             return Err("invalid path province".to_string().into());
         }
         path.ids.push(id as u32);
         path.nodes.push(node);
         previous = node;
-        node = m.ptr(node + path::NEXT)?;
+        node = m.ptr(node + list::NEXT)?;
     }
-    if node != 0 || m.ptr(header + path::TAIL)? != previous {
+    if node != 0 || m.ptr(header + list::TAIL)? != previous {
         return Err("path tail mismatch".to_string().into());
     }
     Ok(path)
@@ -209,7 +212,7 @@ impl Orders {
         m.write(options_ptr + route_options::ONE_HOP, &[1])?;
         m.write(options_ptr + route_options::LIMIT, &(-1i32).to_le_bytes())?;
         m.write(options_ptr + route_options::TAG, &route_options::NO_TAG.to_le_bytes())?;
-        let mut header = [0u64; path::SIZE / 8];
+        let mut header = [0u64; list::SIZE / 8];
         let h = header.as_mut_ptr() as usize;
         let queried = m.call(m.at(ROUTE_QUERY), &[&mut policy as *mut usize as usize, army, origin, goal_address, h, options_ptr, 0, 0]);
         let result = (|| {
@@ -246,7 +249,7 @@ impl Orders {
                 return Err("temporary route shares nodes with the army route".to_string().into());
             }
             for node in temp.nodes {
-                m.call(m.at(FREE_NODE), &[node, path::NODE_SIZE])?;
+                m.call(m.at(FREE_NODE), &[node, list::NODE_SIZE])?;
             }
             Ok(())
         })();

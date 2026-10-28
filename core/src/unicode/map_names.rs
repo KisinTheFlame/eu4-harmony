@@ -23,7 +23,7 @@
 //! rule for one- and two-letter names (0xfd3ef5, `ebx` = 1000) blends in
 //! another direction instead, but reads it from a vector of doubles as floats
 //! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
-use super::objects::font::OWN_GLYPHS;
+use crate::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
 use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;
@@ -137,9 +137,10 @@ extern "C" fn measure_stub() {
             "dec edi",
             "mov edx, edi",
         ),
-        "movss xmm1, dword ptr [r13 + 0x968]",
+        "movss xmm1, dword ptr [r13 + {scale}]",
         "test r11, r11",
         "jmp qword ptr [rip + {done}]",
+        scale = const SCALE,
         glyph = sym text_loops::char_glyph,
         done = sym MEASURE_DONE,
     );
@@ -282,7 +283,7 @@ extern "C" fn guard_stub() {
 
 /// Bending: `movzx eax, byte [rcx+rax]; mov [rbp+0x808], al;
 /// movss xmm12, [rdx+0x848]; mov r14, [rdx+rax*8]`, index `rcx` (kept at
-/// `[rbp+0x118]`), the font's table in `rdx`.
+/// `[rbp+0x118]`), the font's table in `rdx`, so 0x848 is the font's scale.
 #[unsafe(naked)]
 extern "C" fn bend_stub() {
     std::arch::naked_asm!(
@@ -300,8 +301,9 @@ extern "C" fn bend_stub() {
         ),
         "mov [rbp + 0x118], rcx",
         "mov byte ptr [rbp + 0x808], al",
-        "movss xmm12, dword ptr [rdx + 0x848]",
+        "movss xmm12, dword ptr [rdx + {scale}]",
         "jmp qword ptr [rip + {done}]",
+        scale = const SCALE_FROM_GLYPHS,
         glyph = sym text_loops::char_glyph,
         done = sym BEND_DONE,
         own = const OWN_GLYPHS,
@@ -338,7 +340,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x159df9ausize, "75 73", "map text glyph found"),
         Point::keep(0x159e489usize, "41 ff c3 45 3b dc 0f 8c db fa ff ff", "map text draw next byte"),
         Point::keep(0x159e61dusize, "8b d7", "wrapped text measuring copies the index"),
-        Point::jump(0x159e75dusize, "0f b6 04 10 4d 8b 9c c5 20 01 00 00 f3 41 0f 10 8d 68 09 00 00 4d 85 db", "wrapped text measuring glyph", stub(measure_stub), &MEASURE_RESUME),
+        Point::jump(0x159e75dusize, "0f b6 04 10 4d 8b 9c c5 20 01 00 00 f3 41 0f 10 8d 68 09 00 00 4d 85 db", "wrapped text measuring glyph", stub(measure_stub), &MEASURE_RESUME)
+            .uses(&[OWN_GLYPHS, SCALE]),
         Point::keep(0x159e775usize, "0f 84 19 01 00 00", "wrapped text measuring null glyph"),
         Point::jump(
             0x159e7d8usize,
@@ -362,7 +365,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xfd6727usize, "48 8b 85 40 02 00 00", "country name spacing done"),
         Point::jump(0xfd3eeausize, "48 8b 4f 10 48 89 8d 68 01 00 00", "map name curve length", stub(length_stub), &LENGTH_RESUME),
         Point::keep(0xfd3ef5usize, "8d 41 fe", "map name curve short names"),
-        Point::jump(0xfd3f40usize, "0f b6 04 01 88 85 08 08 00 00 f3 44 0f 10 a2 48 08 00 00 4c 8b 34 c2", "map name curve glyph", stub(bend_stub), &BEND_RESUME),
+        Point::jump(0xfd3f40usize, "0f b6 04 01 88 85 08 08 00 00 f3 44 0f 10 a2 48 08 00 00 4c 8b 34 c2", "map name curve glyph", stub(bend_stub), &BEND_RESUME)
+            .uses(&[SCALE_FROM_GLYPHS]),
         Point::keep(0xfd3f57usize, "4d 85 f6 0f 84 64 14 00 00", "map name curve glyph found"),
         Point::jump(0xfd413eusize, "83 7f 10 01 7e 1b", "map name curve position guard", stub(guard_stub), &GUARD_RESUME),
         Point::keep(0xfd4144usize, "66 0f 6e f6 0f 5b f6 48 8b 85 68 01 00 00", "map name curve position"),

@@ -18,7 +18,7 @@
 //! with a texture of size 0 and vanished, with or without the framework (the
 //! old font plugin lifted the limit). The limit is raised to 256 MiB.
 use super::glyphs::{self, Glyph};
-use super::objects::font::OWN_GLYPHS;
+use crate::objects::text::font::OWN_GLYPHS;
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

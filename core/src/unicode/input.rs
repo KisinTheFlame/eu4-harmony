@@ -25,7 +25,10 @@
 //! input method alone. Elsewhere they still reach the game, so its shortcuts
 //! keep working with a Chinese input method switched on.
 use super::game_text;
-use super::objects;
+use crate::objects::{
+    gui::{self, edit_box, editor, events, manager},
+    text::font,
+};
 use crate::points::{Point, Resume};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
@@ -64,9 +67,9 @@ type Record = unsafe extern "C" fn(usize, u32, u32, usize) -> usize;
 /// did, then posts each character to `receiver`.
 extern "C" fn post_text(receiver: usize, recorder: usize, event: *const u8) {
     crate::guarded("text input", || unsafe {
-        let record: Record = std::mem::transmute(*(*(recorder as *const *const usize)).add(0x20 / 8));
+        let record: Record = std::mem::transmute(*(*(recorder as *const *const usize)).add(events::RECORD / 8));
         record(recorder, 0x303, *(event.add(0x14) as *const u32), 0);
-        let post: Post = std::mem::transmute(*(*(receiver as *const *const usize)).add(0x18 / 8));
+        let post: Post = std::mem::transmute(*(*(receiver as *const *const usize)).add(events::POST / 8));
         let constant = *(CONSTANT.load(Ordering::Acquire) as *const [u8; 16]);
         let raw = std::slice::from_raw_parts(event.add(0xc), 32);
         let text = String::from_utf8_lossy(&raw[..raw.iter().position(|&b| b == 0).unwrap_or(raw.len())]).into_owned();
@@ -126,10 +129,10 @@ fn without_result(lparam: isize) -> isize {
 
 /// Whether an edit box has the keyboard.
 fn edit_box_focused(m: &crate::memory::Memory) -> bool {
-    use objects::{edit_box, gui};
     let focused = || -> crate::Result<bool> {
-        let listener = m.ptr(m.ptr(m.at(gui::MANAGER))? + gui::FOCUSED_LISTENER)?;
-        Ok(listener != 0 && m.ptr(listener)? == m.at(edit_box::LISTENER_VT) && m.u8(listener - edit_box::LISTENER + edit_box::FOCUSED)? != 0)
+        let listener = m.ptr(m.ptr(m.at(gui::globals::MANAGER))? + manager::FOCUSED_LISTENER)?;
+        let class = m.ptr(listener)? == m.at(gui::classes::EDIT_BOX_LISTENER);
+        Ok(listener != 0 && class && m.u8(listener - edit_box::LISTENER + edit_box::FOCUSED)? != 0)
     };
     focused().unwrap_or(false)
 }
@@ -170,15 +173,16 @@ unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lpar
 /// Where on screen, in GUI units, the caret of `edit_box` is, `offset` being
 /// its place in the text (x low, y high). UpdateCaret positions the caret
 /// sprite relative to the box's parent: the box's place there, plus the text
-/// insets, plus a shift (see [`objects::edit_box`]), plus the offset. The box's place on screen is what its vtable +0xd8 gives, as
-/// its click handling (0x1534560) takes it from the mouse.
+/// insets, plus a shift (see [`edit_box`]), plus the offset. The box's place
+/// on screen is what its method [`edit_box::PLACE`] gives, as its click
+/// handling (0x1534560) takes it from the mouse.
 fn caret_on_screen(m: &crate::memory::Memory, edit_box: usize, offset: u32) -> crate::Result<(i32, i32)> {
     let mut place = [0i32; 2];
-    m.call(m.vslot(edit_box, 0xd8)?, &[edit_box, place.as_mut_ptr() as usize])?;
-    let shift = m.ptr(edit_box + objects::edit_box::SHIFT_HOLDER)? + objects::edit_box::SHIFT;
+    m.call(m.vslot(edit_box, edit_box::PLACE)?, &[edit_box, place.as_mut_ptr() as usize])?;
+    let shift = m.ptr(edit_box + edit_box::SHIFT_HOLDER)? + edit_box::SHIFT;
     let inset = |[a, b]: [usize; 2]| Ok::<_, String>(m.i32(edit_box + a)? + m.i32(edit_box + b)?);
-    let x = place[0] + inset(objects::edit_box::INSET_X)? + m.i32(shift)? + (offset & 0xffff) as i32;
-    let y = place[1] + inset(objects::edit_box::INSET_Y)? + m.i32(shift + 4)? + (offset >> 16) as i32;
+    let x = place[0] + inset(edit_box::INSET_X)? + m.i32(shift)? + (offset & 0xffff) as i32;
+    let y = place[1] + inset(edit_box::INSET_Y)? + m.i32(shift + 4)? + (offset >> 16) as i32;
     Ok((x, y))
 }
 
@@ -194,18 +198,18 @@ fn caret_pixels((x, y): (i32, i32), line: i32, (across, down): (f32, f32)) -> (i
 /// the keyboard.
 extern "C" fn caret_at(edit_box: usize, offset: u32) {
     crate::guarded("input method position", || unsafe {
-        if *((edit_box + objects::edit_box::FOCUSED) as *const u8) == 0 {
+        if *((edit_box + edit_box::FOCUSED) as *const u8) == 0 {
             return;
         }
         let window = GetFocus();
         let m = *crate::memory().expect("hooks run after startup");
-        let (Some((across, down)), Ok(font)) = (crate::game::gui_scale(&m), m.ptr(edit_box + objects::edit_box::EDITOR + objects::editor::FONT)) else { return };
+        let (Some((across, down)), Ok(font)) = (crate::game::gui_scale(&m), m.ptr(edit_box + edit_box::EDITOR + editor::FONT)) else { return };
         if window.is_null() || font == 0 {
             return;
         }
         let Ok((x, y)) = caret_on_screen(&m, edit_box, offset) else { return };
         // The font's line height, as its method at 0x159ba20 works it out.
-        let line = (*((font + objects::font::LINE_HEIGHT) as *const i32) as f32 * *((font + objects::font::SCALE) as *const f32)) as i32;
+        let line = (*((font + font::LINE_HEIGHT) as *const i32) as f32 * *((font + font::SCALE) as *const f32)) as i32;
         let (px, py, ph) = caret_pixels((x, y), line, (across, down));
         let key = (px as u16 as u64) | (py as u16 as u64) << 16 | (ph as u16 as u64) << 32;
         if PLACED.swap(key, Ordering::Relaxed) == key {
@@ -291,8 +295,10 @@ pub fn points() -> Vec<Point> {
             0x1569fb1usize,
             "49 8b 07 45 33 c9 44 8b 45 c4 ba 03 03 00 00 49 8b cf ff 50 20",
             "text event recording",
-        ),
-        Point::keep(0x1569ff2usize, "c7 45 a0 02 00 00 00 66 0f 6f 05 ff 7a 85 00 48 8d 54 24 50 49 8b 06 49 8b ce", "char event type and post"),
+        )
+        .uses(&[events::RECORD]),
+        Point::keep(0x1569ff2usize, "c7 45 a0 02 00 00 00 66 0f 6f 05 ff 7a 85 00 48 8d 54 24 50 49 8b 06 49 8b ce 44 89 65 98 f3 0f 7f 45 88 4c 89 65 80 66 44 89 65 a4 c6 45 a6 00 ff 50 18", "char event type and post")
+            .uses(&[events::POST]),
         Point::keep(CHAR_EVENT_CONSTANT, "03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00", "char event constant").recorded(&CONSTANT),
         Point::jump(
             ON_CHAR_INSERT,
@@ -310,8 +316,8 @@ pub fn points() -> Vec<Point> {
         Point::jump(CARET, "48 8b 8f f0 01 00 00", "edit box caret position", caret_stub as *const () as usize, &CARET_RESUME),
         Point::keep(CARET_DONE, "48 85 c9", "edit box caret sprite"),
         Point::keep(0x15343b0usize, "48 8d 55 30 ff 50 58 8b 18 89 5d 38", "edit box caret offset"),
-        // The box's click handling takes its place on screen from vtable +0xd8.
-        Point::keep(0x1534588usize, "48 8b 01 48 8d 55 30 ff 90 d8 00 00 00", "edit box place on screen"),
+        // The box's click handling takes its place on screen.
+        Point::keep(0x1534588usize, "48 8b 01 48 8d 55 30 ff 90 d8 00 00 00", "edit box place on screen").uses(&[edit_box::PLACE]),
     ]
 }
 

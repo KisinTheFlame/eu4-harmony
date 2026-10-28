@@ -1,5 +1,5 @@
 //! Edit boxes, a character at a time. The game's text editor (inside the
-//! box, [`super::objects::editor`]) keeps its text as a `std::string` and its
+//! box, [`crate::objects::gui::editor`]) keeps its text as a `std::string` and its
 //! caret as a line and a byte column within it; every operation moved, cut
 //! and deleted single bytes, which splits a UTF-8 sequence. Here
 //! each one moves over, cuts before or deletes a whole character
@@ -20,7 +20,10 @@
 //!   converted to and from the game's encoding on the way;
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
-use super::objects::editor::{COLUMN, LINE, TEXT};
+use crate::objects::gui::{
+    editor::{CARET_MOVED, COLUMN, LINE, SELECT_LEFT, SELECT_RIGHT, TEXT},
+    functions::{EDITOR_SELECT_LEFT, EDITOR_SELECT_RIGHT},
+};
 use super::{breaks, game_text};
 use crate::hooks::HookFrame;
 use crate::points::{Point, Resume};
@@ -247,7 +250,7 @@ extern "C" fn snap_caret(frame: *mut HookFrame) {
                 let m = memory();
                 m.call(m.at(SET_CARET), &[inner, start])?;
                 // The editor's own "caret moved" method, as Up and Down end.
-                m.call(m.vslot(inner, 0x208)?, &[inner])?;
+                m.call(m.vslot(inner, CARET_MOVED)?, &[inner])?;
             }
             Ok(())
         })();
@@ -343,7 +346,7 @@ extern "C" fn copy_text(text: *const u8) -> i32 {
 extern "C" fn left_stub() {
     std::arch::naked_asm!(
         "mov rdi, rcx",
-        "movzx eax, word ptr [rcx + 0x54]",
+        "movzx eax, word ptr [rcx + {caret_column}]",
         "test ax, ax",
         "jnz 2f",
         "jmp qword ptr [rip + {line_start}]",
@@ -353,8 +356,9 @@ extern "C" fn left_stub() {
             call column,
             "mov eax, dword ptr [rsp + 0x48]",
         ),
-        "mov word ptr [rdi + 0x54], ax",
+        "mov word ptr [rdi + {caret_column}], ax",
         "jmp qword ptr [rip + {done}]",
+        caret_column = const COLUMN,
         line_start = sym LEFT_AT_LINE_START,
         column = sym left_column,
         done = sym LEFT_DONE,
@@ -364,9 +368,9 @@ extern "C" fn left_stub() {
 /// Replaces `mov ebx, 0x63; mov ecx, ebx`, where the key handler goes on to
 /// its Ctrl shortcuts once no plain key matched (key code at `[rsi]`,
 /// modifiers at `[rsi+8]`, 4 for Shift; the editor in `rdi`). Shift with
-/// Left or Right selects a character with the editor's own methods at vtable
-/// +0xd0 and +0xe0, which the game never called, so those keys used to fall
-/// through to the map.
+/// Left or Right selects a character with the editor's own methods
+/// [`SELECT_LEFT`] and [`SELECT_RIGHT`], which the game never called, so
+/// those keys used to fall through to the map.
 #[unsafe(naked)]
 extern "C" fn shift_arrow_stub() {
     std::arch::naked_asm!(
@@ -379,17 +383,19 @@ extern "C" fn shift_arrow_stub() {
         "jne 2f",
         "mov rax, qword ptr [rdi]",
         "mov rcx, rdi",
-        "call qword ptr [rax + 0xe0]",
+        "call qword ptr [rax + {right}]",
         "jmp qword ptr [rip + {handled}]",
         "3:",
         "mov rax, qword ptr [rdi]",
         "mov rcx, rdi",
-        "call qword ptr [rax + 0xd0]",
+        "call qword ptr [rax + {left}]",
         "jmp qword ptr [rip + {handled}]",
         "2:",
         "mov ebx, 0x63",
         "mov ecx, ebx",
         "jmp qword ptr [rip + {next}]",
+        left = const SELECT_LEFT,
+        right = const SELECT_RIGHT,
         handled = sym KEY_HANDLED_AT,
         next = sym KEY_NEXT_AT,
     );
@@ -457,9 +463,11 @@ extern "C" fn click_stub() {
             call column,
             "mov esi, dword ptr [rsp + 0x48]",
         ),
-        "mov word ptr [r15 + 0x56], ax",
-        "mov word ptr [r15 + 0x54], si",
+        "mov word ptr [r15 + {caret_line}], ax",
+        "mov word ptr [r15 + {caret_column}], si",
         "jmp qword ptr [rip + {done}]",
+        caret_line = const LINE,
+        caret_column = const COLUMN,
         column = sym line_column,
         done = sym CLICKED,
     );
@@ -520,20 +528,20 @@ pub fn points() -> Vec<Point> {
         Point::keep(LINE_COL_TO_INDEX, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "editor line and column to index"),
         Point::keep(SET_CARET, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 4c", "editor caret from index"),
         Point::keep(ERASE_AT, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 4c", "editor erase at"),
-        Point::jump(LEFT, "0f b7 41 54 48 8b f9 66 85 c0 74 09 66 ff c8 66 89 41 54", "editor left", left_stub as *const () as usize, &LEFT_RESUME),
+        Point::jump(LEFT, "0f b7 41 54 48 8b f9 66 85 c0 74 09 66 ff c8 66 89 41 54", "editor left", left_stub as *const () as usize, &LEFT_RESUME).uses(&[COLUMN]),
         Point::keep(LEFT_LINE_START, "48 8b 01 48 89 5c 24 30", "editor left at line start"),
-        Point::keep(LEFT_MOVED, "0f b7 47 54 48 8d 4f 70", "editor left moved"),
+        Point::keep(LEFT_MOVED, "0f b7 47 54 48 8d 4f 70", "editor left moved").uses(&[COLUMN]),
         Point::jump(RIGHT, "48 8b cf 8d 50 01", "editor right", right_stub as *const () as usize, &RIGHT_RESUME),
         Point::keep(RIGHT_SET, "e8 2f e9 ff ff", "editor right sets the caret"),
         Point::jump(BACKSPACE, "48 8b cf 8d 50 ff", "editor backspace", backspace_stub as *const () as usize, &BACKSPACE_RESUME),
         Point::keep(BACKSPACE_ERASE, "e8 26 1d 00 00 48 8b 07 48 8b cf ff 90 d8 00 00 00", "editor backspace erases and moves left"),
         Point::jump(DELETE, "8b d0 48 8b cb", "editor delete", delete_stub as *const () as usize, &DELETE_RESUME),
         Point::keep(DELETE_ERASE, "e8 c8 1b 00 00", "editor delete erases"),
-        Point::jump(CLICK, "66 41 89 47 56 66 41 89 77 54", "editor click", click_stub as *const () as usize, &CLICK_RESUME),
+        Point::jump(CLICK, "66 41 89 47 56 66 41 89 77 54", "editor click", click_stub as *const () as usize, &CLICK_RESUME).uses(&[LINE, COLUMN]),
         Point::keep(CLICK_DONE, "4c 8d 5c 24 60", "editor click done"),
         // The click loop's line record: its length is the string size at +0x10.
         Point::keep(0x153645busize, "8b 47 10", "editor click line length"),
-        Point::observe(UP, "40 56 48 83 ec 20 0f b7 41 56 48 8b f1 66 85 c0", "editor up", 1, None, Some(snap_caret)),
+        Point::observe(UP, "40 56 48 83 ec 20 0f b7 41 56 48 8b f1 66 85 c0", "editor up", 1, None, Some(snap_caret)).uses(&[LINE]),
         Point::observe(DOWN, "48 89 5c 24 18 56 48 83 ec 20 48 8b f1 48 8d 15", "editor down", 1, None, Some(snap_caret)),
         Point::jump(INSERT_CUT, "3b d1 0f 4e ca 44 8b c1", "editor insert length cut", insert_cut_stub as *const () as usize, &INSERT_RESUME),
         Point::keep(INSERT_CUT_DONE, "4c 39 47 10", "editor insert cut done"),
@@ -557,8 +565,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(KEY_NEXT, "e8 ff 43 51 00", "editor Ctrl+C key"),
         Point::keep(KEY_HANDLED, "40 0f b6 c5", "editor key handled"),
         // The methods that select a character to the left and to the right.
-        Point::keep(0x1538560usize, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select left"),
-        Point::keep(0x1538670usize, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select right"),
+        Point::keep(EDITOR_SELECT_LEFT, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select left"),
+        Point::keep(EDITOR_SELECT_RIGHT, "40 53 48 83 ec 20 48 8b 01 48 8b d9", "editor select right"),
         Point::keep(c"SDL_GetClipboardText", "48 ff 25 59 bd 87 00", "SDL clipboard read").recorded(&GET_CLIPBOARD),
         Point::keep(c"SDL_SetClipboardText", "48 ff 25 21 aa 87 00", "SDL clipboard write").recorded(&SET_CLIPBOARD),
         Point::keep(c"SDL_free", "48 ff 25 99 ac 87 00", "SDL free").recorded(&SDL_FREE),

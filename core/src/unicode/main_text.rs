@@ -113,8 +113,9 @@ extern "C" fn draw_stub() {
             "dec r15d",
         ),
         "movzx r8d, byte ptr [rcx + r9]",
-        "movss xmm3, dword ptr [r14 + 0x968]",
+        "movss xmm3, dword ptr [r14 + {scale}]",
         "jmp qword ptr [rip + {done}]",
+        scale = const crate::objects::text::font::SCALE,
         glyph = sym text_loops::glyph_in,
         done = sym DRAW_DONE,
     );
@@ -150,7 +151,8 @@ pub fn points() -> Vec<Point> {
             "text drawing glyph",
             draw_stub as *const () as usize,
             &DRAW_RESUME,
-        ),
+        )
+        .uses(&[crate::objects::text::font::SCALE, crate::objects::text::font::OWN_GLYPHS]),
         Point::keep(DRAW_GLYPH_DONE, "48 89 55 38", "text drawing glyph found"),
     ]
 }

@@ -10,11 +10,15 @@
 //! window and never needs a callback inside the game's UI code.
 use crate::{
     game::{self, fail, GResult},
-    objects::campaign::{classes, unit},
     hooks::HookFrame,
     hosts::{self, Host},
     memory::Memory,
     notice,
+    objects::{
+        campaign::{self, unit},
+        gui::{army_panel, button, callback, classes, element, event, functions, main_menu, signal, window},
+        list,
+    },
     points::Point,
     splice::{Element, ElementKind},
     Result,
@@ -23,22 +27,12 @@ use eu4_harmony_abi as abi;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-const BUTTON_VT: usize = 0x1d58218;
-const SIGNAL_VT: usize = 0x1d581f8;
-const PANEL_VT: usize = 0x1d87088;
-const ROOT_VT: usize = 0x1d926b0;
-const ROOT_GUI_VT: usize = 0x1d929d0;
-const TEXT_VT: usize = 0x1d8fd10;
-const FRONTEND_VT: usize = 0x1d5a8c8;
-/// Callback wrapper class the panel uses for its own buttons.
-const WRAPPER_VT: usize = 0x1cb80c8;
-
 const PANEL_UPDATE: usize = 0x1450660;
 const PANEL_DESTROY: usize = 0x144f560;
 const PANEL_RECREATE: usize = 0x1450580;
 const BUTTON_DESTROY: usize = 0x10b5670;
-/// Root window `+0x130`: marks the window and its children dead; memory is
-/// freed later in the frame by the GUI manager's sweep.
+/// A window's [`window::KILL`]: marks the window and its children dead;
+/// memory is freed later in the frame by the GUI manager's sweep.
 const WINDOW_KILL: usize = 0x1547520;
 /// Root window deleting destructor, reached from that sweep.
 const WINDOW_DELETE: usize = 0x1546510;
@@ -52,6 +46,10 @@ const SET_RIGHT_CLICK: usize = 0x1593860;
 const SHOW: usize = 0x15aeb30;
 const HIDE: usize = 0x15aead0;
 const SET_ENABLED: usize = 0xfaab30;
+
+/// A callback the framework subscribes to a button's signal (see
+/// [`callback`]).
+type Callback = Box<[usize; callback::SIZE / 8]>;
 
 #[derive(Default, Clone)]
 struct Desired {
@@ -74,7 +72,7 @@ struct Bound {
     object: usize,
     signal: usize,
     /// Fake callback wrapper the game calls back through; must outlive the subscription.
-    wrapper: Option<Box<[usize; 15]>>,
+    wrapper: Option<Callback>,
     linked: bool,
     old_right_click: u8,
     applied_text: Option<Vec<u8>>,
@@ -102,7 +100,7 @@ struct Ui {
     declared: Vec<Declared>,
     bindings: Vec<Binding>,
     /// Wrappers of detached bindings; the game may still hold pointers to them.
-    retired: Vec<Box<[usize; 15]>>,
+    retired: Vec<Callback>,
     clicks: Vec<Click>,
     reported: HashSet<String>,
     /// Set when a binding could not be detached safely; binding stops.
@@ -142,35 +140,40 @@ pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
     });
 }
 
-fn lookup(m: &Memory, root: usize, slot: usize, name: &str) -> Result<usize> {
+/// The element of `name` in the window at `root`, through its method at
+/// `offset`, which must be `function`.
+fn lookup(m: &Memory, root: usize, (offset, function): (usize, usize), name: &str) -> Result<usize> {
+    if m.vslot(root, offset)? != m.at(function) {
+        return Err("window has an unexpected lookup method".into());
+    }
     let c = format!("{name}\0");
-    m.call(m.vslot(root, slot)?, &[root, c.as_ptr() as usize])
+    m.call(m.at(function), &[root, c.as_ptr() as usize])
 }
 
 /// Name an element reports, through the getter shared by all GUI element classes.
 fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
-    let getter = m.ptr(m.at(BUTTON_VT) + 0xa0)?;
-    if m.vslot(object, 0xa0)? != getter {
+    let getter = m.at(functions::ELEMENT_NAME);
+    if m.vslot(object, element::NAME)? != getter {
         return Err("element has an unexpected name getter".into());
     }
     m.msvc_string(m.call(getter, &[object])?)
 }
 
 fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Option<Bound>> {
-    let slot = match d.element.kind {
-        ElementKind::Button => 0x68,
-        ElementKind::Text => 0x98,
-        ElementKind::Icon => 0xc8,
+    let method = match d.element.kind {
+        ElementKind::Button => (window::FIND_BUTTON, functions::FIND_BUTTON),
+        ElementKind::Text => (window::FIND_TEXT, functions::FIND_TEXT),
+        ElementKind::Icon => (window::FIND_ICON, functions::FIND_ICON),
         ElementKind::Other => return Ok(None),
     };
-    let object = lookup(m, root, slot, &d.element.prefixed)?;
+    let object = lookup(m, root, method, &d.element.prefixed)?;
     if object == 0 {
         return Err(format!("{} not found in {:?}", d.element.prefixed, d.element.window));
     }
     let vt = m.ptr(object)?;
     let expected_vt = match d.element.kind {
-        ElementKind::Button => Some(BUTTON_VT),
-        ElementKind::Text => Some(TEXT_VT),
+        ElementKind::Button => Some(classes::BUTTON),
+        ElementKind::Text => Some(classes::TEXT_BOX),
         _ => None,
     };
     if expected_vt.is_some_and(|e| vt != m.at(e)) {
@@ -182,22 +185,22 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
     }
     let mut bound = Bound { index, object, signal: 0, wrapper: None, linked: false, old_right_click: 0, applied_text: None, applied_enabled: None };
     if d.element.kind == ElementKind::Button {
-        let signal = object + 0xc8;
-        if m.ptr(signal)? != m.at(SIGNAL_VT)
-            || m.ptr(signal + 0x20)? != 0
-            || m.vslot(signal, 8)? != m.at(SUBSCRIBE)
-            || m.vslot(signal, 0x10)? != m.at(UNSUBSCRIBE)
-            || m.vslot(object, 0x170)? != m.at(SET_RIGHT_CLICK)
+        let signal = object + button::SIGNAL;
+        if m.ptr(signal)? != m.at(classes::SIGNAL)
+            || m.ptr(signal + signal::AFTER_LISTENERS)? != 0
+            || m.vslot(signal, signal::SUBSCRIBE)? != m.at(SUBSCRIBE)
+            || m.vslot(signal, signal::UNSUBSCRIBE)? != m.at(UNSUBSCRIBE)
+            || m.vslot(object, button::SET_RIGHT_CLICK)? != m.at(SET_RIGHT_CLICK)
         {
             return Err(format!("{} has an unexpected click signal", d.element.prefixed));
         }
-        let mut wrapper = Box::new([0usize; 15]);
-        wrapper[0] = m.at(WRAPPER_VT);
-        wrapper[1] = wrapper.as_ptr() as usize;
-        wrapper[9] = right_click as *const () as usize;
-        wrapper[14] = left_click as *const () as usize;
+        let mut wrapper: Callback = Box::new([0; callback::SIZE / 8]);
+        wrapper[0] = m.at(classes::CALLBACK);
+        wrapper[callback::CONTEXT / 8] = wrapper.as_ptr() as usize;
+        wrapper[callback::RIGHT_CLICK / 8] = right_click as *const () as usize;
+        wrapper[callback::LEFT_CLICK / 8] = left_click as *const () as usize;
         bound.signal = signal;
-        bound.old_right_click = m.u8(object + 0x161)?;
+        bound.old_right_click = m.u8(object + button::RIGHT_CLICK)?;
         bound.wrapper = Some(wrapper);
     }
     Ok(Some(bound))
@@ -206,15 +209,15 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
 fn subscribed(m: &Memory, b: &Bound) -> Result<bool> {
     let Some(wrapper) = &b.wrapper else { return Ok(false) };
     let wrapper = wrapper.as_ptr() as usize;
-    let mut node = m.ptr(b.signal + 8)?;
+    let mut node = m.ptr(b.signal + signal::LISTENERS + list::HEAD)?;
     for _ in 0..512 {
         if node == 0 {
             return Ok(false);
         }
-        if m.ptr(node)? == wrapper {
+        if m.ptr(node + list::ITEM)? == wrapper {
             return Ok(true);
         }
-        node = m.ptr(node + 0x10)?;
+        node = m.ptr(node + list::NEXT)?;
     }
     Err("signal listener list too long".into())
 }
@@ -230,7 +233,7 @@ fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<(
                 if !b.linked {
                     continue;
                 }
-                if m.ptr(b.signal)? != m.at(SIGNAL_VT) || m.u8(b.signal + 0x1c)? != 0 {
+                if m.ptr(b.signal)? != m.at(classes::SIGNAL) || m.u8(b.signal + signal::LISTENERS + list::CHANGING)? != 0 {
                     return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
                 }
                 m.call(m.at(UNSUBSCRIBE), &[b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
@@ -257,7 +260,7 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
         return Ok(());
     }
     // Teardown is noticed through the kill hook, so it must be this window's.
-    if m.vslot(root, 0x130)? != m.at(WINDOW_KILL) {
+    if m.vslot(root, window::KILL)? != m.at(WINDOW_KILL) {
         return Err(format!("{host:?} window has an unexpected kill method"));
     }
     let mut binding = Binding { host, holder, root, bound: Vec::new() };
@@ -319,8 +322,8 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
             continue;
         }
         if let Some(visible) = d.desired.visible {
-            if (m.u8(b.object + 0xc5)? != 0) != visible {
-                let (slot, target) = if visible { (0x88, SHOW) } else { (0x90, HIDE) };
+            if (m.u8(b.object + element::VISIBLE)? != 0) != visible {
+                let (slot, target) = if visible { (element::SHOW, SHOW) } else { (element::HIDE, HIDE) };
                 let method = m.vslot(b.object, slot)?;
                 if d.element.kind == ElementKind::Button && method != m.at(target) {
                     return Err("button show/hide method changed".into());
@@ -331,7 +334,7 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
         if d.element.kind == ElementKind::Button {
             if let Some(enabled) = d.desired.enabled {
                 if b.applied_enabled != Some(enabled) {
-                    if m.vslot(b.object, 0x80)? != m.at(SET_ENABLED) {
+                    if m.vslot(b.object, element::ENABLE)? != m.at(SET_ENABLED) {
                         return Err("button enable method changed".into());
                     }
                     m.call(m.at(SET_ENABLED), &[b.object, enabled as usize])?;
@@ -343,14 +346,13 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
     Ok(())
 }
 
-/// Whether the main menu shows its first page. The main menu keeps its page
-/// at `+0x900` (0 first, then the single-player and multiplayer lobbies, the
-/// game's settings and so on); 0x10daf60 switches pages.
+/// Whether the main menu shows its first page ([`main_menu::PAGE`];
+/// 0x10daf60 switches pages).
 fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
-    if m.ptr(frontend)? != m.at(FRONTEND_VT) {
+    if m.ptr(frontend)? != m.at(classes::MAIN_MENU) {
         return Err("unexpected main menu object".into());
     }
-    Ok(m.u32(frontend + 0x900)? == 0)
+    Ok(m.u32(frontend + main_menu::PAGE)? == 0)
 }
 
 extern "C" fn menu_after(frame: *mut HookFrame) {
@@ -386,10 +388,10 @@ extern "C" fn panel_after(frame: *mut HookFrame) {
                 return;
             }
             let result = (|| -> Result<()> {
-                if m.ptr(panel)? != m.at(PANEL_VT) {
+                if m.ptr(panel)? != m.at(classes::ARMY_PANEL) {
                     return Err("unexpected army panel class".into());
                 }
-                bind(&m, ui, Host::ArmyPanel, panel, m.ptr(panel + 0x38)?)?;
+                bind(&m, ui, Host::ArmyPanel, panel, m.ptr(panel + army_panel::WINDOW)?)?;
                 apply(&m, ui, Host::ArmyPanel)
             })();
             if let Err(e) = result {
@@ -419,7 +421,7 @@ extern "C" fn panel_destroy(frame: *mut HookFrame) {
     crate::guarded("panel destroy", || retire(|b| b.host == Host::ArmyPanel && b.holder == panel));
 }
 extern "C" fn panel_recreate(frame: *mut HookFrame) {
-    let panel = unsafe { (*frame).args[0] }.checked_sub(0x10);
+    let panel = unsafe { (*frame).args[0] }.checked_sub(army_panel::INTERFACE);
     crate::guarded("panel rebuild", || retire(|b| b.host == Host::ArmyPanel && Some(b.holder) == panel));
 }
 extern "C" fn button_destroy(frame: *mut HookFrame) {
@@ -477,7 +479,7 @@ extern "system" fn left_click(context: usize, event: usize) {
         let Ok(button) = m.ptr(event) else { return };
         enqueue(context, button, abi::CLICK_LEFT);
         // Mark the click consumed so it does not fall through to the map.
-        let _ = m.write(event + 0x10, &[1]);
+        let _ = m.write(event + event::CONSUMED, &[1]);
     });
 }
 
@@ -530,16 +532,24 @@ pub fn points() -> Vec<Point> {
             None,
         ),
         Point::observe(MENU_FRAME, "48 8b c4 48 89 58 10 55 56 57 41 54 41 55 41 56", "main menu frame", 2, None, Some(menu_after)),
-        Point::keep(0x10db037usize, "41 8b 8e 00 09 00 00 49 8b 86 e8 08 00 00 48 8b 0c c8 48 8b 01 ff 50 18 41 89 be 00 09 00 00", "main menu page switch"),
+        Point::keep(0x10db037usize, "41 8b 8e 00 09 00 00 49 8b 86 e8 08 00 00 48 8b 0c c8 48 8b 01 ff 50 18 41 89 be 00 09 00 00", "main menu page switch")
+            .uses(&[main_menu::PAGE]),
         Point::observe(TOOLTIP, "48 89 5c 24 08 48 89 74 24 10 55 57 41 54 41 56", "army panel tooltip", 3, None, Some(tooltip_after)),
         Point::keep(STRING_APPEND, "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20", "string append"),
         Point::keep(TEXT_SET, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "text box setter"),
         Point::keep(SUBSCRIBE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "signal subscribe"),
         Point::keep(UNSUBSCRIBE, "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 85 c9", "signal unsubscribe"),
-        Point::keep(SET_RIGHT_CLICK, "88 91 61 01 00 00 c3", "button right-click enable"),
+        Point::keep(SET_RIGHT_CLICK, "88 91 61 01 00 00 c3", "button right-click enable").uses(&[button::RIGHT_CLICK]),
         Point::keep(SHOW, "40 53 48 83 ec 20 80 b9 00 01 00 00 00 48 8b d9", "element show"),
-        Point::keep(HIDE, "40 53 48 83 ec 20 c6 81 c5 00 00 00 00 48 8b d9", "element hide"),
+        Point::keep(HIDE, "40 53 48 83 ec 20 c6 81 c5 00 00 00 00 48 8b d9", "element hide").uses(&[element::VISIBLE]),
         Point::keep(SET_ENABLED, "48 8b 01 84 d2 74 07 48 ff a0 68 02 00 00 48 ff", "button enable"),
+        Point::method(classes::WINDOW, window::KILL, WINDOW_KILL, "window kill method"),
+        Point::method(classes::BUTTON, element::SHOW, SHOW, "button show method"),
+        Point::method(classes::BUTTON, element::HIDE, HIDE, "button hide method"),
+        Point::method(classes::BUTTON, element::ENABLE, SET_ENABLED, "button enable method"),
+        Point::method(classes::BUTTON, button::SET_RIGHT_CLICK, SET_RIGHT_CLICK, "button right-click method"),
+        Point::method(classes::SIGNAL, signal::SUBSCRIBE, SUBSCRIBE, "signal subscribe method"),
+        Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, UNSUBSCRIBE, "signal unsubscribe method"),
     ]
 }
 
@@ -583,14 +593,15 @@ pub fn hide_extension(extension: usize) {
 pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
     let (panel, root) = with_ui(|ui| ui.bindings.iter().find(|b| b.host == Host::ArmyPanel).map(|b| (b.holder, b.root)))
         .ok_or_else(|| game::Fail { code: abi::NOT_FOUND, message: "army panel not open".into() })?;
-    if m.ptr(panel)? != m.at(PANEL_VT) || m.ptr(panel + 0x38)? != root || m.ptr(root)? != m.at(ROOT_VT) || m.ptr(root + 0x30)? != m.at(ROOT_GUI_VT) {
+    let ours = m.ptr(panel)? == m.at(classes::ARMY_PANEL) && m.ptr(panel + army_panel::WINDOW)? == root;
+    if !ours || m.ptr(root)? != m.at(classes::WINDOW) || m.ptr(root + window::GUI)? != m.at(classes::WINDOW_GUI) {
         return Err("army panel changed".to_string().into());
     }
-    if m.u8(root + 0xf5)? != 1 {
+    if m.u8(root + window::OPEN)? != 1 {
         return fail(abi::NOT_FOUND, "army panel not open");
     }
-    let army = m.ptr(panel + 0x40)?;
-    if army == 0 || m.ptr(army)? != m.at(classes::ARMY) || m.u64(army + unit::OWNER)? != ctx.player.0 {
+    let army = m.ptr(panel + army_panel::ARMY)?;
+    if army == 0 || m.ptr(army)? != m.at(campaign::classes::ARMY) || m.u64(army + unit::OWNER)? != ctx.player.0 {
         return fail(abi::NOT_FOUND, "no own land army selected");
     }
     Ok(m.u64(army + unit::ID)?)

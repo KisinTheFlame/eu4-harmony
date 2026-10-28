@@ -26,7 +26,7 @@ use super::costs;
 use super::dxt;
 use super::game_text;
 use super::glyphs::{self, Glyph};
-use super::objects::{self, font::OWN_GLYPHS, textures};
+use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use super::system_font::SystemFonts;
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
@@ -172,7 +172,7 @@ fn page_entry(m: &Memory, font: usize) -> crate::Result<(usize, usize)> {
 
 /// The device, through the manager's renderer.
 fn device(m: &Memory, manager: usize) -> crate::Result<IDirect3DDevice9> {
-    let raw = m.ptr(m.ptr(manager + textures::RENDERER)? + 8)? as *mut c_void;
+    let raw = m.ptr(m.ptr(manager + textures::RENDERER)? + objects::renderer::DEVICE)? as *mut c_void;
     let device = unsafe { IDirect3DDevice9::from_raw_borrowed(&raw) }.ok_or("no device")?.clone();
     device.cast::<IDirect3DDevice9Ex>().map_err(|_| "not a Direct3D 9Ex device".to_string())?;
     Ok(device)
@@ -473,23 +473,24 @@ extern "C" fn load_before(frame: *mut HookFrame) {
 extern "C" fn create_before(frame: *mut HookFrame) {
     crate::guarded("font page pixels", || unsafe {
         let args = &(*frame).args;
-        let (description, levels, count) = (args[2] as *const u32, args[3] as *const u8, args[4] as u32);
+        let (description, levels, count) = (args[2] as *const u8, args[3] as *const u8, args[4] as u32);
+        let at = |base: *const u8, offset: usize| *(base.add(offset) as *const u32);
         LOADING.with(|l| {
             let mut l = l.borrow_mut();
             if !l.wants_page() {
                 return;
             }
             // A 2D, single-level 32-bit or DXT5 page.
-            if description.is_null() || *description.add(4) != 0 || count != 1 {
+            if description.is_null() || at(description, texture_description::KIND) != 0 || count != 1 {
                 return;
             }
-            let compressed = match *description.add(3) {
+            let compressed = match at(description, texture_description::FORMAT) {
                 ARGB => false,
                 f if DXT5.contains(&f) => true,
                 _ => return,
             };
-            let (width, height) = (*(levels.add(8) as *const u32), *(levels.add(0xc) as *const u32));
-            let data = *(levels.add(0x18) as *const *const u8);
+            let (width, height) = (at(levels, texture_level::WIDTH), at(levels, texture_level::HEIGHT));
+            let data = *(levels.add(texture_level::DATA) as *const *const u8);
             if data.is_null() || width == 0 || height == 0 || (compressed && (width % 4 != 0 || height % 4 != 0)) {
                 return;
             }

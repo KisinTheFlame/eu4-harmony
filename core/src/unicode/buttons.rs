@@ -14,7 +14,7 @@
 //! Both lookups take a whole character and move the index over it; the
 //! measuring pass also appends the rest of its bytes to the word, and the word
 //! ends after a non-ASCII character a line may break after.
-use super::objects::font::OWN_GLYPHS;
+use crate::objects::text::font::OWN_GLYPHS;
 use super::{breaks, text_loops};
 use crate::points::{Point, Resume};
 use std::sync::atomic::AtomicUsize;

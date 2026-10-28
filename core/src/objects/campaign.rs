@@ -136,12 +136,6 @@ pub mod map {
     pub const PROVINCES: usize = 0x6f0;
 }
 
-/// A node of the game's linked lists: the item, then the next node.
-pub mod list {
-    pub const ITEM: usize = 0;
-    pub const NEXT: usize = 0x10;
-}
-
 /// An army or a fleet.
 pub mod unit {
     /// Its ID, u64, kept in saves.
@@ -163,7 +157,7 @@ pub mod unit {
     pub const OWNER: usize = 0xd0;
     /// The province it is in.
     pub const LOCATION: usize = 0xe8;
-    /// Its route, a [`super::path`].
+    /// Its route, a [`super::list`] of province IDs (i32).
     pub const PATH: usize = 0x100;
     /// Its task; [`super::globals::IDLE_TASK`] or null when idle.
     pub const TASK: usize = 0x1f8;
@@ -180,23 +174,6 @@ pub mod unit {
 /// by vtable offset.
 pub mod task {
     pub const IDLE_METHODS: [usize; 3] = [0x50, 0x78, 0x80];
-}
-
-/// A route: a doubly linked list of provinces.
-pub mod path {
-    pub const HEAD: usize = 0;
-    pub const TAIL: usize = 8;
-    /// i32, and a byte that is nonzero while it is being changed.
-    pub const COUNT: usize = 0x10;
-    pub const CHANGING: usize = 0x14;
-    pub const SIZE: usize = 0x18;
-    /// A node: the province's ID (i32), the previous and next node, and a
-    /// byte set when it is removed.
-    pub const NODE_SIZE: usize = 0x20;
-    pub const PROVINCE: usize = 0;
-    pub const PREVIOUS: usize = 8;
-    pub const NEXT: usize = 0x10;
-    pub const REMOVED: usize = 0x18;
 }
 
 /// What a route query is told, as the game's own callers fill it: flags at
@@ -245,6 +222,7 @@ pub mod pause {
     pub const MANAGER: usize = 0x50;
 }
 
+pub use super::list;
 use crate::points::Point;
 
 pub fn points() -> Vec<Point> {
@@ -300,7 +278,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xd3ad6eusize, "48 89 a9 98 00 00 00 48 89 a9 a0 00 00 00 48 89 a9 a8 00 00 00 48 89 a9 b0 00 00 00", "unit contexts")
             .uses(&[unit::CONTEXTS[0], unit::CONTEXTS[1], unit::CONTEXT_VECTOR, unit::CONTEXT_VECTOR + 8]),
         Point::keep(0xd3ae28usize, "48 89 af 00 01 00 00 48 89 af 08 01 00 00 89 af 10 01 00 00 c6 87 14 01 00 00 00", "unit route")
-            .uses(&[unit::PATH + path::HEAD, unit::PATH + path::TAIL, unit::PATH + path::COUNT, unit::PATH + path::CHANGING]),
+            .uses(&[unit::PATH + list::HEAD, unit::PATH + list::TAIL, unit::PATH + list::COUNT, unit::PATH + list::CHANGING]),
         // Stopping an army: its followers, where they are and what they are
         // in, its lock and its route.
         Point::keep(0xd4fcebusize, "48 8b 59 58 4c 8d 3d a2 b2 ee 00 45 33 f6 48 85 db 0f 84 9b 00 00 00 48 8b 3b 48 8b 5b 10", "army followers")
@@ -319,7 +297,7 @@ pub fn points() -> Vec<Point> {
              4c 89 b6 00 01 00 00 4c 89 b6 08 01 00 00 44 89 b6 10 01 00 00",
             "army route clear",
         )
-        .uses(&[unit::PATH + path::HEAD, path::NEXT, path::NODE_SIZE, unit::PATH + path::TAIL, unit::PATH + path::COUNT]),
+        .uses(&[unit::PATH + list::HEAD, list::NEXT, list::NODE_SIZE, unit::PATH + list::TAIL, unit::PATH + list::COUNT]),
         // Giving a unit the idle task.
         Point::keep(
             0x2dc549usize,
@@ -337,14 +315,14 @@ pub fn points() -> Vec<Point> {
             "route node",
         )
         .uses(&[
-            unit::PATH + path::TAIL,
-            path::NODE_SIZE,
-            path::PROVINCE,
-            path::PREVIOUS,
-            path::NEXT,
-            path::REMOVED,
-            unit::PATH + path::COUNT,
-            unit::PATH + path::HEAD,
+            unit::PATH + list::TAIL,
+            list::NODE_SIZE,
+            list::ITEM,
+            list::PREVIOUS,
+            list::NEXT,
+            list::REMOVED,
+            unit::PATH + list::COUNT,
+            unit::PATH + list::HEAD,
         ]),
         // A route query's options, as the rebel hunt fills them.
         Point::keep(

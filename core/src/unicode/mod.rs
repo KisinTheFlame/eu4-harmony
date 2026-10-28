@@ -18,7 +18,6 @@ pub mod legacy;
 pub mod localisation;
 pub mod main_text;
 pub mod map_names;
-pub mod objects;
 pub mod save_names;
 pub mod scripts;
 pub mod search;
@@ -33,7 +32,6 @@ const STRING_APPEND_BYTES: &str = "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 
 
 pub fn points() -> Vec<Point> {
     let mut points = vec![Point::keep(text_loops::STRING_APPEND, STRING_APPEND_BYTES, "string append").recorded(&text_loops::APPEND)];
-    points.extend(objects::points());
     points.extend(font_load::points());
     points.extend(fill::points());
     points.extend(localisation::points());

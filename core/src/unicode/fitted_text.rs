@@ -22,7 +22,7 @@
 //! a non-ASCII character (`breaks`) now counts as such a place too, and a line
 //! broken there skips nothing (0x159fba1).
 use super::glyphs::Glyph;
-use super::objects::font::OWN_GLYPHS;
+use crate::objects::text::font::OWN_GLYPHS;
 use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
 use std::cell::Cell;

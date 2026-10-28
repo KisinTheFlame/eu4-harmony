@@ -25,7 +25,7 @@
 //! font's own `?`. Null only where the font's own table is and nothing else
 //! has the character (control characters), as the loops expect.
 use super::glyphs::{self, Glyph};
-use super::objects::font::OWN_GLYPHS;
+use crate::objects::text::font::OWN_GLYPHS;
 use super::{fill, game_text};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
