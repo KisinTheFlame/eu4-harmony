@@ -246,7 +246,7 @@ pub(crate) fn deferred_init() {
     for m in &mods {
         log!("mod {:?} id={:?} api={} dir={} extension={:?} ui={}", m.descriptor.name, m.manifest.id, m.manifest.api_version, m.dir.display(), m.manifest.extension, m.manifest.ui.len());
     }
-    let outcomes = ext::load(memory, &mods, &logs);
+    let outcomes = ext::load(&mods, &logs);
     let indices = ext::extension_indices(&mods);
     let included = |i: usize| outcomes[i].included;
     let (mut plan, ui_notes) = splice::build(&mods, included);

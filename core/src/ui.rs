@@ -107,15 +107,16 @@ struct Ui {
     fatal: Option<String>,
 }
 
+/// Code that holds this calls the game: to look elements up, subscribe and
+/// unsubscribe, show, hide, enable and set text. What the game calls back
+/// with takes it only with `try_lock` (clicks, tooltips), except the
+/// destruction hooks, which must detach; none of those calls destroys a
+/// panel, button or window, so a destruction hook never runs under the lock.
 static UI: Mutex<Option<Ui>> = Mutex::new(None);
 
 fn with_ui<T>(f: impl FnOnce(&mut Ui) -> T) -> T {
     let mut guard = UI.lock().unwrap_or_else(|e| e.into_inner());
     f(guard.get_or_insert_with(Ui::default))
-}
-
-fn memory() -> Option<Memory> {
-    crate::memory().copied()
 }
 
 fn report_once(ui: &mut Ui, message: String) {
@@ -357,7 +358,7 @@ fn main_menu_page(m: &Memory, frontend: usize) -> Result<bool> {
 extern "C" fn menu_after(frame: *mut HookFrame) {
     crate::guarded("main menu frame", || {
         let frame = unsafe { &*frame };
-        let Some(m) = memory() else { return };
+        let Some(m) = crate::memory().copied() else { return };
         if frame.fault != 0 || crate::thread_id() != crate::main_thread() {
             return;
         }
@@ -377,7 +378,7 @@ extern "C" fn menu_after(frame: *mut HookFrame) {
 extern "C" fn panel_after(frame: *mut HookFrame) {
     crate::guarded("panel update", || {
         let frame = unsafe { &*frame };
-        let Some(m) = memory() else { return };
+        let Some(m) = crate::memory().copied() else { return };
         if frame.fault != 0 || crate::thread_id() != crate::main_thread() || game::context(&m).is_err() {
             return;
         }
@@ -402,7 +403,7 @@ extern "C" fn panel_after(frame: *mut HookFrame) {
 
 /// Detaches the bindings `which` selects while their objects are still alive.
 fn retire(which: impl Fn(&Binding) -> bool) {
-    let Some(m) = memory() else { return };
+    let Some(m) = crate::memory().copied() else { return };
     with_ui(|ui| {
         if !ui.bindings.iter().any(&which) {
             return;
@@ -471,7 +472,7 @@ fn enqueue(context: usize, button: usize, click: u32) {
 
 extern "system" fn left_click(context: usize, event: usize) {
     crate::guarded("left click", || {
-        let Some(m) = memory() else { return };
+        let Some(m) = crate::memory().copied() else { return };
         if event == 0 {
             return;
         }
@@ -491,7 +492,7 @@ extern "system" fn right_click(context: usize, button: usize) {
 extern "C" fn tooltip_after(frame: *mut HookFrame) {
     crate::guarded("tooltip", || {
         let frame = unsafe { &*frame };
-        let Some(m) = memory() else { return };
+        let Some(m) = crate::memory().copied() else { return };
         if frame.fault != 0 || frame.result != frame.args[1] || crate::thread_id() != crate::main_thread() {
             return;
         }

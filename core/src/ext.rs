@@ -60,7 +60,6 @@ struct Runtime {
     last_day: Option<(u64, i32)>,
 }
 
-static MEMORY: OnceLock<Memory> = OnceLock::new();
 static EXTENSIONS: Mutex<Vec<Loaded>> = Mutex::new(Vec::new());
 static RUNTIME: Mutex<Option<Runtime>> = Mutex::new(None);
 static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
@@ -94,7 +93,7 @@ fn capability(ptr: *mut c_void, f: impl FnOnce(&Host, &Memory) -> GResult<()>) -
         if CURRENT.with(Cell::get) != Some(h.index) || crate::thread_id() != crate::main_thread() {
             return (h, Err(game::Fail { code: abi::WRONG_CONTEXT, message: "called outside this extension's callback".into() }));
         }
-        let Some(m) = MEMORY.get() else {
+        let Some(m) = crate::memory() else {
             return (h, Err(game::Fail { code: abi::UNAVAILABLE, message: "game capabilities unavailable".into() }));
         };
         (h, f(h, m))
@@ -480,10 +479,8 @@ pub struct LoadOutcome {
 }
 
 /// Loads every enabled mod's extension, in playset order.
-pub fn load(memory: Option<Memory>, mods: &[DiscoveredMod], log_dir: &Path) -> Vec<LoadOutcome> {
-    if let Some(m) = memory {
-        let _ = MEMORY.set(m);
-    }
+pub fn load(mods: &[DiscoveredMod], log_dir: &Path) -> Vec<LoadOutcome> {
+    let memory = crate::memory().copied();
     let _ = LOG_DIR.set(log_dir.to_path_buf());
     let mut outcomes = Vec::new();
     for m in mods {
@@ -607,7 +604,7 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
     if let Some(reason) = failure {
         log!("extension {id:?} stopped: {reason}");
         ui::hide_extension(index);
-        if let Some(m) = MEMORY.get() {
+        if let Some(m) = crate::memory() {
             map::release(m, index);
         }
         crate::notice::post(&format!("stopped:{id}"), Message::new("EU4HARMONY_STOPPED").arg("MOD", name).arg("DETAIL", reason));
@@ -620,7 +617,7 @@ fn count() -> usize {
 
 /// Safe-point driver, run after the map manager's frame.
 pub fn frame() {
-    let Some(m) = MEMORY.get().copied() else { return };
+    let Some(m) = crate::memory().copied() else { return };
     let Some(state) = events::begin_frame(&m) else { return };
     let new_session = with_runtime(|rt| {
         if rt.session == state.session {
