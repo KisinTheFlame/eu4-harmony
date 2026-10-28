@@ -9,7 +9,7 @@
 //! `$KIND$`, the localised word, and `$PLACE$`) word the name instead. The
 //! war overview's battle rows put their names together elsewhere and keep the
 //! game's order.
-use super::{read_string, set_string};
+use crate::game_string;
 use crate::lang;
 use crate::loc;
 use crate::points::Point;
@@ -37,7 +37,7 @@ fn localised(key: &str) -> crate::Result<Vec<u8>> {
     let mut slot = [0u8; 0x20];
     let out = slot.as_mut_ptr() as usize;
     m.call(m.at(LOCALISE), &[out, key.as_ptr() as usize, 0, 0])?;
-    let text = read_string(m, out);
+    let text = game_string::read(m, out);
     m.call(m.at(DESTROY_STRING), &[out])?;
     text
 }
@@ -68,8 +68,8 @@ extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
             return;
         }
         let words = WORDS.get_or_init(|| KINDS.iter().map(|&(key, _)| localised(key).unwrap_or_default()).collect());
-        if let Some(name) = reordered(language, unsafe { game_text::std_string(out) }, words) {
-            unsafe { set_string(out, &name) };
+        if let Some(name) = reordered(language, unsafe { game_string::text(out) }, words) {
+            unsafe { game_string::assign(out, &name) };
         }
     });
     out

@@ -28,11 +28,8 @@ pub mod text_width;
 
 use crate::points::Point;
 
-const STRING_APPEND_BYTES: &str = "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20";
-
 pub fn points() -> Vec<Point> {
-    let mut points = vec![Point::keep(text_loops::STRING_APPEND, STRING_APPEND_BYTES, "string append").recorded(&text_loops::APPEND)];
-    points.extend(font_load::points());
+    let mut points = font_load::points();
     points.extend(fill::points());
     points.extend(localisation::points());
     points.extend(main_text::points());

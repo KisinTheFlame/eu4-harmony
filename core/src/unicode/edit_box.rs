@@ -20,6 +20,7 @@
 //!   converted to and from the game's encoding on the way;
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
+use crate::game_string;
 use crate::objects::gui::{
     editor::{CARET_MOVED, COLUMN, LINE, SELECT_LEFT, SELECT_RIGHT, TEXT},
     functions::{EDITOR_SELECT_LEFT, EDITOR_SELECT_RIGHT},
@@ -163,7 +164,7 @@ fn memory() -> crate::memory::Memory {
 
 /// The editor's text.
 unsafe fn text<'a>(inner: usize) -> &'a [u8] {
-    game_text::std_string((inner + TEXT) as *const u8)
+    game_string::text((inner + TEXT) as *const u8)
 }
 
 /// The caret's line and byte column.
@@ -234,7 +235,7 @@ extern "C" fn delete_prepare(inner: usize, index: u32) -> u32 {
 /// A click's byte column in a line (`std::string*`), moved back to the start
 /// of the character it falls in.
 extern "C" fn line_column(line: *const u8, column: u32) -> u32 {
-    crate::guarded("edit box click", || game_text::floor_boundary(unsafe { game_text::std_string(line) }, column as usize) as u32)
+    crate::guarded("edit box click", || game_text::floor_boundary(unsafe { game_string::text(line) }, column as usize) as u32)
 }
 
 /// Up and Down kept the byte column; the caret goes back to the start of the
@@ -262,7 +263,7 @@ extern "C" fn snap_caret(frame: *mut HookFrame) {
 
 /// How many bytes of a `std::string` to keep when it is cut to `count`.
 extern "C" fn cut(string: *const u8, count: u32) -> u32 {
-    crate::guarded("edit box cut", || game_text::floor_boundary(unsafe { game_text::std_string(string) }, count as usize) as u32)
+    crate::guarded("edit box cut", || game_text::floor_boundary(unsafe { game_string::text(string) }, count as usize) as u32)
 }
 
 type Fit = unsafe extern "C" fn(usize, usize) -> i32;
@@ -274,20 +275,18 @@ type Fit = unsafe extern "C" fn(usize, usize) -> i32;
 unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
     let original: Fit = std::mem::transmute(ORIGINAL_FIT.load(Ordering::Acquire));
     let count = original(inner, line);
-    crate::guarded("edit box line fit", || fit_in(game_text::std_string(line as *const u8), count))
+    crate::guarded("edit box line fit", || fit_in(game_string::text(line as *const u8), count))
 }
 
 /// Removes from `text` (`std::string*`) every character found in `chars`
 /// (`std::string*`). Returns whether the text got shorter.
 unsafe extern "C" fn remove_chars(text: *mut u8, chars: *const u8) -> u8 {
     crate::guarded("edit box filter", || {
-        let bytes = game_text::std_string_mut(text);
-        let len = remove_in(bytes, game_text::std_string(chars));
+        let bytes = game_string::text_mut(text);
+        let len = remove_in(bytes, game_string::text(chars));
         let shorter = len < bytes.len();
         if shorter {
-            // The terminator lives one past the size, inside the capacity.
-            *bytes.as_mut_ptr().add(len) = 0;
-            *(text.add(0x10) as *mut usize) = len;
+            game_string::truncate(text, len);
         }
         shorter as u8
     })

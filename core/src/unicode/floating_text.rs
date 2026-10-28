@@ -66,12 +66,7 @@ extern "C" fn word_stub() {
         "je 3f",
         call_rust!(
             "mov rcx, rsi",
-            "cmp qword ptr [rsi + 0x18], 0x10",
-            "jb 2f",
-            "mov rcx, qword ptr [rsi]",
-            "2:",
-            "mov edx, dword ptr [rsi + 0x10]",
-            "lea r8d, [rdi + 1]",
+            "lea edx, [rdi + 1]",
             call after,
             "cmp byte ptr [rsp + 0x48], 0",
         ),
@@ -79,7 +74,7 @@ extern "C" fn word_stub() {
         "jmp qword ptr [rip + {next}]",
         "3:",
         "jmp qword ptr [rip + {end}]",
-        after = sym breaks::after_at,
+        after = sym breaks::after_in,
         next = sym NEXT,
         end = sym END,
     );

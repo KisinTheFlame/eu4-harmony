@@ -9,6 +9,7 @@
 //! context holding the line (`+0`, i32), whether the entry replaces an
 //! existing one (`+4`, u8) and the collection (`+0x10`). Registration:
 //! (collection, key, value: NUL-terminated, line, version, replace).
+use crate::game_string;
 use super::game_text;
 use crate::points::Point;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -37,7 +38,7 @@ type Register = unsafe extern "C" fn(usize, *const u8, *const u8, i32, u32, u8);
 /// localisation mod made for the CJK font plugin carries legacy escapes as
 /// the 1252 characters of their bytes; they become plain characters here.
 unsafe fn converted(string: *const u8) -> Option<Vec<u8>> {
-    let mut text = game_text::from_str(std::str::from_utf8(game_text::std_string(string)).ok()?);
+    let mut text = game_text::from_str(std::str::from_utf8(game_string::text(string)).ok()?);
     if let Some(decoded) = super::legacy::decode(&text) {
         LEGACY.fetch_add(1, Ordering::Relaxed);
         text = decoded;

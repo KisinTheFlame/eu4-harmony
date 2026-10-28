@@ -23,6 +23,7 @@
 //! rule for one- and two-letter names (0xfd3ef5, `ebx` = 1000) blends in
 //! another direction instead, but reads it from a vector of doubles as floats
 //! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
+use crate::game_string;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
 use super::{breaks, game_text, text_loops};
 use crate::points::{Point, Resume};
@@ -59,12 +60,12 @@ fn characters(text: &[u8]) -> Vec<&[u8]> {
 /// every one but the last.
 extern "C" fn space_letters(dst: usize, src: *const u8, spacer: *const u8) {
     crate::guarded("map name spacing", || unsafe {
-        let spacer = game_text::std_string(spacer);
-        let chars = characters(game_text::std_string(src));
+        let spacer = game_string::text(spacer);
+        let chars = characters(game_string::text(src));
         for (i, c) in chars.iter().enumerate() {
-            text_loops::append(dst, c);
+            crate::game_string::append(dst, c);
             if i + 1 < chars.len() && !spacer.is_empty() {
-                text_loops::append(dst, spacer);
+                crate::game_string::append(dst, spacer);
             }
         }
     })
@@ -72,7 +73,7 @@ extern "C" fn space_letters(dst: usize, src: *const u8, spacer: *const u8) {
 
 /// Writes how many characters the `std::string` at `string` holds to `count`.
 extern "C" fn store_character_count(string: *const u8, count: *mut usize) {
-    crate::guarded("map name length", || unsafe { *count = characters(game_text::std_string(string)).len() })
+    crate::guarded("map name length", || unsafe { *count = characters(game_string::text(string)).len() })
 }
 
 /// Layout pass (0x159da60): `movzx eax, byte [r15+rax]; mov r11,
@@ -159,12 +160,7 @@ extern "C" fn wrap_stub() {
         "jz 2f",
         call_rust!(
             "mov rcx, rbx",
-            "cmp qword ptr [rbx + 0x18], 16",
-            "jb 3f",
-            "mov rcx, [rbx]",
-            "3:",
-            "mov edx, dword ptr [rbx + 0x10]",
-            "lea r8d, [rdi + 1]",
+            "lea edx, [rdi + 1]",
             call after,
             "cmp byte ptr [rsp + 0x48], 0",
         ),
@@ -172,7 +168,7 @@ extern "C" fn wrap_stub() {
         "jmp qword ptr [rip + {in_word}]",
         "2:",
         "jmp qword ptr [rip + {word_end}]",
-        after = sym breaks::after_at,
+        after = sym breaks::after_in,
         in_word = sym IN_WORD,
         word_end = sym WORD_END,
     );

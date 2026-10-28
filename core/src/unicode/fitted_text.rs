@@ -21,9 +21,10 @@
 //! width after it in `xmm8` (0x159f85b). A place where a line may break after
 //! a non-ASCII character (`breaks`) now counts as such a place too, and a line
 //! broken there skips nothing (0x159fba1).
+use crate::game_string;
 use super::glyphs::Glyph;
-use crate::objects::text::font::OWN_GLYPHS;
-use super::{breaks, game_text, text_loops};
+use crate::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
+use super::{breaks, text_loops};
 use crate::points::{Point, Resume};
 use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
@@ -95,7 +96,7 @@ extern "C" fn glyph(table: usize, text: *const u8, index: usize) -> *const Glyph
 /// besides its own.
 extern "C" fn rest(string: *const u8, index: u32) -> u32 {
     crate::guarded("fitted text step", || {
-        let text = unsafe { game_text::std_string(string) }.as_ptr() as usize;
+        let text = unsafe { game_string::text(string) }.as_ptr() as usize;
         LOOKED_UP.replace(LookedUp::default()).rest_at(text, index as usize) as u32
     })
 }
@@ -181,9 +182,8 @@ extern "C" fn wrap_break_stub() {
         "cmp byte ptr [rax + rdx], 0x20",
         "je 3f",
         call_rust!(
-            "mov rcx, rax",
-            "mov edx, dword ptr [rdi + 0x10]",
-            "mov r8d, esi",
+            "mov rcx, rdi",
+            "mov edx, esi",
             call after,
             "cmp byte ptr [rsp + 0x48], 0",
         ),
@@ -194,9 +194,15 @@ extern "C" fn wrap_break_stub() {
         "4:",
         "mov r15d, r14d",
         "jmp qword ptr [rip + {tested}]",
-        after = sym breaks::after_at,
+        after = sym breaks::after_in,
         tested = sym WRAP_BREAK_TESTED_AT,
     );
+}
+
+/// Where the next line starts when the text of the `std::string` at `string`
+/// breaks at `at`: past a space there, or at the character there.
+extern "C" fn next_line_start(string: *const u8, at: u32) -> u32 {
+    crate::guarded("text wrap", || at + (unsafe { game_string::text(string) }.get(at as usize) == Some(&b' ')) as u32)
 }
 
 /// Replaces `lea r12d, [r15+1]; mov [rbp+0x128], r12d`, where a line broken
@@ -205,19 +211,15 @@ extern "C" fn wrap_break_stub() {
 #[unsafe(naked)]
 extern "C" fn wrap_line_stub() {
     std::arch::naked_asm!(
-        "mov rax, rdi",
-        "cmp qword ptr [rdi + 0x18], 0x10",
-        "jb 2f",
-        "mov rax, qword ptr [rdi]",
-        "2:",
-        "mov r12d, r15d",
-        "mov ecx, r15d",
-        "cmp byte ptr [rax + rcx], 0x20",
-        "jne 3f",
-        "inc r12d",
-        "3:",
+        call_rust!(
+            "mov rcx, rdi",
+            "mov edx, r15d",
+            call start,
+            "mov r12d, dword ptr [rsp + 0x48]",
+        ),
         "mov dword ptr [rbp + 0x128], r12d",
         "jmp qword ptr [rip + {started}]",
+        start = sym next_line_start,
         started = sym WRAP_LINE_STARTED_AT,
     );
 }
@@ -226,13 +228,13 @@ pub fn points() -> Vec<Point> {
     vec![
         // 0x159ec30: the text's data pointer is in rax and the offset in rdx
         // at the lookup; the font's table in r14.
-        Point::keep(0x159ef48usize, "f3 41 0f 10 b6 48 08 00 00", "fitted text glyph scale"),
+        Point::keep(0x159ef48usize, "f3 41 0f 10 b6 48 08 00 00", "fitted text glyph scale").uses(&[SCALE_FROM_GLYPHS]),
         Point::jump(FIT_GLYPH, "0f b6 04 02 4d 8b 3c c6", "fitted text glyph", fit_glyph_stub as *const () as usize, &FIT_GLYPH_RESUME),
         Point::keep(FIT_FOUND, "4d 85 ff", "fitted text glyph found"),
         Point::jump(FIT_STEP, "ff c7 8b d7 44 8b 53 10", "fitted text next byte", fit_step_stub as *const () as usize, &FIT_STEP_RESUME),
         Point::keep(FIT_NEXT, "41 3b fa", "fitted text end test"),
         // 0x159f510: the same with the table in r8.
-        Point::keep(0x159f87dusize, "4c 8b 45 b8 f3 41 0f 10 b0 48 08 00 00", "wrapped text glyph scale"),
+        Point::keep(0x159f87dusize, "4c 8b 45 b8 f3 41 0f 10 b0 48 08 00 00", "wrapped text glyph scale").uses(&[SCALE_FROM_GLYPHS]),
         Point::jump(WRAP_GLYPH, "0f b6 04 10 4d 8b 24 c0", "wrapped text glyph", wrap_glyph_stub as *const () as usize, &WRAP_GLYPH_RESUME),
         Point::keep(WRAP_FOUND, "4d 85 e4", "wrapped text glyph found"),
         Point::jump(WRAP_STEP, "ff c3 8b f3 8b 4f 10", "wrapped text next byte", wrap_step_stub as *const () as usize, &WRAP_STEP_RESUME),

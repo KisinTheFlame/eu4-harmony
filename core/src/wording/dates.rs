@@ -14,10 +14,11 @@
 //!
 //! Each of the functions takes the date, a `std::string` slot it constructs
 //! the text in, and, for the format language, the format.
+use crate::game_string;
 use crate::lang;
 use crate::loc;
 use crate::points::Point;
-use crate::unicode::{game_text, text_loops};
+use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -85,21 +86,13 @@ static ORIGINAL_MONTH: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_NEXT_MONTH: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_DAY: AtomicUsize = AtomicUsize::new(0);
 
-/// Constructs `text` in `out`, a `std::string` slot nothing has constructed
-/// yet; the caller frees it as it would the game's own.
-unsafe fn construct(out: *mut u8, text: &str) {
-    std::ptr::write_bytes(out, 0, 0x20);
-    *(out.add(0x18) as *mut usize) = 15;
-    text_loops::append(out as usize, &game_text::from_str(text));
-}
-
 /// The date at `date` written in the player language's template for the
 /// shape `choose` picks, or by the game's own function when there is none.
 unsafe fn write(original: &AtomicUsize, date: *const i32, out: *mut u8, extra: usize, choose: impl FnOnce(Date) -> Option<(Shape, Date)>) -> *mut u8 {
     let written = crate::guarded("date text", || {
         let (shape, date) = choose(Date::from_hours(*date))?;
         let text = text(lang::player(), shape, date)?;
-        construct(out, &text);
+        game_string::construct(out, &game_text::from_str(&text));
         Some(())
     });
     if written.is_some() {
@@ -113,7 +106,7 @@ unsafe fn write(original: &AtomicUsize, date: *const i32, out: *mut u8, extra: u
 extern "C" fn formatted(date: *const i32, out: *mut u8, format: usize) -> *mut u8 {
     unsafe {
         write(&ORIGINAL_FORMAT, date, out, format, |date| {
-            let shape = match game_text::std_string(format as *const u8) {
+            let shape = match game_string::text(format as *const u8) {
                 b"d w mw w y" => Shape::Day,
                 b"y, w mw" => Shape::Month,
                 b"ywe" => Shape::Year,

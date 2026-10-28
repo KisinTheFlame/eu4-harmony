@@ -82,19 +82,6 @@ impl Memory {
         self.ptr(self.ptr(object)? + slot)
     }
 
-    /// Bytes of an MSVC `std::string` (SSO buffer when capacity <= 15).
-    pub fn msvc_string(&self, string: usize) -> Result<Vec<u8>> {
-        let len = self.u64(string + 16)? as usize;
-        let cap = self.u64(string + 24)? as usize;
-        if len > 4096 || cap < len {
-            return Err(format!("invalid native string at {string:#x}"));
-        }
-        if len == 0 {
-            return Ok(Vec::new());
-        }
-        self.bytes(if cap <= 15 { string } else { self.ptr(string)? }, len)
-    }
-
     /// Calls `target` with integer/pointer arguments inside an SEH guard.
     pub fn call(&self, target: usize, args: &[usize]) -> Result<usize> {
         if args.len() > 12 {
@@ -134,21 +121,5 @@ mod tests {
         assert_eq!(m.call(add as *const () as usize, &[3, 4]).unwrap(), 7);
         let err = m.call(eu4h_test_access_violation as *const () as usize, &[]).unwrap_err();
         assert!(err.contains("c0000005"), "{err}");
-    }
-
-    #[test]
-    fn reads_msvc_strings() {
-        let m = Memory { base: 0 };
-        let mut small = [0u8; 32];
-        small[..5].copy_from_slice(b"hello");
-        small[16..24].copy_from_slice(&5u64.to_le_bytes());
-        small[24..32].copy_from_slice(&15u64.to_le_bytes());
-        assert_eq!(m.msvc_string(small.as_ptr() as usize).unwrap(), b"hello");
-        let heap = b"a longer string than fifteen";
-        let mut large = [0u8; 32];
-        large[..8].copy_from_slice(&(heap.as_ptr() as u64).to_le_bytes());
-        large[16..24].copy_from_slice(&(heap.len() as u64).to_le_bytes());
-        large[24..32].copy_from_slice(&31u64.to_le_bytes());
-        assert_eq!(m.msvc_string(large.as_ptr() as usize).unwrap(), heap);
     }
 }

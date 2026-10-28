@@ -98,8 +98,7 @@ fn typed_char(typed: &[u8]) -> &[u8] {
     }
 }
 
-/// Makes the inline `std::string` at `string` (16 bytes of text, its size at
-/// +0x10) the character at `from`.
+/// Makes the inline `std::string` at `string` the character at `from`.
 extern "C" fn copy_char(from: *const u8, string: *mut u8) {
     crate::guarded("text input character", || unsafe {
         let mut typed = [0u8; 4];
@@ -109,10 +108,7 @@ extern "C" fn copy_char(from: *const u8, string: *mut u8) {
                 break;
             }
         }
-        let bytes = typed_char(&typed);
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), string, bytes.len());
-        *string.add(bytes.len()) = 0;
-        *(string.add(0x10) as *mut usize) = bytes.len();
+        crate::game_string::set_inline(string, &typed_char(&typed));
     })
 }
 

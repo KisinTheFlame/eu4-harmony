@@ -12,12 +12,12 @@
 //! Qizhen". Generals' and advisors' names are made once, as one string, when
 //! they are created, and keep the game's order, as do names that localisation
 //! puts together itself (`[Root.Monarch.GetName]` is the given name only).
-use super::{read_string, set_string};
+use crate::game_string;
 use crate::lang;
 use crate::loc;
 use crate::memory::Memory;
 use crate::points::{Point, Resume};
-use crate::unicode::{game_text, text_loops};
+use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -49,7 +49,7 @@ fn writes_family_first(m: &Memory, person: usize) -> bool {
     let read = || -> crate::Result<bool> {
         let culture = m.ptr(person + CULTURE)?;
         let group = m.ptr(culture + CULTURE_GROUP)?;
-        Ok(family_first(&read_string(m, culture + CULTURE_KEY)?, &read_string(m, group + GROUP_KEY)?))
+        Ok(family_first(&game_string::read(m, culture + CULTURE_KEY)?, &game_string::read(m, group + GROUP_KEY)?))
     };
     read().unwrap_or(false)
 }
@@ -92,10 +92,10 @@ extern "C" fn full_name(person: usize, out: *mut u8) -> *mut u8 {
             if !writes_family_first(m, person) {
                 return None;
             }
-            let given = read_string(m, person + GIVEN_NAME).ok()?;
-            let family = read_string(m, m.ptr(person + DYNASTY).ok()? + DYNASTY_NAME).ok()?;
-            let name = reordered(lang::player(), unsafe { game_text::std_string(out) }, &given, &family)?;
-            unsafe { set_string(out, &name) };
+            let given = game_string::read(m, person + GIVEN_NAME).ok()?;
+            let family = game_string::read(m, m.ptr(person + DYNASTY).ok()? + DYNASTY_NAME).ok()?;
+            let name = reordered(lang::player(), unsafe { game_string::text(out) }, &given, &family)?;
+            unsafe { game_string::assign(out, &name) };
             Some(())
         };
         reorder();
@@ -115,12 +115,12 @@ extern "C" fn heir_name(name: *mut u8, suffix: *const u8, len: usize, heir: usiz
                 return None;
             }
             let family = suffix.strip_prefix(b" ")?;
-            let text = [game_text::std_string(name), suffix].concat();
-            reordered(lang::player(), &text, game_text::std_string(name), family)
+            let text = [game_string::text(name), suffix].concat();
+            reordered(lang::player(), &text, game_string::text(name), family)
         };
         match family_first_name() {
-            Some(text) => set_string(name, &text),
-            None => text_loops::append(name as usize, suffix),
+            Some(text) => game_string::assign(name, &text),
+            None => game_string::append(name as usize, suffix),
         }
     })
 }

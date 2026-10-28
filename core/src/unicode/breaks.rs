@@ -73,6 +73,11 @@ pub extern "C" fn after_at(text: *const u8, len: u32, end: u32) -> bool {
     crate::guarded("text wrap", || !text.is_null() && after(unsafe { std::slice::from_raw_parts(text, len as usize) }, end as usize))
 }
 
+/// [`after`] for a stub that has the game's `std::string`.
+pub extern "C" fn after_in(string: *const u8, end: u32) -> bool {
+    crate::guarded("text wrap", || after(unsafe { crate::game_string::text(string) }, end as usize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

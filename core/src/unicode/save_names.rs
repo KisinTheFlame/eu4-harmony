@@ -6,6 +6,7 @@
 //! replacement keeps UTF-8 sequences, which the game's file system (PhysFS)
 //! takes as they are, and turns the Windows-1252 bytes to ASCII as before, so
 //! a name without other characters gives the same file as it always did.
+use crate::game_string;
 use super::game_text;
 use crate::points::Point;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,7 +43,7 @@ pub fn transliterate(name: &mut [u8], table: &[u8; 128]) {
 unsafe extern "C" fn transliterate_string(string: *mut u8) {
     crate::guarded("save name", || {
         let table = &*(TABLE_AT.load(Ordering::Acquire) as *const [u8; 128]);
-        transliterate(game_text::std_string_mut(string), table);
+        transliterate(game_string::text_mut(string), table);
     })
 }
 

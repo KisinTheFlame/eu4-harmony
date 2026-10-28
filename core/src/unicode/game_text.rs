@@ -160,29 +160,6 @@ pub fn to_utf8(text: &[u8]) -> String {
     chars(text).map(|(c, _)| c).collect()
 }
 
-/// The bytes of the MSVC `std::string` at `string`: its size at +0x10, its
-/// capacity at +0x18, its bytes inline when the capacity is under 16 and
-/// behind the pointer at +0 otherwise. For hook code, which runs on the
-/// game's own objects; reads elsewhere go through `Memory::msvc_string`.
-///
-/// # Safety
-/// `string` points at a live `std::string` that nothing else changes while
-/// the slice is in use.
-pub unsafe fn std_string<'a>(string: *const u8) -> &'a [u8] {
-    std_string_mut(string as *mut u8)
-}
-
-/// [`std_string`], to change the bytes in place (not the length).
-///
-/// # Safety
-/// As [`std_string`], and nothing else reads the bytes while they change.
-pub unsafe fn std_string_mut<'a>(string: *mut u8) -> &'a mut [u8] {
-    let len = (string.add(0x10) as *const usize).read_unaligned();
-    let capacity = (string.add(0x18) as *const usize).read_unaligned();
-    let data = if capacity >= 16 { (string as *const *mut u8).read_unaligned() } else { string };
-    std::slice::from_raw_parts_mut(data, len)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,22 +210,5 @@ mod tests {
     fn european_text_and_codes_are_single_bytes() {
         assert_eq!(from_str("§YGröße€ …"), b"\xa7YGr\xf6\xdfe\x80 \x85");
         assert_eq!(from_str("§Y中文£gold£"), b"\xa7Y\xe4\xb8\xad\xe6\x96\x87\xa3gold\xa3");
-    }
-
-    #[test]
-    fn std_strings_read_inline_and_on_the_heap() {
-        let heap = b"a longer string on the heap".to_vec();
-        let mut small = [0u8; 32];
-        small[..5].copy_from_slice(b"hello");
-        small[0x10..0x18].copy_from_slice(&5usize.to_le_bytes());
-        small[0x18..0x20].copy_from_slice(&15usize.to_le_bytes());
-        let mut large = [0u8; 32];
-        large[..8].copy_from_slice(&(heap.as_ptr() as usize).to_le_bytes());
-        large[0x10..0x18].copy_from_slice(&heap.len().to_le_bytes());
-        large[0x18..0x20].copy_from_slice(&31usize.to_le_bytes());
-        unsafe {
-            assert_eq!(std_string(small.as_ptr()), b"hello");
-            assert_eq!(std_string(large.as_ptr()), heap.as_slice());
-        }
     }
 }

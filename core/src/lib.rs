@@ -17,6 +17,7 @@ pub mod baseline;
 pub mod ext;
 pub mod framework_ui;
 pub mod game;
+pub mod game_string;
 pub mod heap;
 pub mod hooks;
 pub mod hosts;
@@ -96,6 +97,7 @@ pub(crate) fn fatal(detail: &str) -> ! {
 pub(crate) fn points() -> Vec<points::Point> {
     let mut all = physfs::points();
     all.extend(objects::points());
+    all.extend(game_string::points());
     all.extend(game::points());
     all.extend(ui::points());
     all.extend(map::points());

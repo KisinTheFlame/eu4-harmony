@@ -27,7 +27,6 @@
 use super::glyphs::{self, Glyph};
 use crate::objects::text::font::OWN_GLYPHS;
 use super::{fill, game_text};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The glyph `font` draws for `c`.
 pub fn glyph(font: usize, c: char) -> *const Glyph {
@@ -89,21 +88,6 @@ pub extern "C" fn glyph_in(font: usize, text: *const u8, index: u32, end: u32, l
     })
 }
 
-/// The game's `std::string::append(this, bytes, count)`, recorded at startup.
-pub static APPEND: AtomicUsize = AtomicUsize::new(0);
-pub const STRING_APPEND: usize = 0x932f0;
-
-type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
-
-/// Appends `bytes` to the game's `std::string` at `string`.
-///
-/// # Safety
-/// `string` is a live `std::string` and startup has recorded `APPEND`.
-pub unsafe fn append(string: usize, bytes: &[u8]) {
-    let append: Append = std::mem::transmute(APPEND.load(Ordering::Acquire));
-    append(string, bytes.as_ptr(), bytes.len());
-}
-
 /// For layout passes that copy each byte into a word (`std::string*`) before
 /// looking it up: the glyph for the character at `text`, with the rest of its
 /// bytes appended to `word`; the length goes to `*len`.
@@ -111,7 +95,7 @@ pub extern "C" fn layout_char(font: usize, text: *const u8, word: usize, len: *m
     crate::guarded("text layout glyph", || unsafe {
         let (glyph, n) = glyph_at(font, text);
         if n > 1 {
-            append(word, std::slice::from_raw_parts(text.add(1), n - 1));
+            crate::game_string::append(word, std::slice::from_raw_parts(text.add(1), n - 1));
         }
         *len = n as u32;
         glyph

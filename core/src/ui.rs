@@ -10,6 +10,7 @@
 //! window and never needs a callback inside the game's UI code.
 use crate::{
     game::{self, fail, GResult},
+    game_string,
     hooks::HookFrame,
     hosts::{self, Host},
     memory::Memory,
@@ -38,7 +39,6 @@ const WINDOW_KILL: usize = 0x1547520;
 const WINDOW_DELETE: usize = 0x1546510;
 const MENU_FRAME: usize = 0x10d2e80;
 const TOOLTIP: usize = 0x1453b70;
-const STRING_APPEND: usize = 0x932f0;
 const TEXT_SET: usize = 0x152ae10;
 const SUBSCRIBE: usize = 0xfbe3f0;
 const UNSUBSCRIBE: usize = 0xfbe370;
@@ -156,7 +156,7 @@ fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
     if m.vslot(object, element::NAME)? != getter {
         return Err("element has an unexpected name getter".into());
     }
-    m.msvc_string(m.call(getter, &[object])?)
+    game_string::read(m, m.call(getter, &[object])?)
 }
 
 fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Option<Bound>> {
@@ -293,13 +293,12 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
     Ok(())
 }
 
-/// Builds an MSVC string holding `bytes` with the game's allocator and moves
+/// Builds a game string holding `bytes` with the game's allocator and moves
 /// it into a text box.
 fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {
-    let mut string = [0u64; 4];
-    string[3] = 15;
+    let mut string = game_string::empty();
     if !bytes.is_empty() {
-        m.call(m.at(STRING_APPEND), &[string.as_mut_ptr() as usize, bytes.as_ptr() as usize, bytes.len()])?;
+        game_string::append_checked(m, string.as_mut_ptr() as usize, bytes)?;
     }
     m.call(m.at(TEXT_SET), &[object, string.as_mut_ptr() as usize, 0])?;
     Ok(())
@@ -503,10 +502,10 @@ extern "C" fn tooltip_after(frame: *mut HookFrame) {
         let Some(text) = ui.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
         drop(guard);
         let output = frame.args[1];
-        let empty = |offset: usize| -> Result<bool> { Ok(m.u64(output + offset + 16)? == 0 && m.u64(output + offset + 24)? == 15) };
-        match (empty(0), empty(32)) {
+        let empty = |offset: usize| game_string::untouched(&m, output + offset);
+        match (empty(0), empty(game_string::OBJECT)) {
             (Ok(true), Ok(true)) => {
-                if let Err(e) = m.call(m.at(STRING_APPEND), &[output, text.as_ptr() as usize, text.len()]) {
+                if let Err(e) = game_string::append_checked(&m, output, &text) {
                     log!("ui: tooltip append failed: {e}");
                 }
             }
@@ -535,7 +534,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x10db037usize, "41 8b 8e 00 09 00 00 49 8b 86 e8 08 00 00 48 8b 0c c8 48 8b 01 ff 50 18 41 89 be 00 09 00 00", "main menu page switch")
             .uses(&[main_menu::PAGE]),
         Point::observe(TOOLTIP, "48 89 5c 24 08 48 89 74 24 10 55 57 41 54 41 56", "army panel tooltip", 3, None, Some(tooltip_after)),
-        Point::keep(STRING_APPEND, "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20", "string append"),
         Point::keep(TEXT_SET, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "text box setter"),
         Point::keep(SUBSCRIBE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "signal subscribe"),
         Point::keep(UNSUBSCRIBE, "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 85 c9", "signal unsubscribe"),
