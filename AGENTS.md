@@ -29,7 +29,9 @@ With the game installed, the offline checks compare every dependency point's byt
 EU4_GAME_DIR='E:\SteamLibrary\steamapps\common\Europa Universalis IV' cargo test --release -p eu4-harmony-core -- --ignored
 ```
 
-`tools/dev-install.ps1` installs the built proxy and core into the game folder (`-Uninstall` removes them). The other development tools are described in [tools/README.md](tools/README.md).
+CI (`.github/workflows/ci.yml`) runs the build and the tests on Windows for every push; the offline checks need the game and are run by hand.
+
+`tools/dev-install.ps1` installs the built proxy and core into the game folder (`-Uninstall` removes them); like the other tools it finds the game through `EU4_GAME_DIR` or Steam. The other development tools are described in [tools/README.md](tools/README.md).
 
 ## Design rules
 
