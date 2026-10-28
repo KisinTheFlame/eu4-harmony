@@ -84,7 +84,7 @@ The same playset as the M0 test (the Chinese language mod, regional-combat and o
   - the corner button goes away on the country selection screen and comes back on the front page. This is decided by the main menu's page number (`+0x900`); at first I used the visible flag of the `mainmenu` child window, but it does not change when the page changes, so it cannot be used.
 - **Two graphics driver failures**:
   - What happened: once a 0x133 blue screen, once a 0x141 GPU timeout followed by a hang. Both happened while the notice window was showing, while the machine was also running a training job that kept the GPU fully loaded.
-  - The problem fixed: the loading screen is drawn and presented by another thread, and the overlay drew on that thread, interleaving with the main thread's operations on the same device (the device is created MULTITHREADED, which locks each call but not a sequence of calls). Now it draws only in frames the main thread presents. In many runs since, there have been no more failures.
+  - The problem fixed: the loading screen is drawn and presented by another thread, and the framework UI drew on that thread, interleaving with the main thread's operations on the same device (the device is created MULTITHREADED, which locks each call but not a sequence of calls). Now it draws only in frames the main thread presents. In many runs since, there have been no more failures.
 - **Map names**:
   - What happened: neither country names nor province names showed.
   - Investigation: I removed the framework's groups of hooks by bisection; in the end they did not show even with no framework installed at all, on vanilla with this set of mods. Reading the font state at run time showed that the map font page `zh-hans-map` had a size of 0×0.
