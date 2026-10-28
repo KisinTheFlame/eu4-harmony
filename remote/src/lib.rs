@@ -254,6 +254,46 @@ pub enum Kind {
     Text,
 }
 
+impl Kind {
+    /// Its name, as a description writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Country => "country",
+            Self::Province => "province",
+            Self::Army => "army",
+            Self::Date => "date",
+            Self::Integer => "integer",
+            Self::Boolean => "boolean",
+            Self::Text => "text",
+        }
+    }
+
+    /// A value of the kind, as text.
+    pub fn example(self) -> &'static str {
+        match self {
+            Self::Country => "FRA",
+            Self::Province => "151",
+            Self::Army => "4294967377",
+            Self::Date => "1444.11.11",
+            Self::Integer => "3",
+            Self::Boolean => "true",
+            Self::Text => "text",
+        }
+    }
+
+    /// A value of the kind written as text, such as on a command line, in
+    /// JSON: a number for a province or an integer, `true` or `false` for a
+    /// boolean, the text itself for the rest. None when the text cannot be
+    /// one; whether it names something that exists is the request's to say.
+    pub fn json(self, text: &str) -> Option<Value> {
+        match self {
+            Self::Province | Self::Integer => serde_json::from_str::<serde_json::Number>(text).ok().filter(|n| n.is_i64() || n.is_u64()).map(Value::Number),
+            Self::Boolean => text.parse().ok().map(Value::Bool),
+            Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
+        }
+    }
+}
+
 /// The kind of a Rust type used as an argument.
 pub trait ArgKind {
     const KIND: Kind;
@@ -319,8 +359,9 @@ pub struct Parameter {
     pub about: &'static str,
 }
 
-/// Documentation comments, written one line at a time, as one text.
-fn prose(doc: &str) -> String {
+/// Documentation comments, written one line at a time, as one text, such as
+/// a [`Capability`]'s or [`Parameter`]'s `about`.
+pub fn prose(doc: &str) -> String {
     doc.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 

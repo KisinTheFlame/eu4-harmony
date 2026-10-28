@@ -5,17 +5,9 @@ fn request(value: Value) -> Result<Request, Error> {
     request_from_json(&value.to_string())
 }
 
-/// A value of each kind, as a client would write it.
+/// A value of each kind, as a client would write it from its example.
 fn sample(kind: Kind) -> Value {
-    match kind {
-        Kind::Country => json!("FRA"),
-        Kind::Province => json!(151),
-        Kind::Army => json!("4294967377"),
-        Kind::Date => json!("1444.11.11"),
-        Kind::Integer => json!(3),
-        Kind::Boolean => json!(true),
-        Kind::Text => json!("text"),
-    }
+    kind.json(kind.example()).unwrap_or_else(|| panic!("the example of {kind:?} is not one"))
 }
 
 #[test]
@@ -158,3 +150,23 @@ fn descriptions_in_json() {
         })
     );
 }
+
+#[test]
+fn kinds_from_text() {
+    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text];
+    for kind in all {
+        assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
+    }
+    assert_eq!(sample(Kind::Province), json!(151));
+    assert_eq!(sample(Kind::Army), json!("4294967377"));
+    assert_eq!(Kind::Integer.json("-3"), Some(json!(-3)));
+    assert_eq!(Kind::Integer.json("18446744073709551615"), Some(json!(u64::MAX)));
+    assert_eq!(Kind::Boolean.json("false"), Some(json!(false)));
+    for (kind, bad) in [(Kind::Province, "Paris"), (Kind::Province, "1.5"), (Kind::Integer, "0x10"), (Kind::Integer, ""), (Kind::Boolean, "yes")] {
+        assert_eq!(kind.json(bad), None, "{kind:?} {bad}");
+    }
+    // Text kinds stay text, even when they look like numbers.
+    assert_eq!(Kind::Country.json("D01"), Some(json!("D01")));
+    assert_eq!(Kind::Army.json("12"), Some(json!("12")));
+}
+
