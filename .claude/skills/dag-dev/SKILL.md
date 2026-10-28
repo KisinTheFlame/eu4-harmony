@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # DAG development
 
-The user is present for steps 1 and 2 only. From step 3 on, nobody answers questions: decide, and report the decisions at the end.
+The user is present for steps 1 and 2. From step 3 on, nobody stops to ask: decide and carry on, and tell the user each decision as soon as you know it. They judge it while the work goes on; when they redirect, follow.
 
 ## 1. Settle the requirement
 
@@ -36,24 +36,24 @@ Push the branch. Then switch the main checkout back to the base branch and check
 git worktree add .claude/worktrees/<requirement> <requirement>
 ```
 
-## 4. Run the workflow
+## 4. Orchestrate the nodes
 
-Start the Workflow tool with `scriptPath` set to `workflow.js` in this skill's folder inside the requirement worktree, and `args`:
+You are the orchestrator. Every stage of every node (developer, reviewer, fixer, merger) is a background subagent you start with the Agent tool, from its brief in [briefs.md](briefs.md). You are woken when each one finishes, so its report reaches you, and through you the user, as soon as it exists. The Workflow tool would run to the end without waking you, and nobody would hear of a plan change until every node is done.
 
-```json
-{
-  "repo": "<absolute path of the main checkout, forward slashes>",
-  "base": "<base branch>",
-  "requirement": "<requirement branch>",
-  "integration": "<repo>/.claude/worktrees/<requirement>",
-  "plan": "<plan document, relative to the repository root>",
-  "push": true,
-  "nodes": [{ "id": "F1", "title": "Capability layer", "deps": [] }]
-}
-```
+Keep a table of the nodes: id, title, deps, stage, review round, worktree. Start a node's developer as soon as every node it depends on is merged, and every ready node at once: there is no limit.
 
-Each node is developed in its own worktree, reviewed until it passes, and merged into the requirement branch one at a time; a node whose dependency failed is skipped. While it runs, leave the main checkout and the requirement worktree alone.
+When a subagent finishes, act on its report before anything else:
+
+- **Developer or fixer reports ready.** Tell the user at once each plan change, as it described it, and what it could not verify in the running program. Weigh each change against the nodes still to come, and add what a later node must know to that node's brief. Then start a reviewer.
+- **Reviewer asks for changes.** Start a fixer with the issues. When a third round still asks for changes, tell the user what is left and decide whether to go on.
+- **Reviewer passes.** The node waits to merge. One merger runs at a time; start the next as soon as none is running.
+- **Merger merged.** Check the requirement branch's log, then start every node that is now ready.
+- **A stage failed, or ended without a report.** Look at what it left in the node's worktree and start it once more with that in the brief. If it fails again, tell the user, run `scripts/lock.ps1 -ReleaseHolder <node>`, keep the worktree, and leave the nodes that depend on it waiting.
+
+While nodes run, the main checkout and the requirement worktree belong to the mergers, and the locked resources to the nodes that hold them. When the user asks how it is going, answer from the table.
+
+Done when every node is merged or has failed twice, and no subagent is running.
 
 ## 5. Report
 
-When the workflow returns, tell the user, node by node: merged, failed or skipped, and why; every plan change a node made, as it described it; what was not verified in the running program. For a failed node, its worktree is kept for inspection: name it. Merging the requirement branch into the base branch is the user's call.
+Tell the user, node by node: merged or failed and why, and what was not verified in the running program; for a failed node, name its worktree. Then the plan changes, a line each, since each was told in full when it came. Merging the requirement branch into the base branch is the user's call.
