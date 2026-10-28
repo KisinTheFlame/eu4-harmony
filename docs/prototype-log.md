@@ -200,6 +200,10 @@ Framework with bitmap fonts and with system fonts, the CJK font plugin, and neit
 
 Then, at the user's request, vanilla in English and the framework in English, three runs each, with the Chinese language mod and the modifier sorting mod (whose text needs the plugin) taken out of `dlc_load.json` for the runs and put back afterwards. Vanilla in English entered single player without crashing every time. Every framework run advanced fewer days at speed 5 than every vanilla run (about 2.5% on average), which the Chinese runs had been too spread out to show. Saves and settings were restored and checked as before.
 
+## 2026-10-28 Where bitmap fonts' memory goes (measured by me)
+
+A build that logs process private bytes and the framework's heap: at startup, around each font page it makes, and at the main menu. Chinese playset, to the main menu only (no save loaded), once with bitmap fonts and once with system fonts, then once more with bitmap fonts after splitting each page into creating it and writing it. Results in [performance.md](performance.md) and [research/font-textures.md](research/font-textures.md): writing the grown dynamic pages a band at a time accounts for about 440 MB (425 MB for the map page), and the glyph records each of the 46 fonts keeps for itself for 63 MB more. The framework settings were put back afterwards.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

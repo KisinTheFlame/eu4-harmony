@@ -4,7 +4,7 @@ What the framework costs the game, measured on 2026-10-28 with the framework at 
 
 - **Running the game**: at speed 5 the game advanced about 2 to 3% fewer days per second with the framework, on as much CPU. With the English playset, each of three runs with the framework was behind each of three runs without it (17.8 against 18.2 days per second). With the Chinese playset the framework was behind the CJK font plugin it replaces by about as much, though there the runs spread too widely to show it on their own. Where the time goes was not looked into.
 - **Starting the game**: about 1 s longer with the English playset. With the Chinese playset and bitmap fonts (the default) the main menu came about 2 s sooner than with the plugin; with system fonts about 1.3 s later, because every character is drawn at startup.
-- **Memory**: 30 to 65 MB more with the English playset. With the Chinese playset and system fonts, about the same as the plugin (+15 to 35 MB); with bitmap fonts about **420 MB more**, in the menu and in the game. That is the largest cost, and the first to reduce.
+- **Memory**: 30 to 65 MB more with the English playset. With the Chinese playset and system fonts, about the same as the plugin (+15 to 35 MB); with bitmap fonts about **420 MB more**, in the menu and in the game. That is the largest cost, and the first to reduce: most of it is what Direct3D keeps after the framework writes its grown font pages, the rest the glyph records each font keeps a copy of.
 
 ## Setups
 
@@ -108,7 +108,18 @@ With bitmap fonts, each of the Chinese language mod's six font pages is grown by
 | Microsoft YaHei, 18.2 px | 3072×5120 | 16 MB |
 | Microsoft YaHei, 9.1 px | 2048×2636 | 5 MB |
 
-That is about 105 MB of pages, a quarter of the difference, and the 1024 rows reserved below the mod's glyphs are only 18 MB of it. Where the rest goes is not known. The code rules out the obvious copies: `unicode/fill.rs` releases the game's original page once it has made the grown one, and drops its own copy of the page's pixels once it is written. Nor is it simply that the grown pages are dynamic textures: system fonts also make dynamic pages (84 MB of them) and cost only 15 to 35 MB more than the plugin. One difference between the two looks is that bitmap fonts keep the glyph records the mod's font files bring above 0xFF (994,216 of them, each allocated on its own, in `unicode/glyphs.rs`), which system fonts drop; at a few dozen bytes each that is tens of MB, not 400. Measuring the process's memory around each step of loading the fonts would show it. It is the default setting, so it is the first thing to look at.
+That is about 105 MB of pages, and the 1024 rows reserved below the mod's glyphs are only 18 MB of it. Measuring the process's private bytes around each step of loading the fonts (logged since, see `core/src/heap.rs`) found where the difference goes, against a run with system fonts to the same main menu (4353 against 3860 MB):
+
+| What | Bitmap fonts | System fonts | Difference |
+| --- | --- | --- | --- |
+| Loading the map font, page included | +539 MB | +253 MB | +286 MB |
+| Loading the five body font pages | +213 MB | +58 MB | +155 MB |
+| The framework's heap at the menu | 66 MB | 3 MB | +63 MB |
+
+- **The pages**: creating each grown page as a dynamic texture commits about its own size, but writing it, 256 rows at a time with a lock each, commits several times its size and keeps it: 425 MB for the 56 MB map page alone (details in [research/font-textures.md](research/font-textures.md)). Writing a page with fewer locks, or keeping it in video memory and copying glyphs in from a small system-memory texture, should remove most of it.
+- **The heap**: 46 font objects load, most of them from the same few `.fnt` files, and each keeps its own copy of the 21,443 glyphs above 0xFF: 994,216 records, each allocated on its own. System fonts drop them. Sharing one table per file, with the records stored inline, would leave a few MB.
+
+It is the default setting, so it is the first thing to reduce.
 
 ### The framework's own costs
 
