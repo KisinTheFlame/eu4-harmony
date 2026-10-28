@@ -218,7 +218,8 @@ fn a_request_given_up_before_it_runs_never_runs() {
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(game.calls, [format!("route {ARMY}")]);
     assert_eq!(answer(&kept), ok(json!([])));
-    assert!(log().iter().any(|l| l.contains("army.move: given up by its client before it ran")));
+    let given_up = format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":151}}: given up by its client before it ran"#);
+    assert!(log().iter().any(|l| l.contains(&given_up)), "{:#?}", log());
 }
 
 #[test]
