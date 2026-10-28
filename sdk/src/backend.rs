@@ -58,6 +58,10 @@ pub trait Backend {
     /// `Rejected` with the game's reasons. [`Game::recruit`] never passes
     /// [`UnitKind::Unknown`].
     fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()>;
+    fn questions(&mut self) -> Result<Vec<Question>>;
+    fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()>;
+    fn offers(&mut self) -> Result<Vec<Offer>>;
+    fn answer_offer(&mut self, offer: OfferId, accept: bool) -> Result<()>;
 }
 
 /// The core's capability table for the current callback.
@@ -352,6 +356,27 @@ impl Backend for RealBackend {
         let api = self.api();
         self.check(unsafe { (api.recruit)(api.host, province, kind) })
     }
+    fn questions(&mut self) -> Result<Vec<Question>> {
+        self.require(end_of!(questions))?;
+        let api = self.api();
+        self.snapshot("questions", |b, c, l| unsafe { (api.questions)(api.host, b, c, l) })
+    }
+    fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
+        self.require(end_of!(question_answer))?;
+        let api = self.api();
+        self.check(unsafe { (api.question_answer)(api.host, question.0, option) })
+    }
+    fn offers(&mut self) -> Result<Vec<Offer>> {
+        self.require(end_of!(offers))?;
+        let api = self.api();
+        let json: Vec<OfferJson> = self.snapshot("offers", |b, c, l| unsafe { (api.offers)(api.host, b, c, l) })?;
+        Ok(json.into_iter().map(Offer::from).collect())
+    }
+    fn answer_offer(&mut self, offer: OfferId, accept: bool) -> Result<()> {
+        self.require(end_of!(offer_answer))?;
+        let api = self.api();
+        self.check(unsafe { (api.offer_answer)(api.host, offer.0, accept as u8) })
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -456,6 +481,35 @@ mod tests {
         std::ptr::copy_nonoverlapping(json.as_ptr(), buf, json.len());
         abi::OK
     }
+    /// A question and an offer, as the core's test checks that the core
+    /// writes them (ADR 0018).
+    const QUESTIONS_JSON: &str = include_str!("../../abi/json/questions.json");
+    const OFFERS_JSON: &str = include_str!("../../abi/json/offers.json");
+
+    /// Copies `bytes` into a buffer, as the core does.
+    unsafe fn give(bytes: &[u8], buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        *len = bytes.len();
+        if cap < bytes.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf, bytes.len());
+        abi::OK
+    }
+    unsafe extern "C" fn questions(_: H, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        give(QUESTIONS_JSON.as_bytes(), buf, cap, len)
+    }
+    static ANSWERS: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
+    unsafe extern "C" fn question_answer(_: H, question: u32, option: u32) -> i32 {
+        ANSWERS.lock().unwrap().push((question, option));
+        abi::OK
+    }
+    unsafe extern "C" fn offers(_: H, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        give(OFFERS_JSON.as_bytes(), buf, cap, len)
+    }
+    unsafe extern "C" fn offer_answer(_: H, offer: u32, accept: u8) -> i32 {
+        ANSWERS.lock().unwrap().push((offer + 100, accept as u32));
+        abi::OK
+    }
 
     /// Wallachia, as the core's test checks that the core writes it.
     const COUNTRY_JSON: &str = include_str!("../../abi/json/country.json");
@@ -529,6 +583,10 @@ mod tests {
             time_pause: no_pause,
             time_resume: no_pause,
             recruit,
+            questions,
+            question_answer,
+            offers,
+            offer_answer,
         }
     }
 
@@ -654,6 +712,31 @@ mod tests {
         assert_eq!((err.status, err.message.as_str()), (Status::NotFound, "no such army"));
     }
 
+    #[test]
+    fn questions_and_offers_come_as_json() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(
+            backend.questions().unwrap(),
+            [Question {
+                id: QuestionId(7),
+                event: "flavor_tur.1".into(),
+                title: "禁卫军".into(),
+                description: "Our elite troops ask for more.".into(),
+                deadline: 56459856,
+                options: vec![QuestionOption { index: 0, text: "Pay them".into() }, QuestionOption { index: 2, text: "Refuse".into() }],
+            }]
+        );
+        assert_eq!(
+            backend.offers().unwrap(),
+            [Offer { id: OfferId(3), from: CountryId(72057735777769794), date: 56456976, title: "皇室联姻".into(), description: "A royal marriage.".into() }]
+        );
+        backend.answer_question(QuestionId(7), 2).unwrap();
+        backend.answer_offer(OfferId(3), true).unwrap();
+        backend.answer_offer(OfferId(3), false).unwrap();
+        assert_eq!(*ANSWERS.lock().unwrap(), [(7, 2), (103, 1), (103, 0)]);
+    }
+
     /// A core from before a capability was added: its table ends before it.
     #[test]
     fn a_capability_the_core_lacks_is_unavailable() {
@@ -677,6 +760,12 @@ mod tests {
         assert_eq!(backend.time_pause().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.time_resume().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.language().unwrap(), "simp_chinese");
+        // A core with the questions but not the offers.
+        api.size = std::mem::offset_of!(abi::GameApi, offers);
+        let mut backend = RealBackend::new(&api);
+        assert!(backend.questions().is_ok());
+        assert_eq!(backend.offers().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.answer_offer(OfferId(3), true).unwrap_err().status, Status::Unavailable);
     }
 
     /// Each kind goes to the core as its `UNIT_*`; an unknown one never
