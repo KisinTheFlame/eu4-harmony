@@ -198,6 +198,8 @@ Backups as above. Framework settings as the user had them: system fonts, Microso
 
 Framework with bitmap fonts and with system fonts, the CJK font plugin, and neither, each two or three times with `tools/perf-run.ps1`; results and method in [performance.md](performance.md). Backups as above; the runs rotated the three autosaves, which were restored and checked against the backup's hashes. With neither the framework nor the plugin, but the Chinese language mod still in the playset (so not vanilla), the game crashed twice on entering single player, in the Epic Online Services SDK; the two crash folders were removed afterwards, so the dumps are gone.
 
+Then, at the user's request, vanilla in English and the framework in English, three runs each, with the Chinese language mod and the modifier sorting mod (whose text needs the plugin) taken out of `dlc_load.json` for the runs and put back afterwards. Vanilla in English entered single player without crashing every time. Every framework run advanced fewer days at speed 5 than every vanilla run (about 2.5% on average), which the Chinese runs had been too spread out to show. Saves and settings were restored and checked as before.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
