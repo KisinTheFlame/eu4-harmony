@@ -76,6 +76,37 @@ Move the logic of every capability out of the host functions in `core/src/ext.rs
 
 Done when: the game behaves exactly as before, through extensions; the existing in-game checks pass.
 
+Built (2026-10-29). F1 added no capability; it moved every existing one into the layer, where each takes a `Caller` first and fails with a `game::Status` (`NotInGame`, `NotReady`, `NotFound`, `Rejected`, `InvalidArgument`, `Unavailable`, `WrongContext`, `Internal`) and a message. A country is a `game::Tag`, a province its number, an army its 64-bit ID. The capabilities the table gives extensions only refuse `Caller::Remote` with `Unavailable`. What the layer has for F2 to wire:
+
+| Group (file) | Capability | Arguments | Result |
+| --- | --- | --- | --- |
+| `session` | `session` | | `Session`: session number, date (a day number), paused, visibility current, player |
+| `countries` | `tag` | country | its three letters |
+| | `hostile` | two countries | at war, or either is rebels |
+| `provinces` | `provinces` | | every `Province` by number: land, lake, impassable, visible, owner and controller if any |
+| | `neighbors` | province | `Neighbor`s: province, across a strait |
+| `armies` | `army` | own army | `Army`: owner, province, land, the states that stop orders (in battle, sieging, retreating, exiled, movement locked, attached, has followers, busy), regiments, route length, destination, `RouteSource` (none, external, own, other extension) as the caller sees it |
+| | `own_armies` | | the player's `Army`s and fleets |
+| | `in_province` | province | visible land `Army`s there; `NotReady` while visibility is not current |
+| | `route` | own land army | the provinces on its route |
+| | `can_enter` | own land army, province | whether it may enter |
+| | `strait_open` | own land army, two provinces | whether the strait between them is open to it |
+| | `can_attack` | own land army, target army, province | whether it may attack the target there |
+| | `find_route` | own land army, goal | the route the game would choose; `NotFound` when none |
+| | `move_to` | own land army, goal | done once the route is installed; `Rejected` with the reason |
+| | `stop` | own land army | done once it has no route |
+| | `selected` | | the own land army in the open army panel |
+| `interface` (extensions only) | `set_visible`, `set_enabled` | element name, on or off | |
+| | `set_text`, `set_tooltip` | element name, text | |
+| `map_coloring` (extensions only) | `paint` | `MapColor`s (province, RGBA) | |
+| | `clear` | | |
+| `save_data` (extensions only) | `get` | | the caller's JSON value, if any |
+| | `set` | JSON value, or none to remove it | |
+| `texts` | `language` | | the player language's Paradox name |
+| | `text` (extensions only) | key | the mod's text in the player language |
+
+`move_to` and `stop` from `Caller::Remote` are the player's orders: the army's route is nobody's afterwards, and `Change::Ordered` is raised once, so extensions hear `on_army_ordered` at the next safe frame (unit test `a_remote_order_is_the_players`). `game::begin_frame` starts a safe frame and forgets the old session's map, routes and map coloring; the extension dispatch in `ext.rs` runs on it, and so can the engine.
+
 ### F2 Engine
 
 The `remote/` crate with the request and response types and their descriptions; `core/src/remote/` with the queue, the safe point in the main menu and in a game, the time budget, requests that answer later, the event buffer, logging. Wire up every capability that exists and that remote control sees (see the table). The engine is driven by typed requests in its tests.
