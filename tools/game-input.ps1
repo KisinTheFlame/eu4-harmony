@@ -26,7 +26,9 @@ Text sent as Unicode key events, one character at a time.
 
 .PARAMETER Keys
 Key names, each optionally with modifiers: LEFT, SHIFT+END, CTRL+V. Names:
-the keys in $keyCodes below.
+the keys in $keyCodes below, and any letter or digit. Unlike -Type, these
+are key presses, so an input method takes them (type pinyin with
+-Keys B,E,I,J,I,N,G).
 #>
 param([int]$Wheel = 0, [int[]]$At, [int[]]$Click, [int[]]$Drag, [string]$Type, [string[]]$Keys)
 $ErrorActionPreference = 'Stop'
@@ -41,6 +43,7 @@ public static class GameInput {
   [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
   [StructLayout(LayoutKind.Explicit, Size = 40)] public struct INPUT { [FieldOffset(0)] public uint type; [FieldOffset(8)] public KEYBDINPUT ki; }
   [DllImport("user32.dll")] public static extern uint SendInput(uint n, INPUT[] inputs, int size);
+  [DllImport("user32.dll")] public static extern uint MapVirtualKeyW(uint code, uint type);
   public static void Key(ushort vk, ushort scan, uint flags) {
     var i = new INPUT[1]; i[0].type = 1; i[0].ki.wVk = vk; i[0].ki.wScan = scan; i[0].ki.dwFlags = flags;
     SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
@@ -89,9 +92,12 @@ $keyCodes = @{
     HOME = 0x24, 0x47, 1; END = 0x23, 0x4F, 1; BACK = 0x08, 0x0E, 0; DELETE = 0x2E, 0x53, 1
     RETURN = 0x0D, 0x1C, 0; ESCAPE = 0x1B, 0x01, 0; SPACE = 0x20, 0x39, 0
     CTRL = 0x11, 0x1D, 0; SHIFT = 0x10, 0x2A, 0
-    B = 0x42, 0x30, 0; C = 0x43, 0x2E, 0; F = 0x46, 0x21, 0; S = 0x53, 0x1F, 0; V = 0x56, 0x2F, 0; X = 0x58, 0x2D, 0
     F1 = 0x70, 0x3B, 0; F2 = 0x71, 0x3C, 0; F3 = 0x72, 0x3D, 0
     PLUS = 0xBB, 0x0D, 0; MINUS = 0xBD, 0x0C, 0
+}
+# Letters and digits: the virtual key is the character itself.
+foreach ($c in [char[]]'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') {
+    $keyCodes["$c"] = [int]$c, [int][GameInput]::MapVirtualKeyW([uint32]$c, 0), 0
 }
 foreach ($k in $Keys) {
     $parts = $k.ToUpperInvariant() -split '\+'
