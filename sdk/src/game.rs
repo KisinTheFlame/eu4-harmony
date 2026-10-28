@@ -472,4 +472,13 @@ impl<'a> Game<'a> {
     pub fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
         self.backend.province(province)
     }
+    /// Runs a command in the game console, as the player would type it
+    /// (`cash 100`), and returns what it printed. The game's own checks
+    /// apply: a command only developers may run, almost any command in an
+    /// ironman or multiplayer game, one the game console does not know and
+    /// one that fails are [`Status::Rejected`], with what was printed as the
+    /// message. `Unavailable` on an EU4 Harmony older than this SDK.
+    pub fn console(&mut self, command: &str) -> Result<String> {
+        self.backend.console_run(command)
+    }
 }
