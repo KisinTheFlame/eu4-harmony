@@ -198,6 +198,10 @@ groups! {
     Screenshot(screenshot::ScreenshotRequest, ScreenshotAnswer),
     /// The game console.
     Console(console::ConsoleRequest, ConsoleAnswer),
+    /// The game's events waiting for the player's answer.
+    Question(questions::QuestionRequest, QuestionAnswer),
+    /// What other countries proposed to the player, waiting for an answer.
+    Offer(offers::OfferRequest, OfferAnswer),
     /// The events remote control keeps.
     Events(events::EventsRequest, EventsAnswer),
     /// The capabilities, described.

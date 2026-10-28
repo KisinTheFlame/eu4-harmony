@@ -1,6 +1,6 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, provinces, recruiting, screenshot, session, texts, time};
+use super::{armies, camera, console, countries, offers, provinces, questions, recruiting, screenshot, session, texts, time};
 use crate::game::{self, fail, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
 use std::sync::Arc;
@@ -44,6 +44,8 @@ pub struct Fake {
     pub shot: Option<Arc<game::screenshot::Shot>>,
     /// The clock the time capabilities read and set.
     pub clock: Clock,
+    /// The questions and offers answered.
+    pub answered: Vec<(u32, u32)>,
 }
 
 impl Fake {
@@ -446,5 +448,58 @@ impl recruiting::Layer for Fake {
             151 => fail(Status::Rejected, "君士坦丁堡不是我们的领土"),
             _ => fail(Status::NotFound, format!("no province {province}")),
         }
+    }
+}
+
+/// A question of the Ottomans', its second option closed to them.
+pub fn question() -> game::questions::Question {
+    game::questions::Question {
+        id: 7,
+        event: "flavor_tur.1".into(),
+        title: "The Janissaries".into(),
+        description: "Our elite troops ask for more.".into(),
+        // 1445.3.11
+        deadline: 0x035D_8250,
+        options: vec![
+            game::questions::QuestionOption { index: 0, text: "Pay them".into() },
+            game::questions::QuestionOption { index: 2, text: "Refuse".into() },
+        ],
+    }
+}
+
+impl questions::Layer for Fake {
+    fn questions(&mut self) -> GResult<Vec<game::questions::Question>> {
+        self.call("questions".into());
+        Ok(vec![question()])
+    }
+
+    fn answer_question(&mut self, question: u32, option: u32) -> GResult<()> {
+        self.call(format!("answer question {question} {option}"));
+        match (question, option) {
+            (7, 0 | 2) => {
+                self.answered.push((question, option));
+                Ok(())
+            }
+            (7, 1) => fail(Status::Rejected, "the player may not choose option 1 of question 7"),
+            (7, _) => fail(Status::InvalidArgument, format!("question 7 has no option {option}")),
+            _ => fail(Status::NotFound, format!("no question {question}")),
+        }
+    }
+}
+
+impl offers::Layer for Fake {
+    fn offers(&mut self) -> GResult<Vec<game::offers::Offer>> {
+        self.call("offers".into());
+        // 1444.11.11
+        Ok(vec![game::offers::Offer { id: 3, from: byz(), date: 0x035D_7710, title: "Royal Marriage".into(), description: "皇室联姻".into() }])
+    }
+
+    fn answer_offer(&mut self, offer: u32, accept: bool) -> GResult<()> {
+        self.call(format!("answer offer {offer} {accept}"));
+        if offer != 3 {
+            return fail(Status::NotFound, format!("no offer {offer}"));
+        }
+        self.answered.push((offer, accept as u32));
+        Ok(())
     }
 }
