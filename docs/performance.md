@@ -6,6 +6,22 @@ What the framework costs the game, measured on 2026-10-28 with the framework at 
 - **Starting the game**: about 1 s longer with the English playset. With the Chinese playset and bitmap fonts (the default) the main menu came about 2 s sooner than with the plugin; with system fonts about 1.3 s later, because every character is drawn at startup.
 - **Memory**: 30 to 65 MB more with the English playset. With the Chinese playset and system fonts, about the same as the plugin (+15 to 35 MB); with bitmap fonts about **420 MB more**, in the menu and in the game. That is the largest cost, and the first to reduce: most of it is what Direct3D keeps after the framework writes its grown font pages, the rest the glyph records each font keeps a copy of.
 
+## Since then
+
+The grown font pages are now written through a small system-memory texture instead of being locked in place (see [Memory](#memory)). Measured the same day from the framework's log, Chinese playset, to the main menu:
+
+| | Bitmap fonts, before | Bitmap fonts, after | System fonts, before | System fonts, after |
+| --- | --- | --- | --- | --- |
+| Process private bytes at the main menu | 4353 MB | 3866 MB | 3860 MB | 3778 MB |
+| Writing the six pages | 560 MB | 40 MB | not measured | 9 MB |
+| Drawing a glyph into a page | 2.1 ms | 91 µs | 1.1 ms | 9 µs |
+| Making the six pages | 181 ms | 27 ms | 84 ms | 23 ms |
+| From the framework loading to the main menu | 30.8 s | 31.5 s | 34.9 s | 30.8 s |
+
+- **Memory**: bitmap fonts now hold what system fonts held before, so most of their 420 MB over the plugin should be gone; they were not measured against the plugin again. What is left of their difference to system fonts is mostly the glyph records each font keeps a copy of (66 MB of the framework's heap).
+- **Starting the game**: system fonts no longer take longer than bitmap fonts. Their 3,143 glyphs were drawn in 28 ms instead of 3.5 s; the time had been the locks.
+- The tables below are from before the change. Game speed was not measured again.
+
 ## Setups
 
 Two playsets:
