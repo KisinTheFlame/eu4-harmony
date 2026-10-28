@@ -497,7 +497,9 @@ impl<'de> Deserialize<'de> for Date {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
-    /// No game is going on, or one is being loaded.
+    /// No game is going on to play: the main menu is open, or the player
+    /// plays no country (observing). While a game is being set up or a save
+    /// loads, a request that needs a game waits for one instead.
     NotInGame,
     /// The game state cannot be read right now; it may work a little later.
     NotReady,
