@@ -149,6 +149,13 @@ fn record(change: Change) {
     });
 }
 
+/// Raises a change the game's own functions did not report, such as the
+/// player's order a remote client gave; extensions hear it at the next safe
+/// frame, as if a hook had seen it.
+pub fn raise(change: Change) {
+    record(change);
+}
+
 /// Own land army at `address`, if it is one.
 fn own_army_id(m: &Memory, address: usize) -> Option<u64> {
     let ctx = context_any(m).ok()?;

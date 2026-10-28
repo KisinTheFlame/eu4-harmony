@@ -11,7 +11,8 @@ These rules hold for everyone who changes this repository, people and coding age
 
 ## Where things are written down
 
-- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its nodes and what each delivers.- [docs/adr/](docs/adr/): decisions that are hard to reverse. A new decision gets the next number; a changed decision gets a new ADR that supersedes the old one, which stays.
+- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its nodes and what each delivers.
+- [docs/adr/](docs/adr/): decisions that are hard to reverse. A new decision gets the next number; a changed decision gets a new ADR that supersedes the old one, which stays.
 - [docs/research/](docs/research/): what is known about the game's code, with addresses as RVAs into the 1.37.5 baseline.
 - [docs/prototype-log.md](docs/prototype-log.md): what was tested in the running game and what came out, one dated section per run. Say what was not verified as plainly as what was.
 
@@ -57,7 +58,7 @@ CI (`.github/workflows/ci.yml`) runs the build and the tests on Windows for ever
 Work planned as a DAG of nodes (such as [docs/remote-control.md](docs/remote-control.md)) is developed with the `dag-dev` skill:
 
 - The requirement branch (such as `remote-control`) is checked out in its own worktree, `.claude/worktrees/<requirement>`; the main checkout stays on `master`.
-- A node is developed on `<requirement>/<node>`, in `.claude/worktrees/<requirement>-<node>`, cut from the requirement branch as it is when the node starts. `dev-install.ps1` installs the build of the worktree it is run from.
+- A node is developed on the branch `<requirement>-<node>` (git cannot keep `<requirement>/<node>` beside the branch `<requirement>`), in `.claude/worktrees/<requirement>-<node>`, cut from the requirement branch as it is when the node starts. `dev-install.ps1` installs the build of the worktree it is run from.
 - A node is done when it meets its plan's "done when" list; a reviewer then checks it, and it is merged into the requirement branch with `git merge --no-ff`, one node at a time. After the merge, its worktree and branch are deleted.
 - When a node finds that the plan cannot work as written, it changes the plan, says so in its report, and carries on; a changed decision still gets a new ADR.
 

@@ -43,7 +43,7 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 | 目录 | 内容 |
 | --- | --- |
 | `proxy/` | `version.dll` 代理：转发 version.dll，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：依赖点与启动、框架读取的游戏对象布局（`core/src/objects/`）、`.gui` 拼接、扩展加载、游戏能力、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
+| `core/` | 框架核心：依赖点与启动、框架读取的游戏对象布局（`core/src/objects/`）、`.gui` 拼接、扩展加载、能力，每组一个文件（`core/src/game/`）、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
 | `loc/` | 本地化文件的格式、语言列表和查找，核心、SDK 和命令行工具共用 |
 | `manifest/` | 模组的 `eu4-harmony/manifest.json` 和描述文件的各行，核心和命令行工具共用 |
 | `abi/` | 核心与扩展之间的 C ABI |

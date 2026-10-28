@@ -18,7 +18,8 @@ for (const n of A.nodes) {
 }
 
 const slug = id => id.toLowerCase()
-const branchOf = n => `${A.requirement}/${slug(n.id)}`
+// Not `<requirement>/<node>`: git cannot keep that beside the branch `<requirement>`.
+const branchOf = n => `${A.requirement}-${slug(n.id)}`
 const worktreeOf = n => `${A.repo}/.claude/worktrees/${A.requirement}-${slug(n.id)}`
 
 const DEV_SCHEMA = {

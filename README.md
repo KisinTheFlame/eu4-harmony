@@ -43,7 +43,7 @@ Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of
 | Folder | Contents |
 | --- | --- |
 | `proxy/` | The `version.dll` proxy: forwards version.dll and loads the core, only in `eu4.exe` |
-| `core/` | The framework core: dependency points and startup, where the game keeps what the framework reads (`core/src/objects/`), `.gui` splicing, loading extensions, game capabilities, interface bindings, extension save data, player language, framework settings, the framework UI (`core/src/framework_ui/`) and the Unicode module (`core/src/unicode/`); `core/localisation/` holds the framework's own texts |
+| `core/` | The framework core: dependency points and startup, where the game keeps what the framework reads (`core/src/objects/`), `.gui` splicing, loading extensions, the capabilities, one file per group (`core/src/game/`), interface bindings, extension save data, player language, framework settings, the framework UI (`core/src/framework_ui/`) and the Unicode module (`core/src/unicode/`); `core/localisation/` holds the framework's own texts |
 | `loc/` | The localisation file format, the languages and lookup, shared by the core, the SDK and the command line tool |
 | `manifest/` | A mod's `eu4-harmony/manifest.json` and the lines of its descriptor, shared by the core and the command line tool |
 | `abi/` | The C ABI between the core and extensions |

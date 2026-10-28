@@ -237,6 +237,21 @@ Every field, global, class and method the framework relies on is now a dependenc
 - **Extension**: selecting the army in Hanseong bound 9 elements in the army panel; clicking the extension's button turned its task on ("army 2628519985206 task on: center 735 radius 5") and again off, its tooltip showed in Chinese, and its geography read ran in `on_frame` with no error. Three game days passed unpaused with nothing in the core log.
 - **Not seen in the running game**: the map preview (it needs a right click, which the input tool cannot send), an edit box after the change (its offsets are now named constants, which assemble to the same instructions, and the points check them), floating text, a save written with extension data, and a battle.
 
+## 2026-10-29 The capability layer, through regional-combat (remote control F1, tested by me)
+
+Every capability now runs in the capability layer (`core/src/game/`) and the host functions only convert to and from the ABI. The regional-combat extension was not rebuilt: its DLL, built with the SDK before the change, is what an extension sees through the unchanged ABI. Backups as above. Chinese playset, system fonts; a new game as the Ottomans, running `eu4.exe` directly.
+
+- **Startup**: as before: 365 dependency points match; 102 hooks, 4 writes; the extension loaded, and the main menu showed its continue box and the framework button.
+- **Reading**: selecting the Balkan army (in province 148) bound 9 elements in the army panel; the button's left click turned its task on ("center 148 radius 5"), and its tooltip showed in Chinese, from the mod's texts. For the 32 days until 1444.12.16 its daily decision read the session, the provinces, their neighbors and the armies in them, with no error.
+- **Moving and stopping**: war on Byzantium (without a casus belli, since the game allows none before 1444.12.11). On the next day the extension ordered "move to Some(146): accepted", and the game showed the army marching on Athens. Clicking the button while it marched read the route as its own and ended in "stop to None: accepted". On again, it ordered moves to 151 and then 316, accepted.
+- **The player's order**: a right click on Thessaly, with the army marching on the extension's order, turned the task off with "manual order", and the army went to Thessaly as the player asked. The order was heard through the changed frame start.
+- **Map coloring**: a right click on the extension's button opened its radius box and colored the map; cancelling restored the map mode.
+- **Sessions**: the autosave of 1445.1.1 was written with the extension's data; loading it logged "loaded … with data for 1 extension(s)" and "session 2 started (from a loaded save: true)", and the extension restored its task. After loading, the army's route read as set by someone else, since routes are forgotten at a new session, as before.
+- **Costs**: 44,781 callbacks took 2,195 ms in all, the longest 61 ms; the core log has no error, and no extension was stopped.
+- **Not seen in the running game**: a remote client's order (`Caller::Remote`), since nothing calls it yet; its bookkeeping (the army taken back from the extension, one player's order raised) is covered by a unit test only. A battle, so the defeat event; a strait; the radius box's apply button.
+- **Tools**: `game-input.ps1` now right-clicks (`-RightClick x,y`), which the player's order and the map preview needed.
+- **Cleanup**: the run rotated the three autosaves, rewrote `continue_game.json` and added one extension data file; the backups were put back, the new file deleted, and both save folders and the three settings files compared equal to the backup. No crash folder was made. The framework was uninstalled afterwards as AGENTS.md says, which put back the CJK font plugin's `version.dll`; an earlier build of the framework had been installed before the run.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

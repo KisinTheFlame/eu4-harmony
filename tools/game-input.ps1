@@ -6,7 +6,7 @@ for trying things in a running game (tools/README.md).
 .DESCRIPTION
 Coordinates are physical screen pixels (the script is DPI aware), as
 tools/screenshot.ps1 captures them. The steps run in this order: -Wheel, -Click,
--Drag, -Type, -Keys.
+-RightClick, -Drag, -Type, -Keys.
 
 Injected keys are not quite a keyboard: one injected Backspace press deletes
 more than one character in the game's edit boxes, on builds with and without
@@ -17,6 +17,9 @@ Mouse wheel notches, positive away from the user, at -At or the screen centre.
 
 .PARAMETER Click
 x, y to left-click.
+
+.PARAMETER RightClick
+x, y to right-click.
 
 .PARAMETER Drag
 x1, y1, x2, y2 to drag from and to with the left button.
@@ -30,7 +33,7 @@ the keys in $keyCodes below, and any letter or digit. Unlike -Type, these
 are key presses, so an input method takes them (type pinyin with
 -Keys B,E,I,J,I,N,G).
 #>
-param([int]$Wheel = 0, [int[]]$At, [int[]]$Click, [int[]]$Drag, [string]$Type, [string[]]$Keys)
+param([int]$Wheel = 0, [int[]]$At, [int[]]$Click, [int[]]$RightClick, [int[]]$Drag, [string]$Type, [string[]]$Keys)
 $ErrorActionPreference = 'Stop'
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -51,7 +54,7 @@ public static class GameInput {
 }
 "@
 $KEY_UP = 0x2; $KEY_UNICODE = 0x4
-$MOUSE_LEFT_DOWN = 0x02; $MOUSE_LEFT_UP = 0x04; $MOUSE_WHEEL = 0x0800
+$MOUSE_LEFT_DOWN = 0x02; $MOUSE_LEFT_UP = 0x04; $MOUSE_RIGHT_DOWN = 0x08; $MOUSE_RIGHT_UP = 0x10; $MOUSE_WHEEL = 0x0800
 
 # Per-monitor DPI awareness v2: coordinates are physical pixels.
 [GameInput]::SetProcessDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
@@ -61,8 +64,8 @@ if (-not $game) { throw 'eu4.exe is not running' }
 [GameInput]::SetForegroundWindow($game.MainWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 500
 
-function Press([int[]]$from) { [GameInput]::SetCursorPos($from[0], $from[1]) | Out-Null; Start-Sleep -Milliseconds 150; [GameInput]::mouse_event($MOUSE_LEFT_DOWN, 0, 0, 0, [UIntPtr]::Zero) }
-function Release { [GameInput]::mouse_event($MOUSE_LEFT_UP, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300 }
+function Press([int[]]$from, [uint32]$down = $MOUSE_LEFT_DOWN) { [GameInput]::SetCursorPos($from[0], $from[1]) | Out-Null; Start-Sleep -Milliseconds 150; [GameInput]::mouse_event($down, 0, 0, 0, [UIntPtr]::Zero) }
+function Release([uint32]$up = $MOUSE_LEFT_UP) { [GameInput]::mouse_event($up, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300 }
 
 if ($Wheel) {
     Add-Type -AssemblyName System.Windows.Forms
@@ -72,6 +75,7 @@ if ($Wheel) {
     for ($i = 0; $i -lt [Math]::Abs($Wheel); $i++) { [GameInput]::mouse_event($MOUSE_WHEEL, 0, 0, [Math]::Sign($Wheel) * 120, [UIntPtr]::Zero); Start-Sleep -Milliseconds 120 }
 }
 if ($Click) { Press $Click; Start-Sleep -Milliseconds 60; Release }
+if ($RightClick) { Press $RightClick $MOUSE_RIGHT_DOWN; Start-Sleep -Milliseconds 60; Release $MOUSE_RIGHT_UP }
 if ($Drag) {
     Press $Drag[0..1]
     for ($s = 1; $s -le 10; $s++) {
