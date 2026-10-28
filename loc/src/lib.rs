@@ -157,6 +157,11 @@ impl Catalog {
         [language, Language::English].iter().find_map(|l| self.texts.get(l)?.get(key)).map(String::as_str)
     }
 
+    /// The text of `key` as written in `language` itself, never English's.
+    pub fn raw_in(&self, language: Language, key: &str) -> Option<&str> {
+        self.texts.get(&language)?.get(key).map(String::as_str)
+    }
+
     /// The text of `key` as shown, in `language` or else in English.
     pub fn text(&self, language: Language, key: &str) -> Option<String> {
         self.raw(language, key).map(unescape)

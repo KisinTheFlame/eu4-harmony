@@ -39,6 +39,7 @@ pub mod splice;
 mod trace;
 pub mod ui;
 pub mod unicode;
+pub mod wording;
 
 use std::sync::{
     atomic::{AtomicU32, Ordering},
@@ -98,6 +99,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(map::points());
     all.extend(saves::points());
     all.extend(unicode::points());
+    all.extend(wording::points());
     all.extend(framework_ui::hook::points());
     all
 }

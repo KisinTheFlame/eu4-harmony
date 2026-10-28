@@ -34,6 +34,13 @@ pub fn framework(language: Language, key: &str, args: &[(&str, &str)]) -> String
     format::fill(&FRAMEWORK.text(language, key).unwrap_or_else(|| key.to_string()), args)
 }
 
+/// A framework text `language` has of its own, with its `$NAME$` values
+/// filled in; `None` when only another language has it. For texts a language
+/// gives only where it differs from what the game does (date formats).
+pub fn framework_own(language: Language, key: &str, args: &[(&str, &str)]) -> Option<String> {
+    FRAMEWORK.raw_in(language, key).map(|raw| format::fill(&format::unescape(raw), args))
+}
+
 /// A mod's text in the player language; `None` when the mod has no such key.
 pub fn mod_text(id: &str, key: &str) -> Option<String> {
     MODS.get()?.get(id)?.text(lang::player(), key)
@@ -86,9 +93,18 @@ mod tests {
     fn framework_texts_exist_in_every_language() {
         // The `$NAME$` values a text fills in, and its line breaks.
         let shape = |text: &str| (text.split('$').skip(1).step_by(2).map(str::to_string).collect::<BTreeSet<_>>(), text.matches("\\n").count());
+        // Wording templates: only a language that orders things its own way
+        // has them, and they may use only their own values.
+        let template = |key: &str| crate::wording::TEMPLATES.iter().find(|(k, _)| *k == key).map(|(_, names)| *names);
+        let required = |language| FRAMEWORK.keys_in(language).into_iter().filter(|k| template(k).is_none()).collect::<BTreeSet<_>>();
         for language in Language::ALL {
-            assert_eq!(FRAMEWORK.keys_in(language), FRAMEWORK.keys_in(Language::English), "{language:?}");
-            for key in FRAMEWORK.keys_in(language) {
+            assert_eq!(required(language), required(Language::English), "{language:?}");
+            for key in FRAMEWORK.keys_in(language).into_iter().filter(|k| k.starts_with("EU4HARMONY_DATE") || template(k).is_some()) {
+                let allowed = template(key).unwrap_or_else(|| panic!("{key} is not a wording template"));
+                let (names, _) = shape(FRAMEWORK.raw_in(language, key).unwrap());
+                assert!(names.iter().all(|n| allowed.contains(&n.as_str())), "{language:?} {key}: {names:?}");
+            }
+            for key in required(language) {
                 let (text, english) = (FRAMEWORK.raw(language, key).unwrap(), FRAMEWORK.raw(Language::English, key).unwrap());
                 assert_eq!(shape(text), shape(english), "{language:?} {key}");
             }
