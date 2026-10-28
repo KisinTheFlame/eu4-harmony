@@ -4,7 +4,7 @@ use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
-    response_json, session::SessionRequest, texts::TextRequest, ArmyId, CountryTag, ProvinceId,
+    response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -114,6 +114,10 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),
         (Request::Army(ArmyRequest::Selected {}), Box::new(error("not_found"))),
         (Request::Text(TextRequest::Language {}), Box::new(|v: &Value| *v == ok(json!("simp_chinese")))),
+        (
+            Request::Screenshot(ScreenshotRequest::Take { scale: Some(50) }),
+            Box::new(|v: &Value| *v == ok(json!({"image": {"media_type": "image/png", "base64": "iVBORw=="}, "width": 2, "height": 1, "frame_width": 2, "frame_height": 1}))),
+        ),
         (
             Request::Events(EventsRequest::Read { since: None, wait_ms: None }),
             Box::new(|v: &Value| *v == ok(json!({"events": [], "last": 0, "missed": false}))),
