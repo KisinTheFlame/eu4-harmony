@@ -281,7 +281,7 @@ fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
 fn a_game_started_again_opens_the_pipe_once_the_one_before_is_gone() {
     let before = Server::new(&pipe_name("again"), |_| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
     let test = test_pipe!("again", Place::Game);
-    assert!(test.logged("yet, another process has it"), "{:#?}", test.log());
+    assert!(test.logged("yet (another process has it); trying again every second"), "{:#?}", test.log());
     drop(before);
     assert!(test.logged("remote pipe: open at"), "{:#?}", test.log());
     assert_eq!(test.connect().ask(r#"{"capability": "session"}"#)["ok"], true);

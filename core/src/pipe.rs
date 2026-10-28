@@ -33,7 +33,7 @@ use std::{
     time::Duration,
 };
 use windows_sys::Win32::{
-    Foundation::{LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE},
+    Foundation::{LocalFree, ERROR_ACCESS_DENIED, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE},
     Security::{
         Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
         GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
@@ -141,15 +141,16 @@ impl Server {
 
 /// Waits for clients, one at a time, and hands each to a thread of its own.
 fn listen(server: &Arc<Server>) {
-    // Another process may have the pipe: the game before it returned to the
-    // main menu, until it is gone, or a second game.
+    // Another process may have the pipe: the game that returned to the main
+    // menu, which ends a few seconds after this one starts, or a second game.
     let mut told = false;
     let mut pipe = loop {
         match server.instance(true) {
             Ok(pipe) => break pipe,
             Err(e) => {
                 if !told {
-                    server.log(&format!("cannot open {} yet, another process has it ({e}); trying again every second", server.name));
+                    let why = if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) { "another process has it".to_string() } else { e.to_string() };
+                    server.log(&format!("cannot open {} yet ({why}); trying again every second", server.name));
                     told = true;
                 }
                 std::thread::sleep(RETRY);
