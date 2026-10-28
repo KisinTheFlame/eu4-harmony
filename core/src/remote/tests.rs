@@ -3,7 +3,7 @@
 use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, capabilities, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
     response_json, session::SessionRequest, texts::TextRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
@@ -119,6 +119,16 @@ fn every_capability_runs_at_a_game_frame() {
             Box::new(|v: &Value| *v == ok(json!({"events": [], "last": 0, "missed": false}))),
         ),
         (
+            Request::Camera(CameraRequest::Get {}),
+            Box::new(|v: &Value| *v == ok(json!({"x": 3248, "y": 1376, "height": 800, "province": 149, "min_height": 50, "max_height": 3000}))),
+        ),
+        (Request::Camera(CameraRequest::LookAtProvince { province: province(151) }), Box::new(|v: &Value| v["result"]["province"] == 151 && v["result"]["x"] == 3270)),
+        (Request::Camera(CameraRequest::LookAtProvince { province: province(1) }), Box::new(error("not_found"))),
+        (Request::Camera(CameraRequest::LookAt { x: 100, y: 200 }), Box::new(|v: &Value| v["result"]["x"] == 100 && v["result"]["y"] == 200 && v["result"]["province"].is_null())),
+        (Request::Camera(CameraRequest::LookAt { x: 6000, y: 200 }), Box::new(error("invalid_argument"))),
+        (Request::Camera(CameraRequest::Zoom { height: 1200 }), Box::new(|v: &Value| v["result"]["height"] == 1200 && v["result"]["province"] == 149)),
+        (Request::Camera(CameraRequest::Zoom { height: 10 }), Box::new(error("invalid_argument"))),
+        (
             Request::Describe(DescribeRequest::All {}),
             Box::new(|v: &Value| v["result"].as_array().map(Vec::len) == Some(capabilities().len()) && v["result"][0]["capability"] == "session"),
         ),
@@ -140,6 +150,9 @@ fn every_capability_runs_at_a_game_frame() {
     let tur = format!("{:x}", fake::tur().0);
     for call in [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316")] {
         assert!(game.calls.contains(&call), "{call} not in {:#?}", game.calls);
+    }
+    for call in ["look at province 151", "look at 100 200", "zoom 1200"] {
+        assert!(game.calls.iter().any(|c| c == call), "{call} not in {:#?}", game.calls);
     }
     let moved = game.calls.iter().position(|c| *c == format!("move {ARMY} 151")).unwrap();
     let stopped = game.calls.iter().position(|c| *c == format!("stop {ARMY}")).unwrap();
