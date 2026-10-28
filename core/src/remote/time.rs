@@ -117,7 +117,10 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     let until = time.date.checked_add(days as i32 * DAY).ok_or_else(|| Error::new(Code::InvalidArgument, "the date would run past the game's last"))?;
     // Before time runs, so that no day slips past the date.
     let stop = game.stop_at(until)?;
-    game.resume()?;
+    if let Err(fail) = game.resume() {
+        stop.release();
+        return Err(fail.into());
+    }
     Ok(Started::Running(Advance { session: time.session, since, until, date: time.date, reached: None, stop: Some(stop) }))
 }
 
