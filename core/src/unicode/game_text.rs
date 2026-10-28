@@ -191,6 +191,28 @@ pub fn to_utf8(text: &[u8]) -> String {
     chars(text).map(|(c, _)| c).collect()
 }
 
+/// Text the game keeps, as UTF-8 without its formatting codes: a color
+/// (`§` and one character) and an icon (`£`, its name of letters and digits,
+/// and the character that ends it) are left out, as the game does not show
+/// them as text (docs/research/unicode-text.md).
+pub fn plain(text: &[u8]) -> String {
+    let mut out = String::new();
+    let mut chars = chars(text).map(|(c, _)| c).peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '§' => {
+                chars.next();
+            }
+            '£' => {
+                while chars.next_if(|c| c.is_ascii_alphanumeric() || *c == '_').is_some() {}
+                chars.next();
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,6 +257,13 @@ mod tests {
         for text in ["§YGröße€ …", "中文£gold£", "plain", "匈雅提·亚诺什“谨慎者”"] {
             assert_eq!(to_utf8(&from_str(text)), text);
         }
+    }
+
+    #[test]
+    fn plain_text_leaves_formatting_codes_out() {
+        assert_eq!(plain(&from_str("§R没有足够的§Y10§!£gold£金钱")), "没有足够的10金钱");
+        assert_eq!(plain(&from_str("Costs £adm 50 points§")), "Costs 50 points");
+        assert_eq!(plain(&from_str("Île-de-France · 巴黎")), "Île-de-France · 巴黎");
     }
 
     #[test]
