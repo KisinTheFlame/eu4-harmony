@@ -267,3 +267,45 @@ pub struct ExtensionVTable {
     /// Another extension took over the map coloring.
     pub on_map_lost: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi) -> i32>,
 }
+
+// The layout extensions are built against, checked as the crate compiles: a
+// field may only be appended, never moved or resized.
+
+/// Asserts that the fields of a table of pointer-sized slots sit in this
+/// order, one slot each, and that the table ends after the last.
+macro_rules! slots {
+    ($table:ty: $($field:ident),+ $(,)?) => {
+        const _: () = {
+            let mut slot = 0;
+            $(
+                assert!(std::mem::offset_of!($table, $field) == slot * 8, concat!(stringify!($table), "::", stringify!($field), " moved"));
+                slot += 1;
+            )+
+            assert!(std::mem::size_of::<$table>() == slot * 8, concat!(stringify!($table), " changed size"));
+        };
+    };
+}
+
+/// Asserts each field's offset and the struct's size.
+macro_rules! layout {
+    ($ty:ty, $size:literal: $($field:ident @ $offset:literal),+ $(,)?) => {
+        const _: () = {
+            $(assert!(std::mem::offset_of!($ty, $field) == $offset, concat!(stringify!($ty), "::", stringify!($field), " moved"));)+
+            assert!(std::mem::size_of::<$ty>() == $size, concat!(stringify!($ty), " changed size"));
+        };
+    };
+}
+
+layout!(HostApi, 32: size @ 0, abi_version @ 8, host @ 16, log @ 24);
+layout!(Session, 24: session @ 0, date @ 8, paused @ 12, visibility_current @ 13, _reserved @ 14, player @ 16);
+layout!(Province, 24: id @ 0, flags @ 4, owner @ 8, controller @ 16);
+layout!(Neighbor, 8: to @ 0, flags @ 4);
+layout!(Army, 40: id @ 0, owner @ 8, province @ 16, flags @ 20, regiments @ 24, route_len @ 28, destination @ 32, route_source @ 36);
+layout!(MapColor, 8: province @ 0, rgba @ 4);
+slots!(GameApi:
+    size, host, last_error, session, country_tag, countries_hostile, provinces, province_neighbors, army, own_armies,
+    province_armies, army_route, army_can_enter, army_strait_open, army_can_attack, find_route, army_move, army_stop,
+    ui_selected_army, ui_set_visible, ui_set_enabled, ui_set_text, ui_set_tooltip, map_paint, map_clear, save_data_get,
+    save_data_set, language, text,
+);
+slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
