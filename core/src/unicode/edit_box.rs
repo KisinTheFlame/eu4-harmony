@@ -3,7 +3,7 @@
 //! caret as a line and a byte column within it; every operation moved, cut
 //! and deleted single bytes, which splits a UTF-8 sequence. Here
 //! each one moves over, cuts before or deletes a whole character
-//! (docs/research/text-input.md §2–3):
+//! (docs/research/text-input.md §2):
 //!
 //! - Left (0x15384d0) and Right (0x15385a0) step over a whole character;
 //!   Backspace (0x1538db0) and Delete (0x1538f30) erase all of its bytes

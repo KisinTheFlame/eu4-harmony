@@ -1,6 +1,6 @@
 //! Typing: what the player types reaches edit boxes as whole characters, and
 //! the system's input method shows its own windows next to the caret
-//! (docs/research/text-input.md §1, §4).
+//! (docs/research/text-input.md §1, §3).
 //!
 //! The game's event pump (0x1569c70) handles SDL's text event at 0x1569f91.
 //! It kept only the first character of the text, dropped anything of three
