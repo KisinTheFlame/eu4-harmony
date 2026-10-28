@@ -1,8 +1,8 @@
-# 扩展是导出 C ABI 的原生 DLL
+# Extensions are native DLLs exporting a C ABI
 
-扩展以导出 C ABI 的 Windows DLL 形式提供，由框架在游戏进程内加载，不放进 WASM 或 Lua 沙箱。初版需要的能力——在任意游戏函数上挂钩、直接读取游戏内存——在沙箱里都得先由框架逐项封装，初版做不完；C ABI 也让 Rust、C++ 等语言都能编写扩展。
+Extensions come as Windows DLLs that export a C ABI. The framework loads them inside the game process; they are not put in a WASM or Lua sandbox. What the first version needs (hooking any game function, reading game memory directly) would each have to be wrapped by the framework first to work in a sandbox, and the first version could not get through all of that. A C ABI also lets extensions be written in Rust, C++ and other languages.
 
 ## Consequences
 
-- 扩展拥有进程内的全部权限。初版不做加载前确认，合集中启用即加载；对外部开发者开放前需要重新评估来自创意工坊的扩展的安全问题。
-- 接口用句柄而非裸指针表示游戏对象，日后加入沙箱宿主时不必推翻接口。
+- Extensions have every right inside the process. The first version asks for no confirmation before loading: enabled in the playset means loaded. Before the framework is opened to outside developers, the security of extensions from the Steam Workshop has to be assessed again.
+- The interface represents game objects by handles, not raw pointers, so adding a sandbox host later does not mean throwing the interface away.

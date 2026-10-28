@@ -1,4 +1,4 @@
-//! Text as the game keeps it (GLOSSARY 游戏文字): a character Windows-1252
+//! Text as the game keeps it (GLOSSARY: game text): a character Windows-1252
 //! has is its single 1252 byte, as the game always kept it; any other
 //! character is its UTF-8 sequence. Formatting codes (`§`, `£`, `¤`) and all
 //! European text stay byte for byte what the game's own code expects, while

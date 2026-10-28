@@ -1,83 +1,83 @@
-# 字体页纹理（Unicode 模块用）
+# Font page textures (for the Unicode module)
 
-底本 1.37.5（`9ad3efe1…`）。地址都是 RVA。标 [V] 的来自 eu4.exe 的反汇编并核对过；标 [I] 的是推断；标“实测”的在游戏里验证过。
+Baseline 1.37.5 (`9ad3efe1…`). All addresses are RVAs. What is marked [V] comes from eu4.exe's disassembly and has been checked; [I] is inferred; what is marked "tested" has been verified in the game.
 
-## 纹理管理器
+## The texture manager
 
-- **纹理管理器** = `[[font+0x48]+0x480]`（`font+0x48` 是图形上下文）[V]。它的表由 `[0x242b818]` 处的 `CRITICAL_SECTION*` 保护。
-  - `+0x08`：0x48 字节一条的数组，字体 `+0x970` 存的就是这个数组的下标。
-  - `+0x38`：名字到下标的映射。
-- **一条记录（0x48 字节）**[V]：
-  - `+0x00` 纹理包装对象的指针；
-  - `+0x08` 名字（std::string）；
-  - `+0x28` / `+0x2c` 宽、高；
-  - `+0x34` 引用计数；
-  - `+0x38` “已加载”标志。
-- **纹理包装对象（0x28 字节，用游戏的分配器分配）**[V]：`+0x00` 是 `IDirect3DTexture9*`，`+0x08` 是 sRGB 采样标志，`+0x0c` 是用途（0 或 0x200 = DYNAMIC）。
-- **渲染器函数表**：0x1fd11a8–0x1fd1378 共 81 个槽，由 0x16c1480 在运行时填写，填的值和 `.data` 里的静态值相同 [V]。
+- **The texture manager** = `[[font+0x48]+0x480]` (`font+0x48` is the graphics context) [V]. Its table is guarded by the `CRITICAL_SECTION*` at `[0x242b818]`.
+  - `+0x08`: an array of 0x48-byte entries; a font's `+0x970` holds an index into this array.
+  - `+0x38`: a map from name to index.
+- **An entry (0x48 bytes)**[V]:
+  - `+0x00` pointer to the texture wrapper;
+  - `+0x08` name (std::string);
+  - `+0x28` / `+0x2c` width, height;
+  - `+0x34` reference count;
+  - `+0x38` the "loaded" flag.
+- **The texture wrapper (0x28 bytes, allocated with the game's allocator)**[V]: `+0x00` is the `IDirect3DTexture9*`, `+0x08` the sRGB sampling flag, `+0x0c` the usage (0 or 0x200 = DYNAMIC).
+- **The renderer's function table**: 0x1fd11a8–0x1fd1378, 81 slots in all, filled in at run time by 0x16c1480 with the same values as the static ones in `.data` [V].
 
-## 字体页怎么加载
+## How a font page loads
 
-- `0x15953c0` 先加载页纹理，再调用 `.fnt` 解析函数 0x1595570 [V]。
-- **页文件名**：`font+0xe0` 的路径加 `.tga`；界面缩放 ≥ 1.6 且 `font+0x110` 不为空时改用 `font+0x100` [V]。解析函数 0x16c24d0 先找 `.dds`，找不到再用 `.tga`。
-- **`+0x970`**：纹理管理器下标，构造时为 -1；由 `0x16c35b0`（Load）返回，在 0x15954b0 写入 [V]。
-- **`+0x978` / `+0x97c`**：页的宽、高，取自纹理 `GetLevelDesc(0)` 记进记录 `+0x28` 的值 [V]。
-- **创建链**[V]：
-  1. 0x16c2980 读文件，交给 0x16cc6e0 解码（DDS 走 0x16dd990，TGA 走 0x16dd5f0）；
-  2. 经渲染器槽 `[0x1fd1320]` = 0x16d7de0 进入 0x16d7aa0；
-  3. 0x16d7aa0 调用 `D3DXCreateTexture`，再对每级 mip 调用 `D3DXLoadSurfaceFromMemory`，目标矩形为 NULL，即整张表面。
-- **格式**[V]：32 位 TGA 是 `A8R8G8B8`、1 级 mip；`.dds` 保持文件里的格式和 mip。DDS 解码已经把 DXT 的宽高向上取到 4 的倍数（0x16ddb01）。
-- **内存池**：9Ex 设备上是 `D3DPOOL_DEFAULT`，不可锁定 [V]。
+- `0x15953c0` loads the page texture first, then calls the `.fnt` parser 0x1595570 [V].
+- **Page file name**: the path at `font+0xe0` plus `.tga`; when the interface scale is ≥ 1.6 and `font+0x110` is not empty, `font+0x100` is used instead [V]. The resolving function 0x16c24d0 looks for `.dds` first and uses `.tga` if there is none.
+- **`+0x970`**: the texture manager index, -1 at construction; returned by `0x16c35b0` (Load) and written at 0x15954b0 [V].
+- **`+0x978` / `+0x97c`**: the page's width and height, taken from the values that the texture's `GetLevelDesc(0)` put in the entry at `+0x28` [V].
+- **Creation chain**[V]:
+  1. 0x16c2980 reads the file and hands it to 0x16cc6e0 to decode (DDS through 0x16dd990, TGA through 0x16dd5f0);
+  2. through the renderer slot `[0x1fd1320]` = 0x16d7de0 it reaches 0x16d7aa0;
+  3. 0x16d7aa0 calls `D3DXCreateTexture`, then `D3DXLoadSurfaceFromMemory` for each mip level, with a NULL destination rectangle, that is, the whole surface.
+- **Format**[V]: a 32-bit TGA becomes `A8R8G8B8` with 1 mip level; a `.dds` keeps the format and mips it has in the file. DDS decoding already rounds a DXT width and height up to multiples of 4 (0x16ddb01).
+- **Memory pool**: on a 9Ex device it is `D3DPOOL_DEFAULT`, which cannot be locked [V].
 
-## 16 MiB 上限（实测）
+## The 16 MiB limit (tested)
 
-- 0x16c2980 读出文件后，在 0x16c2cb7 执行 `cmp r14d, 0x1000000`：文件达到 16 MiB 就不再解码、不报错，纹理留空，字体的 `+0x978` / `+0x97c` 都是 0。
-- 汉化 Mod 的地图字体页 `zh-hans-map.dds` 有 49 MB（DXT5，6400×7663），所以地图上的国名、省名、海名全部看不见。原版不装框架也是这样，旧的字体插件放宽了这个限制。
-- 框架把上限改成 256 MiB（`font_load`）。改后实测：地图名都显示为正确的中文。
+- After 0x16c2980 reads the file, it runs `cmp r14d, 0x1000000` at 0x16c2cb7: a file of 16 MiB or more is not decoded, no error is reported, the texture stays empty, and the font's `+0x978` / `+0x97c` are both 0.
+- The Chinese language mod's map font page `zh-hans-map.dds` is 49 MB (DXT5, 6400×7663), so the country, province and sea names on the map are all invisible. Vanilla without the framework behaves the same; the CJK font plugin relaxed this limit.
+- The framework raises the limit to 256 MiB (`font_load`). Tested after the change: map names all show as correct Chinese.
 
-## 绘制时怎么取纹理
+## How drawing gets the texture
 
-- **每次绑定都重新取**[V]：`0x16c3f10`(纹理管理器, 下标) 返回包装对象，有约 80 个调用者。文字的绑定点：
-  - 主文字：0x159a15d、0x159a3a0、0x159a4e4、0x159a62d、0x159a741、0x159b322；
-  - 按钮：0x1597c0c、0x1597e77；
-  - 地图浮动文字：0x159cc9c；
-  - 地图名：0xfd7d86（绑 3 张纹理，第一张是字体页）。
-- 它们随后调用槽 `[0x1fd11f0]` = 0x16d8560，每次都读 `包装对象+0`，再 `SetTexture`。所以**替换包装对象 +0 处的纹理，所有文字路径就都会改用新纹理**，不用挂任何绘制代码。
+- **Fetched again at every bind**[V]: `0x16c3f10`(texture manager, index) returns the wrapper and has about 80 callers. The bind sites for text:
+  - main text: 0x159a15d, 0x159a3a0, 0x159a4e4, 0x159a62d, 0x159a741, 0x159b322;
+  - buttons: 0x1597c0c, 0x1597e77;
+  - floating text on the map: 0x159cc9c;
+  - map names: 0xfd7d86 (binds 3 textures, the first being the font page).
+- They then call slot `[0x1fd11f0]` = 0x16d8560, which reads `wrapper+0` every time and then calls `SetTexture`. So **replacing the texture at +0 in the wrapper makes every text path use the new texture**, without hooking any drawing code.
 
 ## UV
 
-- 四条文字路径的算法相同 [V]：`u = x / W`，`v = y / H`，其中 `W = font+0x978`，`H = font+0x97c`，没有半像素偏移。
-- 字形的 x、y、宽、高按有符号 16 位读取，所以页上的坐标必须小于 32768。
-- 读 `+0x978` / `+0x97c` 的位置：主文字 0x159a957 / 0x159a983，按钮 0x159852c / 0x1598557，浮动文字 0x159cfd8 / 0x159d007，地图名 0x159e09b / 0x159e0d0。
-- 页变高、宽不变时，只需改 `font+0x97c` 和记录的 `+0x2c`，原有字形的像素坐标不变。
+- The four text paths use the same formula [V]: `u = x / W`, `v = y / H`, where `W = font+0x978` and `H = font+0x97c`, with no half-pixel offset.
+- A glyph's x, y, width and height are read as signed 16-bit values, so coordinates on the page must be below 32768.
+- Where `+0x978` / `+0x97c` are read: main text 0x159a957 / 0x159a983, buttons 0x159852c / 0x1598557, floating text 0x159cfd8 / 0x159d007, map names 0x159e09b / 0x159e0d0.
+- When a page grows taller but keeps its width, only `font+0x97c` and the entry's `+0x2c` need changing; the existing glyphs' pixel coordinates stay the same.
 
-## 生命周期
+## Lifetime
 
-- **设备重置不动字体纹理** [V]。前后调用 0x16d4bb0 / 0x16d4b20，再通知各字体释放、重建文字顶点缓冲（0x15949a0 / 0x15948e0）。9Ex 上 DEFAULT 池的纹理在 Reset 后仍然有效 [I]。
-- **字体销毁** [V]：析构函数 0x15947e0 通过 0x16c3ca0 释放纹理管理器里的那一条（引用计数归零后进入待回收环，不立即销毁），并释放字形表（0x1594360）。
-- **真正销毁纹理**都经过槽 `[0x1fd1330]` = 0x16d80f0 [V]。
-- **原地重载**：控制台命令 `reloadtexture` 走 0x16c4220，在同一个包装对象里重建纹理，但不更新记录的宽高 [V]。
-- 字体只在解析 `.gfx` 时创建（0x17068b0 在 0x170741a 调用 Load），`reload` / `reloadinterface` 不重建字体 [I]。
+- **A device reset leaves font textures alone** [V]. It calls 0x16d4bb0 / 0x16d4b20 before and after, then tells each font to release and rebuild its text vertex buffers (0x15949a0 / 0x15948e0). On 9Ex, textures in the DEFAULT pool stay valid after Reset [I].
+- **Font destruction** [V]: the destructor 0x15947e0 releases the font's entry in the texture manager through 0x16c3ca0 (once the reference count reaches zero, the entry goes into a ring of entries waiting to be reclaimed rather than being destroyed at once), and frees the glyph table (0x1594360).
+- **Actually destroying a texture** always goes through slot `[0x1fd1330]` = 0x16d80f0 [V].
+- **Reloading in place**: the console command `reloadtexture` goes through 0x16c4220, which rebuilds the texture in the same wrapper but does not update the entry's width and height [V].
+- Fonts are created only while `.gfx` files are parsed (0x17068b0 calls Load at 0x170741a); `reload` / `reloadinterface` do not rebuild fonts [I].
 
-## 线程
+## Threads
 
-- 字体在 `.gfx` 解析期间、由加载线程创建 [V]。主菜单和游戏内的文字由主线程绘制 [I]；加载画面由另一条线程绘制并提交（实测，见 `framework_ui/hook.rs`）。
-- 设备以 `D3DCREATE_MULTITHREADED`（0x44）创建（实测，0x16d911f 处设置）。
+- Fonts are created by the loading thread while `.gfx` files are parsed [V]. Text in the main menu and in the game is drawn by the main thread [I]; the loading screen is drawn and presented by another thread (tested, see `framework_ui/hook.rs`).
+- The device is created with `D3DCREATE_MULTITHREADED` (0x44) (tested; set at 0x16d911f).
 
-## 批次与缓存的约束
+## Constraints from batches and caches
 
-- **一批只用一张纹理**：一个字体的全部字形必须在同一张页上 [V]。
-- **UV 会被缓存** [V]：
-  - 每个字体在 `font+0x3c08` 有 40 个缓存的顶点缓冲；
-  - 按钮把文字画进缓存的渲染目标；
-  - 地图名的网格也会缓存。
-- 所以新字形必须在第一次用到之前放进页里；已有字形不能挪动；第一次使用之后，页的宽高也不能再改。页的大小要在字体加载时就定下来。
-- 主文字的顶点每 0x48c 个提交一次（0x159afa0）；共用的顶点缓冲有 1200 个顶点。
+- **One texture per batch**: all of a font's glyphs must be on the same page [V].
+- **UVs are cached** [V]:
+  - each font has 40 cached vertex buffers at `font+0x3c08`;
+  - buttons draw their text into cached render targets;
+  - map name meshes are cached too.
+- So a new glyph must be put in the page before its first use; existing glyphs cannot move; and once the page has been used for the first time, its width and height cannot change either. The page's size has to be settled when the font loads.
+- Main text submits its vertices every 0x48c of them (0x159afa0); the shared vertex buffer holds 1200 vertices.
 
-## 往页里补字（`unicode/fill.rs`）
+## Adding glyphs to a page (`unicode/fill.rs`)
 
-- **格式编号**[V]：0x16f9850 把引擎的格式编号换成 Direct3D 的：1、2 是 DXT1，3、4 是 DXT3，5、6 是 DXT5，0xb、0xc 是 A8R8G8B8，其余见该函数的跳转表。
-- **压缩页**（实测）：汉化 Mod 的六张页都是单级 DXT5。新建一张同为 DXT5、高出 1024 行的 `D3DUSAGE_DYNAMIC` 纹理，原来的块照抄在上面；新字形按 4×4 块编码，连同一像素的间隔占满整块，所以图集里的位置也都落在整块上。
-  - 锁定压缩纹理的矩形四边都必须在整块上，否则 `LockRect` 返回 `D3DERR_INVALIDCALL`。
-  - 显存只多出每页“宽 × 1024”字节；地图页 6400×7664 长成 6400×8688。
-- **墨色**（实测）：正文字体的页是白色，绘制时再着色；地图名直接用页的颜色（汉化 Mod 的地图页近黑，`0x100c10`）。补进的字形取原页里字母 `H` 最不透明处的颜色。
+- **Format numbers**[V]: 0x16f9850 maps the engine's format numbers to Direct3D's: 1 and 2 are DXT1, 3 and 4 DXT3, 5 and 6 DXT5, 0xb and 0xc A8R8G8B8; for the rest, see the function's jump table.
+- **Compressed pages** (tested): the Chinese language mod's six pages are all single-level DXT5. A new `D3DUSAGE_DYNAMIC` texture is created, also DXT5 and 1024 rows taller, and the original blocks are copied into it unchanged; new glyphs are encoded as 4×4 blocks, and a glyph with its one-pixel gap fills whole blocks, so every position in the atlas also falls on whole blocks.
+  - All four edges of a rectangle locked in a compressed texture must lie on whole blocks, otherwise `LockRect` returns `D3DERR_INVALIDCALL`.
+  - Video memory grows only by "width × 1024" bytes per page; the map page grows from 6400×7664 to 6400×8688.
+- **Ink color** (tested): the pages of body text fonts are white and are tinted when drawn; map names use the page's own color (the Chinese language mod's map page is near black, `0x100c10`). Added glyphs take the color of the most opaque pixel of the letter `H` in the original page.

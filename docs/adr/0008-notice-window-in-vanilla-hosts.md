@@ -2,17 +2,17 @@
 status: superseded by ADR-0013
 ---
 
-# 提示窗口寄宿在原版常驻窗口里
+# The notice window lives in always-present vanilla host windows
 
-框架的提示窗口（背景、标题、正文、关闭按钮）用与 Mod 界面相同的拼接方式，拼进两个一直存在的原版窗口：主菜单的 `country_selection_panel` 和游戏内的 `topbar`。框架每帧找到当前的根窗口并绑定；窗口被销毁时，在根窗口的 Kill（`0x1547520`）入口解绑。外观用框架自带的纹理，刻意与原版对话框不同。依据见 [research/notice-window.md](../research/notice-window.md)。
+The framework's notice window (background, title, body text, close button) is spliced, the same way as mods' interface, into two vanilla windows that always exist: `country_selection_panel` in the main menu and `topbar` in the game. Every frame the framework finds the current root window and binds to it; when the window is destroyed, it unbinds at the entry of the root window's Kill (`0x1547520`). The look uses the framework's own textures and is deliberately different from vanilla dialogs. The evidence is in [research/notice-window.md](../research/notice-window.md).
 
 ## Considered Options
 
-- **调用 CreateWindow 创建框架自己的窗口**（定稿方案里原先的写法）：窗口完全归框架，但框架要自己管它的创建时机、每帧更新登记和销毁，还要分别处理主菜单和游戏内两种界面。
-- **Windows 消息框**：最简单，但在全屏游戏外弹窗，玩家容易错过，也会打断游戏。保留为退路。
+- **Call CreateWindow to create a window of the framework's own** (what the final design originally said): the window belongs entirely to the framework, but the framework has to manage when it is created, its registration for per-frame updates and its destruction itself, and has to handle the two interfaces, main menu and in-game, separately.
+- **A Windows message box**: the simplest, but it pops up outside the full-screen game, where the player easily misses it, and it interrupts the game. Kept as the fallback.
 
 ## Consequences
 
-- 提示窗口跟随宿主的生命周期：每局游戏重建一次，`reload` 宿主所在的 `.gui` 后根指针会变；绑定逻辑与军队面板共用。
-- `topbar` 滑出屏幕时（时间线地图模式、军队重组窗口），提示窗口跟着滑走。
-- 其他 Mod 改名或删掉宿主窗口时拼接失败、绑定失败，提示退回消息框。
+- The notice window follows its host's lifetime: it is rebuilt once per game, and the root pointer changes after a `reload` of the host's `.gui`; the binding logic is shared with the army panel.
+- When `topbar` slides off the screen (the timeline map mode, the army reorganization window), the notice window slides away with it.
+- When another mod renames or removes a host window, the splice fails and binding fails, and notices fall back to the message box.

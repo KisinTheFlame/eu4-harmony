@@ -1,80 +1,80 @@
-# Unicode 模块与框架界面计划
+# Unicode module and framework UI plan
 
-状态：已定稿（2026-10-27）。术语见 [GLOSSARY.md](../GLOSSARY.md)。决定和理由见 [ADR 0010](adr/0010-built-in-unicode-module.md)（Unicode 模块）、[ADR 0011](adr/0011-version-proxy-injection.md)（version.dll 入口）、[ADR 0012](adr/0012-framework-succeeds-or-fails-as-a-whole.md)（整体成败）、[ADR 0013](adr/0013-framework-draws-its-own-ui.md)（框架界面）。
+Status: final (2026-10-27). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0010](adr/0010-built-in-unicode-module.md) (the Unicode module), [ADR 0011](adr/0011-version-proxy-injection.md) (the version.dll entry), [ADR 0012](adr/0012-framework-succeeds-or-fails-as-a-whole.md) (succeeding or failing as a whole) and [ADR 0013](adr/0013-framework-draws-its-own-ui.md) (framework UI).
 
-## 目标与范围
+## Goal and scope
 
-- **目标**：框架自己负责游戏里的文字，取代中文字体插件。汉化 Mod 装着时显示效果和原先一样，没装时和原版一样；Mod 和扩展只写普通 UTF-8。
-- **做**：显示（界面和地图）；旧转义兼容（本地化、GUI 和脚本、旧存档）；中文输入；外交国家列表和省份查找的中文搜索；复杂文字排版（最后做）；框架界面（提示窗口、设置窗口）。
-- **不做**：输入法本身；输入框里画未上屏的拼音；撤销、重做、Ctrl+A 全选；拼音搜索和简繁互搜；日文、韩文；联机；存档的反向兼容；给扩展的文字能力；向扩展开放框架界面；按姓名文化调整姓名顺序。
-- **平台**：Windows 10 1903 及以上（依赖系统的 `icu.dll`）；底本仍是 1.37.5。
-- **实现**：用 Rust。函数中间的跳转用 Rust 裸函数写桩，放在它调用的处理函数旁边。用到的地址和期望字节都先对照 eu4.exe 或在游戏里核实，再记进 [research/](research/)。
+- **Goal**: the framework itself takes charge of text in the game, replacing the CJK font plugin. With a Chinese language mod installed, text looks as it did before; without one, as in vanilla. Mods and extensions write only plain UTF-8.
+- **In scope**: display (interface and map); compatibility with legacy escapes (localisation, GUI and scripts, old saves); Chinese input; Chinese search in the diplomacy country list and the province search; complex text layout (last); framework UI (notice window, settings window).
+- **Out of scope**: the IME itself; drawing uncommitted pinyin in the edit box; undo, redo, Ctrl+A to select all; pinyin search and searching across simplified and traditional characters; Japanese, Korean; multiplayer; save compatibility in the other direction (back to the CJK font plugin); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
+- **Platform**: Windows 10 1903 or later (it relies on the system's `icu.dll`); the baseline is still 1.37.5.
+- **Implementation**: in Rust. A jump from the middle of a function goes to a stub written as a Rust naked function, placed next to the handler it calls. Every address used and the bytes expected there are first checked against eu4.exe or in the game, then recorded in [research/](research/).
 
-## 框架设置
+## Framework settings
 
-存在用户目录的 `eu4-harmony/settings.txt`，写法和游戏自己的 `settings.txt` 一样，在设置窗口里修改，下次启动生效。
+Kept in `eu4-harmony/settings.txt` in the user directory, written the way the game writes its own `settings.txt`. They are changed in the settings window and take effect at the next start.
 
-| 项 | 选项 | 默认 |
+| Setting | Options | Default |
 |---|---|---|
-| 文字外观 | 沿用原字体（位图字体优先，缺的字用系统字体补）/ 系统字体（全部文字用系统字体） | 沿用原字体 |
-| 正文字体 | 本机已装、能显示汉字的系统字体 | 微软雅黑 |
-| 地图字体 | 同上 | 楷体 |
+| Text appearance | Keep the fonts as they are (bitmap fonts first, with characters they lack filled in from the system font) / System fonts (all text in system fonts) | Keep the fonts as they are |
+| Text font | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
+| Map font | Same as above | KaiTi |
 
-两款字体都没有的字，交给系统的字体回退。框架界面始终用正文字体，不受"文字外观"影响。
+Characters neither font has are left to the system's font fallback. The framework UI always uses the text font, whatever "Text appearance" is set to.
 
-## 里程碑
+## Milestones
 
-| 里程碑 | 内容 | 完成的标志 |
+| Milestone | Content | Done when |
 |---|---|---|
-| M0 基础设施 | 依赖点统一声明（位置用 RVA 或导出名；不改、替换入口、中间跳转、改写字节）；启动全有或全无，失败时撤销；中间跳转的桩；现有钩子全部迁过来；ICU 绑定 | 游戏行为不变，启动报告列出全部依赖点的核对结果，现有的游戏内检查全部通过 |
-| M1a 主界面中文 | 入口改为 `version.dll`；本地化和 GUI/脚本以 UTF-8 读入；字形表（码点大于 0xFF，支持临时字形）；位图字体优先、系统字体补字（图集、纹理、设备重置）；主文本的遍历与断行；删除框架的转码代码，玩家语言改看 Windows | 用 UTF-8 本地化的中文 Mod 主界面显示中文；框架提示和 Mod 文字显示中文 |
-| 界面 | 画在游戏画面最上层；输入截获；控件（窗口、文字、按钮、下拉框）；提示窗口迁入；设置窗口和主菜单角落按钮；框架设置文件；删除拼接的提示窗口 | 提示在主菜单和游戏内正常显示、关闭；改了设置，下次启动生效 |
-| M2 旧汉化兼容 | 本地化、GUI/脚本、旧存档（文本和二进制）里的旧转义在读入时转成 UTF-8 | 现有汉化 Mod 不经转换直接显示；用中文字体插件玩出的旧存档能读，名字正确 |
-| M1b 其余界面 | 按钮、悬浮提示、列表等的遍历与换行 | 全部界面显示中文，没有乱码，也没有截断或错位 |
-| M1c 地图文字 | 国名、省名的曲线排布与对齐 | 地图上的中文名正常 |
-| M3 输入 | 提交文字、按字移动退格选择、粘贴、告诉系统光标位置让输入法窗口出现在输入框旁、中文存档名 | 各输入框能打中文；中文名的存档能存能读，扩展存档数据随之对应 |
-| M4 搜索 | 外交国家列表和省份查找按 UTF-8 匹配，拉丁字母忽略大小写和重音 | 用中文能搜到；法语名用不带重音的字母也能搜到 |
-| M5 复杂排版 | 整段排版、双向文字，经临时字形交给字形表 | 测试 Mod 里的阿拉伯文、天城文显示正确 |
+| M0 Infrastructure | Dependency points declared in one place (location by RVA or export name; leave unchanged, replace the entry, jump from the middle, rewrite bytes); all-or-nothing startup, undone on failure; stubs for jumps from the middle of a function; all existing hooks moved over; bindings to ICU | The game behaves as before, the startup report lists the check result for every dependency point, and all existing in-game checks pass |
+| M1a Chinese in the main interface | The entry moves to `version.dll`; localisation and GUI/scripts are read as UTF-8; glyph table (code points above 0xFF, with temporary glyphs); bitmap fonts first, system fonts for missing characters (atlas, textures, device reset); walking and line breaking of main text; remove the framework's conversion code, and decide the player language from Windows | A Chinese mod with UTF-8 localisation shows Chinese in the main interface; framework notices and mod texts show in Chinese |
+| UI | Drawing on top of the game's picture; capturing input; widgets (window, text, button, drop-down list); moving the notice window over; the settings window and the button in the main menu's corner; the framework settings file; removing the spliced notice window | Notices show and close correctly in the main menu and in the game; a changed setting takes effect at the next start |
+| M2 Compatibility with old Chinese language mods | Legacy escapes in localisation, GUI/scripts and old saves (text and binary) become UTF-8 as they are read | Existing Chinese language mods show without conversion; old saves played with the CJK font plugin load, with the right names |
+| M1b The rest of the interface | Walking and wrapping text in buttons, tooltips, lists and so on | The whole interface shows Chinese, with no garbled text, and nothing cut off or out of place |
+| M1c Map text | Laying country and province names along curves, and aligning them | Chinese names on the map look right |
+| M3 Input | Committing text; moving, backspacing and selecting by character; pasting; telling the system where the caret is, so the IME window appears beside the edit box; Chinese save names | Every edit box takes Chinese; saves with Chinese names save and load, with their extension save data matched to them |
+| M4 Search | The diplomacy country list and the province search match by UTF-8, ignoring case and accents in Latin letters | Searching in Chinese finds results; French names are found with unaccented letters too |
+| M5 Complex layout | Laying out whole paragraphs, bidirectional text, handed to the glyph table as temporary glyphs | Arabic and Devanagari in a test mod display correctly |
 
-### 进度（2026-10-28）
+### Progress (2026-10-28)
 
-- **游戏内已看到正常**（详见 [prototype-log.md](prototype-log.md)）：
-  - M1a、M1b：
-    - 主菜单和游戏内的中文界面，按钮、悬浮提示、大纲、事件；
-    - 段落折行（剧本介绍、开局介绍、国家历史窗口；固定大小的多行文字框，如宏建造器外交页的说明，经虚表 `+0x80` 在中文之间换行）；
-    - 截断补“...”的名字在字与字之间截断。
-  - M1c：地图上的国名、省名、海名（要先放宽 16 MiB 的纹理上限，见 [research/font-textures.md](research/font-textures.md)）。
-  - M2：汉化 Mod 不经转换直接显示；旧插件写的存档名。
-  - M3（[research/text-input.md](research/text-input.md)）：
-    - 打字、按字移动和删除、Home/End、Shift+左右选中、复制、剪切、粘贴；
-    - 输入法组字串和候选窗口出现在光标处；
-    - 中文名存档能存能读，扩展的存档数据随之读回。
-  - M4：选国家界面和省份查找用中文搜到结果。
-  - 系统字体（`unicode/fill.rs`）：
-    - 沿用原字体时，字体页往下加高 1024 行，位图字体缺的字用系统字体补；汉化 Mod 的 DXT5 页仍是 DXT5，新字形按块编码写入（布列塔尼君主名里的 ç 正常）。
-    - 选“系统字体”时，每张页换成新页，全部文字用系统字体（主菜单、选国家界面、一局游戏里的开局介绍、大纲、顶栏都正常，地图名用楷体、保持黑色）。
-  - 框架界面：提示窗口、只在主菜单首页出现的角落按钮、设置窗口（下拉列表可滚动）。
-- **没在游戏里验证**：
-  - M4 的“不带重音的拉丁字母也能搜到”：汉化 Mod 把地名都换成了中文，游戏里找不到带重音的地名可搜；由单元测试覆盖。
-  - 地图浮动文字（字体虚表 `+0x48`）：2026-10-28 用调用追踪看过，主菜单、大厅、开局和几个月游戏时间里一次都没被调用。它只经两个虚表调用；游戏里沾边的名字只有 `floating_chat_text`，可能是多人游戏的聊天消息，单人游戏无法验证。
-- **暂不做**：M5 复杂排版（2026-10-28 决定先不做；字形表仍支持临时字形，以后要做时可以接上）。
+- **Seen working in the game** (details in [prototype-log.md](prototype-log.md)):
+  - M1a, M1b:
+    - the Chinese interface in the main menu and in the game: buttons, tooltips, the outliner, events;
+    - paragraph line breaking (scenario introductions, start-of-game introductions, the country history window; fixed-size multi-line text boxes, such as the description on the macro builder's diplomacy page, break lines between Chinese characters through vtable `+0x80`);
+    - names cut short with "..." are cut between characters.
+  - M1c: country, province and sea names on the map (this first needed the 16 MiB texture limit raised, see [research/font-textures.md](research/font-textures.md)).
+  - M2: the Chinese language mod shows without conversion; save names written by the CJK font plugin.
+  - M3 ([research/text-input.md](research/text-input.md)):
+    - typing, moving and deleting by character, Home/End, selecting with Shift+Left/Right, copy, cut, paste;
+    - the IME composition string and candidate window appear at the caret;
+    - saves with Chinese names save and load, and the extension's save data loads back with them.
+  - M4: searching in Chinese finds results on the country selection screen and in the province search.
+  - System fonts (`unicode/fill.rs`):
+    - With "Keep the fonts as they are", a font page grows by 1024 rows downward, and characters a bitmap font lacks come from the system font; the Chinese language mod's DXT5 pages stay DXT5, with new glyphs encoded and written as blocks (the ç in a Breton ruler's name is correct).
+    - With "System fonts" chosen, every page is replaced by a new one, and all text uses the system fonts (the main menu, the country selection screen, and in a game the start-of-game introduction, the outliner and the top bar are all fine; map names are in KaiTi and stay black).
+  - Framework UI: the notice window, the corner button that appears only on the main menu's front page, the settings window (its drop-down lists scroll).
+- **Not verified in the game**:
+  - M4's "found with unaccented Latin letters too": the Chinese language mod turns all place names into Chinese, so the game has no accented place name to search for; unit tests cover it.
+  - Floating text on the map (font vtable `+0x48`): on 2026-10-28 a call trace showed it was not called once in the main menu, the lobby, the start of a game or several months of game time. It is called only through two vtables; the only related name in the game is `floating_chat_text`, possibly chat messages in multiplayer, which cannot be verified in single player.
+- **Not for now**: M5 complex layout (decided on 2026-10-28 to leave it for now; the glyph table still supports temporary glyphs, so it can be connected when the work is done later).
 
-## 验收
+## Acceptance
 
-- 不依赖游戏的逻辑（UTF-8 遍历、旧转义解码、断行、按字编辑、搜索匹配、图集）写单元测试。
-- 每个里程碑按清单在游戏里实测，结果记进 [prototype-log.md](prototype-log.md)。
-- 每个里程碑都用英、法、德、西四种游戏语言各打开一次主界面，确认和原版没有差别。
-- 全部依赖点可以不开游戏、对着安装好的 eu4.exe 核对：`EU4_GAME_DIR=<游戏目录> cargo test -p eu4-harmony-core -- --ignored`。
+- Logic that does not depend on the game (walking UTF-8, decoding legacy escapes, line breaking, editing by character, search matching, the atlas) gets unit tests.
+- Each milestone is tested in the game against a checklist, and the results go into [prototype-log.md](prototype-log.md).
+- For each milestone, the main interface is opened once in each of the four game languages, English, French, German and Spanish, to confirm it does not differ from vanilla.
+- All dependency points can be checked against an installed eu4.exe without starting the game: `EU4_GAME_DIR=<game dir> cargo test -p eu4-harmony-core -- --ignored`.
 
-### M0 清单
+### M0 checklist
 
-M0 不改变游戏行为，所以清单就是把已有功能重测一遍。用 `cargo build --release` 和 `tools/dev-install.ps1` 装好，合集里启用 regional-combat 和一个 `eu4-harmony new` 生成的 Mod。2026-10-27 已实测通过，结果见 [prototype-log.md](prototype-log.md)。
+M0 does not change how the game behaves, so the checklist is a retest of what already works. Install with `cargo build --release` and `tools/dev-install.ps1`, and enable regional-combat and a mod made by `eu4-harmony new` in the playset. Tested and passed on 2026-10-27; the results are in [prototype-log.md](prototype-log.md).
 
-1. **启动报告**：`report.txt` 有一行 `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes`。
-2. **主菜单**：游戏照常进入主菜单，`error.log` 里没有新的错误。
-3. **军队面板**：选中一支陆军，按钮区出现；按钮左右键都起作用（区域战斗的左键开关区域模式，右键打开半径设置框；它的日志只记效果，不记点击），悬停提示正常。
-4. **区域战斗**：区域按钮、半径设置框照常工作，中文显示和以前一样；开启后按天决策、下达移动和停止命令；调整半径时地图着色正常。
-5. **存档**：自动存档后写出 `eu4-harmony/saves/` 下的数据文件；读这个存档，区域战斗恢复原来的状态。
-6. **重建**：回到主菜单再进游戏，军队面板的按钮和提示窗口都重新出现。
-7. **启动失败**：在命令行里设置 `EU4HARMONY_FAIL_STARTUP=1` 后直接运行 `eu4.exe`。应该弹出"EU4 Harmony 没能启动"的消息框；`report.txt` 写着 `startup FAILED`；游戏照常运行，但 Mod 的按钮都不出现。
-8. **四种语言**：分别把游戏语言设为英、法、德、西，主界面和原版一样。
+1. **Startup report**: `report.txt` has the line `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes`.
+2. **Main menu**: the game reaches the main menu as usual, with no new errors in `error.log`.
+3. **Army panel**: select an army and the button area appears; left and right clicks on the buttons both work (regional-combat's left click turns region mode on and off, and its right click opens the radius box; its log records the effects, not the clicks), and tooltips are fine.
+4. **Regional combat**: the region button and the radius box work as before, with Chinese showing as it did; once on, it decides daily and issues move and stop orders; map coloring is correct when the radius changes.
+5. **Saves**: after an autosave, a data file is written under `eu4-harmony/saves/`; load that save and regional-combat restores its earlier state.
+6. **Rebuild**: go back to the main menu and into a game again; the army panel's buttons and the notice window both appear again.
+7. **Startup failure**: set `EU4HARMONY_FAIL_STARTUP=1` on the command line and run `eu4.exe` directly. A message box saying "EU4 Harmony could not start" should pop up; `report.txt` says `startup FAILED`; the game runs as usual, but none of the mods' buttons appear.
+8. **Four languages**: set the game language to English, French, German and Spanish in turn; the main interface looks as in vanilla.

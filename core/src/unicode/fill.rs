@@ -6,12 +6,14 @@
 //! game's caches, so the page is sized once, when it loads, and a glyph is
 //! drawn into it before its first use (docs/research/font-textures.md).
 //!
-//! - Bitmap fonts first (沿用原字体): the page gets 1024 more rows below it,
-//!   where a character the font lacks is drawn the first time it is needed. A
-//!   DXT5 page (the Chinese language mod's) stays DXT5, its new glyphs written
-//!   as blocks (`dxt`).
-//! - The system font look (系统字体): a new page holds every character, drawn
-//!   from the system font; the font's own glyphs are replaced.
+//! - Bitmap fonts first ("Keep the fonts as they are" in the settings
+//!   window): the page gets 1024 more rows below it, where a character the
+//!   font lacks is drawn the first time it is needed. A DXT5 page (the
+//!   Chinese language mod's) stays DXT5, its new glyphs written as blocks
+//!   (`dxt`).
+//! - The system font look ("System fonts"): a new page holds every
+//!   character, drawn from the system font; the font's own glyphs are
+//!   replaced.
 //!
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
 //! font; the rest in the body font. Pages are dynamic textures, which only

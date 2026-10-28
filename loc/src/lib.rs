@@ -4,9 +4,9 @@
 //! named and laid out like the game's own (`<name>_l_<language>.yml`):
 //!
 //! ```text
-//! l_simp_chinese:
-//!  RC_APPLY:0 "应用"
-//!  RC_RADIUS:0 "半径 $RADIUS$"
+//! l_french:
+//!  RC_APPLY:0 "Appliquer"
+//!  RC_RADIUS:0 "Rayon de $RADIUS$ provinces"
 //! ```
 //!
 //! Unlike the game's files they are plain UTF-8: the framework encodes the

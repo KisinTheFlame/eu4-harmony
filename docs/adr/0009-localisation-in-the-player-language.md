@@ -2,34 +2,34 @@
 status: superseded in part by ADR-0010
 ---
 
-# 本地化：框架统一判定玩家语言，并转码 Mod 的文字
+# Localisation in the player language: the framework decides it in one place and transcodes mods' texts
 
-"怎么判定"和"转好编码"两部分已被 ADR 0010 取代：玩家语言只看 Windows 显示语言，Mod 的文字以 UTF-8 原样交给游戏。文件位置、拼接方式和查找规则仍然有效。
+The "How it is decided" part and the "transcode" part have been superseded by ADR 0010: the player language now depends only on the Windows display language, and mods' texts are handed to the game unchanged as UTF-8. The file location, the splicing and the lookup rules still hold.
 
-框架和每个 Mod 的文字都按同一个"玩家语言"显示，这个语言由框架在启动时判定一次。判定逻辑只在核心的 `lang` 模块里，其他代码只读取判定结果。
+The framework's and every mod's texts are all shown in the same "player language", which the framework decides once at startup. The deciding logic lives only in the core's `lang` module; other code only reads the result.
 
-**怎么判定**：中文字体插件已加载，且 Windows 显示语言是中文时，用简体中文；否则用游戏设置（`settings.txt` 的 `language`）里的英、法、德、西语之一。之所以还要看 Windows：中文玩家的游戏语言其实是英文，汉字靠汉化 Mod 和字体插件显示；而插件中日韩通用，单看插件分不出是哪种语言。
+**How it is decided**: when the CJK font plugin is loaded and the Windows display language is Chinese, Simplified Chinese; otherwise whichever of English, French, German or Spanish is set in the game's settings (`language` in `settings.txt`). Windows is consulted as well because Chinese players' game language is in fact English, with Chinese characters shown by a Chinese language mod and the font plugin; and the plugin serves Chinese, Japanese and Korean alike, so the plugin alone cannot tell which language it is.
 
-**Mod 的文字放在哪**：放在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`。格式沿用游戏自己的本地化文件格式，但内容是普通 UTF-8，作者不必自己写字体插件要求的转义。
+**Where mods' texts go**: in `eu4-harmony/localisation/<name>_l_<language>.yml`. The format is the game's own localisation file format, but the content is plain UTF-8, so authors do not have to write the escapes the font plugin requires themselves.
 
-**框架怎么用这些文字**：
-- 启动时，框架把各 Mod 的键按玩家语言转好编码，追加到游戏当前语言的 `localisation/text_l_<语言>.yml` 末尾。界面片段因此能像引用原版键一样引用它们。
-- 扩展在运行时用 SDK 的 `text` 取文字。
-- 框架自己的提示文案按同样的格式编进核心。
+**How the framework uses these texts**:
+- At startup, the framework transcodes each mod's keys for the player language and appends them to the end of `localisation/text_l_<language>.yml` for the game's current language. Interface fragments can therefore use them as they use vanilla keys.
+- At run time, extensions get texts with the SDK's `text`.
+- The framework's own notice wording is compiled into the core in the same format.
 
-文件格式、语言列表和查找规则（缺失时退回英文）放在独立的 `loc` crate 里，供核心、脚手架和假游戏共用。
+The file format, the list of languages and the lookup rules (falling back to English when a key is missing) live in a separate `loc` crate, shared by the core, the scaffold and the fake game.
 
 ## Considered Options
 
-- **各 Mod 自己处理**（原先的做法，v1 曾把"Mod 本地化文件的编码转换"列为不做）：区域战斗为此自己实现了一遍插件转义，生成的本地化文件只有中文，没装插件的玩家看到乱码。每个 Mod 都要重复这些工作，也都只能支持一种语言。
-- **Mod 照常把文件放进游戏自己的 `localisation/`**：游戏会直接读取，但中文需要预先转义，而转义后的文件在没有插件的游戏里是乱码。同一个文件做不到同时适合两类玩家。
-- **在 PhysFS 里虚拟出一个新的本地化文件**：比追加到原版文件干净，但要多挂目录枚举，需要额外逆向。追加只用到现有的拼接机制。
-- **只看字体插件判定中文**：日文、韩文玩家也装这个插件，会被误判为中文。
+- **Each mod handles it itself** (the earlier approach; v1 once listed "converting the encoding of mods' localisation files" as out of scope): regional-combat implemented the plugin's escapes on its own for this, and the localisation files it generated were Chinese only, so players without the plugin saw garbage. Every mod would repeat this work, and each could support only one language.
+- **Mods put their files in the game's own `localisation/` as usual**: the game reads them directly, but Chinese has to be escaped beforehand, and an escaped file is garbage in a game without the plugin. One file cannot suit both kinds of player.
+- **Make a new virtual localisation file in PhysFS**: cleaner than appending to a vanilla file, but it needs directory enumeration hooked as well, which takes more reverse engineering. Appending uses only the existing splicing.
+- **Decide on Chinese from the font plugin alone**: Japanese and Korean players install this plugin too, and would be taken for Chinese.
 
 ## Consequences
 
-- 以后加游戏内的语言设置，只需改 `lang` 模块的判定。但游戏只在启动时读一次本地化文件，拼进去的键要到下次启动才会换语言；运行时文字和提示可以立即跟着变。
-- 追加的目标文件经常被汉化 Mod 覆盖。拼接作用在实际被读取的那个文件上，所以不受影响。但如果有 Mod 用 `replace_path` 整体替换 `localisation/`，目标文件可能就不存在了。
-- Mod 的键与原版的键共用命名空间，作者要自己加前缀。多个 Mod 定义同一个键时，取合集里排在前面的 Mod，并写进启动报告。
-- 日文、韩文暂不支持，因为框架只为插件转义 CJK 汉字区的字符。
-- 出错细节、日志和启动报告是给开发者看的，保持英文。
+- Adding an in-game language setting later needs only the decision in the `lang` module changed. But the game reads localisation files only once, at startup, so the spliced keys change language only at the next start; texts at run time and notices can follow at once.
+- The file appended to is often overridden by a Chinese language mod. The splice applies to the file actually read, so this does no harm. But if a mod replaces `localisation/` as a whole with `replace_path`, the target file may not exist.
+- Mods' keys share one namespace with vanilla keys, so authors have to add their own prefixes. When several mods define the same key, the mod earlier in the playset wins, and this is recorded in the startup report.
+- Japanese and Korean are not supported for now, because the framework escapes for the plugin only the characters in the CJK ideograph range.
+- Error details, logs and the startup report are for developers and stay in English.

@@ -1,23 +1,23 @@
-# 当前可见敌军与本国敌对占领目标
+# Currently visible enemy armies and own provinces under hostile occupation
 
-2026-10-26，批准底本 SHA256 `97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e`。所有地址为 RVA。本子任务只读取冻结 exe、已有静态和运行记录，未 attach 游戏；helper 尚未游戏内验收。
+2026-10-26, approved baseline SHA256 `97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e`. All addresses are RVAs. This subtask read only the frozen exe and existing static and runtime records, and did not attach to the game; the helper has not yet passed in-game acceptance.
 
-`tools/native_targets.js` 定义独立的 `createTargetReader(base)`。它不 hook、不提供 RPC、不下令、不修改存档或地图，也不扫描迷雾内单位。与地理读取 helper 分开，调用方负责在同一稳定 world/军队身份下组合数据，取得原生路线和最终发令许可。
+`tools/native_targets.js` defines a standalone `createTargetReader(base)`. It does not hook, offers no RPC, issues no orders, changes neither saves nor the map, and does not scan units inside the fog. It is separate from the geography reader helper; the caller is responsible for combining the data under the same stable world and army identity, and for obtaining native routes and final permission to issue orders.
 
-## 调用和 FOW 新鲜度契约
+## Calling and the FOW freshness contract
 
 ```js
 const reader = createTargetReader(base);
 const result = reader.read({
-  army,                       // 当前有效的主陆军指针
-  uiThreadId,                 // 已确认原生游戏/UI线程 ID
+  army,                       // pointer to a currently valid main land army
+  uiThreadId,                 // confirmed native game/UI thread ID
   sessionId: 'campaign/load-1',
-  fow: currentCertificate,    // 本次开始时的证书副本
+  fow: currentCertificate,    // copy of the certificate at the start of this read
   getFowState() { return currentCertificate; }
 });
 ```
 
-FOW 证书包含以下字段，缺少任一项或不匹配即返回 `targets_complete:false`、空 provinces/enemies；不会开始枚举军队。
+The FOW certificate has the fields below. If any is missing or does not match, the result is `targets_complete:false` with empty provinces/enemies, and enumeration of armies never starts.
 
 ```js
 {
@@ -25,90 +25,90 @@ FOW 证书包含以下字段，缺少任一项或不匹配即返回 `targets_com
   confirmed: true,
   inProgress: false,
   fresh: true,
-  epoch: 1,                   // 已完成的原生刷新序号，正安全整数
-  revision: 0,                // 跟踪器失效/变更序号，非负安全整数
+  epoch: 1,                   // sequence number of the completed native refresh, a positive safe integer
+  revision: 0,                // tracker invalidation/change sequence number, a non-negative safe integer
   sessionId: 'campaign/load-1',
-  world: '0x...',             // 与当前 NativePointer.toString() 一致
-  player: '0x10000b900534143', // 完整有效玩家 Tag，小写十六进制
-  day: 56679720              // 当前 world+0x1DD0 的原始 int32 值
+  world: '0x...',             // matches the current NativePointer.toString()
+  player: '0x10000b900534143', // full valid player Tag, lower-case hex
+  day: 56679720              // raw int32 value of the current world+0x1DD0
 }
 ```
 
-这是调用方对真实观察结果的声明，helper 不会伪造“已安装 FOW hook”。提供者必须在加载/卸载/切国、刷新开始、未纳入已完成刷新证据的 FOW setter 或其他相关可见性变更时失效证书并增加 revision；日推进后没有同一天完成的刷新也不能继续沿用旧证书。sessionId 在读档时必须变化，即使日期和 world 地址重复。只有由真实 `0x8275E0` 正常完成事件、正确 world/tag/day 和稳定时点闭合的结果才能重新设置 fresh。
+This is the caller's statement of what it really observed; the helper does not fake "FOW hook installed". The provider must invalidate the certificate and increase revision on load/unload/country switch, at the start of a refresh, on a FOW setter not covered by the evidence of a completed refresh, and on any other relevant visibility change. After the day advances, the old certificate cannot be kept without a refresh completed on that same day. sessionId must change when a save is loaded, even if the date and world address repeat. Only a result closed by a real normal completion event of `0x8275E0`, the correct world/tag/day and a stable point may set fresh again.
 
-helper 在开始时同时核对 `input.fow` 和 `getFowState()`，末尾再取一次 live provider，比较复制保存的完整证书，不保留调用方可变对象引用作为旧值。仅保存一次历史 epoch 但不跟踪后续失效，不满足契约。原来的 `native_fow_observer.js` 观察结果可以提供部分证据，但它本身没有这里所需的 day/session/revision/fresh 契约，不能直接把旧 lastCompleted 对象标成完整证书。
+At the start the helper checks both `input.fow` and `getFowState()`; at the end it reads the live provider once more and compares it with the full certificate it copied, rather than keeping a reference to the caller's mutable object as the old value. Saving one historical epoch without tracking later invalidation does not meet the contract. The observations of the earlier `native_fow_observer.js` can provide part of the evidence, but it lacks the day/session/revision/fresh contract needed here, so its old lastCompleted object cannot simply be labelled a full certificate.
 
-入口、出口均要求实际线程匹配且 `world.byte(+0x1E10)==0`；线程正确本身不能排除日更新期间的嵌套 manager 帧。整个读取还检查 world、玩家、原始日期、country 数组、地图 vector、军队 ID/归属/位置和各可见省份单位列表稳定。所有对象与可读内存区间缓存仅活在单次同步 read 中。
+Both entry and exit require that the actual thread matches and `world.byte(+0x1E10)==0`; being on the right thread does not by itself rule out nested manager frames during the daily update. The whole read also checks that the world, player, raw date, country array, map vector, army ID/owner/location and the unit list of each visible province stay stable. All objects and the readable-memory range cache live only within one synchronous read.
 
-## 可见性先于单位枚举
+## Visibility before unit enumeration
 
-直接使用已经静态及被动运行验证的缓存：
+This uses the cache already verified statically and by passive runtime observation:
 
 ```cpp
 hidden = (province.byte(+0x959) & 0x20) &&
          (province.byte(+0x958) & 0x02);
 ```
 
-只枚举当前合格陆地的可见省份。必须先计算 hidden，确认 false 后才读取 `province+0x350` 单位列表头。隐藏省份不会读取列表头、节点、军队位置、军队 ID、国家、兵力或其它军队字段；没有“最后可见位置”缓存，也不导出隐藏单位数量。普通地图 owner 位可以用于筛选本国领土，但隐藏省份的 controller 不被读取。若证书声称新鲜而本国省份仍 hidden，则拒绝整份目标结果，不以 false 冒充已确认未失陷。
+Only currently eligible, visible land provinces are enumerated. hidden must be computed first, and only once it is false is the unit list head at `province+0x350` read. For a hidden province, the list head, nodes, army locations, army IDs, countries, troop strength and any other army fields are never read; there is no "last seen location" cache, and the number of hidden units is not exported. The ordinary map owner field can be used to pick out our own territory, but the controller of a hidden province is not read. If the certificate claims to be fresh while one of our own provinces is still hidden, the whole target result is rejected, rather than passing off false as "confirmed not occupied".
 
-列表节点 payload `+0`、next `+0x10`。每个可见单位必须仍以当前省份为 `army+0xE8`；列表有界并检测循环/重复。主陆军 vtable `0x1C42540` 才作为陆军处理，已知舰队 vtable `0x1CCA7E0` 跳过，其它可见单位类型拒绝当前结果，不猜测。这里只保留在陆地省份的陆军，运输或海域中的单位不作为陆地作战目标。
+List nodes: payload `+0`, next `+0x10`. Each visible unit must still have the current province as `army+0xE8`; the list is bounded and loops/duplicates are detected. Only the main land-army vtable `0x1C42540` is handled as a land army; the known fleet vtable `0x1CCA7E0` is skipped, and any other visible unit type rejects the current result rather than being guessed at. Only land armies in land provinces are kept here; units on transports or in sea zones are not land combat targets.
 
-FOW 位、身份、列表或证书在结束复核时改变，整份结果丢弃；失败返回中没有已收集敌军、目标省份或其部分数量。`status()` 也只保留失败原因/阶段，不存放上次敌军身份。
+If the FOW bits, identities, lists or certificate have changed at the final recheck, the whole result is discarded; a failure return contains none of the enemy armies or target provinces collected, nor partial counts of them. `status()` likewise keeps only the failure reason/phase and does not store the identities of the last enemy armies.
 
-## 敌军合法敌对及状态过滤
+## Legal hostility of enemy armies and state filtering
 
-唯一原生调用为已恢复的关系谓词：
+The only native call is the recovered relation predicate:
 
 ```cpp
 uint8_t (__fastcall *HostileArmy)(Army* own, Army* candidate); // RVA 0xD54A60
 ```
 
-使用 Win64 RCX/RDX 两指针、AL 布尔返回。保留原生参数方向。该函数覆盖普通战争表、特殊国家/叛军、关联国家和租借军事身份例外。不能仅按 owner 不同判断敌军。入口 16 字节为：
+It takes two pointers in Win64 RCX/RDX and returns a boolean in AL. Keep the native argument order. The function covers the ordinary war table and the exceptions for special countries/rebels, related countries and leased military identities. A different owner alone does not make an army an enemy. The 16 entry bytes are:
 
 ```text
 48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80
 ```
 
-它可能初始化原生线程 TLS，但不会下达移动或修改任务。参见 `docs/native-hostility-findings.txt`、`work/native-integration/pseudocode1.txt` 的 `0xD54A60`。完整 exe hash 是前置条件，入口前缀只能辅助验证。
+It may initialize native thread TLS, but it issues no move and changes no task. See `docs/native-hostility-findings.txt` and `0xD54A60` in `work/native-integration/pseudocode1.txt`. The full exe hash is a precondition; the entry prefix is only an aid to verification.
 
-候选还必须有非空 regiment 指针 vector（`army+0x30 .. +0x38`，stride 8），不是 `+0x203` 或 `+0x204` 非零的撤退状态，也不是原生流亡判据。这里只用“非空”判断对象仍为有部队的军队，完全不比较兵数或战力。
+A candidate must also have a non-empty regiment pointer vector (`army+0x30 .. +0x38`, stride 8), must not be in a retreat state with `+0x203` or `+0x204` non-zero, and must not meet the native exile test. "Non-empty" is used here only to tell that the object is still an army with troops; troop numbers and strength are not compared at all.
 
-流亡判据来自此次定点恢复 `0x99CA0`：先确认陆军 vslot+0x80；有效 owner Tag 且 kind 不等于 7、国家索引不等于三个特殊索引时，返回 `army.byte(+0x207)`；其余返回 AL=0。调用者 `0x1A2280` 对 true 走独立通行分支，字符串 RVA `0x1C41D98` 从冻结 exe 直接解析为 `EXILED_ACCESS`，语义闭合。helper 对已经确认的主陆军用同样的字段逻辑，无需再调用另一个原生函数。
+The exile test comes from `0x99CA0`, recovered by targeted analysis this time: it first confirms land army vslot+0x80; with a valid owner Tag whose kind is not 7 and whose country index is none of the three special indices, it returns `army.byte(+0x207)`; otherwise it returns AL=0. On true, the caller `0x1A2280` takes a separate access branch, and the string at RVA `0x1C41D98`, read directly from the frozen exe, is `EXILED_ACCESS`, which closes the meaning. For a confirmed main land army the helper applies the same field logic and does not need to call another native function.
 
-原始证据：`work/native-targets/pseudocode1.txt`（`0x99CA0..0x99D07`）。同时分析的 `0xD40AE0` 是军队/国家 modifier 标志查询，会访问更多对象；它不作为流亡或敌对谓词使用。撤退双字节证据见 `docs/native-scheduler-findings.txt`。
+Raw evidence: `work/native-targets/pseudocode1.txt` (`0x99CA0..0x99D07`). `0xD40AE0`, analyzed at the same time, is a query of army/country modifier flags and touches more objects; it is not used as an exile or hostility predicate. For the evidence on the two retreat bytes, see `docs/native-scheduler-findings.txt`.
 
-普通玩家必须是有效可控制 Tag，index>0、kind!=7；敌军/控制国不继承这个玩家限制。后者允许非负 signed index，包括 0，并验证当前 country 数组槽和 country+0x20 的完整 Tag 一致。kind 1 等特殊类别不会被排除。三个特殊国家索引从当前全局 `0x233D8A4 / 0x233D8D8 / 0x233D8DC` 读取并记录于成功结果 `evidence.specialCountryIndices`，不硬编码具体数值或擅自命名另外两个特殊国家。
+An ordinary player must be a valid controllable Tag with index>0 and kind!=7; enemy armies and controlling countries do not inherit this player restriction. For them a non-negative signed index, including 0, is allowed, and the current country array slot is checked against the full Tag at country+0x20. Special kinds such as kind 1 are not excluded. The three special country indices are read from the current globals `0x233D8A4 / 0x233D8D8 / 0x233D8DC` and recorded in the successful result as `evidence.specialCountryIndices`; their values are not hard-coded, and the other two special countries are not given names on a guess.
 
-受控军队正在撤退或流亡时 `attacker_eligible:false`，不输出可攻击敌军。完整军队状态、交战过程及路径/控制区限制仍属于外层快照和原生命令验证，不能把这里的 `legally_attackable:true` 解释为任何路径或移动命令一定成功。
+When the controlled army is retreating or exiled, `attacker_eligible:false` and no attackable enemy armies are output. Full army state, the course of a battle and path/zone-of-control limits still belong to the outer snapshot and native order validation; `legally_attackable:true` here does not mean that any path or move order will succeed.
 
-## 仅本国敌对占领
+## Hostile occupation of our own provinces only
 
-所有权与控制权是 `province+0x468` / `province+0x470`，由原生存档 token 已确认。必须 owner 完整 Tag 等于玩家；盟友、属国或其他国家所有的省份不会标为收复目标。
+Ownership and control are `province+0x468` / `province+0x470`, confirmed by the native save tokens. The owner's full Tag must equal the player's; provinces owned by allies, subjects or other countries are never marked as recapture targets.
 
-纯国家敌对关系采用原生移动到达逻辑中已内联的谓词，不执行含副作用的到达函数：
+Pure country-to-country hostility uses the predicate inlined in the native movement arrival logic, without running the arrival function and its side effects:
 
-1. 以 province controller 的有效 Tag 解析当前 controller country。
-2. controller 与玩家相同，返回 false。
-3. 查询 controller country `+0x1548` 敌对数组，count=`int32(+0x1554)`，stride 16，首 int32 为对方国家索引；包含玩家索引则 true。
-4. 控制国或玩家索引等于上述任一原生特殊国家索引时同样 true；其余 false。
+1. Resolve the current controller country from the province controller's valid Tag.
+2. If the controller is the player, return false.
+3. Look up the hostility array at controller country `+0x1548`, count=`int32(+0x1554)`, stride 16, the first int32 being the other country's index; if it contains the player's index, return true.
+4. If the controlling country's or the player's index equals any of the native special country indices above, also true; otherwise false.
 
-精确依据：`work/native-path/pseudocode1.txt`，机器代码 `0xD4FE76..0xD4FED9` 及对应反编译。它先从军队所在省份 `+0x470` 解析控制国，用军队 owner Tag 做上述比较，随后才检查撤退/战斗状态并调用 `0x247C80`。helper 只读这段关系数据，绝不调用移动到达/围城函数。`work/native-path/pseudocode3.txt` 的 `0xD45250` 对控制国关系有独立相同内联比较；不调用其包含要塞/路径的整体函数。
+Exact basis: `work/native-path/pseudocode1.txt`, machine code `0xD4FE76..0xD4FED9` and its decompilation. It first resolves the controlling country from `+0x470` of the province the army is in, makes the comparison above with the army's owner Tag, and only then checks retreat/battle state and calls `0x247C80`. The helper only reads this relation data and never calls the movement arrival or siege functions. `0xD45250` in `work/native-path/pseudocode3.txt` has a separate, identical inlined comparison for the controlling country's relations; its function as a whole, which involves forts and paths, is not called.
 
-因此异国控制并不自动等于敌对占领：普通中立/友方控制且无敌对记录返回 false。敌对数组数量/跨度/索引异常、owned 省份 controller 不合法或国家对象 Tag 不匹配时，整份结果失败关闭。数组允许重复关系记录，因为原生只做存在性查询，没有唯一性前提。
+So control by a foreign country does not automatically mean hostile occupation: ordinary neutral or friendly control with no hostility record returns false. If the hostility array's count/span/indices are abnormal, an owned province's controller is not legal, or a country object's Tag does not match, the whole result fails closed. The array may hold duplicate relation records, because the native code only checks for existence and assumes no uniqueness.
 
-## 输出及验证边界
+## Output and the limits of validation
 
-成功输出绑定 sessionId/world/player/day/armyId/origin，含普通省份 DTO `id/owned_by_player/occupied_by_hostile`，以及可见敌军 DTO `key{id,generation:0}/province/visible/legally_attackable`。generation=0 是当前底本未恢复独立持久 generation 的占位；外层仍须用 session/lifecycle 防止 ID 重用，不能将此视为 generation 已从游戏读取。
+A successful output is tied to sessionId/world/player/day/armyId/origin and contains ordinary province DTOs `id/owned_by_player/occupied_by_hostile` and visible enemy army DTOs `key{id,generation:0}/province/visible/legally_attackable`. generation=0 is a placeholder, because no separate persistent generation has been recovered for the current baseline; the outer layer must still use session/lifecycle to guard against ID reuse, and must not take this as a generation read from the game.
 
-成功时 `targets_complete:true` 只表示这份目标候选读取完成。始终 `orders_permitted:false`；没有路线、地理边、暂停/手动接管/战败调度或完整命令许可。不得直接包装成可发令的完整 `WorldSnapshot`。总省份上限 50,000、可见节点 100,000、关系 count 上限 32,767、同步读取期限 5 秒，拒绝任何部分结果。实际成本由返回 count 指标记录。
+On success, `targets_complete:true` only means that this read of target candidates finished. It is always `orders_permitted:false`: there are no routes, geographic edges, pause/manual takeover/defeat scheduling or full order permission. It must not be wrapped directly into a complete `WorldSnapshot` that can issue orders. Limits: 50,000 provinces in total, 100,000 visible nodes, a relation count of 32,767, and 5 seconds for the synchronous read; any partial result is rejected. The actual cost is recorded in the returned count metrics.
 
-验证：`node --check tools/native_targets.js` 通过；`node tests/test_native_targets.cjs` 13 项合成测试通过。涵盖：FOW 先于列表读取的禁止访问断言；战争敌军/叛军与友军分离；撤退/流亡/空军团/舰队排除；本国战争占领、特殊国家占领与中立控制分离；缺失/过期/跨读档/读取中改变的 FOW 证书；日更新开始/期间拒绝；列表循环、未知 vtable、坏关系表与错误线程失败关闭；kind1/index0 目标的完整 Tag 验证。尚未运行此 helper，也未声称特殊军队、所有地图或真实发令验收通过。
+Verification: `node --check tools/native_targets.js` passes; the 13 synthetic tests in `node tests/test_native_targets.cjs` pass. They cover: assertions that forbid access to the list before FOW is checked; separating enemy armies at war and rebels from friendly armies; excluding retreating, exiled and empty-regiment armies and fleets; separating our provinces occupied in war or by special countries from neutral control; FOW certificates that are missing, stale, from before a load, or changed during the read; rejection when the daily update is running at the start or begins during the read; failing closed on list loops, unknown vtables, bad relation tables and the wrong thread; full Tag verification for kind1/index0 targets. This helper has not been run, and no acceptance is claimed for special armies, all maps or real orders.
 
-## 可运行的被动证据与 manager 队列 probe
+## Runnable passive evidence and the manager queue probe
 
-`tools/native_targets_probe.js` 由宿主拼接到 `native_targets.js` 后，宿主核验批准 hash 并选择隔离 `/work/game-stage/eu4.exe`。该脚本自身不 attach 进程。它检查唯一 staged 模块、x64 架构与全部入口前缀；若宿主提供 `PROBE_CONFIG.path`，还要求和实际模块完整路径一致。没有版本/地址不明时的兼容回退。
+The host appends `tools/native_targets_probe.js` to `native_targets.js`; the host verifies the approved hash and picks the isolated `/work/game-stage/eu4.exe`. The script itself does not attach to a process. It checks for a unique staged module, the x64 architecture and all entry prefixes; if the host provides `PROBE_CONFIG.path`, it also requires it to match the module's actual full path. There is no compatibility fallback for an unknown version or address.
 
-真实观察入口及重新从冻结文件核对的前 16 字节：
+The entries actually observed, with their first 16 bytes checked again against the frozen file:
 
 ```text
 manager 0x8137C0: 48 8b c4 88 50 10 55 53 56 57 41 54 41 55 41 56
@@ -118,27 +118,27 @@ load    0x5CDC60: 48 89 5c 24 18 55 56 57 48 8b ec 48 81 ec 80 00
 setter  0xA0B150: 48 89 5c 24 10 57 48 83 ec 20 4c 8b 41 28 0f b6
 ```
 
-只 replacement `0x8137C0`，ABI 为 `void(manager*, uint8_t)`。先准确转发原函数，再核对实际 world+0x1E00 等于参数 manager、manager vtable 为 `0x1CB8460`、dailyUpdating=0、loadDepth=0、正确且不变的原生线程，以及处于最外层 manager 回调。满足后才处理一个 RPC 队列任务；不依赖军队面板，也不监听/替换 panelupdate。用 replacement 而非 manager onLeave 的原因是后者的 Interceptor listener guard 会压制嵌套原生观察；这里必须让真实 FOW/daily/load 回调继续可观察。
+Only `0x8137C0` is replaced, with ABI `void(manager*, uint8_t)`. It first forwards to the original function exactly, then checks that the actual world+0x1E00 equals the manager argument, the manager vtable is `0x1CB8460`, dailyUpdating=0, loadDepth=0, the native thread is the right one and unchanged, and this is the outermost manager callback. Only then does it handle one task from the RPC queue. It does not depend on the army panel and neither listens to nor replaces panelupdate. A replacement is used rather than the manager's onLeave because the latter's Interceptor listener guard suppresses nested native observation; the real FOW/daily/load callbacks must stay observable here.
 
-FOW onEnter 失效旧证书；正常 onLeave 仅在前后 world/player/day/FOW 模式、session 和 revision 都稳定时建立真实 epoch。不主动调用刷新，也不因读取到 cache 就把 fresh 设为 true。若完成发生于 dailyUpdating=1，证书记录真实刷新，但读取仍必须等稳定 manager 帧且 helper 再次确认 dailyUpdating=0；raw day 后续变化会令证书失效。加载期间的 FOW 不发有效证书，load 返回后仍等待一次新的自然 FOW 完成。
+FOW onEnter invalidates the old certificate; a normal onLeave establishes a real epoch only when world/player/day/FOW mode, session and revision are all the same before and after. It never calls a refresh itself, and does not set fresh to true just because it read the cache. If completion happens while dailyUpdating=1, the certificate records the real refresh, but the read must still wait for a stable manager frame and for the helper to confirm dailyUpdating=0 again; a later change to the raw day invalidates the certificate. A FOW refresh during loading issues no valid certificate; after load returns, it still waits for a new natural FOW completion.
 
-world-daily onEnter 立即失效；load onEnter 轮换 session、取消旧任务，onLeave 保持等待新刷新。完整 FOW 以外的 setter 立即失效；刷新期间另一个线程的 setter 也不能冒充属于当前刷新。不同线程并行刷新导致当前证书拒绝。当前玩家/world 的变化轮换 session；读取时发现全局 FOW 开关、日期或身份不同也失效。证书线程必须和已确认的 manager 线程一致。
+world-daily onEnter invalidates at once; load onEnter rotates the session and cancels old tasks, and its onLeave keeps waiting for a new refresh. A setter outside a full FOW refresh invalidates at once; a setter on another thread during a refresh cannot pass as part of the current refresh either. Parallel refreshes on different threads cause the current certificate to be rejected. A change of the current player/world rotates the session; finding at read time that the global FOW switch, the date or an identity differs also invalidates. The certificate's thread must be the same as the confirmed manager thread.
 
-RPC：
+RPC:
 
 ```js
 await script.exports.snapshot({
-  army: '0x...',      // 宿主从当前原生选择等已知来源取得
+  army: '0x...',      // the host gets this from a known source such as the current native selection
   armyId: '0x19d300000036',
   world: '0x...'
 });
-script.exports.status();        // FOW、当前world、线程、session、队列和cleanup状态
-script.exports.cancelpending(); // 仅取消排队请求，不中止已开始的同步native查询
+script.exports.status();        // FOW, current world, thread, session, queue and cleanup state
+script.exports.cancelpending(); // only cancels queued requests; does not abort a synchronous native query already started
 await script.exports.dispose();
 ```
 
-snapshot 引用必须为非零 64 位十六进制字符串；RPC 线程不调用目标 helper。队列最大 1 项、10 秒内没有稳定 manager 帧则拒绝请求。真正执行时再次比较 caller world、当前 session、army vtable 和完整 army ID；随后在原生线程调用 helper。没有 fresh 证据时返回 helper 的 `targets_complete:false`，不伪造目标列表。`status()` 的当前世界读数是诊断信息，不能替代排队 snapshot 的稳定时点验证。
+snapshot references must be non-zero 64-bit hex strings; the RPC thread does not call the target helper. The queue holds at most 1 item, and a request is rejected if no stable manager frame comes within 10 seconds. When it actually runs, it compares the caller's world, the current session, the army vtable and the full army ID again, then calls the helper on the native thread. Without fresh evidence it returns the helper's `targets_complete:false` and does not fake a target list. The current-world readings in `status()` are diagnostics and cannot replace the stable-point check of a queued snapshot.
 
-脚本安装前 `Script.pin()`。dispose 先停止接收、失效证书并取消队列，然后等 manager 和所有观察 hook 的原生调用深度归零。退出 native 回调之后才 revert manager replacement、detach 全部 hook、flush，最后 unpin 并返回 `stopped:true`。不要求 panel 打开；即使没有后续游戏帧，只要已无活动原生调用也可清理。清理失败必须保留 pin，返回错误并允许宿主显式重试；不能用 unload 超时假装完成清理。
+The script calls `Script.pin()` before installing. dispose first stops accepting requests, invalidates the certificate and cancels the queue, then waits for the native call depth of the manager and all observation hooks to reach zero. Only after leaving the native callbacks does it revert the manager replacement, detach all hooks and flush; finally it unpins and returns `stopped:true`. No panel needs to be open; even with no further game frames, cleanup can proceed as long as no native call is active. If cleanup fails, the pin must be kept, an error returned and the host allowed to retry explicitly; an unload timeout must not be used to pretend cleanup finished.
 
-验证：probe 的 node 语法检查通过；`node tests/test_native_targets_probe.cjs` 的合成生命周期场景通过，包括原函数先于 helper、嵌套 manager 只处理一次队列、自然 FOW 发证书、独立/异线程 setter 与 FOW 模式改变失效、daily/load 失效、load 中刷新拒绝、引用不符拒绝、活动 hook/manager 内请求 dispose 时等待安全退出，以及 detach 失败保留 pin 后可重试清理。此处测试的是 probe 调度/生命周期；真实敌军读取另由 helper 测试覆盖。probe 尚未游戏内运行，运行结果由主线程另行记录。
+Verification: the probe passes node's syntax check; the synthetic lifecycle scenarios in `node tests/test_native_targets_probe.cjs` pass. They include: the original function running before the helper; nested manager frames handling the queue only once; a natural FOW refresh issuing a certificate; invalidation by standalone setters, setters on other threads and FOW mode changes; invalidation by daily/load; rejection of a refresh during load; rejection of mismatched references; waiting for a safe exit when dispose is requested inside an active hook or manager; and cleanup that can be retried after a failed detach, with the pin kept. What is tested here is the probe's scheduling and lifecycle; the actual reading of enemy armies is covered by the helper's tests. The probe has not yet run in the game; runtime results are recorded separately by the main task.

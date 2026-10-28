@@ -1,131 +1,135 @@
 # EU4 Harmony
 
-让开发者以原生代码扩展《欧陆风云4》的框架，以及由它加载的 Mod。
+A framework that lets developers extend Europa Universalis IV with native code, and the mods it loads.
 
 ## Language
 
-### Mod 与框架
+### Mods and the framework
 
 **Mod**:
-玩家在 Paradox 启动器中订阅和启用的单位，即 Paradox mod。可以只含游戏脚本和资源，也可以带一个扩展。
-_Avoid_: 模组包
+What a player subscribes to and enables in the Paradox launcher, that is, a Paradox mod. It may hold only game scripts and assets, or carry an extension as well.
+_Avoid_: mod pack
 
-**扩展 (Extension)**:
-Mod 中由框架加载、在游戏进程内运行的原生代码部分，由该 Mod 的清单声明。每个 Mod 至多一个。
-_Avoid_: 插件、模块、DLL mod
+**Extension**:
+The native code part of a mod that the framework loads and runs inside the game process, declared by the mod's manifest. A mod has at most one.
+_Avoid_: plugin, module, DLL mod
 
-**清单 (Manifest)**:
-Mod 中向框架声明其扩展的文件。
-_Avoid_: 描述文件（指 Paradox 的 `descriptor.mod`）
+**Manifest**:
+The file in a mod that declares its extension to the framework.
+_Avoid_: descriptor (that is Paradox's `descriptor.mod`)
 
-**合集 (Playset)**:
-Paradox 启动器中为下一次游戏启动启用的一组 Mod。
-_Avoid_: 加载列表、mod 列表
+**Playset**:
+The mods enabled in the Paradox launcher for the next time the game starts.
+_Avoid_: load list, mod list
 
-**框架 (EU4 Harmony)**:
-运行在游戏进程内、发现并加载扩展、向扩展提供能力的程序。
-_Avoid_: 单独的 Harmony（易与其他同名项目混淆）、加载器、引擎
+**Framework (EU4 Harmony)**:
+The program that runs inside the game process, finds and loads extensions, and gives them capabilities.
+_Avoid_: Harmony on its own (easily confused with other projects of that name), loader, engine
 
-**安装 (Installation)**:
-玩家把框架文件复制进游戏目录的一次性操作；卸载就是删掉这些文件。
-_Avoid_: 用来指启动时的挂钩
+**Installation**:
+The one-off step of copying the framework's files into the game folder; uninstalling is deleting them.
+_Avoid_: using it for the hooking done at startup
 
-**启动 (Startup)**:
-每次游戏开启时，框架在游戏进程里做的准备：确认底本、挂钩、加载扩展。
-_Avoid_: 安装
+**Startup**:
+What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
+_Avoid_: installation
 
-**底本 (Baseline)**:
-框架支持的一个特定 `eu4.exe` 构建，以完整 SHA-256 标识。
-_Avoid_: 版本、基线 exe
+**Baseline**:
+One particular `eu4.exe` build the framework supports, identified by its full SHA-256.
+_Avoid_: version, base exe
 
-**依赖点 (Dependency point)**:
-底本中框架依赖的一处代码或数据：一个位置、那里应有的字节，以及框架在那里所做的改动（也可以不改）。
-_Avoid_: 改动点、补丁点、挂钩点
+**Dependency point**:
+One place in the baseline's code or data that the framework relies on: a location, the bytes that should be there, and what the framework changes there (possibly nothing).
+_Avoid_: patch point, hook point
 
-### 能力
+### Capabilities
 
-**能力 (Capability)**:
-框架向扩展提供的一项访问或改变游戏的功能，例如读取军队、下达移动命令、在面板上加按钮、按存档保存数据。扩展只能通过能力接触游戏。
-_Avoid_: API、服务、钩子
+**Capability**:
+One thing the framework lets an extension read or change in the game, such as reading an army, ordering a move, adding a button to a panel, or keeping data per save. Extensions reach the game only through capabilities.
+_Avoid_: API, service, hook
 
-**安全时点 (Safe point)**:
-游戏主线程上可以安全读取和改变游戏状态的时刻。框架只在安全时点调用扩展。
+**Safe point**:
+A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.
 _Avoid_: tick
 
-**快照 (Snapshot)**:
-某个游戏对象在同一时刻的全部字段，扩展一次取回。
-_Avoid_: 视图、引用
+**Snapshot**:
+All of a game object's fields at one moment, fetched by an extension in one go.
+_Avoid_: view, reference
 
-**扩展存档数据 (Extension save data)**:
-扩展随某个存档保存的自有数据，与该存档绑定，存放在存档文件之外。
-_Avoid_: sidecar、配套文件
+**Extension save data**:
+An extension's own data kept with a particular save: tied to that save, but stored outside the save file.
+_Avoid_: sidecar, companion file
 
-### 界面
+### Interface
 
-**窗口 (Window)**:
-游戏界面里由 `.gui` 文件中的 `windowType` 定义、容纳按钮和文字框等元素的单元，例如单支军队面板、顶栏。游戏在需要显示时按定义建出它的实例，之后可能销毁并重建。
-_Avoid_: 指 Windows 系统窗口（整个游戏只占一个）、对话框
+**Window**:
+A unit of the game's interface defined by a `windowType` in a `.gui` file, holding elements such as buttons and text boxes; the single army panel and the top bar are examples. The game builds an instance from the definition when it needs to show one, and may later destroy and rebuild it.
+_Avoid_: meaning the Windows window (the whole game has only one), dialog
 
-**宿主窗口 (Host window)**:
-Mod 或框架往里加入自己元素的原版窗口。
-_Avoid_: 目标窗口、注入目标、父窗口
+**Host window**:
+A vanilla window that a mod or the framework adds its own elements to.
+_Avoid_: target window, injection target, parent window
 
-**绑定 (Binding)**:
-框架与宿主窗口当前实例之间的对应关系：有了它，框架才能控制加进去的元素的显示和文字。实例被销毁时解除，重建后重新绑定。
-_Avoid_: 挂钩（指拦截游戏函数）
+**Binding**:
+The link between the framework and the current instance of a host window; through it the framework controls whether added elements show and what they say. It is undone when the instance is destroyed and made again when the window is rebuilt.
+_Avoid_: hook (that means intercepting a game function)
 
-**按钮区 (Button area)**:
-框架在原版面板上预留的一块区域，各扩展的按钮在其中自动排列。
-_Avoid_: 工具栏、插槽
+**Button area**:
+A region the framework reserves on a vanilla panel, where the extensions' buttons are laid out automatically.
+_Avoid_: toolbar, slot
 
-**框架界面 (Framework UI)**:
-框架画在游戏画面最上层的界面，不借用游戏的界面系统。
-_Avoid_: 叠加层（指它的画法）、HUD
+**Framework UI**:
+The interface the framework draws on top of the game's picture, without using the game's interface system.
+_Avoid_: overlay (that is how it is drawn), HUD
 
-**控件 (Widget)**:
-框架界面的组成单位，例如按钮、下拉框。
-_Avoid_: 元素（指游戏 `.gui` 里的按钮、文字框等）
+**Widget**:
+A building block of the framework UI, such as a button or a drop-down list.
+_Avoid_: element (that means a button, text box and so on in the game's `.gui`)
 
-**提示窗口 (Notice window)**:
-框架界面中向玩家显示提示的窗口。在玩家看来是窗口，但不是游戏意义上的窗口。框架启动失败时改用 Windows 消息框。
-_Avoid_: 对话框；消息框（指启动失败时使用的 Windows 消息框）
+**Notice window**:
+The window in the framework UI that shows notices to the player. To the player it is a window, but it is not a window in the game's sense. When the framework fails to start, a Windows message box is used instead.
+_Avoid_: dialog; message box (that is the Windows message box used when startup fails)
 
-**设置窗口 (Settings window)**:
-框架界面中供玩家修改框架设置的窗口，从主菜单角落的框架按钮打开。和提示窗口一样，不是游戏意义上的窗口。
-_Avoid_: 选项菜单（指游戏自己的设置）
+**Settings window**:
+The window in the framework UI where the player changes framework settings, opened from the framework button in the main menu's corner. Like the notice window, it is not a window in the game's sense.
+_Avoid_: options menu (that is the game's own settings)
 
-**框架设置 (Framework settings)**:
-玩家对框架的偏好，例如 Unicode 模块用哪些字体；下次启动生效。
-_Avoid_: 配置；游戏设置（指游戏自己的 `settings.txt`）
+**Framework settings**:
+The player's preferences for the framework, such as which fonts the Unicode module uses; they take effect at the next start.
+_Avoid_: configuration; game settings (the game's own `settings.txt`)
 
-### 本地化
+### Localisation
 
-**玩家语言 (Player language)**:
-框架和所有 Mod 的文字在本次会话中使用的语言，由框架在启动时统一判定。
-_Avoid_: 游戏语言（指游戏设置里的语言，中文玩家的游戏语言通常是英文）
+**Player language**:
+The language the framework's and every mod's texts use in this session, decided once by the framework at startup.
+_Avoid_: game language (the language in the game's settings, which for Chinese players is usually English)
 
-**本地化文件 (Localisation file)**:
-Mod 在 `eu4-harmony/localisation/` 下按语言提供的文字文件，沿用游戏的格式，内容是普通 UTF-8；由框架原样交给游戏。
-_Avoid_: 翻译文件、语言包
+**Localisation file**:
+A file of texts in one language that a mod provides under `eu4-harmony/localisation/`. It keeps the game's format but holds plain UTF-8; the framework hands it to the game.
+_Avoid_: translation file, language pack
 
-**中文字体插件 (CJK font plugin)**:
-让游戏能画出汉字的第三方插件 `plugin64.dll`，俗称双字节补丁。Unicode 模块取代了它。
-_Avoid_: 汉化（指汉化 Mod 的文字内容）
+**CJK font plugin**:
+The third-party plugin `plugin64.dll` that lets the game draw Chinese characters, commonly called the double-byte patch. The Unicode module replaces it.
+_Avoid_: Chinese localisation (that means the text of a Chinese language mod)
 
-### 文字
+### Text
 
-**Unicode 模块 (Unicode module)**:
-框架内置的、让游戏以 UTF-8 保存、显示和输入文字的部分，取代中文字体插件。它属于框架本身，不是扩展。
-_Avoid_: 文字引擎、字体插件、汉化补丁
+**Unicode module**:
+The part built into the framework that makes the game keep, show and take input of text as UTF-8, replacing the CJK font plugin. It belongs to the framework itself and is not an extension.
+_Avoid_: text engine, font plugin, Chinese patch
 
-**位图字体 (Bitmap font)**:
-游戏和 Mod 自带、把字形存成图片的字体（`.fnt` 字符表加贴图）。
-_Avoid_: 原版字库、点阵字体
+**Game text**:
+Text as the game keeps it once the Unicode module runs: a character Windows-1252 has is its single 1252 byte, as the game always kept it; any other character is its UTF-8 sequence.
+_Avoid_: UTF-8 text (formatting codes and European letters are still 1252 bytes), double-byte text
 
-**系统字体 (System font)**:
-Windows 里安装的字体，例如微软雅黑。
-_Avoid_: 外部字体、TrueType 字体
+**Bitmap font**:
+A font shipped with the game or a mod that stores its glyphs as an image (a `.fnt` character table plus a texture).
+_Avoid_: vanilla font, pixel font
 
-**旧转义 (Legacy escape)**:
-中文字体插件用来在游戏文字里表示汉字的转义字节序列，见于为它制作的汉化 Mod 和用它玩出的存档。
-_Avoid_: 双字节编码、乱码
+**System font**:
+A font installed in Windows, such as Microsoft YaHei.
+_Avoid_: external font, TrueType font
+
+**Legacy escape**:
+The escape byte sequences the CJK font plugin uses to stand for Chinese characters in game text, found in Chinese language mods made for it and in saves played with it.
+_Avoid_: double-byte encoding, mojibake

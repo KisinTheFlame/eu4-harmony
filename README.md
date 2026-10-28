@@ -1,50 +1,54 @@
 # EU4 Harmony
 
-让开发者用 Rust 为《欧陆风云4》写原生 Mod 的框架。框架负责进入游戏进程、读取游戏状态、下达命令、往原版界面注入元素、按存档保存数据；Mod 的扩展只通过框架提供的能力接触游戏，不碰内存地址。设计见 [docs/v1.md](docs/v1.md)，术语见 [GLOSSARY.md](GLOSSARY.md)，决定的理由见 [docs/adr/](docs/adr/)。
+English | [简体中文](README.zh-CN.md)
 
-支持的游戏：原版 1.37.5，以及与它布局相同的局部补丁 exe。仅单人。
+A framework for writing native Europa Universalis IV mods in Rust. The framework gets into the game process, reads game state, gives orders, adds elements to the vanilla interface and keeps data per save; a mod's extension reaches the game only through the capabilities the framework provides and never touches memory addresses. The design is in [docs/v1.md](docs/v1.md), the terms in [GLOSSARY.md](GLOSSARY.md), and the reasons behind decisions in [docs/adr/](docs/adr/).
 
-## 安装框架（玩家）
+Supported game: vanilla 1.37.5, and patched builds of it with the same layout. Single player only.
 
-把 `version.dll` 和 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `version.dll`（通常是双字节补丁的加载器）时，先把它移进 `eu4-harmony\backup\`；框架不会加载它，`plugins\` 里双字节补丁的文件也不再被加载，可以删掉。框架自己负责显示中文（[ADR 0010](docs/adr/0010-built-in-unicode-module.md)）。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。
+## Installing the framework (players)
 
-卸载：删掉根目录的 `version.dll` 和 `eu4-harmony\`，把备份的 `version.dll` 放回根目录。
+Put `version.dll` and the `eu4-harmony\` folder into the game's root folder. If the root folder already has a `version.dll` (usually the loader of the CJK font plugin), move it into `eu4-harmony\backup\` first. The framework does not load it, and the plugin's files in `plugins\` are not loaded any more either, so they can be deleted. The framework draws Chinese and every other script itself ([ADR 0010](docs/adr/0010-built-in-unicode-module.md)). Then start the game from the Paradox launcher as usual and enable mods built on the framework in your playset.
 
-用框架玩出的存档里，玩家输入或改过的名字是 UTF-8；卸掉框架、换回双字节补丁后，这些名字会显示为乱码。
+To uninstall, delete `version.dll` and `eu4-harmony\` from the root folder, and put the backed-up `version.dll` back.
 
-日志、启动报告（`report.txt`）和扩展存档数据在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`。
+In saves played with the framework, names the player typed or changed are UTF-8. After removing the framework and going back to the CJK font plugin, those names show as garbage.
 
-## 写一个 Mod（开发者）
+Logs, the startup report (`report.txt`) and extension save data are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`.
 
-需要 Windows x64、Rust（MSVC 工具链）和 Visual Studio C++ 生成工具。先在本仓库构建：
+## Writing a mod (developers)
+
+You need Windows x64, Rust (the MSVC toolchain) and the Visual Studio C++ build tools. First build this repository:
 
 ```powershell
 cargo build --release
 ```
 
-命令行工具在 `target\x86_64-pc-windows-msvc\release\eu4-harmony.exe`：
+The command line tool is `target\x86_64-pc-windows-msvc\release\eu4-harmony.exe`:
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、清单、一个按钮、中英文字、Rust 扩展工程
+eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifest, a button, English and Chinese texts, a Rust extension project
 cd my-mod
-eu4-harmony build                         # 编译扩展，把 DLL 放到清单写的位置
-eu4-harmony link                          # 在用户目录 mod\ 下登记，之后在启动器里勾选
-eu4-harmony package                       # 生成上传用的干净目录 ..\my-mod-package
+eu4-harmony build                         # build the extension and put the DLL where the manifest says
+eu4-harmony link                          # register it under mod\ in the user folder, then tick it in the launcher
+eu4-harmony package                       # make a clean folder to upload, ..\my-mod-package
 ```
 
-扩展实现 `eu4_harmony_sdk::Extension`，每类事件一个方法；所有能力都是回调参数 `Game` 上的方法。单元测试用 `eu4_harmony_sdk::testing::FakeGame` 代替游戏。最小的示例就是 `eu4-harmony new` 生成的 Mod；完整的例子是 eu4-regional-combat 仓库里的区域作战 Mod。
+An extension implements `eu4_harmony_sdk::Extension`, with one method per kind of event; every capability is a method on the `Game` passed to the callbacks. Unit tests use `eu4_harmony_sdk::testing::FakeGame` in place of the game. The smallest example is the mod `eu4-harmony new` creates; a full one is the regional combat mod in the eu4-regional-combat repository.
 
-文字写在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`，格式同游戏的本地化文件，内容是普通 UTF-8，一个语言一份（`english`、`simp_chinese` 等）。界面片段直接引用其中的键，扩展用 `game.text("KEY")` 取文字；框架按玩家语言显示，见 [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md)。
+Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of the game's localisation files but as plain UTF-8, one file per language (`english`, `french`, `german`, `spanish`, `simp_chinese`). Interface fragments use the keys directly, and an extension gets a text with `game.text("KEY")`; the framework shows the player language, see [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md).
 
-## 仓库
+## Repository
 
-| 目录 | 内容 |
+| Folder | Contents |
 | --- | --- |
-| `proxy/` | `version.dll` 代理：转发 version.dll，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：依赖点与启动、`.gui` 拼接、扩展加载、游戏能力、界面绑定、存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
-| `loc/` | 本地化文件的格式、语言列表和查找，核心、SDK 和命令行工具共用 |
-| `abi/` | 核心与扩展之间的 C ABI |
-| `sdk/` | 扩展用的 Rust SDK |
+| `proxy/` | The `version.dll` proxy: forwards version.dll and loads the core, only in `eu4.exe` |
+| `core/` | The framework core: dependency points and startup, `.gui` splicing, loading extensions, game capabilities, interface bindings, extension save data, player language, framework settings, the framework UI (`core/src/framework_ui/`) and the Unicode module (`core/src/unicode/`); `core/localisation/` holds the framework's own texts |
+| `loc/` | The localisation file format, the languages and lookup, shared by the core, the SDK and the command line tool |
+| `abi/` | The C ABI between the core and extensions |
+| `sdk/` | The Rust SDK for extensions |
 | `cli/` | `eu4-harmony.exe` |
-| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理和核心装进游戏目录（`-Uninstall` 卸载），另有输入、截图、反汇编、崩溃转储和调用追踪，见 [tools/README.md](tools/README.md) |
-| `docs/` | 方案、ADR、调研、实测记录；`docs/research/regional-combat/` 是游戏能力所依据的逆向记录 |
+| `tools/` | Development tools: `dev-install.ps1` installs the built proxy and core into the game folder (`-Uninstall` removes them), plus input, screenshot, disassembly, crash dump and call tracing tools, see [tools/README.md](tools/README.md) |
+| `docs/` | The design, ADRs, research and in-game test records; `docs/research/regional-combat/` holds the reverse-engineering notes the game capabilities rest on |
+
+Code, comments and documentation are in English. [README.zh-CN.md](README.zh-CN.md) is a Chinese translation of this file; the rest of the documentation is English only. Rules for working in this repository, for people and coding agents alike, are in [AGENTS.md](AGENTS.md).

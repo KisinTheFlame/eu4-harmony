@@ -1,138 +1,138 @@
-# 文字输入与输入框（Unicode 模块用）
+# Text input and edit boxes (for the Unicode module)
 
-底本 1.37.5（`9ad3efe1…`）。地址都是 RVA。全部来自 eu4.exe 的静态反汇编；代码用到的地址另有依赖点核对字节。标“待实测”的结论还没在游戏里验证。
+Baseline 1.37.5 (`9ad3efe1…`). All addresses are RVAs. Everything here comes from static disassembly of eu4.exe; the addresses the code uses also have dependency points that check their bytes. Conclusions marked "to be tested" have not yet been verified in the game.
 
-## 1. 从 SDL 文字事件到输入框
+## 1. From SDL's text event to the edit box
 
-游戏用的 SDL 是 2.0.4 前后的版本。eu4.exe 导出 SDL 的函数名：`SDL_StartTextInput` 0x1735ae0、`SDL_GetClipboardText` 0x1734490、`SDL_SetClipboardText` 0x17357c0、`SDL_free` 0x1735e00。
+The game's SDL is a version around 2.0.4. eu4.exe exports SDL's functions by name: `SDL_StartTextInput` 0x1735ae0, `SDL_GetClipboardText` 0x1734490, `SDL_SetClipboardText` 0x17357c0, `SDL_free` 0x1735e00.
 
-**事件泵**：`0x1569c70`，是 SDL 输入类（vtable 0x1d95068）的 1 号槽。参数：`rdx` 接收者（存进 `r14`）、`r9` 记录器（存进 `r15`）。事件读到 `[rbp-0x50]`，文字事件的文字在 `[rbp-0x44]`。
+**Event pump**: `0x1569c70`, slot 1 of the SDL input class (vtable 0x1d95068). Arguments: `rdx` the receiver (kept in `r14`), `r9` the recorder (kept in `r15`). The event is read into `[rbp-0x50]`; a text event's text is at `[rbp-0x44]`.
 
-- 0x303（SDL_TEXTINPUT）的分支从 `0x1569f91` 开始。原来的做法：
-  - 只看文字的第一个字；
-  - 两字节序列被截成一个错误的字节（`(首字节<<6)|(次字节&0x3f)` 只留低 8 位）；
-  - 三字节及以上的序列整个丢掉。
-- 然后先调用 `记录器->vt[0x20](记录器, 0x303, [rbp-0x3c], 0)`，再构造 0x58 字节的“字符”事件，经 `接收者->vt[0x18]` 投递，回到 `0x156a22a` 取下一个事件。
-- 字符事件的内容：`+0x10` 字符；`+0x38` 起 16 字节取自常量 `0x1dc1b00`；`+0x50` 类型 2；其余为 0。原代码不初始化 `+0x11..+0x13`。
-- 0x302（SDL_TEXTEDITING，组字串）没有分支，直接丢弃，所以游戏里看不到正在组的字。
-- **框架的做法**：在 `0x1569f91` 跳走，照原样调用记录器，再按游戏的编码把每个字各投递一个事件，字的字节放在 `+0x10` 起并以 0 结尾。
+- The branch for 0x303 (SDL_TEXTINPUT) starts at `0x1569f91`. What it originally did:
+  - it looked only at the first character of the text;
+  - a two-byte sequence was cut to one wrong byte (`(lead<<6)|(second&0x3f)`, keeping only the low 8 bits);
+  - a sequence of three bytes or more was dropped entirely.
+- Then it first calls `recorder->vt[0x20](recorder, 0x303, [rbp-0x3c], 0)`, then builds a 0x58-byte "char" event, posts it through `receiver->vt[0x18]`, and goes back to `0x156a22a` for the next event.
+- What the char event holds: the character at `+0x10`; 16 bytes from `+0x38`, taken from the constant at `0x1dc1b00`; type 2 at `+0x50`; zero everywhere else. The original code does not initialize `+0x11..+0x13`.
+- 0x302 (SDL_TEXTEDITING, the composition string) has no branch and is simply dropped, so the game never shows the characters being composed.
+- **What the framework does**: it jumps away at `0x1569f91`, calls the recorder as the original does, then posts one event per character in the game's encoding, with the character's bytes from `+0x10` on and a terminating 0.
 
-**GUI 队列**：`0x14e9a70` 在 `0x14e9c9b` 处理类型 2：调用焦点监听者（`[[0x23494f0]+0x210]`，即输入框 + 0x1d0）的 `vt[8]`，参数是 `+0x10` 的地址。
+**GUI queue**: `0x14e9a70` handles type 2 at `0x14e9c9b`: it calls `vt[8]` of the focus listener (`[[0x23494f0]+0x210]`, that is, edit box + 0x1d0), passing the address of `+0x10`.
 
-**OnChar**：`0x15354e0`(输入框+0x1d0, const char*)。
+**OnChar**: `0x15354e0`(edit box+0x1d0, const char*).
 
-- 用首字节查两份禁用表：`"§¤£@{}`（仅在 inner+0xe4 置位时）和输入框自己的 `+0x2a0`。UTF-8 的首字节不会是 0xA3、0xA4、0xA7，所以这两项检查原样可用。
-- 然后在 `0x15355f7..0x153560a` 拼一个单字节的 `std::string`（`rsp+0x20`，长度在 `rsp+0x30`），调用 `inner->vt[0xa0]`（InsertText）。
-- **框架的做法**：把这一段换成复制整个字（最多 4 字节）并设好长度。
+- It looks the lead byte up in two forbidden-character lists: `"§¤£@{}` (only when inner+0xe4 is set) and the edit box's own at `+0x2a0`. A UTF-8 lead byte is never 0xA3, 0xA4 or 0xA7, so both checks work as they are.
+- Then at `0x15355f7..0x153560a` it builds a one-byte `std::string` (`rsp+0x20`, length at `rsp+0x30`) and calls `inner->vt[0xa0]` (InsertText).
+- **What the framework does**: it replaces this stretch with code that copies the whole character (up to 4 bytes) and sets the length.
 
-## 2. 输入框
+## 2. The edit box
 
-输入框外层的构造函数是 `0x1533360`（vtable 0x1d91358）。文字编辑部件在**输入框 + 0xc8**（下称 inner，vtable 0x1d915c0）。
+The outer edit box's constructor is `0x1533360` (vtable 0x1d91358). The text editor is at **edit box + 0xc8** (called inner below; vtable 0x1d915c0).
 
-| inner 偏移 | 内容 |
+| inner offset | Contents |
 |---|---|
-| +0x30 | 文字，`std::string` |
-| +0x50 | 上下移动时保留的列 |
-| +0x54 / +0x56 | 光标列（行内的**字节**偏移）/ 光标行，u16 |
-| +0x60 | 行数，u16 |
-| +0x68 / +0x6a | 宽 / 高（像素），u16 |
-| +0x6c | 可编辑 |
-| +0x70 | 选中的文字 |
-| +0x90 | 有选区（`0x1539010` 只读这个字节） |
-| +0x92 / +0x94 | 选区起点的列 / 行 |
-| +0x98 | 字体 |
-| +0xb8 | 禁用字符 |
-| +0xd8 / +0xd9 | 回车插入换行 / 多行 |
-| +0xdc | 行数上限（-1 不限） |
-| +0xe0 | 字节上限（默认 1,000,000，输入框构造时设为 250） |
-| +0xe4 | 不允许格式字符 |
+| +0x30 | Text, `std::string` |
+| +0x50 | Column kept while moving up and down |
+| +0x54 / +0x56 | Caret column (a **byte** offset within the line) / caret line, u16 |
+| +0x60 | Line count, u16 |
+| +0x68 / +0x6a | Width / height (pixels), u16 |
+| +0x6c | Editable |
+| +0x70 | Selected text |
+| +0x90 | Has a selection (`0x1539010` reads only this byte) |
+| +0x92 / +0x94 | Column / line of the selection's start |
+| +0x98 | Font |
+| +0xb8 | Forbidden characters |
+| +0xd8 / +0xd9 | Enter inserts a line break / multi-line |
+| +0xdc | Line limit (-1 for no limit) |
+| +0xe0 | Byte limit (default 1,000,000; the edit box constructor sets it to 250) |
+| +0xe4 | Formatting characters not allowed |
 
-输入框外层：`+0x1d0` 键盘监听接口，`+0x1f0` 光标精灵，`+0x260` 有焦点，`+0x261` 禁用，`+0x262` 密码框。
+The outer edit box: `+0x1d0` keyboard listener interface, `+0x1f0` caret sprite, `+0x260` has focus, `+0x261` disabled, `+0x262` password box.
 
-**会用到的方法**：
+**Methods used**:
 
-| 方法 | RVA |
+| Method | RVA |
 |---|---|
-| 行列转下标 `(inner, 行, 列) → 下标` | 0x153aa90 |
-| 按下标设光标 `(inner, 下标)` | 0x1536f50 |
-| 删除一个字节 `(inner, 下标)` | 0x153ab90 |
-| 插入文字 `vt[0xa0]`(inner, std::string*) | 0x1536b80 |
-| 设置文字 `vt[0x80]`（清空后插入） | 0x1536610 |
-| 光标在文字里的像素偏移 `vt[0x58]` | 0x1536060 |
-| 向左选中一个词 `vt[0x128]`（Ctrl+退格先调它，再剪切） | 0x1538a70 |
-| 剪切 `vt[0x178]` / 删除选区 `vt[0x188]` | 0x1539090 / 0x1539320 |
-| 左 / 右 | 0x15384d0 / 0x15385a0 |
-| 上 / 下 | 0x15387d0 / 0x1538870 |
-| 退格 / 删除 | 0x1538db0 / 0x1538f30 |
-| 粘贴 / 复制 | 0x1539240 / 0x15395b0 |
-| 点击定位光标 | 0x15361f0 |
-| 多行折行时求一行放得下多少字节 | 0x1537210 |
-| 多行折行：把文字分成行 | 0x1537480 |
-| 找放得下的部分里最后一个空格 | 0x1539820 |
-| 光标位置更新（UpdateCaret） | 0x1534250 |
+| Line and column to index `(inner, line, column) → index` | 0x153aa90 |
+| Set the caret by index `(inner, index)` | 0x1536f50 |
+| Delete one byte `(inner, index)` | 0x153ab90 |
+| Insert text `vt[0xa0]`(inner, std::string*) | 0x1536b80 |
+| Set text `vt[0x80]` (clear, then insert) | 0x1536610 |
+| The caret's pixel offset in the text `vt[0x58]` | 0x1536060 |
+| Select a word to the left `vt[0x128]` (Ctrl+Backspace calls it first, then cuts) | 0x1538a70 |
+| Cut `vt[0x178]` / delete the selection `vt[0x188]` | 0x1539090 / 0x1539320 |
+| Left / Right | 0x15384d0 / 0x15385a0 |
+| Up / Down | 0x15387d0 / 0x1538870 |
+| Backspace / Delete | 0x1538db0 / 0x1538f30 |
+| Paste / Copy | 0x1539240 / 0x15395b0 |
+| Place the caret on a click | 0x15361f0 |
+| Multi-line wrapping: how many bytes fit on a line | 0x1537210 |
+| Multi-line wrapping: split the text into lines | 0x1537480 |
+| Find the last space in the part that fits | 0x1539820 |
+| Caret position update (UpdateCaret) | 0x1534250 |
 
-**原来都按字节走，框架改成按字**：
+**All of these worked in bytes; the framework makes them work in characters**:
 
-- **左**：`0x15384d6` 起把列减 1。框架改为减去光标前那个字的字节数；列为 0 时照原路（`0x15384eb`）走到上一行行尾。
-- **右**：`0x1538616` 把下标加 1 后设光标。框架改为加上光标处那个字的字节数。
-- **退格**：`0x1538e5f` 删除下标前的一个字节，再调用“左”。框架先删掉这个字前面的那几个字节，把列往回挪同样多，再让原代码删最后一个字节、调用“左”。
-- **删除**：`0x1538fbe` 删除下标处的一个字节。框架先删掉这个字后面的几个续字节。
-- **点击**：`0x153646f` 写入行和列，列是按每个字节前缀量宽求出来的，可能落在字的中间。框架把它退到所在字的开头。
-- **上、下**：保留字节列，换行后可能落在字的中间。框架在它们返回后把光标退到所在字的开头，再调用 `inner->vt[0x208]`（两者结尾都调用它）。
-- **长度截断**：InsertAtCaret（`0x153a979`）、Append（`0x153a2e4`）、Prepend（`0x153a6f5`）都用 `cmp edx,ecx; cmovle ecx,edx; mov r8d,ecx` 把整段文字截到上限，可能截断一个字。框架改为截在这个字之前。
-- **行数截断**：插入文字（`0x1536b80`）之后，行数超过 `高 / 行高`（`0x1536e0d` 读 +0x6a）或行数上限（`0x1536e37` 读 +0xdc）时，在 `0x1536e57` 反复调用退格。退格已经按字删除，这里不用另外改。
-- **多行折行**：`0x1537210` 二分查找一行放得下的字节数。框架把结果退到字的边界，至少保留一个字，免得一行永远放不下。
-  - 分行函数 `0x1537480` 先找第一个空格：没有空格，或第一个词就放不下，就直接在 `0x1537210` 的结果处断开；否则用 `0x1539820` 找放得下的部分里最后一个空格，在那里断开。中文没有空格，所以夹在中文里的拉丁名字会被切开。
-  - 国家历史窗口（小地图旁的“历史”按钮）用一个隐藏的多行文字部件排版（`0x1044e97` 构造，宽为窗口宽减 0x28），再按换行拆成一条条 `king_entry_text`，所以也走这条路。
-  - 框架在文字没放完时，把 `0x1537210` 的结果再退到最后一个可以断行的地方（Unicode 规则）。有空格时结果不变：空格后面本来就是断行处。
+- **Left**: from `0x15384d6` it subtracts 1 from the column. The framework subtracts the byte count of the character before the caret instead; when the column is 0, it takes the original path (`0x15384eb`) to the end of the previous line.
+- **Right**: at `0x1538616` it adds 1 to the index, then sets the caret. The framework adds the byte count of the character at the caret instead.
+- **Backspace**: at `0x1538e5f` it deletes the one byte before the index, then calls Left. The framework first deletes the bytes of this character that come before its last one and moves the column back by as many, then lets the original code delete the last byte and call Left.
+- **Delete**: at `0x1538fbe` it deletes the one byte at the index. The framework first deletes the continuation bytes that follow it in this character.
+- **Click**: at `0x153646f` it writes the line and column; the column comes from measuring the width of each byte prefix, so it can fall inside a character. The framework moves it back to the start of that character.
+- **Up, Down**: they keep the byte column, which can fall inside a character on the new line. After they return, the framework moves the caret back to the start of that character, then calls `inner->vt[0x208]` (both of them call it at the end).
+- **Length cut**: InsertAtCaret (`0x153a979`), Append (`0x153a2e4`) and Prepend (`0x153a6f5`) all use `cmp edx,ecx; cmovle ecx,edx; mov r8d,ecx` to cut the whole text to the limit, which can split a character. The framework cuts before that character instead.
+- **Line cut**: after text is inserted (`0x1536b80`), when the line count exceeds `height / line height` (`0x1536e0d` reads +0x6a) or the line limit (`0x1536e37` reads +0xdc), it calls Backspace repeatedly at `0x1536e57`. Backspace already deletes whole characters, so nothing else needs changing here.
+- **Multi-line wrapping**: `0x1537210` binary-searches how many bytes fit on a line. The framework moves the result back to a character boundary and keeps at least one character, so that a line never ends up unable to hold anything.
+  - The line splitter `0x1537480` first looks for the first space: if there is none, or the first word does not fit, it breaks right at `0x1537210`'s result; otherwise it uses `0x1539820` to find the last space in the part that fits and breaks there. Chinese has no spaces, so a Latin-script name inside Chinese text gets cut apart.
+  - The country history window (the "History" button beside the minimap) lays out its text in a hidden multi-line text component (built at `0x1044e97`, its width the window's width minus 0x28), then splits it at line breaks into separate `king_entry_text` entries, so it takes this path too.
+  - While text remains to be placed, the framework moves `0x1537210`'s result further back to the last place where a line may break (Unicode rules). With spaces, the result does not change: the place after a space was already a break.
 
-**按键处理**：`0x15366c0`(inner, 事件) 是 inner 的 `vt[0xa8]`，输入框外层的 `vt[0x48]`（0x1534190）在有焦点时把按键交给它，返回值表示按键是否已处理；没处理的按键会继续传给别的界面，比如地图。
+**Key handling**: `0x15366c0`(inner, event) is inner's `vt[0xa8]`. The outer edit box's `vt[0x48]` (0x1534190) hands keys to it while the box has focus; the return value says whether the key was handled. Keys that were not handled go on to other parts of the interface, the map for example.
 
-- 事件 `+0` 是 SDL 键码，`+8` 是修饰键：0 无，1 Ctrl，4 Shift，-1 表示“任意”。
-- 按键表是一串“修饰键 + 键码 → 方法”的判断：
-  - 左、右、上、下只在没有修饰键时处理（单行框里的上、下也不处理）；
-  - Home、End 不论带不带 Shift，调用的都是“选中到行首/行尾”（`vt[0x1d8]`、`vt[0x1e8]`）。传进去的“是否选中”参数被忽略，所以单按 Home、End 也会选中。只移动的方法是 `vt[0x1e0]`、`vt[0x1f0]`。
-  - 没匹配的键在 `0x1536a31` 转去查 Ctrl+C、Ctrl+V、Ctrl+X 等。
-- inner 有“向左选中一个字”`vt[0xd0]`（0x1538560）和“向右选中一个字”`vt[0xe0]`（0x1538670），但按键表从不调用它们，所以原版没有 Shift+方向键选字。
-- **框架的做法**：
-  - 把单按 Home、End 的两处调用改成只移动的方法；
-  - 在 `0x1536a31` 补上 Shift+左、Shift+右，分别调用这两个选中方法。
-- 退格在删掉最后一个字节后调用“左移”，原意是左移 1 个字节。“左移”被改成按整字移动后，这一次要另行告诉它只移 1 个字节，否则在文字末尾会多跳一个字（2026-10-28 修正前，“朝鲜”退格两次剩下“œ”）。
+- In the event, `+0` is the SDL key code and `+8` the modifiers: 0 none, 1 Ctrl, 4 Shift, -1 "any".
+- The key table is a chain of "modifiers + key code → method" checks:
+  - Left, Right, Up and Down are handled only with no modifiers (and in a single-line box, Up and Down are not handled at all);
+  - Home and End, with or without Shift, both call "select to line start / line end" (`vt[0x1d8]`, `vt[0x1e8]`). The "select or not" argument passed in is ignored, so plain Home and End select too. The methods that only move are `vt[0x1e0]` and `vt[0x1f0]`.
+  - A key that matches nothing goes on at `0x1536a31` to the checks for Ctrl+C, Ctrl+V, Ctrl+X and so on.
+- inner has "select one character to the left" `vt[0xd0]` (0x1538560) and "select one character to the right" `vt[0xe0]` (0x1538670), but the key table never calls them, so vanilla has no Shift+arrow selection of characters.
+- **What the framework does**:
+  - it changes the two calls for plain Home and End to the methods that only move;
+  - at `0x1536a31` it adds Shift+Left and Shift+Right, which call these two selection methods.
+- Backspace calls Left after deleting the last byte, meaning to move left by 1 byte. Now that Left moves by whole characters, this one call has to be told separately to move only 1 byte; otherwise, at the end of the text, it skips one character too many (before the 2026-10-28 fix, pressing Backspace twice on "朝鲜" (Korea) left "œ").
 
-**禁用字符过滤**：`0xb19590`(std::string* 文字, std::string* 禁用表) 逐字节删除禁用表里的字节，返回长度是否变化。
+**Forbidden-character filter**: `0xb19590`(std::string* text, std::string* forbidden) deletes, byte by byte, the bytes that appear in the forbidden list, and returns whether the length changed.
 
-- InsertText 在 `0x1536c32` 用它过滤 inner+0xb8；粘贴时字体的 `0x15a04f0` 也调用它。
-- 0x15358a0 给 37 处输入框加上 `" § ¤ £ @ { } / \`；存档对话框另加 `\ / : * ? < > | \r \n \t`。
-- 逐字节比较会删掉值为 0xA3、0xA4、0xA7 的续字节。框架把它整个换成按字比较。
+- InsertText uses it at `0x1536c32` to filter by inner+0xb8; on paste, the font's `0x15a04f0` calls it too.
+- 0x15358a0 adds `" § ¤ £ @ { } / \` to 37 edit boxes; the save dialog adds `\ / : * ? < > | \r \n \t` as well.
+- Comparing byte by byte deletes continuation bytes whose value is 0xA3, 0xA4 or 0xA7. The framework replaces the whole function with one that compares characters.
 
-**剪贴板**：
+**Clipboard**:
 
-- 粘贴在 `0x1539250` 调用 `SDL_GetClipboardText`，把返回的 UTF-8 原样插入，而且从不释放。框架把它转成游戏的编码，并用 `SDL_free` 释放。
-- 复制在 `0x1539604` 把选中的字节交给 `SDL_SetClipboardText`，后者要的是 UTF-8。框架先转成 UTF-8。
+- Paste calls `SDL_GetClipboardText` at `0x1539250`, inserts the UTF-8 it returns as it is, and never frees it. The framework converts it to the game's encoding and frees it with `SDL_free`.
+- Copy hands the selected bytes to `SDL_SetClipboardText` at `0x1539604`, which expects UTF-8. The framework converts them to UTF-8 first.
 
-## 3. 输入法
+## 3. Input method
 
-- 游戏只在创建输入对象时调用一次 `SDL_StartTextInput`，从不调用 `SDL_SetTextInputRect`。输入框获得焦点时（`0x1535250`）算出的矩形交给了一个什么都不做的函数。所以 SDL 从来不知道光标在哪。
-  - SDL 里唯一调用 `ImmSetCompositionWindow` 的是 `0x17657c0`（SDL_SetTextInputRect 在 Windows 上的实现），也就从没被调用过。
-  - eu4.exe 不导入 `ImmSetCandidateWindow`，框架要自己从 imm32.dll 取。
-- **IME_HandleMessage**：`0x1764940`(hwnd, msg, wParam, LPARAM* lParam, videodata)，只有 `0x173ad09` 一处调用。返回非 0 时，窗口过程跳过 DefWindowProc。
-  - WM_IME_SETCONTEXT：`0x1764c7c` 把 `*lParam` 清零，系统的组字窗口和候选窗口因此不显示。
-  - WM_IME_STARTCOMPOSITION、WM_IME_COMPOSITION：被吃掉（返回 1）。组字结果经 `SDL_SendKeyboardText` 变成文字事件，组字串变成编辑事件（游戏丢弃）。
-  - WM_IME_NOTIFY：候选列表的通知大都被吃掉。
-- **TSF 的 UI-less 模式**：IME_Init 在 `0x1764e7e` 用 CoCreateInstance 建 ITfThreadMgrEx，以“只要 UI 元素”方式激活，并挂上 UI 元素的回调来隐藏系统界面。创建失败时走 `0x1764f82`，UI-less 标志（videodata+0x1560）为 0。
-- **框架的做法**：
-  - 把 `0x1764e7e` 的调用改成直接返回失败，不进入 UI-less 模式；
-  - 包装 IME_HandleMessage：WM_IME_SETCONTEXT 时恢复 lParam；WM_IME_STARTCOMPOSITION 和 WM_IME_NOTIFY 交给 DefWindowProc；WM_IME_COMPOSITION 照旧让 SDL 处理，再用去掉结果位（GCS_RESULT*）的 lParam 调用 DefWindowProc，以免 Windows 再发一遍 WM_IME_CHAR。
-- **光标位置**：UpdateCaret 在 `0x15343bc` 时，`ebx` 是光标在文字里的偏移（低 16 位 x、高 16 位 y），单位是 GUI 单位。
-  - `r15d`、`r14d` 是光标精灵**相对输入框父窗口**的基点：输入框在父窗口里的位置，加文字内边距（`+0x28c`+`+0x240`，y 是 `+0x290`+`+0x244`），再加 `[[框+0x1e0]+0x32604]` 处的偏移。它不是屏幕位置，直接用的话，输入法窗口会跑到屏幕左上方（2026-10-28 实测）。
-  - 屏幕上的位置：输入框的 `vt[0xd8]`（0x15357a0）给出输入框在屏幕上的位置（GUI 单位）；它的点击处理（0x1534560）就是用鼠标位置减去它得到框内坐标。光标的屏幕位置 = 这个位置 + 内边距 + 那个偏移 + 光标偏移。
-  - 乘以 `[[0x23494b8]+0x4e0]` / `+0x4e4` 两个浮点数得到窗口像素，焦点函数也是这样换算的。字体的行高是 `字体[+0x960] * 字体[+0x968]`（方法 0x159ba20）。
-  - 框架用 `ImmSetCompositionWindow` 和 `ImmSetCandidateWindow` 把两个窗口放到光标处，候选窗口避开当前行。
-- **待实测**：组字时按退格、回车、方向键，是否也会传到输入框（窗口过程里没找到对 VK_PROCESSKEY 的判断）。
+- The game calls `SDL_StartTextInput` only once, when it creates its input object, and never calls `SDL_SetTextInputRect`. The rectangle worked out when an edit box gains focus (`0x1535250`) is passed to a function that does nothing. So SDL never knows where the caret is.
+  - The only caller of `ImmSetCompositionWindow` in SDL is `0x17657c0` (SDL_SetTextInputRect's Windows implementation), so it is never called either.
+  - eu4.exe does not import `ImmSetCandidateWindow`; the framework has to get it from imm32.dll itself.
+- **IME_HandleMessage**: `0x1764940`(hwnd, msg, wParam, LPARAM* lParam, videodata), with a single call site, `0x173ad09`. When it returns non-zero, the window procedure skips DefWindowProc.
+  - WM_IME_SETCONTEXT: `0x1764c7c` clears `*lParam`, so the system's composition and candidate windows are not shown.
+  - WM_IME_STARTCOMPOSITION, WM_IME_COMPOSITION: swallowed (it returns 1). The composition result becomes a text event through `SDL_SendKeyboardText`, and the composition string becomes an editing event (which the game drops).
+  - WM_IME_NOTIFY: most candidate list notifications are swallowed.
+- **TSF's UI-less mode**: at `0x1764e7e`, IME_Init creates an ITfThreadMgrEx with CoCreateInstance, activates it in "UI elements only" mode, and installs UI element callbacks to hide the system's interface. If creation fails, it goes to `0x1764f82`, and the UI-less flag (videodata+0x1560) is 0.
+- **What the framework does**:
+  - it changes the call at `0x1764e7e` to fail straight away, so UI-less mode is never entered;
+  - it wraps IME_HandleMessage: on WM_IME_SETCONTEXT it restores lParam; WM_IME_STARTCOMPOSITION and WM_IME_NOTIFY go to DefWindowProc; WM_IME_COMPOSITION is still handled by SDL as before, and then DefWindowProc is called with an lParam that has the result bits (GCS_RESULT*) removed, so that Windows does not send WM_IME_CHAR a second time.
+- **Caret position**: at `0x15343bc` in UpdateCaret, `ebx` is the caret's offset in the text (x in the low 16 bits, y in the high 16 bits), in GUI units.
+  - `r15d` and `r14d` are the caret sprite's base point **relative to the edit box's parent window**: the edit box's position in its parent, plus the text inset (`+0x28c`+`+0x240`; for y, `+0x290`+`+0x244`), plus the offset at `[[box+0x1e0]+0x32604]`. It is not a screen position; used as one, the input method's windows end up towards the top left of the screen (tested in the game 2026-10-28).
+  - The position on screen: the edit box's `vt[0xd8]` (0x15357a0) gives the edit box's position on screen (in GUI units); its click handler (0x1534560) subtracts it from the mouse position to get coordinates within the box. The caret's screen position = this position + the inset + that offset + the caret offset.
+  - Multiplying by the two floats at `[[0x23494b8]+0x4e0]` / `+0x4e4` gives window pixels; the focus function converts the same way. The font's line height is `font[+0x960] * font[+0x968]` (method 0x159ba20).
+  - The framework places both windows at the caret with `ImmSetCompositionWindow` and `ImmSetCandidateWindow`, keeping the candidate window clear of the current line.
+- **To be tested**: whether Backspace, Enter and the arrow keys pressed during composition also reach the edit box (no check for VK_PROCESSKEY was found in the window procedure).
 
-## 4. 存档文件名
+## 4. Save file names
 
-- **转 ASCII**：`0x1705180`(std::string*) 原地转换：þ Þ Ð ð 变成 t T D d，其余 0x80 以上的字节查 `0x1c37af0` 的表（带重音的字母去掉重音，其他变成 `?`）。UTF-8 的续字节因此都变成 `?`。
-- 存档路径的调用点有 `0x13b8f6c`（确认存档）、`0x13b8de1`、`0x13b9567`、`0x5c9fbf`；另有十来处调用者用途没查。
-- 路径不经转换就交给 PhysFS（`0x1718300` 直接调用 `PHYSFS_openWrite`），PhysFS 用的是 UTF-8。
-- **框架的做法**：替换整个函数，UTF-8 序列原样保留，Windows-1252 的单字节照原表转换。只含 Windows-1252 字符的名字，结果和原来完全一样。
+- **To ASCII**: `0x1705180`(std::string*) converts in place: þ Þ Ð ð become t T D d, and the other bytes of 0x80 and above are looked up in the table at `0x1c37af0` (accented letters lose their accents; everything else becomes `?`). So every UTF-8 continuation byte becomes `?`.
+- The call sites for save paths are `0x13b8f6c` (confirming a save), `0x13b8de1`, `0x13b9567` and `0x5c9fbf`; there are about ten other callers whose purpose has not been checked.
+- The path goes to PhysFS without conversion (`0x1718300` calls `PHYSFS_openWrite` directly), and PhysFS uses UTF-8.
+- **What the framework does**: it replaces the whole function; UTF-8 sequences are kept as they are, and Windows-1252 single bytes are converted by the original table. For a name with only Windows-1252 characters, the result is exactly the same as before.

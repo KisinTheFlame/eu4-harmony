@@ -1,116 +1,116 @@
-保存/加载生命周期候选——静态定点逆向
-日期：2026-10-26
-目标：指定 unrestricted exe 的冻结副本，SHA256
-97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e。
-所有地址均为 RVA；运行期地址必须用实际模块基址加 RVA。
-本轮只读清单和程序字节，在 work/native-save 下使用 Ghidra 12.1.4 定点反编译。
-没有附加、操纵或读取正在运行的游戏进程。没有安装或写入任何 hook。
+Save/load lifecycle candidates: targeted static reverse engineering
+Date: 2026-10-26
+Target: the frozen copy of the specified unrestricted exe, SHA256
+97dd63a811487fbe2c917f2c15b1e68f7222bef74a833889cf943c8010049d5e.
+All addresses are RVAs; a runtime address is the actual module base plus the RVA.
+This round read only the manifest and the program bytes, with targeted decompilation in Ghidra 12.1.4 under work/native-save.
+No running game process was attached to, manipulated or read. No hook was installed or written.
 
-结论
-已找到可用于受控运行期探针的保存分发、最终文件移动和加载完成候选。
-第三方现有 save_result == 0 不能单独证明最终 .eu4 文件已成功替换：本地保存函数
-在设置序列化结果后才执行 .tmp -> .eu4 改名，改名失败分支未见修正该返回值。
-外置配置不能仅监听这个返回值后将“当前配置”绑定到可能仍是旧版的磁盘存档。
+Conclusions
+Found candidates for the save dispatch, the final file move and load completion, usable for controlled runtime probes.
+The third party's existing save_result == 0 alone does not prove that the final .eu4 file was replaced: the local save functions
+do the .tmp -> .eu4 rename only after setting the serialization result, and the rename-failure branch shows no correction of that return value.
+Externally stored configuration must not, on hearing only this return value, bind the "current configuration" to a save on disk that may still be the old version.
 
-1. 第三方清单 seed 与独立字节核对
-原清单：unrestricted/patch-manifest.json，historical_metadata.native_hooks。
-menu_save_call  0x815cc3: e8 38 ae dc 01 -> 0x25e0b00。
-save_result_call 0x5cbec3: e8 38 4d 01 02 -> 0x25e0c00。
-两处实际字节与清单 after 一致，核对记录在 work/native-save/manifest-hooks-verified.json。
-清单的符号名用于找 seed；下述行为由指定底本的定点反编译独立确认。
+1. Seeds from the third-party manifest, and an independent byte check
+Original manifest: unrestricted/patch-manifest.json, historical_metadata.native_hooks.
+menu_save_call  0x815cc3: e8 38 ae dc 01 -> 0x25e0b00.
+save_result_call 0x5cbec3: e8 38 4d 01 02 -> 0x25e0c00.
+The actual bytes at both sites match the manifest's after; the check is recorded in work/native-save/manifest-hooks-verified.json.
+The manifest's symbol names were used to find seeds; the behavior below was confirmed independently by targeted decompilation of the specified baseline.
 
-2. 保存起点：优先探针候选 0x5cbde0，范围 [0x5cbde0,0x5cbed6)
-观察到参数 RCX 指向保存请求对象；先记录并置一个暂停/调度旗标，再分派：
-  request+0x20 == 0 且 request+0x21 == 0 -> 0x5c6500；
-  request+0x20 != 0 且 request+0x21 == 0 -> 0x5c7ac0；
-  其他组合经网络/服务可用性判断后 -> 0x5c8ba0，服务不可用可返回 4。
-request+0x40 非0且结果非0时调用 0x5cb110 错误处理。
-随后恢复进入时的暂停/调度旗标，并在 0x5cbec3 调用第三方 capture_result，最终返回该结果。
-0x25e0c00 是 11 字节跳板：将 EBX 存至 RVA 0x26cc010，然后 tail jump 到原函数 0x4708d0。
-0x4708d0 从此上下文看是暂停/调度状态传播函数，不应误命名为“保存完成函数”。
-证据：work/native-save/pseudocode1.txt:1586-1646、1869 后；清单和实际调用字节。
+2. Start of a save: preferred probe candidate 0x5cbde0, range [0x5cbde0,0x5cbed6)
+The argument RCX is seen to point to a save request object. It first records and sets a pause/scheduling flag, then dispatches:
+  request+0x20 == 0 and request+0x21 == 0 -> 0x5c6500;
+  request+0x20 != 0 and request+0x21 == 0 -> 0x5c7ac0;
+  other combinations, after a network/service availability check -> 0x5c8ba0; it may return 4 when the service is unavailable.
+When request+0x40 is non-zero and the result is non-zero, it calls 0x5cb110 for error handling.
+It then restores the pause/scheduling flag it had on entry, calls the third party's capture_result at 0x5cbec3, and finally returns that result.
+0x25e0c00 is an 11-byte trampoline: it stores EBX at RVA 0x26cc010, then tail-jumps to the original function 0x4708d0.
+From this context 0x4708d0 is a function that propagates pause/scheduling state; it should not be misnamed a "save completed function".
+Evidence: work/native-save/pseudocode1.txt:1586-1646 and after 1869; the manifest and the actual call bytes.
 
-保存请求对象结构候选：
-  +0x00..0x1f 类 MSVC std::string 的存档名字；
-  +0x20..+0x26 若干保存模式/压缩等旗标，尚未逐一命名；
-  +0x28 路径分量 vector 候选；+0x40 错误提示开关候选。
-依据：0x5cbee0 构造该对象并在 0x5cc04e 调用分发函数；0x5ca070 从名字、
-路径分量及 .eu4 后缀构造最终虚拟路径。不能把 request+0x00 直接当绝对磁盘路径。
-证据：work/native-save/pseudocode3.txt:484-732。
+Candidate layout of the save request object:
+  +0x00..0x1f the save name, an MSVC std::string-like object;
+  +0x20..+0x26 several flags for save mode, compression and so on, not yet named one by one;
+  +0x28 candidate vector of path components; +0x40 candidate switch for error messages.
+Basis: 0x5cbee0 builds this object and calls the dispatch function at 0x5cc04e; 0x5ca070 builds the final virtual path from the name,
+the path components and the .eu4 suffix. request+0x00 cannot be taken directly as an absolute disk path.
+Evidence: work/native-save/pseudocode3.txt:484-732.
 
-原始 E8 字节扫描找到分发函数的候选调用点：
-0x5cace8、0x5cc04e、0x5cc615、0x5cca17、0x5ccc18、0xe95e5e。
-其中 0x5cc04e 已通过其所属函数反编译确认；其余仅是定点探针线索，未声明调用覆盖完整。
-扫描记录：work/native-save/direct-call-candidates.json。
+A scan of raw E8 bytes found candidate call sites of the dispatch function:
+0x5cace8, 0x5cc04e, 0x5cc615, 0x5cca17, 0x5ccc18, 0xe95e5e.
+Of these, 0x5cc04e is confirmed by decompiling its containing function; the rest are only leads for targeted probes, and the list is not claimed to cover every call.
+Scan record: work/native-save/direct-call-candidates.json.
 
-3. 菜单 wrapper 不能覆盖所有保存
-0x25e0b00 保存第三方自己的 idler/world/date，并将 result 设为 -1，再调用 0x5cc160。
-0x5cc160 先检查 world+0x24d0；为0立即返回，从上下文推断这是铁人路径。
-第三方仅把菜单内 0x815cc3 的一个调用替换为这个 wrapper，原生另外的直接保存调用仍在。
-因此不能以 0x25e0b00 作为普通、铁人、自动存档的统一 snapshot 入口。
-已确认的第三方状态：
-  world 全局指针 RVA0x233fe78；world 日期字段 +0x1dd0；
-  第三方 save_idler RVA0x26cc000；save_world +8；save_result +0x10；save_date +0x14。
-0x25e0200 返回主菜单逻辑检查 idler/world/date 一致且 result==0；这仅是其离场保护，
-不是当前增强要求的全内容 hash、最终slot及持久军队身份绑定。
-证据：work/native-save/pseudocode1.txt:1651-1849。
+3. The menu wrapper does not cover all saves
+0x25e0b00 stores the third party's own idler/world/date, sets result to -1, then calls 0x5cc160.
+0x5cc160 first checks world+0x24d0 and returns at once if it is 0; from the context this is inferred to be the Ironman path.
+The third party replaced only the one call at 0x815cc3 in the menu with this wrapper; the other native direct save calls are still there.
+So 0x25e0b00 cannot serve as one snapshot entry for ordinary saves, Ironman saves and autosaves.
+Confirmed third-party state:
+  world global pointer RVA0x233fe78; world date field +0x1dd0;
+  third-party save_idler RVA0x26cc000; save_world +8; save_result +0x10; save_date +0x14.
+The return-to-main-menu logic at 0x25e0200 checks that idler/world/date match and result==0; this is only its guard on leaving,
+not the full-content hash, final slot and persistent army identity binding the current enhancement needs.
+Evidence: work/native-save/pseudocode1.txt:1651-1849.
 
-4. 本地保存落盘与最终改名
-0x5c6500 普通本地保存候选；0x5c7ac0 本地铁人保存候选。
-二者均构造 .tmp 路径，调用 0x74ba20 序列化 world，检查长度/结果，PHYSFS_close，
-处理备份/已有文件，然后调用 0x1715bb0 移动最终文件。
-序列化调用点：0x5c68e6（0x5c6500内）、0x5c7ea4（0x5c7ac0内）。
-最终 .tmp -> .eu4 调用点：
-  0x5c7888 -> 0x1715bb0（0x5c6500内）；
-  0x5c88ef -> 0x1715bb0（0x5c7ac0内）。
-0x5c76ab 也调用同一移动helper，但用于其他备份移动，不能泛化为最终存档完成。
+4. Writing local saves to disk and the final rename
+0x5c6500 candidate for ordinary local saves; 0x5c7ac0 candidate for local Ironman saves.
+Both build a .tmp path, call 0x74ba20 to serialize world, check the length/result, PHYSFS_close,
+deal with backups/existing files, then call 0x1715bb0 to move the final file.
+Serialization call sites: 0x5c68e6 (in 0x5c6500), 0x5c7ea4 (in 0x5c7ac0).
+Final .tmp -> .eu4 call sites:
+  0x5c7888 -> 0x1715bb0 (in 0x5c6500);
+  0x5c88ef -> 0x1715bb0 (in 0x5c7ac0).
+0x5c76ab also calls the same move helper, but for another backup move; it cannot be generalized to mean the final save is complete.
 
-0x1715bb0(src,dst) 使用 PHYSFS_getRealDir、UTF8->UTF16、GetFullPathNameW，
-调用 0x1a5ed40 执行实际路径移动；后者返回0时helper返回低字节1，否则返回0并记录错误。
-这是可以用返回地址筛选上述两个调用点的被动探针候选，不能把其所有调用都当保存。
-证据：work/native-save/pseudocode3.txt:737-1124；save-io-call-candidates.json。
+0x1715bb0(src,dst) uses PHYSFS_getRealDir, UTF8->UTF16 and GetFullPathNameW,
+and calls 0x1a5ed40 to do the actual move; when that returns 0 the helper returns low byte 1, otherwise it returns 0 and logs an error.
+It is a candidate for a passive probe that filters on the return address to pick out the two call sites above; not every call to it is a save.
+Evidence: work/native-save/pseudocode3.txt:737-1124; save-io-call-candidates.json.
 
-重要限制：
-0x5c6500 在反编译行310-312已设返回结果5或0；0x5c7ac0在行1017-1019同样处理。
-最终改名失败分支打印“Failed to rename new save file”或“CRITICAL SAVE ERROR”，
-但未见更新保存分发收到的返回结果。因此 result==0 至多表示其报告的保存结果，
-还需具体最终移动成功+已关闭目标文件+准确snapshot关联验证，不能自动授予 Commit::Confirmed。
-证据：work/native-save/pseudocode2-annotated.txt:310-317、636-689、1017-1024、1218-1272。
-此结论来自局部静态数据流；尚未用真实磁盘失败场景证明，也没有修改原程序错误处理。
+Important limitation:
+0x5c6500 has already set the return result to 5 or 0 at decompiled lines 310-312; 0x5c7ac0 does the same at lines 1017-1019.
+The final rename-failure branch prints "Failed to rename new save file" or "CRITICAL SAVE ERROR",
+but is not seen to update the return result the save dispatch receives. So result==0 at most stands for the save result it reports;
+it still needs verification that the final move succeeded, the target file is closed and the snapshot is correctly linked, and cannot by itself grant Commit::Confirmed.
+Evidence: work/native-save/pseudocode2-annotated.txt:310-317, 636-689, 1017-1024, 1218-1272.
+This conclusion comes from local static data flow; it has not been proven with a real disk-failure scenario, and the original program's error handling was not changed.
 
-5. 加载候选
-0x5cdc60 是有用的加载调用/返回观察点：
-  参数 RCX=reader候选，RDX=success-byte输出指针，R8=world候选，R9=进度相关参数；
-  进入先写*RDX=0，启动名为 SaveSessionUpdateThread 的辅助线程；
-  栈上组织 {world, reader, success_ptr}，在0x5cdd58同步调用0x5cf740；
-  返回前join辅助线程；最后返回success指针。
-证据：work/native-save/pseudocode3.txt:3-109；名字字符串RVA0x1c8cb10。
+5. Load candidates
+0x5cdc60 is a useful point for observing a load's call and return:
+  arguments RCX=reader candidate, RDX=success-byte output pointer, R8=world candidate, R9=progress-related argument;
+  on entry it first writes *RDX=0 and starts a helper thread named SaveSessionUpdateThread;
+  it lays out {world, reader, success_ptr} on the stack and calls 0x5cf740 synchronously at 0x5cdd58;
+  before returning it joins the helper thread; finally it returns the success pointer.
+Evidence: work/native-save/pseudocode3.txt:3-109; name string RVA0x1c8cb10.
 
-0x5cf740(task) 是加载及初始化主体候选，范围 [0x5cf740,0x5d01b0)。
-  task[0]=world，task[1]=reader，task[2]=success-byte指针；
-  取gamestate数据失败或解析失败时写*task[2]=0并返回；
-  加载压缩存档分支中处理meta和AI；
-  成功解析后设置world+0x2430存档名字和world+0x2450路径分量；
-  调用0x7751b0执行世界初始化，再清理局部对象，最后写*task[2]=1。
-0x7751b0对应“Initializing savegame”来源，遍历世界结构执行后处理，不等价于全UI就绪。
-证据：work/native-save/pseudocode2-annotated.txt:2260-2625、2626之后。
-成功返回候选可用于新session生成和随后尝试恢复；必须等适配器能产出完整且身份一致的
-world snapshot，才允许恢复军队任务并发出命令。单纯*success==1不能证明已重建所有UI。
+0x5cf740(task) is the candidate for the body of loading and initialization, range [0x5cf740,0x5d01b0).
+  task[0]=world, task[1]=reader, task[2]=success-byte pointer;
+  if getting the gamestate data or parsing fails, it writes *task[2]=0 and returns;
+  the branch that loads compressed saves handles meta and AI;
+  after a successful parse it sets the save name at world+0x2430 and the path components at world+0x2450;
+  it calls 0x7751b0 to initialize the world, then cleans up local objects, and finally writes *task[2]=1.
+0x7751b0 is the source of "Initializing savegame"; it walks the world structures doing post-processing, which is not the same as the whole UI being ready.
+Evidence: work/native-save/pseudocode2-annotated.txt:2260-2625 and after 2626.
+The successful-return candidate can be used to create a new session and then attempt a restore; only once the adapter can produce a complete world snapshot
+with consistent identity may army tasks be restored and orders issued. *success==1 alone does not prove that all UI has been rebuilt.
 
-6. 给后续runtime核验的最小方案（设计，不是已连接实现）
-A. 只观察0x5cbde0进入/离开：记录线程ID、请求flags、有限长度名字/路径分量、
-   world指针、日期、返回结果；验证普通/铁人/自动保存是否覆盖、期间世界是否静止。
-B. 对0x1715bb0仅在返回地址为0x5c788d或0x5c88f4时记录参数和低字节返回值，
-   不记录无关文件移动；核实最终路径、已有文件处理、成功或失败结果。
-C. 对0x5cdc60进入/离开观察world和输出success、slot身份，再等待完整world snapshot。
-D. 只有A/B已证明当前保存快照与任务配置一致、最终slot确实提交成功，才能对锁定的
-   文件计算完整SHA256并提交外置状态。失败、云端无确定本地对应文件、异常退出或身份
-   无法证明时不写状态。不可只凭日期/mtime/名称相同绑定。
-E. 读档前后识别session变更；按slot+hash查找外置状态，再核验军队持久身份与generation。
+6. Minimal plan for later runtime verification (a design, not a connected implementation)
+A. Only observe entering/leaving 0x5cbde0: record the thread ID, request flags, length-limited name/path components,
+   the world pointer, date and return result; verify whether ordinary/Ironman/autosaves are covered and whether the world stays still meanwhile.
+B. For 0x1715bb0, record the arguments and low-byte return value only when the return address is 0x5c788d or 0x5c88f4,
+   and not unrelated file moves; check the final path, how an existing file is handled, and the success or failure result.
+C. On entering/leaving 0x5cdc60, observe world, the success output and the slot identity, then wait for a complete world snapshot.
+D. Only when A/B have proven that the current save snapshot matches the task configuration and the final slot was really committed may the full SHA256 of the locked
+   file be computed and the externally stored state committed. On failure, a cloud save with no definite local file, an abnormal exit, or an identity
+   that cannot be proven, write no state. Never bind on matching date/mtime/name alone.
+E. Detect session changes around a load; look up externally stored state by slot+hash, then verify the armies' persistent identities and generation.
 
-尚未解决
-各模式的精确旗标语义、虚拟路径到本地/云存档的映射、保存期间任务配置快照同步、
-持久军队ID/generation来源、异步与自动存档完整覆盖、普通/铁人实际保存重载、
-返回原版的实际兼容性。上述入口不能绕过这些前置条件就宣称保存hook已完成。
-最新存档刷新wrapper 0x25e1600只是前端缓存刷新（调用0x17139c0/0x212810），
-不应当作存档成功或加载世界完成事件。
+Unresolved
+The exact meaning of each mode's flags, the mapping from virtual paths to local/cloud saves, syncing the task configuration snapshot during a save,
+where persistent army IDs/generation come from, full coverage of asynchronous saves and autosaves, actual save-and-reload for ordinary/Ironman,
+and actual compatibility with going back to vanilla. None of the entries above may bypass these preconditions to claim the save hook is done.
+The latest-save refresh wrapper 0x25e1600 only refreshes a front-end cache (it calls 0x17139c0/0x212810),
+and should not be taken as an event for a successful save or a finished world load.

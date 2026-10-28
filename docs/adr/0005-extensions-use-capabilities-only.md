@@ -1,13 +1,13 @@
-# 扩展只能使用框架提供的能力
+# Extensions use only the capabilities the framework provides
 
-扩展只通过框架提供的能力访问游戏：游戏对象、命令、界面、事件、按存档数据。符号、挂钩、内存读写和原生调用只在框架内部使用，不对扩展开放。扩展因此不依赖任何地址或数据布局，换底本时只需更新框架；所有挂钩由框架统一管理，多个扩展不会因各自打补丁而互相破坏。
+Extensions reach the game only through the capabilities the framework provides: game objects, commands, interface, events, per-save data. Symbols, hooks, memory reads and writes, and native calls are used only inside the framework and are not open to extensions. So extensions depend on no address or data layout, and a new baseline needs only the framework updated. The framework manages all hooks in one place, so extensions cannot break each other by each patching the game on its own.
 
 ## Considered Options
 
-- **像 Harmony 那样开放打补丁**：Mod 作者不必等框架补能力，但每个 Mod 都依赖地址，换底本就逐个失效，多个 Mod 挂同一个函数时也要各自处理冲突。
+- **Open up patching, as Harmony does**: mod authors would not have to wait for the framework to add capabilities, but every mod would depend on addresses and break one by one with each new baseline, and mods hooking the same function would each have to deal with the conflicts.
 
 ## Consequences
 
-- 框架承担全部逆向工作，也是瓶颈：扩展需要而框架没有的能力，只能加进框架。
-- 不为某个 Mod 的特定需求长出专用能力；Mod 特有的逻辑留在它自己的扩展里。
-- 扩展是原生 DLL，技术上仍能自己挂钩；这属于不受支持的用法，框架不为由此产生的冲突负责。
+- The framework carries all the reverse engineering and is also the bottleneck: a capability an extension needs and the framework lacks can only be added to the framework.
+- The framework does not grow special capabilities for one mod's particular needs; logic specific to a mod stays in its own extension.
+- Extensions are native DLLs and can technically still hook on their own; that use is unsupported, and the framework takes no responsibility for the conflicts it causes.

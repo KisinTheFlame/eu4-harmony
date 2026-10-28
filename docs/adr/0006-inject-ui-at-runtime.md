@@ -1,16 +1,16 @@
-# 界面元素由框架在运行时注入
+# The framework injects interface elements at run time
 
-扩展通过能力声明要在原版界面上加的元素，由框架在运行时注入原版窗口；Mod 不覆盖任何原版 `.gui` 文件。Paradox mod 通常靠覆盖原版 `.gui` 加界面，但两个 Mod 覆盖同一个文件时只有一个生效；原生扩展多了以后，往同一个原版面板上加东西会很常见。
+Extensions declare, through a capability, the elements they want added to the vanilla interface, and the framework injects them into vanilla windows at run time; mods do not override any vanilla `.gui` file. Paradox mods usually add interface by overriding vanilla `.gui` files, but when two mods override the same file only one takes effect; once there are more native extensions, adding things to the same vanilla panel will be common.
 
-注入方式是在游戏读取 `.gui` 文件时拼接文本：挂 eu4.exe 按名字导出的 PhysFS 函数（`PHYSFS_openRead`、`readBytes` 等），在宿主窗口定义里插入元素定义，再交给游戏自己的解析器；控件的创建、生命周期和重新加载都沿用原版流程。拼接作用在实际生效的那份文件上，因此也能与覆盖同一文件的普通 Mod 共存。依据见 [research/ui-injection.md](../research/ui-injection.md)。
+Injection splices text into `.gui` files as the game reads them: the framework hooks the PhysFS functions eu4.exe exports by name (`PHYSFS_openRead`, `readBytes` and others), inserts element definitions into the host window's definition, and hands the result to the game's own parser. Creating the elements, their lifetime and reloading all follow the vanilla flow. The splice applies to the copy of the file that actually takes effect, so it also coexists with ordinary mods that override the same file. The evidence is in [research/ui-injection.md](../research/ui-injection.md).
 
 ## Considered Options
 
-- **Mod 自带覆盖原版的 `.gui`，框架按名字绑定行为**（regional-combat 0.3.x 的做法）：实现简单、已验证，但与其他覆盖同一文件的 Mod 互斥。
-- **解析后把元素合并进定义树**：依赖词法器、原型对象和多张名字表的内部布局，每次加载或重新加载都要重做。
-- **运行时调用工厂创建控件再挂到活动窗口**：工厂存在，但没有独立的"加子控件"函数，要直接改写活动窗口的内部列表。
+- **Mods ship `.gui` files that override the vanilla ones, and the framework binds behavior by name** (what regional-combat 0.3.x does): simple to build and already proven, but it cannot be used together with other mods that override the same file.
+- **Merge elements into the definition tree after parsing**: this depends on the internal layout of the lexer, the prototype objects and several name tables, and has to be redone at every load or reload.
+- **Call the factory at run time to create elements, then attach them to the live window**: the factory exists, but there is no separate "add child element" function, so the live window's internal lists would have to be rewritten directly.
 
 ## Consequences
 
-- 界面声明必须是框架能直接读取的静态数据：拼接可能发生在 LoadingThread 上、早于扩展加载，钩子里不能调用扩展代码。
-- 框架要决定注入元素的位置，处理多个扩展往同一面板加元素时的排布和重名。
+- Interface declarations must be static data the framework can read directly: splicing may happen on LoadingThread, before extensions load, and the hooks cannot call extension code.
+- The framework has to decide where injected elements go, and handle layout and duplicate names when several extensions add elements to the same panel.

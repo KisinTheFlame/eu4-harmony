@@ -1,18 +1,18 @@
-# 框架界面由框架自己绘制
+# The framework draws its own UI
 
-框架自己的界面，也就是提示窗口和设置窗口，由框架用游戏的 D3D9 设备画在游戏画面的最上层。控件（窗口、文字、按钮、下拉框）全部自己实现，文字用系统字体，不借用游戏的界面系统，也不寄宿在游戏的窗口里。这取代 ADR 0008：寄宿在原版窗口里的提示会随宿主的创建、销毁和其他 Mod 的改动而失效；游戏的界面也缺少框架需要的控件，例如 EU4 没有原生的下拉框。
+The framework's own interface, that is the notice window and the settings window, is drawn by the framework with the game's D3D9 device, on top of the game's picture. Its widgets (windows, text, buttons, drop-down lists) are all the framework's own, and text uses system fonts; it borrows nothing from the game's interface system and does not live in the game's windows. This supersedes ADR 0008: notices hosted in vanilla windows break as their hosts are created and destroyed and as other mods change them; and the game's interface also lacks widgets the framework needs, for example EU4 has no native drop-down list.
 
-设置窗口只能从主菜单角落的框架按钮打开，打开期间独占鼠标和键盘；提示窗口不独占输入，两者都不暂停游戏。扩展的界面不受影响，往原版面板上加的元素仍按 ADR 0006 拼进原版窗口。框架界面暂不开放给扩展。
+The settings window can be opened only from the framework button in the corner of the main menu, and while it is open it takes the mouse and keyboard to itself. The notice window does not take the input. Neither pauses the game. Extensions' interface is not affected: elements added to vanilla panels are still spliced into vanilla windows as in ADR 0006. The framework UI is not open to extensions for now.
 
 ## Considered Options
 
-- **拼进原版常驻窗口**（ADR 0008）：见上。
-- **Windows 原生窗口和对话框**：自带下拉框，但在独占全屏下会被挡住，或者让游戏最小化。
-- **现成的即时模式界面库**：输入和布局能省事，但默认外观像调试工具，还要多一个第三方依赖；而框架需要的控件并不多。
+- **Splice into always-present vanilla windows** (ADR 0008): see above.
+- **Native Windows windows and dialogs**: they come with drop-down lists, but in exclusive full screen they get covered, or they make the game minimize.
+- **An existing immediate-mode UI library**: it would save work on input and layout, but its default look is that of a debugging tool, and it adds a third-party dependency; and the framework needs few widgets.
 
 ## Consequences
 
-- 框架要自己管理输入焦点：框架界面活动时，鼠标和键盘先由它处理。
-- 角落按钮只在主菜单出现，判断"当前在主菜单"要借助已经挂上的主菜单逐帧函数。因此框架设置只能在主菜单修改，下次启动生效。
-- 框架界面能用之后，删除拼接提示窗口的代码和贴图。框架启动失败时，提示改用 Windows 消息框（ADR 0012）。
-- 控件的接口不写死"只给框架用"，以后可以作为能力开放给扩展。
+- The framework has to manage input focus itself: while the framework UI is active, it handles the mouse and keyboard first.
+- The corner button appears only in the main menu, and telling "currently in the main menu" relies on the main menu's per-frame function, which is already hooked. So framework settings can be changed only in the main menu, and take effect at the next start.
+- Once the framework UI works, the code and textures of the spliced notice window are deleted. When the framework fails to start, notices use a Windows message box instead (ADR 0012).
+- The widget interface does not hard-code "for the framework only", so it can later be opened to extensions as a capability.

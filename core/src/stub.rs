@@ -1,4 +1,4 @@
-//! Calling Rust from a naked stub (GLOSSARY 桩): a jump point lands in the
+//! Calling Rust from a naked stub: a jump point lands in the
 //! middle of a game function, where any register may be live and the stack
 //! may sit anywhere. Every stub calls Rust through [`call_rust!`], which:
 //!

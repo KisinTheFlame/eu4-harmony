@@ -1,7 +1,7 @@
-# 扩展存档数据存在存档文件之外
+# Extension save data lives outside save files
 
-每个扩展的存档数据由框架写到用户目录下的外部文件，按存档身份（完整 SHA-256、存档路径、游戏日期）与存档绑定，不往 `.eu4` 存档里写任何东西。这样存档格式不变，换回原版或停用 Mod 也能读档；代价是复制、改名或迁移存档时，外部文件不会自动跟随，身份对不上时扩展拿到空数据。
+The framework writes each extension's save data to external files in the user folder, tied to the save by the save's identity (full SHA-256, save path, game date), and writes nothing into the `.eu4` save. So the save format stays the same, and saves still load after going back to vanilla or disabling the mod. The cost is that when a save is copied, renamed or moved, the external files do not follow it automatically; when the identity does not match, the extension gets empty data.
 
 ## Considered Options
 
-- **写进 `.eu4` 存档**：数据随存档走，但改变了存档格式，原版和其他工具能否读取都要重新验证。
+- **Write it into the `.eu4` save**: the data travels with the save, but the save format changes, and whether vanilla and other tools can still read it would all have to be verified again.

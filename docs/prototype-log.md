@@ -1,194 +1,194 @@
-# 原型实测记录
+# Prototype test log
 
-对照 [v1.md](v1.md)"实现顺序"里的 11 项。底本：原版 1.37.5（`9ad3efe1…`），汉化等 4 个创意工坊 Mod 同时启用。
+Checked against the 11 items under "Order of work" in [v1.md](v1.md). Baseline: vanilla 1.37.5 (`9ad3efe1…`), with 4 Workshop mods enabled at the same time, the Chinese language mod among them.
 
-## 2026-10-27 第一次实测（直接运行 eu4.exe）
+## 2026-10-27 First test (running eu4.exe directly)
 
-| 项 | 结果 | 证据 |
+| Item | Result | Evidence |
 | --- | --- | --- |
-| 1 代理加载时机 | 通过 | 核心在主线程 `DllMain` 内加载并挂好 9 个 PhysFS 钩子，早于游戏第一次调 `PHYSFS_init`。链式加载未测：根目录原本没有 `winmm.dll`。 |
-| 2 GUI 加载线程 | **非主线程** | 全部 `.gui` 在线程 56780 读取，主线程为 46896（调研所指的 LoadingThread）。 |
-| 3 路径格式 | 通过 | `interface/unitpanel_main.gui`：小写、正斜杠、无前导目录；130 个 `.gui` 全部经 `PHYSFS_openRead`。 |
-| 4 与覆盖同一文件的 Mod 共存 | 部分 | 汉化 Mod 覆盖的 `.gui` 由 `getRealDir` 解析到创意工坊目录；挂载顺序为 Mod 后挂载、`append=0` 前插。尚无 Mod 覆盖 `unitpanel_main.gui`，拼接打在胜出文件上这一点未测。 |
-| 5 拼接后能否解析 | 通过 | 22784→22970 字节；`error.log` 无 `Unexpected token` / `Already Defined` / `already exists`，无任何 `eu4harmony` 相关行。按钮在军队面板右侧显示出来（用户目视确认）。 |
-| 6 声明赶得上 GUI 加载 | 通过 | 延后初始化在 `PHYSFS_init` 内完成，比首次读 `.gui` 早约 17 秒。 |
-| 7 重新加载后仍生效 | 未测 | |
-| 8 与其他挂 PhysFS 的插件共存 | 未测 | 中文字体插件同时运行未见冲突，但不清楚它是否挂 PhysFS。 |
-| 9 框架自有资源可读 | 未测 | |
-| 10 提示窗口 | 未做 | 提示目前是 Windows 消息框。 |
+| 1 When the proxy loads | Pass | The core loads inside `DllMain` on the main thread and installs 9 PhysFS hooks before the game first calls `PHYSFS_init`. Chain-loading not tested: the root folder had no `winmm.dll` to begin with. |
+| 2 Which thread loads the GUI | **Not the main thread** | Every `.gui` is read on thread 56780; the main thread is 46896 (56780 is the LoadingThread the research points to). |
+| 3 Path format | Pass | `interface/unitpanel_main.gui`: lower case, forward slashes, no leading directory; all 130 `.gui` files go through `PHYSFS_openRead`. |
+| 4 Coexisting with mods that override the same file | Partial | `getRealDir` resolves the `.gui` files the Chinese language mod overrides to the Workshop folder. Mount order: mods are mounted later, and `append=0` puts them in front. No mod overrides `unitpanel_main.gui` yet, so whether the splice lands on the winning file is not tested. |
+| 5 Whether the spliced file parses | Pass | 22784→22970 bytes; `error.log` has no `Unexpected token` / `Already Defined` / `already exists`, and no line about `eu4harmony` at all. The button shows on the right of the army panel (the user confirmed it by eye). |
+| 6 Declarations ready in time for GUI loading | Pass | Deferred initialization finishes inside `PHYSFS_init`, about 17 seconds before the first `.gui` is read. |
+| 7 Still works after a reload | Not tested | |
+| 8 Coexisting with other plugins that hook PhysFS | Not tested | No conflict seen with the CJK font plugin running at the same time, but it is not clear whether it hooks PhysFS. |
+| 9 The framework's own assets can be read | Not tested | |
+| 10 Notice window | Not done | Notices are a Windows message box for now. |
 
-其他观察：
+Other observations:
 
-- `PHYSFS_init` 被游戏调用两次，中间重新挂载全部目录；延后初始化用 `Once` 保护只跑一次。
-- 直接运行 `eu4.exe` 可用，用的是 `dlc_load.json` 当前内容；之后的测试改走 Paradox 启动器。
+- The game calls `PHYSFS_init` twice and remounts every directory in between; deferred initialization is guarded by a `Once` so it runs only once.
+- Running `eu4.exe` directly works and uses what `dlc_load.json` holds at the time; later tests go through the Paradox launcher instead.
 
-## 2026-10-27 第二次实测（Paradox 启动器，hello + regional-combat）
+## 2026-10-27 Second test (Paradox launcher, hello + regional-combat)
 
-框架、扩展加载、点击绑定和全部游戏能力第一次一起运行。普通开局（非读档）、埃塞俄比亚，选中一支陆军：
+The framework, extension loading, click bindings and every game capability run together for the first time. A new game (not a loaded save) as Ethiopia, with an army selected:
 
-- **加载**：底本 1.37.5 通过节布局和依赖点检查；两个扩展加载成功；拼接 10 个元素、2 个按钮区格子（22784→24562 字节）。
-- **界面**：开局后约 2 秒绑定 10 个元素。hello 按钮左右键点击都送达，并取得当前选中的军队。区域按钮左右键、半径设置框的中文标题"区域战斗"和"半径 5"、应用按钮都工作（用户截图）。中文由框架转码后经 `0x152ae10` 写入，两段都在 15 字节以内，较长文本的写法仍未实测。
-- **作战**：开启后以省份 1224 为中心、半径 5；按天决策，攻击 2771（围城期间如实推迟），再攻击 2772（交战、围城期间推迟），最后返回中心 1224。与 regional-combat 旧版实测记录的路径一致。被推迟的原因都来自框架的军队状态（移动锁定、围城、交战）。
-- **存档数据**：自动存档完成后写出 `eu4-harmony/saves/<路径摘要>-<存档摘要>.json`。读档恢复未测。
-- **耗时**：按钮回调最长 9 ms；一次决策约 16–17 ms，下达命令的那一帧约 32 ms（两次快照）；调整半径时每次重画地图约 8 ms。
-- **设置框问题**：背景近乎全黑、鼠标悬停时闪烁。原因是背景用了原版深色对话框贴图，而且做成了按钮（有悬停状态）。regional-combat 已把背景改为图标，外观保持原来的深色贴图（预先生成 330×150 的图，因为图标不拉伸贴图）；用户复测确认显示正常、不再闪烁。
-- **代理被其他进程加载**：`proxy.log` 记了一次 `eu4_harmony_bootstrap returned 1`。游戏目录里的其他程序（如启动器组件）也可能间接加载 `winmm.dll`，核心在那里找不到 PhysFS 导出而失败，并顺带把 `core.log` 轮换成 `core.prev.log`。已改为只在 `eu4.exe` 中加载核心，其他进程只做转发。
+- **Loading**: baseline 1.37.5 passes the section layout and dependency point checks; both extensions load; 10 elements and 2 button area slots are spliced in (22784→24562 bytes).
+- **Interface**: about 2 seconds after the game starts, 10 elements are bound. Left and right clicks on the hello button both arrive, and it gets the army currently selected. The region button's left and right clicks, the radius box's Chinese titles "区域战斗" (Regional Combat) and "半径 5" (Radius 5), and the apply button all work (the user's screenshot). The framework converts the Chinese and writes it through `0x152ae10`; both strings are within 15 bytes, so writing longer text is still not tested.
+- **Combat**: once on, the center is province 1224 with radius 5. It decides daily: it attacks 2771 (correctly holding off during the siege), then 2772 (holding off during the battle and the siege), and finally returns to the center, 1224. The route matches the one recorded in the old regional-combat's tests. The reasons for holding off all come from the framework's army state (movement lock, siege, battle).
+- **Save data**: after the autosave finishes, `eu4-harmony/saves/<path digest>-<save digest>.json` is written. Restoring it on load is not tested.
+- **Timing**: a button callback takes 9 ms at most; a decision takes about 16–17 ms, and the frame that issues an order about 32 ms (two snapshots); each map redraw while the radius is adjusted takes about 8 ms.
+- **Settings box problem**: the background was nearly black and flickered on mouse hover. The cause: the background used the vanilla dark dialog texture, and it was made as a button (which has a hover state). regional-combat now makes the background an icon and keeps the look of the dark texture (a 330×150 image made in advance, because icons do not stretch their texture). The user tested again and confirmed it displays correctly and no longer flickers.
+- **The proxy loaded by other processes**: `proxy.log` recorded one `eu4_harmony_bootstrap returned 1`. Other programs in the game folder (such as launcher components) may also load `winmm.dll` indirectly; the core then fails because it finds no PhysFS exports there, and on the way rotates `core.log` to `core.prev.log`. Now the core loads only in `eu4.exe`; other processes only forward calls.
 
-未测：地图预览的实际颜色、悬停提示、战败和手动下令停用、读档恢复、Shift/Ctrl 步长。
+Not tested: the actual colors of the map preview, tooltips, turning off on defeat and on a manual order, restoring on load, the Shift/Ctrl step sizes.
 
-## 2026-10-27 第三次实测（提示窗口）
+## 2026-10-27 Third test (notice window)
 
-合集里加了两个清单故意写错（缺 `api_version`）的测试 Mod，用来触发两条提示：
+Two test mods whose manifests are wrong on purpose (missing `api_version`) were added to the playset, to trigger two notices:
 
-- `core.log` 记录了两条提示，并在进入主菜单时（启动后约 32 秒）把提示窗口的 4 个元素绑定到主菜单。
-- 用户确认提示窗口显示正常、关闭后接着显示下一条。
-- 结论：验证项 9 通过（纹理从 `eu4-harmony/gfx/` 读到）；验证项 10 的主菜单部分通过。
-- 这次没有进入游戏，顶栏里的显示和宿主重建后的重新绑定都未测。
-- 用户指出文案只有英文，于是做了本地化（ADR 0009）。
+- `core.log` recorded both notices, and on reaching the main menu (about 32 seconds after start) bound the notice window's 4 elements to the main menu.
+- The user confirmed the notice window displays correctly and shows the next notice after one is closed.
+- Conclusion: item 9 passes (the texture is read from `eu4-harmony/gfx/`); the main menu part of item 10 passes.
+- This run did not go into a game, so the display in the top bar and binding again after the host window is rebuilt are both not tested.
+- The user pointed out the texts were English only, so localisation was added (ADR 0009).
 
-## 2026-10-27 第四次实测（本地化）
+## 2026-10-27 Fourth test (localisation)
 
-合集与上次相同（区域战斗加两个测试 Mod），普通开局。
+The same playset as last time (regional-combat plus the two test mods), a new game.
 
-- **判定**：结果是 `simp_chinese`。判定发生在 `PHYSFS_init` 内的延后初始化里，那时字体插件已经加载，Windows 显示语言为中文；游戏自身语言是 english。
-- **拼接**：游戏在主线程经 `PHYSFS_openRead` 读取 `localisation/text_l_english.yml`，读了两次。读到的是汉化 Mod 覆盖的那一份，追加区域战斗的 6 个键后从 716155 字节变为 716886 字节。
-- **界面**：
-  - 主菜单的提示是中文。
-  - 进入游戏后，提示窗口绑定到顶栏，军队面板绑定 9 个元素。
-  - 区域按钮的文字（来自拼进去的键）、悬停提示和半径设置框都是中文，用户确认没有问题。
-- **报错**：`error.log` 里没有相关错误。
-- **结论**：验证项 11 通过。
-- **清理**：测完删除了两个测试 Mod（用户目录 `mod\` 下的登记文件和 `target\notice-test\`）。
+- **Deciding the language**: the result is `simp_chinese`. The decision happens in the deferred initialization inside `PHYSFS_init`; by then the CJK font plugin has loaded, and the Windows display language is Chinese. The game's own language is english.
+- **Splicing**: the game reads `localisation/text_l_english.yml` through `PHYSFS_openRead` on the main thread, twice. It reads the copy the Chinese language mod overrides; with regional-combat's 6 keys appended it goes from 716155 to 716886 bytes.
+- **Interface**:
+  - The notices in the main menu are in Chinese.
+  - In the game, the notice window binds to the top bar, and the army panel binds 9 elements.
+  - The region button's text (from the spliced keys), the tooltips and the radius box are all in Chinese; the user confirmed they are fine.
+- **Errors**: no related errors in `error.log`.
+- **Conclusion**: item 11 passes.
+- **Cleanup**: after the test the two test mods were deleted (their registration files under `mod\` in the user directory, and `target\notice-test\`).
 
-## 2026-10-27 M0 实测（依赖点统一声明、启动全有或全无）
+## 2026-10-27 M0 test (dependency points declared in one place, all-or-nothing startup)
 
-对照 [unicode-module.md](unicode-module.md) 的"M0 清单"，由 Codex 用 computer use 代测，分两轮；我对照原始日志复核过。合集里启用了汉化 Mod 和区域战斗，奥斯曼普通开局，直接运行 `eu4.exe`。
+Against the "M0 checklist" in [unicode-module.md](unicode-module.md), tested by Codex with computer use, in two rounds; I checked the results against the raw logs. The playset had the Chinese language mod and regional-combat enabled; a new game as the Ottomans, running `eu4.exe` directly.
 
-- **启动**：每次启动的报告都是 `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes`。经 PhysFS 拼接了本地化、`core.gfx`、`frontend.gui`、`topbar.gui` 和 `unitpanel_main.gui`；主菜单、顶栏、军队面板都绑定上了。
-- **区域战斗**：按钮和中文悬停提示正常；左键开启区域模式，右键打开半径设置框，改为 6 后地图着色随之扩大；每日决策按天执行。宣战后自动下达移动命令（`command move to Some(151): accepted`），军队开始移动。
-- **存档**：按默认名存档（文件名是中文的 `奥斯曼1444_11_11.eu4`），约 0.86 秒后写出扩展存档数据，内容是开启状态、半径 6；读这个档时记录 `loaded … with data for 1 extension(s)`，区域战斗恢复 1 个任务，半径仍为 6。
-- **重建**：回到主菜单再开一局，按钮重新出现，没有绑定错误。
-- **启动失败**：设置 `EU4HARMONY_FAIL_STARTUP=1` 后启动，一个钩子都没挂；弹出"EU4 Harmony 没能启动"，报告写 `startup FAILED`；游戏照常运行，军队面板上没有区域战斗按钮。
-- **四种语言**：法、德、西、英四种设置都正常启动、启动行一致。汉化 Mod 让菜单一直显示中文，所以没有检查到这几种语言本身的显示。法、德、西三次运行中，游戏把 `settings.txt` 的语言改回了 `l_english`；这不是框架写的。
-- **未覆盖**：停止命令、战败事件。
-- **清理**：测试存档和它的扩展数据已删除；原有 141 个存档和数据文件、`settings.txt`、`dlc_load.json` 都与测试前逐字节一致。
+- **Startup**: every start reported `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes`. Localisation, `core.gfx`, `frontend.gui`, `topbar.gui` and `unitpanel_main.gui` were spliced through PhysFS; the main menu, the top bar and the army panel were all bound.
+- **Regional combat**: the button and its Chinese tooltip are fine; a left click turns region mode on, a right click opens the radius box, and after the radius is changed to 6 the map coloring grows to match; the daily decision runs every day. After a declaration of war it issues a move order on its own (`command move to Some(151): accepted`), and the army starts moving.
+- **Saves**: saved under the default name (the file name is Chinese, `奥斯曼1444_11_11.eu4`, "Ottomans 1444_11_11"); about 0.86 seconds later the extension save data was written, holding the on state and radius 6. Loading this save logged `loaded … with data for 1 extension(s)`; regional-combat restored 1 task, with the radius still 6.
+- **Rebuild**: back to the main menu and into a new game; the button appears again, with no binding errors.
+- **Startup failure**: started with `EU4HARMONY_FAIL_STARTUP=1` set; not a single hook was installed; a message box popped up saying EU4 Harmony could not start, and the report says `startup FAILED`; the game runs as usual, with no regional-combat button on the army panel.
+- **Four languages**: with each of French, German, Spanish and English set, the game started normally, with the same startup line. The Chinese language mod keeps the menus in Chinese, so the display of these languages themselves was not checked. In the French, German and Spanish runs, the game set the language in `settings.txt` back to `l_english`; the framework did not write that.
+- **Not covered**: the stop order, the defeat event.
+- **Cleanup**: the test save and its extension data are deleted; the 141 existing saves and data files, `settings.txt` and `dlc_load.json` are all byte-for-byte the same as before the test.
 
-## 2026-10-27/28 Unicode 模块与框架界面实测（我自己操作）
+## 2026-10-27/28 Unicode module and framework UI test (run by me)
 
-合集与 M0 实测相同（汉化 Mod、区域战斗等）。框架从 `version.dll` 进入；旧的字体插件放在 `eu4-harmony\backup\`，不加载。
+The same playset as the M0 test (the Chinese language mod, regional-combat and others). The framework enters through `version.dll`; the old CJK font plugin is moved to `eu4-harmony\backup\` and not loaded.
 
-- **启动**：依赖点全部核对通过；最后一次是 198 个依赖点、83 个钩子、2 处改写。
-- **主菜单**：
-  - 中文正确，旧插件写的转义存档名（埃塞俄比亚）也能显示；
-  - 提示窗口（`EU4HARMONY_TEST_NOTICE=1`）和角落按钮按游戏的界面缩放显示；
-  - 进入选国家界面后角落按钮消失，回到首页后重新出现。判断依据是主菜单的页号（`+0x900`）；一开始用 `mainmenu` 子窗口的可见标志，切页时它不变，所以不可用。
-- **显卡驱动两次出错**：
-  - 现象：一次 0x133 蓝屏，一次 0x141 显卡超时后卡死。两次都发生在提示窗口显示期间，同时机器上还在跑显卡满载的训练任务。
-  - 已修正的问题：加载画面由另一条线程绘制并提交，覆盖层在那条线程上画，会和主线程同一设备上的操作交错（设备以 MULTITHREADED 创建，单个调用加锁，一串调用不加锁）。现在只在主线程提交的帧里画。之后多次运行，没再出错。
-- **地图名**：
-  - 现象：国名、省名都不显示。
-  - 排查：二分法去掉框架的各组钩子，最后连框架都不装、纯原版加这套 Mod 也不显示。读运行时字体状态，发现地图字体页 `zh-hans-map` 的尺寸是 0×0。
-  - 原因：纹理加载在 0x16c2cb7 处跳过 16 MiB 以上的文件，这张页是 49 MB 的 DXT5。旧插件放宽了这个限制。
-  - 修正：把上限改为 256 MiB。之后国名、省名、海名都显示为正确的中文。
-- **读档崩溃**：用 `-continuelastsave` 读 8 月的存档时游戏崩溃（eu4+0x88a1fb，越界读数组）。装着旧插件同样崩溃，是存档与当前 Mod 组合不兼容，与框架无关。
-- **存档被重写**：用 `-continuelastsave` 读 `Castilla-5.eu4` 时，游戏在对局开始时把它重新保存了一遍，连同 `_Backup` 一起。原始文件没能恢复，进度没有丢，名字改存为 UTF-8。以后读用户存档前，先备份整个存档目录。
+- **Startup**: every dependency point checks out; the last run had 198 dependency points, 83 hooks and 2 writes.
+- **Main menu**:
+  - Chinese is correct, and a save name in legacy escapes written by the CJK font plugin (Ethiopia) displays too;
+  - the notice window (`EU4HARMONY_TEST_NOTICE=1`) and the corner button follow the game's UI scale;
+  - the corner button goes away on the country selection screen and comes back on the front page. This is decided by the main menu's page number (`+0x900`); at first I used the visible flag of the `mainmenu` child window, but it does not change when the page changes, so it cannot be used.
+- **Two graphics driver failures**:
+  - What happened: once a 0x133 blue screen, once a 0x141 GPU timeout followed by a hang. Both happened while the notice window was showing, while the machine was also running a training job that kept the GPU fully loaded.
+  - The problem fixed: the loading screen is drawn and presented by another thread, and the overlay drew on that thread, interleaving with the main thread's operations on the same device (the device is created MULTITHREADED, which locks each call but not a sequence of calls). Now it draws only in frames the main thread presents. In many runs since, there have been no more failures.
+- **Map names**:
+  - What happened: neither country names nor province names showed.
+  - Investigation: I removed the framework's groups of hooks by bisection; in the end they did not show even with no framework installed at all, on vanilla with this set of mods. Reading the font state at run time showed that the map font page `zh-hans-map` had a size of 0×0.
+  - Cause: texture loading skips files over 16 MiB at 0x16c2cb7, and this page is a 49 MB DXT5. The CJK font plugin relaxed that limit.
+  - Fix: the limit is now 256 MiB. Since then country, province and sea names all show as correct Chinese.
+- **Crash on loading a save**: loading an August save with `-continuelastsave` crashed the game (eu4+0x88a1fb, an out-of-bounds array read). It crashes the same way with the CJK font plugin installed: the save is incompatible with the current set of mods, which has nothing to do with the framework.
+- **A save rewritten**: when `-continuelastsave` loaded `Castilla-5.eu4`, the game saved it again when play began, along with its `_Backup`. The original file could not be recovered; no progress was lost, and the names are now stored as UTF-8. From now on, back up the whole save folder before loading a user's save.
 
-## 2026-10-28 Codex 代测与输入实测
+## 2026-10-28 Tests run by Codex, and input tests
 
-Codex 用 computer use 按清单代测，我对照日志和截图复核过。之后我用 Unicode 按键事件（SendInput）自己测了输入。
+Codex tested from the checklist with computer use, and I checked its results against the logs and screenshots. After that I tested input myself with Unicode key events (SendInput).
 
-- **通过**：
-  - 启动：198 个依赖点；
-  - 两条测试提示依次显示、关闭；
-  - 角落按钮只在主菜单首页出现；
-  - 设置窗口的保存、Esc 取消，重启后生效；框架界面改用所选字体；
-  - 顶栏、悬停提示、省份窗口、军队面板与区域战斗提示的中文；
-  - 曲线国名（明、朝鲜、蒙古、帖木儿等）；
-  - 旧插件写的存档名；
-  - 四种游戏语言都能启动到主菜单。
-- **输入（我自己测）**，在选国家界面的“查找”框里：
-  - 打“朝鲜”：整字插入，搜出朝鲜、朝鲜西部、朝鲜湾等；
-  - “朝鲜abc”按三次左键再退格，得到“朝abc”；Home 加 Delete 得到“abc”；
-  - Ctrl+V 粘贴“中文测试”正确；
-  - 选中“abc”后复制、剪切都正确。
-- **没能验证**：
-  - 用 Shift 加方向键、鼠标拖选或双击选中中文再复制：注入的按键和鼠标都没有形成选区，复制出来是空的，要用真键盘再试；
-  - 输入法候选窗口的位置；
-  - 中文存档名的存读；
-  - 法、德、西三种语言的重音字母：汉化 Mod 让菜单一直是中文，所以没看到。
-- **待修**：
-  - 设置窗口的字体下拉列表比屏幕还长，而且不能滚动；
-  - 主文字的折行：开局介绍等段落出现很短的行，句号落到行首；中文里夹的拼音被从中间切开（Yu / anzhang）。原因还在查；排版循环本身的逻辑核对过，没看出问题。
-  - 游戏 `error.log` 在一局里出现 7951 条 `Could not find coloring for character`：
-    - 5820 条的字符是字节 0xB0，疑似某条路径把 UTF-8 续字节 0xA7 当成了颜色码；
-    - 2131 条是 `I`，来自界面定义自带的颜色码，与框架无关。
-  - 虚表 `+0x70`、`+0x80` 的两个截断函数（量宽后补“ ...”）还按字节量宽，可能把一个字截成两半。
-- **观察**：从选国家界面“后退”时，游戏会以子进程方式重启自己（原版行为，与框架无关）。
+- **Passed**:
+  - startup: 198 dependency points;
+  - the two test notices show and close one after the other;
+  - the corner button appears only on the main menu's front page;
+  - the settings window's Save and Esc to cancel, with changes taking effect after a restart; the framework UI switches to the chosen font;
+  - Chinese in the top bar, tooltips, the province window, the army panel and regional-combat's tooltips;
+  - curved country names (Ming, Korea, Mongolia, the Timurids and others);
+  - save names written by the CJK font plugin;
+  - all four game languages start up to the main menu.
+- **Input (tested by me)**, in the "Find" box on the country selection screen:
+  - typing "朝鲜" (Korea): whole characters are inserted, and the search finds 朝鲜, 朝鲜西部, 朝鲜湾 (Korea, western Korea, Korea Bay) and more;
+  - "朝鲜abc", then Left three times and Backspace, gives "朝abc"; Home then Delete gives "abc";
+  - Ctrl+V pastes "中文测试" ("Chinese test") correctly;
+  - with "abc" selected, copy and cut both work.
+- **Could not verify**:
+  - selecting Chinese with Shift and the arrow keys, by dragging with the mouse or by double-clicking, then copying: the injected keys and mouse made no selection and the copy came out empty; this needs another try with a real keyboard;
+  - where the IME candidate window appears;
+  - saving and loading with Chinese save names;
+  - accented letters in French, German and Spanish: the Chinese language mod keeps the menus in Chinese, so I did not see them.
+- **To fix**:
+  - the font drop-down list in the settings window is taller than the screen and cannot scroll;
+  - line breaking in main text: paragraphs such as the start-of-game introduction have very short lines, with full stops at the start of a line; pinyin inside Chinese text is cut in the middle (Yu / anzhang). The cause is still being looked into; I checked the logic of the layout loop itself and found nothing wrong.
+  - in one game, the game's `error.log` got 7951 `Could not find coloring for character` lines:
+    - in 5820 of them the character is the byte 0xB0, which suggests some path takes the UTF-8 continuation byte 0xA7 for a color code;
+    - 2131 are `I`, from color codes in the interface definitions themselves, unrelated to the framework.
+  - the two truncating functions at vtable `+0x70` and `+0x80` (which measure the width, then add " ...") still measure byte by byte, and may cut a character in half.
+- **Observation**: on "Back" from the country selection screen, the game restarts itself as a child process (vanilla behavior, unrelated to the framework).
 
-## 2026-10-28 折行、标点与颜色码（我自己测）
+## 2026-10-28 Line breaks, punctuation and color codes (tested by me)
 
-- **字体下拉列表**：打开时最多显示到屏幕底边，自动滚到当前选中的那一项；滚轮能滚到两头并停住；滚动后点中的就是那一行；取消后设置文件不变。
-- **折行**：
-  - 原因：游戏文字里 1252 有的字符（`·`、`“”`、`…` 等）是单字节，我们只把开头合法的 UTF-8 交给 ICU，第一个这种字节之后就没有断点了，余下整段被游戏当成一个超长单词硬切（见 [research/unicode-text.md](research/unicode-text.md)）。
-  - 修复后：选国家界面的剧本介绍（含“匈雅提·亚诺什”）五行都排满，没有短行；明朝开局介绍、“大明时局”事件文字都正常。
-- **标点**：汉化字体把 `“ ” … — •` 放在 Unicode 码点上，1252 字节位置是空的，所以这些标点原来画不出来（剧本介绍末尾的“……”不见了）。现在单字节表里没有时改用码点查，已能看到“……”。
-- **颜色码错误**：
-  - 用明朝开新局跑了一个多月，打开省份窗口、事件、开局介绍：`°`（0xB0）那一类一条也没有再出现（Codex 那次 7 天 5820 条），推测和断行的问题同源。
-  - 剩下的 `I` 来自汉化文本自己写的 `§V§!§I§!§G商品产出§!`（`I` 不是游戏定义的颜色），与框架无关。
-- **截断**：虚表 `+0x70`、`+0x80` 两个函数改为整字量宽、整字截断（`unicode/fitted_text.rs`）。匈牙利开局实测：音乐列表、人名、右侧大纲的叛军名都在字与字之间截断并补“ ...”，如“（8k）塞尔维 ...”，没有半个字。
-- **系统字体**：
-  - “系统字体”外观：主菜单、选国家界面的文字都换成微软雅黑，地图名换成楷体。
-    - 第一次启动在加载中崩溃：截断函数的取字形桩调用 Rust 时栈差 8 字节没对齐；位图外观碰巧没走到会出错的指令。已改成桩自己对齐。
-    - 地图名起初变成白色：地图直接用页的颜色。现在补进的字形用原页里 `H` 的颜色，没有原页时地图字体用黑色。
-  - “沿用原字体”外观：汉化字体缺大部分带重音的拉丁字母（À–Ý、ä ö õ ñ ç 等），原来这些字母直接不显示（外交官“Lőrinc”显示成“Lrinc”）。现在汉化 Mod 的 DXT5 页也往下加高，缺的字母用系统字体补；基线和字号按原字体 `H` 的墨迹量（它的字形是整行高的格子，字形框本身看不出基线）。
-- **诊断代码的教训**：观察型钩子要按函数真实的参数个数转发（主文字 11 个、按钮文字 15 个，超过 12 个只能用跳转桩）；少转发时原函数从栈上读到垃圾，会把内存写坏，游戏在别的线程崩溃。当时只人工核对了四个；现在离线检查（`cargo test -- --ignored`）从每个被观察函数的代码数出它读几个参数，观察点转发得少就失败。
+- **Font drop-down list**: when opened it reaches at most the bottom edge of the screen and scrolls to the item currently selected; the wheel scrolls to either end and stops there; after scrolling, a click picks the row under it; after Cancel the settings file is unchanged.
+- **Line breaks**:
+  - Cause: in game text, characters 1252 has (`·`, `“”`, `…` and so on) are single bytes. We gave ICU only the valid UTF-8 at the start, so after the first such byte there were no break points, and the game cut the rest of the paragraph as one very long word (see [research/unicode-text.md](research/unicode-text.md)).
+  - After the fix: the scenario introduction on the country selection screen (which contains "匈雅提·亚诺什", Hunyadi János) fills all five lines, with no short lines; Ming's start-of-game introduction and the text of the "大明时局" (the state of the Ming) event are fine.
+- **Punctuation**: the Chinese language mod's fonts put `“ ” … — •` at their Unicode code points and leave the 1252 byte positions empty, so these marks used to be missing (the "……" at the end of the scenario introduction was gone). Now when the single-byte table has nothing, the lookup uses the code point instead, and "……" shows.
+- **Color code errors**:
+  - A new game as Ming, run for more than a month, with the province window, events and the start-of-game introduction opened: not a single line of the `°` (0xB0) kind appeared again (Codex's run had 5820 in 7 days). Presumably it had the same source as the line break problem.
+  - The remaining `I` lines come from `§V§!§I§!§G商品产出§!`, written in the Chinese language mod's own text (`I` is not a color the game defines), unrelated to the framework.
+- **Truncation**: the two functions at vtable `+0x70` and `+0x80` now measure and cut whole characters (`unicode/fitted_text.rs`). Tested in a game as Hungary: the music list, person names and the rebel names in the outliner on the right are all cut between characters and end with " ...", for example "（8k）塞尔维 ...", with no half characters.
+- **System fonts**:
+  - The "System fonts" look: the text in the main menu and on the country selection screen is all Microsoft YaHei, and map names are KaiTi.
+    - The first start crashed while loading: when the truncating functions' glyph lookup stub called Rust, the stack was 8 bytes off alignment; the bitmap look happened not to reach the instruction that faults. The stub now aligns the stack itself.
+    - Map names turned white at first: the map uses the page's colors directly. Now added glyphs take the color of `H` in the original page, and where there is no original page, the map font uses black.
+  - The "Keep the fonts as they are" look: the Chinese language mod's fonts lack most accented Latin letters (À–Ý, ä ö õ ñ ç and so on), and these letters used to be missing (the diplomat "Lőrinc" showed as "Lrinc"). Now the Chinese language mod's DXT5 pages grow downward too, and the missing letters come from the system font; the baseline and size come from the ink of `H` in the original font (its glyphs are cells as tall as the whole line, so the glyph box itself does not show the baseline).
+- **A lesson from diagnostic code**: an observing hook must forward as many arguments as the function really takes (11 for main text, 15 for button text; more than 12 needs a jump stub). When it forwards fewer, the original function reads garbage from the stack, corrupts memory, and the game crashes on another thread. At the time I checked only four by hand; now the offline check (`cargo test -- --ignored`) counts from each observed function's code how many arguments it reads, and fails when an observe point forwards fewer.
 
-## 2026-10-28 输入框按键与输入法（用户用真键盘实测后修正）
+## 2026-10-28 Edit box keys and the IME (fixed after the user tested with a real keyboard)
 
-用户在选国家界面的“查找”框里实测，发现三个问题，都已修正。修正后我用注入的按键和真实的微软拼音组字复测：
+The user tested in the "Find" box on the country selection screen and found three problems, all now fixed. After the fixes I tested again with injected keys and real Microsoft Pinyin composition:
 
-- **退格**：打“朝鲜”后退格两次，原来剩下“œ”（“朝”的第二个字节 0x9C），现在输入框清空。
-- **Home、End**：原来单按也会选中（原版的毛病，见 [research/text-input.md](research/text-input.md)），现在只移动。
-- **Shift+方向键**：原来输入框不处理，按键落到地图上移动视野（原版本来就没有这个功能）。现在：
-  - Shift+左选中“鲜abc”，复制得到“鲜abc”；
-  - Home 后 Shift+右两次选中“朝鲜”，复制得到“朝鲜”；
-  - 地图不动。
-- **输入法窗口**：原来出现在屏幕左上方（我把光标相对父窗口的坐标当成了屏幕坐标）。现在组字串出现在输入框文字的开头，候选窗口紧贴在下面。
-  - 复测时用 `WM_INPUTLANGCHANGEREQUEST` 把游戏窗口临时切到微软拼音，测完切回英文。
+- **Backspace**: after typing "朝鲜", two Backspaces used to leave "œ" (0x9C, the second byte of "朝"); now the box is empty.
+- **Home, End**: pressed alone they used to select as well (a vanilla bug, see [research/text-input.md](research/text-input.md)); now they only move.
+- **Shift+arrow keys**: the edit box used not to handle them, so the keys went to the map and moved the view (vanilla never had this feature). Now:
+  - Shift+Left selects "鲜abc", and copying gives "鲜abc";
+  - Home, then Shift+Right twice, selects "朝鲜", and copying gives "朝鲜";
+  - the map does not move.
+- **IME window**: it used to appear at the top left of the screen (I took the caret's coordinates relative to its parent window for screen coordinates). Now the composition string appears at the start of the edit box's text, with the candidate window right below it.
+  - For the retest I switched the game window to Microsoft Pinyin for a while with `WM_INPUTLANGCHANGEREQUEST`, and switched it back to English afterwards.
 
-## 2026-10-28 存档、搜索与历史窗口（我自己测）
+## 2026-10-28 Saves, search and the history window (tested by me)
 
-测前备份了 `save games\`、`eu4-harmony\saves\`、`settings.txt`、`continue_game.json`。用明朝开新局：
+Before the test I backed up `save games\`, `eu4-harmony\saves\`, `settings.txt` and `continue_game.json`. A new game as Ming:
 
-- **省份查找**：按 F 打开，打“北京”，结果列出“北京”。（F 键本身也会被打进框里，原版如此。）
-- **中文名存档**：
-  - 存档对话框默认名就是中文（“明1444_11_11”）；存成“测试存档中文.eu4”，列表里显示正常。
-  - 给北京的军队开区域战斗，存成“区域战斗存档.eu4”。框架日志写着扩展数据绑定到 `…\save games\区域战斗存档.eu4`。
-  - 读这个存档：日志 `loaded …区域战斗存档.eu4 with data for 1 extension(s)`，区域战斗日志 `session 2: restored 1 task(s)`。
-  - 测完删掉两个测试存档和那份扩展数据。`continue_game.json` 被游戏改写成指向测试存档，已从备份恢复；其余 140 个存档的校验值与备份一致。
-- **国家历史窗口**（小地图旁的“历史”按钮）：原来“「谨慎者」Yu / anzhang”被切开。它用游戏的多行文字部件分行，只在空格处断行（见 [research/text-input.md](research/text-input.md)）。修正后“Yuanzhang。”“Yunwen。”整个移到下一行。
-- **“系统字体”外观进游戏**：明朝开局介绍（含黄色高亮的名字）、大纲、顶栏都是微软雅黑，折行正常。测完设置改回“沿用原字体”。
-- **不带重音搜索**：汉化 Mod 把地名都换成了中文，找不到带重音的拉丁地名可搜，没能在游戏里验证；单元测试覆盖。
+- **Province search**: F opens it; typing "北京" (Beijing) lists "北京". (The F key itself also gets typed into the box; vanilla does that.)
+- **Saves with Chinese names**:
+  - The save dialog's default name is already Chinese ("明1444_11_11"); saved as "测试存档中文.eu4" ("test save Chinese"), it shows correctly in the list.
+  - I turned regional-combat on for the army in Beijing and saved as "区域战斗存档.eu4" ("regional combat save"). The framework log says the extension data is bound to `…\save games\区域战斗存档.eu4`.
+  - Loading this save: the log has `loaded …区域战斗存档.eu4 with data for 1 extension(s)`, and regional-combat's log `session 2: restored 1 task(s)`.
+  - Afterwards I deleted the two test saves and that extension data. The game had rewritten `continue_game.json` to point at a test save; it is restored from the backup. The checksums of the other 140 saves match the backup.
+- **Country history window** (the "History" button by the minimap): "「谨慎者」Yu / anzhang" (「谨慎者」 is an epithet, "the Cautious") used to be split. The window breaks its text into lines with the game's multi-line text box, which breaks only at spaces (see [research/text-input.md](research/text-input.md)). After the fix, "Yuanzhang。" and "Yunwen。" move whole to the next line.
+- **The "System fonts" look in a game**: Ming's start-of-game introduction (with names highlighted in yellow), the outliner and the top bar are all Microsoft YaHei, and lines break correctly. Afterwards the setting went back to "Keep the fonts as they are".
+- **Searching without accents**: the Chinese language mod turns all place names into Chinese, so there was no accented Latin place name to search for, and this could not be verified in the game; unit tests cover it.
 
-## 2026-10-28 债务清理后的回归与调用追踪（我自己测）
+## 2026-10-28 Regression after the debt cleanup, and call tracing (tested by me)
 
-测前备份同上。构建带 `trace` 特性，追踪字体虚表 `+0x48`（`0x159c600`）和 `+0x80`（`0x159f510`），波兰开局。
+Backups as above. A build with the `trace` feature, tracing font vtable `+0x48` (`0x159c600`) and `+0x80` (`0x159f510`); a new game as Poland.
 
-- **启动**：依赖点全部匹配（`objects.rs` 的字段核对点也在内），主菜单报告正常。
-- **调用追踪**：日志逐次写出参数、指向的文字和返回值。
-  - `+0x80` 的调用全部来自文字框排版 `0x15f440f`：加载画面的状态和提示（800×200 的框）、主菜单与大厅的标签、音乐列表等，一局开头三千多次。
-  - `+0x48`（浮动文字）从主菜单、大厅、开局到游戏里几个月，一次都没被调用。
-- **`+0x80` 的折行分支**：宏建造器（B 键）外交页的说明在 290 宽的框里折成两行，“…自动开始改善关 / 系的目标类型。”，句号没落到行首。
-- **宿主表**：军队面板第三列第一格出现区域作战的“区域”按钮，与改动前一致。
-- **成本统计**：到主菜单时 84026 次断行询问，24862 段文字由 ICU 算断行，共 148 ms（每段约 6 µs）；7 个字形 15 ms；6 张字体页 236 ms。
-- **存档**：游戏在第一局里自动存档，`autosave.eu4` 轮换了三份、`continue_game.json` 被改写，都已从备份恢复，校验值一致。
-- **工具**：`game-input.ps1` 里常量 `$WHEEL`、`$keys` 与参数 `-Wheel`、`-Keys` 同名（PowerShell 变量不分大小写），参数被覆盖，滚轮一直转；已改名。用 `pwsh -File` 调用时逗号列表会变成一个字符串，要从 PowerShell 里用 `&` 调用。
+- **Startup**: every dependency point matches (the field check points in `objects.rs` included); the report at the main menu is normal.
+- **Call tracing**: the log writes each call's arguments, the text they point to, and the return value.
+  - Every call to `+0x80` comes from text box layout at `0x15f440f`: the loading screen's status and tips (an 800×200 box), labels in the main menu and the lobby, the music list and so on, over three thousand times at the start of a game.
+  - `+0x48` (floating text) was not called once, from the main menu and the lobby through the start of a game to several months into it.
+- **The line breaking branch of `+0x80`**: the description on the diplomacy page of the macro builder (B key) wraps into two lines in a box 290 wide, "…自动开始改善关 / 系的目标类型。" (the break falls between two Chinese characters), and the full stop does not land at the start of a line.
+- **The host window table**: regional-combat's "区域" (Region) button appears in the first slot of the third column of the army panel, as before the change.
+- **Costs**: by the main menu, 84026 line break queries, 24862 pieces of text whose breaks ICU worked out, 148 ms in all (about 6 µs each); 7 glyphs, 15 ms; 6 font pages, 236 ms.
+- **Saves**: the game autosaved during the first game; `autosave.eu4` rotated through three copies and `continue_game.json` was rewritten. Both are restored from the backup, and the checksums match.
+- **Tools**: in `game-input.ps1` the constants `$WHEEL` and `$keys` had the same names as the parameters `-Wheel` and `-Keys` (PowerShell variables ignore case), so they overwrote the parameters and the wheel kept turning; they are renamed. Called with `pwsh -File`, a comma list becomes one string; call the script from PowerShell with `&`.
 
-## 实现与定稿方案的差异
+## How the implementation differs from the final design
 
-- 宿主重建后（如 `reload`）提示窗口的重新绑定还未实测；顶栏已能绑定，但提示在顶栏里显示的样子没有单独确认。
-- 按钮区是原版两列按钮右边的第三列（x=464，原版 43×44 网格），没有背景框。
-- 文字框的"隐藏"用清空文字实现，没有调用文字框的显示/隐藏方法（在此构建上未验证）。
-- 路线查询、移动和停止在暂停时一律拒绝（`NOT_READY`），与 regional-combat 旧版一致。
-- 地图着色借用原生地图模式 12，未着色的省份显示该模式自身的颜色。
-- 用户目录找不到时，日志退回游戏目录 `eu4-harmony\logs\`。
+- Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
+- The button area is a third column to the right of the two vanilla button columns (x=464, on the vanilla 43×44 grid), with no background frame.
+- A text box is "hidden" by clearing its text, not by calling the text box's show/hide method (which is not verified on this build).
+- Route queries, moves and stops are all refused while the game is paused (`NOT_READY`), as in the old regional-combat.
+- Map coloring borrows native map mode 12; provinces that are not colored show that mode's own colors.
+- When the user directory cannot be found, logs fall back to `eu4-harmony\logs\` in the game directory.

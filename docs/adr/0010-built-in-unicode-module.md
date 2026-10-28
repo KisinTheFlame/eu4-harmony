@@ -1,29 +1,29 @@
-# 框架自带 Unicode 模块，取代中文字体插件
+# A built-in Unicode module replaces the CJK font plugin
 
-框架内置 Unicode 模块：游戏里的文字一律以 UTF-8 保存、显示和输入，对所有玩家总是启用，取代中文字体插件。依赖插件时，框架要按它的转义规则编码汉字，全角标点只能换成半角，汉字区以外的字符变成 `?`，没装插件的玩家看到乱码；由框架自己负责文字后，Mod 和扩展只写普通 UTF-8，什么字都能显示。
+The framework has a built-in Unicode module: text in the game is always kept, shown and typed as UTF-8. The module is always on, for every player, and replaces the CJK font plugin. While relying on the plugin, the framework had to encode Chinese characters by the plugin's escape rules, full-width punctuation could only be swapped for half-width, characters outside the ideograph range turned into `?`, and players without the plugin saw garbage. With the framework itself in charge of text, mods and extensions write only plain UTF-8, and any character can be shown.
 
-**范围**：
-- 显示，包括界面文字和地图上的国名、省名。
-- 旧转义兼容：汉化 Mod 的本地化、GUI 和脚本文件、旧存档里的旧转义在读入时转成 UTF-8。这部分知识只放在一处，读进来以后游戏里只有 UTF-8。
-- 中文输入：接收系统输入法提交的文字，按字移动、退格、选择，支持粘贴和中文存档名；输入法本身不做。
-- 外交国家列表和省份查找的中文搜索；不做拼音，也不做简繁互搜。
-- 复杂文字排版（阿拉伯文连写、从右向左、天城文）放在最后做。
+**Scope**:
+- Display, including interface text and the country and province names on the map.
+- Legacy escape compatibility: legacy escapes in a Chinese language mod's localisation, GUI and script files and in old saves are turned into UTF-8 as they are read. This knowledge lives in one place only; once read in, the game holds only UTF-8.
+- Chinese input: take the text the system IME commits; move, backspace and select by character; support pasting and Chinese save names. The IME itself is not part of it.
+- Chinese search in the diplomacy country list and the province search; no pinyin, and no matching between Simplified and Traditional characters.
+- Complex script layout (joined Arabic, right-to-left, Devanagari) comes last.
 
-**字形**：默认位图字体优先，位图字体里有的字照原样画，没有的字用系统字体在运行时补上。装着汉化 Mod 时和原先一样，没装时和原版一样。框架设置里的"文字外观"可以改成全部用系统字体。正文和地图各选一款系统字体，默认微软雅黑和楷体，两者都没有的字交给系统的字体回退。
+**Glyphs**: by default bitmap fonts come first. Characters a bitmap font has are drawn as they are; characters it lacks are filled in at run time from a system font. With a Chinese language mod installed, text looks as it did before; without one, it looks like vanilla. The "Text appearance" option in the framework settings can switch everything to system fonts. One system font is chosen for body text and one for the map, by default Microsoft YaHei and KaiTi; characters neither has are left to the system's font fallback.
 
 ## Considered Options
 
-- **继续依赖中文字体插件**：只能处理汉字区，标点和其他字符丢失，没装插件的玩家看到乱码；框架还要一直维护它的转义规则。
-- **检测到其他文字插件时让位**：框架要同时维护几种编码，能显示什么取决于玩家装了什么。
-- **随框架附带预生成的位图字库**：运行时简单，但字符集固定、体积大，每种字号都要一套。
-- **原版字体整套改用系统字体重新生成**：所有文字风格统一，但模块总是启用，英文玩家的界面也会跟着变样。
+- **Keep relying on the CJK font plugin**: it handles only the ideograph range, punctuation and other characters are lost, and players without the plugin see garbage; the framework would also have to keep maintaining its escape rules.
+- **Step aside when another text plugin is detected**: the framework would have to maintain several encodings at once, and what can be shown would depend on what the player has installed.
+- **Ship pre-generated bitmap glyph sets with the framework**: simple at run time, but the character set is fixed, the files are large, and every font size needs its own set.
+- **Regenerate the whole set of vanilla fonts from system fonts**: all text would share one style, but the module is always on, so English players' interface would change its look too.
 
 ## Consequences
 
-- 断行、字素和大小写折叠依赖 Windows 自带的 `icu.dll`，最低系统要求是 Windows 10 1903。
-- 用它玩出的存档里，玩家输入或改过的名字是 UTF-8。卸掉框架、换回中文字体插件后，这些名字显示为乱码，不做反向兼容。联机本来就不支持。
-- 玩家语言不再看字体插件：Windows 显示语言是中文就用简体中文，否则用游戏设置里的语言。这取代了 ADR 0009 的判定规则。Windows 是中文但没装汉化 Mod 的玩家，会在英文界面里看到中文的框架和 Mod 文字。
-- 框架不再转码：Mod 的键以 UTF-8 原样拼进本地化文件，扩展的文字原样交给游戏，取代 ADR 0009 中"转好编码"的部分。日文、韩文的障碍不再是编码，但语言列表暂不增加。
-- Unicode 模块对扩展不可见，也不向扩展提供文字相关的能力。
-- 字形表从一开始就支持只在一次绘制内有效的临时字形，复杂排版以后加上来不必改它。
-- Unicode 模块是框架的底层能力，它没能挂上就算框架启动失败，见 ADR 0012。
+- Line breaking, graphemes and case folding rely on the `icu.dll` that comes with Windows, so the minimum system is Windows 10 1903.
+- In saves played with it, names the player typed or changed are UTF-8. After removing the framework and going back to the CJK font plugin, those names show as garbage; nothing is done for compatibility in that direction. Multiplayer was never supported anyway.
+- The player language no longer looks at the font plugin: Simplified Chinese if the Windows display language is Chinese, otherwise the language in the game's settings. This supersedes ADR 0009's rule for deciding it. A player whose Windows is in Chinese but who has no Chinese language mod sees the framework's and mods' texts in Chinese inside an English interface.
+- The framework no longer transcodes: mods' keys are spliced into the localisation file unchanged as UTF-8, and extensions' texts are handed to the game unchanged. This supersedes the "transcode" part of ADR 0009. Encoding no longer stands in the way of Japanese and Korean, but the language list is not extended for now.
+- The Unicode module is invisible to extensions and offers them no text-related capabilities.
+- The glyph table supports, from the start, temporary glyphs that are valid for one draw only, so complex layout can be added later without changing it.
+- The Unicode module is a foundation of the framework: if it fails to hook in, the framework has failed to start; see ADR 0012.

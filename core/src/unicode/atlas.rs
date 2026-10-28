@@ -1,4 +1,4 @@
-//! Places glyph bitmaps on a texture page (GLOSSARY 图集): rows ("shelves")
+//! Places glyph bitmaps on a texture page, as an atlas: rows ("shelves")
 //! as tall as the tallest glyph in them, filled left to right, each glyph
 //! padded by one pixel so filtering never bleeds a neighbour in.
 

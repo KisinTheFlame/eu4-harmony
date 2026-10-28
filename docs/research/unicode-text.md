@@ -1,49 +1,49 @@
-# 游戏文字的内部结构（Unicode 模块用）
+# The internals of the game's text (for the Unicode module)
 
-底本 1.37.5（`9ad3efe1…`）。地址都是 RVA。每一条都对照过 eu4.exe 的反汇编；代码里用到的地址另有依赖点核对字节。
+Baseline 1.37.5 (`9ad3efe1…`). All addresses are RVAs. Every item has been checked against eu4.exe's disassembly; the addresses the code uses also have dependency points that check their bytes.
 
-## 字体与字形
+## Fonts and glyphs
 
-- **字形记录**：16 字节。`+0` x、`+2` y、`+4` 宽、`+6` 高（u16），`+8` x 偏移、`+0xa` y 偏移、`+0xc` 步进（i16），`+0xe` 一个字节：以它开头的字距对存在时为 1，`+0xf` 不用。
-- **字体对象**：`+0x120` 起是 256 个字形记录指针（"字形表"，按字节值下标），`+0x920` 起是字距表，`+0x968` 是字距缩放（float）。缺字时多处代码退回 `'?'`（下标 0x3f）。
-- **字距**：`0x15943d0`(字形表, 前一字节, 后一字节) 返回 float。键是 `(前<<16)|后`，两个都截成 8 位，所以字距只对 0..0xFF 的字有效。
-- **`.fnt` 加载**：函数 `0x15953c0`。`char` 行依次解析成 id `rdi`、x `r14d`、y `r15d`、宽 `r12d`、高 `esi`（id 为空格时清零）、x 偏移 `r13d`、y 偏移 `[rbp+0x1148]`、步进 `[rsp+0x40]`；字体在 `[rbp+0x1130]`。`0x1595c86` 处 `cmp edi, 0xff; ja 0x1595f01` 把大于 0xFF 的 id 丢掉；`0x1595c92` 再排除换行；新记录用 `0x1a332d4` 分配 16 字节，写进 `字体+0x120+id*8`（`0x1595cf2`），然后从 `0x1595cfa` 回到下一行。重复 id 走 `0x1595d07`（写 error.log 的 "Duplicate character ID"）。
-- **字形表释放**：`0x1594360`(字形表)，释放 256 个记录（`0x17394f0`，大小 0x10），再释放字距表。
-- **直接按字节查字形表**（`[字体 + 字节*8 + 0x120]`）的地方，扫描整个代码段共 13 处：字体加载器 4 处；`0x159972c`、`0x159a7a4`（主文字测宽、绘制）；`0x159b68b`；`0x159c837`、`0x159cec9`；`0x159dc08`、`0x159e761`；`0xfd7342`；`0xb7f578`。按钮等路径用别的寻址方式，另查。
+- **Glyph record**: 16 bytes. `+0` x, `+2` y, `+4` width, `+6` height (u16); `+8` x offset, `+0xa` y offset, `+0xc` advance (i16); `+0xe` one byte: 1 when a kerning pair starting with this character exists; `+0xf` unused.
+- **Font object**: from `+0x120`, 256 pointers to glyph records (the "glyph table", indexed by byte value); from `+0x920`, the kerning table; at `+0x968`, the kerning scale (float). Where a character is missing, code in several places falls back to `'?'` (index 0x3f).
+- **Kerning**: `0x15943d0`(glyph table, previous byte, next byte) returns a float. The key is `(prev<<16)|next`, with both cut to 8 bits, so kerning only works for characters 0..0xFF.
+- **`.fnt` loading**: function `0x15953c0`. A `char` line is parsed, in order, into id `rdi`, x `r14d`, y `r15d`, width `r12d`, height `esi` (cleared when the id is a space), x offset `r13d`, y offset `[rbp+0x1148]`, advance `[rsp+0x40]`; the font is in `[rbp+0x1130]`. At `0x1595c86`, `cmp edi, 0xff; ja 0x1595f01` drops ids above 0xFF; `0x1595c92` then excludes the line feed; a new 16-byte record is allocated with `0x1a332d4` and written to `font+0x120+id*8` (`0x1595cf2`), and then `0x1595cfa` goes back for the next line. A duplicate id goes to `0x1595d07` (which writes "Duplicate character ID" to error.log).
+- **Freeing the glyph table**: `0x1594360`(glyph table) frees the 256 records (`0x17394f0`, size 0x10), then the kerning table.
+- **Places that look up the glyph table directly by byte** (`[font + byte*8 + 0x120]`): a scan of the whole code section finds 13: 4 in the font loader; `0x159972c`, `0x159a7a4` (main text measuring and drawing); `0x159b68b`; `0x159c837`, `0x159cec9`; `0x159dc08`, `0x159e761`; `0xfd7342`; `0xb7f578`. Buttons and other paths address it differently and are checked separately.
 
-## 本地化
+## Localisation
 
-- **逐条导入**：`0x16fd650`(键, 值: `std::string*`, 版本 u32, 不用, 上下文*)。上下文 `+0` 行号（i32）、`+4` 是否替换（u8）、`+0x10` 本地化集合。全局 `[0x2357b20]+0x38` 不为 0 时，键和值先经 `0x17059e0` 从 UTF-8 转成 Windows-1252，写进两块静态缓冲（`0x234db20`、`0x234fb20`，各 8 KiB）；然后调用登记函数。
-- **登记**：`0x16fa8d0`(集合, 键, 值: 以 0 结尾, 行号, 版本, 是否替换)。
-- **UTF-8→1252 转换**：`0x17059e0`(源, 源长, 目标, 目标长, …)，找不到对应字符时写 `?`（日志 "Couldn't find Latin1 character"）。另外两个包装 `0x1705e00`、`0x1705ec0` 转换后赋给一个 `std::string`；调用者在 `0x95dd7`、`0x95f77`、`0x156044b`、`0x1667cc8`、`0x10555ae`，还没查清各自是什么文字。
+- **Importing one entry at a time**: `0x16fd650`(key, value: `std::string*`, version u32, unused, context*). Context: `+0` line number (i32), `+4` whether to replace (u8), `+0x10` the localisation set. When the global `[0x2357b20]+0x38` is not 0, the key and value are first converted from UTF-8 to Windows-1252 by `0x17059e0` and written into two static buffers (`0x234db20`, `0x234fb20`, 8 KiB each); then the registering function is called.
+- **Registering**: `0x16fa8d0`(set, key, value: NUL-terminated, line number, version, replace).
+- **UTF-8→1252 conversion**: `0x17059e0`(source, source length, destination, destination length, …) writes `?` where there is no matching character (logging "Couldn't find Latin1 character"). Two more wrappers, `0x1705e00` and `0x1705ec0`, assign the converted text to a `std::string`; their callers are at `0x95dd7`, `0x95f77`, `0x156044b`, `0x1667cc8` and `0x10555ae`, and what text each of them handles has not been worked out yet.
 
-## 字体的文字方法
+## The font's text methods
 
-字体虚表在 `0x1d99120`。逐字节走文字的方法：
+The font's vtable is at `0x1d99120`. The methods that walk text byte by byte:
 
-| 槽 | 函数 | 做什么 | 模块里 |
+| Slot | Function | What it does | In the module |
 |---|---|---|---|
-| `+0x40` | `0x1596660` | 按钮、即时文字框：排好后画进自己的纹理（15 个参数） | `buttons.rs` |
-| `+0x48` | `0x159c600` | 飘起并淡出的文字（12 个参数）；单人游戏里没见调用 | `floating_text.rs` |
-| `+0x50` | `0x15988e0` | 主文字（11 个参数，第 11 个是"认格式码"） | `main_text.rs` |
-| `+0x58` | `0x159b470` | 测高 | `text_height.rs` |
-| `+0x60` | `0x159b7c0` | 测宽 | `text_width.rs` |
-| `+0x70` | `0x159ec30` | 按宽高装进框里，放不下就截断并补 `...` | `fitted_text.rs` |
-| `+0x78` | `0x159e510` | 地图名测量与折行 | `map_names.rs` |
-| `+0x80` | `0x159f510` | 同上，还能按宽度插入换行（11 个参数）；追踪到的调用都来自文字框排版 `0x15f440f`（加载提示、音乐列表、宏建造器说明） | `fitted_text.rs` |
+| `+0x40` | `0x1596660` | Buttons, instant text boxes: lays out the text, then draws it into their own texture (15 parameters) | `buttons.rs` |
+| `+0x48` | `0x159c600` | Text that floats up and fades out (12 parameters); no calls seen in single player | `floating_text.rs` |
+| `+0x50` | `0x15988e0` | Main text (11 parameters; the 11th is "recognize formatting codes") | `main_text.rs` |
+| `+0x58` | `0x159b470` | Measures height | `text_height.rs` |
+| `+0x60` | `0x159b7c0` | Measures width | `text_width.rs` |
+| `+0x70` | `0x159ec30` | Fits text into a box of a given width and height; what does not fit is cut off and `...` added | `fitted_text.rs` |
+| `+0x78` | `0x159e510` | Map name measuring and wrapping | `map_names.rs` |
+| `+0x80` | `0x159f510` | As above, and can also insert line breaks by width (11 parameters); every traced call comes from text box layout `0x15f440f` (loading tips, the music list, the macro builder's descriptions) | `fitted_text.rs` |
 
-另有 `0x159da60` 生成地图名的网格（由国名摆放 `0xfd7200`、`0xfd63a0` 一带调用），`0xfd7342` 数国名里看得见的字；都在 `map_names.rs` 里接管。前面列的 `0xb7f578` 查的是栈上的数组，不是字形表。
+Besides these, `0x159da60` builds the meshes for map names (called from country name placement around `0xfd7200` and `0xfd63a0`), and `0xfd7342` counts the visible characters in a country name; both are taken over in `map_names.rs`. The `0xb7f578` listed earlier looks up an array on the stack, not the glyph table.
 
-- **主文字的排版**：每个字节先复制进 256 字节的单词缓冲（`0x2433cd0`，普通路径不查越界），再量宽。字形没有高度（空格）时单词结束，若这一行放不下，先补换行再接上单词。字形有高度时单词继续，但若这一行已满且输出缓冲（`0x242bf90`）不空，就把已攒的半个单词挪到新行，剩下的另起一个单词，新行的宽度却从挪过去的部分算起。所以一个比一行还长的"单词"会被切成"整行、短行、整行、短行……"。
-- **格式码**：`§` 加一个字节是颜色（`0x15a0390` 查，找不到时记 "Could not find coloring"）；`£` 开头的图标名到第一个非字母数字字节为止，那个字节一并吞掉；`@` 吞掉后面三个字节；`$` 吞掉后面一个字节；`¤` 后接数字。
+- **Main text layout**: each byte is first copied into the 256-byte word buffer (`0x2433cd0`; the ordinary path does no bounds check), then measured. A glyph without height (a space) ends the word; if the word does not fit on this line, a line break is added first and the word follows it. A glyph with height continues the word; but if the line is already full and the output buffer (`0x242bf90`) is not empty, the half word gathered so far is moved to a new line and the rest starts a new word, while the new line's width is counted from the part that was moved. So a "word" longer than a line is cut into "full line, short line, full line, short line…".
+- **Formatting codes**: `§` plus one byte is a color (looked up by `0x15a0390`, which logs "Could not find coloring" when it finds none); an icon name starting with `£` runs up to the first byte that is not a letter or digit, and that byte is swallowed too; `@` swallows the three bytes after it; `$` swallows the one byte after it; `¤` is followed by a number.
 
-## 游戏文字的编码
+## The encoding of game text
 
-模块里的游戏文字：Windows-1252 有的字符存成它的单字节，其余存 UTF-8（见 `unicode/game_text.rs`）。所以中文里的 `·`、`“`、`”`、`…`、`—` 等标点都是单字节，和 UTF-8 混在一起。
+Game text in the module: a character Windows-1252 has is stored as its single byte, anything else as UTF-8 (see `unicode/game_text.rs`). So punctuation used in Chinese, such as `·`, `“`, `”`, `…` and `—`, is single bytes mixed in with UTF-8.
 
-- 断行机会要按这种混合文字逐字算：只取开头合法的 UTF-8 去问 ICU，第一个 1252 字节之后就再没有断点，后面整段都成了一个"单词"（2026-10-28 修复前的现象：短行、句号落行首、拼音被切开）。
-- 为旧中文插件做的字体（如汉化 Mod 的 `zh-hans-*.fnt`）把这些标点放在 Unicode 码点上（`char id=8230` 等），1252 字节的位置（0x85、0x93……）是空的；只按单字节查字形就画不出来。
+- Line break opportunities have to be worked out character by character over this mixed text: if only the valid UTF-8 at the start is passed to ICU, there are no break points after the first 1252 byte, and everything after it becomes one "word" (what happened before the 2026-10-28 fix: short lines, full stops at the start of a line, pinyin cut apart).
+- Fonts made for the CJK font plugin (such as the Chinese language mod's `zh-hans-*.fnt`) put these punctuation marks at their Unicode code points (`char id=8230` and so on), and the 1252 byte positions (0x85, 0x93, …) are empty; looking glyphs up by single byte alone cannot draw them.
 
-## 待查
+## Open questions
 
-- 每次绘制用哪张纹理，多页字形怎么分批。
+- Which texture each draw uses, and how glyphs on several pages are split into batches.

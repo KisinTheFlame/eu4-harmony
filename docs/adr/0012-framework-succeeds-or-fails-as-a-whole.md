@@ -1,19 +1,19 @@
-# 框架整体成败：依赖点统一声明，启动全有或全无
+# The framework succeeds or fails as a whole: dependency points declared in one place, startup all or nothing
 
-每个依赖点只声明一次：位置（RVA，或 eu4.exe 的导出名）、那里应有的字节，以及框架在那里做什么（不改、替换函数入口、在函数中间跳到框架、改写字节）。核对、挂钩和撤销都由这一份声明驱动；原有的界面、地图、存档、事件和 PhysFS 钩子也迁到这套声明上。原先各模块分别登记期望字节、再分别挂钩，同一个位置写两遍，漏登记了也不会报错。
+Each dependency point is declared once: its location (an RVA, or an export name of eu4.exe), the bytes that should be there, and what the framework does there (nothing, replace the function's entry, jump to the framework from the middle of a function, rewrite bytes). Checking, hooking and undoing are all driven by this one declaration; the existing interface, map, save, event and PhysFS hooks move onto these declarations as well. Before, each module registered its expected bytes and then hooked on its own, so one location was written down twice, and a missed registration raised no error.
 
-**启动**：先核对全部依赖点，全部一致才一次挂上所有钩子。任何一处不一致，或者有钩子没挂上，就撤销已经做的改动，框架本次不工作：一个钩子都不挂，另起线程写日志和启动报告，并弹 Windows 消息框说明原因。Unicode 模块（ADR 0010）是框架的底层能力，它失败就是框架失败。
+**Startup**: first check every dependency point; only when all match are all the hooks installed in one go. If any one does not match, or any hook fails to go in, the changes already made are undone and the framework does not run this time: not a single hook is installed, a separate thread writes the log and the startup report, and a Windows message box gives the reason. The Unicode module (ADR 0010) is a foundation of the framework; its failure is the framework's failure.
 
-**运行中**：预期内、可恢复的情况按正常流程处理，例如缺字显示占位符、图集满了就淘汰最久没用的字形、损坏的旧转义跳过那一条并写进报告、设置里选的字体不在了就改用默认字体并提示一次。预期外的情况，即框架代码 panic、访问了非法内存、引擎数据不符合框架的假设，就写日志、弹消息框，然后结束游戏进程。扩展出错仍按初版方案处理：停用该扩展，游戏继续。
+**While running**: expected, recoverable cases are handled as normal flow. For example, a missing character shows a placeholder; a full atlas evicts the glyph unused for longest; a broken legacy escape is skipped, that one alone, and recorded in the report; a font chosen in the settings that is no longer there is replaced by the default font, with one notice. Unexpected cases, that is framework code panicking, an invalid memory access, or engine data not matching the framework's assumptions, are logged and shown in a message box, and then the game process is ended. Extension errors are still handled as in the first version design: that extension is stopped, and the game goes on.
 
 ## Considered Options
 
-- **按功能分组、各自成败**（例如 Unicode 模块失败时扩展照常运行）：Unicode 模块一失败，游戏里的中文就全是乱码，扩展照常运行意义不大；分组还会让启动逻辑和各种退路复杂得多。
-- **exe 不受支持时仍挂 PhysFS，用来写报告、显示游戏内提示**（原先的做法）：多出一种"只挂了一部分"的状态，而说明原因用消息框就够了。
-- **运行中出错就改走原版代码，让游戏继续**：游戏里的字符串已经是 UTF-8，原版代码只能画出乱码，出错的状态还可能继续扩散。
+- **Group by feature, each group succeeding or failing on its own** (for example, extensions keep running when the Unicode module fails): once the Unicode module fails, all Chinese in the game is garbage, and extensions running as usual is of little use; groups would also make the startup logic and the various fallbacks much more complex.
+- **Still hook PhysFS when the exe is unsupported, to write the report and show in-game notices** (the earlier approach): this adds a "partly hooked" state, while a message box is enough to give the reason.
+- **On an error while running, switch to the vanilla code and let the game go on**: the strings in the game are already UTF-8, so the vanilla code can only draw garbage, and the faulty state may also keep spreading.
 
 ## Consequences
 
-- 启动失败时，唯一的提示方式是 Windows 消息框。消息框由 Windows 自己绘制，能显示中文。
-- 结束游戏会丢掉上次存档以来的进度。
-- 新增一个依赖点只需在一处声明，核对、撤销和启动报告里的核对结果都随之自动生效。
+- When startup fails, the only way to tell the player is a Windows message box. Windows draws the message box itself, so it can show Chinese.
+- Ending the game loses the progress made since the last save.
+- A new dependency point needs declaring in one place only; checking, undoing and the check results in the startup report all follow from it automatically.
