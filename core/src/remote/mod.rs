@@ -17,7 +17,7 @@ pub mod countries;
 pub mod describe;
 pub mod events;
 #[cfg(test)]
-mod fake;
+pub(crate) mod fake;
 pub mod probe;
 pub mod provinces;
 pub mod session;
