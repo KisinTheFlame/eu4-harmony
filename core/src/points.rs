@@ -64,11 +64,14 @@ pub struct Point {
     pub action: Action,
     /// Receives the point's address, for code that calls or reads it.
     pub record: Option<&'static AtomicUsize>,
+    /// The field offsets, globals and other numbers its bytes use, by name
+    /// where they are named; a test checks the bytes against them.
+    pub uses: &'static [usize],
 }
 
 impl Point {
     fn new(place: impl Into<Place>, bytes: &'static str, what: &'static str, action: Action) -> Self {
-        Self { place: place.into(), bytes, what, action, record: None }
+        Self { place: place.into(), bytes, what, action, record: None, uses: &[] }
     }
 
     pub fn keep(place: impl Into<Place>, bytes: &'static str, what: &'static str) -> Self {
@@ -94,6 +97,13 @@ impl Point {
     /// Stores the point's address in `slot` when it is installed.
     pub fn recorded(mut self, slot: &'static AtomicUsize) -> Self {
         self.record = Some(slot);
+        self
+    }
+
+    /// Says which numbers its bytes use: offsets, RVAs a RIP-relative operand
+    /// reaches, immediates.
+    pub fn uses(mut self, values: &'static [usize]) -> Self {
+        self.uses = values;
         self
     }
 }
@@ -447,6 +457,25 @@ mod tests {
             })
             .collect();
         disjoint(&points, &addresses).unwrap();
+    }
+
+    /// Every point carries in its own bytes, decoded where they lie, the
+    /// numbers it says it uses: a named field or global and the instruction
+    /// kept for it cannot drift apart.
+    #[test]
+    fn every_point_uses_what_it_names() {
+        let mut wrong = Vec::new();
+        for point in crate::points().iter().filter(|p| !p.uses.is_empty()) {
+            let Place::Rva(rva) = point.place else { continue };
+            let code = crate::analysis::instructions(&hex(point.bytes).unwrap(), rva);
+            let carried: Vec<u64> = code.iter().flat_map(crate::analysis::values).collect();
+            for &value in point.uses {
+                if !carried.contains(&(value as u64)) {
+                    wrong.push(format!("{} does not use {value:#x}", describe(point)));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     #[test]
