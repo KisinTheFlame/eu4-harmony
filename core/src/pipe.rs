@@ -33,7 +33,7 @@ use std::{
     time::Duration,
 };
 use windows_sys::Win32::{
-    Foundation::{LocalFree, ERROR_ACCESS_DENIED, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE},
+    Foundation::{LocalFree, ERROR_ACCESS_DENIED, ERROR_NO_DATA, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE},
     Security::{
         Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
         GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
@@ -170,9 +170,13 @@ fn listen(pipe: &Arc<Pipe>) {
             if let Err(e) = spawned {
                 pipe.log(&format!("client {number} cannot be served: {e}"));
             }
-        } else {
+        } else if error.raw_os_error() == Some(ERROR_NO_DATA as i32) {
             // The client came and went before it was seen.
             drop(instance);
+        } else {
+            pipe.log(&format!("cannot wait for a client: {error}; trying again"));
+            drop(instance);
+            std::thread::sleep(RETRY);
         }
         instance = pipe.next_instance();
     }
