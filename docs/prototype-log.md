@@ -220,6 +220,14 @@ Fonts that bring the same glyphs above 0xFF now share one set. Chinese playset, 
 - **Display**: in both looks the lobby's text and the East Asia map's names show as before, and "한글テスト" typed into the Find box shows, so glyphs from the shared sets and glyphs drawn later are both found.
 - **Tools**: the first run clicked as soon as the log said the main menu was up, before it took clicks, and stayed on the menu; waiting 8 s first fixed it.
 
+## 2026-10-28 Dates, names and battle names in the player language's order (tested by me)
+
+Backups as above (the game was never unpaused, so nothing was autosaved). Chinese playset, system fonts.
+
+- **Names**: in the lobby, Ming's ruler reads "皇帝 Zhu Qizhen" (the game wrote "Qizhen Zhu") and Korea's "国王 Yi Sejong Do". Started as Korea: the court shows "国王 Yi Sejong Do", "继承人 Yi Hyang", "王后 Sim Soheon", and the ruler's tooltip ends "君主死亡: Yi Hyang继承王位", the line built in place.
+- **Dates**: the top bar reads "1444年11月11日"; the admin technology tooltip "我们预计将在1448年10月拥有足够点数来完成它" (the rounded month and year). The ruler's "于1444年11月11日上台" is the long date, which the Chinese language mod already words.
+- **Not seen in the running game**: battle names (no battle was fought), plain month and year, year, month and day, the timeline and great projects; each is covered by unit tests only.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
