@@ -17,7 +17,7 @@ struct DlcLoad {
 pub struct Manifest {
     pub id: String,
     pub api_version: String,
-    /// DLL path relative to the `eu4-harmony/` directory. Not loaded by the prototype yet.
+    /// DLL path relative to the `eu4-harmony/` directory.
     #[serde(default)]
     pub extension: Option<String>,
     #[serde(default)]

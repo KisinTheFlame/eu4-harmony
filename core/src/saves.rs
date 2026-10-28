@@ -48,9 +48,10 @@ struct Identity {
     size: u64,
 }
 
+/// The file that holds the extension save data of one save.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Sidecar {
+struct SaveDataFile {
     schema: u32,
     identity: Identity,
     date: i32,
@@ -132,14 +133,14 @@ impl Store {
         if raw.len() > MAX_JSON {
             return Err("save data file too large".into());
         }
-        let value: Sidecar = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
+        let value: SaveDataFile = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
         if value.schema != 1 || value.identity != *id || value.date != date {
             return Err("save data belongs to a different save or date".into());
         }
         Ok(Some(value.extensions))
     }
 
-    fn write(&self, value: &Sidecar) -> Result<PathBuf> {
+    fn write(&self, value: &SaveDataFile) -> Result<PathBuf> {
         let data = serde_json::to_vec(value).map_err(|e| e.to_string())?;
         if data.len() > MAX_JSON {
             return Err("save data too large".into());
@@ -347,7 +348,7 @@ extern "C" fn save_after(frame: *mut HookFrame) {
         }
         let path = moved.absolute.as_ref().ok_or("no absolute save path")?;
         let locked = LockedSave::open(path)?;
-        let value = Sidecar { schema: 1, identity: locked.identity.clone(), date: save.world.1, extensions: save.data.clone() };
+        let value = SaveDataFile { schema: 1, identity: locked.identity.clone(), date: save.world.1, extensions: save.data.clone() };
         let dest = c.store.write(&value)?;
         log!("saves: wrote extension data for {} to {}", locked.identity.absolute_path, dest.display());
         Ok(())
@@ -547,7 +548,7 @@ mod tests {
         let id = Identity { absolute_path: r"c:\saves\a.eu4".into(), sha256: "ab".repeat(32), size: 10 };
         let mut ext = BTreeMap::new();
         ext.insert("regional-combat".to_string(), serde_json::json!({"armies": [1, 2]}));
-        store.write(&Sidecar { schema: 1, identity: id.clone(), date: 7, extensions: ext.clone() }).unwrap();
+        store.write(&SaveDataFile { schema: 1, identity: id.clone(), date: 7, extensions: ext.clone() }).unwrap();
         assert_eq!(store.read(&id, 7).unwrap(), Some(ext));
         assert!(store.read(&id, 8).is_err());
         let other = Identity { sha256: "cd".repeat(32), ..id };

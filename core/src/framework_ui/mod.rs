@@ -3,7 +3,7 @@
 //! the settings window and, in the main menu, a corner button that opens it.
 //!
 //! [`frame`] runs once a frame on the main thread, just before the game
-//! presents (`hook`); the window procedure ([`input`]) hands the overlay the
+//! presents (`hook`); the window procedure ([`input`]) hands it the
 //! mouse and keyboard on the window's thread. The two share it under a lock.
 pub mod d3d9;
 pub mod hook;
@@ -22,7 +22,7 @@ fn words(key: &str) -> String {
     loc::framework(lang::player(), key, &[])
 }
 
-struct Overlay {
+struct FrameworkUi {
     font: text::UiFont,
     backend: d3d9::Backend,
     /// The screen and the mouse in GUI units, `scale` pixels each.
@@ -38,9 +38,9 @@ struct Overlay {
 
 // Its Direct3D objects are used only on the main thread; DirectWrite, which
 // the window's thread reaches through the font, is free-threaded.
-unsafe impl Send for Overlay {}
+unsafe impl Send for FrameworkUi {}
 
-static OVERLAY: Mutex<Option<Overlay>> = Mutex::new(None);
+static UI: Mutex<Option<FrameworkUi>> = Mutex::new(None);
 static FAILED: AtomicBool = AtomicBool::new(false);
 static FRAME: AtomicU64 = AtomicU64::new(0);
 static MAIN_MENU_FRAME: AtomicU64 = AtomicU64::new(u64::MAX);
@@ -67,7 +67,7 @@ fn corner(screen: (f32, f32), measure: &dyn Measure) -> Rect {
     Rect { x: screen.0 - w - 16.0, y: screen.1 - 44.0, w, h: 30.0 }
 }
 
-impl Overlay {
+impl FrameworkUi {
     fn new() -> crate::Result<Self> {
         let font = text::UiFont::new(&settings::current().body_font)?;
         Ok(Self { font, backend: d3d9::Backend::default(), screen: (0.0, 0.0), mouse: (-1.0, -1.0), scale: 1.0, notice: None, settings: None, families: Vec::new() })
@@ -221,8 +221,8 @@ impl Overlay {
 }
 
 fn handle(event: input::Event) -> bool {
-    match OVERLAY.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        Some(overlay) => overlay.event(event),
+    match UI.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        Some(ui) => ui.event(event),
         None => false,
     }
 }
@@ -235,9 +235,9 @@ pub fn frame(device: *mut c_void) {
     if FAILED.load(Ordering::Relaxed) || device.is_null() {
         return;
     }
-    let mut guard = OVERLAY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = UI.lock().unwrap_or_else(|e| e.into_inner());
     if guard.is_none() {
-        match Overlay::new() {
+        match FrameworkUi::new() {
             Ok(o) => *guard = Some(o),
             Err(e) => {
                 // Expected on a system without the fonts: notices fall back to message boxes.
@@ -248,25 +248,25 @@ pub fn frame(device: *mut c_void) {
             }
         }
     }
-    let overlay = guard.as_mut().expect("just made");
+    let ui = guard.as_mut().expect("just made");
     input::attach(handle);
     // The framework UI is as large as the game's own, whatever its scale.
     let scale = crate::memory().and_then(crate::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));
     let pixels = unsafe { d3d9::Backend::screen(device) };
-    overlay.scale = scale;
-    overlay.font.set_scale(scale);
-    overlay.screen = (pixels.0 / scale, pixels.1 / scale);
-    overlay.update_notice();
-    let commands = overlay.commands();
-    if let Err(e) = unsafe { overlay.backend.draw(device, &overlay.font, &commands, scale) } {
+    ui.scale = scale;
+    ui.font.set_scale(scale);
+    ui.screen = (pixels.0 / scale, pixels.1 / scale);
+    ui.update_notice();
+    let commands = ui.commands();
+    if let Err(e) = unsafe { ui.backend.draw(device, &ui.font, &commands, scale) } {
         log!("framework UI draw failed: {e}");
-        overlay.backend.release();
+        ui.backend.release();
     }
 }
 
 /// The game is about to reset the device; what lives in its default pool goes.
 pub fn device_reset() {
-    if let Some(overlay) = OVERLAY.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        overlay.backend.release();
+    if let Some(ui) = UI.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        ui.backend.release();
     }
 }
