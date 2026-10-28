@@ -17,7 +17,7 @@ group! {
         /// How many milliseconds to wait for an event, at most 60000; absent
         /// to answer at once.
         wait_ms: Option<u32>,
-    } -> Events, "the events, the number of the last one, and whether some after since were dropped";
+    } -> Events, "the events, the number of the last one, and whether some after since are gone unread: dropped, or since is beyond the last one (from before the game started again)";
 }
 
 /// Events read from remote control.
@@ -27,7 +27,9 @@ pub struct Events {
     /// The number of the latest event; 0 before the first. Read from here
     /// next time.
     pub last: u64,
-    /// Events after `since` were dropped before they were read.
+    /// Some events after `since` are gone unread: they were dropped before
+    /// this read, or `since` is beyond `last` (from before the game started
+    /// again) and the events that followed it then are gone.
     pub missed: bool,
 }
 

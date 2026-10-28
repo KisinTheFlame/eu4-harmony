@@ -35,11 +35,14 @@ impl Buffer {
     }
 
     /// The events after `since`. A `since` beyond the last event comes from
-    /// before the game started again: every event kept is new to its reader.
+    /// before the game started again: every event kept is new to its reader,
+    /// and the events that followed `since` then are gone, so the read is
+    /// `missed`.
     pub fn read(&self, since: u64) -> Events {
-        let since = if since > self.last { 0 } else { since };
+        let before_restart = since > self.last;
+        let since = if before_restart { 0 } else { since };
         let first = self.kept.front().map_or(self.last + 1, |n| n.number);
-        Events { events: self.kept.iter().filter(|n| n.number > since).copied().collect(), last: self.last, missed: since + 1 < first }
+        Events { events: self.kept.iter().filter(|n| n.number > since).copied().collect(), last: self.last, missed: before_restart || since + 1 < first }
     }
 
     /// Whether there is something to read after `since`.
@@ -101,8 +104,11 @@ mod tests {
         assert_eq!(all.events[0], Numbered { number: 1, event: ordered(1) });
         assert_eq!(buffer.read(2).events, vec![Numbered { number: 3, event: ordered(3) }]);
         assert_eq!(buffer.read(3), Events { events: vec![], last: 3, missed: false });
-        // A number from before the game started again reads everything.
-        assert_eq!(buffer.read(99).events.len(), 3);
+        // A number from before the game started again reads everything, with
+        // `missed`: the events that followed it then are gone.
+        let after_restart = buffer.read(99);
+        assert_eq!((after_restart.events.len(), after_restart.last, after_restart.missed), (3, 3, true));
+        assert!(Buffer::new().read(99).missed);
     }
 
     #[test]
