@@ -4,7 +4,8 @@
 //! after the game's own EndScene. The framework draws its UI just before, in
 //! a scene of its own when there is anything to draw. Before a device reset
 //! the game calls 0x16d4bb0 (renderer), where the framework drops what lives
-//! in the default pool.
+//! in the default pool. A frame the main thread presents is also a safe point
+//! (`crate::safe_point`).
 //!
 //! The device is created multithreaded (behaviour flags 0x44, seen in game):
 //! each call takes the device's lock, a sequence of calls does not. While the
@@ -33,6 +34,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
                 super::frame(device as *mut c_void)
             }
         });
+        crate::guarded("safe point", crate::safe_point::presented);
         crate::unicode::costs::log_when_due();
     }
     ORIGINAL_PRESENT.get()(renderer)

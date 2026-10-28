@@ -33,6 +33,7 @@ pub mod paths;
 pub mod pdx;
 pub mod physfs;
 pub mod points;
+pub mod remote;
 pub mod report;
 pub mod safe_point;
 pub mod saves;
@@ -244,6 +245,8 @@ pub(crate) fn deferred_init() {
             notice::post(&format!("test:{number}"), notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
         }
     }
+    // Lets remote control be tried without a transport: run eu4.exe with it set.
+    remote::probe::start();
     for m in &mods {
         log!("mod {:?} id={:?} api={} dir={} extension={:?} ui={}", m.descriptor.name, m.manifest.id, m.manifest.api_version, m.dir.display(), m.manifest.extension, m.manifest.ui.len());
     }

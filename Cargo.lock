@@ -80,6 +80,7 @@ dependencies = [
  "eu4-harmony-abi",
  "eu4-harmony-loc",
  "eu4-harmony-manifest",
+ "eu4-harmony-remote",
  "iced-x86",
  "serde",
  "serde_json",
