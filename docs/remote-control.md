@@ -155,6 +155,17 @@ The transport of ADR 0016: the pipe open to the current user only, several clien
 
 Done when: a test client talks to the transport in a unit test; in the game, a client on the pipe reads the session.
 
+Built (2026-10-29). F3 added no capability. The transport is `core/src/pipe.rs`, opened when the framework starts (`pipe::start`, in the deferred start, so only when startup succeeded) and served on threads of its own:
+
+- **The pipe**: `\\.\pipe\eu4-harmony` in byte mode. Its access list has one entry, all access for the user the game runs as (the process token's user SID, the list protected from inheritance), and remote clients are refused (`PIPE_REJECT_REMOTE_CLIENTS`). The first instance is made with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so the framework never joins a pipe of that name another process made.
+- **Clients**: every client has a pipe instance and a thread of its own, so several are served at once. A client's requests are handled one after another: the next line is read once the answer to the one before is written. A client so gets its answers in the order it sent its requests, and none of its requests overtakes an earlier one, such as one that waits for a game while the engine runs what needs none (F2's review). A client that wants to wait for events while it does other things opens the pipe a second time.
+- **Lines**: one request per line, UTF-8 JSON (`request_from_json`), ended by LF or CR LF; a blank line is not answered. Each answer is one line (`response_json`). A line that is no request (not UTF-8, not JSON, no such capability, arguments missing or of the wrong kind, or longer than 1 MiB, which is skipped to its end) is answered `bad_request` and logged, and the client goes on.
+- **Giving up**: a client that closes the pipe before its answer comes gives its request up. The transport looks every 50 ms whether the client is still there while it waits, and drops the reply once it is gone, so a request not yet run never runs, and one that waits is dropped.
+- **A game started again**: returning to the main menu starts `eu4.exe` again, and the new process starts while the old one still has the pipe, for a few seconds ([research/safe-points.md](research/safe-points.md)); the new one tries every second until it can open the pipe. A client on the old pipe finds it broken (a read ends, a write fails) and opens the pipe again.
+- **Log**: the transport logs when the pipe opens, each `bad_request` with its client's number, and each client leaving, with how many answers it got and whether it gave a request up; the engine logs every request as JSON, a request given up before it ran included.
+- **`events` with `wait_ms`** waits up to that long while the game runs. While a save loads nothing is answered, so an answer due then comes after the load, and the description now says so. Keeping "at most that long" would mean answering off the safe points, or a transport that knows one capability's arguments; a client that cannot wait closes the pipe.
+- **Trying it**: the probe thread F2 added is gone; `tools/remote-pipe.ps1` sends JSON requests down the pipe and prints the answers ([tools/README.md](../tools/README.md)).
+
 ### F4 Command line
 
 `eu4-harmony game ...` as described above, built from the descriptions in the shared crate, with a timeout option.
@@ -187,7 +198,7 @@ Done when: in the game, `add_treasury 100` raises the treasury, and a command's 
 
 ### C5 Main menu
 
-Remote control only: list the saves, load a save, start a game as a country (at the default start date at least), return to the main menu. Back up saves first, as AGENTS.md says. Returning to the main menu starts `eu4.exe` again (F2, [research/safe-points.md](research/safe-points.md)), so its answer cannot come from the process that was asked.
+Remote control only: list the saves, load a save, start a game as a country (at the default start date at least), return to the main menu. Back up saves first, as AGENTS.md says. Returning to the main menu starts `eu4.exe` again (F2, [research/safe-points.md](research/safe-points.md)), so its answer cannot come from the process that was asked. Right after a save is read from the main menu, the main menu's frame still runs once, and a request that needs a game is answered "the main menu is open" (F3, same note), so a load under way has to be told from the main menu.
 
 Done when: in the game, a remote client gets from the main menu into a loaded save and into a new game, and back out.
 
