@@ -108,7 +108,7 @@ With bitmap fonts, each of the Chinese language mod's six font pages is grown by
 | Microsoft YaHei, 18.2 px | 3072×5120 | 16 MB |
 | Microsoft YaHei, 9.1 px | 2048×2636 | 5 MB |
 
-That is about 105 MB of pages, a quarter of the difference. The rest is probably other copies of the same pages: the grown pages are dynamic textures (`D3DUSAGE_DYNAMIC`, `unicode/fill.rs`), which Direct3D 9Ex usually keeps in system memory, and the game's own copy of each original page may stay alive. This was not checked. It is the default setting, so it is the first thing to look at.
+That is about 105 MB of pages, a quarter of the difference, and the 1024 rows reserved below the mod's glyphs are only 18 MB of it. Where the rest goes is not known. The code rules out the obvious copies: `unicode/fill.rs` releases the game's original page once it has made the grown one, and drops its own copy of the page's pixels once it is written. Nor is it simply that the grown pages are dynamic textures: system fonts also make dynamic pages (84 MB of them) and cost only 15 to 35 MB more than the plugin. One difference between the two looks is that bitmap fonts keep the glyph records the mod's font files bring above 0xFF (994,216 of them, each allocated on its own, in `unicode/glyphs.rs`), which system fonts drop; at a few dozen bytes each that is tens of MB, not 400. Measuring the process's memory around each step of loading the fonts would show it. It is the default setting, so it is the first thing to look at.
 
 ### The framework's own costs
 
