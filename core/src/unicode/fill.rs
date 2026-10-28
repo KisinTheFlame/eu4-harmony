@@ -353,12 +353,15 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     };
     let format = if compressed { D3DFMT_DXT5 } else { D3DFMT_A8R8G8B8 };
     let mut texture = None;
+    let creating = crate::heap::Change::begin();
     unsafe {
         device
             .CreateTexture(width, height, 1, D3DUSAGE_DYNAMIC as u32, format, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut())
             .map_err(|e| format!("page texture: {e}"))?;
     }
     let texture = texture.ok_or("no page texture")?;
+    let created = creating.end();
+    let writing = crate::heap::Change::begin();
     // The font's own page on top, the rest clear (all zero bytes, in either
     // format), a band of rows at a time.
     const BAND: u32 = 256;
@@ -373,6 +376,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
         }
         put(&texture, compressed, 0, band, width, rows, &data).map_err(|e| format!("page pixels: {e}"))?;
     }
+    log!("fill: {width}x{height} page texture: creating it {created}; writing it {}", writing.end());
     // Without the page's pixels: black for a map font, white otherwise.
     let ink = letter.as_ref().map_or(if line > MAP_LINE { 0 } else { 0x00ff_ffff }, |l| l.ink);
     let mut letter_em = em;

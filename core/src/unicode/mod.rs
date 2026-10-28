@@ -60,5 +60,6 @@ pub fn log_once() {
         let (loaded, duplicates) = font_load::loaded();
         log!("unicode: {kept} localisation entries kept ({legacy} with legacy escapes, {left} left to the game); {loaded} font glyphs above 0xFF ({duplicates} duplicates); {} script and save tokens had legacy escapes", scripts::decoded());
         costs::log_now();
+        log!("memory at the main menu: {}", crate::heap::summary());
     });
 }

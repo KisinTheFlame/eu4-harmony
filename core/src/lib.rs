@@ -17,6 +17,7 @@ pub mod baseline;
 pub mod ext;
 pub mod framework_ui;
 pub mod game;
+pub mod heap;
 pub mod hooks;
 pub mod hosts;
 pub mod icu;
@@ -136,6 +137,7 @@ fn bootstrap() -> Result<()> {
     let _ = MEMORY.set(m);
     let summary = start(m)?;
     log!("startup: {summary}");
+    log!("memory at startup: {}", heap::summary());
     let _ = STARTUP.set(summary);
     Ok(())
 }
