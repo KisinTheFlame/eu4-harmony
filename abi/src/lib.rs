@@ -177,6 +177,52 @@ pub struct Camera {
 /// call host functions.
 pub type TextSink = unsafe extern "C" fn(user: *mut c_void, text: *const u8, len: usize);
 
+/// A country at one moment. Numbers the game keeps in thousandths stay so.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Country {
+    pub tag: CountryId,
+    /// Thousandths of a ducat.
+    pub treasury: i32,
+    /// Men.
+    pub manpower: i32,
+    pub max_manpower: i32,
+    /// Thousandths, from -3000 to 3000.
+    pub stability: i32,
+    /// Thousandths, from -100,000 to 100,000.
+    pub prestige: i32,
+    /// Monarch points: administrative, diplomatic, military.
+    pub power: [i32; 3],
+}
+
+/// The other country is an ally.
+pub const LINK_ALLY: u32 = 1;
+/// The other country is a subject (a vassal, a march, a personal union, a
+/// tributary and the like).
+pub const LINK_SUBJECT: u32 = 2;
+pub const LINK_OVERLORD: u32 = 3;
+/// The country has chosen the other as a rival.
+pub const LINK_RIVAL: u32 = 4;
+/// The other country is an attacker in the war numbered `war`; the first
+/// attacker of a war is its leader.
+pub const LINK_ATTACKER: u32 = 5;
+/// The other country is a defender in the war numbered `war`; the first
+/// defender of a war is its leader.
+pub const LINK_DEFENDER: u32 = 6;
+
+/// What another country is to a country, or its side in one of the
+/// country's wars.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CountryLink {
+    /// One of the `LINK_*` values; skip a value you do not know.
+    pub kind: u32,
+    /// For [`LINK_ATTACKER`] and [`LINK_DEFENDER`], the war, numbered from 1
+    /// in the country's snapshot; 0 otherwise.
+    pub war: u32,
+    pub country: CountryId,
+}
+
 /// Capabilities valid only for the duration of one callback, on the game thread.
 #[repr(C)]
 pub struct GameApi {
@@ -302,6 +348,19 @@ pub struct GameApi {
         printed: Option<TextSink>,
         user: *mut c_void,
     ) -> i32,
+    /// One read of a country: its numbers into `out`, and into `buf` its
+    /// allies, subjects, overlord and rivals, then the sides of the wars it
+    /// takes part in, as [`CountryLink`]s. `out` is written whenever the
+    /// country is found, [`BUFFER_TOO_SMALL`] included. [`NOT_FOUND`] when
+    /// there is no such country.
+    pub country: unsafe extern "C" fn(
+        host: *mut c_void,
+        country: CountryId,
+        out: *mut Country,
+        buf: *mut CountryLink,
+        cap: usize,
+        len: *mut usize,
+    ) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -373,6 +432,8 @@ layout!(Neighbor, 8: to @ 0, flags @ 4);
 layout!(Army, 40: id @ 0, owner @ 8, province @ 16, flags @ 20, regiments @ 24, route_len @ 28, destination @ 32, route_source @ 36);
 layout!(MapColor, 8: province @ 0, rgba @ 4);
 layout!(Camera, 24: x @ 0, y @ 4, height @ 8, province @ 12, min_height @ 16, max_height @ 20);
+layout!(Country, 40: tag @ 0, treasury @ 8, manpower @ 12, max_manpower @ 16, stability @ 20, prestige @ 24, power @ 28);
+layout!(CountryLink, 16: kind @ 0, war @ 4, country @ 8);
 slots!(GameApi:
     size, host, last_error, session, country_tag, countries_hostile, provinces, province_neighbors, army, own_armies,
     province_armies, army_route, army_can_enter, army_strait_open, army_can_attack, find_route, army_move, army_stop,
@@ -381,5 +442,6 @@ slots!(GameApi:
     camera, camera_look_at_province, camera_look_at, camera_zoom,
     province,
     console_run,
+    country,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);

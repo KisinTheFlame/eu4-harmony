@@ -272,6 +272,76 @@ impl From<ProvinceJson> for ProvinceSnapshot {
     }
 }
 
+/// A country at one moment.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Country {
+    pub id: CountryId,
+    /// Ducats, to the thousandth.
+    pub treasury: f64,
+    /// Men.
+    pub manpower: i32,
+    pub max_manpower: i32,
+    /// From -3 to 3.
+    pub stability: f64,
+    /// From -100 to 100.
+    pub prestige: f64,
+    pub power: Power,
+    /// The wars it takes part in, on either side.
+    pub wars: Vec<War>,
+    /// Its allies, its subjects, its overlord and the countries it rivals,
+    /// in that order.
+    pub relations: Vec<Relation>,
+}
+
+impl Country {
+    /// `other` is this to the country.
+    pub fn has_relation(&self, kind: RelationKind, other: CountryId) -> bool {
+        self.relations.iter().any(|r| r.kind == kind && r.country == other)
+    }
+
+    /// The two are on opposite sides of one of the country's wars.
+    pub fn at_war_with(&self, other: CountryId) -> bool {
+        self.wars.iter().any(|w| {
+            let (ours, theirs) = if w.attackers.contains(&self.id) { (&w.attackers, &w.defenders) } else { (&w.defenders, &w.attackers) };
+            ours.contains(&self.id) && theirs.contains(&other)
+        })
+    }
+}
+
+/// Monarch points of each kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Power {
+    pub adm: i32,
+    pub dip: i32,
+    pub mil: i32,
+}
+
+/// A war going on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct War {
+    /// Their leader first.
+    pub attackers: Vec<CountryId>,
+    /// Their leader first.
+    pub defenders: Vec<CountryId>,
+}
+
+/// What another country is to a country.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Relation {
+    pub kind: RelationKind,
+    pub country: CountryId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelationKind {
+    Ally,
+    /// A vassal, a march, a personal union, a tributary and the like.
+    Subject,
+    Overlord,
+    /// The country has chosen the other as a rival.
+    Rival,
+}
+
 impl From<abi::Session> for Session {
     fn from(s: abi::Session) -> Self {
         Self { id: s.session, date: s.date, paused: s.paused != 0, visibility_current: s.visibility_current != 0, player: CountryId(s.player) }
@@ -288,6 +358,47 @@ impl From<abi::Province> for Province {
             visible: p.flags & abi::PROVINCE_VISIBLE != 0,
             owner: (p.owner != 0).then_some(CountryId(p.owner)),
             controller: (p.controller != 0).then_some(CountryId(p.controller)),
+        }
+    }
+}
+
+impl Country {
+    /// From the core's numbers and links; links of kinds this SDK does not
+    /// know are left out.
+    pub(crate) fn from_abi(c: abi::Country, links: &[abi::CountryLink]) -> Self {
+        let fixed = |thousandths: i32| thousandths as f64 / 1000.0;
+        let mut wars: Vec<War> = Vec::new();
+        let mut relations = Vec::new();
+        for link in links {
+            let country = CountryId(link.country);
+            let kind = match link.kind {
+                abi::LINK_ALLY => RelationKind::Ally,
+                abi::LINK_SUBJECT => RelationKind::Subject,
+                abi::LINK_OVERLORD => RelationKind::Overlord,
+                abi::LINK_RIVAL => RelationKind::Rival,
+                abi::LINK_ATTACKER | abi::LINK_DEFENDER if link.war > 0 => {
+                    let index = link.war as usize - 1;
+                    if wars.len() <= index {
+                        wars.resize_with(index + 1, War::default);
+                    }
+                    let side = if link.kind == abi::LINK_ATTACKER { &mut wars[index].attackers } else { &mut wars[index].defenders };
+                    side.push(country);
+                    continue;
+                }
+                _ => continue,
+            };
+            relations.push(Relation { kind, country });
+        }
+        Self {
+            id: CountryId(c.tag),
+            treasury: fixed(c.treasury),
+            manpower: c.manpower,
+            max_manpower: c.max_manpower,
+            stability: fixed(c.stability),
+            prestige: fixed(c.prestige),
+            power: Power { adm: c.power[0], dip: c.power[1], mil: c.power[2] },
+            wars,
+            relations,
         }
     }
 }
@@ -481,5 +592,10 @@ impl<'a> Game<'a> {
     /// NUL; `Unavailable` on an EU4 Harmony older than this SDK.
     pub fn console(&mut self, command: &str) -> Result<String> {
         self.backend.console_run(command)
+    }
+    /// One read of a country: its treasury, manpower, stability, prestige,
+    /// monarch points, wars and diplomatic relations.
+    pub fn country(&mut self, country: CountryId) -> Result<Country> {
+        self.backend.country(country)
     }
 }

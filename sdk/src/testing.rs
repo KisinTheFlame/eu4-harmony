@@ -69,6 +69,8 @@ pub struct FakeGame {
     /// What each game console command prints, by command as it was run;
     /// one not here is rejected as one the game console does not know.
     pub console_output: BTreeMap<String, String>,
+    /// What `Game::country` answers, by country.
+    pub countries: BTreeMap<CountryId, Country>,
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -253,6 +255,9 @@ impl Backend for FakeGame {
     fn console_run(&mut self, command: &str) -> Result<String> {
         self.console_commands.push(command.into());
         self.console_output.get(command).cloned().ok_or_else(|| Error::new(Status::Rejected, "Unknown command"))
+    }
+    fn country(&mut self, country: CountryId) -> Result<Country> {
+        self.countries.get(&country).cloned().ok_or_else(|| not_found("unknown country"))
     }
 }
 

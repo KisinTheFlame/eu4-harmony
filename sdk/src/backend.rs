@@ -48,6 +48,8 @@ pub trait Backend {
     /// What the game console command printed; `Rejected`, with what it
     /// printed, when the game console refused it or it failed.
     fn console_run(&mut self, command: &str) -> Result<String>;
+    /// `NotFound` when there is no such country.
+    fn country(&mut self, country: CountryId) -> Result<Country>;
 }
 
 /// The core's capability table for the current callback.
@@ -299,6 +301,14 @@ impl Backend for RealBackend {
         self.check(unsafe { (api.console_run)(api.host, command.as_ptr(), command.len(), Some(keep), user) })?;
         self.utf8(printed)
     }
+    fn country(&mut self, country: CountryId) -> Result<Country> {
+        self.require(end_of!(country))?;
+        let api = self.api();
+        let mut numbers = abi::Country::default();
+        let out: *mut abi::Country = &mut numbers;
+        let links = self.list(|b, c, l| unsafe { (api.country)(api.host, country.0, out, b, c, l) })?;
+        Ok(Country::from_abi(numbers, &links))
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -381,6 +391,31 @@ mod tests {
         std::ptr::copy_nonoverlapping(name.as_ptr(), buf, name.len());
         abi::OK
     }
+    /// Country 77 allied with 5, rivalling 6, attacking 6 with 5 in war 1,
+    /// defending against 8 in war 2; a link of a kind from a later core.
+    unsafe extern "C" fn country(_: H, id: u64, out: *mut abi::Country, buf: *mut abi::CountryLink, cap: usize, len: *mut usize) -> i32 {
+        if id != 77 {
+            return abi::NOT_FOUND;
+        }
+        *out = abi::Country { tag: 77, treasury: 125_500, manpower: 22_600, max_manpower: 30_000, stability: -1_000, prestige: 12_345, power: [50, 60, 70] };
+        let link = |kind, war, country| abi::CountryLink { kind, war, country };
+        let links = [
+            link(abi::LINK_ALLY, 0, 5),
+            link(abi::LINK_RIVAL, 0, 6),
+            link(99, 0, 9),
+            link(abi::LINK_ATTACKER, 1, 77),
+            link(abi::LINK_ATTACKER, 1, 5),
+            link(abi::LINK_DEFENDER, 1, 6),
+            link(abi::LINK_ATTACKER, 2, 8),
+            link(abi::LINK_DEFENDER, 2, 77),
+        ];
+        *len = links.len();
+        if cap < links.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(links.as_ptr(), buf, links.len());
+        abi::OK
+    }
 
     /// Constantinople, as the core's test checks that the core writes it
     /// (ADR 0018).
@@ -436,7 +471,24 @@ mod tests {
             camera_zoom: no_camera_province,
             province,
             console_run,
+            country,
         }
+    }
+
+    #[test]
+    fn a_country_comes_with_its_relations_and_wars() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        let c = backend.country(CountryId(77)).unwrap();
+        assert_eq!((c.id, c.treasury, c.manpower, c.max_manpower, c.stability, c.prestige), (CountryId(77), 125.5, 22_600, 30_000, -1.0, 12.345));
+        assert_eq!(c.power, Power { adm: 50, dip: 60, mil: 70 });
+        let relation = |kind, id| Relation { kind, country: CountryId(id) };
+        assert_eq!(c.relations, [relation(RelationKind::Ally, 5), relation(RelationKind::Rival, 6)]);
+        let ids = |ids: &[u64]| ids.iter().map(|&i| CountryId(i)).collect::<Vec<_>>();
+        assert_eq!(c.wars, [War { attackers: ids(&[77, 5]), defenders: ids(&[6]) }, War { attackers: ids(&[8]), defenders: ids(&[77]) }]);
+        assert!(c.has_relation(RelationKind::Ally, CountryId(5)) && !c.has_relation(RelationKind::Ally, CountryId(6)));
+        assert!(c.at_war_with(CountryId(6)) && c.at_war_with(CountryId(8)) && !c.at_war_with(CountryId(5)));
+        assert_eq!(backend.country(CountryId(3)).unwrap_err().status, Status::NotFound);
     }
 
     #[test]
@@ -534,6 +586,8 @@ mod tests {
         let mut backend = RealBackend::new(&api);
         assert_eq!(backend.province(151).unwrap_err().status, Status::Unavailable);
         assert!(backend.language().is_ok());
+        api.size = std::mem::offset_of!(abi::GameApi, country);
+        assert_eq!(RealBackend::new(&api).country(CountryId(77)).unwrap_err().status, Status::Unavailable);
     }
 
     #[test]

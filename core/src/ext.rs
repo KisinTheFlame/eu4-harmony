@@ -462,6 +462,48 @@ unsafe extern "C" fn h_console_run(ptr: *mut c_void, command: *const u8, command
     })
 }
 
+unsafe extern "C" fn h_country(ptr: *mut c_void, country: u64, o: *mut abi::Country, buf: *mut abi::CountryLink, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| {
+        let c = game::countries::snapshot(caller, Tag(country))?;
+        let (numbers, links) = country_out(&c);
+        out(o, numbers)?;
+        list_out(&links, buf, cap, len)
+    })
+}
+
+/// A country's numbers, and its relations then its wars' sides as links.
+fn country_out(c: &game::countries::Country) -> (abi::Country, Vec<abi::CountryLink>) {
+    use game::countries::RelationKind;
+    let numbers = abi::Country {
+        tag: c.tag.0,
+        treasury: c.treasury,
+        manpower: c.manpower,
+        max_manpower: c.max_manpower,
+        stability: c.stability,
+        prestige: c.prestige,
+        power: c.power,
+    };
+    let link = |kind, war, country: Tag| abi::CountryLink { kind, war, country: country.0 };
+    let mut links: Vec<_> = c
+        .relations
+        .iter()
+        .map(|r| {
+            let kind = match r.kind {
+                RelationKind::Ally => abi::LINK_ALLY,
+                RelationKind::Subject => abi::LINK_SUBJECT,
+                RelationKind::Overlord => abi::LINK_OVERLORD,
+                RelationKind::Rival => abi::LINK_RIVAL,
+            };
+            link(kind, 0, r.country)
+        })
+        .collect();
+    for (number, war) in (1..).zip(&c.wars) {
+        links.extend(war.attackers.iter().map(|&t| link(abi::LINK_ATTACKER, number, t)));
+        links.extend(war.defenders.iter().map(|&t| link(abi::LINK_DEFENDER, number, t)));
+    }
+    (numbers, links)
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -499,6 +541,7 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         camera_zoom: h_camera_zoom,
         province: h_province,
         console_run: h_console_run,
+        country: h_country,
     }
 }
 
@@ -738,7 +781,10 @@ pub fn timing_lines() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::provinces::UnitKind;
+    use crate::game::{
+        countries::{Country, Relation, RelationKind, War},
+        provinces::UnitKind,
+    };
 
     /// The snapshot the SDK's test reads (ADR 0018).
     const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
@@ -753,5 +799,41 @@ mod tests {
         let snapshot = crate::remote::fake::constantinople();
         assert_eq!(snapshot.recruit.iter().map(|r| r.kind).collect::<Vec<_>>(), UnitKind::ALL);
         assert_eq!(province_json(&snapshot), serde_json::from_str::<serde_json::Value>(PROVINCE_JSON).unwrap());
+    }
+
+    /// Relations first, in their order; then each war's attackers and
+    /// defenders, the wars numbered from 1.
+    #[test]
+    fn a_country_goes_out_as_numbers_and_links() {
+        let (a, b, c) = (Tag(0x0100_0001_0041_4141), Tag(0x0100_0002_0042_4242), Tag(0x0100_0003_0043_4343));
+        let country = Country {
+            tag: a,
+            treasury: 1500,
+            manpower: 2000,
+            max_manpower: 3000,
+            stability: -1000,
+            prestige: 4321,
+            power: [1, 2, 3],
+            wars: vec![
+                War { name: "first".into(), attackers: vec![a, b], defenders: vec![c] },
+                War { name: "second".into(), attackers: vec![c], defenders: vec![a] },
+            ],
+            relations: vec![Relation { kind: RelationKind::Ally, country: b }, Relation { kind: RelationKind::Overlord, country: c }],
+        };
+        let (numbers, links) = country_out(&country);
+        assert_eq!(numbers, abi::Country { tag: a.0, treasury: 1500, manpower: 2000, max_manpower: 3000, stability: -1000, prestige: 4321, power: [1, 2, 3] });
+        let link = |kind, war, country: Tag| abi::CountryLink { kind, war, country: country.0 };
+        assert_eq!(
+            links,
+            [
+                link(abi::LINK_ALLY, 0, b),
+                link(abi::LINK_OVERLORD, 0, c),
+                link(abi::LINK_ATTACKER, 1, a),
+                link(abi::LINK_ATTACKER, 1, b),
+                link(abi::LINK_DEFENDER, 1, c),
+                link(abi::LINK_ATTACKER, 2, c),
+                link(abi::LINK_DEFENDER, 2, a),
+            ]
+        );
     }
 }
