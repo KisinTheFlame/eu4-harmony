@@ -170,3 +170,26 @@ fn kinds_from_text() {
     assert_eq!(Kind::Army.json("12"), Some(json!("12")));
 }
 
+#[test]
+fn binaries_in_json() {
+    // RFC 4648, section 10.
+    for (bytes, text) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foob", "Zm9vYg=="), ("fooba", "Zm9vYmE="), ("foobar", "Zm9vYmFy")] {
+        assert_eq!(binary::encode(bytes.as_bytes()), text);
+        assert_eq!(binary::decode(text).as_deref(), Some(bytes.as_bytes()), "{text}");
+    }
+    let every: Vec<u8> = (0..=255).collect();
+    assert_eq!(binary::decode(&binary::encode(&every)), Some(every));
+    for bad in ["Zg=", "Zg", "Z===", "Zg==Zg==", "Zh==", "Zm9=", "Zm9v!A==", "=Zm9"] {
+        assert_eq!(binary::decode(bad), None, "{bad}");
+    }
+
+    let png = Binary::new("image/png", vec![0x89, b'P', b'N', b'G']);
+    let value = serde_json::to_value(&png).unwrap();
+    assert_eq!(value, json!({"media_type": "image/png", "base64": "iVBORw=="}));
+    assert_eq!(Binary::from_json(&value), Some(png.clone()));
+    assert_eq!(serde_json::from_value::<Binary>(value).unwrap(), png);
+    // Only that shape is a binary.
+    for other in [json!("iVBORw=="), json!({"base64": "iVBORw=="}), json!({"media_type": "image/png", "base64": "iVBORw==", "width": 1}), json!({"media_type": "image/png", "base64": "not base64"})] {
+        assert_eq!(Binary::from_json(&other), None, "{other}");
+    }
+}

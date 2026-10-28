@@ -19,7 +19,8 @@
 //!
 //! A response is the capability's [`Answer`] or an [`Error`]; in JSON
 //! `{"ok": true, "result": ...}` or `{"ok": false, "error": {"code": ...,
-//! "message": ...}}` ([`response_json`]).
+//! "message": ...}}` ([`response_json`]). Bytes in an answer, such as a
+//! screenshot, are a [`Binary`]: `{"media_type": ..., "base64": ...}`.
 //!
 //! Every capability is declared once, in its group's file: the request, the
 //! answer and the description [`capabilities`] lists come from that one
@@ -196,6 +197,9 @@ groups! {
     /// The capabilities, described.
     Describe(describe::DescribeRequest, DescribeAnswer),
 }
+
+pub mod binary;
+pub use binary::Binary;
 
 fn full_name(group: &str, action: &str) -> String {
     if action.is_empty() {
