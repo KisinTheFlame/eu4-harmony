@@ -609,4 +609,23 @@ impl<'a> Game<'a> {
     pub fn country(&mut self, country: CountryId) -> Result<Country> {
         self.backend.country(country)
     }
+    /// The game speed, from 1 (slowest) to 5 (fastest). Whether the game is
+    /// paused is in the [`session`](Self::session).
+    pub fn speed(&mut self) -> Result<u32> {
+        self.backend.time_speed()
+    }
+    /// Sets the game speed, from 1 to 5, as the player would; the game stays
+    /// paused or running.
+    pub fn set_speed(&mut self, speed: u32) -> Result<()> {
+        self.backend.time_set_speed(speed)
+    }
+    /// Pauses the game as the player would; nothing when it is paused already.
+    pub fn pause(&mut self) -> Result<()> {
+        self.backend.time_pause()
+    }
+    /// Resumes the game as the player would, also when windows hold it paused
+    /// (they stay open); nothing when it runs.
+    pub fn resume(&mut self) -> Result<()> {
+        self.backend.time_resume()
+    }
 }

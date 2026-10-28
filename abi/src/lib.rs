@@ -317,6 +317,16 @@ pub struct GameApi {
     /// core may add kinds. `abi/json/country.json` is a whole one.
     /// [`NOT_FOUND`] when there is no such country.
     pub country: unsafe extern "C" fn(host: *mut c_void, country: CountryId, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
+    /// The game speed, from 1 (slowest) to 5 (fastest).
+    pub time_speed: unsafe extern "C" fn(host: *mut c_void, out: *mut u32) -> i32,
+    /// Sets the game speed, from 1 to 5, as the player would; the game stays
+    /// paused or running.
+    pub time_set_speed: unsafe extern "C" fn(host: *mut c_void, speed: u32) -> i32,
+    /// Pauses the game as the player would; nothing when it is paused already.
+    pub time_pause: unsafe extern "C" fn(host: *mut c_void) -> i32,
+    /// Resumes the game as the player would, also when windows hold it paused
+    /// (they stay open); nothing when it runs.
+    pub time_resume: unsafe extern "C" fn(host: *mut c_void) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -397,5 +407,6 @@ slots!(GameApi:
     province,
     console_run,
     country,
+    time_speed, time_set_speed, time_pause, time_resume,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
