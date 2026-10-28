@@ -69,6 +69,18 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"BYZ"), other: CountryTag(*b"TUR") }), Box::new(|v: &Value| *v == ok(json!(false)))),
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"TUR"), other: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),
         (
+            Request::Country(CountryRequest::Get { country: CountryTag(*b"TUR") }),
+            Box::new(|v: &Value| {
+                *v == ok(json!({
+                    "tag": "TUR", "treasury": 125.5, "manpower": 22600, "max_manpower": 30250, "stability": 1.0, "prestige": -12.345,
+                    "power": {"adm": 50, "dip": 60, "mil": 70},
+                    "wars": [{"name": "Ottoman Conquest of Constantinople", "attackers": ["TUR", "WAL"], "defenders": ["BYZ"]}],
+                    "relations": [{"kind": "subject", "country": "WAL"}, {"kind": "rival", "country": "BYZ"}],
+                }))
+            }),
+        ),
+        (Request::Country(CountryRequest::Get { country: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),
+        (
             Request::Province(ProvinceRequest::List {}),
             Box::new(move |v: &Value| *v == ok(json!([province_json(149, "TUR", "TUR"), province_json(151, "BYZ", "TUR")]))),
         ),

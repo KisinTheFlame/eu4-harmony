@@ -73,6 +73,31 @@ impl countries::Layer for Fake {
         self.call(format!("hostile {:x} {:x}", a.0, b.0));
         Ok((a, b) == (tur(), byz()))
     }
+
+    /// The Ottomans at war with Byzantium, with Wallachia as their subject;
+    /// Byzantium with nothing.
+    fn snapshot(&mut self, country: Tag) -> GResult<game::countries::Country> {
+        use game::countries::{Country, Relation, RelationKind, War};
+        self.call(format!("snapshot {:x}", country.0));
+        let wal = game_tag(b"WAL", 300);
+        if country == byz() {
+            return Ok(Country { tag: byz(), ..Default::default() });
+        }
+        if country != tur() {
+            return fail(Status::NotFound, "no such country");
+        }
+        Ok(Country {
+            tag: tur(),
+            treasury: 125_500,
+            manpower: 22_600,
+            max_manpower: 30_250,
+            stability: 1_000,
+            prestige: -12_345,
+            power: [50, 60, 70],
+            wars: vec![War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal], defenders: vec![byz()] }],
+            relations: vec![Relation { kind: RelationKind::Subject, country: wal }, Relation { kind: RelationKind::Rival, country: byz() }],
+        })
+    }
 }
 
 impl provinces::Layer for Fake {
