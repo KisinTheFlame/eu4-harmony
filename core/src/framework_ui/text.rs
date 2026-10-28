@@ -178,6 +178,9 @@ mod tests {
 
     #[test]
     fn chinese_wraps_between_characters_and_english_at_spaces() {
+        if !crate::unicode::system_font::chinese_installed() {
+            return;
+        }
         let font = UiFont::new("Microsoft YaHei").unwrap();
         let one = font.width("中", 16.0);
         assert!((12.0..=20.0).contains(&one), "{one}");
@@ -192,6 +195,9 @@ mod tests {
 
     #[test]
     fn layout_places_glyphs_left_to_right_and_fills_the_page() {
+        if !crate::unicode::system_font::chinese_installed() {
+            return;
+        }
         let font = UiFont::new("Microsoft YaHei").unwrap();
         let quads = font.layout("汉字", 18.0, 100.0, 50.0);
         assert_eq!(quads.len(), 2);

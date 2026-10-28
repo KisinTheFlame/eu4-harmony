@@ -201,12 +201,27 @@ impl SystemFonts {
     }
 }
 
+/// For tests: whether this machine has a font that draws Chinese. Some
+/// Windows images, a build server's among them, have none, and the tests that
+/// draw Chinese then have nothing to draw with; it says so.
+#[cfg(test)]
+pub(crate) fn chinese_installed() -> bool {
+    let found = SystemFonts::new().is_ok_and(|fonts| !fonts.families_with('永' as u32, false).is_empty());
+    if !found {
+        eprintln!("no installed font draws Chinese; skipped");
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn draws_a_chinese_character_with_grey_edges() {
+        if !chinese_installed() {
+            return;
+        }
         let fonts = SystemFonts::new().unwrap();
         // Diagonal and curved strokes, so the edges are partly covered.
         let family = fonts.family_for("Microsoft YaHei", '永' as u32).unwrap();
@@ -220,6 +235,9 @@ mod tests {
 
     #[test]
     fn falls_back_for_a_character_the_family_lacks() {
+        if !chinese_installed() {
+            return;
+        }
         let fonts = SystemFonts::new().unwrap();
         // Arial has no ideographs.
         assert_ne!(fonts.family_for("Arial", '中' as u32), Some("Arial"));
