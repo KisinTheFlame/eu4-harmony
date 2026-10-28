@@ -55,10 +55,14 @@ macro_rules! log {
     ($($arg:tt)*) => { $crate::__private::log(&format!($($arg)*)) };
 }
 
-/// Exports the extension entry point; `$make` builds the extension.
+/// Exports the extension entry point, and the ABI version it was built
+/// for; `$make` builds the extension.
 #[macro_export]
 macro_rules! export_extension {
     ($make:expr) => {
+        #[no_mangle]
+        pub static eu4h_extension_abi: u32 = $crate::abi::ABI_VERSION;
+
         #[no_mangle]
         pub unsafe extern "C" fn eu4h_extension_main(
             host: *const $crate::abi::HostApi,
@@ -150,20 +154,79 @@ pub mod __private {
             }
             let _ = HOST.set(Host { host: h.host as usize, log: h.log });
             let table = &mut *out;
-            if table.size < std::mem::size_of::<abi::ExtensionVTable>() {
-                log("the host's extension table is older than this SDK");
-                return abi::UNAVAILABLE;
+            // The callbacks the core's table has room for; an older core does
+            // not call the newer ones (ADR 0014).
+            let fits = |end: usize| table.size >= end;
+            macro_rules! set {
+                ($($field:ident),+) => {$(
+                    if fits(std::mem::offset_of!(abi::ExtensionVTable, $field) + std::mem::size_of::<usize>()) {
+                        table.$field = Some($field);
+                    }
+                )+};
+            }
+            if !fits(std::mem::offset_of!(abi::ExtensionVTable, on_session)) {
+                return abi::INVALID_ARGUMENT;
             }
             table.user = Box::into_raw(Box::new(make())) as *mut c_void;
-            table.on_session = Some(on_session);
-            table.on_frame = Some(on_frame);
-            table.on_day = Some(on_day);
-            table.on_button = Some(on_button);
-            table.on_army_ordered = Some(on_army_ordered);
-            table.on_army_defeated = Some(on_army_defeated);
-            table.on_map_lost = Some(on_map_lost);
+            set!(on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
             abi::OK
         }))
         .unwrap_or(abi::INTERNAL)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::c_void;
+    use std::mem::{offset_of, size_of};
+
+    unsafe extern "C" fn log_nowhere(_: *mut c_void, _: *const u8, _: usize) {}
+
+    fn host(abi_version: u32) -> abi::HostApi {
+        abi::HostApi { size: size_of::<abi::HostApi>(), abi_version, host: std::ptr::null_mut(), log: log_nowhere }
+    }
+
+    /// An empty table of `size` bytes, as the core hands it over.
+    fn callbacks(size: usize) -> abi::ExtensionVTable {
+        abi::ExtensionVTable {
+            size,
+            user: std::ptr::null_mut(),
+            on_session: None,
+            on_frame: None,
+            on_day: None,
+            on_button: None,
+            on_army_ordered: None,
+            on_army_defeated: None,
+            on_map_lost: None,
+        }
+    }
+
+    struct Quiet;
+    impl Extension for Quiet {}
+
+    fn enter(host: &abi::HostApi, table: &mut abi::ExtensionVTable) -> i32 {
+        unsafe { __private::entry(host, table, || Box::new(Quiet)) }
+    }
+
+    #[test]
+    fn a_core_of_another_abi_is_refused() {
+        let mut table = callbacks(size_of::<abi::ExtensionVTable>());
+        assert_eq!(enter(&host(abi::ABI_VERSION + 1), &mut table), abi::UNAVAILABLE);
+        assert!(table.user.is_null() && table.on_session.is_none());
+    }
+
+    /// A core from before some events were added gets the callbacks it has
+    /// room for (ADR 0014).
+    #[test]
+    fn an_older_core_gets_the_callbacks_it_knows() {
+        let mut table = callbacks(offset_of!(abi::ExtensionVTable, on_day) + size_of::<usize>());
+        assert_eq!(enter(&host(abi::ABI_VERSION), &mut table), abi::OK);
+        assert!(!table.user.is_null());
+        assert!(table.on_session.is_some() && table.on_frame.is_some() && table.on_day.is_some());
+        assert!(table.on_button.is_none() && table.on_map_lost.is_none());
+        let mut whole = callbacks(size_of::<abi::ExtensionVTable>());
+        assert_eq!(enter(&host(abi::ABI_VERSION), &mut whole), abi::OK);
+        assert!(whole.on_map_lost.is_some());
     }
 }

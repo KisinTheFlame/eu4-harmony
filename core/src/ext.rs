@@ -527,8 +527,13 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     if module.is_null() {
         return Err(format!("cannot load {}: {}", path.display(), std::io::Error::last_os_error()));
     }
-    let symbol = format!("{}\0", abi::ENTRY_SYMBOL);
-    let entry = unsafe { GetProcAddress(module, symbol.as_ptr()) }.ok_or_else(|| format!("{} has no {} export", path.display(), abi::ENTRY_SYMBOL))?;
+    let export = |name: &str| unsafe { GetProcAddress(module, format!("{name}\0").as_ptr()) }.ok_or_else(|| format!("{} has no {name} export", path.display()));
+    // The ABI the DLL was built for, which its manifest may not keep up with.
+    let built = Memory { base: 0 }.u32(export(abi::ABI_SYMBOL)? as usize)?;
+    if built != abi::ABI_VERSION {
+        return Err(format!("built for ABI version {built}, this EU4 Harmony speaks version {}", abi::ABI_VERSION));
+    }
+    let entry = export(abi::ENTRY_SYMBOL)?;
     let mut list = extensions();
     let index = list.len();
     let host = Box::new(Host { index, id: m.manifest.id.clone(), name: m.descriptor.name.clone(), last_error: Mutex::new(String::new()), log: Mutex::new(None) });

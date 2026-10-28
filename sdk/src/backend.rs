@@ -226,3 +226,132 @@ impl Backend for RealBackend {
         self.utf8(bytes)
     }
 }
+
+/// The SDK's side of the ABI, against a table built here as the core builds
+/// its own: what the fake game skips.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::c_void;
+
+    type H = *mut c_void;
+    // What the tests do not call.
+    unsafe extern "C" fn no_flag_2(_: H, _: u64, _: u32, _: *mut u8) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_flag_3(_: H, _: u64, _: u32, _: u32, _: *mut u8) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_attack(_: H, _: u64, _: u64, _: u32, _: *mut u8) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_tag(_: H, _: u64, _: *mut [u8; 3]) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_hostile(_: H, _: u64, _: u64, _: *mut u8) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_neighbors(_: H, _: u32, _: *mut abi::Neighbor, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_armies(_: H, _: *mut abi::Army, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_province_armies(_: H, _: u32, _: *mut abi::Army, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_route(_: H, _: u64, _: *mut u32, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_find(_: H, _: u64, _: u32, _: *mut u32, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_move(_: H, _: u64, _: u32) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_stop(_: H, _: u64) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_selected(_: H, _: *mut u64) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_flag_ui(_: H, _: *const u8, _: usize, _: u8) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_text_ui(_: H, _: *const u8, _: usize, _: *const u8, _: usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_paint(_: H, _: *const abi::MapColor, _: usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_clear(_: H) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_bytes(_: H, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_set(_: H, _: *const u8, _: usize) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_text(_: H, _: *const u8, _: usize, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
+
+    unsafe extern "C" fn last_error(_: H, buf: *mut u8, cap: usize) -> usize {
+        let message = b"no such army";
+        if !buf.is_null() {
+            std::ptr::copy_nonoverlapping(message.as_ptr(), buf, cap.min(message.len()));
+        }
+        message.len()
+    }
+    unsafe extern "C" fn session(_: H, out: *mut abi::Session) -> i32 {
+        *out = abi::Session { session: 3, date: 1444, paused: 1, visibility_current: 0, _reserved: 0, player: 77 };
+        abi::OK
+    }
+    unsafe extern "C" fn provinces(_: H, buf: *mut abi::Province, cap: usize, len: *mut usize) -> i32 {
+        let all = [abi::Province::default(), abi::Province { id: 1, flags: abi::PROVINCE_LAND | abi::PROVINCE_VISIBLE, owner: 77, controller: 0 }];
+        *len = all.len();
+        if cap < all.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(all.as_ptr(), buf, all.len());
+        abi::OK
+    }
+    unsafe extern "C" fn army(_: H, _: u64, _: *mut abi::Army) -> i32 {
+        abi::NOT_FOUND
+    }
+    unsafe extern "C" fn language(_: H, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        let name = b"simp_chinese";
+        *len = name.len();
+        if cap < name.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(name.as_ptr(), buf, name.len());
+        abi::OK
+    }
+
+    fn table() -> abi::GameApi {
+        abi::GameApi {
+            size: std::mem::size_of::<abi::GameApi>(),
+            host: std::ptr::null_mut(),
+            last_error,
+            session,
+            country_tag: no_tag,
+            countries_hostile: no_hostile,
+            provinces,
+            province_neighbors: no_neighbors,
+            army,
+            own_armies: no_armies,
+            province_armies: no_province_armies,
+            army_route: no_route,
+            army_can_enter: no_flag_2,
+            army_strait_open: no_flag_3,
+            army_can_attack: no_attack,
+            find_route: no_find,
+            army_move: no_move,
+            army_stop: no_stop,
+            ui_selected_army: no_selected,
+            ui_set_visible: no_flag_ui,
+            ui_set_enabled: no_flag_ui,
+            ui_set_text: no_text_ui,
+            ui_set_tooltip: no_text_ui,
+            map_paint: no_paint,
+            map_clear: no_clear,
+            save_data_get: no_bytes,
+            save_data_set: no_set,
+            language,
+            text: no_text,
+        }
+    }
+
+    #[test]
+    fn values_and_lists_come_through_the_table() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        let session = backend.session().unwrap();
+        assert_eq!((session.id, session.date, session.paused, session.visibility_current, session.player), (3, 1444, true, false, CountryId(77)));
+        // A list asks twice: once for its length, once with room for it.
+        let provinces = backend.provinces().unwrap();
+        assert_eq!(provinces.len(), 2);
+        assert_eq!((provinces[1].id, provinces[1].land, provinces[1].visible, provinces[1].owner, provinces[1].controller), (1, true, true, Some(CountryId(77)), None));
+        assert_eq!(backend.language().unwrap(), "simp_chinese");
+    }
+
+    #[test]
+    fn a_failure_brings_the_core_s_message() {
+        let api = table();
+        let err = RealBackend::new(&api).army(ArmyId(5)).unwrap_err();
+        assert_eq!((err.status, err.message.as_str()), (Status::NotFound, "no such army"));
+    }
+
+    /// A core from before a capability was added: its table ends before it.
+    #[test]
+    fn a_capability_the_core_lacks_is_unavailable() {
+        let mut api = table();
+        api.size = std::mem::offset_of!(abi::GameApi, language);
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.language().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.text("KEY").unwrap_err().status, Status::Unavailable);
+        assert!(backend.session().is_ok());
+    }
+}

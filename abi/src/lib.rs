@@ -1,7 +1,9 @@
 //! The C ABI between the EU4 Harmony core and extension DLLs. Extensions
 //! never use these types directly; the Rust SDK wraps them.
 //!
-//! Every table starts with its own `size` so fields can only be appended.
+//! Every table starts with its own `size` so fields can only be appended;
+//! each side uses only what the other's table has, and the versions change
+//! only when something that exists breaks (ADR 0014).
 //! No struct is passed by value: Win64 passes structs over 8 bytes by
 //! reference, which would make the ABI depend on how temporaries are laid out.
 //! Every host function returns a status code; results go through out-pointers.
@@ -16,6 +18,8 @@ pub const ABI_VERSION: u32 = 1;
 
 /// Exported by every extension DLL.
 pub const ENTRY_SYMBOL: &str = "eu4h_extension_main";
+/// Exported by every extension DLL: the `ABI_VERSION` it was built for, a u32.
+pub const ABI_SYMBOL: &str = "eu4h_extension_abi";
 /// `eu4h_extension_main(host, out) -> status`; [`OK`] means success.
 pub type EntryFn = unsafe extern "C" fn(host: *const HostApi, out: *mut ExtensionVTable) -> i32;
 
