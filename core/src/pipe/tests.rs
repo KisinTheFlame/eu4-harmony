@@ -265,13 +265,13 @@ fn dacl(pipe: &File) -> String {
 #[test]
 fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
     let name = pipe_name("security");
-    let server = Server::new(&name, |_| unreachable!(), |_| {}).unwrap();
-    let first = server.instance(true).unwrap();
+    let pipe = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let first = pipe.instance(true).unwrap();
     assert_eq!(dacl(&first), format!("D:P(A;;FA;;;{})", user_sid().unwrap()));
     // More clients get more instances, but no other process gets the name
     // while this one has it.
-    let more = server.instance(false).unwrap();
-    let other = Server::new(&name, |_| unreachable!(), |_| {}).unwrap();
+    let more = pipe.instance(false).unwrap();
+    let other = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
     assert!(other.instance(true).is_err());
     drop((first, more));
     assert!(other.instance(true).is_ok());
@@ -279,7 +279,7 @@ fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
 
 #[test]
 fn a_game_started_again_opens_the_pipe_once_the_one_before_is_gone() {
-    let before = Server::new(&pipe_name("again"), |_| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
+    let before = Pipe::new(&pipe_name("again"), |_| unreachable!(), |_| {}).unwrap().instance(true).unwrap();
     let test = test_pipe!("again", Place::Game);
     assert!(test.logged("yet (another process has it); trying again every second"), "{:#?}", test.log());
     drop(before);

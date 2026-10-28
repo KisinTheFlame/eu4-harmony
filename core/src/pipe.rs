@@ -69,8 +69,8 @@ pub fn start() {
 /// happens to `log`: a thread waits for clients, and each client gets a
 /// thread of its own.
 pub fn serve(name: &str, submit: fn(Request) -> Reply, log: fn(&str)) -> io::Result<()> {
-    let server = Arc::new(Server::new(name, submit, log)?);
-    std::thread::Builder::new().name("remote pipe".into()).spawn(move || guarded("remote control's pipe", || listen(&server)))?;
+    let pipe = Arc::new(Pipe::new(name, submit, log)?);
+    std::thread::Builder::new().name("remote pipe".into()).spawn(move || guarded("remote control's pipe", || listen(&pipe)))?;
     Ok(())
 }
 
@@ -87,7 +87,7 @@ fn guarded(what: &str, f: impl FnOnce()) {
 }
 
 /// A pipe being served.
-struct Server {
+struct Pipe {
     name: String,
     /// The name as Windows takes it, NUL-terminated.
     wide: Vec<u16>,
@@ -98,7 +98,7 @@ struct Server {
     clients: AtomicU64,
 }
 
-impl Server {
+impl Pipe {
     fn new(name: &str, submit: fn(Request) -> Reply, log: fn(&str)) -> io::Result<Self> {
         let wide = name.encode_utf16().chain([0]).collect();
         Ok(Self { name: name.into(), wide, security: Security::current_user()?, submit, log, clients: AtomicU64::new(0) })
@@ -129,7 +129,7 @@ impl Server {
     fn next_instance(&self) -> File {
         loop {
             match self.instance(false) {
-                Ok(pipe) => return pipe,
+                Ok(instance) => return instance,
                 Err(e) => {
                     self.log(&format!("cannot make room for the next client: {e}; trying again"));
                     std::thread::sleep(RETRY);
@@ -140,48 +140,48 @@ impl Server {
 }
 
 /// Waits for clients, one at a time, and hands each to a thread of its own.
-fn listen(server: &Arc<Server>) {
+fn listen(pipe: &Arc<Pipe>) {
     // Another process may have the pipe: the game that returned to the main
     // menu, which ends a few seconds after this one starts, or a second game.
     let mut told = false;
-    let mut pipe = loop {
-        match server.instance(true) {
-            Ok(pipe) => break pipe,
+    let mut instance = loop {
+        match pipe.instance(true) {
+            Ok(instance) => break instance,
             Err(e) => {
                 if !told {
                     let why = if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) { "another process has it".to_string() } else { e.to_string() };
-                    server.log(&format!("cannot open {} yet ({why}); trying again every second", server.name));
+                    pipe.log(&format!("cannot open {} yet ({why}); trying again every second", pipe.name));
                     told = true;
                 }
                 std::thread::sleep(RETRY);
             }
         }
     };
-    server.log(&format!("open at {}, to {} only", server.name, server.security.user));
+    pipe.log(&format!("open at {}, to {} only", pipe.name, pipe.security.user));
     loop {
-        let connected = unsafe { ConnectNamedPipe(pipe.as_raw_handle(), std::ptr::null_mut()) } != 0;
+        let connected = unsafe { ConnectNamedPipe(instance.as_raw_handle(), std::ptr::null_mut()) } != 0;
         let error = io::Error::last_os_error();
         if connected || error.raw_os_error() == Some(ERROR_PIPE_CONNECTED as i32) {
-            let number = server.clients.fetch_add(1, Ordering::Relaxed) + 1;
-            let client = Arc::clone(server);
+            let number = pipe.clients.fetch_add(1, Ordering::Relaxed) + 1;
+            let client = Arc::clone(pipe);
             let spawned = std::thread::Builder::new()
                 .name(format!("remote pipe client {number}"))
-                .spawn(move || guarded("remote control's pipe", || serve_client(&client, &pipe, number)));
+                .spawn(move || guarded("remote control's pipe", || serve_client(&client, &instance, number)));
             if let Err(e) = spawned {
-                server.log(&format!("client {number} cannot be served: {e}"));
+                pipe.log(&format!("client {number} cannot be served: {e}"));
             }
         } else {
             // The client came and went before it was seen.
-            drop(pipe);
+            drop(instance);
         }
-        pipe = server.next_instance();
+        instance = pipe.next_instance();
     }
 }
 
 /// Answers a client's requests, one line at a time, until it closes the
 /// pipe.
-fn serve_client(server: &Server, pipe: &File, number: u64) {
-    let mut reader = BufReader::with_capacity(BUFFER as usize, pipe);
+fn serve_client(pipe: &Pipe, instance: &File, number: u64) {
+    let mut reader = BufReader::with_capacity(BUFFER as usize, instance);
     let mut answered = 0u64;
     let end = loop {
         let line = match read_line(&mut reader) {
@@ -195,23 +195,23 @@ fn serve_client(server: &Server, pipe: &File, number: u64) {
             Line::TooLong => Err(Error::new(Code::BadRequest, format!("a request is one line of at most {LONGEST_LINE} bytes"))),
         };
         let response = match request {
-            Ok(request) => match answer((server.submit)(request), pipe) {
+            Ok(request) => match answer((pipe.submit)(request), instance) {
                 Some(response) => response,
                 None => break "closed the pipe before its answer came, which gave the request up".to_string(),
             },
             Err(error) => {
-                server.log(&format!("client {number}: {error}"));
+                pipe.log(&format!("client {number}: {error}"));
                 Err(error)
             }
         };
         let mut text = response_json(&response).to_string();
         text.push('\n');
-        if let Err(e) = { pipe }.write_all(text.as_bytes()) {
+        if let Err(e) = { instance }.write_all(text.as_bytes()) {
             break format!("went before its answer was written ({e})");
         }
         answered += 1;
     };
-    server.log(&format!("client {number} {end}, after {answered} answer(s)"));
+    pipe.log(&format!("client {number} {end}, after {answered} answer(s)"));
 }
 
 /// A line a client sent.
@@ -260,21 +260,21 @@ fn read_line(reader: &mut impl BufRead) -> io::Result<Option<Line>> {
 
 /// Waits for the answer while the client is there; None once it is gone,
 /// which drops the reply and so gives the request up.
-fn answer(reply: Reply, pipe: &File) -> Option<Response> {
+fn answer(reply: Reply, instance: &File) -> Option<Response> {
     loop {
         if let Some(response) = reply.wait(CHECK) {
             return Some(response);
         }
-        if !open(pipe) {
+        if !open(instance) {
             return None;
         }
     }
 }
 
 /// Whether the client still has the pipe open.
-fn open(pipe: &File) -> bool {
+fn open(instance: &File) -> bool {
     let null = std::ptr::null_mut();
-    unsafe { PeekNamedPipe(pipe.as_raw_handle(), null, 0, null.cast(), null.cast(), null.cast()) != 0 }
+    unsafe { PeekNamedPipe(instance.as_raw_handle(), null, 0, null.cast(), null.cast(), null.cast()) != 0 }
 }
 
 /// A security descriptor that lets the Windows user the process runs as, and
