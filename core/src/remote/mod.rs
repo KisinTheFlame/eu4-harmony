@@ -212,7 +212,7 @@ impl Engine {
         let mut ran = false;
         while let Some(q) = queued.pop_front() {
             if q.slot.abandoned() {
-                (self.log)(&format!("remote #{} {}: given up by its client before it ran", q.number, q.request.name()));
+                (self.log)(&format!("remote #{} {}: given up by its client before it ran", q.number, json(&q.request)));
                 continue;
             }
             if q.request.in_game() {
