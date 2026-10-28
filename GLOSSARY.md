@@ -35,7 +35,7 @@ What the framework does inside the game process each time the game starts: ident
 _Avoid_: installation
 
 **Baseline**:
-One particular `eu4.exe` build the framework supports, identified by its full SHA-256.
+One particular `eu4.exe` build the framework supports, recognized by where its original sections lie; an exe with that layout is taken as the baseline only when every dependency point holds its bytes. The exe is not hashed.
 _Avoid_: version, base exe
 
 **Dependency point**:
