@@ -67,11 +67,14 @@ pub struct Point {
     /// The field offsets, globals and other numbers its bytes use, by name
     /// where they are named; a test checks the bytes against them.
     pub uses: &'static [usize],
+    /// For a vtable's method, the function whose address must be there in
+    /// place of bytes.
+    pub method: Option<usize>,
 }
 
 impl Point {
     fn new(place: impl Into<Place>, bytes: &'static str, what: &'static str, action: Action) -> Self {
-        Self { place: place.into(), bytes, what, action, record: None, uses: &[] }
+        Self { place: place.into(), bytes, what, action, record: None, uses: &[], method: None }
     }
 
     pub fn keep(place: impl Into<Place>, bytes: &'static str, what: &'static str) -> Self {
@@ -92,6 +95,12 @@ impl Point {
 
     pub fn write(place: impl Into<Place>, bytes: &'static str, what: &'static str, replacement: &'static str) -> Self {
         Self::new(place, bytes, what, Action::Write(replacement))
+    }
+
+    /// The method a class has at `offset` in its vtable at `vtable`: the
+    /// function at `function`.
+    pub fn method(vtable: usize, offset: usize, function: usize, what: &'static str) -> Self {
+        Self { method: Some(function), ..Self::new(vtable + offset, "", what, Action::Keep) }
     }
 
     /// Stores the point's address in `slot` when it is installed.
@@ -166,6 +175,10 @@ fn changed_len(point: &Point, expected: usize) -> usize {
 /// What is wrong with how a point is written, whatever the game holds: bytes
 /// that do not parse, a replacement of another length, too little to hook.
 fn malformed(point: &Point) -> Vec<String> {
+    if point.method.is_some() {
+        let keeps = point.bytes.is_empty() && matches!(point.action, Action::Keep);
+        return if keeps { Vec::new() } else { vec![format!("{}: a method only names its function", describe(point))] };
+    }
     let mut problems = Vec::new();
     let expected = match hex(point.bytes) {
         Ok(bytes) if !bytes.is_empty() => bytes,
@@ -214,12 +227,19 @@ fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
             problems.extend(wrong);
             continue;
         }
-        let expected = hex(point.bytes)?;
+        let expected = match point.method {
+            Some(function) => (m.at(function) as u64).to_le_bytes().to_vec(),
+            None => hex(point.bytes)?,
+        };
         let found = resolve(m, point.place, exports).and_then(|at| m.bytes(at, expected.len()).map(|found| (at, found)));
-        match found {
-            Ok((at, found)) if found == expected => addresses.push(at),
-            Ok((_, found)) => problems.push(format!("{}: expected {}, found {}", describe(point), point.bytes, spaced(&found))),
-            Err(e) => problems.push(format!("{}: {e}", describe(point))),
+        match (found, point.method) {
+            (Ok((at, found)), _) if found == expected => addresses.push(at),
+            (Ok((_, found)), Some(function)) => {
+                let held = (u64::from_le_bytes(found.try_into().unwrap()) as usize).wrapping_sub(m.base);
+                problems.push(format!("{}: expected the function at {function:#x}, found {held:#x}", describe(point)))
+            }
+            (Ok((_, found)), None) => problems.push(format!("{}: expected {}, found {}", describe(point), point.bytes, spaced(&found))),
+            (Err(e), _) => problems.push(format!("{}: {e}", describe(point))),
         }
     }
     if !problems.is_empty() {
@@ -479,6 +499,17 @@ mod tests {
     }
 
     #[test]
+    fn a_method_is_checked_by_its_function_address() {
+        let m = code(ADDER, PAGE_EXECUTE_READWRITE);
+        // A vtable at RVA 0x100 whose method at 8 is the function at RVA 3.
+        m.write(m.at(0x108), &(m.at(3) as u64).to_le_bytes()).unwrap();
+        let lookup = |_: &CStr| -> Result<usize> { Err("no exports".into()) };
+        assert_eq!(check(m, &[Point::method(0x100, 8, 3, "method")], &lookup).unwrap(), [m.at(0x108)]);
+        let err = check(m, &[Point::method(0x100, 8, 5, "method")], &lookup).unwrap_err();
+        assert!(err.contains("method at 0x108: expected the function at 0x5, found 0x3"), "{err}");
+    }
+
+    #[test]
     fn malformed_points_are_named() {
         let bad = [
             Point::keep(1usize, "48 8g", "not hex"),
@@ -497,6 +528,7 @@ mod tests {
     /// it, and returns it with its exports.
     fn map_game(path: &std::path::Path) -> (Memory, std::collections::HashMap<String, usize>) {
         let image = crate::analysis::map_file(&std::fs::read(path).unwrap()).leak();
+        crate::analysis::relocate(image, image.as_ptr() as u64);
         let rd = |rva: usize| u32::from_le_bytes(image[rva..rva + 4].try_into().unwrap()) as usize;
         let export_dir = rd(rd(0x3c) + 24 + 112);
         let (names, ordinals, functions) = (rd(export_dir + 32), rd(export_dir + 36), rd(export_dir + 28));
