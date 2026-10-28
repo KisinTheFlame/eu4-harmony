@@ -376,7 +376,9 @@ impl Country {
                 abi::LINK_SUBJECT => RelationKind::Subject,
                 abi::LINK_OVERLORD => RelationKind::Overlord,
                 abi::LINK_RIVAL => RelationKind::Rival,
-                abi::LINK_ATTACKER | abi::LINK_DEFENDER if link.war > 0 => {
+                // A war has a link for each of its countries, so its number
+                // is never beyond them.
+                abi::LINK_ATTACKER | abi::LINK_DEFENDER if (1..=links.len()).contains(&(link.war as usize)) => {
                     let index = link.war as usize - 1;
                     if wars.len() <= index {
                         wars.resize_with(index + 1, War::default);
