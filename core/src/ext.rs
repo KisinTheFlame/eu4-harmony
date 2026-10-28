@@ -60,8 +60,6 @@ struct Loaded {
 unsafe impl Send for Loaded {}
 
 static EXTENSIONS: Mutex<Vec<Loaded>> = Mutex::new(Vec::new());
-/// The session and date `on_day` was last called for.
-static LAST_DAY: Mutex<Option<(u64, i32)>> = Mutex::new(None);
 static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 
 thread_local! {
@@ -595,13 +593,10 @@ fn count() -> usize {
     extensions().len()
 }
 
-/// Safe-point driver, run after the map manager's frame.
-pub fn frame() {
-    let Some(m) = crate::memory().copied() else { return };
-    let Some(state) = game::begin_frame(&m) else { return };
+/// Dispatches a game's safe frame (`crate::safe_point`) to every extension.
+pub fn frame(state: &game::Frame) {
     let n = count();
     if state.new_session {
-        *LAST_DAY.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let loaded = saves::take_loaded();
         log!("session {} started (from a loaded save: {})", state.session, loaded.is_some());
         saves::replace_all(loaded.unwrap_or_default());
@@ -610,10 +605,9 @@ pub fn frame() {
         }
         refresh_report(true);
     }
-    for change in state.changes {
+    for &change in &state.changes {
         match change {
             events::Change::Ordered(id) => {
-                game::player_ordered(id);
                 for i in 0..n {
                     call(i, "on_army_ordered", |v| v.on_army_ordered.map(|f| f as usize), &[id as usize]);
                 }
@@ -632,8 +626,7 @@ pub fn frame() {
         let name = click.name;
         call(click.extension, "on_button", |v| v.on_button.map(|f| f as usize), &[name.as_ptr() as usize, name.len(), click.click as usize, click.modifiers as usize]);
     }
-    let today = (state.session, state.ctx.date);
-    if state.visibility_current && LAST_DAY.lock().unwrap_or_else(|e| e.into_inner()).replace(today) != Some(today) {
+    if state.new_day {
         for i in 0..n {
             call(i, "on_day", |v| v.on_day.map(|f| f as usize), &[state.ctx.date as u32 as usize]);
         }

@@ -34,6 +34,7 @@ pub mod pdx;
 pub mod physfs;
 pub mod points;
 pub mod report;
+pub mod safe_point;
 pub mod saves;
 pub mod settings;
 pub mod splice;
