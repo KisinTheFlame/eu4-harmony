@@ -43,11 +43,12 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 | 目录 | 内容 |
 | --- | --- |
 | `proxy/` | `version.dll` 代理：转发 version.dll，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：依赖点与启动、`.gui` 拼接、扩展加载、游戏能力、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
+| `core/` | 框架核心：依赖点与启动、框架读取的游戏对象布局（`core/src/objects/`）、`.gui` 拼接、扩展加载、游戏能力、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
 | `loc/` | 本地化文件的格式、语言列表和查找，核心、SDK 和命令行工具共用 |
+| `manifest/` | 模组的 `eu4-harmony/manifest.json` 和描述文件的各行，核心和命令行工具共用 |
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |
-| `cli/` | `eu4-harmony.exe` |
+| `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组，其扩展随其余部分一起构建和测试 |
 | `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理和核心装进游戏目录（`-Uninstall` 卸载），另有输入、截图、反汇编、崩溃转储和调用追踪，见 [tools/README.md](tools/README.md) |
 | `docs/` | 方案、ADR、调研、实测记录和[框架对游戏性能的影响](docs/performance.md)；`docs/research/regional-combat/` 是游戏能力所依据的逆向记录 |
 

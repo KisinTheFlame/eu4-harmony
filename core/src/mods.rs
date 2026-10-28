@@ -13,27 +13,7 @@ struct DlcLoad {
     enabled_mods: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct Manifest {
-    pub id: String,
-    pub api_version: String,
-    /// DLL path relative to the `eu4-harmony/` directory.
-    #[serde(default)]
-    pub extension: Option<String>,
-    #[serde(default)]
-    pub ui: Vec<UiFragment>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UiFragment {
-    /// Fragment file, relative to the `eu4-harmony/` directory.
-    pub file: String,
-    /// Vanilla window the fragment is spliced into.
-    pub into: String,
-    /// `"buttons"` places the fragment's elements in the framework's button area.
-    #[serde(default)]
-    pub area: Option<String>,
-}
+pub use eu4_harmony_manifest::{Manifest, UiFragment};
 
 #[derive(Debug)]
 pub struct Descriptor {
@@ -56,9 +36,8 @@ pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
     let mut path = None;
     let mut archive = None;
     for line in text.lines() {
-        let Some((key, value)) = line.split_once('=') else { continue };
-        let key = key.trim();
-        let value = value.trim().trim_matches('"').replace('\\', "/");
+        let Some((key, value)) = eu4_harmony_manifest::descriptor_entry(line) else { continue };
+        let value = value.replace('\\', "/");
         match key {
             "name" => name = value,
             "path" => {
@@ -117,7 +96,7 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
         }
         let manifest: Manifest = match std::fs::read_to_string(&manifest_file)
             .map_err(|e| e.to_string())
-            .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+            .and_then(|t| Manifest::parse(&t))
         {
             Ok(m) => m,
             Err(e) => {

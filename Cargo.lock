@@ -66,6 +66,7 @@ version = "0.1.0"
 dependencies = [
  "eu4-harmony-abi",
  "eu4-harmony-loc",
+ "eu4-harmony-manifest",
  "serde",
  "serde_json",
  "windows-sys",
@@ -78,6 +79,7 @@ dependencies = [
  "cc",
  "eu4-harmony-abi",
  "eu4-harmony-loc",
+ "eu4-harmony-manifest",
  "iced-x86",
  "serde",
  "serde_json",
@@ -89,6 +91,14 @@ dependencies = [
 [[package]]
 name = "eu4-harmony-loc"
 version = "0.1.0"
+
+[[package]]
+name = "eu4-harmony-manifest"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "eu4-harmony-proxy"

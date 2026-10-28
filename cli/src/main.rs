@@ -6,7 +6,6 @@
 mod templates;
 
 use eu4_harmony_abi as abi;
-use serde::Deserialize;
 use std::{
     collections::HashMap,
     fs,
@@ -34,20 +33,7 @@ usage:
 <mod dir> defaults to the current folder or the mod folder containing it.
 ";
 
-#[derive(Debug, Deserialize)]
-struct Manifest {
-    id: String,
-    api_version: String,
-    #[serde(default)]
-    extension: Option<String>,
-    #[serde(default)]
-    ui: Vec<UiFragment>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UiFragment {
-    file: String,
-}
+use eu4_harmony_manifest::{descriptor_entry, Manifest, LOCATION_KEYS};
 
 /// Positional arguments and `--key value` / `--flag` options.
 struct Args {
@@ -148,15 +134,14 @@ fn start_dir(args: &Args) -> Result<PathBuf> {
 fn read_manifest(root: &Path) -> Result<Manifest> {
     let path = root.join("eu4-harmony").join("manifest.json");
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+    Manifest::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Descriptor text without the `path=`/`archive=` lines the launcher adds.
 fn strip_location(descriptor: &str) -> String {
     let mut out = String::new();
     for line in descriptor.lines() {
-        let key = line.split('=').next().unwrap_or("").trim();
-        if key != "path" && key != "archive" {
+        if !descriptor_entry(line).is_some_and(|(key, _)| LOCATION_KEYS.contains(&key)) {
             out.push_str(line);
             out.push('\n');
         }
@@ -471,7 +456,7 @@ mod tests {
     /// version the framework implements.
     #[test]
     fn the_template_mod_is_for_this_interface_version() {
-        let manifest: Manifest = serde_json::from_str(templates::MANIFEST).unwrap();
+        let manifest = Manifest::parse(templates::MANIFEST).unwrap();
         assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), (templates::ID, abi::API_VERSION));
     }
 
