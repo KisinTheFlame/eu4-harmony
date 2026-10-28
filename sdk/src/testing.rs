@@ -55,6 +55,12 @@ pub struct FakeGame {
     pub language: String,
     /// What `Game::text` answers, by key; see [`FakeGame::load_localisation`].
     pub texts: BTreeMap<String, String>,
+    /// The map camera, which the camera's moves change; a zoom outside its
+    /// `min_height` to `max_height` is refused.
+    pub camera: Camera,
+    /// The map position the camera looks at each province from; a province
+    /// not here is not found.
+    pub province_positions: BTreeMap<ProvinceId, (u32, u32)>,
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -211,5 +217,26 @@ impl Backend for FakeGame {
     }
     fn text(&mut self, key: &str) -> Result<String> {
         self.texts.get(key).cloned().ok_or_else(|| not_found(format!("no localisation text for {key}")))
+    }
+    fn camera(&mut self) -> Result<Camera> {
+        Ok(self.camera)
+    }
+    fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
+        let &(x, y) = self.province_positions.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
+        self.camera = Camera { x, y, province: Some(province), ..self.camera };
+        Ok(self.camera)
+    }
+    fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera> {
+        let province = self.province_positions.iter().find(|(_, &at)| at == (x, y)).map(|(&p, _)| p);
+        self.camera = Camera { x, y, province, ..self.camera };
+        Ok(self.camera)
+    }
+    fn camera_zoom(&mut self, height: u32) -> Result<Camera> {
+        let Camera { min_height, max_height, .. } = self.camera;
+        if !(min_height..=max_height).contains(&height) {
+            return Err(Error::new(Status::InvalidArgument, format!("the height is from {min_height} to {max_height}")));
+        }
+        self.camera.height = height;
+        Ok(self.camera)
     }
 }

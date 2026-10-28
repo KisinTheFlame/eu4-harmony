@@ -403,6 +403,34 @@ unsafe extern "C" fn h_text(ptr: *mut c_void, key: *const u8, key_len: usize, bu
     capability(ptr, |caller| list_out(texts::text(caller, utf8(key, key_len)?)?.as_bytes(), buf, cap, len))
 }
 
+fn camera_out(c: game::camera::Camera) -> abi::Camera {
+    abi::Camera { x: c.x, y: c.y, height: c.height, province: c.province.unwrap_or(0), min_height: c.min_height, max_height: c.max_height }
+}
+
+/// The camera after a move, for an `out` that may be null.
+unsafe fn moved_out(o: *mut abi::Camera, c: game::camera::Camera) -> HResult<()> {
+    if !o.is_null() {
+        *o = camera_out(c);
+    }
+    Ok(())
+}
+
+unsafe extern "C" fn h_camera(ptr: *mut c_void, o: *mut abi::Camera) -> i32 {
+    capability(ptr, |caller| out(o, camera_out(game::camera::camera(caller)?)))
+}
+
+unsafe extern "C" fn h_camera_look_at_province(ptr: *mut c_void, province: u32, o: *mut abi::Camera) -> i32 {
+    capability(ptr, |caller| moved_out(o, game::camera::look_at_province(caller, province)?))
+}
+
+unsafe extern "C" fn h_camera_look_at(ptr: *mut c_void, x: u32, y: u32, o: *mut abi::Camera) -> i32 {
+    capability(ptr, |caller| moved_out(o, game::camera::look_at(caller, x, y)?))
+}
+
+unsafe extern "C" fn h_camera_zoom(ptr: *mut c_void, height: u32, o: *mut abi::Camera) -> i32 {
+    capability(ptr, |caller| moved_out(o, game::camera::zoom(caller, height)?))
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -434,6 +462,10 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         save_data_set: h_save_data_set,
         language: h_language,
         text: h_text,
+        camera: h_camera,
+        camera_look_at_province: h_camera_look_at_province,
+        camera_look_at: h_camera_look_at,
+        camera_zoom: h_camera_zoom,
     }
 }
 
