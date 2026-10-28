@@ -16,9 +16,11 @@
 //!   replaced.
 //!
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
-//! font; the rest in the body font. Pages are dynamic textures, which only
-//! Direct3D 9Ex keeps across a device reset; on a plain Direct3D 9 device
-//! nothing is filled.
+//! font; the rest in the body font. Pages live in video memory, like the
+//! game's own textures, which only Direct3D 9Ex keeps across a device reset;
+//! on a plain Direct3D 9 device nothing is filled. They are written through
+//! small system-memory textures: pages made dynamic and locked a band at a
+//! time made Direct3D keep several copies of each, 425 MB for the map's.
 use super::atlas::Page;
 use super::costs;
 use super::dxt;
@@ -35,7 +37,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 use windows::core::Interface;
-use windows::Win32::Foundation::RECT;
+use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::Graphics::Direct3D9::*;
 
 /// The font method that loads its page, then parses its `.fnt` (font).
@@ -77,7 +79,10 @@ impl Own {
 }
 
 struct Fill {
+    device: IDirect3DDevice9,
     texture: IDirect3DTexture9,
+    /// The system-memory texture glyphs are written through, and its size.
+    staging: Option<(u32, u32, IDirect3DTexture9)>,
     compressed: bool,
     width: u32,
     height: u32,
@@ -178,25 +183,51 @@ fn row_bytes(compressed: bool, width: u32) -> usize {
     if compressed { width.div_ceil(4) as usize * dxt::BLOCK } else { width as usize * 4 }
 }
 
-/// Writes `width` × `height` pixels at (x, y), given as rows of A8R8G8B8
-/// pixels or of DXT5 blocks; on a DXT5 page (x, y) is a whole block.
-fn put(texture: &IDirect3DTexture9, compressed: bool, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> windows::core::Result<()> {
+/// A system-memory texture to write a page of `format` through.
+fn staging(device: &IDirect3DDevice9, format: D3DFORMAT, width: u32, height: u32) -> crate::Result<IDirect3DTexture9> {
+    let mut texture = None;
+    unsafe { device.CreateTexture(width, height, 1, 0, format, D3DPOOL_SYSTEMMEM, &mut texture, std::ptr::null_mut()) }
+        .map_err(|e| format!("staging texture: {e}"))?;
+    texture.ok_or_else(|| "no staging texture".to_string())
+}
+
+/// Writes `width` × `height` pixels at (x, y) of `page`, given as rows of
+/// A8R8G8B8 pixels or of DXT5 blocks (on a DXT5 page (x, y) is a whole
+/// block), through `staging`, a system-memory texture of the page's format at
+/// least that large, from which the device copies them into the page.
+fn put(device: &IDirect3DDevice9, page: &IDirect3DTexture9, staging: &IDirect3DTexture9, compressed: bool, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> windows::core::Result<()> {
     if width == 0 || height == 0 {
         return Ok(());
     }
     let rows = if compressed { height.div_ceil(4) } else { height } as usize;
     let row = row_bytes(compressed, width);
-    // A DXT5 page locks whole blocks only.
+    // A DXT5 page takes whole blocks only.
     let (width, height) = if compressed { (width.next_multiple_of(4), height.next_multiple_of(4)) } else { (width, height) };
-    let rect = RECT { left: x as i32, top: y as i32, right: (x + width) as i32, bottom: (y + height) as i32 };
+    let rect = RECT { left: 0, top: 0, right: width as i32, bottom: height as i32 };
+    let at = POINT { x: x as i32, y: y as i32 };
     let mut locked = D3DLOCKED_RECT::default();
     unsafe {
-        texture.LockRect(0, &mut locked, &rect, 0)?;
+        staging.LockRect(0, &mut locked, &rect, 0)?;
         for n in 0..rows {
             let line = (locked.pBits as *mut u8).add(n * locked.Pitch as usize);
             std::ptr::copy_nonoverlapping(data.as_ptr().add(n * row), line, row);
         }
-        texture.UnlockRect(0)
+        staging.UnlockRect(0)?;
+        device.UpdateSurface(&staging.GetSurfaceLevel(0)?, &rect, &page.GetSurfaceLevel(0)?, &at)
+    }
+}
+
+impl Fill {
+    /// Writes a glyph's pixels at (x, y) of the page, through a staging
+    /// texture kept for the page and made larger when a glyph needs it.
+    fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::Result<()> {
+        if !matches!(&self.staging, Some((w, h, _)) if *w >= width && *h >= height) {
+            let (w, h) = (width.next_multiple_of(64), height.next_multiple_of(64));
+            let format = if self.compressed { D3DFMT_DXT5 } else { D3DFMT_A8R8G8B8 };
+            self.staging = Some((w, h, staging(&self.device, format, w, h)?));
+        }
+        let (_, _, staging) = self.staging.as_ref().expect("made above");
+        put(&self.device, &self.texture, staging, self.compressed, x, y, width, height, data).map_err(|e| e.to_string())
     }
 }
 
@@ -267,7 +298,7 @@ fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
             true => dxt::encode_bitmap(bitmap.width, bitmap.height, &bitmap.alpha, fill.ink).concat(),
             false => inked(&bitmap.alpha, fill.ink),
         };
-        if let Err(e) = put(&fill.texture, fill.compressed, x, fill.top + y, bitmap.width, bitmap.height, &pixels) {
+        if let Err(e) = fill.put(x, fill.top + y, bitmap.width, bitmap.height, &pixels) {
             log!("fill: cannot write a glyph: {e}");
             return None;
         }
@@ -356,25 +387,26 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     let creating = crate::heap::Change::begin();
     unsafe {
         device
-            .CreateTexture(width, height, 1, D3DUSAGE_DYNAMIC as u32, format, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut())
+            .CreateTexture(width, height, 1, 0, format, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut())
             .map_err(|e| format!("page texture: {e}"))?;
     }
     let texture = texture.ok_or("no page texture")?;
     let created = creating.end();
     let writing = crate::heap::Change::begin();
     // The font's own page on top, the rest clear (all zero bytes, in either
-    // format), a band of rows at a time.
+    // format), a band of rows at a time through one staging texture.
     const BAND: u32 = 256;
+    let band = staging(device, format, width, BAND)?;
     let (row, rows_per_row) = (row_bytes(compressed, width), if compressed { 4 } else { 1 });
-    for band in (0..height).step_by(BAND as usize) {
-        let rows = BAND.min(height - band);
+    for top in (0..height).step_by(BAND as usize) {
+        let rows = BAND.min(height - top);
         let mut data = vec![0u8; (rows / rows_per_row) as usize * row];
         if let Some(own) = &own {
-            let range = own_rows(own.height, band, rows, rows_per_row);
+            let range = own_rows(own.height, top, rows, rows_per_row);
             let (from, to) = (range.start * row, range.end * row);
             data[..to - from].copy_from_slice(&own.data[from..to]);
         }
-        put(&texture, compressed, 0, band, width, rows, &data).map_err(|e| format!("page pixels: {e}"))?;
+        put(device, &texture, &band, compressed, 0, top, width, rows, &data).map_err(|e| format!("page pixels: {e}"))?;
     }
     log!("fill: {width}x{height} page texture: creating it {created}; writing it {}", writing.end());
     // Without the page's pixels: black for a map font, white otherwise.
@@ -388,7 +420,23 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
             letter_em = (l.baseline - l.top) as f32 / cap;
         }
     }
-    Ok(Fill { texture, compressed, width, height, atlas: Page::new(width, height - top), top, family, ink, letter_em, em, base, drawn: HashMap::new(), full: false })
+    Ok(Fill {
+        device: device.clone(),
+        texture,
+        staging: None,
+        compressed,
+        width,
+        height,
+        atlas: Page::new(width, height - top),
+        top,
+        family,
+        ink,
+        letter_em,
+        em,
+        base,
+        drawn: HashMap::new(),
+        full: false,
+    })
 }
 
 /// The system font look: the font's glyphs for Windows-1252 characters
