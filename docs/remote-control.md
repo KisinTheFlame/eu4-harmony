@@ -436,7 +436,7 @@ After C1 to C7, C9 and C10; C8 is not needed. Settle these, the first group abov
   - The screenshot: a client giving up in the instant the worker starts; the device looked up outside `guarded` in `framework_ui/hook.rs`.
   - Raw control bytes in `core/src/game/menu/save_file.rs`'s test literals; the subject given for `676e229` in C6's record.
 
-Settled (2026-10-29), item by item, in the list's order; the game run is in [prototype-log.md](prototype-log.md) ("Loose ends").
+Settled (2026-10-29), item by item, in the list's order; the game run is in [prototype-log.md](prototype-log.md) ("Loose ends"). Z1 added no capability; it changed what some answer: `menu.saves`' `missing_mods`, the refusals of `menu.load`, `menu.start`, `time.resume` and `time.advance` below, and an advance's `not_in_game`.
 
 - **Playing a whole game**, each tried in the game but where said:
   - **Mods**: fixed. A save's header names its mods (`mods_enabled_names`, in the text and the binary form; `menu/save_file.rs`); `menu.saves` gives each save the ones the playset the game started with lacks (`missing_mods`, by descriptor; a mod the playset has and the save lacks is no matter), and `menu.load` refuses such a save, `rejected` with their names, before anything happens. Tried: the save that crashed C5's run was refused, and nothing happened.
