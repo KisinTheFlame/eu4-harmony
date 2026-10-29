@@ -533,11 +533,21 @@ fn judge(seen: &Steps, now: &Steps, loading: bool, quiet: Duration) -> Judged {
 }
 
 /// After a load or start that did not go through: the main menu as the
-/// player could use it, nothing continued and, when the single player setup
-/// it entered for it still shows, its first page. Another page, which only
-/// the player can have chosen, stays.
+/// player could use it, nothing continued, no start accepted and, when the
+/// single player setup it entered for it still shows, its first page.
+/// Another page, which only the player can have chosen, stays.
+///
+/// A start the game accepted and did not carry out leaves the main menu's
+/// flag for it set, which nothing but its constructor clears: `menu` would
+/// say `starting` for the rest of the process, and the setup, entered again,
+/// would carry the start out at its first frame (`0x11192d5`). Unless the
+/// start is to happen at the next frame, the flag is cleared, as the main
+/// menu was made.
 fn back_to_first_page(m: &Memory, frontend: usize) {
     let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
+    if m.u8(frontend + main_menu::LAUNCH).is_ok_and(|launch| launch == 0) {
+        let _ = m.write(frontend + main_menu::LAUNCH_ACCEPTED, &[0]);
+    }
     if m.u32(frontend + main_menu::PAGE).is_ok_and(|page| page == main_menu::SETUP_PAGE) {
         let _ = m.call(m.at(SHOW_PAGE), &[frontend, main_menu::FIRST_PAGE as usize, 1]);
     }
