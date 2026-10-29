@@ -18,7 +18,7 @@ use super::{fail, Caller, Fail, GResult, Status};
 use std::ffi::c_void;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, Weak,
 };
 use std::time::{Duration, Instant};
 
@@ -242,18 +242,18 @@ unsafe fn lock(copy: d3d9::FrameCopy, reading: d3d9::Reading, shots: Vec<Arc<Sho
             let memory = reading.into_memory();
             let out = Arc::new(AtomicBool::new(false));
             let frame = Frame { bits: locked.bits as usize, pitch: locked.pitch, shape: copy.shape };
-            let kept = shots.clone();
+            // Weak, so that the thread, counting who holds a shot, finds a
+            // shot given up as given up from its first instant.
+            let kept: Vec<Weak<Shot>> = shots.iter().map(Arc::downgrade).collect();
             let thread = {
                 let out = out.clone();
                 std::thread::Builder::new().name("eu4-harmony screenshot".into()).spawn(move || crate::guarded("screenshot", || frame.take(shots, &out)))
             };
             match thread {
-                Ok(_) => {
-                    drop(kept);
-                    Stage::CopyingOut { locked, memory, out, shape: copy.shape, spent: spent.add(started) }
-                }
+                Ok(_) => Stage::CopyingOut { locked, memory, out, shape: copy.shape, spent: spent.add(started) },
                 Err(e) => {
-                    finish_all(kept, &Fail { status: Status::Unavailable, message: format!("no thread to encode the frame: {e}") });
+                    let waiting = kept.iter().filter_map(Weak::upgrade).collect();
+                    finish_all(waiting, &Fail { status: Status::Unavailable, message: format!("no thread to encode the frame: {e}") });
                     Stage::Idle
                 }
             }
