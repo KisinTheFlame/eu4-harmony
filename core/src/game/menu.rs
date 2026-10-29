@@ -109,6 +109,9 @@ pub struct Save {
     /// when it cannot be read (or for an observer's save).
     pub player: Option<[u8; 3]>,
     pub date: Option<i32>,
+    /// The mods it was made with that the game did not start with, by name:
+    /// [`load`] refuses it while there are any.
+    pub missing_mods: Vec<String>,
 }
 
 /// What came of a load or start.
@@ -272,7 +275,8 @@ pub fn saves(_: Caller) -> GResult<Vec<Save>> {
         }
         let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
         let header = header(&entry.path(), meta.len(), modified);
-        saves.push(Save { name: name.to_string(), file: file.clone(), bytes: meta.len(), modified, player: header.player, date: header.date });
+        let missing_mods = missing_mods(&header, crate::mods::playset());
+        saves.push(Save { name: name.to_string(), file: file.clone(), bytes: meta.len(), modified, player: header.player, date: header.date, missing_mods });
     }
     saves.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
     Ok(saves)
@@ -285,11 +289,28 @@ fn header(path: &std::path::Path, bytes: u64, modified: u64) -> save_file::Heade
     static READ: Mutex<Option<std::collections::HashMap<Key, save_file::Header>>> = Mutex::new(None);
     let key = (path.to_path_buf(), bytes, modified);
     if let Some(header) = READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).get(&key) {
-        return *header;
+        return header.clone();
     }
     let header = save_file::read(path).unwrap_or_default();
-    READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key, header);
+    READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key, header.clone());
     header
+}
+
+/// The mods a save was made with that `playset`, the mods the game started
+/// with, lacks: their names, or their descriptors when they have none.
+///
+/// A save made with a gameplay mod the playset lacked crashed the game as it
+/// loaded (docs/research/main-menu.md), and which mods change the game
+/// cannot be told from their names, so every one missing counts. A mod the
+/// playset has and the save lacks does not: the saves of the runs loaded
+/// with mods added to the playset since.
+fn missing_mods(header: &save_file::Header, playset: &[String]) -> Vec<String> {
+    header
+        .mods
+        .iter()
+        .filter(|m| !playset.iter().any(|p| crate::mods::same_descriptor(&m.file, p)))
+        .map(|m| if m.name.is_empty() { m.file.clone() } else { m.name.clone() })
+        .collect()
 }
 
 /// The name of a save file: its name without `.eu4`, when it has that.
@@ -340,6 +361,16 @@ pub fn load(_: Caller, name: &str) -> GResult<Expected> {
     let Some(letters) = header.player else {
         return fail(Status::Rejected, "the save has no country to play");
     };
+    let missing = missing_mods(&header, crate::mods::playset());
+    if !missing.is_empty() {
+        return fail(
+            Status::Rejected,
+            format!(
+                "the save was made with mods the game did not start with: {}; loading it can crash the game. Add them to the playset in the launcher and start the game again, or load another save",
+                missing.join(", ")
+            ),
+        );
+    }
     let player = find(m, letters)?;
     ask(Action::Load(format!("save games/{file}"), player));
     Ok(Expected { player: letters, date: header.date })
@@ -657,8 +688,22 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{judge, save_name, Judged, Steps, QUIET};
+    use super::{judge, missing_mods, save_file, save_name, Judged, Steps, QUIET};
     use std::time::Duration;
+
+    #[test]
+    fn a_save_misses_the_mods_it_was_made_with_that_the_playset_lacks() {
+        let save_mod = |file: &str, name: &str| save_file::SaveMod { file: file.into(), name: name.into() };
+        let header = save_file::Header {
+            mods: vec![save_mod("mod/ugc_3047072888.mod", "彼岸乐园"), save_mod("mod/ugc_2976470733.mod", "Chinese Language Mod for 1.37"), save_mod("mod/local.mod", "")],
+            ..Default::default()
+        };
+        let playset = ["mod/ugc_253263609.mod".to_string(), "MOD/ugc_2976470733.mod".to_string()];
+        assert_eq!(missing_mods(&header, &playset), ["彼岸乐园", "mod/local.mod"]);
+        // Mods the playset has and the save lacks are no matter.
+        assert_eq!(missing_mods(&save_file::Header::default(), &playset), Vec::<String>::new());
+        assert_eq!(missing_mods(&header, &[]).len(), 3);
+    }
 
     #[test]
     fn a_load_or_start_is_followed_by_the_games_steps() {

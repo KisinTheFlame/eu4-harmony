@@ -17,13 +17,16 @@ group! {
     /// sessions and events are numbered from 1 again.
     anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded) or game";
     /// The saves in the save games folder, newest first.
-    anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), and player and date as the save's header says them (null when it cannot be read)";
+    anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), player and date as the save's header says them (null when it cannot be read), and missing_mods, the mods it was made with that the game did not start with (menu.load refuses it while there are any)";
     /// Loads a save from the main menu and plays it as the country it was
     /// saved as, as the continue box does. Only from the main menu's first
     /// page (at startup, once menu says main_menu). Answers once the game is
-    /// ready, however long the save takes to load; rejected when the game
-    /// does not take the load up, cannot read the save (it then starts a
-    /// game from what it read), or begins another game than the save's.
+    /// ready, however long the save takes to load. Rejected, before anything
+    /// happens, when the save was made with mods the game did not start
+    /// with (one such save crashed the game as it loaded); and rejected when
+    /// the game does not take the load up, cannot read the save (it then
+    /// starts a game from what it read), or begins another game than the
+    /// save's.
     anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
@@ -89,4 +92,8 @@ pub struct Save {
     pub player: Option<CountryTag>,
     /// Its date, as its header says.
     pub date: Option<Date>,
+    /// The mods it was made with that the game did not start with (the
+    /// playset it started with lacks them), by name: menu.load refuses the
+    /// save while there are any.
+    pub missing_mods: Vec<String>,
 }

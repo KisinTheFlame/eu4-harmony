@@ -99,7 +99,7 @@ fn place_of(place: game::menu::Place) -> Place {
 }
 
 fn save(s: game::menu::Save) -> Save {
-    Save { name: s.name, file: s.file, bytes: s.bytes, modified: s.modified, player: s.player.map(CountryTag), date: s.date.map(Date) }
+    Save { name: s.name, file: s.file, bytes: s.bytes, modified: s.modified, player: s.player.map(CountryTag), date: s.date.map(Date), missing_mods: s.missing_mods }
 }
 
 /// A load or start waiting for the game's first frame.

@@ -201,7 +201,7 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Menu(MenuRequest::Saves {}),
             Box::new(|v: &Value| {
                 *v == ok(json!([{
-                    "name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000, "player": "TUR", "date": "1444.11.11",
+                    "name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000, "player": "TUR", "date": "1444.11.11", "missing_mods": ["彼岸乐园"],
                 }]))
             }),
         ),
