@@ -21,6 +21,7 @@ pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
 pub mod provinces;
+pub mod recruiting;
 pub mod screenshot;
 pub mod session;
 #[cfg(test)]
@@ -44,8 +45,8 @@ use std::{
 pub const BUDGET: Duration = Duration::from_millis(5);
 
 /// The capability layer, as remote control sees it: every group's slice.
-pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer {}
-impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + ?Sized> Game for T {}
+pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer {}
+impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + ?Sized> Game for T {}
 
 /// The capability layer itself, called as remote control.
 pub struct Live;
@@ -345,6 +346,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
         Request::Events(r) => events::run(r, events),
         Request::Describe(r) => done(Ok(Answer::Describe(describe::run(r)))),
         Request::Camera(r) => done(camera::run(r, game).map(Answer::Camera)),
+        Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
     }
 }
 

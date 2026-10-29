@@ -204,6 +204,8 @@ groups! {
     Describe(describe::DescribeRequest, DescribeAnswer),
     /// The map camera.
     Camera(camera::CameraRequest, CameraAnswer),
+    /// Recruiting regiments and ships.
+    Recruit(recruiting::RecruitRequest, RecruitAnswer),
 }
 
 pub mod binary;
@@ -264,6 +266,9 @@ pub enum Kind {
     Integer,
     Boolean,
     Text,
+    /// A kind of regiment or ship, such as `"infantry"` (see
+    /// [`provinces::UnitKind`]).
+    UnitKind,
 }
 
 impl Kind {
@@ -277,6 +282,7 @@ impl Kind {
             Self::Integer => "integer",
             Self::Boolean => "boolean",
             Self::Text => "text",
+            Self::UnitKind => "unit_kind",
         }
     }
 
@@ -290,6 +296,7 @@ impl Kind {
             Self::Integer => "3",
             Self::Boolean => "true",
             Self::Text => "text",
+            Self::UnitKind => "infantry",
         }
     }
 
@@ -302,6 +309,7 @@ impl Kind {
             Self::Province | Self::Integer => serde_json::from_str::<serde_json::Number>(text).ok().filter(|n| n.is_i64() || n.is_u64()).map(Value::Number),
             Self::Boolean => text.parse().ok().map(Value::Bool),
             Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
+            Self::UnitKind => serde_json::from_value::<provinces::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
         }
     }
 }
@@ -331,6 +339,7 @@ arg_kind! {
     i32 => Integer,
     bool => Boolean,
     String => Text,
+    provinces::UnitKind => UnitKind,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {

@@ -4,7 +4,8 @@ use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
-    response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    provinces::UnitKind, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId,
+    CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -157,6 +158,12 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Camera(CameraRequest::LookAt { x: 6000, y: 200 }), Box::new(error("invalid_argument"))),
         (Request::Camera(CameraRequest::Zoom { height: 1200 }), Box::new(|v: &Value| v["result"]["height"] == 1200 && v["result"]["province"] == 149)),
         (Request::Camera(CameraRequest::Zoom { height: 10 }), Box::new(error("invalid_argument"))),
+        (Request::Recruit(RecruitRequest::Recruit { province: province(149), kind: UnitKind::Infantry }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Recruit(RecruitRequest::Recruit { province: province(151), kind: UnitKind::Cavalry }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "君士坦丁堡不是我们的领土"),
+        ),
+        (Request::Recruit(RecruitRequest::Recruit { province: province(1), kind: UnitKind::Galley }), Box::new(error("not_found"))),
         (
             Request::Describe(DescribeRequest::All {}),
             Box::new(|v: &Value| v["result"].as_array().map(Vec::len) == Some(capabilities().len()) && v["result"][0]["capability"] == "session"),
@@ -180,7 +187,7 @@ fn every_capability_runs_at_a_game_frame() {
     for call in [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316"), "console cash 100".into()] {
         assert!(game.calls.contains(&call), "{call} not in {:#?}", game.calls);
     }
-    for call in ["look at province 151", "look at 100 200", "zoom 1200"] {
+    for call in ["look at province 151", "look at 100 200", "zoom 1200", "recruit 149 infantry", "recruit 151 cavalry", "recruit 1 galley"] {
         assert!(game.calls.iter().any(|c| c == call), "{call} not in {:#?}", game.calls);
     }
     let moved = game.calls.iter().position(|c| *c == format!("move {ARMY} 151")).unwrap();
@@ -221,6 +228,22 @@ fn reply_again(engine: &Engine) -> Response {
     let reply = engine.submit(Request::Province(ProvinceRequest::Get { province: province(151) }));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     reply.wait(Duration::ZERO).unwrap()
+}
+
+#[test]
+fn a_recruit_order_from_json_reaches_the_layer_with_its_kind() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let replies: Vec<Reply> = ["infantry", "cavalry", "artillery", "heavy_ship", "light_ship", "galley", "transport"]
+        .iter()
+        .map(|kind| engine.submit(eu4_harmony_remote::request_from_json(&json!({"capability": "recruit", "province": 149, "kind": kind}).to_string()).unwrap()))
+        .collect();
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(replies.iter().all(|r| answer(r) == ok(Value::Null)));
+    let keys: Vec<String> = game::provinces::UnitKind::ALL.iter().map(|k| format!("recruit 149 {}", k.key())).collect();
+    assert_eq!(game.calls, keys);
+    let unknown = eu4_harmony_remote::request_from_json(r#"{"capability": "recruit", "province": 149, "kind": "marines"}"#).unwrap_err();
+    assert_eq!(unknown.code, Code::BadRequest);
 }
 
 #[test]
