@@ -783,7 +783,9 @@ impl<'a> Game<'a> {
         self.backend.time_pause()
     }
     /// Resumes the game as the player would, also when windows hold it paused
-    /// (they stay open); nothing when it runs.
+    /// (they stay open); nothing when it runs. `Rejected` when the game stays
+    /// paused, and once the game is over: past its end date, unless the
+    /// player chose to play on, as the player's resuming is refused.
     pub fn resume(&mut self) -> Result<()> {
         self.backend.time_resume()
     }

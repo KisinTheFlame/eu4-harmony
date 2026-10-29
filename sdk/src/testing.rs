@@ -97,6 +97,11 @@ pub struct FakeGame {
     /// The game speed, 1 to 5; 0, the default, reads as 1. Pausing and
     /// resuming set [`session`](Self::session)'s `paused`.
     pub speed: u32,
+    /// The game's end date, a date as [`session`](Self::session)'s `date`:
+    /// once the session's date is past it, resuming a paused game is refused,
+    /// as the core refuses it once the game is over. None, the default: no
+    /// end date, as for a game the player chose to play on past it.
+    pub end_date: Option<i32>,
     /// The questions waiting for the player's answer; answering one records a
     /// command and leaves it here. An option not listed is `Rejected`, as the
     /// core answers an option the player may not choose: the fake knows no
@@ -155,6 +160,7 @@ impl Default for FakeGame {
             console_output: Default::default(),
             countries: Default::default(),
             speed: Default::default(),
+            end_date: Default::default(),
             questions: Default::default(),
             offers: Default::default(),
             war_goals: Default::default(),
@@ -409,6 +415,9 @@ impl Backend for FakeGame {
         Ok(())
     }
     fn time_resume(&mut self) -> Result<()> {
+        if self.session.paused && self.end_date.is_some_and(|end| self.session.date > end) {
+            return Err(rejected("the game is over: it is past its end date, and stays paused, as for the player, until the end-of-game summary is closed to play on"));
+        }
         self.session.paused = false;
         Ok(())
     }
@@ -619,6 +628,28 @@ mod tests {
         game.resume().unwrap();
         assert!(!game.session().unwrap().paused);
         assert_eq!(game.speed().unwrap(), 4);
+    }
+
+    #[test]
+    fn the_fake_clock_does_not_resume_past_its_end_date() {
+        let mut fake = FakeGame::new();
+        fake.session.date = 1000;
+        fake.session.paused = true;
+        fake.end_date = Some(1000);
+        // On the end date itself time still runs.
+        fake.game().resume().unwrap();
+        fake.session.date = 1001;
+        // Running, resuming is nothing, as in the core.
+        fake.game().resume().unwrap();
+        fake.session.paused = true;
+        let refused = fake.game().resume().unwrap_err();
+        assert_eq!(refused.status, Status::Rejected);
+        assert!(refused.message.starts_with("the game is over"), "{}", refused.message);
+        assert!(fake.session.paused);
+        // Played on: no end date.
+        fake.end_date = None;
+        fake.game().resume().unwrap();
+        assert!(!fake.session.paused);
     }
 
     #[test]

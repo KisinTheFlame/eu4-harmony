@@ -340,7 +340,8 @@ pub struct GameApi {
     pub time_pause: unsafe extern "C" fn(host: *mut c_void) -> i32,
     /// Resumes the game as the player would, also when windows hold it paused
     /// (they stay open); nothing when it runs. [`REJECTED`] when the game
-    /// stays paused.
+    /// stays paused, and once the game is over: past its end date, unless the
+    /// player chose to play on, as the player's resuming is refused.
     pub time_resume: unsafe extern "C" fn(host: *mut c_void) -> i32,
     /// Recruits one regiment or ship of `kind` (one of the `UNIT_*` kinds)
     /// in a province for the player, through the game's own recruit command,
