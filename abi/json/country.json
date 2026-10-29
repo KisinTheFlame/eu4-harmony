@@ -1,0 +1,19 @@
+{
+  "id": 72058882533114199,
+  "treasury": 31.25,
+  "manpower": 5400,
+  "max_manpower": 8250,
+  "stability": -1.0,
+  "prestige": 12.345,
+  "power": {"adm": 120, "dip": 95, "mil": 143},
+  "wars": [
+    {"name": "Ottoman Conquest of Constantinople", "attackers": [72058255468287316, 72058882533114199], "defenders": [72057735777769794]},
+    {"name": "Hungarian-Wallachian War", "attackers": [72058281237828936], "defenders": [72058882533114199, 72058886828085069]}
+  ],
+  "relations": [
+    {"kind": "ally", "country": 72058886828085069},
+    {"kind": "subject", "country": 72058891122332244},
+    {"kind": "overlord", "country": 72058255468287316},
+    {"kind": "rival", "country": 72058281237828936}
+  ]
+}

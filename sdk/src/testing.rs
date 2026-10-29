@@ -283,4 +283,13 @@ mod tests {
         assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "Unknown command"));
         assert_eq!(fake.console_commands, ["cash 100", "cahs 100"]);
     }
+
+    #[test]
+    fn a_country_snapshot_is_what_the_test_set_up() {
+        let mut fake = FakeGame::new();
+        let country = Country { id: CountryId(7), treasury: 31.25, relations: vec![Relation { kind: RelationKind::Rival, country: CountryId(8) }], ..Default::default() };
+        fake.countries.insert(CountryId(7), country.clone());
+        assert_eq!(fake.game().country(CountryId(7)).unwrap(), country);
+        assert_eq!(fake.game().country(CountryId(8)).unwrap_err().status, Status::NotFound);
+    }
 }

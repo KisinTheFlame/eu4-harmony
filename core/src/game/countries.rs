@@ -81,6 +81,16 @@ pub enum RelationKind {
     Rival,
 }
 
+impl RelationKind {
+    /// In the order a snapshot lists them.
+    pub const ALL: [RelationKind; 4] = [Self::Ally, Self::Subject, Self::Overlord, Self::Rival];
+
+    /// Its name in a snapshot's JSON (`ally`).
+    pub fn key(self) -> &'static str {
+        ["ally", "subject", "overlord", "rival"][self as usize]
+    }
+}
+
 /// One of a country's diplomatic relations: what the other country is to it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Relation {

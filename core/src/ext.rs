@@ -11,7 +11,7 @@ use crate::{
         armies::{self, RouteSource},
         events, interface,
         map_coloring::{self, MapColor},
-        provinces, save_data, texts, Caller, Status, Tag,
+        countries, provinces, save_data, texts, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -431,9 +431,14 @@ unsafe extern "C" fn h_camera_zoom(ptr: *mut c_void, height: u32, o: *mut abi::C
     capability(ptr, |caller| moved_out(o, game::camera::zoom(caller, height)?))
 }
 
+/// A fixed-point number of the game's, kept in thousandths, as the number it
+/// stands for in a snapshot's JSON (ADR 0018).
+fn thousandths(value: i32) -> f64 {
+    value as f64 / 1000.0
+}
+
 /// A province's snapshot as the JSON `abi::GameApi::province` describes.
 fn province_json(s: &provinces::Snapshot) -> serde_json::Value {
-    let thousandths = |value: i32| value as f64 / 1000.0;
     let country = |t: Option<Tag>| t.map(|t| t.0);
     serde_json::json!({
         "id": s.id,
@@ -462,46 +467,24 @@ unsafe extern "C" fn h_console_run(ptr: *mut c_void, command: *const u8, command
     })
 }
 
-unsafe extern "C" fn h_country(ptr: *mut c_void, country: u64, o: *mut abi::Country, buf: *mut abi::CountryLink, cap: usize, len: *mut usize) -> i32 {
-    capability(ptr, |caller| {
-        let c = game::countries::snapshot(caller, Tag(country))?;
-        let (numbers, links) = country_out(&c);
-        out(o, numbers)?;
-        list_out(&links, buf, cap, len)
+/// A country's snapshot as the JSON `abi::GameApi::country` describes.
+fn country_json(c: &countries::Country) -> serde_json::Value {
+    let ids = |tags: &[Tag]| tags.iter().map(|t| t.0).collect::<Vec<_>>();
+    serde_json::json!({
+        "id": c.tag.0,
+        "treasury": thousandths(c.treasury),
+        "manpower": c.manpower,
+        "max_manpower": c.max_manpower,
+        "stability": thousandths(c.stability),
+        "prestige": thousandths(c.prestige),
+        "power": {"adm": c.power[0], "dip": c.power[1], "mil": c.power[2]},
+        "wars": c.wars.iter().map(|w| serde_json::json!({"name": w.name, "attackers": ids(&w.attackers), "defenders": ids(&w.defenders)})).collect::<Vec<_>>(),
+        "relations": c.relations.iter().map(|r| serde_json::json!({"kind": r.kind.key(), "country": r.country.0})).collect::<Vec<_>>(),
     })
 }
 
-/// A country's numbers, and its relations then its wars' sides as links.
-fn country_out(c: &game::countries::Country) -> (abi::Country, Vec<abi::CountryLink>) {
-    use game::countries::RelationKind;
-    let numbers = abi::Country {
-        tag: c.tag.0,
-        treasury: c.treasury,
-        manpower: c.manpower,
-        max_manpower: c.max_manpower,
-        stability: c.stability,
-        prestige: c.prestige,
-        power: c.power,
-    };
-    let link = |kind, war, country: Tag| abi::CountryLink { kind, war, country: country.0 };
-    let mut links: Vec<_> = c
-        .relations
-        .iter()
-        .map(|r| {
-            let kind = match r.kind {
-                RelationKind::Ally => abi::LINK_ALLY,
-                RelationKind::Subject => abi::LINK_SUBJECT,
-                RelationKind::Overlord => abi::LINK_OVERLORD,
-                RelationKind::Rival => abi::LINK_RIVAL,
-            };
-            link(kind, 0, r.country)
-        })
-        .collect();
-    for (number, war) in (1..).zip(&c.wars) {
-        links.extend(war.attackers.iter().map(|&t| link(abi::LINK_ATTACKER, number, t)));
-        links.extend(war.defenders.iter().map(|&t| link(abi::LINK_DEFENDER, number, t)));
-    }
-    (numbers, links)
+unsafe extern "C" fn h_country(ptr: *mut c_void, country: u64, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| list_out(country_json(&countries::snapshot(caller, Tag(country))?).to_string().as_bytes(), buf, cap, len))
 }
 
 fn game_api(host: *mut c_void) -> abi::GameApi {
@@ -781,13 +764,11 @@ pub fn timing_lines() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{
-        countries::{Country, Relation, RelationKind, War},
-        provinces::UnitKind,
-    };
+    use crate::game::{countries::RelationKind, provinces::UnitKind};
 
-    /// The snapshot the SDK's test reads (ADR 0018).
+    /// The snapshots the SDK's tests read (ADR 0018).
     const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
+    const COUNTRY_JSON: &str = include_str!("../../abi/json/country.json");
 
     /// Constantinople as the engine's fake game has it, every kind of unit
     /// in it, is written as the same JSON value as the file holds: the same
@@ -801,39 +782,13 @@ mod tests {
         assert_eq!(province_json(&snapshot), serde_json::from_str::<serde_json::Value>(PROVINCE_JSON).unwrap());
     }
 
-    /// Relations first, in their order; then each war's attackers and
-    /// defenders, the wars numbered from 1.
+    /// Wallachia as the engine's fake game has it, a relation of every kind
+    /// and a war on either side, is written as the same JSON value as the
+    /// file holds, as a province's is.
     #[test]
-    fn a_country_goes_out_as_numbers_and_links() {
-        let (a, b, c) = (Tag(0x0100_0001_0041_4141), Tag(0x0100_0002_0042_4242), Tag(0x0100_0003_0043_4343));
-        let country = Country {
-            tag: a,
-            treasury: 1500,
-            manpower: 2000,
-            max_manpower: 3000,
-            stability: -1000,
-            prestige: 4321,
-            power: [1, 2, 3],
-            wars: vec![
-                War { name: "first".into(), attackers: vec![a, b], defenders: vec![c] },
-                War { name: "second".into(), attackers: vec![c], defenders: vec![a] },
-            ],
-            relations: vec![Relation { kind: RelationKind::Ally, country: b }, Relation { kind: RelationKind::Overlord, country: c }],
-        };
-        let (numbers, links) = country_out(&country);
-        assert_eq!(numbers, abi::Country { tag: a.0, treasury: 1500, manpower: 2000, max_manpower: 3000, stability: -1000, prestige: 4321, power: [1, 2, 3] });
-        let link = |kind, war, country: Tag| abi::CountryLink { kind, war, country: country.0 };
-        assert_eq!(
-            links,
-            [
-                link(abi::LINK_ALLY, 0, b),
-                link(abi::LINK_OVERLORD, 0, c),
-                link(abi::LINK_ATTACKER, 1, a),
-                link(abi::LINK_ATTACKER, 1, b),
-                link(abi::LINK_DEFENDER, 1, c),
-                link(abi::LINK_ATTACKER, 2, c),
-                link(abi::LINK_DEFENDER, 2, a),
-            ]
-        );
+    fn a_country_snapshot_is_written_as_the_abi_says() {
+        let snapshot = crate::remote::fake::wallachia();
+        assert_eq!(snapshot.relations.iter().map(|r| r.kind).collect::<Vec<_>>(), RelationKind::ALL);
+        assert_eq!(country_json(&snapshot), serde_json::from_str::<serde_json::Value>(COUNTRY_JSON).unwrap());
     }
 }

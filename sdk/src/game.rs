@@ -281,20 +281,22 @@ pub struct Country {
     /// Men.
     pub manpower: i32,
     pub max_manpower: i32,
-    /// From -3 to 3.
+    /// From -3 to 3, to the thousandth.
     pub stability: f64,
-    /// From -100 to 100.
+    /// From -100 to 100, to the thousandth.
     pub prestige: f64,
     pub power: Power,
-    /// The wars it takes part in, on either side.
+    /// The wars going on that it takes part in, on either side.
     pub wars: Vec<War>,
     /// Its allies, its subjects, its overlord and the countries it rivals,
-    /// in that order.
+    /// in that order; a relation of a kind added after this SDK comes as
+    /// [`RelationKind::Unknown`].
     pub relations: Vec<Relation>,
 }
 
 impl Country {
-    /// `other` is this to the country.
+    /// `other` is this to the country. [`RelationKind::Unknown`] asks whether
+    /// it is anything this SDK does not know.
     pub fn has_relation(&self, kind: RelationKind, other: CountryId) -> bool {
         self.relations.iter().any(|r| r.kind == kind && r.country == other)
     }
@@ -309,7 +311,7 @@ impl Country {
 }
 
 /// Monarch points of each kind.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 pub struct Power {
     pub adm: i32,
     pub dip: i32,
@@ -319,6 +321,8 @@ pub struct Power {
 /// A war going on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct War {
+    /// Its name, as the game shows it.
+    pub name: String,
     /// Their leader first.
     pub attackers: Vec<CountryId>,
     /// Their leader first.
@@ -332,7 +336,8 @@ pub struct Relation {
     pub country: CountryId,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RelationKind {
     Ally,
     /// A vassal, a march, a personal union, a tributary and the like.
@@ -340,6 +345,53 @@ pub enum RelationKind {
     Overlord,
     /// The country has chosen the other as a rival.
     Rival,
+    /// A kind a newer core names that this SDK does not know (ADR 0018).
+    #[serde(other)]
+    Unknown,
+}
+
+/// [`Country`] as the core writes it (`abi::GameApi::country`).
+#[derive(serde::Deserialize)]
+pub(crate) struct CountryJson {
+    id: u64,
+    treasury: f64,
+    manpower: i32,
+    max_manpower: i32,
+    stability: f64,
+    prestige: f64,
+    power: Power,
+    wars: Vec<WarJson>,
+    relations: Vec<RelationJson>,
+}
+
+#[derive(serde::Deserialize)]
+struct WarJson {
+    name: String,
+    attackers: Vec<u64>,
+    defenders: Vec<u64>,
+}
+
+#[derive(serde::Deserialize)]
+struct RelationJson {
+    kind: RelationKind,
+    country: u64,
+}
+
+impl From<CountryJson> for Country {
+    fn from(c: CountryJson) -> Self {
+        let ids = |ids: Vec<u64>| ids.into_iter().map(CountryId).collect();
+        Self {
+            id: CountryId(c.id),
+            treasury: c.treasury,
+            manpower: c.manpower,
+            max_manpower: c.max_manpower,
+            stability: c.stability,
+            prestige: c.prestige,
+            power: c.power,
+            wars: c.wars.into_iter().map(|w| War { name: w.name, attackers: ids(w.attackers), defenders: ids(w.defenders) }).collect(),
+            relations: c.relations.into_iter().map(|r| Relation { kind: r.kind, country: CountryId(r.country) }).collect(),
+        }
+    }
 }
 
 impl From<abi::Session> for Session {
@@ -358,49 +410,6 @@ impl From<abi::Province> for Province {
             visible: p.flags & abi::PROVINCE_VISIBLE != 0,
             owner: (p.owner != 0).then_some(CountryId(p.owner)),
             controller: (p.controller != 0).then_some(CountryId(p.controller)),
-        }
-    }
-}
-
-impl Country {
-    /// From the core's numbers and links; links of kinds this SDK does not
-    /// know are left out.
-    pub(crate) fn from_abi(c: abi::Country, links: &[abi::CountryLink]) -> Self {
-        let fixed = |thousandths: i32| thousandths as f64 / 1000.0;
-        let mut wars: Vec<War> = Vec::new();
-        let mut relations = Vec::new();
-        for link in links {
-            let country = CountryId(link.country);
-            let kind = match link.kind {
-                abi::LINK_ALLY => RelationKind::Ally,
-                abi::LINK_SUBJECT => RelationKind::Subject,
-                abi::LINK_OVERLORD => RelationKind::Overlord,
-                abi::LINK_RIVAL => RelationKind::Rival,
-                // A war has a link for each of its countries, so its number
-                // is never beyond them.
-                abi::LINK_ATTACKER | abi::LINK_DEFENDER if (1..=links.len()).contains(&(link.war as usize)) => {
-                    let index = link.war as usize - 1;
-                    if wars.len() <= index {
-                        wars.resize_with(index + 1, War::default);
-                    }
-                    let side = if link.kind == abi::LINK_ATTACKER { &mut wars[index].attackers } else { &mut wars[index].defenders };
-                    side.push(country);
-                    continue;
-                }
-                _ => continue,
-            };
-            relations.push(Relation { kind, country });
-        }
-        Self {
-            id: CountryId(c.tag),
-            treasury: fixed(c.treasury),
-            manpower: c.manpower,
-            max_manpower: c.max_manpower,
-            stability: fixed(c.stability),
-            prestige: fixed(c.prestige),
-            power: Power { adm: c.power[0], dip: c.power[1], mil: c.power[2] },
-            wars,
-            relations,
         }
     }
 }
