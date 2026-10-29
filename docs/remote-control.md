@@ -188,6 +188,23 @@ Pause, resume, read and set the speed, read the date. `time advance <days> [--sp
 
 Done when: in the game, advancing 30 days stops on the right date with the day events in the answer, and an early stop says why.
 
+Built (2026-10-29). Time is a group of its own in every layer: `core/src/game/time.rs` (the evidence in [research/time.md](research/time.md)), `core/src/remote/time.rs` and `remote/src/time.rs`.
+
+| Capability | Arguments | Result | Needs a game |
+| --- | --- | --- | --- |
+| `time` | | `date`, `paused`, `speed` (1, slowest, to 5) | yes |
+| `time.pause` | | null; nothing when paused already | yes |
+| `time.resume` | | null; also when windows hold the game paused (a game event's when the game pauses on events, a message set to pause), which stay open; nothing when it runs | yes |
+| `time.speed` | `speed` (1 to 5) | null; the game stays paused or running | yes |
+| `time.advance` | `days` (1 to 36500), `speed` (optional, 1 to 5) | `stopped` (`date`, `paused`, `game_event`, `session`, `main_menu`), `reason` in words, `date`, and the events on the way as `events` answers them: `events`, `last`, `missed` | yes |
+
+- **Extensions** have the first four (ADR 0014, appended): `GameApi` `time_speed`, `time_set_speed`, `time_pause`, `time_resume`; the SDK's `Game::speed`, `set_speed`, `pause` and `resume`, unavailable on an older core; `FakeGame::speed`, and pausing and resuming set its session's `paused`. Whether the game is paused stays in the session, for both.
+- **As the player**: the speed is set by the game's own setter, which both speed commands call; pausing and resuming go through the game's pause toggle, the one the game console's `gamespeed` uses. Resuming lets go of every window holding the game paused, as the player's resuming does. The layer's `time` also says what holds the game paused: the player (or an extension or remote control) or a window.
+- **An advance** refuses `days` or `speed` out of range before it asks the game anything. When a game event waits for the player's answer, it pauses the game and answers `game_event` at once, without letting time run. Otherwise it sets the speed, holds a stop at the date, resumes the game and answers later (F2's `Outcome::Later`). The stop is kept by the end of the daily update: as the date is reached, or as a game event's window opens during the advance, the game is paused there, before the next frame can begin another day (at speed 5 the next day is posted before the safe point, so a pause there is a day late; found in the game). So the advance stops on its date, or on the day of the game event, at any speed. At each game safe point after, in this order: another session answers `session`; the date reached answers `date` once that day's event is in the buffer (it comes when visibility reflects the day, at most 2 s later, else the advance answers without it); a game event waiting pauses the game and answers `game_event`; a paused game answers `paused`, saying whether the player (an extension, another remote client) paused it or a window did. The events on the way are the engine's numbered events after the last one before time ran, read as `events` reads them, with `missed` when more than the 10,000 kept went by.
+- **A game event needs an answer**: C1 sees this on its own. A game event shown to the player is an event window among the map manager's popups; `game::time::game_events_waiting` counts the open ones. That function is the one place C7 connects to (or replaces with its own list of the events waiting); the advance only asks whether the count is above zero.
+- **Returning to the main menu**: decided that the answer is written before the old process goes. The game's restart, which starts `eu4.exe` again at the end of its main loop, is observed; before it runs, the engine asks every waiting request for an answer to give as the process ends (`Wait::ending`; an advance answers `main_menu`, with the date and the events so far), and waits up to 2 s for the transports to take them. A waiting `events` read gives none and still finds the pipe broken. Quitting to the desktop does not restart, so a client waiting then finds the pipe broken.
+- **Giving up**: a client that gives an advance up (closing the pipe, the command line's `--timeout`) calls it off: the stop is moved to the end of the day under way, where the game pauses.
+
 ### C2 Country snapshot
 
 One read of a country: treasury, manpower and its maximum, stability, prestige, the three kinds of monarch points, wars (each with its attackers and defenders) and diplomatic relations (allies, subjects, overlord, rivals, at least). C8 relies on the wars and relations.
