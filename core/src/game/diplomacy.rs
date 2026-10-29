@@ -47,9 +47,13 @@ const WAR_GOAL_LIST_DESTROY: usize = 0x114b80;
 /// The game's localisation of a key: (out `std::string`, key, arguments,
 /// count).
 const LOCALIZE: usize = 0x14b34a0;
-/// Carrying out a diplomatic action's command, its vtable's `+0x48`:
-/// (command).
+/// Carrying out a diplomatic action's command, its vtable's
+/// [`command::CARRY_OUT`]: (command).
 const CARRY_OUT: usize = 0x4e7c50;
+/// The command's destructor, its vtable's [`command::DESTROY`]: (command,
+/// flags), flag 1 freeing it.
+const COMMAND_DESTROY: usize = 0x4e7470;
+const FREE: usize = 1;
 /// The keys of the descriptions the checks append after their reasons.
 const ALLIANCE_DESCRIPTION: usize = 0x1c83dc0;
 const PEACE_DESCRIPTION: usize = 0x1c8abc0;
@@ -330,7 +334,7 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag) -> GResult<Tick
     let after = ledger(|l| l.carried_count);
     let taken = m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0;
     if !taken {
-        m.call(m.vslot(command, 0)?, &[command, 1])?;
+        m.call(m.at(COMMAND_DESTROY), &[command, FREE])?;
         return fail(Status::Rejected, "the game takes no orders from the player now");
     }
     // As the dialog, so that the panel lets no second one go the same day.
@@ -630,9 +634,9 @@ pub fn points() -> Vec<Point> {
     let method = |class: usize, slot: usize, function: usize, what: &'static str| Point::method(class, slot, function, what);
     vec![
         Point::observe(CARRY_OUT, "48 89 5c 24 18 48 89 6c 24 20 56 57 41 56 48 83", "diplomatic action carried out", 1, Some(carry_out_before), None),
-        method(ACTION_COMMAND, 0x48, CARRY_OUT, "diplomatic action command execution"),
-        method(ACTION_COMMAND, 0, 0x4e7470, "diplomatic action command destructor"),
-        Point::keep(0x4e7470usize, "48 89 5c 24 08 57 48 83 ec 20 8b fa 48 8b d9 48 8d 05 2a a0 79 01 48 89 01 48 8b 49 50", "diplomatic action command destructor")
+        method(ACTION_COMMAND, command::CARRY_OUT, CARRY_OUT, "diplomatic action command execution"),
+        method(ACTION_COMMAND, command::DESTROY, COMMAND_DESTROY, "diplomatic action command destructor"),
+        Point::keep(COMMAND_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 8b fa 48 8b d9 48 8d 05 2a a0 79 01 48 89 01 48 8b 49 50", "diplomatic action command destructor")
             .uses(&[ACTION_COMMAND, command::ACTION]),
         // Making the command, which every kind inherits.
         Point::keep(0x4e9930usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b 01 48 8b fa ff 90 b0 00 00 00", "diplomatic action command maker"),

@@ -59,17 +59,16 @@ pub mod action {
     pub const ID: usize = 0x3c;
     /// Its methods, by vtable offset: its destructor, (action, flags), flag
     /// 1 freeing it; making the command that sends a copy of it, (action,
-    /// out), the command in `*out`; and the checks, (action, reasons,
+    /// out), the command in `*out`; and two of its checks, (action, reasons,
     /// skip), each answering whether the game allows it and, when `reasons`
     /// is a `std::string`, appending why not and the action's description
-    /// to it: [`VALID`] the action's own conditions, which the command asks
-    /// again when the game carries it out; [`ALLOWED`] those and the
+    /// to it: [`ALLOWED`] the action's own conditions (the check at `+0x80`,
+    /// which the command asks again when the game carries it out) and the
     /// player's (diplomats, the wait between two of them), which the dialog
     /// that sends it asks; [`OFFERED`] what the diplomacy panel asks before
     /// it lets the player open that dialog.
     pub const DESTROY: usize = 0;
     pub const MAKE_COMMAND: usize = 0x40;
-    pub const VALID: usize = 0x80;
     pub const ALLOWED: usize = 0x88;
     pub const OFFERED: usize = 0x90;
     /// The sizes of the kinds the framework makes.
@@ -82,10 +81,16 @@ pub mod action {
     pub const TREATY: usize = 0x48;
 }
 
-/// The command a diplomatic action's [`action::MAKE_COMMAND`] makes.
+/// The command a diplomatic action's [`action::MAKE_COMMAND`] makes, of
+/// class [`classes::ACTION_COMMAND`].
 pub mod command {
     /// The action it carries, its own copy.
     pub const ACTION: usize = 0x50;
+    /// Its methods, by vtable offset: the destructor, (command, flags), flag
+    /// 1 freeing it, which destroys its action too; carrying it out,
+    /// (command).
+    pub const DESTROY: usize = 0;
+    pub const CARRY_OUT: usize = 0x48;
 }
 
 /// A war goal: what a war is declared for, under a casus belli.
