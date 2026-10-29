@@ -1,7 +1,11 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{armies, camera, console, countries, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time};
-use crate::game::{self, fail, menu::Launch, GResult, Status, Tag};
+use crate::game::{
+    self, fail,
+    menu::{Expected, Launch},
+    GResult, Status, Tag,
+};
 use eu4_harmony_remote::CountryTag;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -294,11 +298,14 @@ impl menu::Layer for Fake {
         }])
     }
 
-    fn load(&mut self, save: &str) -> GResult<()> {
+    fn load(&mut self, save: &str) -> GResult<Expected> {
         self.call(format!("load {save}"));
         match save {
             "missing" => fail(Status::NotFound, "no save \"missing\" in the save games folder"),
-            _ => Ok(()),
+            // A save of Castile in 1470, which the game does not load.
+            "Castilla-5" => Ok(Expected { player: *b"CAS", date: Some(eu4_harmony_remote::Date::from_ymd(1470, 3, 13).unwrap().0) }),
+            // 1444.11.11, as the session says.
+            _ => Ok(Expected { player: *b"TUR", date: Some(0x035D_7710) }),
         }
     }
 

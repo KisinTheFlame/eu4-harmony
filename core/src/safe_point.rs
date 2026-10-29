@@ -8,9 +8,10 @@
 //!   remote control did not run at a game frame since the last one. It runs
 //!   there what needs no game. In the main menu, every page of it (`ui`'s
 //!   main menu frame), it answers what needs a game, unless a game is being
-//!   started from it (`game::menu::starting`): a save read, the game's start
-//!   accepted, its idler switch pending. Then, and elsewhere, such as while a
-//!   game is being set up or not ready, that waits for a game frame.
+//!   started from it (`game::menu::starting`): a save read, the single
+//!   player setup's start made, the game's start accepted, its idler switch
+//!   pending. Then, and elsewhere, such as while a game is being set up or
+//!   not ready, that waits for a game frame.
 //!
 //! While a save loads the main thread does neither, so nothing runs. The
 //! world (`objects::campaign::globals::WORLD`) is no sign of a game: the main

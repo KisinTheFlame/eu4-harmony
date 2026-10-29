@@ -15,20 +15,22 @@ group! {
     /// Where the game is, and which process answers: a game started again
     /// (after returning to the main menu, say) is a new process, whose
     /// sessions and events are numbered from 1 again.
-    anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being set up or loaded) or game";
+    anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded) or game";
     /// The saves in the save games folder, newest first.
     anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), and player and date as the save's header says them (null when it cannot be read)";
     /// Loads a save from the main menu and plays it as the country it was
     /// saved as, as the continue box does. Only from the main menu's first
     /// page (at startup, once menu says main_menu). Answers once the game is
-    /// ready, however long the save takes to load.
+    /// ready, however long the save takes to load; rejected when the game
+    /// does not take the load up, or begins another game than the save's.
     anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
-    } -> Session, "the session of the loaded game";
+    } -> Session, "the session of the loaded game, its player and date the save's";
     /// Starts a new game at the default start date as a country, as the
     /// single player setup does. Only from the main menu's first page (at
-    /// startup, once menu says main_menu). Answers once the game is ready.
+    /// startup, once menu says main_menu). Answers once the game is ready;
+    /// rejected when the game does not take the start up.
     anywhere Start "start" {
         /// The country to play.
         country: CountryTag,
@@ -50,8 +52,9 @@ pub enum Place {
     /// The main menu shows, on any of its pages, and no game is being
     /// started from it.
     MainMenu,
-    /// A game is being set up or loaded: started from the main menu, or
-    /// neither the main menu nor a game's frame runs.
+    /// A game is being set up or loaded: started from the main menu (by a
+    /// remote client or by the player), or neither the main menu nor a
+    /// game's frame runs.
     Starting,
     /// A game is going on (also while the player only observes).
     Game,

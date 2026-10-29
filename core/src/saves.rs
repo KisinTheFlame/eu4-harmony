@@ -177,6 +177,8 @@ struct Context {
 }
 static CONTEXT: OnceLock<Context> = OnceLock::new();
 static LOAD_DEPTH: AtomicUsize = AtomicUsize::new(0);
+/// The saves the game began to read since it started.
+static LOADS: AtomicUsize = AtomicUsize::new(0);
 
 /// Data loaded with the last save, waiting for the session that loaded it.
 static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
@@ -185,6 +187,11 @@ static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
 
 pub fn load_in_progress() -> bool {
     LOAD_DEPTH.load(Ordering::SeqCst) != 0
+}
+
+/// How many saves the game began to read since it started.
+pub fn loads() -> usize {
+    LOADS.load(Ordering::SeqCst)
 }
 
 /// Data the last load brought along, if the session has not taken it yet.
@@ -452,6 +459,7 @@ extern "C" fn absolute_after(f: *mut HookFrame) {
 
 extern "C" fn load_before(f: *mut HookFrame) {
     LOAD_DEPTH.fetch_add(1, Ordering::SeqCst);
+    LOADS.fetch_add(1, Ordering::SeqCst);
     *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
     crate::game::events::load_begin();
     crate::remote::campaign_changes();

@@ -492,6 +492,15 @@ fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
     );
     assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "session"]);
 
+    // A load that comes to another game than its save's says so.
+    let castile = engine.submit(Request::Menu(MenuRequest::Load { save: "Castilla-5".into() }));
+    engine.run(&mut game, &menu, PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&castile),
+        json!({"ok": false, "error": {"code": "rejected", "message": "the game did not load the save: it began a game of 1444.11.11 as TUR, where the save is of 1470.3.13 as CAS; that game is going on"}})
+    );
+
     // What the game refuses is answered at once, or as soon as it says so.
     let missing = engine.submit(Request::Menu(MenuRequest::Load { save: "missing".into() }));
     let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
