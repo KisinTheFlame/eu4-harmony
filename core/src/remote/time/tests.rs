@@ -239,6 +239,23 @@ fn time_does_not_run_once_the_game_is_over() {
 }
 
 #[test]
+fn an_advance_answers_once_the_player_can_no_longer_play() {
+    let engine = Engine::new(quiet);
+    let mut game = Fake::default();
+    let reply = engine.submit(advance(30, None));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    next_day(&engine, &mut game);
+    // The player's country was annexed, or the player observes.
+    let observing = Place::Unplayable(Error::new(Code::NotInGame, "no controllable player"));
+    engine.run(&mut game, &observing, PLENTY);
+    let got = answer(&reply);
+    assert_eq!(got["error"]["code"], "not_in_game", "{got}");
+    assert!(got["error"]["message"].as_str().unwrap().starts_with("the player can no longer play the game (no controllable player)"), "{got}");
+    // Its stop goes: it would pause the game should the player play again.
+    assert!(game.clock.stops.lock().unwrap().is_empty());
+}
+
+#[test]
 fn an_advance_given_up_is_called_off() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();

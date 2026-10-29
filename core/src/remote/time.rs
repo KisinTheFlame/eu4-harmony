@@ -7,8 +7,9 @@
 //! when a window holds the game paused (an event window, when the game pauses
 //! on events, or a message set to pause): a client that got the answer finds
 //! the game paused until it resumes it, not running on once the window is
-//! closed. Not when another game was loaded or the game returns to the main
-//! menu, which leave the advance no game of its own.
+//! closed. Not when another game was loaded, the game returns to the main
+//! menu, or the player can no longer play the game (observing, say), which
+//! leave the advance no game of its own to pause.
 use super::{events, process, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
@@ -202,6 +203,13 @@ impl Advance {
 
 impl Wait for Advance {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
+        // The player can no longer play, as when the country was annexed or
+        // the game console's observe ran: no later frame would answer, and
+        // nothing pauses the game for the advance any more.
+        if let Some(why) = at.unplayable {
+            let response = Err(Error::new(why.code, format!("the player can no longer play the game ({}); time runs on as the game runs it", why.message)));
+            return self.answer(response);
+        }
         let game = at.game.as_deref_mut()?;
         match self.check(game, at.events, at.now) {
             Ok(None) => None,

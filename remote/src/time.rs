@@ -36,7 +36,9 @@ group! {
     /// until it is resumed, also once a window that holds it paused closes.
     /// The answer comes at a frame of the game's, however long the days take
     /// at the speed; a client that gives the request up calls the advance
-    /// off, and time stops at the end of the day under way.
+    /// off, and time stops at the end of the day under way. Once the player
+    /// can no longer play the game (the country annexed, observing), it is
+    /// answered not_in_game, and time runs on as the game runs it.
     game Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,
