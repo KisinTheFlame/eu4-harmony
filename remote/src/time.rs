@@ -9,8 +9,10 @@ group! {
 
     /// The date, whether the game is paused, and its speed.
     game Get "" {} -> Time, "the date, whether the game is paused, and the speed from 1 (slowest) to 5 (fastest)";
-    /// Pauses the game, as the player would; nothing when it is paused
-    /// already.
+    /// Pauses the game with the player's own pause, as the player would,
+    /// also when a window holds it paused already, such as a game event's:
+    /// the game then stays paused once the window closes, until it is
+    /// resumed. Nothing when the player's pause holds it already.
     game Pause "pause" {} -> (), "nothing";
     /// Resumes the game, as the player would: also when a window holds it
     /// paused, such as a game event's when the game pauses on events, which
@@ -29,9 +31,12 @@ group! {
     /// waiting already: then time does not run at all), when another game
     /// is loaded or started, and when the game returns to the main menu
     /// (eu4.exe starts again, and the answer comes just before the old
-    /// process goes). The answer comes at a frame of the game's, however
-    /// long the days take at the speed; a client that gives the request up
-    /// calls the advance off, and time stops at the end of the day under way.
+    /// process goes). Stopped at the date, paused or for a game event, it
+    /// leaves the game paused as time.pause does, so that it stays paused
+    /// until it is resumed, also once a window that holds it paused closes.
+    /// The answer comes at a frame of the game's, however long the days take
+    /// at the speed; a client that gives the request up calls the advance
+    /// off, and time stops at the end of the day under way.
     game Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,

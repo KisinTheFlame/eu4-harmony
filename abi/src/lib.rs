@@ -323,8 +323,10 @@ pub struct GameApi {
     /// Sets the game speed, from 1 to 5, as the player would; the game stays
     /// paused or running. [`INVALID_ARGUMENT`] outside 1 to 5.
     pub time_set_speed: unsafe extern "C" fn(host: *mut c_void, speed: u32) -> i32,
-    /// Pauses the game as the player would; nothing when it is paused already.
-    /// [`REJECTED`] when the game does not pause.
+    /// Pauses the game with the player's own pause, as the player would, also
+    /// when windows hold it paused already, so that it stays paused once they
+    /// close; nothing when the player's pause holds it already. [`REJECTED`]
+    /// when the game does not pause.
     pub time_pause: unsafe extern "C" fn(host: *mut c_void) -> i32,
     /// Resumes the game as the player would, also when windows hold it paused
     /// (they stay open); nothing when it runs. [`REJECTED`] when the game

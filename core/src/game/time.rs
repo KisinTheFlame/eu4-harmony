@@ -20,9 +20,10 @@ use std::sync::Mutex;
 const SET_SPEED: usize = 0x7579f0;
 /// The speed-up command's execution, which reads the speed.
 const SPEED_UP: usize = 0xb79970;
-/// `(pause state)`: the toggle the game console's `gamespeed` uses. Running,
-/// it pauses as the player does; paused for any reason, it resumes and lets go
-/// of every window holding the game paused, as the player's resuming does.
+/// `(pause state)`: the toggle the game console's `gamespeed` uses. When
+/// nothing holds the game paused, it sets the player's pause; paused for any
+/// reason, it resumes and lets go of every window holding the game paused, as
+/// the player's resuming does.
 const TOGGLE_PAUSE: usize = 0x7e0250;
 /// The map manager's method that shows an event to the player
 /// ([`manager::SHOW_EVENT`]).
@@ -85,7 +86,9 @@ pub fn time(_: Caller) -> GResult<Time> {
     Ok(Time { session: events::session(), date: ctx.date, speed: index as u32 + 1, pause })
 }
 
-/// Pauses the game, as the player would; nothing when it is paused already.
+/// Pauses the game with the player's own pause, as the player would, also
+/// when windows hold it paused already: it then stays paused once they close,
+/// until it is resumed. Nothing when the player's pause holds it already.
 pub fn pause(_: Caller) -> GResult<()> {
     let m = game()?;
     pause_game(m, &context(m)?)
@@ -97,7 +100,7 @@ pub fn resume(_: Caller) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
     if paused(m, &ctx)? {
-        toggle(m, &ctx)?;
+        toggle(m, pause_state_of(m, &ctx)?)?;
         if paused(m, &ctx)? {
             return fail(Status::Rejected, "the game stays paused");
         }
@@ -264,9 +267,11 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
     Ok(Stop { number, released: false })
 }
 
-/// After the daily update (`events`' observer): pauses the game when a stop's
-/// date is reached, or when a game event came up on the day while an advance
-/// runs, so that the next frame begins no other day.
+/// After the daily update (`events`' observer): pauses the game with the
+/// player's pause when a stop's date is reached, or when a game event came up
+/// on the day while an advance runs, so that the next frame begins no other
+/// day, and a window that holds the game paused too (a game event's, a
+/// message set to pause) does not let it run on once it closes.
 pub(super) fn day_passed(m: &Memory) {
     if crate::saves::load_in_progress() {
         return;
@@ -291,17 +296,27 @@ fn pause_state_of(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     Ok(state)
 }
 
-fn toggle(m: &Memory, ctx: &Ctx) -> GResult<()> {
-    m.call(m.at(TOGGLE_PAUSE), &[pause_state_of(m, ctx)?])?;
+fn toggle(m: &Memory, state: usize) -> GResult<()> {
+    m.call(m.at(TOGGLE_PAUSE), &[state])?;
     Ok(())
 }
 
+/// Sets the player's pause, whatever else holds the game paused, so that the
+/// game stays paused once a window holding it closes. The toggle sets it only
+/// when nothing holds the game, and resumes a game that windows hold; so then
+/// it toggles twice: the windows are let go (they stay open, as when the
+/// player resumes), and the player's pause holds the game.
 fn pause_game(m: &Memory, ctx: &Ctx) -> GResult<()> {
-    if !paused(m, ctx)? {
-        toggle(m, ctx)?;
-        if !paused(m, ctx)? {
-            return fail(Status::Rejected, "the game does not pause");
-        }
+    let state = pause_state_of(m, ctx)?;
+    if m.u8(state + pause_state::PLAYER_PAUSED)? != 0 {
+        return Ok(());
+    }
+    if paused(m, ctx)? {
+        toggle(m, state)?;
+    }
+    toggle(m, state)?;
+    if m.u8(state + pause_state::PLAYER_PAUSED)? == 0 || !paused(m, ctx)? {
+        return fail(Status::Rejected, "the game does not pause");
     }
     Ok(())
 }

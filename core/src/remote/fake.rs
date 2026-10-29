@@ -400,11 +400,11 @@ impl time::Layer for Fake {
         Ok(self.clock.time)
     }
 
+    /// The player's pause, also when a window holds the game paused, as the
+    /// layer's.
     fn pause(&mut self) -> GResult<()> {
         self.call("pause".into());
-        if !self.clock.time.paused() {
-            self.clock.time.pause = game::time::Pause::Player;
-        }
+        self.clock.time.pause = game::time::Pause::Player;
         Ok(())
     }
 

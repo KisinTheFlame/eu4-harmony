@@ -2,7 +2,13 @@
 //! advancing time, which only remote control does. An advance answers at a
 //! later safe point: once the date is reached and the game paused there, or
 //! earlier, saying why; or, when the game starts `eu4.exe` again, just before
-//! this process ends.
+//! this process ends. Whatever it stops for before or at its date, it leaves
+//! the game paused by the player's own pause, the one `time.pause` sets, also
+//! when a window holds the game paused (a game event's, when the game pauses
+//! on events, or a message set to pause): a client that got the answer finds
+//! the game paused until it resumes it, not running on once the window is
+//! closed. Not when another game was loaded or the game returns to the main
+//! menu, which leave the advance no game of its own.
 use super::{events, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
@@ -27,6 +33,7 @@ const DAY_EVENT_WAIT: Duration = Duration::from_secs(2);
 /// The group's slice of the capability layer.
 pub trait Layer {
     fn time(&mut self) -> GResult<game::time::Time>;
+    /// The player's own pause, whatever else holds the game paused.
     fn pause(&mut self) -> GResult<()>;
     fn resume(&mut self) -> GResult<()>;
     fn set_speed(&mut self, speed: u32) -> GResult<()>;
@@ -161,11 +168,14 @@ impl Advance {
             game.pause()?;
             return Ok(Some((Stop::GameEvent, GAME_EVENT)));
         }
-        Ok(match time.pause {
-            Pause::Running => None,
-            Pause::Player => Some((Stop::Paused, "the game was paused before the date, by the player, an extension or another remote client")),
-            Pause::Window => Some((Stop::Paused, "a window paused the game before the date, such as a message set to pause it")),
-        })
+        let why = match time.pause {
+            Pause::Running => return Ok(None),
+            Pause::Player => "the game was paused before the date, by the player, an extension or another remote client",
+            Pause::Window => "a window paused the game before the date, such as a message set to pause it",
+        };
+        // The player's pause, which a window's closing does not lift.
+        game.pause()?;
+        Ok(Some((Stop::Paused, why)))
     }
 
     /// Where it stopped, and why.

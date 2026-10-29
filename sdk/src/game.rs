@@ -619,7 +619,9 @@ impl<'a> Game<'a> {
     pub fn set_speed(&mut self, speed: u32) -> Result<()> {
         self.backend.time_set_speed(speed)
     }
-    /// Pauses the game as the player would; nothing when it is paused already.
+    /// Pauses the game with the player's own pause, as the player would, also
+    /// when windows hold it paused already, so that it stays paused once they
+    /// close; nothing when the player's pause holds it already.
     pub fn pause(&mut self) -> Result<()> {
         self.backend.time_pause()
     }
