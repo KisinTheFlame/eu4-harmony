@@ -319,7 +319,8 @@ fn an_advance_answers_before_the_process_ends() {
     let reader = std::thread::spawn(move || events.wait(PLENTY).map(|r| response_json(&r)));
     let started = Instant::now();
     ENGINE.end(crate::remote::menu::ending(), PLENTY);
-    // It returns once the answers are taken, not when its time is up.
+    // It returns once the clients are done with the answers, not when its
+    // time is up.
     assert!(started.elapsed() < Duration::from_secs(5));
     let got = client.join().unwrap().unwrap();
     assert_eq!(got["result"]["stopped"], "main_menu");

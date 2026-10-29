@@ -345,3 +345,46 @@ fn a_game_started_again_opens_the_pipe_once_the_one_before_is_gone() {
     assert_eq!(test.connect().ask(r#"{"capability": "session"}"#)["ok"], true);
     test.stop();
 }
+
+#[test]
+fn the_process_ends_once_its_clients_have_read_their_answers_whole() {
+    let test = test_pipe!("ending", Place::Game);
+    // An advance under way, and a read answered before the process ends
+    // that its client has not read yet: both answers are far larger than
+    // the pipe's buffer.
+    let mut advancing = test.connect();
+    advancing.send("{\"capability\": \"time.advance\", \"days\": 30}\n");
+    assert!(test.logged(r#"{"capability":"time.advance","days":30}: answers later"#), "{:#?}", test.log());
+    test.engine.record((0..crate::remote::events::KEPT as u64).map(|army| Event::ArmyOrdered { army: ArmyId(army) }));
+    let mut reading = test.connect();
+    reading.send("{\"capability\": \"events\", \"since\": 0}\n");
+    assert!(test.logged(r#"{"capability":"events","since":0}: ok"#), "{:#?}", test.log());
+    let engine = test.engine;
+    let ending = std::thread::spawn(move || engine.end(crate::remote::menu::ending(), PLENTY));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!ending.is_finished(), "the process waits while answers are unread");
+    let whole = |client: &mut Client| {
+        let mut line = String::new();
+        client.pipe.read_line(&mut line).unwrap();
+        assert!(line.len() > 4 * BUFFER as usize, "{} bytes", line.len());
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    let read = whole(&mut reading);
+    assert_eq!(read["result"]["events"].as_array().unwrap().len(), crate::remote::events::KEPT);
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!ending.is_finished(), "the process waits while answers are unread");
+    let advanced = whole(&mut advancing);
+    assert_eq!(advanced["result"]["stopped"], "main_menu");
+    assert_eq!(advanced["result"]["events"].as_array().unwrap().len(), crate::remote::events::KEPT);
+    let until = Instant::now() + PLENTY;
+    while !ending.is_finished() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(ending.is_finished(), "the process ends once every answer is read");
+    ending.join().unwrap();
+    drop((advancing, reading));
+    for client in [1, 2] {
+        assert!(test.logged(&format!("remote pipe: client {client} closed the pipe, after 1 answer(s)")), "{:#?}", test.log());
+    }
+    test.stop();
+}
