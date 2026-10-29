@@ -436,6 +436,20 @@ mod tests {
         assert_eq!(backend.province(1).unwrap_err().status, Status::NotFound);
     }
 
+    /// A newer core may add members and values: the snapshot still reads,
+    /// a new kind as unknown (ADR 0018).
+    #[test]
+    fn a_newer_core_s_snapshot_still_reads() {
+        let mut json: serde_json::Value = serde_json::from_str(PROVINCE_JSON).unwrap();
+        json["religion"] = "orthodox".into();
+        json["recruit"][2]["kind"] = "marines".into();
+        json["recruit"][2]["cost"] = 10.0.into();
+        let p: ProvinceSnapshot = serde_json::from_value::<ProvinceJson>(json).unwrap().into();
+        let kinds: Vec<_> = p.recruit.iter().map(|r| r.kind).collect();
+        assert_eq!(kinds[1..4], [UnitKind::Cavalry, UnitKind::Unknown, UnitKind::HeavyShip]);
+        assert_eq!((p.name.as_str(), p.recruit.len()), ("君士坦丁堡", 7));
+    }
+
     #[test]
     fn a_failure_brings_the_core_s_message() {
         let api = table();

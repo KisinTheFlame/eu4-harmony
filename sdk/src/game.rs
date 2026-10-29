@@ -190,7 +190,8 @@ pub struct ProvinceSnapshot {
     pub fort: Fort,
     /// The keys of its buildings, such as `fort_15th` and `marketplace`.
     pub buildings: Vec<String>,
-    /// One for each [`UnitKind`], in their order.
+    /// One for each kind of unit the core knows, in [`UnitKind`]'s order; a
+    /// kind added after this SDK comes as [`UnitKind::Unknown`].
     pub recruit: Vec<Recruit>,
 }
 
@@ -221,6 +222,9 @@ pub enum UnitKind {
     LightShip,
     Galley,
     Transport,
+    /// A kind a newer core names that this SDK does not know (ADR 0018).
+    #[serde(other)]
+    Unknown,
 }
 
 /// Whether the player can recruit one regiment or ship of a kind in a
