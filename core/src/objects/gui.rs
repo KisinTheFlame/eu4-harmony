@@ -187,6 +187,11 @@ pub mod diplomacy_dialog {
     /// Its own copy of the diplomatic action
     /// (`campaign::diplomatic_action`).
     pub const ACTION: usize = 0x238;
+    /// How long one about an action takes an answer: up to this many months
+    /// after the action was made (`campaign::diplomatic_action::DATE`), as
+    /// its check ([`super::dialog::VALID`]) adds them with the game's own
+    /// adding of months (0x14c8030); after that the check declines it.
+    pub const ANSWER_MONTHS: usize = 2;
 }
 
 /// An edit box, [`classes::EDIT_BOX`].
@@ -360,11 +365,19 @@ pub fn points() -> Vec<Point> {
         )
         .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::STATE]),
         // A diplomacy dialog asking whether its action is still unanswered,
-        // and when it was made.
+        // and whether it was made no more than two months ago: its date, two
+        // months on by the game's adding of months, not before today.
         Point::keep(0x1066b5dusize, "48 8b 83 38 02 00 00 83 78 34 00 0f 94 c0", "diplomacy dialog action")
             .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::STATE]),
-        Point::keep(0x1066b16usize, "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28", "diplomatic action date")
-            .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::DATE]),
+        Point::keep(
+            0x1066b16usize,
+            "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28 89 54 24 30 ba 02 00 00 00 e8 fa 14 46 00",
+            "diplomatic action date",
+        )
+        .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::DATE, diplomacy_dialog::ANSWER_MONTHS]),
+        // Adding months (docs/research/dates.md), which the offers do as it
+        // does: a year for each twelve, then the rest through the months.
+        Point::keep(0x14c8030usize, "85 d2 0f 84 e4 00 00 00 48 89 74 24 20 57 48 83 ec 20 8b fa 48 89 5c 24 30 b8 ab aa aa 2a", "adding months"),
         // The alliance dialog showing both countries.
         Point::keep(0x1067aacusize, "48 8b 96 38 02 00 00 48 8b 52 20", "diplomatic action recipient")
             .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::TO]),

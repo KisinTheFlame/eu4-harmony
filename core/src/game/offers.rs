@@ -86,10 +86,10 @@ pub fn answer(_: Caller, id: u32, accept: bool) -> GResult<()> {
 /// The days of each month: the game's calendar has no leap years.
 const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-/// `date` two months on, as the game adds months (0x14c8030): the same day
-/// of the month, or the month's last when that month is shorter, at the same
+/// `date` `months` on, as the game adds months (0x14c8030): the same day of
+/// the month, or the month's last when that month is shorter, at the same
 /// hour (docs/research/dates.md: hours since 5000 BC, 365-day years).
-fn two_months_after(date: i32) -> i32 {
+fn months_after(date: i32, months: usize) -> i32 {
     let (days, hour) = (date.div_euclid(24), date.rem_euclid(24));
     let (year, mut day) = (days.div_euclid(365), days.rem_euclid(365));
     let mut month = 0;
@@ -97,16 +97,17 @@ fn two_months_after(date: i32) -> i32 {
         day -= MONTH_DAYS[month];
         month += 1;
     }
-    let (year, month) = if month >= 10 { (year + 1, month - 10) } else { (year, month + 2) };
+    let month = month + months;
+    let (year, month) = (year + (month / 12) as i32, month % 12);
     let before: i32 = MONTH_DAYS[..month].iter().sum();
     (year * 365 + before + day.min(MONTH_DAYS[month] - 1)) * 24 + hour
 }
 
 /// Whether the game still takes an answer, on `today`, to an offer made on
-/// `made`: until two months after it, as 0x1066b10 decides, the check every
-/// diplomacy dialog about an action ends with.
+/// `made`: until [`diplomacy::ANSWER_MONTHS`] after it, as 0x1066b10 decides,
+/// the check every diplomacy dialog about an action ends with.
 fn in_time(made: i32, today: i32) -> bool {
-    two_months_after(made) >= today
+    months_after(made, diplomacy::ANSWER_MONTHS) >= today
 }
 
 /// A diplomacy dialog waiting for the player's answer, and the icon holding
@@ -207,15 +208,18 @@ mod tests {
     }
 
     #[test]
-    fn two_months_on_keep_the_day_or_take_the_month_s_last() {
+    fn months_on_keep_the_day_or_take_the_month_s_last() {
         assert_eq!(date(1444, 11, 11), 0x035D_7710);
-        assert_eq!(two_months_after(date(1444, 11, 11)), date(1445, 1, 11));
-        assert_eq!(two_months_after(date(1444, 12, 31)), date(1445, 2, 28));
-        assert_eq!(two_months_after(date(1445, 1, 31)), date(1445, 3, 31));
-        assert_eq!(two_months_after(date(1445, 8, 31)), date(1445, 10, 31));
-        assert_eq!(two_months_after(date(1445, 10, 31)), date(1445, 12, 31));
-        assert_eq!(two_months_after(date(1445, 12, 30)), date(1446, 2, 28));
-        assert_eq!(two_months_after(date(1445, 3, 1) + 5), date(1445, 5, 1) + 5);
+        assert_eq!(months_after(date(1444, 11, 11), 2), date(1445, 1, 11));
+        assert_eq!(months_after(date(1444, 12, 31), 2), date(1445, 2, 28));
+        assert_eq!(months_after(date(1445, 1, 31), 2), date(1445, 3, 31));
+        assert_eq!(months_after(date(1445, 8, 31), 2), date(1445, 10, 31));
+        assert_eq!(months_after(date(1445, 10, 31), 2), date(1445, 12, 31));
+        assert_eq!(months_after(date(1445, 12, 30), 2), date(1446, 2, 28));
+        assert_eq!(months_after(date(1445, 3, 1) + 5, 2), date(1445, 5, 1) + 5);
+        assert_eq!(months_after(date(1445, 1, 31), 1), date(1445, 2, 28));
+        assert_eq!(months_after(date(1445, 11, 30), 15), date(1447, 2, 28));
+        assert_eq!(months_after(date(1445, 5, 9), 0), date(1445, 5, 9));
     }
 
     /// The game takes an answer up to the day two months on and declines the
