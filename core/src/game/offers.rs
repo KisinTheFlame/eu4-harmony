@@ -43,9 +43,11 @@ mod dialog {
     pub const VALID: usize = 0x60;
 }
 
-/// A diplomacy dialog: a dialog about a diplomatic action, whose own
-/// constructor sets [`MARK`]: a callback object (its class, the dialog, a
-/// function) none other has.
+/// A diplomacy dialog: a dialog whose own constructor sets [`MARK`]: a
+/// callback object (its class, the dialog, a function) none other has. Those
+/// about a diplomatic action, the offers, keep [`ACCEPT_ACTION`] as their
+/// accept method; three others, the succession war's among them, keep
+/// something else at [`ACTION`].
 mod diplomacy {
     pub const MARK: usize = 0x1c0;
     pub const MARK_CONTEXT: usize = 0x1c8;
@@ -54,6 +56,9 @@ mod diplomacy {
     pub const FUNCTION: usize = 0x1079f90;
     /// Its own copy of the diplomatic action.
     pub const ACTION: usize = 0x238;
+    /// What the agree button of one about an action calls: it sends the
+    /// action's answer.
+    pub const ACCEPT_ACTION: usize = 0x1066a40;
 }
 
 /// A diplomatic action, as the country it is made to keeps it.
@@ -204,7 +209,7 @@ fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
     dialogs.extend(questions::items(m, manager + OPEN_DIALOGS)?.into_iter().map(|dialog| (dialog, None)));
     let mut out: Vec<Held> = Vec::new();
     for (dialog, icon) in dialogs {
-        if m.u8(dialog + dialog::DONE)? != 0 || !is_diplomacy(m, dialog)? {
+        if m.u8(dialog + dialog::DONE)? != 0 || !is_about_action(m, dialog)? {
             continue;
         }
         let action = m.ptr(dialog + diplomacy::ACTION)?;
@@ -220,11 +225,12 @@ fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
 }
 
 /// Whether the dialog at `dialog` is a diplomacy dialog, by the mark its
-/// constructor leaves.
-fn is_diplomacy(m: &Memory, dialog: usize) -> GResult<bool> {
+/// constructor leaves, about a diplomatic action, by its accept method.
+fn is_about_action(m: &Memory, dialog: usize) -> GResult<bool> {
     Ok(m.ptr(dialog + diplomacy::MARK)? == m.at(gui_classes::CALLBACK)
         && m.ptr(dialog + diplomacy::MARK_CONTEXT)? == dialog
-        && m.ptr(dialog + diplomacy::MARK_FUNCTION)? == m.at(diplomacy::FUNCTION))
+        && m.ptr(dialog + diplomacy::MARK_FUNCTION)? == m.at(diplomacy::FUNCTION)
+        && m.vslot(dialog, dialog::ACCEPT)? == m.at(diplomacy::ACCEPT_ACTION))
 }
 
 fn read(m: &Memory, w: &Held) -> GResult<Offer> {
@@ -279,6 +285,13 @@ pub fn points() -> Vec<Point> {
             "diplomacy dialog",
         )
         .uses(&[gui_classes::CALLBACK, diplomacy::MARK, diplomacy::MARK_CONTEXT, diplomacy::FUNCTION, diplomacy::MARK_FUNCTION]),
+        // Accepting one about an action: the action, answered.
+        Point::keep(
+            diplomacy::ACCEPT_ACTION,
+            "48 89 5c 24 18 55 56 57 48 83 ec 30 48 8b f9 48 8b b1 38 02 00 00 48 89 74 24 20 8b 6e 34 89 6c 24 28 c7 46 34 02 00 00 00",
+            "action dialog accept",
+        )
+        .uses(&[diplomacy::ACTION, action::STATE]),
         // A dialog's update: its window, and whether it stays.
         Point::keep(0x10a090busize, "48 8b 4b 08", "dialog window").uses(&[dialog::WINDOW]),
         Point::keep(0x10a0941usize, "80 bb 14 01 00 00 00 75 15 48 8b 03 48 8b cb ff 50 60", "dialog done").uses(&[dialog::DONE, dialog::VALID]),
