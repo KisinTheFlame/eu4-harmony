@@ -33,9 +33,11 @@ group! {
     } -> Session, "the session of the loaded game, its player and date the save's";
     /// Starts a new game at the default start date as a country, as the
     /// single player setup does. Only from the main menu's first page (at
-    /// startup, once menu says main_menu). Answers once the game is ready;
-    /// rejected when the game does not take the start up or begins a game
-    /// the player cannot play.
+    /// startup, once menu says main_menu). Answers once the game is ready.
+    /// Rejected, before anything happens, for a country with no land at the
+    /// start date, which the setup does not offer the player (the game would
+    /// only be observed); and rejected when the game does not take the start
+    /// up or begins a game the player cannot play.
     anywhere Start "start" {
         /// The country to play.
         country: CountryTag,

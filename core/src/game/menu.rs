@@ -377,11 +377,17 @@ pub fn load(_: Caller, name: &str) -> GResult<Expected> {
 }
 
 /// Starts a new game as the country `letters` from the main menu, at the
-/// main menu's next frame; [`launch`] says what came of it.
+/// main menu's next frame; [`launch`] says what came of it. Refused for a
+/// country with no land at the start date, which the single player setup
+/// does not offer: started so, the game is left to the player to observe.
 pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
     let m = game()?;
     first_page(m)?;
-    find(m, letters)?;
+    let tag = find(m, letters)?;
+    if super::world::owned_provinces(m, world_now(m)?, tag)? == 0 {
+        let name = String::from_utf8_lossy(&letters).into_owned();
+        return fail(Status::Rejected, format!("{name} has no land at the start date, so it cannot be played from it; started as {name}, the game would only be observed"));
+    }
     ask(Action::Start(letters));
     Ok(())
 }

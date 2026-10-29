@@ -154,16 +154,30 @@ fn validate_node(m: &Memory, n: &Node, count: usize) -> GResult<()> {
     Ok(())
 }
 
-/// First province and count, cross-checked between the map and the world.
-fn province_array(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
+/// First province and count, cross-checked between the map and the world
+/// `world`.
+fn province_array(m: &Memory, world: usize) -> GResult<(usize, usize)> {
     let map = m.ptr(m.at(globals::MAP))?;
     let first = m.ptr(map + map::PROVINCES)?;
     let end = m.ptr(map + map::PROVINCES + 8)?;
     let count = span(first, end, province::SIZE, MAX_PROVINCES)?;
-    if count == 0 || m.ptr(ctx.world + world::PROVINCES)? != first {
+    if count == 0 || m.ptr(world + world::PROVINCES)? != first {
         return Err("world and map province arrays differ".to_string().into());
     }
     Ok((first, count))
+}
+
+/// How many provinces the country `owner` owns in the world `world`, which
+/// need not have a player: the main menu's too.
+pub fn owned_provinces(m: &Memory, world: usize, owner: Tag) -> GResult<usize> {
+    let (first, count) = province_array(m, world)?;
+    let mut owned = 0;
+    for index in 0..count {
+        if m.u64(first + index * province::SIZE + province::OWNER)? == owner.0 {
+            owned += 1;
+        }
+    }
+    Ok(owned)
 }
 
 impl Geography {
@@ -172,7 +186,7 @@ impl Geography {
     }
 
     fn nodes(&mut self, m: &Memory, ctx: &Ctx) -> GResult<&[Node]> {
-        let (first, count) = province_array(m, ctx)?;
+        let (first, count) = province_array(m, ctx.world)?;
         let key = MapKey { world: ctx.world, map: m.ptr(m.at(globals::MAP))?, first, count };
         if self.entry.as_ref().map(|(k, _)| *k) != Some(key) {
             self.entry = None;
