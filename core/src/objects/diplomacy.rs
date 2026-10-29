@@ -304,13 +304,15 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xee633busize, "41 b0 01 48 8d 55 ff 49 8b ce e8 26 db 61 ff", "declare war window gathers"),
         Point::keep(
             0xee6550usize,
-            "49 8b 97 c0 01 00 00 48 8b 0f 48 c1 e9 20 48 8b 42 10 48 c1 e8 20 66 3b c8 74 61 48 8b 42 20 48 c1 e8 20 66 3b c8 74 54              b9 20 03 00 00 e8 52 cd b4 00 48 89 45 67 c6 44 24 30 01",
+            "49 8b 97 c0 01 00 00 48 8b 0f 48 c1 e9 20 48 8b 42 10 48 c1 e8 20 66 3b c8 74 61 48 8b 42 20 48 c1 e8 20 66 3b c8 74 54 \
+             b9 20 03 00 00 e8 52 cd b4 00 48 89 45 67 c6 44 24 30 01",
             "declare war window allies",
         )
         .uses(&[send_window::ACTION, FROM, TO]),
         Point::keep(
             0xedfcd8usize,
-            "49 89 5f 50 49 89 7f 58 48 8b b5 88 00 00 00 0f 10 06 41 0f 11 47 60 f2 0f 10 4e 10 f2 41 0f 11 4f 70              0f b6 85 90 00 00 00 41 88 47 78 66 41 c7 47 79 01 00",
+            "49 89 5f 50 49 89 7f 58 48 8b b5 88 00 00 00 0f 10 06 41 0f 11 47 60 f2 0f 10 4e 10 f2 41 0f 11 4f 70 \
+             0f b6 85 90 00 00 00 41 88 47 78 66 41 c7 47 79 01 00",
             "declare war window entry",
         )
         .uses(&[war_entry::WINDOW, war_entry::SIDE, war_entry::SIDE + 0x10, war_entry::ALLY, war_entry::PROMISE_BOX]),
