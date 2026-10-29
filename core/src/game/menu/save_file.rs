@@ -349,11 +349,94 @@ mod tests {
         assert_eq!(inflate(&fixed, MOST).unwrap(), short);
         let stored = bytes("012400dbff4555347478740a646174653d313434342e31312e31310a706c617965723d22465241220a");
         assert_eq!(inflate(&stored, MOST).unwrap(), short);
-        let long: String = (0..300).map(|i| format!("province={i} owner=\"FRA\" development={}\n", i * 7 % 31)).collect();
-        let dynamic = bytes(include_str!("save_file/dynamic.hex").trim());
-        assert_eq!(inflate(&dynamic, MOST).unwrap(), long.as_bytes());
+        let (long, dynamic) = dynamic();
+        assert_eq!(inflate(&dynamic, MOST).unwrap(), long);
         assert!(inflate(&dynamic, 100).is_err());
         assert!(inflate(&fixed[..10], MOST).is_err());
+    }
+
+    /// The text the dynamic block test data holds, and the data.
+    fn dynamic() -> (Vec<u8>, Vec<u8>) {
+        let long: String = (0..300).map(|i| format!("province={i} owner=\"FRA\" development={}\n", i * 7 % 31)).collect();
+        (long.into_bytes(), bytes(include_str!("save_file/dynamic.hex").trim()))
+    }
+
+    /// What `f` makes of `data`, which must not panic.
+    fn calmly<T>(what: &str, data: &[u8], f: impl Fn(&[u8]) -> T) -> T {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(data))).unwrap_or_else(|_| panic!("{what} panicked"))
+    }
+
+    #[test]
+    fn a_damaged_deflate_stream_fails_cleanly() {
+        let (long, dynamic) = dynamic();
+        // Every bit flipped: no panic, and what comes out is bounded.
+        for at in 0..dynamic.len() {
+            for bit in 0..8 {
+                let mut data = dynamic.clone();
+                data[at] ^= 1 << bit;
+                if let Ok(out) = calmly(&format!("inflating with bit {bit} of byte {at} flipped"), &data, |d| inflate(d, MOST)) {
+                    assert!(out.len() <= MOST);
+                }
+            }
+        }
+        // Cut short anywhere: an error.
+        for len in 0..dynamic.len() {
+            let out = calmly(&format!("inflating the first {len} bytes"), &dynamic[..len], |d| inflate(d, MOST));
+            assert!(out.is_err(), "the first {len} bytes inflated");
+        }
+        // And within a smaller bound.
+        assert!(calmly("inflating into too little", &dynamic, |d| inflate(d, long.len() - 1)).is_err());
+    }
+
+    #[test]
+    fn a_damaged_zip_file_fails_cleanly() {
+        let (long, dynamic) = dynamic();
+        let file = zip(b"meta", 8, crc32(&long), &dynamic, long.len());
+        assert_eq!(zip_entry(&mut Cursor::new(&file), b"meta").unwrap(), long);
+        let entry = |d: &[u8]| zip_entry(&mut Cursor::new(d), b"meta");
+        // Every bit flipped, in the headers and in the data: an error, or,
+        // where the bit does not matter (a byte of a header the reader does
+        // not use, the padding after the last block), the entry unchanged.
+        for at in 0..file.len() {
+            for bit in 0..8 {
+                let mut data = file.clone();
+                data[at] ^= 1 << bit;
+                if let Ok(out) = calmly(&format!("reading with bit {bit} of byte {at} flipped"), &data, entry) {
+                    assert_eq!(out, long, "bit {bit} of byte {at} flipped");
+                }
+            }
+        }
+        // Cut short anywhere: an error.
+        for len in 0..file.len() {
+            assert!(calmly(&format!("reading the first {len} bytes"), &file[..len], entry).is_err(), "the first {len} bytes read");
+        }
+        // Broken headers: the end record's directory beyond the file or too
+        // large, more entries than the directory holds (the one sought not
+        // among them), a local header beyond the file, an entry too large, a
+        // method the reader lacks.
+        let end = file.len() - 22;
+        let directory = end - (46 + 4);
+        let broken = |patches: &[(usize, &[u8])]| {
+            let mut data = file.clone();
+            for &(at, value) in patches {
+                data[at..at + value.len()].copy_from_slice(value);
+            }
+            data
+        };
+        for (what, data) in [
+            ("a directory beyond the file", broken(&[(end + 16, &u32::MAX.to_le_bytes())])),
+            ("a directory too large", broken(&[(end + 12, &(MOST as u32 + 1).to_le_bytes())])),
+            ("more entries than there are", broken(&[(end + 10, &u16::MAX.to_le_bytes()), (directory + 46, b"mets")])),
+            ("a local header beyond the file", broken(&[(directory + 42, &u32::MAX.to_le_bytes())])),
+            ("an entry too large", broken(&[(directory + 24, &u32::MAX.to_le_bytes())])),
+            ("a name running past the directory", broken(&[(directory + 28, &u16::MAX.to_le_bytes())])),
+            ("a method the reader lacks", broken(&[(directory + 10, &12u16.to_le_bytes())])),
+            ("a stored entry that is deflated", broken(&[(directory + 10, &0u16.to_le_bytes())])),
+            ("no zip at all", b"PK\x03\x04".to_vec()),
+            ("nothing", Vec::new()),
+        ] {
+            assert!(calmly(what, &data, entry).is_err(), "{what} was read");
+        }
     }
 
     #[test]
