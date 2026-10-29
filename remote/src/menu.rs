@@ -20,15 +20,15 @@ group! {
     anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), and player and date as the save's header says them (null when it cannot be read)";
     /// Loads a save from the main menu and plays it as the country it was
     /// saved as, as the continue box does. Only from the main menu's first
-    /// page. Answers once the game is ready, however long the save takes to
-    /// load.
+    /// page (at startup, once menu says main_menu). Answers once the game is
+    /// ready, however long the save takes to load.
     anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
     } -> Session, "the session of the loaded game";
     /// Starts a new game at the default start date as a country, as the
-    /// single player setup does. Only from the main menu's first page.
-    /// Answers once the game is ready.
+    /// single player setup does. Only from the main menu's first page (at
+    /// startup, once menu says main_menu). Answers once the game is ready.
     anywhere Start "start" {
         /// The country to play.
         country: CountryTag,
@@ -37,8 +37,9 @@ group! {
     /// as the player would. The game does that by starting eu4.exe again, so
     /// the answer comes from this process before it ends; after it every
     /// request to this process is answered not_ready. The new process opens
-    /// the pipe a few seconds later and answers once its main menu shows:
-    /// ask menu again until its process differs.
+    /// the pipe a few seconds later and answers once it presents its first
+    /// frame: ask menu again until its process differs and its place is
+    /// main_menu.
     game Return "return" {} -> Menu, "this process, and place ending";
 }
 
