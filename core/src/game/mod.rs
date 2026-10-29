@@ -103,6 +103,13 @@ pub fn fail<T>(status: Status, message: impl Into<String>) -> GResult<T> {
     Err(Fail { status, message: message.into() })
 }
 
+/// A fixed-point number of the game's, kept in thousandths (a treasury, a
+/// development), as the number it stands for: 9500 is 9.5. Extensions and
+/// remote clients get it so (ADR 0018).
+pub fn thousandths(value: i32) -> f64 {
+    value as f64 / 1000.0
+}
+
 /// The game, for a capability: on the game's main thread only, once startup
 /// has found it.
 fn game() -> GResult<&'static Memory> {

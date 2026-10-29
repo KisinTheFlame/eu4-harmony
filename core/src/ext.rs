@@ -11,7 +11,7 @@ use crate::{
         armies::{self, RouteSource},
         events, interface,
         map_coloring::{self, MapColor},
-        countries, diplomacy, offers, provinces, questions, save_data, texts, time, Caller, Status, Tag,
+        countries, diplomacy, offers, provinces, questions, save_data, texts, thousandths, time, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -429,12 +429,6 @@ unsafe extern "C" fn h_camera_look_at(ptr: *mut c_void, x: u32, y: u32, o: *mut 
 
 unsafe extern "C" fn h_camera_zoom(ptr: *mut c_void, height: u32, o: *mut abi::Camera) -> i32 {
     capability(ptr, |caller| moved_out(o, game::camera::zoom(caller, height)?))
-}
-
-/// A fixed-point number of the game's, kept in thousandths, as the number it
-/// stands for in a snapshot's JSON (ADR 0018).
-fn thousandths(value: i32) -> f64 {
-    value as f64 / 1000.0
 }
 
 /// A province's snapshot as the JSON `abi::GameApi::province` describes.
