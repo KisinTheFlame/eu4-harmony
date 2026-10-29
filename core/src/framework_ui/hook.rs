@@ -30,7 +30,9 @@ static ORIGINAL_PRESENT: Function<Present> = Function::new();
 
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
-        let device = crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void);
+        // Inside a guard, as all framework code here: a panic must not
+        // unwind into the game.
+        let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
         crate::guarded("framework UI frame", || {
             if let Some(device) = device {
                 super::frame(device)
