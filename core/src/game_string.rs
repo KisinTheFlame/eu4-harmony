@@ -27,6 +27,9 @@ static APPEND: Function<Append> = Function::new();
 const APPEND_AT: usize = 0x932f0;
 /// The game's destructor, which frees the text when it is not inline.
 const DESTROY_AT: usize = 0x95660;
+/// The game's localisation lookup: (out, key, values, count); out is a
+/// `std::string` slot it constructs, key a C string.
+const LOCALISE_AT: usize = 0x14b34a0;
 
 pub fn points() -> Vec<Point> {
     // The append itself: the size and capacity, the inline test, the text.
@@ -38,7 +41,8 @@ pub fn points() -> Vec<Point> {
     )
     .recorded(APPEND.slot())
     .uses(&[CAPACITY, SIZE, INLINE + 1]),
-    Point::keep(DESTROY_AT, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor").uses(&[CAPACITY])]
+    Point::keep(DESTROY_AT, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor").uses(&[CAPACITY]),
+    Point::keep(LOCALISE_AT, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57", "localisation lookup")]
 }
 
 /// Where the text of the string at `string` is, given its capacity.
@@ -129,6 +133,17 @@ pub fn append_checked(m: &Memory, string: usize, text: &[u8]) -> Result<()> {
 /// Destroys the string at `string` as the game does, guarded.
 pub fn destroy_checked(m: &Memory, string: usize) -> Result<()> {
     m.call(m.at(DESTROY_AT), &[string]).map(|_| ())
+}
+
+/// The game's text for a localisation key, as its lookup writes it, with no
+/// values: `key` is the address of the key, a C string.
+pub fn localised(m: &Memory, key: usize) -> Result<Vec<u8>> {
+    let mut slot = empty();
+    let out = slot.as_mut_ptr() as usize;
+    m.call(m.at(LOCALISE_AT), &[out, key, 0, 0])?;
+    let text = read(m, out);
+    destroy_checked(m, out)?;
+    text
 }
 
 /// Builds `text` in `slot`, a string nothing has constructed yet; whoever

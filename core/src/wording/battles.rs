@@ -17,10 +17,6 @@ use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 use std::sync::{Mutex, OnceLock};
 
-/// The game's localisation lookup: (out, key, values, count); out is a
-/// `std::string` slot it constructs.
-const LOCALISE: usize = 0x14b34a0;
-
 /// The kinds of name, by the game's key and the framework's template.
 const KINDS: [(&str, &str); 3] = [("BATTLE_OF", "EU4HARMONY_BATTLE"), ("SIEGE_OF", "EU4HARMONY_SIEGE"), ("OCCUPATION_OF", "EU4HARMONY_OCCUPATION")];
 
@@ -33,12 +29,7 @@ static REWORDS: OnceLock<bool> = OnceLock::new();
 fn localised(key: &str) -> crate::Result<Vec<u8>> {
     let m = crate::memory().ok_or("no memory")?;
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-    let mut slot = [0u8; game_string::OBJECT];
-    let out = slot.as_mut_ptr() as usize;
-    m.call(m.at(LOCALISE), &[out, key.as_ptr() as usize, 0, 0])?;
-    let text = game_string::read(m, out);
-    game_string::destroy_checked(m, out)?;
-    text
+    game_string::localised(m, key.as_ptr() as usize)
 }
 
 /// `text` (game text), which is `word`, a space and the place for one of
@@ -84,7 +75,6 @@ extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
 pub fn points() -> Vec<Point> {
     vec![
         Point::replace(0x23a900usize, "48 89 5c 24 08 48 89 74 24 18 48 89 54 24 10 55", "battle name", battle_name as BattleName, &ORIGINAL_BATTLE_NAME),
-        Point::keep(LOCALISE, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41", "localisation lookup"),
     ]
 }
 

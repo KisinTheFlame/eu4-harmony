@@ -44,9 +44,6 @@ const WAR_GOAL_LIST: usize = 0xd9eb40;
 /// The list's destructor, its vtable's first method: (list, flags), which
 /// destroys the war goals.
 const WAR_GOAL_LIST_DESTROY: usize = 0x114b80;
-/// The game's localisation of a key: (out `std::string`, key, arguments,
-/// count).
-const LOCALIZE: usize = 0x14b34a0;
 /// Carrying out a diplomatic action's command, its vtable's
 /// [`command::CARRY_OUT`]: (command).
 const CARRY_OUT: usize = 0x4e7c50;
@@ -374,7 +371,7 @@ fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
             said.extend(text_lines(&reasons(m, at, slot)?));
         }
     }
-    let description = text_lines(&localized(m, m.at(kind.description()))?);
+    let description = text_lines(&game_string::localised(m, m.at(kind.description()))?);
     fail(Status::Rejected, refusal(said, &description))
 }
 
@@ -385,19 +382,6 @@ fn reasons(m: &Memory, at: usize, slot: usize) -> GResult<Vec<u8>> {
     let called = m.call(m.vslot(at, slot)?, &[at, s, 0]);
     let text = game_string::read(m, s);
     game_string::destroy_checked(m, s)?;
-    called?;
-    Ok(text?)
-}
-
-/// The game's text for a localisation key, the C string at `key`.
-fn localized(m: &Memory, key: usize) -> GResult<Vec<u8>> {
-    let mut string = game_string::empty();
-    let s = string.as_mut_ptr() as usize;
-    let called = m.call(m.at(LOCALIZE), &[s, key, 0, 0]);
-    let text = if called.is_ok() { game_string::read(m, s) } else { Ok(Vec::new()) };
-    if called.is_ok() {
-        game_string::destroy_checked(m, s)?;
-    }
     called?;
     Ok(text?)
 }
@@ -676,7 +660,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(WAR_GOAL_LIST, "48 89 5c 24 10 4c 89 4c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 50", "war goals offered"),
         method(WAR_GOALS, 0, WAR_GOAL_LIST_DESTROY, "war goal list destructor"),
         Point::keep(WAR_GOAL_LIST_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 bc 14 00 00", "war goal list destructor"),
-        Point::keep(LOCALIZE, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57", "localisation"),
     ]
 }
 
