@@ -533,6 +533,20 @@ fn returning_to_the_main_menu_is_answered_before_the_process_ends() {
 }
 
 #[test]
+fn a_return_needs_no_player() {
+    // Observing, where what needs a game is refused, the layer decides.
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let observing = Place::Outside(Some(Error::new(Code::NotInGame, "no controllable player")));
+    let session = engine.submit(Request::Session(SessionRequest::Get {}));
+    let back = engine.submit(Request::Menu(MenuRequest::Return {}));
+    engine.run(&mut game, &observing, PLENTY);
+    assert!(error("not_in_game")(&answer(&session)));
+    assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
+    assert_eq!(game.calls, ["return"]);
+}
+
+#[test]
 fn a_request_sent_in_one_session_never_runs_in_the_next() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();

@@ -36,13 +36,15 @@ group! {
         country: CountryTag,
     } -> Session, "the session of the new game";
     /// Returns to the main menu, without the game's question or its summary,
-    /// as the player would. The game does that by starting eu4.exe again, so
-    /// the answer comes from this process before it ends; after it every
-    /// request to this process is answered not_ready. The new process opens
-    /// the pipe a few seconds later and answers once it presents its first
-    /// frame: ask menu again until its process differs and its place is
-    /// main_menu.
-    game Return "return" {} -> Menu, "this process, and place ending";
+    /// as the player would. Whenever a game is going on, also while the
+    /// player only observes (when capabilities that need a game are
+    /// refused); not_in_game where none is. The game returns by starting
+    /// eu4.exe again, so the answer comes from this process before it ends;
+    /// after it every request to this process is answered not_ready. The new
+    /// process opens the pipe a few seconds later and answers once it
+    /// presents its first frame: ask menu again until its process differs
+    /// and its place is main_menu.
+    anywhere Return "return" {} -> Menu, "this process, and place ending";
 }
 
 /// Where the game is.

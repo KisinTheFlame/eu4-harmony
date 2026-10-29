@@ -601,7 +601,9 @@ fn find(m: &Memory, letters: [u8; 3]) -> GResult<Tag> {
 }
 
 /// Returns to the main menu, as the game's own question does when the
-/// player confirms it: the game's next frame starts `eu4.exe` again.
+/// player confirms it: the game's next frame starts `eu4.exe` again. It
+/// needs the game's map manager, not a game with a player: it also works
+/// while the player only observes, say after their country was annexed.
 pub fn return_to_main_menu(_: Caller) -> GResult<()> {
     let m = game()?;
     let world = m.ptr(m.at(globals::WORLD))?;
