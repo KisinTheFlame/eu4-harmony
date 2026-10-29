@@ -7,7 +7,10 @@ use super::{context, context_any, events, fail, game, map_manager, paused, Calle
 use crate::{
     hooks::HookFrame,
     memory::Memory,
-    objects::campaign::{classes, globals::WORLD, map_manager as manager, pause as pause_state},
+    objects::{
+        campaign::{classes, globals::WORLD, map_manager as manager, pause as pause_state, world},
+        list,
+    },
     points::Point,
 };
 use std::sync::Mutex;
@@ -21,33 +24,12 @@ const SPEED_UP: usize = 0xb79970;
 /// it pauses as the player does; paused for any reason, it resumes and lets go
 /// of every window holding the game paused, as the player's resuming does.
 const TOGGLE_PAUSE: usize = 0x7e0250;
-/// The map manager's method that shows an event to the player: it makes an
-/// event window and adds it to the manager's popups.
+/// The map manager's method that shows an event to the player
+/// ([`manager::SHOW_EVENT`]).
 const SHOW_EVENT: usize = 0x828c00;
-const SHOW_EVENT_METHOD: usize = 0x108;
 /// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when
 /// the game returns to the main menu.
 const RESTART: usize = 0x14c3a10;
-
-/// The world's speed, i32: 0 for speed 1 to 4 for speed 5.
-const SPEED: usize = 0x1e08;
-/// The pause state's own flag (u8): nonzero once paused by the player (or by
-/// remote control or an extension, through [`pause`]); when it is zero and
-/// the game is paused, windows hold it paused.
-const PLAYER_PAUSED: usize = 0x48;
-/// The map manager's open popup windows: a list of nodes, the first here.
-const POPUPS: usize = 0x78;
-/// A node of the popups list.
-mod popup {
-    /// The window.
-    pub const WINDOW: usize = 0;
-    /// The next node.
-    pub const NEXT: usize = 0x10;
-    /// Nonzero (u8) once the window closed and the node waits to go.
-    pub const GONE: usize = 0x18;
-}
-/// An event window, by vtable.
-const EVENT_WINDOW: usize = 0x1d590f8;
 
 /// The game speeds, slowest first.
 pub const SPEEDS: std::ops::RangeInclusive<u32> = 1..=5;
@@ -89,13 +71,13 @@ impl Time {
 pub fn time(_: Caller) -> GResult<Time> {
     let m = game()?;
     let ctx = context(m)?;
-    let index = m.i32(ctx.world + SPEED)?;
+    let index = m.i32(ctx.world + world::SPEED)?;
     if !(0..=4).contains(&index) {
         return Err(format!("unexpected game speed {index}").into());
     }
     let pause = if !paused(m, &ctx)? {
         Pause::Running
-    } else if m.u8(pause_state_of(m, &ctx)? + PLAYER_PAUSED)? != 0 {
+    } else if m.u8(pause_state_of(m, &ctx)? + pause_state::PLAYER_PAUSED)? != 0 {
         Pause::Player
     } else {
         Pause::Window
@@ -152,17 +134,17 @@ pub fn game_events_waiting(_: Caller) -> GResult<usize> {
 /// and answering them belongs to the events and offers capabilities.
 pub fn game_events_waiting_in(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     let manager = map_manager(m, ctx)?;
-    let mut node = m.ptr(manager + POPUPS)?;
+    let mut node = m.ptr(manager + manager::POPUPS + list::HEAD)?;
     let mut waiting = 0;
     for _ in 0..MAX_POPUPS {
         if node == 0 {
             return Ok(waiting);
         }
-        let window = m.ptr(node + popup::WINDOW)?;
-        if m.u8(node + popup::GONE)? == 0 && window != 0 && m.ptr(window)? == m.at(EVENT_WINDOW) {
+        let window = m.ptr(node + list::ITEM)?;
+        if m.u8(node + list::REMOVED)? == 0 && window != 0 && m.ptr(window)? == m.at(classes::EVENT_WINDOW) {
             waiting += 1;
         }
-        node = m.ptr(node + popup::NEXT)?;
+        node = m.ptr(node + list::NEXT)?;
     }
     Err(format!("more than {MAX_POPUPS} popups").into())
 }
@@ -342,10 +324,10 @@ pub fn points() -> Vec<Point> {
             "48 81 ec 88 00 00 00 41 b8 04 00 00 00 41 3b d0 44 0f 4e c2 33 c0 45 85 c0 41 0f 49 c0 89 81 08 1e 00 00",
             "set speed",
         )
-        .uses(&[SPEED, 4]),
-        Point::keep(SPEED_UP, "48 8b 0d 01 65 7c 01 8b 91 08 1e 00 00 ff c2 e9 6c e0 bd ff", "speed up command").uses(&[WORLD, SPEED]),
-        Point::keep(TOGGLE_PAUSE, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 75 5c", "pause toggle").uses(&[PLAYER_PAUSED]),
-        Point::method(classes::MAP_MANAGER, SHOW_EVENT_METHOD, SHOW_EVENT, "map manager shows an event"),
+        .uses(&[world::SPEED, 4]),
+        Point::keep(SPEED_UP, "48 8b 0d 01 65 7c 01 8b 91 08 1e 00 00 ff c2 e9 6c e0 bd ff", "speed up command").uses(&[WORLD, world::SPEED]),
+        Point::keep(TOGGLE_PAUSE, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 75 5c", "pause toggle").uses(&[pause_state::PLAYER_PAUSED]),
+        Point::method(classes::MAP_MANAGER, manager::SHOW_EVENT, SHOW_EVENT, "map manager shows an event"),
         // It makes the event window (0x10b9a50) and adds it to its own
         // popups (0x6ecae0, this in rcx).
         Point::keep(0x828c43usize, "4c 8b ce 4c 8b c5 48 8b d3 48 8b c8 e8 fc 0d 89 00 90 48 8b d0 48 8b cb e8 80 3e ec ff", "event window shown"),
@@ -355,10 +337,11 @@ pub fn points() -> Vec<Point> {
             "48 8b 5e 78 48 85 db 74 1c 0f 1f 00 48 8b 0b 48 8b 01 ff 50 08 84 c0 75 60 48 8b 43 10 48 8b d8 48 85 c0 75 e7",
             "map manager popups",
         )
-        .uses(&[POPUPS, popup::NEXT]),
-        // A popup that closes while the list is walked is marked to go later.
-        Point::keep(0x6ea583usize, "41 80 bc 24 8c 00 00 00 00 74 06 c6 41 18 01", "popup gone").uses(&[popup::GONE]),
-        Point::keep(0x10b9b3busize, "48 8d 05 b6 f5 c9 00 48 89 03", "event window class").uses(&[EVENT_WINDOW]),
+        .uses(&[manager::POPUPS + list::HEAD, list::ITEM, list::NEXT]),
+        // A popup that closes while the list is being walked is marked to go
+        // later.
+        Point::keep(0x6ea583usize, "41 80 bc 24 8c 00 00 00 00 74 06 c6 41 18 01", "popup gone").uses(&[manager::POPUPS + list::CHANGING, list::REMOVED]),
+        Point::keep(0x10b9b3busize, "48 8d 05 b6 f5 c9 00 48 89 03", "event window class").uses(&[classes::EVENT_WINDOW]),
         Point::observe(RESTART, "48 89 5c 24 08 48 89 74 24 18 55 57 41 56", "restart", 1, Some(restart_before), None),
     ]
 }

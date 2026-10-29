@@ -29,7 +29,7 @@ Pausing at a safe point instead is a day late at speed 5. Tested: an advance tha
 ## Game events waiting for an answer
 
 - The map manager's method at `+0x108` (`0x828c00`) shows a game event to the player: it makes an event window (`0x10b9a50`, 0x3e8 bytes, vtable `0x1d590f8`, a second one `0x1d590e0` at `+8`; `eventwindow.cpp`, `EventWindow`) and adds it with `0x6ecae0(manager, window)` to the manager's **popups**.
-- **The popups** are a list at `map_manager+0x78` (first node), `+0x80` (last) and `+0x88` (count). A node is 0x20 bytes: `+0x00` the window, `+0x08` the previous node, `+0x10` the next, `+0x18` a byte set when the window closed while the list was being walked (the node goes later). Each frame `0x6ea380` asks every window whether it is still open (its method at `+0x18`) and takes the closed ones out.
+- **The popups** are a list of the game's usual kind (`objects::list`) at `map_manager+0x78`: the first node, `+0x80` the last, `+0x88` the count and `+0x8c` a byte set while the list is being walked. A node is 0x20 bytes: `+0x00` the window, `+0x08` the previous node, `+0x10` the next, `+0x18` a byte set when the window closed while the list was being walked (the node goes later). Each frame `0x6ea380` asks every window whether it is still open (its method at `+0x18`) and takes the closed ones out.
 - So **the game events waiting** are the nodes whose window has the event window's vtable and whose `+0x18` is clear. Tested: an event shown during an advance was counted (in front of battle and message popups), and once its option was clicked it was not.
 
 ## Returning to the main menu
