@@ -169,24 +169,83 @@ pub fn game_events_waiting_in(m: &Memory, ctx: &Ctx) -> GResult<usize> {
 
 /// A date time stops at once it is reached, held for an advance. Released
 /// when the advance answers; dropped unreleased, when its client gave it up,
-/// it calls the advance off: time stops at the end of the day under way.
+/// it calls the advance off: time stops at the end of the day under way. It
+/// belongs to the session it was held in: once another game is loaded or
+/// started, it goes, called off or not, and never pauses the new game.
 #[derive(Debug)]
 pub struct Stop {
     number: u64,
     released: bool,
 }
 
-/// A stop held: its number, its date, whether it was reached, and whether
-/// it was called off (then it goes once reached).
-type Held = (u64, i32, bool, bool);
+/// A stop held.
+struct Held {
+    number: u64,
+    /// The session it was held in ([`events::session`]).
+    session: u64,
+    date: i32,
+    reached: bool,
+    /// Its advance was given up: it goes once reached.
+    called_off: bool,
+}
 
+/// The stops held, by the session the game is in when they are asked about.
 #[derive(Default)]
 struct Stops {
     last: u64,
-    dates: Vec<Held>,
+    held: Vec<Held>,
 }
 
-static STOPS: Mutex<Stops> = Mutex::new(Stops { last: 0, dates: Vec::new() });
+impl Stops {
+    /// Holds a stop at `date` in `session`, and gives its number.
+    fn hold(&mut self, session: u64, date: i32) -> u64 {
+        self.forget_other_sessions(session);
+        self.last += 1;
+        self.held.push(Held { number: self.last, session, date, reached: false, called_off: false });
+        self.last
+    }
+
+    /// Forgets a stop: its advance answered.
+    fn release(&mut self, number: u64) {
+        self.held.retain(|held| held.number != number);
+    }
+
+    /// Calls a stop off in `session`: one not reached stops time at the end
+    /// of the day under way; one reached, or held in another session, goes.
+    fn call_off(&mut self, number: u64, session: u64) {
+        self.forget_other_sessions(session);
+        self.held.retain(|held| held.number != number || !held.reached);
+        for held in self.held.iter_mut().filter(|held| held.number == number) {
+            held.date = i32::MIN;
+            held.called_off = true;
+        }
+    }
+
+    /// Whether an advance in `session` holds a stop it has not reached.
+    fn advancing(&self, session: u64) -> bool {
+        self.held.iter().any(|held| held.session == session && !held.reached)
+    }
+
+    /// Whether `date`, in `session`, reaches a stop not reached before; each
+    /// is reached once, and one called off goes then. Stops held in another
+    /// session go without being reached.
+    fn reach(&mut self, session: u64, date: i32) -> bool {
+        self.forget_other_sessions(session);
+        let mut due = false;
+        for held in self.held.iter_mut().filter(|held| !held.reached && date >= held.date) {
+            held.reached = true;
+            due = true;
+        }
+        self.held.retain(|held| !(held.reached && held.called_off));
+        due
+    }
+
+    fn forget_other_sessions(&mut self, session: u64) {
+        self.held.retain(|held| held.session == session);
+    }
+}
+
+static STOPS: Mutex<Stops> = Mutex::new(Stops { last: 0, held: Vec::new() });
 
 fn stops<T>(f: impl FnOnce(&mut Stops) -> T) -> T {
     f(&mut STOPS.lock().unwrap_or_else(|e| e.into_inner()))
@@ -197,38 +256,30 @@ impl Stop {
     pub fn release(mut self) {
         self.released = true;
         let number = self.number;
-        stops(|s| s.dates.retain(|held| held.0 != number));
+        stops(|s| s.release(number));
     }
 }
 
 impl Drop for Stop {
     fn drop(&mut self) {
-        if self.released {
-            return;
+        if !self.released {
+            let (number, session) = (self.number, events::session());
+            stops(|s| s.call_off(number, session));
         }
-        let number = self.number;
-        stops(|s| {
-            s.dates.retain(|held| held.0 != number || !held.2);
-            for held in s.dates.iter_mut().filter(|held| held.0 == number) {
-                held.1 = i32::MIN;
-                held.3 = true;
-            }
-        });
     }
 }
 
 /// Pauses the game as soon as the daily update reaches `date`, before
 /// another day can begin; for remote control's advancing only. The stop
-/// pauses the game once, and holds until the returned [`Stop`] goes.
+/// pauses the game once, in this session only, and holds until the returned
+/// [`Stop`] goes.
 pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
     if let Caller::Extension(_) = caller {
         return fail(Status::Unavailable, "only remote control advances time");
     }
-    Ok(stops(|s| {
-        s.last += 1;
-        s.dates.push((s.last, date, false, false));
-        Stop { number: s.last, released: false }
-    }))
+    let session = events::session();
+    let number = stops(|s| s.hold(session, date));
+    Ok(Stop { number, released: false })
 }
 
 /// After the daily update (`events`' observer): pauses the game when a stop's
@@ -239,33 +290,13 @@ pub(super) fn day_passed(m: &Memory) {
         return;
     }
     let Ok(ctx) = context_any(m) else { return };
-    let due = reach(ctx.date) || (advancing() && game_events_waiting_in(m, &ctx).is_ok_and(|waiting| waiting > 0));
+    let session = events::session();
+    let due = stops(|s| s.reach(session, ctx.date)) || (stops(|s| s.advancing(session)) && game_events_waiting_in(m, &ctx).is_ok_and(|waiting| waiting > 0));
     if due {
         if let Err(e) = pause_game(m, &ctx) {
             log!("time: cannot pause the advance: {}", e.message);
         }
     }
-}
-
-/// Whether an advance holds a stop it has not reached.
-fn advancing() -> bool {
-    stops(|s| s.dates.iter().any(|&(_, _, reached, _)| !reached))
-}
-
-/// Whether `date` reaches a stop not reached before; each is reached once,
-/// and one called off goes then.
-fn reach(date: i32) -> bool {
-    stops(|s| {
-        let mut due = false;
-        for (_, at, reached, _) in &mut s.dates {
-            if !*reached && date >= *at {
-                *reached = true;
-                due = true;
-            }
-        }
-        s.dates.retain(|&(_, _, reached, called_off)| !(reached && called_off));
-        due
-    })
 }
 
 /// The map manager's pause state, checked by its owner.
@@ -338,38 +369,86 @@ mod tests {
 
     #[test]
     fn a_stop_is_reached_once_and_forgotten_when_released() {
-        let first = stop_at(Caller::Remote, 100).unwrap();
-        let second = stop_at(Caller::Remote, 124).unwrap();
-        assert_eq!(stop_at(Caller::Extension(0), 100).unwrap_err().status, Status::Unavailable);
-        assert!(!reach(99));
-        assert!(reach(100));
-        assert!(!reach(100), "a stop pauses the game once");
+        let mut s = Stops::default();
+        let first = s.hold(1, 100);
+        let second = s.hold(1, 124);
+        assert!(!s.reach(1, 99));
+        assert!(s.reach(1, 100));
+        assert!(!s.reach(1, 100), "a stop pauses the game once");
         // A day past both, as when one was missed: one pause for both.
-        first.release();
-        let third = stop_at(Caller::Remote, 148).unwrap();
-        assert!(reach(150));
-        assert!(!reach(172));
-        second.release();
-        third.release();
-        assert!(stops(|s| s.dates.is_empty()));
+        s.release(first);
+        let third = s.hold(1, 148);
+        assert!(s.reach(1, 150));
+        assert!(!s.reach(1, 172));
+        s.release(second);
+        s.release(third);
+        assert!(s.held.is_empty());
 
         // Only a stop not reached yet is an advance running.
-        assert!(!advancing());
-        let running = stop_at(Caller::Remote, 500).unwrap();
-        assert!(advancing());
-        running.release();
-        assert!(!advancing());
+        assert!(!s.advancing(1));
+        let running = s.hold(1, 500);
+        assert!(s.advancing(1));
+        s.release(running);
+        assert!(!s.advancing(1));
 
         // Given up before its date, an advance calls the stop off: the game
         // pauses at the end of the next day, and the stop goes.
-        drop(stop_at(Caller::Remote, 1000).unwrap());
-        assert!(reach(200));
-        assert!(!reach(224));
-        assert!(stops(|s| s.dates.is_empty()));
+        let given_up = s.hold(1, 1000);
+        s.call_off(given_up, 1);
+        assert!(s.reach(1, 200));
+        assert!(!s.reach(1, 224));
+        assert!(s.held.is_empty());
         // Given up once reached, it just goes.
-        let reached = stop_at(Caller::Remote, 300).unwrap();
-        assert!(reach(300));
-        drop(reached);
-        assert!(stops(|s| s.dates.is_empty()));
+        let reached = s.hold(1, 300);
+        assert!(s.reach(1, 300));
+        s.call_off(reached, 1);
+        assert!(s.held.is_empty());
+    }
+
+    #[test]
+    fn a_stop_never_outlives_its_session() {
+        let mut s = Stops::default();
+        // Given up while a save loads, the advance goes at the new session's
+        // first safe point: its stop goes with it, and the new game's first
+        // day does not pause.
+        let given_up = s.hold(1, 1000);
+        s.call_off(given_up, 2);
+        assert!(s.held.is_empty());
+        assert!(!s.reach(2, 50));
+
+        // Called off just before another game is loaded: the new game's
+        // first day does not reach it.
+        let called_off = s.hold(2, 1000);
+        s.call_off(called_off, 2);
+        assert!(!s.reach(3, 50));
+        assert!(s.held.is_empty());
+
+        // Still held when another game is loaded: the new game's days
+        // neither reach it nor make an advance of it, and releasing it
+        // afterwards changes nothing.
+        let held = s.hold(3, 100);
+        assert!(!s.advancing(4));
+        assert!(!s.reach(4, 200));
+        assert!(s.held.is_empty());
+        s.release(held);
+
+        // An advance in the new session holds its own stop alone.
+        s.hold(4, 100);
+        let new = s.hold(5, 100);
+        assert_eq!(s.held.iter().map(|held| held.number).collect::<Vec<_>>(), [new]);
+        assert!(s.reach(5, 100));
+    }
+
+    #[test]
+    fn only_remote_control_holds_a_stop_and_one_dropped_is_called_off() {
+        assert_eq!(stop_at(Caller::Extension(0), 100).unwrap_err().status, Status::Unavailable);
+        let session = events::session();
+        let answered = stop_at(Caller::Remote, 100).unwrap();
+        let given_up = stop_at(Caller::Remote, 1000).unwrap();
+        answered.release();
+        drop(given_up);
+        assert!(stops(|s| s.held.iter().all(|held| held.called_off && held.date == i32::MIN) && s.held.len() == 1));
+        assert!(stops(|s| s.reach(session, 0)));
+        assert!(stops(|s| s.held.is_empty()));
     }
 }
