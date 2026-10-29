@@ -14,4 +14,4 @@ Snapshots made of fixed fields only, such as an army's, stay `#[repr(C)]` struct
 
 - A field added to such a snapshot is a new JSON member: an SDK built before it ignores it, and an SDK built after it gives it a default (`#[serde(default)]`) so that it still reads a core built before it. Changing a member's meaning still breaks the ABI (ADR 0014).
 - Reading a snapshot costs an extension a JSON parse, a few microseconds, at most once a call.
-- The core and the SDK each have a test against the same JSON text, so neither can drift from the shape the field describes.
+- Each such snapshot has one JSON file in `abi/json/` (`province.json`), holding every value each enumerated member can take. The core's test checks that its writer turns a snapshot into the same JSON value as the file, and the SDK's test reads the file, both by `include_str!`; so neither side can change the shape without the other's test seeing it.

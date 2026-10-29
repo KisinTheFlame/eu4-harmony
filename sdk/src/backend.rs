@@ -337,14 +337,15 @@ mod tests {
         abi::OK
     }
 
-    /// Constantinople, as the core writes a snapshot.
-    const CONSTANTINOPLE: &str = r#"{"id":151,"name":"君士坦丁堡","owner":281479271743810,"controller":281479271743810,"development":{"tax":10.0,"production":9.5,"manpower":6.0},"terrain":"farmlands","fort":{"level":2,"mothballed":false},"buildings":["fort_15th","marketplace"],"recruit":[{"kind":"infantry","unit_type":"eastern_medieval_infantry","allowed":false,"reasons":["君士坦丁堡不是我们的领土"]},{"kind":"heavy_ship","unit_type":null,"allowed":false,"reasons":[]}]}"#;
+    /// Constantinople, as the core's test checks that the core writes it
+    /// (ADR 0018).
+    const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
 
     unsafe extern "C" fn province(_: H, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
         if id != 151 {
             return abi::NOT_FOUND;
         }
-        let json = CONSTANTINOPLE.as_bytes();
+        let json = PROVINCE_JSON.as_bytes();
         *len = json.len();
         if cap < json.len() {
             return abi::BUFFER_TOO_SMALL;
@@ -412,14 +413,26 @@ mod tests {
         let api = table();
         let mut backend = RealBackend::new(&api);
         let p = backend.province(151).unwrap();
-        assert_eq!((p.id, p.name.as_str(), p.owner, p.terrain.as_deref()), (151, "君士坦丁堡", Some(CountryId(281479271743810)), Some("farmlands")));
+        let byz = Some(CountryId(72057735777769794));
+        assert_eq!((p.id, p.name.as_str(), p.owner, p.controller, p.terrain.as_deref()), (151, "君士坦丁堡", byz, byz, Some("farmlands")));
         assert_eq!((p.development.tax, p.development.production, p.development.manpower), (10.0, 9.5, 6.0));
         assert_eq!((p.fort.level, p.fort.mothballed), (2, false));
         assert_eq!(p.buildings, ["fort_15th", "marketplace"]);
-        let infantry = &p.recruit[0];
-        assert_eq!((infantry.kind, infantry.unit_type.as_deref(), infantry.allowed), (UnitKind::Infantry, Some("eastern_medieval_infantry"), false));
-        assert_eq!(infantry.reasons, ["君士坦丁堡不是我们的领土"]);
-        assert_eq!((p.recruit[1].kind, p.recruit[1].unit_type.as_deref()), (UnitKind::HeavyShip, None));
+        // Every kind's name reads, in the core's order.
+        let recruit: Vec<_> = p.recruit.iter().map(|r| (r.kind, r.unit_type.as_deref(), r.allowed, r.reasons.len())).collect();
+        assert_eq!(
+            recruit,
+            [
+                (UnitKind::Infantry, Some("eastern_medieval_infantry"), false, 1),
+                (UnitKind::Cavalry, Some("eastern_knights"), false, 1),
+                (UnitKind::Artillery, None, false, 0),
+                (UnitKind::HeavyShip, Some("early_carrack"), false, 0),
+                (UnitKind::LightShip, Some("early_war_galley"), false, 0),
+                (UnitKind::Galley, Some("galley"), false, 0),
+                (UnitKind::Transport, Some("cog"), false, 0),
+            ]
+        );
+        assert_eq!(p.recruit[0].reasons, ["君士坦丁堡不是我们的领土"]);
         assert_eq!(backend.province(1).unwrap_err().status, Status::NotFound);
     }
 

@@ -1,0 +1,19 @@
+{
+  "id": 151,
+  "name": "君士坦丁堡",
+  "owner": 72057735777769794,
+  "controller": 72057735777769794,
+  "development": {"tax": 10.0, "production": 9.5, "manpower": 6.0},
+  "terrain": "farmlands",
+  "fort": {"level": 2, "mothballed": false},
+  "buildings": ["fort_15th", "marketplace"],
+  "recruit": [
+    {"kind": "infantry", "unit_type": "eastern_medieval_infantry", "allowed": false, "reasons": ["君士坦丁堡不是我们的领土"]},
+    {"kind": "cavalry", "unit_type": "eastern_knights", "allowed": false, "reasons": ["君士坦丁堡不是我们的领土"]},
+    {"kind": "artillery", "unit_type": null, "allowed": false, "reasons": []},
+    {"kind": "heavy_ship", "unit_type": "early_carrack", "allowed": false, "reasons": []},
+    {"kind": "light_ship", "unit_type": "early_war_galley", "allowed": false, "reasons": []},
+    {"kind": "galley", "unit_type": "galley", "allowed": false, "reasons": []},
+    {"kind": "transport", "unit_type": "cog", "allowed": false, "reasons": []}
+  ]
+}

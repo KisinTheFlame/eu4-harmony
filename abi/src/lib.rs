@@ -276,8 +276,8 @@ pub struct GameApi {
     /// "infantry", "unit_type": "eastern_medieval_infantry" or null,
     /// "allowed": false, "reasons": ["..."]}, ...]}`, `recruit` holding the
     /// kinds infantry, cavalry, artillery, heavy_ship, light_ship, galley and
-    /// transport in that order. [`NOT_FOUND`] for a number that names no
-    /// province.
+    /// transport in that order; `abi/json/province.json` is a whole one.
+    /// [`NOT_FOUND`] for a number that names no province.
     pub province: unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
 }
 
