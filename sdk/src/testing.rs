@@ -85,7 +85,9 @@ pub struct FakeGame {
     /// The game console commands the extension ran, in order.
     pub console_commands: Vec<String>,
     /// What each game console command prints, by command as it was run;
-    /// one not here is rejected as one the game console does not know.
+    /// one not here is rejected as one the game console does not know. A
+    /// command the core refuses before running it (empty, or with a `|` or
+    /// a NUL) is refused as the core does, and not kept.
     pub console_output: BTreeMap<String, String>,
     /// What `Game::country` answers, by country.
     pub countries: BTreeMap<CountryId, Country>,
@@ -317,6 +319,19 @@ impl Backend for FakeGame {
         self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
     }
     fn console_run(&mut self, command: &str) -> Result<String> {
+        // The core's own refusals, in its words.
+        let refused = if command.contains('|') {
+            Some("a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out")
+        } else if command.contains('\0') {
+            Some("a command cannot hold a NUL")
+        } else if command.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
+            Some("no command")
+        } else {
+            None
+        };
+        if let Some(why) = refused {
+            return Err(Error::new(Status::InvalidArgument, why));
+        }
         self.console_commands.push(command.into());
         self.console_output.get(command).cloned().ok_or_else(|| Error::new(Status::Rejected, "Unknown command"))
     }
@@ -467,6 +482,11 @@ mod tests {
         let err = fake.game().console("cahs 100").unwrap_err();
         assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "Unknown command"));
         assert_eq!(fake.console_commands, ["cash 100", "cahs 100"]);
+        // What the core refuses before it runs anything.
+        for command in ["", " \t", "help | out.txt", "cash\0"] {
+            assert_eq!(fake.game().console(command).unwrap_err().status, Status::InvalidArgument, "{command:?}");
+        }
+        assert_eq!(fake.console_commands.len(), 2);
     }
 
     #[test]
