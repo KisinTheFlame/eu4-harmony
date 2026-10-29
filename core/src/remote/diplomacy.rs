@@ -275,7 +275,7 @@ mod tests {
         let buffer = events::Buffer::new();
         let now = Instant::now();
         let mut waiting = Waiting { ticket: Ticket(3), kind: Kind::ProposeAlliance, called: None, until: now + WAITED };
-        let mut poll = |game: Option<&mut Fake>, now| waiting.poll(&mut super::super::Poll { events: &buffer, now, game: game.map(|g| g as &mut dyn super::super::Game) });
+        let mut poll = |game: Option<&mut Fake>, now| waiting.poll(&mut super::super::Poll { events: &buffer, now, game: game.map(|g| g as &mut dyn super::super::Game), unplayable: None });
         assert_eq!(poll(Some(&mut game), now), None);
         assert_eq!(poll(None, now), None);
         let late = poll(None, now + WAITED).map(|r| response_json(&r));

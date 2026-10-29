@@ -520,6 +520,25 @@ fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
 }
 
 #[test]
+fn a_load_or_start_whose_game_cannot_be_played_says_so_at_its_first_frame() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    // Every frame of the game that came fails: without this answer, they
+    // would wait until the process ends.
+    let unplayable = Place::Unplayable(Error::new(Code::NotInGame, "no controllable player"));
+    let session = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.run(&mut game, &unplayable, PLENTY);
+    for got in [answer(&load), answer(&start)] {
+        assert_eq!(got, json!({"ok": false, "error": {"code": "rejected", "message": "the game began, but the player cannot play it (no controllable player): menu says game, and it goes on"}}));
+    }
+    assert_eq!(answer(&session), json!({"ok": false, "error": {"code": "not_in_game", "message": "no controllable player"}}));
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "start FRA"]);
+}
+
+#[test]
 fn a_load_the_game_could_not_read_is_refused_though_a_game_comes() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();

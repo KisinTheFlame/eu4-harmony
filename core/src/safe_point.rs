@@ -57,7 +57,7 @@ pub fn game_frame() {
         // No game to play (observing, say).
         Err(fail) => {
             game::menu::set_at(At::Game);
-            remote::run_outside(Some(fail));
+            remote::run_unplayable(fail);
         }
     }
     GAME_FRAME.store(true, Ordering::Relaxed);

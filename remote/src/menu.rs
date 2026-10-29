@@ -25,8 +25,8 @@ group! {
     /// happens, when the save was made with mods the game did not start
     /// with (one such save crashed the game as it loaded); and rejected when
     /// the game does not take the load up, cannot read the save (it then
-    /// starts a game from what it read), or begins another game than the
-    /// save's.
+    /// starts a game from what it read), begins another game than the
+    /// save's, or begins one the player cannot play.
     anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
@@ -34,7 +34,8 @@ group! {
     /// Starts a new game at the default start date as a country, as the
     /// single player setup does. Only from the main menu's first page (at
     /// startup, once menu says main_menu). Answers once the game is ready;
-    /// rejected when the game does not take the start up.
+    /// rejected when the game does not take the start up or begins a game
+    /// the player cannot play.
     anywhere Start "start" {
         /// The country to play.
         country: CountryTag,

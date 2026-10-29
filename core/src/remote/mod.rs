@@ -111,6 +111,9 @@ pub fn tag(tag: game::Tag) -> CountryTag {
 pub enum Place {
     /// A game's safe frame: every request runs.
     Game,
+    /// A game's frame with no game the player can play, and why (the player
+    /// only observes, say): requests that need a game are answered with it.
+    Unplayable(Error),
     /// A safe point with no game to read. Requests that need one wait for a
     /// game frame, or, given an error, are answered with it.
     Outside(Option<Error>),
@@ -145,6 +148,8 @@ pub struct Poll<'a> {
     pub now: Instant,
     /// The game, at a game's safe frame only.
     pub game: Option<&'a mut dyn Game>,
+    /// At a game's frame with no game the player can play, why.
+    pub unplayable: Option<&'a Error>,
 }
 
 /// Where a response goes: the submitter waits on it, and gives it up by
@@ -321,7 +326,7 @@ impl Engine {
                         kept.push_back(q);
                         continue;
                     }
-                    Place::Outside(Some(error)) => {
+                    Place::Outside(Some(error)) | Place::Unplayable(error) => {
                         self.answer(&q, Err(error.clone()), Duration::ZERO);
                         continue;
                     }
@@ -360,7 +365,11 @@ impl Engine {
 
     fn poll(&self, running: &mut Running, game: &mut dyn Game, place: &Place) {
         let now = Instant::now();
-        let mut at = Poll { events: &running.events, now, game: matches!(place, Place::Game).then_some(game) };
+        let unplayable = match place {
+            Place::Unplayable(why) => Some(why),
+            _ => None,
+        };
+        let mut at = Poll { events: &running.events, now, game: matches!(place, Place::Game).then_some(game), unplayable };
         for mut w in std::mem::take(&mut running.waiting) {
             if w.slot.abandoned() {
                 (self.log)(&format!("remote #{} {}: given up by its client while it waited", w.number, w.name));
@@ -507,6 +516,12 @@ pub(crate) fn campaign_changes() {
 /// need one, or, when None, they wait.
 pub(crate) fn run_outside(why: Option<game::Fail>) {
     ENGINE.run(&mut Live, &Place::Outside(why.map(Error::from)), BUDGET);
+}
+
+/// At a game's frame with no game the player can play: `why` answers the
+/// requests that need one.
+pub(crate) fn run_unplayable(why: game::Fail) {
+    ENGINE.run(&mut Live, &Place::Unplayable(Error::from(why)), BUDGET);
 }
 
 /// Before the game starts `eu4.exe` again, which ends this process: every
