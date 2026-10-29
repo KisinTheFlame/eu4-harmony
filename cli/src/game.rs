@@ -24,7 +24,8 @@ pub const EXIT_ERROR: i32 = 1;
 /// The command line is wrong; nothing was sent.
 pub const EXIT_USAGE: i32 = 2;
 /// The command could not finish: no answer came (the pipe did not open in
-/// time, is not the game's, broke, or the time ran out), or the bytes in it
+/// time, is not the game's, broke, or the time ran out), the line that came
+/// is no answer (not JSON, or not of an answer's shape), or the bytes in it
 /// could not be written.
 pub const EXIT_NO_ANSWER: i32 = 3;
 
@@ -330,8 +331,9 @@ exit codes:
   1  the game answered with an error, printed as {{\"code\": ..., \"message\": ...}}
   2  the command line is wrong; nothing was sent
   3  no answer: the game's pipe did not open in time, is not served by the
-     game run by this Windows user, broke, or the time ran out; or the bytes
-     in the answer could not be written
+     game run by this Windows user, broke, or the time ran out; the line the
+     game sent is no answer (not JSON, or not of an answer's shape); or the
+     bytes in the answer could not be written
 
 capabilities (* only while a game is going on):
 ",
