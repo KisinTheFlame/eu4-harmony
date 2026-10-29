@@ -7,6 +7,7 @@
 pub mod application;
 pub mod camera;
 pub mod campaign;
+pub mod console;
 pub mod diplomacy;
 pub mod gui;
 pub mod session;
@@ -41,5 +42,6 @@ pub fn points() -> Vec<Point> {
     all.extend(setup::points());
     all.extend(application::points());
     all.extend(diplomacy::points());
+    all.extend(console::points());
     all
 }
