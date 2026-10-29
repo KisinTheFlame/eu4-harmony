@@ -39,7 +39,6 @@ pub struct Element {
     pub tooltip: Option<String>,
 }
 
-#[derive(Default)]
 pub struct FakeGame {
     pub session: Session,
     pub tags: HashMap<CountryId, String>,
@@ -71,8 +70,12 @@ pub struct FakeGame {
     /// What `Game::text` answers, by key; see [`FakeGame::load_localisation`].
     pub texts: BTreeMap<String, String>,
     /// The map camera, which the camera's moves change; a zoom outside its
-    /// `min_height` to `max_height` is refused.
+    /// `min_height` to `max_height` is refused. It starts at the unmodded
+    /// game's heights, 50 to 3000, looking from 1000.
     pub camera: Camera,
+    /// While set, the camera's moves are refused, as the core refuses them
+    /// while the game holds the camera: after their arguments are checked.
+    pub camera_locked: bool,
     /// The map position the camera looks at each province from; a province
     /// not here is not found.
     pub province_positions: BTreeMap<ProvinceId, (u32, u32)>,
@@ -119,6 +122,48 @@ pub struct FakeGame {
     pub diplomacy_answers: BTreeMap<Ticket, DiplomacyAnswer>,
     /// Refuse every diplomatic action with this message.
     pub reject_diplomacy: Option<String>,
+}
+
+impl Default for FakeGame {
+    fn default() -> Self {
+        Self {
+            camera: Camera { height: 1000, min_height: 50, max_height: 3000, ..Camera::default() },
+            camera_locked: false,
+            session: Default::default(),
+            tags: Default::default(),
+            hostile: Default::default(),
+            provinces: Default::default(),
+            neighbors: Default::default(),
+            own_armies: Default::default(),
+            province_armies: Default::default(),
+            routes_of_armies: Default::default(),
+            closed: Default::default(),
+            closed_straits: Default::default(),
+            protected: Default::default(),
+            routes: Default::default(),
+            reject_orders: Default::default(),
+            selected: Default::default(),
+            elements: Default::default(),
+            map: Default::default(),
+            save_data: Default::default(),
+            commands: Default::default(),
+            language: Default::default(),
+            texts: Default::default(),
+            province_positions: Default::default(),
+            province_snapshots: Default::default(),
+            console_commands: Default::default(),
+            console_output: Default::default(),
+            countries: Default::default(),
+            speed: Default::default(),
+            questions: Default::default(),
+            offers: Default::default(),
+            war_goals: Default::default(),
+            allies: Default::default(),
+            diplomacy: Default::default(),
+            diplomacy_answers: Default::default(),
+            reject_diplomacy: Default::default(),
+        }
+    }
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -179,6 +224,14 @@ impl FakeGame {
     pub fn link(&mut self, a: ProvinceId, b: ProvinceId) {
         self.neighbors.entry(a).or_default().push(Neighbor { to: b, strait: false });
         self.neighbors.entry(b).or_default().push(Neighbor { to: a, strait: false });
+    }
+
+    /// Refuses a move of the camera while it is locked, in the core's words.
+    fn camera_movable(&self) -> Result<()> {
+        if self.camera_locked {
+            return Err(rejected("the camera is locked"));
+        }
+        Ok(())
     }
 
     fn own(&self, id: ArmyId) -> Result<&Army> {
@@ -299,10 +352,12 @@ impl Backend for FakeGame {
     }
     fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
         let &(x, y) = self.province_positions.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
+        self.camera_movable()?;
         self.camera = Camera { x, y, province: Some(province), ..self.camera };
         Ok(self.camera)
     }
     fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera> {
+        self.camera_movable()?;
         let province = self.province_positions.iter().find(|(_, &at)| at == (x, y)).map(|(&p, _)| p);
         self.camera = Camera { x, y, province, ..self.camera };
         Ok(self.camera)
@@ -312,6 +367,7 @@ impl Backend for FakeGame {
         if !(min_height..=max_height).contains(&height) {
             return Err(Error::new(Status::InvalidArgument, format!("the height is from {min_height} to {max_height}")));
         }
+        self.camera_movable()?;
         self.camera.height = height;
         Ok(self.camera)
     }
@@ -522,6 +578,24 @@ mod tests {
         fake.reject_diplomacy = Some("Cannot ally with a rival.".into());
         assert_eq!(fake.game().propose_alliance(byz).unwrap_err().message, "Cannot ally with a rival.");
         assert_eq!(fake.diplomacy, [Diplomacy::DeclareWar(byz, claim, CallAllies::All), Diplomacy::OfferPeace(byz)]);
+    }
+
+    #[test]
+    fn the_fake_camera_moves_within_the_game_s_heights_unless_locked() {
+        let mut fake = FakeGame::new();
+        fake.province_positions.insert(151, (3270, 1366));
+        assert_eq!(fake.game().camera_zoom(400).unwrap().height, 400);
+        assert_eq!(fake.game().camera_zoom(49).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(fake.game().camera_look_at_province(151).unwrap().province, Some(151));
+        // Locked, a move is refused, once its arguments are right.
+        fake.camera_locked = true;
+        assert_eq!(fake.game().camera_zoom(3001).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(fake.game().camera_look_at_province(152).unwrap_err().status, Status::NotFound);
+        for refused in [fake.game().camera_zoom(500), fake.game().camera_look_at_province(151), fake.game().camera_look_at(1, 2)] {
+            let err = refused.unwrap_err();
+            assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "the camera is locked"));
+        }
+        assert_eq!(fake.game().camera().unwrap().height, 400);
     }
 
     #[test]
