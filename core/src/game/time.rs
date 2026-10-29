@@ -25,7 +25,7 @@ const SPEED_UP: usize = 0xb79970;
 /// reason, it resumes and lets go of every window holding the game paused, as
 /// the player's resuming does.
 const TOGGLE_PAUSE: usize = 0x7e0250;
-/// The map manager's method that shows an event to the player
+/// The map manager's method that shows a game event to the player
 /// ([`manager::SHOW_EVENT`]).
 const SHOW_EVENT: usize = 0x828c00;
 /// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when

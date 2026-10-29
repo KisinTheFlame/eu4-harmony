@@ -176,9 +176,9 @@ fn an_advance_stops_early_and_says_why() {
 fn an_advance_leaves_the_players_pause_whatever_else_holds_the_game() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();
-    // The game pauses on events, and an event's window holds it paused
+    // The game pauses on events, and a game event's window holds it paused
     // already: the advance answers at once, with the player's pause added,
-    // so that answering the event does not let time run.
+    // so that answering the game event does not let time run.
     game.clock.time.pause = Pause::Window;
     game.clock.game_events = 1;
     let reply = engine.submit(advance(30, None));
