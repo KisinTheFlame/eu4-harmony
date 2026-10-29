@@ -316,19 +316,19 @@ mod tests {
             out.extend_from_slice(&(name.len() as u16).to_le_bytes());
             out.extend_from_slice(&0u16.to_le_bytes()); // extra
         };
-        let mut out = b"PK".to_vec();
+        let mut out = b"PK\x03\x04".to_vec();
         fields(&mut out);
         out.extend_from_slice(name);
         out.extend_from_slice(data);
         let directory_at = out.len();
-        out.extend_from_slice(b"PK");
+        out.extend_from_slice(b"PK\x01\x02");
         out.extend_from_slice(&20u16.to_le_bytes()); // version made by
         fields(&mut out);
         out.extend_from_slice(&[0; 10]); // comment, disk, attributes
         out.extend_from_slice(&0u32.to_le_bytes()); // the local header
         out.extend_from_slice(name);
         let directory_len = out.len() - directory_at;
-        out.extend_from_slice(b"PK");
+        out.extend_from_slice(b"PK\x05\x06");
         out.extend_from_slice(&[0; 4]); // disks
         out.extend_from_slice(&1u16.to_le_bytes());
         out.extend_from_slice(&1u16.to_le_bytes());
@@ -442,10 +442,7 @@ mod tests {
     #[test]
     fn a_zip_entry_is_checked_against_its_crc() {
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
-        let meta = b"EU4txt
-date=1444.11.11
-player=\"FRA\"
-";
+        let meta = b"EU4txt\ndate=1444.11.11\nplayer=\"FRA\"\n";
         let mut file = zip(b"meta", 0, crc32(meta), meta, meta.len());
         assert_eq!(zip_entry(&mut Cursor::new(&file), b"meta").unwrap(), meta);
         let at = file.windows(6).position(|w| w == b"EU4txt").unwrap();
