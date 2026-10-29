@@ -23,7 +23,9 @@ group! {
     /// page (at startup, once menu says main_menu). Answers once the game is
     /// ready, however long the save takes to load. Rejected, before anything
     /// happens, when the save was made with mods the game did not start
-    /// with (one such save crashed the game as it loaded); and rejected when
+    /// with, any one of them, with no way past it: one such save crashed the
+    /// game as it loaded, and which mods change the game cannot be told, so
+    /// add them to the playset and start the game again; and rejected when
     /// the game does not take the load up, cannot read the save (it then
     /// starts a game from what it read), begins another game than the
     /// save's, or begins one the player cannot play.
