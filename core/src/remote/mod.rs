@@ -91,6 +91,10 @@ pub enum Outcome {
 pub trait Wait: Send {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response>;
 
+    /// Its client gave it up, as seen at this safe point: what it does before
+    /// it goes, unanswered. Nothing by default.
+    fn given_up(&mut self, _at: &mut Poll<'_>) {}
+
     /// The process is about to end, as the game starts `eu4.exe` again: the
     /// answer to write while it can, if any. Without one, the client finds
     /// the pipe broken.
@@ -279,6 +283,7 @@ impl Engine {
         for mut w in std::mem::take(&mut running.waiting) {
             if w.slot.abandoned() {
                 (self.log)(&format!("remote #{} {}: given up by its client while it waited", w.number, w.name));
+                w.wait.given_up(&mut at);
                 continue;
             }
             match w.wait.poll(&mut at) {

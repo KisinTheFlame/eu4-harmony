@@ -230,6 +230,32 @@ fn an_advance_given_up_is_called_off() {
 }
 
 #[test]
+fn an_advance_given_up_once_the_game_paused_lets_its_stop_go() {
+    type Change = fn(&mut Fake);
+    let cases: [Change; 4] = [
+        |g| g.clock.time.pause = Pause::Player,
+        |g| g.clock.time.pause = Pause::Window,
+        |g| g.clock.game_events = 1,
+        // The date, reached before its day is heard.
+        |g| g.clock.time.date = START + 30 * DAY,
+    ];
+    for (case, change) in cases.into_iter().enumerate() {
+        let engine = Engine::new(quiet);
+        let mut game = Fake::default();
+        let reply = engine.submit(advance(30, None));
+        engine.run(&mut game, &Place::Game, PLENTY);
+        next_day(&engine, &mut game);
+        // The game pauses, and within the frame, before the safe point where
+        // the advance would answer, its client gives it up.
+        change(&mut game);
+        drop(reply);
+        engine.run(&mut game, &Place::Game, PLENTY);
+        assert!(game.clock.stops.lock().unwrap().is_empty(), "case {case}: the stop goes, not called off to pause the game later");
+        assert_eq!(game.clock.time.pause, Pause::Player, "case {case}");
+    }
+}
+
+#[test]
 fn an_advance_lets_its_stop_go_however_it_fails() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();

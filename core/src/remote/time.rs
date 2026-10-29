@@ -186,10 +186,14 @@ impl Advance {
     /// Answers with `response`, whatever it is: the stop goes, so that it
     /// never pauses the game after the advance is over.
     fn answer(&mut self, response: Response) -> Option<Response> {
+        self.let_go();
+        Some(response)
+    }
+
+    fn let_go(&mut self) {
         if let Some(stop) = self.stop.take() {
             stop.release();
         }
-        Some(response)
     }
 }
 
@@ -205,6 +209,19 @@ impl Wait for Advance {
                 self.answer(response)
             }
             Err(fail) => self.answer(Err(fail.into())),
+        }
+    }
+
+    /// Given up at a safe point where it would answer, as when the game
+    /// paused within the frame before (a game event came up, the player
+    /// paused), it does what answering does but answer: it leaves the
+    /// player's pause, and its stop goes rather than being called off, which
+    /// would pause the game a day after it is next resumed. So too once it
+    /// paused the game at its date, waiting for the day's event. Otherwise
+    /// its stop is called off as it goes.
+    fn given_up(&mut self, at: &mut Poll<'_>) {
+        if self.poll(at).is_none() && self.reached.is_some() {
+            self.let_go();
         }
     }
 
