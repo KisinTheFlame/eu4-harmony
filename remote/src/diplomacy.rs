@@ -34,9 +34,9 @@ group! {
     /// `call_allies` names, as ticking their call boxes in the declare war
     /// window does, with no land promised; the answer lists them in
     /// `called`, and in `passed_over` the allies the window would not let
-    /// the player call, with its reasons (when `call_allies` is `all`: an
-    /// ally named that it would not let the player call refuses the
-    /// declaration instead). Subjects and others who join anyway are in
+    /// the player call, or no longer lists once others are called, each
+    /// with the reasons (when `call_allies` is `all`: an ally named that it
+    /// would not let the player call refuses the declaration instead). Subjects and others who join anyway are in
     /// neither: they are in the war, as `country.get` shows. A costly declaration (no casus belli, a truce
     /// broken) is sent without the window's confirmation, and the game takes
     /// its costs. `rejected` when the game offers no such war goal, does not
@@ -62,7 +62,7 @@ group! {
         /// tags of those to call, separated by commas, such as `DUL,CND`,
         /// each one the window must let the player call.
         call_allies: Option<String>,
-    } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms; passed_over: the allies not called, each a country and the reasons, one a line";
+    } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms; passed_over: under call_allies all, every ally not called, each a country and the reasons, one a line";
     /// Offers a country the player is at war with a white peace, a peace
     /// treaty with no terms, in the war between them, as the peace view
     /// sends one. The game allows it to the war's leader, with the other
@@ -105,20 +105,23 @@ pub struct Outcome {
     /// called none.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub called: Option<Vec<CountryTag>>,
-    /// For a declaration of war, the allies the declare war window lists
-    /// that it would not let the player call, and why.
+    /// For a declaration of war, under `call_allies` `all`, every ally the
+    /// declare war window listed that it did not call, and why; empty
+    /// under `none` or allies named.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub passed_over: Option<Vec<PassedOver>>,
 }
 
 /// An ally a declaration of war did not call to arms: the declare war
-/// window's call box would not let the player tick it.
+/// window's call box would not let the player tick it, or the window no
+/// longer listed it once others were called.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PassedOver {
     pub country: CountryTag,
-    /// The reasons the call box's check gives, as its tooltip shows them,
-    /// one a line: for an AI ally, whether it would accept, and each factor
-    /// for and against.
+    /// Why, one a line: the reasons the call box's check gives, as its
+    /// tooltip shows them (for an AI ally, whether it would accept, and
+    /// each factor for and against); or that the window no longer lists it
+    /// once others are called.
     pub reasons: Vec<String>,
 }
 

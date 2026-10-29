@@ -171,7 +171,7 @@ pub enum Calls {
 
 /// A declaration of war sent: its ticket, the allies it calls to arms, and,
 /// calling every ally the window would let the player call ([`Calls::All`]),
-/// those it would not.
+/// every other ally the window listed, each with why it was not called.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Declaration {
     pub ticket: Ticket,
@@ -179,9 +179,10 @@ pub struct Declaration {
     pub passed_over: Vec<PassedOver>,
 }
 
-/// An ally the declare war window lists that it would not let the player
-/// call to arms, and why: the reasons its call box's check gives, as its
-/// tooltip shows them, one a line.
+/// An ally the declare war window listed that a declaration did not call to
+/// arms, and why, one a line: when the window would not let the player call
+/// it, the reasons its call box's check gives, as its tooltip shows them;
+/// when the window no longer lists it once others are called, that.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PassedOver {
     pub country: Tag,
@@ -483,13 +484,15 @@ fn refusal(said: Vec<String>, description: &[String]) -> String {
 /// does too. The check reads the window's enemies list, which [`Asking`]
 /// leaves empty; [`asked_by_enemy`] stands for it.
 ///
-/// [`Calls::All`] calls each ally the check allows, and passes over the
-/// rest, each with the check's reasons. [`Calls::Only`] calls those named, and refuses the declaration
-/// ([`Status::Rejected`], with the check's reasons) when the check does not
-/// allow one, it joins anyway, or the window no longer lists it once others
-/// are called: the window would not let the player tick its box. A named
-/// country the window does not list among the allies is
-/// [`Status::InvalidArgument`].
+/// [`Calls::All`] calls each ally the check allows, and passes over every
+/// other ally the window listed at first: one the check does not allow,
+/// with the check's reasons, and one the window no longer lists once others
+/// are called, with that ([`dropped_out`]). [`Calls::Only`] calls those
+/// named, and refuses the declaration ([`Status::Rejected`], with the
+/// check's reasons) when the check does not allow one, it joins anyway, or
+/// the window no longer lists it once others are called: the window would
+/// not let the player tick its box. A named country the window does not
+/// list among the allies is [`Status::InvalidArgument`].
 fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Calls) -> GResult<(Vec<Tag>, Vec<PassedOver>)> {
     let named = match calls {
         Calls::None => return Ok((Vec::new(), Vec::new())),
@@ -497,11 +500,9 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
         Calls::Only(named) => Some(named.as_slice()),
     };
     let listed = |s: &Side| ![player.index(), enemy.index()].contains(&s.country().index());
-    if let Some(named) = named {
-        let allies: Vec<Side> = window.gather()?.0.into_iter().filter(listed).collect();
-        if let Some(stranger) = named.iter().find(|t| !allies.iter().any(|s| s.country().index() == t.index())) {
-            return fail(Status::InvalidArgument, format!("{} is not among the allies the declare war window lists", letters(*stranger)));
-        }
+    let first: Vec<Tag> = window.gather()?.0.iter().filter(|s| listed(s)).map(Side::country).collect();
+    if let Some(stranger) = named.and_then(|named| named.iter().find(|t| !first.iter().any(|f| f.index() == t.index()))) {
+        return fail(Status::InvalidArgument, format!("{} is not among the allies the declare war window lists", letters(*stranger)));
     }
     let mut asked: Vec<i16> = Vec::new();
     let mut called = Vec::new();
@@ -509,10 +510,16 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
     for _ in 0..MOST_ON_A_SIDE {
         let (ours, theirs) = window.gather()?;
         let Some(ally) = ours.into_iter().filter(listed).find(|s| !asked.contains(&s.country().index())) else {
-            // Each named ally the window listed was asked, unless the window
-            // listed it no more once others were called.
-            if let Some(gone) = named.and_then(|named| named.iter().find(|t| !asked.contains(&t.index()))) {
-                return fail(Status::Rejected, dropped_out(*gone, &called));
+            // Each ally the window listed at first was asked, unless the
+            // window listed it no more once others were called.
+            let mut gone = first.iter().copied().filter(|t| !asked.contains(&t.index()));
+            match named {
+                Some(named) => {
+                    if let Some(gone) = gone.find(|t| named.iter().any(|n| n.index() == t.index())) {
+                        return fail(Status::Rejected, dropped_out(gone, &called));
+                    }
+                }
+                None => passed_over.extend(gone.map(|country| PassedOver { country, reasons: vec![dropped_out(country, &called)] })),
             }
             return Ok((called, passed_over));
         };
@@ -544,8 +551,8 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
     Err("the declare war window's allies kept growing".to_string().into())
 }
 
-/// Why a named ally cannot be called that the declare war window listed at
-/// first and no longer lists once `called` are called.
+/// Why an ally cannot be called that the declare war window listed at first
+/// and no longer lists once `called` are called.
 fn dropped_out(gone: Tag, called: &[Tag]) -> String {
     let once = match called {
         [] => String::new(),
@@ -1125,15 +1132,19 @@ mod tests {
     }
 
     #[test]
-    fn an_ally_named_that_the_window_lists_no_more_once_another_is_called_refuses_the_declaration() {
+    fn an_ally_the_window_lists_no_more_once_another_is_called_refuses_the_declaration_naming_it_or_is_passed_over() {
         let (tur, byz, dul, cnd, _) = tags();
         let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
         let fail = call_allies(&mut boxes, tur, byz, &Calls::Only(vec![dul, cnd])).unwrap_err();
         assert_eq!(fail.status, Status::Rejected);
         assert_eq!(fail.message, "the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it");
-        // Unnamed, it is only not called.
+        // Under every ally, it is passed over with that reason.
         let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
-        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), (vec![dul], vec![]));
+        let gone = PassedOver { country: cnd, reasons: vec!["the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it".into()] };
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), (vec![dul], vec![gone]));
+        // Calling another by name, it is only not called.
+        let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::Only(vec![dul])).unwrap(), (vec![dul], vec![]));
     }
 
     #[test]
