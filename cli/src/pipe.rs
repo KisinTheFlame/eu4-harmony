@@ -135,11 +135,12 @@ pub fn check(serving: &Serving, game: &str) -> Result<(), Failure> {
 
 /// The process serving `pipe`.
 ///
-/// The pipe gives the ID its server had when it made the pipe. Should that
-/// process end before it is opened here, another one could have been given
-/// the ID meanwhile, and would be the one checked. So once the process is
-/// open, which keeps its ID from going to another, the pipe must still be
-/// served: its server ended, the pipe would be broken.
+/// The pipe gives the ID the process serving it had when it made the pipe.
+/// Should that process end before it is opened here, another one could have
+/// been given the ID meanwhile, and would be the one checked. So once the
+/// process is open, which keeps its ID from going to another, the pipe must
+/// still be served: had the process serving it ended, the pipe would be
+/// broken.
 pub fn serving(pipe: &File) -> Result<Serving, Failure> {
     let mut process = 0;
     if unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut process) } == 0 {
