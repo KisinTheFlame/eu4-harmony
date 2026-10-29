@@ -178,8 +178,9 @@ enum Stage {
     /// Runs at the main menu's next frame.
     Asked,
     /// Ran there, and the game takes it up: what the main menu's frame saw
-    /// last, and since when.
-    Taken { seen: Steps, since: Instant },
+    /// last, and since when; and how many saves the game had begun to read
+    /// when it ran.
+    Taken { seen: Steps, since: Instant, loads: usize },
     Failed(String),
 }
 
@@ -363,12 +364,23 @@ pub fn last(_: Caller) -> u64 {
 /// outside a game's frame.
 pub fn launch(_: Caller, number: u64) -> Launch {
     attempt(|a| match a {
-        Some(Attempt { number: n, stage, .. }) if *n == number => match stage {
+        Some(Attempt { number: n, action, stage }) if *n == number => match stage {
             Stage::Failed(why) => Launch::Failed(why.clone()),
+            Stage::Taken { loads, .. } if matches!(action, Action::Load(..)) && unread(*loads) => Launch::Failed(UNREAD.into()),
             Stage::Asked | Stage::Taken { .. } => Launch::Waiting,
         },
         _ => Launch::Failed("another load or start was asked for".into()),
     })
+}
+
+const UNREAD: &str = "the game could not read the save: it starts a game anyway, from what it read of it (menu and session say where it is)";
+
+/// Whether the game read a save since a load ran, `loads` saves read
+/// before, and could not read it: its loader said it failed. The game goes
+/// on and starts a game from what it read (seen in the game with a save
+/// whose game state was damaged).
+fn unread(loads: usize) -> bool {
+    crate::saves::loads() > loads && !crate::saves::load_in_progress() && !crate::saves::last_load_read()
 }
 
 /// At the end of the main menu's frame: runs the load or start asked for,
@@ -378,18 +390,18 @@ pub fn launch(_: Caller, number: u64) -> Launch {
 pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
     enum Now {
         Run(Action),
-        Follow(Action, Steps, Instant),
+        Follow(Action, Steps, Instant, usize),
     }
     let Some((number, now)) = attempt(|a| match a {
         Some(Attempt { number, action, stage: Stage::Asked }) => Some((*number, Now::Run(action.clone()))),
-        Some(Attempt { number, action, stage: Stage::Taken { seen, since } }) => Some((*number, Now::Follow(action.clone(), *seen, *since))),
+        Some(Attempt { number, action, stage: Stage::Taken { seen, since, loads } }) => Some((*number, Now::Follow(action.clone(), *seen, *since, *loads))),
         _ => None,
     }) else {
         return;
     };
     let stage = match now {
         Now::Run(action) => run(m, frontend, &action),
-        Now::Follow(action, seen, since) => follow(m, frontend, &action, seen, since),
+        Now::Follow(action, seen, since, loads) => follow(m, frontend, &action, seen, since, loads),
     };
     attempt(|a| {
         if let Some(a) = a.as_mut().filter(|a| a.number == number) {
@@ -422,7 +434,7 @@ fn run(m: &Memory, frontend: usize, action: &Action) -> Stage {
     match result {
         Ok(seen) => {
             log!("menu: {} started", describe(action));
-            Stage::Taken { seen, since: Instant::now() }
+            Stage::Taken { seen, since: Instant::now(), loads: seen.loads }
         }
         Err(why) => {
             log!("menu: {} failed: {why}", describe(action));
@@ -434,13 +446,13 @@ fn run(m: &Memory, frontend: usize, action: &Action) -> Stage {
 /// Follows the game taking up a load or start that ran, at a main menu's
 /// frame: the main menu still shows, so the game has not switched to the
 /// game yet.
-fn follow(m: &Memory, frontend: usize, action: &Action, seen: Steps, since: Instant) -> Stage {
+fn follow(m: &Memory, frontend: usize, action: &Action, seen: Steps, since: Instant, loads: usize) -> Stage {
     let why = match steps(m, frontend) {
         // Not the main menu the framework knows: nothing is touched.
         Err(e) => e.to_string(),
         Ok(now) => match judge(&seen, &now, crate::saves::load_in_progress(), since.elapsed()) {
-            Judged::Step => return Stage::Taken { seen: now, since: Instant::now() },
-            Judged::Wait => return Stage::Taken { seen, since },
+            Judged::Step => return Stage::Taken { seen: now, since: Instant::now(), loads },
+            Judged::Wait => return Stage::Taken { seen, since, loads },
             Judged::Open => {
                 // The single player setup was left, by the player: the page
                 // stays.

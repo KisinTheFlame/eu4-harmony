@@ -22,7 +22,8 @@ group! {
     /// saved as, as the continue box does. Only from the main menu's first
     /// page (at startup, once menu says main_menu). Answers once the game is
     /// ready, however long the save takes to load; rejected when the game
-    /// does not take the load up, or begins another game than the save's.
+    /// does not take the load up, cannot read the save (it then starts a
+    /// game from what it read), or begins another game than the save's.
     anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,

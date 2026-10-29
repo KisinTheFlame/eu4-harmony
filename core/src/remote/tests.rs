@@ -513,6 +513,19 @@ fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
 }
 
 #[test]
+fn a_load_the_game_could_not_read_is_refused_though_a_game_comes() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    // The game's loader failed, and the game starts from what it read.
+    *game.launch.lock().unwrap() = game::menu::Launch::Failed("the game could not read the save".into());
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&load), json!({"ok": false, "error": {"code": "rejected", "message": "the game could not read the save"}}));
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11"]);
+}
+
+#[test]
 fn returning_to_the_main_menu_is_answered_before_the_process_ends() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();

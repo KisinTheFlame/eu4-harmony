@@ -29,7 +29,7 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29 
 3. writes `-1` to `setup+0x35c`, the save's path to `setup+0x338`, the cloud flag to `setup+0x358`, and, with a path, the player's tag to `setup+0xc48`, and calls `0x1130f40(setup)`: it loads the chosen save (`0x1132ca0`) and selects `setup+0xc48`'s country (an ironman save: the world's player, through `0x111cb80`);
 4. makes that country the world's player (`0x763840`) and starts (`0x1120740(setup, 1)`).
 
-`game::menu::load` does the same with the save asked for, taking the player's tag from the save's header (below) instead of the continue information. Tested: Castilla-5 (an ironman save, 1470.3.13) and a compressed text save with a Chinese name (1445.2.20) were loaded and played as their countries.
+`game::menu::load` does the same with the save asked for, taking the player's tag from the save's header (below) instead of the continue information. Tested with a copy of a compressed text save whose game state no longer inflates: the save loader failed (its success flag not set; `saves` logged that the load did not establish the current world), the start command ran anyway, and the game began with the save's date and player, the player's country not playable (no controllable player at the first frame). Tested: Castilla-5 (an ironman save, 1470.3.13) and a compressed text save with a Chinese name (1445.2.20) were loaded and played as their countries.
 
 ## Starting a game as a country
 

@@ -112,19 +112,17 @@ struct Starting {
 
 impl Wait for Starting {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
-        if let Some(game) = at.game.as_deref_mut() {
-            return match game.session() {
-                Ok(s) => Some(match self.expected.and_then(|e| other_game(&e, &s)) {
-                    Some(why) => Err(Error::new(Code::Rejected, why)),
-                    None => Ok(Answer::Menu((self.answer)(session::answer(s)))),
-                }),
-                Err(fail) if fail.status == Status::NotReady => None,
-                Err(fail) => Some(Err(fail.into())),
-            };
+        if let Launch::Failed(why) = (self.probe)() {
+            return Some(Err(Error::new(Code::Rejected, why)));
         }
-        match (self.probe)() {
-            Launch::Waiting => None,
-            Launch::Failed(why) => Some(Err(Error::new(Code::Rejected, why))),
+        let game = at.game.as_deref_mut()?;
+        match game.session() {
+            Ok(s) => Some(match self.expected.and_then(|e| other_game(&e, &s)) {
+                Some(why) => Err(Error::new(Code::Rejected, why)),
+                None => Ok(Answer::Menu((self.answer)(session::answer(s)))),
+            }),
+            Err(fail) if fail.status == Status::NotReady => None,
+            Err(fail) => Some(Err(fail.into())),
         }
     }
 }
