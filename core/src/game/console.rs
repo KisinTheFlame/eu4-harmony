@@ -1,7 +1,7 @@
 //! The game console (GLOSSARY): running a command as the player types it
 //! into the console window, and what it printed.
 //!
-//! The window cuts the line it reads into words and hands them to the
+//! The window cuts the line it reads into words and hands them to the game
 //! console's run function, which looks the first word up among the commands,
 //! runs it with the rest, and answers whether it succeeded and the text the
 //! window then prints. The framework cuts the command the same way and calls
@@ -36,7 +36,7 @@ const TRIMMED: [char; 4] = [' ', '\t', '\r', '\n'];
 
 pub fn points() -> Vec<Point> {
     vec![
-        // The getter, making the console with its flags cleared.
+        // The getter, making the game console with its flags cleared.
         Point::keep(
             GET,
             "48 83 ec 28 48 8b 05 8d 06 c7 01 48 85 c0 75 3d 8d 48 48 e8 fc bd 34 01 33 c9 48 89 44 24 30 48 89 05 72 06 c7 01",
@@ -80,7 +80,7 @@ pub fn run(_: Caller, command: &str) -> GResult<String> {
 fn run_words(m: &Memory, words: &Words) -> GResult<(bool, Vec<u8>)> {
     let console = m.call(m.at(GET), &[])?;
     if console == 0 {
-        return fail(Status::Unavailable, "the game has no console");
+        return fail(Status::Unavailable, "the game has no game console");
     }
     let mut answer = [0u64; result::SIZE / 8];
     let at = answer.as_mut_ptr() as usize;
