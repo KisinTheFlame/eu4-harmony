@@ -980,7 +980,7 @@ mod tests {
         let goals = [
             goal(Some("cb_claim"), Some("take_claim"), Some(151), None, "征服君士坦丁堡"),
             goal(Some("cb_restore_personal_union"), Some("take_capital_personal_union"), None, Some(crate::remote::fake::byz()), "Restore the Union with Byzantium"),
-            goal(None, None, None, None, "No Casus Belli"),
+            goal(None, Some("nowargoal"), None, None, "无战争目标"),
         ];
         assert_eq!(war_goals_json(&goals), serde_json::from_str::<serde_json::Value>(WAR_GOALS_JSON).unwrap());
     }

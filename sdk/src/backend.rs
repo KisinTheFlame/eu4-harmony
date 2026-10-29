@@ -962,7 +962,7 @@ mod tests {
                     target: Some(CountryId(BYZ)),
                     name: "Restore the Union with Byzantium".into(),
                 },
-                WarGoal { casus_belli: None, war_goal: None, province: None, target: None, name: "No Casus Belli".into() },
+                WarGoal { casus_belli: None, war_goal: Some("nowargoal".into()), province: None, target: None, name: "无战争目标".into() },
             ]
         );
         assert_eq!(backend.war_goals(CountryId(3)).unwrap_err().status, Status::NotFound);
@@ -971,9 +971,9 @@ mod tests {
         // Without a casus belli, by the name the core takes for it, calling
         // allies: every one, or those listed.
         assert_eq!(backend.declare_war(CountryId(BYZ), &goals[2], &CallAllies::All).unwrap(), Declaration { ticket: Ticket(5), called: vec![CountryId(WAL)] });
-        assert_eq!(*DECLARED.lock().unwrap(), format!("{BYZ} none \"\" 0 0 0 []"));
+        assert_eq!(*DECLARED.lock().unwrap(), format!("{BYZ} none \"nowargoal\" 0 0 0 []"));
         backend.declare_war(CountryId(BYZ), &goals[2], &CallAllies::Only(vec![CountryId(WAL)])).unwrap();
-        assert_eq!(*DECLARED.lock().unwrap(), format!("{BYZ} none \"\" 0 0 2 [{WAL}]"));
+        assert_eq!(*DECLARED.lock().unwrap(), format!("{BYZ} none \"nowargoal\" 0 0 2 [{WAL}]"));
     }
 
     #[test]

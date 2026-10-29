@@ -192,7 +192,7 @@ mod tests {
             answer(&reply),
             json!({"ok": true, "result": [
                 {"casus_belli": "cb_claim", "war_goal": "take_claim", "province": 151, "target": null, "name": "Conquer Constantinople"},
-                {"casus_belli": "none", "war_goal": "take_province_no_cb", "province": null, "target": null, "name": "No casus belli"},
+                {"casus_belli": "none", "war_goal": "nowargoal", "province": null, "target": null, "name": "No War Goal"},
             ]})
         );
     }

@@ -386,8 +386,9 @@ pub struct GameApi {
     /// `country`, as the declare war window lists them, as UTF-8 JSON (ADR
     /// 0018): `[{"casus_belli": "cb_claim", "war_goal": "take_claim",
     /// "province": 151, "target": null, "name": "..."}, ...]`. `casus_belli`
-    /// is its casus belli's key, `none` for declaring war without one, which
-    /// comes last when the game offers it; `war_goal` its type's key or null;
+    /// is its casus belli's key, [`NO_CASUS_BELLI`] (`none`) for declaring
+    /// war without one, which comes last when the game offers it, its war
+    /// goal `nowargoal` in the game seen; `war_goal` its type's key or null;
     /// `province` and `target` (a [`CountryId`]) what it is about, or null;
     /// `name` as the window shows it. `abi/json/war_goals.json` is a whole
     /// one. [`NOT_FOUND`] when there is no such country, [`INVALID_ARGUMENT`]

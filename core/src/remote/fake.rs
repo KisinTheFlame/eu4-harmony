@@ -570,7 +570,7 @@ pub fn war_goals() -> Vec<game::diplomacy::WarGoal> {
             target: None,
             name: "Conquer Constantinople".into(),
         },
-        WarGoal { casus_belli: None, war_goal: Some("take_province_no_cb".into()), province: None, target: None, name: "No casus belli".into() },
+        WarGoal { casus_belli: None, war_goal: Some("nowargoal".into()), province: None, target: None, name: "No War Goal".into() },
     ]
 }
 
