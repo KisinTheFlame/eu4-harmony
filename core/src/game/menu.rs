@@ -355,8 +355,9 @@ fn first_page(m: &Memory) -> GResult<usize> {
 /// header what the game should come to.
 pub fn load(_: Caller, name: &str) -> GResult<Expected> {
     let m = game()?;
-    let file = save_file(name)?;
+    // Where the game is first: in a game, any save is refused alike.
     first_page(m)?;
+    let file = save_file(name)?;
     let header = save_file::read(&save_games()?.join(&file)).map_err(|e| super::Fail { status: Status::Rejected, message: format!("the save cannot be read: {e}") })?;
     let Some(letters) = header.player else {
         return fail(Status::Rejected, "the save has no country to play");
