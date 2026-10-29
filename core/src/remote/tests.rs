@@ -82,7 +82,7 @@ fn every_capability_runs_at_a_game_frame() {
                     "tag": "TUR", "treasury": 125.5, "manpower": 22600, "max_manpower": 30250, "stability": 1.0, "prestige": -12.345,
                     "power": {"adm": 50, "dip": 60, "mil": 70},
                     "wars": [{"name": "Ottoman Conquest of Constantinople", "attackers": ["TUR", "WAL"], "defenders": ["BYZ"]}],
-                    "relations": [{"kind": "subject", "country": "WAL"}, {"kind": "rival", "country": "BYZ"}],
+                    "relations": [{"kind": "subject", "country": "WAL", "subject_type": "vassal"}, {"kind": "rival", "country": "BYZ"}],
                 }))
             }),
         ),

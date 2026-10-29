@@ -12,8 +12,8 @@
   ],
   "relations": [
     {"kind": "ally", "country": 72058886828085069},
-    {"kind": "subject", "country": 72058891122332244},
-    {"kind": "overlord", "country": 72058255468287316},
+    {"kind": "subject", "country": 72058891122332244, "subject_type": "march"},
+    {"kind": "overlord", "country": 72058255468287316, "subject_type": "vassal"},
     {"kind": "rival", "country": 72058281237828936}
   ]
 }

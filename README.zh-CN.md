@@ -44,7 +44,7 @@ cd "<游戏目录>\eu4-harmony"
 | --- | --- |
 | 主菜单 | `menu`（游戏在哪里）、`menu.saves`、`menu.load`、`menu.start`、`menu.return` |
 | 会话与时间 | `session`、`time`、`time.pause`、`time.resume`、`time.speed`、`time.advance`（让若干天过去并等待，带回途中的事件） |
-| 国家与省份 | `country.get`（国库、人力、稳定度、威望、君主点数、战争、盟友、附属国、宗主国、宿敌）、`country.hostile`、`province.list`、`province.get`（名字、所有者、发展度、地形、要塞、建筑、此地能招募什么）、`province.neighbors` |
+| 国家与省份 | `country.get`（国库、人力、稳定度、威望、君主点数、战争、盟友、附属国与宗主国及附属类型、宿敌）、`country.hostile`、`province.list`、`province.get`（名字、所有者、发展度、地形、要塞、建筑、此地能招募什么）、`province.neighbors` |
 | 军队 | `army.list`、`army.get`、`army.in_province`、`army.route`、`army.find_route`、`army.can_enter`、`army.strait_open`、`army.can_attack`、`army.move`、`army.stop`、`army.selected` |
 | 招募 | `recruit`（在一个省份招募某一类的一个团或一艘船） |
 | 事件与提议 | `question.list`、`question.answer`（等待玩家回答的游戏事件）；`offer.list`、`offer.accept`、`offer.decline`（其他国家的提议） |

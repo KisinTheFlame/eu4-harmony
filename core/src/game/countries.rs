@@ -4,7 +4,7 @@ use super::{context, country, fail, game, span, world, Caller, Ctx, GResult, Sta
 use crate::{
     game_string,
     memory::Memory,
-    objects::campaign::{classes, country as fields, list, war, world as world_fields},
+    objects::campaign::{classes, country as fields, country_diplomacy, list, subject_relation, subject_type, war, world as world_fields},
     unicode::game_text,
 };
 use std::collections::BTreeSet;
@@ -72,10 +72,10 @@ pub struct War {
 pub enum RelationKind {
     /// They are allied.
     Ally,
-    /// The other is its subject (a vassal, a march, a personal union, a
-    /// tributary and the like).
+    /// The other is its subject, of the relation's subject type.
     Subject,
-    /// The other is its overlord.
+    /// The other is its overlord, and it is the relation's subject type to
+    /// it.
     Overlord,
     /// It has chosen the other as a rival.
     Rival,
@@ -92,10 +92,15 @@ impl RelationKind {
 }
 
 /// One of a country's diplomatic relations: what the other country is to it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Relation {
     pub kind: RelationKind,
     pub country: Tag,
+    /// For a subject or an overlord, the kind of subject the subject is: the
+    /// key `common/subject_types` gives it (`vassal`, `march`,
+    /// `personal_union`, `tributary_state`, or one a mod adds). None for the
+    /// other kinds.
+    pub subject_type: Option<String>,
 }
 
 /// The most tags a list of a country's, or wars, are believed to hold.
@@ -109,12 +114,22 @@ pub fn snapshot(_: Caller, tag: Tag) -> GResult<Country> {
     let c = country(m, &ctx, tag)?;
     let fixed = |at: usize| m.i32(c + at);
     let mut relations = Vec::new();
-    let mut add = |kind: RelationKind, tags: Vec<Tag>| relations.extend(tags.into_iter().map(|country| Relation { kind, country }));
-    add(RelationKind::Ally, checked(m, &ctx, list_tags(m, c + fields::ALLIES)?)?);
-    add(RelationKind::Subject, checked(m, &ctx, vector_tags(m, c + fields::SUBJECTS)?)?);
-    let overlord = Tag(m.u64(c + fields::OVERLORD)?);
-    add(RelationKind::Overlord, checked(m, &ctx, Some(overlord).filter(|t| t.valid()).into_iter().collect())?);
-    add(RelationKind::Rival, checked(m, &ctx, rival_tags(m, c)?)?);
+    let mut add = |kind: RelationKind, country: Tag, subject_type: Option<String>| relations.push(Relation { kind, country, subject_type });
+    for ally in checked(m, &ctx, list_tags(m, c + fields::ALLIES)?)? {
+        add(RelationKind::Ally, ally, None);
+    }
+    for subject in checked(m, &ctx, vector_tags(m, c + fields::SUBJECTS)?)? {
+        match subject_of(m, country(m, &ctx, subject)?)? {
+            Some((overlord, key)) if overlord == tag => add(RelationKind::Subject, subject, Some(key)),
+            _ => return Err(format!("{:#x} is no subject of {:#x}", subject.0, tag.0).into()),
+        }
+    }
+    if let Some((overlord, key)) = subject_of(m, c)? {
+        add(RelationKind::Overlord, checked(m, &ctx, vec![overlord])?[0], Some(key));
+    }
+    for rival in checked(m, &ctx, rival_tags(m, c)?)? {
+        add(RelationKind::Rival, rival, None);
+    }
     Ok(Country {
         tag,
         treasury: fixed(fields::TREASURY)?,
@@ -126,6 +141,42 @@ pub fn snapshot(_: Caller, tag: Tag) -> GResult<Country> {
         wars: wars_of(m, &ctx, tag)?,
         relations,
     })
+}
+
+/// The overlord of the country at `country` and the key of the subject type
+/// it is to it, read as the game's own getter reads them; None when it has no
+/// overlord.
+fn subject_of(m: &Memory, country: usize) -> GResult<Option<(Tag, String)>> {
+    let overlord = Tag(m.u64(country + fields::OVERLORD)?);
+    if !overlord.valid() {
+        return Ok(None);
+    }
+    if overlord.index() < 0 {
+        return Err(format!("{:#x} is no overlord's tag", overlord.0).into());
+    }
+    let record = m.ptr(country + fields::RELATIONS)? + overlord.index() as usize * fields::RELATION_SIZE;
+    let diplomacy = m.ptr(record)?;
+    let other = Tag(m.u64(record + fields::RELATION_OTHER)?).index() as i32;
+    let items = m.ptr(diplomacy + country_diplomacy::SUBJECTS)?;
+    let count = m.i32(diplomacy + country_diplomacy::SUBJECT_COUNT)?;
+    if !(0..=MOST as i32).contains(&count) {
+        return Err("subject relation array bound".to_string().into());
+    }
+    for item in (0..count as usize).map(|i| items + i * country_diplomacy::SUBJECT_SIZE) {
+        if m.i32(item)? != other {
+            continue;
+        }
+        let relation = m.ptr(item + country_diplomacy::SUBJECT_RELATION)?;
+        if relation == 0 || m.ptr(relation)? != m.at(classes::SUBJECT_RELATION) {
+            break;
+        }
+        let kind = m.ptr(relation + subject_relation::TYPE)?;
+        if kind == 0 {
+            break;
+        }
+        return Ok(Some((overlord, game_text::to_utf8(&game_string::read(m, kind + subject_type::KEY)?))));
+    }
+    Err(format!("no subject relation to its overlord {:#x}", overlord.0).into())
 }
 
 /// The tags, each checked to be a country.
@@ -252,5 +303,41 @@ mod tests {
         assert_eq!(wars_of(&m, &ctx, c).unwrap(), [first_war]);
         assert!(wars_of(&m, &ctx, b).is_err());
         assert_eq!(wars_of(&m, &ctx, game_tag(b"DDD", 4)).unwrap(), []);
+    }
+
+    /// A subject whose diplomacy keeps two subject relations, one to another
+    /// country and one to its overlord: the overlord's is read, with its
+    /// subject type's key; a country without an overlord has none; a
+    /// relation that is not of the game's class fails.
+    #[test]
+    fn a_subject_s_type_is_read_as_the_game_reads_it() {
+        let m = Memory { base: 0x1_4000_0000 };
+        let overlord = game_tag(b"TUR", 2);
+        let mut kind = vec![0u64; (subject_type::KEY + game_string::OBJECT) / 8];
+        kind[subject_type::KEY / 8] = u64::from_le_bytes(*b"march\0\0\0");
+        kind[(subject_type::KEY + game_string::SIZE) / 8] = 5;
+        kind[(subject_type::KEY + game_string::CAPACITY) / 8] = game_string::INLINE as u64;
+        let mut relation = vec![0u64; subject_relation::TYPE / 8 + 1];
+        relation[0] = m.at(classes::SUBJECT_RELATION) as u64;
+        relation[subject_relation::TYPE / 8] = kind.as_ptr() as u64;
+        let items = [5, 0, overlord.index() as u64, relation.as_ptr() as u64];
+        let mut diplomacy = vec![0u64; country_diplomacy::SUBJECT_COUNT / 8 + 1];
+        diplomacy[country_diplomacy::SUBJECTS / 8] = items.as_ptr() as u64;
+        diplomacy[country_diplomacy::SUBJECT_COUNT / 8] = 2 << 32;
+        let mut records = vec![0u64; fields::RELATION_SIZE * 3 / 8];
+        let record = overlord.index() as usize * fields::RELATION_SIZE / 8;
+        records[record] = diplomacy.as_ptr() as u64;
+        records[record + fields::RELATION_OTHER / 8] = overlord.0;
+        let country = |overlord: u64| {
+            let mut object = vec![0u64; fields::OVERLORD / 8 + 1];
+            object[fields::OVERLORD / 8] = overlord;
+            object[fields::RELATIONS / 8] = records.as_ptr() as u64;
+            object
+        };
+        let subject = country(overlord.0);
+        assert_eq!(subject_of(&m, subject.as_ptr() as usize).unwrap(), Some((overlord, "march".to_string())));
+        assert_eq!(subject_of(&m, country(0).as_ptr() as usize).unwrap(), None);
+        relation[0] = m.at(classes::WAR) as u64;
+        assert!(subject_of(&m, subject.as_ptr() as usize).is_err());
     }
 }

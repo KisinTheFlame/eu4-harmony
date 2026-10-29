@@ -68,6 +68,7 @@ fn snapshot(c: &layer::Country) -> Country {
                     Kind::Rival => RelationKind::Rival,
                 },
                 country: tag(r.country),
+                subject_type: r.subject_type.clone(),
             })
             .collect(),
     }

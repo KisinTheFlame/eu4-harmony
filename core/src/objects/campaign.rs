@@ -38,6 +38,8 @@ pub mod classes {
     /// for none, `---`, has a class of its own.
     pub const UNIT_TYPE: usize = 0x1ce3830;
     pub const WAR: usize = 0x1d1f768;
+    /// A subject relation (see [`super::subject_relation`]).
+    pub const SUBJECT_RELATION: usize = 0x1c81758;
     /// The window of one of the game's events, as the map manager shows it
     /// to the player (see [`super::event_window`]).
     pub const EVENT_WINDOW: usize = 0x1d590f8;
@@ -137,11 +139,43 @@ pub mod country {
     pub const ALLIES: usize = 0x19b8;
     /// Its subjects' tags, a vector (begin, end).
     pub const SUBJECTS: usize = 0x1a18;
+    /// How it stands to each other country: a pointer to records of
+    /// [`RELATION_SIZE`] bytes by the other's index, each starting with a
+    /// pointer to a [`super::country_diplomacy`] and holding the other's tag
+    /// at [`RELATION_OTHER`].
+    pub const RELATIONS: usize = 0x1510;
+    pub const RELATION_SIZE: usize = 0x48;
+    pub const RELATION_OTHER: usize = 0x10;
     /// The countries it rivals: the first of a chain of nodes, each with the
     /// rival's tag at [`RIVAL_TAG`] and the next node at [`RIVAL_NEXT`].
     pub const RIVALS: usize = 0x2248;
     pub const RIVAL_TAG: usize = 0x10;
     pub const RIVAL_NEXT: usize = 0x28;
+}
+
+/// A country's diplomacy, which its [`country::RELATIONS`] records point to.
+pub mod country_diplomacy {
+    /// The subject relations it takes part in, by the other country: a
+    /// pointer to [`SUBJECT_SIZE`]-byte items, each the other country's index
+    /// (i32) and at [`SUBJECT_RELATION`] a [`super::subject_relation`], and
+    /// their count (i32).
+    pub const SUBJECTS: usize = 0x128;
+    pub const SUBJECT_COUNT: usize = 0x134;
+    pub const SUBJECT_SIZE: usize = 16;
+    pub const SUBJECT_RELATION: usize = 8;
+}
+
+/// What a subject is to its overlord, of [`classes::SUBJECT_RELATION`] (a
+/// `dependency` in saves).
+pub mod subject_relation {
+    /// Its [`super::subject_type`].
+    pub const TYPE: usize = 0x40;
+}
+
+/// A kind of subject, one that `common/subject_types` defines.
+pub mod subject_type {
+    /// Its key there (`vassal`), a `std::string` (`crate::game_string`).
+    pub const KEY: usize = 0x10;
 }
 
 /// A war going on, of [`classes::WAR`].
@@ -513,6 +547,34 @@ pub fn points() -> Vec<Point> {
         // Walking a country's allies, as the AI does.
         Point::keep(0x3a37a7usize, "48 8b bf b8 19 00 00 48 85 ff 0f 84 19 07 00 00 44 8b 45 d8 0f 1f 44 00 00 48 8b 0f 48 8b 7f 10", "country allies")
             .uses(&[country::ALLIES, list::ITEM, list::NEXT]),
+        // The subject type a country is to its overlord, as the game's getter
+        // finds it: its record of its overlord, the record's diplomacy, the
+        // subject relation it keeps for the overlord, that relation's type.
+        Point::keep(
+            0x3d79f0usize,
+            "80 b9 f7 18 00 00 00 74 4c 48 8b 81 f0 18 00 00 48 c1 e8 20 98 4c 8d 04 c0 48 8b 81 10 15 00 00 4a 8b 14 c0 4a 8b 44 c0 10 \
+             48 c1 e8 20 98 48 8b 8a 28 01 00 00 4c 63 82 34 01 00 00 49 c1 e0 04 4c 03 c1 49 3b c8 74 0d 39 01 74 0c 48 83 c1 10 49 3b c8 \
+             75 f3 33 c0 c3 48 8b 41 08 48 85 c0 74 f4 48 8b 40 40 c3",
+            "subject type",
+        )
+        .uses(&[
+            country::OVERLORD + tag::VALID / 8,
+            country::OVERLORD,
+            country::RELATIONS,
+            country::RELATION_OTHER,
+            country_diplomacy::SUBJECTS,
+            country_diplomacy::SUBJECT_COUNT,
+            country_diplomacy::SUBJECT_SIZE,
+            country_diplomacy::SUBJECT_RELATION,
+            subject_relation::TYPE,
+        ]),
+        // A subject relation made: its class, its subject type.
+        Point::keep(0x4e5d4busize, "48 8d 05 06 ba 79 01 48 89 03 4c 89 63 40", "subject relation")
+            .uses(&[classes::SUBJECT_RELATION, subject_relation::TYPE]),
+        // A subject relation's writer in saves: its subject type's key, then
+        // the token of `subject_type`.
+        Point::keep(0xa62b6cusize, "48 8b 7b 40 48 85 ff 74 2c 48 83 c7 10 ba 2a 35 00 00", "subject type key")
+            .uses(&[subject_relation::TYPE, subject_type::KEY]),
         // A country's diplomacy cleared: no subjects, their storage kept.
         Point::keep(0x2e2ca7usize, "48 8b 87 18 1a 00 00 48 89 87 20 1a 00 00", "country subjects").uses(&[country::SUBJECTS, country::SUBJECTS + 8]),
         // The `is_rival` trigger walking the country's rivals.

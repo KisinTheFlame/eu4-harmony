@@ -92,7 +92,7 @@ impl countries::Layer for Fake {
         Ok((a, b) == (tur(), byz()))
     }
 
-    /// The Ottomans at war with Byzantium, with Wallachia as their subject;
+    /// The Ottomans at war with Byzantium, with Wallachia as their vassal;
     /// Byzantium with nothing; [`wallachia`].
     fn snapshot(&mut self, country: Tag) -> GResult<game::countries::Country> {
         use game::countries::{Country, Relation, RelationKind, War};
@@ -116,19 +116,22 @@ impl countries::Layer for Fake {
             prestige: -12_345,
             power: [50, 60, 70],
             wars: vec![War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal], defenders: vec![byz()] }],
-            relations: vec![Relation { kind: RelationKind::Subject, country: wal }, Relation { kind: RelationKind::Rival, country: byz() }],
+            relations: vec![
+                Relation { kind: RelationKind::Subject, country: wal, subject_type: Some("vassal".into()) },
+                Relation { kind: RelationKind::Rival, country: byz(), subject_type: None },
+            ],
         })
     }
 }
 
 /// Wallachia, the Ottomans' subject in their war on Byzantium, made up to
-/// hold a relation of every kind (Moldavia its ally, Transylvania a subject
+/// hold a relation of every kind (Moldavia its ally, Transylvania a march
 /// of its own, the Ottomans its overlord, Hungary its rival) and a war on
 /// either side: Hungary's war on it besides.
 pub fn wallachia() -> game::countries::Country {
     use game::countries::{Country, Relation, RelationKind, War};
     let (mol, tra, hun) = (game_tag(b"MOL", 301), game_tag(b"TRA", 302), game_tag(b"HUN", 160));
-    let relation = |kind, country| Relation { kind, country };
+    let relation = |kind, country, subject_type: Option<&str>| Relation { kind, country, subject_type: subject_type.map(Into::into) };
     Country {
         tag: wal(),
         treasury: 31_250,
@@ -142,10 +145,10 @@ pub fn wallachia() -> game::countries::Country {
             War { name: "Hungarian-Wallachian War".into(), attackers: vec![hun], defenders: vec![wal(), mol] },
         ],
         relations: vec![
-            relation(RelationKind::Ally, mol),
-            relation(RelationKind::Subject, tra),
-            relation(RelationKind::Overlord, tur()),
-            relation(RelationKind::Rival, hun),
+            relation(RelationKind::Ally, mol, None),
+            relation(RelationKind::Subject, tra, Some("march")),
+            relation(RelationKind::Overlord, tur(), Some("vassal")),
+            relation(RelationKind::Rival, hun, None),
         ],
     }
 }

@@ -737,10 +737,15 @@ mod tests {
         assert_eq!(c.power, Power { adm: 120, dip: 95, mil: 143 });
         let (tur, byz, mol, tra, hun) =
             (CountryId(72058255468287316), CountryId(72057735777769794), CountryId(72058886828085069), CountryId(72058891122332244), CountryId(72058281237828936));
-        let relation = |kind, country| Relation { kind, country };
+        let relation = |kind, country, subject_type: Option<&str>| Relation { kind, country, subject_type: subject_type.map(Into::into) };
         assert_eq!(
             c.relations,
-            [relation(RelationKind::Ally, mol), relation(RelationKind::Subject, tra), relation(RelationKind::Overlord, tur), relation(RelationKind::Rival, hun)]
+            [
+                relation(RelationKind::Ally, mol, None),
+                relation(RelationKind::Subject, tra, Some("march")),
+                relation(RelationKind::Overlord, tur, Some("vassal")),
+                relation(RelationKind::Rival, hun, None)
+            ]
         );
         let war = |name: &str, attackers: &[CountryId], defenders: &[CountryId]| War { name: name.into(), attackers: attackers.to_vec(), defenders: defenders.to_vec() };
         assert_eq!(
@@ -754,7 +759,8 @@ mod tests {
     }
 
     /// A newer core may add members and relation kinds: the snapshot still
-    /// reads, a new kind as unknown (ADR 0018).
+    /// reads, a new kind as unknown (ADR 0018). An older one, without subject
+    /// types, reads too.
     #[test]
     fn a_newer_core_s_country_still_reads() {
         let mut json: serde_json::Value = serde_json::from_str(COUNTRY_JSON).unwrap();
@@ -765,6 +771,12 @@ mod tests {
         let kinds: Vec<_> = c.relations.iter().map(|r| r.kind).collect();
         assert_eq!(kinds, [RelationKind::Ally, RelationKind::Unknown, RelationKind::Overlord, RelationKind::Rival]);
         assert_eq!((c.wars.len(), c.wars[0].name.as_str()), (2, "Ottoman Conquest of Constantinople"));
+        let mut older: serde_json::Value = serde_json::from_str(COUNTRY_JSON).unwrap();
+        for relation in older["relations"].as_array_mut().unwrap() {
+            relation.as_object_mut().unwrap().remove("subject_type");
+        }
+        let c: Country = serde_json::from_value::<CountryJson>(older).unwrap().into();
+        assert!(c.relations.iter().all(|r| r.subject_type.is_none()));
     }
 
     #[test]

@@ -402,18 +402,25 @@ pub struct War {
 }
 
 /// What another country is to a country.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Relation {
     pub kind: RelationKind,
     pub country: CountryId,
+    /// For a subject or an overlord, the kind of subject the subject is: the
+    /// key `common/subject_types` gives it (`vassal`, `march`,
+    /// `personal_union`, `tributary_state`, or one a mod adds). None for the
+    /// other kinds.
+    pub subject_type: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationKind {
     Ally,
-    /// A vassal, a march, a personal union, a tributary and the like.
+    /// The other is the country's subject, of the relation's subject type.
     Subject,
+    /// The other is the country's overlord, and the country is the
+    /// relation's subject type to it.
     Overlord,
     /// The country has chosen the other as a rival.
     Rival,
@@ -447,6 +454,8 @@ struct WarJson {
 struct RelationJson {
     kind: RelationKind,
     country: u64,
+    #[serde(default)]
+    subject_type: Option<String>,
 }
 
 impl From<CountryJson> for Country {
@@ -461,7 +470,7 @@ impl From<CountryJson> for Country {
             prestige: c.prestige,
             power: c.power,
             wars: c.wars.into_iter().map(|w| War { name: w.name, attackers: ids(w.attackers), defenders: ids(w.defenders) }).collect(),
-            relations: c.relations.into_iter().map(|r| Relation { kind: r.kind, country: CountryId(r.country) }).collect(),
+            relations: c.relations.into_iter().map(|r| Relation { kind: r.kind, country: CountryId(r.country), subject_type: r.subject_type }).collect(),
         }
     }
 }

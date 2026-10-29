@@ -15,12 +15,12 @@ group! {
         other: CountryTag,
     } -> bool, "whether they are hostile";
     /// One read of a country: its treasury, manpower, stability, prestige,
-    /// monarch points, the wars it takes part in, and its allies, subjects,
-    /// overlord and rivals.
+    /// monarch points, the wars it takes part in, and its allies, subjects
+    /// (each with its subject type), overlord and rivals.
     game Get "get" {
         /// The country.
         country: CountryTag,
-    } -> Country, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first) and relations (each a kind, ally, subject, overlord or rival, and a country)";
+    } -> Country, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first) and relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state)";
 }
 
 /// A country at one moment.
@@ -65,10 +65,16 @@ pub struct War {
 }
 
 /// What another country is to this one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Relation {
     pub kind: RelationKind,
     pub country: CountryTag,
+    /// For a subject or an overlord, the kind of subject the subject is: the
+    /// key `common/subject_types` gives it (`vassal`, `march`,
+    /// `personal_union`, `tributary_state`, or one a mod adds). Left out for
+    /// the other kinds.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub subject_type: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,10 +82,10 @@ pub struct Relation {
 pub enum RelationKind {
     /// They are allied.
     Ally,
-    /// The other is its subject: a vassal, a march, a personal union, a
-    /// tributary and the like.
+    /// The other is its subject, of the relation's `subject_type`.
     Subject,
-    /// The other is its overlord.
+    /// The other is its overlord, and it is the relation's `subject_type` to
+    /// it.
     Overlord,
     /// It has chosen the other as a rival.
     Rival,

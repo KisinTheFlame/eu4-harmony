@@ -44,7 +44,7 @@ The capabilities, by group:
 | --- | --- |
 | Main menu | `menu` (where the game is), `menu.saves`, `menu.load`, `menu.start`, `menu.return` |
 | Session and time | `session`, `time`, `time.pause`, `time.resume`, `time.speed`, `time.advance` (let days pass and wait, with the events on the way) |
-| Countries and provinces | `country.get` (treasury, manpower, stability, prestige, monarch points, wars, allies, subjects, overlord, rivals), `country.hostile`, `province.list`, `province.get` (name, owner, development, terrain, fort, buildings, what can be recruited there), `province.neighbors` |
+| Countries and provinces | `country.get` (treasury, manpower, stability, prestige, monarch points, wars, allies, subjects and overlord with the kind of subject, rivals), `country.hostile`, `province.list`, `province.get` (name, owner, development, terrain, fort, buildings, what can be recruited there), `province.neighbors` |
 | Armies | `army.list`, `army.get`, `army.in_province`, `army.route`, `army.find_route`, `army.can_enter`, `army.strait_open`, `army.can_attack`, `army.move`, `army.stop`, `army.selected` |
 | Recruiting | `recruit` (a regiment or ship of a kind in a province) |
 | Questions and offers | `question.list`, `question.answer` (the game's events waiting for the player's answer); `offer.list`, `offer.accept`, `offer.decline` (other countries' proposals) |

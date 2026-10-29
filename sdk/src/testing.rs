@@ -587,7 +587,7 @@ mod tests {
     #[test]
     fn a_country_snapshot_is_what_the_test_set_up() {
         let mut fake = FakeGame::new();
-        let country = Country { id: CountryId(7), treasury: 31.25, relations: vec![Relation { kind: RelationKind::Rival, country: CountryId(8) }], ..Default::default() };
+        let country = Country { id: CountryId(7), treasury: 31.25, relations: vec![Relation { kind: RelationKind::Rival, country: CountryId(8), subject_type: None }], ..Default::default() };
         fake.countries.insert(CountryId(7), country.clone());
         assert_eq!(fake.game().country(CountryId(7)).unwrap(), country);
         assert_eq!(fake.game().country(CountryId(8)).unwrap_err().status, Status::NotFound);

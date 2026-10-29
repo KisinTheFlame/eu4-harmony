@@ -473,7 +473,17 @@ fn country_json(c: &countries::Country) -> serde_json::Value {
         "prestige": thousandths(c.prestige),
         "power": {"adm": c.power[0], "dip": c.power[1], "mil": c.power[2]},
         "wars": c.wars.iter().map(|w| serde_json::json!({"name": w.name, "attackers": ids(&w.attackers), "defenders": ids(&w.defenders)})).collect::<Vec<_>>(),
-        "relations": c.relations.iter().map(|r| serde_json::json!({"kind": r.kind.key(), "country": r.country.0})).collect::<Vec<_>>(),
+        "relations": c
+            .relations
+            .iter()
+            .map(|r| {
+                let mut relation = serde_json::json!({"kind": r.kind.key(), "country": r.country.0});
+                if let Some(key) = &r.subject_type {
+                    relation["subject_type"] = key.as_str().into();
+                }
+                relation
+            })
+            .collect::<Vec<_>>(),
     })
 }
 
