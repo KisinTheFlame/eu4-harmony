@@ -19,7 +19,7 @@ pub mod globals {
     pub const IDLE_TASK: usize = 0x2340020;
     /// The normal movement policy route queries take (its vtable).
     pub const ROUTE_POLICY: usize = 0x1c3af98;
-    /// The game's end date, i32 (docs/research/dates.md): past it, time
+    /// The game's end date, i32 (docs/research/time.md): past it, time
     /// stands still unless the player plays on ([`super::world::PLAY_ON`]).
     pub const END_DATE: usize = 0x1fc2328;
 }
