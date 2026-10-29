@@ -100,7 +100,8 @@ pub struct Recruit {
     /// `western_medieval_infantry`; None when the player has none.
     pub unit_type: Option<String>,
     pub allowed: bool,
-    /// Why not, in the game's words and the game's language, as plain text
+    /// Why not, in the game's words, from its localisation for the language
+    /// in the game's settings (not the player language), as plain text
     /// ([`game_text::plain`]); empty when it is allowed or the game gives no
     /// reason.
     pub reasons: Vec<String>,
@@ -138,7 +139,7 @@ pub fn province(_: Caller, id: u32) -> GResult<Snapshot> {
 }
 
 /// The game's getters of a province's base tax, production and manpower, as
-/// triggers and the province view read them: (unused, out, province).
+/// triggers and the province window read them: (unused, out, province).
 const BASE_TAX: usize = 0x6de7a0;
 const BASE_PRODUCTION: usize = 0x6de830;
 const BASE_MANPOWER: usize = 0x6de8c0;

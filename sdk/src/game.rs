@@ -236,8 +236,9 @@ pub struct Recruit {
     /// `western_medieval_infantry`; None when the player has none.
     pub unit_type: Option<String>,
     pub allowed: bool,
-    /// Why not, in the game's words and language; empty when it is allowed
-    /// or the game gives no reason.
+    /// Why not, in the game's words, from its localisation for the language
+    /// in the game's settings, which can differ from the player language;
+    /// empty when it is allowed or the game gives no reason.
     pub reasons: Vec<String>,
 }
 

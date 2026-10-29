@@ -143,8 +143,8 @@ pub mod geometry {
     /// The impassable bit, u8.
     pub const CLIMATE: usize = 0x229;
     pub const IMPASSABLE: u8 = 8;
-    /// The province's name, a `std::string` of game text: the localised
-    /// `PROV<id>`, or what it was renamed to.
+    /// The province's name, a `std::string` of game text: the localisation
+    /// of `PROV<id>`, or what it was renamed to.
     pub const NAME: usize = 0x10;
     /// Its terrain (see [`super::terrain`]), such as farmlands: not the land
     /// and lake bits of [`TERRAIN`].
