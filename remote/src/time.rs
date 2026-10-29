@@ -16,7 +16,9 @@ group! {
     game Pause "pause" {} -> (), "nothing";
     /// Resumes the game, as the player would: also when a window holds it
     /// paused, such as an event window when the game pauses on events, which
-    /// stays open. Nothing when it runs.
+    /// stays open. Nothing when it runs. Refused once the game is past its
+    /// end date, as the player's resuming is, until the end-of-game summary
+    /// is closed to play on.
     game Resume "resume" {} -> (), "nothing";
     /// Sets the game speed, as the player would; the game stays paused or
     /// running as it was.
@@ -25,7 +27,8 @@ group! {
         speed: u32,
     } -> (), "nothing";
     /// Lets time run until the date some days from now, then pauses the game
-    /// and answers with the events on the way. It answers early, with the
+    /// and answers with the events on the way; refused, as time.resume is,
+    /// once the game is past its end date. It answers early, with the
     /// reason and the date, when the game is paused by someone else or by a
     /// window, when a question waits for the player's answer (also one
     /// waiting already: then time does not run at all), when another game
