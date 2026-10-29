@@ -381,10 +381,10 @@ impl Engine {
     /// return to the main menu, whoever asked for it: every request is
     /// answered while the pipe can still carry the answers. A waiting one
     /// gives its own answer when it has one ([`Wait::ending`]: an advance
-    /// answers `main_menu`), and is answered `why` otherwise, as are those
-    /// queued and every one sent from now on. Their submitters get up to
-    /// `within` to take the answers, so that a transport writes them before
-    /// the process goes.
+    /// answers `main_menu`, a diplomatic action `pending`), and is answered
+    /// `why` otherwise, as are those queued and every one sent from now on.
+    /// Their submitters get up to `within` to take the answers, so that a
+    /// transport writes them before the process goes.
     pub fn end(&self, why: Error, within: Duration) {
         let started = Instant::now();
         let mut answered = Vec::new();
