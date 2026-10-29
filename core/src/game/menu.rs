@@ -253,7 +253,7 @@ fn first_page(m: &Memory) -> GResult<usize> {
     if starting(m, frontend) {
         return fail(Status::Unavailable, "a game is already being started");
     }
-    if m.u32(frontend + main_menu::PAGE)? != 0 {
+    if m.u32(frontend + main_menu::PAGE)? != main_menu::FIRST_PAGE {
         return fail(Status::Unavailable, "only from the main menu's first page");
     }
     Ok(frontend)
@@ -310,27 +310,37 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
         return;
     };
     let result = if m.ptr(frontend).ok() != Some(m.at(gui_classes::MAIN_MENU)) {
+        // Not the main menu the framework knows: nothing is touched.
         Err("unexpected main menu object".to_string())
-    } else if m.u32(frontend + main_menu::PAGE).ok() != Some(0) {
+    } else if m.u32(frontend + main_menu::PAGE).ok() != Some(main_menu::FIRST_PAGE) {
+        // The player went to another page meanwhile, and stays there.
         Err("the main menu left its first page before the game could take it up".to_string())
     } else {
-        match &action {
+        let result = match &action {
             Action::Load(path, player) => load_now(m, frontend, path, *player),
             Action::Start(letters) => start_now(m, frontend, *letters),
+        };
+        if result.is_err() {
+            back_to_first_page(m, frontend);
         }
+        result
     };
     match &result {
         Ok(()) => log!("menu: {} started", describe(&action)),
-        Err(why) => {
-            log!("menu: {} failed: {why}", describe(&action));
-            let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
-            // Back to the first page, where the next one can begin.
-            if m.u32(frontend + main_menu::PAGE).is_ok_and(|page| page != 0) {
-                let _ = m.call(m.at(SHOW_PAGE), &[frontend, 0, 1]);
-            }
-        }
+        Err(why) => log!("menu: {} failed: {why}", describe(&action)),
     }
     attempt(|a| *a = Some(Attempt { action, ran: Some((Instant::now(), result)) }));
+}
+
+/// After a load or start that did not go through: the main menu as the
+/// player could use it, nothing continued and, when the single player setup
+/// it entered for it still shows, its first page. Another page, which only
+/// the player can have chosen, stays.
+fn back_to_first_page(m: &Memory, frontend: usize) {
+    let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
+    if m.u32(frontend + main_menu::PAGE).is_ok_and(|page| page == main_menu::SETUP_PAGE) {
+        let _ = m.call(m.at(SHOW_PAGE), &[frontend, main_menu::FIRST_PAGE as usize, 1]);
+    }
 }
 
 fn describe(action: &Action) -> String {
@@ -365,6 +375,8 @@ fn world_now(m: &Memory) -> Result<usize> {
 /// setup looks for it, then the setup entered, which selects it and starts.
 fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
     m.write(world_now(m)? + world::MULTIPLAYER, &0i32.to_le_bytes())?;
+    // Continuing a save, the setup would leave the country where it is.
+    m.write(frontend + main_menu::CONTINUING, &[0])?;
     let start_tag = m.at(setup::START_TAG);
     set_text(m, start_tag, &letters)?;
     // Without the setup's animation, as the continue box shows it.
