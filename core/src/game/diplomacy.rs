@@ -12,14 +12,14 @@
 //! action sent is a [`Ticket`]; [`answer`] says what came of it, from the
 //! commands the game carried out, which an observer of the game's own
 //! function sees.
-use super::{context, context_any, countries, country, events, fail, game, map_manager, Caller, Ctx, GResult, Status, Tag};
+use super::{command_session, context, context_any, countries, country, events, fail, game, post, Caller, Ctx, GResult, Status, Tag};
 use crate::{
     game_string,
     hooks::HookFrame,
     memory::Memory,
     objects::{
         diplomacy::{action, casus_belli, classes, command, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world},
-        gui, session,
+        gui,
     },
     points::Point,
     unicode::game_text,
@@ -386,14 +386,14 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag
     // into the game can fail before it is posted or destroyed. The session
     // owns the command once it took it; until then, it is the framework's to
     // free.
-    let session = session_of(m, ctx)?;
+    let session = command_session(m, ctx)?;
     let mut command = 0usize;
     m.call(m.vslot(at, action::MAKE_COMMAND)?, &[at, &mut command as *mut usize as usize])?;
     if command == 0 || m.ptr(command)? != m.at(classes::ACTION_COMMAND) {
         return Err("the diplomatic action made no command".to_string().into());
     }
     let after = ledger(|l| l.carried_count);
-    let taken = m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0;
+    let taken = post(m, session, command)?;
     if !taken {
         m.call(m.at(COMMAND_DESTROY), &[command, FREE])?;
         return fail(Status::Rejected, "the game takes no orders from the player now");
@@ -409,15 +409,6 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag
         m.write(ctx.world + date, &ctx.date.to_le_bytes())?;
     }
     Ok(ledger(|l| l.send(kind, to, after, events::session(), called)))
-}
-
-/// The map manager's session, which takes the player's commands.
-fn session_of(m: &Memory, ctx: &Ctx) -> GResult<usize> {
-    let s = m.call(m.at(session::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
-    if s == 0 || m.ptr(s)? != m.at(session::CLASS) {
-        return Err("the map manager has no session".to_string().into());
-    }
-    Ok(s)
 }
 
 /// Asks the action the checks the diplomacy panel and the window ask before

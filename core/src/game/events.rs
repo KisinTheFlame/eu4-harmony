@@ -28,7 +28,7 @@ const FOW_REFRESH: usize = 0x8275e0;
 const VISIBILITY: usize = 0xa0b150;
 const DAILY: usize = 0x758430;
 /// Posts a command to the game's session: (session, command); whether it
-/// took it. Recruiting and diplomacy call it.
+/// took it. [`super::post`] calls it, for recruiting and diplomacy.
 pub const DISPATCH: usize = 0x14ca2d0;
 const DEFEAT_A: usize = 0x22bea0;
 const DEFEAT_B: usize = 0x22b5a0;
