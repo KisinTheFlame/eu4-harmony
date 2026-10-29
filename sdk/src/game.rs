@@ -860,10 +860,12 @@ impl<'a> Game<'a> {
     }
     /// What came of a diplomatic action sent: pending until the game has
     /// carried it out and the other country has answered, which in a single
-    /// player game is a frame or two later. `NotFound` for a ticket no longer
-    /// kept (the latest 256 are), `NotInGame` once the game it was sent in
-    /// has ended, `Rejected` for a declaration the game carried out without
-    /// a war beginning.
+    /// player game is a frame or two later. A proposal the game drops as it
+    /// carries it out, its own check failing then, stays pending: the game
+    /// says nothing of it. `NotFound` for a ticket no longer kept (the latest
+    /// 256 are), `NotInGame` once the game it was sent in has ended,
+    /// `Rejected` for a declaration the game carried out without a war
+    /// beginning.
     pub fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer> {
         self.backend.diplomacy_answer(ticket)
     }

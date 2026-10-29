@@ -9,7 +9,9 @@
 //! `accepted` or `declined`; a declaration of war is `declared`, with the
 //! war's name, once the war began. When nothing comes within a few seconds,
 //! such as when a human player is to answer, the answer is `pending`: what
-//! comes of it later shows in `country.get`, as a relation or a war.
+//! comes of it later shows in `country.get`, as a relation or a war. A
+//! proposal the game drops as it carries it out, its own check failing
+//! then, is `pending` too: the game says nothing of it.
 use crate::{CountryTag, ProvinceId};
 use serde::{Deserialize, Serialize};
 

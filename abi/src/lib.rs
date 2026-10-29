@@ -435,7 +435,9 @@ pub struct GameApi {
     /// country has answered, which in a single player game is a frame or two
     /// after it is sent, then [`DIPLOMACY_ACCEPTED`], [`DIPLOMACY_DECLINED`]
     /// or, for a declaration of war once the war began,
-    /// [`DIPLOMACY_DECLARED`]; a later core may add values. [`NOT_FOUND`] for
+    /// [`DIPLOMACY_DECLARED`]; a later core may add values. A proposal the
+    /// game drops as it carries it out, its own check failing then, stays
+    /// [`DIPLOMACY_PENDING`]: the game says nothing of it. [`NOT_FOUND`] for
     /// a ticket no longer kept (the latest 256 are), [`NOT_IN_GAME`] once
     /// the game it was sent in has ended, [`REJECTED`] for a declaration the
     /// game carried out without a war beginning.

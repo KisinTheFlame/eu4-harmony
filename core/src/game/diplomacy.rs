@@ -166,7 +166,9 @@ pub struct Declaration {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
     /// Not answered yet: the game has not carried it out, or the other
-    /// country has not answered.
+    /// country has not answered. A proposal the game drops as it carries it
+    /// out, its own check failing then, stays pending: the game says nothing
+    /// of it.
     Pending,
     /// The other country accepted the proposal.
     Accepted,
