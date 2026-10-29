@@ -7,7 +7,8 @@ use crate::{
     game_string,
     memory::Memory,
     objects::{
-        campaign::{self, diplomatic_action as action},
+        campaign,
+        diplomacy::action,
         gui::{
             classes as gui_classes, dialog, diplomacy_dialog as diplomacy, element, functions as gui_functions, message_icon as icon, message_icon_holder,
             text_box, window as gui_window,
@@ -153,7 +154,7 @@ fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
         }
         let id = m.u32(action + action::ID)?;
         if !out.iter().any(|w| w.id == id) {
-            out.push(Held { dialog, icon, action, id, made: m.i32(action + action::DATE)? });
+            out.push(Held { dialog, icon, action, id, made: m.i32(action + action::MADE)? });
         }
     }
     Ok(out)

@@ -213,6 +213,8 @@ groups! {
     /// The main menu: where the game is, the saves, loading one, starting a
     /// game and returning to the main menu.
     Menu(menu::MenuRequest, MenuAnswer),
+    /// The player's diplomatic actions.
+    Diplomacy(diplomacy::DiplomacyRequest, DiplomacyAnswer),
 }
 
 pub mod binary;

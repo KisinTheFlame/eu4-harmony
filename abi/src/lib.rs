@@ -381,7 +381,90 @@ pub struct GameApi {
     /// ago, or what it offers is no longer possible), which the game then
     /// lets go, mostly declining it, as when the player opens it.
     pub offer_answer: unsafe extern "C" fn(host: *mut c_void, offer: u32, accept: u8) -> i32,
+    /// The war goals the game offers the player for declaring war on
+    /// `country`, as the declare war window lists them, as UTF-8 JSON (ADR
+    /// 0018): `[{"casus_belli": "cb_claim", "war_goal": "take_claim",
+    /// "province": 151, "target": null, "name": "..."}, ...]`. `casus_belli`
+    /// is its casus belli's key, `none` for declaring war without one, which
+    /// comes last when the game offers it; `war_goal` its type's key or null;
+    /// `province` and `target` (a [`CountryId`]) what it is about, or null;
+    /// `name` as the window shows it. `abi/json/war_goals.json` is a whole
+    /// one. [`NOT_FOUND`] when there is no such country, [`INVALID_ARGUMENT`]
+    /// for the player's own.
+    pub war_goals: unsafe extern "C" fn(host: *mut c_void, country: CountryId, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
+    /// Declares war on `country` for the first war goal `war_goals` lists
+    /// with the casus belli `casus_belli` (UTF-8: a key, or `none`) and, when
+    /// given, the war goal type `war_goal` (empty for any), the `province`
+    /// (0 for any) and the `target` (0 for any), as the player does through
+    /// the diplomacy panel. It calls to arms, as ticking their call boxes in
+    /// the declare war window does, with no land promised: with `call`
+    /// [`CALL_ALL`] each ally the window would let the player call; with
+    /// [`CALL_NONE`] none; with [`CALL_LISTED`] the `allies_len` allies at
+    /// `allies`, each one the window must let the player call.
+    /// `allies_called` says which it called. A costly declaration (no casus
+    /// belli, a truce broken) is sent without the window's confirmation, and
+    /// the game takes its costs. [`NOT_FOUND`] when there is no such country;
+    /// [`INVALID_ARGUMENT`] for the player's own, an empty `casus_belli`, an
+    /// unknown `call`, or a country listed to call that is not among the
+    /// allies the window lists; [`REJECTED`] when the game offers no such
+    /// war goal, does not let the player declare war now, or would not let
+    /// the player call an ally listed, the game's reasons, one a line, as
+    /// the `last_error` message: nothing is sent then. [`OK`] once the game
+    /// has the declaration: it carries it out at its next frame; `*ticket`,
+    /// unless `ticket` is null, names it for `diplomacy_answer` and
+    /// `allies_called`.
+    pub declare_war: unsafe extern "C" fn(
+        host: *mut c_void,
+        country: CountryId,
+        casus_belli: *const u8,
+        casus_belli_len: usize,
+        war_goal: *const u8,
+        war_goal_len: usize,
+        province: u32,
+        target: CountryId,
+        call: u32,
+        allies: *const CountryId,
+        allies_len: usize,
+        ticket: *mut u64,
+    ) -> i32,
+    /// Offers `country`, which the player is at war with, a white peace, as
+    /// `declare_war` sends a declaration: [`NOT_FOUND`] when there is no such
+    /// country, [`INVALID_ARGUMENT`] for the player's own, [`REJECTED`] with
+    /// the game's reasons, [`OK`] with a ticket.
+    pub offer_peace: unsafe extern "C" fn(host: *mut c_void, country: CountryId, ticket: *mut u64) -> i32,
+    /// Proposes an alliance to `country`, as `declare_war` sends a
+    /// declaration: [`NOT_FOUND`] when there is no such country,
+    /// [`INVALID_ARGUMENT`] for the player's own, [`REJECTED`] with the
+    /// game's reasons, [`OK`] with a ticket.
+    pub propose_alliance: unsafe extern "C" fn(host: *mut c_void, country: CountryId, ticket: *mut u64) -> i32,
+    /// What came of a diplomatic action sent, by its ticket: `*out` is
+    /// [`DIPLOMACY_PENDING`] until the game has carried it out and the other
+    /// country has answered, which in a single player game is a frame or two
+    /// after it is sent, then [`DIPLOMACY_ACCEPTED`], [`DIPLOMACY_DECLINED`]
+    /// or, for a declaration of war once the war began,
+    /// [`DIPLOMACY_DECLARED`]; a later core may add values. A proposal the
+    /// game drops as it carries it out, its own check failing then, stays
+    /// [`DIPLOMACY_PENDING`]: the game says nothing of it. [`NOT_FOUND`] for
+    /// a ticket no longer kept (the latest 256 are), [`NOT_IN_GAME`] once
+    /// the game it was sent in has ended, [`REJECTED`] for a declaration the
+    /// game carried out without a war beginning.
+    pub diplomacy_answer: unsafe extern "C" fn(host: *mut c_void, ticket: u64, out: *mut u32) -> i32,
+    /// The allies a declaration of war called to arms, by its ticket, as the
+    /// list protocol writes them; none for a proposal. [`NOT_FOUND`] and
+    /// [`NOT_IN_GAME`] as `diplomacy_answer`.
+    pub allies_called: unsafe extern "C" fn(host: *mut c_void, ticket: u64, buf: *mut CountryId, cap: usize, len: *mut usize) -> i32,
 }
+
+/// Which allies a declaration of war calls to arms (`GameApi::declare_war`).
+pub const CALL_ALL: u32 = 0;
+pub const CALL_NONE: u32 = 1;
+pub const CALL_LISTED: u32 = 2;
+
+/// What came of a diplomatic action (`GameApi::diplomacy_answer`).
+pub const DIPLOMACY_PENDING: u32 = 0;
+pub const DIPLOMACY_ACCEPTED: u32 = 1;
+pub const DIPLOMACY_DECLINED: u32 = 2;
+pub const DIPLOMACY_DECLARED: u32 = 3;
 
 /// Callbacks an extension registers from its entry point. Every callback runs
 /// on the game thread at a safe point and returns [`OK`]; any other value makes
@@ -464,5 +547,6 @@ slots!(GameApi:
     time_speed, time_set_speed, time_pause, time_resume,
     recruit,
     questions, question_answer, offers, offer_answer,
+    war_goals, declare_war, offer_peace, propose_alliance, diplomacy_answer, allies_called,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);

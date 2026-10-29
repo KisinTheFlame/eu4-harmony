@@ -1,6 +1,6 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time};
+use super::{armies, camera, console, countries, diplomacy, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time};
 use crate::game::{
     self, fail,
     menu::{Expected, Launch},
@@ -52,6 +52,9 @@ pub struct Fake {
     pub answered: Vec<(u32, u32)>,
     /// What came of the last load or start, as the game would say.
     pub launch: Arc<Mutex<Launch>>,
+    /// What each diplomatic action sent comes to, asked one after another;
+    /// pending once they run out.
+    pub answers: std::collections::VecDeque<GResult<game::diplomacy::Answer>>,
 }
 
 impl Fake {
@@ -552,5 +555,63 @@ impl offers::Layer for Fake {
         }
         self.answered.push((offer, accept as u32));
         Ok(())
+    }
+}
+
+/// The war goals the Ottomans have against Byzantium: a claim on
+/// Constantinople, and the declaration without a casus belli.
+pub fn war_goals() -> Vec<game::diplomacy::WarGoal> {
+    use game::diplomacy::WarGoal;
+    vec![
+        WarGoal {
+            casus_belli: Some("cb_claim".into()),
+            war_goal: Some("take_claim".into()),
+            province: Some(151),
+            target: None,
+            name: "Conquer Constantinople".into(),
+        },
+        WarGoal { casus_belli: None, war_goal: Some("take_province_no_cb".into()), province: None, target: None, name: "No casus belli".into() },
+    ]
+}
+
+impl diplomacy::Layer for Fake {
+    fn war_goals(&mut self, enemy: Tag) -> GResult<Vec<game::diplomacy::WarGoal>> {
+        self.call(format!("war goals {:x}", enemy.0));
+        Ok(if enemy == byz() { war_goals() } else { Vec::new() })
+    }
+
+    /// Wallachia is the ally the window lets the player call.
+    fn declare_war(&mut self, enemy: Tag, choice: &game::diplomacy::Choice, calls: &game::diplomacy::Calls) -> GResult<game::diplomacy::Declaration> {
+        use game::diplomacy::Calls;
+        let calling = match calls {
+            Calls::Only(tags) => format!("Only({:x?})", tags.iter().map(|t| t.0).collect::<Vec<_>>()),
+            other => format!("{other:?}"),
+        };
+        self.call(format!("declare war {:x} {:?} {:?} {:?} {:?} calling {calling}", enemy.0, choice.casus_belli, choice.war_goal, choice.province, choice.target.map(|t| t.0)));
+        if enemy == wal() {
+            return fail(Status::Rejected, "They are our subject.
+We have a truce with them.");
+        }
+        let called = match calls {
+            Calls::All => vec![wal()],
+            Calls::None => Vec::new(),
+            Calls::Only(tags) => tags.iter().copied().filter(|&t| t == wal()).collect(),
+        };
+        Ok(game::diplomacy::Declaration { ticket: game::diplomacy::Ticket(1), called })
+    }
+
+    fn offer_peace(&mut self, enemy: Tag) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("offer peace {:x}", enemy.0));
+        Ok(game::diplomacy::Ticket(2))
+    }
+
+    fn propose_alliance(&mut self, ally: Tag) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("propose alliance {:x}", ally.0));
+        Ok(game::diplomacy::Ticket(3))
+    }
+
+    fn answer(&mut self, ticket: game::diplomacy::Ticket) -> GResult<game::diplomacy::Answer> {
+        self.call(format!("answer {}", ticket.0));
+        self.answers.pop_front().unwrap_or(Ok(game::diplomacy::Answer::Pending))
     }
 }

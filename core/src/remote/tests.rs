@@ -3,7 +3,7 @@
 use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest,
     menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest,
     session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
@@ -185,6 +185,13 @@ fn every_capability_runs_at_a_game_frame() {
             Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "君士坦丁堡不是我们的领土"),
         ),
         (Request::Recruit(RecruitRequest::Recruit { province: province(1), kind: UnitKind::Galley }), Box::new(error("not_found"))),
+        (Request::Diplomacy(DiplomacyRequest::WarGoals { country: CountryTag(*b"BYZ") }), Box::new(|v: &Value| v["result"][1]["casus_belli"] == "none")),
+        (
+            Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None }),
+            Box::new(error("rejected")),
+        ),
+        (Request::Diplomacy(DiplomacyRequest::OfferPeace { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
+        (Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
         (
             Request::Describe(DescribeRequest::All {}),
             Box::new(|v: &Value| v["result"].as_array().map(Vec::len) == Some(capabilities().len()) && v["result"][0]["capability"] == "session"),

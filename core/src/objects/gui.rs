@@ -117,6 +117,17 @@ pub mod window {
     pub const FIND_TEXT: usize = 0x98;
     pub const FIND_ICON: usize = 0xc8;
     pub const KILL: usize = 0x130;
+    /// The method that answers its [`super::list_box`] of a name, given as a
+    /// `std::string`, by vtable offset.
+    pub const FIND_LIST_BOX: usize = 0x1a8;
+}
+
+/// A list box, in a window.
+pub mod list_box {
+    /// The method that answers where its entries start, by vtable offset:
+    /// the address of the first node of a linked list (null when empty),
+    /// each node the entry at 0 and the next node at 0x10.
+    pub const ENTRIES: usize = 0x58;
 }
 
 pub mod army_panel {
@@ -199,11 +210,10 @@ pub mod diplomacy_dialog {
     pub const MARK: usize = 0x1c0;
     pub const MARK_CONTEXT: usize = 0x1c8;
     pub const MARK_FUNCTION: usize = 0x1d0;
-    /// Its own copy of the diplomatic action
-    /// (`campaign::diplomatic_action`).
+    /// Its own copy of the diplomatic action (`diplomacy::action`).
     pub const ACTION: usize = 0x238;
     /// How long one about an action takes an answer: up to this many months
-    /// after the action was made (`campaign::diplomatic_action::DATE`), as
+    /// after the action was made (`diplomacy::action::MADE`), as
     /// its check ([`super::dialog::VALID`]) adds them with the game's own
     /// adding of months (0x14c8030); after that the check declines it.
     pub const ANSWER_MONTHS: usize = 2;
@@ -378,24 +388,10 @@ pub fn points() -> Vec<Point> {
             "48 89 5c 24 18 55 56 57 48 83 ec 30 48 8b f9 48 8b b1 38 02 00 00 48 89 74 24 20 8b 6e 34 89 6c 24 28 c7 46 34 02 00 00 00",
             "action dialog accept",
         )
-        .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::STATE]),
-        // A diplomacy dialog asking whether its action is still unanswered,
-        // and whether it was made no more than two months ago: its date, two
-        // months on by the game's adding of months, not before today.
-        Point::keep(0x1066b5dusize, "48 8b 83 38 02 00 00 83 78 34 00 0f 94 c0", "diplomacy dialog action")
-            .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::STATE]),
-        Point::keep(
-            0x1066b16usize,
-            "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28 89 54 24 30 ba 02 00 00 00 e8 fa 14 46 00",
-            "diplomatic action date",
-        )
-        .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::DATE, diplomacy_dialog::ANSWER_MONTHS]),
+        .uses(&[diplomacy_dialog::ACTION, super::diplomacy::action::STATE]),
         // Adding months (docs/research/dates.md), which the offers do as it
         // does: a year for each twelve, then the rest through the months.
         Point::keep(0x14c8030usize, "85 d2 0f 84 e4 00 00 00 48 89 74 24 20 57 48 83 ec 20 8b fa 48 89 5c 24 30 b8 ab aa aa 2a", "adding months"),
-        // The alliance dialog showing both countries.
-        Point::keep(0x1067aacusize, "48 8b 96 38 02 00 00 48 8b 52 20", "diplomatic action recipient")
-            .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::TO]),
         // A dialog's description: its text box, by name, and the text.
         Point::keep(0x10a286fusize, "48 8b 01 48 8b da 48 8d 15 84 31 bc 00 ff 90 98 00 00 00 48 8b f0 48 8d b8 70 01 00 00", "dialog description")
             .uses(&[window::FIND_TEXT, text_box::TEXT]),

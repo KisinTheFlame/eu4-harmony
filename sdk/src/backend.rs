@@ -62,6 +62,12 @@ pub trait Backend {
     fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()>;
     fn offers(&mut self) -> Result<Vec<Offer>>;
     fn answer_offer(&mut self, offer: OfferId, accept: bool) -> Result<()>;
+    fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>>;
+    /// `Rejected`, with the game's reasons, when the player may not.
+    fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration>;
+    fn offer_peace(&mut self, country: CountryId) -> Result<Ticket>;
+    fn propose_alliance(&mut self, country: CountryId) -> Result<Ticket>;
+    fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer>;
 }
 
 /// The core's capability table for the current callback.
@@ -377,6 +383,65 @@ impl Backend for RealBackend {
         let api = self.api();
         self.check(unsafe { (api.offer_answer)(api.host, offer.0, accept as u8) })
     }
+    fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>> {
+        self.require(end_of!(war_goals))?;
+        let api = self.api();
+        let json: Vec<WarGoalJson> = self.snapshot("war goals", |b, c, l| unsafe { (api.war_goals)(api.host, country.0, b, c, l) })?;
+        Ok(json.into_iter().map(Into::into).collect())
+    }
+    fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration> {
+        self.require(end_of!(allies_called))?;
+        let api = self.api();
+        let casus_belli = goal.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI);
+        let war_goal = goal.war_goal.as_deref().unwrap_or("");
+        let (province, target) = (goal.province.unwrap_or(0), goal.target.map_or(0, |t| t.0));
+        let (call, allies): (u32, Vec<u64>) = match call {
+            CallAllies::All => (abi::CALL_ALL, Vec::new()),
+            CallAllies::None => (abi::CALL_NONE, Vec::new()),
+            CallAllies::Only(allies) => (abi::CALL_LISTED, allies.iter().map(|a| a.0).collect()),
+        };
+        let mut ticket = 0u64;
+        let code = unsafe {
+            (api.declare_war)(
+                api.host,
+                country.0,
+                casus_belli.as_ptr(),
+                casus_belli.len(),
+                war_goal.as_ptr(),
+                war_goal.len(),
+                province,
+                target,
+                call,
+                allies.as_ptr(),
+                allies.len(),
+                &mut ticket,
+            )
+        };
+        self.check(code)?;
+        let called = self.list(|b, c, l| unsafe { (api.allies_called)(api.host, ticket, b, c, l) })?;
+        Ok(Declaration { ticket: Ticket(ticket), called: called.into_iter().map(CountryId).collect() })
+    }
+    fn offer_peace(&mut self, country: CountryId) -> Result<Ticket> {
+        self.require(end_of!(offer_peace))?;
+        let api = self.api();
+        let mut ticket = 0u64;
+        self.check(unsafe { (api.offer_peace)(api.host, country.0, &mut ticket) })?;
+        Ok(Ticket(ticket))
+    }
+    fn propose_alliance(&mut self, country: CountryId) -> Result<Ticket> {
+        self.require(end_of!(propose_alliance))?;
+        let api = self.api();
+        let mut ticket = 0u64;
+        self.check(unsafe { (api.propose_alliance)(api.host, country.0, &mut ticket) })?;
+        Ok(Ticket(ticket))
+    }
+    fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer> {
+        self.require(end_of!(diplomacy_answer))?;
+        let api = self.api();
+        let mut out = 0u32;
+        self.check(unsafe { (api.diplomacy_answer)(api.host, ticket.0, &mut out) })?;
+        Ok(DiplomacyAnswer::from_code(out))
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -540,6 +605,73 @@ mod tests {
         }
     }
 
+    /// The war goals as the core's test checks that the core writes them.
+    const WAR_GOALS_JSON: &str = include_str!("../../abi/json/war_goals.json");
+    const BYZ: u64 = 72057735777769794;
+
+    unsafe extern "C" fn war_goals(_: H, id: u64, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        if id != BYZ {
+            return abi::NOT_FOUND;
+        }
+        let json = WAR_GOALS_JSON.as_bytes();
+        *len = json.len();
+        if cap < json.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(json.as_ptr(), buf, json.len());
+        abi::OK
+    }
+
+    /// What `declare_war` was given last, as text.
+    static DECLARED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+    #[allow(clippy::too_many_arguments)]
+    unsafe extern "C" fn declare_war(
+        _: H,
+        id: u64,
+        cb: *const u8,
+        cb_len: usize,
+        wg: *const u8,
+        wg_len: usize,
+        province: u32,
+        target: u64,
+        call: u32,
+        allies: *const u64,
+        allies_len: usize,
+        ticket: *mut u64,
+    ) -> i32 {
+        let text = |p: *const u8, len: usize| String::from_utf8_lossy(std::slice::from_raw_parts(p, len)).into_owned();
+        let allies = if allies_len == 0 { &[][..] } else { std::slice::from_raw_parts(allies, allies_len) };
+        *DECLARED.lock().unwrap() = format!("{id} {} {:?} {province} {target} {call} {allies:?}", text(cb, cb_len), text(wg, wg_len));
+        *ticket = 4 + (call != abi::CALL_NONE) as u64;
+        abi::OK
+    }
+
+    /// Ticket 5, a declaration calling allies, called Wallachia.
+    unsafe extern "C" fn allies_called(_: H, ticket: u64, buf: *mut u64, cap: usize, len: *mut usize) -> i32 {
+        let called: &[u64] = if ticket == 5 { &[WAL] } else { &[] };
+        *len = called.len();
+        if cap < called.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(called.as_ptr(), buf, called.len());
+        abi::OK
+    }
+
+    unsafe extern "C" fn offer_peace(_: H, _: u64, _: *mut u64) -> i32 {
+        abi::REJECTED
+    }
+
+    unsafe extern "C" fn propose_alliance(_: H, id: u64, ticket: *mut u64) -> i32 {
+        *ticket = id + 1;
+        abi::OK
+    }
+
+    unsafe extern "C" fn diplomacy_answer(_: H, ticket: u64, out: *mut u32) -> i32 {
+        *out = ticket as u32;
+        abi::OK
+    }
+
     fn table() -> abi::GameApi {
         abi::GameApi {
             size: std::mem::size_of::<abi::GameApi>(),
@@ -587,6 +719,12 @@ mod tests {
             question_answer,
             offers,
             offer_answer,
+            war_goals,
+            declare_war,
+            offer_peace,
+            propose_alliance,
+            diplomacy_answer,
+            allies_called,
         }
     }
 
@@ -806,6 +944,60 @@ mod tests {
         // A refusal's message comes from `last_error`, as every failure's.
         let err = backend.console_run("cahs 100").unwrap_err();
         assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "no such army"));
+    }
+
+    #[test]
+    fn the_war_goals_offered_come_as_json_and_one_goes_back_as_it_came() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        let goals = backend.war_goals(CountryId(BYZ)).unwrap();
+        assert_eq!(
+            goals,
+            [
+                WarGoal { casus_belli: Some("cb_claim".into()), war_goal: Some("take_claim".into()), province: Some(151), target: None, name: "征服君士坦丁堡".into() },
+                WarGoal {
+                    casus_belli: Some("cb_restore_personal_union".into()),
+                    war_goal: Some("take_capital_personal_union".into()),
+                    province: None,
+                    target: Some(CountryId(BYZ)),
+                    name: "Restore the Union with Byzantium".into(),
+                },
+                WarGoal { casus_belli: None, war_goal: None, province: None, target: None, name: "No Casus Belli".into() },
+            ]
+        );
+        assert_eq!(backend.war_goals(CountryId(3)).unwrap_err().status, Status::NotFound);
+        assert_eq!(backend.declare_war(CountryId(BYZ), &goals[1], &CallAllies::None).unwrap(), Declaration { ticket: Ticket(4), called: vec![] });
+        assert_eq!(*DECLARED.lock().unwrap(), format!("{BYZ} cb_restore_personal_union \"take_capital_personal_union\" 0 {BYZ} 1 []"));
+        // Without a casus belli, by the name the core takes for it, calling
+        // allies: every one, or those listed.
+        assert_eq!(backend.declare_war(CountryId(BYZ), &goals[2], &CallAllies::All).unwrap(), Declaration { ticket: Ticket(5), called: vec![CountryId(WAL)] });
+        assert_eq!(*DECLARED.lock().unwrap(), format!("{BYZ} none \"\" 0 0 0 []"));
+        backend.declare_war(CountryId(BYZ), &goals[2], &CallAllies::Only(vec![CountryId(WAL)])).unwrap();
+        assert_eq!(*DECLARED.lock().unwrap(), format!("{BYZ} none \"\" 0 0 2 [{WAL}]"));
+    }
+
+    #[test]
+    fn a_diplomatic_action_is_sent_and_its_answer_read_by_its_ticket() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.propose_alliance(CountryId(1)).unwrap(), Ticket(2));
+        assert_eq!(backend.offer_peace(CountryId(1)).unwrap_err().status, Status::Rejected);
+        let answers: Vec<DiplomacyAnswer> = (0..5).map(|t| backend.diplomacy_answer(Ticket(t)).unwrap()).collect();
+        use DiplomacyAnswer::*;
+        assert_eq!(answers, [Pending, Accepted, Declined, Declared, Unknown(4)]);
+    }
+
+    #[test]
+    fn a_core_from_before_diplomacy_has_none() {
+        let mut api = table();
+        api.size = std::mem::offset_of!(abi::GameApi, war_goals);
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.war_goals(CountryId(BYZ)).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.declare_war(CountryId(BYZ), &WarGoal::default(), &CallAllies::All).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.offer_peace(CountryId(BYZ)).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.propose_alliance(CountryId(BYZ)).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.diplomacy_answer(Ticket(1)).unwrap_err().status, Status::Unavailable);
+        assert!(backend.country(CountryId(WAL)).is_ok());
     }
 
     #[test]

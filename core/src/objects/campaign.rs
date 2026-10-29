@@ -421,19 +421,6 @@ pub mod event_window {
     pub const OPEN: usize = 0x124;
 }
 
-/// A diplomatic action, as the country it is made to keeps it.
-pub mod diplomatic_action {
-    /// The country that made it, and the one it is made to (tags).
-    pub const FROM: usize = 0x10;
-    pub const TO: usize = 0x20;
-    /// When it was made, i32.
-    pub const DATE: usize = 0x28;
-    /// 0 while unanswered, 1 declined, 2 accepted (i32).
-    pub const STATE: usize = 0x34;
-    /// Its id, i32, given when it reaches the player.
-    pub const ID: usize = 0x3c;
-}
-
 pub use super::list;
 use crate::points::Point;
 
@@ -778,9 +765,5 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x10bb6a8usize, "48 8d 97 88 00 00 00 48 8d 4d b8 e8 c8 9b fd fe", "event option text").uses(&[event_option::NAME]),
         // A popup that goes leaves the open dialogs too.
         Point::keep(0x6ea5deusize, "49 8b 8c 24 70 03 00 00 48 85 c9 74 79 0f 1f 44 00 00 48 39 39 74 0e", "open dialogs").uses(&[map_manager::OPEN_DIALOGS]),
-        // The alliance dialog showing both countries of its action.
-        Point::keep(0x1067b19usize, "49 8b 46 10 48 c1 e8 20", "diplomatic action maker").uses(&[diplomatic_action::FROM]),
-        // An action reaching the player gets its id.
-        Point::keep(0x4e82a9usize, "89 43 3c", "diplomatic action id").uses(&[diplomatic_action::ID]),
     ]
 }

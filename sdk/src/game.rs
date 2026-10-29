@@ -456,6 +456,101 @@ impl From<CountryJson> for Country {
     }
 }
 
+/// A war goal the game offers the player for declaring war on a country, as
+/// the declare war window lists it ([`Game::war_goals`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WarGoal {
+    /// Its casus belli's key, such as `cb_claim`; None for declaring war
+    /// without one.
+    pub casus_belli: Option<String>,
+    /// Its type's key, such as `take_claim`.
+    pub war_goal: Option<String>,
+    /// The province it is about, if any.
+    pub province: Option<ProvinceId>,
+    /// The country it is about, if any.
+    pub target: Option<CountryId>,
+    /// Its name, as the window shows it.
+    pub name: String,
+}
+
+/// [`WarGoal`] as the core writes it (`abi::GameApi::war_goals`).
+#[derive(serde::Deserialize)]
+pub(crate) struct WarGoalJson {
+    casus_belli: String,
+    war_goal: Option<String>,
+    province: Option<u32>,
+    target: Option<u64>,
+    name: String,
+}
+
+/// How the core names a declaration of war without a casus belli.
+pub(crate) const NO_CASUS_BELLI: &str = "none";
+
+impl From<WarGoalJson> for WarGoal {
+    fn from(g: WarGoalJson) -> Self {
+        Self {
+            casus_belli: (g.casus_belli != NO_CASUS_BELLI).then_some(g.casus_belli),
+            war_goal: g.war_goal,
+            province: g.province,
+            target: g.target.map(CountryId),
+            name: g.name,
+        }
+    }
+}
+
+/// A diplomatic action sent, for [`Game::diplomacy_answer`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Ticket(pub u64);
+
+/// Which of the player's allies a declaration of war calls to arms
+/// ([`Game::declare_war`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CallAllies {
+    /// Each ally the declare war window would let the player call.
+    #[default]
+    All,
+    /// None.
+    None,
+    /// These allies, each one the window must let the player call.
+    Only(Vec<CountryId>),
+}
+
+/// A declaration of war sent ([`Game::declare_war`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Declaration {
+    pub ticket: Ticket,
+    /// The allies it called to arms.
+    pub called: Vec<CountryId>,
+}
+
+/// What came of a diplomatic action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiplomacyAnswer {
+    /// Not yet: the game has not carried it out, or the other country has
+    /// not answered.
+    Pending,
+    /// The other country accepted the proposal.
+    Accepted,
+    /// The other country declined it.
+    Declined,
+    /// The war began.
+    Declared,
+    /// An answer a newer core gives that this SDK does not know.
+    Unknown(u32),
+}
+
+impl DiplomacyAnswer {
+    pub fn from_code(code: u32) -> Self {
+        match code {
+            abi::DIPLOMACY_PENDING => Self::Pending,
+            abi::DIPLOMACY_ACCEPTED => Self::Accepted,
+            abi::DIPLOMACY_DECLINED => Self::Declined,
+            abi::DIPLOMACY_DECLARED => Self::Declared,
+            other => Self::Unknown(other),
+        }
+    }
+}
+
 impl From<abi::Session> for Session {
     fn from(s: abi::Session) -> Self {
         Self { id: s.session, date: s.date, paused: s.paused != 0, visibility_current: s.visibility_current != 0, player: CountryId(s.player) }
@@ -739,5 +834,54 @@ impl<'a> Game<'a> {
     /// [`Game::accept_offer`] is.
     pub fn decline_offer(&mut self, offer: OfferId) -> Result<()> {
         self.backend.answer_offer(offer, false)
+    }
+    /// The war goals the game offers the player for declaring war on
+    /// `country`, as the declare war window lists them: under each casus
+    /// belli the player has against it, each war goal it allows, and last,
+    /// when the game offers it, declaring war without a casus belli.
+    pub fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>> {
+        self.backend.war_goals(country)
+    }
+    /// Declares war on `country` for `goal`, one of those
+    /// [`war_goals`](Self::war_goals) lists, as the player does through the
+    /// diplomacy panel, so that the game's checks and costs apply. It calls
+    /// to arms the allies `call` names, as ticking their call boxes in the
+    /// declare war window does, with no land promised; the answer says which
+    /// it called. `InvalidArgument` for an ally to call that the window does
+    /// not list; `Rejected`, with the game's reasons and nothing sent, for
+    /// one it would not let the player call. A costly
+    /// declaration (no casus belli, a truce broken) is sent without the
+    /// window's confirmation, and the game takes its costs.
+    /// [`Status::Rejected`] when the game offers no such war goal or does
+    /// not let the player declare war now, with the game's reasons, one a
+    /// line. The game carries the declaration out at its next frame;
+    /// [`diplomacy_answer`](Self::diplomacy_answer) then says whether the war
+    /// began.
+    pub fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration> {
+        self.backend.declare_war(country, goal, call)
+    }
+    /// Offers `country`, which the player is at war with, a white peace in
+    /// the war between them, as the peace view sends one; refused, with the
+    /// game's reasons, when the game does not let the player. An AI country
+    /// answers a frame or two later: see
+    /// [`diplomacy_answer`](Self::diplomacy_answer).
+    pub fn offer_peace(&mut self, country: CountryId) -> Result<Ticket> {
+        self.backend.offer_peace(country)
+    }
+    /// Proposes an alliance to `country`, as [`offer_peace`](Self::offer_peace)
+    /// offers peace.
+    pub fn propose_alliance(&mut self, country: CountryId) -> Result<Ticket> {
+        self.backend.propose_alliance(country)
+    }
+    /// What came of a diplomatic action sent: pending until the game has
+    /// carried it out and the other country has answered, which in a single
+    /// player game is a frame or two later. A proposal the game drops as it
+    /// carries it out, its own check failing then, stays pending: the game
+    /// says nothing of it. `NotFound` for a ticket no longer kept (the latest
+    /// 256 are), `NotInGame` once the game it was sent in has ended,
+    /// `Rejected` for a declaration the game carried out without a war
+    /// beginning.
+    pub fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer> {
+        self.backend.diplomacy_answer(ticket)
     }
 }

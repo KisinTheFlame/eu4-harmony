@@ -26,6 +26,7 @@ pub mod camera;
 pub mod console;
 pub mod countries;
 pub mod describe;
+pub mod diplomacy;
 pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
@@ -57,8 +58,8 @@ use std::{
 pub const BUDGET: Duration = Duration::from_millis(5);
 
 /// The capability layer, as remote control sees it: every group's slice.
-pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer {}
-impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer + ?Sized> Game for T {}
+pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer + diplomacy::Layer {}
+impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer + diplomacy::Layer + ?Sized> Game for T {}
 
 /// The capability layer itself, called as remote control.
 pub struct Live;
@@ -380,10 +381,10 @@ impl Engine {
     /// return to the main menu, whoever asked for it: every request is
     /// answered while the pipe can still carry the answers. A waiting one
     /// gives its own answer when it has one ([`Wait::ending`]: an advance
-    /// answers `main_menu`), and is answered `why` otherwise, as are those
-    /// queued and every one sent from now on. Their submitters get up to
-    /// `within` to take the answers, so that a transport writes them before
-    /// the process goes.
+    /// answers `main_menu`, a diplomatic action `pending`), and is answered
+    /// `why` otherwise, as are those queued and every one sent from now on.
+    /// Their submitters get up to `within` to take the answers, so that a
+    /// transport writes them before the process goes.
     pub fn end(&self, why: Error, within: Duration) {
         let started = Instant::now();
         let mut answered = Vec::new();
@@ -441,6 +442,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
         Request::Camera(r) => done(camera::run(r, game).map(Answer::Camera)),
         Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
         Request::Menu(r) => menu::run(r, game),
+        Request::Diplomacy(r) => diplomacy::run(r, game),
     }
 }
 
