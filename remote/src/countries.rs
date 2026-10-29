@@ -20,7 +20,7 @@ group! {
     game Get "get" {
         /// The country.
         country: CountryTag,
-    } -> Country, "the country";
+    } -> Country, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first) and relations (each a kind, ally, subject, overlord or rival, and a country)";
 }
 
 /// A country at one moment.

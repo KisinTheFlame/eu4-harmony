@@ -12,15 +12,15 @@ group! {
     game Get "get" {
         /// The army.
         army: ArmyId,
-    } -> Army, "the army";
+    } -> Army, "the army: id, owner, province (null for a fleet, of which only id and owner are read), land, the states that stop orders (in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), regiments, route_len, destination, and route_source: none, external (the player or the game) or extension";
     /// The player's armies and fleets.
-    game List "list" {} -> Vec<Army>, "the armies and fleets";
+    game List "list" {} -> Vec<Army>, "the armies and fleets, each as army.get answers it";
     /// The land armies in a province the player can see; none under fog of
     /// war. Not ready while visibility is not current.
     game InProvince "in_province" {
         /// The province.
         province: ProvinceId,
-    } -> Vec<Army>, "the armies there";
+    } -> Vec<Army>, "the armies there, each as army.get answers it";
     /// The provinces on the route an army of the player's is following.
     game Route "route" {
         /// The player's land army.
@@ -77,7 +77,7 @@ group! {
         army: ArmyId,
     } -> (), "nothing";
     /// The player's land army shown in the open army panel.
-    game Selected "selected" {} -> ArmyId, "the army";
+    game Selected "selected" {} -> ArmyId, "the army's id";
 }
 
 /// Who set the route an army is following.

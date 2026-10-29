@@ -8,13 +8,13 @@ group! {
     "province": ProvinceRequest, ProvinceAnswer;
 
     /// Every province.
-    game List "list" {} -> Vec<Province>, "every province, by number";
+    game List "list" {} -> Vec<Province>, "every province, by number: id, land, lake, impassable, visible (to the player, not under fog of war), owner and controller (null when none)";
     /// The provinces an army can go to from a province over land, possibly
     /// across a strait; none for a province an army cannot stand on.
     game Neighbors "neighbors" {
         /// The province.
         province: ProvinceId,
-    } -> Vec<Neighbor>, "its neighbors";
+    } -> Vec<Neighbor>, "its neighbors: province, and strait, whether it is across a strait";
     /// One province's snapshot: its name, owner and controller, development,
     /// terrain, fort, buildings, and whether the player can recruit each
     /// kind of regiment and ship there now, and why not.
