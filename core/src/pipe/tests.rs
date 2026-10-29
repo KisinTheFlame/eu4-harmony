@@ -267,17 +267,35 @@ fn a_client_that_closes_the_pipe_gives_its_request_up_with_later_ones_unread() {
 
 /// The access list of a pipe, written in SDDL.
 fn dacl(pipe: &File) -> String {
-    let (mut acl, mut descriptor, mut text) = (std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+    let (mut acl, mut descriptor) = (std::ptr::null_mut(), std::ptr::null_mut());
     let null = std::ptr::null_mut();
     let error = unsafe { GetSecurityInfo(pipe.as_raw_handle(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, null, null, &mut acl, null.cast(), &mut descriptor) };
     assert_eq!(error, 0);
-    assert_ne!(unsafe { ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text, null.cast()) }, 0);
+    let sddl = written(descriptor);
+    unsafe { LocalFree(descriptor) };
+    sddl
+}
+
+/// An access list in SDDL as Windows writes it back, which names some
+/// accounts by an alias: CI runs as the built-in Administrator, whose SID it
+/// writes as `LA`.
+fn as_written(sddl: &str) -> String {
+    let text: Vec<u16> = sddl.encode_utf16().chain([0]).collect();
+    let mut descriptor = std::ptr::null_mut();
+    assert_ne!(unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(text.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut()) }, 0);
+    let sddl = written(descriptor);
+    unsafe { LocalFree(descriptor) };
+    sddl
+}
+
+/// The access list of a security descriptor, written in SDDL.
+fn written(descriptor: PSECURITY_DESCRIPTOR) -> String {
+    let mut text = std::ptr::null_mut();
+    let null = std::ptr::null_mut();
+    assert_ne!(unsafe { ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text, null) }, 0);
     let length = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();
     let sddl = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, length) });
-    unsafe {
-        LocalFree(text.cast());
-        LocalFree(descriptor);
-    }
+    unsafe { LocalFree(text.cast()) };
     sddl
 }
 
@@ -286,7 +304,7 @@ fn the_pipe_is_open_to_its_user_only_and_to_one_process_at_a_time() {
     let name = pipe_name("security");
     let pipe = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
     let first = pipe.instance(true).unwrap();
-    assert_eq!(dacl(&first), format!("D:P(A;;FA;;;{})", user_sid().unwrap()));
+    assert_eq!(dacl(&first), as_written(&format!("D:P(A;;FA;;;{})", user_sid().unwrap())));
     // More clients get more instances, but no other process gets the name
     // while this one has it.
     let more = pipe.instance(false).unwrap();
@@ -304,7 +322,7 @@ fn the_pipe_keeps_its_name_while_clients_come_and_go() {
     let first = pipe.instance(true).unwrap();
     drop(std::fs::OpenOptions::new().read(true).write(true).open(&name).unwrap());
     let next = accept(&pipe, first);
-    assert_eq!(dacl(&next), format!("D:P(A;;FA;;;{})", user_sid().unwrap()));
+    assert_eq!(dacl(&next), as_written(&format!("D:P(A;;FA;;;{})", user_sid().unwrap())));
     let other = Pipe::new(&name, |_| unreachable!(), |_| {}).unwrap();
     assert!(other.instance(true).is_err());
     drop(next);
