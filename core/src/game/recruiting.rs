@@ -11,7 +11,7 @@ use crate::{
     memory::Memory,
     objects::{
         campaign::{globals, province, world},
-        session::{self as layout, session},
+        session as layout,
     },
     points::Point,
 };
@@ -124,22 +124,16 @@ fn refusal(reasons: &[String]) -> String {
     }
 }
 
-/// Posts a command to the game's session, as the player's click does inside
-/// the map manager's frame. The framework's safe point comes after that
-/// frame, so the session is told it is in the frame, as the frame tells it,
-/// for as long as the post takes. Whether the session took the command.
+/// Posts a command to the game's session, as the recruit button does;
+/// whether the session took it. A single player game's session takes it at
+/// any time; one that is not a client takes it only while the map manager's
+/// frame runs (docs/research/recruiting.md).
 fn post(m: &Memory, ctx: &Ctx, command: usize) -> GResult<bool> {
     let session = m.call(m.at(layout::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
     if session == 0 || m.ptr(session)? != m.at(layout::CLASS) {
         return Err("the map manager has no session".to_string().into());
     }
-    let flag = session + session::IN_FRAME;
-    let was = m.u8(flag)?;
-    let in_frame = m.u8(ctx.world + world::PLAYER_MODE)? != world::SWITCHED;
-    m.write(flag, &[in_frame as u8])?;
-    let posted = m.call(m.at(events::DISPATCH), &[session, command]);
-    m.write(flag, &[was])?;
-    Ok(posted? as u8 != 0)
+    Ok(m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0)
 }
 
 #[cfg(test)]
