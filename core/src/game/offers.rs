@@ -83,11 +83,6 @@ pub fn answer(_: Caller, id: u32, accept: bool) -> GResult<()> {
     Ok(())
 }
 
-/// How many offers wait, for [`questions::waiting`].
-pub(super) fn count(m: &Memory, ctx: &Ctx) -> GResult<usize> {
-    Ok(listed(m, ctx)?.len())
-}
-
 /// The days of each month: the game's calendar has no leap years.
 const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 

@@ -737,7 +737,16 @@ pub fn points() -> Vec<Point> {
         .uses(&[pending_event::EVENT, pending_event::DEADLINE, pending_event::ID]),
         // The map manager asking each popup whether it stays.
         Point::keep(0x6ea4e7usize, "49 8b 5c 24 78 48 85 db 74 58 48 8b 75 f7 48 8b 0b 48 8b 01 ff 50 18", "popups").uses(&[map_manager::POPUPS, popup::UPDATE]),
-        Point::keep(0x6ea53dusize, "48 8b 43 10", "next popup").uses(&[list::NEXT]),
+        // Adding a popup walks the list for one of its kind.
+        Point::keep(
+            0x6ecb14usize,
+            "48 8b 5e 78 48 85 db 74 1c 0f 1f 00 48 8b 0b 48 8b 01 ff 50 08 84 c0 75 60 48 8b 43 10 48 8b d8 48 85 c0 75 e7",
+            "map manager popups",
+        )
+        .uses(&[map_manager::POPUPS + list::HEAD, list::ITEM, list::NEXT]),
+        // A popup that closes while the list is being walked is marked to go
+        // later.
+        Point::keep(0x6ea583usize, "41 80 bc 24 8c 00 00 00 00 74 06 c6 41 18 01", "popup gone").uses(&[map_manager::POPUPS + list::CHANGING, list::REMOVED]),
         // The event window's constructor: its class, the event, the scope,
         // the pending event's id, open.
         Point::keep(

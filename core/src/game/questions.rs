@@ -1,9 +1,9 @@
 //! Questions (GLOSSARY): the game's own events waiting for the player's
 //! answer, read from the event windows the game shows the player, and
 //! answered as the player does, by choosing an option in the window.
-//! [`waiting`] says whether a question or an offer ([`super::offers`]) waits.
-//! The evidence is in docs/research/questions-and-offers.md.
-use super::{context, game, map_manager, offers, span, Caller, Ctx, GResult, Status};
+//! [`count`] says how many wait, for advancing time too. The evidence is in
+//! docs/research/questions-and-offers.md.
+use super::{context, game, map_manager, span, Caller, Ctx, GResult, Status};
 use crate::{
     game_string,
     memory::Memory,
@@ -29,6 +29,10 @@ const LOCALISE: usize = 0x10bc860;
 const DESCRIPTION_KEY: usize = 0x6edfb0;
 /// `(option, scope)`: whether the player may choose the option, u8.
 const OPTION_OPEN: usize = 0x6f6b30;
+/// The map manager's method that shows one of the game's events to the
+/// player ([`campaign::map_manager::SHOW_EVENT`]): the window it makes is
+/// added to the popups, where questions are read from.
+const SHOW_EVENT: usize = 0x828c00;
 
 /// More than any game shows.
 const MOST: usize = 10_000;
@@ -91,31 +95,10 @@ pub fn answer(_: Caller, id: u32, option: u32) -> GResult<()> {
     Ok(())
 }
 
-/// What waits for the player's answer.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Waiting {
-    pub questions: u32,
-    pub offers: u32,
-}
-
-impl Waiting {
-    /// Anything at all.
-    pub fn any(&self) -> bool {
-        self.questions + self.offers > 0
-    }
-}
-
-/// How many questions and offers wait for the player's answer. Cheap: it
-/// reads no texts. Advancing time stops on it.
-pub fn waiting(_: Caller) -> GResult<Waiting> {
-    let m = game()?;
-    let ctx = context(m)?;
-    Ok(Waiting { questions: count(m, &ctx)? as u32, offers: offers::count(m, &ctx)? as u32 })
-}
-
 /// How many questions wait in the campaign `ctx` was read from, also during
 /// the daily update: it only reads memory, and calls neither the game nor
-/// [`context`], which refuses then.
+/// [`context`], which refuses then. Cheap: it reads no texts. Advancing time
+/// stops on it (`super::time`), so on exactly the questions listed.
 pub fn count(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     Ok(open(m, ctx)?.len())
 }
@@ -243,10 +226,15 @@ fn localise(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     Ok(game_text::plain(&text?))
 }
 
-/// The functions answering and reading questions call, and how the event
-/// window calls them; the objects they read are in `objects::campaign`.
+/// How the game shows a question, the functions answering and reading
+/// questions call, and how the event window calls them; the objects they
+/// read are in `objects::campaign`.
 pub fn points() -> Vec<Point> {
     vec![
+        Point::method(classes::MAP_MANAGER, campaign::map_manager::SHOW_EVENT, SHOW_EVENT, "map manager shows an event"),
+        // It makes the event window (0x10b9a50) and adds it to its own
+        // popups (0x6ecae0, this in rcx).
+        Point::keep(0x828c43usize, "4c 8b ce 4c 8b c5 48 8b d3 48 8b c8 e8 fc 0d 89 00 90 48 8b d0 48 8b cb e8 80 3e ec ff", "event window shown"),
         Point::keep(CHOOSE, "48 89 5c 24 08 48 89 74 24 10 55 57 41 56 48 8d 6c 24 c0", "event option chosen"),
         Point::keep(LOCALISE, "48 8b c4 4c 89 48 20 4c 89 40 18 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57", "event text"),
         Point::keep(0x487b4dusize, "41 b9 2d 2d 2d 00 4c 8b c0 48 8b d3 48 8d 4c 24 20 e8 fd 4c c3 00", "event text call").uses(&[NO_TAG as usize]),
