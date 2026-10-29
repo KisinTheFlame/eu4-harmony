@@ -72,7 +72,11 @@ pub fn points() -> Vec<Point> {
 /// there now, with the game's reasons, one a line; [`Status::NotFound`] for a
 /// number that names no province. Done once the game's session has the
 /// order: the game carries it out at its next frame, paying for it and
-/// putting it in the province's recruit queue.
+/// putting it in the province's recruit queue. It checks the order again
+/// then and drops one that no longer passes with only a line in its own log,
+/// so orders given at one safe point or in one callback are each checked
+/// here against the same treasury, manpower and sailors, and those the first
+/// ones leave too little for are dropped at that frame.
 pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;

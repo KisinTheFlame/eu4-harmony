@@ -13,7 +13,11 @@ group! {
     /// game would not let the player recruit it there now (`province.get`
     /// says so beforehand). The game carries the order out at its next frame,
     /// paused or not, and the regiment or ship then waits in the province's
-    /// recruit queue.
+    /// recruit queue. The game checks the order again then, and drops one
+    /// that no longer passes with only a line in its own log: orders run at
+    /// one safe point are each checked against the same treasury, manpower
+    /// and sailors, and those the first ones leave too little for are
+    /// dropped at that frame.
     game Recruit "" {
         /// The province.
         province: ProvinceId,

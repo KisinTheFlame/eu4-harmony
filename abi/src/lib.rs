@@ -346,7 +346,11 @@ pub struct GameApi {
     /// in a province for the player, through the game's own recruit command,
     /// as the recruit button in the province view does. Accepted means the
     /// game has the order: it carries it out at its next frame, and the
-    /// regiment or ship then waits in the province's recruit queue.
+    /// regiment or ship then waits in the province's recruit queue. The game
+    /// checks the order again then, and drops one that no longer passes with
+    /// only a line in its own log: several orders in one callback are each
+    /// checked against the same treasury, manpower and sailors, and those
+    /// the first ones leave too little for are dropped at that frame.
     /// [`REJECTED`] when the game would not let the player recruit it there
     /// now, `last_error` giving the game's reasons, one a line;
     /// [`NOT_FOUND`] for a number that names no province;

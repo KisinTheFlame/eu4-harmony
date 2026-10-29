@@ -634,7 +634,12 @@ impl<'a> Game<'a> {
     /// through the game's own recruit command, as the recruit button in the
     /// province view does: the player's unit type of that kind, at the
     /// game's cost. Done once the game has the order; it carries it out at
-    /// its next frame. `Rejected` with the game's reasons, one a line, when
+    /// its next frame, checking it again then, and drops one that no longer
+    /// passes with only a line in its own log: several orders in one
+    /// callback are each checked against the same treasury, manpower and
+    /// sailors, and those the first ones leave too little for are dropped at
+    /// that frame.
+    /// `Rejected` with the game's reasons, one a line, when
     /// the game would not let the player recruit it there now (the province's
     /// [`Recruit`] says so beforehand); `InvalidArgument` for
     /// [`UnitKind::Unknown`].
