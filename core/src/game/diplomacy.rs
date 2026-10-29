@@ -560,14 +560,17 @@ impl Ledger {
     }
 
     /// The action sent with `ticket`, and what the game did with it, from
-    /// what it carried out of the same kind to the same country since.
+    /// what it carried out of the same kind to the same country since: the
+    /// first proposal or declaration, then, for a proposal, the first answer
+    /// after it. An answer before that is an earlier proposal's, carried out
+    /// before this one was sent.
     fn seen(&self, ticket: Ticket) -> Option<(Sent, Seen)> {
         let sent = *self.sent.iter().find(|s| s.ticket == ticket)?;
         let mut seen = Seen::Nothing;
         for c in self.carried.iter().filter(|c| c.number > sent.after && c.action == sent.action && c.to.index() == sent.to.index()) {
-            match c.state {
-                action::UNANSWERED if seen == Seen::Nothing => seen = Seen::CarriedOut,
-                action::ACCEPTED | action::DECLINED if sent.action.proposal() => return Some((sent, Seen::Answered(c.state == action::ACCEPTED))),
+            match (seen, c.state) {
+                (Seen::Nothing, action::UNANSWERED) => seen = Seen::CarriedOut,
+                (Seen::CarriedOut, action::ACCEPTED | action::DECLINED) if sent.action.proposal() => return Some((sent, Seen::Answered(c.state == action::ACCEPTED))),
                 _ => {}
             }
         }
@@ -723,6 +726,21 @@ mod tests {
         l.carried_out(Action::DeclareWar, ven, action::DECLINED);
         assert_eq!(l.seen(war).unwrap().1, Seen::CarriedOut);
         assert_eq!(l.seen(Ticket(99)), None);
+    }
+
+    #[test]
+    fn an_earlier_proposal_s_answer_is_not_a_later_one_s() {
+        let byz = game_tag(b"BYZ", 33);
+        let mut l = Ledger::default();
+        // A proposal carried out before this one was sent, its answer after.
+        l.carried_out(Action::OfferPeace, byz, action::UNANSWERED);
+        let peace = l.send(Action::OfferPeace, byz, l.carried_count, 1);
+        l.carried_out(Action::OfferPeace, byz, action::ACCEPTED);
+        assert_eq!(l.seen(peace).unwrap().1, Seen::Nothing);
+        l.carried_out(Action::OfferPeace, byz, action::UNANSWERED);
+        assert_eq!(l.seen(peace).unwrap().1, Seen::CarriedOut);
+        l.carried_out(Action::OfferPeace, byz, action::DECLINED);
+        assert_eq!(l.seen(peace).unwrap().1, Seen::Answered(false));
     }
 
     #[test]
