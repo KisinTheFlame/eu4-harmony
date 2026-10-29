@@ -1,7 +1,8 @@
-//! Diplomacy's objects: the diplomatic actions the player sends, the command
-//! that carries one to the game's session, the war goals a declaration of
-//! war chooses from, and the peace treaty a peace offer holds
-//! (docs/research/diplomacy.md).
+//! Diplomacy's objects: a diplomatic action, the player's or one made to the
+//! player (an offer, C7's), the command that carries one to the game's
+//! session, the war goals a declaration of war chooses from, and the peace
+//! treaty a peace offer holds (docs/research/diplomacy.md,
+//! docs/research/questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {
@@ -24,7 +25,9 @@ pub mod classes {
     pub const WAR_GOALS: usize = 0x1c3d1e0;
 }
 
-/// A diplomatic action, the base of every kind.
+/// A diplomatic action, the base of every kind, whoever makes it: the player's
+/// own, which diplomacy sends, and one made to the player, an offer, which
+/// the country it is made to keeps (`super::super::gui::diplomacy_dialog`).
 pub mod action {
     /// The type every persistent object of the game has there, u32.
     pub const TYPE: usize = 8;
@@ -51,7 +54,8 @@ pub mod action {
     /// u8, 1 when it starts something (an alliance, a war), 0 when it ends
     /// it; the byte after it, 0.
     pub const OFFER: usize = 0x38;
-    /// The id it gets when it reaches a human player, i32; 0 until then.
+    /// The id it gets when it reaches a human player, i32; 0 until then (an
+    /// offer's id).
     pub const ID: usize = 0x3c;
     /// Its methods, by vtable offset: its destructor, (action, flags), flag
     /// 1 freeing it; making the command that sends a copy of it, (action,
@@ -146,6 +150,7 @@ use crate::points::Point;
 
 pub fn points() -> Vec<Point> {
     use super::campaign::{globals::WORLD, world::DATE};
+    use super::gui::diplomacy_dialog as offer_window;
     use action::*;
     vec![
         // The declaration of war's constructor: the fields of every action,
@@ -216,5 +221,20 @@ pub fn points() -> Vec<Point> {
         // game offers none.
         Point::keep(0xee391ausize, "48 8b 4e 58 48 8b 11 4c 8b 42 40 48 8d 54 24 20 41 ff d0", "war goal name").uses(&[war_goal::NAME]),
         Point::keep(0xee70e5usize, "48 8b 15 44 8f 45 01", "no casus belli").uses(&[globals::NO_CASUS_BELLI]),
+        // An action made to the player: it gets its id as it reaches the
+        // player; the alliance offer's window shows both countries; the
+        // offer's window asks whether the action is still unanswered, and
+        // whether it was made no more than two months ago (its day, two
+        // months on by the game's adding of months, not before today).
+        Point::keep(0x4e82a9usize, "89 43 3c", "diplomatic action id").uses(&[ID]),
+        Point::keep(0x1067b19usize, "49 8b 46 10 48 c1 e8 20", "diplomatic action maker").uses(&[FROM]),
+        Point::keep(0x1067aacusize, "48 8b 96 38 02 00 00 48 8b 52 20", "diplomatic action recipient").uses(&[offer_window::ACTION, TO]),
+        Point::keep(0x1066b5dusize, "48 8b 83 38 02 00 00 83 78 34 00 0f 94 c0", "offer's action unanswered").uses(&[offer_window::ACTION, STATE, UNANSWERED as usize]),
+        Point::keep(
+            0x1066b16usize,
+            "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28 89 54 24 30 ba 02 00 00 00 e8 fa 14 46 00",
+            "offer's action made",
+        )
+        .uses(&[offer_window::ACTION, MADE, offer_window::ANSWER_MONTHS]),
     ]
 }
