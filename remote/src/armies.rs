@@ -62,14 +62,16 @@ group! {
         goal: ProvinceId,
     } -> Vec<ProvinceId>, "the provinces on the route, in order; empty when the army is there already";
     /// Orders an army of the player's along the game's route, as the player
-    /// would. Done means the route is set, not that the army has arrived.
+    /// would, also while the game is paused. Done means the route is set, not
+    /// that the army has arrived.
     game Move "move" {
         /// The player's land army.
         army: ArmyId,
         /// Where it should go.
         goal: ProvinceId,
     } -> (), "nothing";
-    /// Stops an army of the player's where it is, as the player would.
+    /// Stops an army of the player's where it is, as the player would, also
+    /// while the game is paused.
     game Stop "stop" {
         /// The player's land army.
         army: ArmyId,

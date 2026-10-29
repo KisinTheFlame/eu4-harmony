@@ -560,6 +560,6 @@ The build was this branch at `Give 676e229 its own subject in the recruiting run
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
 - The button area is a third column to the right of the two vanilla button columns (x=464, on the vanilla 43×44 grid), with no background frame.
 - A text box is "hidden" by clearing its text, not by calling the text box's show/hide method (which is not verified on this build).
-- Route queries, moves and stops are all refused while the game is paused (`NOT_READY`), as in the old regional-combat.
+- An extension's route queries, moves and stops are all refused while the game is paused (`NOT_READY`), as in the old regional-combat; remote control's are the player's, and go while paused, as the player's do (Z2).
 - Map coloring borrows native map mode 12; provinces that are not colored show that mode's own colors.
 - When the user directory cannot be found, logs fall back to `eu4-harmony\logs\` in the game directory.

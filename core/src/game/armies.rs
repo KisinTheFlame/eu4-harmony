@@ -134,15 +134,19 @@ pub fn can_attack(_: Caller, id: u64, target: u64, province: u32) -> GResult<boo
 
 /// The route the game itself would choose for an own land army; empty when
 /// `goal` is where the army is. [`Status::NotFound`] when there is none.
-pub fn find_route(_: Caller, id: u64, goal: u32) -> GResult<Vec<u32>> {
+/// Asked by an extension, [`Status::NotReady`] while the game is paused, as
+/// the orders below; remote control asks as the player, paused or not.
+pub fn find_route(caller: Caller, id: u64, goal: u32) -> GResult<Vec<u32>> {
     let m = game()?;
     let ctx = context(m)?;
     let army = world::own_land_army(m, &ctx, id)?;
-    with_state(|s| s.orders.find_route(m, &ctx, &mut s.geography, army, goal))
+    with_state(|s| s.orders.find_route(m, &ctx, &mut s.geography, army, goal, caller))
 }
 
 /// Orders an own land army along the game's route to `goal`. Done means the
-/// route is installed, not that the army has arrived.
+/// route is installed, not that the army has arrived. An extension's order
+/// is [`Status::NotReady`] while the game is paused; remote control's is the
+/// player's, given while the game is paused as the player gives one.
 pub fn move_to(caller: Caller, id: u64, goal: u32) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
