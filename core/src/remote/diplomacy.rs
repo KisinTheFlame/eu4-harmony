@@ -1,8 +1,8 @@
 //! Diplomacy: the player's diplomatic actions. The capability layer sends
 //! one at once; the answer comes at a later safe point, once the game has
-//! carried it out and the other country has answered, or after
-//! [`WAITED`] as `pending`.
-use super::{countries, tag, Live, Outcome as Ran, Poll, Wait};
+//! carried it out and the other country has answered, or as `pending` after
+//! [`WAITED`] or when the game returns to the main menu first.
+use super::{countries, events, tag, Live, Outcome as Ran, Poll, Wait};
 use crate::game::{
     diplomacy::{self as layer, Answer, Choice, Ticket, NO_CASUS_BELLI as NONE},
     Caller, GResult, Tag,
@@ -104,6 +104,10 @@ struct Waiting {
 }
 
 impl Waiting {
+    fn pending(&self) -> Response {
+        self.respond(Outcome { answer: AnswerKind::Pending, war: None })
+    }
+
     fn respond(&self, outcome: Outcome) -> Response {
         let answer = match self.kind {
             Kind::DeclareWar => DiplomacyAnswer::DeclareWar(outcome),
@@ -116,13 +120,12 @@ impl Waiting {
 
 impl Wait for Waiting {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
-        let pending = Outcome { answer: AnswerKind::Pending, war: None };
         let Some(game) = at.game.as_deref_mut() else {
-            return (at.now >= self.until).then(|| self.respond(pending));
+            return (at.now >= self.until).then(|| self.pending());
         };
         let outcome = match game.answer(self.ticket) {
             Ok(Answer::Pending) if at.now < self.until => return None,
-            Ok(Answer::Pending) => pending,
+            Ok(Answer::Pending) => return Some(self.pending()),
             Ok(Answer::Accepted) => Outcome { answer: AnswerKind::Accepted, war: None },
             Ok(Answer::Declined) => Outcome { answer: AnswerKind::Declined, war: None },
             Ok(Answer::Declared(war)) => Outcome { answer: AnswerKind::Declared, war: Some(war) },
@@ -130,11 +133,17 @@ impl Wait for Waiting {
         };
         Some(self.respond(outcome))
     }
+
+    /// The game is returning to the main menu, which starts `eu4.exe` again:
+    /// the action was sent, and what comes of it can no longer be seen.
+    fn ending(&mut self, _: &events::Buffer) -> Option<Response> {
+        Some(self.pending())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::{events, fake::Fake, Engine, Place, Reply, Request};
+    use super::super::{events, fake::Fake, menu, Engine, Place, Reply, Request};
     use super::*;
     use crate::game::{Fail, Status};
     use eu4_harmony_remote::{response_json, CountryTag, ProvinceId};
@@ -233,5 +242,16 @@ mod tests {
         assert_eq!(late, Some(json!({"ok": true, "result": {"answer": "pending"}})));
         let late = poll(Some(&mut game), now + WAITED).map(|r| response_json(&r));
         assert_eq!(late, Some(json!({"ok": true, "result": {"answer": "pending"}})));
+    }
+
+    #[test]
+    fn an_action_waiting_as_the_game_returns_to_the_main_menu_is_pending() {
+        let engine = Engine::new(quiet);
+        let mut game = Fake::default();
+        let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: byz() }));
+        engine.run(&mut game, &Place::Game, Duration::from_secs(10));
+        assert_eq!(answer(&reply), Value::Null);
+        engine.end(menu::ending(), Duration::ZERO);
+        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "pending"}}));
     }
 }
