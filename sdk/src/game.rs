@@ -823,14 +823,14 @@ impl<'a> Game<'a> {
     pub fn offers(&mut self) -> Result<Vec<Offer>> {
         self.backend.offers()
     }
-    /// Accepts an offer, as the player does in its dialog. `Rejected` when the
+    /// Accepts an offer, as the player does in its window. `Rejected` when the
     /// game no longer takes an answer to it (it was made more than two months
     /// ago, or what it offers is no longer possible), which the game then
     /// lets go, mostly declining it, as when the player opens it.
     pub fn accept_offer(&mut self, offer: OfferId) -> Result<()> {
         self.backend.answer_offer(offer, true)
     }
-    /// Declines an offer, as the player does in its dialog; `Rejected` as
+    /// Declines an offer, as the player does in its window; `Rejected` as
     /// [`Game::accept_offer`] is.
     pub fn decline_offer(&mut self, offer: OfferId) -> Result<()> {
         self.backend.answer_offer(offer, false)

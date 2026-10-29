@@ -376,7 +376,7 @@ pub struct GameApi {
     /// `abi/json/offers.json` is a whole one.
     pub offers: unsafe extern "C" fn(host: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
     /// Accepts (`accept` 1) or declines (0) an offer, as the player does in
-    /// its dialog. [`NOT_FOUND`] for no such offer; [`REJECTED`] when the
+    /// its window. [`NOT_FOUND`] for no such offer; [`REJECTED`] when the
     /// game no longer takes an answer to it (it was made more than two months
     /// ago, or what it offers is no longer possible), which the game then
     /// lets go, mostly declining it, as when the player opens it.
