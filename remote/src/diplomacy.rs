@@ -30,13 +30,15 @@ group! {
     } -> Vec<WarGoal>, "the war goals: casus_belli, war_goal, province, target, name";
     /// Declares war on a country for one of the war goals the game offers
     /// (`diplomacy.war_goals`): the first with the casus belli, and the war
-    /// goal, province and target when given. By default it calls to arms
-    /// each ally the declare war window would let the player call, as
-    /// ticking the ally's call box does, with no land promised; the answer
-    /// lists them in `called`. A costly declaration (no casus belli, a truce
+    /// goal, province and target when given. It calls to arms the allies
+    /// `call_allies` names, as ticking their call boxes in the declare war
+    /// window does, with no land promised; the answer lists them in
+    /// `called`. A costly declaration (no casus belli, a truce
     /// broken) is sent without the window's confirmation, and the game takes
-    /// its costs. `rejected` when the game offers no such war goal, or does
-    /// not let the player declare war, with its reasons.
+    /// its costs. `rejected` when the game offers no such war goal, does not
+    /// let the player declare war, or would not let the player call an ally
+    /// named, with its reasons; `invalid_argument` for a country to call
+    /// that is not among the allies the window lists.
     game DeclareWar "declare_war" {
         /// The country to declare war on.
         country: CountryTag,
@@ -50,10 +52,11 @@ group! {
         province: Option<ProvinceId>,
         /// The country the war goal is about.
         target: Option<CountryTag>,
-        /// Whether to call allies to arms: true, the default, calls each
-        /// ally the declare war window would let the player call; false
-        /// calls none.
-        call_allies: Option<bool>,
+        /// The allies to call to arms: `all`, the default, for each ally the
+        /// declare war window would let the player call; `none`; or the
+        /// tags of those to call, separated by commas, such as `DUL,CND`,
+        /// each one the window must let the player call.
+        call_allies: Option<String>,
     } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms";
     /// Offers a country the player is at war with a white peace, a peace
     /// treaty with no terms, in the war between them, as the peace view
@@ -144,7 +147,7 @@ mod tests {
             request,
             Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"BYZ"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None })
         );
-        let request = request_from_json(r#"{"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": false}"#).unwrap();
-        assert!(matches!(request, Request::Diplomacy(DiplomacyRequest::DeclareWar { call_allies: Some(false), .. })));
+        let request = request_from_json(r#"{"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": "DUL,CND"}"#).unwrap();
+        assert!(matches!(request, Request::Diplomacy(DiplomacyRequest::DeclareWar { call_allies: Some(ref c), .. }) if c == "DUL,CND"));
     }
 }

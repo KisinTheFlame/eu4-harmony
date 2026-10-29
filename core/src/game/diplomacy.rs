@@ -69,6 +69,8 @@ const MAY_CALL: usize = 0xee03f0;
 /// A full `std::vector` of tags growing to take one more, as the call box
 /// grows the allies called: (vector, where, the tag's address).
 const TAGS_GROW: usize = 0xdfde0;
+/// The key of the check's reason when the ally is on the other side too.
+const ALLIED_TO_ENEMY: usize = 0x1d1f5e0;
 
 /// The most war goals the game is believed to offer.
 const MOST_WAR_GOALS: usize = 10_000;
@@ -155,6 +157,18 @@ impl Choice {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ticket(pub u64);
 
+/// Which of the player's allies a declaration of war calls to arms.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Calls {
+    /// Each ally the declare war window would let the player call.
+    #[default]
+    All,
+    /// None.
+    None,
+    /// These allies, each one the window must let the player call.
+    Only(Vec<Tag>),
+}
+
 /// A declaration of war sent: its ticket, and the allies it calls to arms.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Declaration {
@@ -190,12 +204,13 @@ pub fn war_goals(_: Caller, enemy: Tag) -> GResult<Vec<WarGoal>> {
 }
 
 /// Declares war on `enemy` for the war goal `choice` picks among those the
-/// game offers, calling to arms, when `call_allies`, each ally the declare
-/// war window would let the player call ([`call_allies`]), and otherwise
-/// none. [`Status::InvalidArgument`] for an empty casus belli;
-/// [`Status::Rejected`] when the game offers no such war goal, or does not
-/// let the player declare war now, with its reasons.
-pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, call_allies: bool) -> GResult<Declaration> {
+/// game offers, calling to arms the allies `calls` names ([`call_allies`]).
+/// [`Status::InvalidArgument`] for an empty casus belli, or for a country
+/// to call that the declare war window does not list among the allies;
+/// [`Status::Rejected`] when the game offers no such war goal, does not let
+/// the player declare war now, or would not let the player call an ally
+/// named, with its reasons.
+pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration> {
     let m = game()?;
     let ctx = context(m)?;
     other(m, &ctx, enemy)?;
@@ -211,7 +226,7 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, call_allies: bool) ->
     m.call(m.at(DECLARE_WAR_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
     made.built = true;
     verdict(m, made.at(), Action::DeclareWar)?;
-    let called = if call_allies { self::call_allies(m, &ctx, made.at(), enemy)? } else { Vec::new() };
+    let called = call_allies(m, &ctx, made.at(), enemy, calls)?;
     let ticket = send(m, &ctx, made.at(), Action::DeclareWar, enemy, called.clone())?;
     Ok(Declaration { ticket, called })
 }
@@ -458,37 +473,67 @@ fn refusal(said: Vec<String>, description: &[String]) -> String {
 
 // ---------- calls to arms ----------
 
-/// Calls each ally the declare war window would let the player call to
-/// arms, as the player ticking its call boxes one after another from the top
-/// calls them, and answers the allies called. The window lists as allies
-/// the countries it gathers on the declarer's side ([`Sides`]) but the
-/// player and `enemy`; one that joins anyway has no call box to tick. Its
-/// call box asks the window's check ([`MAY_CALL`]) with the ally not among
-/// those promised land, as none is while the promise land boxes are left
-/// alone, and calls an ally the check allows by putting it into the
-/// declaration's [`action::CALLED`]. The window gathers again after each
-/// call, so this does too. The check reads the window's enemies list,
-/// which [`Asking`] leaves empty; [`asked_by_enemy`] stands for it.
-fn call_allies(m: &Memory, ctx: &Ctx, action: usize, enemy: Tag) -> GResult<Vec<Tag>> {
+/// Calls to arms the allies `calls` names, as the player ticking the declare
+/// war window's call boxes one after another from the top calls them, and
+/// answers the allies called. The window lists as allies the countries it
+/// gathers on the declarer's side ([`Sides`]) but the player and `enemy`;
+/// one that joins anyway has no call box to tick. Its call box asks the
+/// window's check ([`MAY_CALL`]) with the ally not among those promised
+/// land, as none is while the promise land boxes are left alone, and calls
+/// an ally the check allows by putting it into the declaration's
+/// [`action::CALLED`]. The window gathers again after each call, so this
+/// does too. The check reads the window's enemies list, which [`Asking`]
+/// leaves empty; [`asked_by_enemy`] stands for it.
+///
+/// [`Calls::All`] calls each ally the check allows, and passes over the
+/// rest. [`Calls::Only`] calls those named, and refuses the declaration
+/// ([`Status::Rejected`], with the check's reasons) when the check does not
+/// allow one or it joins anyway: the window would not let the player tick
+/// its box. A named country the window does not list among the allies is
+/// [`Status::InvalidArgument`].
+fn call_allies(m: &Memory, ctx: &Ctx, action: usize, enemy: Tag, calls: &Calls) -> GResult<Vec<Tag>> {
+    let named = match calls {
+        Calls::None => return Ok(Vec::new()),
+        Calls::All => None,
+        Calls::Only(named) => Some(named.as_slice()),
+    };
+    let listed = |s: &Side| ![ctx.player.index(), enemy.index()].contains(&s.country().index());
+    if let Some(named) = named {
+        let allies: Vec<Side> = Sides::gather(m, action)?.side(sides::DECLARER)?.into_iter().filter(listed).collect();
+        if let Some(stranger) = named.iter().find(|t| !allies.iter().any(|s| s.country().index() == t.index())) {
+            return fail(Status::InvalidArgument, format!("{} is not among the allies the declare war window lists", letters(*stranger)));
+        }
+    }
     let asking = Asking::new(m, action);
     let mut asked: Vec<i16> = Vec::new();
     let mut called = Vec::new();
     for _ in 0..MOST_ON_A_SIDE {
         let sides = Sides::gather(m, action)?;
-        let listed = |s: &Side| ![ctx.player.index(), enemy.index()].contains(&s.country().index());
         let ours = sides.side(sides::DECLARER)?;
         let Some(ally) = ours.into_iter().filter(listed).find(|s| !asked.contains(&s.country().index())) else {
             return Ok(called);
         };
         asked.push(ally.country().index());
+        let country = ally.country();
+        if named.is_some_and(|named| !named.iter().any(|t| t.index() == country.index())) {
+            continue;
+        }
         if ally.joins() {
+            if named.is_some() {
+                return fail(Status::Rejected, format!("{} joins the war without being called: the declare war window has no call box for it", letters(country)));
+            }
             continue;
         }
         let theirs: Vec<Side> = sides.side(sides::OTHER)?.into_iter().filter(listed).collect();
         drop(sides);
-        if !asked_by_enemy(m, ctx, &asking, &theirs, ally.country())? && asking.may_call(&ally, true)? {
-            push_tag(m, action + action::CALLED, ally.country())?;
-            called.push(ally.country());
+        let enemy_asks = asked_by_enemy(m, ctx, &asking, &theirs, country)?;
+        if !enemy_asks && asking.may_call(&ally, true)? {
+            push_tag(m, action + action::CALLED, country)?;
+            called.push(country);
+        } else if named.is_some() {
+            let reasons = if enemy_asks { text_lines(&game_string::localized(m, m.at(ALLIED_TO_ENEMY))?) } else { asking.why_not(&ally)? };
+            let call = format!("the declare war window does not let the player call {} to arms", letters(country));
+            return fail(Status::Rejected, if reasons.is_empty() { format!("{call}, and gives no reason") } else { format!("{call}:\n{}", reasons.join("\n")) });
         }
     }
     Err("the declare war window's allies kept growing".to_string().into())
@@ -626,13 +671,30 @@ impl<'a> Asking<'a> {
     /// Whether the check lets the player call `country`, its entry in the
     /// allies list (`ally`) or in the enemies list.
     fn may_call(&self, country: &Side, ally: bool) -> GResult<bool> {
+        self.ask(country, ally, 0)
+    }
+
+    /// The reasons the check gives for an ally, as the window's tooltip
+    /// shows them, one a line.
+    fn why_not(&self, ally: &Side) -> GResult<Vec<String>> {
+        let mut string = game_string::empty();
+        let s = string.as_mut_ptr() as usize;
+        let asked = self.ask(ally, true, s);
+        let text = game_string::read(self.m, s);
+        game_string::destroy_checked(self.m, s)?;
+        asked?;
+        Ok(text_lines(&text?))
+    }
+
+    /// The check, its reasons into the `std::string` at `reasons` unless 0.
+    fn ask(&self, country: &Side, ally: bool, reasons: usize) -> GResult<bool> {
         let mut entry = [0u8; war_entry::SIZE];
         entry[war_entry::WINDOW..war_entry::WINDOW + 8].copy_from_slice(&(self.window.as_ptr() as u64).to_le_bytes());
         entry[war_entry::SIDE..war_entry::SIDE + side::SIZE].copy_from_slice(&country.0);
         entry[war_entry::ALLY] = ally as u8;
         entry[war_entry::PROMISE_BOX] = 1;
         let not_promised_land = 1;
-        Ok(self.m.call(self.m.at(MAY_CALL), &[entry.as_ptr() as usize, self.action, not_promised_land, 0])? as u8 != 0)
+        Ok(self.m.call(self.m.at(MAY_CALL), &[entry.as_ptr() as usize, self.action, not_promised_land, reasons])? as u8 != 0)
     }
 }
 
@@ -890,6 +952,15 @@ pub fn points() -> Vec<Point> {
         Point::keep(PEACE_NEW, "48 89 4c 24 08 53 48 83 ec 20 48 8b d9", "peace offer constructor"),
         Point::keep(TREATY_NEW, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48 89 4c 24 08 57 41 56 41 57 48 83 ec 20", "peace treaty constructor"),
         Point::keep(TREATY_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 48 8d 05 e7 16 2e 01", "peace treaty destructor"),
+        // Calls to arms: what the declare war window gathers and its lists'
+        // destructor, the check its call box asks and the reason it gives
+        // when the ally is on the other side too, and a vector of tags
+        // growing.
+        Point::keep(GATHER, "44 88 44 24 18 48 89 54 24 10 48 89 4c 24 08 55 53 56 57 41 54 41 55 41 56 41 57", "countries gathered"),
+        Point::keep(SIDES_FREE, "40 53 48 83 ec 20 48 8b d9 48 8b 09 48 85 c9 74 54", "countries gathered freed"),
+        Point::keep(MAY_CALL, "48 89 5c 24 18 48 89 54 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57", "ally check"),
+        Point::keep(0xee0d44usize, "48 8d 15 95 e8 e3 00", "ally check allied to enemy").uses(&[ALLIED_TO_ENEMY]),
+        Point::keep(TAGS_GROW, "48 89 5c 24 18 56 57 41 56 48 83 ec 20 48 8b 41 08 48 8b da 48 8b 11", "tags grown"),
         // The war goals and their list.
         Point::keep(WAR_GOAL_LIST, "48 89 5c 24 10 4c 89 4c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 50", "war goals offered"),
         method(WAR_GOALS, 0, WAR_GOAL_LIST_DESTROY, "war goal list destructor"),

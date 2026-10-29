@@ -502,6 +502,19 @@ impl From<WarGoalJson> for WarGoal {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ticket(pub u64);
 
+/// Which of the player's allies a declaration of war calls to arms
+/// ([`Game::declare_war`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CallAllies {
+    /// Each ally the declare war window would let the player call.
+    #[default]
+    All,
+    /// None.
+    None,
+    /// These allies, each one the window must let the player call.
+    Only(Vec<CountryId>),
+}
+
 /// A declaration of war sent ([`Game::declare_war`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Declaration {
@@ -831,10 +844,12 @@ impl<'a> Game<'a> {
     }
     /// Declares war on `country` for `goal`, one of those
     /// [`war_goals`](Self::war_goals) lists, as the player does through the
-    /// diplomacy panel, so that the game's checks and costs apply. With
-    /// `call_allies` it calls to arms each ally the declare war window would
-    /// let the player call, as ticking the ally's call box does, with no land
-    /// promised; without, none. The answer says which it called. A costly
+    /// diplomacy panel, so that the game's checks and costs apply. It calls
+    /// to arms the allies `call` names, as ticking their call boxes in the
+    /// declare war window does, with no land promised; the answer says which
+    /// it called. `InvalidArgument` for an ally to call that the window does
+    /// not list; `Rejected`, with the game's reasons and nothing sent, for
+    /// one it would not let the player call. A costly
     /// declaration (no casus belli, a truce broken) is sent without the
     /// window's confirmation, and the game takes its costs.
     /// [`Status::Rejected`] when the game offers no such war goal or does
@@ -842,8 +857,8 @@ impl<'a> Game<'a> {
     /// line. The game carries the declaration out at its next frame;
     /// [`diplomacy_answer`](Self::diplomacy_answer) then says whether the war
     /// began.
-    pub fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call_allies: bool) -> Result<Declaration> {
-        self.backend.declare_war(country, goal, call_allies)
+    pub fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration> {
+        self.backend.declare_war(country, goal, call)
     }
     /// Offers `country`, which the player is at war with, a white peace in
     /// the war between them, as the peace view sends one; refused, with the

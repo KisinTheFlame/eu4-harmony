@@ -580,15 +580,24 @@ impl diplomacy::Layer for Fake {
         Ok(if enemy == byz() { war_goals() } else { Vec::new() })
     }
 
-    /// Wallachia is called when allies are.
-    fn declare_war(&mut self, enemy: Tag, choice: &game::diplomacy::Choice, call_allies: bool) -> GResult<game::diplomacy::Declaration> {
-        let calling = if call_allies { "allies" } else { "none" };
+    /// Wallachia is the ally the window lets the player call.
+    fn declare_war(&mut self, enemy: Tag, choice: &game::diplomacy::Choice, calls: &game::diplomacy::Calls) -> GResult<game::diplomacy::Declaration> {
+        use game::diplomacy::Calls;
+        let calling = match calls {
+            Calls::Only(tags) => format!("Only({:x?})", tags.iter().map(|t| t.0).collect::<Vec<_>>()),
+            other => format!("{other:?}"),
+        };
         self.call(format!("declare war {:x} {:?} {:?} {:?} {:?} calling {calling}", enemy.0, choice.casus_belli, choice.war_goal, choice.province, choice.target.map(|t| t.0)));
         if enemy == wal() {
             return fail(Status::Rejected, "They are our subject.
 We have a truce with them.");
         }
-        Ok(game::diplomacy::Declaration { ticket: game::diplomacy::Ticket(1), called: if call_allies { vec![wal()] } else { Vec::new() } })
+        let called = match calls {
+            Calls::All => vec![wal()],
+            Calls::None => Vec::new(),
+            Calls::Only(tags) => tags.iter().copied().filter(|&t| t == wal()).collect(),
+        };
+        Ok(game::diplomacy::Declaration { ticket: game::diplomacy::Ticket(1), called })
     }
 
     fn offer_peace(&mut self, enemy: Tag) -> GResult<game::diplomacy::Ticket> {

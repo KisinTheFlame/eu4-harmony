@@ -4,8 +4,8 @@
 //! [`WAITED`] or when the game returns to the main menu first.
 use super::{countries, events, tag, Live, Outcome as Ran, Poll, Wait};
 use crate::game::{
-    diplomacy::{self as layer, Answer, Choice, Declaration, Ticket, NO_CASUS_BELLI as NONE},
-    Caller, GResult, Tag,
+    diplomacy::{self as layer, Answer, Calls, Choice, Declaration, Ticket, NO_CASUS_BELLI as NONE},
+    Caller, Fail, GResult, Status, Tag,
 };
 use eu4_harmony_remote::{
     diplomacy::{AnswerKind, DiplomacyAnswer, DiplomacyRequest, Outcome, WarGoal},
@@ -21,7 +21,7 @@ pub const WAITED: Duration = Duration::from_secs(5);
 /// The group's slice of the capability layer.
 pub trait Layer {
     fn war_goals(&mut self, enemy: Tag) -> GResult<Vec<layer::WarGoal>>;
-    fn declare_war(&mut self, enemy: Tag, choice: &Choice, call_allies: bool) -> GResult<Declaration>;
+    fn declare_war(&mut self, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration>;
     fn offer_peace(&mut self, enemy: Tag) -> GResult<Ticket>;
     fn propose_alliance(&mut self, ally: Tag) -> GResult<Ticket>;
     fn answer(&mut self, ticket: Ticket) -> GResult<Answer>;
@@ -32,8 +32,8 @@ impl Layer for Live {
         layer::war_goals(Caller::Remote, enemy)
     }
 
-    fn declare_war(&mut self, enemy: Tag, choice: &Choice, call_allies: bool) -> GResult<Declaration> {
-        layer::declare_war(Caller::Remote, enemy, choice, call_allies)
+    fn declare_war(&mut self, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration> {
+        layer::declare_war(Caller::Remote, enemy, choice, calls)
     }
 
     fn offer_peace(&mut self, enemy: Tag) -> GResult<Ticket> {
@@ -61,7 +61,8 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
             let enemy = game.country(country)?;
             let target = target.map(|t| game.country(t)).transpose()?;
             let choice = Choice { casus_belli: (casus_belli != NONE).then_some(casus_belli), war_goal, province: province.map(|p| p.0), target };
-            let declared = game.declare_war(enemy, &choice, call_allies.unwrap_or(true))?;
+            let calls = calls(call_allies.as_deref(), game)?;
+            let declared = game.declare_war(enemy, &choice, &calls)?;
             Ok((declared.ticket, Kind::DeclareWar, Some(declared.called.into_iter().map(tag).collect())))
         })(),
         DiplomacyRequest::OfferPeace { country } => (|| {
@@ -76,6 +77,25 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
     match sent {
         Ok((ticket, kind, called)) => Ran::Later(Box::new(Waiting { ticket, kind, called, until: Instant::now() + WAITED })),
         Err(e) => Ran::Done(Err(e)),
+    }
+}
+
+/// The allies a declaration calls, from its `call_allies`: `all` (or left
+/// out), `none`, or tags separated by commas.
+fn calls(text: Option<&str>, game: &mut (impl countries::Layer + ?Sized)) -> GResult<Calls> {
+    match text.map(str::trim) {
+        None | Some("all") => Ok(Calls::All),
+        Some("none") => Ok(Calls::None),
+        Some(list) => {
+            let mut tags = Vec::new();
+            for word in list.split(',').map(str::trim) {
+                let Some(tag) = CountryTag::parse(word) else {
+                    return Err(Fail { status: Status::InvalidArgument, message: format!("call_allies is all, none, or country tags separated by commas; {word:?} is not a tag") });
+                };
+                tags.push(game.country(tag)?);
+            }
+            Ok(Calls::Only(tags))
+        }
     }
 }
 
@@ -149,7 +169,6 @@ impl Wait for Waiting {
 mod tests {
     use super::super::{events, fake::Fake, menu, Engine, Place, Reply, Request};
     use super::*;
-    use crate::game::{Fail, Status};
     use eu4_harmony_remote::{response_json, CountryTag, ProvinceId};
     use serde_json::{json, Value};
 
@@ -194,16 +213,31 @@ mod tests {
         assert_eq!(answer(&reply), Value::Null);
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["WAL"]}}));
-        assert_eq!(game.calls[..3], ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199) calling allies"]);
+        assert_eq!(game.calls[..3], ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199) calling All"]);
         assert_eq!(game.calls[3..], ["answer 1", "answer 1"]);
 
         // Without a casus belli, calling no ally: pending, none called.
-        let declare = DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: Some(false) };
-        let reply = engine.submit(Request::Diplomacy(declare));
+        let declare = |engine: &Engine, call_allies: &str| {
+            let declare = DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: Some(call_allies.into()) };
+            engine.submit(Request::Diplomacy(declare))
+        };
+        let reply = declare(&engine, "none");
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
-        assert!(game.calls.iter().any(|c| c == "declare war 1000021005a5942 None None None None calling none"), "{:?}", game.calls);
+        assert!(game.calls.iter().any(|c| c == "declare war 1000021005a5942 None None None None calling None"), "{:?}", game.calls);
         engine.end(menu::ending(), Duration::ZERO);
         assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "pending", "called": []}}));
+
+        // Allies by tag, in either case and with spaces; a word that is no
+        // tag, and a tag of no country. In a process of its own, since the
+        // engine above has ended.
+        let engine = Engine::new(quiet);
+        let replies = [declare(&engine, "wal, TUR"), declare(&engine, "WAL;TUR"), declare(&engine, "WAL,QQQ")];
+        engine.run(&mut game, &Place::Game, Duration::from_secs(10));
+        engine.end(menu::ending(), Duration::ZERO);
+        assert!(game.calls.iter().any(|c| c.ends_with("calling Only([100012c004c4157, 100009a00525554])")), "{:?}", game.calls);
+        assert_eq!(answer(&replies[0])["result"]["called"], json!(["WAL"]));
+        assert_eq!(answer(&replies[1])["error"]["code"], "invalid_argument");
+        assert_eq!(answer(&replies[2])["error"]["code"], "not_found");
     }
 
     #[test]

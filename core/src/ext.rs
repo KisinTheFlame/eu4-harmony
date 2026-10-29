@@ -579,14 +579,24 @@ unsafe extern "C" fn h_declare_war(
     war_goal_len: usize,
     province: u32,
     target: u64,
-    call_allies: u8,
+    call: u32,
+    allies: *const u64,
+    allies_len: usize,
     ticket: *mut u64,
 ) -> i32 {
     capability(ptr, |caller| {
         let casus_belli = Some(utf8(casus_belli, casus_belli_len)?).filter(|&cb| cb != diplomacy::NO_CASUS_BELLI).map(str::to_string);
         let war_goal = Some(utf8(war_goal, war_goal_len)?).filter(|w| !w.is_empty()).map(str::to_string);
         let choice = diplomacy::Choice { casus_belli, war_goal, province: (province != 0).then_some(province), target: (target != 0).then_some(Tag(target)) };
-        ticket_out(ticket, diplomacy::declare_war(caller, Tag(country), &choice, call_allies != 0)?.ticket)
+        let calls = match call {
+            abi::CALL_ALL => diplomacy::Calls::All,
+            abi::CALL_NONE => diplomacy::Calls::None,
+            abi::CALL_LISTED if allies_len == 0 => diplomacy::Calls::Only(Vec::new()),
+            abi::CALL_LISTED if allies.is_null() => return failure(abi::INVALID_ARGUMENT, "null allies"),
+            abi::CALL_LISTED => diplomacy::Calls::Only(std::slice::from_raw_parts(allies, allies_len).iter().map(|&a| Tag(a)).collect()),
+            other => return failure(abi::INVALID_ARGUMENT, format!("no call {other}: CALL_ALL, CALL_NONE or CALL_LISTED")),
+        };
+        ticket_out(ticket, diplomacy::declare_war(caller, Tag(country), &choice, &calls)?.ticket)
     })
 }
 
