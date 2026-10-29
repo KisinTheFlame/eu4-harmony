@@ -231,7 +231,7 @@ fn localise(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
 /// read are in `objects::campaign`.
 pub fn points() -> Vec<Point> {
     vec![
-        Point::method(classes::MAP_MANAGER, campaign::map_manager::SHOW_EVENT, SHOW_EVENT, "map manager shows an event"),
+        Point::method(classes::MAP_MANAGER, campaign::map_manager::SHOW_EVENT, SHOW_EVENT, "map manager shows one of the game's events"),
         // It makes the event window (0x10b9a50) and adds it to its own
         // popups (0x6ecae0, this in rcx).
         Point::keep(0x828c43usize, "4c 8b ce 4c 8b c5 48 8b d3 48 8b c8 e8 fc 0d 89 00 90 48 8b d0 48 8b cb e8 80 3e ec ff", "event window shown"),

@@ -34,7 +34,7 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29 
 
 ## A save made with other mods
 
-Tested: a compressed text save made with a gameplay mod the playset lacked (its `meta` names the mods in `mods_enabled_names`) crashed the game when `menu.load` loaded it: after the save loader `0x5cdc60` returned, in the load command under `0x110d760` in the main menu's frame, `0x88a1fb` read the 8002nd record (0x230 bytes each) of an array past its end. Whether the game's own load list loads such a save was not tried; the continue box's path, which `menu.load` takes, did not stop it. Saves made with the playset's mods loaded as before.
+Tested: a compressed text save made with a gameplay mod the playset lacked (its `meta` names the mods in `mods_enabled_names`) crashed the game when `menu.load` loaded it: after the save loader `0x5cdc60` returned, in the load command under `0x110d760` in the main menu's frame, `0x88a1fb` read the 8002nd record (0x230 bytes each) of an array past its end. Whether the game loads such a save when the player picks it from the game's own list of saves was not tried; the continue box's path, which `menu.load` takes, did not stop it. Saves made with the playset's mods loaded as before.
 
 ## Starting a game as a country
 

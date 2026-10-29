@@ -226,7 +226,7 @@ fn tells_the_process_serving_the_pipe() {
 }
 
 #[test]
-fn sends_nothing_to_a_server_that_is_not_the_game() {
+fn sends_nothing_to_a_pipe_the_game_does_not_serve() {
     let name = pipe_name("not-the-game");
     let (sent, received) = mpsc::channel();
     let served = serve_one(&name, move |_, line| sent.send(line).unwrap());
