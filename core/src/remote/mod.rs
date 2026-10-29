@@ -496,20 +496,14 @@ pub fn submit(request: Request) -> Reply {
 /// events.
 fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     use eu4_harmony_remote::{events::Event, ArmyId, Date};
-    let mut happened = Vec::new();
-    if frame.new_session {
-        happened.push(Event::Session { session: frame.session });
-    }
-    for change in &frame.changes {
-        happened.push(match *change {
-            game::events::Change::Ordered(army) => Event::ArmyOrdered { army: ArmyId(army) },
-            game::events::Change::Defeated(army) => Event::ArmyDefeated { army: ArmyId(army) },
-        });
-    }
-    if frame.new_day {
-        happened.push(Event::Day { date: Date(frame.ctx.date) });
-    }
-    happened
+    use game::{events::Change, Heard};
+    let event = |heard| match heard {
+        Heard::Session(session) => Event::Session { session },
+        Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
+        Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
+        Heard::Day(date) => Event::Day { date: Date(date) },
+    };
+    frame.heard().into_iter().map(event).collect()
 }
 
 /// At a game's safe frame: keeps what extensions just heard, then runs.
