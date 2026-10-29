@@ -1,12 +1,12 @@
 //! Battle names in the player language's word order
 //! (docs/research/names.md). 0x23a900 names a battle, a siege or an
-//! occupation as the localised word (`BATTLE_OF`, `SIEGE_OF`,
+//! occupation as the localisation's word for it (`BATTLE_OF`, `SIEGE_OF`,
 //! `OCCUPATION_OF`), a space and the province: "Battle of Athens", but also
 //! "战役 雅典" where Chinese says "雅典战役". Battle results, the combat and
 //! siege views, their tooltips and a leader's death in battle use it.
 //!
 //! A language's templates (`EU4HARMONY_BATTLE`, `_SIEGE`, `_OCCUPATION`, with
-//! `$KIND$`, the localised word, and `$PLACE$`) word the name instead. The
+//! `$KIND$`, that word, and `$PLACE$`) word the name instead. The
 //! war overview's battle rows put their names together elsewhere and keep the
 //! game's order.
 use crate::game_string;
@@ -20,13 +20,13 @@ use std::sync::{Mutex, OnceLock};
 /// The kinds of name, by the game's key and the framework's template.
 const KINDS: [(&str, &str); 3] = [("BATTLE_OF", "EU4HARMONY_BATTLE"), ("SIEGE_OF", "EU4HARMONY_SIEGE"), ("OCCUPATION_OF", "EU4HARMONY_OCCUPATION")];
 
-/// The game's words for the kinds, as localised: looked up the first time a
-/// battle is named, and again while a lookup fails.
+/// The game's words for the kinds, from its localisation: looked up the
+/// first time a battle is named, and again while a lookup fails.
 static WORDS: Mutex<Option<Vec<Vec<u8>>>> = Mutex::new(None);
 /// Whether the player language words battle names its own way.
 static REWORDS: OnceLock<bool> = OnceLock::new();
 
-fn localised(key: &str) -> crate::Result<Vec<u8>> {
+fn localisation(key: &str) -> crate::Result<Vec<u8>> {
     let m = crate::memory().ok_or("no memory")?;
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
     game_string::localized(m, key.as_ptr() as usize)
@@ -60,7 +60,7 @@ extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
         let words = {
             let mut words = WORDS.lock().unwrap_or_else(|e| e.into_inner());
             if words.is_none() {
-                *words = KINDS.iter().map(|&(key, _)| localised(key)).collect::<crate::Result<Vec<_>>>().ok();
+                *words = KINDS.iter().map(|&(key, _)| localisation(key)).collect::<crate::Result<Vec<_>>>().ok();
             }
             let Some(words) = words.clone() else { return };
             words
