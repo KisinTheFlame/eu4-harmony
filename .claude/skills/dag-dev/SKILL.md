@@ -40,7 +40,7 @@ git worktree add .claude/worktrees/<requirement> <requirement>
 
 You are the orchestrator. Every stage of every node (developer, reviewer, fixer, merger) is a background subagent you start with the Agent tool, from its brief in [briefs.md](briefs.md). You are woken when each one finishes, so its report reaches you, and through you the user, as soon as it exists. The Workflow tool would run to the end without waking you, and nobody would hear of a plan change until every node is done.
 
-Keep a table of the nodes: id, title, deps, stage, review round, worktree. Start a node's developer as soon as every node it depends on is merged, and every ready node at once: there is no limit.
+Keep a table of the nodes (id, title, deps, stage, review round, worktree) in a status document the user can read from any device, in the user's language: a living document if one can be made, otherwise a file in the scratchpad sent to the user. Beside the table it holds what is running now, every decision made during development, what waits on the user, and a dated log of changes, newest first. Update it whenever a node changes stage. Start a node's developer as soon as every node it depends on is merged, and every ready node at once: there is no limit.
 
 When a subagent finishes, act on its report before anything else:
 
