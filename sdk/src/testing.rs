@@ -14,6 +14,8 @@ use std::path::Path;
 pub enum Command {
     Move(ArmyId, ProvinceId),
     Stop(ArmyId),
+    /// One regiment or ship of a kind recruited in a province.
+    Recruit(ProvinceId, UnitKind),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -62,7 +64,8 @@ pub struct FakeGame {
     /// not here is not found.
     pub province_positions: BTreeMap<ProvinceId, (u32, u32)>,
     /// What `Game::province` answers, by province; missing entries are not
-    /// found.
+    /// found. Recruiting follows them: a kind a province's snapshot says is
+    /// not allowed is refused with its reasons.
     pub province_snapshots: BTreeMap<ProvinceId, ProvinceSnapshot>,
     /// The game console commands the extension ran, in order.
     pub console_commands: Vec<String>,
@@ -280,6 +283,18 @@ impl Backend for FakeGame {
         self.session.paused = false;
         Ok(())
     }
+    fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
+        if let Some(reason) = &self.reject_orders {
+            return Err(Error::new(Status::Rejected, reason.clone()));
+        }
+        let snapshot = self.province_snapshots.get(&province);
+        if let Some(refused) = snapshot.and_then(|s| s.recruit.iter().find(|r| r.kind == kind && !r.allowed)) {
+            let reasons = if refused.reasons.is_empty() { "the game gives no reason".to_string() } else { refused.reasons.join("\n") };
+            return Err(Error::new(Status::Rejected, reasons));
+        }
+        self.commands.push(Command::Recruit(province, kind));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -326,5 +341,26 @@ mod tests {
         game.resume().unwrap();
         assert!(!game.session().unwrap().paused);
         assert_eq!(game.speed().unwrap(), 4);
+    }
+
+    #[test]
+    fn a_recruit_order_follows_the_province_s_snapshot() {
+        let mut fake = FakeGame::new();
+        let recruit = |kind, allowed, reasons: &[&str]| Recruit { kind, unit_type: Some("x".into()), allowed, reasons: reasons.iter().map(|r| r.to_string()).collect() };
+        let snapshot = ProvinceSnapshot {
+            id: 219,
+            recruit: vec![recruit(UnitKind::Infantry, false, &["没有足够的manpower。"]), recruit(UnitKind::Transport, true, &[])],
+            ..Default::default()
+        };
+        fake.province_snapshots.insert(219, snapshot);
+        let err = fake.game().recruit(219, UnitKind::Infantry).unwrap_err();
+        assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "没有足够的manpower。"));
+        fake.game().recruit(219, UnitKind::Transport).unwrap();
+        // Where the test set up no snapshot, the order is taken.
+        fake.game().recruit(1, UnitKind::Cavalry).unwrap();
+        assert_eq!(fake.game().recruit(1, UnitKind::Unknown).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(fake.commands, [Command::Recruit(219, UnitKind::Transport), Command::Recruit(1, UnitKind::Cavalry)]);
+        fake.reject_orders = Some("paused".into());
+        assert_eq!(fake.game().recruit(219, UnitKind::Transport).unwrap_err().status, Status::Rejected);
     }
 }

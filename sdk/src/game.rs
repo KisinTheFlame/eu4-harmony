@@ -630,4 +630,18 @@ impl<'a> Game<'a> {
     pub fn resume(&mut self) -> Result<()> {
         self.backend.time_resume()
     }
+    /// Recruits one regiment or ship of `kind` in a province for the player,
+    /// through the game's own recruit command, as the recruit button in the
+    /// province view does: the player's unit type of that kind, at the
+    /// game's cost. Done once the game has the order; it carries it out at
+    /// its next frame. `Rejected` with the game's reasons, one a line, when
+    /// the game would not let the player recruit it there now (the province's
+    /// [`Recruit`] says so beforehand); `InvalidArgument` for
+    /// [`UnitKind::Unknown`].
+    pub fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
+        if kind == UnitKind::Unknown {
+            return Err(Error::new(Status::InvalidArgument, "a unit kind this SDK does not know cannot be recruited"));
+        }
+        self.backend.recruit(province, kind)
+    }
 }

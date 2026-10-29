@@ -55,6 +55,9 @@ pub trait Backend {
     fn time_set_speed(&mut self, speed: u32) -> Result<()>;
     fn time_pause(&mut self) -> Result<()>;
     fn time_resume(&mut self) -> Result<()>;
+    /// `Rejected` with the game's reasons. [`Game::recruit`] never passes
+    /// [`UnitKind::Unknown`].
+    fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()>;
 }
 
 /// The core's capability table for the current callback.
@@ -334,6 +337,21 @@ impl Backend for RealBackend {
         let api = self.api();
         self.check(unsafe { (api.time_resume)(api.host) })
     }
+    fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
+        self.require(end_of!(recruit))?;
+        let kind = match kind {
+            UnitKind::Infantry => abi::UNIT_INFANTRY,
+            UnitKind::Cavalry => abi::UNIT_CAVALRY,
+            UnitKind::Artillery => abi::UNIT_ARTILLERY,
+            UnitKind::HeavyShip => abi::UNIT_HEAVY_SHIP,
+            UnitKind::LightShip => abi::UNIT_LIGHT_SHIP,
+            UnitKind::Galley => abi::UNIT_GALLEY,
+            UnitKind::Transport => abi::UNIT_TRANSPORT,
+            UnitKind::Unknown => return Err(Error::new(Status::InvalidArgument, "a unit kind this SDK does not know cannot be recruited")),
+        };
+        let api = self.api();
+        self.check(unsafe { (api.recruit)(api.host, province, kind) })
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -456,6 +474,18 @@ mod tests {
         abi::OK
     }
 
+    static RECRUITED: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
+
+    /// Takes infantry in 219 and refuses the rest, as the core would.
+    unsafe extern "C" fn recruit(_: H, province: u32, kind: u32) -> i32 {
+        RECRUITED.lock().unwrap().push((province, kind));
+        if (province, kind) == (219, abi::UNIT_INFANTRY) {
+            abi::OK
+        } else {
+            abi::REJECTED
+        }
+    }
+
     fn table() -> abi::GameApi {
         abi::GameApi {
             size: std::mem::size_of::<abi::GameApi>(),
@@ -498,6 +528,7 @@ mod tests {
             time_set_speed: no_set_speed,
             time_pause: no_pause,
             time_resume: no_pause,
+            recruit,
         }
     }
 
@@ -646,6 +677,24 @@ mod tests {
         assert_eq!(backend.time_pause().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.time_resume().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.language().unwrap(), "simp_chinese");
+    }
+
+    /// Each kind goes to the core as its `UNIT_*`; an unknown one never
+    /// does, and a core from before recruiting has none.
+    #[test]
+    fn a_recruit_order_names_its_kind_to_the_core() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        backend.recruit(219, UnitKind::Infantry).unwrap();
+        assert_eq!(backend.recruit(219, UnitKind::Transport).unwrap_err().status, Status::Rejected);
+        assert_eq!(backend.recruit(219, UnitKind::Unknown).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(Game::new(&mut backend).recruit(219, UnitKind::Unknown).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(*RECRUITED.lock().unwrap(), [(219, abi::UNIT_INFANTRY), (219, abi::UNIT_TRANSPORT)]);
+
+        let mut api = table();
+        api.size = std::mem::offset_of!(abi::GameApi, recruit);
+        assert_eq!(RealBackend::new(&api).recruit(219, UnitKind::Infantry).unwrap_err().status, Status::Unavailable);
+        assert_eq!(RECRUITED.lock().unwrap().len(), 2);
     }
 
     #[test]

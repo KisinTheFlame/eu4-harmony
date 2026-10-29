@@ -177,6 +177,16 @@ pub struct Camera {
 /// call host functions.
 pub type TextSink = unsafe extern "C" fn(user: *mut c_void, text: *const u8, len: usize);
 
+/// Kinds of regiment and ship, as [`GameApi::recruit`] takes them, in the
+/// game's own order (the order of `recruit` in a province's snapshot).
+pub const UNIT_INFANTRY: u32 = 0;
+pub const UNIT_CAVALRY: u32 = 1;
+pub const UNIT_ARTILLERY: u32 = 2;
+pub const UNIT_HEAVY_SHIP: u32 = 3;
+pub const UNIT_LIGHT_SHIP: u32 = 4;
+pub const UNIT_GALLEY: u32 = 5;
+pub const UNIT_TRANSPORT: u32 = 6;
+
 /// Capabilities valid only for the duration of one callback, on the game thread.
 #[repr(C)]
 pub struct GameApi {
@@ -332,6 +342,16 @@ pub struct GameApi {
     /// (they stay open); nothing when it runs. [`REJECTED`] when the game
     /// stays paused.
     pub time_resume: unsafe extern "C" fn(host: *mut c_void) -> i32,
+    /// Recruits one regiment or ship of `kind` (one of the `UNIT_*` kinds)
+    /// in a province for the player, through the game's own recruit command,
+    /// as the recruit button in the province view does. Accepted means the
+    /// game has the order: it carries it out at its next frame, and the
+    /// regiment or ship then waits in the province's recruit queue.
+    /// [`REJECTED`] when the game would not let the player recruit it there
+    /// now, `last_error` giving the game's reasons, one a line;
+    /// [`NOT_FOUND`] for a number that names no province;
+    /// [`INVALID_ARGUMENT`] for a kind that is none of the `UNIT_*`.
+    pub recruit: unsafe extern "C" fn(host: *mut c_void, province: u32, kind: u32) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -413,5 +433,6 @@ slots!(GameApi:
     console_run,
     country,
     time_speed, time_set_speed, time_pause, time_resume,
+    recruit,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);

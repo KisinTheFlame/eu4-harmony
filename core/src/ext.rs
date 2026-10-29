@@ -503,6 +503,15 @@ unsafe extern "C" fn h_time_resume(ptr: *mut c_void) -> i32 {
     capability(ptr, |caller| Ok(time::resume(caller)?))
 }
 
+unsafe extern "C" fn h_recruit(ptr: *mut c_void, province: u32, kind: u32) -> i32 {
+    capability(ptr, |caller| {
+        let Some(&kind) = provinces::UnitKind::ALL.get(kind as usize) else {
+            return failure(abi::INVALID_ARGUMENT, format!("no unit kind {kind}"));
+        };
+        Ok(game::recruiting::recruit(caller, province, kind)?)
+    })
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -545,6 +554,7 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         time_set_speed: h_time_set_speed,
         time_pause: h_time_pause,
         time_resume: h_time_resume,
+        recruit: h_recruit,
     }
 }
 
@@ -810,5 +820,12 @@ mod tests {
         let snapshot = crate::remote::fake::wallachia();
         assert_eq!(snapshot.relations.iter().map(|r| r.kind).collect::<Vec<_>>(), RelationKind::ALL);
         assert_eq!(country_json(&snapshot), serde_json::from_str::<serde_json::Value>(COUNTRY_JSON).unwrap());
+    }
+
+    /// `GameApi::recruit` takes a kind by the layer's index.
+    #[test]
+    fn the_abi_s_unit_kinds_are_the_layer_s() {
+        let abi = [abi::UNIT_INFANTRY, abi::UNIT_CAVALRY, abi::UNIT_ARTILLERY, abi::UNIT_HEAVY_SHIP, abi::UNIT_LIGHT_SHIP, abi::UNIT_GALLEY, abi::UNIT_TRANSPORT];
+        assert_eq!(UnitKind::ALL.map(|k| k.index() as u32), abi);
     }
 }
