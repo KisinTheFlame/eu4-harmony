@@ -172,7 +172,7 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice) -> GResult<Ticket> {
     other(m, &ctx, enemy)?;
     let offered = Offered::list(m, &ctx, enemy)?;
     let Some(&(goal, _)) = offered.goals.iter().find(|(_, g)| choice.matches(g)) else {
-        let cb = choice.casus_belli.as_deref().unwrap_or("none");
+        let cb = choice.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI);
         return fail(Status::Rejected, format!("the game offers no such war goal under {cb} against {}; diplomacy.war_goals lists those it offers", letters(enemy)));
     };
     let mut made = Made::new(m, action::DECLARE_WAR_SIZE);
@@ -204,7 +204,7 @@ pub fn offer_peace(_: Caller, enemy: Tag) -> GResult<Ticket> {
     send(m, &ctx, made.at(), Action::OfferPeace, enemy)
 }
 
-/// Proposes an alliance to `other`.
+/// Proposes an alliance to `ally`.
 pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
     let m = game()?;
     let ctx = context(m)?;
@@ -243,14 +243,14 @@ pub fn answer(caller: Caller, ticket: Ticket) -> GResult<Answer> {
         return fail(Status::NotInGame, "the game the diplomatic action was sent in has ended");
     }
     Ok(match seen {
-        Seen::Nothing | Seen::CarriedOut if sent.action.proposal() => Answer::Pending,
-        Seen::Nothing => Answer::Pending,
-        Seen::CarriedOut => match war_with(caller, &ctx, sent.to)? {
+        Seen::Answered(true) => Answer::Accepted,
+        Seen::Answered(false) => Answer::Declined,
+        // A declaration has no answer: it is done once carried out.
+        Seen::CarriedOut if !sent.action.proposal() => match war_with(caller, &ctx, sent.to)? {
             Some(name) => Answer::Declared(name),
             None => return fail(Status::Rejected, format!("the game carried the declaration out, but no war with {} began", letters(sent.to))),
         },
-        Seen::Answered(true) => Answer::Accepted,
-        Seen::Answered(false) => Answer::Declined,
+        Seen::CarriedOut | Seen::Nothing => Answer::Pending,
     })
 }
 
