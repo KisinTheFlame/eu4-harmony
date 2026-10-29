@@ -117,10 +117,10 @@ impl Wait for Starting {
         }
         // The game came, but its frames have no game to play: no frame
         // after it would answer otherwise.
-        if let Some(why) = at.unplayable {
+        if let Some(why) = at.unplayable() {
             return Some(Err(Error::new(Code::Rejected, format!("the game began, but the player cannot play it ({}): menu says game, and it goes on", why.message))));
         }
-        let game = at.game.as_deref_mut()?;
+        let game = at.game()?;
         match game.session() {
             Ok(s) => Some(match self.expected.and_then(|e| other_game(&e, &s)) {
                 Some(why) => Err(Error::new(Code::Rejected, why)),

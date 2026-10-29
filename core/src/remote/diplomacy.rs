@@ -144,11 +144,12 @@ impl Waiting {
 
 impl Wait for Waiting {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
-        let Some(game) = at.game.as_deref_mut() else {
-            return (at.now >= self.until).then(|| self.pending());
+        let now = at.now;
+        let Some(game) = at.game() else {
+            return (now >= self.until).then(|| self.pending());
         };
         let (answer, war) = match game.answer(self.ticket) {
-            Ok(Answer::Pending) if at.now < self.until => return None,
+            Ok(Answer::Pending) if now < self.until => return None,
             Ok(Answer::Pending) => (AnswerKind::Pending, None),
             Ok(Answer::Accepted) => (AnswerKind::Accepted, None),
             Ok(Answer::Declined) => (AnswerKind::Declined, None),
@@ -275,12 +276,13 @@ mod tests {
         let buffer = events::Buffer::new();
         let now = Instant::now();
         let mut waiting = Waiting { ticket: Ticket(3), kind: Kind::ProposeAlliance, called: None, until: now + WAITED };
-        let mut poll = |game: Option<&mut Fake>, now| waiting.poll(&mut super::super::Poll { events: &buffer, now, game: game.map(|g| g as &mut dyn super::super::Game), unplayable: None });
-        assert_eq!(poll(Some(&mut game), now), None);
-        assert_eq!(poll(None, now), None);
-        let late = poll(None, now + WAITED).map(|r| response_json(&r));
+        let (in_game, outside) = (Place::Game, Place::Outside(None));
+        let mut poll = |place, now| waiting.poll(&mut super::super::Poll::new(&buffer, now, place, &mut game));
+        assert_eq!(poll(&in_game, now), None);
+        assert_eq!(poll(&outside, now), None);
+        let late = poll(&outside, now + WAITED).map(|r| response_json(&r));
         assert_eq!(late, Some(json!({"ok": true, "result": {"answer": "pending"}})));
-        let late = poll(Some(&mut game), now + WAITED).map(|r| response_json(&r));
+        let late = poll(&in_game, now + WAITED).map(|r| response_json(&r));
         assert_eq!(late, Some(json!({"ok": true, "result": {"answer": "pending"}})));
     }
 
