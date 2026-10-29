@@ -16,6 +16,7 @@ use crate::{
     },
     unicode::game_text,
 };
+use eu4_harmony_remote::{Date, MONTH_DAYS};
 
 /// A proposal waiting for the player's answer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -84,24 +85,15 @@ pub fn answer(_: Caller, id: u32, accept: bool) -> GResult<()> {
     Ok(())
 }
 
-/// The days of each month: the game's calendar has no leap years.
-const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
 /// `date` `months` on, as the game adds months (0x14c8030): the same day of
 /// the month, or the month's last when that month is shorter, at the same
 /// hour (docs/research/dates.md: hours since 5000 BC, 365-day years).
 fn months_after(date: i32, months: usize) -> i32 {
-    let (days, hour) = (date.div_euclid(24), date.rem_euclid(24));
-    let (year, mut day) = (days.div_euclid(365), days.rem_euclid(365));
-    let mut month = 0;
-    while day >= MONTH_DAYS[month] {
-        day -= MONTH_DAYS[month];
-        month += 1;
-    }
-    let month = month + months;
+    let (year, month, day) = Date(date).ymd();
+    let month = month as usize - 1 + months;
     let (year, month) = (year + (month / 12) as i32, month % 12);
-    let before: i32 = MONTH_DAYS[..month].iter().sum();
-    (year * 365 + before + day.min(MONTH_DAYS[month] - 1)) * 24 + hour
+    let day = day.min(MONTH_DAYS[month] as u32);
+    Date::from_ymd(year, month as u32 + 1, day).map_or(i32::MAX, |on| on.0 + date.rem_euclid(24))
 }
 
 /// Whether the game still takes an answer, on `today`, to an offer made on
@@ -204,8 +196,8 @@ mod tests {
     use super::*;
 
     /// A date as the game keeps it, at midnight.
-    fn date(year: i32, month: usize, day: i32) -> i32 {
-        ((year + 5000) * 365 + MONTH_DAYS[..month - 1].iter().sum::<i32>() + day - 1) * 24
+    fn date(year: i32, month: u32, day: u32) -> i32 {
+        Date::from_ymd(year, month, day).unwrap().0
     }
 
     #[test]

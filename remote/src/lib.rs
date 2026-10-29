@@ -501,7 +501,9 @@ impl<'de> Deserialize<'de> for ArmyId {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Date(pub i32);
 
-const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+/// The days of each month, January's first: the game's calendar has no leap
+/// years. The framework's one copy of it.
+pub const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const EPOCH_YEAR: i32 = -5000;
 
 impl Date {
