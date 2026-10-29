@@ -28,6 +28,8 @@ pub mod classes {
     pub const IDLE_TASK: usize = 0x1d1e800;
     /// The movement commands the command dispatcher receives.
     pub const MOVE_COMMANDS: [usize; 2] = [0x1d1d3f8, 0x1d1da88];
+    /// The recruit command (see [`super::recruit_command`]).
+    pub const RECRUIT_COMMAND: usize = 0x1c4dff8;
     /// A kind of regiment or ship (see [`super::unit_type`]); the placeholder
     /// for none, `---`, has a class of its own.
     pub const UNIT_TYPE: usize = 0x1ce3830;
@@ -312,14 +314,27 @@ pub mod command {
     pub const UNIT: usize = 0x58;
 }
 
+/// The recruit command, of class [`classes::RECRUIT_COMMAND`]
+/// (docs/research/provinces.md).
+pub mod recruit_command {
+    /// Its size, as the recruit button allocates it.
+    pub const SIZE: usize = 0xa0;
+    /// Its methods, by vtable offset: the destructor (command, flags) and the
+    /// check (command).
+    pub const DESTROY: usize = 0;
+    pub const CHECK: usize = 0x40;
+}
+
 /// The map manager, at [`world::MAP_MANAGER`].
 pub mod map_manager {
     /// The current map mode, i32.
     pub const MODE: usize = 0x2c;
     /// Its pause state (see [`super::pause`]).
     pub const PAUSE: usize = 0x418;
-    /// Its refresh method, by vtable offset.
+    /// Its methods, by vtable offset: the refresh, and the one that answers
+    /// its session (`objects::session`).
     pub const REFRESH: usize = 0xc8;
+    pub const SESSION: usize = 0x80;
     /// Its method that shows a game event to the player, by vtable offset:
     /// it makes an event window ([`super::classes::EVENT_WINDOW`]) and adds
     /// it to [`POPUPS`].
@@ -590,6 +605,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x8032deusize, "48 8d 05 7b 51 4b 01 48 89 06", "map manager class").uses(&[classes::MAP_MANAGER]),
         Point::keep(0xe5180usize, "48 8d 05 71 82 c3 01", "move command class").uses(&[classes::MOVE_COMMANDS[0]]),
         Point::keep(0xd4c3ausize, "48 8d 05 47 8e c4 01", "move command class").uses(&[classes::MOVE_COMMANDS[1]]),
+        Point::keep(0x26ce8eusize, "48 8d 05 63 11 9e 01 48 89 01", "recruit command class").uses(&[classes::RECRUIT_COMMAND]),
         // A province's snapshot (docs/research/provinces.md). The province
         // writer in saves: its name.
         Point::keep(0x9d6fb0usize, "49 8b 5f 28 48 83 c3 10", "province name").uses(&[province::GEOMETRY, geometry::NAME]),

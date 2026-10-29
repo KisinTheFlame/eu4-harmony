@@ -44,8 +44,9 @@ use windows::Win32::Graphics::Direct3D9::*;
 const CREATE_TEXTURE: usize = 0x16d7aa0;
 /// Releases a texture and frees its wrapper (wrapper).
 const DESTROY_TEXTURE: usize = 0x16d80f0;
-/// The game's `operator new`, which allocates glyph records.
-const ALLOCATE: usize = 0x1a332d4;
+/// The game's `operator new`, which allocates glyph records here and the
+/// recruit command in `game::recruiting`.
+pub const ALLOCATE: usize = 0x1a332d4;
 /// The engine's format numbers for a 32-bit page (A8R8G8B8) and a DXT5 one
 /// (0x16f9850 maps them to Direct3D's).
 const ARGB: u32 = 0xb;

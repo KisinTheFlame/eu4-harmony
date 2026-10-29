@@ -1,6 +1,6 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, provinces, screenshot, session, texts, time};
+use super::{armies, camera, console, countries, provinces, recruiting, screenshot, session, texts, time};
 use crate::game::{self, fail, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
 use std::sync::Arc;
@@ -433,5 +433,18 @@ impl time::Layer for Fake {
         self.call(format!("stop at {date}"));
         self.clock.stops.lock().unwrap().push(date);
         Ok(Box::new(Held(self.clock.stops.clone(), date, false)))
+    }
+}
+
+/// The Ottomans recruit in Edirne (149); in Constantinople (151), not
+/// theirs, the game refuses with its reason.
+impl recruiting::Layer for Fake {
+    fn recruit(&mut self, province: u32, kind: game::provinces::UnitKind) -> GResult<()> {
+        self.call(format!("recruit {province} {}", kind.key()));
+        match province {
+            149 => Ok(()),
+            151 => fail(Status::Rejected, "君士坦丁堡不是我们的领土"),
+            _ => fail(Status::NotFound, format!("no province {province}")),
+        }
     }
 }

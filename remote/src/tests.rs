@@ -153,7 +153,7 @@ fn descriptions_in_json() {
 
 #[test]
 fn kinds_from_text() {
-    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text];
+    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text, Kind::UnitKind];
     for kind in all {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
     }
@@ -162,7 +162,8 @@ fn kinds_from_text() {
     assert_eq!(Kind::Integer.json("-3"), Some(json!(-3)));
     assert_eq!(Kind::Integer.json("18446744073709551615"), Some(json!(u64::MAX)));
     assert_eq!(Kind::Boolean.json("false"), Some(json!(false)));
-    for (kind, bad) in [(Kind::Province, "Paris"), (Kind::Province, "1.5"), (Kind::Integer, "0x10"), (Kind::Integer, ""), (Kind::Boolean, "yes")] {
+    assert_eq!(Kind::UnitKind.json("heavy_ship"), Some(json!("heavy_ship")));
+    for (kind, bad) in [(Kind::Province, "Paris"), (Kind::Province, "1.5"), (Kind::Integer, "0x10"), (Kind::Integer, ""), (Kind::Boolean, "yes"), (Kind::UnitKind, "Infantry"), (Kind::UnitKind, "marines")] {
         assert_eq!(kind.json(bad), None, "{kind:?} {bad}");
     }
     // Text kinds stay text, even when they look like numbers.
