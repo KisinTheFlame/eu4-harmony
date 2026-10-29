@@ -162,11 +162,15 @@ struct Steps {
     launch: bool,
     /// The application's idler switch is pending.
     switching: bool,
+    /// The main menu is the world's idler (in the world's map manager slot,
+    /// `campaign::world::MAP_MANAGER`): a game's map manager takes the slot
+    /// when it is made, at the start, before the main menu goes.
+    idler: bool,
 }
 
 impl Steps {
     fn starting(&self) -> bool {
-        self.started || self.accepted || self.launch || self.switching
+        self.started || self.accepted || self.launch || self.switching || !self.idler
     }
 }
 
@@ -214,10 +218,12 @@ pub fn place(_: Caller) -> GResult<Place> {
 
 /// Whether a game is being started from the main menu `frontend`: remote
 /// control asked for one that has not run yet, a save is being read, or the
-/// game's own state says so (see [`Steps`]), whoever started it.
+/// game's own state says so (see [`Steps`]), whoever started it. A main menu
+/// that no longer reads as one, as when a game takes over within the frame,
+/// is not open either.
 pub(crate) fn starting(m: &Memory, frontend: usize) -> bool {
     let asked = attempt(|a| matches!(a, Some(Attempt { stage: Stage::Asked, .. })));
-    asked || crate::saves::load_in_progress() || steps(m, frontend).is_ok_and(|s| s.starting())
+    asked || crate::saves::load_in_progress() || steps(m, frontend).map_or(true, |s| s.starting())
 }
 
 /// What the main menu `frontend` shows of a game being started from it.
@@ -227,6 +233,7 @@ fn steps(m: &Memory, frontend: usize) -> Result<Steps> {
     }
     let page = m.u32(frontend + main_menu::PAGE)?;
     let application = m.ptr(frontend + main_menu::APPLICATION)?;
+    let world = m.ptr(m.at(globals::WORLD))?;
     Ok(Steps {
         loads: crate::saves::loads(),
         page,
@@ -234,6 +241,7 @@ fn steps(m: &Memory, frontend: usize) -> Result<Steps> {
         accepted: m.u8(frontend + main_menu::LAUNCH_ACCEPTED)? != 0,
         launch: m.u8(frontend + main_menu::LAUNCH)? != 0,
         switching: application != 0 && m.u8(application + application::SWITCH_PENDING)? != 0,
+        idler: world != 0 && m.ptr(world + world::MAP_MANAGER)? == frontend,
     })
 }
 
@@ -642,7 +650,7 @@ mod tests {
 
     #[test]
     fn a_load_or_start_is_followed_by_the_games_steps() {
-        let started = Steps { loads: 4, page: 3, started: true, accepted: false, launch: false, switching: false };
+        let started = Steps { loads: 4, page: 3, started: true, accepted: false, launch: false, switching: false, idler: true };
         let second = Duration::from_secs(1);
         // Just ran, and waiting for the setup's commands.
         assert_eq!(judge(&started, &started, false, second), Judged::Wait);
@@ -665,6 +673,10 @@ mod tests {
         assert_eq!(judge(&started, &left, true, second), Judged::Step);
         // The setup shown again with its start made, by the player, say.
         assert_eq!(judge(&left, &started, false, second), Judged::Step);
+        // A game's map manager made, the main menu still showing: never open.
+        let taken_over = Steps { idler: false, ..left };
+        assert_eq!(judge(&left, &taken_over, false, second), Judged::Step);
+        assert_eq!(judge(&taken_over, &taken_over, false, QUIET - second), Judged::Wait);
     }
 
     #[test]
