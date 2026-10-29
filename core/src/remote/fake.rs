@@ -597,7 +597,13 @@ We have a truce with them.");
             Calls::None => Vec::new(),
             Calls::Only(tags) => tags.iter().copied().filter(|&t| t == wal()).collect(),
         };
-        Ok(game::diplomacy::Declaration { ticket: game::diplomacy::Ticket(1), called })
+        // Under every ally, Turkey is passed over, as the window's check
+        // would not let the player call it.
+        let passed_over = match calls {
+            Calls::All => vec![game::diplomacy::PassedOver { country: tur(), reasons: vec!["They would not accept.".into()] }],
+            _ => Vec::new(),
+        };
+        Ok(game::diplomacy::Declaration { ticket: game::diplomacy::Ticket(1), called, passed_over })
     }
 
     fn offer_peace(&mut self, enemy: Tag) -> GResult<game::diplomacy::Ticket> {

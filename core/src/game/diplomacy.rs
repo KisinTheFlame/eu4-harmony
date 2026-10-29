@@ -169,11 +169,23 @@ pub enum Calls {
     Only(Vec<Tag>),
 }
 
-/// A declaration of war sent: its ticket, and the allies it calls to arms.
+/// A declaration of war sent: its ticket, the allies it calls to arms, and,
+/// calling every ally the window would let the player call ([`Calls::All`]),
+/// those it would not.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Declaration {
     pub ticket: Ticket,
     pub called: Vec<Tag>,
+    pub passed_over: Vec<PassedOver>,
+}
+
+/// An ally the declare war window lists that it would not let the player
+/// call to arms, and why: the reasons its call box's check gives, as its
+/// tooltip shows them, one a line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PassedOver {
+    pub country: Tag,
+    pub reasons: Vec<String>,
 }
 
 /// What came of an action sent.
@@ -226,9 +238,9 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GRe
     m.call(m.at(DECLARE_WAR_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
     made.built = true;
     verdict(m, made.at(), Action::DeclareWar)?;
-    let called = call_allies(&mut Window::new(m, &ctx, made.at()), ctx.player, enemy, calls)?;
+    let (called, passed_over) = call_allies(&mut Window::new(m, &ctx, made.at()), ctx.player, enemy, calls)?;
     let ticket = send(m, &ctx, made.at(), Action::DeclareWar, enemy, called.clone())?;
-    Ok(Declaration { ticket, called })
+    Ok(Declaration { ticket, called, passed_over })
 }
 
 /// Offers `enemy` a white peace: a peace treaty with no terms, demanded by
@@ -472,15 +484,15 @@ fn refusal(said: Vec<String>, description: &[String]) -> String {
 /// leaves empty; [`asked_by_enemy`] stands for it.
 ///
 /// [`Calls::All`] calls each ally the check allows, and passes over the
-/// rest. [`Calls::Only`] calls those named, and refuses the declaration
+/// rest, each with the check's reasons. [`Calls::Only`] calls those named, and refuses the declaration
 /// ([`Status::Rejected`], with the check's reasons) when the check does not
 /// allow one, it joins anyway, or the window no longer lists it once others
 /// are called: the window would not let the player tick its box. A named
 /// country the window does not list among the allies is
 /// [`Status::InvalidArgument`].
-fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Calls) -> GResult<Vec<Tag>> {
+fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Calls) -> GResult<(Vec<Tag>, Vec<PassedOver>)> {
     let named = match calls {
-        Calls::None => return Ok(Vec::new()),
+        Calls::None => return Ok((Vec::new(), Vec::new())),
         Calls::All => None,
         Calls::Only(named) => Some(named.as_slice()),
     };
@@ -493,6 +505,7 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
     }
     let mut asked: Vec<i16> = Vec::new();
     let mut called = Vec::new();
+    let mut passed_over = Vec::new();
     for _ in 0..MOST_ON_A_SIDE {
         let (ours, theirs) = window.gather()?;
         let Some(ally) = ours.into_iter().filter(listed).find(|s| !asked.contains(&s.country().index())) else {
@@ -501,7 +514,7 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
             if let Some(gone) = named.and_then(|named| named.iter().find(|t| !asked.contains(&t.index()))) {
                 return fail(Status::Rejected, dropped_out(*gone, &called));
             }
-            return Ok(called);
+            return Ok((called, passed_over));
         };
         asked.push(ally.country().index());
         let country = ally.country();
@@ -519,11 +532,14 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
         if !enemy_asks && window.may_call(&ally, true)? {
             window.call(country)?;
             called.push(country);
-        } else if named.is_some() {
-            let reasons = if enemy_asks { window.allied_to_enemy()? } else { window.why_not(&ally)? };
+            continue;
+        }
+        let reasons = if enemy_asks { window.allied_to_enemy()? } else { window.why_not(&ally)? };
+        if named.is_some() {
             let call = format!("the declare war window does not let the player call {} to arms", letters(country));
             return fail(Status::Rejected, if reasons.is_empty() { format!("{call}, and gives no reason") } else { format!("{call}:\n{}", reasons.join("\n")) });
         }
+        passed_over.push(PassedOver { country, reasons });
     }
     Err("the declare war window's allies kept growing".to_string().into())
 }
@@ -1084,9 +1100,10 @@ mod tests {
         // joins anyway, which has no call box.
         let mut boxes = Boxes { ours: vec![(tur, true, false), (dul, false, true), (cnd, false, false), (geo, true, true)], ..Default::default() };
         boxes.theirs = vec![(byz, true)];
-        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), [dul]);
+        let passed_over = vec![PassedOver { country: cnd, reasons: vec!["CND would not accept".into()] }];
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), (vec![dul], passed_over));
         assert_eq!(boxes.called, [dul]);
-        assert_eq!(call_allies(&mut Boxes::default(), tur, byz, &Calls::None).unwrap(), []);
+        assert_eq!(call_allies(&mut Boxes::default(), tur, byz, &Calls::None).unwrap(), (vec![], vec![]));
     }
 
     #[test]
@@ -1094,7 +1111,7 @@ mod tests {
         let (tur, byz, dul, cnd, geo) = tags();
         let window = || Boxes { ours: vec![(dul, false, true), (cnd, false, false), (geo, true, true)], ..Default::default() };
         let mut boxes = window();
-        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::Only(vec![dul])).unwrap(), [dul]);
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::Only(vec![dul])).unwrap(), (vec![dul], vec![]));
         let refused = |calls: Vec<Tag>, theirs: Vec<(Tag, bool)>| {
             let mut boxes = Boxes { theirs, ..window() };
             let fail = call_allies(&mut boxes, tur, byz, &Calls::Only(calls)).unwrap_err();
@@ -1116,7 +1133,7 @@ mod tests {
         assert_eq!(fail.message, "the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it");
         // Unnamed, it is only not called.
         let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
-        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), [dul]);
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), (vec![dul], vec![]));
     }
 
     #[test]
