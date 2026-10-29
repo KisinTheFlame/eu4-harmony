@@ -35,7 +35,8 @@ group! {
     game Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,
-        /// The speed to run at, from 1 (slowest) to 5 (fastest); absent to
+        /// The speed to run at, from 1 (slowest) to 5 (fastest); the game
+        /// stays at it after the advance, as after time.speed. Absent to
         /// keep the game's.
         speed: Option<u32>,
     } -> Advanced, "why it stopped (date, paused, game_event, session or main_menu) and in words, the date then, the events on the way (as events answers them, read from the last one before time ran), the number of the last event, and whether some were missed";
