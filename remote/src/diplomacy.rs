@@ -31,8 +31,10 @@ group! {
     /// goal, province and target when given. By default it calls to arms
     /// each ally the declare war window would let the player call, as
     /// ticking the ally's call box does, with no land promised; the answer
-    /// lists them in `called`. `rejected` when the game offers no such war
-    /// goal, or does not let the player declare war, with its reasons.
+    /// lists them in `called`. A costly declaration (no casus belli, a truce
+    /// broken) is sent without the window's confirmation, and the game takes
+    /// its costs. `rejected` when the game offers no such war goal, or does
+    /// not let the player declare war, with its reasons.
     game DeclareWar "declare_war" {
         /// The country to declare war on.
         country: CountryTag,

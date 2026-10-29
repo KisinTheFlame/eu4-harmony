@@ -398,7 +398,9 @@ pub struct GameApi {
     /// the diplomacy panel. With `call_allies` 1 it calls to arms each ally
     /// the declare war window would let the player call, as ticking the
     /// ally's call box does, with no land promised; with 0, none;
-    /// `allies_called` says which it called. [`REJECTED`] when the game
+    /// `allies_called` says which it called. A costly declaration (no casus
+    /// belli, a truce broken) is sent without the window's confirmation, and
+    /// the game takes its costs. [`REJECTED`] when the game
     /// offers no such war goal or does not let the player declare war now,
     /// the game's reasons, one a line, as the `last_error` message. [`OK`]
     /// once the game has the declaration: it carries it out at its next

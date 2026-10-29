@@ -834,7 +834,9 @@ impl<'a> Game<'a> {
     /// diplomacy panel, so that the game's checks and costs apply. With
     /// `call_allies` it calls to arms each ally the declare war window would
     /// let the player call, as ticking the ally's call box does, with no land
-    /// promised; without, none. The answer says which it called.
+    /// promised; without, none. The answer says which it called. A costly
+    /// declaration (no casus belli, a truce broken) is sent without the
+    /// window's confirmation, and the game takes its costs.
     /// [`Status::Rejected`] when the game offers no such war goal or does
     /// not let the player declare war now, with the game's reasons, one a
     /// line. The game carries the declaration out at its next frame;
