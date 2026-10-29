@@ -20,7 +20,7 @@ group! {
     "diplomacy": DiplomacyRequest, DiplomacyAnswer;
 
     /// The war goals the game offers the player for declaring war on a
-    /// country, as the declare war dialog lists them: under each casus belli
+    /// country, as the declare war window lists them: under each casus belli
     /// the player has against it, each war goal it allows, and last, when
     /// the game offers it, declaring war without a casus belli, whose
     /// `casus_belli` is `none`.
@@ -82,7 +82,7 @@ pub struct WarGoal {
     pub province: Option<ProvinceId>,
     /// The country it is about, if any.
     pub target: Option<CountryTag>,
-    /// Its name, as the declare war dialog shows it.
+    /// Its name, as the declare war window shows it.
     pub name: String,
 }
 

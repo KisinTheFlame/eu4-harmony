@@ -7,7 +7,7 @@
 /// Globals, by RVA.
 pub mod globals {
     /// The war goal of a war declared without a casus belli, a
-    /// [`super::war_goal`] the declare war dialog picks when the player
+    /// [`super::war_goal`] the declare war window picks when the player
     /// declares without one.
     pub const NO_CASUS_BELLI: usize = 0x2340030;
 }
@@ -64,9 +64,9 @@ pub mod action {
     /// is a `std::string`, appending why not and the action's description
     /// to it: [`ALLOWED`] the action's own conditions (the check at `+0x80`,
     /// which the command asks again when the game carries it out) and the
-    /// player's (diplomats, the wait between two of them), which the dialog
+    /// player's (diplomats, the wait between two of them), which the window
     /// that sends it asks; [`OFFERED`] what the diplomacy panel asks before
-    /// it lets the player open that dialog.
+    /// it lets the player open that window.
     pub const DESTROY: usize = 0;
     pub const MAKE_COMMAND: usize = 0x40;
     pub const ALLOWED: usize = 0x88;
@@ -150,7 +150,7 @@ pub mod treaty {
 }
 
 /// The world's record of the player's last alliance offer and last peace
-/// offer, which the diplomacy dialog writes as it sends one, and the
+/// offer, which the diplomacy window writes as it sends one, and the
 /// diplomacy panel reads to let the player send no second one on the same
 /// day: the player's tag and the day.
 pub mod world {
@@ -255,7 +255,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x4e7c65usize, "48 8b 49 50", "diplomatic action command's action").uses(&[command::ACTION]),
         Point::keep(0x4e7c9ausize, "41 8b 40 34 85 c0", "diplomatic action answer").uses(&[STATE]),
         Point::keep(0x4e81c7usize, "8b cd 84 c0 0f 95 c1 ff c1 89 4b 34 eb 07 c7 43 34 02 00 00 00", "AI answer").uses(&[STATE, ACCEPTED as usize]),
-        // The diplomacy dialog sending an action: the world's record of the
+        // The diplomacy window sending an action: the world's record of the
         // last alliance or peace offer, the day as when it was made, the
         // session from the map manager, and the command made.
         Point::keep(
@@ -263,17 +263,17 @@ pub fn points() -> Vec<Point> {
             "48 8b 87 c0 01 00 00 48 8b 15 bb 03 46 01 48 8b 40 10 8b 8a d0 1d 00 00 48 89 82 94 1d 00 00 89 8a 90 1d 00 00 eb 3c \
              48 8b 8f c0 01 00 00 48 8b 01 ff 90 98 00 00 00 3d 3c 29 00 00 75 25 48 8b 87 c0 01 00 00 48 8b 15 7d 03 46 01 \
              48 8b 40 10 8b 8a d0 1d 00 00 48 89 82 a0 1d 00 00 89 8a 9c 1d 00 00",
-            "diplomacy dialog send",
+            "diplomacy window send",
         )
         .uses(&[send_window::ACTION, FROM, WORLD, DATE, world::ALLIANCE_OFFER_FROM, world::ALLIANCE_OFFER_DATE, world::PEACE_OFFER_FROM, world::PEACE_OFFER_DATE]),
         Point::keep(
             0xedfb64usize,
             "48 8b 8f c0 01 00 00 41 8b 80 d0 1d 00 00 89 41 28 48 8b 8f b8 01 00 00 48 8b 01 ff 90 80 00 00 00 48 8b 8f c0 01 00 00 \
              48 8b d8 48 8b 11 4c 8b 42 40",
-            "diplomacy dialog command",
+            "diplomacy window command",
         )
         .uses(&[send_window::ACTION, DATE, MADE, super::campaign::map_manager::SESSION, MAKE_COMMAND]),
-        // The war goals: the dialog's list, which owns them, its count and
+        // The war goals: the window's list, which owns them, its count and
         // its items as the game walks them.
         Point::keep(0xee6d40usize, "48 8d 05 99 64 d5 00", "war goal list").uses(&[classes::WAR_GOALS]),
         Point::keep(0xd9ec33usize, "4d 63 7e 14 4d 85 ff 7e 23 0f 1f 40 00 49 8b 46 08", "war goal list items").uses(&[war_goals::COUNT, war_goals::ITEMS]),
@@ -285,7 +285,7 @@ pub fn points() -> Vec<Point> {
         // The war goal list's builder skips the others for an exclusive
         // casus belli.
         Point::keep(0xd9ec23usize, "45 0f b6 a5 59 01 00 00", "exclusive casus belli").uses(&[casus_belli::EXCLUSIVE]),
-        // The dialog: a war goal's name, and the war goal it picks when the
+        // The window: a war goal's name, and the war goal it picks when the
         // game offers none.
         Point::keep(0xee391ausize, "48 8b 4e 58 48 8b 11 4c 8b 42 40 48 8d 54 24 20 41 ff d0", "war goal name").uses(&[war_goal::NAME]),
         Point::keep(0xee70e5usize, "48 8b 15 44 8f 45 01", "no casus belli").uses(&[globals::NO_CASUS_BELLI]),

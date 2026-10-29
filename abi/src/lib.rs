@@ -382,13 +382,13 @@ pub struct GameApi {
     /// lets go, mostly declining it, as when the player opens it.
     pub offer_answer: unsafe extern "C" fn(host: *mut c_void, offer: u32, accept: u8) -> i32,
     /// The war goals the game offers the player for declaring war on
-    /// `country`, as the declare war dialog lists them, as UTF-8 JSON (ADR
+    /// `country`, as the declare war window lists them, as UTF-8 JSON (ADR
     /// 0018): `[{"casus_belli": "cb_claim", "war_goal": "take_claim",
     /// "province": 151, "target": null, "name": "..."}, ...]`. `casus_belli`
     /// is its casus belli's key, `none` for declaring war without one, which
     /// comes last when the game offers it; `war_goal` its type's key or null;
     /// `province` and `target` (a [`CountryId`]) what it is about, or null;
-    /// `name` as the dialog shows it. `abi/json/war_goals.json` is a whole
+    /// `name` as the window shows it. `abi/json/war_goals.json` is a whole
     /// one. [`NOT_FOUND`] when there is no such country, [`INVALID_ARGUMENT`]
     /// for the player's own.
     pub war_goals: unsafe extern "C" fn(host: *mut c_void, country: CountryId, buf: *mut u8, cap: usize, len: *mut usize) -> i32,

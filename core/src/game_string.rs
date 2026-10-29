@@ -137,7 +137,7 @@ pub fn destroy_checked(m: &Memory, string: usize) -> Result<()> {
 
 /// The game's text for a localisation key, as its lookup writes it, with no
 /// values: `key` is the address of the key, a C string.
-pub fn localised(m: &Memory, key: usize) -> Result<Vec<u8>> {
+pub fn localized(m: &Memory, key: usize) -> Result<Vec<u8>> {
     let mut slot = empty();
     let out = slot.as_mut_ptr() as usize;
     m.call(m.at(LOCALISE_AT), &[out, key, 0, 0])?;

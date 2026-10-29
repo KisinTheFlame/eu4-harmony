@@ -3,9 +3,9 @@
 //!
 //! The framework makes the game's own diplomatic action, from the player to
 //! the other country, and asks it the checks the diplomacy panel and the
-//! dialog that sends it ask; a refusal comes back with the game's reasons.
+//! window that sends it ask; a refusal comes back with the game's reasons.
 //! Then it has the action make the command that carries it and posts the
-//! command to the game's session, as the dialog does. The game carries the
+//! command to the game's session, as the window does. The game carries the
 //! command out at its next frame, with its own checks, costs, AI answers and
 //! multiplayer rules: an AI country answers a proposal there, and its answer
 //! comes back as a command of its own, carried out at a frame after. Each
@@ -115,7 +115,7 @@ impl Action {
 pub const NO_CASUS_BELLI: &str = "none";
 
 /// A war goal the game offers the player for a declaration of war, as the
-/// declare war dialog lists it.
+/// declare war window lists it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WarGoal {
     /// The key of its casus belli, such as `cb_claim`; None for a
@@ -127,7 +127,7 @@ pub struct WarGoal {
     pub province: Option<u32>,
     /// The country it is about, if any.
     pub target: Option<Tag>,
-    /// Its name, as the dialog shows it.
+    /// Its name, as the window shows it.
     pub name: String,
 }
 
@@ -179,7 +179,7 @@ pub enum Answer {
 }
 
 /// The war goals the game offers the player against `enemy`, as the
-/// declare war dialog lists them, and last, when the game offers it, the
+/// declare war window lists them, and last, when the game offers it, the
 /// declaration without a casus belli.
 pub fn war_goals(_: Caller, enemy: Tag) -> GResult<Vec<WarGoal>> {
     let m = game()?;
@@ -364,7 +364,7 @@ impl Drop for Made<'_> {
 }
 
 /// Sends the action at `at`, which the game lets the player send
-/// ([`verdict`]): posts its command to the session as the diplomacy dialog
+/// ([`verdict`]): posts its command to the session as the diplomacy window
 /// does, and keeps it for [`answer`], with the allies it calls.
 fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag>) -> GResult<Ticket> {
     // The session before the command: once the command is made, only a call
@@ -383,7 +383,7 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag
         m.call(m.at(COMMAND_DESTROY), &[command, FREE])?;
         return fail(Status::Rejected, "the game takes no orders from the player now");
     }
-    // As the dialog, so that the panel lets no second one go the same day.
+    // As the window, so that the panel lets no second one go the same day.
     let record = match kind {
         Action::ProposeAlliance => Some((world::ALLIANCE_OFFER_FROM, world::ALLIANCE_OFFER_DATE)),
         Action::OfferPeace => Some((world::PEACE_OFFER_FROM, world::PEACE_OFFER_DATE)),
@@ -405,7 +405,7 @@ fn session_of(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     Ok(s)
 }
 
-/// Asks the action the checks the diplomacy panel and the dialog ask before
+/// Asks the action the checks the diplomacy panel and the window ask before
 /// the player can send it; [`Status::Rejected`] with the game's reasons when
 /// either says no.
 fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
@@ -420,7 +420,7 @@ fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
             said.extend(text_lines(&reasons(m, at, slot)?));
         }
     }
-    let description = text_lines(&game_string::localised(m, m.at(kind.description()))?);
+    let description = text_lines(&game_string::localized(m, m.at(kind.description()))?);
     fail(Status::Rejected, refusal(said, &description))
 }
 
@@ -671,7 +671,7 @@ impl<'a> Offered<'a> {
             exclusive |= sole;
             offered.goals.push((goal, read));
         }
-        // The dialog offers no declaration without one when an exclusive
+        // The window offers no declaration without one when an exclusive
         // casus belli is there.
         let none = m.ptr(m.at(globals::NO_CASUS_BELLI))?;
         if none != 0 && !exclusive {

@@ -457,7 +457,7 @@ impl From<CountryJson> for Country {
 }
 
 /// A war goal the game offers the player for declaring war on a country, as
-/// the declare war dialog lists it ([`Game::war_goals`]).
+/// the declare war window lists it ([`Game::war_goals`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WarGoal {
     /// Its casus belli's key, such as `cb_claim`; None for declaring war
@@ -469,7 +469,7 @@ pub struct WarGoal {
     pub province: Option<ProvinceId>,
     /// The country it is about, if any.
     pub target: Option<CountryId>,
-    /// Its name, as the dialog shows it.
+    /// Its name, as the window shows it.
     pub name: String,
 }
 
@@ -823,7 +823,7 @@ impl<'a> Game<'a> {
         self.backend.answer_offer(offer, false)
     }
     /// The war goals the game offers the player for declaring war on
-    /// `country`, as the declare war dialog lists them: under each casus
+    /// `country`, as the declare war window lists them: under each casus
     /// belli the player has against it, each war goal it allows, and last,
     /// when the game offers it, declaring war without a casus belli.
     pub fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>> {

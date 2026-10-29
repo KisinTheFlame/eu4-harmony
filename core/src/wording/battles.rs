@@ -29,7 +29,7 @@ static REWORDS: OnceLock<bool> = OnceLock::new();
 fn localised(key: &str) -> crate::Result<Vec<u8>> {
     let m = crate::memory().ok_or("no memory")?;
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-    game_string::localised(m, key.as_ptr() as usize)
+    game_string::localized(m, key.as_ptr() as usize)
 }
 
 /// `text` (game text), which is `word`, a space and the place for one of
