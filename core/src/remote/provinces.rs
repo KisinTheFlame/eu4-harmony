@@ -53,16 +53,15 @@ pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result
 }
 
 fn snapshot(s: layer::Snapshot) -> ProvinceSnapshot {
-    let thousandths = |value: i32| value as f64 / 1000.0;
     ProvinceSnapshot {
         id: ProvinceId(s.id),
         name: s.name,
         owner: s.owner.map(tag),
         controller: s.controller.map(tag),
         development: Development {
-            tax: thousandths(s.development.tax),
-            production: thousandths(s.development.production),
-            manpower: thousandths(s.development.manpower),
+            tax: game::thousandths(s.development.tax),
+            production: game::thousandths(s.development.production),
+            manpower: game::thousandths(s.development.manpower),
         },
         terrain: s.terrain,
         fort: Fort { level: s.fort.level, mothballed: s.fort.mothballed },

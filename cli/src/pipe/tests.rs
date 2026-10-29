@@ -226,7 +226,20 @@ fn tells_the_process_serving_the_pipe() {
 }
 
 #[test]
-fn sends_nothing_to_a_server_that_is_not_the_game() {
+fn a_pipe_no_longer_served_is_not_taken_for_the_process_with_its_id() {
+    let name = pipe_name("gone");
+    let made = instance(&name, None);
+    let pipe = File::options().read(true).write(true).open(&name).unwrap();
+    // The process serving the pipe closes it, and the ID the pipe gives could
+    // be another process's.
+    drop(made);
+    let failure = serving(&pipe).err().unwrap();
+    let Failure::Unknown(why) = &failure else { panic!("{failure:?}") };
+    assert!(why.contains(&format!("the pipe's process {} is gone", std::process::id())), "{why}");
+}
+
+#[test]
+fn sends_nothing_to_a_pipe_the_game_does_not_serve() {
     let name = pipe_name("not-the-game");
     let (sent, received) = mpsc::channel();
     let served = serve_one(&name, move |_, line| sent.send(line).unwrap());

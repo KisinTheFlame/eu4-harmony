@@ -298,6 +298,7 @@ impl menu::Layer for Fake {
             modified: 1_761_700_000,
             player: Some(*b"TUR"),
             date: Some(0x035D_7710),
+            missing_mods: vec!["彼岸乐园".into()],
         }])
     }
 
@@ -374,9 +375,7 @@ impl camera::Layer for Fake {
 impl screenshot::Layer for Fake {
     fn screenshot(&mut self, percent: u32) -> GResult<Arc<game::screenshot::Shot>> {
         self.call(format!("screenshot {percent}"));
-        if !(1..=100).contains(&percent) {
-            return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
-        }
+        game::screenshot::check_scale(percent)?;
         Ok(self.shot.clone().unwrap_or_else(|| {
             let shot = game::screenshot::Shot::new(percent);
             shot.finish(Ok(game::screenshot::Image { png: vec![0x89, b'P', b'N', b'G'], width: 2, height: 1, frame_width: 2, frame_height: 1 }));
@@ -409,7 +408,7 @@ pub struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
-        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player };
+        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player, over: None };
         Self { time, questions: 0, stops: Default::default(), failing: None }
     }
 }
@@ -467,15 +466,16 @@ impl time::Layer for Fake {
     fn resume(&mut self) -> GResult<()> {
         self.call("resume".into());
         self.clock.check("resume")?;
+        if let Some(end) = self.clock.time.over {
+            return Err(game::time::game_over(end));
+        }
         self.clock.time.pause = game::time::Pause::Running;
         Ok(())
     }
 
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
         self.call(format!("speed {speed}"));
-        if !game::time::SPEEDS.contains(&speed) {
-            return fail(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}"));
-        }
+        game::time::check_speed(speed)?;
         self.clock.time.speed = speed;
         Ok(())
     }

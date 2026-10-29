@@ -201,7 +201,7 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Menu(MenuRequest::Saves {}),
             Box::new(|v: &Value| {
                 *v == ok(json!([{
-                    "name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000, "player": "TUR", "date": "1444.11.11",
+                    "name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000, "player": "TUR", "date": "1444.11.11", "missing_mods": ["彼岸乐园"],
                 }]))
             }),
         ),
@@ -345,10 +345,12 @@ fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
     let engine = Engine::new(remember);
     let mut game = Fake { delay: Duration::from_millis(20), ..Default::default() };
     let replies: Vec<Reply> = (0..3).map(|_| engine.submit(Request::Session(SessionRequest::Get {}))).collect();
-    // At least one request runs, however small the budget.
+    // At least one request runs, however small the budget, and once it is
+    // spent the rest wait for the next frame. (Each takes 20 ms at least,
+    // however loaded the machine, so the budget is spent after the first.)
     engine.run(&mut game, &Place::Game, Duration::from_millis(1));
     assert_eq!(game.calls.len(), 1);
-    engine.run(&mut game, &Place::Game, Duration::from_millis(30));
+    engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(game.calls.len(), 3);
     assert!(replies.iter().all(|r| answer(r)["ok"] == true));
 }
@@ -517,6 +519,25 @@ fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
     *game.launch.lock().unwrap() = game::menu::Launch::Failed("the single player setup did not take the country".into());
     engine.run(&mut game, &menu, PLENTY);
     assert_eq!(answer(&start), json!({"ok": false, "error": {"code": "rejected", "message": "the single player setup did not take the country"}}));
+}
+
+#[test]
+fn a_load_or_start_whose_game_cannot_be_played_says_so_at_its_first_frame() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    // Every frame of the game that came fails: without this answer, they
+    // would wait until the process ends.
+    let unplayable = Place::Unplayable(Error::new(Code::NotInGame, "no controllable player"));
+    let session = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.run(&mut game, &unplayable, PLENTY);
+    for got in [answer(&load), answer(&start)] {
+        assert_eq!(got, json!({"ok": false, "error": {"code": "rejected", "message": "the game began, but the player cannot play it (no controllable player): menu says game, and it goes on"}}));
+    }
+    assert_eq!(answer(&session), json!({"ok": false, "error": {"code": "not_in_game", "message": "no controllable player"}}));
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "start FRA"]);
 }
 
 #[test]

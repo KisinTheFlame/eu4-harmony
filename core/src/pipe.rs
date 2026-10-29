@@ -6,10 +6,10 @@
 //! Every remote client has a pipe instance and a thread of its own, so
 //! several are served at once. A client's requests are handled one after
 //! another: the next line is read once the answer to the one before is
-//! written. A client so gets its answers in the order it sent its requests,
-//! and none of its requests overtakes an earlier one, such as one that waits
-//! for a game. A client that wants to wait for events while it does other
-//! things opens the pipe a second time.
+//! written and the client has read it. A client so gets its answers in the
+//! order it sent its requests, and none of its requests overtakes an earlier
+//! one, such as one that waits for a game. A client that wants to wait for
+//! events while it does other things opens the pipe a second time.
 //!
 //! A client gives a request up by closing the pipe before the answer comes,
 //! even with requests it wrote after it still unread: the transport drops the
@@ -19,7 +19,8 @@
 //! (docs/research/safe-points.md), every client finds its pipe broken; the
 //! new process opens the pipe once the old one is gone. Returning, the
 //! engine first answers every request (`remote::Engine::end`), and the
-//! transport writes the answers while the pipe lasts.
+//! process waits, up to 2 s, until the transport has written every answer
+//! and its client has read it, however large.
 //!
 //! The transport only reads and writes: it hands the engine typed requests and
 //! never touches game state.
@@ -53,7 +54,7 @@ use windows_sys::{
 };
 
 /// The pipe remote clients open.
-pub const NAME: &str = r"\\.\pipe\eu4-harmony";
+pub const NAME: &str = eu4_harmony_remote::PIPE;
 /// The longest request line read, in bytes, without its line break.
 pub const LONGEST_LINE: usize = 1 << 20;
 /// How often a client waiting for its answer is checked for being still
@@ -219,21 +220,27 @@ fn serve_client(pipe: &Pipe, instance: &File, number: u64) {
             Line::Text(text) => std::str::from_utf8(&text).map_err(|_| Error::new(Code::BadRequest, "a request is UTF-8 text")).and_then(request_from_json),
             Line::TooLong => Err(Error::new(Code::BadRequest, format!("a request is one line of at most {LONGEST_LINE} bytes"))),
         };
-        let response = match request {
-            Ok(request) => match answer((pipe.submit)(request), instance) {
-                Some(response) => response,
-                None => break "closed the pipe before its answer came, which gave the request up".to_string(),
-            },
+        // The reply is kept until the answer is written and read: the
+        // process ending as the game starts again waits for that.
+        let (response, reply) = match request {
+            Ok(request) => {
+                let reply = (pipe.submit)(request);
+                match answer(&reply, instance) {
+                    Some(response) => (response, Some(reply)),
+                    None => break "closed the pipe before its answer came, which gave the request up".to_string(),
+                }
+            }
             Err(error) => {
                 pipe.log(&format!("client {number}: {error}"));
-                Err(error)
+                (Err(error), None)
             }
         };
         let mut text = response_json(&response).to_string();
         text.push('\n');
-        if let Err(e) = { instance }.write_all(text.as_bytes()) {
+        if let Err(e) = write(instance, text.as_bytes()) {
             break format!("went before its answer was written ({e})");
         }
+        drop(reply);
         answered += 1;
     };
     pipe.log(&format!("client {number} {end}, after {answered} answer(s)"));
@@ -283,9 +290,17 @@ fn read_line(reader: &mut impl BufRead) -> io::Result<Option<Line>> {
     }
 }
 
+/// Writes `bytes` to the client and waits until it has read them all
+/// (`FlushFileBuffers`): an answer larger than the pipe's buffer is read as
+/// it is written, and the process may end right after.
+fn write(mut instance: &File, bytes: &[u8]) -> io::Result<()> {
+    instance.write_all(bytes)?;
+    instance.sync_all()
+}
+
 /// Waits for the answer while the client is there; None once it is gone,
-/// which drops the reply and so gives the request up.
-fn answer(reply: Reply, instance: &File) -> Option<Response> {
+/// when the caller drops the reply and so gives the request up.
+fn answer(reply: &Reply, instance: &File) -> Option<Response> {
     loop {
         if let Some(response) = reply.wait(CHECK) {
             return Some(response);

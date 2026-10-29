@@ -16,7 +16,9 @@ group! {
     game Pause "pause" {} -> (), "nothing";
     /// Resumes the game, as the player would: also when a window holds it
     /// paused, such as an event window when the game pauses on events, which
-    /// stays open. Nothing when it runs.
+    /// stays open. Nothing when it runs. Refused once the game is past its
+    /// end date, as the player's resuming is, until the end-of-game summary
+    /// is closed to play on.
     game Resume "resume" {} -> (), "nothing";
     /// Sets the game speed, as the player would; the game stays paused or
     /// running as it was.
@@ -25,7 +27,8 @@ group! {
         speed: u32,
     } -> (), "nothing";
     /// Lets time run until the date some days from now, then pauses the game
-    /// and answers with the events on the way. It answers early, with the
+    /// and answers with the events on the way; refused, as time.resume is,
+    /// once the game is past its end date. It answers early, with the
     /// reason and the date, when the game is paused by someone else or by a
     /// window, when a question waits for the player's answer (also one
     /// waiting already: then time does not run at all), when another game
@@ -36,7 +39,9 @@ group! {
     /// until it is resumed, also once a window that holds it paused closes.
     /// The answer comes at a frame of the game's, however long the days take
     /// at the speed; a client that gives the request up calls the advance
-    /// off, and time stops at the end of the day under way.
+    /// off, and time stops at the end of the day under way. Once the player
+    /// can no longer play the game (the country annexed, observing), it is
+    /// answered not_in_game, and time runs on as the game runs it.
     game Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,

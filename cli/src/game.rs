@@ -24,7 +24,8 @@ pub const EXIT_ERROR: i32 = 1;
 /// The command line is wrong; nothing was sent.
 pub const EXIT_USAGE: i32 = 2;
 /// The command could not finish: no answer came (the pipe did not open in
-/// time, is not the game's, broke, or the time ran out), or the bytes in it
+/// time, is not the game's, broke, or the time ran out), the line that came
+/// is no answer (not JSON, or not of an answer's shape), or the bytes in it
 /// could not be written.
 pub const EXIT_NO_ANSWER: i32 = 3;
 
@@ -194,8 +195,9 @@ fn request(capability: &Capability, words: &[String], values: &[String]) -> Resu
 
 /// The arguments `words` give `capability`, in JSON: `--name value`, the
 /// name's `_` also written `-`, or values alone, which fill the arguments
-/// not named, in order; `values`, the words after `--`, are values alone
-/// whatever they look like. A boolean standing alone is true.
+/// not named, in order, the last of them, when it is a text, taking every
+/// value left; `values`, the words after `--`, are values alone whatever
+/// they look like. A boolean standing alone is true.
 fn arguments(capability: &Capability, words: &[String], values: &[String]) -> Result<Map<String, Value>, String> {
     let name = capability.name();
     let mut fields = Map::new();
@@ -228,11 +230,23 @@ fn arguments(capability: &Capability, words: &[String], values: &[String]) -> Re
     }
     alone.extend(values);
     let unnamed: Vec<&Parameter> = capability.args.iter().filter(|a| !fields.contains_key(a.name)).collect();
+    // The last argument not named, a text, takes every value left, a space
+    // between each: `console run cash 100` runs `cash 100`.
+    let rest = match unnamed.last() {
+        Some(last) if last.kind == Kind::Text && alone.len() > unnamed.len() => {
+            let rest: Vec<&str> = alone.split_off(unnamed.len() - 1).into_iter().map(String::as_str).collect();
+            Some((*last, rest.join(" ")))
+        }
+        _ => None,
+    };
     if alone.len() > unnamed.len() {
         return Err(format!("{:?} is one value too many: {}", alone[unnamed.len()], its_arguments(capability)));
     }
-    for (arg, text) in unnamed.into_iter().zip(alone) {
+    for (arg, text) in unnamed.iter().zip(alone) {
         fields.insert(arg.name.into(), value(arg, text)?);
+    }
+    if let Some((arg, text)) = rest {
+        fields.insert(arg.name.into(), value(arg, &text)?);
     }
     if let Some(missing) = capability.args.iter().find(|a| !a.optional && !fields.contains_key(a.name)) {
         return Err(format!("{name} needs --{} <{}>: {}", missing.name, missing.kind.name(), prose(missing.about)));
@@ -292,7 +306,9 @@ usage:
   eu4-harmony game <capability> [--<argument> <value>]... [--timeout <seconds>] [--out <file>] [--compact] [-- <value>...]
       Sends the game one request and prints the result as JSON. Values may
       also come without their names, in the order of the arguments, and a
-      name's dot may be a space: eu4-harmony game army move <army> 151.
+      name's dot may be a space: eu4-harmony game army move <army> 151. The
+      last argument, when it is a text, takes every value left, a space
+      between each: eu4-harmony game console run cash 100.
   eu4-harmony game help [<capability>]
       Describes the capabilities this tool knows, or one of them;
       eu4-harmony game describe asks the running game instead.
@@ -315,8 +331,9 @@ exit codes:
   1  the game answered with an error, printed as {{\"code\": ..., \"message\": ...}}
   2  the command line is wrong; nothing was sent
   3  no answer: the game's pipe did not open in time, is not served by the
-     game run by this Windows user, broke, or the time ran out; or the bytes
-     in the answer could not be written
+     game run by this Windows user, broke, or the time ran out; the line the
+     game sent is no answer (not JSON, or not of an answer's shape); or the
+     bytes in the answer could not be written
 
 capabilities (* only while a game is going on):
 ",

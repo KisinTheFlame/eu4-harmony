@@ -2,7 +2,8 @@
 //! sees, the framework UI included, as a PNG.
 //!
 //! A screenshot takes the next frame the main thread presents after it is
-//! asked for. In the frame present hook (`framework_ui::hook`), after the
+//! asked for, or, while another one's frame is being read back, the first
+//! one presented after that frame is let go. In the frame present hook (`framework_ui::hook`), after the
 //! framework UI is drawn and just before the game presents, [`presenting`]
 //! reads that frame back from the game's Direct3D 9 device, over this and
 //! the next few presents, in steps that keep the main thread from waiting
@@ -17,7 +18,7 @@ use super::{fail, Caller, Fail, GResult, Status};
 use std::ffi::c_void;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, Weak,
 };
 use std::time::{Duration, Instant};
 
@@ -64,15 +65,21 @@ impl Shot {
     }
 }
 
+/// Refuses an image size that is not 1 to 100 percent of the frame's.
+pub fn check_scale(percent: u32) -> GResult<()> {
+    if !(1..=100).contains(&percent) {
+        return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
+    }
+    Ok(())
+}
+
 /// Asks for a screenshot of the next frame the main thread presents, at
 /// `percent` of its size (1 to 100).
 pub fn screenshot(caller: Caller, percent: u32) -> GResult<Arc<Shot>> {
     if let Caller::Extension(_) = caller {
         return fail(Status::Unavailable, "only remote control takes screenshots");
     }
-    if !(1..=100).contains(&percent) {
-        return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
-    }
+    check_scale(percent)?;
     let shot = Shot::new(percent);
     capture().asked.push(shot.clone());
     Ok(shot)
@@ -235,18 +242,18 @@ unsafe fn lock(copy: d3d9::FrameCopy, reading: d3d9::Reading, shots: Vec<Arc<Sho
             let memory = reading.into_memory();
             let out = Arc::new(AtomicBool::new(false));
             let frame = Frame { bits: locked.bits as usize, pitch: locked.pitch, shape: copy.shape };
-            let kept = shots.clone();
+            // Weak, so that the thread, counting who holds a shot, finds a
+            // shot given up as given up from its first instant.
+            let kept: Vec<Weak<Shot>> = shots.iter().map(Arc::downgrade).collect();
             let thread = {
                 let out = out.clone();
                 std::thread::Builder::new().name("eu4-harmony screenshot".into()).spawn(move || crate::guarded("screenshot", || frame.take(shots, &out)))
             };
             match thread {
-                Ok(_) => {
-                    drop(kept);
-                    Stage::CopyingOut { locked, memory, out, shape: copy.shape, spent: spent.add(started) }
-                }
+                Ok(_) => Stage::CopyingOut { locked, memory, out, shape: copy.shape, spent: spent.add(started) },
                 Err(e) => {
-                    finish_all(kept, &Fail { status: Status::Unavailable, message: format!("no thread to encode the frame: {e}") });
+                    let waiting = kept.iter().filter_map(Weak::upgrade).collect();
+                    finish_all(waiting, &Fail { status: Status::Unavailable, message: format!("no thread to encode the frame: {e}") });
                     Stage::Idle
                 }
             }

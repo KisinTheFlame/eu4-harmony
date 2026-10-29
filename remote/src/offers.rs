@@ -1,6 +1,6 @@
 //! Offers (GLOSSARY): what other countries proposed to the player that waits
 //! for the player to accept or decline, and answering one as the player does
-//! in its dialog.
+//! in its window.
 use crate::{CountryTag, Date};
 use serde::{Deserialize, Serialize};
 
@@ -9,12 +9,12 @@ group! {
     "offer": OfferRequest, OfferAnswer;
 
     /// The offers waiting for the player's answer, shown as diplomatic
-    /// message icons or open dialogs. Texts are as the game shows them, in
+    /// message icons or open windows. Texts are as the game shows them, in
     /// plain text: no color codes, icons as their names. An offer made more
     /// than two months ago is not listed: the game takes no answer to it, and
     /// declines it.
     game List "list" {} -> Vec<Offer>, "the offers: id, from, date, title, description";
-    /// Accepts an offer, as the player does in its dialog. Done means the
+    /// Accepts an offer, as the player does in its window. Done means the
     /// game has the answer; it applies it a moment later, and the offer is
     /// gone from the list at once. Rejected when the game no longer takes an
     /// answer to it (it was made more than two months ago, or what it offers
@@ -24,7 +24,7 @@ group! {
         /// The offer's id, from offer.list.
         offer: u32,
     } -> (), "nothing";
-    /// Declines an offer, as the player does in its dialog. Done means the
+    /// Declines an offer, as the player does in its window. Done means the
     /// game has the answer; it applies it a moment later, and the offer is
     /// gone from the list at once. Rejected as offer.accept is.
     game Decline "decline" {

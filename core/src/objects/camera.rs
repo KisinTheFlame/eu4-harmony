@@ -33,6 +33,9 @@ pub mod camera {
     /// Nonzero while the camera may not move (u8): the game's own moves
     /// leave it where it is.
     pub const LOCKED: usize = 0x758;
+    /// Nonzero when the map wraps around from its right edge to its left
+    /// (u8). The map manager makes its camera with it set (`0x80a16d`).
+    pub const WRAPS: usize = 0x778;
 }
 
 /// The map (`campaign::globals::MAP`): the province at each pixel.

@@ -34,7 +34,8 @@ const SETTLE: usize = 0x109cd80;
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(LOOK_AT_PROVINCE, "48 83 ec 38 83 7a 20 00 0f 8e a9 00 00 00 48 8b 42 28 4c 8b 89 00 12 00 00 8b 50 7c", "camera to a province"),
-        Point::keep(LOOK_AT_POSITION, "48 83 ec 38 4c 8b 91 00 12 00 00 44 8b ca 41 80 ba 78 07 00 00 00", "camera to a position"),
+        Point::keep(LOOK_AT_POSITION, "48 83 ec 38 4c 8b 91 00 12 00 00 44 8b ca 41 80 ba 78 07 00 00 00", "camera to a position")
+            .uses(&[layout::IN_MAP_MANAGER, fields::WRAPS]),
         Point::keep(LOOK_FROM, "80 b9 58 07 00 00 00 75 6b 8b 02 89 81 94 06 00 00", "camera goal").uses(&[fields::LOCKED, fields::GOAL_POSITION]),
         Point::keep(SETTLE, "48 89 5c 24 08 57 48 83 ec 20 8b 81 94 06 00 00 48 8b f9 89 81 7c 06 00 00", "camera to its goal")
             .uses(&[fields::GOAL_POSITION, fields::POSITION]),
@@ -70,10 +71,10 @@ pub fn camera(_: Caller) -> GResult<Camera> {
 pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (manager, camera) = movable(m, &ctx)?;
     if province == 0 {
         return fail(Status::NotFound, "no province 0");
     }
+    let (manager, camera) = movable(m, &ctx)?;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     m.call(m.at(LOOK_AT_PROVINCE), &[manager, address])?;
     settle(m, camera)
@@ -83,11 +84,11 @@ pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
 pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (manager, camera) = movable(m, &ctx)?;
     let (width, height) = map_size(m)?;
     if x >= width || y >= height {
         return fail(Status::InvalidArgument, format!("{x}, {y} is off the map, which is {width} pixels across and {height} up"));
     }
+    let (manager, camera) = movable(m, &ctx)?;
     m.call(m.at(LOOK_AT_POSITION), &[manager, x as usize, y as usize])?;
     settle(m, camera)
 }
@@ -96,11 +97,11 @@ pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
 pub fn zoom(_: Caller, height: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (_, camera) = movable(m, &ctx)?;
-    let (lowest, highest) = limits(m, camera)?;
+    let (lowest, highest) = limits(m, find(m, &ctx)?.1)?;
     if !(lowest..=highest).contains(&height) {
         return fail(Status::InvalidArgument, format!("the height is from {lowest} to {highest}"));
     }
+    let (_, camera) = movable(m, &ctx)?;
     let [x, _, z] = point(m, camera + fields::GOAL_LOOK_AT)?;
     let goal = [x, height as f32, z];
     m.call(m.at(LOOK_FROM), &[camera, goal.as_ptr() as usize])?;
@@ -137,14 +138,16 @@ fn read(m: &Memory, camera: usize) -> GResult<Camera> {
     let [_, height, _] = point(m, camera + fields::POSITION)?;
     let (width, map_height) = map_size(m)?;
     let (min_height, max_height) = limits(m, camera)?;
-    let (x, y) = position(x, z, width, map_height);
+    let (x, y) = position(x, z, width, map_height, m.u8(camera + fields::WRAPS)? != 0);
     Ok(Camera { x, y, height: height.round().max(0.0) as u32, province: province_at(m, x, y)?, min_height, max_height })
 }
 
 /// The map position of a point the camera looks at: rounded to a pixel, x
-/// brought onto the map where it wraps, y kept on it.
-fn position(x: f32, z: f32, width: u32, height: u32) -> (u32, u32) {
-    let x = (x.round() as i64).rem_euclid(width as i64) as u32;
+/// brought onto the map across its edges when it `wraps`, as the game's map
+/// does, kept on it otherwise, as y always is.
+fn position(x: f32, z: f32, width: u32, height: u32, wraps: bool) -> (u32, u32) {
+    let x = x.round() as i64;
+    let x = if wraps { x.rem_euclid(width as i64) } else { x.clamp(0, width as i64 - 1) } as u32;
     let y = (z.round() as i64).clamp(0, height as i64 - 1) as u32;
     (x, y)
 }
@@ -197,12 +200,14 @@ mod tests {
 
     #[test]
     fn a_point_comes_onto_the_map() {
-        assert_eq!(position(2842.4, 1493.6, 5632, 2048), (2842, 1494));
+        assert_eq!(position(2842.4, 1493.6, 5632, 2048, true), (2842, 1494));
         // Where the map wraps, a point past an edge is the same as one on it.
-        assert_eq!(position(-10.0, 5.0, 5632, 2048), (5622, 5));
-        assert_eq!(position(5632.2, 5.0, 5632, 2048), (0, 5));
-        // Up and down it does not wrap.
-        assert_eq!(position(1.0, 2048.0, 5632, 2048), (1, 2047));
-        assert_eq!(position(1.0, -3.0, 5632, 2048), (1, 0));
+        assert_eq!(position(-10.0, 5.0, 5632, 2048, true), (5622, 5));
+        assert_eq!(position(5632.2, 5.0, 5632, 2048, true), (0, 5));
+        // A map that does not wrap keeps it on the map, as up and down.
+        assert_eq!(position(-10.0, 5.0, 5632, 2048, false), (0, 5));
+        assert_eq!(position(5632.2, 5.0, 5632, 2048, false), (5631, 5));
+        assert_eq!(position(1.0, 2048.0, 5632, 2048, true), (1, 2047));
+        assert_eq!(position(1.0, -3.0, 5632, 2048, true), (1, 0));
     }
 }

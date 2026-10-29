@@ -21,9 +21,6 @@ use crate::points::{Function, Point};
 use crate::unicode::game_text;
 use eu4_harmony_loc::Language;
 
-/// The days of each month: the game's calendar has no leap years.
-const DAYS: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
 /// A date as the game keeps it: hours since 1 January 5000 BC (0xcfd70).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Date {
@@ -36,14 +33,8 @@ struct Date {
 
 impl Date {
     fn from_hours(hours: i32) -> Self {
-        let days = hours.div_euclid(24);
-        let mut day = days.rem_euclid(365) as u32;
-        let mut month = 0;
-        while day >= DAYS[month] {
-            day -= DAYS[month];
-            month += 1;
-        }
-        Self { year: days.div_euclid(365) - 5000, month: month as u32 + 1, day: day + 1 }
+        let (year, month, day) = eu4_harmony_remote::Date(hours).ymd();
+        Self { year, month, day }
     }
 
     /// The first of the next month, unless this is a first already, as the

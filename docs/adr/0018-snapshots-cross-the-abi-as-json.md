@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0019
+---
+
 # A snapshot with text and lists crosses the ABI as JSON
+
+The reason given below that the ABI passes nothing it does not copy into the caller's buffer has been superseded by ADR 0019: a host function that cannot be called twice for the same answer lends its text to a callback for the call. The decision on snapshots still holds.
 
 A snapshot of a game object that holds text or lists of varying length, such as a province's (its name, its buildings, what can be recruited there and why not), reaches an extension as one capability that writes UTF-8 JSON into the caller's buffer, by the two-call pattern every list uses. The JSON's shape is written on the `GameApi` field; the SDK reads it into its own Rust types, so an extension never sees the JSON.
 

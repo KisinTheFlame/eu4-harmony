@@ -11,7 +11,7 @@ use crate::{
         armies::{self, RouteSource},
         events, interface,
         map_coloring::{self, MapColor},
-        countries, diplomacy, offers, provinces, questions, save_data, texts, time, Caller, Status, Tag,
+        countries, diplomacy, offers, provinces, questions, save_data, texts, thousandths, time, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -431,12 +431,6 @@ unsafe extern "C" fn h_camera_zoom(ptr: *mut c_void, height: u32, o: *mut abi::C
     capability(ptr, |caller| moved_out(o, game::camera::zoom(caller, height)?))
 }
 
-/// A fixed-point number of the game's, kept in thousandths, as the number it
-/// stands for in a snapshot's JSON (ADR 0018).
-fn thousandths(value: i32) -> f64 {
-    value as f64 / 1000.0
-}
-
 /// A province's snapshot as the JSON `abi::GameApi::province` describes.
 fn province_json(s: &provinces::Snapshot) -> serde_json::Value {
     let country = |t: Option<Tag>| t.map(|t| t.0);
@@ -839,28 +833,36 @@ fn count() -> usize {
     extensions().len()
 }
 
-/// Dispatches a game's safe frame (`crate::safe_point`) to every extension.
+/// Dispatches a game's safe frame (`crate::safe_point`) to every extension:
+/// what happened, in its order ([`game::Frame::heard`]), then what concerns
+/// one extension (its map coloring taken over, its buttons clicked), then
+/// the frame.
 pub fn frame(state: &game::Frame) {
     let n = count();
-    if state.new_session {
-        let loaded = saves::take_loaded();
-        log!("session {} started (from a loaded save: {})", state.session, loaded.is_some());
-        saves::replace_all(loaded.unwrap_or_default());
-        for i in 0..n {
-            call(i, "on_session", |v| v.on_session.map(|f| f as usize), &[]);
-        }
-        refresh_report(true);
-    }
-    for &change in &state.changes {
-        match change {
-            events::Change::Ordered(id) => {
+    for heard in state.heard() {
+        match heard {
+            game::Heard::Session(session) => {
+                let loaded = saves::take_loaded();
+                log!("session {session} started (from a loaded save: {})", loaded.is_some());
+                saves::replace_all(loaded.unwrap_or_default());
+                for i in 0..n {
+                    call(i, "on_session", |v| v.on_session.map(|f| f as usize), &[]);
+                }
+                refresh_report(true);
+            }
+            game::Heard::Change(events::Change::Ordered(id)) => {
                 for i in 0..n {
                     call(i, "on_army_ordered", |v| v.on_army_ordered.map(|f| f as usize), &[id as usize]);
                 }
             }
-            events::Change::Defeated(id) => {
+            game::Heard::Change(events::Change::Defeated(id)) => {
                 for i in 0..n {
                     call(i, "on_army_defeated", |v| v.on_army_defeated.map(|f| f as usize), &[id as usize]);
+                }
+            }
+            game::Heard::Day(date) => {
+                for i in 0..n {
+                    call(i, "on_day", |v| v.on_day.map(|f| f as usize), &[date as u32 as usize]);
                 }
             }
         }
@@ -871,11 +873,6 @@ pub fn frame(state: &game::Frame) {
     for click in ui::take_clicks() {
         let name = click.name;
         call(click.extension, "on_button", |v| v.on_button.map(|f| f as usize), &[name.as_ptr() as usize, name.len(), click.click as usize, click.modifiers as usize]);
-    }
-    if state.new_day {
-        for i in 0..n {
-            call(i, "on_day", |v| v.on_day.map(|f| f as usize), &[state.ctx.date as u32 as usize]);
-        }
     }
     for i in 0..n {
         call(i, "on_frame", |v| v.on_frame.map(|f| f as usize), &[]);

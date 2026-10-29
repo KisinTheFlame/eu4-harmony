@@ -103,6 +103,13 @@ pub fn fail<T>(status: Status, message: impl Into<String>) -> GResult<T> {
     Err(Fail { status, message: message.into() })
 }
 
+/// A fixed-point number of the game's, kept in thousandths (a treasury, a
+/// development), as the number it stands for: 9500 is 9.5. Extensions and
+/// remote clients get it so (ADR 0018).
+pub fn thousandths(value: i32) -> f64 {
+    value as f64 / 1000.0
+}
+
 /// The game, for a capability: on the game's main thread only, once startup
 /// has found it.
 fn game() -> GResult<&'static Memory> {
@@ -131,8 +138,8 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
 }
 
 /// What a safe frame starts from: the campaign, its session, and what
-/// happened since the last one, which extensions and remote control hear in
-/// this order: a new session, the changes, a new day.
+/// happened since the last one, which extensions and remote control hear
+/// ([`Frame::heard`]).
 pub struct Frame {
     pub ctx: Ctx,
     pub session: u64,
@@ -144,6 +151,26 @@ pub struct Frame {
     /// The date differs from the last day announced in this session, and
     /// visibility reflects it.
     pub new_day: bool,
+}
+
+/// One thing that happened since the last safe frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heard {
+    /// A new session, with its number.
+    Session(u64),
+    Change(events::Change),
+    /// A new day, with its date.
+    Day(i32),
+}
+
+impl Frame {
+    /// What happened, in the order extensions hear it and remote control
+    /// numbers it: a new session, the changes, a new day.
+    pub fn heard(&self) -> Vec<Heard> {
+        let session = self.new_session.then_some(Heard::Session(self.session));
+        let day = self.new_day.then_some(Heard::Day(self.ctx.date));
+        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).collect()
+    }
 }
 
 /// Starts a safe frame (see [`events`]); fails when this is not one, saying
@@ -322,7 +349,16 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 
 #[cfg(test)]
 mod tests {
-    use super::Tag;
+    use super::{events::Change, Ctx, Frame, Heard, Tag};
+
+    #[test]
+    fn a_frame_is_heard_session_first_and_day_last() {
+        let ctx = Ctx { world: 0, date: 0x035D_7710, player: Tag(0), country: 0, countries: 0 };
+        let frame = Frame { ctx, session: 3, new_session: true, visibility_current: true, changes: vec![Change::Ordered(7), Change::Defeated(8)], new_day: true };
+        assert_eq!(frame.heard(), [Heard::Session(3), Heard::Change(Change::Ordered(7)), Heard::Change(Change::Defeated(8)), Heard::Day(0x035D_7710)]);
+        let quiet = Frame { new_session: false, new_day: false, changes: Vec::new(), ..frame };
+        assert!(quiet.heard().is_empty());
+    }
 
     #[test]
     fn tag_fields() {

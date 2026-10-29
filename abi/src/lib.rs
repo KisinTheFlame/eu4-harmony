@@ -174,7 +174,7 @@ pub struct Camera {
 /// with the `user` pointer the caller passed it. It is called on the game
 /// thread, before the host function returns; the text is valid only for the
 /// call. It must not unwind (no panic or exception may leave it), and it may
-/// call host functions.
+/// call host functions (ADR 0019).
 pub type TextSink = unsafe extern "C" fn(user: *mut c_void, text: *const u8, len: usize);
 
 /// Kinds of regiment and ship, as [`GameApi::recruit`] takes them, in the
@@ -340,7 +340,8 @@ pub struct GameApi {
     pub time_pause: unsafe extern "C" fn(host: *mut c_void) -> i32,
     /// Resumes the game as the player would, also when windows hold it paused
     /// (they stay open); nothing when it runs. [`REJECTED`] when the game
-    /// stays paused.
+    /// stays paused, and once the game is over: past its end date, unless the
+    /// player chose to play on, as the player's resuming is refused.
     pub time_resume: unsafe extern "C" fn(host: *mut c_void) -> i32,
     /// Recruits one regiment or ship of `kind` (one of the `UNIT_*` kinds)
     /// in a province for the player, through the game's own recruit command,
@@ -376,7 +377,7 @@ pub struct GameApi {
     /// `abi/json/offers.json` is a whole one.
     pub offers: unsafe extern "C" fn(host: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
     /// Accepts (`accept` 1) or declines (0) an offer, as the player does in
-    /// its dialog. [`NOT_FOUND`] for no such offer; [`REJECTED`] when the
+    /// its window. [`NOT_FOUND`] for no such offer; [`REJECTED`] when the
     /// game no longer takes an answer to it (it was made more than two months
     /// ago, or what it offers is no longer possible), which the game then
     /// lets go, mostly declining it, as when the player opens it.

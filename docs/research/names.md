@@ -15,14 +15,14 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe and the game's
 
 ## Cultures
 
-- **`CCulture`** (constructor `0x27e810`): `+0x48` its key as in common/cultures (`0x27e8a7` `4c 8d 76 48`), `+0x68` its localised name, `+0x88` its group (stored at `0x27e8fe`, read at `0x280952` `48 8b 91 88 00 00 00`).
-- **`CCultureGroup`** (constructor `0x27c9f0`): `+0x38` its key (`0x27ca3c` `48 8d 71 38`), `+0x58` its localised name, `+0x78` its index in file order (match on keys, not indices).
+- **`CCulture`** (constructor `0x27e810`): `+0x48` its key as in common/cultures (`0x27e8a7` `4c 8d 76 48`), `+0x68` its name from the localisation, `+0x88` its group (stored at `0x27e8fe`, read at `0x280952` `48 8b 91 88 00 00 00`).
+- **`CCultureGroup`** (constructor `0x27c9f0`): `+0x38` its key (`0x27ca3c` `48 8d 71 38`), `+0x58` its name from the localisation, `+0x78` its index in file order (match on keys, not indices).
 - A person's culture link in localisation scopes reads `+0x60` (`0x280aba` `48 8b 41 60`).
 - **East Asian, family name first** (common/cultures/00_cultures.txt): the groups `east_asian` (Chinese cultures, and `vietnamese_new`, `korean_new` from the Empire of China), `korean_g`, `japanese_g`, and the culture `vietnamese`. Not family first although in `east_asian`: `tibetan_new`, `altaic_new`, `zhuang_new`, `manchu_new`.
 
 ## Battles
 
-- `0x23a900`(combat, out) is the localised key (`BATTLE_OF`, or `SIEGE_OF` for a siege, or `OCCUPATION_OF` where the province has no fort), then `" "` and the province's name: the order is fixed in code. 10 callers: land and naval battle results (`LANDBATTLEOVER`), siege and occupation over, a leader's death in battle, the combat and siege views and their tooltips.
+- `0x23a900`(combat, out) is the key's localisation (`BATTLE_OF`, or `SIEGE_OF` for a siege, or `OCCUPATION_OF` where the province has no fort), then `" "` and the province's name: the order is fixed in code. 10 callers: land and naval battle results (`LANDBATTLEOVER`), siege and occupation over, a leader's death in battle, the combat and siege views and their tooltips.
 - The war overview's battle row (`0x148a6d0`, through a vtable) builds its own: `BATTLE_OF` + `" §Y"` + the battle's stored name + `"§!"`.
 - The Chinese language mod has `BATTLE_OF` "战役", `SIEGE_OF` "围攻", `OCCUPATION_OF` "占领"; the game shows "战役 雅典".
 - The localisation lookup is `0x14b34a0`(out, key, values, count), which returns the key when it is missing; `0x95660` destroys a `std::string`.
@@ -31,4 +31,4 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe and the game's
 
 - `wording::names` replaces `0xa4b2c0` and the two appends at `0x319257` / `0x319324`. For a person whose culture is East Asian (above), when the player language has the template `EU4HARMONY_NAME_FAMILY_FIRST` (Simplified Chinese: "$FAMILY$ $GIVEN$"), the name becomes family name first, and a space between two Chinese, Japanese or Korean characters is dropped. Generals, advisors and names put together in localisation keep the game's order.
   - Tested 2026-10-28: the lobby shows "皇帝 Zhu Qizhen" for Ming and "国王 Yi Sejong Do" for Korea (the data's given name is "Sejong Do"); Korea's court shows "Yi Sejong Do", "Yi Hyang" and "Sim Soheon"; the ruler's tooltip ends "Yi Hyang继承王位".
-- `wording::battles` replaces `0x23a900`: with the player language's templates (`EU4HARMONY_BATTLE`, `_SIEGE`, `_OCCUPATION`, with `$KIND$` and `$PLACE$`; Chinese "雅典战役", "围攻雅典", "占领雅典") the name is reworded; the kind is told by comparing the text with the three keys as localised. Not yet seen in the running game.
+- `wording::battles` replaces `0x23a900`: with the player language's templates (`EU4HARMONY_BATTLE`, `_SIEGE`, `_OCCUPATION`, with `$KIND$` and `$PLACE$`; Chinese "雅典战役", "围攻雅典", "占领雅典") the name is reworded; the kind is told by comparing the text with the three keys' localisations. Not yet seen in the running game.

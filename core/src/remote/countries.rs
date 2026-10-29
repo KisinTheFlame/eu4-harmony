@@ -4,7 +4,7 @@ use super::{tag, Live};
 use crate::game::{
     self,
     countries::{self as layer, RelationKind as Kind},
-    Caller, GResult, Tag,
+    thousandths, Caller, GResult, Tag,
 };
 use eu4_harmony_remote::{
     countries::{Country, CountryAnswer, CountryRequest, Power, Relation, RelationKind, War},
@@ -46,20 +46,15 @@ pub fn run(request: CountryRequest, game: &mut (impl Layer + ?Sized)) -> Result<
     }
 }
 
-/// A fixed-point number of the game's, thousandths, as a number.
-fn fixed(thousandths: i32) -> f64 {
-    thousandths as f64 / 1000.0
-}
-
 fn snapshot(c: &layer::Country) -> Country {
     let tags = |tags: &[Tag]| tags.iter().copied().map(tag).collect();
     Country {
         tag: tag(c.tag),
-        treasury: fixed(c.treasury),
+        treasury: thousandths(c.treasury),
         manpower: c.manpower,
         max_manpower: c.max_manpower,
-        stability: fixed(c.stability),
-        prestige: fixed(c.prestige),
+        stability: thousandths(c.stability),
+        prestige: thousandths(c.prestige),
         power: Power { adm: c.power[0], dip: c.power[1], mil: c.power[2] },
         wars: c.wars.iter().map(|w| War { name: w.name.clone(), attackers: tags(&w.attackers), defenders: tags(&w.defenders) }).collect(),
         relations: c

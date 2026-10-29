@@ -177,6 +177,22 @@ fn after_a_double_dash_every_word_is_a_value() {
     assert_eq!(help("--help army move --"), Some("army.move".into()));
 }
 
+#[test]
+fn a_text_last_takes_every_value_left() {
+    use eu4_harmony_remote::{console::ConsoleRequest, menu::MenuRequest};
+    let run = |command: &str| Request::Console(ConsoleRequest::Run { command: command.into() });
+    assert_eq!(ask("console run cash 100").request, run("cash 100"));
+    assert_eq!(ask("console.run cash 100 FRA").request, run("cash 100 FRA"));
+    assert_eq!(ask("console run -- cash 100").request, run("cash 100"));
+    assert_eq!(ask("console run --compact -- help --all").request, run("help --all"));
+    assert_eq!(ask("menu load Castilla 5").request, Request::Menu(MenuRequest::Load { save: "Castilla 5".into() }));
+    // Once named, a text takes one value, as any argument does.
+    assert!(wrong("console run --command cash 100").contains("\"100\" is one value too many"));
+    // The last argument not named, when it is a text: --times named, the
+    // values left all go to the text.
+    assert_eq!(Value::Object(arguments(&SAY, &words("--times 2 a b c"), &[]).unwrap()), json!({"text": "a b c", "times": 2}));
+}
+
 /// Every capability, and so every one added later, can be called from the
 /// command line, as its description says.
 #[test]

@@ -109,6 +109,9 @@ pub struct Save {
     /// when it cannot be read (or for an observer's save).
     pub player: Option<[u8; 3]>,
     pub date: Option<i32>,
+    /// The mods it was made with that the game did not start with, by name:
+    /// [`load`] refuses it while there are any.
+    pub missing_mods: Vec<String>,
 }
 
 /// What came of a load or start.
@@ -272,7 +275,8 @@ pub fn saves(_: Caller) -> GResult<Vec<Save>> {
         }
         let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
         let header = header(&entry.path(), meta.len(), modified);
-        saves.push(Save { name: name.to_string(), file: file.clone(), bytes: meta.len(), modified, player: header.player, date: header.date });
+        let missing_mods = missing_mods(&header, crate::mods::playset());
+        saves.push(Save { name: name.to_string(), file: file.clone(), bytes: meta.len(), modified, player: header.player, date: header.date, missing_mods });
     }
     saves.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
     Ok(saves)
@@ -285,11 +289,28 @@ fn header(path: &std::path::Path, bytes: u64, modified: u64) -> save_file::Heade
     static READ: Mutex<Option<std::collections::HashMap<Key, save_file::Header>>> = Mutex::new(None);
     let key = (path.to_path_buf(), bytes, modified);
     if let Some(header) = READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).get(&key) {
-        return *header;
+        return header.clone();
     }
     let header = save_file::read(path).unwrap_or_default();
-    READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key, header);
+    READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key, header.clone());
     header
+}
+
+/// The mods a save was made with that `playset`, the mods the game started
+/// with, lacks: their names, or their descriptors when they have none.
+///
+/// A save made with a gameplay mod the playset lacked crashed the game as it
+/// loaded (docs/research/main-menu.md), and which mods change the game
+/// cannot be told from their names, so every one missing counts. A mod the
+/// playset has and the save lacks does not: the saves of the runs loaded
+/// with mods added to the playset since.
+fn missing_mods(header: &save_file::Header, playset: &[String]) -> Vec<String> {
+    header
+        .mods
+        .iter()
+        .filter(|m| !playset.iter().any(|p| crate::mods::same_descriptor(&m.file, p)))
+        .map(|m| if m.name.is_empty() { m.file.clone() } else { m.name.clone() })
+        .collect()
 }
 
 /// The name of a save file: its name without `.eu4`, when it has that.
@@ -334,23 +355,40 @@ fn first_page(m: &Memory) -> GResult<usize> {
 /// header what the game should come to.
 pub fn load(_: Caller, name: &str) -> GResult<Expected> {
     let m = game()?;
-    let file = save_file(name)?;
+    // Where the game is first: in a game, any save is refused alike.
     first_page(m)?;
+    let file = save_file(name)?;
     let header = save_file::read(&save_games()?.join(&file)).map_err(|e| super::Fail { status: Status::Rejected, message: format!("the save cannot be read: {e}") })?;
     let Some(letters) = header.player else {
         return fail(Status::Rejected, "the save has no country to play");
     };
+    let missing = missing_mods(&header, crate::mods::playset());
+    if !missing.is_empty() {
+        return fail(
+            Status::Rejected,
+            format!(
+                "the save was made with mods the game did not start with: {}; loading it can crash the game. Add them to the playset in the launcher and start the game again, or load another save",
+                missing.join(", ")
+            ),
+        );
+    }
     let player = find(m, letters)?;
     ask(Action::Load(format!("save games/{file}"), player));
     Ok(Expected { player: letters, date: header.date })
 }
 
 /// Starts a new game as the country `letters` from the main menu, at the
-/// main menu's next frame; [`launch`] says what came of it.
+/// main menu's next frame; [`launch`] says what came of it. Refused for a
+/// country with no land at the start date, which the single player setup
+/// does not offer: started so, the game is left to the player to observe.
 pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
     let m = game()?;
     first_page(m)?;
-    find(m, letters)?;
+    let tag = find(m, letters)?;
+    if super::world::owned_provinces(m, world_now(m)?, tag)? == 0 {
+        let name = String::from_utf8_lossy(&letters).into_owned();
+        return fail(Status::Rejected, format!("{name} has no land at the start date, so it cannot be played from it; started as {name}, the game would only be observed"));
+    }
     ask(Action::Start(letters));
     Ok(())
 }
@@ -496,11 +534,21 @@ fn judge(seen: &Steps, now: &Steps, loading: bool, quiet: Duration) -> Judged {
 }
 
 /// After a load or start that did not go through: the main menu as the
-/// player could use it, nothing continued and, when the single player setup
-/// it entered for it still shows, its first page. Another page, which only
-/// the player can have chosen, stays.
+/// player could use it, nothing continued, no start accepted and, when the
+/// single player setup it entered for it still shows, its first page.
+/// Another page, which only the player can have chosen, stays.
+///
+/// A start the game accepted and did not carry out leaves the main menu's
+/// flag for it set, which nothing but its constructor clears: `menu` would
+/// say `starting` for the rest of the process, and the setup, entered again,
+/// would carry the start out at its first frame (`0x11192d5`). Unless the
+/// start is to happen at the next frame, the flag is cleared, as the main
+/// menu was made.
 fn back_to_first_page(m: &Memory, frontend: usize) {
     let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
+    if m.u8(frontend + main_menu::LAUNCH).is_ok_and(|launch| launch == 0) {
+        let _ = m.write(frontend + main_menu::LAUNCH_ACCEPTED, &[0]);
+    }
     if m.u32(frontend + main_menu::PAGE).is_ok_and(|page| page == main_menu::SETUP_PAGE) {
         let _ = m.call(m.at(SHOW_PAGE), &[frontend, main_menu::FIRST_PAGE as usize, 1]);
     }
@@ -564,6 +612,15 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
 /// written into it, the save chosen (the setup loads it by a command, at a
 /// later frame), the country made the player, the game started, by a
 /// command that runs after the load.
+///
+/// What can fail is checked before the save is chosen. Once it is, the
+/// command that loads it is the game's, and nothing takes it back: should
+/// what follows fail (a game function faulting, or the setup not starting,
+/// which its code always does with a save chosen), the save is still read
+/// into the main menu's world at a later frame, where the main menu shows
+/// its first page again. That starts no game, and a later load or start
+/// replaces it, as the runs saw of a load and a start at separate frames
+/// (docs/research/main-menu.md); the failure says so.
 fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> {
     let world = world_now(m)?;
     m.write(world + world::MULTIPLAYER, &0i32.to_le_bytes())?;
@@ -576,10 +633,11 @@ fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> 
     m.write(page + setup::CLOUD_SAVE, &[0])?;
     m.write(page + setup::SAVE_PLAYER, &player.0.to_le_bytes())?;
     m.call(m.at(CHOOSE_SAVE), &[page])?;
-    m.call(m.at(SET_PLAYER), &[world, player.0 as usize])?;
-    m.call(m.at(CONTINUE), &[page, 1])?;
-    if m.u8(page + setup::STARTED)? == 0 {
-        return Err("the single player setup did not start the game".into());
+    let chosen = |why: String| format!("{why}; the game still reads the save into the main menu's world, which starts no game");
+    m.call(m.at(SET_PLAYER), &[world, player.0 as usize]).map_err(chosen)?;
+    m.call(m.at(CONTINUE), &[page, 1]).map_err(chosen)?;
+    if m.u8(page + setup::STARTED).map_err(chosen)? == 0 {
+        return Err(chosen("the single player setup did not start the game".into()));
     }
     Ok(())
 }
@@ -657,8 +715,22 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{judge, save_name, Judged, Steps, QUIET};
+    use super::{judge, missing_mods, save_file, save_name, Judged, Steps, QUIET};
     use std::time::Duration;
+
+    #[test]
+    fn a_save_misses_the_mods_it_was_made_with_that_the_playset_lacks() {
+        let save_mod = |file: &str, name: &str| save_file::SaveMod { file: file.into(), name: name.into() };
+        let header = save_file::Header {
+            mods: vec![save_mod("mod/ugc_3047072888.mod", "彼岸乐园"), save_mod("mod/ugc_2976470733.mod", "Chinese Language Mod for 1.37"), save_mod("mod/local.mod", "")],
+            ..Default::default()
+        };
+        let playset = ["mod/ugc_253263609.mod".to_string(), "MOD/ugc_2976470733.mod".to_string()];
+        assert_eq!(missing_mods(&header, &playset), ["彼岸乐园", "mod/local.mod"]);
+        // Mods the playset has and the save lacks are no matter.
+        assert_eq!(missing_mods(&save_file::Header::default(), &playset), Vec::<String>::new());
+        assert_eq!(missing_mods(&header, &[]).len(), 3);
+    }
 
     #[test]
     fn a_load_or_start_is_followed_by_the_games_steps() {

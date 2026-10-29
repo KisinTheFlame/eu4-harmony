@@ -10,26 +10,20 @@
 //! multiplayer game, is refused with the game's own words
 //! (docs/research/game-console.md).
 use super::{context, fail, game, Caller, GResult, Status};
-use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::console::{result, GLOBAL as CONSOLE},
+    points::Point,
+    unicode::game_text,
+};
 
-/// The game console: its commands, then whether the commands only
-/// developers may run are locked and whether the game is ironman or
-/// multiplayer. Made when first asked for.
-const CONSOLE: usize = 0x2357b58;
-/// `console() -> console`: the game console, made if there is none.
+/// `console() -> console`: the game console ([`CONSOLE`]), made if there is
+/// none.
 const GET: usize = 0x6e74c0;
 /// `run(console, &result, &words) -> &result`: runs the command the first
-/// word names with the words after it, and fills in the result.
+/// word names with the words after it, and fills in the [`result`].
 const RUN: usize = 0x1721320;
-
-/// What [`RUN`] answers: whether the command succeeded (u8), then the text
-/// the window prints (a `std::string` of game text, its lines in white when
-/// the command succeeded and in red when not).
-mod result {
-    pub const SUCCEEDED: usize = 0;
-    pub const TEXT: usize = 8;
-    pub const SIZE: usize = 0x28;
-}
 
 /// The characters the window trims from both ends of a line.
 const TRIMMED: [char; 4] = [' ', '\t', '\r', '\n'];
@@ -53,7 +47,6 @@ pub fn points() -> Vec<Point> {
              e8 87 fc ff ff 48 89 85 80 00 00 00 48 85 c0 0f 84 39 06 00 00 38 18 75 61 41 38 5c 24 18 74 5a",
             "game console run",
         ),
-        Point::keep(0x17213d4usize, "48 89 44 24 48 c6 07 00 0f 10 44 24 48 0f 11 47 08", "game console run result").uses(&[result::TEXT]),
     ]
 }
 

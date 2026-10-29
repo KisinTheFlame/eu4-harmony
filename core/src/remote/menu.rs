@@ -99,7 +99,7 @@ fn place_of(place: game::menu::Place) -> Place {
 }
 
 fn save(s: game::menu::Save) -> Save {
-    Save { name: s.name, file: s.file, bytes: s.bytes, modified: s.modified, player: s.player.map(CountryTag), date: s.date.map(Date) }
+    Save { name: s.name, file: s.file, bytes: s.bytes, modified: s.modified, player: s.player.map(CountryTag), date: s.date.map(Date), missing_mods: s.missing_mods }
 }
 
 /// A load or start waiting for the game's first frame.
@@ -114,6 +114,11 @@ impl Wait for Starting {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
         if let Launch::Failed(why) = (self.probe)() {
             return Some(Err(Error::new(Code::Rejected, why)));
+        }
+        // The game came, but its frames have no game to play: no frame
+        // after it would answer otherwise.
+        if let Some(why) = at.unplayable {
+            return Some(Err(Error::new(Code::Rejected, format!("the game began, but the player cannot play it ({}): menu says game, and it goes on", why.message))));
         }
         let game = at.game.as_deref_mut()?;
         match game.session() {

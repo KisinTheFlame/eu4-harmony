@@ -19,6 +19,9 @@ pub mod globals {
     pub const IDLE_TASK: usize = 0x2340020;
     /// The normal movement policy route queries take (its vtable).
     pub const ROUTE_POLICY: usize = 0x1c3af98;
+    /// The game's end date, i32 (docs/research/time.md): past it, time
+    /// stands still unless the player plays on ([`super::world::PLAY_ON`]).
+    pub const END_DATE: usize = 0x1fc2328;
 }
 
 /// Classes, by vtable RVA.
@@ -55,6 +58,10 @@ pub mod tag {
 pub mod world {
     /// The date, i32 (docs/research/dates.md).
     pub const DATE: usize = 0x1dd0;
+    /// Nonzero once the player chose to play on past the end date
+    /// ([`super::globals::END_DATE`]), u8: set as the end-of-game summary
+    /// the end date shows is closed (docs/research/time.md).
+    pub const PLAY_ON: usize = 0x1dd8;
     /// The map manager.
     pub const MAP_MANAGER: usize = 0x1e00;
     /// Nonzero while the daily update runs, u8.
@@ -674,6 +681,10 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x11bde0busize, "48 8b 83 b8 01 00 00 c6 83 14 01 00 00 01 c6 80 e9 12 00 00 01", "return to main menu answer")
             .uses(&[map_manager::RETURN]),
         Point::keep(0x815c9fusize, "41 80 bd e9 12 00 00 00", "return to main menu").uses(&[map_manager::RETURN]),
+        // The player's pause key, resuming: refused past the end date
+        // unless the player plays on (docs/research/time.md).
+        Point::keep(0x8105bbusize, "8b 05 67 1d 7b 01 39 87 d0 1d 00 00 7e 0d 80 bf d8 1d 00 00 00 0f 84 25 02 00 00", "resume past the end date")
+            .uses(&[END_DATE, world::DATE, world::PLAY_ON]),
         Point::keep(0xe5180usize, "48 8d 05 71 82 c3 01", "move command class").uses(&[classes::MOVE_COMMANDS[0]]),
         Point::keep(0xd4c3ausize, "48 8d 05 47 8e c4 01", "move command class").uses(&[classes::MOVE_COMMANDS[1]]),
         Point::keep(0x26ce8eusize, "48 8d 05 63 11 9e 01 48 89 01", "recruit command class").uses(&[classes::RECRUIT_COMMAND]),

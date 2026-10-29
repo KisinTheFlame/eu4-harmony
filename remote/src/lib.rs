@@ -29,6 +29,10 @@ use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::fmt;
 
+/// The named pipe the game serves remote control on (ADR 0016), one JSON
+/// request per line in and one response per line out.
+pub const PIPE: &str = r"\\.\pipe\eu4-harmony";
+
 /// Whether a capability runs only while a game is going on.
 macro_rules! in_game {
     (game) => {
@@ -501,7 +505,9 @@ impl<'de> Deserialize<'de> for ArmyId {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Date(pub i32);
 
-const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+/// The days of each month, January's first: the game's calendar has no leap
+/// years. The framework's one copy of it.
+pub const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const EPOCH_YEAR: i32 = -5000;
 
 impl Date {

@@ -39,7 +39,6 @@ pub struct Element {
     pub tooltip: Option<String>,
 }
 
-#[derive(Default)]
 pub struct FakeGame {
     pub session: Session,
     pub tags: HashMap<CountryId, String>,
@@ -71,27 +70,38 @@ pub struct FakeGame {
     /// What `Game::text` answers, by key; see [`FakeGame::load_localisation`].
     pub texts: BTreeMap<String, String>,
     /// The map camera, which the camera's moves change; a zoom outside its
-    /// `min_height` to `max_height` is refused.
+    /// `min_height` to `max_height` is refused. It starts at the unmodded
+    /// game's heights, 50 to 3000, looking from 1000.
     pub camera: Camera,
+    /// While set, the camera's moves are refused, as the core refuses them
+    /// while the game holds the camera: after their arguments are checked.
+    pub camera_locked: bool,
     /// The map position the camera looks at each province from; a province
     /// not here is not found.
     pub province_positions: BTreeMap<ProvinceId, (u32, u32)>,
     /// What `Game::province` answers, by province; missing entries are not
     /// found. Recruiting follows them as the core answers: in a province
-    /// missing here, not found; of a kind its snapshot gives no unit type or
-    /// does not allow, refused in the core's words or with the snapshot's
-    /// reasons.
+    /// missing here, not found; of a kind its snapshot gives no unit type,
+    /// leaves out (the core's lists every kind) or does not allow, refused
+    /// in the core's words or with the snapshot's reasons.
     pub province_snapshots: BTreeMap<ProvinceId, ProvinceSnapshot>,
     /// The game console commands the extension ran, in order.
     pub console_commands: Vec<String>,
     /// What each game console command prints, by command as it was run;
-    /// one not here is rejected as one the game console does not know.
+    /// one not here is rejected as one the game console does not know. A
+    /// command the core refuses before running it (empty, or with a `|` or
+    /// a NUL) is refused as the core does, and not kept.
     pub console_output: BTreeMap<String, String>,
     /// What `Game::country` answers, by country.
     pub countries: BTreeMap<CountryId, Country>,
     /// The game speed, 1 to 5; 0, the default, reads as 1. Pausing and
     /// resuming set [`session`](Self::session)'s `paused`.
     pub speed: u32,
+    /// The game's end date, a date as [`session`](Self::session)'s `date`:
+    /// once the session's date is past it, resuming a paused game is refused,
+    /// as the core refuses it once the game is over. None, the default: no
+    /// end date, as for a game the player chose to play on past it.
+    pub end_date: Option<i32>,
     /// The questions waiting for the player's answer; answering one records a
     /// command and leaves it here. An option not listed is `Rejected`, as the
     /// core answers an option the player may not choose: the fake knows no
@@ -117,6 +127,49 @@ pub struct FakeGame {
     pub diplomacy_answers: BTreeMap<Ticket, DiplomacyAnswer>,
     /// Refuse every diplomatic action with this message.
     pub reject_diplomacy: Option<String>,
+}
+
+impl Default for FakeGame {
+    fn default() -> Self {
+        Self {
+            camera: Camera { height: 1000, min_height: 50, max_height: 3000, ..Camera::default() },
+            camera_locked: false,
+            session: Default::default(),
+            tags: Default::default(),
+            hostile: Default::default(),
+            provinces: Default::default(),
+            neighbors: Default::default(),
+            own_armies: Default::default(),
+            province_armies: Default::default(),
+            routes_of_armies: Default::default(),
+            closed: Default::default(),
+            closed_straits: Default::default(),
+            protected: Default::default(),
+            routes: Default::default(),
+            reject_orders: Default::default(),
+            selected: Default::default(),
+            elements: Default::default(),
+            map: Default::default(),
+            save_data: Default::default(),
+            commands: Default::default(),
+            language: Default::default(),
+            texts: Default::default(),
+            province_positions: Default::default(),
+            province_snapshots: Default::default(),
+            console_commands: Default::default(),
+            console_output: Default::default(),
+            countries: Default::default(),
+            speed: Default::default(),
+            end_date: Default::default(),
+            questions: Default::default(),
+            offers: Default::default(),
+            war_goals: Default::default(),
+            allies: Default::default(),
+            diplomacy: Default::default(),
+            diplomacy_answers: Default::default(),
+            reject_diplomacy: Default::default(),
+        }
+    }
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -177,6 +230,14 @@ impl FakeGame {
     pub fn link(&mut self, a: ProvinceId, b: ProvinceId) {
         self.neighbors.entry(a).or_default().push(Neighbor { to: b, strait: false });
         self.neighbors.entry(b).or_default().push(Neighbor { to: a, strait: false });
+    }
+
+    /// Refuses a move of the camera while it is locked, in the core's words.
+    fn camera_movable(&self) -> Result<()> {
+        if self.camera_locked {
+            return Err(rejected("the camera is locked"));
+        }
+        Ok(())
     }
 
     fn own(&self, id: ArmyId) -> Result<&Army> {
@@ -297,10 +358,12 @@ impl Backend for FakeGame {
     }
     fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
         let &(x, y) = self.province_positions.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
+        self.camera_movable()?;
         self.camera = Camera { x, y, province: Some(province), ..self.camera };
         Ok(self.camera)
     }
     fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera> {
+        self.camera_movable()?;
         let province = self.province_positions.iter().find(|(_, &at)| at == (x, y)).map(|(&p, _)| p);
         self.camera = Camera { x, y, province, ..self.camera };
         Ok(self.camera)
@@ -310,6 +373,7 @@ impl Backend for FakeGame {
         if !(min_height..=max_height).contains(&height) {
             return Err(Error::new(Status::InvalidArgument, format!("the height is from {min_height} to {max_height}")));
         }
+        self.camera_movable()?;
         self.camera.height = height;
         Ok(self.camera)
     }
@@ -317,6 +381,19 @@ impl Backend for FakeGame {
         self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
     }
     fn console_run(&mut self, command: &str) -> Result<String> {
+        // The core's own refusals, in its words.
+        let refused = if command.contains('|') {
+            Some("a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out")
+        } else if command.contains('\0') {
+            Some("a command cannot hold a NUL")
+        } else if command.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
+            Some("no command")
+        } else {
+            None
+        };
+        if let Some(why) = refused {
+            return Err(Error::new(Status::InvalidArgument, why));
+        }
         self.console_commands.push(command.into());
         self.console_output.get(command).cloned().ok_or_else(|| Error::new(Status::Rejected, "Unknown command"))
     }
@@ -338,22 +415,25 @@ impl Backend for FakeGame {
         Ok(())
     }
     fn time_resume(&mut self) -> Result<()> {
+        if self.session.paused && self.end_date.is_some_and(|end| self.session.date > end) {
+            return Err(rejected("the game is over: it is past its end date, and stays paused, as for the player, until the end-of-game summary is closed to play on"));
+        }
         self.session.paused = false;
         Ok(())
     }
     fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
         let snapshot = self.province_snapshots.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
-        if let Some(recruit) = snapshot.recruit.iter().find(|r| r.kind == kind) {
-            if recruit.unit_type.is_none() {
-                return Err(rejected(format!("the player has no unit type of the kind {}", kind_key(kind))));
-            }
-            if !recruit.allowed {
-                return Err(rejected(if recruit.reasons.is_empty() {
-                    "the game does not let the player recruit it there, and gives no reason".to_string()
-                } else {
-                    recruit.reasons.join("\n")
-                }));
-            }
+        // A kind the snapshot leaves out, which the core's never does, as one
+        // the player has no unit type of.
+        let Some(recruit) = snapshot.recruit.iter().find(|r| r.kind == kind && r.unit_type.is_some()) else {
+            return Err(rejected(format!("the player has no unit type of the kind {}", kind_key(kind))));
+        };
+        if !recruit.allowed {
+            return Err(rejected(if recruit.reasons.is_empty() {
+                "the game does not let the player recruit it there, and gives no reason".to_string()
+            } else {
+                recruit.reasons.join("\n")
+            }));
         }
         if let Some(reason) = &self.reject_orders {
             return Err(rejected(reason.clone()));
@@ -467,6 +547,11 @@ mod tests {
         let err = fake.game().console("cahs 100").unwrap_err();
         assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "Unknown command"));
         assert_eq!(fake.console_commands, ["cash 100", "cahs 100"]);
+        // What the core refuses before it runs anything.
+        for command in ["", " \t", "help | out.txt", "cash\0"] {
+            assert_eq!(fake.game().console(command).unwrap_err().status, Status::InvalidArgument, "{command:?}");
+        }
+        assert_eq!(fake.console_commands.len(), 2);
     }
 
     #[test]
@@ -505,6 +590,24 @@ mod tests {
     }
 
     #[test]
+    fn the_fake_camera_moves_within_the_game_s_heights_unless_locked() {
+        let mut fake = FakeGame::new();
+        fake.province_positions.insert(151, (3270, 1366));
+        assert_eq!(fake.game().camera_zoom(400).unwrap().height, 400);
+        assert_eq!(fake.game().camera_zoom(49).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(fake.game().camera_look_at_province(151).unwrap().province, Some(151));
+        // Locked, a move is refused, once its arguments are right.
+        fake.camera_locked = true;
+        assert_eq!(fake.game().camera_zoom(3001).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(fake.game().camera_look_at_province(152).unwrap_err().status, Status::NotFound);
+        for refused in [fake.game().camera_zoom(500), fake.game().camera_look_at_province(151), fake.game().camera_look_at(1, 2)] {
+            let err = refused.unwrap_err();
+            assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "the camera is locked"));
+        }
+        assert_eq!(fake.game().camera().unwrap().height, 400);
+    }
+
+    #[test]
     fn a_country_snapshot_is_what_the_test_set_up() {
         let mut fake = FakeGame::new();
         let country = Country { id: CountryId(7), treasury: 31.25, relations: vec![Relation { kind: RelationKind::Rival, country: CountryId(8) }], ..Default::default() };
@@ -525,6 +628,28 @@ mod tests {
         game.resume().unwrap();
         assert!(!game.session().unwrap().paused);
         assert_eq!(game.speed().unwrap(), 4);
+    }
+
+    #[test]
+    fn the_fake_clock_does_not_resume_past_its_end_date() {
+        let mut fake = FakeGame::new();
+        fake.session.date = 1000;
+        fake.session.paused = true;
+        fake.end_date = Some(1000);
+        // On the end date itself time still runs.
+        fake.game().resume().unwrap();
+        fake.session.date = 1001;
+        // Running, resuming is nothing, as in the core.
+        fake.game().resume().unwrap();
+        fake.session.paused = true;
+        let refused = fake.game().resume().unwrap_err();
+        assert_eq!(refused.status, Status::Rejected);
+        assert!(refused.message.starts_with("the game is over"), "{}", refused.message);
+        assert!(fake.session.paused);
+        // Played on: no end date.
+        fake.end_date = None;
+        fake.game().resume().unwrap();
+        assert!(!fake.session.paused);
     }
 
     #[test]
@@ -554,6 +679,8 @@ mod tests {
         assert_eq!(refused(UnitKind::Infantry), (Status::Rejected, "没有足够的manpower。".into()));
         // The core's words where the snapshot has no reason.
         assert_eq!(refused(UnitKind::Artillery), (Status::Rejected, "the player has no unit type of the kind artillery".into()));
+        // A kind the snapshot leaves out, as one with no unit type.
+        assert_eq!(refused(UnitKind::Cavalry), (Status::Rejected, "the player has no unit type of the kind cavalry".into()));
         assert_eq!(refused(UnitKind::HeavyShip), (Status::Rejected, "the game does not let the player recruit it there, and gives no reason".into()));
         assert_eq!(refused(UnitKind::Unknown).0, Status::InvalidArgument);
         fake.game().recruit(219, UnitKind::Transport).unwrap();

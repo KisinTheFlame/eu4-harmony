@@ -5,7 +5,10 @@
 //! A mod carries an extension when it has `eu4-harmony/manifest.json`.
 use crate::{notice::Message, Result};
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 #[derive(Deserialize)]
 struct DlcLoad {
@@ -65,12 +68,32 @@ impl Skipped {
     }
 }
 
+/// The playset the game started with, as [`discover`] read it.
+static PLAYSET: OnceLock<Vec<String>> = OnceLock::new();
+
+/// The mods the game started with: the playset's descriptors as the launcher
+/// names them in `dlc_load.json` (`mod/ugc_2976470733.mod`), which the game
+/// reads as it starts, read by [`discover`] at startup; none when it could
+/// not be read, as the game then has none.
+pub fn playset() -> &'static [String] {
+    PLAYSET.get().map_or(&[], Vec::as_slice)
+}
+
+/// Whether `descriptor`, as a save or the playset names a mod's descriptor,
+/// is the one `other` names: the same path in either case, with either
+/// slash.
+pub fn same_descriptor(descriptor: &str, other: &str) -> bool {
+    let normal = |path: &str| path.trim().replace('\\', "/").to_lowercase();
+    normal(descriptor) == normal(other)
+}
+
 /// Returns the enabled mods that carry a manifest, in playset order, plus
-/// every entry that was skipped and why.
+/// every entry that was skipped and why. Keeps the playset for [`playset`].
 pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
     let dlc_load = user_dir.join("dlc_load.json");
     let text = std::fs::read_to_string(&dlc_load).map_err(|e| format!("read {}: {e}", dlc_load.display()))?;
     let load: DlcLoad = serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", dlc_load.display()))?;
+    let _ = PLAYSET.set(load.enabled_mods.clone());
     let mut mods = Vec::new();
     let mut notes = Vec::new();
     for entry in load.enabled_mods {
@@ -130,5 +153,12 @@ mod tests {
         let d = parse_descriptor("archive=\"mod/x.zip\"\n", user);
         assert!(d.path.is_none());
         assert_eq!(d.archive.as_deref(), Some("mod/x.zip"));
+    }
+
+    #[test]
+    fn a_descriptor_is_the_same_path_whatever_its_case_and_slashes() {
+        assert!(same_descriptor("mod/ugc_2976470733.mod", "mod/ugc_2976470733.mod"));
+        assert!(same_descriptor("mod\\Harmony.mod", " MOD/harmony.mod"));
+        assert!(!same_descriptor("mod/ugc_2976470733.mod", "mod/ugc_3047072888.mod"));
     }
 }

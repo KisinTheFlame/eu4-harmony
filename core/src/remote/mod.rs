@@ -111,6 +111,9 @@ pub fn tag(tag: game::Tag) -> CountryTag {
 pub enum Place {
     /// A game's safe frame: every request runs.
     Game,
+    /// A game's frame with no game the player can play, and why (the player
+    /// only observes, say): requests that need a game are answered with it.
+    Unplayable(Error),
     /// A safe point with no game to read. Requests that need one wait for a
     /// game frame, or, given an error, are answered with it.
     Outside(Option<Error>),
@@ -145,15 +148,19 @@ pub struct Poll<'a> {
     pub now: Instant,
     /// The game, at a game's safe frame only.
     pub game: Option<&'a mut dyn Game>,
+    /// At a game's frame with no game the player can play, why.
+    pub unplayable: Option<&'a Error>,
 }
 
-/// Where a response goes: the submitter waits on it, and gives it up by
-/// dropping its [`Reply`].
+/// Where a response goes: the submitter waits on it, and lets it go by
+/// dropping its [`Reply`]: before the answer, that gives the request up;
+/// after it, the submitter is done with the answer (a transport has written
+/// it, and the client read it).
 #[derive(Default)]
 struct Slot {
     response: Mutex<Option<Response>>,
     ready: Condvar,
-    abandoned: AtomicBool,
+    released: AtomicBool,
 }
 
 impl Slot {
@@ -162,18 +169,16 @@ impl Slot {
         self.ready.notify_all();
     }
 
-    fn abandoned(&self) -> bool {
-        self.abandoned.load(Ordering::Relaxed)
-    }
-
-    /// The response given is no longer here: its submitter took it.
-    fn taken(&self) -> bool {
-        self.response.lock().unwrap_or_else(|e| e.into_inner()).is_none()
+    /// The submitter let its [`Reply`] go.
+    fn released(&self) -> bool {
+        self.released.load(Ordering::Relaxed)
     }
 }
 
-/// The response to a submitted request, once it comes. Dropping it gives the
-/// request up: one not yet run never runs.
+/// The response to a submitted request, once it comes. Dropping it before
+/// the response gives the request up: one not yet run never runs. A
+/// transport keeps it until it has written the response and the client read
+/// it: the process ending waits for that ([`Engine::end`]).
 pub struct Reply(Arc<Slot>);
 
 impl Reply {
@@ -193,7 +198,7 @@ impl Reply {
 
 impl Drop for Reply {
     fn drop(&mut self) {
-        self.0.abandoned.store(true, Ordering::Relaxed);
+        self.0.released.store(true, Ordering::Relaxed);
     }
 }
 
@@ -232,6 +237,9 @@ struct Running {
 pub struct Engine {
     queue: Mutex<Queue>,
     running: Mutex<Running>,
+    /// The responses given whose submitters still hold their replies, as a
+    /// transport does until the response is written and read.
+    delivering: Mutex<Vec<Arc<Slot>>>,
     next: AtomicU64,
     /// The session of the last game frame; 0 when the campaign changed
     /// since, or before the first.
@@ -245,6 +253,7 @@ impl Engine {
         Self {
             queue: Mutex::new(Queue { requests: VecDeque::new(), ending: None }),
             running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new() }),
+            delivering: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
             session: AtomicU64::new(0),
             log,
@@ -253,6 +262,10 @@ impl Engine {
 
     fn queue(&self) -> std::sync::MutexGuard<'_, Queue> {
         self.queue.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn delivering(&self) -> std::sync::MutexGuard<'_, Vec<Arc<Slot>>> {
+        self.delivering.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Queues a request, from any thread; once the process ends, answers it
@@ -297,6 +310,7 @@ impl Engine {
     /// run stays queued, in order.
     pub fn run(&self, game: &mut dyn Game, place: &Place, budget: Duration) {
         let started = Instant::now();
+        self.delivering().retain(|slot| !slot.released());
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         let running = &mut *running;
         self.poll(running, game, place);
@@ -305,7 +319,7 @@ impl Engine {
         let mut ran = false;
         let session = self.session.load(Ordering::Relaxed);
         while let Some(q) = queued.pop_front() {
-            if q.slot.abandoned() {
+            if q.slot.released() {
                 (self.log)(&format!("remote #{} {}: given up by its client before it ran", q.number, json(&q.request)));
                 continue;
             }
@@ -321,7 +335,7 @@ impl Engine {
                         kept.push_back(q);
                         continue;
                     }
-                    Place::Outside(Some(error)) => {
+                    Place::Outside(Some(error)) | Place::Unplayable(error) => {
                         self.answer(&q, Err(error.clone()), Duration::ZERO);
                         continue;
                     }
@@ -355,14 +369,25 @@ impl Engine {
 
     fn answer(&self, q: &Queued, response: Response, took: Duration) {
         (self.log)(&format!("remote #{} {}: {} in {:.1} ms", q.number, json(&q.request), outcome(&response), took.as_secs_f64() * 1000.0));
-        q.slot.answer(response);
+        self.deliver(&q.slot, response);
+    }
+
+    /// Gives `slot` its response, which its submitter has until it lets its
+    /// reply go.
+    fn deliver(&self, slot: &Arc<Slot>, response: Response) {
+        slot.answer(response);
+        self.delivering().push(slot.clone());
     }
 
     fn poll(&self, running: &mut Running, game: &mut dyn Game, place: &Place) {
         let now = Instant::now();
-        let mut at = Poll { events: &running.events, now, game: matches!(place, Place::Game).then_some(game) };
+        let unplayable = match place {
+            Place::Unplayable(why) => Some(why),
+            _ => None,
+        };
+        let mut at = Poll { events: &running.events, now, game: matches!(place, Place::Game).then_some(game), unplayable };
         for mut w in std::mem::take(&mut running.waiting) {
-            if w.slot.abandoned() {
+            if w.slot.released() {
                 (self.log)(&format!("remote #{} {}: given up by its client while it waited", w.number, w.name));
                 w.wait.given_up(&mut at);
                 continue;
@@ -370,7 +395,7 @@ impl Engine {
             match w.wait.poll(&mut at) {
                 Some(response) => {
                     (self.log)(&format!("remote #{} {}: {} after {} ms", w.number, w.name, outcome(&response), now.duration_since(w.started).as_millis()));
-                    w.slot.answer(response);
+                    self.deliver(&w.slot, response);
                 }
                 None => running.waiting.push(w),
             }
@@ -383,11 +408,13 @@ impl Engine {
     /// gives its own answer when it has one ([`Wait::ending`]: an advance
     /// answers `main_menu`, a diplomatic action `pending`), and is answered
     /// `why` otherwise, as are those queued and every one sent from now on.
-    /// Their submitters get up to `within` to take the answers, so that a
-    /// transport writes them before the process goes.
+    /// The submitters of these answers, and of those given earlier that they
+    /// still hold, get up to `within` to be done with them, each letting its
+    /// [`Reply`] go once its transport has written the answer and the client
+    /// has read it: an answer larger than the pipe's buffer, which the client
+    /// reads as it is written, so gets through whole before the process goes.
     pub fn end(&self, why: Error, within: Duration) {
         let started = Instant::now();
-        let mut answered = Vec::new();
         let queued: Vec<Queued> = {
             let mut queue = self.queue();
             queue.ending = Some(why.clone());
@@ -395,30 +422,25 @@ impl Engine {
         };
         (self.log)(&format!("remote: this process ends; every request is answered {why}"));
         for q in queued {
-            if !q.slot.abandoned() {
+            if !q.slot.released() {
                 self.answer(&q, Err(why.clone()), Duration::ZERO);
-                answered.push(q.slot);
             }
         }
         {
             let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
             let running = &mut *running;
             for mut w in running.waiting.drain(..) {
-                if w.slot.abandoned() {
+                if w.slot.released() {
                     continue;
                 }
                 let response = w.wait.ending(&running.events).unwrap_or_else(|| Err(why.clone()));
                 (self.log)(&format!("remote #{} {}: {} as the process ends, after {} ms", w.number, w.name, outcome(&response), started.duration_since(w.started).as_millis()));
-                w.slot.answer(response);
-                answered.push(w.slot);
+                self.deliver(&w.slot, response);
             }
         }
-        while answered.iter().any(|slot| !slot.taken() && !slot.abandoned()) && started.elapsed() < within {
+        let delivering = std::mem::take(&mut *self.delivering());
+        while delivering.iter().any(|slot| !slot.released()) && started.elapsed() < within {
             std::thread::sleep(Duration::from_millis(5));
-        }
-        if !answered.is_empty() {
-            // Taken, an answer is written at once; a moment more for that.
-            std::thread::sleep(Duration::from_millis(50));
         }
     }
 }
@@ -474,20 +496,14 @@ pub fn submit(request: Request) -> Reply {
 /// events.
 fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     use eu4_harmony_remote::{events::Event, ArmyId, Date};
-    let mut happened = Vec::new();
-    if frame.new_session {
-        happened.push(Event::Session { session: frame.session });
-    }
-    for change in &frame.changes {
-        happened.push(match *change {
-            game::events::Change::Ordered(army) => Event::ArmyOrdered { army: ArmyId(army) },
-            game::events::Change::Defeated(army) => Event::ArmyDefeated { army: ArmyId(army) },
-        });
-    }
-    if frame.new_day {
-        happened.push(Event::Day { date: Date(frame.ctx.date) });
-    }
-    happened
+    use game::{events::Change, Heard};
+    let event = |heard| match heard {
+        Heard::Session(session) => Event::Session { session },
+        Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
+        Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
+        Heard::Day(date) => Event::Day { date: Date(date) },
+    };
+    frame.heard().into_iter().map(event).collect()
 }
 
 /// At a game's safe frame: keeps what extensions just heard, then runs.
@@ -507,6 +523,12 @@ pub(crate) fn campaign_changes() {
 /// need one, or, when None, they wait.
 pub(crate) fn run_outside(why: Option<game::Fail>) {
     ENGINE.run(&mut Live, &Place::Outside(why.map(Error::from)), BUDGET);
+}
+
+/// At a game's frame with no game the player can play: `why` answers the
+/// requests that need one.
+pub(crate) fn run_unplayable(why: game::Fail) {
+    ENGINE.run(&mut Live, &Place::Unplayable(Error::from(why)), BUDGET);
 }
 
 /// Before the game starts `eu4.exe` again, which ends this process: every
