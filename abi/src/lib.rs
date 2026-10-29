@@ -371,11 +371,15 @@ pub struct GameApi {
     pub question_answer: unsafe extern "C" fn(host: *mut c_void, question: u32, option: u32) -> i32,
     /// The offers waiting for the player's answer, as UTF-8 JSON (ADR 0018):
     /// `[{"id": 3, "from": <CountryId>, "date": <date>, "title": "...",
-    /// "description": "..."}, ...]`, `date` when the offer was made;
+    /// "description": "..."}, ...]`, `date` when the offer was made, no more
+    /// than two months ago (the game takes no answer to an older one);
     /// `abi/json/offers.json` is a whole one.
     pub offers: unsafe extern "C" fn(host: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
     /// Accepts (`accept` 1) or declines (0) an offer, as the player does in
-    /// its dialog. [`NOT_FOUND`] for no such offer.
+    /// its dialog. [`NOT_FOUND`] for no such offer; [`REJECTED`] when the
+    /// game no longer takes an answer to it (it was made more than two months
+    /// ago, or what it offers is no longer possible), which the game then
+    /// lets go, mostly declining it, as when the player opens it.
     pub offer_answer: unsafe extern "C" fn(host: *mut c_void, offer: u32, accept: u8) -> i32,
 }
 

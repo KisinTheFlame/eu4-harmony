@@ -723,15 +723,20 @@ impl<'a> Game<'a> {
     pub fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
         self.backend.answer_question(question, option)
     }
-    /// The offers waiting for the player's answer.
+    /// The offers waiting for the player's answer, made no more than two
+    /// months ago: the game takes no answer to an older one.
     pub fn offers(&mut self) -> Result<Vec<Offer>> {
         self.backend.offers()
     }
-    /// Accepts an offer, as the player does in its dialog.
+    /// Accepts an offer, as the player does in its dialog. `Rejected` when the
+    /// game no longer takes an answer to it (it was made more than two months
+    /// ago, or what it offers is no longer possible), which the game then
+    /// lets go, mostly declining it, as when the player opens it.
     pub fn accept_offer(&mut self, offer: OfferId) -> Result<()> {
         self.backend.answer_offer(offer, true)
     }
-    /// Declines an offer, as the player does in its dialog.
+    /// Declines an offer, as the player does in its dialog; `Rejected` as
+    /// [`Game::accept_offer`] is.
     pub fn decline_offer(&mut self, offer: OfferId) -> Result<()> {
         self.backend.answer_offer(offer, false)
     }

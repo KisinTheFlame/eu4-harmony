@@ -37,7 +37,9 @@ mod dialog {
     /// call.
     pub const ACCEPT: usize = 0x50;
     pub const DECLINE: usize = 0x58;
-    /// Whether it is still open to an answer, which its update asks.
+    /// Whether it is still open to an answer, u8, which its update asks every
+    /// frame. A diplomacy dialog's lets the offer go when it is not, mostly
+    /// by declining it: so the game no longer takes an answer to it.
     pub const VALID: usize = 0x60;
 }
 
@@ -85,37 +87,87 @@ pub struct Offer {
 pub fn offers(_: Caller) -> GResult<Vec<Offer>> {
     let m = game()?;
     let ctx = context(m)?;
-    held(m, &ctx)?.iter().map(|h| read(m, h)).collect()
+    listed(m, &ctx)?.iter().map(|h| read(m, h)).collect()
 }
 
 /// One offer, by its id.
 pub fn offer(_: Caller, id: u32) -> GResult<Offer> {
     let m = game()?;
     let ctx = context(m)?;
-    read(m, &find(m, &ctx, id)?)
+    match listed(m, &ctx)?.into_iter().find(|w| w.id == id) {
+        Some(w) => read(m, &w),
+        None => super::fail(Status::NotFound, format!("no offer {id}")),
+    }
 }
 
 /// Accepts or declines an offer, as the player does with the buttons of its
 /// dialog: the game has the answer once this returns, and applies it a
 /// moment later; the dialog, or the icon holding it, goes, so the offer is no
 /// longer listed.
+///
+/// First the dialog's own check ([`dialog::VALID`]) is asked, as the game
+/// asks it every frame and as soon as the player opens the dialog: when the
+/// game no longer takes an answer (the offer was made more than two months
+/// ago, or what it offers is no longer possible), the check lets the offer
+/// go, mostly declining it, and the answer is refused. An icon does not ask
+/// it while it flashes, the last days before it times out, so the player can
+/// see an offer the game would decline at once; such an offer is not listed
+/// ([`in_time`]).
 pub fn answer(_: Caller, id: u32, accept: bool) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
-    let w = find(m, &ctx, id)?;
-    let method = m.vslot(w.dialog, if accept { dialog::ACCEPT } else { dialog::DECLINE })?;
-    m.call(method, &[w.dialog])?;
+    let Some(w) = held(m, &ctx)?.into_iter().find(|w| w.id == id) else {
+        return super::fail(Status::NotFound, format!("no offer {id}"));
+    };
+    let open = m.call(m.vslot(w.dialog, dialog::VALID)?, &[w.dialog])? as u8 != 0;
+    if open {
+        let method = m.vslot(w.dialog, if accept { dialog::ACCEPT } else { dialog::DECLINE })?;
+        m.call(method, &[w.dialog])?;
+    } else {
+        // The check let the offer go: the dialog must not be asked again, as
+        // the game asks one not done every frame.
+        m.write(w.dialog + dialog::DONE, &[1])?;
+    }
     // An icon whose dialog was answered would stay, and its dialog could be
     // answered again: it goes as when it times out.
     if let Some(icon) = w.icon {
         m.write(icon + icon::DONE, &[1])?;
+    }
+    if !open {
+        return super::fail(Status::Rejected, format!("the game no longer takes an answer to offer {id}, and has let it go"));
     }
     Ok(())
 }
 
 /// How many offers wait, for [`questions::waiting`].
 pub(super) fn count(m: &Memory, ctx: &Ctx) -> GResult<usize> {
-    Ok(held(m, ctx)?.len())
+    Ok(listed(m, ctx)?.len())
+}
+
+/// The days of each month: the game's calendar has no leap years.
+const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/// `date` two months on, as the game adds months (0x14c8030): the same day
+/// of the month, or the month's last when that month is shorter, at the same
+/// hour (docs/research/dates.md: hours since 5000 BC, 365-day years).
+fn two_months_after(date: i32) -> i32 {
+    let (days, hour) = (date.div_euclid(24), date.rem_euclid(24));
+    let (year, mut day) = (days.div_euclid(365), days.rem_euclid(365));
+    let mut month = 0;
+    while day >= MONTH_DAYS[month] {
+        day -= MONTH_DAYS[month];
+        month += 1;
+    }
+    let (year, month) = if month >= 10 { (year + 1, month - 10) } else { (year, month + 2) };
+    let before: i32 = MONTH_DAYS[..month].iter().sum();
+    (year * 365 + before + day.min(MONTH_DAYS[month] - 1)) * 24 + hour
+}
+
+/// Whether the game still takes an answer, on `today`, to an offer made on
+/// `made`: until two months after it, as 0x1066b10 decides, the check every
+/// diplomacy dialog about an action ends with.
+fn in_time(made: i32, today: i32) -> bool {
+    two_months_after(made) >= today
 }
 
 /// A diplomacy dialog waiting for the player's answer, and the icon holding
@@ -125,10 +177,18 @@ struct Held {
     icon: Option<usize>,
     action: usize,
     id: u32,
+    /// When its action was made.
+    made: i32,
+}
+
+/// The offers the game still takes an answer to, as [`held`] has them.
+fn listed(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
+    Ok(held(m, ctx)?.into_iter().filter(|w| in_time(w.made, ctx.date)).collect())
 }
 
 /// The diplomacy dialogs whose actions, made to the player, wait for an
-/// answer: those the message icons hold, then those open.
+/// answer: those the message icons hold, then those open; also those the
+/// game no longer takes an answer to but has not let go yet.
 fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
     let manager = map_manager(m, ctx)?;
     let mut dialogs = Vec::new();
@@ -153,7 +213,7 @@ fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
         }
         let id = m.u32(action + action::ID)?;
         if !out.iter().any(|w| w.id == id) {
-            out.push(Held { dialog, icon, action, id });
+            out.push(Held { dialog, icon, action, id, made: m.i32(action + action::DATE)? });
         }
     }
     Ok(out)
@@ -167,19 +227,12 @@ fn is_diplomacy(m: &Memory, dialog: usize) -> GResult<bool> {
         && m.ptr(dialog + diplomacy::MARK_FUNCTION)? == m.at(diplomacy::FUNCTION))
 }
 
-fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Held> {
-    match held(m, ctx)?.into_iter().find(|w| w.id == id) {
-        Some(w) => Ok(w),
-        None => super::fail(Status::NotFound, format!("no offer {id}")),
-    }
-}
-
 fn read(m: &Memory, w: &Held) -> GResult<Offer> {
     let window = m.ptr(w.dialog + dialog::WINDOW)?;
     Ok(Offer {
         id: w.id,
         from: Tag(m.u64(w.action + action::FROM)?),
-        date: m.i32(w.action + action::DATE)?,
+        date: w.made,
         title: text(m, window, "Title")?,
         description: text(m, window, "Description")?,
     })
@@ -244,4 +297,38 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x10a286fusize, "48 8b 01 48 8b da 48 8d 15 84 31 bc 00 ff 90 98 00 00 00 48 8b f0 48 8d b8 70 01 00 00", "dialog description")
             .uses(&[gui_window::FIND_TEXT, TEXT]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A date as the game keeps it, at midnight.
+    fn date(year: i32, month: usize, day: i32) -> i32 {
+        ((year + 5000) * 365 + MONTH_DAYS[..month - 1].iter().sum::<i32>() + day - 1) * 24
+    }
+
+    #[test]
+    fn two_months_on_keep_the_day_or_take_the_month_s_last() {
+        assert_eq!(date(1444, 11, 11), 0x035D_7710);
+        assert_eq!(two_months_after(date(1444, 11, 11)), date(1445, 1, 11));
+        assert_eq!(two_months_after(date(1444, 12, 31)), date(1445, 2, 28));
+        assert_eq!(two_months_after(date(1445, 1, 31)), date(1445, 3, 31));
+        assert_eq!(two_months_after(date(1445, 8, 31)), date(1445, 10, 31));
+        assert_eq!(two_months_after(date(1445, 10, 31)), date(1445, 12, 31));
+        assert_eq!(two_months_after(date(1445, 12, 30)), date(1446, 2, 28));
+        assert_eq!(two_months_after(date(1445, 3, 1) + 5), date(1445, 5, 1) + 5);
+    }
+
+    /// The game takes an answer up to the day two months on and declines the
+    /// offer after it; so an offer is listed until then, and left out after.
+    #[test]
+    fn an_offer_is_in_time_until_two_months_after_it_was_made() {
+        let made = date(1470, 10, 15);
+        assert!(in_time(made, made));
+        assert!(in_time(made, date(1470, 12, 15)));
+        assert!(!in_time(made, date(1470, 12, 16)));
+        assert!(in_time(date(1470, 12, 31), date(1471, 2, 28)));
+        assert!(!in_time(date(1470, 12, 31), date(1471, 3, 1)));
+    }
 }
