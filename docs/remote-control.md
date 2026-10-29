@@ -216,7 +216,19 @@ Built (2026-10-29). C3 added one capability to the `provinces` group, `game::pro
 
 Run a command in the game console and return what it printed.
 
-Done when: in the game, `add_treasury 100` raises the treasury, and a command's output comes back.
+Done when: in the game, `cash 100` raises the treasury, and a command's output comes back.
+
+Built (2026-10-29). The game console has no `add_treasury` command, which the plan named at first: that is a script effect, and the console's command for gold is `cash` ([research/game-console.md](research/game-console.md)). What C4 found and decided:
+
+- **What keeps commands from the player** is in the console's own run function: a command only developers may run (54 of EU4's 378, such as `debug_*` and `build_all`) is refused while the console's developer lock is on, which every game start turns on and only a password whose hash is in the exe turns off; in an ironman or multiplayer game every command but `stats` and `enable_all_commands` is refused, and the game crashes itself on purpose when that check was got around. The capability runs a command through that same function, so these checks apply, as for the player; ADR 0017's "in every build" is about the framework's builds, and nothing is unlocked.
+- **What it printed** is the run function's answer: whether the command succeeded, and the text the console window prints, in game text. The capability answers the text as Unicode when the command succeeded, and `rejected` with the text as the message when it did not (a refusal, an unknown command, a failed one).
+- **The command** is cut into words as the window cuts a line (trimmed, cut at every space, no quotes). A `|`, which makes the window also write the output to a file, is refused: the answer holds the output. EU4's commands exist only once a game has started, so the capability needs a game, which also leaves out observing.
+- **Extensions**: `console_run` appended to `GameApi` (ADR 0014), `Game::console` in the SDK, and `FakeGame`'s `console_commands` (what was run) and `console_output` (what each prints; a command not there is rejected as unknown). A command cannot be run twice to ask again for its output, so `console_run` hands the output to a callback the caller passes (`abi::TextSink`) instead of the two-call pattern.
+- **The command line** now takes `--` as the end of its options: every word after it is a value, so a command that starts with `--` or is one of the tool's own options can be passed (`eu4-harmony game console run -- --help`). F4's review found this; it holds for every capability.
+
+| Capability | Arguments | Result | Needs a game |
+| --- | --- | --- | --- |
+| `console.run` | `command` (text, such as `cash 100`) | what the command printed; `rejected` with it when the game console refused the command or it failed; `invalid_argument` for an empty command or one with a `\|` | yes |
 
 ### C5 Main menu
 
