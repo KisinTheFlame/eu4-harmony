@@ -109,6 +109,23 @@ fn dates_as_the_game_keeps_them() {
 }
 
 #[test]
+fn months_on_keep_the_day_or_take_the_month_s_last() {
+    let date = |year, month, day| Date::from_ymd(year, month, day).unwrap();
+    let later = |from: Date, months| from.months_later(months).unwrap();
+    assert_eq!(later(date(1444, 11, 11), 2), date(1445, 1, 11));
+    assert_eq!(later(date(1444, 12, 31), 2), date(1445, 2, 28));
+    assert_eq!(later(date(1445, 1, 31), 2), date(1445, 3, 31));
+    assert_eq!(later(date(1445, 8, 31), 2), date(1445, 10, 31));
+    assert_eq!(later(date(1445, 10, 31), 2), date(1445, 12, 31));
+    assert_eq!(later(date(1445, 12, 30), 2), date(1446, 2, 28));
+    assert_eq!(later(Date(date(1445, 3, 1).0 + 5), 2), Date(date(1445, 5, 1).0 + 5));
+    assert_eq!(later(date(1445, 1, 31), 1), date(1445, 2, 28));
+    assert_eq!(later(date(1445, 11, 30), 15), date(1447, 2, 28));
+    assert_eq!(later(date(1445, 5, 9), 0), date(1445, 5, 9));
+    assert_eq!(Date(i32::MAX).months_later(1), None);
+}
+
+#[test]
 fn responses_in_json() {
     let ok: Response = Ok(Answer::Country(countries::CountryAnswer::Hostile(true)));
     assert_eq!(response_json(&ok), json!({"ok": true, "result": true}));

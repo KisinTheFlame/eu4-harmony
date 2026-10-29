@@ -273,15 +273,11 @@ pub fn unit_type(m: &Memory, country_address: usize, kind: UnitKind) -> GResult<
 /// the game's reasons why not, as lines of plain text
 /// ([`game_text::plain`]): what the game's recruit command checks.
 pub fn can_recruit(m: &Memory, ctx: &Ctx, province: usize, unit_type: usize) -> GResult<(bool, Vec<String>)> {
-    let mut reasons = game_string::empty();
-    let string = reasons.as_mut_ptr() as usize;
     // A regular unit (special kind 0), in a province of the country's own,
     // with its money, manpower and sailors checked.
-    let called = m.call(m.at(CAN_RECRUIT), &[ctx.country, province, unit_type, 0, 0, 1, string, 0, 0, 0]);
-    let text = game_string::read(m, string);
-    game_string::destroy_checked(m, string)?;
-    let allowed = called? as u8 != 0 && m.call(m.at(RECRUIT_PLACE), &[province, unit_type])? as u8 != 0;
-    let reasons = game_text::plain(&text?).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
+    let (checked, text) = game_string::written(m, |reasons| m.call(m.at(CAN_RECRUIT), &[ctx.country, province, unit_type, 0, 0, 1, reasons, 0, 0, 0]))?;
+    let allowed = checked as u8 != 0 && m.call(m.at(RECRUIT_PLACE), &[province, unit_type])? as u8 != 0;
+    let reasons = game_text::plain(&text).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
     Ok((allowed, reasons))
 }
 

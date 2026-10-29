@@ -8,7 +8,7 @@ group! {
 
     /// The session, the date, whether the game is paused and the player's
     /// country, and which process answers.
-    game Get "" {} -> Session, "the session";
+    game Get "" {} -> Session, "the session: process (as menu answers it), session (its number, which grows when another game is loaded or started), date, paused, visibility_current (whether fog of war reflects the date yet; until it does, army.in_province answers not_ready) and player, the player's country";
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

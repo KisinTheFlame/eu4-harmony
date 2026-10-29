@@ -81,7 +81,7 @@ fn help_from_the_descriptions() {
             assert!(text.contains(&format!("--{} <{}", arg.name, arg.kind.name())), "{text}");
         }
     }
-    assert!(usage.contains("  army.move --army <army> --goal <province> *\n      Orders an army of the player's along the game's route, as the player would.\n"));
+    assert!(usage.contains("  army.move --army <army> --goal <province> *\n      Orders an army of the player's along the game's route, as the player would, also while the game is paused.\n"));
     assert!(usage.contains("  events [--since <integer>] [--wait_ms <integer>] [--process <integer>]\n"));
 }
 

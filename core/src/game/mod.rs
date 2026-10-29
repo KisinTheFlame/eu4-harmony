@@ -338,6 +338,26 @@ pub fn map_manager(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     Ok(manager)
 }
 
+/// The game's session, which takes the player's commands, as the player's
+/// buttons find it: the map manager's method answers it
+/// (`objects::session`).
+pub fn command_session(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+    let session = m.call(m.at(crate::objects::session::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
+    if session == 0 || m.ptr(session)? != m.at(crate::objects::session::CLASS) {
+        return Err("the map manager has no session".to_string().into());
+    }
+    Ok(session)
+}
+
+/// Posts a command to the game's session ([`command_session`]), as the
+/// player's buttons do; whether the session took it, after which it is the
+/// game's. A single player game's session takes it at any time; one that is
+/// not a client takes it only while the map manager's frame runs
+/// (docs/research/recruiting.md).
+pub fn post(m: &Memory, session: usize, command: usize) -> GResult<bool> {
+    Ok(m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0)
+}
+
 /// Bounded element count of a `[begin, end)` vector of `stride`-byte items.
 pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<usize> {
     let bytes = end.checked_sub(begin).ok_or_else(|| "reversed vector".to_string())?;

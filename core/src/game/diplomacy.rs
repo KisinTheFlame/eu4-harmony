@@ -12,14 +12,14 @@
 //! action sent is a [`Ticket`]; [`answer`] says what came of it, from the
 //! commands the game carried out, which an observer of the game's own
 //! function sees.
-use super::{context, context_any, countries, country, events, fail, game, map_manager, Caller, Ctx, GResult, Status, Tag};
+use super::{command_session, context, context_any, countries, country, events, fail, game, post, Caller, Ctx, GResult, Status, Tag};
 use crate::{
     game_string,
     hooks::HookFrame,
     memory::Memory,
     objects::{
         diplomacy::{action, casus_belli, classes, command, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world},
-        gui, session,
+        gui,
     },
     points::Point,
     unicode::game_text,
@@ -114,7 +114,7 @@ impl Action {
 
 /// How remote clients and extensions name a declaration of war without a
 /// casus belli, where they name a casus belli by its key.
-pub const NO_CASUS_BELLI: &str = "none";
+pub use eu4_harmony_abi::NO_CASUS_BELLI;
 
 /// A war goal the game offers the player for a declaration of war, as the
 /// declare war window lists it.
@@ -169,11 +169,24 @@ pub enum Calls {
     Only(Vec<Tag>),
 }
 
-/// A declaration of war sent: its ticket, and the allies it calls to arms.
+/// A declaration of war sent: its ticket, the allies it calls to arms, and,
+/// calling every ally the window would let the player call ([`Calls::All`]),
+/// every other ally the window listed, each with why it was not called.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Declaration {
     pub ticket: Ticket,
     pub called: Vec<Tag>,
+    pub passed_over: Vec<PassedOver>,
+}
+
+/// An ally the declare war window listed that a declaration did not call to
+/// arms, and why, one a line: when the window would not let the player call
+/// it, the reasons its call box's check gives, as its tooltip shows them;
+/// when the window no longer lists it once others are called, that.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PassedOver {
+    pub country: Tag,
+    pub reasons: Vec<String>,
 }
 
 /// What came of an action sent.
@@ -226,9 +239,9 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GRe
     m.call(m.at(DECLARE_WAR_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
     made.built = true;
     verdict(m, made.at(), Action::DeclareWar)?;
-    let called = call_allies(m, &ctx, made.at(), enemy, calls)?;
+    let (called, passed_over) = call_allies(&mut Window::new(m, &ctx, made.at()), ctx.player, enemy, calls)?;
     let ticket = send(m, &ctx, made.at(), Action::DeclareWar, enemy, called.clone())?;
-    Ok(Declaration { ticket, called })
+    Ok(Declaration { ticket, called, passed_over })
 }
 
 /// Offers `enemy` a white peace: a peace treaty with no terms, demanded by
@@ -386,14 +399,14 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag
     // into the game can fail before it is posted or destroyed. The session
     // owns the command once it took it; until then, it is the framework's to
     // free.
-    let session = session_of(m, ctx)?;
+    let session = command_session(m, ctx)?;
     let mut command = 0usize;
     m.call(m.vslot(at, action::MAKE_COMMAND)?, &[at, &mut command as *mut usize as usize])?;
     if command == 0 || m.ptr(command)? != m.at(classes::ACTION_COMMAND) {
         return Err("the diplomatic action made no command".to_string().into());
     }
     let after = ledger(|l| l.carried_count);
-    let taken = m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0;
+    let taken = post(m, session, command)?;
     if !taken {
         m.call(m.at(COMMAND_DESTROY), &[command, FREE])?;
         return fail(Status::Rejected, "the game takes no orders from the player now");
@@ -409,15 +422,6 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag
         m.write(ctx.world + date, &ctx.date.to_le_bytes())?;
     }
     Ok(ledger(|l| l.send(kind, to, after, events::session(), called)))
-}
-
-/// The map manager's session, which takes the player's commands.
-fn session_of(m: &Memory, ctx: &Ctx) -> GResult<usize> {
-    let s = m.call(m.at(session::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
-    if s == 0 || m.ptr(s)? != m.at(session::CLASS) {
-        return Err("the map manager has no session".to_string().into());
-    }
-    Ok(s)
 }
 
 /// Asks the action the checks the diplomacy panel and the window ask before
@@ -441,13 +445,8 @@ fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
 
 /// What a check appends to a `std::string`.
 fn reasons(m: &Memory, at: usize, slot: usize) -> GResult<Vec<u8>> {
-    let mut string = game_string::empty();
-    let s = string.as_mut_ptr() as usize;
-    let called = m.call(m.vslot(at, slot)?, &[at, s, 0]);
-    let text = game_string::read(m, s);
-    game_string::destroy_checked(m, s)?;
-    called?;
-    Ok(text?)
+    let check = m.vslot(at, slot)?;
+    Ok(game_string::written(m, |s| m.call(check, &[at, s, 0]))?.1)
 }
 
 /// Game text's lines as plain Unicode, a reason's bullet left out.
@@ -485,33 +484,44 @@ fn refusal(said: Vec<String>, description: &[String]) -> String {
 /// does too. The check reads the window's enemies list, which [`Asking`]
 /// leaves empty; [`asked_by_enemy`] stands for it.
 ///
-/// [`Calls::All`] calls each ally the check allows, and passes over the
-/// rest. [`Calls::Only`] calls those named, and refuses the declaration
-/// ([`Status::Rejected`], with the check's reasons) when the check does not
-/// allow one or it joins anyway: the window would not let the player tick
-/// its box. A named country the window does not list among the allies is
-/// [`Status::InvalidArgument`].
-fn call_allies(m: &Memory, ctx: &Ctx, action: usize, enemy: Tag, calls: &Calls) -> GResult<Vec<Tag>> {
+/// [`Calls::All`] calls each ally the check allows, and passes over every
+/// other ally the window listed at first: one the check does not allow,
+/// with the check's reasons, and one the window no longer lists once others
+/// are called, with that ([`dropped_out`]). [`Calls::Only`] calls those
+/// named, and refuses the declaration ([`Status::Rejected`], with the
+/// check's reasons) when the check does not allow one, it joins anyway, or
+/// the window no longer lists it once others are called: the window would
+/// not let the player tick its box. A named country the window does not
+/// list among the allies is [`Status::InvalidArgument`].
+fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Calls) -> GResult<(Vec<Tag>, Vec<PassedOver>)> {
     let named = match calls {
-        Calls::None => return Ok(Vec::new()),
+        Calls::None => return Ok((Vec::new(), Vec::new())),
         Calls::All => None,
         Calls::Only(named) => Some(named.as_slice()),
     };
-    let listed = |s: &Side| ![ctx.player.index(), enemy.index()].contains(&s.country().index());
-    if let Some(named) = named {
-        let allies: Vec<Side> = Sides::gather(m, action)?.side(sides::DECLARER)?.into_iter().filter(listed).collect();
-        if let Some(stranger) = named.iter().find(|t| !allies.iter().any(|s| s.country().index() == t.index())) {
-            return fail(Status::InvalidArgument, format!("{} is not among the allies the declare war window lists", letters(*stranger)));
-        }
+    let listed = |s: &Side| ![player.index(), enemy.index()].contains(&s.country().index());
+    let first: Vec<Tag> = window.gather()?.0.iter().filter(|s| listed(s)).map(Side::country).collect();
+    if let Some(stranger) = named.and_then(|named| named.iter().find(|t| !first.iter().any(|f| f.index() == t.index()))) {
+        return fail(Status::InvalidArgument, format!("{} is not among the allies the declare war window lists", letters(*stranger)));
     }
-    let asking = Asking::new(m, action);
     let mut asked: Vec<i16> = Vec::new();
     let mut called = Vec::new();
+    let mut passed_over = Vec::new();
     for _ in 0..MOST_ON_A_SIDE {
-        let sides = Sides::gather(m, action)?;
-        let ours = sides.side(sides::DECLARER)?;
+        let (ours, theirs) = window.gather()?;
         let Some(ally) = ours.into_iter().filter(listed).find(|s| !asked.contains(&s.country().index())) else {
-            return Ok(called);
+            // Each ally the window listed at first was asked, unless the
+            // window listed it no more once others were called.
+            let mut gone = first.iter().copied().filter(|t| !asked.contains(&t.index()));
+            match named {
+                Some(named) => {
+                    if let Some(gone) = gone.find(|t| named.iter().any(|n| n.index() == t.index())) {
+                        return fail(Status::Rejected, dropped_out(gone, &called));
+                    }
+                }
+                None => passed_over.extend(gone.map(|country| PassedOver { country, reasons: vec![dropped_out(country, &called)] })),
+            }
+            return Ok((called, passed_over));
         };
         asked.push(ally.country().index());
         let country = ally.country();
@@ -524,32 +534,107 @@ fn call_allies(m: &Memory, ctx: &Ctx, action: usize, enemy: Tag, calls: &Calls) 
             }
             continue;
         }
-        let theirs: Vec<Side> = sides.side(sides::OTHER)?.into_iter().filter(listed).collect();
-        drop(sides);
-        let enemy_asks = asked_by_enemy(m, ctx, &asking, &theirs, country)?;
-        if !enemy_asks && asking.may_call(&ally, true)? {
-            push_tag(m, action + action::CALLED, country)?;
+        let theirs: Vec<Side> = theirs.into_iter().filter(listed).collect();
+        let enemy_asks = asked_by_enemy(window, &theirs, country)?;
+        if !enemy_asks && window.may_call(&ally, true)? {
+            window.call(country)?;
             called.push(country);
-        } else if named.is_some() {
-            let reasons = if enemy_asks { text_lines(&game_string::localized(m, m.at(ALLIED_TO_ENEMY))?) } else { asking.why_not(&ally)? };
+            continue;
+        }
+        let reasons = if enemy_asks { window.allied_to_enemy()? } else { window.why_not(&ally)? };
+        if named.is_some() {
             let call = format!("the declare war window does not let the player call {} to arms", letters(country));
             return fail(Status::Rejected, if reasons.is_empty() { format!("{call}, and gives no reason") } else { format!("{call}:\n{}", reasons.join("\n")) });
         }
+        passed_over.push(PassedOver { country, reasons });
     }
     Err("the declare war window's allies kept growing".to_string().into())
+}
+
+/// Why an ally cannot be called that the declare war window listed at first
+/// and no longer lists once `called` are called.
+fn dropped_out(gone: Tag, called: &[Tag]) -> String {
+    let once = match called {
+        [] => String::new(),
+        [one] => format!(" once {} is called to arms", letters(*one)),
+        more => format!(" once {} are called to arms", more.iter().map(|&t| letters(t)).collect::<Vec<_>>().join(", ")),
+    };
+    format!("the declare war window no longer lists {} among the allies{once}, so the player could not call it", letters(gone))
 }
 
 /// Whether the declare war window lists `ally` among the enemies too, as a
 /// country that joins that side anyway or one the check lets the other side
 /// call: the window then shows it accepting there, and its check lets the
 /// player call it no more (`ALLIED_TO_ENEMY`).
-fn asked_by_enemy(m: &Memory, ctx: &Ctx, asking: &Asking, theirs: &[Side], ally: Tag) -> GResult<bool> {
+fn asked_by_enemy(window: &mut impl CallBoxes, theirs: &[Side], ally: Tag) -> GResult<bool> {
     for enemy in theirs.iter().filter(|s| s.country().index() == ally.index()) {
-        if enemy.joins() || (ai_plays(m, ctx, ally)? && asking.may_call(enemy, false)?) {
+        if enemy.joins() || (window.ai_plays(ally)? && window.may_call(enemy, false)?) {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+/// What calling allies to arms asks of the declare war window: the game's
+/// own code ([`Window`]), or a test's stand-in.
+trait CallBoxes {
+    /// The countries the window gathers on the declarer's side and on the
+    /// other side.
+    fn gather(&mut self) -> GResult<(Vec<Side>, Vec<Side>)>;
+    /// Whether the window's checks take `country` for the AI's.
+    fn ai_plays(&mut self, country: Tag) -> GResult<bool>;
+    /// Whether the window's check lets the player call a country, its entry
+    /// in the allies list (`ally`) or in the enemies list.
+    fn may_call(&mut self, country: &Side, ally: bool) -> GResult<bool>;
+    /// The reasons the check gives for not letting the player call an ally,
+    /// as the window's tooltip shows them, one a line.
+    fn why_not(&mut self, ally: &Side) -> GResult<Vec<String>>;
+    /// The reason the check gives when the other side lists the ally too.
+    fn allied_to_enemy(&mut self) -> GResult<Vec<String>>;
+    /// Calls an ally to arms, as its ticked call box does.
+    fn call(&mut self, ally: Tag) -> GResult<()>;
+}
+
+/// The declare war window, as the game's code answers for it, about the
+/// declaration at `action`.
+struct Window<'a> {
+    m: &'a Memory,
+    ctx: &'a Ctx,
+    action: usize,
+    asking: Asking<'a>,
+}
+
+impl<'a> Window<'a> {
+    fn new(m: &'a Memory, ctx: &'a Ctx, action: usize) -> Self {
+        Self { m, ctx, action, asking: Asking::new(m, action) }
+    }
+}
+
+impl CallBoxes for Window<'_> {
+    fn gather(&mut self) -> GResult<(Vec<Side>, Vec<Side>)> {
+        let sides = Sides::gather(self.m, self.action)?;
+        Ok((sides.side(sides::DECLARER)?, sides.side(sides::OTHER)?))
+    }
+
+    fn ai_plays(&mut self, country: Tag) -> GResult<bool> {
+        ai_plays(self.m, self.ctx, country)
+    }
+
+    fn may_call(&mut self, country: &Side, ally: bool) -> GResult<bool> {
+        self.asking.may_call(country, ally)
+    }
+
+    fn why_not(&mut self, ally: &Side) -> GResult<Vec<String>> {
+        self.asking.why_not(ally)
+    }
+
+    fn allied_to_enemy(&mut self) -> GResult<Vec<String>> {
+        Ok(text_lines(&game_string::localized(self.m, self.m.at(ALLIED_TO_ENEMY))?))
+    }
+
+    fn call(&mut self, ally: Tag) -> GResult<()> {
+        push_tag(self.m, self.action + action::CALLED, ally)
+    }
 }
 
 /// Whether the declare war window's checks take `country` for the AI's:
@@ -677,13 +762,7 @@ impl<'a> Asking<'a> {
     /// The reasons the check gives for an ally, as the window's tooltip
     /// shows them, one a line.
     fn why_not(&self, ally: &Side) -> GResult<Vec<String>> {
-        let mut string = game_string::empty();
-        let s = string.as_mut_ptr() as usize;
-        let asked = self.ask(ally, true, s);
-        let text = game_string::read(self.m, s);
-        game_string::destroy_checked(self.m, s)?;
-        asked?;
-        Ok(text_lines(&text?))
+        Ok(text_lines(&game_string::written(self.m, |s| self.ask(ally, true, s))?.1))
     }
 
     /// The check, its reasons into the `std::string` at `reasons` unless 0.
@@ -783,12 +862,8 @@ fn read_goal(m: &Memory, goal: usize) -> GResult<(WarGoal, bool)> {
 
 /// A war goal's name, as the game shows it.
 fn goal_name(m: &Memory, goal: usize) -> GResult<String> {
-    let mut string = game_string::empty();
-    let s = string.as_mut_ptr() as usize;
-    m.call(m.vslot(goal, war_goal::NAME)?, &[goal, s])?;
-    let text = game_string::read(m, s);
-    game_string::destroy_checked(m, s)?;
-    Ok(game_text::plain(&text?))
+    let name = m.vslot(goal, war_goal::NAME)?;
+    Ok(game_text::plain(&game_string::written(m, |s| m.call(name, &[goal, s]))?.1))
 }
 
 // ---------- what came of them ----------
@@ -972,6 +1047,105 @@ pub fn points() -> Vec<Point> {
 mod tests {
     use super::*;
     use crate::remote::fake::game_tag;
+
+    /// The declare war window as a test sets it up: the allies it lists, in
+    /// its order, whether each joins anyway and whether its check lets the
+    /// player call it; the countries on the other side and whether each
+    /// joins; and which ally drops out of the list once another is called.
+    #[derive(Default)]
+    struct Boxes {
+        ours: Vec<(Tag, bool, bool)>,
+        theirs: Vec<(Tag, bool)>,
+        drops: Vec<(Tag, Tag)>,
+        called: Vec<Tag>,
+    }
+
+    fn side(country: Tag, joins: bool) -> Side {
+        let mut bytes = [0u8; side::SIZE];
+        bytes[side::COUNTRY..side::COUNTRY + 8].copy_from_slice(&country.0.to_le_bytes());
+        bytes[side::JOINS] = joins as u8;
+        Side(bytes)
+    }
+
+    impl CallBoxes for Boxes {
+        fn gather(&mut self) -> GResult<(Vec<Side>, Vec<Side>)> {
+            let gone: Vec<Tag> = self.drops.iter().filter(|(after, _)| self.called.contains(after)).map(|&(_, gone)| gone).collect();
+            let ours = self.ours.iter().filter(|(t, ..)| !gone.contains(t)).map(|&(t, joins, _)| side(t, joins)).collect();
+            Ok((ours, self.theirs.iter().map(|&(t, joins)| side(t, joins)).collect()))
+        }
+
+        fn ai_plays(&mut self, _: Tag) -> GResult<bool> {
+            Ok(true)
+        }
+
+        fn may_call(&mut self, country: &Side, ally: bool) -> GResult<bool> {
+            Ok(ally && self.ours.iter().any(|&(t, _, may)| t == country.country() && may))
+        }
+
+        fn why_not(&mut self, ally: &Side) -> GResult<Vec<String>> {
+            Ok(vec![format!("{} would not accept", letters(ally.country()))])
+        }
+
+        fn allied_to_enemy(&mut self) -> GResult<Vec<String>> {
+            Ok(vec!["allied to the enemy".into()])
+        }
+
+        fn call(&mut self, ally: Tag) -> GResult<()> {
+            self.called.push(ally);
+            Ok(())
+        }
+    }
+
+    fn tags() -> (Tag, Tag, Tag, Tag, Tag) {
+        (game_tag(b"TUR", 1), game_tag(b"BYZ", 33), game_tag(b"DUL", 2), game_tag(b"CND", 3), game_tag(b"GEO", 4))
+    }
+
+    #[test]
+    fn every_ally_the_window_lets_the_player_call_is_called_and_the_rest_passed_over() {
+        let (tur, byz, dul, cnd, geo) = tags();
+        // The window lists the player and the enemy too, and an ally that
+        // joins anyway, which has no call box.
+        let mut boxes = Boxes { ours: vec![(tur, true, false), (dul, false, true), (cnd, false, false), (geo, true, true)], ..Default::default() };
+        boxes.theirs = vec![(byz, true)];
+        let passed_over = vec![PassedOver { country: cnd, reasons: vec!["CND would not accept".into()] }];
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), (vec![dul], passed_over));
+        assert_eq!(boxes.called, [dul]);
+        assert_eq!(call_allies(&mut Boxes::default(), tur, byz, &Calls::None).unwrap(), (vec![], vec![]));
+    }
+
+    #[test]
+    fn an_ally_named_is_called_or_the_declaration_refused_with_the_reason() {
+        let (tur, byz, dul, cnd, geo) = tags();
+        let window = || Boxes { ours: vec![(dul, false, true), (cnd, false, false), (geo, true, true)], ..Default::default() };
+        let mut boxes = window();
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::Only(vec![dul])).unwrap(), (vec![dul], vec![]));
+        let refused = |calls: Vec<Tag>, theirs: Vec<(Tag, bool)>| {
+            let mut boxes = Boxes { theirs, ..window() };
+            let fail = call_allies(&mut boxes, tur, byz, &Calls::Only(calls)).unwrap_err();
+            (fail.status, fail.message)
+        };
+        assert_eq!(refused(vec![byz], vec![]).0, Status::InvalidArgument);
+        assert_eq!(refused(vec![dul, cnd], vec![]), (Status::Rejected, "the declare war window does not let the player call CND to arms:\nCND would not accept".into()));
+        assert_eq!(refused(vec![geo], vec![]).0, Status::Rejected);
+        // On the other side too.
+        assert_eq!(refused(vec![dul], vec![(dul, true)]), (Status::Rejected, "the declare war window does not let the player call DUL to arms:\nallied to the enemy".into()));
+    }
+
+    #[test]
+    fn an_ally_the_window_lists_no_more_once_another_is_called_refuses_the_declaration_naming_it_or_is_passed_over() {
+        let (tur, byz, dul, cnd, _) = tags();
+        let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
+        let fail = call_allies(&mut boxes, tur, byz, &Calls::Only(vec![dul, cnd])).unwrap_err();
+        assert_eq!(fail.status, Status::Rejected);
+        assert_eq!(fail.message, "the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it");
+        // Under every ally, it is passed over with that reason.
+        let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
+        let gone = PassedOver { country: cnd, reasons: vec!["the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it".into()] };
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), (vec![dul], vec![gone]));
+        // Calling another by name, it is only not called.
+        let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
+        assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::Only(vec![dul])).unwrap(), (vec![dul], vec![]));
+    }
 
     #[test]
     fn a_refusal_gives_each_reason_once_without_the_description() {

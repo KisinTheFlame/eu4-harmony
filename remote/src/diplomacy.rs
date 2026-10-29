@@ -32,13 +32,21 @@ group! {
     /// (`diplomacy.war_goals`): the first with the casus belli, and the war
     /// goal, province and target when given. It calls to arms the allies
     /// `call_allies` names, as ticking their call boxes in the declare war
-    /// window does, with no land promised; the answer lists them in
-    /// `called`. A costly declaration (no casus belli, a truce
+    /// window does, with no land promised, and the answer lists them in
+    /// `called`. When `call_allies` is `all`, `passed_over` lists each ally
+    /// not called, with the reasons: those the window gives for not letting
+    /// the player call it, or that the window no longer lists it once
+    /// others are called. When `call_allies` names allies, a named one the
+    /// window would not let the player call, or no longer lists, refuses
+    /// the declaration instead, and nothing is sent. Subjects and
+    /// others who join anyway are in neither list: they are in the war, as
+    /// `country.get` shows. A costly declaration (no casus belli, a truce
     /// broken) is sent without the window's confirmation, and the game takes
     /// its costs. `rejected` when the game offers no such war goal, does not
     /// let the player declare war, or would not let the player call an ally
-    /// named, with its reasons; `invalid_argument` for a country to call
-    /// that is not among the allies the window lists.
+    /// named, with its reasons; `invalid_argument` for an empty
+    /// `casus_belli` or a country to call that is not among the allies the
+    /// window lists.
     game DeclareWar "declare_war" {
         /// The country to declare war on.
         country: CountryTag,
@@ -57,7 +65,7 @@ group! {
         /// tags of those to call, separated by commas, such as `DUL,CND`,
         /// each one the window must let the player call.
         call_allies: Option<String>,
-    } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms";
+    } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms; passed_over: under call_allies all, every ally not called, each a country and the reasons, one a line";
     /// Offers a country the player is at war with a white peace, a peace
     /// treaty with no terms, in the war between them, as the peace view
     /// sends one. The game allows it to the war's leader, with the other
@@ -100,6 +108,24 @@ pub struct Outcome {
     /// called none.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub called: Option<Vec<CountryTag>>,
+    /// For a declaration of war, under `call_allies` `all`, every ally the
+    /// declare war window listed that it did not call, and why; empty
+    /// under `none` or allies named.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub passed_over: Option<Vec<PassedOver>>,
+}
+
+/// An ally a declaration of war did not call to arms: the declare war
+/// window's call box would not let the player tick it, or the window no
+/// longer listed it once others were called.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PassedOver {
+    pub country: CountryTag,
+    /// Why, one a line: the reasons the call box's check gives, as its
+    /// tooltip shows them (for an AI ally, whether it would accept, and
+    /// each factor for and against); or that the window no longer lists it
+    /// once others are called.
+    pub reasons: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,10 +150,14 @@ mod tests {
 
     #[test]
     fn a_declaration_names_its_war_and_a_proposal_does_not() {
-        let outcome = Outcome { answer: AnswerKind::Declared, war: Some("Ottoman-Byzantine War".into()), called: Some(vec![CountryTag(*b"DUL")]) };
+        let passed_over = vec![PassedOver { country: CountryTag(*b"CND"), reasons: vec!["They would not accept.".into()] }];
+        let outcome = Outcome { answer: AnswerKind::Declared, war: Some("Ottoman-Byzantine War".into()), called: Some(vec![CountryTag(*b"DUL")]), passed_over: Some(passed_over) };
         let declared: Response = Ok(Answer::Diplomacy(DiplomacyAnswer::DeclareWar(outcome)));
-        assert_eq!(crate::response_json(&declared), json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["DUL"]}}));
-        let declined: Response = Ok(Answer::Diplomacy(DiplomacyAnswer::ProposeAlliance(Outcome { answer: AnswerKind::Declined, war: None, called: None })));
+        assert_eq!(
+            crate::response_json(&declared),
+            json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["DUL"], "passed_over": [{"country": "CND", "reasons": ["They would not accept."]}]}})
+        );
+        let declined: Response = Ok(Answer::Diplomacy(DiplomacyAnswer::ProposeAlliance(Outcome { answer: AnswerKind::Declined, war: None, called: None, passed_over: None })));
         assert_eq!(crate::response_json(&declined), json!({"ok": true, "result": {"answer": "declined"}}));
     }
 

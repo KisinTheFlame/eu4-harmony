@@ -507,7 +507,7 @@ pub struct Date(pub i32);
 
 /// The days of each month, January's first: the game's calendar has no leap
 /// years. The framework's one copy of it.
-pub const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const EPOCH_YEAR: i32 = -5000;
 
 impl Date {
@@ -532,6 +532,17 @@ impl Date {
             month += 1;
         }
         (year, month as u32 + 1, day as u32 + 1)
+    }
+
+    /// The date `months` on, as the game adds months (0x14c8030): the same
+    /// day of the month, or the month's last when that month is shorter, at
+    /// the same hour; None past the calendar's end.
+    pub fn months_later(self, months: u32) -> Option<Self> {
+        let (year, month, day) = self.ymd();
+        let month = month - 1 + months;
+        let (year, month) = (year.checked_add((month / 12) as i32)?, month % 12);
+        let day = day.min(MONTH_DAYS[month as usize] as u32);
+        Some(Self(Self::from_ymd(year, month + 1, day)?.0.checked_add(self.0.rem_euclid(24))?))
     }
 
     pub fn parse(text: &str) -> Option<Self> {

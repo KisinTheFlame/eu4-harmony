@@ -146,10 +146,28 @@ pub trait Wait: Send {
 pub struct Poll<'a> {
     pub events: &'a events::Buffer,
     pub now: Instant,
+    /// Where the engine runs.
+    pub place: &'a Place,
+    game: &'a mut dyn Game,
+}
+
+impl<'a> Poll<'a> {
+    pub fn new(events: &'a events::Buffer, now: Instant, place: &'a Place, game: &'a mut dyn Game) -> Self {
+        Self { events, now, place, game }
+    }
+
     /// The game, at a game's safe frame only.
-    pub game: Option<&'a mut dyn Game>,
+    pub fn game(&mut self) -> Option<&mut dyn Game> {
+        matches!(self.place, Place::Game).then_some(&mut *self.game)
+    }
+
     /// At a game's frame with no game the player can play, why.
-    pub unplayable: Option<&'a Error>,
+    pub fn unplayable(&self) -> Option<&'a Error> {
+        match self.place {
+            Place::Unplayable(why) => Some(why),
+            _ => None,
+        }
+    }
 }
 
 /// Where a response goes: the submitter waits on it, and lets it go by
@@ -381,11 +399,7 @@ impl Engine {
 
     fn poll(&self, running: &mut Running, game: &mut dyn Game, place: &Place) {
         let now = Instant::now();
-        let unplayable = match place {
-            Place::Unplayable(why) => Some(why),
-            _ => None,
-        };
-        let mut at = Poll { events: &running.events, now, game: matches!(place, Place::Game).then_some(game), unplayable };
+        let mut at = Poll::new(&running.events, now, place, game);
         for mut w in std::mem::take(&mut running.waiting) {
             if w.slot.released() {
                 (self.log)(&format!("remote #{} {}: given up by its client while it waited", w.number, w.name));

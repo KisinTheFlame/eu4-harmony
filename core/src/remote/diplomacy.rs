@@ -8,7 +8,7 @@ use crate::game::{
     Caller, Fail, GResult, Status, Tag,
 };
 use eu4_harmony_remote::{
-    diplomacy::{AnswerKind, DiplomacyAnswer, DiplomacyRequest, Outcome, WarGoal},
+    diplomacy::{AnswerKind, DiplomacyAnswer, DiplomacyRequest, Outcome, PassedOver, WarGoal},
     Answer as Answered, CountryTag, Error, Response,
 };
 use std::time::{Duration, Instant};
@@ -63,7 +63,8 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
             let choice = Choice { casus_belli: (casus_belli != NONE).then_some(casus_belli), war_goal, province: province.map(|p| p.0), target };
             let calls = calls(call_allies.as_deref(), game)?;
             let declared = game.declare_war(enemy, &choice, &calls)?;
-            Ok((declared.ticket, Kind::DeclareWar, Some(declared.called.into_iter().map(tag).collect())))
+            let passed_over = declared.passed_over.into_iter().map(|p| PassedOver { country: tag(p.country), reasons: p.reasons }).collect();
+            Ok((declared.ticket, Kind::DeclareWar, Some((declared.called.into_iter().map(tag).collect(), passed_over))))
         })(),
         DiplomacyRequest::OfferPeace { country } => (|| {
             let enemy = game.country(country)?;
@@ -121,8 +122,8 @@ enum Kind {
 struct Waiting {
     ticket: Ticket,
     kind: Kind,
-    /// The allies a declaration called.
-    called: Option<Vec<CountryTag>>,
+    /// The allies a declaration called, and those it passed over.
+    called: Option<(Vec<CountryTag>, Vec<PassedOver>)>,
     until: Instant,
 }
 
@@ -132,7 +133,11 @@ impl Waiting {
     }
 
     fn respond(&self, answer: AnswerKind, war: Option<String>) -> Response {
-        let outcome = Outcome { answer, war, called: self.called.clone() };
+        let (called, passed_over) = match self.called.clone() {
+            Some((called, passed_over)) => (Some(called), Some(passed_over)),
+            None => (None, None),
+        };
+        let outcome = Outcome { answer, war, called, passed_over };
         let answer = match self.kind {
             Kind::DeclareWar => DiplomacyAnswer::DeclareWar(outcome),
             Kind::OfferPeace => DiplomacyAnswer::OfferPeace(outcome),
@@ -144,11 +149,12 @@ impl Waiting {
 
 impl Wait for Waiting {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
-        let Some(game) = at.game.as_deref_mut() else {
-            return (at.now >= self.until).then(|| self.pending());
+        let now = at.now;
+        let Some(game) = at.game() else {
+            return (now >= self.until).then(|| self.pending());
         };
         let (answer, war) = match game.answer(self.ticket) {
-            Ok(Answer::Pending) if at.now < self.until => return None,
+            Ok(Answer::Pending) if now < self.until => return None,
             Ok(Answer::Pending) => (AnswerKind::Pending, None),
             Ok(Answer::Accepted) => (AnswerKind::Accepted, None),
             Ok(Answer::Declined) => (AnswerKind::Declined, None),
@@ -192,7 +198,7 @@ mod tests {
             answer(&reply),
             json!({"ok": true, "result": [
                 {"casus_belli": "cb_claim", "war_goal": "take_claim", "province": 151, "target": null, "name": "Conquer Constantinople"},
-                {"casus_belli": "none", "war_goal": "take_province_no_cb", "province": null, "target": null, "name": "No casus belli"},
+                {"casus_belli": "none", "war_goal": "nowargoal", "province": null, "target": null, "name": "No War Goal"},
             ]})
         );
     }
@@ -212,7 +218,10 @@ mod tests {
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), Value::Null);
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
-        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["WAL"]}}));
+        assert_eq!(
+            answer(&reply),
+            json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["WAL"], "passed_over": [{"country": "TUR", "reasons": ["They would not accept."]}]}})
+        );
         assert_eq!(game.calls[..3], ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199) calling All"]);
         assert_eq!(game.calls[3..], ["answer 1", "answer 1"]);
 
@@ -225,7 +234,7 @@ mod tests {
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert!(game.calls.iter().any(|c| c == "declare war 1000021005a5942 None None None None calling None"), "{:?}", game.calls);
         engine.end(menu::ending(), Duration::ZERO);
-        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "pending", "called": []}}));
+        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "pending", "called": [], "passed_over": []}}));
 
         // Allies by tag, in either case and with spaces; a word that is no
         // tag, and a tag of no country. In a process of its own, since the
@@ -275,12 +284,13 @@ mod tests {
         let buffer = events::Buffer::new();
         let now = Instant::now();
         let mut waiting = Waiting { ticket: Ticket(3), kind: Kind::ProposeAlliance, called: None, until: now + WAITED };
-        let mut poll = |game: Option<&mut Fake>, now| waiting.poll(&mut super::super::Poll { events: &buffer, now, game: game.map(|g| g as &mut dyn super::super::Game), unplayable: None });
-        assert_eq!(poll(Some(&mut game), now), None);
-        assert_eq!(poll(None, now), None);
-        let late = poll(None, now + WAITED).map(|r| response_json(&r));
+        let (in_game, outside) = (Place::Game, Place::Outside(None));
+        let mut poll = |place, now| waiting.poll(&mut super::super::Poll::new(&buffer, now, place, &mut game));
+        assert_eq!(poll(&in_game, now), None);
+        assert_eq!(poll(&outside, now), None);
+        let late = poll(&outside, now + WAITED).map(|r| response_json(&r));
         assert_eq!(late, Some(json!({"ok": true, "result": {"answer": "pending"}})));
-        let late = poll(Some(&mut game), now + WAITED).map(|r| response_json(&r));
+        let late = poll(&in_game, now + WAITED).map(|r| response_json(&r));
         assert_eq!(late, Some(json!({"ok": true, "result": {"answer": "pending"}})));
     }
 

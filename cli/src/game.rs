@@ -335,6 +335,32 @@ exit codes:
      game sent is no answer (not JSON, or not of an answer's shape); or the
      bytes in the answer could not be written
 
+errors the game answers (code, then what to do):
+  not_in_game       no game the player can play: the main menu is open, or
+                    the player only observes; menu says where the game is
+  not_ready         the game cannot answer it right now; ask again shortly
+  session_changed   another game was loaded or started before it ran; read
+                    the session again
+  rejected          the game refused it, as it would refuse the player; the
+                    message gives the game's reasons, one a line
+  not_found, invalid_argument, unavailable
+                    no such thing; a wrong value; not here or not now
+  bad_request, internal
+                    a request the game could not read; a fault
+
+playing a game, as the player does:
+  menu says where the game is and which process answers. From the main
+  menu, menu.saves lists the saves, and menu.load <save> or
+  menu.start <country> goes into a game, answering once it is ready. There
+  session, country.get, province.get, army.list and screenshot show the
+  game; question.list and offer.list what waits for the player's answer,
+  which question.answer, offer.accept and offer.decline give. time.advance
+  <days> lets time run and pauses the game again, stopping early for a
+  question: answer it, and advance again. Orders (army.move, recruit,
+  diplomacy) are given while the game is paused too. menu.return goes back
+  to the main menu, as a new process: ask menu until its process differs
+  and its place is main_menu.
+
 capabilities (* only while a game is going on):
 ",
         PIPE_WAIT.as_secs()

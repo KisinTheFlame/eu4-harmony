@@ -206,17 +206,18 @@ impl Wait for Advance {
         // The player can no longer play, as when the country was annexed or
         // the game console's observe ran: no later frame would answer, and
         // nothing pauses the game for the advance any more.
-        if let Some(why) = at.unplayable {
+        if let Some(why) = at.unplayable() {
             let response = Err(Error::new(why.code, format!("the player can no longer play the game ({}); time runs on as the game runs it", why.message)));
             return self.answer(response);
         }
-        let game = at.game.as_deref_mut()?;
-        match self.check(game, at.events, at.now) {
+        let (events, now) = (at.events, at.now);
+        let game = at.game()?;
+        match self.check(game, events, now) {
             Ok(None) => None,
             // A frame where the game cannot be read comes and goes.
             Err(fail) if fail.status == Status::NotReady => None,
             Ok(Some((stopped, reason))) => {
-                let response = self.stopped(stopped, reason, at.events);
+                let response = self.stopped(stopped, reason, events);
                 self.answer(response)
             }
             Err(fail) => self.answer(Err(fail.into())),

@@ -39,6 +39,7 @@ pub struct Element {
     pub tooltip: Option<String>,
 }
 
+#[derive(Default)]
 pub struct FakeGame {
     pub session: Session,
     pub tags: HashMap<CountryId, String>,
@@ -71,7 +72,7 @@ pub struct FakeGame {
     pub texts: BTreeMap<String, String>,
     /// The map camera, which the camera's moves change; a zoom outside its
     /// `min_height` to `max_height` is refused. It starts at the unmodded
-    /// game's heights, 50 to 3000, looking from 1000.
+    /// game's heights, 50 to 3000, looking from 1000 ([`Camera`]'s default).
     pub camera: Camera,
     /// While set, the camera's moves are refused, as the core refuses them
     /// while the game holds the camera: after their arguments are checked.
@@ -125,51 +126,10 @@ pub struct FakeGame {
     /// What `Game::diplomacy_answer` answers, by ticket; pending when not
     /// here.
     pub diplomacy_answers: BTreeMap<Ticket, DiplomacyAnswer>,
-    /// Refuse every diplomatic action with this message.
+    /// Refuse every diplomatic action with this message, as the game's own
+    /// checks refuse one: a declaration of war once its war goal is offered,
+    /// before the allies named are checked, as the core asks them.
     pub reject_diplomacy: Option<String>,
-}
-
-impl Default for FakeGame {
-    fn default() -> Self {
-        Self {
-            camera: Camera { height: 1000, min_height: 50, max_height: 3000, ..Camera::default() },
-            camera_locked: false,
-            session: Default::default(),
-            tags: Default::default(),
-            hostile: Default::default(),
-            provinces: Default::default(),
-            neighbors: Default::default(),
-            own_armies: Default::default(),
-            province_armies: Default::default(),
-            routes_of_armies: Default::default(),
-            closed: Default::default(),
-            closed_straits: Default::default(),
-            protected: Default::default(),
-            routes: Default::default(),
-            reject_orders: Default::default(),
-            selected: Default::default(),
-            elements: Default::default(),
-            map: Default::default(),
-            save_data: Default::default(),
-            commands: Default::default(),
-            language: Default::default(),
-            texts: Default::default(),
-            province_positions: Default::default(),
-            province_snapshots: Default::default(),
-            console_commands: Default::default(),
-            console_output: Default::default(),
-            countries: Default::default(),
-            speed: Default::default(),
-            end_date: Default::default(),
-            questions: Default::default(),
-            offers: Default::default(),
-            war_goals: Default::default(),
-            allies: Default::default(),
-            diplomacy: Default::default(),
-            diplomacy_answers: Default::default(),
-            reject_diplomacy: Default::default(),
-        }
-    }
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -467,11 +427,17 @@ impl Backend for FakeGame {
         Ok(self.war_goals.get(&country).cloned().unwrap_or_default())
     }
     fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration> {
+        // In the core's order: the country, the casus belli named, the war
+        // goal offered, the game's own refusal, then the allies.
         self.other(country)?;
+        if goal.casus_belli.as_deref() == Some("") {
+            return Err(Error::new(Status::InvalidArgument, "no casus belli: name one by its key, or none"));
+        }
         let same = |g: &WarGoal| (&g.casus_belli, &g.war_goal, g.province, g.target) == (&goal.casus_belli, &goal.war_goal, goal.province, goal.target);
         if !self.war_goals.get(&country).is_some_and(|offered| offered.iter().any(same)) {
             return Err(Error::new(Status::Rejected, "the game offers no such war goal"));
         }
+        self.allowed()?;
         let called = match call {
             CallAllies::All => self.allies.iter().filter(|&&(_, callable)| callable).map(|&(ally, _)| ally).collect(),
             CallAllies::None => Vec::new(),
@@ -517,10 +483,16 @@ impl FakeGame {
         Ok(())
     }
 
-    fn send(&mut self, action: Diplomacy) -> Result<Ticket> {
-        if let Some(message) = &self.reject_diplomacy {
-            return Err(Error::new(Status::Rejected, message.clone()));
+    /// The game's own refusal, [`reject_diplomacy`](Self::reject_diplomacy).
+    fn allowed(&self) -> Result<()> {
+        match &self.reject_diplomacy {
+            Some(message) => Err(Error::new(Status::Rejected, message.clone())),
+            None => Ok(()),
         }
+    }
+
+    fn send(&mut self, action: Diplomacy) -> Result<Ticket> {
+        self.allowed()?;
         self.diplomacy.push(action);
         Ok(Ticket(self.diplomacy.len() as u64))
     }
@@ -584,8 +556,13 @@ mod tests {
         assert_eq!(fake.game().diplomacy_answer(war).unwrap(), DiplomacyAnswer::Declared);
         assert_eq!(fake.game().diplomacy_answer(peace).unwrap(), DiplomacyAnswer::Pending);
         assert_eq!(fake.game().diplomacy_answer(Ticket(9)).unwrap_err().status, Status::NotFound);
+        // An empty casus belli, as the core takes it, before the war goals.
+        let empty = WarGoal { casus_belli: Some(String::new()), ..claim.clone() };
+        assert_eq!(fake.game().declare_war(byz, &empty, &CallAllies::None).unwrap_err().status, Status::InvalidArgument);
+        // The game's own refusal comes before the allies named are checked.
         fake.reject_diplomacy = Some("Cannot ally with a rival.".into());
         assert_eq!(fake.game().propose_alliance(byz).unwrap_err().message, "Cannot ally with a rival.");
+        assert_eq!(fake.game().declare_war(byz, &claim, &CallAllies::Only(vec![byz])).unwrap_err().message, "Cannot ally with a rival.");
         assert_eq!(fake.diplomacy, [Diplomacy::DeclareWar(byz, claim, CallAllies::All), Diplomacy::OfferPeace(byz)]);
     }
 

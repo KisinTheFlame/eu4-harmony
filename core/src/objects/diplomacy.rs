@@ -159,9 +159,10 @@ pub mod world {
     pub const PEACE_OFFER_FROM: usize = 0x1da0;
     pub const PEACE_OFFER_DATE: usize = 0x1d9c;
     /// Which countries human players play: a `std::vector` of i32, one per
-    /// country by its index, nonzero for a human player's country. The game
-    /// takes a country with 0 there, or every country while it is empty, for
-    /// the AI's in the declare war window's checks.
+    /// country by its index, nonzero for a human player's country. The
+    /// declare war window's checks take a country with 0 there for the AI's,
+    /// and one with nonzero there, or every country while the list is empty
+    /// (the test at 0xee0467), for a human player's.
     pub const HUMANS: usize = 0x1d48;
 }
 

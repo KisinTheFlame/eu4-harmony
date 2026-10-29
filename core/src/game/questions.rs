@@ -23,7 +23,7 @@ const CHOOSE: usize = 0x10bc2d0;
 /// scope's names filled in, as the event window shows it. Returns a
 /// `std::string` in `result`; takes `key`, a `std::string`, by value and
 /// destroys it; `tag` is [`NO_TAG`] wherever the game calls it.
-const LOCALISE: usize = 0x10bc860;
+const LOCALIZE: usize = 0x10bc860;
 /// `(event, result, scope)`: the localisation key of the event's description
 /// in the scope, a `std::string` in `result`.
 const DESCRIPTION_KEY: usize = 0x6edfb0;
@@ -188,13 +188,13 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
     let mut open = Vec::new();
     for (index, option) in options(m, w.event)?.into_iter().enumerate() {
         if may_choose(m, option, w.scope)? {
-            open.push(QuestionOption { index: index as u32, text: localise(m, w.scope, &game_string::read(m, option + event_option::NAME)?)? });
+            open.push(QuestionOption { index: index as u32, text: localize(m, w.scope, &game_string::read(m, option + event_option::NAME)?)? });
         }
     }
     Ok(Question {
         id: w.id,
         event: game_text::to_utf8(&game_string::read(m, w.event + event::NAME)?),
-        title: localise(m, w.scope, &game_string::read(m, w.event + event::TITLE)?)?,
+        title: localize(m, w.scope, &game_string::read(m, w.event + event::TITLE)?)?,
         description: description(m, w)?,
         deadline: w.deadline,
         options: open,
@@ -202,28 +202,20 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
 }
 
 fn description(m: &Memory, w: &Window) -> GResult<String> {
-    let mut key = game_string::empty();
-    let slot = key.as_mut_ptr() as usize;
-    m.call(m.at(DESCRIPTION_KEY), &[w.event, slot, w.scope])?;
-    let read = game_string::read(m, slot);
-    game_string::destroy_checked(m, slot)?;
-    localise(m, w.scope, &read?)
+    let (_, key) = game_string::written(m, |slot| m.call(m.at(DESCRIPTION_KEY), &[w.event, slot, w.scope]))?;
+    localize(m, w.scope, &key)
 }
 
 /// The text of the localisation key `key` in `scope`, as the event window
 /// shows it, in plain text (`game_text::plain`).
-fn localise(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
+fn localize(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     // The key goes by value: a string of the game's own, which it destroys.
     let mut argument = game_string::empty();
     if !key.is_empty() {
         game_string::append_checked(m, argument.as_mut_ptr() as usize, key)?;
     }
-    let mut result = game_string::empty();
-    let slot = result.as_mut_ptr() as usize;
-    m.call(m.at(LOCALISE), &[slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize])?;
-    let text = game_string::read(m, slot);
-    game_string::destroy_checked(m, slot)?;
-    Ok(game_text::plain(&text?))
+    let (_, text) = game_string::written(m, |slot| m.call(m.at(LOCALIZE), &[slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize]))?;
+    Ok(game_text::plain(&text))
 }
 
 /// How the game shows a question, the functions answering and reading
@@ -236,7 +228,7 @@ pub fn points() -> Vec<Point> {
         // popups (0x6ecae0, this in rcx).
         Point::keep(0x828c43usize, "4c 8b ce 4c 8b c5 48 8b d3 48 8b c8 e8 fc 0d 89 00 90 48 8b d0 48 8b cb e8 80 3e ec ff", "event window shown"),
         Point::keep(CHOOSE, "48 89 5c 24 08 48 89 74 24 10 55 57 41 56 48 8d 6c 24 c0", "event option chosen"),
-        Point::keep(LOCALISE, "48 8b c4 4c 89 48 20 4c 89 40 18 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57", "event text"),
+        Point::keep(LOCALIZE, "48 8b c4 4c 89 48 20 4c 89 40 18 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57", "event text"),
         Point::keep(0x487b4dusize, "41 b9 2d 2d 2d 00 4c 8b c0 48 8b d3 48 8d 4c 24 20 e8 fd 4c c3 00", "event text call").uses(&[NO_TAG as usize]),
         // The event window's description and options.
         Point::keep(DESCRIPTION_KEY, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 41 54 41", "event description key"),

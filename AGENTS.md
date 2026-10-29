@@ -31,7 +31,7 @@ EU4_GAME_DIR='E:\SteamLibrary\steamapps\common\Europa Universalis IV' cargo test
 
 CI (`.github/workflows/ci.yml`) runs the build and the tests on Windows for every push; the offline checks need the game and are run by hand.
 
-`tools/dev-install.ps1` installs the built proxy and core into the game folder (`-Uninstall` removes them); like the other tools it finds the game through `EU4_GAME_DIR` or Steam. The other development tools are described in [tools/README.md](tools/README.md).
+`tools/dev-install.ps1` installs the built proxy, core and command line tool into the game folder, where a player puts them (`-Uninstall` removes them); like the other tools it finds the game through `EU4_GAME_DIR` or Steam. `tools/release.ps1` packs the same files for players. The other development tools are described in [tools/README.md](tools/README.md).
 
 ## Design rules
 

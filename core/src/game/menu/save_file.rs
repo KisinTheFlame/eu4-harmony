@@ -34,20 +34,30 @@ pub struct SaveMod {
 
 /// The most of a header read: `meta` is a few kilobytes.
 const MOST: usize = 1 << 20;
+/// How much of a plain save is read for its header first: the header comes
+/// first, and is a few kilobytes but for a playset of hundreds of mods. A
+/// header whose list of mods runs on past it is read on, up to [`MOST`].
+const TEXT_FIRST: usize = 64 * 1024;
+/// Why a header is no use whose list of mods ends before it closes.
+const CUT_SHORT: &str = "the save's list of mods is cut short";
 
 /// Reads the header of the save at `path`.
 pub fn read(path: &Path) -> Result<Header> {
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut start = [0u8; 6];
     file.read_exact(&mut start).map_err(|e| e.to_string())?;
-    let meta = if start.starts_with(b"PK") {
-        zip_entry(&mut file, b"meta")?
-    } else {
-        let mut head = start.to_vec();
-        file.take(64 * 1024).read_to_end(&mut head).map_err(|e| e.to_string())?;
-        head
-    };
-    parse(&meta)
+    if start.starts_with(b"PK") {
+        return parse(&zip_entry(&mut file, b"meta")?);
+    }
+    let mut head = start.to_vec();
+    (&mut file).take(TEXT_FIRST as u64).read_to_end(&mut head).map_err(|e| e.to_string())?;
+    match parse(&head) {
+        Err(e) if e == CUT_SHORT => {
+            file.take((MOST - head.len()) as u64).read_to_end(&mut head).map_err(|e| e.to_string())?;
+            parse(&head)
+        }
+        read => read,
+    }
 }
 
 /// The header in a save's `meta`, or the start of a plain one.
@@ -57,7 +67,7 @@ pub fn parse(meta: &[u8]) -> Result<Header> {
         let value = |key: &str| text.lines().find_map(|line| line.strip_prefix(key)).map(|v| v.trim().trim_matches('"').to_string());
         let player = value("player=").and_then(|p| <[u8; 3]>::try_from(p.as_bytes()).ok()).filter(|p| p != b"---");
         let date = value("date=").and_then(|d| eu4_harmony_remote::Date::parse(&d)).map(|d| d.0);
-        return Ok(Header { player, date, mods: text_mods(&text) });
+        return Ok(Header { player, date, mods: text_mods(&text)? });
     }
     if meta.starts_with(b"EU4bin") {
         // `player = "TAG"`: the token 0x2a38, `=`, a string of length 3.
@@ -73,11 +83,12 @@ pub fn parse(meta: &[u8]) -> Result<Header> {
 }
 
 /// The mods in a text header: `mods_enabled_names={ { filename="..."
-/// name="..." } ... }`; none when it has no such list.
-fn text_mods(text: &str) -> Vec<SaveMod> {
-    let Some(start) = text.find("mods_enabled_names=") else { return Vec::new() };
+/// name="..." } ... }`; none when it has no such list, and [`CUT_SHORT`]
+/// when the text ends before the list closes.
+fn text_mods(text: &str) -> Result<Vec<SaveMod>> {
+    let Some(start) = text.find("mods_enabled_names=") else { return Ok(Vec::new()) };
     let mut rest = text[start + "mods_enabled_names=".len()..].trim_start();
-    let Some(list) = rest.strip_prefix('{') else { return Vec::new() };
+    let Some(list) = rest.strip_prefix('{') else { return Ok(Vec::new()) };
     rest = list;
     let (mut mods, mut depth, mut key) = (Vec::new(), 1, String::new());
     while let Some(c) = rest.chars().next() {
@@ -91,8 +102,8 @@ fn text_mods(text: &str) -> Vec<SaveMod> {
                 }
             }
             '"' => {
-                let value = rest.split('"').next().unwrap_or_default();
-                rest = rest.get(value.len() + 1..).unwrap_or_default();
+                let Some((value, after)) = rest.split_once('"') else { return Err(CUT_SHORT.into()) };
+                rest = after;
                 match key.as_str() {
                     "filename" => mods.push(SaveMod { file: value.to_string(), name: String::new() }),
                     "name" => {
@@ -114,7 +125,10 @@ fn text_mods(text: &str) -> Vec<SaveMod> {
             }
         }
     }
-    mods
+    if depth != 0 {
+        return Err(CUT_SHORT.into());
+    }
+    Ok(mods)
 }
 
 /// The mods in a binary header: the token 0x3b51 (`mods_enabled_names`),
@@ -124,7 +138,7 @@ fn text_mods(text: &str) -> Vec<SaveMod> {
 fn binary_mods(meta: &[u8]) -> Result<Vec<SaveMod>> {
     const LIST: [u8; 6] = [0x51, 0x3b, 0x01, 0x00, 0x03, 0x00];
     let Some(mut at) = find(meta, &LIST) else { return Ok(Vec::new()) };
-    let cut_short = || "the save's list of mods is cut short".to_string();
+    let cut_short = || CUT_SHORT.to_string();
     let word = |at: &mut usize| -> Result<u16> {
         let value = meta.get(*at..*at + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(cut_short)?;
         *at += 2;
@@ -577,6 +591,24 @@ mod tests {
     }
 
     #[test]
+    fn a_plain_save_s_mods_are_read_past_the_first_read() {
+        // A playset of a thousand mods takes more than the first read.
+        let mut text = String::from("EU4txt\ndate=1445.7.19\nplayer=\"WUR\"\nmods_enabled_names={\n");
+        for i in 0..1000 {
+            text.push_str(&format!("\t{{\n\t\tfilename=\"mod/ugc_{i:010}.mod\"\n\t\tname=\"A mod with a long name, number {i}\"\n\t}}\n"));
+        }
+        text.push_str("}\nmulti_player=no\n");
+        assert!(text.len() > TEXT_FIRST);
+        let path = std::env::temp_dir().join(format!("eu4-harmony-test-{}-many-mods.eu4", std::process::id()));
+        std::fs::write(&path, &text).unwrap();
+        let header = read(&path);
+        std::fs::remove_file(&path).unwrap();
+        let mods = header.unwrap().mods;
+        assert_eq!(mods.len(), 1000);
+        assert_eq!(mods[999], save_mod("mod/ugc_0000000999.mod", "A mod with a long name, number 999"));
+    }
+
+    #[test]
     fn a_header_says_the_mods_the_save_was_made_with() {
         // As the game writes them; a name with braces and Chinese.
         let text = "EU4txt\ndate=1445.7.19\nplayer=\"WUR\"\nmods_enabled_names={\n\t{\n\t\tfilename=\"mod/ugc_3047072888.mod\"\n\t\tname=\"彼岸 {乐园}\"\n\t}\n {\n\t\tfilename=\"mod/ugc_2976470733.mod\"\n\t\tname=\"Chinese Language Mod for 1.37\"\n\t}\n  \n}\nmulti_player=no\n";
@@ -584,6 +616,13 @@ mod tests {
         assert_eq!(parse(text.as_bytes()).unwrap().mods, mods);
         assert_eq!(parse(b"EU4txt\nmods_enabled_names={\n}\n").unwrap().mods, []);
         assert_eq!(parse(b"EU4txt\nplayer=\"FRA\"\n").unwrap().mods, []);
+        // Cut short anywhere in the list, a name or a file name: an error,
+        // never part of a name.
+        let list = text.find("mods_enabled_names={").unwrap() + "mods_enabled_names={".len();
+        let end = text.find("multi_player").unwrap();
+        for len in (list..=end - 2).filter(|&len| text.is_char_boundary(len)) {
+            assert_eq!(parse(&text.as_bytes()[..len]).unwrap_err(), CUT_SHORT, "the first {len} bytes");
+        }
 
         // Binary, as an ironman save's meta has them.
         let mut binary = b"EU4bin".to_vec();

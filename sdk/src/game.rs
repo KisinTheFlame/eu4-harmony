@@ -217,8 +217,10 @@ pub struct MapColor {
 /// Where the map camera looks and how high it is. A map position is a pixel
 /// of the province map (`map/provinces.bmp`): `x` from its left edge, `y`
 /// from its bottom edge, as `map/positions.txt` writes them; a height is in
-/// the same unit, above the map's base plane.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// the same unit, above the map's base plane. Its default is the unmodded
+/// game's heights, 50 to 3000, at 1000, looking at the map's corner, as
+/// [`FakeGame`](crate::testing::FakeGame)'s camera starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Camera {
     /// The map position at the middle of the view.
     pub x: u32,
@@ -230,6 +232,14 @@ pub struct Camera {
     /// game keeps it higher than the lowest.
     pub min_height: u32,
     pub max_height: u32,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        // `NFrontend.CAMERA_MIN_HEIGHT` and `CAMERA_MAX_HEIGHT` in the
+        // unmodded game's `common/defines.lua`.
+        Self { x: 0, y: 0, height: 1000, province: None, min_height: 50, max_height: 3000 }
+    }
 }
 
 impl From<abi::Camera> for Camera {
@@ -484,7 +494,7 @@ pub(crate) struct WarGoalJson {
 }
 
 /// How the core names a declaration of war without a casus belli.
-pub(crate) const NO_CASUS_BELLI: &str = "none";
+pub(crate) use abi::NO_CASUS_BELLI;
 
 impl From<WarGoalJson> for WarGoal {
     fn from(g: WarGoalJson) -> Self {
@@ -849,11 +859,15 @@ impl<'a> Game<'a> {
     /// diplomacy panel, so that the game's checks and costs apply. It calls
     /// to arms the allies `call` names, as ticking their call boxes in the
     /// declare war window does, with no land promised; the answer says which
-    /// it called. `InvalidArgument` for an ally to call that the window does
-    /// not list; `Rejected`, with the game's reasons and nothing sent, for
-    /// one it would not let the player call. A costly
-    /// declaration (no casus belli, a truce broken) is sent without the
-    /// window's confirmation, and the game takes its costs.
+    /// it called. Unlike remote control's answer, it does not list the
+    /// allies passed over, or why (`passed_over`): to learn why the window
+    /// would not let the player call an ally, name it
+    /// ([`CallAllies::Only`]), which is refused with the reasons.
+    /// `InvalidArgument` for an ally to call that the window does not list;
+    /// `Rejected`, with the game's reasons and nothing sent, for one it
+    /// would not let the player call. A costly declaration (no casus belli,
+    /// a truce broken) is sent without the window's confirmation, and the
+    /// game takes its costs.
     /// [`Status::Rejected`] when the game offers no such war goal or does
     /// not let the player declare war now, with the game's reasons, one a
     /// line. The game carries the declaration out at its next frame;

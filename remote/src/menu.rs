@@ -15,7 +15,7 @@ group! {
     /// Where the game is, and which process answers: a game started again
     /// (after returning to the main menu, say) is a new process, whose
     /// sessions and events are numbered from 1 again.
-    anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded) or game";
+    anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded, and at startup until the main menu shows) or game";
     /// The saves in the save games folder, newest first.
     anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), player and date as the save's header says them (null when it cannot be read), and missing_mods, the mods it was made with that the game did not start with (menu.load refuses it while there are any)";
     /// Loads a save from the main menu and plays it as the country it was
@@ -23,14 +23,16 @@ group! {
     /// page (at startup, once menu says main_menu). Answers once the game is
     /// ready, however long the save takes to load. Rejected, before anything
     /// happens, when the save was made with mods the game did not start
-    /// with (one such save crashed the game as it loaded); and rejected when
+    /// with, any one of them, with no way past it: one such save crashed the
+    /// game as it loaded, and which mods change the game cannot be told, so
+    /// add them to the playset and start the game again; and rejected when
     /// the game does not take the load up, cannot read the save (it then
     /// starts a game from what it read), begins another game than the
     /// save's, or begins one the player cannot play.
     anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
-    } -> Session, "the session of the loaded game, its player and date the save's";
+    } -> Session, "the session of the loaded game, as session answers it, its player and date the save's";
     /// Starts a new game at the default start date as a country, as the
     /// single player setup does. Only from the main menu's first page (at
     /// startup, once menu says main_menu). Answers once the game is ready.
@@ -41,7 +43,7 @@ group! {
     anywhere Start "start" {
         /// The country to play.
         country: CountryTag,
-    } -> Session, "the session of the new game";
+    } -> Session, "the session of the new game, as session answers it";
     /// Returns to the main menu, without the game's question or its summary,
     /// as the player would. Whenever a game is going on, also while the
     /// player only observes (when capabilities that need a game are
@@ -64,7 +66,7 @@ pub enum Place {
     MainMenu,
     /// A game is being set up or loaded: started from the main menu (by a
     /// remote client or by the player), or neither the main menu nor a
-    /// game's frame runs.
+    /// game's frame runs, as at startup until the main menu shows.
     Starting,
     /// A game is going on (also while the player only observes).
     Game,

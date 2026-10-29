@@ -81,13 +81,18 @@ struct OrderState {
     identity: Vec<usize>,
 }
 
-/// Refuses armies the game would not let us order reliably: paused game,
-/// battle, siege, retreat, movement lock, attachments or a native task.
-fn preflight(m: &Memory, ctx: &Ctx, army: usize) -> GResult<OrderState> {
+/// Refuses armies the game would not let us order reliably: battle, siege,
+/// retreat, movement lock, attachments or a native task; and, for an
+/// extension, a paused game. An extension's routes and orders wait for the
+/// game to run, as regional-combat's always have; remote control's are the
+/// player's, which the player gives while the game is paused too (a paused
+/// right-click on the map queries the route and submits it as these do,
+/// docs/research/regional-combat/native-manual-findings.txt).
+fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<OrderState> {
     if m.ptr(army)? != m.at(classes::ARMY) {
         return fail(Status::InvalidArgument, "not a land army");
     }
-    if paused(m, ctx)? {
+    if waits_for_time(caller) && paused(m, ctx)? {
         return fail(Status::NotReady, "game is paused");
     }
     let record = world::army_record(m, &super::special_countries(m)?, army)?;
@@ -121,6 +126,12 @@ fn preflight(m: &Memory, ctx: &Ctx, army: usize) -> GResult<OrderState> {
         path: read_path(m, army + unit::PATH)?,
         identity: vec![ctx.world, army, m.u64(army + unit::ID)? as usize, ctx.player.0 as usize, ctx.date as usize, origin_ptr, begin, end],
     })
+}
+
+/// Whether the caller's routes and orders wait for the game to run
+/// ([`preflight`]).
+fn waits_for_time(caller: Caller) -> bool {
+    matches!(caller, Caller::Extension(_))
 }
 
 /// Route installed by an extension: valid while the army's current path is
@@ -220,6 +231,7 @@ impl Orders {
 
     /// Runs the game's route query into a temporary list, hands the result to
     /// `consume` and frees the list. The army's own route is never touched.
+    #[allow(clippy::too_many_arguments)]
     fn with_route<T>(
         &mut self,
         m: &Memory,
@@ -227,12 +239,13 @@ impl Orders {
         geography: &mut world::Geography,
         army: usize,
         goal: u32,
+        caller: Caller,
         consume: impl FnOnce(&Path, usize) -> GResult<T>,
     ) -> GResult<Option<T>> {
         if POISONED.load(Ordering::Acquire) {
             return fail(Status::Unavailable, "routes disabled after an earlier native failure");
         }
-        let before = preflight(m, ctx, army)?;
+        let before = preflight(m, ctx, army, caller)?;
         let origin = m.ptr(army + unit::LOCATION)?;
         let goal_address = geography.province_address(m, ctx, goal)?;
         let mut policy = m.at(globals::ROUTE_POLICY);
@@ -254,7 +267,7 @@ impl Orders {
                 }
             };
             let path = read_path(m, h)?;
-            if preflight(m, ctx, army)? != before {
+            if preflight(m, ctx, army, caller)? != before {
                 return Err("route query changed the army".to_string().into());
             }
             if !found {
@@ -290,8 +303,8 @@ impl Orders {
         result
     }
 
-    pub fn find_route(&mut self, m: &Memory, ctx: &Ctx, geography: &mut world::Geography, army: usize, goal: u32) -> GResult<Vec<u32>> {
-        match self.with_route(m, ctx, geography, army, goal, |path, _| Ok(path.ids.clone()))? {
+    pub fn find_route(&mut self, m: &Memory, ctx: &Ctx, geography: &mut world::Geography, army: usize, goal: u32, caller: Caller) -> GResult<Vec<u32>> {
+        match self.with_route(m, ctx, geography, army, goal, caller, |path, _| Ok(path.ids.clone()))? {
             Some(ids) => Ok(ids),
             None => fail(Status::NotFound, format!("no route to {goal}")),
         }
@@ -309,8 +322,8 @@ impl Orders {
         goal: u32,
         caller: Caller,
     ) -> GResult<Option<Change>> {
-        let before = preflight(m, ctx, army)?;
-        let installed = self.with_route(m, ctx, geography, army, goal, |route, header| {
+        let before = preflight(m, ctx, army, caller)?;
+        let installed = self.with_route(m, ctx, geography, army, goal, caller, |route, header| {
             let _own = OwnGuard::new();
             if !route.ids.is_empty() {
                 m.call(m.at(MOVE), &[army, header, 1, 0])?;
@@ -332,7 +345,7 @@ impl Orders {
     /// Stops the army where it is. Returns the player's order when the caller
     /// acts as the player.
     pub fn stop_army(&mut self, m: &Memory, ctx: &Ctx, army: usize, id: u64, caller: Caller) -> GResult<Option<Change>> {
-        let before = preflight(m, ctx, army)?;
+        let before = preflight(m, ctx, army, caller)?;
         if !before.path.ids.is_empty() {
             let _own = OwnGuard::new();
             m.call(m.at(STOP), &[army, 0, 0])?;
@@ -361,6 +374,12 @@ mod tests {
         assert!(!owned_suffix(1, &p, 2, &path(&[3, 4], &[300, 400])));
         assert!(owned_suffix(1, &path(&[2, 3], &[20, 30]), 3, &path(&[], &[])));
         assert!(!owned_suffix(1, &path(&[2], &[20]), 1, &path(&[2, 3], &[20, 30])));
+    }
+
+    #[test]
+    fn only_an_extension_s_orders_wait_for_a_paused_game() {
+        assert!(waits_for_time(Caller::Extension(0)));
+        assert!(!waits_for_time(Caller::Remote));
     }
 
     #[test]
