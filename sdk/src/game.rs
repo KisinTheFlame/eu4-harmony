@@ -859,11 +859,15 @@ impl<'a> Game<'a> {
     /// diplomacy panel, so that the game's checks and costs apply. It calls
     /// to arms the allies `call` names, as ticking their call boxes in the
     /// declare war window does, with no land promised; the answer says which
-    /// it called. `InvalidArgument` for an ally to call that the window does
-    /// not list; `Rejected`, with the game's reasons and nothing sent, for
-    /// one it would not let the player call. A costly
-    /// declaration (no casus belli, a truce broken) is sent without the
-    /// window's confirmation, and the game takes its costs.
+    /// it called. Unlike remote control's answer, it does not list the
+    /// allies passed over, or why (`passed_over`): to learn why the window
+    /// would not let the player call an ally, name it
+    /// ([`CallAllies::Only`]), which is refused with the reasons.
+    /// `InvalidArgument` for an ally to call that the window does not list;
+    /// `Rejected`, with the game's reasons and nothing sent, for one it
+    /// would not let the player call. A costly declaration (no casus belli,
+    /// a truce broken) is sent without the window's confirmation, and the
+    /// game takes its costs.
     /// [`Status::Rejected`] when the game offers no such war goal or does
     /// not let the player declare war now, with the game's reasons, one a
     /// line. The game carries the declaration out at its next frame;
