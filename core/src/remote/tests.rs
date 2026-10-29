@@ -198,10 +198,10 @@ fn every_capability_runs_at_a_game_frame() {
                 }]))
             }),
         ),
-        // A load and a start wait for the game's first frame, which never
-        // comes: the return after them ends the process.
-        (Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }), Box::new(error("not_ready"))),
-        (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(error("not_ready"))),
+        // A load and a start answer at the game's first frame after the one
+        // they ran at (a later test).
+        (Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }), Box::new(Value::is_null)),
+        (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(Value::is_null)),
         (Request::Menu(MenuRequest::Return {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "ending"})))),
     ];
     // Every capability is among them.
@@ -522,14 +522,19 @@ fn returning_to_the_main_menu_is_answered_before_the_process_ends() {
     let after = engine.submit(Request::Session(SessionRequest::Get {}));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
-    // Whatever waits or comes later is told the game starts again, at once:
-    // no safe point comes any more.
+    // Until the game starts eu4.exe again, the process answers as before.
+    assert_eq!(answer(&after)["ok"], true);
+    // At the restart, whoever asked for the return (the player too), what
+    // waits or is queued is told the game starts again, at once, and so is
+    // whatever comes later: no safe point comes any more.
+    let queued = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.end(menu::ending(), Duration::ZERO);
     let later = engine.submit(Request::Text(TextRequest::Language {}));
-    for got in [answer(&waiting), answer(&after), answer(&later)] {
+    for got in [answer(&waiting), answer(&queued), answer(&later)] {
         assert!(error("not_ready")(&got), "{got}");
         assert!(got["error"]["message"].as_str().unwrap().contains("returning to the main menu"), "{got}");
     }
-    assert_eq!(game.calls, ["return"]);
+    assert_eq!(game.calls, ["return", "session"]);
 }
 
 #[test]

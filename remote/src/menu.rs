@@ -39,8 +39,9 @@ group! {
     /// as the player would. Whenever a game is going on, also while the
     /// player only observes (when capabilities that need a game are
     /// refused); not_in_game where none is. The game returns by starting
-    /// eu4.exe again, so the answer comes from this process before it ends;
-    /// after it every request to this process is answered not_ready. The new
+    /// eu4.exe again, so the answer comes from this process at once; once
+    /// the game starts again, every request to this process, waiting or
+    /// sent, is answered not_ready (an advance waiting, main_menu). The new
     /// process opens the pipe a few seconds later and answers once it
     /// presents its first frame: ask menu again until its process differs
     /// and its place is main_menu.

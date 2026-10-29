@@ -3,9 +3,10 @@
 //!
 //! A load or a start answers once the game is ready, at its first frame,
 //! with the session; it fails as soon as the main menu says the game did not
-//! take it up, and a load fails when the game that came is not the save's. Returning to the main menu starts `eu4.exe` again, so it is answered
-//! before this process ends, and the engine answers every request after it
-//! `not_ready` (`Outcome::Ends`): the new process takes the pipe over.
+//! take it up, and a load fails when the game that came is not the save's.
+//! Returning to the main menu starts `eu4.exe` again, so it is answered at
+//! once; at the game's restart the engine answers every request `not_ready`
+//! ([`ending`], `Engine::end`), and the new process takes the pipe over.
 use super::{process, session, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
@@ -60,8 +61,8 @@ impl Layer for Live {
     }
 }
 
-/// What every request is answered once the game is returning to the main
-/// menu.
+/// What every request is answered once the game starts `eu4.exe` again to
+/// return to the main menu, unless it has an answer of its own then.
 pub fn ending() -> Error {
     Error::new(
         Code::NotReady,
@@ -83,7 +84,7 @@ pub fn run(request: MenuRequest, game: &mut (impl Layer + ?Sized)) -> Outcome {
             Err(fail) => done(Err(fail.into())),
         },
         MenuRequest::Return {} => match game.return_to_main_menu() {
-            Ok(()) => Outcome::Ends(Ok(Answer::Menu(MenuAnswer::Return(Menu { process: process(), place: Place::Ending }))), ending()),
+            Ok(()) => done(Ok(MenuAnswer::Return(Menu { process: process(), place: Place::Ending }))),
             Err(fail) => done(Err(fail.into())),
         },
     }

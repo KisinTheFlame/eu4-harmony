@@ -295,16 +295,17 @@ fn an_advance_answers_before_the_process_ends() {
     let events = ENGINE.submit(Request::Events(eu4_harmony_remote::events::EventsRequest::Read { since: Some(1), wait_ms: Some(60_000), process: None }));
     ENGINE.run(&mut game, &Place::Game, PLENTY);
     let client = std::thread::spawn(move || reply.wait(PLENTY).map(|r| response_json(&r)));
+    let reader = std::thread::spawn(move || events.wait(PLENTY).map(|r| response_json(&r)));
     let started = Instant::now();
-    ENGINE.ending(PLENTY);
-    // It returns once the answer is taken, not when its time is up.
+    ENGINE.end(crate::remote::menu::ending(), PLENTY);
+    // It returns once the answers are taken, not when its time is up.
     assert!(started.elapsed() < Duration::from_secs(5));
     let got = client.join().unwrap().unwrap();
     assert_eq!(got["result"]["stopped"], "main_menu");
     assert_eq!(got["result"]["date"], date(1));
     assert_eq!(got["result"]["events"][0]["date"], date(1));
-    // What has no answer to give then goes on waiting.
-    assert!(answer(&events).is_null());
+    // What has no answer of its own is told the game starts again.
+    assert_eq!(reader.join().unwrap().unwrap()["error"]["code"], "not_ready");
 }
 
 #[test]

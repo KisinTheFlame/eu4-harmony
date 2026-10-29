@@ -12,8 +12,9 @@
 //! is answered `session_changed` instead of acting on a campaign its client
 //! never saw. Every answer that numbers sessions or events says which
 //! process gave it ([`process`]): returning to the main menu starts the game
-//! again, and the numbers start again with it. That return ends this
-//! process's engine ([`Outcome::Ends`]): from then on it answers at once.
+//! again, and the numbers start again with it. The game's restart ends this
+//! process's engine ([`Engine::end`]), whoever asked for the return: from
+//! then on it answers at once.
 //!
 //! One file per group of capabilities, as in the capability layer: each has
 //! the group's slice of the layer as a trait ([`Game`] is all of them), the
@@ -119,10 +120,6 @@ pub enum Outcome {
     Done(Response),
     /// The answer comes at a later safe point.
     Later(Box<dyn Wait>),
-    /// Answered, and this process ends (returning to the main menu starts
-    /// the game again): every request from then on, and every one queued or
-    /// waiting, is answered the error at once.
-    Ends(Response, Error),
 }
 
 /// A request that waits: asked at every safe point until it answers.
@@ -134,8 +131,8 @@ pub trait Wait: Send {
     fn given_up(&mut self, _at: &mut Poll<'_>) {}
 
     /// The process is about to end, as the game starts `eu4.exe` again: the
-    /// answer to write while it can, if any. Without one, the client finds
-    /// the pipe broken.
+    /// answer to write while it can, if it has one of its own. Without one,
+    /// it is answered as every other request then ([`Engine::end`]).
     fn ending(&mut self, _events: &events::Buffer) -> Option<Response> {
         None
     }
@@ -335,10 +332,7 @@ impl Engine {
                 break;
             }
             ran = true;
-            if let Some(why) = self.start(running, game, q) {
-                kept.append(&mut queued);
-                return self.end(running, why, kept);
-            }
+            self.start(running, game, q);
         }
         let mut queue = self.queue();
         while let Some(q) = kept.pop_back() {
@@ -346,9 +340,8 @@ impl Engine {
         }
     }
 
-    /// Runs a request; what every request is answered from now on, when
-    /// this process ends.
-    fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued) -> Option<Error> {
+    /// Runs a request.
+    fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued) {
         let started = Instant::now();
         match dispatch(q.request.clone(), game, &running.events) {
             Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
@@ -356,28 +349,6 @@ impl Engine {
                 (self.log)(&format!("remote #{} {}: answers later", q.number, json(&q.request)));
                 running.waiting.push(Waiting { number: q.number, name: q.request.name(), started, slot: q.slot, wait });
             }
-            Outcome::Ends(response, why) => {
-                self.answer(&q, response, started.elapsed());
-                return Some(why);
-            }
-        }
-        None
-    }
-
-    /// This process ends: answers `why` to the requests `left` to run, to
-    /// those queued and waiting, and to every one sent from now on.
-    fn end(&self, running: &mut Running, why: Error, left: VecDeque<Queued>) {
-        let mut queue = self.queue();
-        queue.ending = Some(why.clone());
-        let left: Vec<Queued> = left.into_iter().chain(queue.requests.drain(..)).collect();
-        drop(queue);
-        (self.log)(&format!("remote: this process ends; every request is answered {why}"));
-        for q in &left {
-            self.answer(q, Err(why.clone()), Duration::ZERO);
-        }
-        for w in running.waiting.drain(..) {
-            (self.log)(&format!("remote #{} {}: {why}, while it waited", w.number, w.name));
-            w.slot.answer(Err(why.clone()));
         }
     }
 
@@ -405,28 +376,40 @@ impl Engine {
         }
     }
 
-    /// The process is about to end (the game starts `eu4.exe` again): the
-    /// waiting requests that can answer now do, and their submitters get up
-    /// to `within` to take the answers, so that a transport writes them
-    /// before the process goes. The rest go unanswered.
-    pub fn ending(&self, within: Duration) {
+    /// The process is about to end, as the game starts `eu4.exe` again to
+    /// return to the main menu, whoever asked for it: every request is
+    /// answered while the pipe can still carry the answers. A waiting one
+    /// gives its own answer when it has one ([`Wait::ending`]: an advance
+    /// answers `main_menu`), and is answered `why` otherwise, as are those
+    /// queued and every one sent from now on. Their submitters get up to
+    /// `within` to take the answers, so that a transport writes them before
+    /// the process goes.
+    pub fn end(&self, why: Error, within: Duration) {
         let started = Instant::now();
         let mut answered = Vec::new();
+        let queued: Vec<Queued> = {
+            let mut queue = self.queue();
+            queue.ending = Some(why.clone());
+            queue.requests.drain(..).collect()
+        };
+        (self.log)(&format!("remote: this process ends; every request is answered {why}"));
+        for q in queued {
+            if !q.slot.abandoned() {
+                self.answer(&q, Err(why.clone()), Duration::ZERO);
+                answered.push(q.slot);
+            }
+        }
         {
             let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
             let running = &mut *running;
-            for mut w in std::mem::take(&mut running.waiting) {
+            for mut w in running.waiting.drain(..) {
                 if w.slot.abandoned() {
                     continue;
                 }
-                match w.wait.ending(&running.events) {
-                    Some(response) => {
-                        (self.log)(&format!("remote #{} {}: {} as the process ends, after {} ms", w.number, w.name, outcome(&response), started.duration_since(w.started).as_millis()));
-                        w.slot.answer(response);
-                        answered.push(w.slot);
-                    }
-                    None => running.waiting.push(w),
-                }
+                let response = w.wait.ending(&running.events).unwrap_or_else(|| Err(why.clone()));
+                (self.log)(&format!("remote #{} {}: {} as the process ends, after {} ms", w.number, w.name, outcome(&response), started.duration_since(w.started).as_millis()));
+                w.slot.answer(response);
+                answered.push(w.slot);
             }
         }
         while answered.iter().any(|slot| !slot.taken() && !slot.abandoned()) && started.elapsed() < within {
@@ -524,8 +507,9 @@ pub(crate) fn run_outside(why: Option<game::Fail>) {
     ENGINE.run(&mut Live, &Place::Outside(why.map(Error::from)), BUDGET);
 }
 
-/// Before the game starts `eu4.exe` again, which ends this process: what
-/// waits answers while the pipe can still carry the answers.
+/// Before the game starts `eu4.exe` again, which ends this process: every
+/// request is answered while the pipe can still carry the answers, those sent
+/// later at once.
 pub(crate) fn restarting() {
-    ENGINE.ending(Duration::from_secs(2));
+    ENGINE.end(menu::ending(), Duration::from_secs(2));
 }
