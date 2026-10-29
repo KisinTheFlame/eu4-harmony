@@ -391,7 +391,7 @@ mod tests {
         std::ptr::copy_nonoverlapping(name.as_ptr(), buf, name.len());
         abi::OK
     }
-    /// Country 77 allied with 5, rivalling 6, attacking 6 with 5 in war 1,
+    /// Country 77 allied with 5, rivaling 6, attacking 6 with 5 in war 1,
     /// defending against 8 in war 2; a link of a kind from a later core.
     unsafe extern "C" fn country(_: H, id: u64, out: *mut abi::Country, buf: *mut abi::CountryLink, cap: usize, len: *mut usize) -> i32 {
         if id != 77 {
