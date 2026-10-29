@@ -87,16 +87,18 @@ pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
     if !allowed {
         return fail(Status::Rejected, refusal(&reasons));
     }
+    // The session before the command: once the command is made, only a call
+    // into the game can fail before it is posted or destroyed. The game owns
+    // it once its session took it; until then, it is the framework's to
+    // free. A command a call into the game failed on is left alone.
+    let session = session(m, &ctx)?;
     let command = m.call(m.at(ALLOCATE), &[recruit_command::SIZE])?;
     if command == 0 {
         return Err("the game could not allocate a recruit command".to_string().into());
     }
     m.call(m.at(COMMAND), &[command, ctx.player.0 as usize, unit_type, id as usize, 0])?;
-    // The game owns the command once its session took it; until then, it is
-    // the framework's to free. A command a call into the game failed on is
-    // left alone.
     let checked = m.call(m.at(CHECK), &[command])? as u8 != 0;
-    let taken = if checked { post(m, &ctx, command)? } else { false };
+    let taken = checked && post(m, session, command)?;
     if !taken {
         m.call(m.at(DESTROY), &[command, FREE])?;
     }
@@ -117,15 +119,21 @@ fn refusal(reasons: &[String]) -> String {
     }
 }
 
-/// Posts a command to the game's session, as the recruit button does;
-/// whether the session took it. A single player game's session takes it at
-/// any time; one that is not a client takes it only while the map manager's
-/// frame runs (docs/research/recruiting.md).
-fn post(m: &Memory, ctx: &Ctx, command: usize) -> GResult<bool> {
+/// The game's session, as the recruit button finds it: the map manager's
+/// method answers it.
+fn session(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     let session = m.call(m.at(layout::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
     if session == 0 || m.ptr(session)? != m.at(layout::CLASS) {
         return Err("the map manager has no session".to_string().into());
     }
+    Ok(session)
+}
+
+/// Posts a command to the game's session, as the recruit button does;
+/// whether the session took it. A single player game's session takes it at
+/// any time; one that is not a client takes it only while the map manager's
+/// frame runs (docs/research/recruiting.md).
+fn post(m: &Memory, session: usize, command: usize) -> GResult<bool> {
     Ok(m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0)
 }
 
