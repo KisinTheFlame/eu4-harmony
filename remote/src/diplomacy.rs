@@ -32,12 +32,15 @@ group! {
     /// (`diplomacy.war_goals`): the first with the casus belli, and the war
     /// goal, province and target when given. It calls to arms the allies
     /// `call_allies` names, as ticking their call boxes in the declare war
-    /// window does, with no land promised; the answer lists them in
-    /// `called`, and in `passed_over` the allies the window would not let
-    /// the player call, or no longer lists once others are called, each
-    /// with the reasons (when `call_allies` is `all`: an ally named that it
-    /// would not let the player call refuses the declaration instead). Subjects and others who join anyway are in
-    /// neither: they are in the war, as `country.get` shows. A costly declaration (no casus belli, a truce
+    /// window does, with no land promised, and the answer lists them in
+    /// `called`. When `call_allies` is `all`, `passed_over` lists each ally
+    /// not called, with the reasons: those the window gives for not letting
+    /// the player call it, or that the window no longer lists it once
+    /// others are called. When `call_allies` names allies, a named one the
+    /// window would not let the player call, or no longer lists, refuses
+    /// the declaration instead, and nothing is sent. Subjects and
+    /// others who join anyway are in neither list: they are in the war, as
+    /// `country.get` shows. A costly declaration (no casus belli, a truce
     /// broken) is sent without the window's confirmation, and the game takes
     /// its costs. `rejected` when the game offers no such war goal, does not
     /// let the player declare war, or would not let the player call an ally
