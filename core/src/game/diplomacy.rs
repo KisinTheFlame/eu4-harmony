@@ -190,12 +190,16 @@ pub fn war_goals(_: Caller, enemy: Tag) -> GResult<Vec<WarGoal>> {
 /// Declares war on `enemy` for the war goal `choice` picks among those the
 /// game offers, calling to arms, when `call_allies`, each ally the declare
 /// war window would let the player call ([`call_allies`]), and otherwise
-/// none. [`Status::Rejected`] when the game offers no such war goal, or
-/// does not let the player declare war now, with its reasons.
+/// none. [`Status::InvalidArgument`] for an empty casus belli;
+/// [`Status::Rejected`] when the game offers no such war goal, or does not
+/// let the player declare war now, with its reasons.
 pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, call_allies: bool) -> GResult<Declaration> {
     let m = game()?;
     let ctx = context(m)?;
     other(m, &ctx, enemy)?;
+    if choice.casus_belli.as_deref() == Some("") {
+        return fail(Status::InvalidArgument, format!("no casus belli: name one by its key, or {NO_CASUS_BELLI}"));
+    }
     let offered = Offered::list(m, &ctx, enemy)?;
     let Some(&(goal, _)) = offered.goals.iter().find(|(_, g)| choice.matches(g)) else {
         let cb = choice.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI);

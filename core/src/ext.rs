@@ -583,11 +583,7 @@ unsafe extern "C" fn h_declare_war(
     ticket: *mut u64,
 ) -> i32 {
     capability(ptr, |caller| {
-        let casus_belli = match utf8(casus_belli, casus_belli_len)? {
-            "" => return failure(abi::INVALID_ARGUMENT, format!("no casus belli: name one by its key, or {}", diplomacy::NO_CASUS_BELLI)),
-            diplomacy::NO_CASUS_BELLI => None,
-            key => Some(key.to_string()),
-        };
+        let casus_belli = Some(utf8(casus_belli, casus_belli_len)?).filter(|&cb| cb != diplomacy::NO_CASUS_BELLI).map(str::to_string);
         let war_goal = Some(utf8(war_goal, war_goal_len)?).filter(|w| !w.is_empty()).map(str::to_string);
         let choice = diplomacy::Choice { casus_belli, war_goal, province: (province != 0).then_some(province), target: (target != 0).then_some(Tag(target)) };
         ticket_out(ticket, diplomacy::declare_war(caller, Tag(country), &choice, call_allies != 0)?.ticket)
