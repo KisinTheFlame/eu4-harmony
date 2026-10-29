@@ -1,10 +1,12 @@
 # Development tools
 
-Tools for trying things in a running game, finding dependency points and looking at crashes. They are for development machines only and do not go into the player's installation package.
+Tools for trying things in a running game, finding dependency points and looking at crashes. They are for development machines only and do not go into the player's installation, which `release.ps1` packs.
 
 | Tool | Use |
 | --- | --- |
-| `dev-install.ps1` | Installs the built proxy and core into the game directory (`-Uninstall` removes them) |
+| `installation.ps1` | Lists the player's installation: the built files that go into the game folder (`version.dll`; the core and `eu4-harmony.exe` in `eu4-harmony\`), and where; the two tools below read it |
+| `dev-install.ps1` | Installs them from the release build into the game directory (`-Uninstall` removes them) |
+| `release.ps1` | Packs them for players: `target\eu4-harmony\` and `target\eu4-harmony.zip`, whose contents go into the game's root folder |
 | `game-dir.ps1` | Prints the game folder: `EU4_GAME_DIR`, or else the Steam library that has the game; the other tools' default `-GameDir` |
 | `game-input.ps1` | Brings the game window to the front and sends it mouse and keyboard input: `-Click x,y`, `-RightClick x,y`, `-Drag x1,y1,x2,y2`, `-Wheel n -At x,y`, `-Type text` (Unicode characters, past any input method), `-Keys LEFT,SHIFT+END,CTRL+V` (key presses, letters and digits included, which an input method takes) |
 | `screenshot.ps1` | Captures the primary screen: `-Out a.png` (the whole screen, shrunk by `-Scale`) or `-Crop x,y,width,height` (at full size) |
