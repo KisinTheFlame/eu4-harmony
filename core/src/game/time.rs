@@ -7,7 +7,10 @@ use super::{context, context_any, events, fail, game, map_manager, paused, quest
 use crate::{
     hooks::HookFrame,
     memory::Memory,
-    objects::campaign::{globals::WORLD, map_manager as manager, pause as pause_state, world},
+    objects::campaign::{
+        globals::{END_DATE, WORLD},
+        map_manager as manager, pause as pause_state, world,
+    },
     points::Point,
 };
 use std::sync::Mutex;
@@ -52,6 +55,9 @@ pub struct Time {
     /// 1 (slowest) to 5 (fastest).
     pub speed: u32,
     pub pause: Pause,
+    /// The end date, once the game is over: past it, unless the player
+    /// chose to play on, time does not run (see [`resume`]).
+    pub over: Option<i32>,
 }
 
 impl Time {
@@ -75,7 +81,7 @@ pub fn time(_: Caller) -> GResult<Time> {
     } else {
         Pause::Window
     };
-    Ok(Time { session: events::session(), date: ctx.date, speed: index as u32 + 1, pause })
+    Ok(Time { session: events::session(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
 }
 
 /// Pauses the game with the player's own pause, as the player would, also
@@ -87,17 +93,42 @@ pub fn pause(_: Caller) -> GResult<()> {
 }
 
 /// Resumes the game, as the player would: also when windows hold it paused,
-/// which stay open. Nothing when it runs.
+/// which stay open. Nothing when it runs. Refused, as the player's resuming
+/// is, once the game is over ([`over`]).
 pub fn resume(_: Caller) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
     if paused(m, &ctx)? {
+        if let Some(end) = over(m, &ctx)? {
+            return Err(game_over(end));
+        }
         toggle(m, pause_state_of(m, &ctx)?)?;
         if paused(m, &ctx)? {
             return fail(Status::Rejected, "the game stays paused");
         }
     }
     Ok(())
+}
+
+/// The end date, once the game is over: past it, unless the player chose to
+/// play on. The player's resuming is refused then (`0x810570`, the pause
+/// key's function), and the map manager's frame pauses the game again at
+/// every frame, so time would not run anyway. The other check there, that
+/// the player has a country unless the game lets an observer run time, is
+/// [`context`]'s: remote control refuses an observer whatever the game lets
+/// the player do.
+fn over(m: &Memory, ctx: &Ctx) -> GResult<Option<i32>> {
+    let end = m.i32(m.at(END_DATE))?;
+    Ok((ctx.date > end && m.u8(ctx.world + world::PLAY_ON)? == 0).then_some(end))
+}
+
+/// Why time does not run once the game is over, at its end date `end`.
+pub fn game_over(end: i32) -> super::Fail {
+    let end = eu4_harmony_remote::Date(end);
+    super::Fail {
+        status: Status::Rejected,
+        message: format!("the game is over: it is past its end date, {end}, and stays paused, as for the player, until the end-of-game summary is closed to play on"),
+    }
 }
 
 /// Sets the game speed, 1 (slowest) to 5 (fastest), as the player would.

@@ -410,7 +410,7 @@ pub struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
-        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player };
+        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player, over: None };
         Self { time, questions: 0, stops: Default::default(), failing: None }
     }
 }
@@ -468,6 +468,9 @@ impl time::Layer for Fake {
     fn resume(&mut self) -> GResult<()> {
         self.call("resume".into());
         self.clock.check("resume")?;
+        if let Some(end) = self.clock.time.over {
+            return Err(game::time::game_over(end));
+        }
         self.clock.time.pause = game::time::Pause::Running;
         Ok(())
     }

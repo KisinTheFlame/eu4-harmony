@@ -112,6 +112,9 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
         return Err(Error::new(Code::InvalidArgument, format!("the speed is from 1 to 5, not {speed}")));
     }
     let time = game.time()?;
+    if let Some(end) = time.over {
+        return Err(game::time::game_over(end).into());
+    }
     let since = events.last();
     if game.questions_waiting()? > 0 {
         game.pause()?;

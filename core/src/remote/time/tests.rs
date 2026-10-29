@@ -218,6 +218,27 @@ fn an_advance_does_not_run_past_a_question_waiting_already() {
 }
 
 #[test]
+fn time_does_not_run_once_the_game_is_over() {
+    let engine = Engine::new(quiet);
+    let mut game = Fake::default();
+    // Past the end date, the player not playing on.
+    let end = Date::from_ymd(1821, 1, 2).unwrap().0;
+    game.clock.time.date = end + DAY;
+    game.clock.time.over = Some(end);
+    let replies: Vec<Reply> = [time(TimeRequest::Resume {}), advance(30, Some(5))].into_iter().map(|r| engine.submit(r)).collect();
+    engine.run(&mut game, &Place::Game, PLENTY);
+    for reply in &replies {
+        let got = answer(reply);
+        assert_eq!(got["error"]["code"], "rejected", "{got}");
+        assert!(got["error"]["message"].as_str().unwrap().starts_with("the game is over: it is past its end date, 1821.1.2"), "{got}");
+    }
+    // The advance changed nothing: no speed, no stop, still paused.
+    assert!(game.clock.time.paused());
+    assert!(!game.calls.iter().any(|c| c.starts_with("speed") || c.starts_with("stop at")), "{:#?}", game.calls);
+    assert!(game.clock.stops.lock().unwrap().is_empty());
+}
+
+#[test]
 fn an_advance_given_up_is_called_off() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();
