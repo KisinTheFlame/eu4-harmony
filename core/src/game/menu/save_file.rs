@@ -73,7 +73,7 @@ fn u32_at(data: &[u8], at: usize) -> Result<usize> {
     data.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()) as usize).ok_or_else(|| "zip record cut short".to_string())
 }
 
-fn read_at(file: &mut File, at: u64, len: usize) -> Result<Vec<u8>> {
+fn read_at(file: &mut (impl Read + Seek), at: u64, len: usize) -> Result<Vec<u8>> {
     let mut out = vec![0; len];
     file.seek(SeekFrom::Start(at)).map_err(|e| e.to_string())?;
     file.read_exact(&mut out).map_err(|e| e.to_string())?;
@@ -81,8 +81,8 @@ fn read_at(file: &mut File, at: u64, len: usize) -> Result<Vec<u8>> {
 }
 
 /// The entry `name` of the zip file `file`, found through its central
-/// directory, stored or deflated.
-fn zip_entry(file: &mut File, name: &[u8]) -> Result<Vec<u8>> {
+/// directory, stored or deflated, and checked against its CRC.
+fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
     let size = file.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
     let tail_len = size.min(66_000) as usize;
     let tail = read_at(file, size - tail_len as u64, tail_len)?;
@@ -97,7 +97,7 @@ fn zip_entry(file: &mut File, name: &[u8]) -> Result<Vec<u8>> {
         if u32_at(&directory, at)? != 0x0201_4b50 {
             return Err("bad zip directory entry".into());
         }
-        let (method, packed, unpacked) = (u16_at(&directory, at + 10)?, u32_at(&directory, at + 20)?, u32_at(&directory, at + 24)?);
+        let (method, crc, packed, unpacked) = (u16_at(&directory, at + 10)?, u32_at(&directory, at + 16)?, u32_at(&directory, at + 20)?, u32_at(&directory, at + 24)?);
         let (name_len, extra_len, comment_len, local) =
             (u16_at(&directory, at + 28)?, u16_at(&directory, at + 30)?, u16_at(&directory, at + 32)?, u32_at(&directory, at + 42)?);
         if directory.get(at + 46..at + 46 + name_len) == Some(name) {
@@ -112,11 +112,29 @@ fn zip_entry(file: &mut File, name: &[u8]) -> Result<Vec<u8>> {
                 8 => inflate(&data, MOST)?,
                 _ => return Err(format!("zip method {method}")),
             };
-            return if out.len() == unpacked { Ok(out) } else { Err("zip entry of the wrong size".into()) };
+            return if out.len() != unpacked {
+                Err("zip entry of the wrong size".into())
+            } else if crc32(&out) as usize != crc {
+                Err("zip entry damaged: its CRC does not match".into())
+            } else {
+                Ok(out)
+            };
         }
         at += 46 + name_len + extra_len + comment_len;
     }
     Err(format!("no {} in the zip file", String::from_utf8_lossy(name)))
+}
+
+/// CRC-32 as zip files use it (ISO 3309, reflected).
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ (0xedb8_8320 & (crc & 1).wrapping_neg());
+        }
+    }
+    !crc
 }
 
 // ---------- inflate (RFC 1951) ----------
@@ -281,6 +299,42 @@ fn codes(bits: &mut Bits, out: &mut Vec<u8>, literals: &Huffman, distances: &Huf
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    /// A zip file holding one entry, `name`, as `data` with `method`.
+    fn zip(name: &[u8], method: u16, crc: u32, data: &[u8], unpacked: usize) -> Vec<u8> {
+        let fields = |out: &mut Vec<u8>| {
+            out.extend_from_slice(&20u16.to_le_bytes()); // version needed
+            out.extend_from_slice(&0u16.to_le_bytes()); // flags
+            out.extend_from_slice(&method.to_le_bytes());
+            out.extend_from_slice(&[0; 4]); // time and date
+            out.extend_from_slice(&crc.to_le_bytes());
+            out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(unpacked as u32).to_le_bytes());
+            out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes()); // extra
+        };
+        let mut out = b"PK".to_vec();
+        fields(&mut out);
+        out.extend_from_slice(name);
+        out.extend_from_slice(data);
+        let directory_at = out.len();
+        out.extend_from_slice(b"PK");
+        out.extend_from_slice(&20u16.to_le_bytes()); // version made by
+        fields(&mut out);
+        out.extend_from_slice(&[0; 10]); // comment, disk, attributes
+        out.extend_from_slice(&0u32.to_le_bytes()); // the local header
+        out.extend_from_slice(name);
+        let directory_len = out.len() - directory_at;
+        out.extend_from_slice(b"PK");
+        out.extend_from_slice(&[0; 4]); // disks
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&(directory_len as u32).to_le_bytes());
+        out.extend_from_slice(&(directory_at as u32).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // comment
+        out
+    }
 
     fn bytes(hex: &str) -> Vec<u8> {
         (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect()
@@ -298,6 +352,20 @@ mod tests {
         assert_eq!(inflate(&dynamic, MOST).unwrap(), long.as_bytes());
         assert!(inflate(&dynamic, 100).is_err());
         assert!(inflate(&fixed[..10], MOST).is_err());
+    }
+
+    #[test]
+    fn a_zip_entry_is_checked_against_its_crc() {
+        assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
+        let meta = b"EU4txt
+date=1444.11.11
+player=\"FRA\"
+";
+        let mut file = zip(b"meta", 0, crc32(meta), meta, meta.len());
+        assert_eq!(zip_entry(&mut Cursor::new(&file), b"meta").unwrap(), meta);
+        let at = file.windows(6).position(|w| w == b"EU4txt").unwrap();
+        file[at + 6] = b'X';
+        assert!(zip_entry(&mut Cursor::new(&file), b"meta").unwrap_err().contains("CRC"));
     }
 
     #[test]
