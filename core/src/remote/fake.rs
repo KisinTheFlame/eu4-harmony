@@ -1,8 +1,9 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, countries, provinces, session, texts};
+use super::{armies, camera, countries, provinces, screenshot, session, texts};
 use crate::game::{self, fail, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A tag as the game keeps it: the letters, the index, kind 0, valid.
@@ -34,6 +35,9 @@ pub struct Fake {
     pub delay: Duration,
     /// The army's route.
     pub route: Vec<u32>,
+    /// The screenshot asked for, taken or not; a 2x1 image taken at once
+    /// when None.
+    pub shot: Option<Arc<game::screenshot::Shot>>,
 }
 
 impl Fake {
@@ -205,5 +209,19 @@ impl camera::Layer for Fake {
             return fail(Status::InvalidArgument, "the height is from 50 to 3000");
         }
         Ok(game::camera::Camera { height, ..view() })
+    }
+}
+
+impl screenshot::Layer for Fake {
+    fn screenshot(&mut self, percent: u32) -> GResult<Arc<game::screenshot::Shot>> {
+        self.call(format!("screenshot {percent}"));
+        if !(1..=100).contains(&percent) {
+            return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
+        }
+        Ok(self.shot.clone().unwrap_or_else(|| {
+            let shot = game::screenshot::Shot::new(percent);
+            shot.finish(Ok(game::screenshot::Image { png: vec![0x89, b'P', b'N', b'G'], width: 2, height: 1, frame_width: 2, frame_height: 1 }));
+            shot
+        }))
     }
 }

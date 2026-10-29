@@ -231,6 +231,12 @@ fn files_after_the_first_are_numbered() {
 }
 
 #[test]
+fn the_usage_names_the_files_as_they_are_written() {
+    let files: Vec<String> = (1..=3).map(|n| numbered(Path::new("shot.png"), n).display().to_string()).collect();
+    assert!(usage().contains(&format!("({}, then {}, {}...)", files[0], files[1], files[2])), "{}", usage());
+}
+
+#[test]
 fn asks_the_game_down_its_pipe() {
     let name = pipe_name("game-asks");
     let served = serve_one(&name, |pipe, line| {

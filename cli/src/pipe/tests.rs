@@ -153,6 +153,40 @@ fn reads_an_answer_that_comes_in_pieces() {
     served.join().unwrap();
 }
 
+/// A line is searched for its break one piece at a time: the bytes before a
+/// piece are never searched again, which kept a screenshot of several
+/// megabytes from taking time in proportion to its square.
+#[test]
+fn only_the_new_piece_of_a_line_is_searched() {
+    let mut line = Line { bytes: b"before\n".to_vec() };
+    assert_eq!(line.add(b"more"), None, "the bytes before the piece were searched");
+
+    let mut line = Line::default();
+    assert_eq!(line.add(b"{\"ok\":"), None);
+    assert_eq!(line.add(b"true}\r"), None);
+    assert_eq!(line.add(b"\nleft over").as_deref(), Some(&b"{\"ok\":true}"[..]));
+    assert_eq!(Line::default().add(b"one piece\n").as_deref(), Some(&b"one piece"[..]));
+    assert_eq!(Line::default().add(b"\n").as_deref(), Some(&b""[..]));
+}
+
+#[test]
+fn reads_an_answer_of_several_megabytes() {
+    let name = pipe_name("megabytes");
+    let whole = format!("{{\"ok\":true,\"result\":{{\"media_type\":\"image/png\",\"base64\":\"{}\"}}}}", "A".repeat(12 << 20));
+    let sent = whole.clone();
+    let served = serve_one(&name, move |pipe, _| {
+        for piece in sent.as_bytes().chunks(4096) {
+            { pipe }.write_all(piece).unwrap();
+        }
+        answer(pipe, "\r\n");
+    });
+    let mut client = connect_to(&name);
+    let started = Instant::now();
+    assert!(client.ask("{\"capability\":\"screenshot\"}", Some(started + PLENTY)).unwrap() == whole);
+    eprintln!("12 MiB answer read in {:?}", started.elapsed());
+    served.join().unwrap();
+}
+
 #[test]
 fn waits_for_the_pipe_to_open() {
     let name = pipe_name("late");

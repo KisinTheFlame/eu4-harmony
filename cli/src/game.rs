@@ -293,8 +293,9 @@ options:
                        never runs. Without it the pipe is waited for {} s, and
                        the answer as long as it takes.
   --out <file>         Writes bytes in the answer, such as a screenshot, to the
-                       file (more of them to <file>-2 and so on) and prints
-                       the file in their place.
+                       file, more of them to its name numbered before the
+                       extension (shot.png, then shot-2.png, shot-3.png...),
+                       and prints the files in their place.
   --compact            Prints the JSON on one line.
 
 exit codes:

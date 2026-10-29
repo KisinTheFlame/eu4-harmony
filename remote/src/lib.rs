@@ -192,6 +192,8 @@ groups! {
     Army(armies::ArmyRequest, ArmyAnswer),
     /// Texts and the player language.
     Text(texts::TextRequest, TextAnswer),
+    /// The frame the player sees, as an image.
+    Screenshot(screenshot::ScreenshotRequest, ScreenshotAnswer),
     /// The events remote control keeps.
     Events(events::EventsRequest, EventsAnswer),
     /// The capabilities, described.

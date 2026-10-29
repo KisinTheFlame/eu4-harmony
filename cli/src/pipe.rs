@@ -203,7 +203,7 @@ impl Client {
     /// The next line, without its line break. The pipe is looked at until
     /// bytes are there, so that the wait can end at the deadline.
     fn read_line(&mut self, deadline: Option<Instant>) -> Result<String, Failure> {
-        let mut line = Vec::new();
+        let mut line = Line::default();
         let mut chunk = vec![0u8; CHUNK];
         loop {
             let mut available = 0u32;
@@ -223,15 +223,33 @@ impl Client {
             if read == 0 {
                 return Err(Failure::Broken);
             }
-            line.extend_from_slice(&chunk[..read]);
-            if let Some(end) = line.iter().position(|&b| b == b'\n') {
-                line.truncate(end);
-                if line.last() == Some(&b'\r') {
-                    line.pop();
-                }
+            if let Some(line) = line.add(&chunk[..read]) {
                 return String::from_utf8(line).map_err(|_| Failure::Io(io::Error::new(io::ErrorKind::InvalidData, "the answer is not UTF-8")));
             }
         }
+    }
+}
+
+/// A line read in pieces.
+#[derive(Default)]
+struct Line {
+    bytes: Vec<u8>,
+}
+
+impl Line {
+    /// Adds the next piece; the whole line, without its line break, once a
+    /// piece ends it. Only the new piece is searched for the line break, so
+    /// a line of several megabytes, such as a screenshot, costs time in
+    /// proportion to its length, not to its square.
+    fn add(&mut self, piece: &[u8]) -> Option<Vec<u8>> {
+        let end = piece.iter().position(|&b| b == b'\n');
+        self.bytes.extend_from_slice(&piece[..end.unwrap_or(piece.len())]);
+        end?;
+        let mut line = std::mem::take(&mut self.bytes);
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        Some(line)
     }
 }
 

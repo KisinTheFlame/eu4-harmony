@@ -39,7 +39,16 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
-windows = { workspace = true, features = ["Win32_Foundation", "Win32_Graphics_DirectWrite", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_Direct3D9"] }
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_Direct3D9",
+    # Screenshots: scaled and encoded as PNG with Windows' own imaging.
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+] }
 
 # Reading the game's code (src/analysis.rs, the disasm example). Tests use it
 # too, through the dev-dependency below.
