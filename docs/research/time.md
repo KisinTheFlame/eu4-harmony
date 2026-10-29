@@ -22,7 +22,9 @@ The map manager's pause state is at `map_manager+0x418` (the manager's method at
 
 ## Stopping on a date
 
-Since one day is posted a frame and the frame checks the pause before posting, pausing as soon as the daily update returns with the date reached means no further day begins. `game::time` pauses there, after `0x758430` (an `after` observer on the existing daily update point), when remote control's advance holds a stop at that date. Tested: see the log.
+Since one day is posted a frame and the frame checks the pause before posting, pausing as soon as the daily update returns with the date reached means no further day begins. `game::time` pauses there, after `0x758430` (an `after` observer on the existing daily update point), when remote control's advance holds a stop at that date, and also when a game event's window came up during the day while an advance runs.
+
+Pausing at a safe point instead is a day late at speed 5. Tested: an advance that paused the game at the safe point where it found a game event's window answered 1470.9.22, and the game then stood at 1470.9.23: the next day had been posted before the safe point and ran after it. With the pause at the end of the daily update, an advance of 30 days at speed 5 stopped on its date.
 
 ## Game events waiting for an answer
 

@@ -142,8 +142,12 @@ pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
 /// events and offers capabilities.
 pub fn game_events_waiting(_: Caller) -> GResult<usize> {
     let m = game()?;
-    let ctx = context(m)?;
-    let manager = map_manager(m, &ctx)?;
+    event_windows(m, &context(m)?)
+}
+
+/// The event windows open among the map manager's popups.
+fn event_windows(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+    let manager = map_manager(m, ctx)?;
     let mut node = m.ptr(manager + POPUPS)?;
     let mut waiting = 0;
     for _ in 0..MAX_POPUPS {
@@ -224,17 +228,24 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
 }
 
 /// After the daily update (`events`' observer): pauses the game when a stop's
-/// date is reached, so that the next frame begins no other day.
+/// date is reached, or when a game event came up on the day while an advance
+/// runs, so that the next frame begins no other day.
 pub(super) fn day_passed(m: &Memory) {
     if crate::saves::load_in_progress() {
         return;
     }
     let Ok(ctx) = context_any(m) else { return };
-    if reach(ctx.date) {
+    let due = reach(ctx.date) || (advancing() && event_windows(m, &ctx).is_ok_and(|open| open > 0));
+    if due {
         if let Err(e) = pause_game(m, &ctx) {
-            log!("time: cannot pause at the date: {}", e.message);
+            log!("time: cannot pause the advance: {}", e.message);
         }
     }
+}
+
+/// Whether an advance holds a stop it has not reached.
+fn advancing() -> bool {
+    stops(|s| s.dates.iter().any(|&(_, _, reached, _)| !reached))
 }
 
 /// Whether `date` reaches a stop not reached before; each is reached once,
@@ -337,6 +348,13 @@ mod tests {
         second.release();
         third.release();
         assert!(stops(|s| s.dates.is_empty()));
+
+        // Only a stop not reached yet is an advance running.
+        assert!(!advancing());
+        let running = stop_at(Caller::Remote, 500).unwrap();
+        assert!(advancing());
+        running.release();
+        assert!(!advancing());
 
         // Given up before its date, an advance calls the stop off: the game
         // pauses at the end of the next day, and the stop goes.
