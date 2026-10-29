@@ -93,6 +93,10 @@ impl Action {
     }
 }
 
+/// How remote clients and extensions name a declaration of war without a
+/// casus belli, where they name a casus belli by its key.
+pub const NO_CASUS_BELLI: &str = "none";
+
 /// A war goal the game offers the player for a declaration of war, as the
 /// declare war dialog lists it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

@@ -4,7 +4,7 @@
 //! [`WAITED`] as `pending`.
 use super::{countries, tag, Live, Outcome as Ran, Poll, Wait};
 use crate::game::{
-    diplomacy::{self as layer, Answer, Choice, Ticket},
+    diplomacy::{self as layer, Answer, Choice, Ticket, NO_CASUS_BELLI as NONE},
     Caller, GResult, Tag,
 };
 use eu4_harmony_remote::{
@@ -48,9 +48,6 @@ impl Layer for Live {
         layer::answer(Caller::Remote, ticket)
     }
 }
-
-/// The casus belli a client names for declaring war without one.
-const NONE: &str = "none";
 
 pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer + ?Sized)) -> Ran {
     let sent = match request {

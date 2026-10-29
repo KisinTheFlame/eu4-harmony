@@ -1,0 +1,5 @@
+[
+  {"casus_belli": "cb_claim", "war_goal": "take_claim", "province": 151, "target": null, "name": "征服君士坦丁堡"},
+  {"casus_belli": "cb_restore_personal_union", "war_goal": "take_capital_personal_union", "province": null, "target": 72057735777769794, "name": "Restore the Union with Byzantium"},
+  {"casus_belli": "none", "war_goal": null, "province": null, "target": null, "name": "No Casus Belli"}
+]

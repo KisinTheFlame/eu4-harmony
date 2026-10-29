@@ -11,7 +11,7 @@ use crate::{
         armies::{self, RouteSource},
         events, interface,
         map_coloring::{self, MapColor},
-        countries, offers, provinces, questions, save_data, texts, time, Caller, Status, Tag,
+        countries, diplomacy, offers, provinces, questions, save_data, texts, time, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -543,6 +543,76 @@ unsafe extern "C" fn h_offer_answer(ptr: *mut c_void, id: u32, accept: u8) -> i3
     capability(ptr, |caller| Ok(offers::answer(caller, id, accept != 0)?))
 }
 
+/// The war goals offered, as the JSON `abi::GameApi::war_goals` describes.
+fn war_goals_json(goals: &[diplomacy::WarGoal]) -> serde_json::Value {
+    let goal = |g: &diplomacy::WarGoal| {
+        serde_json::json!({
+            "casus_belli": g.casus_belli.as_deref().unwrap_or(diplomacy::NO_CASUS_BELLI),
+            "war_goal": g.war_goal,
+            "province": g.province,
+            "target": g.target.map(|t| t.0),
+            "name": g.name,
+        })
+    };
+    serde_json::Value::Array(goals.iter().map(goal).collect())
+}
+
+unsafe extern "C" fn h_war_goals(ptr: *mut c_void, country: u64, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| list_out(war_goals_json(&diplomacy::war_goals(caller, Tag(country))?).to_string().as_bytes(), buf, cap, len))
+}
+
+/// A diplomatic action's ticket, for a `ticket` that may be null.
+unsafe fn ticket_out(ticket: *mut u64, sent: diplomacy::Ticket) -> HResult<()> {
+    if !ticket.is_null() {
+        *ticket = sent.0;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe extern "C" fn h_declare_war(
+    ptr: *mut c_void,
+    country: u64,
+    casus_belli: *const u8,
+    casus_belli_len: usize,
+    war_goal: *const u8,
+    war_goal_len: usize,
+    province: u32,
+    target: u64,
+    ticket: *mut u64,
+) -> i32 {
+    capability(ptr, |caller| {
+        let casus_belli = match utf8(casus_belli, casus_belli_len)? {
+            "" => return failure(abi::INVALID_ARGUMENT, format!("no casus belli: name one by its key, or {}", diplomacy::NO_CASUS_BELLI)),
+            diplomacy::NO_CASUS_BELLI => None,
+            key => Some(key.to_string()),
+        };
+        let war_goal = Some(utf8(war_goal, war_goal_len)?).filter(|w| !w.is_empty()).map(str::to_string);
+        let choice = diplomacy::Choice { casus_belli, war_goal, province: (province != 0).then_some(province), target: (target != 0).then_some(Tag(target)) };
+        ticket_out(ticket, diplomacy::declare_war(caller, Tag(country), &choice)?)
+    })
+}
+
+unsafe extern "C" fn h_offer_peace(ptr: *mut c_void, country: u64, ticket: *mut u64) -> i32 {
+    capability(ptr, |caller| ticket_out(ticket, diplomacy::offer_peace(caller, Tag(country))?))
+}
+
+unsafe extern "C" fn h_propose_alliance(ptr: *mut c_void, country: u64, ticket: *mut u64) -> i32 {
+    capability(ptr, |caller| ticket_out(ticket, diplomacy::propose_alliance(caller, Tag(country))?))
+}
+
+unsafe extern "C" fn h_diplomacy_answer(ptr: *mut c_void, ticket: u64, o: *mut u32) -> i32 {
+    capability(ptr, |caller| {
+        let answer = match diplomacy::answer(caller, diplomacy::Ticket(ticket))? {
+            diplomacy::Answer::Pending => abi::DIPLOMACY_PENDING,
+            diplomacy::Answer::Accepted => abi::DIPLOMACY_ACCEPTED,
+            diplomacy::Answer::Declined => abi::DIPLOMACY_DECLINED,
+            diplomacy::Answer::Declared(_) => abi::DIPLOMACY_DECLARED,
+        };
+        out(o, answer)
+    })
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -590,6 +660,11 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         question_answer: h_question_answer,
         offers: h_offers,
         offer_answer: h_offer_answer,
+        war_goals: h_war_goals,
+        declare_war: h_declare_war,
+        offer_peace: h_offer_peace,
+        propose_alliance: h_propose_alliance,
+        diplomacy_answer: h_diplomacy_answer,
     }
 }
 
@@ -834,6 +909,7 @@ mod tests {
     /// The snapshots the SDK's tests read (ADR 0018).
     const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
     const COUNTRY_JSON: &str = include_str!("../../abi/json/country.json");
+    const WAR_GOALS_JSON: &str = include_str!("../../abi/json/war_goals.json");
 
     /// Constantinople as the engine's fake game has it, every kind of unit
     /// in it, is written as the same JSON value as the file holds: the same
@@ -876,5 +952,24 @@ mod tests {
         assert_eq!(questions_json(&[question]), serde_json::from_str::<serde_json::Value>(QUESTIONS_JSON).unwrap());
         let offer = offers::Offer { id: 3, from: crate::remote::fake::byz(), date: 0x035D_7710, title: "皇室联姻".into(), description: "A royal marriage.".into() };
         assert_eq!(offers_json(&[offer]), serde_json::from_str::<serde_json::Value>(OFFERS_JSON).unwrap());
+    }
+
+    /// War goals with a province, with a country and of none are written as
+    /// the same JSON value as the file holds, as a province's snapshot is.
+    #[test]
+    fn the_war_goals_offered_are_written_as_the_abi_says() {
+        let goal = |cb: Option<&str>, wg: Option<&str>, province, target, name: &str| diplomacy::WarGoal {
+            casus_belli: cb.map(str::to_string),
+            war_goal: wg.map(str::to_string),
+            province,
+            target,
+            name: name.into(),
+        };
+        let goals = [
+            goal(Some("cb_claim"), Some("take_claim"), Some(151), None, "征服君士坦丁堡"),
+            goal(Some("cb_restore_personal_union"), Some("take_capital_personal_union"), None, Some(crate::remote::fake::byz()), "Restore the Union with Byzantium"),
+            goal(None, None, None, None, "No Casus Belli"),
+        ];
+        assert_eq!(war_goals_json(&goals), serde_json::from_str::<serde_json::Value>(WAR_GOALS_JSON).unwrap());
     }
 }
