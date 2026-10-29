@@ -217,8 +217,10 @@ pub struct MapColor {
 /// Where the map camera looks and how high it is. A map position is a pixel
 /// of the province map (`map/provinces.bmp`): `x` from its left edge, `y`
 /// from its bottom edge, as `map/positions.txt` writes them; a height is in
-/// the same unit, above the map's base plane.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// the same unit, above the map's base plane. Its default is the unmodded
+/// game's heights, 50 to 3000, at 1000, looking at the map's corner, as
+/// [`FakeGame`](crate::testing::FakeGame)'s camera starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Camera {
     /// The map position at the middle of the view.
     pub x: u32,
@@ -230,6 +232,14 @@ pub struct Camera {
     /// game keeps it higher than the lowest.
     pub min_height: u32,
     pub max_height: u32,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        // `NFrontend.CAMERA_MIN_HEIGHT` and `CAMERA_MAX_HEIGHT` in the
+        // unmodded game's `common/defines.lua`.
+        Self { x: 0, y: 0, height: 1000, province: None, min_height: 50, max_height: 3000 }
+    }
 }
 
 impl From<abi::Camera> for Camera {

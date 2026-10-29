@@ -39,6 +39,7 @@ pub struct Element {
     pub tooltip: Option<String>,
 }
 
+#[derive(Default)]
 pub struct FakeGame {
     pub session: Session,
     pub tags: HashMap<CountryId, String>,
@@ -71,7 +72,7 @@ pub struct FakeGame {
     pub texts: BTreeMap<String, String>,
     /// The map camera, which the camera's moves change; a zoom outside its
     /// `min_height` to `max_height` is refused. It starts at the unmodded
-    /// game's heights, 50 to 3000, looking from 1000.
+    /// game's heights, 50 to 3000, looking from 1000 ([`Camera`]'s default).
     pub camera: Camera,
     /// While set, the camera's moves are refused, as the core refuses them
     /// while the game holds the camera: after their arguments are checked.
@@ -129,49 +130,6 @@ pub struct FakeGame {
     /// checks refuse one: a declaration of war once its war goal is offered,
     /// before the allies named are checked, as the core asks them.
     pub reject_diplomacy: Option<String>,
-}
-
-impl Default for FakeGame {
-    fn default() -> Self {
-        Self {
-            camera: Camera { height: 1000, min_height: 50, max_height: 3000, ..Camera::default() },
-            camera_locked: false,
-            session: Default::default(),
-            tags: Default::default(),
-            hostile: Default::default(),
-            provinces: Default::default(),
-            neighbors: Default::default(),
-            own_armies: Default::default(),
-            province_armies: Default::default(),
-            routes_of_armies: Default::default(),
-            closed: Default::default(),
-            closed_straits: Default::default(),
-            protected: Default::default(),
-            routes: Default::default(),
-            reject_orders: Default::default(),
-            selected: Default::default(),
-            elements: Default::default(),
-            map: Default::default(),
-            save_data: Default::default(),
-            commands: Default::default(),
-            language: Default::default(),
-            texts: Default::default(),
-            province_positions: Default::default(),
-            province_snapshots: Default::default(),
-            console_commands: Default::default(),
-            console_output: Default::default(),
-            countries: Default::default(),
-            speed: Default::default(),
-            end_date: Default::default(),
-            questions: Default::default(),
-            offers: Default::default(),
-            war_goals: Default::default(),
-            allies: Default::default(),
-            diplomacy: Default::default(),
-            diplomacy_answers: Default::default(),
-            reject_diplomacy: Default::default(),
-        }
-    }
 }
 
 fn not_found(what: impl Into<String>) -> Error {
