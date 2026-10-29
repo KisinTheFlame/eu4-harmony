@@ -1,0 +1,635 @@
+//! The engine driven with typed requests, a fake game behind the capability
+//! layer's traits.
+use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
+use super::*;
+use eu4_harmony_remote::{
+    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest,
+    menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest,
+    session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+};
+use serde_json::{json, Value};
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+
+thread_local! {
+    static LOG: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+fn remember(line: &str) {
+    LOG.with(|l| l.borrow_mut().push(line.to_string()));
+}
+
+fn log() -> Vec<String> {
+    LOG.with(|l| l.borrow().clone())
+}
+
+const PLENTY: Duration = Duration::from_secs(10);
+
+/// What came back for a reply, in JSON; null when nothing came yet.
+fn answer(reply: &Reply) -> Value {
+    reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
+}
+
+fn ok(result: Value) -> Value {
+    json!({"ok": true, "result": result})
+}
+
+fn error(code: &str) -> impl Fn(&Value) -> bool + '_ {
+    move |v: &Value| v["ok"] == false && v["error"]["code"] == code
+}
+
+fn army(id: u64) -> ArmyId {
+    ArmyId(id)
+}
+
+fn province(id: u32) -> ProvinceId {
+    ProvinceId(id)
+}
+
+#[test]
+fn every_capability_runs_at_a_game_frame() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let snapshot = json!({
+        "id": ARMY.to_string(), "owner": "TUR", "province": 149, "land": true, "in_battle": false, "sieging": false, "retreating": false,
+        "exiled": false, "movement_locked": false, "attached": false, "has_followers": false, "busy": false, "regiments": 12,
+        "route_len": 0, "destination": null, "route_source": "none",
+    });
+    let fleet = json!({
+        "id": FLEET.to_string(), "owner": "TUR", "province": null, "land": false, "in_battle": false, "sieging": false, "retreating": false,
+        "exiled": false, "movement_locked": false, "attached": false, "has_followers": false, "busy": false, "regiments": 0,
+        "route_len": 0, "destination": null, "route_source": "none",
+    });
+    let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "land": true, "lake": false, "impassable": false, "visible": true, "owner": owner, "controller": controller});
+    let cases: Vec<(Request, Box<dyn Fn(&Value) -> bool>)> = vec![
+        (
+            Request::Session(SessionRequest::Get {}),
+            Box::new(|v: &Value| *v == ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
+        ),
+        (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
+        (Request::Time(TimeRequest::Speed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Time(TimeRequest::Resume {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Time(TimeRequest::Pause {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        // An advance answers at once when it cannot run; time::tests has the rest.
+        (Request::Time(TimeRequest::Advance { days: 0, speed: None }), Box::new(error("invalid_argument"))),
+        (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"TUR"), other: CountryTag(*b"BYZ") }), Box::new(|v: &Value| *v == ok(json!(true)))),
+        (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"BYZ"), other: CountryTag(*b"TUR") }), Box::new(|v: &Value| *v == ok(json!(false)))),
+        (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"TUR"), other: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),
+        (
+            Request::Country(CountryRequest::Get { country: CountryTag(*b"TUR") }),
+            Box::new(|v: &Value| {
+                *v == ok(json!({
+                    "tag": "TUR", "treasury": 125.5, "manpower": 22600, "max_manpower": 30250, "stability": 1.0, "prestige": -12.345,
+                    "power": {"adm": 50, "dip": 60, "mil": 70},
+                    "wars": [{"name": "Ottoman Conquest of Constantinople", "attackers": ["TUR", "WAL"], "defenders": ["BYZ"]}],
+                    "relations": [{"kind": "subject", "country": "WAL", "subject_type": "vassal"}, {"kind": "rival", "country": "BYZ"}],
+                }))
+            }),
+        ),
+        (Request::Country(CountryRequest::Get { country: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),
+        (
+            Request::Province(ProvinceRequest::List {}),
+            Box::new(move |v: &Value| *v == ok(json!([province_json(149, "TUR", "TUR"), province_json(151, "BYZ", "TUR")]))),
+        ),
+        (
+            Request::Province(ProvinceRequest::Neighbors { province: province(149) }),
+            Box::new(|v: &Value| *v == ok(json!([{"province": 151, "strait": false}, {"province": 316, "strait": true}]))),
+        ),
+        (Request::Province(ProvinceRequest::Get { province: province(151) }), Box::new(|v: &Value| v["result"]["name"] == "君士坦丁堡")),
+        (Request::Province(ProvinceRequest::Get { province: province(1) }), Box::new(error("not_found"))),
+        (
+            Request::Army(ArmyRequest::Get { army: army(ARMY) }),
+            Box::new({
+                let snapshot = snapshot.clone();
+                move |v: &Value| *v == ok(snapshot.clone())
+            }),
+        ),
+        (
+            Request::Army(ArmyRequest::Get { army: army(FLEET) }),
+            Box::new({
+                let fleet = fleet.clone();
+                move |v: &Value| *v == ok(fleet.clone())
+            }),
+        ),
+        (Request::Army(ArmyRequest::Get { army: army(1) }), Box::new(error("not_found"))),
+        (Request::Army(ArmyRequest::List {}), Box::new(move |v: &Value| *v == ok(json!([snapshot, fleet])))),
+        (
+            Request::Army(ArmyRequest::InProvince { province: province(151) }),
+            Box::new(|v: &Value| {
+                let a = &v["result"][0];
+                a["id"] == ENEMY.to_string() && a["owner"] == "BYZ" && a["province"] == 151 && a["sieging"] == true && a["route_source"] == "extension"
+            }),
+        ),
+        (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),
+        (Request::Army(ArmyRequest::CanEnter { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(json!(true)))),
+        (Request::Army(ArmyRequest::StraitOpen { army: army(ARMY), from: province(149), to: province(316) }), Box::new(|v: &Value| *v == ok(json!(false)))),
+        (Request::Army(ArmyRequest::CanAttack { army: army(ARMY), target: army(ENEMY), province: province(151) }), Box::new(|v: &Value| *v == ok(json!(true)))),
+        (Request::Army(ArmyRequest::FindRoute { army: army(ARMY), goal: province(151) }), Box::new(|v: &Value| *v == ok(json!([150, 151])))),
+        (Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([150, 151])))),
+        (
+            Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(1) }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "no route to 1"),
+        ),
+        (Request::Army(ArmyRequest::Stop { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),
+        (Request::Army(ArmyRequest::Selected {}), Box::new(error("not_found"))),
+        (Request::Text(TextRequest::Language {}), Box::new(|v: &Value| *v == ok(json!("simp_chinese")))),
+        (Request::Console(ConsoleRequest::Run { command: "cash 100".into() }), Box::new(|v: &Value| *v == ok(json!("Gold changed by 100")))),
+        (
+            Request::Console(ConsoleRequest::Run { command: "cahs 100".into() }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "Unknown command"),
+        ),
+        (
+            Request::Screenshot(ScreenshotRequest::Take { scale: Some(50) }),
+            Box::new(|v: &Value| *v == ok(json!({"image": {"media_type": "image/png", "base64": "iVBORw=="}, "width": 2, "height": 1, "frame_width": 2, "frame_height": 1}))),
+        ),
+        (
+            Request::Question(QuestionRequest::List {}),
+            Box::new(|v: &Value| {
+                *v == ok(json!([{
+                    "id": 7, "event": "flavor_tur.1", "title": "The Janissaries", "description": "Our elite troops ask for more.",
+                    "deadline": "1445.3.11", "options": [{"option": 0, "text": "Pay them"}, {"option": 2, "text": "Refuse"}],
+                }]))
+            }),
+        ),
+        (Request::Question(QuestionRequest::Answer { question: 7, option: 2 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Question(QuestionRequest::Answer { question: 7, option: 1 }), Box::new(error("rejected"))),
+        (Request::Question(QuestionRequest::Answer { question: 8, option: 0 }), Box::new(error("not_found"))),
+        (
+            Request::Offer(OfferRequest::List {}),
+            Box::new(|v: &Value| {
+                *v == ok(json!([{"id": 3, "from": "BYZ", "date": "1444.11.11", "title": "Royal Marriage", "description": "皇室联姻"}]))
+            }),
+        ),
+        (Request::Offer(OfferRequest::Accept { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Offer(OfferRequest::Decline { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Offer(OfferRequest::Decline { offer: 4 }), Box::new(error("not_found"))),
+        (
+            Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }),
+            Box::new(|v: &Value| *v == ok(json!({"process": process(), "events": [], "last": 0, "missed": false}))),
+        ),
+        (
+            Request::Camera(CameraRequest::Get {}),
+            Box::new(|v: &Value| *v == ok(json!({"x": 3248, "y": 1376, "height": 800, "province": 149, "min_height": 50, "max_height": 3000}))),
+        ),
+        (Request::Camera(CameraRequest::LookAtProvince { province: province(151) }), Box::new(|v: &Value| v["result"]["province"] == 151 && v["result"]["x"] == 3270)),
+        (Request::Camera(CameraRequest::LookAtProvince { province: province(1) }), Box::new(error("not_found"))),
+        (Request::Camera(CameraRequest::LookAt { x: 100, y: 200 }), Box::new(|v: &Value| v["result"]["x"] == 100 && v["result"]["y"] == 200 && v["result"]["province"].is_null())),
+        (Request::Camera(CameraRequest::LookAt { x: 6000, y: 200 }), Box::new(error("invalid_argument"))),
+        (Request::Camera(CameraRequest::Zoom { height: 1200 }), Box::new(|v: &Value| v["result"]["height"] == 1200 && v["result"]["province"] == 149)),
+        (Request::Camera(CameraRequest::Zoom { height: 10 }), Box::new(error("invalid_argument"))),
+        (Request::Recruit(RecruitRequest::Recruit { province: province(149), kind: UnitKind::Infantry }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Recruit(RecruitRequest::Recruit { province: province(151), kind: UnitKind::Cavalry }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "君士坦丁堡不是我们的领土"),
+        ),
+        (Request::Recruit(RecruitRequest::Recruit { province: province(1), kind: UnitKind::Galley }), Box::new(error("not_found"))),
+        (Request::Diplomacy(DiplomacyRequest::WarGoals { country: CountryTag(*b"BYZ") }), Box::new(|v: &Value| v["result"][1]["casus_belli"] == "none")),
+        (
+            Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None }),
+            Box::new(error("rejected")),
+        ),
+        (Request::Diplomacy(DiplomacyRequest::OfferPeace { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
+        (Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
+        (
+            Request::Describe(DescribeRequest::All {}),
+            Box::new(|v: &Value| v["result"].as_array().map(Vec::len) == Some(capabilities().len()) && v["result"][0]["capability"] == "session"),
+        ),
+        (Request::Menu(MenuRequest::State {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "game"})))),
+        (
+            Request::Menu(MenuRequest::Saves {}),
+            Box::new(|v: &Value| {
+                *v == ok(json!([{
+                    "name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000, "player": "TUR", "date": "1444.11.11", "missing_mods": ["彼岸乐园"],
+                }]))
+            }),
+        ),
+        // A load and a start answer at the game's first frame after the one
+        // they ran at (a later test).
+        (Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }), Box::new(Value::is_null)),
+        (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(Value::is_null)),
+        (Request::Menu(MenuRequest::Return {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "ending"})))),
+    ];
+    // Every capability is among them.
+    let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();
+    let all: BTreeSet<String> = capabilities().iter().map(|c| c.name()).collect();
+    assert_eq!(asked, all);
+
+    let replies: Vec<Reply> = cases.iter().map(|(r, _)| engine.submit(r.clone())).collect();
+    assert!(replies.iter().all(|r| answer(r).is_null()), "nothing runs before a safe point");
+    engine.run(&mut game, &Place::Game, PLENTY);
+    for ((request, expected), reply) in cases.iter().zip(&replies) {
+        let got = answer(reply);
+        assert!(expected(&got), "{}: {got}", request.name());
+    }
+    // The layer was called with what the requests said, in their order.
+    let byz = format!("{:x}", fake::byz().0);
+    let tur = format!("{:x}", fake::tur().0);
+    for call in [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316"), "console cash 100".into()] {
+        assert!(game.calls.contains(&call), "{call} not in {:#?}", game.calls);
+    }
+    for call in ["look at province 151", "look at 100 200", "zoom 1200", "recruit 149 infantry", "recruit 151 cavalry", "recruit 1 galley"] {
+        assert!(game.calls.iter().any(|c| c == call), "{call} not in {:#?}", game.calls);
+    }
+    let moved = game.calls.iter().position(|c| *c == format!("move {ARMY} 151")).unwrap();
+    let stopped = game.calls.iter().position(|c| *c == format!("stop {ARMY}")).unwrap();
+    assert!(moved < stopped);
+    // Answers reach the layer as asked: an accept is not a decline.
+    assert_eq!(game.answered, [(7, 2), (3, 1), (3, 0)]);
+}
+
+#[test]
+fn a_province_snapshot_carries_its_name_s_characters_and_every_kind() {
+    let engine = Engine::new(remember);
+    let reply = engine.submit(Request::Province(ProvinceRequest::Get { province: province(151) }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    let recruit = |kind: &str, unit_type: Value, reasons: Value| json!({"kind": kind, "unit_type": unit_type, "allowed": false, "reasons": reasons});
+    let not_ours = json!(["君士坦丁堡不是我们的领土"]);
+    let expected = ok(json!({
+        "id": 151, "name": "君士坦丁堡", "owner": "BYZ", "controller": "BYZ",
+        "development": {"tax": 10.0, "production": 9.5, "manpower": 6.0},
+        "terrain": "farmlands", "fort": {"level": 2, "mothballed": false},
+        "buildings": ["fort_15th", "marketplace"],
+        "recruit": [
+            recruit("infantry", json!("eastern_medieval_infantry"), not_ours.clone()),
+            recruit("cavalry", json!("eastern_knights"), not_ours),
+            recruit("artillery", Value::Null, json!([])),
+            recruit("heavy_ship", json!("early_carrack"), json!([])),
+            recruit("light_ship", json!("early_war_galley"), json!([])),
+            recruit("galley", json!("galley"), json!([])),
+            recruit("transport", json!("cog"), json!([])),
+        ],
+    }));
+    assert_eq!(answer(&reply), expected);
+    // On the pipe the name is its characters, not escapes.
+    let line = response_json(&reply_again(&engine)).to_string();
+    assert!(line.contains(r#""name":"君士坦丁堡""#), "{line}");
+}
+
+/// The snapshot of 151 asked once more.
+fn reply_again(engine: &Engine) -> Response {
+    let reply = engine.submit(Request::Province(ProvinceRequest::Get { province: province(151) }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    reply.wait(Duration::ZERO).unwrap()
+}
+
+#[test]
+fn a_recruit_order_from_json_reaches_the_layer_with_its_kind() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let replies: Vec<Reply> = ["infantry", "cavalry", "artillery", "heavy_ship", "light_ship", "galley", "transport"]
+        .iter()
+        .map(|kind| engine.submit(eu4_harmony_remote::request_from_json(&json!({"capability": "recruit", "province": 149, "kind": kind}).to_string()).unwrap()))
+        .collect();
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(replies.iter().all(|r| answer(r) == ok(Value::Null)));
+    let keys: Vec<String> = game::provinces::UnitKind::ALL.iter().map(|k| format!("recruit 149 {}", k.key())).collect();
+    assert_eq!(game.calls, keys);
+    let unknown = eu4_harmony_remote::request_from_json(r#"{"capability": "recruit", "province": 149, "kind": "marines"}"#).unwrap_err();
+    assert_eq!(unknown.code, Code::BadRequest);
+}
+
+#[test]
+fn every_request_is_written_to_the_log() {
+    let engine = Engine::new(remember);
+    let reply = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(1) }));
+    let fine = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    assert!(answer(&reply)["ok"] == false && answer(&fine)["ok"] == true);
+    let lines = log();
+    let line = |text: &str| lines.iter().any(|l| l.contains(text));
+    assert!(line(&format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":1}}: rejected: no route to 1 in "#)), "{lines:#?}");
+    assert!(line(r#"{"capability":"session"}: ok in "#), "{lines:#?}");
+}
+
+#[test]
+fn outside_a_game_requests_that_need_one_wait_or_are_answered() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let session = engine.submit(Request::Session(SessionRequest::Get {}));
+    let language = engine.submit(Request::Text(TextRequest::Language {}));
+    let stop = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+
+    // While a game is being set up: what needs no game runs, the rest waits.
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert_eq!(answer(&language), ok(json!("simp_chinese")));
+    assert!(answer(&session).is_null() && answer(&stop).is_null());
+    assert_eq!(game.calls, ["language"]);
+
+    // In the main menu they are answered without the game being asked.
+    let menu = Place::Outside(Some(Error::new(Code::NotInGame, "no game is running")));
+    let later = engine.submit(Request::Army(ArmyRequest::List {}));
+    engine.run(&mut game, &menu, PLENTY);
+    for reply in [&session, &stop, &later] {
+        assert_eq!(answer(reply), json!({"ok": false, "error": {"code": "not_in_game", "message": "no game is running"}}));
+    }
+    assert_eq!(game.calls, ["language"]);
+}
+
+#[test]
+fn waiting_requests_keep_their_order_and_run_at_the_game_frame() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let moved = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }));
+    let stopped = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    let route = engine.submit(Request::Army(ArmyRequest::Route { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(game.calls, [format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("route {ARMY}")]);
+    assert_eq!((answer(&moved), answer(&stopped), answer(&route)), (ok(Value::Null), ok(Value::Null), ok(json!([]))));
+}
+
+#[test]
+fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
+    let engine = Engine::new(remember);
+    let mut game = Fake { delay: Duration::from_millis(20), ..Default::default() };
+    let replies: Vec<Reply> = (0..3).map(|_| engine.submit(Request::Session(SessionRequest::Get {}))).collect();
+    // At least one request runs, however small the budget, and once it is
+    // spent the rest wait for the next frame. (Each takes 20 ms at least,
+    // however loaded the machine, so the budget is spent after the first.)
+    engine.run(&mut game, &Place::Game, Duration::from_millis(1));
+    assert_eq!(game.calls.len(), 1);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(game.calls.len(), 3);
+    assert!(replies.iter().all(|r| answer(r)["ok"] == true));
+}
+
+#[test]
+fn a_request_given_up_before_it_runs_never_runs() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    drop(engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) })));
+    let kept = engine.submit(Request::Army(ArmyRequest::Route { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(game.calls, [format!("route {ARMY}")]);
+    assert_eq!(answer(&kept), ok(json!([])));
+    let given_up = format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":151}}: given up by its client before it ran"#);
+    assert!(log().iter().any(|l| l.contains(&given_up)), "{:#?}", log());
+}
+
+#[test]
+fn a_read_that_waits_is_answered_at_a_later_safe_point() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms), process: None });
+
+    let next = engine.submit(read(10_000));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert!(answer(&next).is_null());
+    // Requests behind it are not held up.
+    let language = engine.submit(Request::Text(TextRequest::Language {}));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(answer(&next).is_null());
+    assert_eq!(answer(&language)["ok"], true);
+
+    engine.record([Event::ArmyOrdered { army: army(ARMY) }]);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&next),
+        ok(json!({"process": process(), "events": [{"number": 1, "event": "army_ordered", "army": ARMY.to_string()}], "last": 1, "missed": false}))
+    );
+    assert!(log().iter().any(|l| l.contains("events: ok after ")));
+
+    // With something to read already, it answers at once; with nothing, when
+    // its time is up, in the main menu too.
+    let at_once = engine.submit(read(10_000));
+    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1), process: None }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert_eq!(answer(&at_once)["result"]["last"], 1);
+    std::thread::sleep(Duration::from_millis(5));
+    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "no game"))), PLENTY);
+    assert_eq!(answer(&short), ok(json!({"process": process(), "events": [], "last": 1, "missed": false})));
+
+    let too_long = engine.submit(read(events::LONGEST_WAIT + 1));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(error("invalid_argument")(&answer(&too_long)));
+
+    // A waiting read given up is dropped.
+    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000), process: None }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    drop(given_up);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(log().iter().any(|l| l.contains("events: given up by its client while it waited")));
+}
+
+#[test]
+fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
+    static ENGINE: Engine = Engine::new(remember);
+    let clients: Vec<_> = (0..4)
+        .map(|i| {
+            std::thread::spawn(move || {
+                let mut got = Vec::new();
+                for _ in 0..5 {
+                    let reply = ENGINE.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(200 + i) }));
+                    got.push(reply.wait(PLENTY).map(|r| response_json(&r)));
+                }
+                got
+            })
+        })
+        .collect();
+    let mut game = Fake::default();
+    while !clients.iter().all(|c| c.is_finished()) {
+        ENGINE.run(&mut game, &Place::Game, PLENTY);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    for client in clients {
+        assert!(client.join().unwrap().iter().all(|r| *r == Some(ok(Value::Null))));
+    }
+    assert_eq!(game.calls.len(), 20);
+}
+
+#[test]
+fn what_a_game_frame_tells_extensions_is_kept_as_events() {
+    let frame = game::Frame {
+        ctx: game::Ctx { world: 0, date: 0x035D_7710, player: fake::tur(), country: 0, countries: 0 },
+        session: 3,
+        new_session: true,
+        visibility_current: true,
+        changes: vec![game::events::Change::Ordered(ARMY), game::events::Change::Defeated(ARMY)],
+        new_day: true,
+    };
+    let engine = Engine::new(remember);
+    engine.record(happened(&frame));
+    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&read)["result"]["events"],
+        json!([
+            {"number": 1, "event": "session", "session": 3},
+            {"number": 2, "event": "army_ordered", "army": ARMY.to_string()},
+            {"number": 3, "event": "army_defeated", "army": ARMY.to_string()},
+            {"number": 4, "event": "day", "date": "1444.11.11"},
+        ])
+    );
+    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, ..frame };
+    assert!(happened(&quiet).is_empty());
+}
+
+#[test]
+fn the_layer_s_failures_keep_their_meaning() {
+    let cases = [
+        (game::Status::NotInGame, Code::NotInGame),
+        (game::Status::NotReady, Code::NotReady),
+        (game::Status::NotFound, Code::NotFound),
+        (game::Status::Rejected, Code::Rejected),
+        (game::Status::InvalidArgument, Code::InvalidArgument),
+        (game::Status::Unavailable, Code::Unavailable),
+        (game::Status::WrongContext, Code::Internal),
+        (game::Status::Internal, Code::Internal),
+    ];
+    for (status, code) in cases {
+        assert_eq!(Error::from(game::Fail { status, message: "why".into() }), Error::new(code, "why"));
+    }
+}
+
+#[test]
+fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let menu = Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open")));
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    // Asked for in the main menu; the main menu's frames go by while the
+    // game takes it up, then a save loads, with no safe point at all.
+    engine.run(&mut game, &menu, PLENTY);
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert!(answer(&load).is_null());
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&load),
+        ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))
+    );
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "session"]);
+
+    // A load that comes to another game than its save's says so.
+    let castile = engine.submit(Request::Menu(MenuRequest::Load { save: "Castilla-5".into() }));
+    engine.run(&mut game, &menu, PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&castile),
+        json!({"ok": false, "error": {"code": "rejected", "message": "the game did not load the save: it began a game of 1444.11.11 as TUR, where the save is of 1470.3.13 as CAS; that game is going on"}})
+    );
+
+    // What the game refuses is answered at once, or as soon as it says so.
+    let missing = engine.submit(Request::Menu(MenuRequest::Load { save: "missing".into() }));
+    let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
+    engine.run(&mut game, &menu, PLENTY);
+    assert!(error("not_found")(&answer(&missing)));
+    assert!(answer(&start).is_null());
+    *game.launch.lock().unwrap() = game::menu::Launch::Failed("the single player setup did not take the country".into());
+    engine.run(&mut game, &menu, PLENTY);
+    assert_eq!(answer(&start), json!({"ok": false, "error": {"code": "rejected", "message": "the single player setup did not take the country"}}));
+}
+
+#[test]
+fn a_load_or_start_whose_game_cannot_be_played_says_so_at_its_first_frame() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    // Every frame of the game that came fails: without this answer, they
+    // would wait until the process ends.
+    let unplayable = Place::Unplayable(Error::new(Code::NotInGame, "no controllable player"));
+    let session = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.run(&mut game, &unplayable, PLENTY);
+    for got in [answer(&load), answer(&start)] {
+        assert_eq!(got, json!({"ok": false, "error": {"code": "rejected", "message": "the game began, but the player cannot play it (no controllable player): menu says game, and it goes on"}}));
+    }
+    assert_eq!(answer(&session), json!({"ok": false, "error": {"code": "not_in_game", "message": "no controllable player"}}));
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "start FRA"]);
+}
+
+#[test]
+fn a_load_the_game_could_not_read_is_refused_though_a_game_comes() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    // The game's loader failed, and the game starts from what it read.
+    *game.launch.lock().unwrap() = game::menu::Launch::Failed("the game could not read the save".into());
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&load), json!({"ok": false, "error": {"code": "rejected", "message": "the game could not read the save"}}));
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11"]);
+}
+
+#[test]
+fn returning_to_the_main_menu_is_answered_before_the_process_ends() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let waiting = engine.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(10_000), process: None }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    let back = engine.submit(Request::Menu(MenuRequest::Return {}));
+    let after = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
+    // Until the game starts eu4.exe again, the process answers as before.
+    assert_eq!(answer(&after)["ok"], true);
+    // At the restart, whoever asked for the return (the player too), what
+    // waits or is queued is told the game starts again, at once, and so is
+    // whatever comes later: no safe point comes any more.
+    let queued = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.end(menu::ending(), Duration::ZERO);
+    let later = engine.submit(Request::Text(TextRequest::Language {}));
+    for got in [answer(&waiting), answer(&queued), answer(&later)] {
+        assert!(error("not_ready")(&got), "{got}");
+        assert!(got["error"]["message"].as_str().unwrap().contains("returning to the main menu"), "{got}");
+    }
+    assert_eq!(game.calls, ["return", "session"]);
+}
+
+#[test]
+fn a_return_needs_no_player() {
+    // Observing, where what needs a game is refused, the layer decides.
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let observing = Place::Outside(Some(Error::new(Code::NotInGame, "no controllable player")));
+    let session = engine.submit(Request::Session(SessionRequest::Get {}));
+    let back = engine.submit(Request::Menu(MenuRequest::Return {}));
+    engine.run(&mut game, &observing, PLENTY);
+    assert!(error("not_in_game")(&answer(&session)));
+    assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
+    assert_eq!(game.calls, ["return"]);
+}
+
+#[test]
+fn a_request_sent_in_one_session_never_runs_in_the_next() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    engine.enter(2);
+    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }));
+    let reads = engine.submit(Request::Text(TextRequest::Language {}));
+    // A save begins to load; what is sent while it loads is for the next.
+    engine.leave();
+    let new = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.enter(3);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    let old = answer(&old);
+    assert!(error("session_changed")(&old), "{old}");
+    assert_eq!(old["error"]["message"], "it was sent in session 2, which ended before it ran; this is session 3");
+    assert_eq!(answer(&reads)["ok"], true, "what needs no game has no session");
+    assert_eq!(answer(&new)["ok"], true);
+    assert_eq!(game.calls, ["language", "session"]);
+    // In the same session it runs, also after waiting outside a game frame.
+    let same = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&same), ok(Value::Null));
+}
+
+#[test]
+fn events_say_which_process_numbered_them() {
+    let engine = Engine::new(remember);
+    engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);
+    let read = |since, from| engine.submit(Request::Events(EventsRequest::Read { since: Some(since), wait_ms: Some(10_000), process: Some(from) }));
+    let (here, other) = (read(1, process()), read(1, process() - 1));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    // From this process, the events after since; from another, every event
+    // kept, at once, with missed: since meant something else there.
+    let (here, other) = (answer(&here), answer(&other));
+    assert_eq!(here["result"]["events"].as_array().map(Vec::len), Some(1));
+    assert_eq!(here["result"]["missed"], false);
+    assert_eq!(other["result"]["events"].as_array().map(Vec::len), Some(2));
+    assert_eq!(other["result"]["missed"], true);
+    assert_eq!(other["result"]["process"], process());
+}

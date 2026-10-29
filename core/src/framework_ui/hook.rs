@@ -2,9 +2,11 @@
 //! through a renderer object (its device at [`DEVICE`]) and
 //! wrappers; every frame ends in the Present wrapper at 0x16d4db0 (renderer),
 //! after the game's own EndScene. The framework draws its UI just before, in
-//! a scene of its own when there is anything to draw. Before a device reset
-//! the game calls 0x16d4bb0 (renderer), where the framework drops what lives
-//! in the default pool.
+//! a scene of its own when there is anything to draw, then reads the frame
+//! back when a screenshot asks for it (`crate::game::screenshot`). Before a
+//! device reset the game calls 0x16d4bb0 (renderer), where the framework
+//! drops what lives in the default pool. A frame the main thread presents is
+//! also a safe point (`crate::safe_point`).
 //!
 //! The device is created multithreaded (behaviour flags 0x44, seen in game):
 //! each call takes the device's lock, a sequence of calls does not. While the
@@ -28,11 +30,21 @@ static ORIGINAL_PRESENT: Function<Present> = Function::new();
 
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
+        // Inside a guard, as all framework code here: a panic must not
+        // unwind into the game.
+        let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));
         crate::guarded("framework UI frame", || {
-            if let Some(device) = crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()) {
-                super::frame(device as *mut c_void)
+            if let Some(device) = device {
+                super::frame(device)
             }
         });
+        // The frame as the player sees it, the framework UI included.
+        crate::guarded("screenshot", || {
+            if let Some(device) = device {
+                crate::game::screenshot::presenting(device)
+            }
+        });
+        crate::guarded("safe point", crate::safe_point::presented);
         crate::unicode::costs::log_when_due();
     }
     ORIGINAL_PRESENT.get()(renderer)
@@ -40,6 +52,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
 
 extern "C" fn before_reset(_frame: *mut HookFrame) {
     crate::guarded("framework UI device reset", super::device_reset);
+    crate::guarded("screenshot device reset", crate::game::screenshot::device_reset);
 }
 
 pub fn points() -> Vec<Point> {

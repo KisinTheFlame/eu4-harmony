@@ -1,10 +1,12 @@
 //! The campaign's objects: the world, countries, provinces and their map
-//! data, units and their routes, battles, commands and the map manager
-//! (docs/research/regional-combat/).
+//! data, units and their routes, battles, commands, the map manager, and the
+//! game's events and diplomatic actions waiting for the player's answer
+//! (docs/research/regional-combat/, docs/research/questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {
-    /// The world, the campaign's state; null when no campaign runs.
+    /// The world, the campaign's state. It is not null in the main menu
+    /// either, so it is no sign of a game (docs/research/safe-points.md).
     pub const WORLD: usize = 0x233fe78;
     /// The country manager.
     pub const COUNTRY_MANAGER: usize = 0x233d8d0;
@@ -17,6 +19,9 @@ pub mod globals {
     pub const IDLE_TASK: usize = 0x2340020;
     /// The normal movement policy route queries take (its vtable).
     pub const ROUTE_POLICY: usize = 0x1c3af98;
+    /// The game's end date, i32 (docs/research/time.md): past it, time
+    /// stands still unless the player plays on ([`super::world::PLAY_ON`]).
+    pub const END_DATE: usize = 0x1fc2328;
 }
 
 /// Classes, by vtable RVA.
@@ -27,6 +32,17 @@ pub mod classes {
     pub const IDLE_TASK: usize = 0x1d1e800;
     /// The movement commands the command dispatcher receives.
     pub const MOVE_COMMANDS: [usize; 2] = [0x1d1d3f8, 0x1d1da88];
+    /// The recruit command (see [`super::recruit_command`]).
+    pub const RECRUIT_COMMAND: usize = 0x1c4dff8;
+    /// A kind of regiment or ship (see [`super::unit_type`]); the placeholder
+    /// for none, `---`, has a class of its own.
+    pub const UNIT_TYPE: usize = 0x1ce3830;
+    pub const WAR: usize = 0x1d1f768;
+    /// A subject relation (see [`super::subject_relation`]).
+    pub const SUBJECT_RELATION: usize = 0x1c81758;
+    /// The window of one of the game's events, as the map manager shows it
+    /// to the player (see [`super::event_window`]).
+    pub const EVENT_WINDOW: usize = 0x1d590f8;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -44,10 +60,16 @@ pub mod tag {
 pub mod world {
     /// The date, i32 (docs/research/dates.md).
     pub const DATE: usize = 0x1dd0;
+    /// Nonzero once the player chose to play on past the end date
+    /// ([`super::globals::END_DATE`]), u8: set as the end-of-game summary
+    /// the end date shows is closed (docs/research/time.md).
+    pub const PLAY_ON: usize = 0x1dd8;
     /// The map manager.
     pub const MAP_MANAGER: usize = 0x1e00;
     /// Nonzero while the daily update runs, u8.
     pub const DAILY_UPDATE: usize = 0x1e10;
+    /// The game speed, i32: 0 for speed 1 to 4 for speed 5.
+    pub const SPEED: usize = 0x1e08;
     /// The player's country tag; while [`PLAYER_MODE`] is [`SWITCHED`] and
     /// [`PLAYER_SWITCHED`] is nonzero (u8 each), [`SWITCHED_PLAYER`] instead.
     pub const PLAYER: usize = 0x1e60;
@@ -59,12 +81,28 @@ pub mod world {
     pub const PROVINCES: usize = 0x1ca8;
     /// Nonzero while there is fog of war, u8.
     pub const FOG: usize = 0x23a6;
+    /// The wars going on: pointers to [`super::war`]s, and their count (i32).
+    pub const WARS: usize = 0x1e30;
+    pub const WAR_COUNT: usize = 0x1e3c;
+    /// The events shown to players and not answered yet: an array of
+    /// [`super::pending_event`]s, its data at [`PENDING_EVENTS`] and its
+    /// length (i32) at [`PENDING_EVENT_COUNT`].
+    pub const PENDING_EVENTS: usize = 0x1ea0;
+    pub const PENDING_EVENT_COUNT: usize = 0x1eac;
+    /// 0 in single player, i32.
+    pub const MULTIPLAYER: usize = 0x747c;
+    /// Set to 1 (i32) before the single player setup is entered to continue
+    /// a save (docs/research/main-menu.md).
+    pub const SETUP: usize = 0x23b4;
 }
 
 /// The country manager, at [`globals::COUNTRY_MANAGER`].
 pub mod countries {
-    /// The countries, pointers by tag index.
-    pub const LIST: usize = 0x118;
+    /// The countries: an array whose data, pointers by tag index, is at
+    /// [`LIST`] and whose length (i32) is at [`COUNT`].
+    pub const ARRAY: usize = 0x110;
+    pub const LIST: usize = ARRAY + 8;
+    pub const COUNT: usize = ARRAY + 0x14;
 }
 
 pub mod country {
@@ -78,6 +116,76 @@ pub mod country {
     pub const HOSTILE: usize = 0x1548;
     pub const HOSTILE_COUNT: usize = 0x1554;
     pub const HOSTILE_SIZE: usize = 16;
+    /// The regiments and ships it recruits now: [`UNIT_KINDS`] pointers to
+    /// [`super::unit_type`]s, by kind (infantry, cavalry, artillery, heavy
+    /// ship, light ship, galley, transport).
+    pub const UNIT_TYPES: usize = 0xd48;
+    pub const UNIT_KINDS: usize = 7;
+    /// Fixed-point numbers, i32 thousandths, as the game keeps its numbers:
+    /// the treasury in ducats, stability, prestige, and manpower and its
+    /// maximum in thousands of men (so in men).
+    pub const TREASURY: usize = 0xbb0;
+    pub const STABILITY: usize = 0xbd8;
+    pub const PRESTIGE: usize = 0xcf8;
+    pub const MANPOWER: usize = 0xdb8;
+    pub const MAX_MANPOWER: usize = 0xdbc;
+    /// Monarch points, an i32 each: administrative, diplomatic, military.
+    pub const POWER: usize = 0x260;
+    pub const POWER_DIP: usize = POWER + 4;
+    pub const POWER_MIL: usize = POWER + 8;
+    /// Its overlord's tag, not valid when it has none.
+    pub const OVERLORD: usize = 0x18f0;
+    /// Its allies, a [`super::list`] whose items are the allies' tags.
+    pub const ALLIES: usize = 0x19b8;
+    /// Its subjects' tags, a vector (begin, end).
+    pub const SUBJECTS: usize = 0x1a18;
+    /// How it stands to each other country: a pointer to records of
+    /// [`RELATION_SIZE`] bytes by the other's index, each starting with a
+    /// pointer to a [`super::country_diplomacy`] and holding the other's tag
+    /// at [`RELATION_OTHER`].
+    pub const RELATIONS: usize = 0x1510;
+    pub const RELATION_SIZE: usize = 0x48;
+    pub const RELATION_OTHER: usize = 0x10;
+    /// The countries it rivals: the first of a chain of nodes, each with the
+    /// rival's tag at [`RIVAL_TAG`] and the next node at [`RIVAL_NEXT`].
+    pub const RIVALS: usize = 0x2248;
+    pub const RIVAL_TAG: usize = 0x10;
+    pub const RIVAL_NEXT: usize = 0x28;
+}
+
+/// A country's diplomacy, which its [`country::RELATIONS`] records point to.
+pub mod country_diplomacy {
+    /// The subject relations it takes part in, by the other country: a
+    /// pointer to [`SUBJECT_SIZE`]-byte items, each the other country's index
+    /// (i32) and at [`SUBJECT_RELATION`] a [`super::subject_relation`], and
+    /// their count (i32).
+    pub const SUBJECTS: usize = 0x128;
+    pub const SUBJECT_COUNT: usize = 0x134;
+    pub const SUBJECT_SIZE: usize = 16;
+    pub const SUBJECT_RELATION: usize = 8;
+}
+
+/// What a subject is to its overlord, of [`classes::SUBJECT_RELATION`] (a
+/// `dependency` in saves).
+pub mod subject_relation {
+    /// Its [`super::subject_type`].
+    pub const TYPE: usize = 0x40;
+}
+
+/// A kind of subject, one that `common/subject_types` defines.
+pub mod subject_type {
+    /// Its key there (`vassal`), a `std::string` (`crate::game_string`).
+    pub const KEY: usize = 0x10;
+}
+
+/// A war going on, of [`classes::WAR`].
+pub mod war {
+    /// Its name, a `std::string` (`crate::game_string`).
+    pub const NAME: usize = 0x28;
+    /// The tags of its attackers and of its defenders, each a vector (begin,
+    /// end); the first of each side is the side's leader.
+    pub const ATTACKERS: usize = 0x48;
+    pub const DEFENDERS: usize = 0x78;
 }
 
 pub mod province {
@@ -97,6 +205,25 @@ pub mod province {
     pub const HIDDEN_BIT: u8 = 2;
     pub const FOGGED: usize = 0x959;
     pub const FOGGED_BIT: u8 = 0x20;
+    /// Its base tax, production and manpower, i32 in thousandths. The game's
+    /// own getters add a native country's tribal development to its capital
+    /// (docs/research/provinces.md).
+    pub const BASE_MANPOWER: usize = 0x3e0;
+    pub const BASE_TAX: usize = 0x3e4;
+    pub const BASE_PRODUCTION: usize = 0x3e8;
+    /// Its buildings: a vector (begin, end) of [`BUILDING_SLOT`]-byte slots,
+    /// one per kind of building by its [`super::building::INDEX`], each
+    /// holding the building there (the placeholder, index 0, where there is
+    /// none) and the tag of who built it.
+    pub const BUILDINGS: usize = 0x3b0;
+    pub const BUILDING_SLOT: usize = 0x10;
+    /// Its fort's state, u8 ([`MOTHBALLED`] when mothballed), and its fort
+    /// levels (i32): [`FORT_LEVEL`], and [`FORT_LEVEL_MOTHBALLED`], what is
+    /// left of it while mothballed (a capital's own).
+    pub const MOTHBALL: usize = 0x8f4;
+    pub const MOTHBALLED: u8 = 2;
+    pub const FORT_LEVEL_MOTHBALLED: usize = 0x2ddc;
+    pub const FORT_LEVEL: usize = 0x2de0;
 }
 
 /// A province's map data, at [`province::GEOMETRY`].
@@ -112,6 +239,36 @@ pub mod geometry {
     /// The impassable bit, u8.
     pub const CLIMATE: usize = 0x229;
     pub const IMPASSABLE: u8 = 8;
+    /// The province's name, a `std::string` of game text: the localisation
+    /// of `PROV<id>`, or what it was renamed to.
+    pub const NAME: usize = 0x10;
+    /// Its terrain (see [`super::terrain`]), such as farmlands: not the land
+    /// and lake bits of [`TERRAIN`].
+    pub const TERRAIN_TYPE: usize = 0x30;
+}
+
+/// A kind of terrain, one of the map's [`map::TERRAINS`].
+pub mod terrain {
+    /// Its key as in map/terrain.txt (`farmlands`), a `std::string`.
+    pub const NAME: usize = 0x118;
+}
+
+/// A kind of building.
+pub mod building {
+    /// Its index in the building database, i32; 0 for the placeholder that
+    /// stands for none.
+    pub const INDEX: usize = 0x14;
+    /// Its key as in common/buildings (`marketplace`), a `std::string`.
+    pub const NAME: usize = 0x28;
+}
+
+/// A kind of regiment or ship, of class [`classes::UNIT_TYPE`].
+pub mod unit_type {
+    /// Which of a country's [`super::country::UNIT_KINDS`] it is, i32.
+    pub const KIND: usize = 0x10;
+    /// Its key as in common/units (`western_medieval_infantry`), a
+    /// `std::string`.
+    pub const NAME: usize = 0x60;
 }
 
 /// A connection to a neighbor, [`SIZE`] bytes: the neighbor's ID, the
@@ -134,6 +291,9 @@ pub mod map {
     /// The provinces: a vector (begin, end) of [`super::province::SIZE`]-byte
     /// records, the same the world's [`super::world::PROVINCES`] points to.
     pub const PROVINCES: usize = 0x6f0;
+    /// The kinds of terrain: a vector (begin, end) of pointers to
+    /// [`super::terrain`]s.
+    pub const TERRAINS: usize = 0x758;
 }
 
 /// An army or a fleet.
@@ -207,19 +367,99 @@ pub mod command {
     pub const UNIT: usize = 0x58;
 }
 
+/// The recruit command, of class [`classes::RECRUIT_COMMAND`]
+/// (docs/research/provinces.md).
+pub mod recruit_command {
+    /// Its size, as the recruit button allocates it.
+    pub const SIZE: usize = 0xa0;
+    /// Its methods, by vtable offset: the destructor (command, flags) and the
+    /// check (command).
+    pub const DESTROY: usize = 0;
+    pub const CHECK: usize = 0x40;
+}
+
 /// The map manager, at [`world::MAP_MANAGER`].
 pub mod map_manager {
     /// The current map mode, i32.
     pub const MODE: usize = 0x2c;
     /// Its pause state (see [`super::pause`]).
     pub const PAUSE: usize = 0x418;
-    /// Its refresh method, by vtable offset.
+    /// Its methods, by vtable offset: the refresh, and the one that answers
+    /// its session (`objects::session`).
     pub const REFRESH: usize = 0xc8;
+    pub const SESSION: usize = 0x80;
+    /// Its method that shows one of the game's events to the player, by
+    /// vtable offset: it makes an event window ([`super::classes::EVENT_WINDOW`])
+    /// and adds it to [`POPUPS`].
+    pub const SHOW_EVENT: usize = 0x108;
+    /// The popup windows open on the map, a [`super::list`] of windows, each
+    /// asked every frame whether it stays ([`super::popup::UPDATE`]); a node
+    /// whose window closed while the list was walked is marked
+    /// [`super::list::REMOVED`] and goes later.
+    pub const POPUPS: usize = 0x78;
+    /// What holds the diplomatic message icons, `gui::message_icon_holder`.
+    pub const MESSAGE_ICON_HOLDER: usize = 0x1400;
+    /// The dialogs open from those icons, a [`super::list`].
+    pub const OPEN_DIALOGS: usize = 0x370;
+    /// Return to the main menu at its next frame, u8: the game starts
+    /// `eu4.exe` again (docs/research/main-menu.md).
+    pub const RETURN: usize = 0x12e9;
 }
 
+/// The map manager's pause state, at [`map_manager::PAUSE`].
 pub mod pause {
     /// The map manager it belongs to.
     pub const MANAGER: usize = 0x50;
+    /// The player's pause, u8: nonzero once the player paused the game (or
+    /// remote control or an extension did); when it is zero and the game is
+    /// paused, windows hold it paused.
+    pub const PLAYER_PAUSED: usize = 0x48;
+}
+
+/// A window among the map manager's [`map_manager::POPUPS`].
+pub mod popup {
+    /// Its update, by vtable offset: whether it stays, u8.
+    pub const UPDATE: usize = 0x18;
+}
+
+/// One of the game's events shown to a player and not answered yet, one of
+/// the world's [`world::PENDING_EVENTS`], [`SIZE`] bytes.
+pub mod pending_event {
+    /// The event (see [`super::event`]).
+    pub const EVENT: usize = 0x10;
+    /// The last day to answer, i32; later, the event window picks an option.
+    pub const DEADLINE: usize = 0x20;
+    /// Its id, i32, unique in the save.
+    pub const ID: usize = 0x24;
+    pub const SIZE: usize = 0x28;
+}
+
+/// One of the game's events, as its files define it.
+pub mod event {
+    /// Its id in the game's files (`flavor_fra.1`), a `std::string`.
+    pub const NAME: usize = 0x20;
+    /// Its options: a vector (begin, end) of pointers to
+    /// [`super::event_option`]s.
+    pub const OPTIONS: usize = 0x790;
+    /// The localisation key of its title, a `std::string`.
+    pub const TITLE: usize = 0x7e0;
+}
+
+pub mod event_option {
+    /// The localisation key of its text, a `std::string`.
+    pub const NAME: usize = 0x88;
+}
+
+/// An event window, of [`classes::EVENT_WINDOW`], among the map manager's
+/// popups.
+pub mod event_window {
+    /// The event, the scope it happens in (an object of the window's own,
+    /// copied from the pending event's) and the pending event's id (i32).
+    pub const EVENT: usize = 0x48;
+    pub const SCOPE: usize = 0x50;
+    pub const PENDING: usize = 0x120;
+    /// Nonzero while the window is open, u8; choosing an option clears it.
+    pub const OPEN: usize = 0x124;
 }
 
 pub use super::list;
@@ -251,8 +491,125 @@ pub fn points() -> Vec<Point> {
         // A country finding itself by its tag.
         Point::keep(0xb239cusize, "4c 8b 05 2d b5 28 02 48 8b 41 20 48 c1 e8 20 48 0f bf d0 49 8b 80 18 01 00 00 48 8b 1c d0", "country by tag")
             .uses(&[COUNTRY_MANAGER, country::TAG, tag::INDEX, countries::LIST]),
+        // The country manager, made, hands its country array to 0xb510f0,
+        // which walks it to its length, reading each country's tag.
+        Point::keep(0xb510c6usize, "48 89 05 03 c8 7e 01 48 8d 90 10 01 00 00", "country array").uses(&[COUNTRY_MANAGER, countries::ARRAY]),
+        Point::keep(
+            0xb5113fusize,
+            "41 8b 46 14 4d 8b 76 08 48 98 49 8d 2c c6 4c 3b f5 0f 84 1c 01 00 00 48 89 74 24 50 4c 89 64 24 58 4c 8d 25 39 ea 15 01              4c 89 7c 24 60 45 33 ff 90 8b 57 14 49 8b 1e 8b 77 10 8d 42 01 48 8b 5b 20",
+            "country array walk",
+        )
+        .uses(&[countries::COUNT - countries::ARRAY, countries::LIST - countries::ARRAY, country::TAG]),
         Point::keep(0xb252eusize, "49 8b 89 48 15 00 00 4d 63 81 54 15 00 00 49 c1 e0 04 4c 03 c1", "country wars")
             .uses(&[country::HOSTILE, country::HOSTILE_COUNT, 4]),
+        // The country snapshot (docs/research/countries.md). The country
+        // writer in saves: each field, then its key's token.
+        Point::keep(
+            0x2df116usize,
+            "49 8d 97 f8 0c 00 00 48 8d 8d 00 11 00 00 e8 c7 65 db ff 4c 8b c0 ba a1 29 00 00 48 8b ce e8 a7 89 42 01 \
+             49 8d 97 d8 0b 00 00 48 8d 8d 10 11 00 00 e8 a4 65 db ff 4c 8b c0 ba 86 28 00 00 48 8b ce e8 84 89 42 01 \
+             49 8d 97 b0 0b 00 00 48 8d 8d 18 11 00 00 e8 81 65 db ff 4c 8b c0 ba 76 28 00 00",
+            "country prestige, stability and treasury",
+        )
+        .uses(&[country::PRESTIGE, country::STABILITY, country::TREASURY]),
+        Point::keep(
+            0x2e00a9usize,
+            "49 8d 97 b8 0d 00 00 48 8d 8d 00 11 00 00 e8 34 56 db ff 4c 8b c0 ba 3f 28 00 00 48 8b ce e8 14 7a 42 01 \
+             49 8d 97 bc 0d 00 00 48 8d 8d 10 11 00 00 e8 11 56 db ff 4c 8b c0 ba 73 29 00 00",
+            "country manpower",
+        )
+        .uses(&[country::MANPOWER, country::MAX_MANPOWER]),
+        Point::keep(0x2e0b23usize, "4d 8d 87 60 02 00 00 ba b2 2a 00 00", "country monarch points").uses(&[country::POWER]),
+        Point::keep(
+            0x2ddee6usize,
+            "49 8d 8f f0 18 00 00 e8 ce a6 db ff 84 c0 74 1c 49 8d 8f f0 18 00 00 e8 1e 70 db ff 4c 8b c0 ba b6 2c 00 00",
+            "country overlord",
+        )
+        .uses(&[country::OVERLORD]),
+        Point::keep(
+            0x2def0cusize,
+            "49 8d 97 18 1a 00 00 41 b8 db 2e 00 00 48 8b ce e8 9f 20 14 00 49 8d 97 b8 19 00 00 41 b8 9b 2e 00 00",
+            "country subjects and allies",
+        )
+        .uses(&[country::SUBJECTS, country::ALLIES]),
+        // The triggers on monarch points, one for each kind: the country by
+        // its tag, then its points of that kind.
+        Point::keep(
+            0xcb4197usize,
+            "48 8b 4f 48 48 8b 05 2e 97 68 01 48 c1 e9 20 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 14 c8 8b 8a 60 02 00 00",
+            "administrative points",
+        )
+        .uses(&[COUNTRY_MANAGER, tag::INDEX, countries::LIST, country::POWER]),
+        Point::keep(0xcb4c0dusize, "48 8b 05 bc 8c 68 01 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 34 c8 48 81 c6 64 02 00 00", "diplomatic points")
+            .uses(&[COUNTRY_MANAGER, countries::LIST, country::POWER_DIP]),
+        Point::keep(0xcb566dusize, "48 8b 05 5c 82 68 01 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 34 c8 48 81 c6 68 02 00 00", "military points")
+            .uses(&[COUNTRY_MANAGER, countries::LIST, country::POWER_MIL]),
+        // Walking a country's allies, as the AI does.
+        Point::keep(0x3a37a7usize, "48 8b bf b8 19 00 00 48 85 ff 0f 84 19 07 00 00 44 8b 45 d8 0f 1f 44 00 00 48 8b 0f 48 8b 7f 10", "country allies")
+            .uses(&[country::ALLIES, list::ITEM, list::NEXT]),
+        // The subject type a country is to its overlord, as the game's getter
+        // finds it: its record of its overlord, the record's diplomacy, the
+        // subject relation it keeps for the overlord, that relation's type.
+        Point::keep(
+            0x3d79f0usize,
+            "80 b9 f7 18 00 00 00 74 4c 48 8b 81 f0 18 00 00 48 c1 e8 20 98 4c 8d 04 c0 48 8b 81 10 15 00 00 4a 8b 14 c0 4a 8b 44 c0 10 \
+             48 c1 e8 20 98 48 8b 8a 28 01 00 00 4c 63 82 34 01 00 00 49 c1 e0 04 4c 03 c1 49 3b c8 74 0d 39 01 74 0c 48 83 c1 10 49 3b c8 \
+             75 f3 33 c0 c3 48 8b 41 08 48 85 c0 74 f4 48 8b 40 40 c3",
+            "subject type",
+        )
+        .uses(&[
+            country::OVERLORD + tag::VALID / 8,
+            country::OVERLORD,
+            country::RELATIONS,
+            country::RELATION_OTHER,
+            country_diplomacy::SUBJECTS,
+            country_diplomacy::SUBJECT_COUNT,
+            country_diplomacy::SUBJECT_SIZE,
+            country_diplomacy::SUBJECT_RELATION,
+            subject_relation::TYPE,
+        ]),
+        // A subject relation made: its class, its subject type.
+        Point::keep(0x4e5d4busize, "48 8d 05 06 ba 79 01 48 89 03 4c 89 63 40", "subject relation")
+            .uses(&[classes::SUBJECT_RELATION, subject_relation::TYPE]),
+        // A subject relation's writer in saves: its subject type's key, then
+        // the token of `subject_type`.
+        Point::keep(0xa62b6cusize, "48 8b 7b 40 48 85 ff 74 2c 48 83 c7 10 ba 2a 35 00 00", "subject type key")
+            .uses(&[subject_relation::TYPE, subject_type::KEY]),
+        // A country's diplomacy cleared: no subjects, their storage kept.
+        Point::keep(0x2e2ca7usize, "48 8b 87 18 1a 00 00 48 89 87 20 1a 00 00", "country subjects").uses(&[country::SUBJECTS, country::SUBJECTS + 8]),
+        // The `is_rival` trigger walking the country's rivals.
+        Point::keep(
+            0xc848d6usize,
+            "48 8b 83 48 22 00 00 48 85 c0 74 aa 48 c1 ea 20 66 66 0f 1f 84 00 00 00 00 00 48 8b 48 10 48 c1 e9 20 66 3b ca 74 0b 48 8b 40 28",
+            "country rivals",
+        )
+        .uses(&[country::RIVALS, country::RIVAL_TAG, country::RIVAL_NEXT]),
+        // The wars going on, walked; a war made: its class, its name, its
+        // sides; the leaders of the sides, the first of each.
+        Point::keep(0x291997usize, "48 8b 05 da e4 0a 02 48 8b b8 30 1e 00 00 48 63 80 3c 1e 00 00", "wars").uses(&[WORLD, world::WARS, world::WAR_COUNT]),
+        Point::keep(
+            0xd856ceusize,
+            "48 8d 05 93 a0 f9 00 48 89 01 66 c7 41 10 00 00 33 f6 48 89 71 18 40 88 71 20 c7 41 24 f8 77 9c 02 48 89 71 28 48 89 71 38 \
+             48 c7 41 40 0f 00 00 00 40 88 71 28 48 89 71 48 48 89 71 50 48 89 71 58 48 89 71 60 48 89 71 68 48 89 71 70 48 89 71 78 \
+             48 89 b1 80 00 00 00 48 89 b1 88 00 00 00",
+            "war",
+        )
+        .uses(&[
+            classes::WAR,
+            war::NAME,
+            war::NAME + crate::game_string::SIZE,
+            war::NAME + crate::game_string::CAPACITY,
+            war::ATTACKERS,
+            war::ATTACKERS + 8,
+            war::DEFENDERS,
+            war::DEFENDERS + 8,
+        ]),
+        Point::keep(
+            0xd8950ausize,
+            "48 8b 41 48 48 8b fa 48 8b da 48 c1 ef 20 41 0f b6 e8 48 8b f1 48 8b 10 48 c1 ea 20 66 3b d7 0f 84 b1 01 00 00 48 8b 41 78",
+            "war leaders",
+        )
+        .uses(&[war::ATTACKERS, war::DEFENDERS]),
         // The fog of war refresh walks a country's units.
         Point::keep(
             0x827c59usize,
@@ -381,7 +738,105 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1a20aeusize, "48 8d 05 8b 04 aa 01 48 89 03", "army class").uses(&[classes::ARMY]),
         Point::keep(0x909600usize, "48 8d 05 d9 11 3c 01 48 89 03", "fleet class").uses(&[classes::FLEET]),
         Point::keep(0x8032deusize, "48 8d 05 7b 51 4b 01 48 89 06", "map manager class").uses(&[classes::MAP_MANAGER]),
+        // Returning to the main menu: the question's answer sets the flag,
+        // the map manager's frame acts on it.
+        Point::keep(0x11bde0busize, "48 8b 83 b8 01 00 00 c6 83 14 01 00 00 01 c6 80 e9 12 00 00 01", "return to main menu answer")
+            .uses(&[map_manager::RETURN]),
+        Point::keep(0x815c9fusize, "41 80 bd e9 12 00 00 00", "return to main menu").uses(&[map_manager::RETURN]),
+        // The player's pause key, resuming: refused past the end date
+        // unless the player plays on (docs/research/time.md).
+        Point::keep(0x8105bbusize, "8b 05 67 1d 7b 01 39 87 d0 1d 00 00 7e 0d 80 bf d8 1d 00 00 00 0f 84 25 02 00 00", "resume past the end date")
+            .uses(&[END_DATE, world::DATE, world::PLAY_ON]),
         Point::keep(0xe5180usize, "48 8d 05 71 82 c3 01", "move command class").uses(&[classes::MOVE_COMMANDS[0]]),
         Point::keep(0xd4c3ausize, "48 8d 05 47 8e c4 01", "move command class").uses(&[classes::MOVE_COMMANDS[1]]),
+        Point::keep(0x26ce8eusize, "48 8d 05 63 11 9e 01 48 89 01", "recruit command class").uses(&[classes::RECRUIT_COMMAND]),
+        // A province's snapshot (docs/research/provinces.md). The province
+        // writer in saves: its name.
+        Point::keep(0x9d6fb0usize, "49 8b 5f 28 48 83 c3 10", "province name").uses(&[province::GEOMETRY, geometry::NAME]),
+        // The has_terrain trigger compares the province's terrain; the
+        // map finds a terrain by its key among its terrains.
+        Point::keep(0xcd915eusize, "48 8b 54 0a 28 48 8b 47 68 48 39 42 30", "province terrain").uses(&[province::GEOMETRY, geometry::TERRAIN_TYPE]),
+        Point::keep(0x88a10ausize, "4c 8b b1 58 07 00 00 33 db 48 8b a9 60 07 00 00", "map terrains").uses(&[map::TERRAINS, map::TERRAINS + 8]),
+        Point::keep(0x88a139usize, "48 81 c1 18 01 00 00", "terrain name").uses(&[terrain::NAME]),
+        // The fort's defense: the level left while mothballed, or the
+        // level.
+        Point::keep(0xa0e890usize, "80 b9 f4 08 00 00 02 75 08 8b 81 dc 2d 00 00 eb 06 8b 81 e0 2d 00 00", "province fort level")
+            .uses(&[province::MOTHBALL, province::MOTHBALLED as usize, province::FORT_LEVEL_MOTHBALLED, province::FORT_LEVEL]),
+        // Whether a province has a building: the slot at the building's
+        // index holds a building whose index is not 0.
+        Point::keep(
+            0x26a3dfusize,
+            "4c 8b 8c 0a b0 03 00 00 48 8b 84 0a b8 03 00 00 49 2b c1 48 c1 f8 04 44 3b c0 7d 13 41 8b c0 48 03 c0 49 8b 04 c1 83 78 14 00",
+            "province buildings",
+        )
+        .uses(&[province::BUILDINGS, province::BUILDINGS + 8, building::INDEX]),
+        // The building database finds a building by its key.
+        Point::keep(0x1e5ea0usize, "48 8b 33 48 8b d7 48 8d 4e 28", "building name").uses(&[building::NAME]),
+        // The country writer in saves: each kind's unit type by its key,
+        // for the seven kinds, in the order of the kinds' tokens.
+        Point::keep(
+            0x2e0191usize,
+            "8b d7 49 8d 8f 48 0d 00 00 e8 81 de e3 ff 48 8b 08 e8 99 79 f8 ff 4c 8b c0 45 33 c9 41 8b d5 48 8b ce e8 08 7f 42 01 ff c7 83 ff 07",
+            "country unit types",
+        )
+        .uses(&[country::UNIT_TYPES, country::UNIT_KINDS]),
+        Point::keep(0x267b40usize, "48 8d 41 60 c3", "unit type name").uses(&[unit_type::NAME]),
+        // infantry, cavalry, artillery, heavy_ship (these four in data),
+        // light_ship, galley, transport.
+        Point::keep(0x1dc2380usize, "81 27 00 00 80 27 00 00 82 27 00 00 84 27 00 00", "unit kind tokens"),
+        Point::keep(
+            0x2c7341usize,
+            "66 0f 6f 05 37 b0 af 01 48 8d 0d 8c 39 19 02 f3 0f 7f 05 88 39 19 02 c7 05 8e 39 19 02 85 27 00 00 \
+             c7 05 88 39 19 02 87 27 00 00 c7 05 82 39 19 02 86 27 00 00",
+            "unit kind tokens",
+        ),
+        Point::keep(0xad8c5eusize, "48 8d 05 cb ab 20 01 48 89 01", "unit type class").uses(&[classes::UNIT_TYPE]),
+        // Questions and offers (docs/research/questions-and-offers.md).
+        // Removing a pending event: the world's array, each record's id.
+        Point::keep(
+            0x7570b8usize,
+            "4c 63 81 ac 1e 00 00 33 ed 4c 8b f1 45 85 c0 0f 8e 82 01 00 00 4c 8b 91 a0 1e 00 00 45 33 c9 49 8d 42 24 0f 1f 44 00 00 \
+             39 10 74 16 ff c5 49 ff c1 48 83 c0 28",
+            "pending events",
+        )
+        .uses(&[world::PENDING_EVENT_COUNT, world::PENDING_EVENTS, pending_event::ID, pending_event::SIZE]),
+        // Adding one: the event, its scope, the deadline and the id.
+        Point::keep(
+            0x757058usize,
+            "49 63 c0 48 8d 0c 80 48 8b 45 08 48 8d 14 c8 41 8d 40 01 89 45 14 8b 44 24 28 89 42 08 4c 89 22 48 8b 44 24 30 48 89 42 10 \
+             4c 89 72 18 8b 44 24 40 89 42 20 89 7a 24",
+            "pending event record",
+        )
+        .uses(&[pending_event::EVENT, pending_event::DEADLINE, pending_event::ID]),
+        // The map manager asking each popup whether it stays.
+        Point::keep(0x6ea4e7usize, "49 8b 5c 24 78 48 85 db 74 58 48 8b 75 f7 48 8b 0b 48 8b 01 ff 50 18", "popups").uses(&[map_manager::POPUPS, popup::UPDATE]),
+        // Adding a popup walks the list for one of its kind.
+        Point::keep(
+            0x6ecb14usize,
+            "48 8b 5e 78 48 85 db 74 1c 0f 1f 00 48 8b 0b 48 8b 01 ff 50 08 84 c0 75 60 48 8b 43 10 48 8b d8 48 85 c0 75 e7",
+            "map manager popups",
+        )
+        .uses(&[map_manager::POPUPS + list::HEAD, list::ITEM, list::NEXT]),
+        // A popup that closes while the list is being walked is marked to go
+        // later.
+        Point::keep(0x6ea583usize, "41 80 bc 24 8c 00 00 00 00 74 06 c6 41 18 01", "popup gone").uses(&[map_manager::POPUPS + list::CHANGING, list::REMOVED]),
+        // The event window's constructor: its class, the event, the scope,
+        // the pending event's id, open.
+        Point::keep(
+            0x10b9b3busize,
+            "48 8d 05 b6 f5 c9 00 48 89 03 48 8d 05 94 f5 c9 00 48 89 43 08 c7 43 30 ff ff ff ff 33 f6 48 89 73 38 48 89 7b 40 \
+             4c 89 7b 48 48 8d 4b 50 49 8b d6 e8 2f 5b 01 ff 90 8b 45 60 89 83 20 01 00 00 40 88 b3 24 01 00 00",
+            "event window",
+        )
+        .uses(&[classes::EVENT_WINDOW, event_window::EVENT, event_window::SCOPE, event_window::PENDING, event_window::OPEN]),
+        // Choosing an option logs the event's id, and closes the window.
+        Point::keep(0x10bc44cusize, "48 8b 56 48 48 83 c2 20", "event id").uses(&[event_window::EVENT, event::NAME]),
+        Point::keep(0x10bc54busize, "c6 86 24 01 00 00 00", "event window closed").uses(&[event_window::OPEN]),
+        // The event window's title and options.
+        Point::keep(0x10ba2bfusize, "49 8b 57 48 48 81 c2 e0 07 00 00", "event title").uses(&[event_window::EVENT, event::TITLE]),
+        Point::keep(0x6f2778usize, "48 8b 80 98 07 00 00 48 2b 87 90 07 00 00 48 c1 f8 03", "event options").uses(&[event::OPTIONS + 8, event::OPTIONS]),
+        Point::keep(0x10bb6a8usize, "48 8d 97 88 00 00 00 48 8d 4d b8 e8 c8 9b fd fe", "event option text").uses(&[event_option::NAME]),
+        // A popup that goes leaves the open dialogs too.
+        Point::keep(0x6ea5deusize, "49 8b 8c 24 70 03 00 00 48 85 c9 74 79 0f 1f 44 00 00 48 39 39 74 0e", "open dialogs").uses(&[map_manager::OPEN_DIALOGS]),
     ]
 }

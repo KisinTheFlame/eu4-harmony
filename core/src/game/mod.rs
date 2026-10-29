@@ -1,34 +1,203 @@
-//! Game-state capabilities: reading the campaign, finding routes and giving
-//! orders. Ported from eu4-regional-combat's native adapter; addresses are
-//! RVAs in the 1.37.5 layout (see `baseline`), with the evidence in
-//! docs/research/regional-combat/. Everything here runs on the game thread at
-//! a safe point, which `events` establishes.
+//! The capability layer: every capability extensions and remote clients use,
+//! implemented once (ADR 0015). Each capability is a function taking the
+//! [`Caller`] and returning the framework's own types; the C ABI for
+//! extensions (`crate::ext`) only converts to and from them. One file per
+//! group: [`session`], [`countries`], [`provinces`], [`armies`],
+//! [`interface`], [`map_coloring`], [`save_data`], [`texts`], [`camera`],
+//! [`screenshot`], [`console`], [`time`], [`recruiting`], [`menu`] and
+//! [`diplomacy`]; the game's questions and offers waiting for the player's
+//! answer, [`questions`] and [`offers`].
+//!
+//! Under them, reading the campaign, finding routes and giving orders, ported
+//! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
+//! [`events`], which establishes the safe point everything here runs at);
+//! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
+//! in docs/research/regional-combat/.
+pub mod armies;
+pub mod camera;
+pub mod console;
+pub mod countries;
+pub mod diplomacy;
 pub mod events;
+pub mod interface;
+pub mod map_coloring;
+pub mod menu;
+pub mod offers;
 pub mod orders;
+pub mod provinces;
+pub mod questions;
+pub mod recruiting;
+pub mod save_data;
+pub mod screenshot;
+pub mod session;
+pub mod texts;
+pub mod time;
 pub mod world;
 
 use crate::{
     memory::Memory,
-    objects::campaign::{self, countries, country, globals, map_manager, pause, tag},
+    objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::Point,
 };
-use eu4_harmony_abi as abi;
+use std::sync::Mutex;
 
-/// A failed capability call: an ABI status code and a message for `last_error`.
+/// Who calls a capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Caller {
+    /// The extension with this index, from one of its callbacks.
+    Extension(usize),
+    /// Remote control. It acts as the player: its orders are the player's.
+    Remote,
+}
+
+impl Caller {
+    /// The calling extension, for what only an extension has (`what`, such as
+    /// "interface elements").
+    pub fn extension(self, what: &str) -> GResult<usize> {
+        match self {
+            Caller::Extension(index) => Ok(index),
+            Caller::Remote => fail(Status::Unavailable, format!("only extensions have {what}")),
+        }
+    }
+
+    /// The id of the calling extension's mod.
+    fn mod_id(self, what: &str) -> GResult<String> {
+        let index = self.extension(what)?;
+        crate::ext::mod_id(index).ok_or_else(|| format!("no extension {index}").into())
+    }
+}
+
+/// Why a capability failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    /// No campaign is running, or one is being loaded.
+    NotInGame,
+    /// The game state cannot be read right now; a later frame may succeed.
+    NotReady,
+    NotFound,
+    /// A command was refused; the message says why.
+    Rejected,
+    InvalidArgument,
+    /// Not available in this state, to this caller, or after an unexpected
+    /// game-side failure.
+    Unavailable,
+    /// Called off the game's main thread.
+    WrongContext,
+    Internal,
+}
+
+/// A failed capability call.
 #[derive(Debug, Clone)]
 pub struct Fail {
-    pub code: i32,
+    pub status: Status,
     pub message: String,
 }
 pub type GResult<T> = std::result::Result<T, Fail>;
 
 impl From<String> for Fail {
     fn from(message: String) -> Self {
-        Self { code: abi::INTERNAL, message }
+        Self { status: Status::Internal, message }
     }
 }
-pub fn fail<T>(code: i32, message: impl Into<String>) -> GResult<T> {
-    Err(Fail { code, message: message.into() })
+pub fn fail<T>(status: Status, message: impl Into<String>) -> GResult<T> {
+    Err(Fail { status, message: message.into() })
+}
+
+/// A fixed-point number of the game's, kept in thousandths (a treasury, a
+/// development), as the number it stands for: 9500 is 9.5. Extensions and
+/// remote clients get it so (ADR 0018).
+pub fn thousandths(value: i32) -> f64 {
+    value as f64 / 1000.0
+}
+
+/// The game, for a capability: on the game's main thread only, once startup
+/// has found it.
+fn game() -> GResult<&'static Memory> {
+    if crate::thread_id() != crate::main_thread() {
+        return fail(Status::WrongContext, "called off the game's main thread");
+    }
+    crate::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })
+}
+
+/// What the capabilities keep between calls: the map's topology and the
+/// routes extensions installed. Both belong to one session, as does the last
+/// day announced.
+#[derive(Default)]
+struct State {
+    geography: world::Geography,
+    orders: orders::Orders,
+    session: u64,
+    day: Option<i32>,
+}
+
+static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
+    let mut guard = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    f(guard.get_or_insert_with(State::default))
+}
+
+/// What a safe frame starts from: the campaign, its session, and what
+/// happened since the last one, which extensions and remote control hear
+/// ([`Frame::heard`]).
+pub struct Frame {
+    pub ctx: Ctx,
+    pub session: u64,
+    /// The session differs from the last frame's: a campaign was loaded or
+    /// started, and what the capabilities kept from the old one is gone.
+    pub new_session: bool,
+    pub visibility_current: bool,
+    pub changes: Vec<events::Change>,
+    /// The date differs from the last day announced in this session, and
+    /// visibility reflects it.
+    pub new_day: bool,
+}
+
+/// One thing that happened since the last safe frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heard {
+    /// A new session, with its number.
+    Session(u64),
+    Change(events::Change),
+    /// A new day, with its date.
+    Day(i32),
+}
+
+impl Frame {
+    /// What happened, in the order extensions hear it and remote control
+    /// numbers it: a new session, the changes, a new day.
+    pub fn heard(&self) -> Vec<Heard> {
+        let session = self.new_session.then_some(Heard::Session(self.session));
+        let day = self.new_day.then_some(Heard::Day(self.ctx.date));
+        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).collect()
+    }
+}
+
+/// Starts a safe frame (see [`events`]); fails when this is not one, saying
+/// why. At a new session, forgets the old one's map, routes and map coloring.
+/// An army the player gave an order is no longer an extension's to move.
+pub fn begin_frame(m: &Memory) -> GResult<Frame> {
+    let state = events::begin_frame(m)?;
+    let (new_session, new_day) = with_state(|s| {
+        let new_session = s.session != state.session;
+        if new_session {
+            s.session = state.session;
+            s.geography.clear();
+            s.orders.clear();
+            s.day = None;
+        }
+        for change in &state.changes {
+            if let events::Change::Ordered(army) = change {
+                s.orders.revoke(*army);
+            }
+        }
+        let new_day = state.visibility_current && s.day.replace(state.ctx.date) != Some(state.ctx.date);
+        (new_session, new_day)
+    });
+    if new_session {
+        crate::map::reset_session(m, &state.ctx);
+    }
+    Ok(Frame { ctx: state.ctx, session: state.session, new_session, visibility_current: state.visibility_current, changes: state.changes, new_day })
 }
 
 const IS_PAUSED: usize = 0x7e01b0;
@@ -42,6 +211,14 @@ pub fn points() -> Vec<Point> {
     points.extend(world::points());
     points.extend(orders::points());
     points.extend(events::points());
+    points.extend(camera::points());
+    points.extend(provinces::points());
+    points.extend(console::points());
+    points.extend(time::points());
+    points.extend(recruiting::points());
+    points.extend(questions::points());
+    points.extend(menu::points());
+    points.extend(diplomacy::points());
     points
 }
 
@@ -55,7 +232,7 @@ pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
 }
 
 /// Country tag as stored by the game (see [`tag`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tag(pub u64);
 impl Tag {
     pub fn index(self) -> i16 {
@@ -100,21 +277,21 @@ pub fn context_any(m: &Memory) -> GResult<Ctx> {
 fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
     let world = m.ptr(m.at(globals::WORLD))?;
     if world == 0 {
-        return fail(abi::NOT_IN_GAME, "no world");
+        return fail(Status::NotInGame, "no world");
     }
     if require_stable && m.u8(world + campaign::world::DAILY_UPDATE)? != 0 {
-        return fail(abi::NOT_READY, "daily update in progress");
+        return fail(Status::NotReady, "daily update in progress");
     }
     let switched = m.u8(world + campaign::world::PLAYER_MODE)? == campaign::world::SWITCHED && m.u8(world + campaign::world::PLAYER_SWITCHED)? != 0;
     let player = Tag(m.u64(world + if switched { campaign::world::SWITCHED_PLAYER } else { campaign::world::PLAYER })?);
     if !player.normal() {
-        return fail(abi::NOT_IN_GAME, "no controllable player");
+        return fail(Status::NotInGame, "no controllable player");
     }
     let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    let countries = m.ptr(manager + countries::LIST)?;
+    let countries = m.ptr(manager + country_list::LIST)?;
     let country = m.ptr(countries + player.index() as usize * 8)?;
-    if m.u64(country + country::TAG)? != player.0 {
-        return fail(abi::NOT_IN_GAME, "player country does not match its tag");
+    if m.u64(country + country_fields::TAG)? != player.0 {
+        return fail(Status::NotInGame, "player country does not match its tag");
     }
     Ok(Ctx { world, date: m.i32(world + campaign::world::DATE)?, player, country, countries })
 }
@@ -122,11 +299,11 @@ fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
 /// Country object for a tag, verified against the tag it stores.
 pub fn country(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<usize> {
     if !tag.valid() || tag.index() < 0 {
-        return fail(abi::NOT_FOUND, "invalid country");
+        return fail(Status::NotFound, "invalid country");
     }
     let p = m.ptr(ctx.countries + tag.index() as usize * 8)?;
-    if p == 0 || m.u64(p + country::TAG)? != tag.0 {
-        return fail(abi::NOT_FOUND, "country does not match its tag");
+    if p == 0 || m.u64(p + country_fields::TAG)? != tag.0 {
+        return fail(Status::NotFound, "country does not match its tag");
     }
     Ok(p)
 }
@@ -161,6 +338,26 @@ pub fn map_manager(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     Ok(manager)
 }
 
+/// The game's session, which takes the player's commands, as the player's
+/// buttons find it: the map manager's method answers it
+/// (`objects::session`).
+pub fn command_session(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+    let session = m.call(m.at(crate::objects::session::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
+    if session == 0 || m.ptr(session)? != m.at(crate::objects::session::CLASS) {
+        return Err("the map manager has no session".to_string().into());
+    }
+    Ok(session)
+}
+
+/// Posts a command to the game's session ([`command_session`]), as the
+/// player's buttons do; whether the session took it, after which it is the
+/// game's. A single player game's session takes it at any time; one that is
+/// not a client takes it only while the map manager's frame runs
+/// (docs/research/recruiting.md).
+pub fn post(m: &Memory, session: usize, command: usize) -> GResult<bool> {
+    Ok(m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0)
+}
+
 /// Bounded element count of a `[begin, end)` vector of `stride`-byte items.
 pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<usize> {
     let bytes = end.checked_sub(begin).ok_or_else(|| "reversed vector".to_string())?;
@@ -172,7 +369,16 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 
 #[cfg(test)]
 mod tests {
-    use super::Tag;
+    use super::{events::Change, Ctx, Frame, Heard, Tag};
+
+    #[test]
+    fn a_frame_is_heard_session_first_and_day_last() {
+        let ctx = Ctx { world: 0, date: 0x035D_7710, player: Tag(0), country: 0, countries: 0 };
+        let frame = Frame { ctx, session: 3, new_session: true, visibility_current: true, changes: vec![Change::Ordered(7), Change::Defeated(8)], new_day: true };
+        assert_eq!(frame.heard(), [Heard::Session(3), Heard::Change(Change::Ordered(7)), Heard::Change(Change::Defeated(8)), Heard::Day(0x035D_7710)]);
+        let quiet = Frame { new_session: false, new_day: false, changes: Vec::new(), ..frame };
+        assert!(quiet.heard().is_empty());
+    }
 
     #[test]
     fn tag_fields() {

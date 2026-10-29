@@ -1,24 +1,28 @@
 # Development tools
 
-Tools for trying things in a running game, finding dependency points and looking at crashes. They are for development machines only and do not go into the player's installation package.
+Tools for trying things in a running game, finding dependency points and looking at crashes. They are for development machines only and are not among the player's files, which `release.ps1` packs.
 
 | Tool | Use |
 | --- | --- |
-| `dev-install.ps1` | Installs the built proxy and core into the game directory (`-Uninstall` removes them) |
+| `player-files.ps1` | Lists the player's files: the built files that go into the game folder (`version.dll`; the core and `eu4-harmony.exe` in `eu4-harmony\`), and where; the two tools below read it |
+| `dev-install.ps1` | Installs them from the release build into the game directory (`-Uninstall` removes them) |
+| `release.ps1` | Packs them for players: `target\eu4-harmony\` and `target\eu4-harmony.zip`, whose contents go into the game's root folder |
 | `game-dir.ps1` | Prints the game folder: `EU4_GAME_DIR`, or else the Steam library that has the game; the other tools' default `-GameDir` |
-| `game-input.ps1` | Brings the game window to the front and sends it mouse and keyboard input: `-Click x,y`, `-Drag x1,y1,x2,y2`, `-Wheel n -At x,y`, `-Type text` (Unicode characters, past any input method), `-Keys LEFT,SHIFT+END,CTRL+V` (key presses, letters and digits included, which an input method takes) |
+| `game-input.ps1` | Brings the game window to the front and sends it mouse and keyboard input: `-Click x,y`, `-RightClick x,y`, `-Drag x1,y1,x2,y2`, `-Wheel n -At x,y`, `-Type text` (Unicode characters, past any input method), `-Keys LEFT,SHIFT+END,CTRL+V` (key presses, letters and digits included, which an input method takes) |
 | `screenshot.ps1` | Captures the primary screen: `-Out a.png` (the whole screen, shrunk by `-Scale`) or `-Crop x,y,width,height` (at full size) |
 | `perf-run.ps1` | Measures one run of the game for [docs/performance.md](../docs/performance.md): launch to main menu, memory, CPU paused and at speed 5, game days per run; read its notes before the first run |
 | `crash-dump.py` | Runs debugger commands on a crash dump with Windows' own dbgeng.dll, with no debugger to install |
 | `core/examples/disasm.rs` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments |
 | `trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value |
 
+To ask the running game things through remote control, such as the session or the player's armies, use the command line tool: `eu4-harmony game session`, `eu4-harmony game help` for the rest. `eu4-harmony game screenshot --out shot.png` saves the frame as the game draws it, framework UI included, wherever its window is; `screenshot.ps1` captures what the screen shows.
+
 Coordinates are always physical pixels: both PowerShell scripts run per-monitor DPI aware, so coordinates read off a screenshot can be clicked as they are. Call them with `&` from PowerShell (`& .\tools\game-input.ps1 -Click 1815,2025`); `pwsh -File` takes `1815,2025` as one string.
 
 ## Caveats
 
 - **Injected keys are not quite a keyboard.** One Backspace sent by `game-input.ps1` deletes more than one character in the game's edit boxes; vanilla without the framework does the same. To count how many characters are deleted, use a real keyboard.
-- **Back up before a test that loads a save.** The game rewrites a save after loading it. First copy `save games`, `eu4-harmony\saves`, `settings.txt`, `continue_game.json` and `eu4-harmony\settings.txt` somewhere else; after the test, delete the new files and restore the copies.
+- **Back up before a test that loads a save.** The game rewrites a save after loading it. First copy `save games`, `eu4-harmony\saves`, `settings.txt`, `pdx_settings.txt`, `pdx_login_cache.txt`, `shortcuts.txt`, `continue_game.json` and `eu4-harmony\settings.txt` somewhere else; after the test, delete the new files, restore the copies and compare them with the backups.
 - **Crash dumps** are in the documents folder at `Europa Universalis IV\crashes\eu4_<date>_<time>\minidump.dmp`; the framework's logs are in `eu4-harmony\logs\`.
 
 ## Disassembly

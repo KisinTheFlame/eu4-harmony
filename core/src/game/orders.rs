@@ -1,6 +1,6 @@
 //! Native route queries and move/stop commands for own land armies, plus the
 //! record of which extension installed which route.
-use super::{fail, paused, span, world, Ctx, GResult, MAX_UNITS};
+use super::{armies::RouteSource, events::Change, fail, paused, span, world, Caller, Ctx, GResult, Status, MAX_UNITS};
 use crate::{
     memory::Memory,
     objects::{
@@ -9,7 +9,6 @@ use crate::{
     },
     points::Point,
 };
-use eu4_harmony_abi as abi;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -82,32 +81,37 @@ struct OrderState {
     identity: Vec<usize>,
 }
 
-/// Refuses armies the game would not let us order reliably: paused game,
-/// battle, siege, retreat, movement lock, attachments or a native task.
-fn preflight(m: &Memory, ctx: &Ctx, army: usize) -> GResult<OrderState> {
+/// Refuses armies the game would not let us order reliably: battle, siege,
+/// retreat, movement lock, attachments or a native task; and, for an
+/// extension, a paused game. An extension's routes and orders wait for the
+/// game to run, as regional-combat's always have; remote control's are the
+/// player's, which the player gives while the game is paused too (a paused
+/// right-click on the map queries the route and submits it as these do,
+/// docs/research/regional-combat/native-manual-findings.txt).
+fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<OrderState> {
     if m.ptr(army)? != m.at(classes::ARMY) {
-        return fail(abi::INVALID_ARGUMENT, "not a land army");
+        return fail(Status::InvalidArgument, "not a land army");
     }
-    if paused(m, ctx)? {
-        return fail(abi::NOT_READY, "game is paused");
+    if waits_for_time(caller) && paused(m, ctx)? {
+        return fail(Status::NotReady, "game is paused");
     }
     let record = world::army_record(m, &super::special_countries(m)?, army)?;
-    for (flag, reason) in [
-        (abi::ARMY_IN_BATTLE, "army is in battle"),
-        (abi::ARMY_SIEGING, "army is sieging"),
-        (abi::ARMY_RETREATING, "army is retreating"),
-        (abi::ARMY_EXILED, "army is exiled"),
-        (abi::ARMY_MOVEMENT_LOCKED, "army movement is locked"),
-        (abi::ARMY_ATTACHED, "army is attached to another army"),
-        (abi::ARMY_HAS_FOLLOWERS, "other armies are attached to this army"),
-        (abi::ARMY_BUSY, "army has a native task"),
+    for (on, reason) in [
+        (record.in_battle, "army is in battle"),
+        (record.sieging, "army is sieging"),
+        (record.retreating, "army is retreating"),
+        (record.exiled, "army is exiled"),
+        (record.movement_locked, "army movement is locked"),
+        (record.attached, "army is attached to another army"),
+        (record.has_followers, "other armies are attached to this army"),
+        (record.busy, "army has a native task"),
     ] {
-        if record.flags & flag != 0 {
-            return fail(abi::REJECTED, reason);
+        if on {
+            return fail(Status::Rejected, reason);
         }
     }
     if record.regiments == 0 {
-        return fail(abi::REJECTED, "army has no regiments");
+        return fail(Status::Rejected, "army has no regiments");
     }
     let origin_ptr = m.ptr(army + unit::LOCATION)?;
     let origin = m.u32(origin_ptr + province::ID)?;
@@ -122,6 +126,12 @@ fn preflight(m: &Memory, ctx: &Ctx, army: usize) -> GResult<OrderState> {
         path: read_path(m, army + unit::PATH)?,
         identity: vec![ctx.world, army, m.u64(army + unit::ID)? as usize, ctx.player.0 as usize, ctx.date as usize, origin_ptr, begin, end],
     })
+}
+
+/// Whether the caller's routes and orders wait for the game to run
+/// ([`preflight`]).
+fn waits_for_time(caller: Caller) -> bool {
+    matches!(caller, Caller::Extension(_))
 }
 
 /// Route installed by an extension: valid while the army's current path is
@@ -170,26 +180,58 @@ impl Orders {
         self.receipts.remove(&army);
     }
 
-    pub fn route_source(&self, m: &Memory, army: usize, id: u64, caller: usize) -> GResult<u32> {
+    pub fn route_source(&self, m: &Memory, army: usize, id: u64, caller: Caller) -> GResult<RouteSource> {
         let path = read_path(m, army + unit::PATH)?;
         if path.ids.is_empty() {
-            return Ok(abi::ROUTE_NONE);
+            return Ok(RouteSource::None);
         }
         let origin = world::location(m, army)?;
-        Ok(match self.receipts.get(&id) {
-            Some(r) if owned_suffix(r.origin, &r.path, origin, &path) => {
-                if r.extension == caller {
-                    abi::ROUTE_OWN
+        Ok(self.source(id, origin, &path, caller))
+    }
+
+    /// Who set the army `id`'s route `path`, which it follows from `origin`,
+    /// as `caller` sees it.
+    fn source(&self, id: u64, origin: u32, path: &Path, caller: Caller) -> RouteSource {
+        if path.ids.is_empty() {
+            return RouteSource::None;
+        }
+        match self.receipts.get(&id) {
+            Some(r) if owned_suffix(r.origin, &r.path, origin, path) => {
+                if caller == Caller::Extension(r.extension) {
+                    RouteSource::Own
                 } else {
-                    abi::ROUTE_OTHER_EXTENSION
+                    RouteSource::OtherExtension
                 }
             }
-            _ => abi::ROUTE_EXTERNAL,
-        })
+            _ => RouteSource::External,
+        }
+    }
+
+    /// Records an order that was carried out, which left the army `id` on
+    /// `path` from `origin`. An extension's route stays its own until someone
+    /// else changes it. A remote client's order is the player's: the army is
+    /// taken back from any extension, and the player's order is returned, to
+    /// be raised once.
+    fn settle(&mut self, caller: Caller, id: u64, origin: u32, path: Path) -> Option<Change> {
+        match caller {
+            Caller::Extension(extension) if !path.ids.is_empty() => {
+                self.receipts.insert(id, Receipt { extension, origin, path });
+                None
+            }
+            Caller::Extension(_) => {
+                self.receipts.remove(&id);
+                None
+            }
+            Caller::Remote => {
+                self.receipts.remove(&id);
+                Some(Change::Ordered(id))
+            }
+        }
     }
 
     /// Runs the game's route query into a temporary list, hands the result to
     /// `consume` and frees the list. The army's own route is never touched.
+    #[allow(clippy::too_many_arguments)]
     fn with_route<T>(
         &mut self,
         m: &Memory,
@@ -197,12 +239,13 @@ impl Orders {
         geography: &mut world::Geography,
         army: usize,
         goal: u32,
+        caller: Caller,
         consume: impl FnOnce(&Path, usize) -> GResult<T>,
     ) -> GResult<Option<T>> {
         if POISONED.load(Ordering::Acquire) {
-            return fail(abi::UNAVAILABLE, "routes disabled after an earlier native failure");
+            return fail(Status::Unavailable, "routes disabled after an earlier native failure");
         }
-        let before = preflight(m, ctx, army)?;
+        let before = preflight(m, ctx, army, caller)?;
         let origin = m.ptr(army + unit::LOCATION)?;
         let goal_address = geography.province_address(m, ctx, goal)?;
         let mut policy = m.at(globals::ROUTE_POLICY);
@@ -224,7 +267,7 @@ impl Orders {
                 }
             };
             let path = read_path(m, h)?;
-            if preflight(m, ctx, army)? != before {
+            if preflight(m, ctx, army, caller)? != before {
                 return Err("route query changed the army".to_string().into());
             }
             if !found {
@@ -260,13 +303,15 @@ impl Orders {
         result
     }
 
-    pub fn find_route(&mut self, m: &Memory, ctx: &Ctx, geography: &mut world::Geography, army: usize, goal: u32) -> GResult<Vec<u32>> {
-        match self.with_route(m, ctx, geography, army, goal, |path, _| Ok(path.ids.clone()))? {
+    pub fn find_route(&mut self, m: &Memory, ctx: &Ctx, geography: &mut world::Geography, army: usize, goal: u32, caller: Caller) -> GResult<Vec<u32>> {
+        match self.with_route(m, ctx, geography, army, goal, caller, |path, _| Ok(path.ids.clone()))? {
             Some(ids) => Ok(ids),
-            None => fail(abi::NOT_FOUND, format!("no route to {goal}")),
+            None => fail(Status::NotFound, format!("no route to {goal}")),
         }
     }
 
+    /// Moves the army along the game's route to `goal`. Returns the player's
+    /// order when the caller acts as the player.
     pub fn move_army(
         &mut self,
         m: &Memory,
@@ -275,10 +320,10 @@ impl Orders {
         army: usize,
         id: u64,
         goal: u32,
-        extension: usize,
-    ) -> GResult<()> {
-        let before = preflight(m, ctx, army)?;
-        let installed = self.with_route(m, ctx, geography, army, goal, |route, header| {
+        caller: Caller,
+    ) -> GResult<Option<Change>> {
+        let before = preflight(m, ctx, army, caller)?;
+        let installed = self.with_route(m, ctx, geography, army, goal, caller, |route, header| {
             let _own = OwnGuard::new();
             if !route.ids.is_empty() {
                 m.call(m.at(MOVE), &[army, header, 1, 0])?;
@@ -292,18 +337,15 @@ impl Orders {
             Ok(after)
         })?;
         let Some(path) = installed else {
-            return fail(abi::NOT_FOUND, format!("no route to {goal}"));
+            return fail(Status::NotFound, format!("no route to {goal}"));
         };
-        if path.ids.is_empty() {
-            self.receipts.remove(&id);
-        } else {
-            self.receipts.insert(id, Receipt { extension, origin: before.origin, path });
-        }
-        Ok(())
+        Ok(self.settle(caller, id, before.origin, path))
     }
 
-    pub fn stop_army(&mut self, m: &Memory, ctx: &Ctx, army: usize, id: u64) -> GResult<()> {
-        let before = preflight(m, ctx, army)?;
+    /// Stops the army where it is. Returns the player's order when the caller
+    /// acts as the player.
+    pub fn stop_army(&mut self, m: &Memory, ctx: &Ctx, army: usize, id: u64, caller: Caller) -> GResult<Option<Change>> {
+        let before = preflight(m, ctx, army, caller)?;
         if !before.path.ids.is_empty() {
             let _own = OwnGuard::new();
             m.call(m.at(STOP), &[army, 0, 0])?;
@@ -311,8 +353,7 @@ impl Orders {
         if !read_path(m, army + unit::PATH)?.ids.is_empty() {
             return Err("army still has a route after stop".to_string().into());
         }
-        self.receipts.remove(&id);
-        Ok(())
+        Ok(self.settle(caller, id, before.origin, Path::default()))
     }
 }
 
@@ -333,6 +374,45 @@ mod tests {
         assert!(!owned_suffix(1, &p, 2, &path(&[3, 4], &[300, 400])));
         assert!(owned_suffix(1, &path(&[2, 3], &[20, 30]), 3, &path(&[], &[])));
         assert!(!owned_suffix(1, &path(&[2], &[20]), 1, &path(&[2, 3], &[20, 30])));
+    }
+
+    #[test]
+    fn only_an_extension_s_orders_wait_for_a_paused_game() {
+        assert!(waits_for_time(Caller::Extension(0)));
+        assert!(!waits_for_time(Caller::Remote));
+    }
+
+    #[test]
+    fn a_remote_order_is_the_players() {
+        let mut orders = Orders::default();
+        let route = path(&[2, 3], &[20, 30]);
+        let first = Caller::Extension(0);
+
+        assert_eq!(orders.settle(first, 7, 1, route.clone()), None);
+        assert_eq!(orders.source(7, 1, &route, first), RouteSource::Own);
+        assert_eq!(orders.source(7, 1, &route, Caller::Extension(1)), RouteSource::OtherExtension);
+        assert_eq!(orders.source(7, 1, &route, Caller::Remote), RouteSource::OtherExtension);
+
+        // A remote client moves the army: it is taken back from the extension,
+        // and one player's order comes out.
+        let remote = path(&[4], &[40]);
+        assert_eq!(orders.settle(Caller::Remote, 7, 1, remote.clone()), Some(Change::Ordered(7)));
+        assert!(orders.receipts.is_empty());
+        for caller in [first, Caller::Extension(1), Caller::Remote] {
+            assert_eq!(orders.source(7, 1, &remote, caller), RouteSource::External);
+        }
+
+        // Stopping is an order too, whether or not anyone owned the army.
+        assert_eq!(orders.settle(first, 7, 1, route.clone()), None);
+        assert_eq!(orders.settle(Caller::Remote, 7, 1, Path::default()), Some(Change::Ordered(7)));
+        assert_eq!(orders.settle(Caller::Remote, 8, 1, Path::default()), Some(Change::Ordered(8)));
+        assert!(orders.receipts.is_empty());
+        assert_eq!(orders.source(7, 1, &Path::default(), first), RouteSource::None);
+
+        // An extension stopping its army gives the route up without an order.
+        assert_eq!(orders.settle(first, 7, 1, route.clone()), None);
+        assert_eq!(orders.settle(first, 7, 1, Path::default()), None);
+        assert!(orders.receipts.is_empty());
     }
 
     #[test]

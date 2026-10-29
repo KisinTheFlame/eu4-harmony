@@ -1,0 +1,13 @@
+[package]
+name = "eu4-harmony-remote"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "EU4 Harmony remote control: the requests and responses, their JSON form and a description of every capability"
+
+[lib]
+name = "eu4_harmony_remote"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

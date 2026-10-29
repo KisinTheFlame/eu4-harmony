@@ -9,7 +9,7 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe and the game's
   - The month lengths are 12 i32 at `0x1c3a5c8`: 31 28 31 30 31 30 31 31 30 31 30 31.
 - Other helpers, each taking `const date*` in rcx: `0xcfe10` day of the year (from 0), `0x14c8120` day of the month (from 0), `0x14c7fd0` hour, `0x14c8030` adds months in place, `0x14c7750` weekday name.
 - **The current date** is the i32 at `[[0x233fe78] + 0x1dd0]`.
-- **Month names**: `0x14c75a0`(date*, out, short) localises the keys `January`…`December`, or `Jan`…`Dec` when short. Vanilla has no `Jan`…`Dec` keys, so short month names show as the key in every language.
+- **Month names**: `0x14c75a0`(date*, out, short) localizes the keys `January`…`December`, or `Jan`…`Dec` when short. Vanilla has no `Jan`…`Dec` keys, so short month names show as the key in every language.
 
 ## The functions that write a date
 
@@ -25,7 +25,7 @@ Each takes `const date*` in rcx and an unconstructed `std::string` slot in rdx, 
 | `0x6e4c20` | the key `EU3_DATE_STRING` (`"$YYYY$.$MM$.$DD$"`) | 133 sites: `[GetDate]`, envoy texts, triggers, the top bar's tooltip, and logs |
 | `0x6e5390`, `0x6e50c0` | `DASH_EU3_DATE_STRING`, and `Y.M.D` | logs, file names, saves and scripts: never to be changed |
 
-The keys are in `localisation/tmm_l_english.yml`. Vanilla localises the first two per language (German `"$DD$. $MONTH$ $YYYY$"`, French `"$DD$/$MM$/$YYYY$"`), and the Chinese language mod sets `LONG_EU3_DATE_STRING` to year, month, day; the dates made in code stay in English order whatever the language.
+The keys are in `localisation/tmm_l_english.yml`. Vanilla localizes the first two per language (German `"$DD$. $MONTH$ $YYYY$"`, French `"$DD$/$MM$/$YYYY$"`), and the Chinese language mod sets `LONG_EU3_DATE_STRING` to year, month, day; the dates made in code stay in English order whatever the language.
 
 **The format language** (`0x14c7890`): `y` year (absolute), `m` month number from 0 (unused), `mw`/`mws` month name, `d` day from 1, `dw`/`dws` weekday, `e` "AD"/"BC" in ASCII, `h` hour, `p` "AM"/"PM", `w` a space; spaces are skipped and anything else is copied. Its callers copy the format into a local string, so it is recognized by its text:
 - the top bar's date: `"d w mw w y"` (`0x1432256` in `0x14321d0`, the element `DateText`), "11 November 1444", rebuilt when the date changes;

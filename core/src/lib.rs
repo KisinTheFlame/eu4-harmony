@@ -32,8 +32,11 @@ pub mod objects;
 pub mod paths;
 pub mod pdx;
 pub mod physfs;
+pub mod pipe;
 pub mod points;
+pub mod remote;
 pub mod report;
+pub mod safe_point;
 pub mod saves;
 pub mod settings;
 pub mod splice;
@@ -216,6 +219,8 @@ pub(crate) fn deferred_init() {
     log!("settings: {chosen:?}");
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
     report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
+    // Remote control is always on (ADR 0017).
+    pipe::start();
     let memory = MEMORY.get().copied();
     if let Some(m) = memory {
         if let Err(e) = saves::initialize(m, user_dir.join("eu4-harmony").join("saves")) {

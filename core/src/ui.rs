@@ -9,7 +9,7 @@
 //! host's update hook applies it, so state survives the game rebuilding the
 //! window and never needs a callback inside the game's UI code.
 use crate::{
-    game::{self, fail, GResult},
+    game::{self, fail, GResult, Status},
     game_string,
     hooks::HookFrame,
     hosts::{self, Host},
@@ -362,6 +362,7 @@ extern "C" fn menu_after(frame: *mut HookFrame) {
         if frame.fault != 0 || crate::thread_id() != crate::main_thread() {
             return;
         }
+        crate::safe_point::main_menu_frame(frame.args[0]);
         crate::unicode::log_once();
         match main_menu_page(&m, frame.args[0]) {
             Ok(true) => crate::framework_ui::main_menu_frame(),
@@ -562,7 +563,7 @@ fn desired(extension: usize, name: &str, f: impl FnOnce(&mut Desired)) -> GResul
             f(&mut d.desired);
             Ok(())
         }
-        None => fail(abi::NOT_FOUND, format!("no element {name:?} declared by this mod")),
+        None => fail(Status::NotFound, format!("no element {name:?} declared by this mod")),
     })
 }
 
@@ -591,17 +592,17 @@ pub fn hide_extension(extension: usize) {
 /// The own land army shown in the open single-army panel.
 pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
     let (panel, root) = with_ui(|ui| ui.bindings.iter().find(|b| b.host == Host::ArmyPanel).map(|b| (b.holder, b.root)))
-        .ok_or_else(|| game::Fail { code: abi::NOT_FOUND, message: "army panel not open".into() })?;
+        .ok_or_else(|| game::Fail { status: Status::NotFound, message: "army panel not open".into() })?;
     let ours = m.ptr(panel)? == m.at(classes::ARMY_PANEL) && m.ptr(panel + army_panel::WINDOW)? == root;
     if !ours || m.ptr(root)? != m.at(classes::WINDOW) || m.ptr(root + window::GUI)? != m.at(classes::WINDOW_GUI) {
         return Err("army panel changed".to_string().into());
     }
     if m.u8(root + window::OPEN)? != 1 {
-        return fail(abi::NOT_FOUND, "army panel not open");
+        return fail(Status::NotFound, "army panel not open");
     }
     let army = m.ptr(panel + army_panel::ARMY)?;
     if army == 0 || m.ptr(army)? != m.at(campaign::classes::ARMY) || m.u64(army + unit::OWNER)? != ctx.player.0 {
-        return fail(abi::NOT_FOUND, "no own land army selected");
+        return fail(Status::NotFound, "no own land army selected");
     }
     Ok(m.u64(army + unit::ID)?)
 }

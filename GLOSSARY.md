@@ -45,7 +45,7 @@ _Avoid_: patch point, hook point
 ### Capabilities
 
 **Capability**:
-One thing the framework lets an extension read or change in the game, such as reading an army, ordering a move, adding a button to a panel, or keeping data per save. Extensions reach the game only through capabilities.
+One thing the framework lets an extension or a remote client read or change in the game, such as reading an army, ordering a move, adding a button to a panel, or keeping data per save. Extensions and remote clients reach the game only through capabilities.
 _Avoid_: API, service, hook
 
 **Safe point**:
@@ -59,6 +59,40 @@ _Avoid_: view, reference
 **Extension save data**:
 An extension's own data kept with a particular save: tied to that save, but stored outside the save file.
 _Avoid_: sidecar, companion file
+
+**Game console**:
+The game's own console, where commands such as `cash` are typed. The framework offers running a command in it as a capability.
+_Avoid_: console on its own
+
+**Map position**:
+A point on the game's map, in pixels of the province map (`map/provinces.bmp`): x from its left edge, y from its bottom edge, as `map/positions.txt` writes them. The camera looks at a map position.
+_Avoid_: coordinates on their own; screen position (a pixel of the game's window)
+
+**Question**:
+One of the game's own events that waits for the player's answer, shown in an event window with the options the player may choose. Answering it is choosing one of those options; one left unanswered for a few months is answered by the game itself.
+_Avoid_: event (that is remote control's numbered events), game event, popup, decision (the game's decisions are something the player takes, not answers)
+
+**Offer**:
+A proposal another country made to the player that waits for the player to accept or decline it, such as an alliance or a royal marriage, shown as a diplomatic message icon or a dialog.
+_Avoid_: request, diplomatic request, diplomatic message, question (that is one of the game's events)
+
+### Remote control
+
+**Remote control**:
+The part of the framework that lets programs outside the game process use capabilities. It acts as the player: its orders count as orders the player gave by hand.
+_Avoid_: API, server, RPC, console (that is the game console)
+
+**Remote client**:
+A program outside the game process that uses remote control, such as `eu4-harmony game` or an AI driving it.
+_Avoid_: bot, agent
+
+**Transport**:
+How requests and responses travel between remote clients and remote control, such as the named pipe carrying JSON lines.
+_Avoid_: protocol adapter, channel, connection
+
+**Event**:
+Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.
+_Avoid_: notification, message; game event, question (one of the game's own events, whose options the player chooses from)
 
 ### Interface
 

@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
     rc::{Rc, Weak},
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Mutex, OnceLock,
     },
     time::{Duration, Instant},
@@ -177,6 +177,10 @@ struct Context {
 }
 static CONTEXT: OnceLock<Context> = OnceLock::new();
 static LOAD_DEPTH: AtomicUsize = AtomicUsize::new(0);
+/// The saves the game began to read since it started.
+static LOADS: AtomicUsize = AtomicUsize::new(0);
+/// The game read the last save it began to read into its world.
+static LAST_READ: AtomicBool = AtomicBool::new(false);
 
 /// Data loaded with the last save, waiting for the session that loaded it.
 static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
@@ -185,6 +189,17 @@ static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
 
 pub fn load_in_progress() -> bool {
     LOAD_DEPTH.load(Ordering::SeqCst) != 0
+}
+
+/// How many saves the game began to read since it started.
+pub fn loads() -> usize {
+    LOADS.load(Ordering::SeqCst)
+}
+
+/// Whether the game read the last save it began to read: its loader said
+/// so, for the world it read into, outside a daily update.
+pub fn last_load_read() -> bool {
+    LAST_READ.load(Ordering::SeqCst)
 }
 
 /// Data the last load brought along, if the session has not taken it yet.
@@ -452,8 +467,11 @@ extern "C" fn absolute_after(f: *mut HookFrame) {
 
 extern "C" fn load_before(f: *mut HookFrame) {
     LOAD_DEPTH.fetch_add(1, Ordering::SeqCst);
+    LOADS.fetch_add(1, Ordering::SeqCst);
+    LAST_READ.store(false, Ordering::SeqCst);
     *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
     crate::game::events::load_begin();
+    crate::remote::campaign_changes();
     before(f, |h| {
         let c = context()?;
         let mut txn = LoadTxn { world: h.args[2], success: h.args[1], locked: None, error: None };
@@ -485,11 +503,13 @@ extern "C" fn load_after(f: *mut HookFrame) {
     after(f, |h, r| {
         let Record::Load(txn) = r else { return Ok(()) };
         let c = context()?;
+        let (world, date, daily) = world_date(&c.memory)?;
+        let read = h.result == txn.success && c.memory.u8(txn.success)? == 1 && world == txn.world && daily == 0;
+        LAST_READ.store(read, Ordering::SeqCst);
         if let Some(e) = txn.error {
             return Err(format!("loaded save not identified: {e}"));
         }
-        let (world, date, daily) = world_date(&c.memory)?;
-        if h.result != txn.success || c.memory.u8(txn.success)? != 1 || world != txn.world || daily != 0 {
+        if !read {
             return Err("load did not establish the current world".into());
         }
         let locked = txn.locked.ok_or("no loaded file")?;

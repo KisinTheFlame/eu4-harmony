@@ -1,0 +1,34 @@
+# The map camera (for `game::camera`)
+
+Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29; what was checked in the running game is marked "tested".
+
+## Where the map is in the camera's world
+
+- **Map positions.** The camera works in a world where x runs across the map from its left edge and z up the map from its bottom edge, both in pixels of the province map (`map/provinces.bmp`; 5632 by 2048, `map/default.map`), and y is the height above the map. The same pair is how `map/positions.txt` writes positions: Stockholm (1) at 3085, 1723 is north of Paris (183) at 2842, 1494. Tested: see the camera's run in [prototype-log.md](../prototype-log.md).
+- **The province at a position.** The map (the global `0x233fed8`, `campaign::globals::MAP`) has the map's width at `+0x28` and its height at `+0x2c` (i32 each), and at `+0x10` the province ID of every pixel, an i16, row after row from z = 0 up: the ID at x, z is at index z × width + x. 0 or less is no province. Code that finds the province under a point reads it so, for example `0x109315a`–`0x10931c6` (`mov r15, [0x233fed8]` … `41 8b 47 28 3b c8 7d 2c 41 3b 5f 2c 7d 26 0f af d8 03 d9 8b cb 49 8b 47 10 48 0f bf 14 58`: x against the width, z against the height, z × width + x, the i16 there) before handing the ID to `0x9aa80`, which gives the province. The mouse's province (`0x8333e4`–`0x83342a`) reads the same layout from the map the map renderer keeps.
+- **A province's position.** A province's map data (`[province + 0x28]`, `campaign::geometry`) has at `+0x7c` two i16, x and z: where the game looks at the province from (below). `+0xa0` is another such pair, which the game looks at when a game starts (`0x81b691`, the capital's).
+
+## The camera
+
+- **Where it is.** The map manager (`campaign::world::MAP_MANAGER`) keeps the camera at `+0x1200`. Its method at vtable offset `0x1a0` (`0x5c44e0`, `48 8b 81 00 12 00 00 c3`) reads it; the game console command `debug_lockcamera` (`0xe85a90`) reaches the camera so, through the world's map manager. The map manager makes it at `0x80a179` (`new` of 0x7d0 bytes, constructor `0x109b830`, which names `eu3camera.cpp` in its asserts) and stores it at `0x80a17f`.
+- **Its class** is the vtable `0x1d57348`, which the constructor sets at `0x109b871` (`48 8d 05 d0 ba cb 00 48 89 01`).
+- **Its points**, three f32 each, x, y (the height) and z:
+  - `+0x67c` where it is and `+0x688` where it looks, as drawn now. The debug readout's "Camera coords" prints `+0x67c`, `+0x680` and `+0x684` (`0x819c4f`–`0x819cb9`).
+  - `+0x694` where it is going and `+0x6a0` where it will look. The game moves the camera from the first pair towards the second a little every frame.
+  - `0x109cd80` puts the camera at its goal at once: it copies `+0x694`..`+0x6a8` to `+0x67c`..`+0x690`, keeps both on the map (`0x109d0e0`, which hands `+0x67c`/`+0x688` and then `+0x694`/`+0x6a0` to `0x109cf60`, bytes at `0x109d0ff`), and rebuilds the view of the camera object inside it at `+0x30` (position `+0x1b0`, look-at `+0x1bc`, up `+0x1c8`), its outline on the ground (`0x109ded0`) and its copy across the wrap (`0x109e040`). The game itself calls it when the camera is made (`0x109bcc1`) and after the camera is panned (`0x109f655`, which moves both pairs by the same amount first).
+- **Its heights.** `+0x6ec` and `+0x6f0` (i32 each) are the lowest and the highest the camera may be: the constructor truncates the f32 globals `0x233e714` and `0x233e770` into them (`0x109bbba`), which the defines loader fills from `NFrontend.CAMERA_MIN_HEIGHT` and `CAMERA_MAX_HEIGHT` (`0x4d8f6c`, `0x4d8ff9`; 50 and 3000 in `common/defines.lua`).
+- **Keeping it on the map**, `0x109cf60` (rcx the camera, rdx a position, r8 its look-at, r9 the map): the look-at's z between 0 and the map's height; its x between 0 and the width unless the map wraps; the position follows the look-at; the position's height between the lowest the ground allows there and `+0x6f0`. The lowest there is `0x109cd00`: the largest of the heightmap's value under the position × 0.2, 19, and `+0x6ec`.
+- **Locked**, `+0x758` (u8): while it is set, `0x109d140` (below) leaves the camera as it is, and so every move of the game's that goes through it. `debug_lockcamera` toggles it, and the game sets and clears it itself, for example clearing it once a new game looks at the player's capital (`0x81b6dc`); `0x818719`, `0x824acc`, `0x10d29e9` and `0x1111bae` set it.
+- **Wraps**, `+0x778` (u8): the map wraps around from its right edge to its left. The map manager makes its camera with it set (`r9b` = 1 at `0x80a16d`).
+
+## Moving it
+
+- **Looking at a point from a height**, `0x109d140` (rcx the camera, rdx three f32: x, a height, z), when not locked: the goal look-at becomes x, 0, z, and the goal position x, the height, z − 0.3 × the f32 at `+0x27c` of the object at the global `0x242bde8` (a setting, not identified further); then both are kept on the map (`0x109d0e0`). So the camera looks up the map, tilted, and the point it looks at is on the plane y = 0, the map's base plane.
+- **Looking at a province**, `0x80fe20`, the map manager's method (rcx the map manager, rdx the province): nothing for a province ID of 0 or less (`+0x20`); otherwise the position at `+0x7c` of the province's map data, with x moved by the map's width (`[0x233fed8] + 0x28`) where the map wraps and the copy across the edge is nearer the camera's x; the height kept from the goal position (`+0x698`); then `0x109d140`. It has 54 call sites, which were not looked at one by one; `0x80fd30` is the same for a province ID, through the world's province array.
+- **Looking at a map position**, `0x80fd70` (rcx the map manager, edx x, r8d z): the same as `0x80fe20` for a position given as two i32. No direct call to it was found.
+- **The game's own moves glide**: none of the moves above calls `0x109cd80`, so the camera reaches its goal over some frames.
+- **Zooming to a province with a panel open**, `0x139c6a0` (rcx the camera, rdx a position's two i16, r8 a panel or null, xmm3 a zoom between 0 and 1): its height is `0x109d830`, the lowest the ground allows at the goal + zoom² × (`+0x6f0` − that); the panel's width moves the province off the middle of the screen into the part the panel leaves (`0x109d540`, which finds where the camera has to be for a point to show at a point of the screen). The game uses it with `NGui.PROVINCE_FOCUS_ZOOM_HEIGHT` (0.25, the global `0x233e844`). The framework does not use it.
+
+## What the framework relies on
+
+`objects::camera` (the class, the fields, the map manager's camera and the map's province grid, each with a dependency point) and the dependency points of `game::camera` on the functions it calls: `0x80fe20` (looking at a province), `0x80fd70` (at a position), `0x109d140` (from a height; it carries the lock) and `0x109cd80` (at once).

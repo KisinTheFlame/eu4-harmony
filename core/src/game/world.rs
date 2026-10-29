@@ -1,12 +1,16 @@
 //! Reading provinces, armies and countries. Visibility rules follow the game:
 //! units in fogged provinces are never read.
-use super::{context, country, fail, special_countries, span, Ctx, GResult, Tag, MAX_PROVINCES, MAX_UNITS};
+use super::{
+    armies::Army,
+    country, fail,
+    provinces::{Neighbor, Province},
+    special_countries, span, Ctx, GResult, Status, Tag, MAX_PROVINCES, MAX_UNITS,
+};
 use crate::{
     memory::Memory,
-    objects::campaign::{adjacency, classes, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world},
+    objects::campaign::{adjacency, classes, countries as country_list, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world},
     points::Point,
 };
-use eu4_harmony_abi as abi;
 use std::collections::BTreeSet;
 
 const CAN_ENTER: usize = 0x1a2280;
@@ -150,16 +154,30 @@ fn validate_node(m: &Memory, n: &Node, count: usize) -> GResult<()> {
     Ok(())
 }
 
-/// First province and count, cross-checked between the map and the world.
-fn province_array(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
+/// First province and count, cross-checked between the map and the world
+/// `world`.
+fn province_array(m: &Memory, world: usize) -> GResult<(usize, usize)> {
     let map = m.ptr(m.at(globals::MAP))?;
     let first = m.ptr(map + map::PROVINCES)?;
     let end = m.ptr(map + map::PROVINCES + 8)?;
     let count = span(first, end, province::SIZE, MAX_PROVINCES)?;
-    if count == 0 || m.ptr(ctx.world + world::PROVINCES)? != first {
+    if count == 0 || m.ptr(world + world::PROVINCES)? != first {
         return Err("world and map province arrays differ".to_string().into());
     }
     Ok((first, count))
+}
+
+/// How many provinces the country `owner` owns in the world `world`, which
+/// need not have a player: the main menu's too.
+pub fn owned_provinces(m: &Memory, world: usize, owner: Tag) -> GResult<usize> {
+    let (first, count) = province_array(m, world)?;
+    let mut owned = 0;
+    for index in 0..count {
+        if m.u64(first + index * province::SIZE + province::OWNER)? == owner.0 {
+            owned += 1;
+        }
+    }
+    Ok(owned)
 }
 
 impl Geography {
@@ -168,7 +186,7 @@ impl Geography {
     }
 
     fn nodes(&mut self, m: &Memory, ctx: &Ctx) -> GResult<&[Node]> {
-        let (first, count) = province_array(m, ctx)?;
+        let (first, count) = province_array(m, ctx.world)?;
         let key = MapKey { world: ctx.world, map: m.ptr(m.at(globals::MAP))?, first, count };
         if self.entry.as_ref().map(|(k, _)| *k) != Some(key) {
             self.entry = None;
@@ -182,7 +200,7 @@ impl Geography {
         let nodes = self.nodes(m, ctx)?;
         let count = nodes.len();
         let Some(node) = nodes.get(id as usize).cloned() else {
-            return fail(abi::NOT_FOUND, format!("no province {id}"));
+            return fail(Status::NotFound, format!("no province {id}"));
         };
         if let Err(e) = validate_node(m, &node, count) {
             self.clear();
@@ -196,41 +214,30 @@ impl Geography {
         Ok(self.node(m, ctx, id)?.address)
     }
 
-    pub fn provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool) -> GResult<Vec<abi::Province>> {
+    pub fn provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool) -> GResult<Vec<Province>> {
         let nodes = self.nodes(m, ctx)?.to_vec();
         let mut out = Vec::with_capacity(nodes.len());
         for n in &nodes {
-            let mut flags = 0;
-            if n.land {
-                flags |= abi::PROVINCE_LAND;
-            }
-            if n.lake {
-                flags |= abi::PROVINCE_LAKE;
-            }
-            if n.impassable {
-                flags |= abi::PROVINCE_IMPASSABLE;
-            }
             if n.id == 0 {
-                out.push(abi::Province::default());
+                out.push(Province::default());
                 continue;
             }
-            if visibility_current && !hidden(m, n.address)? {
-                flags |= abi::PROVINCE_VISIBLE;
-            }
-            let owner = Tag(m.u64(n.address + province::OWNER)?);
-            let controller = Tag(m.u64(n.address + province::CONTROLLER)?);
-            out.push(abi::Province {
+            let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(n.address + at)?)).filter(|t| t.valid())) };
+            out.push(Province {
                 id: n.id,
-                flags,
-                owner: if owner.valid() { owner.0 } else { 0 },
-                controller: if controller.valid() { controller.0 } else { 0 },
+                land: n.land,
+                lake: n.lake,
+                impassable: n.impassable,
+                visible: visibility_current && !hidden(m, n.address)?,
+                owner: tag_at(province::OWNER)?,
+                controller: tag_at(province::CONTROLLER)?,
             });
         }
         Ok(out)
     }
 
     /// Land connections between passable land provinces.
-    pub fn neighbors(&mut self, m: &Memory, ctx: &Ctx, id: u32) -> GResult<Vec<abi::Neighbor>> {
+    pub fn neighbors(&mut self, m: &Memory, ctx: &Ctx, id: u32) -> GResult<Vec<Neighbor>> {
         let node = self.node(m, ctx, id)?;
         if !node.admissible() {
             return Ok(Vec::new());
@@ -240,7 +247,7 @@ impl Geography {
             .edges
             .iter()
             .filter(|e| by_land(e.kind) && nodes.get(e.to as usize).is_some_and(Node::admissible))
-            .map(|e| abi::Neighbor { to: e.to, flags: abi::NEIGHBOR_LAND | if e.kind == adjacency::STRAIT { abi::NEIGHBOR_STRAIT } else { 0 } })
+            .map(|e| Neighbor { to: e.to, strait: e.kind == adjacency::STRAIT })
             .collect())
     }
 
@@ -249,7 +256,7 @@ impl Geography {
     pub fn strait_open(&mut self, m: &Memory, ctx: &Ctx, army: usize, from: u32, to: u32) -> GResult<bool> {
         let node = self.node(m, ctx, from)?;
         let Some(edge) = node.edges.iter().find(|e| e.to == to && by_land(e.kind)) else {
-            return fail(abi::NOT_FOUND, format!("{to} is not a land neighbor of {from}"));
+            return fail(Status::NotFound, format!("{to} is not a land neighbor of {from}"));
         };
         if edge.kind != adjacency::STRAIT {
             return Ok(true);
@@ -280,7 +287,7 @@ pub fn hidden(m: &Memory, province: usize) -> GResult<bool> {
 fn check_army_vtable(m: &Memory, army: usize) -> GResult<()> {
     let vt = m.ptr(army)?;
     if vt != m.at(classes::ARMY) || m.ptr(vt + unit::CAN_ENTER)? != m.at(CAN_ENTER) || m.ptr(vt + unit::MILITARY_TAG)? != m.at(MILITARY_TAG) {
-        return fail(abi::INVALID_ARGUMENT, "not a land army");
+        return fail(Status::InvalidArgument, "not a land army");
     }
     Ok(())
 }
@@ -343,8 +350,8 @@ pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
 pub fn own_land_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     match own_roster(m, ctx)?.into_iter().find(|(i, _, _)| *i == id) {
         Some((_, address, true)) => Ok(address),
-        Some(_) => fail(abi::INVALID_ARGUMENT, "not a land army"),
-        None => fail(abi::NOT_FOUND, format!("no own army {id}")),
+        Some(_) => fail(Status::InvalidArgument, "not a land army"),
+        None => fail(Status::NotFound, format!("no own army {id}")),
     }
 }
 
@@ -375,38 +382,36 @@ fn busy_mission(m: &Memory, army: usize) -> GResult<bool> {
     Ok(false)
 }
 
-/// Snapshot of a land army; `route_source` is filled in by the caller.
-pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<abi::Army> {
+/// Snapshot of an army; the route is filled in by the caller.
+pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<Army> {
     let land = m.ptr(army)? == m.at(classes::ARMY);
     let id = m.u64(army + unit::ID)?;
     let owner = Tag(m.u64(army + unit::OWNER)?);
     if !land {
-        return Ok(abi::Army { id, owner: owner.0, ..Default::default() });
+        return Ok(Army { id, owner, ..Default::default() });
     }
-    let mut flags = abi::ARMY_LAND;
-    let set = |flags: &mut u32, on: bool, bit: u32| {
-        if on {
-            *flags |= bit
-        }
-    };
-    set(&mut flags, m.ptr(army + unit::BATTLE)? != 0, abi::ARMY_IN_BATTLE);
-    set(&mut flags, m.ptr(army + unit::SIEGE)? != 0, abi::ARMY_SIEGING);
-    set(&mut flags, m.u8(army + unit::RETREATING[0])? != 0 || m.u8(army + unit::RETREATING[1])? != 0, abi::ARMY_RETREATING);
-    let exile = owner.kind() != tag::REBELS && !specials.contains(&(owner.index() as i32)) && m.u8(army + unit::EXILED)? != 0;
-    set(&mut flags, exile, abi::ARMY_EXILED);
-    set(&mut flags, m.u8(army + unit::MOVEMENT_LOCKED)? != 0, abi::ARMY_MOVEMENT_LOCKED);
-    set(&mut flags, m.ptr(army + unit::ATTACHED_TO)? != 0, abi::ARMY_ATTACHED);
-    set(&mut flags, m.ptr(army + unit::FOLLOWERS)? != 0, abi::ARMY_HAS_FOLLOWERS);
-    let busy = |at: usize| -> GResult<bool> { Ok(m.ptr(army + at)? != 0) };
+    let present = |at: usize| -> GResult<bool> { Ok(m.ptr(army + at)? != 0) };
     let vector = unit::CONTEXT_VECTOR;
-    let contexts = busy(unit::CONTEXTS[0])? || busy(unit::CONTEXTS[1])? || m.ptr(army + vector)? != m.ptr(army + vector + 8)?;
-    set(&mut flags, contexts || busy_mission(m, army)?, abi::ARMY_BUSY);
-    let regiments = span(m.ptr(army + unit::REGIMENTS)?, m.ptr(army + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32;
-    Ok(abi::Army { id, owner: owner.0, province: location(m, army)?, flags, regiments, ..Default::default() })
+    Ok(Army {
+        id,
+        owner,
+        land,
+        in_battle: present(unit::BATTLE)?,
+        sieging: present(unit::SIEGE)?,
+        retreating: m.u8(army + unit::RETREATING[0])? != 0 || m.u8(army + unit::RETREATING[1])? != 0,
+        exiled: owner.kind() != tag::REBELS && !specials.contains(&(owner.index() as i32)) && m.u8(army + unit::EXILED)? != 0,
+        movement_locked: m.u8(army + unit::MOVEMENT_LOCKED)? != 0,
+        attached: present(unit::ATTACHED_TO)?,
+        has_followers: present(unit::FOLLOWERS)?,
+        busy: present(unit::CONTEXTS[0])? || present(unit::CONTEXTS[1])? || m.ptr(army + vector)? != m.ptr(army + vector + 8)? || busy_mission(m, army)?,
+        regiments: span(m.ptr(army + unit::REGIMENTS)?, m.ptr(army + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32,
+        province: location(m, army)?,
+        ..Default::default()
+    })
 }
 
 /// Land armies in a visible province, as (record, address).
-pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<(abi::Army, usize)>> {
+pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<(Army, usize)>> {
     if hidden(m, province)? {
         return Ok(Vec::new());
     }
@@ -439,6 +444,35 @@ pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<(a
     Ok(out)
 }
 
+/// Every country's tag, by tag index; empty slots and invalid tags are
+/// skipped.
+pub fn countries(m: &Memory, ctx: &Ctx) -> GResult<Vec<Tag>> {
+    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
+    if m.ptr(manager + country_list::LIST)? != ctx.countries {
+        return Err("country array moved".to_string().into());
+    }
+    let count = m.i32(manager + country_list::COUNT)?;
+    if !(0..=32767).contains(&count) {
+        return Err("country array bound".to_string().into());
+    }
+    let mut out = Vec::with_capacity(count as usize);
+    for index in 0..count as usize {
+        let country = m.ptr(ctx.countries + index * 8)?;
+        if country == 0 {
+            continue;
+        }
+        let tag = Tag(m.u64(country + country_fields::TAG)?);
+        if !tag.valid() {
+            continue;
+        }
+        if tag.index() as usize != index {
+            return Err(format!("country {index} has the tag of country {}", tag.index()).into());
+        }
+        out.push(tag);
+    }
+    Ok(out)
+}
+
 /// At war with each other, or either is a hostile special country (rebels).
 pub fn hostile(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
     if a == b {
@@ -465,9 +499,4 @@ pub fn hostile(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
         }
     }
     Ok(false)
-}
-
-/// Current campaign for read capabilities.
-pub fn ctx(m: &Memory) -> GResult<Ctx> {
-    context(m)
 }
