@@ -410,9 +410,9 @@ pub struct GameApi {
     /// war goal, does not let the player declare war now, or would not let
     /// the player call an ally listed, the game's reasons, one a line, as
     /// the `last_error` message: nothing is sent then. [`OK`] once the game
-    /// has the declaration: it
-    /// carries it out at its next frame; `*ticket`, unless `ticket` is null,
-    /// names it for `diplomacy_answer` and `allies_called`.
+    /// has the declaration: it carries it out at its next frame; `*ticket`,
+    /// unless `ticket` is null, names it for `diplomacy_answer` and
+    /// `allies_called`.
     pub declare_war: unsafe extern "C" fn(
         host: *mut c_void,
         country: CountryId,
