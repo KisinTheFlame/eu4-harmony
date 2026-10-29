@@ -10,7 +10,7 @@
 
 框架以一个文件夹（或它的 zip）提供，里面是 `version.dll` 和 `eu4-harmony\` 文件夹，后者装着核心（`eu4_harmony_core.dll`）和命令行工具（`eu4-harmony.exe`）；`tools\release.ps1` 从 release 构建生成这两者。把 `version.dll` 和 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `version.dll`（通常是中文字体插件，即双字节补丁的加载器）时，先把它移进 `eu4-harmony\backup\`；框架不会加载它，`plugins\` 里这个插件的文件也不再被加载，可以删掉。框架自己负责显示中文和其他文字（[ADR 0010](docs/adr/0010-built-in-unicode-module.md)）。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。
 
-卸载：删掉根目录的 `version.dll` 和 `eu4-harmony\`，把备份的 `version.dll` 放回根目录。
+卸载：删掉根目录的 `version.dll`；有备份的 `version.dll` 时，把它从 `eu4-harmony\backup\` 移回根目录；最后删掉 `eu4-harmony\`。
 
 用框架玩出的存档里，玩家输入或改过的名字是 UTF-8；卸掉框架、换回中文字体插件后，这些名字会显示为乱码。
 

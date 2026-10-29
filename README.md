@@ -10,7 +10,7 @@ Supported game: vanilla 1.37.5, and patched builds of it with the same layout. S
 
 The framework comes as a folder, or a zip of it, holding `version.dll` and an `eu4-harmony\` folder with the core (`eu4_harmony_core.dll`) and the command line tool (`eu4-harmony.exe`); `tools\release.ps1` makes both from a release build. Put `version.dll` and the `eu4-harmony\` folder into the game's root folder. If the root folder already has a `version.dll` (usually the loader of the CJK font plugin), move it into `eu4-harmony\backup\` first. The framework does not load it, and the plugin's files in `plugins\` are not loaded any more either, so they can be deleted. The framework draws Chinese and every other script itself ([ADR 0010](docs/adr/0010-built-in-unicode-module.md)). Then start the game from the Paradox launcher as usual and enable mods built on the framework in your playset.
 
-To uninstall, delete `version.dll` and `eu4-harmony\` from the root folder, and put the backed-up `version.dll` back.
+To uninstall, delete `version.dll` from the root folder, move the backed-up `version.dll`, if there is one, from `eu4-harmony\backup\` back into the root folder, and then delete `eu4-harmony\`.
 
 In saves played with the framework, names the player typed or changed are UTF-8. After removing the framework and going back to the CJK font plugin, those names show as garbage.
 
