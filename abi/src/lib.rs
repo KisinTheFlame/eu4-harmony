@@ -174,7 +174,7 @@ pub struct Camera {
 /// with the `user` pointer the caller passed it. It is called on the game
 /// thread, before the host function returns; the text is valid only for the
 /// call. It must not unwind (no panic or exception may leave it), and it may
-/// call host functions.
+/// call host functions (ADR 0019).
 pub type TextSink = unsafe extern "C" fn(user: *mut c_void, text: *const u8, len: usize);
 
 /// Kinds of regiment and ship, as [`GameApi::recruit`] takes them, in the
