@@ -469,7 +469,7 @@ After Z1 and C8. Play through the command line only, as an AI would: from the ma
 
 Done when: the play-through works start to end and README.md, README.zh-CN.md and prototype-log.md say how and what was seen.
 
-Built (2026-10-30). Z2 played two short sessions through `eu4-harmony game` alone, run from the copy the player's installation now holds; the run is in [prototype-log.md](prototype-log.md) ("Play-through"). Z2 added no capability. It changed what three capabilities do or answer, and what the help says:
+Built (2026-10-30). Z2 played two short sessions through `eu4-harmony game` alone, run from the `eu4-harmony.exe` now among the player's files; the run is in [prototype-log.md](prototype-log.md) ("Play-through"). Z2 added no capability. It changed what three capabilities do or answer, and what the help says:
 
 | Capability | Change |
 | --- | --- |
@@ -506,4 +506,4 @@ Built (2026-10-30). Z2 played two short sessions through `eu4-harmony game` alon
   - The heading "A console command" is "A game console command".
   - A save made with any mod the playset lacks stays refused, with no override, for the reason now in the Z1 item above and in `menu.load`'s description.
 - **README.md and README.zh-CN.md** say what remote control is, how a player or an AI uses `eu4-harmony game`, the capabilities by group, and where the full list is (`eu4-harmony game help`, `describe`).
-- **The player's installation**: nothing made one. The README told players to copy `version.dll` and the `eu4-harmony\` folder, and only `dev-install.ps1` filled such a folder, with the proxy and the core: a player had no `eu4-harmony.exe`. `tools/installation.ps1` now lists the player's files, `eu4-harmony\eu4-harmony.exe` among them (linked with the C runtime statically, as the DLLs are, so it needs nothing else); `dev-install.ps1` installs them, and the new `tools/release.ps1` packs them into `target\eu4-harmony\` and `target\eu4-harmony.zip`. The README says so. The play-through used the copy `dev-install.ps1` installed.
+- **The player's files**: nothing made them. The README told players to copy `version.dll` and the `eu4-harmony\` folder, and only `dev-install.ps1` filled such a folder, with the proxy and the core: a player had no `eu4-harmony.exe`. `tools/player-files.ps1` now lists them, `eu4-harmony\eu4-harmony.exe` among them (linked with the C runtime statically, as the DLLs are, so it needs nothing else); `dev-install.ps1` installs them, and the new `tools/release.ps1` packs them into `target\eu4-harmony\` and `target\eu4-harmony.zip`. The README says so. The play-through used the copy `dev-install.ps1` installed.

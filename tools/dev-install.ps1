@@ -3,7 +3,7 @@
 Copies the built proxy, core and command line tool into a game directory, or
 removes them.
 
-Mirrors the player install instructions, with the files installation.ps1
+Mirrors the player install instructions, with the files player-files.ps1
 lists: version.dll in the game root, the core and eu4-harmony.exe under
 eu4-harmony\. A foreign version.dll already in the root (a CJK font plugin's
 loader, say) is moved to eu4-harmony\backup\version.dll; the proxy never
@@ -15,7 +15,7 @@ param(
     [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'installation.ps1')
+. (Join-Path $PSScriptRoot 'player-files.ps1')
 $repo = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $repo 'target\x86_64-pc-windows-msvc\release'
 $root = $GameDir
@@ -47,7 +47,7 @@ if ($Uninstall) {
     return
 }
 
-foreach ($f in $Installation) {
+foreach ($f in $PlayerFiles) {
     $built = Join-Path $out $f.Built
     if (-not (Test-Path $built)) { throw "missing $built; run cargo build --release" }
 }
@@ -58,7 +58,7 @@ if ((Test-Path $proxyDst) -and -not (IsOurs $proxyDst)) {
     Move-Item $proxyDst $backup
     Write-Host "moved the existing version.dll to $backup (kept, never loaded)"
 }
-$installed = foreach ($f in $Installation) {
+$installed = foreach ($f in $PlayerFiles) {
     $to = Join-Path $root $f.Installed
     Copy-Item (Join-Path $out $f.Built) $to -Force
     "  $to"

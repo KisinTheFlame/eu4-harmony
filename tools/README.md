@@ -1,10 +1,10 @@
 # Development tools
 
-Tools for trying things in a running game, finding dependency points and looking at crashes. They are for development machines only and do not go into the player's installation, which `release.ps1` packs.
+Tools for trying things in a running game, finding dependency points and looking at crashes. They are for development machines only and are not among the player's files, which `release.ps1` packs.
 
 | Tool | Use |
 | --- | --- |
-| `installation.ps1` | Lists the player's installation: the built files that go into the game folder (`version.dll`; the core and `eu4-harmony.exe` in `eu4-harmony\`), and where; the two tools below read it |
+| `player-files.ps1` | Lists the player's files: the built files that go into the game folder (`version.dll`; the core and `eu4-harmony.exe` in `eu4-harmony\`), and where; the two tools below read it |
 | `dev-install.ps1` | Installs them from the release build into the game directory (`-Uninstall` removes them) |
 | `release.ps1` | Packs them for players: `target\eu4-harmony\` and `target\eu4-harmony.zip`, whose contents go into the game's root folder |
 | `game-dir.ps1` | Prints the game folder: `EU4_GAME_DIR`, or else the Steam library that has the game; the other tools' default `-GameDir` |
