@@ -2,6 +2,10 @@
 //! fake in [`testing`](crate::testing).
 use crate::{abi, game::*};
 
+/// The room a snapshot's JSON gets in the first call: several times a
+/// province's.
+const SNAPSHOT_ROOM: usize = 16 * 1024;
+
 /// The capabilities behind a `Game`.
 pub trait Backend {
     fn session(&mut self) -> Result<Session>;
@@ -70,8 +74,14 @@ impl RealBackend {
 
     /// Two-call list protocol.
     fn list<T: Copy + Default>(&self, call: impl Fn(*mut T, usize, *mut usize) -> i32) -> Result<Vec<T>> {
+        self.list_from(0, call)
+    }
+
+    /// Two-call list protocol, with room for `room` items in the first call:
+    /// a list that fits takes one call.
+    fn list_from<T: Copy + Default>(&self, room: usize, call: impl Fn(*mut T, usize, *mut usize) -> i32) -> Result<Vec<T>> {
         let mut len = 0usize;
-        let mut buf: Vec<T> = Vec::new();
+        let mut buf: Vec<T> = vec![T::default(); room];
         for _ in 0..4 {
             let code = call(buf.as_mut_ptr(), buf.len(), &mut len);
             if code == abi::BUFFER_TOO_SMALL {
@@ -83,6 +93,14 @@ impl RealBackend {
             return Ok(buf);
         }
         Err(Error::new(Status::Internal, "list kept growing"))
+    }
+
+    /// A snapshot's JSON read into `T` (ADR 0018). The first call has room
+    /// for [`SNAPSHOT_ROOM`] bytes, so the core builds a snapshot that fits
+    /// once; a larger one it builds again for the second call.
+    fn snapshot<T: serde::de::DeserializeOwned>(&self, what: &str, call: impl Fn(*mut u8, usize, *mut usize) -> i32) -> Result<T> {
+        let bytes = self.list_from(SNAPSHOT_ROOM, call)?;
+        serde_json::from_slice(&bytes).map_err(|e| Error::new(Status::Internal, format!("{what} snapshot: {e}")))
     }
 
     fn flag(&self, call: impl FnOnce(*mut u8) -> i32) -> Result<bool> {
@@ -262,8 +280,7 @@ impl Backend for RealBackend {
     fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
         self.require(end_of!(province))?;
         let api = self.api();
-        let bytes = self.list(|b, c, l| unsafe { (api.province)(api.host, province, b, c, l) })?;
-        let json: ProvinceJson = serde_json::from_slice(&bytes).map_err(|e| Error::new(Status::Internal, format!("province snapshot: {e}")))?;
+        let json: ProvinceJson = self.snapshot("province", |b, c, l| unsafe { (api.province)(api.host, province, b, c, l) })?;
         Ok(json.into())
     }
 }
@@ -434,6 +451,24 @@ mod tests {
         );
         assert_eq!(p.recruit[0].reasons, ["君士坦丁堡不是我们的领土"]);
         assert_eq!(backend.province(1).unwrap_err().status, Status::NotFound);
+    }
+
+    static BUILT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    /// `province`, counting how often the core would build a snapshot.
+    unsafe extern "C" fn counted_province(h: H, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        province(h, id, buf, cap, len)
+    }
+
+    /// A snapshot that fits the first call's room is built once.
+    #[test]
+    fn a_snapshot_takes_one_call() {
+        let mut api = table();
+        api.province = counted_province;
+        assert!(PROVINCE_JSON.len() < SNAPSHOT_ROOM);
+        RealBackend::new(&api).province(151).unwrap();
+        assert_eq!(BUILT.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 
     /// A newer core may add members and values: the snapshot still reads,
