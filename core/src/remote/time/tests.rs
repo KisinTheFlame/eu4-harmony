@@ -142,15 +142,15 @@ fn an_advance_stops_early_and_says_why() {
     let cases: [(Change, &str, &str, Pause); 5] = [
         (|g| g.clock.time.pause = Pause::Player, "paused", "by the player", Pause::Player),
         (|g| g.clock.time.pause = Pause::Window, "paused", "a window paused the game", Pause::Player),
-        (|g| g.clock.game_events = 1, "game_event", "a game event waits", Pause::Player),
+        (|g| g.clock.questions = 1, "question", "a question waits", Pause::Player),
         // The game pauses on events: the event's window holds it paused.
         (
             |g| {
-                g.clock.game_events = 1;
+                g.clock.questions = 1;
                 g.clock.time.pause = Pause::Window;
             },
-            "game_event",
-            "a game event waits",
+            "question",
+            "a question waits",
             Pause::Player,
         ),
         (|g| g.clock.time.session = 3, "session", "another game", Pause::Running),
@@ -176,19 +176,19 @@ fn an_advance_stops_early_and_says_why() {
 fn an_advance_leaves_the_players_pause_whatever_else_holds_the_game() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();
-    // The game pauses on events, and a game event's window holds it paused
+    // The game pauses on events, and a question's event window holds it paused
     // already: the advance answers at once, with the player's pause added,
-    // so that answering the game event does not let time run.
+    // so that answering the question does not let time run.
     game.clock.time.pause = Pause::Window;
-    game.clock.game_events = 1;
+    game.clock.questions = 1;
     let reply = engine.submit(advance(30, None));
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(answer(&reply)["result"]["stopped"], "game_event");
+    assert_eq!(answer(&reply)["result"]["stopped"], "question");
     assert_eq!(game.clock.time.pause, Pause::Player);
 
     // A message set to pause the game opens on the date: the game stays
     // paused once it is closed.
-    game.clock.game_events = 0;
+    game.clock.questions = 0;
     let reply = engine.submit(advance(1, None));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(game.clock.time.pause, Pause::Running);
@@ -201,16 +201,16 @@ fn an_advance_leaves_the_players_pause_whatever_else_holds_the_game() {
 }
 
 #[test]
-fn an_advance_does_not_run_past_a_game_event_waiting_already() {
+fn an_advance_does_not_run_past_a_question_waiting_already() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();
     game.clock.time.pause = Pause::Running;
-    game.clock.game_events = 1;
+    game.clock.questions = 1;
     let reply = engine.submit(advance(30, Some(5)));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(
         answer(&reply),
-        ok(json!({"stopped": "game_event", "reason": "a game event waits for the player's answer", "date": "1444.11.11", "events": [], "last": 0, "missed": false}))
+        ok(json!({"stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.11", "events": [], "last": 0, "missed": false}))
     );
     assert!(game.clock.time.paused());
     assert!(!game.calls.iter().any(|c| c == "resume" || c.starts_with("speed") || c.starts_with("stop at")), "{:#?}", game.calls);
@@ -235,7 +235,7 @@ fn an_advance_given_up_once_the_game_paused_lets_its_stop_go() {
     let cases: [Change; 4] = [
         |g| g.clock.time.pause = Pause::Player,
         |g| g.clock.time.pause = Pause::Window,
-        |g| g.clock.game_events = 1,
+        |g| g.clock.questions = 1,
         // The date, reached before its day is heard.
         |g| g.clock.time.date = START + 30 * DAY,
     ];

@@ -1,7 +1,7 @@
 //! Time: the date, whether the game is paused and by what, and its speed;
 //! pausing, resuming and setting the speed as the player would; stopping time
-//! as a date is reached, for remote control's advancing; and whether a game
-//! event waits for the player's answer. The evidence is in
+//! as a date is reached, for remote control's advancing; and whether a
+//! question waits for the player's answer. The evidence is in
 //! docs/research/time.md.
 use super::{context, context_any, events, fail, game, map_manager, paused, questions, Caller, Ctx, GResult, Status};
 use crate::{
@@ -37,7 +37,7 @@ pub enum Pause {
     Running,
     /// The player paused it, or remote control or an extension did.
     Player,
-    /// A window that pauses the game while it is open, such as a game event's
+    /// A window that pauses the game while it is open, such as an event window
     /// when the game pauses on events, or a message set to pause.
     Window,
 }
@@ -111,14 +111,14 @@ pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
     Ok(())
 }
 
-/// How many game events wait for the player's answer: the questions
-/// `question.list` lists, as [`questions::count`] counts them.
+/// How many questions wait for the player's answer, those `question.list`
+/// lists, as [`questions::count`] counts them.
 ///
 /// That count is the one place remote control's advancing time learns that
 /// one needs an answer: an advance asks it at the safe point, through this,
 /// and the end of the daily update during an advance asks it directly, so
 /// the two never disagree with each other or with the questions listed.
-pub fn game_events_waiting(_: Caller) -> GResult<usize> {
+pub fn questions_waiting(_: Caller) -> GResult<usize> {
     let m = game()?;
     questions::count(m, &context(m)?)
 }
@@ -239,9 +239,9 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
 }
 
 /// After the daily update (`events`' observer): pauses the game with the
-/// player's pause when a stop's date is reached, or when a game event came up
+/// player's pause when a stop's date is reached, or when a question came up
 /// on the day while an advance runs, so that the next frame begins no other
-/// day, and a window that holds the game paused too (a game event's, a
+/// day, and a window that holds the game paused too (an event window, a
 /// message set to pause) does not let it run on once it closes.
 pub(super) fn day_passed(m: &Memory) {
     if crate::saves::load_in_progress() {

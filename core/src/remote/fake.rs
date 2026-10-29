@@ -345,8 +345,8 @@ impl console::Layer for Fake {
 /// changes it. It starts at 1444.11.11, paused, at speed 2.
 pub struct Clock {
     pub time: game::time::Time,
-    /// How many game events wait for the player's answer.
-    pub game_events: usize,
+    /// How many questions wait for the player's answer.
+    pub questions: usize,
     /// The dates time stops at, while advances hold them.
     pub stops: std::sync::Arc<std::sync::Mutex<Vec<i32>>>,
     /// A call that fails, as `calls` names it, and with what.
@@ -356,7 +356,7 @@ pub struct Clock {
 impl Default for Clock {
     fn default() -> Self {
         let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player };
-        Self { time, game_events: 0, stops: Default::default(), failing: None }
+        Self { time, questions: 0, stops: Default::default(), failing: None }
     }
 }
 
@@ -426,9 +426,9 @@ impl time::Layer for Fake {
         Ok(())
     }
 
-    fn game_events_waiting(&mut self) -> GResult<usize> {
-        self.call("game events waiting".into());
-        Ok(self.clock.game_events)
+    fn questions_waiting(&mut self) -> GResult<usize> {
+        self.call("questions waiting".into());
+        Ok(self.clock.questions)
     }
 
     fn stop_at(&mut self, date: i32) -> GResult<Box<dyn time::Held>> {
