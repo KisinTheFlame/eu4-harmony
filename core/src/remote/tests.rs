@@ -187,7 +187,7 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Recruit(RecruitRequest::Recruit { province: province(1), kind: UnitKind::Galley }), Box::new(error("not_found"))),
         (Request::Diplomacy(DiplomacyRequest::WarGoals { country: CountryTag(*b"BYZ") }), Box::new(|v: &Value| v["result"][1]["casus_belli"] == "none")),
         (
-            Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None }),
+            Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None }),
             Box::new(error("rejected")),
         ),
         (Request::Diplomacy(DiplomacyRequest::OfferPeace { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),

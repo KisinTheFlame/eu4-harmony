@@ -28,10 +28,11 @@ group! {
     } -> Vec<WarGoal>, "the war goals: casus_belli, war_goal, province, target, name";
     /// Declares war on a country for one of the war goals the game offers
     /// (`diplomacy.war_goals`): the first with the casus belli, and the war
-    /// goal, province and target when given. Allies are called as the
-    /// declare war dialog calls them at first. `rejected` when the game
-    /// offers no such war goal, or does not let the player declare war, with
-    /// its reasons.
+    /// goal, province and target when given. By default it calls to arms
+    /// each ally the declare war window would let the player call, as
+    /// ticking the ally's call box does, with no land promised; the answer
+    /// lists them in `called`. `rejected` when the game offers no such war
+    /// goal, or does not let the player declare war, with its reasons.
     game DeclareWar "declare_war" {
         /// The country to declare war on.
         country: CountryTag,
@@ -45,7 +46,11 @@ group! {
         province: Option<ProvinceId>,
         /// The country the war goal is about.
         target: Option<CountryTag>,
-    } -> Outcome, "answer: declared (with war, its name) or pending";
+        /// Whether to call allies to arms: true, the default, calls each
+        /// ally the declare war window would let the player call; false
+        /// calls none.
+        call_allies: Option<bool>,
+    } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms";
     /// Offers a country the player is at war with a white peace, a peace
     /// treaty with no terms, in the war between them, as the peace view
     /// sends one. The game allows it to the war's leader, with the other
@@ -84,6 +89,10 @@ pub struct Outcome {
     /// The war that began, by its name as the game shows it, for `declared`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub war: Option<String>,
+    /// For a declaration of war, the allies it called to arms; empty when it
+    /// called none.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub called: Option<Vec<CountryTag>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,9 +117,10 @@ mod tests {
 
     #[test]
     fn a_declaration_names_its_war_and_a_proposal_does_not() {
-        let declared: Response = Ok(Answer::Diplomacy(DiplomacyAnswer::DeclareWar(Outcome { answer: AnswerKind::Declared, war: Some("Ottoman-Byzantine War".into()) })));
-        assert_eq!(crate::response_json(&declared), json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War"}}));
-        let declined: Response = Ok(Answer::Diplomacy(DiplomacyAnswer::ProposeAlliance(Outcome { answer: AnswerKind::Declined, war: None })));
+        let outcome = Outcome { answer: AnswerKind::Declared, war: Some("Ottoman-Byzantine War".into()), called: Some(vec![CountryTag(*b"DUL")]) };
+        let declared: Response = Ok(Answer::Diplomacy(DiplomacyAnswer::DeclareWar(outcome)));
+        assert_eq!(crate::response_json(&declared), json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["DUL"]}}));
+        let declined: Response = Ok(Answer::Diplomacy(DiplomacyAnswer::ProposeAlliance(Outcome { answer: AnswerKind::Declined, war: None, called: None })));
         assert_eq!(crate::response_json(&declined), json!({"ok": true, "result": {"answer": "declined"}}));
     }
 
@@ -128,7 +138,9 @@ mod tests {
         let request = request_from_json(r#"{"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none"}"#).unwrap();
         assert_eq!(
             request,
-            Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"BYZ"), casus_belli: "none".into(), war_goal: None, province: None, target: None })
+            Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"BYZ"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None })
         );
+        let request = request_from_json(r#"{"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": false}"#).unwrap();
+        assert!(matches!(request, Request::Diplomacy(DiplomacyRequest::DeclareWar { call_allies: Some(false), .. })));
     }
 }

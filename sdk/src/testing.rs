@@ -25,7 +25,8 @@ pub enum Command {
 /// A diplomatic action the extension sent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Diplomacy {
-    DeclareWar(CountryId, WarGoal),
+    /// A declaration of war, and whether it called allies.
+    DeclareWar(CountryId, WarGoal, bool),
     OfferPeace(CountryId),
     ProposeAlliance(CountryId),
 }
@@ -102,6 +103,8 @@ pub struct FakeGame {
     /// What `Game::war_goals` answers, by country; a declaration of war is
     /// refused for a war goal not here.
     pub war_goals: BTreeMap<CountryId, Vec<WarGoal>>,
+    /// The allies a declaration of war that calls allies calls to arms.
+    pub allies_to_call: Vec<CountryId>,
     /// The diplomatic actions the extension sent, in order; each one's
     /// ticket is its place in it, from 1.
     pub diplomacy: Vec<Diplomacy>,
@@ -378,12 +381,13 @@ impl Backend for FakeGame {
     fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>> {
         Ok(self.war_goals.get(&country).cloned().unwrap_or_default())
     }
-    fn declare_war(&mut self, country: CountryId, goal: &WarGoal) -> Result<Ticket> {
+    fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call_allies: bool) -> Result<Declaration> {
         let same = |g: &WarGoal| (&g.casus_belli, &g.war_goal, g.province, g.target) == (&goal.casus_belli, &goal.war_goal, goal.province, goal.target);
         if !self.war_goals.get(&country).is_some_and(|offered| offered.iter().any(same)) {
             return Err(Error::new(Status::Rejected, "the game offers no such war goal"));
         }
-        self.send(Diplomacy::DeclareWar(country, goal.clone()))
+        let ticket = self.send(Diplomacy::DeclareWar(country, goal.clone(), call_allies))?;
+        Ok(Declaration { ticket, called: if call_allies { self.allies_to_call.clone() } else { Vec::new() } })
     }
     fn offer_peace(&mut self, country: CountryId) -> Result<Ticket> {
         self.send(Diplomacy::OfferPeace(country))
@@ -434,15 +438,18 @@ mod tests {
 
     #[test]
     fn diplomatic_actions_are_kept_and_answered_as_set() {
-        let (tur, byz) = (CountryId(1), CountryId(2));
+        let (byz, wal) = (CountryId(2), CountryId(3));
         let mut fake = FakeGame::new();
+        fake.allies_to_call = vec![wal];
         let claim = WarGoal { casus_belli: Some("cb_claim".into()), war_goal: Some("take_claim".into()), province: Some(151), target: None, name: "Conquer Constantinople".into() };
         fake.war_goals.insert(byz, vec![claim.clone()]);
         assert_eq!(fake.game().war_goals(byz).unwrap(), [claim.clone()]);
-        assert_eq!(fake.game().war_goals(tur).unwrap(), []);
-        let war = fake.game().declare_war(byz, &claim).unwrap();
+        assert_eq!(fake.game().war_goals(wal).unwrap(), []);
+        let war = fake.game().declare_war(byz, &claim, true).unwrap();
+        assert_eq!(war.called, [wal]);
+        let war = war.ticket;
         let other = WarGoal { province: Some(149), ..claim.clone() };
-        assert_eq!(fake.game().declare_war(byz, &other).unwrap_err().status, Status::Rejected);
+        assert_eq!(fake.game().declare_war(byz, &other, false).unwrap_err().status, Status::Rejected);
         let peace = fake.game().offer_peace(byz).unwrap();
         fake.diplomacy_answers.insert(war, DiplomacyAnswer::Declared);
         assert_eq!(fake.game().diplomacy_answer(war).unwrap(), DiplomacyAnswer::Declared);
@@ -450,7 +457,7 @@ mod tests {
         assert_eq!(fake.game().diplomacy_answer(Ticket(9)).unwrap_err().status, Status::NotFound);
         fake.reject_diplomacy = Some("Cannot ally with a rival.".into());
         assert_eq!(fake.game().propose_alliance(byz).unwrap_err().message, "Cannot ally with a rival.");
-        assert_eq!(fake.diplomacy, [Diplomacy::DeclareWar(byz, claim), Diplomacy::OfferPeace(byz)]);
+        assert_eq!(fake.diplomacy, [Diplomacy::DeclareWar(byz, claim, true), Diplomacy::OfferPeace(byz)]);
     }
 
     #[test]

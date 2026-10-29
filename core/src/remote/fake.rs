@@ -580,13 +580,15 @@ impl diplomacy::Layer for Fake {
         Ok(if enemy == byz() { war_goals() } else { Vec::new() })
     }
 
-    fn declare_war(&mut self, enemy: Tag, choice: &game::diplomacy::Choice) -> GResult<game::diplomacy::Ticket> {
-        self.call(format!("declare war {:x} {:?} {:?} {:?} {:?}", enemy.0, choice.casus_belli, choice.war_goal, choice.province, choice.target.map(|t| t.0)));
+    /// Wallachia is called when allies are.
+    fn declare_war(&mut self, enemy: Tag, choice: &game::diplomacy::Choice, call_allies: bool) -> GResult<game::diplomacy::Declaration> {
+        let calling = if call_allies { "allies" } else { "none" };
+        self.call(format!("declare war {:x} {:?} {:?} {:?} {:?} calling {calling}", enemy.0, choice.casus_belli, choice.war_goal, choice.province, choice.target.map(|t| t.0)));
         if enemy == wal() {
             return fail(Status::Rejected, "They are our subject.
 We have a truce with them.");
         }
-        Ok(game::diplomacy::Ticket(1))
+        Ok(game::diplomacy::Declaration { ticket: game::diplomacy::Ticket(1), called: if call_allies { vec![wal()] } else { Vec::new() } })
     }
 
     fn offer_peace(&mut self, enemy: Tag) -> GResult<game::diplomacy::Ticket> {

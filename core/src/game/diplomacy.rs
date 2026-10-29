@@ -18,8 +18,8 @@ use crate::{
     hooks::HookFrame,
     memory::Memory,
     objects::{
-        diplomacy::{action, casus_belli, classes, command, globals, treaty, war_goal, war_goal_type, war_goals, world},
-        session,
+        diplomacy::{action, casus_belli, classes, command, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world},
+        gui, session,
     },
     points::Point,
     unicode::game_text,
@@ -56,8 +56,24 @@ const ALLIANCE_DESCRIPTION: usize = 0x1c83dc0;
 const PEACE_DESCRIPTION: usize = 0x1c8abc0;
 const WAR_DESCRIPTION: usize = 0x1c83498;
 
+/// What the declare war window gathers about a declaration of war: (action,
+/// out [`sides`], 1 as the window passes it).
+const GATHER: usize = 0x503e70;
+/// Frees a `std::vector` of [`side`] items: (vector).
+const SIDES_FREE: usize = 0x124150;
+/// The declare war window's check whether the player may call the country
+/// of one of its entries ([`war_entry`]): (entry, action, whether the
+/// country is not among those promised land, reasons), the reasons a
+/// `std::string` or null. Its call box asks it before it calls an ally.
+const MAY_CALL: usize = 0xee03f0;
+/// A full `std::vector` of tags growing to take one more, as the call box
+/// grows the allies called: (vector, where, the tag's address).
+const TAGS_GROW: usize = 0xdfde0;
+
 /// The most war goals the game is believed to offer.
 const MOST_WAR_GOALS: usize = 10_000;
+/// The most countries the game is believed to gather on one side of a war.
+const MOST_ON_A_SIDE: usize = 1_000;
 /// How many of the player's actions sent, and carried out, are kept.
 const KEPT: usize = 256;
 
@@ -139,6 +155,13 @@ impl Choice {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ticket(pub u64);
 
+/// A declaration of war sent: its ticket, and the allies it calls to arms.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Declaration {
+    pub ticket: Ticket,
+    pub called: Vec<Tag>,
+}
+
 /// What came of an action sent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
@@ -165,9 +188,11 @@ pub fn war_goals(_: Caller, enemy: Tag) -> GResult<Vec<WarGoal>> {
 }
 
 /// Declares war on `enemy` for the war goal `choice` picks among those the
-/// game offers. [`Status::Rejected`] when it offers none such, or when the
-/// game does not let the player declare war now, with its reasons.
-pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice) -> GResult<Ticket> {
+/// game offers, calling to arms, when `call_allies`, each ally the declare
+/// war window would let the player call ([`call_allies`]), and otherwise
+/// none. [`Status::Rejected`] when the game offers no such war goal, or
+/// does not let the player declare war now, with its reasons.
+pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, call_allies: bool) -> GResult<Declaration> {
     let m = game()?;
     let ctx = context(m)?;
     other(m, &ctx, enemy)?;
@@ -179,7 +204,10 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice) -> GResult<Ticket> {
     let mut made = Made::new(m, action::DECLARE_WAR_SIZE);
     m.call(m.at(DECLARE_WAR_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
     made.built = true;
-    send(m, &ctx, made.at(), Action::DeclareWar, enemy)
+    verdict(m, made.at(), Action::DeclareWar)?;
+    let called = if call_allies { self::call_allies(m, &ctx, made.at(), enemy)? } else { Vec::new() };
+    let ticket = send(m, &ctx, made.at(), Action::DeclareWar, enemy, called.clone())?;
+    Ok(Declaration { ticket, called })
 }
 
 /// Offers `enemy` a white peace: a peace treaty with no terms, demanded by
@@ -202,7 +230,8 @@ pub fn offer_peace(_: Caller, enemy: Tag) -> GResult<Ticket> {
     m.call(m.at(TREATY_DESTROY), &[at])?;
     built?;
     made.built = true;
-    send(m, &ctx, made.at(), Action::OfferPeace, enemy)
+    verdict(m, made.at(), Action::OfferPeace)?;
+    send(m, &ctx, made.at(), Action::OfferPeace, enemy, Vec::new())
 }
 
 /// Proposes an alliance to `ally`.
@@ -229,7 +258,8 @@ pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
         made.put(at, bytes);
     }
     made.built = true;
-    send(m, &ctx, made.at(), Action::ProposeAlliance, ally)
+    verdict(m, made.at(), Action::ProposeAlliance)?;
+    send(m, &ctx, made.at(), Action::ProposeAlliance, ally, Vec::new())
 }
 
 /// What came of an action sent. [`Status::NotFound`] for a ticket that is
@@ -239,10 +269,7 @@ pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
 pub fn answer(caller: Caller, ticket: Ticket) -> GResult<Answer> {
     let m = game()?;
     let ctx = context(m)?;
-    let (sent, seen) = ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail { status: Status::NotFound, message: format!("no diplomatic action {} is kept", ticket.0) })?;
-    if sent.session != events::session() {
-        return fail(Status::NotInGame, "the game the diplomatic action was sent in has ended");
-    }
+    let (sent, seen) = kept(ticket)?;
     Ok(match seen {
         Seen::Answered(true) => Answer::Accepted,
         Seen::Answered(false) => Answer::Declined,
@@ -253,6 +280,23 @@ pub fn answer(caller: Caller, ticket: Ticket) -> GResult<Answer> {
         },
         Seen::CarriedOut | Seen::Nothing => Answer::Pending,
     })
+}
+
+/// The allies a declaration of war sent called to arms, none for a proposal;
+/// [`Status::NotFound`] and [`Status::NotInGame`] as [`answer`].
+pub fn allies_called(_: Caller, ticket: Ticket) -> GResult<Vec<Tag>> {
+    game()?;
+    Ok(kept(ticket)?.0.called)
+}
+
+/// The action sent with `ticket`, and what the game did with it so far,
+/// while it is kept and its game goes on.
+fn kept(ticket: Ticket) -> GResult<(Sent, Seen)> {
+    let (sent, seen) = ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail { status: Status::NotFound, message: format!("no diplomatic action {} is kept", ticket.0) })?;
+    if sent.session != events::session() {
+        return fail(Status::NotInGame, "the game the diplomatic action was sent in has ended");
+    }
+    Ok((sent, seen))
 }
 
 /// The name of the player's latest war with `enemy` on the other side.
@@ -313,11 +357,10 @@ impl Drop for Made<'_> {
     }
 }
 
-/// Sends the action at `at`: asks the game whether the player may, posts its
-/// command to the session as the diplomacy dialog does, and keeps it for
-/// [`answer`].
-fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag) -> GResult<Ticket> {
-    verdict(m, at, kind)?;
+/// Sends the action at `at`, which the game lets the player send
+/// ([`verdict`]): posts its command to the session as the diplomacy dialog
+/// does, and keeps it for [`answer`], with the allies it calls.
+fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag>) -> GResult<Ticket> {
     // The session before the command: once the command is made, only a call
     // into the game can fail before it is posted or destroyed. The session
     // owns the command once it took it; until then, it is the framework's to
@@ -344,7 +387,7 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag) -> GResult<Tick
         m.write(ctx.world + from, &ctx.player.0.to_le_bytes())?;
         m.write(ctx.world + date, &ctx.date.to_le_bytes())?;
     }
-    Ok(ledger(|l| l.send(kind, to, after, events::session())))
+    Ok(ledger(|l| l.send(kind, to, after, events::session(), called)))
 }
 
 /// The map manager's session, which takes the player's commands.
@@ -404,6 +447,186 @@ fn refusal(said: Vec<String>, description: &[String]) -> String {
         "the game does not allow it, and gives no reason".into()
     } else {
         reasons.join("\n")
+    }
+}
+
+// ---------- calls to arms ----------
+
+/// Calls each ally the declare war window would let the player call to
+/// arms, as the player ticking its call boxes one after another from the top
+/// calls them, and answers the allies called. The window lists as allies
+/// the countries it gathers on the declarer's side ([`Sides`]) but the
+/// player and `enemy`; one that joins anyway has no call box to tick. Its
+/// call box asks the window's check ([`MAY_CALL`]) with the ally not among
+/// those promised land, as none is while the promise land boxes are left
+/// alone, and calls an ally the check allows by putting it into the
+/// declaration's [`action::CALLED`]. The window gathers again after each
+/// call, so this does too. The check reads the window's enemies list,
+/// which [`Asking`] leaves empty; [`asked_by_enemy`] stands for it.
+fn call_allies(m: &Memory, ctx: &Ctx, action: usize, enemy: Tag) -> GResult<Vec<Tag>> {
+    let asking = Asking::new(m, action);
+    let mut asked: Vec<i16> = Vec::new();
+    let mut called = Vec::new();
+    for _ in 0..MOST_ON_A_SIDE {
+        let sides = Sides::gather(m, action)?;
+        let listed = |s: &Side| ![ctx.player.index(), enemy.index()].contains(&s.country().index());
+        let ours = sides.side(sides::DECLARER)?;
+        let Some(ally) = ours.into_iter().filter(listed).find(|s| !asked.contains(&s.country().index())) else {
+            return Ok(called);
+        };
+        asked.push(ally.country().index());
+        if ally.joins() {
+            continue;
+        }
+        let theirs: Vec<Side> = sides.side(sides::OTHER)?.into_iter().filter(listed).collect();
+        drop(sides);
+        if !asked_by_enemy(m, ctx, &asking, &theirs, ally.country())? && asking.may_call(&ally, true)? {
+            push_tag(m, action + action::CALLED, ally.country())?;
+            called.push(ally.country());
+        }
+    }
+    Err("the declare war window's allies kept growing".to_string().into())
+}
+
+/// Whether the declare war window lists `ally` among the enemies too, as a
+/// country that joins that side anyway or one the check lets the other side
+/// call: the window then shows it accepting there, and its check lets the
+/// player call it no more (`ALLIED_TO_ENEMY`).
+fn asked_by_enemy(m: &Memory, ctx: &Ctx, asking: &Asking, theirs: &[Side], ally: Tag) -> GResult<bool> {
+    for enemy in theirs.iter().filter(|s| s.country().index() == ally.index()) {
+        if enemy.joins() || (ai_plays(m, ctx, ally)? && asking.may_call(enemy, false)?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether the declare war window's checks take `country` for the AI's:
+/// the world knows which countries human players play, and none plays it.
+fn ai_plays(m: &Memory, ctx: &Ctx, country: Tag) -> GResult<bool> {
+    let (start, end) = (m.ptr(ctx.world + world::HUMANS)?, m.ptr(ctx.world + world::HUMANS + 8)?);
+    let index = country.index();
+    if end <= start || index < 0 || (index as usize) >= (end - start) / 4 {
+        return Ok(false);
+    }
+    Ok(m.i32(start + index as usize * 4)? == 0)
+}
+
+/// Puts `tag` at the end of the `std::vector` of tags at `vector`, as the
+/// call box does: in place while it has room, and otherwise through the
+/// game's own growing, so that the game frees it with the declaration.
+fn push_tag(m: &Memory, vector: usize, tag: Tag) -> GResult<()> {
+    let (end, capacity) = (m.ptr(vector + 8)?, m.ptr(vector + 16)?);
+    if end != capacity {
+        m.write(end, &tag.0.to_le_bytes())?;
+        m.write(vector + 8, &(end as u64 + 8).to_le_bytes())?;
+    } else {
+        let value = tag.0;
+        m.call(m.at(TAGS_GROW), &[vector, end, &value as *const u64 as usize])?;
+    }
+    Ok(())
+}
+
+/// One country the declare war window gathers ([`side`]).
+#[derive(Clone, Copy)]
+struct Side([u8; side::SIZE]);
+
+impl Side {
+    fn country(&self) -> Tag {
+        Tag(u64::from_le_bytes(self.0[side::COUNTRY..side::COUNTRY + 8].try_into().unwrap()))
+    }
+
+    fn joins(&self) -> bool {
+        self.0[side::JOINS] != 0
+    }
+}
+
+/// What the declare war window gathers about a declaration, in a [`sides`]
+/// of the framework's; its lists freed when dropped.
+struct Sides<'a> {
+    m: &'a Memory,
+    raw: [u64; sides::SIZE / 8],
+}
+
+impl<'a> Sides<'a> {
+    fn gather(m: &'a Memory, action: usize) -> GResult<Self> {
+        let mut sides = Self { m, raw: [0; sides::SIZE / 8] };
+        m.call(m.at(GATHER), &[action, sides.raw.as_mut_ptr() as usize, 1])?;
+        Ok(sides)
+    }
+
+    /// The countries on one side, [`sides::DECLARER`] or [`sides::OTHER`].
+    fn side(&self, which: usize) -> GResult<Vec<Side>> {
+        let at = self.raw.as_ptr() as usize + which;
+        let (start, end) = (self.m.ptr(at)?, self.m.ptr(at + 8)?);
+        let size = end.wrapping_sub(start);
+        if end < start || size % side::SIZE != 0 || size / side::SIZE > MOST_ON_A_SIDE {
+            return Err("the countries gathered on a side are out of bounds".to_string().into());
+        }
+        let bytes = self.m.bytes(start, size)?;
+        Ok(bytes.chunks_exact(side::SIZE).map(|item| Side(item.try_into().unwrap())).collect())
+    }
+}
+
+impl Drop for Sides<'_> {
+    fn drop(&mut self) {
+        for which in [sides::DECLARER, sides::OTHER] {
+            let at = self.raw.as_ptr() as usize + which;
+            if let Err(e) = self.m.call(self.m.at(SIDES_FREE), &[at]) {
+                log!("diplomacy: freeing the countries gathered: {e}");
+            }
+        }
+    }
+}
+
+/// What the declare war window's check ([`MAY_CALL`]) reads of the window,
+/// made in the framework's memory: the declaration it sends, and its window,
+/// whose list box of any name, the enemies' among them, has no entries.
+struct Asking<'a> {
+    m: &'a Memory,
+    action: usize,
+    window: Box<[usize; send_window::SIZE / 8]>,
+    element: Box<[usize; 2]>,
+    methods: Box<[usize; gui::window::FIND_LIST_BOX / 8 + 1]>,
+}
+
+/// The made-up window's methods: its list box of any name is the window
+/// itself, and its entries start at its second word, null.
+extern "C" fn list_box_of(window: usize, _name: usize) -> usize {
+    window
+}
+
+extern "C" fn no_entries(window: usize) -> usize {
+    window + 8
+}
+
+impl<'a> Asking<'a> {
+    fn new(m: &'a Memory, action: usize) -> Self {
+        let mut asking = Self {
+            m,
+            action,
+            window: Box::new([0; send_window::SIZE / 8]),
+            element: Box::new([0; 2]),
+            methods: Box::new([0; gui::window::FIND_LIST_BOX / 8 + 1]),
+        };
+        asking.methods[gui::window::FIND_LIST_BOX / 8] = list_box_of as *const () as usize;
+        asking.methods[gui::list_box::ENTRIES / 8] = no_entries as *const () as usize;
+        asking.element[0] = asking.methods.as_ptr() as usize;
+        asking.window[gui::dialog::WINDOW / 8] = asking.element.as_ptr() as usize;
+        asking.window[send_window::ACTION / 8] = action;
+        asking
+    }
+
+    /// Whether the check lets the player call `country`, its entry in the
+    /// allies list (`ally`) or in the enemies list.
+    fn may_call(&self, country: &Side, ally: bool) -> GResult<bool> {
+        let mut entry = [0u8; war_entry::SIZE];
+        entry[war_entry::WINDOW..war_entry::WINDOW + 8].copy_from_slice(&(self.window.as_ptr() as u64).to_le_bytes());
+        entry[war_entry::SIDE..war_entry::SIDE + side::SIZE].copy_from_slice(&country.0);
+        entry[war_entry::ALLY] = ally as u8;
+        entry[war_entry::PROMISE_BOX] = 1;
+        let not_promised_land = 1;
+        Ok(self.m.call(self.m.at(MAY_CALL), &[entry.as_ptr() as usize, self.action, not_promised_land, 0])? as u8 != 0)
     }
 }
 
@@ -503,7 +726,7 @@ fn goal_name(m: &Memory, goal: usize) -> GResult<String> {
 // ---------- what came of them ----------
 
 /// An action sent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Sent {
     ticket: Ticket,
     action: Action,
@@ -511,6 +734,8 @@ struct Sent {
     /// How many actions the game had carried out before.
     after: u64,
     session: u64,
+    /// The allies a declaration calls.
+    called: Vec<Tag>,
 }
 
 /// One of the player's actions the game carried out: a proposal or a
@@ -541,13 +766,13 @@ struct Ledger {
 }
 
 impl Ledger {
-    fn send(&mut self, action: Action, to: Tag, after: u64, session: u64) -> Ticket {
+    fn send(&mut self, action: Action, to: Tag, after: u64, session: u64, called: Vec<Tag>) -> Ticket {
         self.tickets += 1;
         let ticket = Ticket(self.tickets);
         if self.sent.len() == KEPT {
             self.sent.pop_front();
         }
-        self.sent.push_back(Sent { ticket, action, to, after, session });
+        self.sent.push_back(Sent { ticket, action, to, after, session, called });
         ticket
     }
 
@@ -565,7 +790,7 @@ impl Ledger {
     /// after it. An answer before that is an earlier proposal's, carried out
     /// before this one was sent.
     fn seen(&self, ticket: Ticket) -> Option<(Sent, Seen)> {
-        let sent = *self.sent.iter().find(|s| s.ticket == ticket)?;
+        let sent = self.sent.iter().find(|s| s.ticket == ticket)?.clone();
         let mut seen = Seen::Nothing;
         for c in self.carried.iter().filter(|c| c.number > sent.after && c.action == sent.action && c.to.index() == sent.to.index()) {
             match (seen, c.state) {
@@ -711,8 +936,8 @@ mod tests {
         let mut l = Ledger::default();
         // Carried out before it was sent: not its.
         l.carried_out(Action::ProposeAlliance, byz, action::DECLINED);
-        let alliance = l.send(Action::ProposeAlliance, byz, l.carried_count, 1);
-        let war = l.send(Action::DeclareWar, ven, l.carried_count, 1);
+        let alliance = l.send(Action::ProposeAlliance, byz, l.carried_count, 1, Vec::new());
+        let war = l.send(Action::DeclareWar, ven, l.carried_count, 1, Vec::new());
         assert_eq!(l.seen(alliance).unwrap().1, Seen::Nothing);
         l.carried_out(Action::ProposeAlliance, byz, action::UNANSWERED);
         l.carried_out(Action::ProposeAlliance, ven, action::ACCEPTED);
@@ -720,7 +945,7 @@ mod tests {
         assert_eq!(l.seen(war).unwrap().1, Seen::Nothing);
         l.carried_out(Action::DeclareWar, ven, action::UNANSWERED);
         l.carried_out(Action::ProposeAlliance, byz, action::ACCEPTED);
-        assert_eq!(l.seen(alliance).unwrap(), (l.sent[0], Seen::Answered(true)));
+        assert_eq!(l.seen(alliance).unwrap(), (l.sent[0].clone(), Seen::Answered(true)));
         assert_eq!(l.seen(war).unwrap().1, Seen::CarriedOut);
         // A declaration has no answer.
         l.carried_out(Action::DeclareWar, ven, action::DECLINED);
@@ -734,7 +959,7 @@ mod tests {
         let mut l = Ledger::default();
         // A proposal carried out before this one was sent, its answer after.
         l.carried_out(Action::OfferPeace, byz, action::UNANSWERED);
-        let peace = l.send(Action::OfferPeace, byz, l.carried_count, 1);
+        let peace = l.send(Action::OfferPeace, byz, l.carried_count, 1, Vec::new());
         l.carried_out(Action::OfferPeace, byz, action::ACCEPTED);
         assert_eq!(l.seen(peace).unwrap().1, Seen::Nothing);
         l.carried_out(Action::OfferPeace, byz, action::UNANSWERED);
@@ -746,9 +971,9 @@ mod tests {
     #[test]
     fn only_the_latest_actions_are_kept() {
         let mut l = Ledger::default();
-        let first = l.send(Action::OfferPeace, game_tag(b"BYZ", 33), 0, 1);
+        let first = l.send(Action::OfferPeace, game_tag(b"BYZ", 33), 0, 1, Vec::new());
         for _ in 0..KEPT {
-            l.send(Action::OfferPeace, game_tag(b"BYZ", 33), 0, 1);
+            l.send(Action::OfferPeace, game_tag(b"BYZ", 33), 0, 1, Vec::new());
             l.carried_out(Action::OfferPeace, game_tag(b"BYZ", 33), action::UNANSWERED);
         }
         assert_eq!(l.seen(first), None);

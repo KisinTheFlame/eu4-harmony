@@ -4,12 +4,12 @@
 //! [`WAITED`] or when the game returns to the main menu first.
 use super::{countries, events, tag, Live, Outcome as Ran, Poll, Wait};
 use crate::game::{
-    diplomacy::{self as layer, Answer, Choice, Ticket, NO_CASUS_BELLI as NONE},
+    diplomacy::{self as layer, Answer, Choice, Declaration, Ticket, NO_CASUS_BELLI as NONE},
     Caller, GResult, Tag,
 };
 use eu4_harmony_remote::{
     diplomacy::{AnswerKind, DiplomacyAnswer, DiplomacyRequest, Outcome, WarGoal},
-    Answer as Answered, Error, Response,
+    Answer as Answered, CountryTag, Error, Response,
 };
 use std::time::{Duration, Instant};
 
@@ -21,7 +21,7 @@ pub const WAITED: Duration = Duration::from_secs(5);
 /// The group's slice of the capability layer.
 pub trait Layer {
     fn war_goals(&mut self, enemy: Tag) -> GResult<Vec<layer::WarGoal>>;
-    fn declare_war(&mut self, enemy: Tag, choice: &Choice) -> GResult<Ticket>;
+    fn declare_war(&mut self, enemy: Tag, choice: &Choice, call_allies: bool) -> GResult<Declaration>;
     fn offer_peace(&mut self, enemy: Tag) -> GResult<Ticket>;
     fn propose_alliance(&mut self, ally: Tag) -> GResult<Ticket>;
     fn answer(&mut self, ticket: Ticket) -> GResult<Answer>;
@@ -32,8 +32,8 @@ impl Layer for Live {
         layer::war_goals(Caller::Remote, enemy)
     }
 
-    fn declare_war(&mut self, enemy: Tag, choice: &Choice) -> GResult<Ticket> {
-        layer::declare_war(Caller::Remote, enemy, choice)
+    fn declare_war(&mut self, enemy: Tag, choice: &Choice, call_allies: bool) -> GResult<Declaration> {
+        layer::declare_war(Caller::Remote, enemy, choice, call_allies)
     }
 
     fn offer_peace(&mut self, enemy: Tag) -> GResult<Ticket> {
@@ -57,23 +57,24 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
                 Ok(Answered::Diplomacy(DiplomacyAnswer::WarGoals(game.war_goals(enemy)?.iter().map(war_goal).collect())))
             })())
         }
-        DiplomacyRequest::DeclareWar { country, casus_belli, war_goal, province, target } => (|| {
+        DiplomacyRequest::DeclareWar { country, casus_belli, war_goal, province, target, call_allies } => (|| {
             let enemy = game.country(country)?;
             let target = target.map(|t| game.country(t)).transpose()?;
             let choice = Choice { casus_belli: (casus_belli != NONE).then_some(casus_belli), war_goal, province: province.map(|p| p.0), target };
-            Ok((game.declare_war(enemy, &choice)?, Kind::DeclareWar))
+            let declared = game.declare_war(enemy, &choice, call_allies.unwrap_or(true))?;
+            Ok((declared.ticket, Kind::DeclareWar, Some(declared.called.into_iter().map(tag).collect())))
         })(),
         DiplomacyRequest::OfferPeace { country } => (|| {
             let enemy = game.country(country)?;
-            Ok((game.offer_peace(enemy)?, Kind::OfferPeace))
+            Ok((game.offer_peace(enemy)?, Kind::OfferPeace, None))
         })(),
         DiplomacyRequest::ProposeAlliance { country } => (|| {
             let ally = game.country(country)?;
-            Ok((game.propose_alliance(ally)?, Kind::ProposeAlliance))
+            Ok((game.propose_alliance(ally)?, Kind::ProposeAlliance, None))
         })(),
     };
     match sent {
-        Ok((ticket, kind)) => Ran::Later(Box::new(Waiting { ticket, kind, until: Instant::now() + WAITED })),
+        Ok((ticket, kind, called)) => Ran::Later(Box::new(Waiting { ticket, kind, called, until: Instant::now() + WAITED })),
         Err(e) => Ran::Done(Err(e)),
     }
 }
@@ -100,15 +101,18 @@ enum Kind {
 struct Waiting {
     ticket: Ticket,
     kind: Kind,
+    /// The allies a declaration called.
+    called: Option<Vec<CountryTag>>,
     until: Instant,
 }
 
 impl Waiting {
     fn pending(&self) -> Response {
-        self.respond(Outcome { answer: AnswerKind::Pending, war: None })
+        self.respond(AnswerKind::Pending, None)
     }
 
-    fn respond(&self, outcome: Outcome) -> Response {
+    fn respond(&self, answer: AnswerKind, war: Option<String>) -> Response {
+        let outcome = Outcome { answer, war, called: self.called.clone() };
         let answer = match self.kind {
             Kind::DeclareWar => DiplomacyAnswer::DeclareWar(outcome),
             Kind::OfferPeace => DiplomacyAnswer::OfferPeace(outcome),
@@ -123,15 +127,15 @@ impl Wait for Waiting {
         let Some(game) = at.game.as_deref_mut() else {
             return (at.now >= self.until).then(|| self.pending());
         };
-        let outcome = match game.answer(self.ticket) {
+        let (answer, war) = match game.answer(self.ticket) {
             Ok(Answer::Pending) if at.now < self.until => return None,
-            Ok(Answer::Pending) => return Some(self.pending()),
-            Ok(Answer::Accepted) => Outcome { answer: AnswerKind::Accepted, war: None },
-            Ok(Answer::Declined) => Outcome { answer: AnswerKind::Declined, war: None },
-            Ok(Answer::Declared(war)) => Outcome { answer: AnswerKind::Declared, war: Some(war) },
+            Ok(Answer::Pending) => (AnswerKind::Pending, None),
+            Ok(Answer::Accepted) => (AnswerKind::Accepted, None),
+            Ok(Answer::Declined) => (AnswerKind::Declined, None),
+            Ok(Answer::Declared(war)) => (AnswerKind::Declared, Some(war)),
             Err(fail) => return Some(Err(Error::from(fail))),
         };
-        Some(self.respond(outcome))
+        Some(self.respond(answer, war))
     }
 
     /// The game is returning to the main menu, which starts `eu4.exe` again:
@@ -180,7 +184,7 @@ mod tests {
         let mut game = Fake::default();
         game.answers.push_back(Ok(Answer::Pending));
         game.answers.push_back(Ok(Answer::Declared("Ottoman-Byzantine War".into())));
-        let declare = DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "cb_claim".into(), war_goal: None, province: Some(ProvinceId(151)), target: Some(CountryTag(*b"WAL")) };
+        let declare = DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "cb_claim".into(), war_goal: None, province: Some(ProvinceId(151)), target: Some(CountryTag(*b"WAL")), call_allies: None };
         let reply = engine.submit(Request::Diplomacy(declare));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), Value::Null);
@@ -189,22 +193,24 @@ mod tests {
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), Value::Null);
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
-        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War"}}));
-        assert_eq!(game.calls[..3], ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199)"]);
+        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["WAL"]}}));
+        assert_eq!(game.calls[..3], ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199) calling allies"]);
         assert_eq!(game.calls[3..], ["answer 1", "answer 1"]);
 
-        // Without a casus belli.
-        let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "none".into(), war_goal: None, province: None, target: None }));
+        // Without a casus belli, calling no ally: pending, none called.
+        let declare = DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: Some(false) };
+        let reply = engine.submit(Request::Diplomacy(declare));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
-        assert!(game.calls.iter().any(|c| c == "declare war 1000021005a5942 None None None None"), "{:?}", game.calls);
-        drop(reply);
+        assert!(game.calls.iter().any(|c| c == "declare war 1000021005a5942 None None None None calling none"), "{:?}", game.calls);
+        engine.end(menu::ending(), Duration::ZERO);
+        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "pending", "called": []}}));
     }
 
     #[test]
     fn a_refusal_comes_at_once_with_the_game_s_reasons() {
         let engine = Engine::new(quiet);
         let mut game = Fake::default();
-        let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None }));
+        let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None }));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), json!({"ok": false, "error": {"code": "rejected", "message": "They are our subject.\nWe have a truce with them."}}));
         let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: CountryTag(*b"QQQ") }));
@@ -234,7 +240,7 @@ mod tests {
         let mut game = Fake::default();
         let buffer = events::Buffer::new();
         let now = Instant::now();
-        let mut waiting = Waiting { ticket: Ticket(3), kind: Kind::ProposeAlliance, until: now + WAITED };
+        let mut waiting = Waiting { ticket: Ticket(3), kind: Kind::ProposeAlliance, called: None, until: now + WAITED };
         let mut poll = |game: Option<&mut Fake>, now| waiting.poll(&mut super::super::Poll { events: &buffer, now, game: game.map(|g| g as &mut dyn super::super::Game) });
         assert_eq!(poll(Some(&mut game), now), None);
         assert_eq!(poll(None, now), None);

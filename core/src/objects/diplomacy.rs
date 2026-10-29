@@ -79,6 +79,15 @@ pub mod action {
     pub const WAR_GOAL: usize = 0x48;
     /// A peace offer's treaty, [`super::treaty::SIZE`] bytes in the action.
     pub const TREATY: usize = 0x48;
+    /// A declaration of war's allies called (`attacker` in a save) and
+    /// allies promised land (`promised_land`), each a `std::vector` of tags
+    /// (start, end, end of capacity). The declare war window's call box puts
+    /// an ally into [`CALLED`], and as the game carries out a declaration a
+    /// human player made, it sends a call to arms only to the allies there.
+    /// [`PROMISED_LAND`] stays empty while the window's promise land boxes
+    /// are left alone.
+    pub const CALLED: usize = 0x50;
+    pub const PROMISED_LAND: usize = 0x68;
 }
 
 /// The command a diplomatic action's [`action::MAKE_COMMAND`] makes, of
@@ -149,6 +158,60 @@ pub mod world {
     pub const ALLIANCE_OFFER_DATE: usize = 0x1d90;
     pub const PEACE_OFFER_FROM: usize = 0x1da0;
     pub const PEACE_OFFER_DATE: usize = 0x1d9c;
+    /// Which countries human players play: a `std::vector` of i32, one per
+    /// country by its index, nonzero for a human player's country. The game
+    /// takes a country with 0 there, or every country while it is empty, for
+    /// the AI's in the declare war window's checks.
+    pub const HUMANS: usize = 0x1d48;
+}
+
+/// The windows the player sends a diplomatic action through, the default
+/// diplomacy window (an alliance offer) and the declare war window: a
+/// `gui::dialog`, its window at `gui::dialog::WINDOW` and the action it
+/// sends at [`ACTION`]. Not the windows offers to the player show in
+/// (`gui::diplomacy_dialog`, their action at 0x238).
+pub mod send_window {
+    pub const ACTION: usize = 0x1c0;
+    /// As much of one as the check whether the player may call an ally
+    /// reads.
+    pub const SIZE: usize = ACTION + 8;
+}
+
+/// What the declare war window gathers about a declaration of war to list
+/// the allies and enemies it shows: the countries on the declarer's side
+/// and on the other side, each a `std::vector` of [`side`] items, the
+/// declarer and the country declared on first.
+pub mod sides {
+    pub const DECLARER: usize = 0;
+    pub const OTHER: usize = 0x18;
+    pub const SIZE: usize = 0x38;
+}
+
+/// One country [`sides`] lists.
+pub mod side {
+    /// The country (a tag), why it is there (i32) and through which country
+    /// (a tag, unaligned).
+    pub const COUNTRY: usize = 0;
+    pub const REASON: usize = 8;
+    pub const THROUGH: usize = 0xc;
+    /// Nonzero when it is on that side without being called (u8): the two
+    /// countries themselves, and those that join with another.
+    pub const JOINS: usize = 0x14;
+    pub const SIZE: usize = 0x18;
+}
+
+/// An entry of the declare war window's list of allies or of enemies, as
+/// the check whether the player may call its country reads it: the window
+/// it is in, a copy of its [`side`] item, and whether it is in the allies
+/// list (u8, 1) or the enemies list (0); then its promise land box (u8), 1
+/// as the entry is made.
+pub mod war_entry {
+    pub const WINDOW: usize = 0x50;
+    pub const SIDE: usize = 0x60;
+    pub const ALLY: usize = 0x78;
+    pub const PROMISE_BOX: usize = 0x79;
+    /// As much of one as the check reads.
+    pub const SIZE: usize = 0x80;
 }
 
 use crate::points::Point;
@@ -202,14 +265,14 @@ pub fn points() -> Vec<Point> {
              48 8b 40 10 8b 8a d0 1d 00 00 48 89 82 a0 1d 00 00 89 8a 9c 1d 00 00",
             "diplomacy dialog send",
         )
-        .uses(&[FROM, WORLD, DATE, world::ALLIANCE_OFFER_FROM, world::ALLIANCE_OFFER_DATE, world::PEACE_OFFER_FROM, world::PEACE_OFFER_DATE]),
+        .uses(&[send_window::ACTION, FROM, WORLD, DATE, world::ALLIANCE_OFFER_FROM, world::ALLIANCE_OFFER_DATE, world::PEACE_OFFER_FROM, world::PEACE_OFFER_DATE]),
         Point::keep(
             0xedfb64usize,
             "48 8b 8f c0 01 00 00 41 8b 80 d0 1d 00 00 89 41 28 48 8b 8f b8 01 00 00 48 8b 01 ff 90 80 00 00 00 48 8b 8f c0 01 00 00 \
              48 8b d8 48 8b 11 4c 8b 42 40",
             "diplomacy dialog command",
         )
-        .uses(&[DATE, MADE, super::campaign::map_manager::SESSION, MAKE_COMMAND]),
+        .uses(&[send_window::ACTION, DATE, MADE, super::campaign::map_manager::SESSION, MAKE_COMMAND]),
         // The war goals: the dialog's list, which owns them, its count and
         // its items as the game walks them.
         Point::keep(0xee6d40usize, "48 8d 05 99 64 d5 00", "war goal list").uses(&[classes::WAR_GOALS]),
@@ -226,6 +289,54 @@ pub fn points() -> Vec<Point> {
         // game offers none.
         Point::keep(0xee391ausize, "48 8b 4e 58 48 8b 11 4c 8b 42 40 48 8d 54 24 20 41 ff d0", "war goal name").uses(&[war_goal::NAME]),
         Point::keep(0xee70e5usize, "48 8b 15 44 8f 45 01", "no casus belli").uses(&[globals::NO_CASUS_BELLI]),
+        // A declaration's allies called and promised land, as the game
+        // writes them into a save; carrying out a human player's, the game
+        // asks whether the ally is among those called before it sends the
+        // call to arms.
+        Point::keep(0x50bae0usize, "48 8b 46 50 ba f9 28 00 00", "allies called").uses(&[CALLED, 0x28f9]),
+        Point::keep(0x50bb80usize, "48 8b 46 68 ba d3 32 00 00", "allies promised land").uses(&[PROMISED_LAND, 0x32d3]),
+        Point::keep(0x506851usize, "48 8b 41 58 48 8b 51 50", "call to arms to an ally called").uses(&[CALLED + 8, CALLED]),
+        // The declare war window lists its allies from what it gathers, the
+        // declarer's side, leaving out the declarer and the country declared
+        // on; each entry holds the window and a copy of its side item, and
+        // whether it is an ally; its promise land box starts at 1.
+        Point::keep(0x503e9ausize, "4c 8b e2 4c 8b f9 33 ff 89 7c 24 50 48 89 3a 48 89 7a 08 48 89 7a 10 4c 8d 6a 18", "sides gathered").uses(&[sides::OTHER]),
+        Point::keep(0xee633busize, "41 b0 01 48 8d 55 ff 49 8b ce e8 26 db 61 ff", "declare war window gathers"),
+        Point::keep(
+            0xee6550usize,
+            "49 8b 97 c0 01 00 00 48 8b 0f 48 c1 e9 20 48 8b 42 10 48 c1 e8 20 66 3b c8 74 61 48 8b 42 20 48 c1 e8 20 66 3b c8 74 54              b9 20 03 00 00 e8 52 cd b4 00 48 89 45 67 c6 44 24 30 01",
+            "declare war window allies",
+        )
+        .uses(&[send_window::ACTION, FROM, TO]),
+        Point::keep(
+            0xedfcd8usize,
+            "49 89 5f 50 49 89 7f 58 48 8b b5 88 00 00 00 0f 10 06 41 0f 11 47 60 f2 0f 10 4e 10 f2 41 0f 11 4f 70              0f b6 85 90 00 00 00 41 88 47 78 66 41 c7 47 79 01 00",
+            "declare war window entry",
+        )
+        .uses(&[war_entry::WINDOW, war_entry::SIDE, war_entry::SIDE + 0x10, war_entry::ALLY, war_entry::PROMISE_BOX]),
+        // Its call box: the check, with whether the ally is not promised land
+        // and no reasons, then the ally put into those called.
+        Point::keep(0xee32e7usize, "48 8b 41 50 48 89 5c 24 38 4c 8b 98 c0 01 00 00 48 8b 41 60", "call box").uses(&[war_entry::WINDOW, send_window::ACTION, war_entry::SIDE]),
+        Point::keep(0xee3301usize, "4d 8b 4b 58 49 8d 5b 50", "call box called").uses(&[CALLED + 8, CALLED]),
+        Point::keep(0xee3365usize, "4d 3b c1 41 0f 94 c0 49 8b d3 45 33 c9 48 8b cf e8 76 d0 ff ff", "call box check"),
+        Point::keep(0xee3405usize, "4c 3b 4b 10 74 0d 49 89 01 48 83 43 08 08", "call box call").uses(&[0x10, 8]),
+        // What the check reads of the entry and its window: the country, its
+        // tag's valid byte, whether it joins anyway, whether it is an ally,
+        // through which country and why it is there; whether a human player
+        // plays it; the window's list of enemies, its own window's list box
+        // of that name and the list box's entries; the action the window
+        // sends.
+        Point::keep(0xee042fusize, "40 38 79 67 0f 84 5e 10 00 00 40 38 79 74 0f 85 54 10 00 00 48 8b 51 60", "ally check entry")
+            .uses(&[war_entry::SIDE + 7, war_entry::SIDE + side::JOINS, war_entry::SIDE + side::COUNTRY]),
+        Point::keep(0xee044busize, "48 8b 05 26 fa 45 01 4c 8b 80 48 1d 00 00 48 8b 88 50 1d 00 00", "ally check human").uses(&[WORLD, world::HUMANS, world::HUMANS + 8]),
+        Point::keep(0xee049fusize, "40 38 7e 78", "ally check side").uses(&[war_entry::ALLY]),
+        Point::keep(0xee059fusize, "4c 8d 46 6c", "ally check through").uses(&[war_entry::SIDE + side::THROUGH]),
+        Point::keep(0xee0e85usize, "44 8b 4a 68", "ally check reason").uses(&[war_entry::SIDE + side::REASON]),
+        Point::keep(0xee062fusize, "48 8b 46 50 48 8b 48 08 48 8b 01 4c 8b 80 a8 01 00 00", "ally check window")
+            .uses(&[war_entry::WINDOW, super::gui::dialog::WINDOW, super::gui::window::FIND_LIST_BOX]),
+        Point::keep(0xee0686usize, "48 8b 10 48 8b c8 ff 52 58 48 8b 18", "ally check enemies").uses(&[super::gui::list_box::ENTRIES]),
+        Point::keep(0xee0398usize, "80 7b 74 00 75 42 48 8b 43 50 48 8b 98 c0 01 00 00", "ally check action")
+            .uses(&[war_entry::SIDE + side::JOINS, war_entry::WINDOW, send_window::ACTION]),
         // An action made to the player: it gets its id as it reaches the
         // player; the alliance offer's window shows both countries; the
         // offer's window asks whether the action is still unanswered, and

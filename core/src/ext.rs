@@ -579,6 +579,7 @@ unsafe extern "C" fn h_declare_war(
     war_goal_len: usize,
     province: u32,
     target: u64,
+    call_allies: u8,
     ticket: *mut u64,
 ) -> i32 {
     capability(ptr, |caller| {
@@ -589,7 +590,14 @@ unsafe extern "C" fn h_declare_war(
         };
         let war_goal = Some(utf8(war_goal, war_goal_len)?).filter(|w| !w.is_empty()).map(str::to_string);
         let choice = diplomacy::Choice { casus_belli, war_goal, province: (province != 0).then_some(province), target: (target != 0).then_some(Tag(target)) };
-        ticket_out(ticket, diplomacy::declare_war(caller, Tag(country), &choice)?)
+        ticket_out(ticket, diplomacy::declare_war(caller, Tag(country), &choice, call_allies != 0)?.ticket)
+    })
+}
+
+unsafe extern "C" fn h_allies_called(ptr: *mut c_void, ticket: u64, buf: *mut u64, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| {
+        let called: Vec<u64> = diplomacy::allies_called(caller, diplomacy::Ticket(ticket))?.into_iter().map(|t| t.0).collect();
+        list_out(&called, buf, cap, len)
     })
 }
 
@@ -665,6 +673,7 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         offer_peace: h_offer_peace,
         propose_alliance: h_propose_alliance,
         diplomacy_answer: h_diplomacy_answer,
+        allies_called: h_allies_called,
     }
 }
 

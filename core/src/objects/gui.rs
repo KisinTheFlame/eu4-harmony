@@ -117,6 +117,17 @@ pub mod window {
     pub const FIND_TEXT: usize = 0x98;
     pub const FIND_ICON: usize = 0xc8;
     pub const KILL: usize = 0x130;
+    /// The method that answers its [`super::list_box`] of a name, given as a
+    /// `std::string`, by vtable offset.
+    pub const FIND_LIST_BOX: usize = 0x1a8;
+}
+
+/// A list box, in a window.
+pub mod list_box {
+    /// The method that answers where its entries start, by vtable offset:
+    /// the address of the first node of a linked list (null when empty),
+    /// each node the entry at 0 and the next node at 0x10.
+    pub const ENTRIES: usize = 0x58;
 }
 
 pub mod army_panel {

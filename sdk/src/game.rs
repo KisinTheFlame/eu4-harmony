@@ -502,6 +502,14 @@ impl From<WarGoalJson> for WarGoal {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Ticket(pub u64);
 
+/// A declaration of war sent ([`Game::declare_war`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Declaration {
+    pub ticket: Ticket,
+    /// The allies it called to arms.
+    pub called: Vec<CountryId>,
+}
+
 /// What came of a diplomatic action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiplomacyAnswer {
@@ -823,15 +831,17 @@ impl<'a> Game<'a> {
     }
     /// Declares war on `country` for `goal`, one of those
     /// [`war_goals`](Self::war_goals) lists, as the player does through the
-    /// diplomacy panel, so that the game's checks and costs apply; allies
-    /// are called as the declare war dialog calls them at first.
+    /// diplomacy panel, so that the game's checks and costs apply. With
+    /// `call_allies` it calls to arms each ally the declare war window would
+    /// let the player call, as ticking the ally's call box does, with no land
+    /// promised; without, none. The answer says which it called.
     /// [`Status::Rejected`] when the game offers no such war goal or does
     /// not let the player declare war now, with the game's reasons, one a
     /// line. The game carries the declaration out at its next frame;
     /// [`diplomacy_answer`](Self::diplomacy_answer) then says whether the war
     /// began.
-    pub fn declare_war(&mut self, country: CountryId, goal: &WarGoal) -> Result<Ticket> {
-        self.backend.declare_war(country, goal)
+    pub fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call_allies: bool) -> Result<Declaration> {
+        self.backend.declare_war(country, goal, call_allies)
     }
     /// Offers `country`, which the player is at war with, a white peace in
     /// the war between them, as the peace view sends one; refused, with the
