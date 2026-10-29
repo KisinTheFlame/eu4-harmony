@@ -8,7 +8,9 @@
 //! reference, which would make the ABI depend on how temporaries are laid out.
 //! Every host function returns a status code; results go through out-pointers.
 //! List queries use the two-call pattern: with too small a buffer they return
-//! [`BUFFER_TOO_SMALL`] and store the needed count in `len`.
+//! [`BUFFER_TOO_SMALL`] and store the needed count in `len`. A command, which
+//! cannot be run twice to ask for its output again, hands that to a
+//! [`TextSink`] instead.
 use std::ffi::c_void;
 
 /// Value of `api_version` in the manifest that this ABI implements.
@@ -168,6 +170,13 @@ pub struct Camera {
     pub max_height: u32,
 }
 
+/// Receives text a host function hands back (UTF-8, `len` bytes at `text`),
+/// with the `user` pointer the caller passed it. It is called on the game
+/// thread, before the host function returns; the text is valid only for the
+/// call. It must not unwind (no panic or exception may leave it), and it may
+/// call host functions.
+pub type TextSink = unsafe extern "C" fn(user: *mut c_void, text: *const u8, len: usize);
+
 /// Capabilities valid only for the duration of one callback, on the game thread.
 #[repr(C)]
 pub struct GameApi {
@@ -279,6 +288,20 @@ pub struct GameApi {
     /// transport in that order; `abi/json/province.json` is a whole one.
     /// [`NOT_FOUND`] for a number that names no province.
     pub province: unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
+    /// Runs a command in the game console as the player would type it
+    /// (UTF-8, such as `cash 100`), and hands what it printed to `printed`,
+    /// with `user`, once before returning [`OK`]; `printed` may be null.
+    /// [`REJECTED`] when the game console refused the command or it failed:
+    /// what it printed is then the `last_error` message. [`INVALID_ARGUMENT`]
+    /// for an empty command or one with a `|` or a NUL, before the game sees
+    /// it.
+    pub console_run: unsafe extern "C" fn(
+        host: *mut c_void,
+        command: *const u8,
+        command_len: usize,
+        printed: Option<TextSink>,
+        user: *mut c_void,
+    ) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -357,5 +380,6 @@ slots!(GameApi:
     save_data_set, language, text,
     camera, camera_look_at_province, camera_look_at, camera_zoom,
     province,
+    console_run,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);

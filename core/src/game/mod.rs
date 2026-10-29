@@ -3,8 +3,8 @@
 //! [`Caller`] and returning the framework's own types; the C ABI for
 //! extensions (`crate::ext`) only converts to and from them. One file per
 //! group: [`session`], [`countries`], [`provinces`], [`armies`],
-//! [`interface`], [`map_coloring`], [`save_data`], [`texts`], [`camera`] and
-//! [`screenshot`].
+//! [`interface`], [`map_coloring`], [`save_data`], [`texts`], [`camera`],
+//! [`screenshot`] and [`console`].
 //!
 //! Under them, reading the campaign, finding routes and giving orders, ported
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
@@ -13,6 +13,7 @@
 //! in docs/research/regional-combat/.
 pub mod armies;
 pub mod camera;
+pub mod console;
 pub mod countries;
 pub mod events;
 pub mod interface;
@@ -177,6 +178,7 @@ pub fn points() -> Vec<Point> {
     points.extend(events::points());
     points.extend(camera::points());
     points.extend(provinces::points());
+    points.extend(console::points());
     points
 }
 

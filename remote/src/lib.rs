@@ -194,6 +194,8 @@ groups! {
     Text(texts::TextRequest, TextAnswer),
     /// The frame the player sees, as an image.
     Screenshot(screenshot::ScreenshotRequest, ScreenshotAnswer),
+    /// The game console.
+    Console(console::ConsoleRequest, ConsoleAnswer),
     /// The events remote control keeps.
     Events(events::EventsRequest, EventsAnswer),
     /// The capabilities, described.

@@ -61,7 +61,7 @@ An extension's own data kept with a particular save: tied to that save, but stor
 _Avoid_: sidecar, companion file
 
 **Game console**:
-The game's own console, where commands such as `add_treasury` are typed. The framework offers running a command in it as a capability.
+The game's own console, where commands such as `cash` are typed. The framework offers running a command in it as a capability.
 _Avoid_: console on its own
 
 **Map position**:

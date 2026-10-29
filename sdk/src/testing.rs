@@ -64,6 +64,11 @@ pub struct FakeGame {
     /// What `Game::province` answers, by province; missing entries are not
     /// found.
     pub province_snapshots: BTreeMap<ProvinceId, ProvinceSnapshot>,
+    /// The game console commands the extension ran, in order.
+    pub console_commands: Vec<String>,
+    /// What each game console command prints, by command as it was run;
+    /// one not here is rejected as one the game console does not know.
+    pub console_output: BTreeMap<String, String>,
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -245,6 +250,10 @@ impl Backend for FakeGame {
     fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
         self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
     }
+    fn console_run(&mut self, command: &str) -> Result<String> {
+        self.console_commands.push(command.into());
+        self.console_output.get(command).cloned().ok_or_else(|| Error::new(Status::Rejected, "Unknown command"))
+    }
 }
 
 #[cfg(test)]
@@ -258,5 +267,15 @@ mod tests {
         fake.province_snapshots.insert(151, snapshot.clone());
         assert_eq!(fake.game().province(151).unwrap(), snapshot);
         assert_eq!(fake.game().province(152).unwrap_err().status, Status::NotFound);
+    }
+
+    #[test]
+    fn game_console_commands_are_kept_and_answered_as_set() {
+        let mut fake = FakeGame::new();
+        fake.console_output.insert("cash 100".into(), "Gold changed by 100".into());
+        assert_eq!(fake.game().console("cash 100").unwrap(), "Gold changed by 100");
+        let err = fake.game().console("cahs 100").unwrap_err();
+        assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "Unknown command"));
+        assert_eq!(fake.console_commands, ["cash 100", "cahs 100"]);
     }
 }

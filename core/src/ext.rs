@@ -452,6 +452,16 @@ unsafe extern "C" fn h_province(ptr: *mut c_void, id: u32, buf: *mut u8, cap: us
     capability(ptr, |caller| list_out(province_json(&provinces::province(caller, id)?).to_string().as_bytes(), buf, cap, len))
 }
 
+unsafe extern "C" fn h_console_run(ptr: *mut c_void, command: *const u8, command_len: usize, printed: Option<abi::TextSink>, user: *mut c_void) -> i32 {
+    capability(ptr, |caller| {
+        let text = game::console::run(caller, utf8(command, command_len)?)?;
+        if let Some(printed) = printed {
+            printed(user, text.as_ptr(), text.len());
+        }
+        Ok(())
+    })
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -488,6 +498,7 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         camera_look_at: h_camera_look_at,
         camera_zoom: h_camera_zoom,
         province: h_province,
+        console_run: h_console_run,
     }
 }
 

@@ -45,6 +45,9 @@ pub trait Backend {
     fn camera_zoom(&mut self, height: u32) -> Result<Camera>;
     /// `NotFound` for a number that names no province.
     fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot>;
+    /// What the game console command printed; `Rejected`, with what it
+    /// printed, when the game console refused it or it failed.
+    fn console_run(&mut self, command: &str) -> Result<String>;
 }
 
 /// The core's capability table for the current callback.
@@ -283,6 +286,19 @@ impl Backend for RealBackend {
         let json: ProvinceJson = self.snapshot("province", |b, c, l| unsafe { (api.province)(api.host, province, b, c, l) })?;
         Ok(json.into())
     }
+    fn console_run(&mut self, command: &str) -> Result<String> {
+        self.require(end_of!(console_run))?;
+        unsafe extern "C" fn keep(user: *mut std::ffi::c_void, text: *const u8, len: usize) {
+            if len > 0 && !text.is_null() {
+                (*(user as *mut Vec<u8>)).extend_from_slice(std::slice::from_raw_parts(text, len));
+            }
+        }
+        let api = self.api();
+        let mut printed: Vec<u8> = Vec::new();
+        let user = &mut printed as *mut Vec<u8> as *mut std::ffi::c_void;
+        self.check(unsafe { (api.console_run)(api.host, command.as_ptr(), command.len(), Some(keep), user) })?;
+        self.utf8(printed)
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -316,6 +332,18 @@ mod tests {
     unsafe extern "C" fn no_text(_: H, _: *const u8, _: usize, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
     unsafe extern "C" fn no_camera_province(_: H, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
     unsafe extern "C" fn no_camera_position(_: H, _: u32, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
+
+    /// Hands back what `cash 100` prints; refuses anything else.
+    unsafe extern "C" fn console_run(_: H, command: *const u8, len: usize, printed: Option<abi::TextSink>, user: H) -> i32 {
+        if std::slice::from_raw_parts(command, len) != b"cash 100" {
+            return abi::REJECTED;
+        }
+        let text = "Gold changed by 100 ✓";
+        if let Some(printed) = printed {
+            printed(user, text.as_ptr(), text.len());
+        }
+        abi::OK
+    }
 
     unsafe extern "C" fn last_error(_: H, buf: *mut u8, cap: usize) -> usize {
         let message = b"no such army";
@@ -407,6 +435,7 @@ mod tests {
             camera_look_at: no_camera_position,
             camera_zoom: no_camera_province,
             province,
+            console_run,
         }
     }
 
@@ -517,5 +546,24 @@ mod tests {
         assert_eq!(backend.camera_look_at(2842, 1494).unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.camera_zoom(800).unwrap_err().status, Status::Unavailable);
         assert!(backend.language().is_ok());
+    }
+
+    #[test]
+    fn a_console_command_hands_back_what_it_printed() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.console_run("cash 100").unwrap(), "Gold changed by 100 ✓");
+        // A refusal's message comes from `last_error`, as every failure's.
+        let err = backend.console_run("cahs 100").unwrap_err();
+        assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "no such army"));
+    }
+
+    #[test]
+    fn a_core_from_before_the_game_console_has_none() {
+        let mut api = table();
+        api.size = std::mem::offset_of!(abi::GameApi, console_run);
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.console_run("cash 100").unwrap_err().status, Status::Unavailable);
+        assert!(backend.camera().is_ok());
     }
 }
