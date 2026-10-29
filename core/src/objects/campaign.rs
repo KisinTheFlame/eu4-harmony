@@ -80,6 +80,11 @@ pub mod world {
     /// length (i32) at [`PENDING_EVENT_COUNT`].
     pub const PENDING_EVENTS: usize = 0x1ea0;
     pub const PENDING_EVENT_COUNT: usize = 0x1eac;
+    /// 0 in single player, i32.
+    pub const MULTIPLAYER: usize = 0x747c;
+    /// Set to 1 (i32) before the single player setup is entered to continue
+    /// a save (docs/research/main-menu.md).
+    pub const SETUP: usize = 0x23b4;
 }
 
 /// The country manager, at [`globals::COUNTRY_MANAGER`].
@@ -355,6 +360,9 @@ pub mod map_manager {
     pub const MESSAGE_ICON_HOLDER: usize = 0x1400;
     /// The dialogs open from those icons, a [`super::list`].
     pub const OPEN_DIALOGS: usize = 0x370;
+    /// Return to the main menu at its next frame, u8: the game starts
+    /// `eu4.exe` again (docs/research/main-menu.md).
+    pub const RETURN: usize = 0x12e9;
 }
 
 /// The map manager's pause state, at [`map_manager::PAUSE`].
@@ -674,6 +682,11 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1a20aeusize, "48 8d 05 8b 04 aa 01 48 89 03", "army class").uses(&[classes::ARMY]),
         Point::keep(0x909600usize, "48 8d 05 d9 11 3c 01 48 89 03", "fleet class").uses(&[classes::FLEET]),
         Point::keep(0x8032deusize, "48 8d 05 7b 51 4b 01 48 89 06", "map manager class").uses(&[classes::MAP_MANAGER]),
+        // Returning to the main menu: the question's answer sets the flag,
+        // the map manager's frame acts on it.
+        Point::keep(0x11bde0busize, "48 8b 83 b8 01 00 00 c6 83 14 01 00 00 01 c6 80 e9 12 00 00 01", "return to main menu answer")
+            .uses(&[map_manager::RETURN]),
+        Point::keep(0x815c9fusize, "41 80 bd e9 12 00 00 00", "return to main menu").uses(&[map_manager::RETURN]),
         Point::keep(0xe5180usize, "48 8d 05 71 82 c3 01", "move command class").uses(&[classes::MOVE_COMMANDS[0]]),
         Point::keep(0xd4c3ausize, "48 8d 05 47 8e c4 01", "move command class").uses(&[classes::MOVE_COMMANDS[1]]),
         Point::keep(0x26ce8eusize, "48 8d 05 63 11 9e 01 48 89 01", "recruit command class").uses(&[classes::RECRUIT_COMMAND]),

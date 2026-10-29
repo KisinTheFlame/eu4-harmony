@@ -22,8 +22,10 @@ use crate::{
     game_string,
     memory::Memory,
     objects::{
-        campaign::{classes as campaign_classes, countries as country_list, country as country_fields, globals, world},
-        gui::{classes as gui_classes, main_menu as gui_menu},
+        application,
+        campaign::{classes as campaign_classes, countries as country_list, country as country_fields, globals, map_manager, world},
+        gui::{classes as gui_classes, main_menu},
+        setup,
     },
     points::Point,
     Result,
@@ -37,78 +39,16 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
-/// The game's objects and functions the main menu capabilities use, by RVA
-/// and offset.
-mod layout {
-    /// The main menu's page to enter for a single player game: the single
-    /// player setup.
-    pub const SETUP_PAGE: u32 = 3;
-    /// The main menu (`gui::classes::MAIN_MENU`).
-    pub mod main_menu {
-        /// The application, whose idler switch starts a game.
-        pub const APPLICATION: usize = 0x330;
-        /// The start of a game was accepted (the start command ran), u8.
-        pub const LAUNCH_ACCEPTED: usize = 0x714;
-        /// The game starts at the main menu's next frame, u8.
-        pub const LAUNCH: usize = 0x715;
-        /// The pages, an array of pointers by page number, each to the
-        /// page's interface, [`super::setup::INTERFACE`] bytes into the page.
-        pub const PAGES: usize = 0x8e8;
-        /// The single player setup is entered to continue a save, u8.
-        pub const CONTINUING: usize = 0x910;
-    }
-    pub mod application {
-        /// An idler switch is pending, u8: a game is about to start.
-        pub const SWITCH_PENDING: usize = 0x48;
-    }
-    /// The single player setup page (`gamesetup.cpp`).
-    pub mod setup {
-        pub const CLASS: usize = 0x1d5e278;
-        /// Its interface in the main menu's pages, and that interface's
-        /// class.
-        pub const INTERFACE: usize = 0x28;
-        pub const INTERFACE_CLASS: usize = 0x1d5e320;
-        /// The main menu it belongs to.
-        pub const MAIN_MENU: usize = 0x30;
-        /// The save chosen in it, a `std::string` holding its PhysFS path;
-        /// whether that save is in the cloud, u8; and the save list's
-        /// selection (i32, -1 for none).
-        pub const SAVE_PATH: usize = 0x338;
-        pub const CLOUD_SAVE: usize = 0x358;
-        pub const SAVE_INDEX: usize = 0x35c;
-        /// The country the save chosen is played as, a tag.
-        pub const SAVE_PLAYER: usize = 0xc48;
-        /// It started a game, u8.
-        pub const STARTED: usize = 0x2cb0;
-    }
-    /// The world (`campaign::globals::WORLD`).
-    pub mod world {
-        /// Single player (0) or multiplayer, i32.
-        pub const MODE: usize = 0x747c;
-        /// Set to 1 before the single player setup is entered, i32.
-        pub const SETUP: usize = 0x23b4;
-    }
-    /// The game idler (`campaign::classes::MAP_MANAGER`).
-    pub mod idler {
-        /// Return to the main menu at the next frame, u8.
-        pub const RETURN: usize = 0x12e9;
-    }
-    /// The country the single player setup selects and starts as when it is
-    /// entered, a `std::string` (`-start_tag`); it empties it.
-    pub const START_TAG: usize = 0x1fd39a8;
-    /// `(main menu, page, animate)`: shows a page of the main menu.
-    pub const SHOW_PAGE: usize = 0x10daf60;
-    /// `(setup)`: loads the save [`setup::SAVE_PATH`] names into the setup
-    /// (by a command, at a later frame) and selects
-    /// [`setup::SAVE_PLAYER`]'s country, or the world's player for an
-    /// ironman save.
-    pub const CHOOSE_SAVE: usize = 0x1130f40;
-    /// `(setup, true)`: starts the game as the continue box does.
-    pub const CONTINUE: usize = 0x1120740;
-    /// `(world, tag)`: makes the country the player's.
-    pub const SET_PLAYER: usize = 0x763840;
-}
-use layout::{application, idler, main_menu, setup, CHOOSE_SAVE, CONTINUE, SETUP_PAGE, SET_PLAYER, SHOW_PAGE, START_TAG};
+/// `(main menu, page, animate)`: shows a page of the main menu.
+const SHOW_PAGE: usize = 0x10daf60;
+/// `(setup)`: loads the save [`setup::SAVE_PATH`] names into the setup (by
+/// a command, at a later frame) and selects [`setup::SAVE_PLAYER`]'s
+/// country, or the world's player for an ironman save.
+const CHOOSE_SAVE: usize = 0x1130f40;
+/// `(setup, true)`: starts the game as the continue box does.
+const CONTINUE: usize = 0x1120740;
+/// `(world, tag)`: makes the country the player's.
+const SET_PLAYER: usize = 0x763840;
 
 /// Where the safe point that runs remote control is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -313,7 +253,7 @@ fn first_page(m: &Memory) -> GResult<usize> {
     if starting(m, frontend) {
         return fail(Status::Unavailable, "a game is already being started");
     }
-    if m.u32(frontend + gui_menu::PAGE)? != 0 {
+    if m.u32(frontend + main_menu::PAGE)? != 0 {
         return fail(Status::Unavailable, "only from the main menu's first page");
     }
     Ok(frontend)
@@ -371,7 +311,7 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
     };
     let result = if m.ptr(frontend).ok() != Some(m.at(gui_classes::MAIN_MENU)) {
         Err("unexpected main menu object".to_string())
-    } else if m.u32(frontend + gui_menu::PAGE).ok() != Some(0) {
+    } else if m.u32(frontend + main_menu::PAGE).ok() != Some(0) {
         Err("the main menu left its first page before the game could take it up".to_string())
     } else {
         match &action {
@@ -385,7 +325,7 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
             log!("menu: {} failed: {why}", describe(&action));
             let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
             // Back to the first page, where the next one can begin.
-            if m.u32(frontend + gui_menu::PAGE).is_ok_and(|page| page != 0) {
+            if m.u32(frontend + main_menu::PAGE).is_ok_and(|page| page != 0) {
                 let _ = m.call(m.at(SHOW_PAGE), &[frontend, 0, 1]);
             }
         }
@@ -402,10 +342,10 @@ fn describe(action: &Action) -> String {
 
 /// The single player setup page, once the main menu shows it.
 fn setup(m: &Memory, frontend: usize) -> Result<usize> {
-    if m.u32(frontend + gui_menu::PAGE)? != SETUP_PAGE {
+    if m.u32(frontend + main_menu::PAGE)? != main_menu::SETUP_PAGE {
         return Err("the main menu did not enter the single player setup".into());
     }
-    let interface = m.ptr(m.ptr(frontend + main_menu::PAGES)? + SETUP_PAGE as usize * 8)?;
+    let interface = m.ptr(m.ptr(frontend + main_menu::PAGES)? + main_menu::SETUP_PAGE as usize * 8)?;
     let page = interface.checked_sub(setup::INTERFACE).filter(|_| interface != 0).ok_or("no single player setup")?;
     if m.ptr(page)? != m.at(setup::CLASS) || m.ptr(interface)? != m.at(setup::INTERFACE_CLASS) || m.ptr(page + setup::MAIN_MENU)? != frontend {
         return Err("unexpected single player setup".into());
@@ -424,11 +364,11 @@ fn world_now(m: &Memory) -> Result<usize> {
 /// As the `-start_tag` launch option: the country where the single player
 /// setup looks for it, then the setup entered, which selects it and starts.
 fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
-    m.write(world_now(m)? + layout::world::MODE, &0i32.to_le_bytes())?;
-    let start_tag = m.at(START_TAG);
+    m.write(world_now(m)? + world::MULTIPLAYER, &0i32.to_le_bytes())?;
+    let start_tag = m.at(setup::START_TAG);
     set_text(m, start_tag, &letters)?;
     // Without the setup's animation, as the continue box shows it.
-    let shown = m.call(m.at(SHOW_PAGE), &[frontend, SETUP_PAGE as usize, 0]);
+    let shown = m.call(m.at(SHOW_PAGE), &[frontend, main_menu::SETUP_PAGE as usize, 0]);
     let left = game_string::read(m, start_tag);
     if left.as_ref().map_or(true, |text| !text.is_empty()) {
         let _ = set_text(m, start_tag, b"");
@@ -451,10 +391,10 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
 /// command that runs after the load.
 fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> {
     let world = world_now(m)?;
-    m.write(world + layout::world::MODE, &0i32.to_le_bytes())?;
-    m.write(world + layout::world::SETUP, &1i32.to_le_bytes())?;
+    m.write(world + world::MULTIPLAYER, &0i32.to_le_bytes())?;
+    m.write(world + world::SETUP, &1i32.to_le_bytes())?;
     m.write(frontend + main_menu::CONTINUING, &[1])?;
-    m.call(m.at(SHOW_PAGE), &[frontend, SETUP_PAGE as usize, 0])?;
+    m.call(m.at(SHOW_PAGE), &[frontend, main_menu::SETUP_PAGE as usize, 0])?;
     let page = setup(m, frontend)?;
     m.write(page + setup::SAVE_INDEX, &(-1i32).to_le_bytes())?;
     set_text(m, page + setup::SAVE_PATH, path.as_bytes())?;
@@ -510,65 +450,31 @@ fn find(m: &Memory, letters: [u8; 3]) -> GResult<Tag> {
 pub fn return_to_main_menu(_: Caller) -> GResult<()> {
     let m = game()?;
     let world = m.ptr(m.at(globals::WORLD))?;
-    let idler = if world == 0 { 0 } else { m.ptr(world + world::MAP_MANAGER)? };
-    if idler == 0 || m.ptr(idler)? != m.at(campaign_classes::MAP_MANAGER) {
+    let manager = if world == 0 { 0 } else { m.ptr(world + world::MAP_MANAGER)? };
+    if manager == 0 || m.ptr(manager)? != m.at(campaign_classes::MAP_MANAGER) {
         return fail(Status::NotInGame, "no game is going on");
     }
-    m.write(idler + idler::RETURN, &[1])?;
+    m.write(manager + map_manager::RETURN, &[1])?;
     log!("menu: returning to the main menu");
     Ok(())
 }
 
-/// The code the main menu capabilities rely on.
+/// The code the main menu capabilities rely on; the fields they use are in
+/// `objects` (`gui::main_menu`, `setup`, `application`, `campaign::world`,
+/// `campaign::map_manager`).
 pub fn points() -> Vec<Point> {
-    use layout::world as setup_world;
     vec![
         Point::keep(SHOW_PAGE, "48 89 5c 24 10 48 89 74 24 20 55 57 41 54 41 56 41 57 48 8d 6c 24 e0 48", "main menu show page"),
         Point::keep(CHOOSE_SAVE, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d9 48 81 ec", "single player setup choose save"),
         Point::keep(CONTINUE, "48 89 5c 24 08 55 56 57 41 56 41 57 48 8d 6c 24 c9 48 81 ec 00 01 00 00", "single player setup continue"),
         Point::keep(SET_PLAYER, "40 57 48 83 ec 20 48 8b c2 48 89 91 60 1e 00 00 48 c1 e8 38 48 8b f9 84", "world set player").uses(&[world::PLAYER]),
-        // The single player setup's constructor: its classes, its main menu.
-        Point::keep(0x110878busize, "49 89 74 24 30", "single player setup main menu").uses(&[setup::MAIN_MENU]),
-        Point::keep(
-            0x11087b0usize,
-            "48 8d 05 c1 5a c5 00 49 89 04 24 48 8d 05 d6 5a c5 00 48 89 03 48 8d 05 54 5b c5 00 49 89 44 24 28",
-            "single player setup classes",
-        )
-        .uses(&[setup::CLASS, setup::INTERFACE_CLASS, setup::INTERFACE]),
-        // The continue box: single player, the setup shown, found among the
-        // pages, the save written into it.
-        Point::keep(0x10ef62eusize, "c6 80 10 09 00 00 01 48 8b 05 3c 08 25 01 44 89 b0 7c 74 00 00 c7 80 b4 23 00 00 01 00 00 00", "continue box mode")
-            .uses(&[main_menu::CONTINUING, globals::WORLD, setup_world::MODE, setup_world::SETUP]),
-        Point::keep(0x10ef66eusize, "48 8b 80 e8 08 00 00 48 8b 48 18 4c 8d 61 d8", "continue box setup page").uses(&[main_menu::PAGES, SETUP_PAGE as usize * 8]),
-        Point::keep(0x10ef790usize, "41 89 b4 24 5c 03 00 00", "continue box save index").uses(&[setup::SAVE_INDEX]),
-        Point::keep(0x10ef7afusize, "49 8d 8c 24 38 03 00 00 4c 8b c6 e8 51 59 fa fe 41 88 bc 24 58 03 00 00", "continue box save path")
-            .uses(&[setup::SAVE_PATH, setup::CLOUD_SAVE]),
-        Point::keep(0x10ef7e3usize, "49 89 9c 24 48 0c 00 00 49 8b cc e8 4d 17 04 00", "continue box save player").uses(&[setup::SAVE_PLAYER]),
-        // `-start_tag`: the main menu enters the setup, which selects the
-        // country, empties the text and starts.
-        Point::keep(0x10d3a68usize, "41 80 be 30 07 00 00 00 74 0f 41 c6 86 30 07 00 00 00 ba 03 00 00 00", "start tag setup page").uses(&[SETUP_PAGE as usize]),
-        Point::keep(0x110e7b4usize, "83 3d fd 51 ec 00 00", "start tag set").uses(&[START_TAG + game_string::SIZE]),
-        Point::keep(
-            0x110e7e6usize,
-            "48 8d 3d bb 51 ec 00 4c 8b c7 48 83 3d c8 51 ec 00 10 4c 0f 43 05 a8 51 ec 00",
-            "start tag text",
-        )
-        .uses(&[START_TAG, START_TAG + game_string::CAPACITY]),
+        // Entering the single player setup with a `-start_tag` country: it
+        // selects the country, empties the text and starts.
         Point::keep(
             0x110e863usize,
             "45 33 c0 48 8d 95 f8 00 00 00 48 8d 4e d8 e8 0a e3 00 00 45 33 c0 48 8d 15 d0 98 b2 00 48 8b cf e8 88 68 f8 fe 48 8d 4e d8 e8 ef 19 01 00",
             "start tag select and start",
         ),
-        // A start: accepted, at the next frame, through the idler switch.
-        Point::keep(0x11202a5usize, "c6 81 b0 2c 00 00 01", "single player setup started").uses(&[setup::STARTED]),
-        Point::keep(0x10dc29eusize, "c6 83 14 07 00 00 01", "main menu start accepted").uses(&[main_menu::LAUNCH_ACCEPTED]),
-        Point::keep(0x10da695usize, "80 bf 15 07 00 00 00", "main menu start").uses(&[main_menu::LAUNCH]),
-        Point::keep(0x10daed7usize, "48 8b 8f 30 03 00 00 e8 4d 76 3e 00", "main menu switches idler").uses(&[main_menu::APPLICATION]),
-        Point::keep(0x14c2542usize, "c6 41 48 01", "idler switch pending").uses(&[application::SWITCH_PENDING]),
-        // Returning to the main menu: the question's answer sets the flag,
-        // the idler's frame acts on it.
-        Point::keep(0x11bde0busize, "48 8b 83 b8 01 00 00 c6 83 14 01 00 00 01 c6 80 e9 12 00 00 01", "return to main menu answer").uses(&[idler::RETURN]),
-        Point::keep(0x815c9fusize, "41 80 bd e9 12 00 00 00", "return to main menu").uses(&[idler::RETURN]),
     ]
 }
 

@@ -130,9 +130,24 @@ pub mod army_panel {
 }
 
 pub mod main_menu {
-    /// The page it shows, u32: 0 first, then the single-player and
+    /// The page it shows, u32: [`FIRST_PAGE`], then the single-player and
     /// multiplayer lobbies, the game's settings and so on.
     pub const PAGE: usize = 0x900;
+    pub const FIRST_PAGE: u32 = 0;
+    /// The single player setup (`super::super::setup`).
+    pub const SETUP_PAGE: u32 = 3;
+    /// The pages, an array of pointers by page number, each to the page's
+    /// interface.
+    pub const PAGES: usize = 0x8e8;
+    /// The application (`super::super::application`), whose idler switch
+    /// starts a game.
+    pub const APPLICATION: usize = 0x330;
+    /// The start of a game was accepted (its start command ran), u8.
+    pub const LAUNCH_ACCEPTED: usize = 0x714;
+    /// The game starts at the main menu's next frame, u8.
+    pub const LAUNCH: usize = 0x715;
+    /// The single player setup is entered to continue a save, u8.
+    pub const CONTINUING: usize = 0x910;
 }
 
 /// A text box, [`classes::TEXT_BOX`].
@@ -384,5 +399,18 @@ pub fn points() -> Vec<Point> {
         // A dialog's description: its text box, by name, and the text.
         Point::keep(0x10a286fusize, "48 8b 01 48 8b da 48 8d 15 84 31 bc 00 ff 90 98 00 00 00 48 8b f0 48 8d b8 70 01 00 00", "dialog description")
             .uses(&[window::FIND_TEXT, text_box::TEXT]),
+        // The main menu (docs/research/main-menu.md). The continue box: single
+        // player, then the setup shown and found among the pages.
+        Point::keep(0x10ef62eusize, "c6 80 10 09 00 00 01 48 8b 05 3c 08 25 01 44 89 b0 7c 74 00 00 c7 80 b4 23 00 00 01 00 00 00", "continue box mode")
+            .uses(&[main_menu::CONTINUING, campaign::globals::WORLD, campaign::world::MULTIPLAYER, campaign::world::SETUP]),
+        Point::keep(0x10ef66eusize, "48 8b 80 e8 08 00 00 48 8b 48 18 4c 8d 61 d8", "continue box setup page")
+            .uses(&[main_menu::PAGES, main_menu::SETUP_PAGE as usize * 8]),
+        // `-start_tag`: the main menu's frame shows the setup.
+        Point::keep(0x10d3a68usize, "41 80 be 30 07 00 00 00 74 0f 41 c6 86 30 07 00 00 00 ba 03 00 00 00", "start tag setup page")
+            .uses(&[main_menu::SETUP_PAGE as usize]),
+        // A start: accepted, at the next frame, through the idler switch.
+        Point::keep(0x10dc29eusize, "c6 83 14 07 00 00 01", "main menu start accepted").uses(&[main_menu::LAUNCH_ACCEPTED]),
+        Point::keep(0x10da695usize, "80 bf 15 07 00 00 00", "main menu start").uses(&[main_menu::LAUNCH]),
+        Point::keep(0x10daed7usize, "48 8b 8f 30 03 00 00 e8 4d 76 3e 00", "main menu switches idler").uses(&[main_menu::APPLICATION]),
     ]
 }
