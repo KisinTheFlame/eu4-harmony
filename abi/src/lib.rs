@@ -389,7 +389,8 @@ pub struct GameApi {
     /// comes last when the game offers it; `war_goal` its type's key or null;
     /// `province` and `target` (a [`CountryId`]) what it is about, or null;
     /// `name` as the dialog shows it. `abi/json/war_goals.json` is a whole
-    /// one. [`NOT_FOUND`] when there is no such country.
+    /// one. [`NOT_FOUND`] when there is no such country, [`INVALID_ARGUMENT`]
+    /// for the player's own.
     pub war_goals: unsafe extern "C" fn(host: *mut c_void, country: CountryId, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
     /// Declares war on `country` for the first war goal `war_goals` lists
     /// with the casus belli `casus_belli` (UTF-8: a key, or `none`) and, when
@@ -400,12 +401,13 @@ pub struct GameApi {
     /// ally's call box does, with no land promised; with 0, none;
     /// `allies_called` says which it called. A costly declaration (no casus
     /// belli, a truce broken) is sent without the window's confirmation, and
-    /// the game takes its costs. [`REJECTED`] when the game
-    /// offers no such war goal or does not let the player declare war now,
-    /// the game's reasons, one a line, as the `last_error` message. [`OK`]
-    /// once the game has the declaration: it carries it out at its next
-    /// frame; `*ticket`, unless `ticket` is null, names it for
-    /// `diplomacy_answer` and `allies_called`.
+    /// the game takes its costs. [`NOT_FOUND`] when there is no such country;
+    /// [`INVALID_ARGUMENT`] for the player's own, or an empty `casus_belli`;
+    /// [`REJECTED`] when the game offers no such war goal or does not let
+    /// the player declare war now, the game's reasons, one a line, as the
+    /// `last_error` message. [`OK`] once the game has the declaration: it
+    /// carries it out at its next frame; `*ticket`, unless `ticket` is null,
+    /// names it for `diplomacy_answer` and `allies_called`.
     pub declare_war: unsafe extern "C" fn(
         host: *mut c_void,
         country: CountryId,
@@ -419,10 +421,14 @@ pub struct GameApi {
         ticket: *mut u64,
     ) -> i32,
     /// Offers `country`, which the player is at war with, a white peace, as
-    /// `declare_war` sends a declaration.
+    /// `declare_war` sends a declaration: [`NOT_FOUND`] when there is no such
+    /// country, [`INVALID_ARGUMENT`] for the player's own, [`REJECTED`] with
+    /// the game's reasons, [`OK`] with a ticket.
     pub offer_peace: unsafe extern "C" fn(host: *mut c_void, country: CountryId, ticket: *mut u64) -> i32,
     /// Proposes an alliance to `country`, as `declare_war` sends a
-    /// declaration.
+    /// declaration: [`NOT_FOUND`] when there is no such country,
+    /// [`INVALID_ARGUMENT`] for the player's own, [`REJECTED`] with the
+    /// game's reasons, [`OK`] with a ticket.
     pub propose_alliance: unsafe extern "C" fn(host: *mut c_void, country: CountryId, ticket: *mut u64) -> i32,
     /// What came of a diplomatic action sent, by its ticket: `*out` is
     /// [`DIPLOMACY_PENDING`] until the game has carried it out and the other
