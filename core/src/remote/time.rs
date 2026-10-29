@@ -168,11 +168,18 @@ impl Advance {
         })
     }
 
-    fn answer(&mut self, stopped: Stop, reason: &str, events: &events::Buffer) -> Response {
+    /// Where it stopped, and why.
+    fn stopped(&self, stopped: Stop, reason: &str, events: &events::Buffer) -> Response {
+        Ok(Answer::Time(TimeAnswer::Advance(Advanced { stopped, reason: reason.into(), date: Date(self.date), events: events.read(self.since) })))
+    }
+
+    /// Answers with `response`, whatever it is: the stop goes, so that it
+    /// never pauses the game after the advance is over.
+    fn answer(&mut self, response: Response) -> Option<Response> {
         if let Some(stop) = self.stop.take() {
             stop.release();
         }
-        Ok(Answer::Time(TimeAnswer::Advance(Advanced { stopped, reason: reason.into(), date: Date(self.date), events: events.read(self.since) })))
+        Some(response)
     }
 }
 
@@ -181,15 +188,19 @@ impl Wait for Advance {
         let game = at.game.as_deref_mut()?;
         match self.check(game, at.events, at.now) {
             Ok(None) => None,
-            Ok(Some((stopped, reason))) => Some(self.answer(stopped, reason, at.events)),
             // A frame where the game cannot be read comes and goes.
             Err(fail) if fail.status == Status::NotReady => None,
-            Err(fail) => Some(Err(fail.into())),
+            Ok(Some((stopped, reason))) => {
+                let response = self.stopped(stopped, reason, at.events);
+                self.answer(response)
+            }
+            Err(fail) => self.answer(Err(fail.into())),
         }
     }
 
     fn ending(&mut self, events: &events::Buffer) -> Option<Response> {
-        Some(self.answer(Stop::MainMenu, "the game is returning to the main menu: eu4.exe starts again", events))
+        let response = self.stopped(Stop::MainMenu, "the game is returning to the main menu: eu4.exe starts again", events);
+        self.answer(response)
     }
 }
 

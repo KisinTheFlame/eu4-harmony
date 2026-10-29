@@ -190,6 +190,35 @@ fn an_advance_given_up_is_called_off() {
 }
 
 #[test]
+fn an_advance_lets_its_stop_go_however_it_fails() {
+    let engine = Engine::new(quiet);
+    let mut game = Fake::default();
+    // The game does not resume: the advance fails, and the stop it held
+    // goes, rather than being called off to pause the game later.
+    game.clock.failing = Some(("resume", Status::Rejected));
+    let reply = engine.submit(advance(30, None));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&reply)["error"]["code"], "rejected");
+    assert!(position(&game, &format!("stop at {}", START + 30 * DAY)) < position(&game, "resume"));
+    assert!(game.clock.stops.lock().unwrap().is_empty(), "the stop is let go");
+
+    // The clock cannot be read while the advance runs: a frame that is not
+    // ready comes and goes, any other failure answers, and the stop goes.
+    game.clock.failing = None;
+    let reply = engine.submit(advance(30, None));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    next_day(&engine, &mut game);
+    game.clock.failing = Some(("time", Status::NotReady));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(answer(&reply).is_null());
+    assert_eq!(*game.clock.stops.lock().unwrap(), [START + 30 * DAY]);
+    game.clock.failing = Some(("time", Status::Internal));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&reply)["error"]["code"], "internal");
+    assert!(game.clock.stops.lock().unwrap().is_empty(), "the stop is let go");
+}
+
+#[test]
 fn an_advance_answers_before_the_process_ends() {
     static ENGINE: Engine = Engine::new(quiet);
     let mut game = Fake::default();

@@ -347,12 +347,24 @@ pub struct Clock {
     pub game_events: usize,
     /// The dates time stops at, while advances hold them.
     pub stops: std::sync::Arc<std::sync::Mutex<Vec<i32>>>,
+    /// A call that fails, as `calls` names it, and with what.
+    pub failing: Option<(&'static str, Status)>,
 }
 
 impl Default for Clock {
     fn default() -> Self {
         let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player };
-        Self { time, game_events: 0, stops: Default::default() }
+        Self { time, game_events: 0, stops: Default::default(), failing: None }
+    }
+}
+
+impl Clock {
+    /// Fails when `call` is the one set to fail.
+    fn check(&self, call: &str) -> GResult<()> {
+        match self.failing {
+            Some((failing, status)) if failing == call => fail(status, format!("{call} failed")),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -384,6 +396,7 @@ impl Drop for Held {
 impl time::Layer for Fake {
     fn time(&mut self) -> GResult<game::time::Time> {
         self.call("time".into());
+        self.clock.check("time")?;
         Ok(self.clock.time)
     }
 
@@ -397,6 +410,7 @@ impl time::Layer for Fake {
 
     fn resume(&mut self) -> GResult<()> {
         self.call("resume".into());
+        self.clock.check("resume")?;
         self.clock.time.pause = game::time::Pause::Running;
         Ok(())
     }
