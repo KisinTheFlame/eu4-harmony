@@ -2,7 +2,8 @@
 //! sees, the framework UI included, as a PNG.
 //!
 //! A screenshot takes the next frame the main thread presents after it is
-//! asked for. In the frame present hook (`framework_ui::hook`), after the
+//! asked for, or, while another one's frame is being read back, the first
+//! one presented after that frame is let go. In the frame present hook (`framework_ui::hook`), after the
 //! framework UI is drawn and just before the game presents, [`presenting`]
 //! reads that frame back from the game's Direct3D 9 device, over this and
 //! the next few presents, in steps that keep the main thread from waiting
