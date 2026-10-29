@@ -20,7 +20,7 @@ Coordinates are always physical pixels: both PowerShell scripts run per-monitor 
 ## Caveats
 
 - **Injected keys are not quite a keyboard.** One Backspace sent by `game-input.ps1` deletes more than one character in the game's edit boxes; vanilla without the framework does the same. To count how many characters are deleted, use a real keyboard.
-- **Back up before a test that loads a save.** The game rewrites a save after loading it. First copy `save games`, `eu4-harmony\saves`, `settings.txt`, `pdx_settings.txt`, `shortcuts.txt`, `continue_game.json` and `eu4-harmony\settings.txt` somewhere else; after the test, delete the new files and restore the copies.
+- **Back up before a test that loads a save.** The game rewrites a save after loading it. First copy `save games`, `eu4-harmony\saves`, `settings.txt`, `pdx_settings.txt`, `shortcuts.txt`, `continue_game.json` and `eu4-harmony\settings.txt` somewhere else; after the test, delete the new files, restore the copies and compare them with the backups.
 - **Crash dumps** are in the documents folder at `Europa Universalis IV\crashes\eu4_<date>_<time>\minidump.dmp`; the framework's logs are in `eu4-harmony\logs\`.
 
 ## Disassembly
