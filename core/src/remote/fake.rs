@@ -477,9 +477,7 @@ impl time::Layer for Fake {
 
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
         self.call(format!("speed {speed}"));
-        if !game::time::SPEEDS.contains(&speed) {
-            return fail(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}"));
-        }
+        game::time::check_speed(speed)?;
         self.clock.time.speed = speed;
         Ok(())
     }

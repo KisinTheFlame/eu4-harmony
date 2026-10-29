@@ -13,7 +13,7 @@
 use super::{events, process, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
-    time::{Pause, SPEEDS},
+    time::{check_speed, Pause},
     Caller, GResult, Status,
 };
 use eu4_harmony_remote::{
@@ -109,8 +109,8 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     if !(1..=MOST_DAYS).contains(&days) {
         return Err(Error::new(Code::InvalidArgument, format!("days is from 1 to {MOST_DAYS}, not {days}")));
     }
-    if let Some(speed) = speed.filter(|s| !SPEEDS.contains(s)) {
-        return Err(Error::new(Code::InvalidArgument, format!("the speed is from 1 to 5, not {speed}")));
+    if let Some(speed) = speed {
+        check_speed(speed)?;
     }
     let time = game.time()?;
     if let Some(end) = time.over {
