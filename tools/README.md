@@ -13,7 +13,7 @@ Tools for trying things in a running game, finding dependency points and looking
 | `core/examples/disasm.rs` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments |
 | `trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value |
 
-To ask the running game things through remote control, such as the session or the player's armies, use the command line tool: `eu4-harmony game session`, `eu4-harmony game help` for the rest.
+To ask the running game things through remote control, such as the session or the player's armies, use the command line tool: `eu4-harmony game session`, `eu4-harmony game help` for the rest. `eu4-harmony game screenshot --out shot.png` saves the frame as the game draws it, framework UI included, wherever its window is; `screenshot.ps1` captures what the screen shows.
 
 Coordinates are always physical pixels: both PowerShell scripts run per-monitor DPI aware, so coordinates read off a screenshot can be clicked as they are. Call them with `&` from PowerShell (`& .\tools\game-input.ps1 -Click 1815,2025`); `pwsh -File` takes `1815,2025` as one string.
 
