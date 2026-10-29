@@ -4,7 +4,7 @@ use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
-    response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, ArmyId, CountryTag, ProvinceId,
+    response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -65,6 +65,12 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Session(SessionRequest::Get {}),
             Box::new(|v: &Value| *v == ok(json!({"session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
         ),
+        (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
+        (Request::Time(TimeRequest::Speed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Time(TimeRequest::Resume {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Time(TimeRequest::Pause {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        // An advance answers at once when it cannot run; time::tests has the rest.
+        (Request::Time(TimeRequest::Advance { days: 0, speed: None }), Box::new(error("invalid_argument"))),
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"TUR"), other: CountryTag(*b"BYZ") }), Box::new(|v: &Value| *v == ok(json!(true)))),
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"BYZ"), other: CountryTag(*b"TUR") }), Box::new(|v: &Value| *v == ok(json!(false)))),
         (Request::Country(CountryRequest::Hostile { country: CountryTag(*b"TUR"), other: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),

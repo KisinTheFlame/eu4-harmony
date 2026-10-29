@@ -1,6 +1,6 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, provinces, screenshot, session, texts};
+use super::{armies, camera, console, countries, provinces, screenshot, session, texts, time};
 use crate::game::{self, fail, GResult, Status, Tag};
 use eu4_harmony_remote::CountryTag;
 use std::sync::Arc;
@@ -42,6 +42,8 @@ pub struct Fake {
     /// The screenshot asked for, taken or not; a 2x1 image taken at once
     /// when None.
     pub shot: Option<Arc<game::screenshot::Shot>>,
+    /// The clock the time capabilities read and set.
+    pub clock: Clock,
 }
 
 impl Fake {
@@ -334,5 +336,102 @@ impl console::Layer for Fake {
             "cash 100" => Ok("Gold changed by 100".into()),
             _ => fail(Status::Rejected, "Unknown command"),
         }
+    }
+}
+
+/// The game's clock, as the time capabilities see it: time passes when a test
+/// changes it. It starts at 1444.11.11, paused, at speed 2.
+pub struct Clock {
+    pub time: game::time::Time,
+    /// How many game events wait for the player's answer.
+    pub game_events: usize,
+    /// The dates time stops at, while advances hold them.
+    pub stops: std::sync::Arc<std::sync::Mutex<Vec<i32>>>,
+    /// A call that fails, as `calls` names it, and with what.
+    pub failing: Option<(&'static str, Status)>,
+}
+
+impl Default for Clock {
+    fn default() -> Self {
+        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player };
+        Self { time, game_events: 0, stops: Default::default(), failing: None }
+    }
+}
+
+impl Clock {
+    /// Fails when `call` is the one set to fail.
+    fn check(&self, call: &str) -> GResult<()> {
+        match self.failing {
+            Some((failing, status)) if failing == call => fail(status, format!("{call} failed")),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// A date time stops at, kept in a [`Clock`] until released; dropped
+/// unreleased, it is called off, which the clock keeps as `i32::MIN`.
+struct Held(std::sync::Arc<std::sync::Mutex<Vec<i32>>>, i32, bool);
+
+impl time::Held for Held {
+    fn release(mut self: Box<Self>) {
+        self.2 = true;
+        let mut stops = self.0.lock().unwrap();
+        if let Some(at) = stops.iter().position(|&d| d == self.1) {
+            stops.remove(at);
+        }
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        if !self.2 {
+            let mut stops = self.0.lock().unwrap();
+            if let Some(at) = stops.iter().position(|&d| d == self.1) {
+                stops[at] = i32::MIN;
+            }
+        }
+    }
+}
+
+impl time::Layer for Fake {
+    fn time(&mut self) -> GResult<game::time::Time> {
+        self.call("time".into());
+        self.clock.check("time")?;
+        Ok(self.clock.time)
+    }
+
+    /// The player's pause, also when a window holds the game paused, as the
+    /// layer's.
+    fn pause(&mut self) -> GResult<()> {
+        self.call("pause".into());
+        self.clock.time.pause = game::time::Pause::Player;
+        Ok(())
+    }
+
+    fn resume(&mut self) -> GResult<()> {
+        self.call("resume".into());
+        self.clock.check("resume")?;
+        self.clock.time.pause = game::time::Pause::Running;
+        Ok(())
+    }
+
+    fn set_speed(&mut self, speed: u32) -> GResult<()> {
+        self.call(format!("speed {speed}"));
+        if !game::time::SPEEDS.contains(&speed) {
+            return fail(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}"));
+        }
+        self.clock.time.speed = speed;
+        Ok(())
+    }
+
+    fn game_events_waiting(&mut self) -> GResult<usize> {
+        self.call("game events waiting".into());
+        Ok(self.clock.game_events)
+    }
+
+    fn stop_at(&mut self, date: i32) -> GResult<Box<dyn time::Held>> {
+        self.call(format!("stop at {date}"));
+        self.clock.stops.lock().unwrap().push(date);
+        Ok(Box::new(Held(self.clock.stops.clone(), date, false)))
     }
 }

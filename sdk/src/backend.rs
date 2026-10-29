@@ -50,6 +50,11 @@ pub trait Backend {
     fn console_run(&mut self, command: &str) -> Result<String>;
     /// `NotFound` when there is no such country.
     fn country(&mut self, country: CountryId) -> Result<Country>;
+    /// The game speed, 1 to 5.
+    fn time_speed(&mut self) -> Result<u32>;
+    fn time_set_speed(&mut self, speed: u32) -> Result<()>;
+    fn time_pause(&mut self) -> Result<()>;
+    fn time_resume(&mut self) -> Result<()>;
 }
 
 /// The core's capability table for the current callback.
@@ -307,6 +312,28 @@ impl Backend for RealBackend {
         let json: CountryJson = self.snapshot("country", |b, c, l| unsafe { (api.country)(api.host, country.0, b, c, l) })?;
         Ok(json.into())
     }
+    fn time_speed(&mut self) -> Result<u32> {
+        self.require(end_of!(time_speed))?;
+        let api = self.api();
+        let mut out = 0u32;
+        self.check(unsafe { (api.time_speed)(api.host, &mut out) })?;
+        Ok(out)
+    }
+    fn time_set_speed(&mut self, speed: u32) -> Result<()> {
+        self.require(end_of!(time_set_speed))?;
+        let api = self.api();
+        self.check(unsafe { (api.time_set_speed)(api.host, speed) })
+    }
+    fn time_pause(&mut self) -> Result<()> {
+        self.require(end_of!(time_pause))?;
+        let api = self.api();
+        self.check(unsafe { (api.time_pause)(api.host) })
+    }
+    fn time_resume(&mut self) -> Result<()> {
+        self.require(end_of!(time_resume))?;
+        let api = self.api();
+        self.check(unsafe { (api.time_resume)(api.host) })
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -340,6 +367,8 @@ mod tests {
     unsafe extern "C" fn no_text(_: H, _: *const u8, _: usize, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
     unsafe extern "C" fn no_camera_province(_: H, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
     unsafe extern "C" fn no_camera_position(_: H, _: u32, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_set_speed(_: H, _: u32) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_pause(_: H) -> i32 { abi::INTERNAL }
 
     /// Hands back what `cash 100` prints; refuses anything else.
     unsafe extern "C" fn console_run(_: H, command: *const u8, len: usize, printed: Option<abi::TextSink>, user: H) -> i32 {
@@ -378,6 +407,10 @@ mod tests {
     }
     unsafe extern "C" fn camera(_: H, out: *mut abi::Camera) -> i32 {
         *out = abi::Camera { x: 2842, y: 1494, height: 800, province: 183, min_height: 50, max_height: 3000 };
+        abi::OK
+    }
+    unsafe extern "C" fn time_speed(_: H, out: *mut u32) -> i32 {
+        *out = 4;
         abi::OK
     }
     unsafe extern "C" fn language(_: H, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
@@ -461,6 +494,10 @@ mod tests {
             province,
             console_run,
             country,
+            time_speed,
+            time_set_speed: no_set_speed,
+            time_pause: no_pause,
+            time_resume: no_pause,
         }
     }
 
@@ -516,6 +553,7 @@ mod tests {
         assert_eq!(backend.language().unwrap(), "simp_chinese");
         let camera = backend.camera().unwrap();
         assert_eq!((camera.x, camera.y, camera.height, camera.province), (2842, 1494, 800, Some(183)));
+        assert_eq!(backend.time_speed().unwrap(), 4);
     }
 
     #[test]
@@ -600,6 +638,14 @@ mod tests {
         assert!(backend.language().is_ok());
         api.size = std::mem::offset_of!(abi::GameApi, country);
         assert_eq!(RealBackend::new(&api).country(CountryId(WAL)).unwrap_err().status, Status::Unavailable);
+        // A core from before time control.
+        api.size = std::mem::offset_of!(abi::GameApi, time_speed);
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.time_speed().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.time_set_speed(3).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.time_pause().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.time_resume().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.language().unwrap(), "simp_chinese");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! extensions (`crate::ext`) only converts to and from them. One file per
 //! group: [`session`], [`countries`], [`provinces`], [`armies`],
 //! [`interface`], [`map_coloring`], [`save_data`], [`texts`], [`camera`],
-//! [`screenshot`] and [`console`].
+//! [`screenshot`], [`console`] and [`time`].
 //!
 //! Under them, reading the campaign, finding routes and giving orders, ported
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
@@ -24,6 +24,7 @@ pub mod save_data;
 pub mod screenshot;
 pub mod session;
 pub mod texts;
+pub mod time;
 pub mod world;
 
 use crate::{
@@ -179,6 +180,7 @@ pub fn points() -> Vec<Point> {
     points.extend(camera::points());
     points.extend(provinces::points());
     points.extend(console::points());
+    points.extend(time::points());
     points
 }
 

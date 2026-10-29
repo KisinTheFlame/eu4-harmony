@@ -11,7 +11,7 @@ use crate::{
         armies::{self, RouteSource},
         events, interface,
         map_coloring::{self, MapColor},
-        countries, provinces, save_data, texts, Caller, Status, Tag,
+        countries, provinces, save_data, texts, time, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -487,6 +487,22 @@ unsafe extern "C" fn h_country(ptr: *mut c_void, country: u64, buf: *mut u8, cap
     capability(ptr, |caller| list_out(country_json(&countries::snapshot(caller, Tag(country))?).to_string().as_bytes(), buf, cap, len))
 }
 
+unsafe extern "C" fn h_time_speed(ptr: *mut c_void, o: *mut u32) -> i32 {
+    capability(ptr, |caller| out(o, time::time(caller)?.speed))
+}
+
+unsafe extern "C" fn h_time_set_speed(ptr: *mut c_void, speed: u32) -> i32 {
+    capability(ptr, |caller| Ok(time::set_speed(caller, speed)?))
+}
+
+unsafe extern "C" fn h_time_pause(ptr: *mut c_void) -> i32 {
+    capability(ptr, |caller| Ok(time::pause(caller)?))
+}
+
+unsafe extern "C" fn h_time_resume(ptr: *mut c_void) -> i32 {
+    capability(ptr, |caller| Ok(time::resume(caller)?))
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -525,6 +541,10 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         province: h_province,
         console_run: h_console_run,
         country: h_country,
+        time_speed: h_time_speed,
+        time_set_speed: h_time_set_speed,
+        time_pause: h_time_pause,
+        time_resume: h_time_resume,
     }
 }
 

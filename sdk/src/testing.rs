@@ -71,6 +71,9 @@ pub struct FakeGame {
     pub console_output: BTreeMap<String, String>,
     /// What `Game::country` answers, by country.
     pub countries: BTreeMap<CountryId, Country>,
+    /// The game speed, 1 to 5; 0, the default, reads as 1. Pausing and
+    /// resuming set [`session`](Self::session)'s `paused`.
+    pub speed: u32,
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -259,6 +262,24 @@ impl Backend for FakeGame {
     fn country(&mut self, country: CountryId) -> Result<Country> {
         self.countries.get(&country).cloned().ok_or_else(|| not_found("unknown country"))
     }
+    fn time_speed(&mut self) -> Result<u32> {
+        Ok(self.speed.max(1))
+    }
+    fn time_set_speed(&mut self, speed: u32) -> Result<()> {
+        if !(1..=5).contains(&speed) {
+            return Err(Error::new(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}")));
+        }
+        self.speed = speed;
+        Ok(())
+    }
+    fn time_pause(&mut self) -> Result<()> {
+        self.session.paused = true;
+        Ok(())
+    }
+    fn time_resume(&mut self) -> Result<()> {
+        self.session.paused = false;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -291,5 +312,19 @@ mod tests {
         fake.countries.insert(CountryId(7), country.clone());
         assert_eq!(fake.game().country(CountryId(7)).unwrap(), country);
         assert_eq!(fake.game().country(CountryId(8)).unwrap_err().status, Status::NotFound);
+    }
+
+    #[test]
+    fn the_fake_clock_pauses_resumes_and_keeps_its_speed() {
+        let mut fake = FakeGame::new();
+        let mut game = fake.game();
+        assert_eq!(game.speed().unwrap(), 1);
+        game.set_speed(4).unwrap();
+        assert_eq!(game.set_speed(6).unwrap_err().status, Status::InvalidArgument);
+        game.pause().unwrap();
+        assert!(game.session().unwrap().paused);
+        game.resume().unwrap();
+        assert!(!game.session().unwrap().paused);
+        assert_eq!(game.speed().unwrap(), 4);
     }
 }

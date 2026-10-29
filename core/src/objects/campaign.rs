@@ -32,6 +32,8 @@ pub mod classes {
     /// for none, `---`, has a class of its own.
     pub const UNIT_TYPE: usize = 0x1ce3830;
     pub const WAR: usize = 0x1d1f768;
+    /// A game event's window, as the map manager shows it to the player.
+    pub const EVENT_WINDOW: usize = 0x1d590f8;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -53,6 +55,8 @@ pub mod world {
     pub const MAP_MANAGER: usize = 0x1e00;
     /// Nonzero while the daily update runs, u8.
     pub const DAILY_UPDATE: usize = 0x1e10;
+    /// The game speed, i32: 0 for speed 1 to 4 for speed 5.
+    pub const SPEED: usize = 0x1e08;
     /// The player's country tag; while [`PLAYER_MODE`] is [`SWITCHED`] and
     /// [`PLAYER_SWITCHED`] is nonzero (u8 each), [`SWITCHED_PLAYER`] instead.
     pub const PLAYER: usize = 0x1e60;
@@ -316,11 +320,24 @@ pub mod map_manager {
     pub const PAUSE: usize = 0x418;
     /// Its refresh method, by vtable offset.
     pub const REFRESH: usize = 0xc8;
+    /// Its method that shows a game event to the player, by vtable offset:
+    /// it makes an event window ([`super::classes::EVENT_WINDOW`]) and adds
+    /// it to [`POPUPS`].
+    pub const SHOW_EVENT: usize = 0x108;
+    /// The popup windows open on the map, a [`super::list`] of windows; a
+    /// node whose window closed while the list was walked is marked
+    /// [`super::list::REMOVED`] and goes later.
+    pub const POPUPS: usize = 0x78;
 }
 
+/// The map manager's pause state, at [`map_manager::PAUSE`].
 pub mod pause {
     /// The map manager it belongs to.
     pub const MANAGER: usize = 0x50;
+    /// The player's pause, u8: nonzero once the player paused the game (or
+    /// remote control or an extension did); when it is zero and the game is
+    /// paused, windows hold it paused.
+    pub const PLAYER_PAUSED: usize = 0x48;
 }
 
 pub use super::list;

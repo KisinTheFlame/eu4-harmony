@@ -9,7 +9,9 @@
 //!   functions and queued; changes made by the core itself are ignored.
 //!
 //! Hook callbacks only touch `BOUNDARY`; they never take the runtime state,
-//! since some fire inside game functions that capabilities call.
+//! since some fire inside game functions that capabilities call. The one
+//! exception is the end of the daily update, which no capability runs: there
+//! `time` pauses the game at a date remote control advances it to.
 use super::{context, context_any, fail, orders, Ctx, GResult, Status, Tag};
 use crate::{
     hooks::HookFrame,
@@ -141,6 +143,16 @@ extern "C" fn daily_before(_: *mut HookFrame) {
     crate::guarded("daily update", || boundary(Boundary::invalidate));
 }
 
+/// The day is over: time stops here when remote control advances it to this
+/// date (`time`).
+extern "C" fn daily_after(frame: *mut HookFrame) {
+    crate::guarded("daily update", || {
+        if let (Some(m), 0) = (crate::memory(), unsafe { (*frame).fault }) {
+            super::time::day_passed(m);
+        }
+    });
+}
+
 fn record(change: Change) {
     boundary(|b| {
         b.invalidate();
@@ -259,7 +271,7 @@ pub fn points() -> Vec<Point> {
     vec![
         Point::observe(FOW_REFRESH, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57", "fog of war refresh", 0, Some(fow_before), Some(fow_after)),
         Point::observe(VISIBILITY, "48 89 5c 24 10 57 48 83 ec 20 4c 8b 41 28 0f b6", "visibility update", 2, Some(visibility_before), None),
-        Point::observe(DAILY, "48 8b c4 55 53 56 57 41 54 41 55 41 56 41 57 48", "daily update", 1, Some(daily_before), None),
+        Point::observe(DAILY, "48 8b c4 55 53 56 57 41 54 41 55 41 56 41 57 48", "daily update", 1, Some(daily_before), Some(daily_after)),
         Point::observe(DISPATCH, "48 89 5c 24 08 57 48 83 ec 20 48 83 79 58 00 48", "command dispatch", 2, Some(dispatch_before), None),
         Point::observe(orders::MOVE, "48 89 5c 24 20 44 88 44 24 18 48 89 54 24 10 55", "army move", 4, Some(path_before), None),
         Point::observe(orders::STOP, "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57", "army stop", 3, Some(path_before), None),
