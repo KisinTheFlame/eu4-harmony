@@ -41,7 +41,7 @@ CI (`.github/workflows/ci.yml`) runs the build and the tests on Windows for ever
 
 ## Testing in the game
 
-- The game rewrites a save it loads and rotates its autosaves. Before a run that may load or write a save, copy these from `Documents\Paradox Interactive\Europa Universalis IV\` to somewhere else: `save games\`, `eu4-harmony\saves\`, `settings.txt`, `continue_game.json` and `eu4-harmony\settings.txt`. Afterwards delete the files the run added and restore the copies.
+- The game rewrites a save it loads and rotates its autosaves, and rewrites its settings files when it applies its settings. Before a run that may load or write a save, copy these from `Documents\Paradox Interactive\Europa Universalis IV\` to somewhere else: `save games\`, `eu4-harmony\saves\`, `settings.txt`, `pdx_settings.txt`, `shortcuts.txt`, `continue_game.json` and `eu4-harmony\settings.txt`. Afterwards delete the files the run added, restore the copies and compare them with the backups.
 - Leave nothing behind: crash folders the run produced (`crashes\`), scratch files, the backups themselves.
 - Record the result in [docs/prototype-log.md](docs/prototype-log.md).
 - There is one game installation, so the game is an exclusive resource. Before `dev-install.ps1`, the save backups or starting the game, hold the `game` lock, and release it once the game is closed, the framework uninstalled and the saves restored:
