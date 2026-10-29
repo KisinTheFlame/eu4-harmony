@@ -5,7 +5,7 @@ Status: final (2026-10-29). Terms are in [GLOSSARY.md](../GLOSSARY.md). The deci
 ## Goal and scope
 
 - **Goal**: programs outside the game process use the game through the framework's capabilities. Two uses drive it: debugging the framework from the command line, and an AI playing a whole game through `eu4-harmony game`, from the main menu on.
-- **In scope**: the capability layer shared by extensions and remote control; the remote control engine; the named pipe transport; the command line client; time control; country and province snapshots; the game console; the main menu; recruiting; answering events and offers; diplomacy; the camera; screenshots.
+- **In scope**: the capability layer shared by extensions and remote control; the remote control engine; the named pipe transport; the command line client; time control; country and province snapshots; the game console; the main menu; recruiting; answering questions and offers (the game's events waiting for the player's answer, and proposals); diplomacy; the camera; screenshots.
 - **Out of scope**: map coloring by remote clients; a setting or a mark on screen for remote control; any way to read memory or call game functions from outside; multiplayer; transports other than the named pipe.
 
 ## How it fits together
@@ -37,7 +37,7 @@ A country is its tag (`"FRA"`), a province its number, an army its ID as a decim
 | Country snapshot, province snapshot | yes | yes |
 | Game console | yes | yes |
 | Main menu: list saves, load a save, start a game, return to the main menu | no | yes |
-| Recruiting, diplomacy, answering events and offers, camera | yes | yes |
+| Recruiting, diplomacy, answering questions and offers, camera | yes | yes |
 | Screenshot | no | yes |
 | Interface elements, extension save data, the mod's texts, logging | yes | no |
 | Map coloring | yes | no |
@@ -362,6 +362,6 @@ Built (2026-10-29). The screenshot is in the capability layer (`core/src/game/sc
 
 ### Z Wrap-up
 
-Play through the command line only, as an AI would: from the main menu into a game, observe, advance time, answer events and offers, move armies, recruit, use diplomacy, take screenshots, return to the main menu. Fix what that turns up. Document remote control in README.md and README.zh-CN.md, check that the player's installation contains `eu4-harmony.exe`, and record the play-through in prototype-log.md.
+Play through the command line only, as an AI would: from the main menu into a game, observe, advance time, answer questions and offers, move armies, recruit, use diplomacy, take screenshots, return to the main menu. Fix what that turns up. Document remote control in README.md and README.zh-CN.md, check that the player's installation contains `eu4-harmony.exe`, and record the play-through in prototype-log.md.
 
 Done when: the play-through works start to end and README.md, README.zh-CN.md and prototype-log.md say how and what was seen.
