@@ -1,6 +1,7 @@
 //! The campaign's objects: the world, countries, provinces and their map
-//! data, units and their routes, battles, commands and the map manager
-//! (docs/research/regional-combat/).
+//! data, units and their routes, battles, commands, the map manager, and the
+//! game's events and diplomatic actions waiting for the player's answer
+//! (docs/research/regional-combat/, docs/research/questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {
@@ -34,7 +35,8 @@ pub mod classes {
     /// for none, `---`, has a class of its own.
     pub const UNIT_TYPE: usize = 0x1ce3830;
     pub const WAR: usize = 0x1d1f768;
-    /// A game event's window, as the map manager shows it to the player.
+    /// The window of one of the game's events, as the map manager shows it
+    /// to the player (see [`super::event_window`]).
     pub const EVENT_WINDOW: usize = 0x1d590f8;
 }
 
@@ -73,6 +75,11 @@ pub mod world {
     /// The wars going on: pointers to [`super::war`]s, and their count (i32).
     pub const WARS: usize = 0x1e30;
     pub const WAR_COUNT: usize = 0x1e3c;
+    /// The events shown to players and not answered yet: an array of
+    /// [`super::pending_event`]s, its data at [`PENDING_EVENTS`] and its
+    /// length (i32) at [`PENDING_EVENT_COUNT`].
+    pub const PENDING_EVENTS: usize = 0x1ea0;
+    pub const PENDING_EVENT_COUNT: usize = 0x1eac;
 }
 
 /// The country manager, at [`globals::COUNTRY_MANAGER`].
@@ -335,14 +342,19 @@ pub mod map_manager {
     /// its session (`objects::session`).
     pub const REFRESH: usize = 0xc8;
     pub const SESSION: usize = 0x80;
-    /// Its method that shows a game event to the player, by vtable offset:
-    /// it makes an event window ([`super::classes::EVENT_WINDOW`]) and adds
-    /// it to [`POPUPS`].
+    /// Its method that shows one of the game's events to the player, by
+    /// vtable offset: it makes an event window ([`super::classes::EVENT_WINDOW`])
+    /// and adds it to [`POPUPS`].
     pub const SHOW_EVENT: usize = 0x108;
-    /// The popup windows open on the map, a [`super::list`] of windows; a
-    /// node whose window closed while the list was walked is marked
+    /// The popup windows open on the map, a [`super::list`] of windows, each
+    /// asked every frame whether it stays ([`super::popup::UPDATE`]); a node
+    /// whose window closed while the list was walked is marked
     /// [`super::list::REMOVED`] and goes later.
     pub const POPUPS: usize = 0x78;
+    /// What holds the diplomatic message icons, `gui::message_icon_holder`.
+    pub const MESSAGE_ICON_HOLDER: usize = 0x1400;
+    /// The dialogs open from those icons, a [`super::list`].
+    pub const OPEN_DIALOGS: usize = 0x370;
 }
 
 /// The map manager's pause state, at [`map_manager::PAUSE`].
@@ -353,6 +365,65 @@ pub mod pause {
     /// remote control or an extension did); when it is zero and the game is
     /// paused, windows hold it paused.
     pub const PLAYER_PAUSED: usize = 0x48;
+}
+
+/// A window among the map manager's [`map_manager::POPUPS`].
+pub mod popup {
+    /// Its update, by vtable offset: whether it stays, u8.
+    pub const UPDATE: usize = 0x18;
+}
+
+/// One of the game's events shown to a player and not answered yet, one of
+/// the world's [`world::PENDING_EVENTS`], [`SIZE`] bytes.
+pub mod pending_event {
+    /// The event (see [`super::event`]).
+    pub const EVENT: usize = 0x10;
+    /// The last day to answer, i32; later, the event window picks an option.
+    pub const DEADLINE: usize = 0x20;
+    /// Its id, i32, unique in the save.
+    pub const ID: usize = 0x24;
+    pub const SIZE: usize = 0x28;
+}
+
+/// One of the game's events, as its files define it.
+pub mod event {
+    /// Its id in the game's files (`flavor_fra.1`), a `std::string`.
+    pub const NAME: usize = 0x20;
+    /// Its options: a vector (begin, end) of pointers to
+    /// [`super::event_option`]s.
+    pub const OPTIONS: usize = 0x790;
+    /// The localisation key of its title, a `std::string`.
+    pub const TITLE: usize = 0x7e0;
+}
+
+pub mod event_option {
+    /// The localisation key of its text, a `std::string`.
+    pub const NAME: usize = 0x88;
+}
+
+/// An event window, of [`classes::EVENT_WINDOW`], among the map manager's
+/// popups.
+pub mod event_window {
+    /// The event, the scope it happens in (an object of the window's own,
+    /// copied from the pending event's) and the pending event's id (i32).
+    pub const EVENT: usize = 0x48;
+    pub const SCOPE: usize = 0x50;
+    pub const PENDING: usize = 0x120;
+    /// Nonzero while the window is open, u8; choosing an option clears it.
+    pub const OPEN: usize = 0x124;
+}
+
+/// A diplomatic action, as the country it is made to keeps it.
+pub mod diplomatic_action {
+    /// The country that made it, and the one it is made to (tags).
+    pub const FROM: usize = 0x10;
+    pub const TO: usize = 0x20;
+    /// When it was made, i32.
+    pub const DATE: usize = 0x28;
+    /// 0 while unanswered, 1 declined, 2 accepted (i32).
+    pub const STATE: usize = 0x34;
+    /// Its id, i32, given when it reaches the player.
+    pub const ID: usize = 0x3c;
 }
 
 pub use super::list;
@@ -647,5 +718,47 @@ pub fn points() -> Vec<Point> {
             "unit kind tokens",
         ),
         Point::keep(0xad8c5eusize, "48 8d 05 cb ab 20 01 48 89 01", "unit type class").uses(&[classes::UNIT_TYPE]),
+        // Questions and offers (docs/research/questions-and-offers.md).
+        // Removing a pending event: the world's array, each record's id.
+        Point::keep(
+            0x7570b8usize,
+            "4c 63 81 ac 1e 00 00 33 ed 4c 8b f1 45 85 c0 0f 8e 82 01 00 00 4c 8b 91 a0 1e 00 00 45 33 c9 49 8d 42 24 0f 1f 44 00 00 \
+             39 10 74 16 ff c5 49 ff c1 48 83 c0 28",
+            "pending events",
+        )
+        .uses(&[world::PENDING_EVENT_COUNT, world::PENDING_EVENTS, pending_event::ID, pending_event::SIZE]),
+        // Adding one: the event, its scope, the deadline and the id.
+        Point::keep(
+            0x757058usize,
+            "49 63 c0 48 8d 0c 80 48 8b 45 08 48 8d 14 c8 41 8d 40 01 89 45 14 8b 44 24 28 89 42 08 4c 89 22 48 8b 44 24 30 48 89 42 10 \
+             4c 89 72 18 8b 44 24 40 89 42 20 89 7a 24",
+            "pending event record",
+        )
+        .uses(&[pending_event::EVENT, pending_event::DEADLINE, pending_event::ID]),
+        // The map manager asking each popup whether it stays.
+        Point::keep(0x6ea4e7usize, "49 8b 5c 24 78 48 85 db 74 58 48 8b 75 f7 48 8b 0b 48 8b 01 ff 50 18", "popups").uses(&[map_manager::POPUPS, popup::UPDATE]),
+        Point::keep(0x6ea53dusize, "48 8b 43 10", "next popup").uses(&[list::NEXT]),
+        // The event window's constructor: its class, the event, the scope,
+        // the pending event's id, open.
+        Point::keep(
+            0x10b9b3busize,
+            "48 8d 05 b6 f5 c9 00 48 89 03 48 8d 05 94 f5 c9 00 48 89 43 08 c7 43 30 ff ff ff ff 33 f6 48 89 73 38 48 89 7b 40 \
+             4c 89 7b 48 48 8d 4b 50 49 8b d6 e8 2f 5b 01 ff 90 8b 45 60 89 83 20 01 00 00 40 88 b3 24 01 00 00",
+            "event window",
+        )
+        .uses(&[classes::EVENT_WINDOW, event_window::EVENT, event_window::SCOPE, event_window::PENDING, event_window::OPEN]),
+        // Choosing an option logs the event's id, and closes the window.
+        Point::keep(0x10bc44cusize, "48 8b 56 48 48 83 c2 20", "event id").uses(&[event_window::EVENT, event::NAME]),
+        Point::keep(0x10bc54busize, "c6 86 24 01 00 00 00", "event window closed").uses(&[event_window::OPEN]),
+        // The event window's title and options.
+        Point::keep(0x10ba2bfusize, "49 8b 57 48 48 81 c2 e0 07 00 00", "event title").uses(&[event_window::EVENT, event::TITLE]),
+        Point::keep(0x6f2778usize, "48 8b 80 98 07 00 00 48 2b 87 90 07 00 00 48 c1 f8 03", "event options").uses(&[event::OPTIONS + 8, event::OPTIONS]),
+        Point::keep(0x10bb6a8usize, "48 8d 97 88 00 00 00 48 8d 4d b8 e8 c8 9b fd fe", "event option text").uses(&[event_option::NAME]),
+        // A popup that goes leaves the open dialogs too.
+        Point::keep(0x6ea5deusize, "49 8b 8c 24 70 03 00 00 48 85 c9 74 79 0f 1f 44 00 00 48 39 39 74 0e", "open dialogs").uses(&[map_manager::OPEN_DIALOGS]),
+        // The alliance dialog showing both countries of its action.
+        Point::keep(0x1067b19usize, "49 8b 46 10 48 c1 e8 20", "diplomatic action maker").uses(&[diplomatic_action::FROM]),
+        // An action reaching the player gets its id.
+        Point::keep(0x4e82a9usize, "89 43 3c", "diplomatic action id").uses(&[diplomatic_action::ID]),
     ]
 }

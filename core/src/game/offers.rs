@@ -6,76 +6,15 @@ use super::{context, game, map_manager, questions, Caller, Ctx, GResult, Status,
 use crate::{
     game_string,
     memory::Memory,
-    objects::gui::{classes as gui_classes, element, functions as gui_functions, window as gui_window},
-    points::Point,
+    objects::{
+        campaign::{self, diplomatic_action as action},
+        gui::{
+            classes as gui_classes, dialog, diplomacy_dialog as diplomacy, element, functions as gui_functions, message_icon as icon, message_icon_holder,
+            text_box, window as gui_window,
+        },
+    },
     unicode::game_text,
 };
-
-/// The map manager's holder of the diplomatic message icons, which keeps
-/// them in a list at [`ICONS`].
-const ICON_HOLDER: usize = 0x1400;
-const ICONS: usize = 0x4c78;
-/// The dialogs the map manager has open from those icons, a list.
-const OPEN_DIALOGS: usize = 0x370;
-
-/// A diplomatic message icon.
-mod icon {
-    /// The dialog it opens when clicked; null once it has.
-    pub const DIALOG: usize = 0x20;
-    /// Nonzero once it is done with and goes, u8.
-    pub const DONE: usize = 0x140;
-}
-
-/// A dialog (the game's base of every dialog with an agree and a decline
-/// button).
-mod dialog {
-    /// Its window.
-    pub const WINDOW: usize = 8;
-    /// Nonzero once answered, u8: it goes.
-    pub const DONE: usize = 0x114;
-    /// Its methods, by vtable offset: what its agree and decline buttons
-    /// call.
-    pub const ACCEPT: usize = 0x50;
-    pub const DECLINE: usize = 0x58;
-    /// Whether it is still open to an answer, u8, which its update asks every
-    /// frame. A diplomacy dialog's lets the offer go when it is not, mostly
-    /// by declining it: so the game no longer takes an answer to it.
-    pub const VALID: usize = 0x60;
-}
-
-/// A diplomacy dialog: a dialog whose own constructor sets [`MARK`]: a
-/// callback object (its class, the dialog, a function) none other has. Those
-/// about a diplomatic action, the offers, keep [`ACCEPT_ACTION`] as their
-/// accept method; three others, the succession war's among them, keep
-/// something else at [`ACTION`].
-mod diplomacy {
-    pub const MARK: usize = 0x1c0;
-    pub const MARK_CONTEXT: usize = 0x1c8;
-    pub const MARK_FUNCTION: usize = 0x1d0;
-    /// What it calls when its popup button is clicked.
-    pub const FUNCTION: usize = 0x1079f90;
-    /// Its own copy of the diplomatic action.
-    pub const ACTION: usize = 0x238;
-    /// What the agree button of one about an action calls: it sends the
-    /// action's answer.
-    pub const ACCEPT_ACTION: usize = 0x1066a40;
-}
-
-/// A diplomatic action, as the country it is made to keeps it.
-mod action {
-    /// The country that made it, and the one it is made to (tags).
-    pub const FROM: usize = 0x10;
-    pub const TO: usize = 0x20;
-    /// When it was made, i32.
-    pub const DATE: usize = 0x28;
-    /// 0 while unanswered, 1 declined, 2 accepted (i32).
-    pub const STATE: usize = 0x34;
-    /// Its id, i32, given when it reaches the player.
-    pub const ID: usize = 0x3c;
-}
-
-/// A text box's text, a `std::string`.
-const TEXT: usize = 0x170;
 
 /// A proposal waiting for the player's answer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -197,16 +136,16 @@ fn listed(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
 fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
     let manager = map_manager(m, ctx)?;
     let mut dialogs = Vec::new();
-    let holder = m.ptr(manager + ICON_HOLDER)?;
+    let holder = m.ptr(manager + campaign::map_manager::MESSAGE_ICON_HOLDER)?;
     if holder != 0 {
-        for icon in questions::items(m, holder + ICONS)? {
+        for icon in questions::items(m, holder + message_icon_holder::ICONS)? {
             let dialog = m.ptr(icon + icon::DIALOG)?;
             if m.u8(icon + icon::DONE)? == 0 && dialog != 0 {
                 dialogs.push((dialog, Some(icon)));
             }
         }
     }
-    dialogs.extend(questions::items(m, manager + OPEN_DIALOGS)?.into_iter().map(|dialog| (dialog, None)));
+    dialogs.extend(questions::items(m, manager + campaign::map_manager::OPEN_DIALOGS)?.into_iter().map(|dialog| (dialog, None)));
     let mut out: Vec<Held> = Vec::new();
     for (dialog, icon) in dialogs {
         if m.u8(dialog + dialog::DONE)? != 0 || !is_about_action(m, dialog)? {
@@ -229,8 +168,8 @@ fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
 fn is_about_action(m: &Memory, dialog: usize) -> GResult<bool> {
     Ok(m.ptr(dialog + diplomacy::MARK)? == m.at(gui_classes::CALLBACK)
         && m.ptr(dialog + diplomacy::MARK_CONTEXT)? == dialog
-        && m.ptr(dialog + diplomacy::MARK_FUNCTION)? == m.at(diplomacy::FUNCTION)
-        && m.vslot(dialog, dialog::ACCEPT)? == m.at(diplomacy::ACCEPT_ACTION))
+        && m.ptr(dialog + diplomacy::MARK_FUNCTION)? == m.at(gui_functions::DIPLOMACY_POPUP)
+        && m.vslot(dialog, dialog::ACCEPT)? == m.at(gui_functions::ACTION_DIALOG_ACCEPT))
 }
 
 fn read(m: &Memory, w: &Held) -> GResult<Offer> {
@@ -260,56 +199,7 @@ fn text(m: &Memory, window: usize, name: &str) -> GResult<String> {
     if game_string::read(m, m.call(m.at(gui_functions::ELEMENT_NAME), &[found])?)? != name.as_bytes() {
         return Ok(String::new());
     }
-    Ok(game_text::plain(&game_string::read(m, found + TEXT)?))
-}
-
-/// The message icons, the open dialogs, the diplomacy dialogs and their
-/// actions, and the text boxes the offers are read from.
-pub fn points() -> Vec<Point> {
-    vec![
-        // Switching map modes hides every message icon.
-        Point::keep(0x8221aausize, "48 8b 9e 00 14 00 00 48 8b 9b 78 4c 00 00", "message icons").uses(&[ICON_HOLDER, ICONS]),
-        // A clicked icon hands its dialog to the open dialogs and is done.
-        Point::keep(
-            0x10807a6usize,
-            "48 8b 89 00 1e 00 00 e8 5e c5 66 ff 48 c7 43 20 00 00 00 00 c6 83 40 01 00 00 01",
-            "message icon clicked",
-        )
-        .uses(&[icon::DIALOG, icon::DONE]),
-        // A popup that goes leaves the open dialogs too.
-        Point::keep(0x6ea5deusize, "49 8b 8c 24 70 03 00 00 48 85 c9 74 79 0f 1f 44 00 00 48 39 39 74 0e", "open dialogs").uses(&[OPEN_DIALOGS]),
-        // The diplomacy dialog's constructor leaves its mark.
-        Point::keep(
-            0x1066368usize,
-            "48 8d 05 59 1d c5 00 48 89 83 c0 01 00 00 48 89 9b c8 01 00 00 48 8d 05 0c 3c 01 00 48 89 83 d0 01 00 00",
-            "diplomacy dialog",
-        )
-        .uses(&[gui_classes::CALLBACK, diplomacy::MARK, diplomacy::MARK_CONTEXT, diplomacy::FUNCTION, diplomacy::MARK_FUNCTION]),
-        // Accepting one about an action: the action, answered.
-        Point::keep(
-            diplomacy::ACCEPT_ACTION,
-            "48 89 5c 24 18 55 56 57 48 83 ec 30 48 8b f9 48 8b b1 38 02 00 00 48 89 74 24 20 8b 6e 34 89 6c 24 28 c7 46 34 02 00 00 00",
-            "action dialog accept",
-        )
-        .uses(&[diplomacy::ACTION, action::STATE]),
-        // A dialog's update: its window, and whether it stays.
-        Point::keep(0x10a090busize, "48 8b 4b 08", "dialog window").uses(&[dialog::WINDOW]),
-        Point::keep(0x10a0941usize, "80 bb 14 01 00 00 00 75 15 48 8b 03 48 8b cb ff 50 60", "dialog done").uses(&[dialog::DONE, dialog::VALID]),
-        // What the decline and agree buttons call.
-        Point::keep(0x10a0f40usize, "48 8b 01 ff 60 58 cc cc 48 8b 01 ff 60 50", "dialog buttons").uses(&[dialog::DECLINE, dialog::ACCEPT]),
-        // A diplomacy dialog asking whether its action is still unanswered,
-        // and when it was made.
-        Point::keep(0x1066b5dusize, "48 8b 83 38 02 00 00 83 78 34 00 0f 94 c0", "diplomacy dialog action").uses(&[diplomacy::ACTION, action::STATE]),
-        Point::keep(0x1066b16usize, "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28", "diplomatic action date").uses(&[diplomacy::ACTION, action::DATE]),
-        // The alliance dialog showing both countries.
-        Point::keep(0x1067aacusize, "48 8b 96 38 02 00 00 48 8b 52 20", "diplomatic action recipient").uses(&[diplomacy::ACTION, action::TO]),
-        Point::keep(0x1067b19usize, "49 8b 46 10 48 c1 e8 20", "diplomatic action maker").uses(&[action::FROM]),
-        // An action reaching the player gets its id.
-        Point::keep(0x4e82a9usize, "89 43 3c", "diplomatic action id").uses(&[action::ID]),
-        // A dialog's description: its text box, by name, and the text.
-        Point::keep(0x10a286fusize, "48 8b 01 48 8b da 48 8d 15 84 31 bc 00 ff 90 98 00 00 00 48 8b f0 48 8d b8 70 01 00 00", "dialog description")
-            .uses(&[gui_window::FIND_TEXT, TEXT]),
-    ]
+    Ok(game_text::plain(&game_string::read(m, found + text_box::TEXT)?))
 }
 
 #[cfg(test)]

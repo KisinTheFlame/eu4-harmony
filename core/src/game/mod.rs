@@ -188,7 +188,6 @@ pub fn points() -> Vec<Point> {
     points.extend(time::points());
     points.extend(recruiting::points());
     points.extend(questions::points());
-    points.extend(offers::points());
     points
 }
 

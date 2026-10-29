@@ -7,59 +7,14 @@ use super::{context, game, map_manager, offers, span, Caller, Ctx, GResult, Stat
 use crate::{
     game_string,
     memory::Memory,
-    objects::{campaign::route_options::NO_TAG, list},
+    objects::{
+        campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world},
+        list,
+    },
     points::Point,
     unicode::game_text,
 };
 use std::collections::BTreeSet;
-
-/// The world's pending events: an array of [`pending::SIZE`]-byte records,
-/// its data at [`PENDING`] and its length (i32) at [`PENDING_COUNT`].
-const PENDING: usize = 0x1ea0;
-const PENDING_COUNT: usize = 0x1eac;
-
-/// A pending event: one shown to a player, which waits for the answer.
-mod pending {
-    /// The event.
-    pub const EVENT: usize = 0x10;
-    /// The last day to answer, i32; later, the event window picks an option.
-    pub const DEADLINE: usize = 0x20;
-    /// Its id, i32, unique in the save.
-    pub const ID: usize = 0x24;
-    pub const SIZE: usize = 0x28;
-}
-
-/// The map manager's popups: a [`list`] of the windows it shows, each asked
-/// every frame, through [`UPDATE`] in its vtable, whether it stays.
-const POPUPS: usize = 0x78;
-const UPDATE: usize = 0x18;
-
-/// An event window, by its vtable.
-const EVENT_WINDOW: usize = 0x1d590f8;
-
-/// An event window's fields.
-mod window {
-    /// The event, the scope it happens in (an object of the window's own,
-    /// copied from the pending event's) and the pending event's id (i32).
-    pub const EVENT: usize = 0x48;
-    pub const SCOPE: usize = 0x50;
-    pub const PENDING: usize = 0x120;
-    /// Nonzero while the window is open, u8; choosing an option clears it.
-    pub const OPEN: usize = 0x124;
-}
-
-/// An event's fields.
-mod event {
-    /// Its id in the game's files (`flavor_fra.1`), a `std::string`.
-    pub const NAME: usize = 0x20;
-    /// Its options: a vector (begin, end) of pointers.
-    pub const OPTIONS: usize = 0x790;
-    /// The localisation key of its title, a `std::string`.
-    pub const TITLE: usize = 0x7e0;
-    /// The localisation key of an option's text, a `std::string`, in the
-    /// option.
-    pub const OPTION_NAME: usize = 0x88;
-}
 
 /// `(window, option)`: what clicking an option's button in an event window
 /// does: sends the game the command that chooses it and closes the window.
@@ -195,11 +150,11 @@ pub(super) fn items(m: &Memory, header: usize) -> GResult<Vec<usize>> {
 
 /// The world's pending events: id, event, deadline.
 fn pending(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u32, usize, i32)>> {
-    let count = m.i32(ctx.world + PENDING_COUNT)?;
+    let count = m.i32(ctx.world + world::PENDING_EVENT_COUNT)?;
     if !(0..=MOST as i32).contains(&count) {
         return Err(format!("{count} pending events").into());
     }
-    let data = m.ptr(ctx.world + PENDING)?;
+    let data = m.ptr(ctx.world + world::PENDING_EVENTS)?;
     (0..count as usize)
         .map(|i| {
             let record = data + i * pending::SIZE;
@@ -216,8 +171,8 @@ fn open(m: &Memory, ctx: &Ctx) -> GResult<Vec<Window>> {
     let manager = map_manager(m, ctx)?;
     let pending = pending(m, ctx)?;
     let mut out = Vec::new();
-    for address in items(m, manager + POPUPS)? {
-        if m.ptr(address)? != m.at(EVENT_WINDOW) || m.u8(address + window::OPEN)? == 0 {
+    for address in items(m, manager + campaign::map_manager::POPUPS)? {
+        if m.ptr(address)? != m.at(classes::EVENT_WINDOW) || m.u8(address + window::OPEN)? == 0 {
             continue;
         }
         let id = m.u32(address + window::PENDING)?;
@@ -250,7 +205,7 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
     let mut open = Vec::new();
     for (index, option) in options(m, w.event)?.into_iter().enumerate() {
         if may_choose(m, option, w.scope)? {
-            open.push(QuestionOption { index: index as u32, text: localise(m, w.scope, &game_string::read(m, option + event::OPTION_NAME)?)? });
+            open.push(QuestionOption { index: index as u32, text: localise(m, w.scope, &game_string::read(m, option + event_option::NAME)?)? });
         }
     }
     Ok(Question {
@@ -288,52 +243,18 @@ fn localise(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     Ok(game_text::plain(&text?))
 }
 
-/// The pending events, the event windows and the functions answering and
-/// reading questions use.
+/// The functions answering and reading questions call, and how the event
+/// window calls them; the objects they read are in `objects::campaign`.
 pub fn points() -> Vec<Point> {
     vec![
-        // Removing a pending event: the world's array, each record's id.
-        Point::keep(
-            0x7570b8usize,
-            "4c 63 81 ac 1e 00 00 33 ed 4c 8b f1 45 85 c0 0f 8e 82 01 00 00 4c 8b 91 a0 1e 00 00 45 33 c9 49 8d 42 24 0f 1f 44 00 00 \
-             39 10 74 16 ff c5 49 ff c1 48 83 c0 28",
-            "pending events",
-        )
-        .uses(&[PENDING_COUNT, PENDING, pending::ID, pending::SIZE]),
-        // Adding one: the event, its scope, the deadline and the id.
-        Point::keep(
-            0x757058usize,
-            "49 63 c0 48 8d 0c 80 48 8b 45 08 48 8d 14 c8 41 8d 40 01 89 45 14 8b 44 24 28 89 42 08 4c 89 22 48 8b 44 24 30 48 89 42 10 \
-             4c 89 72 18 8b 44 24 40 89 42 20 89 7a 24",
-            "pending event record",
-        )
-        .uses(&[pending::EVENT, pending::DEADLINE, pending::ID]),
-        // The map manager asking each popup whether it stays.
-        Point::keep(0x6ea4e7usize, "49 8b 5c 24 78 48 85 db 74 58 48 8b 75 f7 48 8b 0b 48 8b 01 ff 50 18", "popups").uses(&[POPUPS, UPDATE]),
-        Point::keep(0x6ea53dusize, "48 8b 43 10", "next popup").uses(&[list::NEXT]),
-        // The event window's constructor: its class, the event, the scope,
-        // the pending event's id, open.
-        Point::keep(
-            0x10b9b3busize,
-            "48 8d 05 b6 f5 c9 00 48 89 03 48 8d 05 94 f5 c9 00 48 89 43 08 c7 43 30 ff ff ff ff 33 f6 48 89 73 38 48 89 7b 40 \
-             4c 89 7b 48 48 8d 4b 50 49 8b d6 e8 2f 5b 01 ff 90 8b 45 60 89 83 20 01 00 00 40 88 b3 24 01 00 00",
-            "event window",
-        )
-        .uses(&[EVENT_WINDOW, window::EVENT, window::SCOPE, window::PENDING, window::OPEN]),
         Point::keep(CHOOSE, "48 89 5c 24 08 48 89 74 24 10 55 57 41 56 48 8d 6c 24 c0", "event option chosen"),
-        // Choosing logs the event's id, and closes the window.
-        Point::keep(0x10bc44cusize, "48 8b 56 48 48 83 c2 20", "event id").uses(&[window::EVENT, event::NAME]),
-        Point::keep(0x10bc54busize, "c6 86 24 01 00 00 00", "event window closed").uses(&[window::OPEN]),
         Point::keep(LOCALISE, "48 8b c4 4c 89 48 20 4c 89 40 18 48 89 50 10 48 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57", "event text"),
         Point::keep(0x487b4dusize, "41 b9 2d 2d 2d 00 4c 8b c0 48 8b d3 48 8d 4c 24 20 e8 fd 4c c3 00", "event text call").uses(&[NO_TAG as usize]),
-        // The event window's title, description and options.
-        Point::keep(0x10ba2bfusize, "49 8b 57 48 48 81 c2 e0 07 00 00", "event title").uses(&[window::EVENT, event::TITLE]),
+        // The event window's description and options.
         Point::keep(DESCRIPTION_KEY, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 41 54 41", "event description key"),
         Point::keep(0x10bac67usize, "4d 8b c4 48 8d 55 f0 49 8b 4f 48 e8 39 33 63 ff", "event description").uses(&[window::EVENT]),
-        Point::keep(0x6f2778usize, "48 8b 80 98 07 00 00 48 2b 87 90 07 00 00 48 c1 f8 03", "event options").uses(&[event::OPTIONS + 8, event::OPTIONS]),
         Point::keep(OPTION_OPEN, "48 81 c1 a8 00 00 00 e9 c4 16 4a 00", "event option open"),
         Point::keep(0x10bb5bdusize, "49 8b d4 48 8b cf e8 68 b5 63 ff", "event option shown"),
-        Point::keep(0x10bb6a8usize, "48 8d 97 88 00 00 00 48 8d 4d b8 e8 c8 9b fd fe", "event option text").uses(&[event::OPTION_NAME]),
     ]
 }
 
