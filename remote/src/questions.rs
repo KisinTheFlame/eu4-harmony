@@ -25,7 +25,7 @@ group! {
     } -> (), "nothing";
 }
 
-/// A game event waiting for the player's answer.
+/// A question: one of the game's events waiting for the player's answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Question {
     /// Names the question while it waits; a later question of the same event

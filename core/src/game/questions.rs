@@ -79,7 +79,7 @@ const OPTION_OPEN: usize = 0x6f6b30;
 const MOST: usize = 10_000;
 const MOST_OPTIONS: usize = 64;
 
-/// A game event waiting for the player's answer.
+/// A question: one of the game's events waiting for the player's answer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Question {
     pub id: u32,
