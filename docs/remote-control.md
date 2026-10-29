@@ -292,6 +292,24 @@ List the game events waiting for the player's answer, with their options; choose
 
 Done when: in the game, an event (raised with the game console if need be) is listed and answered, and an offer is accepted or declined.
 
+Built (2026-10-29). The name `events` is remote control's own (GLOSSARY "Event"), so the game's events waiting for the player's answer are **questions** and the other countries' proposals **offers** (GLOSSARY), groups `question` and `offer`, files `questions.rs` and `offers.rs` in the layer, the engine and the shared crate. Both sides have them; the evidence is in [research/questions-and-offers.md](research/questions-and-offers.md), the run in [prototype-log.md](prototype-log.md). How they work:
+
+- **Read from what the game shows the player**: a question is an event window open among the map manager's popups whose pending event the world still has (the game does not close a window whose pending event went, and choosing in it would apply an option again); an offer is a diplomacy dialog, held by a diplomatic message icon or open, whose action is made to the player and unanswered. So what is listed is what the player could answer by hand, and nothing else.
+- **Answered as the player does**: a question by the event window's own option choice (`0x10bc2d0`), which sends the game's command and closes the window; an offer by the dialog's own accept or decline method, which its buttons call, and an icon holding the dialog is then done with, as when it times out. The game has the answer when the call returns and applies it a moment later; the question or offer is no longer listed at once, so it cannot be answered twice.
+- **Options the player may not choose** (their trigger fails) are left out of the list, as the window leaves them out, and answering with one is `rejected`; the numbers are the event's own, so they may skip.
+- **Texts** are what the game shows, made by the game's own functions (an event's title, description and options through the event window's localiser, with the scope's names filled in; an offer's title and description from its dialog's text boxes), as Unicode, without the game's color codes.
+- **For advancing time (C1)**: `game::questions::waiting(caller)` counts, without reading any text, the questions and the offers waiting (`Waiting { questions, offers }`, `any()`), and `game::questions::count(m, ctx)` the questions alone in a campaign already read, also during the daily update (it calls neither the game nor `context`). C1, built at the same time, counts the open event windows itself in `game::time::game_events_waiting_in(m, ctx)`; whichever of the two is merged second has that function call `questions::count`, so that time stops on exactly the questions this lists.
+
+| Capability | Arguments | Result | Needs a game |
+| --- | --- | --- | --- |
+| `question.list` | | the questions, oldest first: `id`, `event` (its id in the game's files), `title`, `description`, `deadline` (the last day; after it the game picks an option itself), `options` (`option`, `text`) the player may choose | yes |
+| `question.answer` | `question`, `option` | null once the game has the answer; `not_found` for no such question, `invalid_argument` for no such option, `rejected` for one the player may not choose | yes |
+| `offer.list` | | the offers: `id`, `from`, `date` (when it was made), `title`, `description` | yes |
+| `offer.accept` | `offer` | null once the game has the answer; `not_found` for no such offer | yes |
+| `offer.decline` | `offer` | as `offer.accept` | yes |
+
+Extensions (appended to `GameApi`, ADR 0014): `questions` and `offers` write their lists as UTF-8 JSON (ADR 0018, the shape on the field; a country is its `CountryId`), `question_answer` and `offer_answer` answer; the SDK's `Game::questions`, `answer_question`, `offers`, `accept_offer` and `decline_offer` read the JSON into its own types, the core's and the SDK's tests read the same JSON text, and `FakeGame` holds `questions` and `offers` and records answers as commands.
+
 ### C8 Diplomacy
 
 The player's diplomatic actions, one per capability: at least declaring war, offering peace (white peace at least) and proposing an alliance.
