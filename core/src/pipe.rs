@@ -54,7 +54,7 @@ use windows_sys::{
 };
 
 /// The pipe remote clients open.
-pub const NAME: &str = r"\\.\pipe\eu4-harmony";
+pub const NAME: &str = eu4_harmony_remote::PIPE;
 /// The longest request line read, in bytes, without its line break.
 pub const LONGEST_LINE: usize = 1 << 20;
 /// How often a client waiting for its answer is checked for being still

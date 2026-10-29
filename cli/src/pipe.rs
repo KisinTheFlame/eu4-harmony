@@ -34,7 +34,7 @@ use windows_sys::Win32::{
 };
 
 /// The pipe the game serves.
-pub const NAME: &str = r"\\.\pipe\eu4-harmony";
+pub const NAME: &str = eu4_harmony_remote::PIPE;
 /// The game's executable, the only one trusted to serve the pipe.
 pub const GAME: &str = "eu4.exe";
 /// How often to look for the pipe while it is not there.

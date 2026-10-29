@@ -29,6 +29,10 @@ use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::fmt;
 
+/// The named pipe the game serves remote control on (ADR 0016), one JSON
+/// request per line in and one response per line out.
+pub const PIPE: &str = r"\\.\pipe\eu4-harmony";
+
 /// Whether a capability runs only while a game is going on.
 macro_rules! in_game {
     (game) => {
