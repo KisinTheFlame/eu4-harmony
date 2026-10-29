@@ -187,6 +187,11 @@ pub fn offer_peace(_: Caller, enemy: Tag) -> GResult<Ticket> {
     let m = game()?;
     let ctx = context(m)?;
     other(m, &ctx, enemy)?;
+    // The game's check refuses an offer to a country the player is not at
+    // war with without a reason: it looks for the war between them first.
+    if !super::world::hostile(m, &ctx, ctx.player, enemy)? {
+        return fail(Status::Rejected, format!("the player is not at war with {}", letters(enemy)));
+    }
     let treaty = vec![0u64; treaty::SIZE / 8];
     let at = treaty.as_ptr() as usize;
     m.call(m.at(TREATY_NEW), &[at, ctx.player.0 as usize, enemy.0 as usize, 1])?;
