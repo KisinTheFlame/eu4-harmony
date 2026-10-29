@@ -10,27 +10,22 @@ use super::{
 use crate::{
     memory::Memory,
     objects::{
-        campaign::{globals, province, world},
+        campaign::{self, classes, globals, province, recruit_command, world},
         session as layout,
     },
     points::Point,
+    unicode::fill::ALLOCATE,
 };
 
-/// The game's `operator new`.
-const NEW: usize = 0x1a332d4;
 /// The recruit command's constructor, as the recruit button calls it:
 /// (command, country, unit type, province ID, mercenary company), no company
 /// for a regular unit.
 const COMMAND: usize = 0x26ce40;
-/// The command's size and class.
-const COMMAND_SIZE: usize = 0xa0;
-const COMMAND_CLASS: usize = 0x1c4dff8;
-/// The command's check, its vtable's `+0x40`: (command), whether the game
-/// would carry it out now.
+/// The command's check, its vtable's [`recruit_command::CHECK`]: (command),
+/// whether the game would carry it out now.
 const CHECK: usize = 0x26e080;
-const CHECK_SLOT: usize = 0x40;
-/// The command's destructor, its vtable's `+0`: (command, flags), flag 1
-/// freeing it.
+/// The command's destructor, its vtable's [`recruit_command::DESTROY`]:
+/// (command, flags), flag 1 freeing it.
 const DESTROY: usize = 0x26cda0;
 const FREE: usize = 1;
 /// The recruit button in the province view: it makes the command and posts
@@ -40,12 +35,10 @@ const BUTTON: usize = 0xe2151f;
 pub fn points() -> Vec<Point> {
     use world::*;
     vec![
-        Point::keep(NEW, "40 53 48 83 ec 20 48 8b d9 eb 0f 48 8b cb e8 95", "game allocator"),
         Point::keep(COMMAND, "48 89 4c 24 08 53 48 83 ec 20 48 8b d9 c7 41 08 65 01 00 00", "recruit command"),
-        Point::keep(0x26ce8eusize, "48 8d 05 63 11 9e 01 48 89 01", "recruit command class").uses(&[COMMAND_CLASS]),
-        Point::method(COMMAND_CLASS, CHECK_SLOT, CHECK, "recruit command check"),
+        Point::method(classes::RECRUIT_COMMAND, recruit_command::CHECK, CHECK, "recruit command check"),
         Point::keep(CHECK, "40 57 48 83 ec 50 0f bf 41 54 48 8b f9", "recruit command check"),
-        Point::method(COMMAND_CLASS, 0, DESTROY, "recruit command destructor"),
+        Point::method(classes::RECRUIT_COMMAND, recruit_command::DESTROY, DESTROY, "recruit command destructor"),
         Point::keep(DESTROY, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9 8b fa 48 8b 89 98 00 00 00", "recruit command destructor"),
         // The button: the command's size, the player, the province's ID,
         // no mercenary company, the constructor; the session from the map
@@ -60,7 +53,7 @@ pub fn points() -> Vec<Point> {
         )
         .uses(&[
             globals::WORLD,
-            COMMAND_SIZE,
+            recruit_command::SIZE,
             PLAYER_MODE,
             SWITCHED as usize,
             PLAYER_SWITCHED,
@@ -68,7 +61,7 @@ pub fn points() -> Vec<Point> {
             PLAYER,
             province::ID,
             MAP_MANAGER,
-            layout::MAP_MANAGER_SLOT,
+            campaign::map_manager::SESSION,
         ]),
     ]
 }
@@ -94,7 +87,7 @@ pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
     if !allowed {
         return fail(Status::Rejected, refusal(&reasons));
     }
-    let command = m.call(m.at(NEW), &[COMMAND_SIZE])?;
+    let command = m.call(m.at(ALLOCATE), &[recruit_command::SIZE])?;
     if command == 0 {
         return Err("the game could not allocate a recruit command".to_string().into());
     }
