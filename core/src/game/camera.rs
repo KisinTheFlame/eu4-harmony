@@ -71,10 +71,10 @@ pub fn camera(_: Caller) -> GResult<Camera> {
 pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (manager, camera) = movable(m, &ctx)?;
     if province == 0 {
         return fail(Status::NotFound, "no province 0");
     }
+    let (manager, camera) = movable(m, &ctx)?;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     m.call(m.at(LOOK_AT_PROVINCE), &[manager, address])?;
     settle(m, camera)
@@ -84,11 +84,11 @@ pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
 pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (manager, camera) = movable(m, &ctx)?;
     let (width, height) = map_size(m)?;
     if x >= width || y >= height {
         return fail(Status::InvalidArgument, format!("{x}, {y} is off the map, which is {width} pixels across and {height} up"));
     }
+    let (manager, camera) = movable(m, &ctx)?;
     m.call(m.at(LOOK_AT_POSITION), &[manager, x as usize, y as usize])?;
     settle(m, camera)
 }
@@ -97,11 +97,11 @@ pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
 pub fn zoom(_: Caller, height: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (_, camera) = movable(m, &ctx)?;
-    let (lowest, highest) = limits(m, camera)?;
+    let (lowest, highest) = limits(m, find(m, &ctx)?.1)?;
     if !(lowest..=highest).contains(&height) {
         return fail(Status::InvalidArgument, format!("the height is from {lowest} to {highest}"));
     }
+    let (_, camera) = movable(m, &ctx)?;
     let [x, _, z] = point(m, camera + fields::GOAL_LOOK_AT)?;
     let goal = [x, height as f32, z];
     m.call(m.at(LOOK_FROM), &[camera, goal.as_ptr() as usize])?;
