@@ -87,6 +87,13 @@ struct Spent {
     read: Duration,
     /// Presents from the frame's to the one it was locked at.
     frames: u32,
+    /// Of `read`: making the surface in memory (None when it was kept from
+    /// the frame before), `GetRenderTargetData`, and locking, over how many
+    /// tries.
+    made: Option<Duration>,
+    transfer: Duration,
+    locking: Duration,
+    tries: u32,
 }
 
 enum Stage {
@@ -108,6 +115,7 @@ enum Stage {
     /// pixels out; it sets `out` once it has.
     CopyingOut {
         locked: d3d9::Locked,
+        memory: d3d9::Memory,
         out: Arc<AtomicBool>,
         shape: d3d9::Shape,
         spent: Spent,
@@ -118,12 +126,14 @@ struct Capture {
     /// Shots that take the next frame copied.
     asked: Vec<Arc<Shot>>,
     stage: Stage,
+    /// The surface in memory the last frame was read into, for the next.
+    memory: Option<d3d9::Memory>,
 }
 
 // The device's objects are used only on the thread that presents.
 unsafe impl Send for Capture {}
 
-static CAPTURE: Mutex<Capture> = Mutex::new(Capture { asked: Vec::new(), stage: Stage::Idle });
+static CAPTURE: Mutex<Capture> = Mutex::new(Capture { asked: Vec::new(), stage: Stage::Idle, memory: None });
 
 fn capture() -> std::sync::MutexGuard<'static, Capture> {
     CAPTURE.lock().unwrap_or_else(|e| e.into_inner())
@@ -154,11 +164,13 @@ impl Capture {
         self.stage = match stage {
             Stage::Idle => Stage::Idle,
             // The frame before was copied out: let it go.
-            Stage::CopyingOut { locked, out, shape, spent } if out.load(Ordering::Acquire) => {
+            Stage::CopyingOut { locked, memory, out, shape, spent } if out.load(Ordering::Acquire) => {
                 drop(locked);
+                self.memory = Some(memory);
                 let total = spent.copy + spent.read + started.elapsed();
+                let made = spent.made.map_or("kept from before".to_string(), |made| format!("made in {:.2} ms", ms(made)));
                 log!(
-                    "screenshot of a {}x{} frame (D3DFORMAT {}, multisampling {}): on the main thread {:.2} ms copying it on the GPU at its present, {:.2} ms reading it back over the {} presents after, {:.2} ms letting it go; {:.2} ms in all",
+                    "screenshot of a {}x{} frame (D3DFORMAT {}, multisampling {}), on the main thread: {:.2} ms copying it on the GPU at its present; {:.2} ms reading it back over the {} presents after (the surface in memory {made}, GetRenderTargetData {:.2} ms, locking {:.2} ms in {} tries); {:.2} ms letting it go; {:.2} ms in all",
                     shape.width,
                     shape.height,
                     shape.format.0,
@@ -166,6 +178,9 @@ impl Capture {
                     ms(spent.copy),
                     ms(spent.read),
                     spent.frames,
+                    ms(spent.transfer),
+                    ms(spent.locking),
+                    spent.tries,
                     ms(started.elapsed()),
                     ms(total)
                 );
@@ -174,9 +189,14 @@ impl Capture {
             stage @ Stage::CopyingOut { .. } => stage,
             Stage::Copied { mut copy, shots, mut spent } => {
                 spent.frames += 1;
-                match copy.ready().and_then(|ready| ready.then(|| copy.read(device)).transpose()) {
+                let memory = &mut self.memory;
+                match copy.ready().and_then(|ready| ready.then(|| copy.read(device, memory.take())).transpose()) {
                     Ok(None) => Stage::Copied { copy, shots, spent: spent.add(started) },
-                    Ok(Some(reading)) => lock(copy, reading, shots, spent, started),
+                    Ok(Some(reading)) => {
+                        spent.made = reading.made;
+                        spent.transfer = reading.transfer;
+                        lock(copy, reading, shots, spent, started)
+                    }
                     Err(fail) => {
                         finish_all(shots, &fail);
                         Stage::Idle
@@ -207,10 +227,12 @@ impl Capture {
 
 /// Locks the frame being read once it is in memory, and hands it to a
 /// thread of its own to copy out.
-unsafe fn lock(copy: d3d9::FrameCopy, mut reading: d3d9::Reading, shots: Vec<Arc<Shot>>, spent: Spent, started: Instant) -> Stage {
+unsafe fn lock(copy: d3d9::FrameCopy, reading: d3d9::Reading, shots: Vec<Arc<Shot>>, spent: Spent, started: Instant) -> Stage {
     match reading.lock() {
-        Ok(None) => Stage::Reading { copy, reading, shots, spent: spent.add(started) },
-        Ok(Some(locked)) => {
+        Ok(d3d9::Lock::NotYet(reading)) => Stage::Reading { copy, reading, shots, spent: spent.add(started) },
+        Ok(d3d9::Lock::Done(reading, locked)) => {
+            let spent = Spent { locking: reading.locking, tries: reading.tries(), ..spent };
+            let memory = reading.into_memory();
             let out = Arc::new(AtomicBool::new(false));
             let frame = Frame { bits: locked.bits as usize, pitch: locked.pitch, shape: copy.shape };
             let kept = shots.clone();
@@ -221,7 +243,7 @@ unsafe fn lock(copy: d3d9::FrameCopy, mut reading: d3d9::Reading, shots: Vec<Arc
             match thread {
                 Ok(_) => {
                     drop(kept);
-                    Stage::CopyingOut { locked, out, shape: copy.shape, spent: spent.add(started) }
+                    Stage::CopyingOut { locked, memory, out, shape: copy.shape, spent: spent.add(started) }
                 }
                 Err(e) => {
                     finish_all(kept, &Fail { status: Status::Unavailable, message: format!("no thread to encode the frame: {e}") });
