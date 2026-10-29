@@ -134,6 +134,12 @@ pub fn check(serving: &Serving, game: &str) -> Result<(), Failure> {
 }
 
 /// The process serving `pipe`.
+///
+/// The pipe gives the ID its server had when it made the pipe. Should that
+/// process end before it is opened here, another one could have been given
+/// the ID meanwhile, and would be the one checked. So once the process is
+/// open, which keeps its ID from going to another, the pipe must still be
+/// served: its server ended, the pipe would be broken.
 pub fn serving(pipe: &File) -> Result<Serving, Failure> {
     let mut process = 0;
     if unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut process) } == 0 {
@@ -144,6 +150,10 @@ pub fn serving(pipe: &File) -> Result<Serving, Failure> {
         return Err(Failure::Unknown(format!("process {process} cannot be opened: {}", io::Error::last_os_error())));
     }
     let handle = unsafe { OwnedHandle::from_raw_handle(raw) };
+    let mut available = 0u32;
+    if unsafe { PeekNamedPipe(pipe.as_raw_handle(), std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut available, std::ptr::null_mut()) } == 0 {
+        return Err(Failure::Unknown(format!("the pipe's process {process} is gone: {}", io::Error::last_os_error())));
+    }
     let image = image(&handle).map_err(|e| Failure::Unknown(format!("the executable of process {process} cannot be read: {e}")))?;
     let theirs = ProcessUser::of(handle.as_raw_handle()).map_err(|e| Failure::Unknown(format!("the user {} (process {process}) runs as cannot be read: {e}", image.display())))?;
     let ours = ProcessUser::of(unsafe { GetCurrentProcess() }).map_err(|e| Failure::Unknown(format!("this process's user cannot be read: {e}")))?;
