@@ -93,6 +93,45 @@ impl provinces::Layer for Fake {
         self.call(format!("neighbors {province}"));
         Ok(vec![game::provinces::Neighbor { to: 151, strait: false }, game::provinces::Neighbor { to: 316, strait: true }])
     }
+
+    fn province(&mut self, province: u32) -> GResult<game::provinces::Snapshot> {
+        self.call(format!("province {province}"));
+        if province != 151 {
+            return fail(Status::NotFound, format!("no province {province}"));
+        }
+        Ok(constantinople())
+    }
+}
+
+/// Constantinople (151), Byzantine, as the Chinese language mod names it,
+/// with the Ottomans able to recruit nothing there.
+pub fn constantinople() -> game::provinces::Snapshot {
+    use game::provinces::{Development, Fort, Recruit, Snapshot, UnitKind};
+    let recruit = |kind, unit_type: Option<&str>, reasons: &[&str]| Recruit {
+        kind,
+        unit_type: unit_type.map(str::to_string),
+        allowed: false,
+        reasons: reasons.iter().map(|r| r.to_string()).collect(),
+    };
+    Snapshot {
+        id: 151,
+        name: "君士坦丁堡".into(),
+        owner: Some(byz()),
+        controller: Some(byz()),
+        development: Development { tax: 10_000, production: 9_500, manpower: 6_000 },
+        terrain: Some("farmlands".into()),
+        fort: Fort { level: 2, mothballed: false },
+        buildings: vec!["fort_15th".into(), "marketplace".into()],
+        recruit: vec![
+            recruit(UnitKind::Infantry, Some("eastern_medieval_infantry"), &["君士坦丁堡不是我们的领土"]),
+            recruit(UnitKind::Cavalry, Some("eastern_knights"), &["君士坦丁堡不是我们的领土"]),
+            recruit(UnitKind::Artillery, None, &[]),
+            recruit(UnitKind::HeavyShip, Some("early_carrack"), &[]),
+            recruit(UnitKind::LightShip, Some("early_war_galley"), &[]),
+            recruit(UnitKind::Galley, Some("galley"), &[]),
+            recruit(UnitKind::Transport, Some("cog"), &[]),
+        ],
+    }
 }
 
 impl armies::Layer for Fake {

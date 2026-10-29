@@ -268,6 +268,17 @@ pub struct GameApi {
     /// as `camera_look_at_province` otherwise. [`INVALID_ARGUMENT`] outside
     /// the camera's `min_height` to `max_height`.
     pub camera_zoom: unsafe extern "C" fn(host: *mut c_void, height: u32, out: *mut Camera) -> i32,
+    /// A province's snapshot, as UTF-8 JSON (ADR 0018): `{"id": 151, "name":
+    /// "Constantinople", "owner": <CountryId or null>, "controller": ...,
+    /// "development": {"tax": 6.0, "production": 6.0, "manpower": 4.0},
+    /// "terrain": "farmlands" or null, "fort": {"level": 2, "mothballed":
+    /// false}, "buildings": ["fort_15th", ...], "recruit": [{"kind":
+    /// "infantry", "unit_type": "eastern_medieval_infantry" or null,
+    /// "allowed": false, "reasons": ["..."]}, ...]}`, `recruit` holding the
+    /// kinds infantry, cavalry, artillery, heavy_ship, light_ship, galley and
+    /// transport in that order; `abi/json/province.json` is a whole one.
+    /// [`NOT_FOUND`] for a number that names no province.
+    pub province: unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -345,5 +356,6 @@ slots!(GameApi:
     ui_selected_army, ui_set_visible, ui_set_enabled, ui_set_text, ui_set_tooltip, map_paint, map_clear, save_data_get,
     save_data_set, language, text,
     camera, camera_look_at_province, camera_look_at, camera_zoom,
+    province,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);

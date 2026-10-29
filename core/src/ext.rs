@@ -431,6 +431,27 @@ unsafe extern "C" fn h_camera_zoom(ptr: *mut c_void, height: u32, o: *mut abi::C
     capability(ptr, |caller| moved_out(o, game::camera::zoom(caller, height)?))
 }
 
+/// A province's snapshot as the JSON `abi::GameApi::province` describes.
+fn province_json(s: &provinces::Snapshot) -> serde_json::Value {
+    let thousandths = |value: i32| value as f64 / 1000.0;
+    let country = |t: Option<Tag>| t.map(|t| t.0);
+    serde_json::json!({
+        "id": s.id,
+        "name": s.name,
+        "owner": country(s.owner),
+        "controller": country(s.controller),
+        "development": {"tax": thousandths(s.development.tax), "production": thousandths(s.development.production), "manpower": thousandths(s.development.manpower)},
+        "terrain": s.terrain,
+        "fort": {"level": s.fort.level, "mothballed": s.fort.mothballed},
+        "buildings": s.buildings,
+        "recruit": s.recruit.iter().map(|r| serde_json::json!({"kind": r.kind.key(), "unit_type": r.unit_type, "allowed": r.allowed, "reasons": r.reasons})).collect::<Vec<_>>(),
+    })
+}
+
+unsafe extern "C" fn h_province(ptr: *mut c_void, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| list_out(province_json(&provinces::province(caller, id)?).to_string().as_bytes(), buf, cap, len))
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -466,6 +487,7 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         camera_look_at_province: h_camera_look_at_province,
         camera_look_at: h_camera_look_at,
         camera_zoom: h_camera_zoom,
+        province: h_province,
     }
 }
 
@@ -700,4 +722,25 @@ pub fn timing_lines() -> Vec<String> {
             line
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::provinces::UnitKind;
+
+    /// The snapshot the SDK's test reads (ADR 0018).
+    const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
+
+    /// Constantinople as the engine's fake game has it, every kind of unit
+    /// in it, is written as the same JSON value as the file holds: the same
+    /// members, holding the same values, each number of the same sort
+    /// (`10.0`, not `10`). Only the spaces and the order of the members may
+    /// differ, which no JSON reader sees.
+    #[test]
+    fn a_province_snapshot_is_written_as_the_abi_says() {
+        let snapshot = crate::remote::fake::constantinople();
+        assert_eq!(snapshot.recruit.iter().map(|r| r.kind).collect::<Vec<_>>(), UnitKind::ALL);
+        assert_eq!(province_json(&snapshot), serde_json::from_str::<serde_json::Value>(PROVINCE_JSON).unwrap());
+    }
 }

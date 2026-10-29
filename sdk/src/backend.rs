@@ -2,6 +2,10 @@
 //! fake in [`testing`](crate::testing).
 use crate::{abi, game::*};
 
+/// The room a snapshot's JSON gets in the first call: several times a
+/// province's.
+const SNAPSHOT_ROOM: usize = 16 * 1024;
+
 /// The capabilities behind a `Game`.
 pub trait Backend {
     fn session(&mut self) -> Result<Session>;
@@ -39,6 +43,8 @@ pub trait Backend {
     fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera>;
     fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera>;
     fn camera_zoom(&mut self, height: u32) -> Result<Camera>;
+    /// `NotFound` for a number that names no province.
+    fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot>;
 }
 
 /// The core's capability table for the current callback.
@@ -68,8 +74,14 @@ impl RealBackend {
 
     /// Two-call list protocol.
     fn list<T: Copy + Default>(&self, call: impl Fn(*mut T, usize, *mut usize) -> i32) -> Result<Vec<T>> {
+        self.list_from(0, call)
+    }
+
+    /// Two-call list protocol, with room for `room` items in the first call:
+    /// a list that fits takes one call.
+    fn list_from<T: Copy + Default>(&self, room: usize, call: impl Fn(*mut T, usize, *mut usize) -> i32) -> Result<Vec<T>> {
         let mut len = 0usize;
-        let mut buf: Vec<T> = Vec::new();
+        let mut buf: Vec<T> = vec![T::default(); room];
         for _ in 0..4 {
             let code = call(buf.as_mut_ptr(), buf.len(), &mut len);
             if code == abi::BUFFER_TOO_SMALL {
@@ -81,6 +93,14 @@ impl RealBackend {
             return Ok(buf);
         }
         Err(Error::new(Status::Internal, "list kept growing"))
+    }
+
+    /// A snapshot's JSON read into `T` (ADR 0018). The first call has room
+    /// for [`SNAPSHOT_ROOM`] bytes, so the core builds a snapshot that fits
+    /// once; a larger one it builds again for the second call.
+    fn snapshot<T: serde::de::DeserializeOwned>(&self, what: &str, call: impl Fn(*mut u8, usize, *mut usize) -> i32) -> Result<T> {
+        let bytes = self.list_from(SNAPSHOT_ROOM, call)?;
+        serde_json::from_slice(&bytes).map_err(|e| Error::new(Status::Internal, format!("{what} snapshot: {e}")))
     }
 
     fn flag(&self, call: impl FnOnce(*mut u8) -> i32) -> Result<bool> {
@@ -257,6 +277,12 @@ impl Backend for RealBackend {
         self.check(unsafe { (api.camera_zoom)(api.host, height, &mut out) })?;
         Ok(out.into())
     }
+    fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
+        self.require(end_of!(province))?;
+        let api = self.api();
+        let json: ProvinceJson = self.snapshot("province", |b, c, l| unsafe { (api.province)(api.host, province, b, c, l) })?;
+        Ok(json.into())
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -328,6 +354,23 @@ mod tests {
         abi::OK
     }
 
+    /// Constantinople, as the core's test checks that the core writes it
+    /// (ADR 0018).
+    const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
+
+    unsafe extern "C" fn province(_: H, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        if id != 151 {
+            return abi::NOT_FOUND;
+        }
+        let json = PROVINCE_JSON.as_bytes();
+        *len = json.len();
+        if cap < json.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(json.as_ptr(), buf, json.len());
+        abi::OK
+    }
+
     fn table() -> abi::GameApi {
         abi::GameApi {
             size: std::mem::size_of::<abi::GameApi>(),
@@ -363,6 +406,7 @@ mod tests {
             camera_look_at_province: no_camera_province,
             camera_look_at: no_camera_position,
             camera_zoom: no_camera_province,
+            province,
         }
     }
 
@@ -382,6 +426,66 @@ mod tests {
     }
 
     #[test]
+    fn a_province_snapshot_comes_as_json() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        let p = backend.province(151).unwrap();
+        let byz = Some(CountryId(72057735777769794));
+        assert_eq!((p.id, p.name.as_str(), p.owner, p.controller, p.terrain.as_deref()), (151, "君士坦丁堡", byz, byz, Some("farmlands")));
+        assert_eq!((p.development.tax, p.development.production, p.development.manpower), (10.0, 9.5, 6.0));
+        assert_eq!((p.fort.level, p.fort.mothballed), (2, false));
+        assert_eq!(p.buildings, ["fort_15th", "marketplace"]);
+        // Every kind's name reads, in the core's order.
+        let recruit: Vec<_> = p.recruit.iter().map(|r| (r.kind, r.unit_type.as_deref(), r.allowed, r.reasons.len())).collect();
+        assert_eq!(
+            recruit,
+            [
+                (UnitKind::Infantry, Some("eastern_medieval_infantry"), false, 1),
+                (UnitKind::Cavalry, Some("eastern_knights"), false, 1),
+                (UnitKind::Artillery, None, false, 0),
+                (UnitKind::HeavyShip, Some("early_carrack"), false, 0),
+                (UnitKind::LightShip, Some("early_war_galley"), false, 0),
+                (UnitKind::Galley, Some("galley"), false, 0),
+                (UnitKind::Transport, Some("cog"), false, 0),
+            ]
+        );
+        assert_eq!(p.recruit[0].reasons, ["君士坦丁堡不是我们的领土"]);
+        assert_eq!(backend.province(1).unwrap_err().status, Status::NotFound);
+    }
+
+    static BUILT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    /// `province`, counting how often the core would build a snapshot.
+    unsafe extern "C" fn counted_province(h: H, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        province(h, id, buf, cap, len)
+    }
+
+    /// A snapshot that fits the first call's room is built once.
+    #[test]
+    fn a_snapshot_takes_one_call() {
+        let mut api = table();
+        api.province = counted_province;
+        assert!(PROVINCE_JSON.len() < SNAPSHOT_ROOM);
+        RealBackend::new(&api).province(151).unwrap();
+        assert_eq!(BUILT.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    /// A newer core may add members and values: the snapshot still reads,
+    /// a new kind as unknown (ADR 0018).
+    #[test]
+    fn a_newer_core_s_snapshot_still_reads() {
+        let mut json: serde_json::Value = serde_json::from_str(PROVINCE_JSON).unwrap();
+        json["religion"] = "orthodox".into();
+        json["recruit"][2]["kind"] = "marines".into();
+        json["recruit"][2]["cost"] = 10.0.into();
+        let p: ProvinceSnapshot = serde_json::from_value::<ProvinceJson>(json).unwrap().into();
+        let kinds: Vec<_> = p.recruit.iter().map(|r| r.kind).collect();
+        assert_eq!(kinds[1..4], [UnitKind::Cavalry, UnitKind::Unknown, UnitKind::HeavyShip]);
+        assert_eq!((p.name.as_str(), p.recruit.len()), ("君士坦丁堡", 7));
+    }
+
+    #[test]
     fn a_failure_brings_the_core_s_message() {
         let api = table();
         let err = RealBackend::new(&api).army(ArmyId(5)).unwrap_err();
@@ -397,6 +501,10 @@ mod tests {
         assert_eq!(backend.language().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.text("KEY").unwrap_err().status, Status::Unavailable);
         assert!(backend.session().is_ok());
+        api.size = std::mem::offset_of!(abi::GameApi, province);
+        let mut backend = RealBackend::new(&api);
+        assert_eq!(backend.province(151).unwrap_err().status, Status::Unavailable);
+        assert!(backend.language().is_ok());
     }
 
     #[test]

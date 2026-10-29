@@ -76,6 +76,8 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Province(ProvinceRequest::Neighbors { province: province(149) }),
             Box::new(|v: &Value| *v == ok(json!([{"province": 151, "strait": false}, {"province": 316, "strait": true}]))),
         ),
+        (Request::Province(ProvinceRequest::Get { province: province(151) }), Box::new(|v: &Value| v["result"]["name"] == "君士坦丁堡")),
+        (Request::Province(ProvinceRequest::Get { province: province(1) }), Box::new(error("not_found"))),
         (
             Request::Army(ArmyRequest::Get { army: army(ARMY) }),
             Box::new({
@@ -161,6 +163,41 @@ fn every_capability_runs_at_a_game_frame() {
     let moved = game.calls.iter().position(|c| *c == format!("move {ARMY} 151")).unwrap();
     let stopped = game.calls.iter().position(|c| *c == format!("stop {ARMY}")).unwrap();
     assert!(moved < stopped);
+}
+
+#[test]
+fn a_province_snapshot_carries_its_name_s_characters_and_every_kind() {
+    let engine = Engine::new(remember);
+    let reply = engine.submit(Request::Province(ProvinceRequest::Get { province: province(151) }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    let recruit = |kind: &str, unit_type: Value, reasons: Value| json!({"kind": kind, "unit_type": unit_type, "allowed": false, "reasons": reasons});
+    let not_ours = json!(["君士坦丁堡不是我们的领土"]);
+    let expected = ok(json!({
+        "id": 151, "name": "君士坦丁堡", "owner": "BYZ", "controller": "BYZ",
+        "development": {"tax": 10.0, "production": 9.5, "manpower": 6.0},
+        "terrain": "farmlands", "fort": {"level": 2, "mothballed": false},
+        "buildings": ["fort_15th", "marketplace"],
+        "recruit": [
+            recruit("infantry", json!("eastern_medieval_infantry"), not_ours.clone()),
+            recruit("cavalry", json!("eastern_knights"), not_ours),
+            recruit("artillery", Value::Null, json!([])),
+            recruit("heavy_ship", json!("early_carrack"), json!([])),
+            recruit("light_ship", json!("early_war_galley"), json!([])),
+            recruit("galley", json!("galley"), json!([])),
+            recruit("transport", json!("cog"), json!([])),
+        ],
+    }));
+    assert_eq!(answer(&reply), expected);
+    // On the pipe the name is its characters, not escapes.
+    let line = response_json(&reply_again(&engine)).to_string();
+    assert!(line.contains(r#""name":"君士坦丁堡""#), "{line}");
+}
+
+/// The snapshot of 151 asked once more.
+fn reply_again(engine: &Engine) -> Response {
+    let reply = engine.submit(Request::Province(ProvinceRequest::Get { province: province(151) }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    reply.wait(Duration::ZERO).unwrap()
 }
 
 #[test]
