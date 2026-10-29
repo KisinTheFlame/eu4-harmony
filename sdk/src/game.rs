@@ -638,10 +638,12 @@ impl<'a> Game<'a> {
     /// passes with only a line in its own log: several orders in one
     /// callback are each checked against the same treasury, manpower and
     /// sailors, and those the first ones leave too little for are dropped at
-    /// that frame.
-    /// `Rejected` with the game's reasons, one a line, when
-    /// the game would not let the player recruit it there now (the province's
-    /// [`Recruit`] says so beforehand); `InvalidArgument` for
+    /// that frame. `Rejected` with the game's reasons, one a line, when the
+    /// game would not let the player recruit it there now. The province's
+    /// [`Recruit`] says so beforehand, but for one rule of the recruit
+    /// command's on ships, a restriction it asks of the player where the
+    /// snapshot asks it of the province's owner: a ship the snapshot allows
+    /// can still be refused, with no reason. `InvalidArgument` for
     /// [`UnitKind::Unknown`].
     pub fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
         if kind == UnitKind::Unknown {
