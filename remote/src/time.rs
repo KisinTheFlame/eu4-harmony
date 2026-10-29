@@ -10,12 +10,12 @@ group! {
     /// The date, whether the game is paused, and its speed.
     game Get "" {} -> Time, "the date, whether the game is paused, and the speed from 1 (slowest) to 5 (fastest)";
     /// Pauses the game with the player's own pause, as the player would,
-    /// also when a window holds it paused already, such as a game event's:
+    /// also when a window holds it paused already, such as an event window:
     /// the game then stays paused once the window closes, until it is
     /// resumed. Nothing when the player's pause holds it already.
     game Pause "pause" {} -> (), "nothing";
     /// Resumes the game, as the player would: also when a window holds it
-    /// paused, such as a game event's when the game pauses on events, which
+    /// paused, such as an event window when the game pauses on events, which
     /// stays open. Nothing when it runs.
     game Resume "resume" {} -> (), "nothing";
     /// Sets the game speed, as the player would; the game stays paused or
@@ -27,11 +27,11 @@ group! {
     /// Lets time run until the date some days from now, then pauses the game
     /// and answers with the events on the way. It answers early, with the
     /// reason and the date, when the game is paused by someone else or by a
-    /// window, when a game event waits for the player's answer (also one
+    /// window, when a question waits for the player's answer (also one
     /// waiting already: then time does not run at all), when another game
     /// is loaded or started, and when the game returns to the main menu
     /// (eu4.exe starts again, and the answer comes just before the old
-    /// process goes). Stopped at the date, paused or for a game event, it
+    /// process goes). Stopped at the date, paused or for a question, it
     /// leaves the game paused as time.pause does, so that it stays paused
     /// until it is resumed, also once a window that holds it paused closes.
     /// The answer comes at a frame of the game's, however long the days take
@@ -44,7 +44,7 @@ group! {
         /// stays at it after the advance, as after time.speed. Absent to
         /// keep the game's.
         speed: Option<u32>,
-    } -> Advanced, "why it stopped (date, paused, game_event, session or main_menu) and in words, the date then, the events on the way (as events answers them, read from the last one before time ran), the number of the last event, and whether some were missed";
+    } -> Advanced, "why it stopped (date, paused, question, session or main_menu) and in words, the date then, the events on the way (as events answers them, read from the last one before time ran), the number of the last event, and whether some were missed";
 }
 
 /// The game's clock.
@@ -65,8 +65,9 @@ pub enum Stop {
     /// The game was paused before the date: by the player, an extension or
     /// another remote client, or by a window that pauses it.
     Paused,
-    /// A game event waits for the player's answer; the game is paused.
-    GameEvent,
+    /// A question (one of the game's events, question.list) waits for the
+    /// player's answer; the game is paused.
+    Question,
     /// Another game was loaded or started.
     Session,
     /// The game is returning to the main menu: eu4.exe starts again.
@@ -100,15 +101,15 @@ mod tests {
         assert_eq!(serde_json::to_value(Request::Time(TimeRequest::Advance { days: 30, speed: None })).unwrap(), json!({"capability": "time.advance", "days": 30}));
         let date = Date::from_ymd(1444, 11, 12).unwrap();
         let advanced = Advanced {
-            stopped: Stop::GameEvent,
-            reason: "a game event waits for the player's answer".into(),
+            stopped: Stop::Question,
+            reason: "a question waits for the player's answer".into(),
             date,
             events: Events { events: vec![Numbered { number: 4, event: crate::events::Event::Day { date } }], last: 4, missed: false },
         };
         assert_eq!(
             response_json(&Ok(Answer::Time(TimeAnswer::Advance(advanced)))),
             json!({"ok": true, "result": {
-                "stopped": "game_event", "reason": "a game event waits for the player's answer", "date": "1444.11.12",
+                "stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.12",
                 "events": [{"number": 4, "event": "day", "date": "1444.11.12"}], "last": 4, "missed": false,
             }})
         );

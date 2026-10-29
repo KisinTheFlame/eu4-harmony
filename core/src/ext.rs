@@ -11,7 +11,7 @@ use crate::{
         armies::{self, RouteSource},
         events, interface,
         map_coloring::{self, MapColor},
-        countries, provinces, save_data, texts, time, Caller, Status, Tag,
+        countries, offers, provinces, questions, save_data, texts, time, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -512,6 +512,37 @@ unsafe extern "C" fn h_recruit(ptr: *mut c_void, province: u32, kind: u32) -> i3
     })
 }
 
+/// The questions as the JSON `abi::GameApi::questions` describes.
+fn questions_json(list: &[questions::Question]) -> serde_json::Value {
+    list.iter()
+        .map(|q| {
+            let options: Vec<_> = q.options.iter().map(|o| serde_json::json!({"index": o.index, "text": o.text})).collect();
+            serde_json::json!({"id": q.id, "event": q.event, "title": q.title, "description": q.description, "deadline": q.deadline, "options": options})
+        })
+        .collect()
+}
+
+/// The offers as the JSON `abi::GameApi::offers` describes.
+fn offers_json(list: &[offers::Offer]) -> serde_json::Value {
+    list.iter().map(|o| serde_json::json!({"id": o.id, "from": o.from.0, "date": o.date, "title": o.title, "description": o.description})).collect()
+}
+
+unsafe extern "C" fn h_questions(ptr: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| list_out(questions_json(&questions::questions(caller)?).to_string().as_bytes(), buf, cap, len))
+}
+
+unsafe extern "C" fn h_question_answer(ptr: *mut c_void, id: u32, option: u32) -> i32 {
+    capability(ptr, |caller| Ok(questions::answer(caller, id, option)?))
+}
+
+unsafe extern "C" fn h_offers(ptr: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+    capability(ptr, |caller| list_out(offers_json(&offers::offers(caller)?).to_string().as_bytes(), buf, cap, len))
+}
+
+unsafe extern "C" fn h_offer_answer(ptr: *mut c_void, id: u32, accept: u8) -> i32 {
+    capability(ptr, |caller| Ok(offers::answer(caller, id, accept != 0)?))
+}
+
 fn game_api(host: *mut c_void) -> abi::GameApi {
     abi::GameApi {
         size: std::mem::size_of::<abi::GameApi>(),
@@ -555,6 +586,10 @@ fn game_api(host: *mut c_void) -> abi::GameApi {
         time_pause: h_time_pause,
         time_resume: h_time_resume,
         recruit: h_recruit,
+        questions: h_questions,
+        question_answer: h_question_answer,
+        offers: h_offers,
+        offer_answer: h_offer_answer,
     }
 }
 
@@ -827,5 +862,19 @@ mod tests {
     fn the_abi_s_unit_kinds_are_the_layer_s() {
         let abi = [abi::UNIT_INFANTRY, abi::UNIT_CAVALRY, abi::UNIT_ARTILLERY, abi::UNIT_HEAVY_SHIP, abi::UNIT_LIGHT_SHIP, abi::UNIT_GALLEY, abi::UNIT_TRANSPORT];
         assert_eq!(UnitKind::ALL.map(|k| k.index() as u32), abi);
+    }
+
+    /// The questions and offers the SDK's test reads (ADR 0018).
+    const QUESTIONS_JSON: &str = include_str!("../../abi/json/questions.json");
+    const OFFERS_JSON: &str = include_str!("../../abi/json/offers.json");
+
+    /// A question (the engine's fake one, its title in Chinese) and an offer
+    /// are written as the same JSON values as the files hold.
+    #[test]
+    fn questions_and_offers_are_written_as_the_abi_says() {
+        let question = questions::Question { title: "禁卫军".into(), ..crate::remote::fake::question() };
+        assert_eq!(questions_json(&[question]), serde_json::from_str::<serde_json::Value>(QUESTIONS_JSON).unwrap());
+        let offer = offers::Offer { id: 3, from: crate::remote::fake::byz(), date: 0x035D_7710, title: "皇室联姻".into(), description: "A royal marriage.".into() };
+        assert_eq!(offers_json(&[offer]), serde_json::from_str::<serde_json::Value>(OFFERS_JSON).unwrap());
     }
 }

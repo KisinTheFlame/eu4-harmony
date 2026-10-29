@@ -1,6 +1,7 @@
 //! The game's GUI objects: elements, windows, the army panel, the main menu,
-//! edit boxes and their editors, and the GUI manager
-//! (docs/research/regional-combat/native-ui-findings.txt, text-input.md).
+//! edit boxes and their editors, the GUI manager, and the diplomatic message
+//! icons and the dialogs they open (docs/research/regional-combat/
+//! native-ui-findings.txt, text-input.md, questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {
@@ -134,6 +135,65 @@ pub mod main_menu {
     pub const PAGE: usize = 0x900;
 }
 
+/// A text box, [`classes::TEXT_BOX`].
+pub mod text_box {
+    /// Its text, a `std::string`.
+    pub const TEXT: usize = 0x170;
+}
+
+/// What holds the diplomatic message icons, at the map manager's
+/// `campaign::map_manager::MESSAGE_ICON_HOLDER`.
+pub mod message_icon_holder {
+    /// The icons, a [`super::super::list`] of [`super::message_icon`]s.
+    pub const ICONS: usize = 0x4c78;
+}
+
+/// A diplomatic message icon: what another country proposed, until the
+/// player clicks it and its dialog opens.
+pub mod message_icon {
+    /// The dialog it opens when clicked; null once it has.
+    pub const DIALOG: usize = 0x20;
+    /// Nonzero once it is done with and goes, u8.
+    pub const DONE: usize = 0x140;
+}
+
+/// A dialog: the game's base of every dialog with an agree and a decline
+/// button.
+pub mod dialog {
+    /// Its window.
+    pub const WINDOW: usize = 8;
+    /// Nonzero once answered, u8: it goes.
+    pub const DONE: usize = 0x114;
+    /// Its methods, by vtable offset: what its agree and decline buttons
+    /// call.
+    pub const ACCEPT: usize = 0x50;
+    pub const DECLINE: usize = 0x58;
+    /// Whether it is still open to an answer, u8, which its update asks every
+    /// frame. A diplomacy dialog's lets the offer go when it is not, mostly
+    /// by declining it: so the game no longer takes an answer to it.
+    pub const VALID: usize = 0x60;
+}
+
+/// A diplomacy dialog: a [`dialog`] whose own constructor sets [`MARK`]: a
+/// callback object (its class [`super::classes::CALLBACK`], the dialog,
+/// [`super::functions::DIPLOMACY_POPUP`]) none other has. Those about a
+/// diplomatic action, the offers, accept with
+/// [`super::functions::ACTION_DIALOG_ACCEPT`]; three others, the succession
+/// war's among them, keep something else at [`ACTION`].
+pub mod diplomacy_dialog {
+    pub const MARK: usize = 0x1c0;
+    pub const MARK_CONTEXT: usize = 0x1c8;
+    pub const MARK_FUNCTION: usize = 0x1d0;
+    /// Its own copy of the diplomatic action
+    /// (`campaign::diplomatic_action`).
+    pub const ACTION: usize = 0x238;
+    /// How long one about an action takes an answer: up to this many months
+    /// after the action was made (`campaign::diplomatic_action::DATE`), as
+    /// its check ([`super::dialog::VALID`]) adds them with the game's own
+    /// adding of months (0x14c8030); after that the check declines it.
+    pub const ANSWER_MONTHS: usize = 2;
+}
+
 /// An edit box, [`classes::EDIT_BOX`].
 pub mod edit_box {
     /// Its keyboard listener interface, [`super::classes::EDIT_BOX_LISTENER`].
@@ -182,8 +242,15 @@ pub mod functions {
     pub const EDITOR_SELECT_LEFT: usize = 0x1538560;
     pub const EDITOR_SELECT_RIGHT: usize = 0x1538670;
     pub const EDITOR_CARET_MOVED: usize = 0x1535950;
+    /// What a diplomacy dialog's popup button calls, kept in its
+    /// [`super::diplomacy_dialog::MARK`].
+    pub const DIPLOMACY_POPUP: usize = 0x1079f90;
+    /// The accept method ([`super::dialog::ACCEPT`]) of a diplomacy dialog
+    /// about a diplomatic action: it sends the action's answer.
+    pub const ACTION_DIALOG_ACCEPT: usize = 0x1066a40;
 }
 
+use super::campaign;
 use crate::points::Point;
 
 pub fn points() -> Vec<Point> {
@@ -267,5 +334,55 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::EDITOR, editor::SELECT_LEFT, EDITOR_SELECT_LEFT, "editor select left method"),
         Point::method(classes::EDITOR, editor::SELECT_RIGHT, EDITOR_SELECT_RIGHT, "editor select right method"),
         Point::method(classes::EDITOR, editor::CARET_MOVED, EDITOR_CARET_MOVED, "editor caret moved method"),
+        // Offers (docs/research/questions-and-offers.md). Switching map modes
+        // hides every message icon.
+        Point::keep(0x8221aausize, "48 8b 9e 00 14 00 00 48 8b 9b 78 4c 00 00", "message icons")
+            .uses(&[campaign::map_manager::MESSAGE_ICON_HOLDER, message_icon_holder::ICONS]),
+        // A clicked icon hands its dialog to the open dialogs and is done.
+        Point::keep(
+            0x10807a6usize,
+            "48 8b 89 00 1e 00 00 e8 5e c5 66 ff 48 c7 43 20 00 00 00 00 c6 83 40 01 00 00 01",
+            "message icon clicked",
+        )
+        .uses(&[message_icon::DIALOG, message_icon::DONE]),
+        // A dialog's update: its window, and whether it stays.
+        Point::keep(0x10a090busize, "48 8b 4b 08", "dialog window").uses(&[dialog::WINDOW]),
+        Point::keep(0x10a0941usize, "80 bb 14 01 00 00 00 75 15 48 8b 03 48 8b cb ff 50 60", "dialog done").uses(&[dialog::DONE, dialog::VALID]),
+        // What the decline and agree buttons call.
+        Point::keep(0x10a0f40usize, "48 8b 01 ff 60 58 cc cc 48 8b 01 ff 60 50", "dialog buttons").uses(&[dialog::DECLINE, dialog::ACCEPT]),
+        // The diplomacy dialog's constructor leaves its mark.
+        Point::keep(
+            0x1066368usize,
+            "48 8d 05 59 1d c5 00 48 89 83 c0 01 00 00 48 89 9b c8 01 00 00 48 8d 05 0c 3c 01 00 48 89 83 d0 01 00 00",
+            "diplomacy dialog",
+        )
+        .uses(&[classes::CALLBACK, diplomacy_dialog::MARK, diplomacy_dialog::MARK_CONTEXT, DIPLOMACY_POPUP, diplomacy_dialog::MARK_FUNCTION]),
+        // Accepting one about an action: the action, answered.
+        Point::keep(
+            ACTION_DIALOG_ACCEPT,
+            "48 89 5c 24 18 55 56 57 48 83 ec 30 48 8b f9 48 8b b1 38 02 00 00 48 89 74 24 20 8b 6e 34 89 6c 24 28 c7 46 34 02 00 00 00",
+            "action dialog accept",
+        )
+        .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::STATE]),
+        // A diplomacy dialog asking whether its action is still unanswered,
+        // and whether it was made no more than two months ago: its date, two
+        // months on by the game's adding of months, not before today.
+        Point::keep(0x1066b5dusize, "48 8b 83 38 02 00 00 83 78 34 00 0f 94 c0", "diplomacy dialog action")
+            .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::STATE]),
+        Point::keep(
+            0x1066b16usize,
+            "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28 89 54 24 30 ba 02 00 00 00 e8 fa 14 46 00",
+            "diplomatic action date",
+        )
+        .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::DATE, diplomacy_dialog::ANSWER_MONTHS]),
+        // Adding months (docs/research/dates.md), which the offers do as it
+        // does: a year for each twelve, then the rest through the months.
+        Point::keep(0x14c8030usize, "85 d2 0f 84 e4 00 00 00 48 89 74 24 20 57 48 83 ec 20 8b fa 48 89 5c 24 30 b8 ab aa aa 2a", "adding months"),
+        // The alliance dialog showing both countries.
+        Point::keep(0x1067aacusize, "48 8b 96 38 02 00 00 48 8b 52 20", "diplomatic action recipient")
+            .uses(&[diplomacy_dialog::ACTION, campaign::diplomatic_action::TO]),
+        // A dialog's description: its text box, by name, and the text.
+        Point::keep(0x10a286fusize, "48 8b 01 48 8b da 48 8d 15 84 31 bc 00 ff 90 98 00 00 00 48 8b f0 48 8d b8 70 01 00 00", "dialog description")
+            .uses(&[window::FIND_TEXT, text_box::TEXT]),
     ]
 }

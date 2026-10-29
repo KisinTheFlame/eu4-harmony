@@ -16,6 +16,10 @@ pub enum Command {
     Stop(ArmyId),
     /// One regiment or ship of a kind recruited in a province.
     Recruit(ProvinceId, UnitKind),
+    /// A question answered with an option.
+    AnswerQuestion(QuestionId, u32),
+    /// An offer accepted (true) or declined.
+    AnswerOffer(OfferId, bool),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -79,6 +83,14 @@ pub struct FakeGame {
     /// The game speed, 1 to 5; 0, the default, reads as 1. Pausing and
     /// resuming set [`session`](Self::session)'s `paused`.
     pub speed: u32,
+    /// The questions waiting for the player's answer; answering one records a
+    /// command and leaves it here. An option not listed is `Rejected`, as the
+    /// core answers an option the player may not choose: the fake knows no
+    /// other options.
+    pub questions: Vec<Question>,
+    /// The offers waiting for the player's answer; answering one records a
+    /// command and leaves it here.
+    pub offers: Vec<Offer>,
 }
 
 fn not_found(what: impl Into<String>) -> Error {
@@ -323,6 +335,27 @@ impl Backend for FakeGame {
         self.commands.push(Command::Recruit(province, kind));
         Ok(())
     }
+    fn questions(&mut self) -> Result<Vec<Question>> {
+        Ok(self.questions.clone())
+    }
+    fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
+        let q = self.questions.iter().find(|q| q.id == question).ok_or_else(|| not_found(format!("no question {}", question.0)))?;
+        if !q.options.iter().any(|o| o.index == option) {
+            return Err(Error::new(Status::Rejected, format!("the player may not choose option {option} of question {}", question.0)));
+        }
+        self.commands.push(Command::AnswerQuestion(question, option));
+        Ok(())
+    }
+    fn offers(&mut self) -> Result<Vec<Offer>> {
+        Ok(self.offers.clone())
+    }
+    fn answer_offer(&mut self, offer: OfferId, accept: bool) -> Result<()> {
+        if !self.offers.iter().any(|o| o.id == offer) {
+            return Err(not_found(format!("no offer {}", offer.0)));
+        }
+        self.commands.push(Command::AnswerOffer(offer, accept));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -407,5 +440,29 @@ mod tests {
         assert_eq!(fake.commands, [Command::Recruit(219, UnitKind::Transport)]);
         fake.reject_orders = Some("paused".into());
         assert_eq!(fake.game().recruit(219, UnitKind::Transport).unwrap_err().status, Status::Rejected);
+    }
+
+    #[test]
+    fn answers_to_questions_and_offers_are_recorded() {
+        let mut fake = FakeGame::new();
+        fake.questions.push(Question {
+            id: QuestionId(7),
+            event: "flavor_tur.1".into(),
+            options: vec![QuestionOption { index: 0, text: "Pay them".into() }, QuestionOption { index: 2, text: "Refuse".into() }],
+            ..Default::default()
+        });
+        fake.offers.push(Offer { id: OfferId(3), from: CountryId(5), title: "Royal Marriage".into(), ..Default::default() });
+        let mut game = fake.game();
+        assert_eq!(game.questions().unwrap().len(), 1);
+        game.answer_question(QuestionId(7), 2).unwrap();
+        assert_eq!(game.answer_question(QuestionId(7), 1).unwrap_err().status, Status::Rejected);
+        assert_eq!(game.answer_question(QuestionId(8), 0).unwrap_err().status, Status::NotFound);
+        assert_eq!(game.offers().unwrap()[0].title, "Royal Marriage");
+        game.accept_offer(OfferId(3)).unwrap();
+        game.decline_offer(OfferId(3)).unwrap();
+        assert_eq!(game.decline_offer(OfferId(4)).unwrap_err().status, Status::NotFound);
+        assert_eq!(fake.commands, [Command::AnswerQuestion(QuestionId(7), 2), Command::AnswerOffer(OfferId(3), true), Command::AnswerOffer(OfferId(3), false)]);
+        // The lists stay as the test set them.
+        assert_eq!((fake.questions.len(), fake.offers.len()), (1, 1));
     }
 }

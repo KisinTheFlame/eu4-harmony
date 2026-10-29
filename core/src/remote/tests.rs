@@ -3,9 +3,9 @@
 use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest, provinces::ProvinceRequest,
-    provinces::UnitKind, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId,
-    CountryTag, ProvinceId,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest,
+    offers::OfferRequest, provinces::ProvinceRequest, provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest,
+    session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -145,6 +145,27 @@ fn every_capability_runs_at_a_game_frame() {
             Box::new(|v: &Value| *v == ok(json!({"image": {"media_type": "image/png", "base64": "iVBORw=="}, "width": 2, "height": 1, "frame_width": 2, "frame_height": 1}))),
         ),
         (
+            Request::Question(QuestionRequest::List {}),
+            Box::new(|v: &Value| {
+                *v == ok(json!([{
+                    "id": 7, "event": "flavor_tur.1", "title": "The Janissaries", "description": "Our elite troops ask for more.",
+                    "deadline": "1445.3.11", "options": [{"option": 0, "text": "Pay them"}, {"option": 2, "text": "Refuse"}],
+                }]))
+            }),
+        ),
+        (Request::Question(QuestionRequest::Answer { question: 7, option: 2 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Question(QuestionRequest::Answer { question: 7, option: 1 }), Box::new(error("rejected"))),
+        (Request::Question(QuestionRequest::Answer { question: 8, option: 0 }), Box::new(error("not_found"))),
+        (
+            Request::Offer(OfferRequest::List {}),
+            Box::new(|v: &Value| {
+                *v == ok(json!([{"id": 3, "from": "BYZ", "date": "1444.11.11", "title": "Royal Marriage", "description": "皇室联姻"}]))
+            }),
+        ),
+        (Request::Offer(OfferRequest::Accept { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Offer(OfferRequest::Decline { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Offer(OfferRequest::Decline { offer: 4 }), Box::new(error("not_found"))),
+        (
             Request::Events(EventsRequest::Read { since: None, wait_ms: None }),
             Box::new(|v: &Value| *v == ok(json!({"events": [], "last": 0, "missed": false}))),
         ),
@@ -193,6 +214,8 @@ fn every_capability_runs_at_a_game_frame() {
     let moved = game.calls.iter().position(|c| *c == format!("move {ARMY} 151")).unwrap();
     let stopped = game.calls.iter().position(|c| *c == format!("stop {ARMY}")).unwrap();
     assert!(moved < stopped);
+    // Answers reach the layer as asked: an accept is not a decline.
+    assert_eq!(game.answered, [(7, 2), (3, 1), (3, 0)]);
 }
 
 #[test]

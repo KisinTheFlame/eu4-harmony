@@ -356,6 +356,31 @@ pub struct GameApi {
     /// [`NOT_FOUND`] for a number that names no province;
     /// [`INVALID_ARGUMENT`] for a kind that is none of the `UNIT_*`.
     pub recruit: unsafe extern "C" fn(host: *mut c_void, province: u32, kind: u32) -> i32,
+    /// The questions waiting for the player's answer, oldest first, as UTF-8
+    /// JSON (ADR 0018): `[{"id": 7, "event": "flavor_tur.1", "title": "...",
+    /// "description": "...", "deadline": <date>, "options": [{"index": 0,
+    /// "text": "..."}, ...]}, ...]`, `deadline` the last day to answer (after
+    /// it the game picks an option itself), `options` those the player may
+    /// choose, `index` the option's number among all the event's;
+    /// `abi/json/questions.json` is a whole one.
+    pub questions: unsafe extern "C" fn(host: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
+    /// Answers a question with the option of that number, as the player does
+    /// in its event window. [`NOT_FOUND`] for no such question,
+    /// [`INVALID_ARGUMENT`] for no such option, [`REJECTED`] for one the
+    /// player may not choose.
+    pub question_answer: unsafe extern "C" fn(host: *mut c_void, question: u32, option: u32) -> i32,
+    /// The offers waiting for the player's answer, as UTF-8 JSON (ADR 0018):
+    /// `[{"id": 3, "from": <CountryId>, "date": <date>, "title": "...",
+    /// "description": "..."}, ...]`, `date` when the offer was made, no more
+    /// than two months ago (the game takes no answer to an older one);
+    /// `abi/json/offers.json` is a whole one.
+    pub offers: unsafe extern "C" fn(host: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
+    /// Accepts (`accept` 1) or declines (0) an offer, as the player does in
+    /// its dialog. [`NOT_FOUND`] for no such offer; [`REJECTED`] when the
+    /// game no longer takes an answer to it (it was made more than two months
+    /// ago, or what it offers is no longer possible), which the game then
+    /// lets go, mostly declining it, as when the player opens it.
+    pub offer_answer: unsafe extern "C" fn(host: *mut c_void, offer: u32, accept: u8) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -438,5 +463,6 @@ slots!(GameApi:
     country,
     time_speed, time_set_speed, time_pause, time_resume,
     recruit,
+    questions, question_answer, offers, offer_answer,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);

@@ -1,16 +1,13 @@
 //! Time: the date, whether the game is paused and by what, and its speed;
 //! pausing, resuming and setting the speed as the player would; stopping time
-//! as a date is reached, for remote control's advancing; and whether a game
-//! event waits for the player's answer. The evidence is in
+//! as a date is reached, for remote control's advancing; and whether a
+//! question waits for the player's answer. The evidence is in
 //! docs/research/time.md.
-use super::{context, context_any, events, fail, game, map_manager, paused, Caller, Ctx, GResult, Status};
+use super::{context, context_any, events, fail, game, map_manager, paused, questions, Caller, Ctx, GResult, Status};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
-    objects::{
-        campaign::{classes, globals::WORLD, map_manager as manager, pause as pause_state, world},
-        list,
-    },
+    objects::campaign::{globals::WORLD, map_manager as manager, pause as pause_state, world},
     points::Point,
 };
 use std::sync::Mutex;
@@ -25,17 +22,12 @@ const SPEED_UP: usize = 0xb79970;
 /// reason, it resumes and lets go of every window holding the game paused, as
 /// the player's resuming does.
 const TOGGLE_PAUSE: usize = 0x7e0250;
-/// The map manager's method that shows a game event to the player
-/// ([`manager::SHOW_EVENT`]).
-const SHOW_EVENT: usize = 0x828c00;
 /// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when
 /// the game returns to the main menu.
 const RESTART: usize = 0x14c3a10;
 
 /// The game speeds, slowest first.
 pub const SPEEDS: std::ops::RangeInclusive<u32> = 1..=5;
-/// The most popups read; the game shows a few at a time.
-const MAX_POPUPS: usize = 1000;
 
 /// What holds the game paused.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -45,7 +37,7 @@ pub enum Pause {
     Running,
     /// The player paused it, or remote control or an extension did.
     Player,
-    /// A window that pauses the game while it is open, such as a game event's
+    /// A window that pauses the game while it is open, such as an event window
     /// when the game pauses on events, or a message set to pause.
     Window,
 }
@@ -119,37 +111,16 @@ pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
     Ok(())
 }
 
-/// How many game events wait for the player's answer, as
-/// [`game_events_waiting_in`] counts them.
-pub fn game_events_waiting(_: Caller) -> GResult<usize> {
-    let m = game()?;
-    game_events_waiting_in(m, &context(m)?)
-}
-
-/// How many game events wait for the player's answer in the campaign `ctx`
-/// was read from, also during the daily update: the event windows open among
-/// the map manager's popups. Answering one closes its window.
+/// How many questions wait for the player's answer, those `question.list`
+/// lists, as [`questions::count`] counts them.
 ///
-/// The one place remote control's advancing time learns that a game event
-/// needs an answer: an advance asks it at the safe point, through
-/// [`game_events_waiting`], and the end of the daily update during an
-/// advance asks it directly, so the two never disagree. What the events are
-/// and answering them belongs to the events and offers capabilities.
-pub fn game_events_waiting_in(m: &Memory, ctx: &Ctx) -> GResult<usize> {
-    let manager = map_manager(m, ctx)?;
-    let mut node = m.ptr(manager + manager::POPUPS + list::HEAD)?;
-    let mut waiting = 0;
-    for _ in 0..MAX_POPUPS {
-        if node == 0 {
-            return Ok(waiting);
-        }
-        let window = m.ptr(node + list::ITEM)?;
-        if m.u8(node + list::REMOVED)? == 0 && window != 0 && m.ptr(window)? == m.at(classes::EVENT_WINDOW) {
-            waiting += 1;
-        }
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Err(format!("more than {MAX_POPUPS} popups").into())
+/// That count is the one place remote control's advancing time learns that
+/// one needs an answer: an advance asks it at the safe point, through this,
+/// and the end of the daily update during an advance asks it directly, so
+/// the two never disagree with each other or with the questions listed.
+pub fn questions_waiting(_: Caller) -> GResult<usize> {
+    let m = game()?;
+    questions::count(m, &context(m)?)
 }
 
 /// A date time stops at once it is reached, held for an advance. Released
@@ -268,9 +239,9 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
 }
 
 /// After the daily update (`events`' observer): pauses the game with the
-/// player's pause when a stop's date is reached, or when a game event came up
+/// player's pause when a stop's date is reached, or when a question came up
 /// on the day while an advance runs, so that the next frame begins no other
-/// day, and a window that holds the game paused too (a game event's, a
+/// day, and a window that holds the game paused too (an event window, a
 /// message set to pause) does not let it run on once it closes.
 pub(super) fn day_passed(m: &Memory) {
     if crate::saves::load_in_progress() {
@@ -278,7 +249,7 @@ pub(super) fn day_passed(m: &Memory) {
     }
     let Ok(ctx) = context_any(m) else { return };
     let session = events::session();
-    let due = stops(|s| s.reach(session, ctx.date)) || (stops(|s| s.advancing(session)) && game_events_waiting_in(m, &ctx).is_ok_and(|waiting| waiting > 0));
+    let due = stops(|s| s.reach(session, ctx.date)) || (stops(|s| s.advancing(session)) && questions::count(m, &ctx).is_ok_and(|waiting| waiting > 0));
     if due {
         if let Err(e) = pause_game(m, &ctx) {
             log!("time: cannot pause the advance: {}", e.message);
@@ -330,8 +301,7 @@ extern "C" fn restart_before(_: *mut HookFrame) {
     });
 }
 
-/// The speed, the pause toggle, the event windows among the popups, and the
-/// restart.
+/// The speed, the pause toggle and the restart.
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(
@@ -342,21 +312,6 @@ pub fn points() -> Vec<Point> {
         .uses(&[world::SPEED, 4]),
         Point::keep(SPEED_UP, "48 8b 0d 01 65 7c 01 8b 91 08 1e 00 00 ff c2 e9 6c e0 bd ff", "speed up command").uses(&[WORLD, world::SPEED]),
         Point::keep(TOGGLE_PAUSE, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 75 5c", "pause toggle").uses(&[pause_state::PLAYER_PAUSED]),
-        Point::method(classes::MAP_MANAGER, manager::SHOW_EVENT, SHOW_EVENT, "map manager shows an event"),
-        // It makes the event window (0x10b9a50) and adds it to its own
-        // popups (0x6ecae0, this in rcx).
-        Point::keep(0x828c43usize, "4c 8b ce 4c 8b c5 48 8b d3 48 8b c8 e8 fc 0d 89 00 90 48 8b d0 48 8b cb e8 80 3e ec ff", "event window shown"),
-        // Adding a popup walks the list for one of its kind.
-        Point::keep(
-            0x6ecb14usize,
-            "48 8b 5e 78 48 85 db 74 1c 0f 1f 00 48 8b 0b 48 8b 01 ff 50 08 84 c0 75 60 48 8b 43 10 48 8b d8 48 85 c0 75 e7",
-            "map manager popups",
-        )
-        .uses(&[manager::POPUPS + list::HEAD, list::ITEM, list::NEXT]),
-        // A popup that closes while the list is being walked is marked to go
-        // later.
-        Point::keep(0x6ea583usize, "41 80 bc 24 8c 00 00 00 00 74 06 c6 41 18 01", "popup gone").uses(&[manager::POPUPS + list::CHANGING, list::REMOVED]),
-        Point::keep(0x10b9b3busize, "48 8d 05 b6 f5 c9 00 48 89 03", "event window class").uses(&[classes::EVENT_WINDOW]),
         Point::observe(RESTART, "48 89 5c 24 08 48 89 74 24 18 55 57 41 56", "restart", 1, Some(restart_before), None),
     ]
 }

@@ -68,6 +68,14 @@ _Avoid_: console on its own
 A point on the game's map, in pixels of the province map (`map/provinces.bmp`): x from its left edge, y from its bottom edge, as `map/positions.txt` writes them. The camera looks at a map position.
 _Avoid_: coordinates on their own; screen position (a pixel of the game's window)
 
+**Question**:
+One of the game's own events that waits for the player's answer, shown in an event window with the options the player may choose. Answering it is choosing one of those options; one left unanswered for a few months is answered by the game itself.
+_Avoid_: event (that is remote control's numbered events), game event, popup, decision (the game's decisions are something the player takes, not answers)
+
+**Offer**:
+A proposal another country made to the player that waits for the player to accept or decline it, such as an alliance or a royal marriage, shown as a diplomatic message icon or a dialog.
+_Avoid_: request, diplomatic request, diplomatic message, question (that is one of the game's events)
+
 ### Remote control
 
 **Remote control**:
@@ -84,7 +92,7 @@ _Avoid_: protocol adapter, channel, connection
 
 **Event**:
 Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.
-_Avoid_: notification, message; game event (one of the game's own events, whose options the player chooses from)
+_Avoid_: notification, message; game event, question (one of the game's own events, whose options the player chooses from)
 
 ### Interface
 

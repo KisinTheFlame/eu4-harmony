@@ -145,6 +145,68 @@ pub struct Click {
     pub ctrl: bool,
 }
 
+/// A question waiting for the player's answer, while it waits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize)]
+#[serde(transparent)]
+pub struct QuestionId(pub u32);
+
+/// A question: one of the game's events waiting for the player's answer, as
+/// the core writes it (`abi::GameApi::questions`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct Question {
+    pub id: QuestionId,
+    /// The event's id in the game's files, such as `flavor_fra.1`.
+    pub event: String,
+    pub title: String,
+    pub description: String,
+    /// The last day to answer, as a game date; after it the game picks an
+    /// option itself.
+    pub deadline: i32,
+    /// The options the player may choose, in the game's order.
+    pub options: Vec<QuestionOption>,
+}
+
+/// An option of a question the player may choose.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct QuestionOption {
+    /// Its number among all the event's options, which answering takes.
+    pub index: u32,
+    pub text: String,
+}
+
+/// An offer waiting for the player's answer, while it waits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct OfferId(pub u32);
+
+/// An offer: another country's proposal waiting for the player's answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Offer {
+    pub id: OfferId,
+    /// The country that made it.
+    pub from: CountryId,
+    /// When it was made, as a game date.
+    pub date: i32,
+    /// What is offered, such as "Royal Marriage".
+    pub title: String,
+    pub description: String,
+}
+
+/// [`Offer`] as the core writes it (`abi::GameApi::offers`).
+#[derive(serde::Deserialize)]
+pub(crate) struct OfferJson {
+    id: u32,
+    from: u64,
+    date: i32,
+    title: String,
+    description: String,
+}
+
+impl From<OfferJson> for Offer {
+    fn from(o: OfferJson) -> Self {
+        Self { id: OfferId(o.id), from: CountryId(o.from), date: o.date, title: o.title, description: o.description }
+    }
+}
+
 /// RGBA color of one province on the map.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MapColor {
@@ -650,5 +712,32 @@ impl<'a> Game<'a> {
             return Err(Error::new(Status::InvalidArgument, "a unit kind this SDK does not know cannot be recruited"));
         }
         self.backend.recruit(province, kind)
+    }
+    /// The questions waiting for the player's answer, oldest first: the
+    /// game's events shown in event windows.
+    pub fn questions(&mut self) -> Result<Vec<Question>> {
+        self.backend.questions()
+    }
+    /// Answers a question with one of its options, as the player does in its
+    /// event window; the game applies it a moment later.
+    pub fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
+        self.backend.answer_question(question, option)
+    }
+    /// The offers waiting for the player's answer, made no more than two
+    /// months ago: the game takes no answer to an older one.
+    pub fn offers(&mut self) -> Result<Vec<Offer>> {
+        self.backend.offers()
+    }
+    /// Accepts an offer, as the player does in its dialog. `Rejected` when the
+    /// game no longer takes an answer to it (it was made more than two months
+    /// ago, or what it offers is no longer possible), which the game then
+    /// lets go, mostly declining it, as when the player opens it.
+    pub fn accept_offer(&mut self, offer: OfferId) -> Result<()> {
+        self.backend.answer_offer(offer, true)
+    }
+    /// Declines an offer, as the player does in its dialog; `Rejected` as
+    /// [`Game::accept_offer`] is.
+    pub fn decline_offer(&mut self, offer: OfferId) -> Result<()> {
+        self.backend.answer_offer(offer, false)
     }
 }

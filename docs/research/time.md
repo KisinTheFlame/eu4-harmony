@@ -1,4 +1,4 @@
-# Time: speed, pause, the daily update, game events waiting, restarting (for `game::time`)
+# Time: speed, pause, the daily update, questions waiting, restarting (for `game::time`)
 
 Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`; what was checked in the running game is marked "tested", from [prototype-log.md](../prototype-log.md) (2026-10-29, remote control C1). Tested also: the speed read and set showed on the top bar's speed dial; the in-game menu, its confirmation to return to the main menu and the end-of-game summary do not hold the game paused once it is resumed.
 
@@ -22,15 +22,16 @@ The map manager's pause state is at `map_manager+0x418` (the manager's method at
 
 ## Stopping on a date
 
-Since one day is posted a frame and the frame checks the pause before posting, pausing as soon as the daily update returns with the date reached means no further day begins. `game::time` pauses there, after `0x758430` (an `after` observer on the existing daily update point), when remote control's advance holds a stop at that date, and also when a game event's window came up during the day while an advance runs.
+Since one day is posted a frame and the frame checks the pause before posting, pausing as soon as the daily update returns with the date reached means no further day begins. `game::time` pauses there, after `0x758430` (an `after` observer on the existing daily update point), when remote control's advance holds a stop at that date, and also when a question's event window came up during the day while an advance runs.
 
-Pausing at a safe point instead is a day late at speed 5. Tested: an advance that paused the game at the safe point where it found a game event's window answered 1470.9.22, and the game then stood at 1470.9.23: the next day had been posted before the safe point and ran after it. With the pause at the end of the daily update, the same advance answered 1470.9.22 and the game stayed there, and advances of 30 days at speeds 5 and 1 stopped on their dates.
+Pausing at a safe point instead is a day late at speed 5. Tested: an advance that paused the game at the safe point where it found a question's event window answered 1470.9.22, and the game then stood at 1470.9.23: the next day had been posted before the safe point and ran after it. With the pause at the end of the daily update, the same advance answered 1470.9.22 and the game stayed there, and advances of 30 days at speeds 5 and 1 stopped on their dates.
 
-## Game events waiting for an answer
+## Questions waiting for an answer
 
-- The map manager's method at `+0x108` (`0x828c00`) shows a game event to the player: it makes an event window (`0x10b9a50`, 0x3e8 bytes, vtable `0x1d590f8`, a second one `0x1d590e0` at `+8`; `eventwindow.cpp`, `EventWindow`) and adds it with `0x6ecae0(manager, window)` to the manager's **popups**.
+- The map manager's method at `+0x108` (`0x828c00`) shows one of the game's events to the player: it makes an event window (`0x10b9a50`, 0x3e8 bytes, vtable `0x1d590f8`, a second one `0x1d590e0` at `+8`; `eventwindow.cpp`, `EventWindow`) and adds it with `0x6ecae0(manager, window)` to the manager's **popups**.
 - **The popups** are a list of the game's usual kind (`objects::list`) at `map_manager+0x78`: the first node, `+0x80` the last, `+0x88` the count and `+0x8c` a byte set while the list is being walked. A node is 0x20 bytes: `+0x00` the window, `+0x08` the previous node, `+0x10` the next, `+0x18` a byte set when the window closed while the list was being walked (the node goes later). Each frame `0x6ea380` asks every window whether it is still open (its method at `+0x18`) and takes the closed ones out.
-- So **the game events waiting** are the nodes whose window has the event window's vtable and whose `+0x18` is clear. Tested: an event shown during an advance was counted (in front of battle and message popups), and once its option was clicked it was not.
+- So **the questions waiting** (GLOSSARY: the game's events waiting for the player's answer) were, to C1, the nodes whose window has the event window's vtable and whose `+0x18` is clear. Tested: an event shown during an advance was counted (in front of battle and message popups), and once its option was clicked it was not.
+- Since C7, `game::time` counts them as the questions (docs/research/questions-and-offers.md): such a window that is still open (its `+0x124`; choosing an option clears it, while the node stays until the next frame) and whose pending event the world still has, so that an advance stops on exactly the questions `question.list` lists.
 
 ## Returning to the main menu
 

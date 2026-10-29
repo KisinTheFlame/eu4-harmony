@@ -4,7 +4,7 @@
 //! earlier, saying why; or, when the game starts `eu4.exe` again, just before
 //! this process ends. Whatever it stops for before or at its date, it leaves
 //! the game paused by the player's own pause, the one `time.pause` sets, also
-//! when a window holds the game paused (a game event's, when the game pauses
+//! when a window holds the game paused (an event window, when the game pauses
 //! on events, or a message set to pause): a client that got the answer finds
 //! the game paused until it resumes it, not running on once the window is
 //! closed. Not when another game was loaded or the game returns to the main
@@ -37,8 +37,8 @@ pub trait Layer {
     fn pause(&mut self) -> GResult<()>;
     fn resume(&mut self) -> GResult<()>;
     fn set_speed(&mut self, speed: u32) -> GResult<()>;
-    /// How many game events wait for the player's answer.
-    fn game_events_waiting(&mut self) -> GResult<usize>;
+    /// How many questions wait for the player's answer.
+    fn questions_waiting(&mut self) -> GResult<usize>;
     /// Pauses the game as the daily update reaches `date`.
     fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Held>>;
 }
@@ -73,8 +73,8 @@ impl Layer for Live {
         game::time::set_speed(Caller::Remote, speed)
     }
 
-    fn game_events_waiting(&mut self) -> GResult<usize> {
-        game::time::game_events_waiting(Caller::Remote)
+    fn questions_waiting(&mut self) -> GResult<usize> {
+        game::time::questions_waiting(Caller::Remote)
     }
 
     fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Held>> {
@@ -113,9 +113,9 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     }
     let time = game.time()?;
     let since = events.last();
-    if game.game_events_waiting()? > 0 {
+    if game.questions_waiting()? > 0 {
         game.pause()?;
-        let advanced = Advanced { stopped: Stop::GameEvent, reason: GAME_EVENT.into(), date: Date(time.date), events: events.read(since) };
+        let advanced = Advanced { stopped: Stop::Question, reason: QUESTION.into(), date: Date(time.date), events: events.read(since) };
         return Ok(Started::Stopped(advanced));
     }
     if let Some(speed) = speed {
@@ -131,7 +131,7 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     Ok(Started::Running(Advance { session: time.session, since, until, date: time.date, reached: None, stop: Some(stop) }))
 }
 
-const GAME_EVENT: &str = "a game event waits for the player's answer";
+const QUESTION: &str = "a question waits for the player's answer";
 
 /// An advance under way.
 struct Advance {
@@ -164,9 +164,9 @@ impl Advance {
             let heard = events.read(self.since).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
             return Ok((heard || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
         }
-        if game.game_events_waiting()? > 0 {
+        if game.questions_waiting()? > 0 {
             game.pause()?;
-            return Ok(Some((Stop::GameEvent, GAME_EVENT)));
+            return Ok(Some((Stop::Question, QUESTION)));
         }
         let why = match time.pause {
             Pause::Running => return Ok(None),
@@ -213,7 +213,7 @@ impl Wait for Advance {
     }
 
     /// Given up at a safe point where it would answer, as when the game
-    /// paused within the frame before (a game event came up, the player
+    /// paused within the frame before (a question came up, the player
     /// paused), it does what answering does but answer: it leaves the
     /// player's pause, and its stop goes rather than being called off, which
     /// would pause the game a day after it is next resumed. So too once it
