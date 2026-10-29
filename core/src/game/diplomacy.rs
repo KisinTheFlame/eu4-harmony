@@ -317,15 +317,17 @@ impl Drop for Made<'_> {
 /// [`answer`].
 fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag) -> GResult<Ticket> {
     verdict(m, at, kind)?;
+    // The session before the command: once the command is made, only a call
+    // into the game can fail before it is posted or destroyed. The session
+    // owns the command once it took it; until then, it is the framework's to
+    // free.
+    let session = session_of(m, ctx)?;
     let mut command = 0usize;
     m.call(m.vslot(at, action::MAKE_COMMAND)?, &[at, &mut command as *mut usize as usize])?;
     if command == 0 || m.ptr(command)? != m.at(classes::ACTION_COMMAND) {
         return Err("the diplomatic action made no command".to_string().into());
     }
-    let session = session_of(m, ctx)?;
     let after = ledger(|l| l.carried_count);
-    // The session owns the command once it took it; until then, it is the
-    // framework's to free.
     let taken = m.call(m.at(events::DISPATCH), &[session, command])? as u8 != 0;
     if !taken {
         m.call(m.vslot(command, 0)?, &[command, 1])?;
