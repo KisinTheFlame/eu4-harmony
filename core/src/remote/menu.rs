@@ -11,7 +11,7 @@ use crate::game::{self, menu::Launch, Caller, GResult, Status};
 use eu4_harmony_remote::{
     menu::{Menu, MenuAnswer, MenuRequest, Place, Save},
     session::Session,
-    Answer, Code, CountryTag, Error, Response,
+    Answer, Code, CountryTag, Date, Error, Response,
 };
 
 /// The group's slice of the capability layer.
@@ -92,7 +92,7 @@ fn place_of(place: game::menu::Place) -> Place {
 }
 
 fn save(s: game::menu::Save) -> Save {
-    Save { name: s.name, file: s.file, bytes: s.bytes, modified: s.modified }
+    Save { name: s.name, file: s.file, bytes: s.bytes, modified: s.modified, player: s.player.map(CountryTag), date: s.date.map(Date) }
 }
 
 /// A load or start waiting for the game's first frame.

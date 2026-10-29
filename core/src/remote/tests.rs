@@ -192,7 +192,11 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Menu(MenuRequest::State {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "game"})))),
         (
             Request::Menu(MenuRequest::Saves {}),
-            Box::new(|v: &Value| *v == ok(json!([{"name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000}]))),
+            Box::new(|v: &Value| {
+                *v == ok(json!([{
+                    "name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000, "player": "TUR", "date": "1444.11.11",
+                }]))
+            }),
         ),
         // A load and a start wait for the game's first frame, which never
         // comes: the return after them ends the process.

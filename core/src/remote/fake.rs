@@ -284,7 +284,14 @@ impl menu::Layer for Fake {
 
     fn saves(&mut self) -> GResult<Vec<game::menu::Save>> {
         self.call("saves".into());
-        Ok(vec![game::menu::Save { name: "奥斯曼1444_11_11".into(), file: "奥斯曼1444_11_11.eu4".into(), bytes: 3_266_935, modified: 1_761_700_000 }])
+        Ok(vec![game::menu::Save {
+            name: "奥斯曼1444_11_11".into(),
+            file: "奥斯曼1444_11_11.eu4".into(),
+            bytes: 3_266_935,
+            modified: 1_761_700_000,
+            player: Some(*b"TUR"),
+            date: Some(0x035D_7710),
+        }])
     }
 
     fn load(&mut self, save: &str) -> GResult<()> {

@@ -4,7 +4,7 @@
 //! Returning to the main menu starts `eu4.exe` again: the process that was
 //! asked answers, then ends, and a new one takes the pipe over a few seconds
 //! later. Every answer here says which process gave it.
-use crate::{session::Session, CountryTag};
+use crate::{session::Session, CountryTag, Date};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -17,7 +17,7 @@ group! {
     /// sessions and events are numbered from 1 again.
     anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being set up or loaded) or game";
     /// The saves in the save games folder, newest first.
-    anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970)";
+    anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), and player and date as the save's header says them (null when it cannot be read)";
     /// Loads a save from the main menu and plays it as the country it was
     /// saved as, as the continue box does. Only from the main menu's first
     /// page. Answers once the game is ready, however long the save takes to
@@ -76,4 +76,9 @@ pub struct Save {
     pub bytes: u64,
     /// When it was last written, in seconds since 1970.
     pub modified: u64,
+    /// The country it is played as, as its header says; null when that
+    /// cannot be read, or for an observer's save.
+    pub player: Option<CountryTag>,
+    /// Its date, as its header says.
+    pub date: Option<Date>,
 }

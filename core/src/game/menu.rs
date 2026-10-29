@@ -15,6 +15,8 @@
 //! The main menu's part runs in the main menu's frame ([`main_menu_frame`]),
 //! where the game's own clicks run, not at the safe point that asked for it,
 //! which is inside the frame being presented.
+mod save_file;
+
 use super::{fail, game, Caller, GResult, Status, Tag};
 use crate::{
     game_string,
@@ -74,6 +76,8 @@ mod layout {
         pub const SAVE_PATH: usize = 0x338;
         pub const CLOUD_SAVE: usize = 0x358;
         pub const SAVE_INDEX: usize = 0x35c;
+        /// The country the save chosen is played as, a tag.
+        pub const SAVE_PLAYER: usize = 0xc48;
         /// It started a game, u8.
         pub const STARTED: usize = 0x2cb0;
     }
@@ -94,17 +98,17 @@ mod layout {
     pub const START_TAG: usize = 0x1fd39a8;
     /// `(main menu, page, animate)`: shows a page of the main menu.
     pub const SHOW_PAGE: usize = 0x10daf60;
-    /// `(setup, null)`: loads the save [`setup::SAVE_PATH`] names into the
-    /// setup.
-    pub const LOAD_SAVE: usize = 0x1132ca0;
-    /// `(setup, &tag, false)`: selects the country to play.
-    pub const SELECT_COUNTRY: usize = 0x111cb80;
+    /// `(setup)`: loads the save [`setup::SAVE_PATH`] names into the setup
+    /// (by a command, at a later frame) and selects
+    /// [`setup::SAVE_PLAYER`]'s country, or the world's player for an
+    /// ironman save.
+    pub const CHOOSE_SAVE: usize = 0x1130f40;
     /// `(setup, true)`: starts the game as the continue box does.
     pub const CONTINUE: usize = 0x1120740;
     /// `(world, tag)`: makes the country the player's.
     pub const SET_PLAYER: usize = 0x763840;
 }
-use layout::{application, idler, main_menu, setup, CONTINUE, LOAD_SAVE, SELECT_COUNTRY, SETUP_PAGE, SET_PLAYER, SHOW_PAGE, START_TAG};
+use layout::{application, idler, main_menu, setup, CHOOSE_SAVE, CONTINUE, SETUP_PAGE, SET_PLAYER, SHOW_PAGE, START_TAG};
 
 /// Where the safe point that runs remote control is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +165,10 @@ pub struct Save {
     pub bytes: u64,
     /// Seconds since 1970.
     pub modified: u64,
+    /// The country it is played as, and its date, as its header says; None
+    /// when it cannot be read (or for an observer's save).
+    pub player: Option<[u8; 3]>,
+    pub date: Option<i32>,
 }
 
 /// What came of the last load or start.
@@ -177,9 +185,10 @@ pub enum Launch {
 /// the game takes it up: its start command runs at a later frame.
 const GRACE: Duration = Duration::from_secs(5);
 
+#[derive(Clone)]
 enum Action {
-    /// The save's PhysFS path.
-    Load(String),
+    /// The save's PhysFS path, and its player's country.
+    Load(String, Tag),
     Start([u8; 3]),
 }
 
@@ -252,10 +261,25 @@ pub fn saves(_: Caller) -> GResult<Vec<Save>> {
             continue;
         }
         let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
-        saves.push(Save { name: name.to_string(), file: file.clone(), bytes: meta.len(), modified });
+        let header = header(&entry.path(), meta.len(), modified);
+        saves.push(Save { name: name.to_string(), file: file.clone(), bytes: meta.len(), modified, player: header.player, date: header.date });
     }
     saves.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
     Ok(saves)
+}
+
+/// What the header of the save at `path` says, read once for each size and
+/// time it was written at.
+fn header(path: &std::path::Path, bytes: u64, modified: u64) -> save_file::Header {
+    type Key = (PathBuf, u64, u64);
+    static READ: Mutex<Option<std::collections::HashMap<Key, save_file::Header>>> = Mutex::new(None);
+    let key = (path.to_path_buf(), bytes, modified);
+    if let Some(header) = READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).get(&key) {
+        return *header;
+    }
+    let header = save_file::read(path).unwrap_or_default();
+    READ.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key, header);
+    header
 }
 
 /// The name of a save file: its name without `.eu4`, when it has that.
@@ -301,7 +325,12 @@ pub fn load(_: Caller, name: &str) -> GResult<()> {
     let m = game()?;
     let file = save_file(name)?;
     first_page(m)?;
-    attempt(|a| *a = Some(Attempt { action: Action::Load(format!("save games/{file}")), ran: None }));
+    let header = save_file::read(&save_games()?.join(&file)).map_err(|e| super::Fail { status: Status::Rejected, message: format!("the save cannot be read: {e}") })?;
+    let Some(letters) = header.player else {
+        return fail(Status::Rejected, "the save has no country to play");
+    };
+    let player = find(m, letters)?;
+    attempt(|a| *a = Some(Attempt { action: Action::Load(format!("save games/{file}"), player), ran: None }));
     Ok(())
 }
 
@@ -335,10 +364,7 @@ pub fn launch(_: Caller) -> Launch {
 /// At the end of the main menu's frame: runs the load or start asked for.
 pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
     let Some(action) = attempt(|a| match a {
-        Some(Attempt { action, ran: None }) => Some(match action {
-            Action::Load(path) => Action::Load(path.clone()),
-            Action::Start(letters) => Action::Start(*letters),
-        }),
+        Some(Attempt { action, ran: None }) => Some(action.clone()),
         _ => None,
     }) else {
         return;
@@ -349,7 +375,7 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
         Err("the main menu left its first page before the game could take it up".to_string())
     } else {
         match &action {
-            Action::Load(path) => load_now(m, frontend, path),
+            Action::Load(path, player) => load_now(m, frontend, path, *player),
             Action::Start(letters) => start_now(m, frontend, *letters),
         }
     };
@@ -357,6 +383,7 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
         Ok(()) => log!("menu: {} started", describe(&action)),
         Err(why) => {
             log!("menu: {} failed: {why}", describe(&action));
+            let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
             // Back to the first page, where the next one can begin.
             if m.u32(frontend + gui_menu::PAGE).is_ok_and(|page| page != 0) {
                 let _ = m.call(m.at(SHOW_PAGE), &[frontend, 0, 1]);
@@ -368,7 +395,7 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
 
 fn describe(action: &Action) -> String {
     match action {
-        Action::Load(path) => format!("loading {path}"),
+        Action::Load(path, _) => format!("loading {path}"),
         Action::Start(letters) => format!("a new game as {}", String::from_utf8_lossy(letters)),
     }
 }
@@ -400,7 +427,8 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
     m.write(world_now(m)? + layout::world::MODE, &0i32.to_le_bytes())?;
     let start_tag = m.at(START_TAG);
     set_text(m, start_tag, &letters)?;
-    let shown = m.call(m.at(SHOW_PAGE), &[frontend, SETUP_PAGE as usize, 1]);
+    // Without the setup's animation, as the continue box shows it.
+    let shown = m.call(m.at(SHOW_PAGE), &[frontend, SETUP_PAGE as usize, 0]);
     let left = game_string::read(m, start_tag);
     if left.as_ref().map_or(true, |text| !text.is_empty()) {
         let _ = set_text(m, start_tag, b"");
@@ -416,49 +444,29 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
     Ok(())
 }
 
-/// As the continue box, for the save at `path`: the single player setup
-/// entered, the save loaded into it, its player's country selected, the
-/// game started.
-fn load_now(m: &Memory, frontend: usize, path: &str) -> Result<()> {
+/// As the continue box, for the save at `path` played as `player`, all at
+/// one frame: the single player setup entered, the save and its player
+/// written into it, the save chosen (the setup loads it by a command, at a
+/// later frame), the country made the player, the game started, by a
+/// command that runs after the load.
+fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> {
     let world = world_now(m)?;
     m.write(world + layout::world::MODE, &0i32.to_le_bytes())?;
     m.write(world + layout::world::SETUP, &1i32.to_le_bytes())?;
     m.write(frontend + main_menu::CONTINUING, &[1])?;
-    let result = (|| {
-        m.call(m.at(SHOW_PAGE), &[frontend, SETUP_PAGE as usize, 0])?;
-        let page = setup(m, frontend)?;
-        m.write(page + setup::SAVE_INDEX, &(-1i32).to_le_bytes())?;
-        set_text(m, page + setup::SAVE_PATH, path.as_bytes())?;
-        m.write(page + setup::CLOUD_SAVE, &[0])?;
-        let loads = crate::saves::loads();
-        m.call(m.at(LOAD_SAVE), &[page, 0])?;
-        if crate::saves::loads() == loads {
-            return Err("the game could not load the save (it says why in the single player setup)".to_string());
-        }
-        let world = world_now(m)?;
-        let player = player(m, world)?;
-        log!("menu: {path} loaded into the single player setup, player {}", String::from_utf8_lossy(&player.letters()));
-        if !player.normal() {
-            return Err("the save has no country to play".into());
-        }
-        m.call(m.at(SELECT_COUNTRY), &[page, &player.0 as *const u64 as usize, 0])?;
-        m.call(m.at(SET_PLAYER), &[world, player.0 as usize])?;
-        m.call(m.at(CONTINUE), &[page, 1])?;
-        if m.u8(page + setup::STARTED)? == 0 {
-            return Err("the single player setup did not start the game".into());
-        }
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
+    m.call(m.at(SHOW_PAGE), &[frontend, SETUP_PAGE as usize, 0])?;
+    let page = setup(m, frontend)?;
+    m.write(page + setup::SAVE_INDEX, &(-1i32).to_le_bytes())?;
+    set_text(m, page + setup::SAVE_PATH, path.as_bytes())?;
+    m.write(page + setup::CLOUD_SAVE, &[0])?;
+    m.write(page + setup::SAVE_PLAYER, &player.0.to_le_bytes())?;
+    m.call(m.at(CHOOSE_SAVE), &[page])?;
+    m.call(m.at(SET_PLAYER), &[world, player.0 as usize])?;
+    m.call(m.at(CONTINUE), &[page, 1])?;
+    if m.u8(page + setup::STARTED)? == 0 {
+        return Err("the single player setup did not start the game".into());
     }
-    result
-}
-
-/// The world's player, as the continue box reads it for an ironman save.
-fn player(m: &Memory, world: usize) -> Result<Tag> {
-    let switched = m.u8(world + world::PLAYER_MODE)? == world::SWITCHED && m.u8(world + world::PLAYER_SWITCHED)? != 0;
-    Ok(Tag(m.u64(world + if switched { world::SWITCHED_PLAYER } else { world::PLAYER })?))
+    Ok(())
 }
 
 /// Makes the game's string at `string` hold `text`, through the game's own
@@ -516,8 +524,7 @@ pub fn points() -> Vec<Point> {
     use layout::world as setup_world;
     vec![
         Point::keep(SHOW_PAGE, "48 89 5c 24 10 48 89 74 24 20 55 57 41 54 41 56 41 57 48 8d 6c 24 e0 48", "main menu show page"),
-        Point::keep(LOAD_SAVE, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 00 fc ff ff", "single player setup load save"),
-        Point::keep(SELECT_COUNTRY, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 41 56 41 57 48 8b ec 48", "single player setup select country"),
+        Point::keep(CHOOSE_SAVE, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d9 48 81 ec", "single player setup choose save"),
         Point::keep(CONTINUE, "48 89 5c 24 08 55 56 57 41 56 41 57 48 8d 6c 24 c9 48 81 ec 00 01 00 00", "single player setup continue"),
         Point::keep(SET_PLAYER, "40 57 48 83 ec 20 48 8b c2 48 89 91 60 1e 00 00 48 c1 e8 38 48 8b f9 84", "world set player").uses(&[world::PLAYER]),
         // The single player setup's constructor: its classes, its main menu.
@@ -536,6 +543,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x10ef790usize, "41 89 b4 24 5c 03 00 00", "continue box save index").uses(&[setup::SAVE_INDEX]),
         Point::keep(0x10ef7afusize, "49 8d 8c 24 38 03 00 00 4c 8b c6 e8 51 59 fa fe 41 88 bc 24 58 03 00 00", "continue box save path")
             .uses(&[setup::SAVE_PATH, setup::CLOUD_SAVE]),
+        Point::keep(0x10ef7e3usize, "49 89 9c 24 48 0c 00 00 49 8b cc e8 4d 17 04 00", "continue box save player").uses(&[setup::SAVE_PLAYER]),
         // `-start_tag`: the main menu enters the setup, which selects the
         // country, empties the text and starts.
         Point::keep(0x10d3a68usize, "41 80 be 30 07 00 00 00 74 0f 41 c6 86 30 07 00 00 00 ba 03 00 00 00", "start tag setup page").uses(&[SETUP_PAGE as usize]),
