@@ -87,6 +87,8 @@ fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
     let tail_len = size.min(66_000) as usize;
     let tail = read_at(file, size - tail_len as u64, tail_len)?;
     let end = tail.windows(4).rposition(|w| w == [0x50, 0x4b, 0x05, 0x06]).ok_or("no zip directory")?;
+    // The end record is 22 bytes, its comment's length last.
+    u16_at(&tail, end + 20)?;
     let (entries, directory_len, directory_at) = (u16_at(&tail, end + 10)?, u32_at(&tail, end + 12)?, u32_at(&tail, end + 16)?);
     if directory_len > MOST || directory_at as u64 + directory_len as u64 > size {
         return Err("zip directory out of bounds".into());
