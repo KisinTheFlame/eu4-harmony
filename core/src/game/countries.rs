@@ -113,7 +113,7 @@ pub fn snapshot(_: Caller, tag: Tag) -> GResult<Country> {
         stability: fixed(fields::STABILITY)?,
         prestige: fixed(fields::PRESTIGE)?,
         power: [m.i32(c + fields::POWER)?, m.i32(c + fields::POWER_DIP)?, m.i32(c + fields::POWER_MIL)?],
-        wars: wars(m, &ctx)?.into_iter().filter(|w| w.attackers.iter().chain(&w.defenders).any(|t| t.index() == tag.index())).collect(),
+        wars: wars_of(m, &ctx, tag)?,
         relations,
     })
 }
@@ -162,23 +162,85 @@ fn chain(m: &Memory, first: usize, tag: usize, next: usize) -> GResult<Vec<Tag>>
     Ok(out)
 }
 
-/// Every war going on.
-fn wars(m: &Memory, ctx: &Ctx) -> GResult<Vec<War>> {
+/// The wars going on that `country` takes part in, on either side. Only
+/// these are read in full, so another war cannot fail the snapshot: one that
+/// is no war or whose sides cannot be read is left out, as the country is on
+/// neither side of it that can be seen; one with a tag that is no country's
+/// fails the snapshot only when it is the country's.
+fn wars_of(m: &Memory, ctx: &Ctx, country: Tag) -> GResult<Vec<War>> {
     let data = m.ptr(ctx.world + world_fields::WARS)?;
     let count = m.i32(ctx.world + world_fields::WAR_COUNT)?;
     if !(0..=MOST as i32).contains(&count) {
         return Err("war array bound".to_string().into());
     }
-    let mut out = Vec::with_capacity(count as usize);
+    let mut out = Vec::new();
     for i in 0..count as usize {
         let w = m.ptr(data + i * 8)?;
-        if w == 0 || m.ptr(w)? != m.at(classes::WAR) {
-            return Err(format!("war {i} is not a war").into());
+        let Some((attackers, defenders)) = sides(m, w) else { continue };
+        if !attackers.iter().chain(&defenders).any(|t| t.valid() && t.index() == country.index()) {
+            continue;
         }
         let name = game_text::to_utf8(&game_string::read(m, w + war::NAME)?);
-        let attackers = checked(m, ctx, vector_tags(m, w + war::ATTACKERS)?)?;
-        let defenders = checked(m, ctx, vector_tags(m, w + war::DEFENDERS)?)?;
-        out.push(War { name, attackers, defenders });
+        out.push(War { name, attackers: checked(m, ctx, attackers)?, defenders: checked(m, ctx, defenders)? });
     }
     Ok(out)
+}
+
+/// The tags of a war's attackers and defenders, not yet checked; None when
+/// `war` is no war or its sides cannot be read.
+fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
+    if war == 0 || m.ptr(war).ok()? != m.at(classes::WAR) {
+        return None;
+    }
+    Some((vector_tags(m, war + war::ATTACKERS).ok()?, vector_tags(m, war + war::DEFENDERS).ok()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remote::fake::game_tag;
+
+    /// A war of the game's class with these sides; its name is empty.
+    fn war_object(m: &Memory, attackers: &[Tag], defenders: &[Tag]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+        let tags = |tags: &[Tag]| tags.iter().map(|t| t.0).collect::<Vec<u64>>();
+        let (attackers, defenders) = (tags(attackers), tags(defenders));
+        let mut object = vec![0u64; (war::DEFENDERS + 16) / 8];
+        object[0] = m.at(classes::WAR) as u64;
+        object[(war::NAME + game_string::CAPACITY) / 8] = game_string::INLINE as u64;
+        let range = |v: &Vec<u64>| [v.as_ptr() as u64, v.as_ptr() as u64 + 8 * v.len() as u64];
+        object[war::ATTACKERS / 8..war::ATTACKERS / 8 + 2].copy_from_slice(&range(&attackers));
+        object[war::DEFENDERS / 8..war::DEFENDERS / 8 + 2].copy_from_slice(&range(&defenders));
+        (object, attackers, defenders)
+    }
+
+    /// Wars between countries 1 to 3, one with a tag that is no country's,
+    /// and an entry that is no war: each country reads only its own wars,
+    /// and only the country in the bad war fails.
+    #[test]
+    fn a_bad_war_fails_only_its_own_countries() {
+        let m = Memory { base: 0x1_4000_0000 };
+        let (a, b, c) = (game_tag(b"AAA", 1), game_tag(b"BBB", 2), game_tag(b"CCC", 3));
+        let objects: Vec<Vec<u64>> = [a, b, c]
+            .iter()
+            .map(|t| {
+                let mut object = vec![0u64; fields::TAG / 8 + 1];
+                object[fields::TAG / 8] = t.0;
+                object
+            })
+            .collect();
+        let countries: Vec<u64> = [0].into_iter().chain(objects.iter().map(|o| o.as_ptr() as u64)).collect();
+        let first = war_object(&m, &[a, c], &[b]);
+        let bad = war_object(&m, &[b], &[game_tag(b"ZZZ", 9)]);
+        let not_a_war = vec![0u64; first.0.len()];
+        let wars = [first.0.as_ptr() as u64, bad.0.as_ptr() as u64, not_a_war.as_ptr() as u64, 0];
+        let mut world = vec![0u8; world_fields::WAR_COUNT + 4];
+        world[world_fields::WARS..world_fields::WARS + 8].copy_from_slice(&(wars.as_ptr() as u64).to_le_bytes());
+        world[world_fields::WAR_COUNT..].copy_from_slice(&(wars.len() as i32).to_le_bytes());
+        let ctx = Ctx { world: world.as_ptr() as usize, date: 0, player: a, country: 0, countries: countries.as_ptr() as usize };
+        let first_war = War { name: String::new(), attackers: vec![a, c], defenders: vec![b] };
+        assert_eq!(wars_of(&m, &ctx, a).unwrap(), [first_war.clone()]);
+        assert_eq!(wars_of(&m, &ctx, c).unwrap(), [first_war]);
+        assert!(wars_of(&m, &ctx, b).is_err());
+        assert_eq!(wars_of(&m, &ctx, game_tag(b"DDD", 4)).unwrap(), []);
+    }
 }
