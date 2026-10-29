@@ -1,6 +1,13 @@
 # A snapshot with text and lists crosses the ABI as JSON
 
-A snapshot of a game object that holds text or lists of varying length, such as a province's (its name, its buildings, what can be recruited there and why not), reaches an extension as one capability that writes UTF-8 JSON into the caller's buffer, by the two-call pattern every list uses. The JSON's shape is written on the `GameApi` field; the SDK reads it into its own Rust types, so an extension never sees the JSON. A country is its `CountryId` in this JSON, as everywhere else in the ABI, not the tag remote clients use.
+A snapshot of a game object that holds text or lists of varying length, such as a province's (its name, its buildings, what can be recruited there and why not), reaches an extension as one capability that writes UTF-8 JSON into the caller's buffer, by the two-call pattern every list uses. The JSON's shape is written on the `GameApi` field; the SDK reads it into its own Rust types, so an extension never sees the JSON.
+
+Every such snapshot writes its JSON by the same rules:
+
+- **Identifiers are the ABI's own, as JSON numbers**: a country is its `CountryId`, a province its `ProvinceId`, an army its `ArmyId`, as everywhere else in the ABI; not the tags and decimal strings remote clients use. A `CountryId` or an `ArmyId` may be above 2^53; `serde_json` reads it exactly as a `u64`.
+- **Text is Unicode**: a name, a key or a reason the game keeps as game text (GLOSSARY) is converted to Unicode (`unicode::game_text`) before it is written, so the JSON holds its characters, never the game's bytes. Text the player reads in the game, such as a reason, goes through `game_text::plain`: colors left out, an icon written as its name.
+- **A fixed-point value is written as the number it stands for**: a development the game keeps in thousandths, 9500, is `9.5`.
+- **The SDK never refuses a member it does not know**: no type it reads from such JSON has `#[serde(deny_unknown_fields)]`.
 
 Snapshots made of fixed fields only, such as an army's, stay `#[repr(C)]` structs.
 
