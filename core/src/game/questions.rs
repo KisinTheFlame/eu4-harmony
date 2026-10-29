@@ -155,7 +155,14 @@ impl Waiting {
 pub fn waiting(_: Caller) -> GResult<Waiting> {
     let m = game()?;
     let ctx = context(m)?;
-    Ok(Waiting { questions: open(m, &ctx)?.len() as u32, offers: offers::count(m, &ctx)? as u32 })
+    Ok(Waiting { questions: count(m, &ctx)? as u32, offers: offers::count(m, &ctx)? as u32 })
+}
+
+/// How many questions wait in the campaign `ctx` was read from, also during
+/// the daily update: it only reads memory, and calls neither the game nor
+/// [`context`], which refuses then.
+pub fn count(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+    Ok(open(m, ctx)?.len())
 }
 
 /// An open event window whose pending event still waits.
