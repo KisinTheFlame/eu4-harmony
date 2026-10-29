@@ -612,6 +612,15 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
 /// written into it, the save chosen (the setup loads it by a command, at a
 /// later frame), the country made the player, the game started, by a
 /// command that runs after the load.
+///
+/// What can fail is checked before the save is chosen. Once it is, the
+/// command that loads it is the game's, and nothing takes it back: should
+/// what follows fail (a game function faulting, or the setup not starting,
+/// which its code always does with a save chosen), the save is still read
+/// into the main menu's world at a later frame, where the main menu shows
+/// its first page again. That starts no game, and a later load or start
+/// replaces it, as the runs saw of a load and a start at separate frames
+/// (docs/research/main-menu.md); the failure says so.
 fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> {
     let world = world_now(m)?;
     m.write(world + world::MULTIPLAYER, &0i32.to_le_bytes())?;
@@ -624,10 +633,11 @@ fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> 
     m.write(page + setup::CLOUD_SAVE, &[0])?;
     m.write(page + setup::SAVE_PLAYER, &player.0.to_le_bytes())?;
     m.call(m.at(CHOOSE_SAVE), &[page])?;
-    m.call(m.at(SET_PLAYER), &[world, player.0 as usize])?;
-    m.call(m.at(CONTINUE), &[page, 1])?;
-    if m.u8(page + setup::STARTED)? == 0 {
-        return Err("the single player setup did not start the game".into());
+    let chosen = |why: String| format!("{why}; the game still reads the save into the main menu's world, which starts no game");
+    m.call(m.at(SET_PLAYER), &[world, player.0 as usize]).map_err(chosen)?;
+    m.call(m.at(CONTINUE), &[page, 1]).map_err(chosen)?;
+    if m.u8(page + setup::STARTED).map_err(chosen)? == 0 {
+        return Err(chosen("the single player setup did not start the game".into()));
     }
     Ok(())
 }
