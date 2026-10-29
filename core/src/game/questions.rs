@@ -259,14 +259,16 @@ mod tests {
             node[0] = &things[i] as *const u64 as u64;
         }
         nodes[1][3] = 1;
-        let addresses: Vec<u64> = nodes.iter().map(|n| n.as_ptr() as u64).collect();
-        nodes[0][2] = addresses[1];
-        nodes[1][2] = addresses[2];
+        let addresses: Vec<u64> = nodes.iter_mut().map(|n| n.as_mut_ptr() as u64).collect();
+        // The list is read through `m`, so its links are written through it.
+        let link = |from: usize, to: usize| m.write(addresses[from] as usize + list::NEXT, &addresses[to].to_le_bytes()).unwrap();
+        link(0, 1);
+        link(1, 2);
         let header = [addresses[0], addresses[2], 3];
         let got = items(&m, header.as_ptr() as usize).unwrap();
         assert_eq!(got, [&things[0] as *const u64 as usize, &things[2] as *const u64 as usize]);
         // A cycle is an error, not a hang.
-        nodes[2][2] = addresses[0];
+        link(2, 0);
         assert!(items(&m, header.as_ptr() as usize).is_err());
     }
 }
