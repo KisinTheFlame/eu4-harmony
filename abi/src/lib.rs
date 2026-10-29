@@ -171,8 +171,10 @@ pub struct Camera {
 }
 
 /// Receives text a host function hands back (UTF-8, `len` bytes at `text`),
-/// with the `user` pointer the caller passed it. The text is valid only for
-/// the call.
+/// with the `user` pointer the caller passed it. It is called on the game
+/// thread, before the host function returns; the text is valid only for the
+/// call. It must not unwind (no panic or exception may leave it), and it may
+/// call host functions.
 pub type TextSink = unsafe extern "C" fn(user: *mut c_void, text: *const u8, len: usize);
 
 /// Capabilities valid only for the duration of one callback, on the game thread.
