@@ -10,8 +10,8 @@ group! {
 
     /// The questions waiting for the player's answer: the game's events shown
     /// to the player in event windows, oldest first, with the options the
-    /// player may choose. Texts are as the game shows them, without its color
-    /// codes.
+    /// player may choose. Texts are as the game shows them, in plain text: no
+    /// color codes, icons as their names.
     game List "list" {} -> Vec<Question>, "the questions: id, event, title, description, deadline, and the options the player may choose (option, text)";
     /// Answers a question with one of its options, as the player does in its
     /// event window: the window closes and the game applies the option a

@@ -9,9 +9,9 @@ group! {
     "offer": OfferRequest, OfferAnswer;
 
     /// The offers waiting for the player's answer, shown as diplomatic
-    /// message icons or open dialogs. Texts are as the game shows them,
-    /// without its color codes. An offer left unanswered for about two months
-    /// is declined by the game.
+    /// message icons or open dialogs. Texts are as the game shows them, in
+    /// plain text: no color codes, icons as their names. An offer left
+    /// unanswered for about two months is declined by the game.
     game List "list" {} -> Vec<Offer>, "the offers: id, from, date, title, description";
     /// Accepts an offer, as the player does in its dialog. Done means the
     /// game has the answer; it applies it a moment later, and the offer is

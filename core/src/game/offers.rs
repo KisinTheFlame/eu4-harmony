@@ -8,6 +8,7 @@ use crate::{
     memory::Memory,
     objects::gui::{classes as gui_classes, element, functions as gui_functions, window as gui_window},
     points::Point,
+    unicode::game_text,
 };
 
 /// The map manager's holder of the diplomatic message icons, which keeps
@@ -200,7 +201,7 @@ fn text(m: &Memory, window: usize, name: &str) -> GResult<String> {
     if game_string::read(m, m.call(m.at(gui_functions::ELEMENT_NAME), &[found])?)? != name.as_bytes() {
         return Ok(String::new());
     }
-    Ok(questions::plain(&game_string::read(m, found + TEXT)?))
+    Ok(game_text::plain(&game_string::read(m, found + TEXT)?))
 }
 
 /// The message icons, the open dialogs, the diplomacy dialogs and their

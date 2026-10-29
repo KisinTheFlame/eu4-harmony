@@ -273,7 +273,7 @@ fn description(m: &Memory, w: &Window) -> GResult<String> {
 }
 
 /// The text of the localisation key `key` in `scope`, as the event window
-/// shows it, without color codes.
+/// shows it, in plain text (`game_text::plain`).
 fn localise(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     // The key goes by value: a string of the game's own, which it destroys.
     let mut argument = game_string::empty();
@@ -285,23 +285,7 @@ fn localise(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     m.call(m.at(LOCALISE), &[slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize])?;
     let text = game_string::read(m, slot);
     game_string::destroy_checked(m, slot)?;
-    Ok(plain(&text?))
-}
-
-/// Game text as Unicode, without the game's color codes (`§` and the letter
-/// after it), which the player never sees.
-pub(super) fn plain(text: &[u8]) -> String {
-    let unicode = game_text::to_utf8(text);
-    let mut out = String::with_capacity(unicode.len());
-    let mut chars = unicode.chars();
-    while let Some(c) = chars.next() {
-        if c == '§' {
-            chars.next();
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    Ok(game_text::plain(&text?))
 }
 
 /// The pending events, the event windows and the functions answering and
@@ -356,15 +340,6 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn color_codes_are_left_out_and_game_text_becomes_unicode() {
-        assert_eq!(plain(b"\xa7YParis\xa7! is ours"), "Paris is ours");
-        assert_eq!(plain("中国\u{a7}R！".as_bytes()), "中国！");
-        // A lone 1252 byte is its character.
-        assert_eq!(plain(b"caf\xe9 \x93quoted\x94"), "café \u{201c}quoted\u{201d}");
-        assert_eq!(plain(b"ends with \xa7"), "ends with ");
-    }
 
     #[test]
     fn a_list_s_removed_nodes_are_skipped() {
