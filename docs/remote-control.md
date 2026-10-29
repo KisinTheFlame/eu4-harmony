@@ -56,7 +56,8 @@ graph LR
   F4 --> C1[C1 time] & C2[C2 country] & C3[C3 province] & C4[C4 game console] & C5[C5 main menu] & C7[C7 events and offers] & C9[C9 camera] & C10[C10 screenshot]
   C2 --> C8[C8 diplomacy]
   C3 --> C6[C6 recruiting]
-  C1 & C2 & C3 & C4 & C5 & C6 & C7 & C8 & C9 & C10 --> Z[Z wrap-up]
+  C1 & C2 & C3 & C4 & C5 & C6 & C7 & C9 & C10 --> Z1[Z1 loose ends]
+  Z1 & C8 --> Z2[Z2 play-through]
 ```
 
 F1 to F4 run one after another: they set the shape of the files every later node adds to, and F4 gives the later nodes the command line to try their capabilities in the game. The C nodes run in parallel. How nodes are developed and merged is in [AGENTS.md](../AGENTS.md#parallel-development).
@@ -388,6 +389,39 @@ Built (2026-10-29). The screenshot is in the capability layer (`core/src/game/sc
 
 ### Z Wrap-up
 
-Play through the command line only, as an AI would: from the main menu into a game, observe, advance time, answer questions and offers, move armies, recruit, use diplomacy, take screenshots, return to the main menu. Fix what that turns up. Document remote control in README.md and README.zh-CN.md, check that the player's installation contains `eu4-harmony.exe`, and record the play-through in prototype-log.md.
+The wrap-up was planned as one node. The reviews of the C nodes left more findings for it than one node should carry beside the play-through, so it is cut in two (2026-10-29): Z1 settles those findings, Z2 plays through on the result.
+
+#### Z1 Loose ends
+
+After C1 to C7, C9 and C10; C8 is not needed. Settle these, the first group above all, since an AI playing a whole game meets them. Each is fixed, or kept with its reason written here.
+
+- **Playing a whole game**:
+  - `menu.load` of a save made with a gameplay mod the playset lacks crashed the game (C5's run): compare the save's mods with the playset and refuse with a clear error.
+  - `menu.start` with a country that has no land at the start date (`PRU` in 1444) answered with a session and left the game spectating: refuse it, or answer what happened.
+  - A waiting `menu.load` or `menu.start` is answered only at a successful game frame, so a game whose every frame fails waits until the process restarts; the command line has no default `--timeout`.
+  - `time.resume` and `time.advance` skip the player's own refusals in `0x810570`: past the end date (`[world+0x1dd0] > [0x1fc2328]` unless `[world+0x1dd8]`) and the player-country check (`[world+0x1e67]`, `[world+0x74dc]`).
+  - A game console command of several words must be quoted on the command line (`console run cash 100` fails with "one value too many").
+  - `menu` stays `starting` for the rest of the process if the 30 s give-up came after `+0x714` was set; a posted load command and `SET_PLAYER` remain if `load_now` fails after `CHOOSE_SAVE`; `menu.load` checks the save's name before the place.
+  - On a restart, an answer larger than the pipe's 64 KB buffer (an advance with thousands of events) gets 50 ms to be written and can be cut off.
+- **Rules and records**:
+  - `core/src/game/console.rs` names a global and fields outside `core/src/objects/`.
+  - `abi::TextSink` hands borrowed text to a callback for the call only, while ADR 0018's reasons say the ABI passes nothing it does not copy into the caller's buffer: an ADR for it.
+  - AGENTS.md's list of files to back up lacks `pdx_settings.txt` and `shortcuts.txt`, which applying the game's settings rewrites.
+  - This plan: F2's section lacks `process`, `session_changed` and the main menu's starting state; F4's says no capability answers bytes yet; C10's requirement names `core/src/framework_ui/d3d9.rs`, its "which frame" is wrong while another screenshot is in flight, and its read-back bullet leaves out the wait after 8 presents; F3's and C5's text on the main-menu answer; the stale comment at `core/src/game/time.rs:324`.
+  - Words the glossary avoids: the test `sends_nothing_to_a_server_that_is_not_the_game` (cli); "load list" in `docs/research/main-menu.md`; a bare "event" in `docs/research/time.md` and a point name.
+- **Smaller**:
+  - Written twice or more: the pipe's name (core and cli), the thousandths division (`fixed()` in `core/src/remote/countries.rs`), the month lengths (`MONTH_DAYS`), the speed check, the 1-to-100 range check, the order "session, changes, day" (`ext::frame` and `remote::happened`).
+  - The command line: exit code 3 for a malformed answer is not documented; between reading the serving process's ID and opening it, the ID could be reused (read it again after opening).
+  - The timing test `the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next` failed once under load.
+  - The camera checks its lock before its arguments; the map's wrapping is set by a constant at `0x80a16d` that is no dependency point.
+  - `FakeGame`: `console_run` does not refuse an empty command, `|` or NUL; a kind missing from a snapshot's `recruit` list is accepted; the camera has no lock and min and max heights of 0.
+  - The screenshot: a client giving up in the instant the worker starts; the device looked up outside `guarded` in `framework_ui/hook.rs`.
+  - Raw control bytes in `core/src/game/menu/save_file.rs`'s test literals; the subject given for `676e229` in C6's record.
+
+Done when: the common list holds, and each item of the first group was tried in the game, or its reason for staying is written here.
+
+#### Z2 Play-through
+
+After Z1 and C8. Play through the command line only, as an AI would: from the main menu into a game, observe, advance time, answer questions and offers, move armies, recruit, use diplomacy, take screenshots, return to the main menu. Fix what that turns up, and C8's findings left for the wrap-up. Document remote control in README.md and README.zh-CN.md, check that the player's installation contains `eu4-harmony.exe`, and record the play-through in prototype-log.md.
 
 Done when: the play-through works start to end and README.md, README.zh-CN.md and prototype-log.md say how and what was seen.
