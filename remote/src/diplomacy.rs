@@ -37,8 +37,9 @@ group! {
     /// broken) is sent without the window's confirmation, and the game takes
     /// its costs. `rejected` when the game offers no such war goal, does not
     /// let the player declare war, or would not let the player call an ally
-    /// named, with its reasons; `invalid_argument` for a country to call
-    /// that is not among the allies the window lists.
+    /// named, with its reasons; `invalid_argument` for an empty
+    /// `casus_belli` or a country to call that is not among the allies the
+    /// window lists.
     game DeclareWar "declare_war" {
         /// The country to declare war on.
         country: CountryTag,

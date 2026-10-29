@@ -356,7 +356,7 @@ Built (2026-10-29). The group `diplomacy`, in `game/diplomacy.rs` (the layer), `
 | Capability | Arguments | Result | Needs a game |
 | --- | --- | --- | --- |
 | `diplomacy.war_goals` | `country` | the war goals offered against it: `casus_belli` (`none` for none), `war_goal`, `province`, `target`, `name` | yes |
-| `diplomacy.declare_war` | `country`, `casus_belli` (a key or `none`); optional `war_goal`, `province`, `target`, `call_allies` (`all`, `none` or tags) | `answer`: `declared` with `war`, or `pending`; `called`, the allies called; `rejected` with the game's reasons, when it offers no such war goal or would not let the player call an ally named; `invalid_argument` for an empty `casus_belli` or a country to call that is not among the allies | yes |
+| `diplomacy.declare_war` | `country`, `casus_belli` (a key or `none`); optional `war_goal`, `province`, `target`, `call_allies` (`all`, `none` or tags) | `answer`: `declared` with `war`, or `pending`; `called`, the allies called; `rejected` with the game's reasons, when it offers no such war goal, does not let the player declare war now, or would not let the player call an ally named; `invalid_argument` for an empty `casus_belli` or a country to call that is not among the allies | yes |
 | `diplomacy.offer_peace` | `country` | a white peace in the war between them; `answer`: `accepted`, `declined` or `pending`; `rejected` with the reasons | yes |
 | `diplomacy.propose_alliance` | `country` | `answer`: `accepted`, `declined` or `pending`; `rejected` with the reasons | yes |
 
