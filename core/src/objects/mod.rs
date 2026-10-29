@@ -7,6 +7,7 @@
 pub mod camera;
 pub mod campaign;
 pub mod gui;
+pub mod session;
 pub mod text;
 
 /// The game's doubly linked lists: a header with the first and the last
@@ -33,5 +34,6 @@ pub fn points() -> Vec<Point> {
     all.extend(gui::points());
     all.extend(text::points());
     all.extend(camera::points());
+    all.extend(session::points());
     all
 }
