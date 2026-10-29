@@ -46,7 +46,7 @@ An extension-side capability is added to the ABI by appending (ADR 0014): a `Gam
 
 ### Granularity
 
-A command is one action per capability (choose an event option, accept an offer, declare war). A read fetches one object's snapshot in one go. The exact list of capabilities in each group is decided by the node that builds it, once its reverse engineering is done, and written into its section below.
+A command is one action per capability (answer a question, accept an offer, declare war). A read fetches one object's snapshot in one go. The exact list of capabilities in each group is decided by the node that builds it, once its reverse engineering is done, and written into its section below.
 
 ## Nodes
 
@@ -288,7 +288,7 @@ Built (2026-10-29). C6 added the group `recruit` with one capability: the capabi
 
 ### C7 Events and offers
 
-List the game events waiting for the player's answer, with their options; choose an option. List the diplomatic offers waiting for an answer; accept or decline one. C1's early stop on "a game event needs an answer" comes from here if C1 cannot see it on its own.
+List the questions, the game's events waiting for the player's answer, with their options; choose an option. List the diplomatic offers waiting for an answer; accept or decline one. C1's early stop when a question waits for an answer comes from here if C1 cannot see it on its own.
 
 Done when: in the game, an event (raised with the game console if need be) is listed and answered, and an offer is accepted or declined.
 

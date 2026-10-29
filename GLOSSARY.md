@@ -74,7 +74,7 @@ _Avoid_: event (that is remote control's numbered events), game event, popup, de
 
 **Offer**:
 A proposal another country made to the player that waits for the player to accept or decline it, such as an alliance or a royal marriage, shown as a diplomatic message icon or a dialog.
-_Avoid_: request, diplomatic request, diplomatic message, question (that is a game event)
+_Avoid_: request, diplomatic request, diplomatic message, question (that is one of the game's events)
 
 ### Remote control
 
