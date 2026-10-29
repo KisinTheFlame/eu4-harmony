@@ -134,19 +134,23 @@ pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
     Ok(())
 }
 
-/// How many game events wait for the player's answer: the event windows open
-/// among the map manager's popups. Answering one closes its window.
-///
-/// This is where remote control's advancing time learns that a game event
-/// needs an answer; what the events are and answering them belongs to the
-/// events and offers capabilities.
+/// How many game events wait for the player's answer, as
+/// [`game_events_waiting_in`] counts them.
 pub fn game_events_waiting(_: Caller) -> GResult<usize> {
     let m = game()?;
-    event_windows(m, &context(m)?)
+    game_events_waiting_in(m, &context(m)?)
 }
 
-/// The event windows open among the map manager's popups.
-fn event_windows(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+/// How many game events wait for the player's answer in the campaign `ctx`
+/// was read from, also during the daily update: the event windows open among
+/// the map manager's popups. Answering one closes its window.
+///
+/// The one place remote control's advancing time learns that a game event
+/// needs an answer: an advance asks it at the safe point, through
+/// [`game_events_waiting`], and the end of the daily update during an
+/// advance asks it directly, so the two never disagree. What the events are
+/// and answering them belongs to the events and offers capabilities.
+pub fn game_events_waiting_in(m: &Memory, ctx: &Ctx) -> GResult<usize> {
     let manager = map_manager(m, ctx)?;
     let mut node = m.ptr(manager + POPUPS)?;
     let mut waiting = 0;
@@ -235,7 +239,7 @@ pub(super) fn day_passed(m: &Memory) {
         return;
     }
     let Ok(ctx) = context_any(m) else { return };
-    let due = reach(ctx.date) || (advancing() && event_windows(m, &ctx).is_ok_and(|open| open > 0));
+    let due = reach(ctx.date) || (advancing() && game_events_waiting_in(m, &ctx).is_ok_and(|waiting| waiting > 0));
     if due {
         if let Err(e) = pause_game(m, &ctx) {
             log!("time: cannot pause the advance: {}", e.message);
