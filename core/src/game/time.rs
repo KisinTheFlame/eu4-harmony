@@ -323,8 +323,10 @@ fn pause_game(m: &Memory, ctx: &Ctx) -> GResult<()> {
     Ok(())
 }
 
-/// Before the game starts `eu4.exe` again: remote control answers what waits
-/// while this process can still write the answers.
+/// Before the game starts `eu4.exe` again, whoever asked for it: remote
+/// control answers every request, waiting, queued or sent from now on, while
+/// this process can still write the answers, and waits a while for its
+/// clients to read them (`remote::Engine::end`).
 extern "C" fn restart_before(_: *mut HookFrame) {
     crate::guarded("restart", || {
         log!("the game starts eu4.exe again");
