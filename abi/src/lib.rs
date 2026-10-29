@@ -290,7 +290,9 @@ pub struct GameApi {
     /// (UTF-8, such as `cash 100`), and hands what it printed to `printed`,
     /// with `user`, once before returning [`OK`]; `printed` may be null.
     /// [`REJECTED`] when the game console refused the command or it failed:
-    /// what it printed is then the `last_error` message.
+    /// what it printed is then the `last_error` message. [`INVALID_ARGUMENT`]
+    /// for an empty command or one with a `|` or a NUL, before the game sees
+    /// it.
     pub console_run: unsafe extern "C" fn(
         host: *mut c_void,
         command: *const u8,

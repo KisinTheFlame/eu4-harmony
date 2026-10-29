@@ -228,7 +228,7 @@ Built (2026-10-29). The game console has no `add_treasury` command, which the pl
 
 | Capability | Arguments | Result | Needs a game |
 | --- | --- | --- | --- |
-| `console.run` | `command` (text, such as `cash 100`) | what the command printed; `rejected` with it when the game console refused the command or it failed; `invalid_argument` for an empty command or one with a `\|` | yes |
+| `console.run` | `command` (text, such as `cash 100`) | what the command printed; `rejected` with it when the game console refused the command or it failed; `invalid_argument` for an empty command or one with a `\|` or a NUL | yes |
 
 ### C5 Main menu
 

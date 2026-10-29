@@ -477,7 +477,8 @@ impl<'a> Game<'a> {
     /// apply: a command only developers may run, almost any command in an
     /// ironman or multiplayer game, one the game console does not know and
     /// one that fails are [`Status::Rejected`], with what was printed as the
-    /// message. `Unavailable` on an EU4 Harmony older than this SDK.
+    /// message. `InvalidArgument` for an empty command or one with a `|` or a
+    /// NUL; `Unavailable` on an EU4 Harmony older than this SDK.
     pub fn console(&mut self, command: &str) -> Result<String> {
         self.backend.console_run(command)
     }
