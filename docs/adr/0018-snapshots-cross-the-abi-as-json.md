@@ -5,7 +5,7 @@ A snapshot of a game object that holds text or lists of varying length, such as 
 Every such snapshot writes its JSON by the same rules:
 
 - **Identifiers are the ABI's own, as JSON numbers**: a country is its `CountryId`, a province its `ProvinceId`, an army its `ArmyId`, as everywhere else in the ABI; not the tags and decimal strings remote clients use. A `CountryId` or an `ArmyId` may be above 2^53; `serde_json` reads it exactly as a `u64`.
-- **Text is Unicode**: a name, a key or a reason the game keeps as game text (GLOSSARY) is converted to Unicode (`unicode::game_text`) before it is written, so the JSON holds its characters, never the game's bytes. Text the player reads in the game, such as a reason, goes through `game_text::plain`: colors left out, an icon written as its name.
+- **Text is Unicode**: a name, a key or a reason the game keeps as game text (GLOSSARY) is converted to Unicode (`unicode::game_text`) before it is written, so the JSON holds its characters, never the game's bytes. A name or a key is converted with `game_text::to_utf8`. Text the game builds from its localisation, which can carry formatting codes, such as a reason or an event's text, goes through `game_text::plain`: colors left out, an icon written as its name.
 - **A fixed-point value is written as the number it stands for**: a development the game keeps in thousandths, 9500, is `9.5`.
 - **The SDK never refuses a member it does not know**: no type it reads from such JSON has `#[serde(deny_unknown_fields)]`.
 
