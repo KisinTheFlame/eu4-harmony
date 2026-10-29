@@ -65,15 +65,21 @@ impl Shot {
     }
 }
 
+/// Refuses an image size that is not 1 to 100 percent of the frame's.
+pub fn check_scale(percent: u32) -> GResult<()> {
+    if !(1..=100).contains(&percent) {
+        return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
+    }
+    Ok(())
+}
+
 /// Asks for a screenshot of the next frame the main thread presents, at
 /// `percent` of its size (1 to 100).
 pub fn screenshot(caller: Caller, percent: u32) -> GResult<Arc<Shot>> {
     if let Caller::Extension(_) = caller {
         return fail(Status::Unavailable, "only remote control takes screenshots");
     }
-    if !(1..=100).contains(&percent) {
-        return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
-    }
+    check_scale(percent)?;
     let shot = Shot::new(percent);
     capture().asked.push(shot.clone());
     Ok(shot)

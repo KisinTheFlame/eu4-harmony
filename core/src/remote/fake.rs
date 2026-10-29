@@ -375,9 +375,7 @@ impl camera::Layer for Fake {
 impl screenshot::Layer for Fake {
     fn screenshot(&mut self, percent: u32) -> GResult<Arc<game::screenshot::Shot>> {
         self.call(format!("screenshot {percent}"));
-        if !(1..=100).contains(&percent) {
-            return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
-        }
+        game::screenshot::check_scale(percent)?;
         Ok(self.shot.clone().unwrap_or_else(|| {
             let shot = game::screenshot::Shot::new(percent);
             shot.finish(Ok(game::screenshot::Image { png: vec![0x89, b'P', b'N', b'G'], width: 2, height: 1, frame_width: 2, frame_height: 1 }));
