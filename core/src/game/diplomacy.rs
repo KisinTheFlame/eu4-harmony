@@ -441,13 +441,8 @@ fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
 
 /// What a check appends to a `std::string`.
 fn reasons(m: &Memory, at: usize, slot: usize) -> GResult<Vec<u8>> {
-    let mut string = game_string::empty();
-    let s = string.as_mut_ptr() as usize;
-    let called = m.call(m.vslot(at, slot)?, &[at, s, 0]);
-    let text = game_string::read(m, s);
-    game_string::destroy_checked(m, s)?;
-    called?;
-    Ok(text?)
+    let check = m.vslot(at, slot)?;
+    Ok(game_string::written(m, |s| m.call(check, &[at, s, 0]))?.1)
 }
 
 /// Game text's lines as plain Unicode, a reason's bullet left out.
@@ -677,13 +672,7 @@ impl<'a> Asking<'a> {
     /// The reasons the check gives for an ally, as the window's tooltip
     /// shows them, one a line.
     fn why_not(&self, ally: &Side) -> GResult<Vec<String>> {
-        let mut string = game_string::empty();
-        let s = string.as_mut_ptr() as usize;
-        let asked = self.ask(ally, true, s);
-        let text = game_string::read(self.m, s);
-        game_string::destroy_checked(self.m, s)?;
-        asked?;
-        Ok(text_lines(&text?))
+        Ok(text_lines(&game_string::written(self.m, |s| self.ask(ally, true, s))?.1))
     }
 
     /// The check, its reasons into the `std::string` at `reasons` unless 0.
@@ -783,12 +772,8 @@ fn read_goal(m: &Memory, goal: usize) -> GResult<(WarGoal, bool)> {
 
 /// A war goal's name, as the game shows it.
 fn goal_name(m: &Memory, goal: usize) -> GResult<String> {
-    let mut string = game_string::empty();
-    let s = string.as_mut_ptr() as usize;
-    m.call(m.vslot(goal, war_goal::NAME)?, &[goal, s])?;
-    let text = game_string::read(m, s);
-    game_string::destroy_checked(m, s)?;
-    Ok(game_text::plain(&text?))
+    let name = m.vslot(goal, war_goal::NAME)?;
+    Ok(game_text::plain(&game_string::written(m, |s| m.call(name, &[goal, s]))?.1))
 }
 
 // ---------- what came of them ----------

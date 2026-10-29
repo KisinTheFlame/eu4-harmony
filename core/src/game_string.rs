@@ -135,15 +135,23 @@ pub fn destroy_checked(m: &Memory, string: usize) -> Result<()> {
     m.call(m.at(DESTROY_AT), &[string]).map(|_| ())
 }
 
+/// Has the game write text into a `std::string` of the framework's: `write`
+/// is given the address of an empty one. Answers what `write` answered and
+/// the text it left there; the string is destroyed as the game destroys its
+/// own, also when `write` failed, before the failure is passed on.
+pub fn written<T, E: From<String>>(m: &Memory, write: impl FnOnce(usize) -> std::result::Result<T, E>) -> std::result::Result<(T, Vec<u8>), E> {
+    let mut string = empty();
+    let at = string.as_mut_ptr() as usize;
+    let wrote = write(at);
+    let text = read(m, at);
+    destroy_checked(m, at)?;
+    Ok((wrote?, text?))
+}
+
 /// The game's text for a localisation key, as its lookup writes it, with no
 /// values: `key` is the address of the key, a C string.
 pub fn localized(m: &Memory, key: usize) -> Result<Vec<u8>> {
-    let mut slot = empty();
-    let out = slot.as_mut_ptr() as usize;
-    m.call(m.at(LOCALIZE_AT), &[out, key, 0, 0])?;
-    let text = read(m, out);
-    destroy_checked(m, out)?;
-    text
+    Ok(written(m, |out| m.call(m.at(LOCALIZE_AT), &[out, key, 0, 0]))?.1)
 }
 
 /// Builds `text` in `slot`, a string nothing has constructed yet; whoever

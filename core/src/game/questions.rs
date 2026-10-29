@@ -202,12 +202,8 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
 }
 
 fn description(m: &Memory, w: &Window) -> GResult<String> {
-    let mut key = game_string::empty();
-    let slot = key.as_mut_ptr() as usize;
-    m.call(m.at(DESCRIPTION_KEY), &[w.event, slot, w.scope])?;
-    let read = game_string::read(m, slot);
-    game_string::destroy_checked(m, slot)?;
-    localize(m, w.scope, &read?)
+    let (_, key) = game_string::written(m, |slot| m.call(m.at(DESCRIPTION_KEY), &[w.event, slot, w.scope]))?;
+    localize(m, w.scope, &key)
 }
 
 /// The text of the localisation key `key` in `scope`, as the event window
@@ -218,12 +214,8 @@ fn localize(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     if !key.is_empty() {
         game_string::append_checked(m, argument.as_mut_ptr() as usize, key)?;
     }
-    let mut result = game_string::empty();
-    let slot = result.as_mut_ptr() as usize;
-    m.call(m.at(LOCALIZE), &[slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize])?;
-    let text = game_string::read(m, slot);
-    game_string::destroy_checked(m, slot)?;
-    Ok(game_text::plain(&text?))
+    let (_, text) = game_string::written(m, |slot| m.call(m.at(LOCALIZE), &[slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize]))?;
+    Ok(game_text::plain(&text))
 }
 
 /// How the game shows a question, the functions answering and reading
