@@ -46,30 +46,19 @@ An extension-side capability is added to the ABI by appending (ADR 0014): a `Gam
 
 ### Granularity
 
-A command is one action per capability (answer a question, accept an offer, declare war). A read fetches one object's snapshot in one go. The exact list of capabilities in each group is decided by the node that builds it, once its reverse engineering is done, and written into its section below.
+A command is one action per capability (answer a question, accept an offer, declare war). A read fetches one object's snapshot in one go. The exact list of capabilities in each group was decided once its reverse engineering was done, and is written into its part's section below.
 
-## Nodes
+## Parts
 
-```mermaid
-graph LR
-  F1[F1 capability layer] --> F2[F2 engine] --> F3[F3 named pipe] --> F4[F4 command line]
-  F4 --> C1[C1 time] & C2[C2 country] & C3[C3 province] & C4[C4 game console] & C5[C5 main menu] & C7[C7 events and offers] & C9[C9 camera] & C10[C10 screenshot]
-  C2 --> C8[C8 diplomacy]
-  C3 --> C6[C6 recruiting]
-  C1 & C2 & C3 & C4 & C5 & C6 & C7 & C9 & C10 --> Z1[Z1 loose ends]
-  Z1 & C8 --> Z2[Z2 play-through]
-```
+Each part has a section below, named by its id (F1 to Z2); commits, research notes and the prototype log refer to the parts by these ids.
 
-F1 to F4 run one after another: they set the shape of the files every later node adds to, and F4 gives the later nodes the command line to try their capabilities in the game. The C nodes run in parallel. How nodes are developed and merged is in [AGENTS.md](../AGENTS.md#parallel-development).
+### Every part is done when
 
-### Every node is done when
-
-1. It is rebased on the latest requirement branch, conflicts resolved.
-2. `cargo build --release` and `cargo test --release` pass.
-3. The offline checks (`cargo test --release -p eu4-harmony-core -- --ignored`, with the game) pass.
-4. What it adds was tried in the running game, and [prototype-log.md](prototype-log.md) has a dated section for the run, saying as plainly what was not verified.
-5. New findings about the game are in [research/](research/), with addresses as RVAs into the 1.37.5 baseline, and every new place in the game is a dependency point.
-6. Its section below lists the capabilities it added, with their arguments and results.
+1. `cargo build --release` and `cargo test --release` pass.
+2. The offline checks (`cargo test --release -p eu4-harmony-core -- --ignored`, with the game) pass.
+3. What it adds was tried in the running game, and [prototype-log.md](prototype-log.md) has a dated section for the run, saying as plainly what was not verified.
+4. New findings about the game are in [research/](research/), with addresses as RVAs into the 1.37.5 baseline, and every new place in the game is a dependency point.
+5. Its section below lists the capabilities it added, with their arguments and results.
 
 ### F1 Capability layer
 
@@ -287,7 +276,7 @@ Built (2026-10-29). The group is `menu` (`remote/src/menu.rs`, `core/src/remote/
 - **A start the game never carries out**: the game's steps towards a game are the setup's start, a save read, the start accepted, the start at the next frame and the idler switch (decision 2). In the runs they came at most 1.8 s apart, the setup's commands running at a later frame. A load or start is given up when the main menu's frames go on for 30 s with none of them changing: more than 15 times the longest gap seen, for a slow machine, and still within half a minute for a client. A save being read counts as a step, since no frame is presented while it is read, so a long load is not taken for nothing happening. Detecting it from the setup's queue of commands would need the queue's layout, which was not worked out.
 - **Left open, for the wrap-up**: `menu.load` does not compare the mods a save was made with with the playset, and a save made with a gameplay mod the playset lacked crashed the game when loaded; `menu.saves` does not list a save's mods either. `menu.start` does not check that the country exists at the start date: Prussia started, and the game was left spectating (`no controllable player`). Both seen in the game ([prototype-log.md](prototype-log.md)); Z1 settled both.
 
-What earlier nodes left to this one, and what was decided:
+What earlier parts left to this one, and what was decided:
 
 1. **The answer to returning to the main menu** comes from the process that was asked, before it ends. `menu.return` sets the map manager's return flag and is answered at once with this process and `place` `ending`. It runs at any safe point and needs the map manager only, not a game with a player, so a client whose country was annexed, left observing where every capability that needs a game is refused `not_in_game`, can still return; where there is no map manager (the main menu) it is refused `not_in_game`. The map manager's next frame acts on the flag: the game shuts down and starts `eu4.exe` again (`0x14c3a10`, which C1 observes), and until then this process answers as before. At that restart, whoever asked for the return (the player too, by the game's own question or the end-of-game summary), the engine ends (`Engine::end`): a waiting request gives its own answer when it has one (`Wait::ending`: an advance answers `main_menu`, with the date and the events so far), and every other request, waiting (an `events` read, say), queued, or sent from then on, is answered at once with `not_ready` and a message saying the game starts again; the transports get up to 2 s to write the answers, and the clients to read them, before the process goes. Since this happens at the restart itself, no process is left answering `not_ready` with its game going on, as one would if the map manager never acted on the flag. The client then asks the new process: the command line waits for the pipe (10 s by default; the old process lets it go about 2 s after the return, and the new one opens it a few seconds after it starts), and the request is answered once the new process presents its first frame, about 45 s later; `menu` tells the two processes apart, and says `main_menu` once the new main menu is up.
 2. **A load under way is told from the main menu**: the main menu counts as open (requests that need a game are answered "the main menu is open") only while no game is being started from it: none asked for by remote control and not run yet, no save being read, and none of the game's own state set: the single player setup showing with its start made (its `+0x2cb0`, which only its start paths set and only its constructor clears), the start accepted (`+0x714`), the start at the next frame (`+0x715`), the application's idler switch pending, or the main menu no longer the world's idler (`world+0x1e00`, which a game's map manager takes when it is made at the start). That is the game's own state, so it also covers a start the player makes by hand. Otherwise what needs a game waits for the game frame, and `menu` says `starting`. The last of these is needed: in the game, without it, the frame the game took over in still showed the main menu, with none of the others set, and a request sent during a load was answered "the main menu is open" there, just before the game's first frame.
@@ -407,7 +396,7 @@ Built (2026-10-29). The screenshot is in the capability layer (`core/src/game/sc
 
 ### Z Wrap-up
 
-The wrap-up was planned as one node. The reviews of the C nodes left more findings for it than one node should carry beside the play-through, so it is cut in two (2026-10-29): Z1 settles those findings, Z2 plays through on the result.
+The wrap-up was planned as one part. The reviews of the C parts left more findings for it than one part should carry beside the play-through, so it is cut in two (2026-10-29): Z1 settles those findings, Z2 plays through on the result.
 
 #### Z1 Loose ends
 
@@ -449,7 +438,7 @@ Settled (2026-10-29), item by item, in the list's order; the game run is in [pro
 - **Rules and records**, all fixed:
   - The game console's global and its run result's fields are in `core/src/objects/console.rs`, with the point that keeps them.
   - [ADR 0019](adr/0019-output-is-lent-to-a-callback.md) records the callback `abi::TextSink` lends text to for the call, and supersedes ADR 0018's reason that the ABI passes nothing it does not copy into the caller's buffer.
-  - AGENTS.md and tools/README.md list `pdx_settings.txt` and `shortcuts.txt` among the files to back up, and `pdx_login_cache.txt`, which the game rewrote in this node's run.
+  - AGENTS.md and tools/README.md list `pdx_settings.txt` and `shortcuts.txt` among the files to back up, and `pdx_login_cache.txt`, which the game rewrote in this part's run.
   - This plan: F2 now has `process`, `session_changed`, the main menu's starting state and the frames the player cannot play; F4 says the screenshot answers bytes; C10's requirement no longer names `framework_ui/d3d9.rs`, and it says which frame a screenshot takes while another is read back and that a step not done after 8 presents is waited for; F3 has a client get its answers before the pipe breaks, and C5's requirement no longer says the return's answer cannot come from the process asked. The stale comment was the restart observer's (at line 324 when it was found), which said only what waits is answered.
   - The glossary's words: the test is `sends_nothing_to_a_pipe_the_game_does_not_serve`; "load list" is the game's own list of saves; time's research says question where it meant one, and the game's pending events; the point is "map manager shows one of the game's events". Two found by C8 and added here: the offer capabilities' docs in the ABI, the SDK and the shared crate say window, not dialog, and the battle names' wording (with research/names.md) says what comes from the localisation, not localised. Left: "diplomacy dialog" and "event window" stay where they name the game's own classes (`objects::gui::diplomacy_dialog`, `EventWindow`), in code and research.
 - **Smaller**, all fixed:

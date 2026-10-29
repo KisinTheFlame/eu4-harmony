@@ -11,7 +11,7 @@ These rules hold for everyone who changes this repository, people and coding age
 
 ## Where things are written down
 
-- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its nodes and what each delivers.
+- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its parts and what each delivers.
 - [docs/adr/](docs/adr/): decisions that are hard to reverse. A new decision gets the next number; a changed decision gets a new ADR that supersedes the old one, which stays.
 - [docs/research/](docs/research/): what is known about the game's code, with addresses as RVAs into the 1.37.5 baseline.
 - [docs/prototype-log.md](docs/prototype-log.md): what was tested in the running game and what came out, one dated section per run. Say what was not verified as plainly as what was.
@@ -44,23 +44,6 @@ CI (`.github/workflows/ci.yml`) runs the build and the tests on Windows for ever
 - The game rewrites a save it loads and rotates its autosaves, rewrites its settings files when it applies its settings, and rewrites its login cache. Before a run that may load or write a save, copy these from `Documents\Paradox Interactive\Europa Universalis IV\` to somewhere else: `save games\`, `eu4-harmony\saves\`, `settings.txt`, `pdx_settings.txt`, `pdx_login_cache.txt`, `shortcuts.txt`, `continue_game.json` and `eu4-harmony\settings.txt`. Afterwards delete the files the run added, restore the copies and compare them with the backups.
 - Leave nothing behind: crash folders the run produced (`crashes\`), scratch files, the backups themselves.
 - Record the result in [docs/prototype-log.md](docs/prototype-log.md).
-- There is one game installation, so the game is an exclusive resource. Before `dev-install.ps1`, the save backups or starting the game, hold the `game` lock, and release it once the game is closed, the framework uninstalled and the saves restored:
-
-  ```powershell
-  & .\.claude\skills\dag-dev\scripts\lock.ps1 -Acquire game -Holder <your node or name> -Wait
-  & .\.claude\skills\dag-dev\scripts\lock.ps1 -Release game -Holder <your node or name>
-  ```
-
-  `-Wait` gives up after `-TimeoutMinutes` (default 9) with exit code 2; run it again, or in the background, and do work that needs no game meanwhile.
-
-## Parallel development
-
-Work planned as a DAG of nodes (such as [docs/remote-control.md](docs/remote-control.md)) is developed with the `dag-dev` skill:
-
-- The requirement branch (such as `remote-control`) is checked out in its own worktree, `.claude/worktrees/<requirement>`; the main checkout stays on `master`.
-- A node is developed on the branch `<requirement>-<node>` (git cannot keep `<requirement>/<node>` beside the branch `<requirement>`), in `.claude/worktrees/<requirement>-<node>`, cut from the requirement branch as it is when the node starts. `dev-install.ps1` installs the build of the worktree it is run from.
-- A node is done when it meets its plan's "done when" list; a reviewer then checks it, and it is merged into the requirement branch with `git merge --no-ff`, one node at a time. After the merge, its worktree and branch are deleted.
-- When a node finds that the plan cannot work as written, it changes the plan, says so in its report, and carries on; a changed decision still gets a new ADR.
 
 ## Commits
 
