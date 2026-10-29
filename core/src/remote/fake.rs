@@ -20,6 +20,10 @@ pub fn byz() -> Tag {
     game_tag(b"BYZ", 33)
 }
 
+pub fn wal() -> Tag {
+    game_tag(b"WAL", 300)
+}
+
 /// The Ottomans' army in Edirne (149).
 pub const ARMY: u64 = 4_294_967_377;
 /// A fleet of theirs.
@@ -65,6 +69,7 @@ impl countries::Layer for Fake {
         match &tag.0 {
             b"TUR" => Ok(tur()),
             b"BYZ" => Ok(byz()),
+            b"WAL" => Ok(wal()),
             _ => fail(Status::NotFound, format!("no country {tag}")),
         }
     }
@@ -72,6 +77,63 @@ impl countries::Layer for Fake {
     fn hostile(&mut self, a: Tag, b: Tag) -> GResult<bool> {
         self.call(format!("hostile {:x} {:x}", a.0, b.0));
         Ok((a, b) == (tur(), byz()))
+    }
+
+    /// The Ottomans at war with Byzantium, with Wallachia as their subject;
+    /// Byzantium with nothing; [`wallachia`].
+    fn snapshot(&mut self, country: Tag) -> GResult<game::countries::Country> {
+        use game::countries::{Country, Relation, RelationKind, War};
+        self.call(format!("snapshot {:x}", country.0));
+        let wal = wal();
+        if country == byz() {
+            return Ok(Country { tag: byz(), ..Default::default() });
+        }
+        if country == wal {
+            return Ok(wallachia());
+        }
+        if country != tur() {
+            return fail(Status::NotFound, "no such country");
+        }
+        Ok(Country {
+            tag: tur(),
+            treasury: 125_500,
+            manpower: 22_600,
+            max_manpower: 30_250,
+            stability: 1_000,
+            prestige: -12_345,
+            power: [50, 60, 70],
+            wars: vec![War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal], defenders: vec![byz()] }],
+            relations: vec![Relation { kind: RelationKind::Subject, country: wal }, Relation { kind: RelationKind::Rival, country: byz() }],
+        })
+    }
+}
+
+/// Wallachia, the Ottomans' subject in their war on Byzantium, made up to
+/// hold a relation of every kind (Moldavia its ally, Transylvania a subject
+/// of its own, the Ottomans its overlord, Hungary its rival) and a war on
+/// either side: Hungary's war on it besides.
+pub fn wallachia() -> game::countries::Country {
+    use game::countries::{Country, Relation, RelationKind, War};
+    let (mol, tra, hun) = (game_tag(b"MOL", 301), game_tag(b"TRA", 302), game_tag(b"HUN", 160));
+    let relation = |kind, country| Relation { kind, country };
+    Country {
+        tag: wal(),
+        treasury: 31_250,
+        manpower: 5_400,
+        max_manpower: 8_250,
+        stability: -1_000,
+        prestige: 12_345,
+        power: [120, 95, 143],
+        wars: vec![
+            War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal()], defenders: vec![byz()] },
+            War { name: "Hungarian-Wallachian War".into(), attackers: vec![hun], defenders: vec![wal(), mol] },
+        ],
+        relations: vec![
+            relation(RelationKind::Ally, mol),
+            relation(RelationKind::Subject, tra),
+            relation(RelationKind::Overlord, tur()),
+            relation(RelationKind::Rival, hun),
+        ],
     }
 }
 

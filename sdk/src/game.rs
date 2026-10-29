@@ -272,6 +272,128 @@ impl From<ProvinceJson> for ProvinceSnapshot {
     }
 }
 
+/// A country at one moment.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Country {
+    pub id: CountryId,
+    /// Ducats, to the thousandth.
+    pub treasury: f64,
+    /// Men.
+    pub manpower: i32,
+    pub max_manpower: i32,
+    /// From -3 to 3, to the thousandth.
+    pub stability: f64,
+    /// From -100 to 100, to the thousandth.
+    pub prestige: f64,
+    pub power: Power,
+    /// The wars going on that it takes part in, on either side.
+    pub wars: Vec<War>,
+    /// Its allies, its subjects, its overlord and the countries it rivals,
+    /// in that order; a relation of a kind added after this SDK comes as
+    /// [`RelationKind::Unknown`].
+    pub relations: Vec<Relation>,
+}
+
+impl Country {
+    /// `other` is this to the country. [`RelationKind::Unknown`] asks whether
+    /// it is anything this SDK does not know.
+    pub fn has_relation(&self, kind: RelationKind, other: CountryId) -> bool {
+        self.relations.iter().any(|r| r.kind == kind && r.country == other)
+    }
+
+    /// The two are on opposite sides of one of the country's wars.
+    pub fn at_war_with(&self, other: CountryId) -> bool {
+        self.wars.iter().any(|w| {
+            let (ours, theirs) = if w.attackers.contains(&self.id) { (&w.attackers, &w.defenders) } else { (&w.defenders, &w.attackers) };
+            ours.contains(&self.id) && theirs.contains(&other)
+        })
+    }
+}
+
+/// Monarch points of each kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct Power {
+    pub adm: i32,
+    pub dip: i32,
+    pub mil: i32,
+}
+
+/// A war going on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct War {
+    /// Its name, as the game shows it.
+    pub name: String,
+    /// Their leader first.
+    pub attackers: Vec<CountryId>,
+    /// Their leader first.
+    pub defenders: Vec<CountryId>,
+}
+
+/// What another country is to a country.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Relation {
+    pub kind: RelationKind,
+    pub country: CountryId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationKind {
+    Ally,
+    /// A vassal, a march, a personal union, a tributary and the like.
+    Subject,
+    Overlord,
+    /// The country has chosen the other as a rival.
+    Rival,
+    /// A kind a newer core names that this SDK does not know (ADR 0018).
+    #[serde(other)]
+    Unknown,
+}
+
+/// [`Country`] as the core writes it (`abi::GameApi::country`).
+#[derive(serde::Deserialize)]
+pub(crate) struct CountryJson {
+    id: u64,
+    treasury: f64,
+    manpower: i32,
+    max_manpower: i32,
+    stability: f64,
+    prestige: f64,
+    power: Power,
+    wars: Vec<WarJson>,
+    relations: Vec<RelationJson>,
+}
+
+#[derive(serde::Deserialize)]
+struct WarJson {
+    name: String,
+    attackers: Vec<u64>,
+    defenders: Vec<u64>,
+}
+
+#[derive(serde::Deserialize)]
+struct RelationJson {
+    kind: RelationKind,
+    country: u64,
+}
+
+impl From<CountryJson> for Country {
+    fn from(c: CountryJson) -> Self {
+        let ids = |ids: Vec<u64>| ids.into_iter().map(CountryId).collect();
+        Self {
+            id: CountryId(c.id),
+            treasury: c.treasury,
+            manpower: c.manpower,
+            max_manpower: c.max_manpower,
+            stability: c.stability,
+            prestige: c.prestige,
+            power: c.power,
+            wars: c.wars.into_iter().map(|w| War { name: w.name, attackers: ids(w.attackers), defenders: ids(w.defenders) }).collect(),
+            relations: c.relations.into_iter().map(|r| Relation { kind: r.kind, country: CountryId(r.country) }).collect(),
+        }
+    }
+}
+
 impl From<abi::Session> for Session {
     fn from(s: abi::Session) -> Self {
         Self { id: s.session, date: s.date, paused: s.paused != 0, visibility_current: s.visibility_current != 0, player: CountryId(s.player) }
@@ -481,5 +603,10 @@ impl<'a> Game<'a> {
     /// NUL; `Unavailable` on an EU4 Harmony older than this SDK.
     pub fn console(&mut self, command: &str) -> Result<String> {
         self.backend.console_run(command)
+    }
+    /// One read of a country: its treasury, manpower, stability, prestige,
+    /// monarch points, wars and diplomatic relations.
+    pub fn country(&mut self, country: CountryId) -> Result<Country> {
+        self.backend.country(country)
     }
 }

@@ -48,6 +48,8 @@ pub trait Backend {
     /// What the game console command printed; `Rejected`, with what it
     /// printed, when the game console refused it or it failed.
     fn console_run(&mut self, command: &str) -> Result<String>;
+    /// `NotFound` when there is no such country.
+    fn country(&mut self, country: CountryId) -> Result<Country>;
 }
 
 /// The core's capability table for the current callback.
@@ -299,6 +301,12 @@ impl Backend for RealBackend {
         self.check(unsafe { (api.console_run)(api.host, command.as_ptr(), command.len(), Some(keep), user) })?;
         self.utf8(printed)
     }
+    fn country(&mut self, country: CountryId) -> Result<Country> {
+        self.require(end_of!(country))?;
+        let api = self.api();
+        let json: CountryJson = self.snapshot("country", |b, c, l| unsafe { (api.country)(api.host, country.0, b, c, l) })?;
+        Ok(json.into())
+    }
 }
 
 /// The SDK's side of the ABI, against a table built here as the core builds
@@ -381,7 +389,6 @@ mod tests {
         std::ptr::copy_nonoverlapping(name.as_ptr(), buf, name.len());
         abi::OK
     }
-
     /// Constantinople, as the core's test checks that the core writes it
     /// (ADR 0018).
     const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
@@ -391,6 +398,23 @@ mod tests {
             return abi::NOT_FOUND;
         }
         let json = PROVINCE_JSON.as_bytes();
+        *len = json.len();
+        if cap < json.len() {
+            return abi::BUFFER_TOO_SMALL;
+        }
+        std::ptr::copy_nonoverlapping(json.as_ptr(), buf, json.len());
+        abi::OK
+    }
+
+    /// Wallachia, as the core's test checks that the core writes it.
+    const COUNTRY_JSON: &str = include_str!("../../abi/json/country.json");
+    const WAL: u64 = 72058882533114199;
+
+    unsafe extern "C" fn country(_: H, id: u64, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
+        if id != WAL {
+            return abi::NOT_FOUND;
+        }
+        let json = COUNTRY_JSON.as_bytes();
         *len = json.len();
         if cap < json.len() {
             return abi::BUFFER_TOO_SMALL;
@@ -436,7 +460,47 @@ mod tests {
             camera_zoom: no_camera_province,
             province,
             console_run,
+            country,
         }
+    }
+
+    #[test]
+    fn a_country_snapshot_comes_as_json() {
+        let api = table();
+        let mut backend = RealBackend::new(&api);
+        let c = backend.country(CountryId(WAL)).unwrap();
+        assert_eq!((c.id, c.treasury, c.manpower, c.max_manpower, c.stability, c.prestige), (CountryId(WAL), 31.25, 5_400, 8_250, -1.0, 12.345));
+        assert_eq!(c.power, Power { adm: 120, dip: 95, mil: 143 });
+        let (tur, byz, mol, tra, hun) =
+            (CountryId(72058255468287316), CountryId(72057735777769794), CountryId(72058886828085069), CountryId(72058891122332244), CountryId(72058281237828936));
+        let relation = |kind, country| Relation { kind, country };
+        assert_eq!(
+            c.relations,
+            [relation(RelationKind::Ally, mol), relation(RelationKind::Subject, tra), relation(RelationKind::Overlord, tur), relation(RelationKind::Rival, hun)]
+        );
+        let war = |name: &str, attackers: &[CountryId], defenders: &[CountryId]| War { name: name.into(), attackers: attackers.to_vec(), defenders: defenders.to_vec() };
+        assert_eq!(
+            c.wars,
+            [war("Ottoman Conquest of Constantinople", &[tur, c.id], &[byz]), war("Hungarian-Wallachian War", &[hun], &[c.id, mol])]
+        );
+        assert!(c.has_relation(RelationKind::Overlord, tur) && !c.has_relation(RelationKind::Ally, tur));
+        // On either side of its wars; never with those on its own side.
+        assert!(c.at_war_with(byz) && c.at_war_with(hun) && !c.at_war_with(tur) && !c.at_war_with(mol));
+        assert_eq!(backend.country(CountryId(3)).unwrap_err().status, Status::NotFound);
+    }
+
+    /// A newer core may add members and relation kinds: the snapshot still
+    /// reads, a new kind as unknown (ADR 0018).
+    #[test]
+    fn a_newer_core_s_country_still_reads() {
+        let mut json: serde_json::Value = serde_json::from_str(COUNTRY_JSON).unwrap();
+        json["religion"] = "orthodox".into();
+        json["wars"][0]["score"] = 12.5.into();
+        json["relations"][1]["kind"] = "guarantee".into();
+        let c: Country = serde_json::from_value::<CountryJson>(json).unwrap().into();
+        let kinds: Vec<_> = c.relations.iter().map(|r| r.kind).collect();
+        assert_eq!(kinds, [RelationKind::Ally, RelationKind::Unknown, RelationKind::Overlord, RelationKind::Rival]);
+        assert_eq!((c.wars.len(), c.wars[0].name.as_str()), (2, "Ottoman Conquest of Constantinople"));
     }
 
     #[test]
@@ -534,6 +598,8 @@ mod tests {
         let mut backend = RealBackend::new(&api);
         assert_eq!(backend.province(151).unwrap_err().status, Status::Unavailable);
         assert!(backend.language().is_ok());
+        api.size = std::mem::offset_of!(abi::GameApi, country);
+        assert_eq!(RealBackend::new(&api).country(CountryId(WAL)).unwrap_err().status, Status::Unavailable);
     }
 
     #[test]

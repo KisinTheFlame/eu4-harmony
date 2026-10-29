@@ -302,6 +302,21 @@ pub struct GameApi {
         printed: Option<TextSink>,
         user: *mut c_void,
     ) -> i32,
+    /// A country's snapshot, as UTF-8 JSON (ADR 0018): `{"id": <CountryId>,
+    /// "treasury": 31.25, "manpower": 5400, "max_manpower": 8250,
+    /// "stability": -1.0, "prestige": 12.345, "power": {"adm": 120, "dip":
+    /// 95, "mil": 143}, "wars": [{"name": "...", "attackers": [<CountryId>,
+    /// ...], "defenders": [...]}, ...], "relations": [{"kind": "ally",
+    /// "country": <CountryId>}, ...]}`. The treasury is in ducats, stability
+    /// from -3 to 3 and prestige from -100 to 100, each to the thousandth;
+    /// manpower and its maximum in men; monarch points whole. `wars` holds
+    /// every war going on that the country takes part in, its `name` as the
+    /// game shows it and each side's leader first. `relations` holds its
+    /// allies, its subjects, its overlord and the countries it rivals, in that
+    /// order, `kind` being `ally`, `subject`, `overlord` or `rival`; a later
+    /// core may add kinds. `abi/json/country.json` is a whole one.
+    /// [`NOT_FOUND`] when there is no such country.
+    pub country: unsafe extern "C" fn(host: *mut c_void, country: CountryId, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
 }
 
 /// Callbacks an extension registers from its entry point. Every callback runs
@@ -381,5 +396,6 @@ slots!(GameApi:
     camera, camera_look_at_province, camera_look_at, camera_zoom,
     province,
     console_run,
+    country,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
