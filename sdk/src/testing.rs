@@ -84,7 +84,9 @@ pub struct FakeGame {
     /// resuming set [`session`](Self::session)'s `paused`.
     pub speed: u32,
     /// The questions waiting for the player's answer; answering one records a
-    /// command and leaves it here.
+    /// command and leaves it here. An option not listed is `Rejected`, as the
+    /// core answers an option the player may not choose: the fake knows no
+    /// other options.
     pub questions: Vec<Question>,
     /// The offers waiting for the player's answer; answering one records a
     /// command and leaves it here.
@@ -339,7 +341,7 @@ impl Backend for FakeGame {
     fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
         let q = self.questions.iter().find(|q| q.id == question).ok_or_else(|| not_found(format!("no question {}", question.0)))?;
         if !q.options.iter().any(|o| o.index == option) {
-            return Err(Error::new(Status::InvalidArgument, format!("question {} has no option {option} the player may choose", question.0)));
+            return Err(Error::new(Status::Rejected, format!("the player may not choose option {option} of question {}", question.0)));
         }
         self.commands.push(Command::AnswerQuestion(question, option));
         Ok(())
@@ -453,7 +455,7 @@ mod tests {
         let mut game = fake.game();
         assert_eq!(game.questions().unwrap().len(), 1);
         game.answer_question(QuestionId(7), 2).unwrap();
-        assert_eq!(game.answer_question(QuestionId(7), 1).unwrap_err().status, Status::InvalidArgument);
+        assert_eq!(game.answer_question(QuestionId(7), 1).unwrap_err().status, Status::Rejected);
         assert_eq!(game.answer_question(QuestionId(8), 0).unwrap_err().status, Status::NotFound);
         assert_eq!(game.offers().unwrap()[0].title, "Royal Marriage");
         game.accept_offer(OfferId(3)).unwrap();
