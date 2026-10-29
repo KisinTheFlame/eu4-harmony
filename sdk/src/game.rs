@@ -484,7 +484,7 @@ pub(crate) struct WarGoalJson {
 }
 
 /// How the core names a declaration of war without a casus belli.
-pub(crate) const NO_CASUS_BELLI: &str = "none";
+pub(crate) use abi::NO_CASUS_BELLI;
 
 impl From<WarGoalJson> for WarGoal {
     fn from(g: WarGoalJson) -> Self {

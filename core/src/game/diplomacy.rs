@@ -114,7 +114,7 @@ impl Action {
 
 /// How remote clients and extensions name a declaration of war without a
 /// casus belli, where they name a casus belli by its key.
-pub const NO_CASUS_BELLI: &str = "none";
+pub use eu4_harmony_abi::NO_CASUS_BELLI;
 
 /// A war goal the game offers the player for a declaration of war, as the
 /// declare war window lists it.

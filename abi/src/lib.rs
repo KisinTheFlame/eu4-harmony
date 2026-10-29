@@ -456,6 +456,11 @@ pub struct GameApi {
     pub allies_called: unsafe extern "C" fn(host: *mut c_void, ticket: u64, buf: *mut CountryId, cap: usize, len: *mut usize) -> i32,
 }
 
+/// The casus belli of declaring war without one, where a casus belli is
+/// named by its key (`GameApi::war_goals`, `GameApi::declare_war`); remote
+/// control names it so too.
+pub const NO_CASUS_BELLI: &str = "none";
+
 /// Which allies a declaration of war calls to arms (`GameApi::declare_war`).
 pub const CALL_ALL: u32 = 0;
 pub const CALL_NONE: u32 = 1;
