@@ -4,10 +4,12 @@
 //! build that moved one fails the startup check instead of the framework
 //! reading the wrong place. The points say which numbers they use, and a
 //! test checks that their bytes carry them.
+pub mod application;
 pub mod camera;
 pub mod campaign;
 pub mod gui;
 pub mod session;
+pub mod setup;
 pub mod text;
 
 /// The game's doubly linked lists: a header with the first and the last
@@ -35,5 +37,7 @@ pub fn points() -> Vec<Point> {
     all.extend(text::points());
     all.extend(camera::points());
     all.extend(session::points());
+    all.extend(setup::points());
+    all.extend(application::points());
     all
 }

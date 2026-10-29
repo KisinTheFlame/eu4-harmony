@@ -4,7 +4,7 @@ use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, events::Event, events::EventsRequest,
-    offers::OfferRequest, provinces::ProvinceRequest, provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest,
+    menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest,
     session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
@@ -64,7 +64,7 @@ fn every_capability_runs_at_a_game_frame() {
     let cases: Vec<(Request, Box<dyn Fn(&Value) -> bool>)> = vec![
         (
             Request::Session(SessionRequest::Get {}),
-            Box::new(|v: &Value| *v == ok(json!({"session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
+            Box::new(|v: &Value| *v == ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
         ),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
         (Request::Time(TimeRequest::Speed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
@@ -166,8 +166,8 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Offer(OfferRequest::Decline { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Offer(OfferRequest::Decline { offer: 4 }), Box::new(error("not_found"))),
         (
-            Request::Events(EventsRequest::Read { since: None, wait_ms: None }),
-            Box::new(|v: &Value| *v == ok(json!({"events": [], "last": 0, "missed": false}))),
+            Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }),
+            Box::new(|v: &Value| *v == ok(json!({"process": process(), "events": [], "last": 0, "missed": false}))),
         ),
         (
             Request::Camera(CameraRequest::Get {}),
@@ -189,6 +189,20 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Describe(DescribeRequest::All {}),
             Box::new(|v: &Value| v["result"].as_array().map(Vec::len) == Some(capabilities().len()) && v["result"][0]["capability"] == "session"),
         ),
+        (Request::Menu(MenuRequest::State {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "game"})))),
+        (
+            Request::Menu(MenuRequest::Saves {}),
+            Box::new(|v: &Value| {
+                *v == ok(json!([{
+                    "name": "奥斯曼1444_11_11", "file": "奥斯曼1444_11_11.eu4", "bytes": 3_266_935, "modified": 1_761_700_000, "player": "TUR", "date": "1444.11.11",
+                }]))
+            }),
+        ),
+        // A load and a start answer at the game's first frame after the one
+        // they ran at (a later test).
+        (Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }), Box::new(Value::is_null)),
+        (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(Value::is_null)),
+        (Request::Menu(MenuRequest::Return {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "ending"})))),
     ];
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();
@@ -349,7 +363,7 @@ fn a_request_given_up_before_it_runs_never_runs() {
 fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms) });
+    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms), process: None });
 
     let next = engine.submit(read(10_000));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
@@ -362,25 +376,28 @@ fn a_read_that_waits_is_answered_at_a_later_safe_point() {
 
     engine.record([Event::ArmyOrdered { army: army(ARMY) }]);
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(answer(&next), ok(json!({"events": [{"number": 1, "event": "army_ordered", "army": ARMY.to_string()}], "last": 1, "missed": false})));
+    assert_eq!(
+        answer(&next),
+        ok(json!({"process": process(), "events": [{"number": 1, "event": "army_ordered", "army": ARMY.to_string()}], "last": 1, "missed": false}))
+    );
     assert!(log().iter().any(|l| l.contains("events: ok after ")));
 
     // With something to read already, it answers at once; with nothing, when
     // its time is up, in the main menu too.
     let at_once = engine.submit(read(10_000));
-    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1) }));
+    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1), process: None }));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     assert_eq!(answer(&at_once)["result"]["last"], 1);
     std::thread::sleep(Duration::from_millis(5));
     engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "no game"))), PLENTY);
-    assert_eq!(answer(&short), ok(json!({"events": [], "last": 1, "missed": false})));
+    assert_eq!(answer(&short), ok(json!({"process": process(), "events": [], "last": 1, "missed": false})));
 
     let too_long = engine.submit(read(events::LONGEST_WAIT + 1));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert!(error("invalid_argument")(&answer(&too_long)));
 
     // A waiting read given up is dropped.
-    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000) }));
+    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000), process: None }));
     engine.run(&mut game, &Place::Game, PLENTY);
     drop(given_up);
     engine.run(&mut game, &Place::Game, PLENTY);
@@ -425,7 +442,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     };
     let engine = Engine::new(remember);
     engine.record(happened(&frame));
-    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None }));
+    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     assert_eq!(
         answer(&read)["result"]["events"],
@@ -455,4 +472,136 @@ fn the_layer_s_failures_keep_their_meaning() {
     for (status, code) in cases {
         assert_eq!(Error::from(game::Fail { status, message: "why".into() }), Error::new(code, "why"));
     }
+}
+
+#[test]
+fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let menu = Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open")));
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    // Asked for in the main menu; the main menu's frames go by while the
+    // game takes it up, then a save loads, with no safe point at all.
+    engine.run(&mut game, &menu, PLENTY);
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert!(answer(&load).is_null());
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&load),
+        ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))
+    );
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "session"]);
+
+    // A load that comes to another game than its save's says so.
+    let castile = engine.submit(Request::Menu(MenuRequest::Load { save: "Castilla-5".into() }));
+    engine.run(&mut game, &menu, PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&castile),
+        json!({"ok": false, "error": {"code": "rejected", "message": "the game did not load the save: it began a game of 1444.11.11 as TUR, where the save is of 1470.3.13 as CAS; that game is going on"}})
+    );
+
+    // What the game refuses is answered at once, or as soon as it says so.
+    let missing = engine.submit(Request::Menu(MenuRequest::Load { save: "missing".into() }));
+    let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
+    engine.run(&mut game, &menu, PLENTY);
+    assert!(error("not_found")(&answer(&missing)));
+    assert!(answer(&start).is_null());
+    *game.launch.lock().unwrap() = game::menu::Launch::Failed("the single player setup did not take the country".into());
+    engine.run(&mut game, &menu, PLENTY);
+    assert_eq!(answer(&start), json!({"ok": false, "error": {"code": "rejected", "message": "the single player setup did not take the country"}}));
+}
+
+#[test]
+fn a_load_the_game_could_not_read_is_refused_though_a_game_comes() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    // The game's loader failed, and the game starts from what it read.
+    *game.launch.lock().unwrap() = game::menu::Launch::Failed("the game could not read the save".into());
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&load), json!({"ok": false, "error": {"code": "rejected", "message": "the game could not read the save"}}));
+    assert_eq!(game.calls, ["load 奥斯曼1444_11_11"]);
+}
+
+#[test]
+fn returning_to_the_main_menu_is_answered_before_the_process_ends() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let waiting = engine.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(10_000), process: None }));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    let back = engine.submit(Request::Menu(MenuRequest::Return {}));
+    let after = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
+    // Until the game starts eu4.exe again, the process answers as before.
+    assert_eq!(answer(&after)["ok"], true);
+    // At the restart, whoever asked for the return (the player too), what
+    // waits or is queued is told the game starts again, at once, and so is
+    // whatever comes later: no safe point comes any more.
+    let queued = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.end(menu::ending(), Duration::ZERO);
+    let later = engine.submit(Request::Text(TextRequest::Language {}));
+    for got in [answer(&waiting), answer(&queued), answer(&later)] {
+        assert!(error("not_ready")(&got), "{got}");
+        assert!(got["error"]["message"].as_str().unwrap().contains("returning to the main menu"), "{got}");
+    }
+    assert_eq!(game.calls, ["return", "session"]);
+}
+
+#[test]
+fn a_return_needs_no_player() {
+    // Observing, where what needs a game is refused, the layer decides.
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let observing = Place::Outside(Some(Error::new(Code::NotInGame, "no controllable player")));
+    let session = engine.submit(Request::Session(SessionRequest::Get {}));
+    let back = engine.submit(Request::Menu(MenuRequest::Return {}));
+    engine.run(&mut game, &observing, PLENTY);
+    assert!(error("not_in_game")(&answer(&session)));
+    assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
+    assert_eq!(game.calls, ["return"]);
+}
+
+#[test]
+fn a_request_sent_in_one_session_never_runs_in_the_next() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    engine.enter(2);
+    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }));
+    let reads = engine.submit(Request::Text(TextRequest::Language {}));
+    // A save begins to load; what is sent while it loads is for the next.
+    engine.leave();
+    let new = engine.submit(Request::Session(SessionRequest::Get {}));
+    engine.enter(3);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    let old = answer(&old);
+    assert!(error("session_changed")(&old), "{old}");
+    assert_eq!(old["error"]["message"], "it was sent in session 2, which ended before it ran; this is session 3");
+    assert_eq!(answer(&reads)["ok"], true, "what needs no game has no session");
+    assert_eq!(answer(&new)["ok"], true);
+    assert_eq!(game.calls, ["language", "session"]);
+    // In the same session it runs, also after waiting outside a game frame.
+    let same = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&same), ok(Value::Null));
+}
+
+#[test]
+fn events_say_which_process_numbered_them() {
+    let engine = Engine::new(remember);
+    engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);
+    let read = |since, from| engine.submit(Request::Events(EventsRequest::Read { since: Some(since), wait_ms: Some(10_000), process: Some(from) }));
+    let (here, other) = (read(1, process()), read(1, process() - 1));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    // From this process, the events after since; from another, every event
+    // kept, at once, with missed: since meant something else there.
+    let (here, other) = (answer(&here), answer(&other));
+    assert_eq!(here["result"]["events"].as_array().map(Vec::len), Some(1));
+    assert_eq!(here["result"]["missed"], false);
+    assert_eq!(other["result"]["events"].as_array().map(Vec::len), Some(2));
+    assert_eq!(other["result"]["missed"], true);
+    assert_eq!(other["result"]["process"], process());
 }

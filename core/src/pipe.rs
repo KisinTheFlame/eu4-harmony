@@ -17,7 +17,9 @@
 //! lasts as long as the process. When the game ends, or
 //! returns to the main menu, which starts `eu4.exe` again
 //! (docs/research/safe-points.md), every client finds its pipe broken; the
-//! new process opens the pipe once the old one is gone.
+//! new process opens the pipe once the old one is gone. Returning, the
+//! engine first answers every request (`remote::Engine::end`), and the
+//! transport writes the answers while the pipe lasts.
 //!
 //! The transport only reads and writes: it hands the engine typed requests and
 //! never touches game state.

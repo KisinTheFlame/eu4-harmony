@@ -44,7 +44,7 @@ group! {
         /// stays at it after the advance, as after time.speed. Absent to
         /// keep the game's.
         speed: Option<u32>,
-    } -> Advanced, "why it stopped (date, paused, question, session or main_menu) and in words, the date then, the events on the way (as events answers them, read from the last one before time ran), the number of the last event, and whether some were missed";
+    } -> Advanced, "why it stopped (date, paused, question, session or main_menu) and in words, the date then, and as events answers them (read from the last event before time ran): the process, the events on the way, the number of the last event, and whether some were missed";
 }
 
 /// The game's clock.
@@ -82,8 +82,8 @@ pub struct Advanced {
     pub reason: String,
     /// The date when it stopped.
     pub date: Date,
-    /// The events after the last one before time ran: `events`, `last` and
-    /// `missed`, as the events capability answers them.
+    /// The events after the last one before time ran: `process`, `events`,
+    /// `last` and `missed`, as the events capability answers them.
     #[serde(flatten)]
     pub events: Events,
 }
@@ -104,12 +104,12 @@ mod tests {
             stopped: Stop::Question,
             reason: "a question waits for the player's answer".into(),
             date,
-            events: Events { events: vec![Numbered { number: 4, event: crate::events::Event::Day { date } }], last: 4, missed: false },
+            events: Events { process: 1_761_700_000_000, events: vec![Numbered { number: 4, event: crate::events::Event::Day { date } }], last: 4, missed: false },
         };
         assert_eq!(
             response_json(&Ok(Answer::Time(TimeAnswer::Advance(advanced)))),
             json!({"ok": true, "result": {
-                "stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.12",
+                "stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.12", "process": 1_761_700_000_000u64,
                 "events": [{"number": 4, "event": "day", "date": "1444.11.12"}], "last": 4, "missed": false,
             }})
         );

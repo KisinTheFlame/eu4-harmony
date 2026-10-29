@@ -7,6 +7,15 @@
 //! extensions hear, numbered, and writes every request to the framework log
 //! (ADR 0017). It knows nothing of connections or JSON.
 //!
+//! A request that needs a game belongs to the session it was sent in: one
+//! still queued when that session ends (a save loads, another game starts)
+//! is answered `session_changed` instead of acting on a campaign its client
+//! never saw. Every answer that numbers sessions or events says which
+//! process gave it ([`process`]): returning to the main menu starts the game
+//! again, and the numbers start again with it. The game's restart ends this
+//! process's engine ([`Engine::end`]), whoever asked for the return: from
+//! then on it answers at once.
+//!
 //! One file per group of capabilities, as in the capability layer: each has
 //! the group's slice of the layer as a trait ([`Game`] is all of them), the
 //! layer itself behind it ([`Live`]), and turns the group's requests into
@@ -20,6 +29,7 @@ pub mod describe;
 pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod menu;
 pub mod offers;
 pub mod provinces;
 pub mod questions;
@@ -37,9 +47,9 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, OnceLock,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 /// How long the requests run at one safe point may take together; at least
@@ -47,8 +57,8 @@ use std::{
 pub const BUDGET: Duration = Duration::from_millis(5);
 
 /// The capability layer, as remote control sees it: every group's slice.
-pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer {}
-impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + ?Sized> Game for T {}
+pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer {}
+impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer + ?Sized> Game for T {}
 
 /// The capability layer itself, called as remote control.
 pub struct Live;
@@ -66,6 +76,28 @@ impl From<game::Fail> for Error {
         };
         Error::new(code, fail.message)
     }
+}
+
+/// The game process remote control answers for: when it started, in
+/// milliseconds since 1970. Returning to the main menu starts the game
+/// again, as a new process, in which sessions and events are numbered from
+/// 1 again; a client tells the two apart by this.
+pub fn process() -> u64 {
+    static PROCESS: OnceLock<u64> = OnceLock::new();
+    *PROCESS.get_or_init(|| started().unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)))
+}
+
+/// When this process started, in milliseconds since 1970.
+fn started() -> Option<u64> {
+    use windows_sys::Win32::{Foundation::FILETIME, System::Threading::{GetCurrentProcess, GetProcessTimes}};
+    let mut times = [FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }; 4];
+    let [created, exited, kernel, user] = &mut times;
+    if unsafe { GetProcessTimes(GetCurrentProcess(), created, exited, kernel, user) } == 0 {
+        return None;
+    }
+    // 100-nanosecond intervals since 1601.
+    let since_1601 = (u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime)) / 10_000;
+    since_1601.checked_sub(11_644_473_600_000)
 }
 
 /// A country's tag as remote clients write it.
@@ -99,8 +131,8 @@ pub trait Wait: Send {
     fn given_up(&mut self, _at: &mut Poll<'_>) {}
 
     /// The process is about to end, as the game starts `eu4.exe` again: the
-    /// answer to write while it can, if any. Without one, the client finds
-    /// the pipe broken.
+    /// answer to write while it can, if it has one of its own. Without one,
+    /// it is answered as every other request then ([`Engine::end`]).
     fn ending(&mut self, _events: &events::Buffer) -> Option<Response> {
         None
     }
@@ -169,6 +201,15 @@ struct Queued {
     number: u64,
     request: Request,
     slot: Arc<Slot>,
+    /// The session it was sent in, 0 for none.
+    session: u64,
+}
+
+/// The requests waiting to run, and, once the process ends, what every
+/// request is answered.
+struct Queue {
+    requests: VecDeque<Queued>,
+    ending: Option<Error>,
 }
 
 /// A request that ran and waits to answer.
@@ -188,9 +229,12 @@ struct Running {
 
 /// The engine: a queue any thread adds to, and what runs at safe points.
 pub struct Engine {
-    queue: Mutex<VecDeque<Queued>>,
+    queue: Mutex<Queue>,
     running: Mutex<Running>,
     next: AtomicU64,
+    /// The session of the last game frame; 0 when the campaign changed
+    /// since, or before the first.
+    session: AtomicU64,
     log: fn(&str),
 }
 
@@ -198,19 +242,45 @@ impl Engine {
     /// An engine writing its log lines to `log`.
     pub const fn new(log: fn(&str)) -> Self {
         Self {
-            queue: Mutex::new(VecDeque::new()),
+            queue: Mutex::new(Queue { requests: VecDeque::new(), ending: None }),
             running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new() }),
             next: AtomicU64::new(1),
+            session: AtomicU64::new(0),
             log,
         }
     }
 
-    /// Queues a request, from any thread.
+    fn queue(&self) -> std::sync::MutexGuard<'_, Queue> {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Queues a request, from any thread; once the process ends, answers it
+    /// at once.
     pub fn submit(&self, request: Request) -> Reply {
         let slot = Arc::new(Slot::default());
         let number = self.next.fetch_add(1, Ordering::Relaxed);
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(Queued { number, request, slot: slot.clone() });
+        let q = Queued { number, request, slot: slot.clone(), session: self.session.load(Ordering::Relaxed) };
+        let mut queue = self.queue();
+        match queue.ending.clone() {
+            Some(error) => {
+                drop(queue);
+                self.answer(&q, Err(error), Duration::ZERO);
+            }
+            None => queue.requests.push_back(q),
+        }
         Reply(slot)
+    }
+
+    /// A game's safe frame of `session` begins: the requests that need a
+    /// game sent from now on belong to it.
+    pub fn enter(&self, session: u64) {
+        self.session.store(session, Ordering::Relaxed);
+    }
+
+    /// The campaign changes, such as when a save begins to load: the
+    /// requests sent from now on belong to the session that comes next.
+    pub fn leave(&self) {
+        self.session.store(0, Ordering::Relaxed);
     }
 
     /// Keeps what happened, for remote clients to read.
@@ -229,9 +299,10 @@ impl Engine {
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         let running = &mut *running;
         self.poll(running, game, place);
-        let mut queued = std::mem::take(&mut *self.queue.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut queued = std::mem::take(&mut self.queue().requests);
         let mut kept = VecDeque::new();
         let mut ran = false;
+        let session = self.session.load(Ordering::Relaxed);
         while let Some(q) = queued.pop_front() {
             if q.slot.abandoned() {
                 (self.log)(&format!("remote #{} {}: given up by its client before it ran", q.number, json(&q.request)));
@@ -239,6 +310,11 @@ impl Engine {
             }
             if q.request.in_game() {
                 match place {
+                    Place::Game if q.session != 0 && q.session != session => {
+                        let why = format!("it was sent in session {}, which ended before it ran; this is session {session}", q.session);
+                        self.answer(&q, Err(Error::new(Code::SessionChanged, why)), Duration::ZERO);
+                        continue;
+                    }
                     Place::Game => {}
                     Place::Outside(None) => {
                         kept.push_back(q);
@@ -258,12 +334,13 @@ impl Engine {
             ran = true;
             self.start(running, game, q);
         }
-        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        let mut queue = self.queue();
         while let Some(q) = kept.pop_back() {
-            queue.push_front(q);
+            queue.requests.push_front(q);
         }
     }
 
+    /// Runs a request.
     fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued) {
         let started = Instant::now();
         match dispatch(q.request.clone(), game, &running.events) {
@@ -299,28 +376,40 @@ impl Engine {
         }
     }
 
-    /// The process is about to end (the game starts `eu4.exe` again): the
-    /// waiting requests that can answer now do, and their submitters get up
-    /// to `within` to take the answers, so that a transport writes them
-    /// before the process goes. The rest go unanswered.
-    pub fn ending(&self, within: Duration) {
+    /// The process is about to end, as the game starts `eu4.exe` again to
+    /// return to the main menu, whoever asked for it: every request is
+    /// answered while the pipe can still carry the answers. A waiting one
+    /// gives its own answer when it has one ([`Wait::ending`]: an advance
+    /// answers `main_menu`), and is answered `why` otherwise, as are those
+    /// queued and every one sent from now on. Their submitters get up to
+    /// `within` to take the answers, so that a transport writes them before
+    /// the process goes.
+    pub fn end(&self, why: Error, within: Duration) {
         let started = Instant::now();
         let mut answered = Vec::new();
+        let queued: Vec<Queued> = {
+            let mut queue = self.queue();
+            queue.ending = Some(why.clone());
+            queue.requests.drain(..).collect()
+        };
+        (self.log)(&format!("remote: this process ends; every request is answered {why}"));
+        for q in queued {
+            if !q.slot.abandoned() {
+                self.answer(&q, Err(why.clone()), Duration::ZERO);
+                answered.push(q.slot);
+            }
+        }
         {
             let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
             let running = &mut *running;
-            for mut w in std::mem::take(&mut running.waiting) {
+            for mut w in running.waiting.drain(..) {
                 if w.slot.abandoned() {
                     continue;
                 }
-                match w.wait.ending(&running.events) {
-                    Some(response) => {
-                        (self.log)(&format!("remote #{} {}: {} as the process ends, after {} ms", w.number, w.name, outcome(&response), started.duration_since(w.started).as_millis()));
-                        w.slot.answer(response);
-                        answered.push(w.slot);
-                    }
-                    None => running.waiting.push(w),
-                }
+                let response = w.wait.ending(&running.events).unwrap_or_else(|| Err(why.clone()));
+                (self.log)(&format!("remote #{} {}: {} as the process ends, after {} ms", w.number, w.name, outcome(&response), started.duration_since(w.started).as_millis()));
+                w.slot.answer(response);
+                answered.push(w.slot);
             }
         }
         while answered.iter().any(|slot| !slot.taken() && !slot.abandoned()) && started.elapsed() < within {
@@ -351,6 +440,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
         Request::Describe(r) => done(Ok(Answer::Describe(describe::run(r)))),
         Request::Camera(r) => done(camera::run(r, game).map(Answer::Camera)),
         Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
+        Request::Menu(r) => menu::run(r, game),
     }
 }
 
@@ -401,7 +491,14 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
 /// At a game's safe frame: keeps what extensions just heard, then runs.
 pub(crate) fn run_in_game(frame: &game::Frame) {
     ENGINE.record(happened(frame));
+    ENGINE.enter(frame.session);
     ENGINE.run(&mut Live, &Place::Game, BUDGET);
+}
+
+/// The campaign changes (a save begins to load): requests that need a game
+/// sent before it never act on the next one.
+pub(crate) fn campaign_changes() {
+    ENGINE.leave();
 }
 
 /// At a safe point with no game to read: `why` answers the requests that
@@ -410,8 +507,9 @@ pub(crate) fn run_outside(why: Option<game::Fail>) {
     ENGINE.run(&mut Live, &Place::Outside(why.map(Error::from)), BUDGET);
 }
 
-/// Before the game starts `eu4.exe` again, which ends this process: what
-/// waits answers while the pipe can still carry the answers.
+/// Before the game starts `eu4.exe` again, which ends this process: every
+/// request is answered while the pipe can still carry the answers, those sent
+/// later at once.
 pub(crate) fn restarting() {
-    ENGINE.ending(Duration::from_secs(2));
+    ENGINE.end(menu::ending(), Duration::from_secs(2));
 }

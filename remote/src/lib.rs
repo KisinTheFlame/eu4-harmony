@@ -210,6 +210,9 @@ groups! {
     Camera(camera::CameraRequest, CameraAnswer),
     /// Recruiting regiments and ships.
     Recruit(recruiting::RecruitRequest, RecruitAnswer),
+    /// The main menu: where the game is, the saves, loading one, starting a
+    /// game and returning to the main menu.
+    Menu(menu::MenuRequest, MenuAnswer),
 }
 
 pub mod binary;
@@ -579,6 +582,10 @@ pub enum Code {
     /// The request could not be read: not JSON, no such capability, or
     /// arguments missing or of the wrong kind.
     BadRequest,
+    /// It needs a game, and the session it was sent in ended before it ran
+    /// (a save was loaded or another game started): it did not run. Read
+    /// the session again before asking again.
+    SessionChanged,
     /// Something went wrong in the framework or the game.
     Internal,
 }
