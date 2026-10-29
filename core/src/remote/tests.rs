@@ -345,10 +345,12 @@ fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
     let engine = Engine::new(remember);
     let mut game = Fake { delay: Duration::from_millis(20), ..Default::default() };
     let replies: Vec<Reply> = (0..3).map(|_| engine.submit(Request::Session(SessionRequest::Get {}))).collect();
-    // At least one request runs, however small the budget.
+    // At least one request runs, however small the budget, and once it is
+    // spent the rest wait for the next frame. (Each takes 20 ms at least,
+    // however loaded the machine, so the budget is spent after the first.)
     engine.run(&mut game, &Place::Game, Duration::from_millis(1));
     assert_eq!(game.calls.len(), 1);
-    engine.run(&mut game, &Place::Game, Duration::from_millis(30));
+    engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(game.calls.len(), 3);
     assert!(replies.iter().all(|r| answer(r)["ok"] == true));
 }
