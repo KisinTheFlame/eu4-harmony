@@ -95,6 +95,12 @@ pub fn attach(handler: Handler) -> bool {
     if window.is_null() {
         return false;
     }
+    // The game's procedure is known before a message can reach ours.
+    let game = unsafe { GetWindowLongPtrW(window, GWLP_WNDPROC) };
+    if game == 0 {
+        return false;
+    }
+    ORIGINAL.store(game, Ordering::Release);
     let previous = unsafe { SetWindowLongPtrW(window, GWLP_WNDPROC, procedure as *const () as isize) };
     if previous == 0 {
         return false;
