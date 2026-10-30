@@ -18,6 +18,8 @@ l_spanish:
  EU4HARMONY_SETTINGS_SYSTEM:0 "Fuentes del sistema"
  EU4HARMONY_SETTINGS_BODY_FONT:0 "Fuente del texto"
  EU4HARMONY_SETTINGS_BODY_WEIGHT:0 "Grosor de la fuente del texto"
+ EU4HARMONY_SETTINGS_HEADING_FONT:0 "Fuente de los títulos"
+ EU4HARMONY_SETTINGS_HEADING_WEIGHT:0 "Grosor de la fuente de los títulos"
  EU4HARMONY_SETTINGS_MAP_FONT:0 "Fuente del mapa"
  EU4HARMONY_SETTINGS_MAP_WEIGHT:0 "Grosor de la fuente del mapa"
  EU4HARMONY_SETTINGS_MAP_OUTLINE:0 "Contorno de los nombres del mapa"
