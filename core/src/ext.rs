@@ -220,6 +220,7 @@ unsafe extern "C" fn h_log(ptr: *mut c_void, text: *const u8, len: usize) {
         let h = host(ptr);
         let message = match utf8(text, len) {
             Ok(s) => s.to_string(),
+            Err(_) if text.is_null() => String::new(),
             Err(_) => String::from_utf8_lossy(std::slice::from_raw_parts(text, len)).into_owned(),
         };
         extension_log(h, &message);
