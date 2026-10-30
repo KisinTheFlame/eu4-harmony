@@ -1,8 +1,8 @@
 //! Mouse and keyboard for the framework UI. The game reads input through its
 //! window procedure; the framework puts its own in front of it, and keeps a
 //! message from the game when the framework UI takes it (ADR 0013): every
-//! message while a modal window is open, and mouse messages over the framework
-//! UI otherwise.
+//! input message while a modal window is open, the input method's text
+//! included, and mouse messages over the framework UI otherwise.
 use std::sync::atomic::{AtomicIsize, Ordering};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -68,6 +68,12 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
     );
     if taken || (modal && input && message != WM_MOUSEMOVE) {
         return 0;
+    }
+    // Text the input method makes would reach the game's edit box through
+    // SDL: Windows' own handling turns it into characters, which the modal
+    // window keeps as it keeps typed ones.
+    if modal && matches!(message, WM_IME_STARTCOMPOSITION | WM_IME_COMPOSITION | WM_IME_ENDCOMPOSITION | WM_IME_CHAR) {
+        return DefWindowProcW(window, message, wparam, lparam);
     }
     let original: WNDPROC = std::mem::transmute(ORIGINAL.load(Ordering::Acquire));
     CallWindowProcW(original, window, message, wparam, lparam)
