@@ -106,6 +106,12 @@ impl FrameworkUi {
             Widget::Dropdown { id: "body", options: shown.clone(), selected: index(&next.body_font) },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_FONT")),
             Widget::Dropdown { id: "map", options: shown, selected: index(&next.map_font) },
+            Widget::Label(words("EU4HARMONY_SETTINGS_MAP_OUTLINE")),
+            Widget::Dropdown {
+                id: "outline",
+                options: vec![words("EU4HARMONY_SETTINGS_OUTLINE_FONT"), words("EU4HARMONY_SETTINGS_OUTLINE_NONE")],
+                selected: usize::from(!next.map_outline),
+            },
             Widget::Label(words("EU4HARMONY_SETTINGS_RESTART")),
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
             Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
@@ -124,6 +130,7 @@ impl FrameworkUi {
                 text_appearance: if w.selected("appearance") == Some(1) { TextAppearance::System } else { TextAppearance::Bitmap },
                 body_font: family("body").unwrap_or_else(|| settings::next().body_font),
                 map_font: family("map").unwrap_or_else(|| settings::next().map_font),
+                map_outline: w.selected("outline") != Some(1),
             };
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved for the next start: {chosen:?}"),
