@@ -91,7 +91,7 @@ Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of
 | `abi/` | The C ABI between the core and extensions |
 | `sdk/` | The Rust SDK for extensions |
 | `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes, its extension built and tested with the rest |
-| `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus input, screenshot, disassembly, crash dump and call tracing tools, see [tools/README.md](tools/README.md) |
+| `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus tools for backing up the player's files around a test run, input, screenshots, disassembly, crash dumps and call tracing, see [tools/README.md](tools/README.md) |
 | `docs/` | The design, ADRs, research, in-game test records and [what the framework costs the game](docs/performance.md); `docs/research/regional-combat/` holds the reverse-engineering notes the game capabilities rest on |
 
 Code, comments and documentation are in English. [README.zh-CN.md](README.zh-CN.md) is a Chinese translation of this file; the rest of the documentation is English only. Rules for working in this repository, for people and coding agents alike, are in [AGENTS.md](AGENTS.md).
