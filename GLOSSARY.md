@@ -161,8 +161,12 @@ A font shipped with the game or a mod that stores its glyphs as an image (a `.fn
 _Avoid_: vanilla font, pixel font
 
 **System font**:
-A font installed in Windows, such as Microsoft YaHei.
+A font family installed in Windows, such as Microsoft YaHei, with all its weights.
 _Avoid_: external font, TrueType font
+
+**Weight**:
+How heavy a system font's strokes are, such as Light, Regular or Bold, numbered from 100 (Thin) to 900 (Black) with Regular at 400. A system font comes only in the weights its maker made.
+_Avoid_: boldness, thickness, style (that is upright or italic)
 
 **Legacy escape**:
 The escape byte sequences the CJK font plugin uses to stand for Chinese characters in game text, found in Chinese language mods made for it and in saves played with it.

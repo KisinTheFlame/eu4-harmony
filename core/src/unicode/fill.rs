@@ -32,7 +32,7 @@ use super::dxt;
 use super::game_text;
 use super::glyphs::{self, Glyph};
 use super::outline::Outline;
-use super::system_font::SystemFonts;
+use super::system_font::{Face, SystemFonts};
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
 use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
@@ -98,7 +98,7 @@ struct Fill {
     atlas: Page,
     /// Rows above the system glyphs: the font's own page, or none.
     top: u32,
-    family: String,
+    face: Face,
     /// The colour the glyphs are drawn in.
     ink: u32,
     /// The outline drawn around them.
@@ -352,8 +352,8 @@ fn record(bitmap: &super::system_font::Bitmap, (x, y): (u32, u32), top: u32, bas
 
 fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
     let fonts = SYSTEM.as_ref()?;
-    let family = fonts.family_for(&fill.family, scalar)?.to_string();
-    let bitmap = fonts.rasterize(&family, scalar, em_for(scalar, fill.letter_em, fill.em)).ok()?;
+    let face = fonts.face_for(&fill.face, scalar)?;
+    let bitmap = fonts.rasterize(&face, scalar, em_for(scalar, fill.letter_em, fill.em)).ok()?;
     let (bitmap, pixels) = match &fill.outline {
         Some(outline) if bitmap.width > 0 && bitmap.height > 0 => outline.around(&bitmap, fill.ink),
         _ => {
@@ -415,9 +415,9 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
     }
 }
 
-/// The em size and baseline that fit `family` to a line of `line` pixels.
-fn metrics(fonts: &SystemFonts, family: &str, line: f32) -> (f32, f32) {
-    let (ascent, descent) = fonts.line_metrics(family).unwrap_or((0.9, 0.25));
+/// The em size and baseline that fit `face` to a line of `line` pixels.
+fn metrics(fonts: &SystemFonts, face: &Face, line: f32) -> (f32, f32) {
+    let (ascent, descent) = fonts.line_metrics(face).unwrap_or((0.9, 0.25));
     let em = line / (ascent + descent);
     (em, em * ascent)
 }
@@ -506,14 +506,14 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
     let map = draws_the_map(line);
-    let family = if map { current.map_font } else { current.body_font };
+    let face = if map { current.map_font } else { current.body_font };
     let letter = own.as_ref().and_then(|own| letter(m, font, own));
     let own = if system { None } else { own };
     let outline = letter.as_ref().and_then(|l| l.outline.clone()).filter(|_| map && current.map_outline);
     // The map's names are drawn on the map, which the interface scale does
     // not stretch.
     let density = if system && !map { density(m, font) } else { 1.0 };
-    let (em, mut base) = metrics(fonts, &family, line as f32 * density);
+    let (em, mut base) = metrics(fonts, &face, line as f32 * density);
     let mut caps = D3DCAPS9::default();
     unsafe { device.GetDeviceCaps(&mut caps) }.map_err(|e| format!("device caps: {e}"))?;
     let compressed = own.as_ref().is_some_and(|o| o.compressed);
@@ -552,7 +552,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
         // Characters drawn among the font's own letters sit on their
         // baseline, and letters are as tall as its capitals.
         base = l.baseline as f32;
-        if let Some(cap) = fonts.cap_height(&family) {
+        if let Some(cap) = fonts.cap_height(&face) {
             letter_em = (l.baseline - l.top) as f32 / cap;
         }
     }
@@ -565,7 +565,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
         height,
         atlas: Page::new(width, height - top),
         top,
-        family,
+        face,
         ink,
         outline,
         letter_em,
@@ -678,10 +678,10 @@ pub fn loaded(font: usize) -> bool {
             };
             let outline = fill.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
             log!(
-                "fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}, outline {outline}",
+                "fill: {look} page {}x{} for {} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}, outline {outline}",
                 fill.width,
                 fill.height,
-                fill.family,
+                fill.face,
                 fill.em,
                 fill.letter_em,
                 fill.base,

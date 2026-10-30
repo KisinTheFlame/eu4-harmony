@@ -18,10 +18,12 @@ Kept in `eu4-harmony/settings.txt` in the user directory, written the way the ga
 |---|---|---|
 | Text appearance (`text_appearance`) | Keep the fonts as they are (bitmap fonts first, with characters they lack filled in from the system font) / System fonts (all text in system fonts) | Keep the fonts as they are |
 | Text font (`body_font`) | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
-| Map font (`map_font`) | Same as above | KaiTi |
+| Text font weight (`body_weight`) | The weights the text font comes in, by the English names the font gives them; kept in the file as the weight's number | Regular (400) |
+| Map font (`map_font`) | Same as the text font | KaiTi |
+| Map font weight (`map_weight`) | The weights the map font comes in, as for the text font | Regular (400) |
 | Outline around map names (`map_outline`) | As the game's map font draws it (system glyphs on the map get the outline the map font's own glyphs have) / None | As the game's map font draws it |
 
-Characters neither font has are left to the system's font fallback. The framework UI always uses the text font, whatever "Text appearance" is set to.
+Characters neither font has are left to the system's font fallback, in the same weight. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI always uses the text font and its weight, whatever "Text appearance" is set to.
 
 ## Milestones
 

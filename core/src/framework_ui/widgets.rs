@@ -105,6 +105,18 @@ impl Window {
         })
     }
 
+    /// Gives the drop-down list `id` new options, with `selected` chosen.
+    pub fn set_options(&mut self, id: &str, options: Vec<String>, selected: usize) {
+        for w in &mut self.body {
+            if let Widget::Dropdown { id: i, options: o, selected: s } = w {
+                if *i == id {
+                    (*o, *s) = (options, selected);
+                    return;
+                }
+            }
+        }
+    }
+
     fn inner(&self) -> f32 {
         self.width - 2.0 * PAD
     }
@@ -338,6 +350,20 @@ mod tests {
         assert_eq!(w.mouse_down(&Mono, bx, by), Some(Action::Chose("font", 1)));
         assert_eq!(w.selected("font"), Some(1));
         assert!(!w.draw(&Mono).iter().any(|c| matches!(c, Command::Text { text, .. } if text == "C")));
+    }
+
+    #[test]
+    fn a_dropdown_takes_new_options() {
+        let mut w = settings();
+        w.set_options("font", vec!["Light".into(), "Bold".into()], 1);
+        assert_eq!(w.selected("font"), Some(1));
+        let (x, y) = spot(&w, "Bold");
+        assert_eq!(w.mouse_down(&Mono, x, y), None);
+        let (lx, ly) = spot(&w, "Light");
+        assert_eq!(w.mouse_down(&Mono, lx, ly), Some(Action::Chose("font", 0)));
+        // An id no drop-down has changes nothing.
+        w.set_options("none", Vec::new(), 0);
+        assert_eq!(w.selected("font"), Some(0));
     }
 
     #[test]

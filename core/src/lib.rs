@@ -210,12 +210,18 @@ fn fail_startup(reason: String) {
 }
 
 /// A font chosen in the settings that is no longer installed: the default
-/// draws instead, and the player is told once (ADR 0012).
+/// draws instead, and the player is told once (ADR 0012). A weight its font
+/// no longer has draws in the one below it, which only the log tells.
 fn tell_missing_fonts(chosen: &settings::Settings) {
     let Ok(fonts) = unicode::system_font::SystemFonts::new() else { return };
     for font in chosen.missing_fonts(|family| fonts.has_family(family)) {
         log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
         notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
+    }
+    for face in [&chosen.body_font, &chosen.map_font] {
+        if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
+            log!("settings: the font {:?} has no weight {}; {} draws instead", face.family, face.weight, drawn.weight);
+        }
     }
 }
 
