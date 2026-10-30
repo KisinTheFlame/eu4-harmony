@@ -168,6 +168,14 @@ _Avoid_: external font, TrueType font
 How heavy a system font's strokes are, such as Light, Regular or Bold, numbered from 100 (Thin) to 900 (Black) with Regular at 400. A system font comes only in the weights its maker made.
 _Avoid_: boldness, thickness, style (that is upright or italic)
 
+**Body text**:
+The game's interface text in its smaller fonts, named in its `.gfx` files `vic_18`, `Main_14`, `ToolTip_Font` and the like, whose lines are at most 18 GUI units tall in vanilla: what windows hold, tooltips, lists and numbers. Body text is drawn in one system font and weight, which the framework UI uses too.
+_Avoid_: text font, normal text, small text
+
+**Headings**:
+The game's interface text in its larger fonts, named `vic_22`, `vic_29`, `vic_36`, `Main_24` and the like, whose lines are 20 to 36 GUI units tall in vanilla: window titles, section headings, the large titles of dialogs. Headings are drawn in a system font and weight of their own. A Chinese language mod that gives these fonts other files keeps their names, so the names, not the lines, say which text is which.
+_Avoid_: titles (a ruler's title is a game concept), large text
+
 **Legacy escape**:
 The escape byte sequences the CJK font plugin uses to stand for Chinese characters in game text, found in Chinese language mods made for it and in saves played with it.
 _Avoid_: double-byte encoding, mojibake

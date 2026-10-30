@@ -4,6 +4,9 @@
 
 /// A font (vtable 0x1d99120).
 pub mod font {
+    /// Its name in the `.gfx` files (`vic_18`), a `std::string`: the game
+    /// looks fonts up by it.
+    pub const NAME: usize = 0x18;
     /// 256 pointers to glyph records, by byte (the font's own table).
     pub const OWN_GLYPHS: usize = 0x120;
     /// The line height, i32; times [`SCALE`] it is the line in GUI units.
@@ -63,11 +66,19 @@ pub mod texture_level {
     pub const DATA: usize = 0x18;
 }
 
-use crate::points::Point;
+use crate::{game_string, points::Point};
 
 pub fn points() -> Vec<Point> {
     use self::*;
     vec![
+        // Looking a font up by name: each font's name, its size and its
+        // capacity, against the name asked for.
+        Point::keep(
+            0x14db450usize,
+            "48 8b 33 48 8d 4e 18 48 8b d7 49 83 fe 10 72 03 48 8b 17 4c 8b 41 10 48 83 79 18 10 72 03 48 8b 09 4d 3b c7 75 09",
+            "font lookup by name",
+        )
+        .uses(&[font::NAME, game_string::SIZE, game_string::CAPACITY]),
         Point::keep(0x1595cf2usize, "49 89 84 ff 20 01 00 00", "font own glyph table").uses(&[font::OWN_GLYPHS]),
         Point::keep(0x159ba20usize, "66 0f 6e 81 60 09 00 00 0f 5b c0 f3 0f 59 81 68 09 00 00", "font line height and scale")
             .uses(&[font::LINE_HEIGHT, font::SCALE]),

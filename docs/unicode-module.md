@@ -17,13 +17,27 @@ Kept in `eu4-harmony/settings.txt` in the user directory, written the way the ga
 | Setting (in the file) | Options | Default |
 |---|---|---|
 | Text appearance (`text_appearance`) | Keep the fonts as they are (bitmap fonts first, with characters they lack filled in from the system font) / System fonts (all text in system fonts) | Keep the fonts as they are |
-| Text font (`body_font`) | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
-| Text font weight (`body_weight`) | The weights the text font comes in, by the English names the font gives them; kept in the file as the weight's number | Regular (400) |
-| Map font (`map_font`) | Same as the text font | KaiTi |
-| Map font weight (`map_weight`) | The weights the map font comes in, as for the text font | Regular (400) |
+| Body text font (`body_font`) | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
+| Body text font weight (`body_weight`) | The weights the body text font comes in, by the English names the font gives them; kept in the file as the weight's number | Regular (400) |
+| Heading font (`heading_font`) | Same as the body text font | Microsoft YaHei |
+| Heading font weight (`heading_weight`) | The weights the heading font comes in, as for the body text font | Regular (400) |
+| Map font (`map_font`) | Same as the body text font | KaiTi |
+| Map font weight (`map_weight`) | The weights the map font comes in, as for the body text font | Regular (400) |
 | Outline around map names (`map_outline`) | As the game's map font draws it (system glyphs on the map get the outline the map font's own glyphs have) / None | As the game's map font draws it |
 
-Characters neither font has are left to the system's font fallback, in the same weight. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI always uses the text font and its weight, whatever "Text appearance" is set to.
+Which font draws which text follows the Chinese language mod, which draws body text in FZ PingXian YaSong, a face made for small sizes on screen, and headings in FZ Cu YaSong, a bold one. A heading font of the same family as the body text font in a heavier weight, such as Microsoft YaHei Bold, draws them the same way without a second family.
+
+- **Map names**: fonts with lines taller than 48 GUI units (vanilla `tahoma_60`, which loads `Mapfont`).
+- **Headings** and **body text** (GLOSSARY): by the font's name in the game's `.gfx` files, which the framework reads from the font (`font+0x18`). The mod keeps the names and changes the files, and with them the lines: its headings in `vic_22` are on 18-pixel lines, as tall as vanilla's body text in `vic_18`. A font whose name vanilla does not have, one a mod adds, draws headings when its lines are 20 GUI units or taller.
+
+| | Vanilla fonts (their lines) | The Chinese language mod's files |
+|---|---|---|
+| Body text | `vic_18*`, `standard_18`, `standard_font`, `chat_input_font`, `null_font` (18); `Main_14*`, `Main_16*`, `garamond_14*`, `ToolTip_Font*`, `messagelog`, `ledger*` (14, 16); `Arial12`, `FPS_Font` (14) | `zh-hans-12`, `-14`, `-16`, in PingXian YaSong |
+| Headings | `vic_22*`, `standard_22`, `mapfont_small`, `AnimatedMapText`, `chat_largefont` (20, 22); `vic_29*`, `vic_36*`, `Main_24*`, `pie_headline_20` (24 to 36) | `zh-hans-18`, `-24`, in Cu YaSong |
+
+Fonts that load the same page draw from one page in one font and weight, those of the first of them to load. The vanilla fonts and the mod's never share a page between body text and headings; when fonts of a mod do, the log says so.
+
+Characters none of the chosen fonts has are left to the system's font fallback, in the same weight. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI always uses the body text font and its weight, whatever "Text appearance" is set to.
 
 ## Milestones
 

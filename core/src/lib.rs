@@ -218,7 +218,7 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
         log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
         notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
     }
-    for face in [&chosen.body_font, &chosen.map_font] {
+    for face in [&chosen.body_font, &chosen.heading_font, &chosen.map_font] {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
             log!("settings: the font {:?} has no weight {}; {} draws instead", face.family, face.weight, drawn.weight);
         }

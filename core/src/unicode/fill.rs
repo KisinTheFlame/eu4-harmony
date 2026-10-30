@@ -20,7 +20,8 @@
 //!
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
 //! font, inside the outline the font's own glyphs have when the player keeps
-//! it (`outline`); the rest in the body font. Pages live in video memory,
+//! it (`outline`); the rest in the heading font or the body text font, as
+//! their names say ([`kind`]). Pages live in video memory,
 //! like the game's own textures, which only Direct3D 9Ex keeps across a
 //! device reset; on a plain Direct3D 9 device nothing is filled. They are
 //! written through small system-memory textures: pages made dynamic and
@@ -33,6 +34,7 @@ use super::game_text;
 use super::glyphs::{self, Glyph};
 use super::outline::Outline;
 use super::system_font::{Face, SystemFonts};
+use crate::game_string;
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
 use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
@@ -433,6 +435,91 @@ fn draws_the_map(line: i32) -> bool {
     line > MAP_LINE
 }
 
+/// What a font draws, which picks the system font family it draws in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Body,
+    Heading,
+    Map,
+}
+
+/// The game's fonts for headings, by their names in `interface/core.gfx`:
+/// its fonts with lines of 20 GUI units or more, below the map's.
+const HEADINGS: &[&[u8]] = &[
+    b"standard_22",
+    b"mapfont_small",
+    b"AnimatedMapText",
+    b"chat_largefont",
+    b"Main_24",
+    b"Main_24_black",
+    b"pie_headline_20",
+    b"vic_22",
+    b"vic_22_black",
+    b"vic_22s",
+    b"vic_29",
+    b"vic_29_black",
+    b"vic_29s",
+    b"vic_36",
+    b"vic_36_black",
+    b"vic_36s",
+];
+
+/// The game's fonts for body text, in `interface/core.gfx` and
+/// `interface/chatfonts.gfx`: its fonts with lines of 18 GUI units or less.
+const BODY: &[&[u8]] = &[
+    b"ToolTip_Font",
+    b"ToolTip_Font_Big",
+    b"standard_18",
+    b"messagelog",
+    b"Main_16",
+    b"Main_16_white_bold",
+    b"Main_16_black",
+    b"Main_16_plain",
+    b"Main_14",
+    b"Main_14_plain",
+    b"Main_14_grey",
+    b"Main_14_black",
+    b"Main_14_red",
+    b"Main_14_bold",
+    b"Main_14_orange",
+    b"Main_14_eu",
+    b"garamond_14",
+    b"garamond_14_bold",
+    b"garamond_14_bold_orange",
+    b"ledger",
+    b"ledger_headline",
+    b"vic_18",
+    b"vic_18_black",
+    b"vic_18s",
+    b"vic_18_grey",
+    b"Arial12",
+    b"FPS_Font",
+    b"null_font",
+    b"standard_font",
+    b"chat_input_font",
+];
+
+/// Lines a font of a name the game does not have needs to draw headings.
+const HEADING_LINE: i32 = 20;
+
+/// What the font named `name`, with lines `line` pixels tall, draws. A mod
+/// that gives the game's fonts other files keeps their names, which the
+/// interface asks for them by, while their lines change: the Chinese language
+/// mod draws `vic_22`'s headings on 18-pixel lines, as tall as `vic_18`'s body
+/// text in the game. So the name says what the font draws, and only a name
+/// the game does not have goes by the line.
+fn kind(name: &[u8], line: i32) -> Kind {
+    if draws_the_map(line) {
+        Kind::Map
+    } else if HEADINGS.contains(&name) {
+        Kind::Heading
+    } else if BODY.contains(&name) || line < HEADING_LINE {
+        Kind::Body
+    } else {
+        Kind::Heading
+    }
+}
+
 /// The most pixels of a page a GUI unit takes.
 const MOST_DENSE: f32 = 4.0;
 
@@ -499,14 +586,25 @@ fn page_size(own: Option<(u32, u32)>, line: i32, growth: f32, max: (u32, u32)) -
     }
 }
 
-/// A page for `font`: its own pixels (`own`, when the game decoded them) with
-/// room below (bitmap fonts first), or an empty one (the system font look).
-fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own>, system: bool) -> crate::Result<Fill> {
+/// The system font and weight the player chose for fonts of `kind`.
+fn chosen_face(kind: Kind) -> Face {
+    let current = settings::current();
+    match kind {
+        Kind::Body => current.body_font,
+        Kind::Heading => current.heading_font,
+        Kind::Map => current.map_font,
+    }
+}
+
+/// A page for `font`, which draws `kind`: its own pixels (`own`, when the
+/// game decoded them) with room below (bitmap fonts first), or an empty one
+/// (the system font look).
+fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own>, system: bool, kind: Kind) -> crate::Result<Fill> {
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
     let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
-    let map = draws_the_map(line);
-    let face = if map { current.map_font } else { current.body_font };
+    let map = kind == Kind::Map;
+    let face = chosen_face(kind);
     let letter = own.as_ref().and_then(|own| letter(m, font, own));
     let own = if system { None } else { own };
     let outline = letter.as_ref().and_then(|l| l.outline.clone()).filter(|_| map && current.map_outline);
@@ -546,7 +644,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     }
     log!("fill: {width}x{height} page texture: creating it {created}; writing it {}", writing.end());
     // Without the page's pixels: black for a map font, white otherwise.
-    let ink = letter.as_ref().map_or(if line > MAP_LINE { 0 } else { 0x00ff_ffff }, |l| l.ink);
+    let ink = letter.as_ref().map_or(if map { 0 } else { 0x00ff_ffff }, |l| l.ink);
     let mut letter_em = em;
     if let (Some(l), false) = (&letter, system) {
         // Characters drawn among the font's own letters sit on their
@@ -654,41 +752,52 @@ pub fn loaded(font: usize) -> bool {
         if wrapper == 0 || m.ptr(wrapper)? == 0 {
             return Ok(false);
         }
+        // A name that cannot be read goes by the line.
+        let name = game_string::read(&m, font + objects::font::NAME).unwrap_or_default();
+        let kind = kind(&name, m.i32(font + objects::font::LINE_HEIGHT)?);
+        let name = String::from_utf8_lossy(&name);
         let mut pages = lock(&PAGES);
-        if let Entry::Vacant(vacant) = pages.entry(wrapper) {
-            // A page loaded before, in another format or with smaller
-            // levels keeps its own glyphs only.
-            if !system && own.as_ref().is_none_or(|o| o.mipmapped) {
-                return Ok(false);
+        match pages.entry(wrapper) {
+            // The page's glyphs are its first font's, in that font's face.
+            Entry::Occupied(page) if page.get().face != chosen_face(kind) => {
+                log!("fill: font {name:?} ({kind:?}) draws from a page in {}", page.get().face);
             }
-            let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own, system))?;
-            // The wrapper holds the game's reference: it gets one of
-            // ours, and its old texture is released.
-            let old = m.ptr(wrapper)? as *mut c_void;
-            unsafe {
-                *(wrapper as *mut *mut c_void) = fill.texture.clone().into_raw();
-                drop(IDirect3DTexture9::from_raw(old));
-                *((entry + textures::ENTRY_SIZE) as *mut u32) = fill.width;
-                *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = fill.height;
+            Entry::Occupied(_) => {}
+            Entry::Vacant(vacant) => {
+                // A page loaded before, in another format or with smaller
+                // levels keeps its own glyphs only.
+                if !system && own.as_ref().is_none_or(|o| o.mipmapped) {
+                    return Ok(false);
+                }
+                let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own, system, kind))?;
+                // The wrapper holds the game's reference: it gets one of
+                // ours, and its old texture is released.
+                let old = m.ptr(wrapper)? as *mut c_void;
+                unsafe {
+                    *(wrapper as *mut *mut c_void) = fill.texture.clone().into_raw();
+                    drop(IDirect3DTexture9::from_raw(old));
+                    *((entry + textures::ENTRY_SIZE) as *mut u32) = fill.width;
+                    *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = fill.height;
+                }
+                let look = match (system, fill.compressed) {
+                    (true, _) => "system",
+                    (false, true) => "grown DXT5",
+                    (false, false) => "grown",
+                };
+                let outline = fill.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
+                log!(
+                    "fill: {look} page {}x{} for font {name:?} ({kind:?}) in {} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}, outline {outline}",
+                    fill.width,
+                    fill.height,
+                    fill.face,
+                    fill.em,
+                    fill.letter_em,
+                    fill.base,
+                    fill.density,
+                    fill.ink
+                );
+                vacant.insert(fill);
             }
-            let look = match (system, fill.compressed) {
-                (true, _) => "system",
-                (false, true) => "grown DXT5",
-                (false, false) => "grown",
-            };
-            let outline = fill.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
-            log!(
-                "fill: {look} page {}x{} for {} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}, outline {outline}",
-                fill.width,
-                fill.height,
-                fill.face,
-                fill.em,
-                fill.letter_em,
-                fill.base,
-                fill.density,
-                fill.ink
-            );
-            vacant.insert(fill);
         }
         let fill = pages.get_mut(&wrapper).expect("just made");
         unsafe {
@@ -736,8 +845,26 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dense_line, draws_the_map, em_for, own_rows, page_size, record, room, Loading, Own};
+    use super::{dense_line, draws_the_map, em_for, kind, own_rows, page_size, record, room, Kind, Loading, Own, BODY, HEADINGS};
     use crate::unicode::system_font::Bitmap;
+
+    #[test]
+    fn a_font_draws_what_its_name_says() {
+        // The game's own files.
+        assert_eq!(kind(b"vic_18", 18), Kind::Body);
+        assert_eq!(kind(b"vic_22", 22), Kind::Heading);
+        assert_eq!(kind(b"tahoma_60", 100), Kind::Map);
+        // The Chinese language mod's: headings on lines as tall as the
+        // game's body text, and the map's on shorter ones.
+        assert_eq!(kind(b"vic_22", 18), Kind::Heading);
+        assert_eq!(kind(b"standard_18", 16), Kind::Body);
+        assert_eq!(kind(b"tahoma_60", 88), Kind::Map);
+        // A name the game does not have goes by the line.
+        assert_eq!(kind(b"my_mod_font", 18), Kind::Body);
+        assert_eq!(kind(b"my_mod_font", 20), Kind::Heading);
+        assert_eq!(kind(b"", 14), Kind::Body);
+        assert!(HEADINGS.iter().all(|name| !BODY.contains(name)));
+    }
 
     #[test]
     fn a_denser_font_keeps_its_line_in_gui_units() {

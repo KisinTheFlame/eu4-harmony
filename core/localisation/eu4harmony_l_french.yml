@@ -18,6 +18,8 @@ l_french:
  EU4HARMONY_SETTINGS_SYSTEM:0 "Polices du système"
  EU4HARMONY_SETTINGS_BODY_FONT:0 "Police du texte"
  EU4HARMONY_SETTINGS_BODY_WEIGHT:0 "Graisse de la police du texte"
+ EU4HARMONY_SETTINGS_HEADING_FONT:0 "Police des titres"
+ EU4HARMONY_SETTINGS_HEADING_WEIGHT:0 "Graisse de la police des titres"
  EU4HARMONY_SETTINGS_MAP_FONT:0 "Police de la carte"
  EU4HARMONY_SETTINGS_MAP_WEIGHT:0 "Graisse de la police de la carte"
  EU4HARMONY_SETTINGS_MAP_OUTLINE:0 "Contour des noms sur la carte"
