@@ -513,6 +513,19 @@ mod tests {
         assert_eq!(fake.game().province(152).unwrap_err().status, Status::NotFound);
     }
 
+    /// No route is `None`; an army that is not the player's own stays an
+    /// error, though the game says NotFound for both.
+    #[test]
+    fn a_route_is_none_only_for_an_own_army() {
+        let mut fake = FakeGame::new();
+        fake.own_armies.push(Army { id: ArmyId(7), province: 151, ..Default::default() });
+        fake.routes.insert((ArmyId(7), 149), vec![150, 149]);
+        assert_eq!(fake.game().find_route(ArmyId(7), 149).unwrap(), Some(vec![150, 149]));
+        assert_eq!(fake.game().find_route(ArmyId(7), 1).unwrap(), None);
+        let err = fake.game().find_route(ArmyId(8), 149).unwrap_err();
+        assert_eq!((err.status, err.message.as_str()), (Status::NotFound, "no own army 8"));
+    }
+
     #[test]
     fn game_console_commands_are_kept_and_answered_as_set() {
         let mut fake = FakeGame::new();

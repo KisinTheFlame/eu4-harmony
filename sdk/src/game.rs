@@ -679,10 +679,19 @@ impl<'a> Game<'a> {
         self.backend.army_can_attack(id, target, province)
     }
     /// The route the game would choose; `Ok(None)` when there is none.
+    /// `NotFound` for an army that is not one of the player's own.
     pub fn find_route(&mut self, id: ArmyId, goal: ProvinceId) -> Result<Option<Vec<ProvinceId>>> {
         match self.backend.find_route(id, goal) {
             Ok(route) => Ok(Some(route)),
-            Err(e) if e.status == Status::NotFound => Ok(None),
+            // The game says NotFound for an army that is not the player's,
+            // too: only the player's own army has no route.
+            Err(e) if e.status == Status::NotFound => {
+                if self.backend.own_armies()?.iter().any(|a| a.id == id) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
             Err(e) => Err(e),
         }
     }
