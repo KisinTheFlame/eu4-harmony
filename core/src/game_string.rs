@@ -65,8 +65,18 @@ pub fn read(m: &Memory, string: usize) -> Result<Vec<u8>> {
     if size == 0 {
         return Ok(Vec::new());
     }
-    let text = if capacity <= INLINE { string } else { m.ptr(string)? };
-    m.bytes(text, size)
+    m.bytes(text_address(m, string)?, size)
+}
+
+/// Where the text of the string at `string` is: in the string itself, or
+/// where it points; a NUL follows the text there.
+pub fn text_address(m: &Memory, string: usize) -> Result<usize> {
+    let capacity = m.u64(string + CAPACITY)? as usize;
+    if capacity <= INLINE {
+        Ok(string)
+    } else {
+        m.ptr(string)
+    }
 }
 
 /// The text of the string at `string`, for hook code on the game's own

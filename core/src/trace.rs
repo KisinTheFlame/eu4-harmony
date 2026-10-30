@@ -36,17 +36,17 @@ thread_local! {
     static RUNNING: RefCell<Vec<Option<usize>>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The text at `p`, when it holds some: a `std::string` (its bytes inline
-/// below 16 bytes of capacity, else through a pointer; size at +0x10,
-/// capacity at +0x18) or a C string.
+/// The text at `p`, when it holds some: a `std::string` (`game_string`'s
+/// layout) or a C string.
 fn text_at(m: &Memory, p: usize) -> Option<String> {
     let readable = |bytes: &[u8]| {
         let text = game_text::to_utf8(bytes);
         (text.chars().count() >= 2 && !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t')).then_some(text)
     };
-    if let (Ok(size), Ok(capacity)) = (m.u64(p + 0x10), m.u64(p + 0x18)) {
-        if (15..1 << 20).contains(&capacity) && size <= capacity {
-            let data = if capacity < 16 { Some(p) } else { m.ptr(p).ok() };
+    use crate::game_string::{CAPACITY, INLINE, SIZE};
+    if let (Ok(size), Ok(capacity)) = (m.u64(p + SIZE), m.u64(p + CAPACITY)) {
+        if (INLINE as u64..1 << 20).contains(&capacity) && size <= capacity {
+            let data = if capacity <= INLINE as u64 { Some(p) } else { m.ptr(p).ok() };
             if let Some(text) = data.and_then(|d| m.bytes(d, size as usize).ok()).and_then(|b| readable(&b)) {
                 return Some(format!("string {text:?}"));
             }
