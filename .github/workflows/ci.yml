@@ -8,10 +8,12 @@ on:
     branches: [master]
 
 # A newer push to a pull request stops the run it replaces. Every merge into
-# master runs to the end, so a failure there names the merge that caused it.
+# master runs to the end, so a failure there names the merge that caused it:
+# each has a group of its own, since a group holds one waiting run at most and
+# drops it for the next.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
