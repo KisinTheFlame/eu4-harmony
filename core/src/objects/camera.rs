@@ -57,8 +57,12 @@ pub fn points() -> Vec<Point> {
     vec![
         // The camera's constructor: its class and the heights it may take.
         Point::keep(0x109b871usize, "48 8d 05 d0 ba cb 00 48 89 01", "camera class").uses(&[CLASS]),
-        Point::keep(0x109bbbausize, "f3 0f 2c 05 52 2b 2a 01 89 87 ec 06 00 00 f3 0f 2c 05 a0 2b 2a 01 89 87 f0 06 00 00", "camera heights")
-            .uses(&[MIN_HEIGHT_DEFINE, MIN_HEIGHT, MAX_HEIGHT_DEFINE, MAX_HEIGHT]),
+        Point::keep(0x109bbbausize, "f3 0f 2c 05 52 2b 2a 01 89 87 ec 06 00 00 f3 0f 2c 05 a0 2b 2a 01 89 87 f0 06 00 00", "camera heights").uses(&[
+            MIN_HEIGHT_DEFINE,
+            MIN_HEIGHT,
+            MAX_HEIGHT_DEFINE,
+            MAX_HEIGHT,
+        ]),
         // Keeping the camera on the map: where it is and looks now, then
         // where it is going and will look.
         Point::keep(

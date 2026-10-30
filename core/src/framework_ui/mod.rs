@@ -70,7 +70,16 @@ fn corner(screen: (f32, f32), measure: &dyn Measure) -> Rect {
 impl FrameworkUi {
     fn new() -> crate::Result<Self> {
         let font = text::UiFont::new(&settings::current().body_font)?;
-        Ok(Self { font, backend: d3d9::Backend::default(), screen: (0.0, 0.0), mouse: (-1.0, -1.0), scale: 1.0, notice: None, settings: None, families: Vec::new() })
+        Ok(Self {
+            font,
+            backend: d3d9::Backend::default(),
+            screen: (0.0, 0.0),
+            mouse: (-1.0, -1.0),
+            scale: 1.0,
+            notice: None,
+            settings: None,
+            families: Vec::new(),
+        })
     }
 
     fn open_settings(&mut self) {

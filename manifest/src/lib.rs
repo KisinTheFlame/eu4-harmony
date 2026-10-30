@@ -48,7 +48,8 @@ mod tests {
 
     #[test]
     fn a_manifest_needs_where_its_fragments_go() {
-        let manifest = Manifest::parse(r#"{ "id": "m", "api_version": "0.1", "ui": [{ "file": "ui/b.gui", "into": "single_unitpanel", "area": "buttons" }] }"#).unwrap();
+        let manifest =
+            Manifest::parse(r#"{ "id": "m", "api_version": "0.1", "ui": [{ "file": "ui/b.gui", "into": "single_unitpanel", "area": "buttons" }] }"#).unwrap();
         assert_eq!((manifest.id.as_str(), manifest.ui[0].into.as_str(), manifest.ui[0].area.as_deref()), ("m", "single_unitpanel", Some("buttons")));
         assert!(manifest.extension.is_none());
         assert!(Manifest::parse(r#"{ "id": "m", "api_version": "0.1", "ui": [{ "file": "ui/b.gui" }] }"#).is_err());

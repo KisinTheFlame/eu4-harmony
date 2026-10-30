@@ -9,9 +9,9 @@ use crate::{
     game::{
         self,
         armies::{self, RouteSource},
-        events, interface,
+        countries, diplomacy, events, interface,
         map_coloring::{self, MapColor},
-        countries, diplomacy, offers, provinces, questions, save_data, texts, thousandths, time, Caller, Status, Tag,
+        offers, provinces, questions, save_data, texts, thousandths, time, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -175,7 +175,10 @@ fn province_out(p: &provinces::Province) -> abi::Province {
     let flag = |on: bool, bit: u32| if on { bit } else { 0 };
     abi::Province {
         id: p.id,
-        flags: flag(p.land, abi::PROVINCE_LAND) | flag(p.lake, abi::PROVINCE_LAKE) | flag(p.impassable, abi::PROVINCE_IMPASSABLE) | flag(p.visible, abi::PROVINCE_VISIBLE),
+        flags: flag(p.land, abi::PROVINCE_LAND)
+            | flag(p.lake, abi::PROVINCE_LAKE)
+            | flag(p.impassable, abi::PROVINCE_IMPASSABLE)
+            | flag(p.visible, abi::PROVINCE_VISIBLE),
         owner: p.owner.map_or(0, |t| t.0),
         controller: p.controller.map_or(0, |t| t.0),
     }
@@ -386,11 +389,8 @@ unsafe extern "C" fn h_save_data_get(ptr: *mut c_void, buf: *mut u8, cap: usize,
 unsafe extern "C" fn h_save_data_set(ptr: *mut c_void, json: *const u8, len: usize) -> i32 {
     capability(ptr, |caller| {
         let text = utf8(json, len)?;
-        let value = if text.is_empty() {
-            None
-        } else {
-            Some(serde_json::from_str(text).or_else(|e| failure(abi::INVALID_ARGUMENT, format!("not JSON: {e}")))?)
-        };
+        let value =
+            if text.is_empty() { None } else { Some(serde_json::from_str(text).or_else(|e| failure(abi::INVALID_ARGUMENT, format!("not JSON: {e}")))?) };
         Ok(save_data::set(caller, value)?)
     })
 }
@@ -759,7 +759,8 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     let entry = export(abi::ENTRY_SYMBOL)?;
     let mut list = extensions();
     let index = list.len();
-    let host = Box::new(Host { index, id: m.manifest.id.clone(), name: m.descriptor.name.clone(), last_error: Mutex::new(String::new()), log: Mutex::new(None) });
+    let host =
+        Box::new(Host { index, id: m.manifest.id.clone(), name: m.descriptor.name.clone(), last_error: Mutex::new(String::new()), log: Mutex::new(None) });
     let host_ptr = &*host as *const Host as *mut c_void;
     let host_api = Box::new(abi::HostApi { size: std::mem::size_of::<abi::HostApi>(), abi_version: abi::ABI_VERSION, host: host_ptr, log: h_log });
     let game_api = Box::new(game_api(host_ptr));
@@ -882,7 +883,12 @@ pub fn frame(state: &game::Frame) {
     }
     for click in ui::take_clicks() {
         let name = click.name;
-        call(click.extension, "on_button", |v| v.on_button.map(|f| f as usize), &[name.as_ptr() as usize, name.len(), click.click as usize, click.modifiers as usize]);
+        call(
+            click.extension,
+            "on_button",
+            |v| v.on_button.map(|f| f as usize),
+            &[name.as_ptr() as usize, name.len(), click.click as usize, click.modifiers as usize],
+        );
     }
     for i in 0..n {
         call(i, "on_frame", |v| v.on_frame.map(|f| f as usize), &[]);
@@ -958,7 +964,8 @@ mod tests {
     /// `GameApi::recruit` takes a kind by the layer's index.
     #[test]
     fn the_abi_s_unit_kinds_are_the_layer_s() {
-        let abi = [abi::UNIT_INFANTRY, abi::UNIT_CAVALRY, abi::UNIT_ARTILLERY, abi::UNIT_HEAVY_SHIP, abi::UNIT_LIGHT_SHIP, abi::UNIT_GALLEY, abi::UNIT_TRANSPORT];
+        let abi =
+            [abi::UNIT_INFANTRY, abi::UNIT_CAVALRY, abi::UNIT_ARTILLERY, abi::UNIT_HEAVY_SHIP, abi::UNIT_LIGHT_SHIP, abi::UNIT_GALLEY, abi::UNIT_TRANSPORT];
         assert_eq!(UnitKind::ALL.map(|k| k.index() as u32), abi);
     }
 
@@ -972,7 +979,8 @@ mod tests {
     fn questions_and_offers_are_written_as_the_abi_says() {
         let question = questions::Question { title: "禁卫军".into(), ..crate::remote::fake::question() };
         assert_eq!(questions_json(&[question]), serde_json::from_str::<serde_json::Value>(QUESTIONS_JSON).unwrap());
-        let offer = offers::Offer { id: 3, from: crate::remote::fake::byz(), date: 0x035D_7710, title: "皇室联姻".into(), description: "A royal marriage.".into() };
+        let offer =
+            offers::Offer { id: 3, from: crate::remote::fake::byz(), date: 0x035D_7710, title: "皇室联姻".into(), description: "A royal marriage.".into() };
         assert_eq!(offers_json(&[offer]), serde_json::from_str::<serde_json::Value>(OFFERS_JSON).unwrap());
     }
 
@@ -989,7 +997,13 @@ mod tests {
         };
         let goals = [
             goal(Some("cb_claim"), Some("take_claim"), Some(151), None, "征服君士坦丁堡"),
-            goal(Some("cb_restore_personal_union"), Some("take_capital_personal_union"), None, Some(crate::remote::fake::byz()), "Restore the Union with Byzantium"),
+            goal(
+                Some("cb_restore_personal_union"),
+                Some("take_capital_personal_union"),
+                None,
+                Some(crate::remote::fake::byz()),
+                "Restore the Union with Byzantium",
+            ),
             goal(None, Some("nowargoal"), None, None, "无战争目标"),
         ];
         assert_eq!(war_goals_json(&goals), serde_json::from_str::<serde_json::Value>(WAR_GOALS_JSON).unwrap());

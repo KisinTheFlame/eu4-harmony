@@ -135,7 +135,9 @@ pub fn game_over(end: i32) -> super::Fail {
     let end = eu4_harmony_remote::Date(end);
     super::Fail {
         status: Status::Rejected,
-        message: format!("the game is over: it is past its end date, {end}, and stays paused, as for the player, until the end-of-game summary is closed to play on"),
+        message: format!(
+            "the game is over: it is past its end date, {end}, and stays paused, as for the player, until the end-of-game summary is closed to play on"
+        ),
     }
 }
 
@@ -343,12 +345,8 @@ extern "C" fn restart_before(_: *mut HookFrame) {
 /// The speed, the pause toggle and the restart.
 pub fn points() -> Vec<Point> {
     vec![
-        Point::keep(
-            SET_SPEED,
-            "48 81 ec 88 00 00 00 41 b8 04 00 00 00 41 3b d0 44 0f 4e c2 33 c0 45 85 c0 41 0f 49 c0 89 81 08 1e 00 00",
-            "set speed",
-        )
-        .uses(&[world::SPEED, 4]),
+        Point::keep(SET_SPEED, "48 81 ec 88 00 00 00 41 b8 04 00 00 00 41 3b d0 44 0f 4e c2 33 c0 45 85 c0 41 0f 49 c0 89 81 08 1e 00 00", "set speed")
+            .uses(&[world::SPEED, 4]),
         Point::keep(SPEED_UP, "48 8b 0d 01 65 7c 01 8b 91 08 1e 00 00 ff c2 e9 6c e0 bd ff", "speed up command").uses(&[WORLD, world::SPEED]),
         Point::keep(TOGGLE_PAUSE, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 75 5c", "pause toggle").uses(&[pause_state::PLAYER_PAUSED]),
         Point::observe(RESTART, "48 89 5c 24 08 48 89 74 24 18 55 57 41 56", "restart", 1, Some(restart_before), None),

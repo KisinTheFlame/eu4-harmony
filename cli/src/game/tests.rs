@@ -44,7 +44,9 @@ fn temp(name: &str) -> PathBuf {
 #[test]
 fn arguments_by_name_or_in_order() {
     let moved = Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), goal: ProvinceId(151) });
-    for text in ["army.move --army 4294967377 --goal 151", "army move --goal 151 --army 4294967377", "army move 4294967377 151", "army.move --goal 151 4294967377"] {
+    for text in
+        ["army.move --army 4294967377 --goal 151", "army move --goal 151 --army 4294967377", "army move 4294967377 151", "army.move --goal 151 4294967377"]
+    {
         assert_eq!(ask(text).request, moved, "{text}");
     }
     let read = |since, wait_ms| Request::Events(EventsRequest::Read { since, wait_ms, process: None });

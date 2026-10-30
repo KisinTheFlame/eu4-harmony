@@ -27,10 +27,7 @@ impl Layer for Live {
 pub fn run(request: OfferRequest, game: &mut (impl Layer + ?Sized)) -> Result<OfferAnswer, Error> {
     Ok(match request {
         OfferRequest::List {} => OfferAnswer::List(
-            game.offers()?
-                .into_iter()
-                .map(|o| Offer { id: o.id, from: tag(o.from), date: Date(o.date), title: o.title, description: o.description })
-                .collect(),
+            game.offers()?.into_iter().map(|o| Offer { id: o.id, from: tag(o.from), date: Date(o.date), title: o.title, description: o.description }).collect(),
         ),
         OfferRequest::Accept { offer } => OfferAnswer::Accept(game.answer_offer(offer, true)?),
         OfferRequest::Decline { offer } => OfferAnswer::Decline(game.answer_offer(offer, false)?),

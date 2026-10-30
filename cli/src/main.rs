@@ -473,9 +473,21 @@ mod tests {
         let dir = temp("new");
         let root = create_mod(&dir, "my-mod", "My Mod", Path::new("D:/sdk")).unwrap();
         let manifest = read_manifest(&root).unwrap();
-        assert_eq!((manifest.id.as_str(), manifest.api_version.as_str(), manifest.extension.as_deref()), ("my-mod", abi::API_VERSION, Some("win64/my_mod.dll")));
+        assert_eq!(
+            (manifest.id.as_str(), manifest.api_version.as_str(), manifest.extension.as_deref()),
+            ("my-mod", abi::API_VERSION, Some("win64/my_mod.dll"))
+        );
         let english = "eu4-harmony/localisation/my_mod_l_english.yml";
-        for f in ["descriptor.mod", ".gitignore", "eu4-harmony/ui/button.gui", english, "eu4-harmony/localisation/my_mod_l_simp_chinese.yml", "extension/Cargo.toml", "extension/.cargo/config.toml", "extension/src/lib.rs"] {
+        for f in [
+            "descriptor.mod",
+            ".gitignore",
+            "eu4-harmony/ui/button.gui",
+            english,
+            "eu4-harmony/localisation/my_mod_l_simp_chinese.yml",
+            "extension/Cargo.toml",
+            "extension/.cargo/config.toml",
+            "extension/src/lib.rs",
+        ] {
             let text = fs::read_to_string(root.join(f)).unwrap();
             assert!(!text.contains("@@"), "{f} has an unfilled placeholder");
             for name in [templates::ID, templates::NAME, templates::LIB, templates::KEY] {

@@ -156,7 +156,8 @@ pub fn serving(pipe: &File) -> Result<Serving, Failure> {
         return Err(Failure::Unknown(format!("the pipe's process {process} is gone: {}", io::Error::last_os_error())));
     }
     let image = image(&handle).map_err(|e| Failure::Unknown(format!("the executable of process {process} cannot be read: {e}")))?;
-    let theirs = ProcessUser::of(handle.as_raw_handle()).map_err(|e| Failure::Unknown(format!("the user {} (process {process}) runs as cannot be read: {e}", image.display())))?;
+    let theirs = ProcessUser::of(handle.as_raw_handle())
+        .map_err(|e| Failure::Unknown(format!("the user {} (process {process}) runs as cannot be read: {e}", image.display())))?;
     let ours = ProcessUser::of(unsafe { GetCurrentProcess() }).map_err(|e| Failure::Unknown(format!("this process's user cannot be read: {e}")))?;
     Ok(Serving { process, image, same_user: theirs.is(&ours) })
 }
@@ -218,7 +219,8 @@ impl Client {
         let mut chunk = vec![0u8; CHUNK];
         loop {
             let mut available = 0u32;
-            let peeked = unsafe { PeekNamedPipe(self.pipe.as_raw_handle(), std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut available, std::ptr::null_mut()) };
+            let peeked =
+                unsafe { PeekNamedPipe(self.pipe.as_raw_handle(), std::ptr::null_mut(), 0, std::ptr::null_mut(), &mut available, std::ptr::null_mut()) };
             if peeked == 0 {
                 return Err(io_failure(io::Error::last_os_error()));
             }

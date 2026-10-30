@@ -233,7 +233,10 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GRe
     let offered = Offered::list(m, &ctx, enemy)?;
     let Some(&(goal, _)) = offered.goals.iter().find(|(_, g)| choice.matches(g)) else {
         let cb = choice.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI);
-        return fail(Status::Rejected, format!("the game offers no such war goal under {cb} against {}; diplomacy.war_goals lists those it offers", letters(enemy)));
+        return fail(
+            Status::Rejected,
+            format!("the game offers no such war goal under {cb} against {}; diplomacy.war_goals lists those it offers", letters(enemy)),
+        );
     };
     let mut made = Made::new(m, action::DECLARE_WAR_SIZE);
     m.call(m.at(DECLARE_WAR_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
@@ -326,7 +329,8 @@ pub fn allies_called(_: Caller, ticket: Ticket) -> GResult<Vec<Tag>> {
 /// The action sent with `ticket`, and what the game did with it so far,
 /// while it is kept and its game goes on.
 fn kept(ticket: Ticket) -> GResult<(Sent, Seen)> {
-    let (sent, seen) = ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail { status: Status::NotFound, message: format!("no diplomatic action {} is kept", ticket.0) })?;
+    let (sent, seen) =
+        ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail { status: Status::NotFound, message: format!("no diplomatic action {} is kept", ticket.0) })?;
     if sent.session != events::session() {
         return fail(Status::NotInGame, "the game the diplomatic action was sent in has ended");
     }
@@ -530,7 +534,10 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
         }
         if ally.joins() {
             if named.is_some() {
-                return fail(Status::Rejected, format!("{} joins the war without being called: the declare war window has no call box for it", letters(country)));
+                return fail(
+                    Status::Rejected,
+                    format!("{} joins the war without being called: the declare war window has no call box for it", letters(country)),
+                );
             }
             continue;
         }
@@ -544,7 +551,10 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
         let reasons = if enemy_asks { window.allied_to_enemy()? } else { window.why_not(&ally)? };
         if named.is_some() {
             let call = format!("the declare war window does not let the player call {} to arms", letters(country));
-            return fail(Status::Rejected, if reasons.is_empty() { format!("{call}, and gives no reason") } else { format!("{call}:\n{}", reasons.join("\n")) });
+            return fail(
+                Status::Rejected,
+                if reasons.is_empty() { format!("{call}, and gives no reason") } else { format!("{call}:\n{}", reasons.join("\n")) },
+            );
         }
         passed_over.push(PassedOver { country, reasons });
     }
@@ -938,7 +948,9 @@ impl Ledger {
         for c in self.carried.iter().filter(|c| c.number > sent.after && c.action == sent.action && c.to.index() == sent.to.index()) {
             match (seen, c.state) {
                 (Seen::Nothing, action::UNANSWERED) => seen = Seen::CarriedOut,
-                (Seen::CarriedOut, action::ACCEPTED | action::DECLINED) if sent.action.proposal() => return Some((sent, Seen::Answered(c.state == action::ACCEPTED))),
+                (Seen::CarriedOut, action::ACCEPTED | action::DECLINED) if sent.action.proposal() => {
+                    return Some((sent, Seen::Answered(c.state == action::ACCEPTED)))
+                }
                 _ => {}
             }
         }
@@ -991,8 +1003,12 @@ pub fn points() -> Vec<Point> {
         Point::observe(CARRY_OUT, "48 89 5c 24 18 48 89 6c 24 20 56 57 41 56 48 83", "diplomatic action carried out", 1, Some(carry_out_before), None),
         method(ACTION_COMMAND, command::CARRY_OUT, CARRY_OUT, "diplomatic action command execution"),
         method(ACTION_COMMAND, command::DESTROY, COMMAND_DESTROY, "diplomatic action command destructor"),
-        Point::keep(COMMAND_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 8b fa 48 8b d9 48 8d 05 2a a0 79 01 48 89 01 48 8b 49 50", "diplomatic action command destructor")
-            .uses(&[ACTION_COMMAND, command::ACTION]),
+        Point::keep(
+            COMMAND_DESTROY,
+            "48 89 5c 24 08 57 48 83 ec 20 8b fa 48 8b d9 48 8d 05 2a a0 79 01 48 89 01 48 8b 49 50",
+            "diplomatic action command destructor",
+        )
+        .uses(&[ACTION_COMMAND, command::ACTION]),
         // Making the command, which every kind inherits.
         Point::keep(0x4e9930usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b 01 48 8b fa ff 90 b0 00 00 00", "diplomatic action command maker"),
         method(ALLIANCE, action::MAKE_COMMAND, 0x4e9930, "alliance command"),
@@ -1125,10 +1141,16 @@ mod tests {
             (fail.status, fail.message)
         };
         assert_eq!(refused(vec![byz], vec![]).0, Status::InvalidArgument);
-        assert_eq!(refused(vec![dul, cnd], vec![]), (Status::Rejected, "the declare war window does not let the player call CND to arms:\nCND would not accept".into()));
+        assert_eq!(
+            refused(vec![dul, cnd], vec![]),
+            (Status::Rejected, "the declare war window does not let the player call CND to arms:\nCND would not accept".into())
+        );
         assert_eq!(refused(vec![geo], vec![]).0, Status::Rejected);
         // On the other side too.
-        assert_eq!(refused(vec![dul], vec![(dul, true)]), (Status::Rejected, "the declare war window does not let the player call DUL to arms:\nallied to the enemy".into()));
+        assert_eq!(
+            refused(vec![dul], vec![(dul, true)]),
+            (Status::Rejected, "the declare war window does not let the player call DUL to arms:\nallied to the enemy".into())
+        );
     }
 
     #[test]
@@ -1140,7 +1162,10 @@ mod tests {
         assert_eq!(fail.message, "the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it");
         // Under every ally, it is passed over with that reason.
         let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };
-        let gone = PassedOver { country: cnd, reasons: vec!["the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it".into()] };
+        let gone = PassedOver {
+            country: cnd,
+            reasons: vec!["the declare war window no longer lists CND among the allies once DUL is called to arms, so the player could not call it".into()],
+        };
         assert_eq!(call_allies(&mut boxes, tur, byz, &Calls::All).unwrap(), (vec![dul], vec![gone]));
         // Calling another by name, it is only not called.
         let mut boxes = Boxes { ours: vec![(dul, false, true), (cnd, false, true)], drops: vec![(dul, cnd)], ..Default::default() };

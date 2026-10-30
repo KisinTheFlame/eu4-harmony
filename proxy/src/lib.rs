@@ -21,10 +21,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{GetLastError, HMODULE},
     System::{
-        LibraryLoader::{
-            DisableThreadLibraryCalls, GetModuleFileNameW, GetProcAddress, LoadLibraryExW,
-            LOAD_WITH_ALTERED_SEARCH_PATH,
-        },
+        LibraryLoader::{DisableThreadLibraryCalls, GetModuleFileNameW, GetProcAddress, LoadLibraryExW, LOAD_WITH_ALTERED_SEARCH_PATH},
         SystemInformation::GetSystemDirectoryW,
         SystemServices::DLL_PROCESS_ATTACH,
     },

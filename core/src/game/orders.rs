@@ -273,11 +273,8 @@ impl Orders {
             if !found {
                 return Ok(None);
             }
-            let bad_endpoint = if goal == before.origin {
-                !path.ids.is_empty()
-            } else {
-                path.ids.last() != Some(&goal) || path.ids.first() == Some(&before.origin)
-            };
+            let bad_endpoint =
+                if goal == before.origin { !path.ids.is_empty() } else { path.ids.last() != Some(&goal) || path.ids.first() == Some(&before.origin) };
             if bad_endpoint {
                 return Err("route endpoints do not match the query".to_string().into());
             }

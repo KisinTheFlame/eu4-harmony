@@ -590,10 +590,20 @@ impl diplomacy::Layer for Fake {
             Calls::Only(tags) => format!("Only({:x?})", tags.iter().map(|t| t.0).collect::<Vec<_>>()),
             other => format!("{other:?}"),
         };
-        self.call(format!("declare war {:x} {:?} {:?} {:?} {:?} calling {calling}", enemy.0, choice.casus_belli, choice.war_goal, choice.province, choice.target.map(|t| t.0)));
+        self.call(format!(
+            "declare war {:x} {:?} {:?} {:?} {:?} calling {calling}",
+            enemy.0,
+            choice.casus_belli,
+            choice.war_goal,
+            choice.province,
+            choice.target.map(|t| t.0)
+        ));
         if enemy == wal() {
-            return fail(Status::Rejected, "They are our subject.
-We have a truce with them.");
+            return fail(
+                Status::Rejected,
+                "They are our subject.
+We have a truce with them.",
+            );
         }
         let called = match calls {
             Calls::All => vec![wal()],

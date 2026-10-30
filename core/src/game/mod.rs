@@ -374,7 +374,8 @@ mod tests {
     #[test]
     fn a_frame_is_heard_session_first_and_day_last() {
         let ctx = Ctx { world: 0, date: 0x035D_7710, player: Tag(0), country: 0, countries: 0 };
-        let frame = Frame { ctx, session: 3, new_session: true, visibility_current: true, changes: vec![Change::Ordered(7), Change::Defeated(8)], new_day: true };
+        let frame =
+            Frame { ctx, session: 3, new_session: true, visibility_current: true, changes: vec![Change::Ordered(7), Change::Defeated(8)], new_day: true };
         assert_eq!(frame.heard(), [Heard::Session(3), Heard::Change(Change::Ordered(7)), Heard::Change(Change::Defeated(8)), Heard::Day(0x035D_7710)]);
         let quiet = Frame { new_session: false, new_day: false, changes: Vec::new(), ..frame };
         assert!(quiet.heard().is_empty());

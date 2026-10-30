@@ -8,9 +8,9 @@
 //! The lookup takes a whole character and moves the index over it; after a
 //! non-ASCII character a line may break after, the width since the last
 //! "space" starts over too, so Chinese wraps between characters.
-use crate::resume;
 use super::{breaks, text_loops};
 use crate::points::Point;
+use crate::resume;
 
 const GLYPH: usize = 0x159b687;
 const FOUND: usize = 0x159b696;
@@ -77,7 +77,13 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x159b677usize, "4c 8b 5b 18 48 8b c3 49 83 fb 10 72 03 48 8b 03", "text height lookup"),
         Point::jump(GLYPH, "0f b6 04 07 49 8b 8c c6 20 01 00 00 48 85 c9", "text height glyph", glyph_stub as *const () as usize, &GLYPH_RESUME),
         Point::keep(FOUND, "74 72", "text height null glyph"),
-        Point::jump(SPACE_TEST, "48 8b c3 49 83 fb 10 72 03 48 8b 03 80 3c 07 20 75 03 0f 57 f6", "text height space", space_stub as *const () as usize, &SPACE_RESUME),
+        Point::jump(
+            SPACE_TEST,
+            "48 8b c3 49 83 fb 10 72 03 48 8b 03 80 3c 07 20 75 03 0f 57 f6",
+            "text height space",
+            space_stub as *const () as usize,
+            &SPACE_RESUME,
+        ),
         Point::keep(NEXT_BYTE, "44 8b 53 10 ff c7 41 3b fa 0f 8c cf fd ff ff", "text height next byte"),
     ]
 }

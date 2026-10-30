@@ -20,15 +20,15 @@
 //!   converted to and from the game's encoding on the way;
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
-use crate::resume;
+use super::{breaks, game_text};
 use crate::game_string;
+use crate::hooks::HookFrame;
 use crate::objects::gui::{
     editor::{CARET_MOVED, COLUMN, LINE, SELECT_LEFT, SELECT_RIGHT, TEXT},
     functions::{EDITOR_SELECT_LEFT, EDITOR_SELECT_RIGHT},
 };
-use super::{breaks, game_text};
-use crate::hooks::HookFrame;
 use crate::points::{Function, Point};
+use crate::resume;
 use std::cell::RefCell;
 
 const LINE_COL_TO_INDEX: usize = 0x153aa90;
@@ -502,7 +502,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(LINE_COL_TO_INDEX, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "editor line and column to index"),
         Point::keep(SET_CARET, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 4c", "editor caret from index"),
         Point::keep(ERASE_AT, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 4c", "editor erase at"),
-        Point::jump(LEFT, "0f b7 41 54 48 8b f9 66 85 c0 74 09 66 ff c8 66 89 41 54", "editor left", left_stub as *const () as usize, &LEFT_RESUME).uses(&[COLUMN]),
+        Point::jump(LEFT, "0f b7 41 54 48 8b f9 66 85 c0 74 09 66 ff c8 66 89 41 54", "editor left", left_stub as *const () as usize, &LEFT_RESUME)
+            .uses(&[COLUMN]),
         Point::keep(LEFT_LINE_START, "48 8b 01 48 89 5c 24 30", "editor left at line start"),
         Point::keep(LEFT_MOVED, "0f b7 47 54 48 8d 4f 70", "editor left moved").uses(&[COLUMN]),
         Point::jump(RIGHT, "48 8b cf 8d 50 01", "editor right", right_stub as *const () as usize, &RIGHT_RESUME),
@@ -524,7 +525,13 @@ pub fn points() -> Vec<Point> {
         Point::jump(PREPEND_CUT, "3b d1 0f 4e ca 44 8b c1", "editor prepend length cut", prepend_cut_stub as *const () as usize, &PREPEND_RESUME),
         Point::keep(PREPEND_CUT_DONE, "4c 39 43 10", "editor prepend cut done"),
         Point::replace(FIT_PREFIX, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "editor line fit", fit_prefix as Fit, &ORIGINAL_FIT),
-        Point::replace(REMOVE_CHARS, "40 53 56 57 41 54 48 83 ec 48 48 83 7a 18 10 4c", "remove forbidden characters", remove_chars as RemoveChars, &ORIGINAL_REMOVE),
+        Point::replace(
+            REMOVE_CHARS,
+            "40 53 56 57 41 54 48 83 ec 48 48 83 7a 18 10 4c",
+            "remove forbidden characters",
+            remove_chars as RemoveChars,
+            &ORIGINAL_REMOVE,
+        ),
         Point::jump(PASTE_GET, "e8 3b b2 1f 00", "editor paste reads the clipboard", paste_stub as *const () as usize, &PASTE_RESUME),
         Point::keep(PASTE_GOT, "48 c7 44 24 20 00 00 00 00", "editor paste copies the text"),
         Point::jump(COPY_SET, "e8 b7 c1 1f 00", "editor copy writes the clipboard", copy_stub as *const () as usize, &COPY_RESUME),

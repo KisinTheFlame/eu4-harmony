@@ -219,7 +219,8 @@ fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
         if u32_at(&directory, at)? != 0x0201_4b50 {
             return Err("bad zip directory entry".into());
         }
-        let (method, crc, packed, unpacked) = (u16_at(&directory, at + 10)?, u32_at(&directory, at + 16)?, u32_at(&directory, at + 20)?, u32_at(&directory, at + 24)?);
+        let (method, crc, packed, unpacked) =
+            (u16_at(&directory, at + 10)?, u32_at(&directory, at + 16)?, u32_at(&directory, at + 20)?, u32_at(&directory, at + 24)?);
         let (name_len, extra_len, comment_len, local) =
             (u16_at(&directory, at + 28)?, u16_at(&directory, at + 30)?, u16_at(&directory, at + 32)?, u32_at(&directory, at + 42)?);
         if directory.get(at + 46..at + 46 + name_len) == Some(name) {

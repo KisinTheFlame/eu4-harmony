@@ -83,7 +83,10 @@ pub fn parse(source: &str) -> Result<File, Error> {
             continue;
         }
         if language.is_none() {
-            let name = line.strip_prefix("l_").and_then(|l| l.strip_suffix(':')).ok_or_else(|| error(format!("expected a language header such as l_english:, found {line:?}")))?;
+            let name = line
+                .strip_prefix("l_")
+                .and_then(|l| l.strip_suffix(':'))
+                .ok_or_else(|| error(format!("expected a language header such as l_english:, found {line:?}")))?;
             language = Some(Language::from_id(name).ok_or_else(|| error(format!("unknown language l_{name}")))?);
             continue;
         }

@@ -17,10 +17,10 @@
 //! mod's map font page is a 49 MB DXT5 file, so every name on the map drew
 //! with a texture of size 0 and vanished, with or without the framework (the
 //! old font plugin lifted the limit). The limit is raised to 256 MiB.
-use crate::resume;
 use super::glyphs::{self, Glyph};
 use crate::objects::text::font::OWN_GLYPHS;
 use crate::points::Point;
+use crate::resume;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const ID_CHECK: usize = 0x1595c86;

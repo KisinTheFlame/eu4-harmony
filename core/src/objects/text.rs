@@ -73,16 +73,11 @@ pub fn points() -> Vec<Point> {
         .uses(&[font::PAGE_INDEX, font::CONTEXT, textures::MANAGER, textures::ENTRIES, textures::ENTRIES + 8, textures::ENTRY_SIZE, font::PAGE_SIZE]),
         Point::keep(0x16c2e84usize, "49 8b 4f 60", "texture manager renderer").uses(&[textures::RENDERER]),
         // Presenting a frame through the renderer's device.
-        Point::keep(
-            0x16d4db6usize,
-            "48 8b d9 48 c7 44 24 20 00 00 00 00 48 8b 49 08 45 33 c9 45 33 c0 33 d2 48 8b 01 ff 90 88 00 00 00",
-            "renderer device",
-        )
-        .uses(&[renderer::DEVICE]),
+        Point::keep(0x16d4db6usize, "48 8b d9 48 c7 44 24 20 00 00 00 00 48 8b 49 08 45 33 c9 45 33 c0 33 d2 48 8b 01 ff 90 88 00 00 00", "renderer device")
+            .uses(&[renderer::DEVICE]),
         // Creating a texture: the description's format and kind, then the
         // mip levels' sizes and pixels.
-        Point::keep(0x16d7ab7usize, "49 8b f9 49 8b f0 4c 8b f2 4c 8b d9 33 db 89 5a 0c 45 8b 50 0c", "texture format")
-            .uses(&[texture_description::FORMAT]),
+        Point::keep(0x16d7ab7usize, "49 8b f9 49 8b f0 4c 8b f2 4c 8b d9 33 db 89 5a 0c 45 8b 50 0c", "texture format").uses(&[texture_description::FORMAT]),
         Point::keep(0x16d7b2dusize, "8b 56 10 85 d2", "texture kind").uses(&[texture_description::KIND]),
         // From here rdi points at the level's width.
         Point::keep(

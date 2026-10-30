@@ -15,9 +15,9 @@
 //! character and moves the index over the character's whole sequence, and
 //! the layout pass ends a word after a non-ASCII character that a line may
 //! break after (`breaks`), as it does after a space.
-use crate::resume;
 use super::{breaks, text_loops};
 use crate::points::Point;
+use crate::resume;
 
 const LAYOUT_GLYPH: usize = 0x1599728;
 const LAYOUT_GLYPH_DONE: usize = 0x1599734;

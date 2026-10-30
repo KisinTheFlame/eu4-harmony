@@ -31,12 +31,8 @@ const TRIMMED: [char; 4] = [' ', '\t', '\r', '\n'];
 pub fn points() -> Vec<Point> {
     vec![
         // The getter, making the game console with its flags cleared.
-        Point::keep(
-            GET,
-            "48 83 ec 28 48 8b 05 8d 06 c7 01 48 85 c0 75 3d 8d 48 48 e8 fc bd 34 01 33 c9 48 89 44 24 30 48 89 05 72 06 c7 01",
-            "game console",
-        )
-        .uses(&[CONSOLE]),
+        Point::keep(GET, "48 83 ec 28 48 8b 05 8d 06 c7 01 48 85 c0 75 3d 8d 48 48 e8 fc bd 34 01 33 c9 48 89 44 24 30 48 89 05 72 06 c7 01", "game console")
+            .uses(&[CONSOLE]),
         // Running a command: the words at r8, the first looked up, a command
         // only developers may run refused while they are locked (0x18), the
         // result at rdx, filled in as the refusal shows.
@@ -101,7 +97,10 @@ impl Words {
     /// answers what it printed instead, so it refuses a `|`.
     fn new(command: &str) -> GResult<Self> {
         if command.contains('|') {
-            return fail(Status::InvalidArgument, "a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out");
+            return fail(
+                Status::InvalidArgument,
+                "a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out",
+            );
         }
         if command.contains('\0') {
             return fail(Status::InvalidArgument, "a command cannot hold a NUL");

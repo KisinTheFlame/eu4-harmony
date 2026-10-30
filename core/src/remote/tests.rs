@@ -3,9 +3,10 @@
 use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest,
-    menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest,
-    session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
+    diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
+    provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
+    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -65,7 +66,9 @@ fn every_capability_runs_at_a_game_frame() {
     let cases: Vec<(Request, Check)> = vec![
         (
             Request::Session(SessionRequest::Get {}),
-            Box::new(|v: &Value| *v == ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
+            Box::new(|v: &Value| {
+                *v == ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))
+            }),
         ),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
         (Request::Time(TimeRequest::Speed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
@@ -118,7 +121,7 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Army(ArmyRequest::InProvince { province: province(151) }),
             Box::new(|v: &Value| {
                 let a = &v["result"][0];
-                a["id"] == json!(ENEMY.to_string()) &&a["owner"] == "BYZ" && a["province"] == 151 && a["sieging"] == true && a["route_source"] == "extension"
+                a["id"] == json!(ENEMY.to_string()) && a["owner"] == "BYZ" && a["province"] == 151 && a["sieging"] == true && a["route_source"] == "extension"
             }),
         ),
         (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),
@@ -143,7 +146,9 @@ fn every_capability_runs_at_a_game_frame() {
         ),
         (
             Request::Screenshot(ScreenshotRequest::Take { scale: Some(50) }),
-            Box::new(|v: &Value| *v == ok(json!({"image": {"media_type": "image/png", "base64": "iVBORw=="}, "width": 2, "height": 1, "frame_width": 2, "frame_height": 1}))),
+            Box::new(|v: &Value| {
+                *v == ok(json!({"image": {"media_type": "image/png", "base64": "iVBORw=="}, "width": 2, "height": 1, "frame_width": 2, "frame_height": 1}))
+            }),
         ),
         (
             Request::Question(QuestionRequest::List {}),
@@ -159,9 +164,7 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Question(QuestionRequest::Answer { question: 8, option: 0 }), Box::new(error("not_found"))),
         (
             Request::Offer(OfferRequest::List {}),
-            Box::new(|v: &Value| {
-                *v == ok(json!([{"id": 3, "from": "BYZ", "date": "1444.11.11", "title": "Royal Marriage", "description": "皇室联姻"}]))
-            }),
+            Box::new(|v: &Value| *v == ok(json!([{"id": 3, "from": "BYZ", "date": "1444.11.11", "title": "Royal Marriage", "description": "皇室联姻"}]))),
         ),
         (Request::Offer(OfferRequest::Accept { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Offer(OfferRequest::Decline { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
@@ -174,9 +177,15 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Camera(CameraRequest::Get {}),
             Box::new(|v: &Value| *v == ok(json!({"x": 3248, "y": 1376, "height": 800, "province": 149, "min_height": 50, "max_height": 3000}))),
         ),
-        (Request::Camera(CameraRequest::LookAtProvince { province: province(151) }), Box::new(|v: &Value| v["result"]["province"] == 151 && v["result"]["x"] == 3270)),
+        (
+            Request::Camera(CameraRequest::LookAtProvince { province: province(151) }),
+            Box::new(|v: &Value| v["result"]["province"] == 151 && v["result"]["x"] == 3270),
+        ),
         (Request::Camera(CameraRequest::LookAtProvince { province: province(1) }), Box::new(error("not_found"))),
-        (Request::Camera(CameraRequest::LookAt { x: 100, y: 200 }), Box::new(|v: &Value| v["result"]["x"] == 100 && v["result"]["y"] == 200 && v["result"]["province"].is_null())),
+        (
+            Request::Camera(CameraRequest::LookAt { x: 100, y: 200 }),
+            Box::new(|v: &Value| v["result"]["x"] == 100 && v["result"]["y"] == 200 && v["result"]["province"].is_null()),
+        ),
         (Request::Camera(CameraRequest::LookAt { x: 6000, y: 200 }), Box::new(error("invalid_argument"))),
         (Request::Camera(CameraRequest::Zoom { height: 1200 }), Box::new(|v: &Value| v["result"]["height"] == 1200 && v["result"]["province"] == 149)),
         (Request::Camera(CameraRequest::Zoom { height: 10 }), Box::new(error("invalid_argument"))),
@@ -188,7 +197,14 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Recruit(RecruitRequest::Recruit { province: province(1), kind: UnitKind::Galley }), Box::new(error("not_found"))),
         (Request::Diplomacy(DiplomacyRequest::WarGoals { country: CountryTag(*b"BYZ") }), Box::new(|v: &Value| v["result"][1]["casus_belli"] == "none")),
         (
-            Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None }),
+            Request::Diplomacy(DiplomacyRequest::DeclareWar {
+                country: CountryTag(*b"WAL"),
+                casus_belli: "none".into(),
+                war_goal: None,
+                province: None,
+                target: None,
+                call_allies: None,
+            }),
             Box::new(error("rejected")),
         ),
         (Request::Diplomacy(DiplomacyRequest::OfferPeace { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
@@ -227,7 +243,9 @@ fn every_capability_runs_at_a_game_frame() {
     // The layer was called with what the requests said, in their order.
     let byz = format!("{:x}", fake::byz().0);
     let tur = format!("{:x}", fake::tur().0);
-    for call in [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316"), "console cash 100".into()] {
+    for call in
+        [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316"), "console cash 100".into()]
+    {
         assert!(game.calls.contains(&call), "{call} not in {:#?}", game.calls);
     }
     for call in ["look at province 151", "look at 100 200", "zoom 1200", "recruit 149 infantry", "recruit 151 cavalry", "recruit 1 galley"] {
@@ -535,7 +553,10 @@ fn a_load_or_start_whose_game_cannot_be_played_says_so_at_its_first_frame() {
     let session = engine.submit(Request::Session(SessionRequest::Get {}));
     engine.run(&mut game, &unplayable, PLENTY);
     for got in [answer(&load), answer(&start)] {
-        assert_eq!(got, json!({"ok": false, "error": {"code": "rejected", "message": "the game began, but the player cannot play it (no controllable player): menu says game, and it goes on"}}));
+        assert_eq!(
+            got,
+            json!({"ok": false, "error": {"code": "rejected", "message": "the game began, but the player cannot play it (no controllable player): menu says game, and it goes on"}})
+        );
     }
     assert_eq!(answer(&session), json!({"ok": false, "error": {"code": "not_in_game", "message": "no controllable player"}}));
     assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "start FRA"]);

@@ -249,7 +249,15 @@ pub(crate) fn deferred_init() {
         }
     }
     for m in &mods {
-        log!("mod {:?} id={:?} api={} dir={} extension={:?} ui={}", m.descriptor.name, m.manifest.id, m.manifest.api_version, m.dir.display(), m.manifest.extension, m.manifest.ui.len());
+        log!(
+            "mod {:?} id={:?} api={} dir={} extension={:?} ui={}",
+            m.descriptor.name,
+            m.manifest.id,
+            m.manifest.api_version,
+            m.dir.display(),
+            m.manifest.extension,
+            m.manifest.ui.len()
+        );
     }
     let outcomes = ext::load(&mods, &logs);
     let indices = ext::extension_indices(&mods);
@@ -267,10 +275,21 @@ pub(crate) fn deferred_init() {
     log!("splice plan ready: {mod_elements} mod element(s), {} button slot(s)", plan.slots);
     report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
     for (m, outcome) in mods.iter().zip(&outcomes) {
-        report::line(format!("  {} (id {}, api {}): {}; {} UI fragment(s)", m.descriptor.name, m.manifest.id, m.manifest.api_version, outcome.status, m.manifest.ui.len()));
+        report::line(format!(
+            "  {} (id {}, api {}): {}; {} UI fragment(s)",
+            m.descriptor.name,
+            m.manifest.id,
+            m.manifest.api_version,
+            outcome.status,
+            m.manifest.ui.len()
+        ));
         report::line(format!("    {}", m.dir.display()));
     }
-    let all_notes = notes.iter().map(|n| format!("discovery: {}", n.text)).chain(ui_notes.iter().map(|n| format!("ui: {n}"))).chain(loc_notes.iter().map(|n| format!("localisation: {n}")));
+    let all_notes = notes
+        .iter()
+        .map(|n| format!("discovery: {}", n.text))
+        .chain(ui_notes.iter().map(|n| format!("ui: {n}")))
+        .chain(loc_notes.iter().map(|n| format!("localisation: {n}")));
     for note in all_notes {
         report::line(format!("  {note}"));
     }

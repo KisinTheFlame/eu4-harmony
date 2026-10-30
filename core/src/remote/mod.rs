@@ -58,8 +58,42 @@ use std::{
 pub const BUDGET: Duration = Duration::from_millis(5);
 
 /// The capability layer, as remote control sees it: every group's slice.
-pub trait Game: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer + diplomacy::Layer {}
-impl<T: session::Layer + countries::Layer + provinces::Layer + armies::Layer + texts::Layer + camera::Layer + screenshot::Layer + console::Layer + time::Layer + recruiting::Layer + questions::Layer + offers::Layer + menu::Layer + diplomacy::Layer + ?Sized> Game for T {}
+pub trait Game:
+    session::Layer
+    + countries::Layer
+    + provinces::Layer
+    + armies::Layer
+    + texts::Layer
+    + camera::Layer
+    + screenshot::Layer
+    + console::Layer
+    + time::Layer
+    + recruiting::Layer
+    + questions::Layer
+    + offers::Layer
+    + menu::Layer
+    + diplomacy::Layer
+{
+}
+impl<
+        T: session::Layer
+            + countries::Layer
+            + provinces::Layer
+            + armies::Layer
+            + texts::Layer
+            + camera::Layer
+            + screenshot::Layer
+            + console::Layer
+            + time::Layer
+            + recruiting::Layer
+            + questions::Layer
+            + offers::Layer
+            + menu::Layer
+            + diplomacy::Layer
+            + ?Sized,
+    > Game for T
+{
+}
 
 /// The capability layer itself, called as remote control.
 pub struct Live;
@@ -90,7 +124,10 @@ pub fn process() -> u64 {
 
 /// When this process started, in milliseconds since 1970.
 fn started() -> Option<u64> {
-    use windows_sys::Win32::{Foundation::FILETIME, System::Threading::{GetCurrentProcess, GetProcessTimes}};
+    use windows_sys::Win32::{
+        Foundation::FILETIME,
+        System::Threading::{GetCurrentProcess, GetProcessTimes},
+    };
     let mut times = [FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }; 4];
     let [created, exited, kernel, user] = &mut times;
     if unsafe { GetProcessTimes(GetCurrentProcess(), created, exited, kernel, user) } == 0 {
@@ -448,7 +485,13 @@ impl Engine {
                     continue;
                 }
                 let response = w.wait.ending(&running.events).unwrap_or_else(|| Err(why.clone()));
-                (self.log)(&format!("remote #{} {}: {} as the process ends, after {} ms", w.number, w.name, outcome(&response), started.duration_since(w.started).as_millis()));
+                (self.log)(&format!(
+                    "remote #{} {}: {} as the process ends, after {} ms",
+                    w.number,
+                    w.name,
+                    outcome(&response),
+                    started.duration_since(w.started).as_millis()
+                ));
                 self.deliver(&w.slot, response);
             }
         }

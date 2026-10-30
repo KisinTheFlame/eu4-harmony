@@ -73,9 +73,7 @@ extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
 }
 
 pub fn points() -> Vec<Point> {
-    vec![
-        Point::replace(0x23a900usize, "48 89 5c 24 08 48 89 74 24 18 48 89 54 24 10 55", "battle name", battle_name as BattleName, &ORIGINAL_BATTLE_NAME),
-    ]
+    vec![Point::replace(0x23a900usize, "48 89 5c 24 08 48 89 74 24 18 48 89 54 24 10 55", "battle name", battle_name as BattleName, &ORIGINAL_BATTLE_NAME)]
 }
 
 #[cfg(test)]

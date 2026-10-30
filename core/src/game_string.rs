@@ -33,21 +33,27 @@ const LOCALIZE_AT: usize = 0x14b34a0;
 
 pub fn points() -> Vec<Point> {
     // The append itself: the size and capacity, the inline test, the text.
-    vec![Point::keep(
-        APPEND_AT,
-        "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20 48 8b 69 18 49 8b f0 4c 8b 71 10 48 8b c5 49 2b c6 4c 8b ea 48 8b f9 \
+    vec![
+        Point::keep(
+            APPEND_AT,
+            "48 89 5c 24 18 55 56 57 41 55 41 56 48 83 ec 20 48 8b 69 18 49 8b f0 4c 8b 71 10 48 8b c5 49 2b c6 4c 8b ea 48 8b f9 \
          4c 3b c0 77 29 4b 8d 04 06 48 89 41 10 48 8b c1 48 83 fd 10 72 03 48 8b 01 4a 8d 1c 30 48 8b cb e8 14 24 9a 01 c6 04 33 00",
-        "string append",
-    )
-    .recorded(APPEND.slot())
-    .uses(&[CAPACITY, SIZE, INLINE + 1]),
-    Point::keep(DESTROY_AT, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor").uses(&[CAPACITY]),
-    Point::keep(LOCALIZE_AT, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57", "localisation lookup")]
+            "string append",
+        )
+        .recorded(APPEND.slot())
+        .uses(&[CAPACITY, SIZE, INLINE + 1]),
+        Point::keep(DESTROY_AT, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor").uses(&[CAPACITY]),
+        Point::keep(LOCALIZE_AT, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57", "localisation lookup"),
+    ]
 }
 
 /// Where the text of the string at `string` is, given its capacity.
 fn text_at(string: usize, capacity: usize, pointer: impl FnOnce() -> usize) -> usize {
-    if capacity <= INLINE { string } else { pointer() }
+    if capacity <= INLINE {
+        string
+    } else {
+        pointer()
+    }
 }
 
 /// The text of the string at `string`, read without trusting it.

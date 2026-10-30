@@ -197,7 +197,11 @@ fn snapshot(m: &Memory, ctx: &Ctx, address: usize) -> GResult<Snapshot> {
         name: text_at(m, geometry + geometry::NAME)?,
         owner: tag_at(field::OWNER)?,
         controller: tag_at(field::CONTROLLER)?,
-        development: Development { tax: base(m, BASE_TAX, address)?, production: base(m, BASE_PRODUCTION, address)?, manpower: base(m, BASE_MANPOWER, address)? },
+        development: Development {
+            tax: base(m, BASE_TAX, address)?,
+            production: base(m, BASE_PRODUCTION, address)?,
+            manpower: base(m, BASE_MANPOWER, address)?,
+        },
         terrain: terrain_of(m, geometry)?,
         fort: Fort { level: m.i32(address + if mothballed { field::FORT_LEVEL_MOTHBALLED } else { field::FORT_LEVEL })?, mothballed },
         buildings: buildings(m, address)?,

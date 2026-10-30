@@ -57,7 +57,8 @@ fn the_clock_is_read_and_set_as_the_player_would() {
         answer(&reply)
     };
     assert_eq!(read(&engine, &mut game), ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})));
-    let replies: Vec<Reply> = [TimeRequest::Resume {}, TimeRequest::Speed { speed: 5 }, TimeRequest::Speed { speed: 6 }].into_iter().map(|r| engine.submit(time(r))).collect();
+    let replies: Vec<Reply> =
+        [TimeRequest::Resume {}, TimeRequest::Speed { speed: 5 }, TimeRequest::Speed { speed: 6 }].into_iter().map(|r| engine.submit(time(r))).collect();
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(answer(&replies[0]), ok(Value::Null));
     assert_eq!(answer(&replies[1]), ok(Value::Null));
@@ -211,7 +212,9 @@ fn an_advance_does_not_run_past_a_question_waiting_already() {
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(
         answer(&reply),
-        ok(json!({"stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.11", "process": process(), "events": [], "last": 0, "missed": false}))
+        ok(
+            json!({"stopped": "question", "reason": "a question waits for the player's answer", "date": "1444.11.11", "process": process(), "events": [], "last": 0, "missed": false})
+        )
     );
     assert!(game.clock.time.paused());
     assert!(!game.calls.iter().any(|c| c == "resume" || c.starts_with("speed") || c.starts_with("stop at")), "{:#?}", game.calls);
@@ -351,7 +354,8 @@ fn an_advance_answers_before_the_process_ends() {
 fn bad_days_and_speeds_are_refused_before_anything_is_asked() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();
-    let replies: Vec<Reply> = [advance(0, None), advance(MOST_DAYS + 1, None), advance(30, Some(0)), advance(30, Some(6))].into_iter().map(|r| engine.submit(r)).collect();
+    let replies: Vec<Reply> =
+        [advance(0, None), advance(MOST_DAYS + 1, None), advance(30, Some(0)), advance(30, Some(6))].into_iter().map(|r| engine.submit(r)).collect();
     engine.run(&mut game, &Place::Game, PLENTY);
     for reply in &replies {
         assert_eq!(answer(reply)["error"]["code"], "invalid_argument");

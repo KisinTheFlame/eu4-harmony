@@ -4,11 +4,13 @@ use super::{
     armies::Army,
     country, fail,
     provinces::{Neighbor, Province},
-    special_countries, span, Ctx, GResult, Status, Tag, MAX_PROVINCES, MAX_UNITS,
+    span, special_countries, Ctx, GResult, Status, Tag, MAX_PROVINCES, MAX_UNITS,
 };
 use crate::{
     memory::Memory,
-    objects::campaign::{adjacency, classes, countries as country_list, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world},
+    objects::campaign::{
+        adjacency, classes, countries as country_list, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world,
+    },
     points::Point,
 };
 use std::collections::BTreeSet;
@@ -85,7 +87,7 @@ fn le_u32(bytes: &[u8], offset: usize) -> GResult<u32> {
 }
 
 fn decode_edges(bytes: &[u8], id: usize, total: usize, address: usize) -> GResult<Vec<Edge>> {
-    if !bytes.len().is_multiple_of(adjacency::SIZE) ||bytes.len() / adjacency::SIZE > total {
+    if !bytes.len().is_multiple_of(adjacency::SIZE) || bytes.len() / adjacency::SIZE > total {
         return Err("adjacency vector bound".to_string().into());
     }
     let mut edges = Vec::with_capacity(bytes.len() / adjacency::SIZE);

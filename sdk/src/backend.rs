@@ -453,30 +453,78 @@ mod tests {
 
     type H = *mut c_void;
     // What the tests do not call.
-    unsafe extern "C" fn no_flag_2(_: H, _: u64, _: u32, _: *mut u8) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_flag_3(_: H, _: u64, _: u32, _: u32, _: *mut u8) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_attack(_: H, _: u64, _: u64, _: u32, _: *mut u8) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_tag(_: H, _: u64, _: *mut [u8; 3]) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_hostile(_: H, _: u64, _: u64, _: *mut u8) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_neighbors(_: H, _: u32, _: *mut abi::Neighbor, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_armies(_: H, _: *mut abi::Army, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_province_armies(_: H, _: u32, _: *mut abi::Army, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_route(_: H, _: u64, _: *mut u32, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_find(_: H, _: u64, _: u32, _: *mut u32, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_move(_: H, _: u64, _: u32) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_stop(_: H, _: u64) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_selected(_: H, _: *mut u64) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_flag_ui(_: H, _: *const u8, _: usize, _: u8) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_text_ui(_: H, _: *const u8, _: usize, _: *const u8, _: usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_paint(_: H, _: *const abi::MapColor, _: usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_clear(_: H) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_bytes(_: H, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_set(_: H, _: *const u8, _: usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_text(_: H, _: *const u8, _: usize, _: *mut u8, _: usize, _: *mut usize) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_camera_province(_: H, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_camera_position(_: H, _: u32, _: u32, _: *mut abi::Camera) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_set_speed(_: H, _: u32) -> i32 { abi::INTERNAL }
-    unsafe extern "C" fn no_pause(_: H) -> i32 { abi::INTERNAL }
+    unsafe extern "C" fn no_flag_2(_: H, _: u64, _: u32, _: *mut u8) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_flag_3(_: H, _: u64, _: u32, _: u32, _: *mut u8) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_attack(_: H, _: u64, _: u64, _: u32, _: *mut u8) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_tag(_: H, _: u64, _: *mut [u8; 3]) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_hostile(_: H, _: u64, _: u64, _: *mut u8) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_neighbors(_: H, _: u32, _: *mut abi::Neighbor, _: usize, _: *mut usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_armies(_: H, _: *mut abi::Army, _: usize, _: *mut usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_province_armies(_: H, _: u32, _: *mut abi::Army, _: usize, _: *mut usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_route(_: H, _: u64, _: *mut u32, _: usize, _: *mut usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_find(_: H, _: u64, _: u32, _: *mut u32, _: usize, _: *mut usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_move(_: H, _: u64, _: u32) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_stop(_: H, _: u64) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_selected(_: H, _: *mut u64) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_flag_ui(_: H, _: *const u8, _: usize, _: u8) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_text_ui(_: H, _: *const u8, _: usize, _: *const u8, _: usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_paint(_: H, _: *const abi::MapColor, _: usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_clear(_: H) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_bytes(_: H, _: *mut u8, _: usize, _: *mut usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_set(_: H, _: *const u8, _: usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_text(_: H, _: *const u8, _: usize, _: *mut u8, _: usize, _: *mut usize) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_camera_province(_: H, _: u32, _: *mut abi::Camera) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_camera_position(_: H, _: u32, _: u32, _: *mut abi::Camera) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_set_speed(_: H, _: u32) -> i32 {
+        abi::INTERNAL
+    }
+    unsafe extern "C" fn no_pause(_: H) -> i32 {
+        abi::INTERNAL
+    }
 
     /// Hands back what `cash 100` prints; refuses anything else.
     unsafe extern "C" fn console_run(_: H, command: *const u8, len: usize, printed: Option<abi::TextSink>, user: H) -> i32 {
@@ -735,8 +783,13 @@ mod tests {
         let c = backend.country(CountryId(WAL)).unwrap();
         assert_eq!((c.id, c.treasury, c.manpower, c.max_manpower, c.stability, c.prestige), (CountryId(WAL), 31.25, 5_400, 8_250, -1.0, 12.345));
         assert_eq!(c.power, Power { adm: 120, dip: 95, mil: 143 });
-        let (tur, byz, mol, tra, hun) =
-            (CountryId(72058255468287316), CountryId(72057735777769794), CountryId(72058886828085069), CountryId(72058891122332244), CountryId(72058281237828936));
+        let (tur, byz, mol, tra, hun) = (
+            CountryId(72058255468287316),
+            CountryId(72057735777769794),
+            CountryId(72058886828085069),
+            CountryId(72058891122332244),
+            CountryId(72058281237828936),
+        );
         let relation = |kind, country, subject_type: Option<&str>| Relation { kind, country, subject_type: subject_type.map(Into::into) };
         assert_eq!(
             c.relations,
@@ -747,11 +800,12 @@ mod tests {
                 relation(RelationKind::Rival, hun, None)
             ]
         );
-        let war = |name: &str, attackers: &[CountryId], defenders: &[CountryId]| War { name: name.into(), attackers: attackers.to_vec(), defenders: defenders.to_vec() };
-        assert_eq!(
-            c.wars,
-            [war("Ottoman Conquest of Constantinople", &[tur, c.id], &[byz]), war("Hungarian-Wallachian War", &[hun], &[c.id, mol])]
-        );
+        let war = |name: &str, attackers: &[CountryId], defenders: &[CountryId]| War {
+            name: name.into(),
+            attackers: attackers.to_vec(),
+            defenders: defenders.to_vec(),
+        };
+        assert_eq!(c.wars, [war("Ottoman Conquest of Constantinople", &[tur, c.id], &[byz]), war("Hungarian-Wallachian War", &[hun], &[c.id, mol])]);
         assert!(c.has_relation(RelationKind::Overlord, tur) && !c.has_relation(RelationKind::Ally, tur));
         // On either side of its wars; never with those on its own side.
         assert!(c.at_war_with(byz) && c.at_war_with(hun) && !c.at_war_with(tur) && !c.at_war_with(mol));
@@ -788,7 +842,10 @@ mod tests {
         // A list asks twice: once for its length, once with room for it.
         let provinces = backend.provinces().unwrap();
         assert_eq!(provinces.len(), 2);
-        assert_eq!((provinces[1].id, provinces[1].land, provinces[1].visible, provinces[1].owner, provinces[1].controller), (1, true, true, Some(CountryId(77)), None));
+        assert_eq!(
+            (provinces[1].id, provinces[1].land, provinces[1].visible, provinces[1].owner, provinces[1].controller),
+            (1, true, true, Some(CountryId(77)), None)
+        );
         assert_eq!(backend.language().unwrap(), "simp_chinese");
         let camera = backend.camera().unwrap();
         assert_eq!((camera.x, camera.y, camera.height, camera.province), (2842, 1494, 800, Some(183)));
@@ -879,7 +936,9 @@ mod tests {
         );
         assert_eq!(
             backend.offers().unwrap(),
-            [Offer { id: OfferId(3), from: CountryId(72057735777769794), date: 56456976, title: "皇室联姻".into(), description: "A royal marriage.".into() }]
+            [Offer {
+                id: OfferId(3), from: CountryId(72057735777769794), date: 56456976, title: "皇室联姻".into(), description: "A royal marriage.".into()
+            }]
         );
         backend.answer_question(QuestionId(7), 2).unwrap();
         backend.answer_offer(OfferId(3), true).unwrap();
@@ -966,7 +1025,13 @@ mod tests {
         assert_eq!(
             goals,
             [
-                WarGoal { casus_belli: Some("cb_claim".into()), war_goal: Some("take_claim".into()), province: Some(151), target: None, name: "征服君士坦丁堡".into() },
+                WarGoal {
+                    casus_belli: Some("cb_claim".into()),
+                    war_goal: Some("take_claim".into()),
+                    province: Some(151),
+                    target: None,
+                    name: "征服君士坦丁堡".into()
+                },
                 WarGoal {
                     casus_belli: Some("cb_restore_personal_union".into()),
                     war_goal: Some("take_capital_personal_union".into()),

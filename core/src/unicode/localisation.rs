@@ -9,8 +9,8 @@
 //! context holding the line (`+0`, i32), whether the entry replaces an
 //! existing one (`+4`, u8) and the collection (`+0x10`). Registration:
 //! (collection, key, value: NUL-terminated, line, version, replace).
-use crate::game_string;
 use super::game_text;
+use crate::game_string;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -74,10 +74,6 @@ pub fn points() -> Vec<Point> {
         Point::replace(IMPORT, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "localisation entry import", import as Import, &ORIGINAL),
         Point::keep(REGISTER, "44 89 4c 24 20 4c 89 44 24 18 53 57 41 55 41 56", "localisation entry registration").recorded(REGISTER_AT.slot()),
         // How the import reads its context and calls the registration.
-        Point::keep(
-            0x16fd720usize,
-            "48 8b 84 24 a0 00 00 00 48 8b 48 10 44 8b 08 0f b6 50 04 eb 2d",
-            "localisation import context",
-        ),
+        Point::keep(0x16fd720usize, "48 8b 84 24 a0 00 00 00 48 8b 48 10 44 8b 08 0f b6 50 04 eb 2d", "localisation import context"),
     ]
 }

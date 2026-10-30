@@ -11,9 +11,9 @@
 //! Both lookups take a whole character and move the index over it (the layout
 //! pass also appends the rest of its bytes to the word); the word also ends
 //! after a non-ASCII character a line may break after.
-use crate::resume;
 use super::{breaks, text_loops};
 use crate::points::Point;
+use crate::resume;
 
 const LAYOUT_GLYPH: usize = 0x159c833;
 const LAYOUT_FOUND: usize = 0x159c842;
@@ -102,7 +102,13 @@ pub fn points() -> Vec<Point> {
     vec![
         // The layout pass appends each byte to its word, then tests the byte.
         Point::keep(0x159c6d8usize, "0f b6 1c 07", "floating text reads a byte"),
-        Point::jump(LAYOUT_GLYPH, "0f b6 04 07 4d 8b a4 c7 20 01 00 00 4d 85 e4", "floating text layout glyph", layout_stub as *const () as usize, &LAYOUT_RESUME),
+        Point::jump(
+            LAYOUT_GLYPH,
+            "0f b6 04 07 4d 8b a4 c7 20 01 00 00 4d 85 e4",
+            "floating text layout glyph",
+            layout_stub as *const () as usize,
+            &LAYOUT_RESUME,
+        ),
         Point::keep(LAYOUT_FOUND, "0f 84 f0 00 00 00", "floating text null glyph"),
         Point::jump(WORD_TEST, "66 41 83 7c 24 06 00 0f 85 ee 00 00 00", "floating text word end", word_stub as *const () as usize, &WORD_RESUME),
         Point::keep(WORD_END, "44 8b a5 98 03 00 00", "floating text word ends"),
