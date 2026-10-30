@@ -3,7 +3,8 @@
 //! Unicode line breaking allows. Widgets measure in GUI units; glyphs are
 //! drawn at the size in pixels the game's GUI scale gives them.
 use super::widgets::{Measure, Rect};
-use crate::unicode::{atlas::Page, system_font::SystemFonts};
+use crate::unicode::atlas::Page;
+use crate::unicode::system_font::{Face, SystemFonts};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
@@ -38,19 +39,19 @@ struct Cache {
 
 pub struct UiFont {
     fonts: SystemFonts,
-    family: String,
+    face: Face,
     cache: RefCell<Cache>,
     /// Pixels per GUI unit.
     scale: Cell<f32>,
 }
 
 impl UiFont {
-    pub fn new(family: &str) -> crate::Result<Self> {
+    pub fn new(face: &Face) -> crate::Result<Self> {
         let fonts = SystemFonts::new()?;
-        let family = if fonts.has_family(family) { family } else { crate::settings::DEFAULT_FONT }.to_string();
+        let face = if fonts.has_family(&face.family) { face.clone() } else { Face::new(crate::settings::DEFAULT_FONT, face.weight) };
         Ok(Self {
             fonts,
-            family,
+            face,
             cache: RefCell::new(Cache { glyphs: HashMap::new(), page: Page::new(PAGE, PAGE), pixels: vec![0; (PAGE * PAGE) as usize], dirty: true }),
             scale: Cell::new(1.0),
         })
@@ -73,8 +74,8 @@ impl UiFont {
     }
 
     fn draw(&self, c: char, size: f32) -> Option<Placed> {
-        let family = self.fonts.family_for(&self.family, c as u32)?;
-        let bitmap = self.fonts.rasterize(family, c as u32, size).ok()?;
+        let face = self.fonts.face_for(&self.face, c as u32)?;
+        let bitmap = self.fonts.rasterize(&face, c as u32, size).ok()?;
         let mut cache = self.cache.borrow_mut();
         let spot = match cache.page.place(bitmap.width.max(1), bitmap.height.max(1)) {
             Some(spot) => spot,
@@ -181,7 +182,7 @@ mod tests {
         if !crate::unicode::system_font::chinese_installed() {
             return;
         }
-        let font = UiFont::new("Microsoft YaHei").unwrap();
+        let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();
         let one = font.width("中", 16.0);
         assert!((12.0..=20.0).contains(&one), "{one}");
         let lines = font.wrap("中文字体的显示效果和以前一样", 16.0, one * 5.5);
@@ -198,7 +199,7 @@ mod tests {
         if !crate::unicode::system_font::chinese_installed() {
             return;
         }
-        let font = UiFont::new("Microsoft YaHei").unwrap();
+        let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();
         let quads = font.layout("汉字", 18.0, 100.0, 50.0);
         assert_eq!(quads.len(), 2);
         assert!(quads[1].screen.x > quads[0].screen.x);
