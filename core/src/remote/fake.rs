@@ -360,17 +360,14 @@ impl camera::Layer for Fake {
 
     fn look_at(&mut self, x: u32, y: u32) -> GResult<game::camera::Camera> {
         self.call(format!("look at {x} {y}"));
-        if x >= 5632 || y >= 2048 {
-            return fail(Status::InvalidArgument, "off the map");
-        }
+        game::camera::check_position(x, y, (5632, 2048))?;
         Ok(game::camera::Camera { x, y, province: None, ..view() })
     }
 
     fn zoom(&mut self, height: u32) -> GResult<game::camera::Camera> {
         self.call(format!("zoom {height}"));
-        if !(50..=3000).contains(&height) {
-            return fail(Status::InvalidArgument, "the height is from 50 to 3000");
-        }
+        let looking = view();
+        game::camera::check_height(height, (looking.min_height, looking.max_height))?;
         Ok(game::camera::Camera { height, ..view() })
     }
 }
