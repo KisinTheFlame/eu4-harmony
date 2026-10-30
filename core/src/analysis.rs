@@ -175,11 +175,7 @@ pub fn arguments(code: &[u8], rva: usize) -> u32 {
         // Memory operands through rsp or the frame register.
         if instruction.op_kinds().any(|k| k == OpKind::Memory) {
             let base = instruction.memory_base();
-            let known = if base == Register::RSP {
-                Some(rsp)
-            } else {
-                frame.filter(|&(r, _)| r == base).map(|(_, v)| v)
-            };
+            let known = if base == Register::RSP { Some(rsp) } else { frame.filter(|&(r, _)| r == base).map(|(_, v)| v) };
             if let Some(at) = known {
                 let offset = at + instruction.memory_displacement64() as i64;
                 if offset >= 0x28 && instruction.memory_index() == Register::None {

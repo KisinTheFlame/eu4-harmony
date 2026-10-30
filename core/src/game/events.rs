@@ -224,10 +224,7 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
         let result = (|| -> Result<Vec<u64>> {
             let ctx = context_any(m).map_err(|e| e.message)?;
             let index = a[3] & 255;
-            if index > 1
-                || m.u8(a[0] + battle::SETTLED)? != 0
-                || m.ptr(a[0] + battle::SIDES[index])? != a[1]
-                || m.ptr(a[0] + battle::SIDES[1 - index])? != a[2]
+            if index > 1 || m.u8(a[0] + battle::SETTLED)? != 0 || m.ptr(a[0] + battle::SIDES[index])? != a[1] || m.ptr(a[0] + battle::SIDES[1 - index])? != a[2]
             {
                 return Ok(Vec::new());
             }

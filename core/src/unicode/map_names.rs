@@ -23,11 +23,11 @@
 //! rule for one- and two-letter names (0xfd3ef5, `ebx` = 1000) blends in
 //! another direction instead, but reads it from a vector of doubles as floats
 //! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
-use crate::resume;
+use super::{breaks, game_text, text_loops};
 use crate::game_string;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
-use super::{breaks, game_text, text_loops};
 use crate::points::Point;
+use crate::resume;
 
 resume!(LAYOUT_RESUME: LAYOUT_DONE = 0x159dc13);
 resume!(DRAW_RESUME: DRAW_DONE = 0x159df9a);
@@ -322,8 +322,14 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x159df9ausize, "75 73", "map text glyph found"),
         Point::keep(0x159e489usize, "41 ff c3 45 3b dc 0f 8c db fa ff ff", "map text draw next byte"),
         Point::keep(0x159e61dusize, "8b d7", "wrapped text measuring copies the index"),
-        Point::jump(0x159e75dusize, "0f b6 04 10 4d 8b 9c c5 20 01 00 00 f3 41 0f 10 8d 68 09 00 00 4d 85 db", "wrapped text measuring glyph", stub(measure_stub), &MEASURE_RESUME)
-            .uses(&[OWN_GLYPHS, SCALE]),
+        Point::jump(
+            0x159e75dusize,
+            "0f b6 04 10 4d 8b 9c c5 20 01 00 00 f3 41 0f 10 8d 68 09 00 00 4d 85 db",
+            "wrapped text measuring glyph",
+            stub(measure_stub),
+            &MEASURE_RESUME,
+        )
+        .uses(&[OWN_GLYPHS, SCALE]),
         Point::keep(0x159e775usize, "0f 84 19 01 00 00", "wrapped text measuring null glyph"),
         Point::jump(
             0x159e7d8usize,
@@ -336,19 +342,35 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x159e841usize, "48 8b 85 90 10 00 00", "wrapped text measuring inside a word"),
         // The index ends the loop as the stubs left it: the next character.
         Point::keep(0x159e8f1usize, "ff c7 44 8b 4b 10 41 3b f9", "wrapped text measuring next byte"),
-        Point::jump(0xfd733eusize, "0f b6 04 01 49 8b 94 c4 20 01 00 00 48 85 d2", "straight map name glyph count", stub(straight_count_stub), &STRAIGHT_COUNT_RESUME),
+        Point::jump(
+            0xfd733eusize,
+            "0f b6 04 01 49 8b 94 c4 20 01 00 00 48 85 d2",
+            "straight map name glyph count",
+            stub(straight_count_stub),
+            &STRAIGHT_COUNT_RESUME,
+        ),
         Point::keep(0xfd734dusize, "74 09", "straight map name count skip"),
         Point::keep(0xfd7358usize, "48 ff c1 49 3b c8 7c d0", "straight map name count next byte"),
         Point::jump(0xfd6bcfusize, "0f b6 04 08 49 8b 14 c6 48 85 d2", "country name glyph count", stub(curved_count_stub), &CURVED_COUNT_RESUME),
         Point::keep(0xfd6bdausize, "74 0a", "country name count skip"),
         Point::keep(0xfd6be6usize, "48 ff c1 49 3b c8 7c d2", "country name count next byte"),
-        Point::keep(0xfd664fusize, "48 8b bd 88 00 00 00 c6 45 01 00 4c 89 7d 30 4c 89 7d 40 48 c7 45 48 0f 00 00 00 c6 45 30 00 49 8b df", "country name spacing setup"),
+        Point::keep(
+            0xfd664fusize,
+            "48 8b bd 88 00 00 00 c6 45 01 00 4c 89 7d 30 4c 89 7d 40 48 c7 45 48 0f 00 00 00 c6 45 30 00 49 8b df",
+            "country name spacing setup",
+        ),
         Point::jump(0xfd6671usize, "4d 85 e4 7e 6e", "country name letter spacing", stub(spacing_stub), &SPACED_RESUME),
         Point::keep(0xfd6727usize, "48 8b 85 40 02 00 00", "country name spacing done"),
         Point::jump(0xfd3eeausize, "48 8b 4f 10 48 89 8d 68 01 00 00", "map name curve length", stub(length_stub), &LENGTH_RESUME),
         Point::keep(0xfd3ef5usize, "8d 41 fe", "map name curve short names"),
-        Point::jump(0xfd3f40usize, "0f b6 04 01 88 85 08 08 00 00 f3 44 0f 10 a2 48 08 00 00 4c 8b 34 c2", "map name curve glyph", stub(bend_stub), &BEND_RESUME)
-            .uses(&[SCALE_FROM_GLYPHS]),
+        Point::jump(
+            0xfd3f40usize,
+            "0f b6 04 01 88 85 08 08 00 00 f3 44 0f 10 a2 48 08 00 00 4c 8b 34 c2",
+            "map name curve glyph",
+            stub(bend_stub),
+            &BEND_RESUME,
+        )
+        .uses(&[SCALE_FROM_GLYPHS]),
         Point::keep(0xfd3f57usize, "4d 85 f6 0f 84 64 14 00 00", "map name curve glyph found"),
         Point::jump(0xfd413eusize, "83 7f 10 01 7e 1b", "map name curve position guard", stub(guard_stub), &GUARD_RESUME),
         Point::keep(0xfd4144usize, "66 0f 6e f6 0f 5b f6 48 8b 85 68 01 00 00", "map name curve position"),

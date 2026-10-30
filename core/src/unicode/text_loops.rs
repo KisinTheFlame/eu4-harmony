@@ -25,8 +25,8 @@
 //! font's own `?`. Null only where the font's own table is and nothing else
 //! has the character (control characters), as the loops expect.
 use super::glyphs::{self, Glyph};
-use crate::objects::text::font::OWN_GLYPHS;
 use super::{fill, game_text};
+use crate::objects::text::font::OWN_GLYPHS;
 
 /// The glyph `font` draws for `c`.
 pub fn glyph(font: usize, c: char) -> *const Glyph {
@@ -110,7 +110,16 @@ pub unsafe extern "C" fn layout_char(font: usize, text: *const u8, word: usize, 
 ///
 /// # Safety
 /// As for [`glyph_in`]; `word` has `capacity` writable bytes.
-pub unsafe extern "C" fn layout_char_in(font: usize, text: *const u8, index: u32, end: u32, word: *mut u8, word_at: u32, capacity: u32, len: *mut usize) -> *const Glyph {
+pub unsafe extern "C" fn layout_char_in(
+    font: usize,
+    text: *const u8,
+    index: u32,
+    end: u32,
+    word: *mut u8,
+    word_at: u32,
+    capacity: u32,
+    len: *mut usize,
+) -> *const Glyph {
     crate::guarded("text layout glyph", || {
         let glyph = glyph_in(font, text, index, end, len);
         let extra = unsafe { *len } - 1;

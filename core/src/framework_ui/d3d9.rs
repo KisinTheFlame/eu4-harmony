@@ -105,7 +105,12 @@ impl Backend {
             device.SetTextureStageState(0, state, value)?;
         }
         device.SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE.0 as u32)?;
-        for (state, value) in [(D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32), (D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32), (D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32), (D3DSAMP_SRGBTEXTURE, 0)] {
+        for (state, value) in [
+            (D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32),
+            (D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32),
+            (D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32),
+            (D3DSAMP_SRGBTEXTURE, 0),
+        ] {
             device.SetSamplerState(0, state, value)?;
         }
         Ok(())

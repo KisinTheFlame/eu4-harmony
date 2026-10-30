@@ -362,7 +362,8 @@ mod tests {
         w.center(&Mono, 1000.0, 400.0);
         let (x, y) = spot(&w, "F0");
         assert_eq!(w.mouse_down(&Mono, x, y), None);
-        let shown = |w: &Window| w.draw(&Mono).iter().filter(|c| matches!(c, Command::Text { text, .. } if text.starts_with('F') && !text.contains('▾'))).count();
+        let shown =
+            |w: &Window| w.draw(&Mono).iter().filter(|c| matches!(c, Command::Text { text, .. } if text.starts_with('F') && !text.contains('▾'))).count();
         let rows = shown(&w);
         assert!((3..40).contains(&rows), "{rows} rows on a 400-pixel screen");
         w.wheel(&Mono, -5);

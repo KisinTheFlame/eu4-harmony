@@ -266,7 +266,16 @@ pub fn points() -> Vec<Point> {
              48 8b 40 10 8b 8a d0 1d 00 00 48 89 82 a0 1d 00 00 89 8a 9c 1d 00 00",
             "diplomacy window send",
         )
-        .uses(&[send_window::ACTION, FROM, WORLD, DATE, world::ALLIANCE_OFFER_FROM, world::ALLIANCE_OFFER_DATE, world::PEACE_OFFER_FROM, world::PEACE_OFFER_DATE]),
+        .uses(&[
+            send_window::ACTION,
+            FROM,
+            WORLD,
+            DATE,
+            world::ALLIANCE_OFFER_FROM,
+            world::ALLIANCE_OFFER_DATE,
+            world::PEACE_OFFER_FROM,
+            world::PEACE_OFFER_DATE,
+        ]),
         Point::keep(
             0xedfb64usize,
             "48 8b 8f c0 01 00 00 41 8b 80 d0 1d 00 00 89 41 28 48 8b 8f b8 01 00 00 48 8b 01 ff 90 80 00 00 00 48 8b 8f c0 01 00 00 \
@@ -319,7 +328,11 @@ pub fn points() -> Vec<Point> {
         .uses(&[war_entry::WINDOW, war_entry::SIDE, war_entry::SIDE + 0x10, war_entry::ALLY, war_entry::PROMISE_BOX]),
         // Its call box: the check, with whether the ally is not promised land
         // and no reasons, then the ally put into those called.
-        Point::keep(0xee32e7usize, "48 8b 41 50 48 89 5c 24 38 4c 8b 98 c0 01 00 00 48 8b 41 60", "call box").uses(&[war_entry::WINDOW, send_window::ACTION, war_entry::SIDE]),
+        Point::keep(0xee32e7usize, "48 8b 41 50 48 89 5c 24 38 4c 8b 98 c0 01 00 00 48 8b 41 60", "call box").uses(&[
+            war_entry::WINDOW,
+            send_window::ACTION,
+            war_entry::SIDE,
+        ]),
         Point::keep(0xee3301usize, "4d 8b 4b 58 49 8d 5b 50", "call box called").uses(&[CALLED + 8, CALLED]),
         Point::keep(0xee3365usize, "4d 3b c1 41 0f 94 c0 49 8b d3 45 33 c9 48 8b cf e8 76 d0 ff ff", "call box check"),
         Point::keep(0xee3405usize, "4c 3b 4b 10 74 0d 49 89 01 48 83 43 08 08", "call box call").uses(&[0x10, 8]),
@@ -329,17 +342,30 @@ pub fn points() -> Vec<Point> {
         // plays it; the window's list of enemies, its own window's list box
         // of that name and the list box's entries; the action the window
         // sends.
-        Point::keep(0xee042fusize, "40 38 79 67 0f 84 5e 10 00 00 40 38 79 74 0f 85 54 10 00 00 48 8b 51 60", "ally check entry")
-            .uses(&[war_entry::SIDE + 7, war_entry::SIDE + side::JOINS, war_entry::SIDE + side::COUNTRY]),
-        Point::keep(0xee044busize, "48 8b 05 26 fa 45 01 4c 8b 80 48 1d 00 00 48 8b 88 50 1d 00 00", "ally check human").uses(&[WORLD, world::HUMANS, world::HUMANS + 8]),
+        Point::keep(0xee042fusize, "40 38 79 67 0f 84 5e 10 00 00 40 38 79 74 0f 85 54 10 00 00 48 8b 51 60", "ally check entry").uses(&[
+            war_entry::SIDE + 7,
+            war_entry::SIDE + side::JOINS,
+            war_entry::SIDE + side::COUNTRY,
+        ]),
+        Point::keep(0xee044busize, "48 8b 05 26 fa 45 01 4c 8b 80 48 1d 00 00 48 8b 88 50 1d 00 00", "ally check human").uses(&[
+            WORLD,
+            world::HUMANS,
+            world::HUMANS + 8,
+        ]),
         Point::keep(0xee049fusize, "40 38 7e 78", "ally check side").uses(&[war_entry::ALLY]),
         Point::keep(0xee059fusize, "4c 8d 46 6c", "ally check through").uses(&[war_entry::SIDE + side::THROUGH]),
         Point::keep(0xee0e85usize, "44 8b 4a 68", "ally check reason").uses(&[war_entry::SIDE + side::REASON]),
-        Point::keep(0xee062fusize, "48 8b 46 50 48 8b 48 08 48 8b 01 4c 8b 80 a8 01 00 00", "ally check window")
-            .uses(&[war_entry::WINDOW, super::gui::dialog::WINDOW, super::gui::window::FIND_LIST_BOX]),
+        Point::keep(0xee062fusize, "48 8b 46 50 48 8b 48 08 48 8b 01 4c 8b 80 a8 01 00 00", "ally check window").uses(&[
+            war_entry::WINDOW,
+            super::gui::dialog::WINDOW,
+            super::gui::window::FIND_LIST_BOX,
+        ]),
         Point::keep(0xee0686usize, "48 8b 10 48 8b c8 ff 52 58 48 8b 18", "ally check enemies").uses(&[super::gui::list_box::ENTRIES]),
-        Point::keep(0xee0398usize, "80 7b 74 00 75 42 48 8b 43 50 48 8b 98 c0 01 00 00", "ally check action")
-            .uses(&[war_entry::SIDE + side::JOINS, war_entry::WINDOW, send_window::ACTION]),
+        Point::keep(0xee0398usize, "80 7b 74 00 75 42 48 8b 43 50 48 8b 98 c0 01 00 00", "ally check action").uses(&[
+            war_entry::SIDE + side::JOINS,
+            war_entry::WINDOW,
+            send_window::ACTION,
+        ]),
         // An action made to the player: it gets its id as it reaches the
         // player; the alliance offer's window shows both countries; the
         // offer's window asks whether the action is still unanswered, and
@@ -348,12 +374,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x4e82a9usize, "89 43 3c", "diplomatic action id").uses(&[ID]),
         Point::keep(0x1067b19usize, "49 8b 46 10 48 c1 e8 20", "diplomatic action maker").uses(&[FROM]),
         Point::keep(0x1067aacusize, "48 8b 96 38 02 00 00 48 8b 52 20", "diplomatic action recipient").uses(&[offer_window::ACTION, TO]),
-        Point::keep(0x1066b5dusize, "48 8b 83 38 02 00 00 83 78 34 00 0f 94 c0", "offer's action unanswered").uses(&[offer_window::ACTION, STATE, UNANSWERED as usize]),
-        Point::keep(
-            0x1066b16usize,
-            "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28 89 54 24 30 ba 02 00 00 00 e8 fa 14 46 00",
-            "offer's action made",
-        )
-        .uses(&[offer_window::ACTION, MADE, offer_window::ANSWER_MONTHS]),
+        Point::keep(0x1066b5dusize, "48 8b 83 38 02 00 00 83 78 34 00 0f 94 c0", "offer's action unanswered").uses(&[
+            offer_window::ACTION,
+            STATE,
+            UNANSWERED as usize,
+        ]),
+        Point::keep(0x1066b16usize, "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28 89 54 24 30 ba 02 00 00 00 e8 fa 14 46 00", "offer's action made")
+            .uses(&[offer_window::ACTION, MADE, offer_window::ANSWER_MONTHS]),
     ]
 }

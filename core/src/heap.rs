@@ -68,7 +68,11 @@ pub fn live() -> usize {
 pub fn private_bytes() -> usize {
     let mut counters = PROCESS_MEMORY_COUNTERS_EX { cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32, ..unsafe { std::mem::zeroed() } };
     let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters as *mut _ as *mut PROCESS_MEMORY_COUNTERS, counters.cb) };
-    if ok == 0 { 0 } else { counters.PrivateUsage }
+    if ok == 0 {
+        0
+    } else {
+        counters.PrivateUsage
+    }
 }
 
 const MB: f64 = 1024.0 * 1024.0;

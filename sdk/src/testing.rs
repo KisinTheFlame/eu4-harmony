@@ -376,7 +376,9 @@ impl Backend for FakeGame {
     }
     fn time_resume(&mut self) -> Result<()> {
         if self.session.paused && self.end_date.is_some_and(|end| self.session.date > end) {
-            return Err(rejected("the game is over: it is past its end date, and stays paused, as for the player, until the end-of-game summary is closed to play on"));
+            return Err(rejected(
+                "the game is over: it is past its end date, and stays paused, as for the player, until the end-of-game summary is closed to play on",
+            ));
         }
         self.session.paused = false;
         Ok(())
@@ -535,7 +537,13 @@ mod tests {
             fake.tags.insert(id, tag.into());
         }
         fake.allies = vec![(wal, true), (ven, false)];
-        let claim = WarGoal { casus_belli: Some("cb_claim".into()), war_goal: Some("take_claim".into()), province: Some(151), target: None, name: "Conquer Constantinople".into() };
+        let claim = WarGoal {
+            casus_belli: Some("cb_claim".into()),
+            war_goal: Some("take_claim".into()),
+            province: Some(151),
+            target: None,
+            name: "Conquer Constantinople".into(),
+        };
         fake.war_goals.insert(byz, vec![claim.clone()]);
         assert_eq!(fake.game().war_goals(byz).unwrap(), std::slice::from_ref(&claim));
         assert_eq!(fake.game().war_goals(wal).unwrap(), []);
@@ -587,7 +595,12 @@ mod tests {
     #[test]
     fn a_country_snapshot_is_what_the_test_set_up() {
         let mut fake = FakeGame::new();
-        let country = Country { id: CountryId(7), treasury: 31.25, relations: vec![Relation { kind: RelationKind::Rival, country: CountryId(8), subject_type: None }], ..Default::default() };
+        let country = Country {
+            id: CountryId(7),
+            treasury: 31.25,
+            relations: vec![Relation { kind: RelationKind::Rival, country: CountryId(8), subject_type: None }],
+            ..Default::default()
+        };
         fake.countries.insert(CountryId(7), country.clone());
         assert_eq!(fake.game().country(CountryId(7)).unwrap(), country);
         assert_eq!(fake.game().country(CountryId(8)).unwrap_err().status, Status::NotFound);

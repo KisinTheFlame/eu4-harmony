@@ -123,7 +123,15 @@ fn the_process_serving_the_pipe_can_only_identify_the_client() {
         let token = unsafe { OwnedHandle::from_raw_handle(token) };
         let mut found: SECURITY_IMPERSONATION_LEVEL = -1;
         let mut size = 0;
-        let read = unsafe { GetTokenInformation(token.as_raw_handle(), TokenImpersonationLevel, (&raw mut found).cast(), size_of::<SECURITY_IMPERSONATION_LEVEL>() as u32, &mut size) };
+        let read = unsafe {
+            GetTokenInformation(
+                token.as_raw_handle(),
+                TokenImpersonationLevel,
+                (&raw mut found).cast(),
+                size_of::<SECURITY_IMPERSONATION_LEVEL>() as u32,
+                &mut size,
+            )
+        };
         assert_ne!(read, 0, "{}", io::Error::last_os_error());
         told.send(found).unwrap();
         answer(pipe, "{\"ok\":true,\"result\":null}\n");

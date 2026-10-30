@@ -24,18 +24,20 @@
 //! deleted text. While an edit box has the keyboard, such presses go to the
 //! input method alone. Elsewhere they still reach the game, so its shortcuts
 //! keep working with a Chinese input method switched on.
-use crate::resume;
 use super::game_text;
 use crate::objects::{
     gui::{self, edit_box, editor, events, manager},
     text::font,
 };
 use crate::points::{Function, Point};
+use crate::resume;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::UI::Input::Ime::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, VK_PROCESSKEY};
-use windows_sys::Win32::UI::WindowsAndMessaging::{DefWindowProcW, WM_IME_COMPOSITION, WM_IME_NOTIFY, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DefWindowProcW, WM_IME_COMPOSITION, WM_IME_NOTIFY, WM_IME_SETCONTEXT, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP,
+};
 
 const TEXT_EVENT: usize = 0x1569f91;
 const NEXT_EVENT: usize = 0x156a22a;

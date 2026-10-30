@@ -91,7 +91,10 @@ fn calls(text: Option<&str>, game: &mut (impl countries::Layer + ?Sized)) -> GRe
             let mut tags = Vec::new();
             for word in list.split(',').map(str::trim) {
                 let Some(tag) = CountryTag::parse(word) else {
-                    return Err(Fail { status: Status::InvalidArgument, message: format!("call_allies is all, none, or country tags separated by commas; {word:?} is not a tag") });
+                    return Err(Fail {
+                        status: Status::InvalidArgument,
+                        message: format!("call_allies is all, none, or country tags separated by commas; {word:?} is not a tag"),
+                    });
                 };
                 tags.push(game.country(tag)?);
             }
@@ -209,7 +212,14 @@ mod tests {
         let mut game = Fake::default();
         game.answers.push_back(Ok(Answer::Pending));
         game.answers.push_back(Ok(Answer::Declared("Ottoman-Byzantine War".into())));
-        let declare = DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "cb_claim".into(), war_goal: None, province: Some(ProvinceId(151)), target: Some(CountryTag(*b"WAL")), call_allies: None };
+        let declare = DiplomacyRequest::DeclareWar {
+            country: byz(),
+            casus_belli: "cb_claim".into(),
+            war_goal: None,
+            province: Some(ProvinceId(151)),
+            target: Some(CountryTag(*b"WAL")),
+            call_allies: None,
+        };
         let reply = engine.submit(Request::Diplomacy(declare));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), Value::Null);
@@ -222,12 +232,22 @@ mod tests {
             answer(&reply),
             json!({"ok": true, "result": {"answer": "declared", "war": "Ottoman-Byzantine War", "called": ["WAL"], "passed_over": [{"country": "TUR", "reasons": ["They would not accept."]}]}})
         );
-        assert_eq!(game.calls[..3], ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199) calling All"]);
+        assert_eq!(
+            game.calls[..3],
+            ["country BYZ", "country WAL", "declare war 1000021005a5942 Some(\"cb_claim\") None Some(151) Some(72058882533114199) calling All"]
+        );
         assert_eq!(game.calls[3..], ["answer 1", "answer 1"]);
 
         // Without a casus belli, calling no ally: pending, none called.
         let declare = |engine: &Engine, call_allies: &str| {
-            let declare = DiplomacyRequest::DeclareWar { country: byz(), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: Some(call_allies.into()) };
+            let declare = DiplomacyRequest::DeclareWar {
+                country: byz(),
+                casus_belli: "none".into(),
+                war_goal: None,
+                province: None,
+                target: None,
+                call_allies: Some(call_allies.into()),
+            };
             engine.submit(Request::Diplomacy(declare))
         };
         let reply = declare(&engine, "none");
@@ -253,7 +273,14 @@ mod tests {
     fn a_refusal_comes_at_once_with_the_game_s_reasons() {
         let engine = Engine::new(quiet);
         let mut game = Fake::default();
-        let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"WAL"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None }));
+        let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::DeclareWar {
+            country: CountryTag(*b"WAL"),
+            casus_belli: "none".into(),
+            war_goal: None,
+            province: None,
+            target: None,
+            call_allies: None,
+        }));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&reply), json!({"ok": false, "error": {"code": "rejected", "message": "They are our subject.\nWe have a truce with them."}}));
         let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: CountryTag(*b"QQQ") }));

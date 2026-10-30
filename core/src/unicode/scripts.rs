@@ -67,7 +67,13 @@ pub fn decoded() -> u64 {
 pub fn points() -> Vec<Point> {
     vec![
         Point::replace(TEXT_TOKEN, "40 57 48 83 ec 40 80 b9 1c 02 00 00 01 48 8b f9", "script lexer next token", text_token as NextToken, &TEXT_ORIGINAL),
-        Point::replace(BINARY_TOKEN, "48 89 5c 24 20 55 56 57 48 8b ec 48 83 ec 40 48", "binary save lexer next token", binary_token as NextToken, &BINARY_ORIGINAL),
+        Point::replace(
+            BINARY_TOKEN,
+            "48 89 5c 24 20 55 56 57 48 8b ec 48 83 ec 40 48",
+            "binary save lexer next token",
+            binary_token as NextToken,
+            &BINARY_ORIGINAL,
+        ),
     ]
 }
 

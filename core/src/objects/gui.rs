@@ -326,18 +326,21 @@ pub fn points() -> Vec<Point> {
         Point::keep(EDIT_BOX_PLACE, "48 89 5c 24 18 57 48 83 ec 30 48 8b d9 0f 29 74", "edit box place"),
         Point::keep(EDITOR_CARET_MOVED, "40 53 48 83 ec 20 48 8d 99 38 ff ff ff 48 8b 89", "editor caret moved"),
         // Edit box.
-        Point::keep(0x15333ebusize, "48 8d 05 e6 e3 85 00 49 89 86 d0 01 00 00", "edit box keyboard listener").uses(&[classes::EDIT_BOX_LISTENER, edit_box::LISTENER]),
+        Point::keep(0x15333ebusize, "48 8d 05 e6 e3 85 00 49 89 86 d0 01 00 00", "edit box keyboard listener")
+            .uses(&[classes::EDIT_BOX_LISTENER, edit_box::LISTENER]),
         Point::keep(0x1534216usize, "48 81 c1 c8 00 00 00", "edit box editor").uses(&[edit_box::EDITOR]),
         Point::keep(0x1535266usize, "c6 81 60 02 00 00 01", "edit box focus flag").uses(&[edit_box::FOCUSED]),
         Point::keep(0x153427eusize, "48 8b 81 e0 01 00 00 4c 8b 98 04 26 03 00", "edit box caret shift").uses(&[edit_box::SHIFT_HOLDER, edit_box::SHIFT]),
-        Point::keep(0x15342adusize, "44 8b bf 8c 02 00 00 44 03 bf 40 02 00 00 44 03 7d 30 45 03 fb", "edit box caret x").uses(&[edit_box::INSET_X[0], edit_box::INSET_X[1]]),
+        Point::keep(0x15342adusize, "44 8b bf 8c 02 00 00 44 03 bf 40 02 00 00 44 03 7d 30 45 03 fb", "edit box caret x")
+            .uses(&[edit_box::INSET_X[0], edit_box::INSET_X[1]]),
         Point::keep(0x15342c2usize, "8b 87 90 02 00 00 03 87 44 02 00 00 03 45 34", "edit box caret y").uses(&[edit_box::INSET_Y[0], edit_box::INSET_Y[1]]),
         // Editor.
         Point::keep(0x1537020usize, "48 83 c1 30", "editor text").uses(&[editor::TEXT]),
         Point::keep(0x1538e42usize, "66 3b 47 56 75 06 66 3b 47 54", "editor caret line and column").uses(&[editor::LINE, editor::COLUMN]),
         Point::keep(0x15360bcusize, "48 8b 89 98 00 00 00", "editor font").uses(&[editor::FONT]),
         // Classes, where their constructors set them.
-        Point::keep(0x10b55fcusize, "48 8d 05 15 2c ca 00 49 89 04 24 48 8d 05 ea 2b ca 00", "button and signal classes").uses(&[classes::BUTTON, classes::SIGNAL]),
+        Point::keep(0x10b55fcusize, "48 8d 05 15 2c ca 00 49 89 04 24 48 8d 05 ea 2b ca 00", "button and signal classes")
+            .uses(&[classes::BUTTON, classes::SIGNAL]),
         Point::keep(0x1529d66usize, "48 8d 0d a3 5f 86 00", "text box class").uses(&[classes::TEXT_BOX]),
         Point::keep(0x80afc4usize, "48 8d 05 fd d0 4a 01", "callback class").uses(&[classes::CALLBACK]),
         Point::keep(0x1543feausize, "48 8d 05 bf e6 84 00", "window class").uses(&[classes::WINDOW]),
@@ -364,12 +367,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x8221aausize, "48 8b 9e 00 14 00 00 48 8b 9b 78 4c 00 00", "message icons")
             .uses(&[campaign::map_manager::MESSAGE_ICON_HOLDER, message_icon_holder::ICONS]),
         // A clicked icon hands its dialog to the open dialogs and is done.
-        Point::keep(
-            0x10807a6usize,
-            "48 8b 89 00 1e 00 00 e8 5e c5 66 ff 48 c7 43 20 00 00 00 00 c6 83 40 01 00 00 01",
-            "message icon clicked",
-        )
-        .uses(&[message_icon::DIALOG, message_icon::DONE]),
+        Point::keep(0x10807a6usize, "48 8b 89 00 1e 00 00 e8 5e c5 66 ff 48 c7 43 20 00 00 00 00 c6 83 40 01 00 00 01", "message icon clicked")
+            .uses(&[message_icon::DIALOG, message_icon::DONE]),
         // A dialog's update: its window, and whether it stays.
         Point::keep(0x10a090busize, "48 8b 4b 08", "dialog window").uses(&[dialog::WINDOW]),
         Point::keep(0x10a0941usize, "80 bb 14 01 00 00 00 75 15 48 8b 03 48 8b cb ff 50 60", "dialog done").uses(&[dialog::DONE, dialog::VALID]),

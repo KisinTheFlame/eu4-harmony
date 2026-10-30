@@ -49,11 +49,7 @@ pub fn points() -> Vec<Point> {
         // Entering the setup: whether `-start_tag` left a country, and its
         // text.
         Point::keep(0x110e7b4usize, "83 3d fd 51 ec 00 00", "start tag set").uses(&[START_TAG + game_string::SIZE]),
-        Point::keep(
-            0x110e7e6usize,
-            "48 8d 3d bb 51 ec 00 4c 8b c7 48 83 3d c8 51 ec 00 10 4c 0f 43 05 a8 51 ec 00",
-            "start tag text",
-        )
-        .uses(&[START_TAG, START_TAG + game_string::CAPACITY]),
+        Point::keep(0x110e7e6usize, "48 8d 3d bb 51 ec 00 4c 8b c7 48 83 3d c8 51 ec 00 10 4c 0f 43 05 a8 51 ec 00", "start tag text")
+            .uses(&[START_TAG, START_TAG + game_string::CAPACITY]),
     ]
 }

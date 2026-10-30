@@ -187,7 +187,15 @@ fn kinds_from_text() {
     assert_eq!(Kind::Integer.json("18446744073709551615"), Some(json!(u64::MAX)));
     assert_eq!(Kind::Boolean.json("false"), Some(json!(false)));
     assert_eq!(Kind::UnitKind.json("heavy_ship"), Some(json!("heavy_ship")));
-    for (kind, bad) in [(Kind::Province, "Paris"), (Kind::Province, "1.5"), (Kind::Integer, "0x10"), (Kind::Integer, ""), (Kind::Boolean, "yes"), (Kind::UnitKind, "Infantry"), (Kind::UnitKind, "marines")] {
+    for (kind, bad) in [
+        (Kind::Province, "Paris"),
+        (Kind::Province, "1.5"),
+        (Kind::Integer, "0x10"),
+        (Kind::Integer, ""),
+        (Kind::Boolean, "yes"),
+        (Kind::UnitKind, "Infantry"),
+        (Kind::UnitKind, "marines"),
+    ] {
         assert_eq!(kind.json(bad), None, "{kind:?} {bad}");
     }
     // Text kinds stay text, even when they look like numbers.
@@ -214,7 +222,12 @@ fn binaries_in_json() {
     assert_eq!(Binary::from_json(&value), Some(png.clone()));
     assert_eq!(serde_json::from_value::<Binary>(value).unwrap(), png);
     // Only that shape is a binary.
-    for other in [json!("iVBORw=="), json!({"base64": "iVBORw=="}), json!({"media_type": "image/png", "base64": "iVBORw==", "width": 1}), json!({"media_type": "image/png", "base64": "not base64"})] {
+    for other in [
+        json!("iVBORw=="),
+        json!({"base64": "iVBORw=="}),
+        json!({"media_type": "image/png", "base64": "iVBORw==", "width": 1}),
+        json!({"media_type": "image/png", "base64": "not base64"}),
+    ] {
         assert_eq!(Binary::from_json(&other), None, "{other}");
     }
 }

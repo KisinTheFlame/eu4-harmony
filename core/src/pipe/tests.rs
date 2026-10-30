@@ -217,7 +217,9 @@ fn several_clients_are_served_at_once() {
     let clients: Vec<_> = (0..4)
         .map(|i| {
             let mut client = test.connect();
-            std::thread::spawn(move || (0..5).map(|_| client.ask(&format!(r#"{{"capability": "army.move", "army": "{ARMY}", "goal": {}}}"#, 200 + i))).collect::<Vec<_>>())
+            std::thread::spawn(move || {
+                (0..5).map(|_| client.ask(&format!(r#"{{"capability": "army.move", "army": "{ARMY}", "goal": {}}}"#, 200 + i))).collect::<Vec<_>>()
+            })
         })
         .collect();
     for client in clients {
@@ -269,7 +271,8 @@ fn a_client_that_closes_the_pipe_gives_its_request_up_with_later_ones_unread() {
 fn dacl(pipe: &File) -> String {
     let (mut acl, mut descriptor) = (std::ptr::null_mut(), std::ptr::null_mut());
     let null = std::ptr::null_mut();
-    let error = unsafe { GetSecurityInfo(pipe.as_raw_handle(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, null, null, &mut acl, null.cast(), &mut descriptor) };
+    let error =
+        unsafe { GetSecurityInfo(pipe.as_raw_handle(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, null, null, &mut acl, null.cast(), &mut descriptor) };
     assert_eq!(error, 0);
     let sddl = written(descriptor);
     unsafe { LocalFree(descriptor) };

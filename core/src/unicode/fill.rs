@@ -26,10 +26,10 @@ use super::costs;
 use super::dxt;
 use super::game_text;
 use super::glyphs::{self, Glyph};
-use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use super::system_font::SystemFonts;
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
+use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use crate::points::Point;
 use crate::settings::{self, TextAppearance};
 use std::cell::RefCell;
@@ -184,7 +184,11 @@ fn device(m: &Memory, manager: usize) -> crate::Result<IDirect3DDevice9> {
 
 /// The bytes of one row of a `width`-pixel page: of pixels, or of blocks.
 fn row_bytes(compressed: bool, width: u32) -> usize {
-    if compressed { width.div_ceil(4) as usize * dxt::BLOCK } else { width as usize * 4 }
+    if compressed {
+        width.div_ceil(4) as usize * dxt::BLOCK
+    } else {
+        width as usize * 4
+    }
 }
 
 /// A system-memory texture to write a page of `format` through.
@@ -200,7 +204,17 @@ fn staging(device: &IDirect3DDevice9, format: D3DFORMAT, width: u32, height: u32
 /// block), through `staging`, a system-memory texture of the page's format at
 /// least that large, from which the device copies them into the page.
 #[expect(clippy::too_many_arguments, reason = "the device, the textures, the format, a rectangle and its pixels; a struct would only rename them")]
-fn put(device: &IDirect3DDevice9, page: &IDirect3DTexture9, staging: &IDirect3DTexture9, compressed: bool, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> windows::core::Result<()> {
+fn put(
+    device: &IDirect3DDevice9,
+    page: &IDirect3DTexture9,
+    staging: &IDirect3DTexture9,
+    compressed: bool,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    data: &[u8],
+) -> windows::core::Result<()> {
     if width == 0 || height == 0 {
         return Ok(());
     }
@@ -281,7 +295,11 @@ const CJK: u32 = 0x2e80;
 /// The em size `scalar` is drawn at, given the font's for letters and for
 /// the rest.
 fn em_for(scalar: u32, letter_em: f32, em: f32) -> f32 {
-    if scalar < CJK { letter_em } else { em }
+    if scalar < CJK {
+        letter_em
+    } else {
+        em
+    }
 }
 
 /// The room a glyph `width` by `height` pixels takes in the atlas, which adds
@@ -425,9 +443,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     let mut texture = None;
     let creating = crate::heap::Change::begin();
     unsafe {
-        device
-            .CreateTexture(width, height, 1, 0, format, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut())
-            .map_err(|e| format!("page texture: {e}"))?;
+        device.CreateTexture(width, height, 1, 0, format, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut()).map_err(|e| format!("page texture: {e}"))?;
     }
     let texture = texture.ok_or("no page texture")?;
     let created = creating.end();
@@ -572,7 +588,16 @@ pub fn loaded(font: usize) -> bool {
                 (false, true) => "grown DXT5",
                 (false, false) => "grown",
             };
-            log!("fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), ink {:06x}", fill.width, fill.height, fill.family, fill.em, fill.letter_em, fill.base, fill.ink);
+            log!(
+                "fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), ink {:06x}",
+                fill.width,
+                fill.height,
+                fill.family,
+                fill.em,
+                fill.letter_em,
+                fill.base,
+                fill.ink
+            );
             vacant.insert(fill);
         }
         let fill = pages.get_mut(&wrapper).expect("just made");

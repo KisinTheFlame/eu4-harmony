@@ -6,8 +6,8 @@
 //! letters match inside Chinese names. The replacement folds the module's
 //! single bytes the same way and leaves UTF-8 sequences whole. It runs on the
 //! province finder's worker thread too.
-use crate::game_string;
 use super::game_text;
+use crate::game_string;
 use crate::points::{Function, Point};
 
 const FOLD: usize = 0x1704d70;

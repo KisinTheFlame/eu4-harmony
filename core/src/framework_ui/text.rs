@@ -205,7 +205,10 @@ mod tests {
         assert!(quads.iter().all(|q| q.screen.y >= 50.0 && q.screen.y < 50.0 + 18.0));
         let page = font.take_page().expect("new glyphs dirty the page");
         let q = quads[0].page;
-        let covered = (0..q.h as u32).flat_map(|r| (0..q.w as u32).map(move |c| (r, c))).filter(|&(r, c)| page[((q.y as u32 + r) * PAGE + q.x as u32 + c) as usize] > 0).count();
+        let covered = (0..q.h as u32)
+            .flat_map(|r| (0..q.w as u32).map(move |c| (r, c)))
+            .filter(|&(r, c)| page[((q.y as u32 + r) * PAGE + q.x as u32 + c) as usize] > 0)
+            .count();
         assert!(covered > 20);
         assert!(font.take_page().is_none());
     }

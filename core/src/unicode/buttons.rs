@@ -14,10 +14,10 @@
 //! Both lookups take a whole character and move the index over it; the
 //! measuring pass also appends the rest of its bytes to the word, and the word
 //! ends after a non-ASCII character a line may break after.
-use crate::resume;
-use crate::objects::text::font::OWN_GLYPHS;
 use super::{breaks, text_loops};
+use crate::objects::text::font::OWN_GLYPHS;
 use crate::points::Point;
+use crate::resume;
 
 const MEASURE_GLYPH: usize = 0x1597074;
 const MEASURE_FOUND: usize = 0x1597080;

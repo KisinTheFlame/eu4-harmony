@@ -183,7 +183,11 @@ enum Stage {
     /// Ran there, and the game takes it up: what the main menu's frame saw
     /// last, and since when; and how many saves the game had begun to read
     /// when it ran.
-    Taken { seen: Steps, since: Instant, loads: usize },
+    Taken {
+        seen: Steps,
+        since: Instant,
+        loads: usize,
+    },
     Failed(String),
 }
 
@@ -358,7 +362,8 @@ pub fn load(_: Caller, name: &str) -> GResult<Expected> {
     // Where the game is first: in a game, any save is refused alike.
     first_page(m)?;
     let file = save_file(name)?;
-    let header = save_file::read(&save_games()?.join(&file)).map_err(|e| super::Fail { status: Status::Rejected, message: format!("the save cannot be read: {e}") })?;
+    let header =
+        save_file::read(&save_games()?.join(&file)).map_err(|e| super::Fail { status: Status::Rejected, message: format!("the save cannot be read: {e}") })?;
     let Some(letters) = header.player else {
         return fail(Status::Rejected, "the save has no country to play");
     };
@@ -387,7 +392,10 @@ pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
     let tag = find(m, letters)?;
     if super::world::owned_provinces(m, world_now(m)?, tag)? == 0 {
         let name = String::from_utf8_lossy(&letters).into_owned();
-        return fail(Status::Rejected, format!("{name} has no land at the start date, so it cannot be played from it; started as {name}, the game would only be observed"));
+        return fail(
+            Status::Rejected,
+            format!("{name} has no land at the start date, so it cannot be played from it; started as {name}, the game would only be observed"),
+        );
     }
     ask(Action::Start(letters));
     Ok(())
@@ -722,7 +730,11 @@ mod tests {
     fn a_save_misses_the_mods_it_was_made_with_that_the_playset_lacks() {
         let save_mod = |file: &str, name: &str| save_file::SaveMod { file: file.into(), name: name.into() };
         let header = save_file::Header {
-            mods: vec![save_mod("mod/ugc_3047072888.mod", "彼岸乐园"), save_mod("mod/ugc_2976470733.mod", "Chinese Language Mod for 1.37"), save_mod("mod/local.mod", "")],
+            mods: vec![
+                save_mod("mod/ugc_3047072888.mod", "彼岸乐园"),
+                save_mod("mod/ugc_2976470733.mod", "Chinese Language Mod for 1.37"),
+                save_mod("mod/local.mod", ""),
+            ],
             ..Default::default()
         };
         let playset = ["mod/ugc_253263609.mod".to_string(), "MOD/ugc_2976470733.mod".to_string()];

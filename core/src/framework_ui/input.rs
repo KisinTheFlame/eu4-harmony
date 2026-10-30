@@ -48,7 +48,24 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
     };
     // While a modal window is open the game gets no input at all.
     let modal = super::modal();
-    let input = matches!(message, WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_RBUTTONDBLCLK | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_MOUSEWHEEL | WM_KEYDOWN | WM_KEYUP | WM_CHAR | WM_SYSKEYDOWN | WM_SYSKEYUP);
+    let input = matches!(
+        message,
+        WM_MOUSEMOVE
+            | WM_LBUTTONDOWN
+            | WM_LBUTTONUP
+            | WM_LBUTTONDBLCLK
+            | WM_RBUTTONDOWN
+            | WM_RBUTTONUP
+            | WM_RBUTTONDBLCLK
+            | WM_MBUTTONDOWN
+            | WM_MBUTTONUP
+            | WM_MOUSEWHEEL
+            | WM_KEYDOWN
+            | WM_KEYUP
+            | WM_CHAR
+            | WM_SYSKEYDOWN
+            | WM_SYSKEYUP
+    );
     if taken || (modal && input && message != WM_MOUSEMOVE) {
         return 0;
     }

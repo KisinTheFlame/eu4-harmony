@@ -6,9 +6,9 @@
 //!
 //! The lookup takes a whole character and moves both indexes over it, leaving
 //! the lead byte in `edx` for the kerning call and the newline test after it.
-use crate::resume;
 use super::text_loops;
 use crate::points::Point;
+use crate::resume;
 
 const GLYPH: usize = 0x159b91a;
 const FOUND: usize = 0x159b92c;

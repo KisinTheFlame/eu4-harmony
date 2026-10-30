@@ -119,11 +119,8 @@ impl Pipe {
     /// A new instance of the pipe, for the next client. The `first` one fails
     /// while any process has the pipe open, this one included.
     fn instance(&self, first: bool) -> io::Result<File> {
-        let attributes = SECURITY_ATTRIBUTES {
-            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: self.security.descriptor,
-            bInheritHandle: 0,
-        };
+        let attributes =
+            SECURITY_ATTRIBUTES { nLength: size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: self.security.descriptor, bInheritHandle: 0 };
         let open = PIPE_ACCESS_DUPLEX | if first { FILE_FLAG_FIRST_PIPE_INSTANCE } else { 0 };
         let mode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS;
         let handle = unsafe { CreateNamedPipeW(self.wide.as_ptr(), open, mode, PIPE_UNLIMITED_INSTANCES, BUFFER, BUFFER, 0, &attributes) };

@@ -203,16 +203,14 @@ pub struct GameApi {
     /// Every province, indexed by ID (index 0 is a placeholder with no flags).
     pub provinces: unsafe extern "C" fn(host: *mut c_void, buf: *mut Province, cap: usize, len: *mut usize) -> i32,
     /// Geographic land neighbors of a province.
-    pub province_neighbors:
-        unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut Neighbor, cap: usize, len: *mut usize) -> i32,
+    pub province_neighbors: unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut Neighbor, cap: usize, len: *mut usize) -> i32,
     /// The player's own army.
     pub army: unsafe extern "C" fn(host: *mut c_void, id: u64, out: *mut Army) -> i32,
     /// All armies and fleets of the player.
     pub own_armies: unsafe extern "C" fn(host: *mut c_void, buf: *mut Army, cap: usize, len: *mut usize) -> i32,
     /// Land armies in a province the player can see. [`NOT_READY`] while
     /// visibility is not current; an empty list for provinces under fog.
-    pub province_armies:
-        unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut Army, cap: usize, len: *mut usize) -> i32,
+    pub province_armies: unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut Army, cap: usize, len: *mut usize) -> i32,
     /// Provinces on the current route of an own army, in order.
     pub army_route: unsafe extern "C" fn(host: *mut c_void, id: u64, buf: *mut u32, cap: usize, len: *mut usize) -> i32,
     /// Whether an own land army may currently enter a province (military
@@ -221,12 +219,10 @@ pub struct GameApi {
     /// Whether the strait between two neighboring provinces is open to the army.
     pub army_strait_open: unsafe extern "C" fn(host: *mut c_void, id: u64, from: u32, to: u32, out: *mut u8) -> i32,
     /// Whether an own land army may attack a visible army in `province`.
-    pub army_can_attack:
-        unsafe extern "C" fn(host: *mut c_void, id: u64, target: u64, province: u32, out: *mut u8) -> i32,
+    pub army_can_attack: unsafe extern "C" fn(host: *mut c_void, id: u64, target: u64, province: u32, out: *mut u8) -> i32,
     /// The route the game itself would choose for an own land army; empty when
     /// `goal` is the army's province. [`NOT_FOUND`] when there is no route.
-    pub find_route:
-        unsafe extern "C" fn(host: *mut c_void, id: u64, goal: u32, buf: *mut u32, cap: usize, len: *mut usize) -> i32,
+    pub find_route: unsafe extern "C" fn(host: *mut c_void, id: u64, goal: u32, buf: *mut u32, cap: usize, len: *mut usize) -> i32,
     /// Orders an own land army along the game's route to `goal`. Accepted
     /// means the route is installed, not that the army has arrived.
     pub army_move: unsafe extern "C" fn(host: *mut c_void, id: u64, goal: u32) -> i32,
@@ -235,21 +231,9 @@ pub struct GameApi {
     pub ui_selected_army: unsafe extern "C" fn(host: *mut c_void, out: *mut u64) -> i32,
     pub ui_set_visible: unsafe extern "C" fn(host: *mut c_void, name: *const u8, name_len: usize, visible: u8) -> i32,
     pub ui_set_enabled: unsafe extern "C" fn(host: *mut c_void, name: *const u8, name_len: usize, enabled: u8) -> i32,
-    pub ui_set_text: unsafe extern "C" fn(
-        host: *mut c_void,
-        name: *const u8,
-        name_len: usize,
-        text: *const u8,
-        text_len: usize,
-    ) -> i32,
+    pub ui_set_text: unsafe extern "C" fn(host: *mut c_void, name: *const u8, name_len: usize, text: *const u8, text_len: usize) -> i32,
     /// Tooltip of a button; an empty text removes it.
-    pub ui_set_tooltip: unsafe extern "C" fn(
-        host: *mut c_void,
-        name: *const u8,
-        name_len: usize,
-        text: *const u8,
-        text_len: usize,
-    ) -> i32,
+    pub ui_set_tooltip: unsafe extern "C" fn(host: *mut c_void, name: *const u8, name_len: usize, text: *const u8, text_len: usize) -> i32,
     /// Colors provinces on the map, replacing this extension's previous
     /// coloring. Another extension painting later takes over the map.
     pub map_paint: unsafe extern "C" fn(host: *mut c_void, colors: *const MapColor, count: usize) -> i32,
@@ -265,14 +249,7 @@ pub struct GameApi {
     /// This mod's localisation text for `key` (UTF-8, line breaks as `\n`)
     /// in the player language, or else in English. [`NOT_FOUND`] when the mod
     /// has neither.
-    pub text: unsafe extern "C" fn(
-        host: *mut c_void,
-        key: *const u8,
-        key_len: usize,
-        buf: *mut u8,
-        cap: usize,
-        len: *mut usize,
-    ) -> i32,
+    pub text: unsafe extern "C" fn(host: *mut c_void, key: *const u8, key_len: usize, buf: *mut u8, cap: usize, len: *mut usize) -> i32,
     /// Where the map camera looks and how high it is.
     pub camera: unsafe extern "C" fn(host: *mut c_void, out: *mut Camera) -> i32,
     /// Turns the camera to a province, at the position the game looks at it
@@ -305,13 +282,7 @@ pub struct GameApi {
     /// what it printed is then the `last_error` message. [`INVALID_ARGUMENT`]
     /// for an empty command or one with a `|` or a NUL, before the game sees
     /// it.
-    pub console_run: unsafe extern "C" fn(
-        host: *mut c_void,
-        command: *const u8,
-        command_len: usize,
-        printed: Option<TextSink>,
-        user: *mut c_void,
-    ) -> i32,
+    pub console_run: unsafe extern "C" fn(host: *mut c_void, command: *const u8, command_len: usize, printed: Option<TextSink>, user: *mut c_void) -> i32,
     /// A country's snapshot, as UTF-8 JSON (ADR 0018): `{"id": <CountryId>,
     /// "treasury": 31.25, "manpower": 5400, "max_manpower": 8250,
     /// "stability": -1.0, "prestige": 12.345, "power": {"adm": 120, "dip":
@@ -493,16 +464,7 @@ pub struct ExtensionVTable {
     pub on_day: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi, date: i32) -> i32>,
     /// A button this extension's mod declared was clicked. `name` is the
     /// element name as written in the mod's fragment.
-    pub on_button: Option<
-        unsafe extern "C" fn(
-            user: *mut c_void,
-            game: *const GameApi,
-            name: *const u8,
-            name_len: usize,
-            click: u32,
-            modifiers: u32,
-        ) -> i32,
-    >,
+    pub on_button: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi, name: *const u8, name_len: usize, click: u32, modifiers: u32) -> i32>,
     /// The route of an own army was changed by something other than an
     /// extension, usually the player.
     pub on_army_ordered: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi, army: u64) -> i32>,

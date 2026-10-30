@@ -141,7 +141,10 @@ fn main() {
                 let mut formatter = formatter();
                 println!("--- refs {value:#x}");
                 let hits = analysis::functions(&image).flat_map(|range| {
-                    analysis::instructions(&image[range.clone()], range.start).into_iter().filter(|i| analysis::values(i).contains(&value)).map(move |i| (range.start, i))
+                    analysis::instructions(&image[range.clone()], range.start)
+                        .into_iter()
+                        .filter(|i| analysis::values(i).contains(&value))
+                        .map(move |i| (range.start, i))
                 });
                 for (start, instruction) in hits.take(limit) {
                     println!("{} (in {start:#x})", with_bytes(&image, &mut formatter, &instruction));
@@ -165,12 +168,17 @@ fn main() {
                 'all: for range in analysis::functions(&image) {
                     let code = analysis::instructions(&image[range.clone()], range.start);
                     for (i, load) in code.iter().enumerate() {
-                        if load.mnemonic() != Mnemonic::Mov || !load.is_ip_rel_memory_operand() || load.ip_rel_memory_address() != global || load.op_kind(0) != iced_x86::OpKind::Register {
+                        if load.mnemonic() != Mnemonic::Mov
+                            || !load.is_ip_rel_memory_operand()
+                            || load.ip_rel_memory_address() != global
+                            || load.op_kind(0) != iced_x86::OpKind::Register
+                        {
                             continue;
                         }
                         let held = load.op0_register();
                         for (j, next) in code.iter().enumerate().skip(i + 1).take(6) {
-                            let uses = next.op_kinds().any(|k| k == iced_x86::OpKind::Memory) && next.memory_base() == held && next.memory_displacement64() == offset;
+                            let uses =
+                                next.op_kinds().any(|k| k == iced_x86::OpKind::Memory) && next.memory_base() == held && next.memory_displacement64() == offset;
                             if uses {
                                 let (start, end) = (load.ip() as usize, next.next_ip() as usize);
                                 let bytes: Vec<String> = image[start..end].iter().map(|b| format!("{b:02x}")).collect();
@@ -184,7 +192,10 @@ fn main() {
                                 }
                                 break;
                             }
-                            if next.op_kind(0) == iced_x86::OpKind::Register && next.op0_register().full_register() == held.full_register() && !matches!(next.mnemonic(), Mnemonic::Cmp | Mnemonic::Test) {
+                            if next.op_kind(0) == iced_x86::OpKind::Register
+                                && next.op0_register().full_register() == held.full_register()
+                                && !matches!(next.mnemonic(), Mnemonic::Cmp | Mnemonic::Test)
+                            {
                                 break;
                             }
                         }

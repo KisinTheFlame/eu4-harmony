@@ -14,9 +14,7 @@ use crate::{
 use std::{
     collections::HashMap,
     ffi::{c_char, c_void, CStr},
-    sync::{
-        LazyLock, Mutex, Once,
-    },
+    sync::{LazyLock, Mutex, Once},
 };
 
 type File = *mut c_void;
@@ -204,7 +202,13 @@ pub fn points() -> Vec<Point> {
         Point::replace(c"PHYSFS_init", "40 56 48 83 ec 20 83 3d 33 1a 94 00 00 48 8b f1", "PhysFS init", init_detour as InitFn, &ORIG_INIT),
         Point::replace(c"PHYSFS_openRead", "40 55 48 83 ec 30 48 8d 6c 24 20 48 89 5d 20 48", "PhysFS open", open_read_detour as OpenReadFn, &ORIG_OPEN_READ),
         Point::replace(c"PHYSFS_fileLength", "48 8b 01 48 8b c8 48 ff 60 30", "PhysFS file length", file_length_detour as FileLengthFn, &ORIG_FILE_LENGTH),
-        Point::replace(c"PHYSFS_readBytes", "40 53 56 41 56 48 83 ec 20 48 b8 ff ff ff ff ff", "PhysFS read", read_bytes_detour as ReadBytesFn, &ORIG_READ_BYTES),
+        Point::replace(
+            c"PHYSFS_readBytes",
+            "40 53 56 41 56 48 83 ec 20 48 b8 ff ff ff ff ff",
+            "PhysFS read",
+            read_bytes_detour as ReadBytesFn,
+            &ORIG_READ_BYTES,
+        ),
         Point::replace(c"PHYSFS_seek", "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "PhysFS seek", seek_detour as SeekFn, &ORIG_SEEK),
         Point::replace(c"PHYSFS_tell", "40 53 48 83 ec 20 48 8b 01 48 8b d9 48 8b c8 ff", "PhysFS tell", tell_detour as TellFn, &ORIG_TELL),
         Point::replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as EofFn, &ORIG_EOF),

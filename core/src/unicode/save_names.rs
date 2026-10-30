@@ -6,8 +6,8 @@
 //! replacement keeps UTF-8 sequences, which the game's file system (PhysFS)
 //! takes as they are, and turns the Windows-1252 bytes to ASCII as before, so
 //! a name without other characters gives the same file as it always did.
-use crate::game_string;
 use super::game_text;
+use crate::game_string;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -44,7 +44,13 @@ unsafe extern "C" fn transliterate_string(string: *mut u8) {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::replace(TRANSLITERATE, "8b 41 10 85 c0 0f 84 0c 01 00 00 45 33 c0 4c 8d", "save name to ASCII", transliterate_string as Transliterate, &ORIGINAL),
+        Point::replace(
+            TRANSLITERATE,
+            "8b 41 10 85 c0 0f 84 0c 01 00 00 45 33 c0 4c 8d",
+            "save name to ASCII",
+            transliterate_string as Transliterate,
+            &ORIGINAL,
+        ),
         Point::keep(TABLE, "3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f 3f", "ASCII table for bytes from 0x80").recorded(&TABLE_AT),
     ]
 }

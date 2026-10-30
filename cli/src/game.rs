@@ -150,7 +150,11 @@ fn option_value<'a>(raw: &'a [String], i: &mut usize) -> Result<&'a str, String>
 
 /// A time in seconds, such as `30` or `0.5`.
 fn seconds(text: &str) -> Result<Duration, String> {
-    text.parse::<f64>().ok().filter(|s| s.is_finite() && *s > 0.0).and_then(|s| Duration::try_from_secs_f64(s).ok()).ok_or_else(|| format!("--timeout takes a number of seconds above 0, such as 30; {text:?} is not one"))
+    text.parse::<f64>()
+        .ok()
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .and_then(|s| Duration::try_from_secs_f64(s).ok())
+        .ok_or_else(|| format!("--timeout takes a number of seconds above 0, such as 30; {text:?} is not one"))
 }
 
 /// The capability the first words name, `army.move` or `army move`, and how
@@ -401,7 +405,8 @@ impl Ask {
     fn run(&self, name: &str, game: &str) -> Outcome {
         let started = Instant::now();
         let line = serde_json::to_string(&self.request).expect("a request is JSON");
-        let answer = pipe::connect(name, game, started + self.timeout.unwrap_or(PIPE_WAIT)).and_then(|mut client| client.ask(&line, self.timeout.map(|t| started + t)));
+        let answer =
+            pipe::connect(name, game, started + self.timeout.unwrap_or(PIPE_WAIT)).and_then(|mut client| client.ask(&line, self.timeout.map(|t| started + t)));
         match answer {
             Ok(answer) => self.output(&answer),
             Err(failure) => Outcome::failed(EXIT_NO_ANSWER, self.explain(&failure)),

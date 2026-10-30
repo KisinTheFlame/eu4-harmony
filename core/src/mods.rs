@@ -117,10 +117,7 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
         if !manifest_file.is_file() {
             continue;
         }
-        let manifest: Manifest = match std::fs::read_to_string(&manifest_file)
-            .map_err(|e| e.to_string())
-            .and_then(|t| Manifest::parse(&t))
-        {
+        let manifest: Manifest = match std::fs::read_to_string(&manifest_file).map_err(|e| e.to_string()).and_then(|t| Manifest::parse(&t)) {
             Ok(m) => m,
             Err(e) => {
                 let notice = Message::new("EU4HARMONY_SKIPPED_MANIFEST").arg("MOD", &descriptor.name).arg("DETAIL", &e);
@@ -130,7 +127,10 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
         };
         if mods.iter().any(|m: &DiscoveredMod| m.manifest.id == manifest.id) {
             let notice = Message::new("EU4HARMONY_SKIPPED_DUPLICATE_ID").arg("MOD", &descriptor.name).arg("ID", &manifest.id);
-            notes.push(Skipped { text: format!("{}: id {:?} is already used by an earlier mod in the playset", descriptor.name, manifest.id), notice: Some(notice) });
+            notes.push(Skipped {
+                text: format!("{}: id {:?} is already used by an earlier mod in the playset", descriptor.name, manifest.id),
+                notice: Some(notice),
+            });
             continue;
         }
         mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest });

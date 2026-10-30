@@ -402,9 +402,8 @@ extern "C" fn local_after(f: *mut HookFrame) {
 pub fn close_before(f: *mut HookFrame) {
     before(f, |h| {
         let c = context()?;
-        let local = ancestor(|r| if let Record::Local(x) = r { Some(x.clone()) } else { None }).filter(|l| {
-            h.return_address == c.memory.at(if l.borrow().ironman { CLOSE_FROM_IRONMAN } else { CLOSE_FROM_NORMAL })
-        });
+        let local = ancestor(|r| if let Record::Local(x) = r { Some(x.clone()) } else { None })
+            .filter(|l| h.return_address == c.memory.at(if l.borrow().ironman { CLOSE_FROM_IRONMAN } else { CLOSE_FROM_NORMAL }));
         Ok(Record::Close(local))
     });
 }

@@ -206,9 +206,7 @@ fn rewrite_element(text: &str, tokens: &[Token], block: Block, prefix: &str, slo
     // Edits as (start, end, replacement), applied back to front.
     let mut edits: Vec<(usize, usize, String)> = vec![(name_token.start, name_token.end, format!("\"{prefix}{name}\""))];
     if let Some((sx, sy)) = slot {
-        let existing = child_blocks(tokens, block.open + 1, block.close)
-            .into_iter()
-            .find(|b| text_of(text, &tokens[b.key]).eq_ignore_ascii_case("position"));
+        let existing = child_blocks(tokens, block.open + 1, block.close).into_iter().find(|b| text_of(text, &tokens[b.key]).eq_ignore_ascii_case("position"));
         let (dx, dy) = match existing {
             Some(b) => read_position(text, tokens, b)?,
             None => (0, 0),
@@ -303,20 +301,15 @@ guiTypes = {
 
     #[test]
     fn fragment_gets_prefix_and_slot_relative_positions() {
-        let fragment = "guiButtonType = {\n\tname = \"hello\"\n\tquadTextureSprite = \"GFX_x\"\n}\niconType = { name = \"glow\" position = { x = -2 y = 3 } }\n";
+        let fragment =
+            "guiButtonType = {\n\tname = \"hello\"\n\tquadTextureSprite = \"GFX_x\"\n}\niconType = { name = \"glow\" position = { x = -2 y = 3 } }\n";
         let out = render_fragment(fragment, "eu4harmony_hi_", Some((464, 69))).unwrap();
         assert!(out.text.contains("name = \"eu4harmony_hi_hello\""));
         assert!(out.text.contains("position = { x = 464 y = 69 }"));
         assert!(out.text.contains("name = \"eu4harmony_hi_glow\""));
         assert!(out.text.contains("position = { x = 462 y = 72 }"));
         assert!(out.text.contains("quadTextureSprite = \"GFX_x\""));
-        assert_eq!(
-            out.elements,
-            vec![
-                Element { key: "guiButtonType".into(), name: "hello".into() },
-                Element { key: "iconType".into(), name: "glow".into() }
-            ]
-        );
+        assert_eq!(out.elements, vec![Element { key: "guiButtonType".into(), name: "hello".into() }, Element { key: "iconType".into(), name: "glow".into() }]);
     }
 
     #[test]

@@ -181,9 +181,7 @@ pub struct Installed {
 const HOOK_LEN: usize = 5;
 
 fn hex(text: &str) -> Result<Vec<u8>> {
-    text.split_whitespace()
-        .map(|b| u8::from_str_radix(b, 16).ok().filter(|_| b.len() == 2).ok_or_else(|| format!("{b:?} is not a byte in hex")))
-        .collect()
+    text.split_whitespace().map(|b| u8::from_str_radix(b, 16).ok().filter(|_| b.len() == 2).ok_or_else(|| format!("{b:?} is not a byte in hex"))).collect()
 }
 
 fn spaced(bytes: &[u8]) -> String {
@@ -295,9 +293,16 @@ fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
         }
     }
     if !problems.is_empty() {
-        return Err(format!("{} of {} dependency points do not match:
-{}", problems.len(), points.len(), problems.join("
-")));
+        return Err(format!(
+            "{} of {} dependency points do not match:
+{}",
+            problems.len(),
+            points.len(),
+            problems.join(
+                "
+"
+            )
+        ));
     }
     disjoint(points, &addresses)?;
     Ok(addresses)
@@ -483,10 +488,7 @@ mod tests {
     fn overlapping_changes_are_refused() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let m = code(ADDER, PAGE_EXECUTE_READWRITE);
-        let points = [
-            Point::write(3usize, "48 83 c0 01", "one", "90 90 90 90"),
-            Point::observe(0usize, "48 89 c8 48 83 c0 01", "two", 1, None, None),
-        ];
+        let points = [Point::write(3usize, "48 83 c0 01", "one", "90 90 90 90"), Point::observe(0usize, "48 89 c8 48 83 c0 01", "two", 1, None, None)];
         let err = install(m, &points).unwrap_err();
         assert!(err.contains("change the same bytes"), "{err}");
         assert_eq!(m.bytes(m.base, 16).unwrap(), hex(ADDER).unwrap());

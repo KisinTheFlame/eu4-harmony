@@ -64,10 +64,7 @@ macro_rules! export_extension {
         pub static eu4h_extension_abi: u32 = $crate::abi::ABI_VERSION;
 
         #[no_mangle]
-        pub unsafe extern "C" fn eu4h_extension_main(
-            host: *const $crate::abi::HostApi,
-            out: *mut $crate::abi::ExtensionVTable,
-        ) -> i32 {
+        pub unsafe extern "C" fn eu4h_extension_main(host: *const $crate::abi::HostApi, out: *mut $crate::abi::ExtensionVTable) -> i32 {
             $crate::__private::entry(host, out, || ::std::boxed::Box::new($make))
         }
     };
@@ -75,7 +72,7 @@ macro_rules! export_extension {
 
 #[doc(hidden)]
 pub mod __private {
-    use super::{backend::RealBackend, abi, ArmyId, Click, Extension, Game};
+    use super::{abi, backend::RealBackend, ArmyId, Click, Extension, Game};
     use std::ffi::c_void;
     use std::sync::OnceLock;
 
@@ -104,11 +101,7 @@ pub mod __private {
         match outcome {
             Ok(()) => abi::OK,
             Err(panic) => {
-                let detail = panic
-                    .downcast_ref::<&str>()
-                    .map(|s| s.to_string())
-                    .or_else(|| panic.downcast_ref::<String>().cloned())
-                    .unwrap_or_default();
+                let detail = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
                 log(&format!("panic in {name}: {detail}"));
                 abi::INTERNAL
             }
@@ -126,11 +119,7 @@ pub mod __private {
     }
     unsafe extern "C" fn on_button(user: *mut c_void, game: *const abi::GameApi, name: *const u8, len: usize, click: u32, modifiers: u32) -> i32 {
         let name = String::from_utf8_lossy(std::slice::from_raw_parts(name, len)).into_owned();
-        let click = Click {
-            right: click == abi::CLICK_RIGHT,
-            shift: modifiers & abi::MODIFIER_SHIFT != 0,
-            ctrl: modifiers & abi::MODIFIER_CTRL != 0,
-        };
+        let click = Click { right: click == abi::CLICK_RIGHT, shift: modifiers & abi::MODIFIER_SHIFT != 0, ctrl: modifiers & abi::MODIFIER_CTRL != 0 };
         run(user, game, "on_button", |e, g| e.on_button(g, &name, click))
     }
     unsafe extern "C" fn on_army_ordered(user: *mut c_void, game: *const abi::GameApi, army: u64) -> i32 {

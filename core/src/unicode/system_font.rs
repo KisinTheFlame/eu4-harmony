@@ -129,9 +129,9 @@ impl SystemFonts {
     where
         'static: 'a,
     {
-        std::iter::once(family).chain(FALLBACK.iter().copied()).find(|f| {
-            self.font(f).is_some_and(|font| unsafe { font.HasCharacter(scalar).is_ok_and(|has| has.as_bool()) })
-        })
+        std::iter::once(family)
+            .chain(FALLBACK.iter().copied())
+            .find(|f| self.font(f).is_some_and(|font| unsafe { font.HasCharacter(scalar).is_ok_and(|has| has.as_bool()) }))
     }
 
     /// How far `family`'s lines reach above and below the baseline, in ems.

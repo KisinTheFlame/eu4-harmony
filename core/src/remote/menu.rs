@@ -99,7 +99,15 @@ fn place_of(place: game::menu::Place) -> Place {
 }
 
 fn save(s: game::menu::Save) -> Save {
-    Save { name: s.name, file: s.file, bytes: s.bytes, modified: s.modified, player: s.player.map(CountryTag), date: s.date.map(Date), missing_mods: s.missing_mods }
+    Save {
+        name: s.name,
+        file: s.file,
+        bytes: s.bytes,
+        modified: s.modified,
+        player: s.player.map(CountryTag),
+        date: s.date.map(Date),
+        missing_mods: s.missing_mods,
+    }
 }
 
 /// A load or start waiting for the game's first frame.
@@ -118,7 +126,10 @@ impl Wait for Starting {
         // The game came, but its frames have no game to play: no frame
         // after it would answer otherwise.
         if let Some(why) = at.unplayable() {
-            return Some(Err(Error::new(Code::Rejected, format!("the game began, but the player cannot play it ({}): menu says game, and it goes on", why.message))));
+            return Some(Err(Error::new(
+                Code::Rejected,
+                format!("the game began, but the player cannot play it ({}): menu says game, and it goes on", why.message),
+            )));
         }
         let game = at.game()?;
         match game.session() {
@@ -143,6 +154,10 @@ fn other_game(expected: &Expected, s: &game::session::Session) -> Option<String>
             Some(date) => format!("of {} as {}", Date(date), CountryTag(expected.player)),
             None => format!("played as {}", CountryTag(expected.player)),
         };
-        format!("the game did not load the save: it began a game of {} as {}, where the save is {save}; that game is going on", Date(s.date), CountryTag(player))
+        format!(
+            "the game did not load the save: it began a game of {} as {}, where the save is {save}; that game is going on",
+            Date(s.date),
+            CountryTag(player)
+        )
     })
 }

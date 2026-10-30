@@ -11,11 +11,7 @@ use crate::{
     points::Point,
     Result,
 };
-use std::{
-    cell::RefCell,
-    collections::BTreeMap,
-    sync::Mutex,
-};
+use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 
 const FILL: usize = 0x12fd9b0;
 const SECONDARY: usize = 0x12fdcb0;

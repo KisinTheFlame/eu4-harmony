@@ -21,12 +21,12 @@
 //! width after it in `xmm8` (0x159f85b). A place where a line may break after
 //! a non-ASCII character (`breaks`) now counts as such a place too, and a line
 //! broken there skips nothing (0x159fba1).
-use crate::resume;
-use crate::game_string;
 use super::glyphs::Glyph;
-use crate::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
 use super::{breaks, text_loops};
+use crate::game_string;
+use crate::objects::text::font::{OWN_GLYPHS, SCALE_FROM_GLYPHS};
 use crate::points::Point;
+use crate::resume;
 use std::cell::Cell;
 
 const FIT_GLYPH: usize = 0x159ef51;
@@ -245,7 +245,13 @@ pub fn points() -> Vec<Point> {
         ),
         Point::keep(WRAP_BREAK_TESTED, "48 8b c7", "wrapped text break tested"),
         Point::keep(0x159fae4usize, "45 8b cf e8 04 50 16 00", "wrapped text line up to the break"),
-        Point::jump(WRAP_LINE_START, "45 8d 67 01 44 89 a5 28 01 00 00", "wrapped text next line start", wrap_line_stub as *const () as usize, &WRAP_LINE_RESUME),
+        Point::jump(
+            WRAP_LINE_START,
+            "45 8d 67 01 44 89 a5 28 01 00 00",
+            "wrapped text next line start",
+            wrap_line_stub as *const () as usize,
+            &WRAP_LINE_RESUME,
+        ),
         Point::keep(WRAP_LINE_STARTED, "45 8b f7", "wrapped text line started"),
     ]
 }
