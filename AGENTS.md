@@ -19,6 +19,7 @@ These rules hold for everyone who changes this repository, people and coding age
 ## Building and checking
 
 ```powershell
+cargo fmt --all
 cargo build --release
 cargo test --release
 cargo clippy --workspace --all-targets --features eu4-harmony-core/trace -- -D warnings
@@ -32,7 +33,7 @@ With the game installed, the offline checks compare every dependency point's byt
 EU4_GAME_DIR='E:\SteamLibrary\steamapps\common\Europa Universalis IV' cargo test --release -p eu4-harmony-core -- --ignored
 ```
 
-The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, which rustup picks up. CI (`.github/workflows/ci.yml`) runs the build, the tests and clippy on Windows for every pull request and every merge into master; the offline checks need the game and are run by hand.
+The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, which rustup picks up. CI (`.github/workflows/ci.yml`) checks the formatting and runs the build, the tests and clippy on Windows for every pull request and every merge into master; the offline checks need the game and are run by hand.
 
 `tools/dev-install.ps1` installs the built proxy, core and command line tool into the game folder, where a player puts them (`-Uninstall` removes them); like the other tools it finds the game through `EU4_GAME_DIR` or Steam. `tools/release.ps1` packs the same files for players. The other development tools are described in [tools/README.md](tools/README.md).
 

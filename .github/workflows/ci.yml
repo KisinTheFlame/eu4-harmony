@@ -52,3 +52,13 @@ jobs:
       # never has, so that they keep compiling too.
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets --features eu4-harmony-core/trace -- -D warnings
+
+  # Formatting needs no Windows and no build; Linux runners start faster.
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Rust
+        run: rustup toolchain install
+      - name: Format
+        run: cargo fmt --all --check
