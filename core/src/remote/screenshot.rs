@@ -54,18 +54,15 @@ impl Wait for Taking {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{fake::Fake, Engine, Place, Reply, Request};
+    use super::super::{
+        fake::{answer, quiet, Fake},
+        Engine, Place, Request,
+    };
     use super::*;
     use crate::game::{screenshot::Image, Fail, Status};
-    use eu4_harmony_remote::response_json;
+
     use serde_json::{json, Value};
     use std::time::Duration;
-
-    fn quiet(_: &str) {}
-
-    fn answer(reply: &Reply) -> Value {
-        reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
-    }
 
     fn take(scale: Option<u32>) -> Request {
         Request::Screenshot(ScreenshotRequest::Take { scale })

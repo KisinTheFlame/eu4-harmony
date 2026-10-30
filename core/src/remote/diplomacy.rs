@@ -140,16 +140,14 @@ impl Wait for Waiting {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{events, fake::Fake, menu, Engine, Place, Reply, Request};
+    use super::super::{
+        events,
+        fake::{answer, quiet, Fake},
+        menu, Engine, Place, Request,
+    };
     use super::*;
     use eu4_harmony_remote::{response_json, CountryTag, ProvinceId};
     use serde_json::{json, Value};
-
-    fn quiet(_: &str) {}
-
-    fn answer(reply: &Reply) -> Value {
-        reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
-    }
 
     fn byz() -> CountryTag {
         CountryTag(*b"BYZ")

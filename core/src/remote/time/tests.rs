@@ -1,22 +1,15 @@
 //! The time capabilities driven through the engine, a fake clock behind them.
 use super::*;
-use crate::remote::{events::KEPT, fake::Fake, process, Engine, Place, Reply};
+use crate::remote::{
+    events::KEPT,
+    fake::{answer, ok, quiet, Fake, PLENTY},
+    process, Engine, Place, Reply,
+};
 use eu4_harmony_remote::{response_json, ArmyId, Request};
 use serde_json::{json, Value};
 
-const PLENTY: Duration = Duration::from_secs(10);
 /// 1444.11.11, where the fake clock starts.
 const START: i32 = 0x035D_7710;
-
-fn quiet(_: &str) {}
-
-fn answer(reply: &Reply) -> Value {
-    reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
-}
-
-fn ok(result: Value) -> Value {
-    json!({"ok": true, "result": result})
-}
 
 fn time(request: TimeRequest) -> Request {
     Request::Time(request)
