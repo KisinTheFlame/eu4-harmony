@@ -29,13 +29,11 @@ const TOGGLE_PAUSE: usize = 0x7e0250;
 /// the game returns to the main menu.
 const RESTART: usize = 0x14c3a10;
 
-/// The game speeds, slowest first.
-const SPEEDS: std::ops::RangeInclusive<u32> = 1..=5;
-
 /// Refuses a speed the game does not have.
 pub fn check_speed(speed: u32) -> GResult<()> {
+    use eu4_harmony_remote::time::SPEEDS;
     if !SPEEDS.contains(&speed) {
-        return fail(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}"));
+        return fail(Status::InvalidArgument, format!("the speed is from {} to {}, not {speed}", SPEEDS.start(), SPEEDS.end()));
     }
     Ok(())
 }

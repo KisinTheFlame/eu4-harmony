@@ -3,6 +3,11 @@
 use crate::{events::Events, Date};
 use serde::{Deserialize, Serialize};
 
+/// The game speeds, slowest first, as the descriptions below state them.
+pub const SPEEDS: std::ops::RangeInclusive<u32> = 1..=5;
+/// The most days one advance may ask for: a hundred years.
+pub const MOST_DAYS: u32 = 36_500;
+
 group! {
     /// Time: the date, pausing and resuming, the speed, and advancing time.
     "time": TimeRequest, TimeAnswer;

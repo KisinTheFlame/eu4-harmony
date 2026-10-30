@@ -10,6 +10,25 @@ fn sample(kind: Kind) -> Value {
     kind.json(kind.example()).unwrap_or_else(|| panic!("the example of {kind:?} is not one"))
 }
 
+/// The limits the descriptions state are those the game keeps to.
+#[test]
+fn descriptions_state_the_limits_kept() {
+    let all = capabilities();
+    let about = |name: &str, arg: &str| {
+        let capability = all.iter().find(|c| c.name() == name).unwrap_or_else(|| panic!("no {name}"));
+        prose(capability.args.iter().find(|a| a.name == arg).unwrap_or_else(|| panic!("{name} has no {arg}")).about)
+    };
+    let speeds = format!("{} (slowest) to {} (fastest)", time::SPEEDS.start(), time::SPEEDS.end());
+    for (name, arg) in [("time.speed", "speed"), ("time.advance", "speed")] {
+        assert!(about(name, arg).contains(&speeds), "{name} {arg}");
+    }
+    let time = all.iter().find(|c| c.name() == "time").unwrap();
+    assert!(time.result.contains(&speeds), "time");
+    assert!(about("time.advance", "days").contains(&format!("from 1 to {}", time::MOST_DAYS)));
+    assert!(about("events", "wait_ms").contains(&format!("at most {}", events::LONGEST_WAIT)));
+    assert!(about("screenshot", "scale").contains(&format!("{} to {}", screenshot::SCALES.start(), screenshot::SCALES.end())));
+}
+
 #[test]
 fn every_capability_is_described_and_can_be_called_from_its_description() {
     let all = capabilities();

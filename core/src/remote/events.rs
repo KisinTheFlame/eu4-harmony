@@ -10,10 +10,7 @@ use eu4_harmony_remote::{
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-/// How many events are kept.
-pub const KEPT: usize = 10_000;
-/// The longest a read may wait, in milliseconds.
-pub const LONGEST_WAIT: u32 = 60_000;
+pub use eu4_harmony_remote::events::{KEPT, LONGEST_WAIT};
 
 /// The latest events.
 pub struct Buffer {
