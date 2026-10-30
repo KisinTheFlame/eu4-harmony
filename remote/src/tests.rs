@@ -10,6 +10,16 @@ fn sample(kind: Kind) -> Value {
     kind.json(kind.example()).unwrap_or_else(|| panic!("the example of {kind:?} is not one"))
 }
 
+/// Each code is named as JSON writes it, and the documentation explains it.
+#[test]
+fn every_code_is_named_and_explained() {
+    let documented = include_str!("../../docs/remote-control.md");
+    for code in Code::ALL {
+        assert_eq!(serde_json::to_value(code).unwrap(), json!(code.name()));
+        assert!(documented.contains(&format!("`{}`", code.name())), "docs/remote-control.md does not explain {}", code.name());
+    }
+}
+
 /// The limits the descriptions state are those the game keeps to.
 #[test]
 fn descriptions_state_the_limits_kept() {

@@ -609,6 +609,37 @@ pub enum Code {
     Internal,
 }
 
+impl Code {
+    /// Every code a client may get, which its help and the documentation
+    /// explain.
+    pub const ALL: [Code; 9] = [
+        Self::NotInGame,
+        Self::NotReady,
+        Self::NotFound,
+        Self::Rejected,
+        Self::InvalidArgument,
+        Self::Unavailable,
+        Self::BadRequest,
+        Self::SessionChanged,
+        Self::Internal,
+    ];
+
+    /// Its name, as JSON writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::NotInGame => "not_in_game",
+            Self::NotReady => "not_ready",
+            Self::NotFound => "not_found",
+            Self::Rejected => "rejected",
+            Self::InvalidArgument => "invalid_argument",
+            Self::Unavailable => "unavailable",
+            Self::BadRequest => "bad_request",
+            Self::SessionChanged => "session_changed",
+            Self::Internal => "internal",
+        }
+    }
+}
+
 /// A failed request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Error {
@@ -624,8 +655,7 @@ impl Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let code = serde_json::to_value(self.code).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
-        write!(f, "{code}: {}", self.message)
+        write!(f, "{}: {}", self.code.name(), self.message)
     }
 }
 
