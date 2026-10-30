@@ -11,12 +11,13 @@ backup, removes the crash folders the run left (-KeepCrashes keeps them, for
 a look at their dumps first), and deletes the backup once all match (-Keep
 keeps it).
 
-The files: save games\, eu4-harmony\saves\, settings.txt, pdx_settings.txt,
-pdx_login_cache.txt, shortcuts.txt, continue_game.json and
-eu4-harmony\settings.txt, in the user folder: the one userdir.txt in the game
-folder names, or else Documents\Paradox Interactive\Europa Universalis IV, as
-the game finds it; -UserDir names it instead. The game folder is found by
-game-dir.ps1 unless -GameDir names it.
+The files: save games\, the framework's folder eu4-harmony\ (its logs, settings
+and extension save data) and every file at the top of the user folder (the
+game's settings, its login cache, the playset in dlc_load.json, ...), in the
+user folder: the one userdir.txt in the game folder names, or else
+Documents\Paradox Interactive\Europa Universalis IV, as the game finds it;
+-UserDir names it instead. The game folder is found by game-dir.ps1 unless
+-GameDir names it.
 #>
 param(
     [Parameter(Mandatory, ParameterSetName = 'Backup')][string]$Backup,
@@ -28,14 +29,16 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-# What a run may change, relative to the user folder.
-$Items = @('save games', 'eu4-harmony\saves', 'settings.txt', 'pdx_settings.txt', 'pdx_login_cache.txt', 'shortcuts.txt', 'continue_game.json', 'eu4-harmony\settings.txt')
+# The folders a run may change, relative to the user folder; every file at
+# its top is added to them.
+$Folders = @('save games', 'eu4-harmony')
 
 if (Get-Process -Name eu4 -ErrorAction SilentlyContinue) { throw 'eu4.exe is running; close it first' }
 if (-not $UserDir) {
     if (-not $GameDir) { $GameDir = & (Join-Path $PSScriptRoot 'game-dir.ps1') }
     $named = Join-Path $GameDir 'userdir.txt'
-    $text = if (Test-Path $named) { (Get-Content -Raw $named).Trim([char]0xfeff, ' ', "`t", "`r", "`n") } else { '' }
+    # An empty file reads as null.
+    $text = if (Test-Path $named) { "$(Get-Content -Raw $named)".Trim([char]0xfeff, ' ', "`t", "`r", "`n") } else { '' }
     $UserDir = if ($text) {
         if ([IO.Path]::IsPathRooted($text)) { $text } else { Join-Path $GameDir $text }
     } else {
@@ -60,6 +63,11 @@ function Files($root, $item) {
     $found
 }
 
+# The files at the top of the user folder now.
+function TopFiles {
+    @(Get-ChildItem -LiteralPath $UserDir -File -Force | ForEach-Object Name)
+}
+
 # The crash folders there are now.
 function Crashes {
     $crashes = Join-Path $UserDir 'crashes'
@@ -70,7 +78,8 @@ if ($Backup) {
     $Backup = [IO.Path]::GetFullPath($Backup)
     if (Test-Path $Backup) { throw "$Backup exists already; name a new folder" }
     New-Item -ItemType Directory $Backup | Out-Null
-    foreach ($item in $Items) {
+    $items = $Folders + (TopFiles)
+    foreach ($item in $items) {
         $from = Join-Path $UserDir $item
         if (-not (Test-Path $from)) { Write-Host "  $item (none)"; continue }
         $to = Join-Path $Backup "files\$item"
@@ -78,6 +87,7 @@ if ($Backup) {
         Copy-Item -LiteralPath $from -Destination $to -Recurse -Force
         Write-Host "  $item"
     }
+    Set-Content -LiteralPath (Join-Path $Backup 'items.txt') -Value $items
     Set-Content -LiteralPath (Join-Path $Backup 'crashes.txt') -Value (Crashes)
     Set-Content -LiteralPath (Join-Path $Backup 'user-folder.txt') -Value $UserDir
     Write-Host "backed up to $Backup; afterwards: player-state.ps1 -Restore '$Backup'"
@@ -90,8 +100,10 @@ if (-not (Test-Path (Join-Path $Restore 'user-folder.txt'))) { throw "$Restore h
 $from = (Get-Content -LiteralPath (Join-Path $Restore 'user-folder.txt')).Trim()
 if ($from -ne $UserDir) { throw "the backup is of $from, not of $UserDir; pass -UserDir" }
 
+# What was backed up, and the files the run added at the top.
+$items = @(Get-Content -LiteralPath (Join-Path $Restore 'items.txt')) + (TopFiles) | Sort-Object -Unique
 $differ = 0
-foreach ($item in $Items) {
+foreach ($item in $items) {
     $before = Files $saved $item
     $now = Files $UserDir $item
     foreach ($path in $now.Keys | Sort-Object) {
