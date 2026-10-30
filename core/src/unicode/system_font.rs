@@ -1,6 +1,8 @@
 //! Glyphs from system fonts (GLOSSARY), drawn with DirectWrite into 8-bit
-//! coverage bitmaps: for characters a bitmap font lacks, and for every
-//! character when the player picks the system font look (ADR 0010).
+//! coverage bitmaps, anti-aliased across and down: for characters a bitmap
+//! font lacks, and for every character when the player picks the system font
+//! look (ADR 0010). Anti-aliased across only, as DirectWrite's natural mode
+//! draws, the slanting strokes of Chinese characters show steps.
 //!
 //! A character goes to the first of the chosen family and the fallback
 //! families that has it.
@@ -181,7 +183,7 @@ impl SystemFonts {
             let analysis = self.factory.CreateGlyphRunAnalysis(
                 &run,
                 None,
-                DWRITE_RENDERING_MODE_NATURAL,
+                DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
                 DWRITE_MEASURING_MODE_NATURAL,
                 DWRITE_GRID_FIT_MODE_DEFAULT,
                 DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE,
@@ -231,6 +233,20 @@ mod tests {
         assert!((15.0..=20.0).contains(&glyph.advance), "{}", glyph.advance);
         let levels: std::collections::BTreeSet<u8> = glyph.alpha.iter().copied().collect();
         assert!(levels.len() > 8, "anti-aliased, not two-level: {levels:?}");
+    }
+
+    #[test]
+    fn grey_edges_run_down_as_well_as_across() {
+        if !chinese_installed() {
+            return;
+        }
+        let fonts = SystemFonts::new().unwrap();
+        // A horizontal stroke: anti-aliased across only, it is one row of
+        // solid ink.
+        let family = fonts.family_for("Microsoft YaHei", '一' as u32).unwrap();
+        let glyph = fonts.rasterize(family, '一' as u32, 20.1).unwrap();
+        let middle: Vec<u8> = (0..glyph.height).map(|y| glyph.alpha[(y * glyph.width + glyph.width / 2) as usize]).collect();
+        assert!(middle.iter().any(|a| (32..224).contains(a)), "{middle:?}");
     }
 
     #[test]
