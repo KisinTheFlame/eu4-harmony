@@ -38,3 +38,17 @@ jobs:
         run: cargo build --release --locked
       - name: Test
         run: cargo test --release --locked
+
+  clippy:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - name: Rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      # With the trace feature and the disasm example, which a player's build
+      # never has, so that they keep compiling too.
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets --features eu4-harmony-core/trace -- -D warnings

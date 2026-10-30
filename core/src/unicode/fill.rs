@@ -33,6 +33,7 @@ use crate::memory::Memory;
 use crate::points::Point;
 use crate::settings::{self, TextAppearance};
 use std::cell::RefCell;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -198,6 +199,7 @@ fn staging(device: &IDirect3DDevice9, format: D3DFORMAT, width: u32, height: u32
 /// A8R8G8B8 pixels or of DXT5 blocks (on a DXT5 page (x, y) is a whole
 /// block), through `staging`, a system-memory texture of the page's format at
 /// least that large, from which the device copies them into the page.
+#[expect(clippy::too_many_arguments, reason = "the device, the textures, the format, a rectangle and its pixels; a struct would only rename them")]
 fn put(device: &IDirect3DDevice9, page: &IDirect3DTexture9, staging: &IDirect3DTexture9, compressed: bool, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> windows::core::Result<()> {
     if width == 0 || height == 0 {
         return Ok(());
@@ -549,7 +551,7 @@ pub fn loaded(font: usize) -> bool {
             return Ok(false);
         }
         let mut pages = lock(&PAGES);
-        if !pages.contains_key(&wrapper) {
+        if let Entry::Vacant(vacant) = pages.entry(wrapper) {
             // A page loaded before, or in another format, keeps its own
             // glyphs only.
             if !system && own.is_none() {
@@ -571,7 +573,7 @@ pub fn loaded(font: usize) -> bool {
                 (false, false) => "grown",
             };
             log!("fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), ink {:06x}", fill.width, fill.height, fill.family, fill.em, fill.letter_em, fill.base, fill.ink);
-            pages.insert(wrapper, fill);
+            vacant.insert(fill);
         }
         let fill = pages.get_mut(&wrapper).expect("just made");
         unsafe {

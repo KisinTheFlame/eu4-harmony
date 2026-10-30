@@ -133,6 +133,9 @@ impl Backend {
     }
 
     /// The device's viewport size in pixels.
+    ///
+    /// # Safety
+    /// `device` is null or a live `IDirect3DDevice9*`.
     pub unsafe fn screen(device: *mut c_void) -> (f32, f32) {
         let Some(device) = IDirect3DDevice9::from_raw_borrowed(&device) else { return (0.0, 0.0) };
         let mut viewport = D3DVIEWPORT9::default();
@@ -146,6 +149,9 @@ impl Backend {
     /// `IDirect3DDevice9*`) in a scene of their own, after the game's scene
     /// has ended and before it presents, leaving the device as the game had
     /// it. With no commands the device is left alone.
+    ///
+    /// # Safety
+    /// `device` is null or the game's live device, on the main thread.
     pub unsafe fn draw(&mut self, device: *mut c_void, font: &UiFont, commands: &[Command], scale: f32) -> windows::core::Result<()> {
         let Some(device) = IDirect3DDevice9::from_raw_borrowed(&device) else { return Ok(()) };
         if commands.is_empty() {

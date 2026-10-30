@@ -537,7 +537,7 @@ mod tests {
         fake.allies = vec![(wal, true), (ven, false)];
         let claim = WarGoal { casus_belli: Some("cb_claim".into()), war_goal: Some("take_claim".into()), province: Some(151), target: None, name: "Conquer Constantinople".into() };
         fake.war_goals.insert(byz, vec![claim.clone()]);
-        assert_eq!(fake.game().war_goals(byz).unwrap(), [claim.clone()]);
+        assert_eq!(fake.game().war_goals(byz).unwrap(), std::slice::from_ref(&claim));
         assert_eq!(fake.game().war_goals(wal).unwrap(), []);
         // The player's own country, and one the game does not have.
         assert_eq!(fake.game().war_goals(tur).unwrap_err().status, Status::InvalidArgument);

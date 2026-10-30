@@ -14,6 +14,7 @@ pub const CLASS: usize = 0x1d57348;
 pub const IN_MAP_MANAGER: usize = 0x1200;
 
 /// The camera's own fields. A point is three f32: x, y (the height) and z.
+#[expect(clippy::module_inception, reason = "named after its class, as the object modules' field modules are")]
 pub mod camera {
     /// Where the camera is and the point it looks at, as drawn now.
     pub const POSITION: usize = 0x67c;

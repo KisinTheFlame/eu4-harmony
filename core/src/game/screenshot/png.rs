@@ -12,6 +12,7 @@ use windows::Win32::System::Com::{
 pub struct Com(bool);
 
 impl Com {
+    #[expect(clippy::new_without_default, reason = "making one initializes COM on the thread, which a default would hide")]
     pub fn new() -> Self {
         // S_FALSE, already initialized, is balanced by an uninitialize too;
         // a thread in another apartment keeps it, and WIC works there.

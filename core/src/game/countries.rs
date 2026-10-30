@@ -299,7 +299,7 @@ mod tests {
         world[world_fields::WAR_COUNT..].copy_from_slice(&(wars.len() as i32).to_le_bytes());
         let ctx = Ctx { world: world.as_ptr() as usize, date: 0, player: a, country: 0, countries: countries.as_ptr() as usize };
         let first_war = War { name: String::new(), attackers: vec![a, c], defenders: vec![b] };
-        assert_eq!(wars_of(&m, &ctx, a).unwrap(), [first_war.clone()]);
+        assert_eq!(wars_of(&m, &ctx, a).unwrap(), std::slice::from_ref(&first_war));
         assert_eq!(wars_of(&m, &ctx, c).unwrap(), [first_war]);
         assert!(wars_of(&m, &ctx, b).is_err());
         assert_eq!(wars_of(&m, &ctx, game_tag(b"DDD", 4)).unwrap(), []);
@@ -313,10 +313,11 @@ mod tests {
     fn a_subject_s_type_is_read_as_the_game_reads_it() {
         let m = Memory { base: 0x1_4000_0000 };
         let overlord = game_tag(b"TUR", 2);
-        let mut kind = vec![0u64; (subject_type::KEY + game_string::OBJECT) / 8];
+        let mut kind = [0u64; (subject_type::KEY + game_string::OBJECT) / 8];
         kind[subject_type::KEY / 8] = u64::from_le_bytes(*b"march\0\0\0");
         kind[(subject_type::KEY + game_string::SIZE) / 8] = 5;
         kind[(subject_type::KEY + game_string::CAPACITY) / 8] = game_string::INLINE as u64;
+        #[expect(clippy::useless_vec, reason = "the relation is changed through the Vec after its pointer is taken")]
         let mut relation = vec![0u64; subject_relation::TYPE / 8 + 1];
         relation[0] = m.at(classes::SUBJECT_RELATION) as u64;
         relation[subject_relation::TYPE / 8] = kind.as_ptr() as u64;

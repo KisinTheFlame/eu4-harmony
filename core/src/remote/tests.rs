@@ -61,7 +61,8 @@ fn every_capability_runs_at_a_game_frame() {
         "route_len": 0, "destination": null, "route_source": "none",
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "land": true, "lake": false, "impassable": false, "visible": true, "owner": owner, "controller": controller});
-    let cases: Vec<(Request, Box<dyn Fn(&Value) -> bool>)> = vec![
+    type Check = Box<dyn Fn(&Value) -> bool>;
+    let cases: Vec<(Request, Check)> = vec![
         (
             Request::Session(SessionRequest::Get {}),
             Box::new(|v: &Value| *v == ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))),
@@ -117,7 +118,7 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Army(ArmyRequest::InProvince { province: province(151) }),
             Box::new(|v: &Value| {
                 let a = &v["result"][0];
-                a["id"] == ENEMY.to_string() && a["owner"] == "BYZ" && a["province"] == 151 && a["sieging"] == true && a["route_source"] == "extension"
+                a["id"] == json!(ENEMY.to_string()) &&a["owner"] == "BYZ" && a["province"] == 151 && a["sieging"] == true && a["route_source"] == "extension"
             }),
         ),
         (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),

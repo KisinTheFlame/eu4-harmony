@@ -133,7 +133,7 @@ fn taken_by_input_method(message: u32, wparam: usize) -> bool {
 /// non-zero when SDL's window procedure must stop there: neither SDL nor
 /// DefWindowProc then sees the message.
 unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lparam: *mut isize, video: usize) -> i32 {
-    if taken_by_input_method(message, wparam) && crate::memory().is_some_and(|m| edit_box_focused(m)) {
+    if taken_by_input_method(message, wparam) && crate::memory().is_some_and(edit_box_focused) {
         return 1;
     }
     let original = ORIGINAL_IME.get();

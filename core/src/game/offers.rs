@@ -89,7 +89,7 @@ pub fn answer(_: Caller, id: u32, accept: bool) -> GResult<()> {
 /// `made`: until [`diplomacy::ANSWER_MONTHS`] after it, as 0x1066b10 decides,
 /// the check every diplomacy dialog about an action ends with.
 fn in_time(made: i32, today: i32) -> bool {
-    Date(made).months_later(diplomacy::ANSWER_MONTHS as u32).map_or(true, |until| until.0 >= today)
+    Date(made).months_later(diplomacy::ANSWER_MONTHS as u32).is_none_or(|until| until.0 >= today)
 }
 
 /// A diplomacy dialog waiting for the player's answer, and the icon holding

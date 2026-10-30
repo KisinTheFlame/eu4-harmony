@@ -51,7 +51,10 @@ fn missing(what: &'static str) -> Fail {
 }
 
 /// The device the game presents with.
-pub unsafe fn device<'a>(device: &'a *mut c_void) -> Option<&'a IDirect3DDevice9> {
+///
+/// # Safety
+/// `device` is null or the game's live device.
+pub unsafe fn device(device: &*mut c_void) -> Option<&IDirect3DDevice9> {
     IDirect3DDevice9::from_raw_borrowed(device)
 }
 
@@ -83,6 +86,9 @@ pub struct FrameCopy {
 
 impl FrameCopy {
     /// Copies the back buffer, as it is about to be presented, on the GPU.
+    ///
+    /// # Safety
+    /// On the main thread, at a present of `device`.
     pub unsafe fn start(device: &IDirect3DDevice9) -> GResult<Self> {
         let back = device.GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO).map_err(failed("the back buffer"))?;
         let mut desc = D3DSURFACE_DESC::default();
@@ -105,6 +111,9 @@ impl FrameCopy {
 
     /// At a later present: whether the GPU has made the copy, or has had
     /// [`PATIENCE`] presents to.
+    ///
+    /// # Safety
+    /// On the main thread, at a present.
     pub unsafe fn ready(&mut self) -> GResult<bool> {
         self.frames += 1;
         Ok(passed(&self.done).map_err(failed("waiting for the frame's copy"))? || self.frames >= PATIENCE)
@@ -112,6 +121,9 @@ impl FrameCopy {
 
     /// Starts reading the copy into system memory: into `kept`, the surface
     /// the frame before was read into, when the frame is the same shape.
+    ///
+    /// # Safety
+    /// On the main thread, at a present of `device`.
     pub unsafe fn read(&mut self, device: &IDirect3DDevice9, kept: Option<Memory>) -> GResult<Reading> {
         let started = Instant::now();
         let (memory, made) = match kept.filter(|kept| kept.fits(&self.shape)) {
@@ -184,6 +196,9 @@ pub enum Lock {
 impl Reading {
     /// Locks the surface once the GPU is past the transfer, looking
     /// without waiting [`PATIENCE`] times, then waiting.
+    ///
+    /// # Safety
+    /// On the main thread, at a present.
     pub unsafe fn lock(mut self) -> GResult<Lock> {
         self.tries += 1;
         let started = Instant::now();

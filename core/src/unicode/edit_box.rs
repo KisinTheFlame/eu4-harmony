@@ -131,8 +131,10 @@ pub fn fit_in(line: &[u8], count: i32) -> i32 {
 pub fn remove_in(text: &mut [u8], forbidden: &[u8]) -> usize {
     let forbidden = &forbidden[..forbidden.iter().position(|&b| b == 0).unwrap_or(forbidden.len())];
     let forbidden: Vec<char> = game_text::chars(forbidden).map(|(c, _)| c).collect();
+    // Read from a copy: the loop shifts `text` down while it goes.
+    let read = text.to_vec();
     let mut write = 0;
-    for (c, range) in game_text::chars(&text.to_vec()) {
+    for (c, range) in game_text::chars(&read) {
         if !forbidden.contains(&c) {
             let len = range.len();
             text.copy_within(range, write);

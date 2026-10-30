@@ -313,7 +313,7 @@ mod tests {
     fn a_mixed_name_reads_as_its_characters() {
         // Windows-1252 bytes for what 1252 has (Î, ·), UTF-8 for the rest.
         let text = b"\xcele-de-France \xb7 \xe5\xb7\xb4\xe9\xbb\x8e".to_vec();
-        let mut geometry = vec![0u8; geometry::NAME + game_string::OBJECT];
+        let mut geometry = [0u8; geometry::NAME + game_string::OBJECT];
         geometry[geometry::NAME..].copy_from_slice(&on_heap(&text));
         let m = Memory { base: 0 };
         assert_eq!(text_at(&m, geometry.as_ptr() as usize + geometry::NAME).unwrap(), "Île-de-France · 巴黎");
