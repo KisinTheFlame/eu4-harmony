@@ -53,6 +53,7 @@ Characters neither font has are left to the system's font fallback. The framewor
   - System fonts (`unicode/fill.rs`):
     - With "Keep the fonts as they are", a font page grows by 1024 rows downward, and characters a bitmap font lacks come from the system font; the Chinese language mod's DXT5 pages stay DXT5, with new glyphs encoded and written as blocks (the ç in a Breton ruler's name is correct).
     - With "System fonts" chosen, every page is replaced by a new one, and all text uses the system fonts (the main menu, the country selection screen, and in a game the start-of-game introduction, the outliner and the top bar are all fine; map names are in KaiTi and stay black).
+    - At an interface scale above 1, the system font look draws the interface's glyphs that many times larger and divides the font's scale to match, and button text gets a texture as dense, so text reaches the window a texel to a pixel instead of stretched by the game's linear filter; glyphs are anti-aliased across and down (2026-10-30, at 1.5).
   - Framework UI: the notice window, the corner button that appears only on the main menu's front page, the settings window (its drop-down lists scroll).
 - **Not verified in the game**:
   - M4's "found with unaccented Latin letters too": the Chinese language mod turns all place names into Chinese, so the game has no accented place name to search for; unit tests cover it.
