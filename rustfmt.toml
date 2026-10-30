@@ -1,0 +1,4 @@
+# Long lines, as the code is written: at rustfmt's default width of 100 it
+# would rewrap most of it.
+max_width = 160
+use_small_heuristics = "Max"
