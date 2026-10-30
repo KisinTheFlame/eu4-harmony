@@ -41,19 +41,19 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
             let calls = calls(call_allies.unwrap_or_default(), game)?;
             let declared = game.declare_war(enemy, &choice, &calls)?;
             let passed_over = declared.passed_over.into_iter().map(|p| PassedOver { country: tag(p.country), reasons: p.reasons }).collect();
-            Ok((declared.ticket, Kind::DeclareWar, Some((declared.called.into_iter().map(tag).collect(), passed_over))))
+            Ok((declared.ticket, DiplomacyAnswer::DeclareWar as Answers, Some((declared.called.into_iter().map(tag).collect(), passed_over))))
         })(),
         DiplomacyRequest::OfferPeace { country } => (|| {
             let enemy = game.country(country)?;
-            Ok((game.offer_peace(enemy)?, Kind::OfferPeace, None))
+            Ok((game.offer_peace(enemy)?, DiplomacyAnswer::OfferPeace as Answers, None))
         })(),
         DiplomacyRequest::ProposeAlliance { country } => (|| {
             let ally = game.country(country)?;
-            Ok((game.propose_alliance(ally)?, Kind::ProposeAlliance, None))
+            Ok((game.propose_alliance(ally)?, DiplomacyAnswer::ProposeAlliance as Answers, None))
         })(),
     };
     match sent {
-        Ok((ticket, kind, called)) => Ran::Later(Box::new(Waiting { ticket, kind, called, until: now + WAITED })),
+        Ok((ticket, answers, called)) => Ran::Later(Box::new(Waiting { ticket, answers, called, until: now + WAITED })),
         Err(e) => Ran::Done(Err(e)),
     }
 }
@@ -77,18 +77,13 @@ fn war_goal(g: &layer::WarGoal) -> WarGoal {
     }
 }
 
-/// Which capability sent the action, for the answer's variant.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
-    DeclareWar,
-    OfferPeace,
-    ProposeAlliance,
-}
+/// The answer of the capability that sent the action, around what came of it.
+type Answers = fn(Outcome) -> DiplomacyAnswer;
 
 /// An action sent, waiting for what comes of it.
 struct Waiting {
     ticket: Ticket,
-    kind: Kind,
+    answers: Answers,
     /// The allies a declaration called, and those it passed over.
     called: Option<(Vec<CountryTag>, Vec<PassedOver>)>,
     until: Instant,
@@ -105,12 +100,7 @@ impl Waiting {
             None => (None, None),
         };
         let outcome = Outcome { answer, war, called, passed_over };
-        let answer = match self.kind {
-            Kind::DeclareWar => DiplomacyAnswer::DeclareWar(outcome),
-            Kind::OfferPeace => DiplomacyAnswer::OfferPeace(outcome),
-            Kind::ProposeAlliance => DiplomacyAnswer::ProposeAlliance(outcome),
-        };
-        Ok(Answered::Diplomacy(answer))
+        Ok(Answered::Diplomacy((self.answers)(outcome)))
     }
 }
 
@@ -274,7 +264,7 @@ mod tests {
         let mut game = Fake::default();
         let buffer = events::Buffer::new();
         let now = Instant::now();
-        let mut waiting = Waiting { ticket: Ticket(3), kind: Kind::ProposeAlliance, called: None, until: now + WAITED };
+        let mut waiting = Waiting { ticket: Ticket(3), answers: DiplomacyAnswer::ProposeAlliance, called: None, until: now + WAITED };
         let (in_game, outside) = (Place::Game, Place::Outside(None));
         let mut poll = |place, now| waiting.poll(&mut super::super::Poll::new(&buffer, now, place, &mut game));
         assert_eq!(poll(&in_game, now), None);
