@@ -230,7 +230,10 @@ fn handle(event: input::Event) -> bool {
 /// Draws the framework UI on `device` (an `IDirect3DDevice9*`); called on the
 /// main thread once a frame, after the game's scene has ended, just before it
 /// presents.
-pub fn frame(device: *mut c_void) {
+///
+/// # Safety
+/// `device` is null or the game's live device.
+pub unsafe fn frame(device: *mut c_void) {
     FRAME.fetch_add(1, Ordering::Relaxed);
     if FAILED.load(Ordering::Relaxed) || device.is_null() {
         return;
