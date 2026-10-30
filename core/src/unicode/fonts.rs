@@ -19,19 +19,25 @@ extern "C" fn load_before(frame: *mut HookFrame) {
 extern "C" fn load_after(frame: *mut HookFrame) {
     crate::guarded("font loaded", || {
         let font = unsafe { (*frame).args[0] };
+        // A load that faulted left no font to fill in or seal.
+        if unsafe { (*frame).fault } != 0 {
+            fill::abandoned(font);
+            return;
+        }
         // The font's file has been parsed: its glyphs above 0xFF are all in.
-        glyphs::seal(font + OWN_GLYPHS);
+        glyphs::seal(font);
         if fill::loaded(font) {
-            glyphs::clear(font + OWN_GLYPHS);
+            glyphs::clear(font);
         }
     })
 }
 
 extern "C" fn destroy_before(frame: *mut HookFrame) {
     crate::guarded("font destroy", || {
-        let table = unsafe { (*frame).args[0] };
-        glyphs::forget(table);
-        fill::forget(table - OWN_GLYPHS);
+        // The function frees the font's own table, which it is given.
+        let font = unsafe { (*frame).args[0] } - OWN_GLYPHS;
+        glyphs::forget(font);
+        fill::forget(font);
     })
 }
 

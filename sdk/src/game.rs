@@ -1,5 +1,5 @@
 //! The game as an extension sees it during a callback.
-use crate::{abi, backend::Backend};
+use crate::abi;
 use serde::{de::DeserializeOwned, Serialize};
 
 /// Full 64-bit army ID; survives save and load.
@@ -7,7 +7,8 @@ use serde::{de::DeserializeOwned, Serialize};
 pub struct ArmyId(pub u64);
 
 /// Country identity, stable within a session; compare for equality only.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize)]
+#[serde(transparent)]
 pub struct CountryId(pub u64);
 
 pub type ProvinceId = u32;
@@ -175,11 +176,13 @@ pub struct QuestionOption {
 }
 
 /// An offer waiting for the player's answer, while it waits.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize)]
+#[serde(transparent)]
 pub struct OfferId(pub u32);
 
-/// An offer: another country's proposal waiting for the player's answer.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// An offer: another country's proposal waiting for the player's answer, as
+/// the core writes it (`abi::GameApi::offers`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 pub struct Offer {
     pub id: OfferId,
     /// The country that made it.
@@ -189,22 +192,6 @@ pub struct Offer {
     /// What is offered, such as "Royal Marriage".
     pub title: String,
     pub description: String,
-}
-
-/// [`Offer`] as the core writes it (`abi::GameApi::offers`).
-#[derive(serde::Deserialize)]
-pub(crate) struct OfferJson {
-    id: u32,
-    from: u64,
-    date: i32,
-    title: String,
-    description: String,
-}
-
-impl From<OfferJson> for Offer {
-    fn from(o: OfferJson) -> Self {
-        Self { id: OfferId(o.id), from: CountryId(o.from), date: o.date, title: o.title, description: o.description }
-    }
 }
 
 /// RGBA color of one province on the map.
@@ -248,8 +235,9 @@ impl From<abi::Camera> for Camera {
     }
 }
 
-/// All of one province at one moment.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// All of one province at one moment, as the core writes it
+/// (`abi::GameApi::province`).
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
 pub struct ProvinceSnapshot {
     pub id: ProvinceId,
     /// Its name as the game shows it.
@@ -314,38 +302,8 @@ pub struct Recruit {
     pub reasons: Vec<String>,
 }
 
-/// [`ProvinceSnapshot`] as the core writes it (`abi::GameApi::province`).
-#[derive(serde::Deserialize)]
-pub(crate) struct ProvinceJson {
-    id: ProvinceId,
-    name: String,
-    owner: Option<u64>,
-    controller: Option<u64>,
-    development: Development,
-    terrain: Option<String>,
-    fort: Fort,
-    buildings: Vec<String>,
-    recruit: Vec<Recruit>,
-}
-
-impl From<ProvinceJson> for ProvinceSnapshot {
-    fn from(p: ProvinceJson) -> Self {
-        Self {
-            id: p.id,
-            name: p.name,
-            owner: p.owner.map(CountryId),
-            controller: p.controller.map(CountryId),
-            development: p.development,
-            terrain: p.terrain,
-            fort: p.fort,
-            buildings: p.buildings,
-            recruit: p.recruit,
-        }
-    }
-}
-
-/// A country at one moment.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// A country at one moment, as the core writes it (`abi::GameApi::country`).
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
 pub struct Country {
     pub id: CountryId,
     /// Ducats, to the thousandth.
@@ -391,7 +349,7 @@ pub struct Power {
 }
 
 /// A war going on.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 pub struct War {
     /// Its name, as the game shows it.
     pub name: String,
@@ -402,14 +360,15 @@ pub struct War {
 }
 
 /// What another country is to a country.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct Relation {
     pub kind: RelationKind,
     pub country: CountryId,
     /// For a subject or an overlord, the kind of subject the subject is: the
     /// key `common/subject_types` gives it (`vassal`, `march`,
     /// `personal_union`, `tributary_state`, or one a mod adds). None for the
-    /// other kinds.
+    /// other kinds, and from a core older than subject types.
+    #[serde(default)]
     pub subject_type: Option<String>,
 }
 
@@ -429,58 +388,14 @@ pub enum RelationKind {
     Unknown,
 }
 
-/// [`Country`] as the core writes it (`abi::GameApi::country`).
-#[derive(serde::Deserialize)]
-pub(crate) struct CountryJson {
-    id: u64,
-    treasury: f64,
-    manpower: i32,
-    max_manpower: i32,
-    stability: f64,
-    prestige: f64,
-    power: Power,
-    wars: Vec<WarJson>,
-    relations: Vec<RelationJson>,
-}
-
-#[derive(serde::Deserialize)]
-struct WarJson {
-    name: String,
-    attackers: Vec<u64>,
-    defenders: Vec<u64>,
-}
-
-#[derive(serde::Deserialize)]
-struct RelationJson {
-    kind: RelationKind,
-    country: u64,
-    #[serde(default)]
-    subject_type: Option<String>,
-}
-
-impl From<CountryJson> for Country {
-    fn from(c: CountryJson) -> Self {
-        let ids = |ids: Vec<u64>| ids.into_iter().map(CountryId).collect();
-        Self {
-            id: CountryId(c.id),
-            treasury: c.treasury,
-            manpower: c.manpower,
-            max_manpower: c.max_manpower,
-            stability: c.stability,
-            prestige: c.prestige,
-            power: c.power,
-            wars: c.wars.into_iter().map(|w| War { name: w.name, attackers: ids(w.attackers), defenders: ids(w.defenders) }).collect(),
-            relations: c.relations.into_iter().map(|r| Relation { kind: r.kind, country: CountryId(r.country), subject_type: r.subject_type }).collect(),
-        }
-    }
-}
-
 /// A war goal the game offers the player for declaring war on a country, as
-/// the declare war window lists it ([`Game::war_goals`]).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// the declare war window lists it ([`Game::war_goals`]), and as the core
+/// writes it (`abi::GameApi::war_goals`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 pub struct WarGoal {
     /// Its casus belli's key, such as `cb_claim`; None for declaring war
-    /// without one.
+    /// without one, which the core names [`abi::NO_CASUS_BELLI`].
+    #[serde(deserialize_with = "casus_belli")]
     pub casus_belli: Option<String>,
     /// Its type's key, such as `take_claim`.
     pub war_goal: Option<String>,
@@ -492,29 +407,14 @@ pub struct WarGoal {
     pub name: String,
 }
 
-/// [`WarGoal`] as the core writes it (`abi::GameApi::war_goals`).
-#[derive(serde::Deserialize)]
-pub(crate) struct WarGoalJson {
-    casus_belli: String,
-    war_goal: Option<String>,
-    province: Option<u32>,
-    target: Option<u64>,
-    name: String,
-}
-
 /// How the core names a declaration of war without a casus belli.
 pub(crate) use abi::NO_CASUS_BELLI;
 
-impl From<WarGoalJson> for WarGoal {
-    fn from(g: WarGoalJson) -> Self {
-        Self {
-            casus_belli: (g.casus_belli != NO_CASUS_BELLI).then_some(g.casus_belli),
-            war_goal: g.war_goal,
-            province: g.province,
-            target: g.target.map(CountryId),
-            name: g.name,
-        }
-    }
+/// A war goal's casus belli as the core writes it: its key, or
+/// [`NO_CASUS_BELLI`] for none.
+fn casus_belli<'de, D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Option<String>, D::Error> {
+    let key = <String as serde::Deserialize>::deserialize(deserializer)?;
+    Ok((key != NO_CASUS_BELLI).then_some(key))
 }
 
 /// A diplomatic action sent, for [`Game::diplomacy_answer`].
@@ -630,67 +530,233 @@ pub struct Game<'a> {
     backend: &'a mut dyn Backend,
 }
 
+pub(crate) mod sealed {
+    /// Only this crate's backends implement [`Backend`](super::Backend), so
+    /// that a capability added to it changes no extension (ADR 0014).
+    pub trait Sealed {}
+}
+
+/// Declares every capability once. Those in `game` are a [`Backend`] method
+/// and the [`Game`] method that calls it, under one name and one
+/// description; those in `backend` are only the `Backend` method, under a
+/// `Game` method of their own that adds to it.
+macro_rules! capabilities {
+    (
+        game { $( $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty; )* }
+        backend { $( $(#[$bdoc:meta])* fn $bname:ident($($barg:ident: $bty:ty),* $(,)?) -> $bret:ty; )* }
+    ) => {
+        /// The capabilities behind a [`Game`]: the core's table for the
+        /// callback, or [`FakeGame`](crate::testing::FakeGame). Only this
+        /// crate implements it.
+        pub trait Backend: sealed::Sealed {
+            $( $(#[$doc])* fn $name(&mut self, $($arg: $ty),*) -> Result<$ret>; )*
+            $( $(#[$bdoc])* fn $bname(&mut self, $($barg: $bty),*) -> Result<$bret>; )*
+        }
+
+        impl Game<'_> {
+            $( $(#[$doc])* pub fn $name(&mut self, $($arg: $ty),*) -> Result<$ret> { self.backend.$name($($arg),*) } )*
+        }
+    };
+}
+
+capabilities! {
+    game {
+        fn session() -> Session;
+        /// Three-letter tag, for example `CAS`.
+        fn country_tag(country: CountryId) -> String;
+        /// At war with each other, or either is a rebel faction.
+        fn countries_hostile(a: CountryId, b: CountryId) -> bool;
+        /// Every province, indexed by ID (index 0 is a placeholder).
+        fn provinces() -> Vec<Province>;
+        /// The passable land provinces next to a province; none for a
+        /// province an army cannot stand on.
+        fn province_neighbors(province: ProvinceId) -> Vec<Neighbor>;
+        /// One of the player's own armies or fleets.
+        fn army(id: ArmyId) -> Army;
+        /// All armies and fleets of the player.
+        fn own_armies() -> Vec<Army>;
+        /// Land armies in a visible province; empty under fog of war.
+        /// `NotReady` while visibility is not current.
+        fn province_armies(province: ProvinceId) -> Vec<Army>;
+        /// The provinces on an own land army's current route, in order.
+        fn army_route(id: ArmyId) -> Vec<ProvinceId>;
+        /// Whether an own land army may enter a province now: military access
+        /// and terrain; forts are not considered.
+        fn army_can_enter(id: ArmyId, province: ProvinceId) -> bool;
+        /// Whether the strait between two neighboring provinces is open to an
+        /// own land army.
+        fn army_strait_open(id: ArmyId, from: ProvinceId, to: ProvinceId) -> bool;
+        /// Whether an own land army may attack `target`, an army the player
+        /// sees in `province`. `NotReady` while visibility is not current;
+        /// `NotFound` for a target not seen there.
+        fn army_can_attack(id: ArmyId, target: ArmyId, province: ProvinceId) -> bool;
+        /// Orders an own land army along the game's route to `goal`. Done
+        /// means the route is installed, not that the army has arrived.
+        /// `NotReady` while the game is paused; `Rejected` for an army the
+        /// game would not let move ([`Army::can_take_orders`]); `NotFound`
+        /// when there is no route.
+        fn army_move(id: ArmyId, goal: ProvinceId) -> ();
+        /// Stops an own land army where it is; refused as
+        /// [`army_move`](Self::army_move) is.
+        fn army_stop(id: ArmyId) -> ();
+        /// Shows or hides an element of this mod's interface.
+        fn set_visible(element: &str, visible: bool) -> ();
+        /// Enables or disables a button of this mod's interface.
+        fn set_enabled(element: &str, enabled: bool) -> ();
+        fn set_text(element: &str, text: &str) -> ();
+        fn set_tooltip(element: &str, text: &str) -> ();
+        /// Colors provinces, replacing this extension's previous coloring.
+        fn paint_map(colors: &[MapColor]) -> ();
+        fn clear_map() -> ();
+        /// The language texts are shown in this session, by its Paradox name
+        /// (`english`, `simp_chinese`, ...).
+        fn language() -> String;
+        /// Where the map camera looks and how high it is.
+        fn camera() -> Camera;
+        /// Turns the camera to a province, at the position the game looks at
+        /// it from, keeping the height; the next frame shows it. `Rejected`
+        /// while the camera is locked.
+        fn camera_look_at_province(province: ProvinceId) -> Camera;
+        /// Turns the camera to a map position, keeping the height.
+        fn camera_look_at(x: u32, y: u32) -> Camera;
+        /// Raises or lowers the camera, looking at the same position.
+        fn camera_zoom(height: u32) -> Camera;
+        /// A province's snapshot: its name, development, terrain, fort,
+        /// buildings, and what the player can recruit there now.
+        fn province(province: ProvinceId) -> ProvinceSnapshot;
+        /// Runs a command in the game console, as the player would type it
+        /// (`cash 100`), and returns what it printed. The game's own checks
+        /// apply: a command only developers may run, almost any command in an
+        /// ironman or multiplayer game, one the game console does not know and
+        /// one that fails are [`Status::Rejected`], with what was printed as
+        /// the message. `InvalidArgument` for an empty command or one with a
+        /// `|` or a NUL; `Unavailable` on an EU4 Harmony older than this SDK.
+        fn console(command: &str) -> String;
+        /// One read of a country: its treasury, manpower, stability, prestige,
+        /// monarch points, wars and diplomatic relations.
+        fn country(country: CountryId) -> Country;
+        /// The game speed, from 1 (slowest) to 5 (fastest). Whether the game
+        /// is paused is in the [`session`](Self::session).
+        fn speed() -> u32;
+        /// Sets the game speed, from 1 to 5, as the player would; the game
+        /// stays paused or running.
+        fn set_speed(speed: u32) -> ();
+        /// Pauses the game with the player's own pause, as the player would,
+        /// also when windows hold it paused already, so that it stays paused
+        /// once they close; nothing when the player's pause holds it already.
+        fn pause() -> ();
+        /// Resumes the game as the player would, also when windows hold it
+        /// paused (they stay open); nothing when it runs. `Rejected` when the
+        /// game stays paused, and once the game is over: past its end date,
+        /// unless the player chose to play on, as the player's resuming is
+        /// refused.
+        fn resume() -> ();
+        /// Recruits one regiment or ship of `kind` in a province for the
+        /// player, through the game's own recruit command, as the recruit
+        /// button in the province view does: the player's unit type of that
+        /// kind, at the game's cost. Done once the game has the order; it
+        /// carries it out at its next frame, checking it again then, and drops
+        /// one that no longer passes with only a line in its own log: several
+        /// orders in one callback are each checked against the same treasury,
+        /// manpower and sailors, and those the first ones leave too little for
+        /// are dropped at that frame. `Rejected` with the game's reasons, one
+        /// a line, when the game would not let the player recruit it there
+        /// now. The province's [`Recruit`] says so beforehand, but for one rule
+        /// of the recruit command's on ships, a restriction it asks of the
+        /// player where the snapshot asks it of the province's owner: a ship
+        /// the snapshot allows can still be refused, with no reason.
+        /// `InvalidArgument` for [`UnitKind::Unknown`].
+        fn recruit(province: ProvinceId, kind: UnitKind) -> ();
+        /// The questions waiting for the player's answer, oldest first: the
+        /// game's events shown in event windows.
+        fn questions() -> Vec<Question>;
+        /// Answers a question with one of its options, as the player does in
+        /// its event window; the game applies it a moment later.
+        fn answer_question(question: QuestionId, option: u32) -> ();
+        /// The offers waiting for the player's answer, made no more than two
+        /// months ago: the game takes no answer to an older one.
+        fn offers() -> Vec<Offer>;
+        /// The war goals the game offers the player for declaring war on
+        /// `country`, as the declare war window lists them: under each casus
+        /// belli the player has against it, each war goal it allows, and last,
+        /// when the game offers it, declaring war without a casus belli.
+        fn war_goals(country: CountryId) -> Vec<WarGoal>;
+        /// Declares war on `country` for `goal`, one of those
+        /// [`war_goals`](Self::war_goals) lists, as the player does through the
+        /// diplomacy panel, so that the game's checks and costs apply. It calls
+        /// to arms the allies `call` names, as ticking their call boxes in the
+        /// declare war window does, with no land promised; the answer says
+        /// which it called. Unlike remote control's answer, it does not list
+        /// the allies passed over, or why (`passed_over`): to learn why the
+        /// window would not let the player call an ally, name it
+        /// ([`CallAllies::Only`]), which is refused with the reasons.
+        /// `InvalidArgument` for an ally to call that the window does not list;
+        /// `Rejected`, with the game's reasons and nothing sent, for one it
+        /// would not let the player call. A costly declaration (no casus belli,
+        /// a truce broken) is sent without the window's confirmation, and the
+        /// game takes its costs.
+        /// [`Status::Rejected`] when the game offers no such war goal or does
+        /// not let the player declare war now, with the game's reasons, one a
+        /// line. The game carries the declaration out at its next frame;
+        /// [`diplomacy_answer`](Self::diplomacy_answer) then says whether the
+        /// war began.
+        fn declare_war(country: CountryId, goal: &WarGoal, call: &CallAllies) -> Declaration;
+        /// Offers `country`, which the player is at war with, a white peace in
+        /// the war between them, as the peace view sends one; refused, with the
+        /// game's reasons, when the game does not let the player. An AI country
+        /// answers a frame or two later: see
+        /// [`diplomacy_answer`](Self::diplomacy_answer).
+        fn offer_peace(country: CountryId) -> Ticket;
+        /// Proposes an alliance to `country`, as
+        /// [`offer_peace`](Self::offer_peace) offers peace.
+        fn propose_alliance(country: CountryId) -> Ticket;
+        /// What came of a diplomatic action sent: pending until the game has
+        /// carried it out and the other country has answered, which in a single
+        /// player game is a frame or two later. A proposal the game drops as it
+        /// carries it out, its own check failing then, stays pending: the game
+        /// says nothing of it. `NotFound` for a ticket no longer kept (the
+        /// latest 256 are), `NotInGame` once the game it was sent in has ended,
+        /// `Rejected` for a declaration the game carried out without a war
+        /// beginning.
+        fn diplomacy_answer(ticket: Ticket) -> DiplomacyAnswer;
+    }
+    backend {
+        /// The route the game itself would choose for an own land army; empty
+        /// when `goal` is the army's province. `NotFound` when there is none,
+        /// and for an army that is not the player's own.
+        fn find_route(id: ArmyId, goal: ProvinceId) -> Vec<ProvinceId>;
+        /// `NotFound` when no own land army is shown.
+        fn ui_selected_army() -> ArmyId;
+        /// JSON text; empty when there is none.
+        fn save_data_get() -> String;
+        fn save_data_set(json: &str) -> ();
+        /// This mod's text for `key`; `NotFound` when it has none.
+        fn text(key: &str) -> String;
+        fn answer_offer(offer: OfferId, accept: bool) -> ();
+    }
+}
+
 impl<'a> Game<'a> {
     pub fn new(backend: &'a mut dyn Backend) -> Self {
         Self { backend }
     }
 
-    pub fn session(&mut self) -> Result<Session> {
-        self.backend.session()
-    }
-    /// Three-letter tag, for example `CAS`.
-    pub fn country_tag(&mut self, country: CountryId) -> Result<String> {
-        self.backend.country_tag(country)
-    }
-    /// At war with each other, or either is a rebel faction.
-    pub fn countries_hostile(&mut self, a: CountryId, b: CountryId) -> Result<bool> {
-        self.backend.countries_hostile(a, b)
-    }
-    /// Every province, indexed by ID (index 0 is a placeholder).
-    pub fn provinces(&mut self) -> Result<Vec<Province>> {
-        self.backend.provinces()
-    }
-    /// Land neighbors between passable land provinces.
-    pub fn province_neighbors(&mut self, province: ProvinceId) -> Result<Vec<Neighbor>> {
-        self.backend.province_neighbors(province)
-    }
-    pub fn army(&mut self, id: ArmyId) -> Result<Army> {
-        self.backend.army(id)
-    }
-    /// All armies and fleets of the player.
-    pub fn own_armies(&mut self) -> Result<Vec<Army>> {
-        self.backend.own_armies()
-    }
-    /// Land armies in a visible province; empty under fog of war.
-    pub fn province_armies(&mut self, province: ProvinceId) -> Result<Vec<Army>> {
-        self.backend.province_armies(province)
-    }
-    pub fn army_route(&mut self, id: ArmyId) -> Result<Vec<ProvinceId>> {
-        self.backend.army_route(id)
-    }
-    /// Military access and terrain; forts are not considered.
-    pub fn army_can_enter(&mut self, id: ArmyId, province: ProvinceId) -> Result<bool> {
-        self.backend.army_can_enter(id, province)
-    }
-    pub fn army_strait_open(&mut self, id: ArmyId, from: ProvinceId, to: ProvinceId) -> Result<bool> {
-        self.backend.army_strait_open(id, from, to)
-    }
-    pub fn army_can_attack(&mut self, id: ArmyId, target: ArmyId, province: ProvinceId) -> Result<bool> {
-        self.backend.army_can_attack(id, target, province)
-    }
     /// The route the game would choose; `Ok(None)` when there is none.
+    /// `NotFound` for an army that is not one of the player's own.
     pub fn find_route(&mut self, id: ArmyId, goal: ProvinceId) -> Result<Option<Vec<ProvinceId>>> {
         match self.backend.find_route(id, goal) {
             Ok(route) => Ok(Some(route)),
-            Err(e) if e.status == Status::NotFound => Ok(None),
+            // The game says NotFound for an army that is not the player's,
+            // too: only the player's own army has no route.
+            Err(e) if e.status == Status::NotFound => {
+                if self.backend.own_armies()?.iter().any(|a| a.id == id) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
             Err(e) => Err(e),
         }
-    }
-    pub fn army_move(&mut self, id: ArmyId, goal: ProvinceId) -> Result<()> {
-        self.backend.army_move(id, goal)
-    }
-    pub fn army_stop(&mut self, id: ArmyId) -> Result<()> {
-        self.backend.army_stop(id)
     }
     /// The own land army in the open single-army panel, if any.
     pub fn selected_army(&mut self) -> Result<Option<ArmyId>> {
@@ -699,25 +765,6 @@ impl<'a> Game<'a> {
             Err(e) if e.status == Status::NotFound => Ok(None),
             Err(e) => Err(e),
         }
-    }
-    pub fn set_visible(&mut self, element: &str, visible: bool) -> Result<()> {
-        self.backend.ui_set_visible(element, visible)
-    }
-    pub fn set_enabled(&mut self, element: &str, enabled: bool) -> Result<()> {
-        self.backend.ui_set_enabled(element, enabled)
-    }
-    pub fn set_text(&mut self, element: &str, text: &str) -> Result<()> {
-        self.backend.ui_set_text(element, text)
-    }
-    pub fn set_tooltip(&mut self, element: &str, text: &str) -> Result<()> {
-        self.backend.ui_set_tooltip(element, text)
-    }
-    /// Colors provinces, replacing this extension's previous coloring.
-    pub fn paint_map(&mut self, colors: &[MapColor]) -> Result<()> {
-        self.backend.map_paint(colors)
-    }
-    pub fn clear_map(&mut self) -> Result<()> {
-        self.backend.map_clear()
     }
     /// This extension's data stored with the current save.
     pub fn save_data<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
@@ -732,11 +779,6 @@ impl<'a> Game<'a> {
         let text = serde_json::to_string(value).map_err(|e| Error::new(Status::InvalidArgument, e.to_string()))?;
         self.backend.save_data_set(&text)
     }
-    /// The language texts are shown in this session, by its Paradox name
-    /// (`english`, `simp_chinese`, ...).
-    pub fn language(&mut self) -> Result<String> {
-        self.backend.language()
-    }
     /// This mod's text for `key`, from its `eu4-harmony/localisation/` files,
     /// in the player language or else in English. As in the game, a key
     /// without a text shows as itself.
@@ -746,103 +788,6 @@ impl<'a> Game<'a> {
     /// [`text`](Self::text) with each `$NAME$` replaced by its value.
     pub fn text_with(&mut self, key: &str, args: &[(&str, &str)]) -> String {
         eu4_harmony_loc::fill(&self.text(key), args)
-    }
-    /// Where the map camera looks and how high it is.
-    pub fn camera(&mut self) -> Result<Camera> {
-        self.backend.camera()
-    }
-    /// Turns the camera to a province, at the position the game looks at it
-    /// from, keeping the height; the next frame shows it. `Rejected` while
-    /// the camera is locked.
-    pub fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
-        self.backend.camera_look_at_province(province)
-    }
-    /// Turns the camera to a map position, keeping the height.
-    pub fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera> {
-        self.backend.camera_look_at(x, y)
-    }
-    /// Raises or lowers the camera, looking at the same position.
-    pub fn camera_zoom(&mut self, height: u32) -> Result<Camera> {
-        self.backend.camera_zoom(height)
-    }
-    /// A province's snapshot: its name, development, terrain, fort,
-    /// buildings, and what the player can recruit there now.
-    pub fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
-        self.backend.province(province)
-    }
-    /// Runs a command in the game console, as the player would type it
-    /// (`cash 100`), and returns what it printed. The game's own checks
-    /// apply: a command only developers may run, almost any command in an
-    /// ironman or multiplayer game, one the game console does not know and
-    /// one that fails are [`Status::Rejected`], with what was printed as the
-    /// message. `InvalidArgument` for an empty command or one with a `|` or a
-    /// NUL; `Unavailable` on an EU4 Harmony older than this SDK.
-    pub fn console(&mut self, command: &str) -> Result<String> {
-        self.backend.console_run(command)
-    }
-    /// One read of a country: its treasury, manpower, stability, prestige,
-    /// monarch points, wars and diplomatic relations.
-    pub fn country(&mut self, country: CountryId) -> Result<Country> {
-        self.backend.country(country)
-    }
-    /// The game speed, from 1 (slowest) to 5 (fastest). Whether the game is
-    /// paused is in the [`session`](Self::session).
-    pub fn speed(&mut self) -> Result<u32> {
-        self.backend.time_speed()
-    }
-    /// Sets the game speed, from 1 to 5, as the player would; the game stays
-    /// paused or running.
-    pub fn set_speed(&mut self, speed: u32) -> Result<()> {
-        self.backend.time_set_speed(speed)
-    }
-    /// Pauses the game with the player's own pause, as the player would, also
-    /// when windows hold it paused already, so that it stays paused once they
-    /// close; nothing when the player's pause holds it already.
-    pub fn pause(&mut self) -> Result<()> {
-        self.backend.time_pause()
-    }
-    /// Resumes the game as the player would, also when windows hold it paused
-    /// (they stay open); nothing when it runs. `Rejected` when the game stays
-    /// paused, and once the game is over: past its end date, unless the
-    /// player chose to play on, as the player's resuming is refused.
-    pub fn resume(&mut self) -> Result<()> {
-        self.backend.time_resume()
-    }
-    /// Recruits one regiment or ship of `kind` in a province for the player,
-    /// through the game's own recruit command, as the recruit button in the
-    /// province view does: the player's unit type of that kind, at the
-    /// game's cost. Done once the game has the order; it carries it out at
-    /// its next frame, checking it again then, and drops one that no longer
-    /// passes with only a line in its own log: several orders in one
-    /// callback are each checked against the same treasury, manpower and
-    /// sailors, and those the first ones leave too little for are dropped at
-    /// that frame. `Rejected` with the game's reasons, one a line, when the
-    /// game would not let the player recruit it there now. The province's
-    /// [`Recruit`] says so beforehand, but for one rule of the recruit
-    /// command's on ships, a restriction it asks of the player where the
-    /// snapshot asks it of the province's owner: a ship the snapshot allows
-    /// can still be refused, with no reason. `InvalidArgument` for
-    /// [`UnitKind::Unknown`].
-    pub fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
-        if kind == UnitKind::Unknown {
-            return Err(Error::new(Status::InvalidArgument, "a unit kind this SDK does not know cannot be recruited"));
-        }
-        self.backend.recruit(province, kind)
-    }
-    /// The questions waiting for the player's answer, oldest first: the
-    /// game's events shown in event windows.
-    pub fn questions(&mut self) -> Result<Vec<Question>> {
-        self.backend.questions()
-    }
-    /// Answers a question with one of its options, as the player does in its
-    /// event window; the game applies it a moment later.
-    pub fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
-        self.backend.answer_question(question, option)
-    }
-    /// The offers waiting for the player's answer, made no more than two
-    /// months ago: the game takes no answer to an older one.
-    pub fn offers(&mut self) -> Result<Vec<Offer>> {
-        self.backend.offers()
     }
     /// Accepts an offer, as the player does in its window. `Rejected` when the
     /// game no longer takes an answer to it (it was made more than two months
@@ -856,57 +801,9 @@ impl<'a> Game<'a> {
     pub fn decline_offer(&mut self, offer: OfferId) -> Result<()> {
         self.backend.answer_offer(offer, false)
     }
-    /// The war goals the game offers the player for declaring war on
-    /// `country`, as the declare war window lists them: under each casus
-    /// belli the player has against it, each war goal it allows, and last,
-    /// when the game offers it, declaring war without a casus belli.
-    pub fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>> {
-        self.backend.war_goals(country)
-    }
-    /// Declares war on `country` for `goal`, one of those
-    /// [`war_goals`](Self::war_goals) lists, as the player does through the
-    /// diplomacy panel, so that the game's checks and costs apply. It calls
-    /// to arms the allies `call` names, as ticking their call boxes in the
-    /// declare war window does, with no land promised; the answer says which
-    /// it called. Unlike remote control's answer, it does not list the
-    /// allies passed over, or why (`passed_over`): to learn why the window
-    /// would not let the player call an ally, name it
-    /// ([`CallAllies::Only`]), which is refused with the reasons.
-    /// `InvalidArgument` for an ally to call that the window does not list;
-    /// `Rejected`, with the game's reasons and nothing sent, for one it
-    /// would not let the player call. A costly declaration (no casus belli,
-    /// a truce broken) is sent without the window's confirmation, and the
-    /// game takes its costs.
-    /// [`Status::Rejected`] when the game offers no such war goal or does
-    /// not let the player declare war now, with the game's reasons, one a
-    /// line. The game carries the declaration out at its next frame;
-    /// [`diplomacy_answer`](Self::diplomacy_answer) then says whether the war
-    /// began.
-    pub fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration> {
-        self.backend.declare_war(country, goal, call)
-    }
-    /// Offers `country`, which the player is at war with, a white peace in
-    /// the war between them, as the peace view sends one; refused, with the
-    /// game's reasons, when the game does not let the player. An AI country
-    /// answers a frame or two later: see
-    /// [`diplomacy_answer`](Self::diplomacy_answer).
-    pub fn offer_peace(&mut self, country: CountryId) -> Result<Ticket> {
-        self.backend.offer_peace(country)
-    }
-    /// Proposes an alliance to `country`, as [`offer_peace`](Self::offer_peace)
-    /// offers peace.
-    pub fn propose_alliance(&mut self, country: CountryId) -> Result<Ticket> {
-        self.backend.propose_alliance(country)
-    }
-    /// What came of a diplomatic action sent: pending until the game has
-    /// carried it out and the other country has answered, which in a single
-    /// player game is a frame or two later. A proposal the game drops as it
-    /// carries it out, its own check failing then, stays pending: the game
-    /// says nothing of it. `NotFound` for a ticket no longer kept (the latest
-    /// 256 are), `NotInGame` once the game it was sent in has ended,
-    /// `Rejected` for a declaration the game carried out without a war
-    /// beginning.
-    pub fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer> {
-        self.backend.diplomacy_answer(ticket)
-    }
+}
+
+/// How a backend refuses [`UnitKind::Unknown`], which no core takes.
+pub(crate) fn unknown_unit_kind() -> Error {
+    Error::new(Status::InvalidArgument, "a unit kind this SDK does not know cannot be recruited")
 }

@@ -10,6 +10,7 @@ l_french:
  EU4HARMONY_NOT_LOADED:0 "Le mod « $MOD$ » n'a pas été chargé :\n$DETAIL$"
  EU4HARMONY_STOPPED:0 "Le mod « $MOD$ » a échoué et son extension a été arrêtée : $DETAIL$\n\nL'état de la partie est peut-être incohérent ; évitez d'écraser vos sauvegardes."
  EU4HARMONY_TEST_NOTICE:0 "Notification de test $NUMBER$ d'EU4 Harmony. Fermez-la avec le bouton dans son coin."
+ EU4HARMONY_FONT_MISSING:0 "La police « $FONT$ » choisie dans les paramètres d'EU4 Harmony n'est pas installée ; $DEFAULT$ est utilisée à la place. Choisissez une autre police dans les paramètres."
  EU4HARMONY_SETTINGS_BUTTON:0 "Paramètres d'EU4 Harmony"
  EU4HARMONY_SETTINGS_TITLE:0 "Paramètres d'EU4 Harmony"
  EU4HARMONY_SETTINGS_APPEARANCE:0 "Apparence du texte"

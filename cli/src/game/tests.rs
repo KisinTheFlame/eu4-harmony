@@ -66,6 +66,15 @@ fn the_command_lines_own_options_go_anywhere() {
     assert_eq!(a.request, Request::Army(ArmyRequest::Get { army: ArmyId(4294967377) }));
 }
 
+/// The help explains every error code the game may answer.
+#[test]
+fn the_help_explains_every_error_code() {
+    let text = usage();
+    for code in eu4_harmony_remote::Code::ALL {
+        assert!(text.contains(code.name()), "the help does not explain {}", code.name());
+    }
+}
+
 #[test]
 fn help_from_the_descriptions() {
     for text in ["", "help", "--help", "-h"] {

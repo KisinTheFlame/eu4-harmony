@@ -519,17 +519,18 @@ extern "C" fn load_after(f: *mut HookFrame) {
     });
 }
 
+/// The path in the engine's `std::string` at `p`, and where its text is, a C
+/// string for PhysFS.
 fn engine_path(m: &Memory, p: usize) -> Result<(String, usize)> {
-    let len = m.u64(p + 16)? as usize;
-    let cap = m.u64(p + 24)? as usize;
-    if len == 0 || len > 4095 || cap < len || cap > 1_048_576 {
+    let bytes = crate::game_string::read(m, p)?;
+    if bytes.is_empty() || bytes.len() > 4095 {
         return Err("engine path bounds".into());
     }
-    let data = if cap <= 15 { p } else { m.ptr(p)? };
-    if m.u8(data + len)? != 0 {
+    let data = crate::game_string::text_address(m, p)?;
+    if m.u8(data + bytes.len())? != 0 {
         return Err("engine path terminator".into());
     }
-    let s = String::from_utf8(m.bytes(data, len)?).map_err(|e| e.to_string())?;
+    let s = String::from_utf8(bytes).map_err(|e| e.to_string())?;
     Ok((s, data))
 }
 

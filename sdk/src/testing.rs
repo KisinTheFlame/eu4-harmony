@@ -5,7 +5,7 @@
 //! events with [`FakeGame::game`], and inspect [`FakeGame::commands`], the UI
 //! state and the map. Orders have no effect unless the test applies them.
 //! [`FakeGame::load_localisation`] gives it the mod's real texts.
-use crate::{backend::Backend, game::*};
+use crate::game::*;
 use eu4_harmony_loc::Language;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -48,8 +48,13 @@ pub struct FakeGame {
     /// Indexed by province ID; index 0 is the placeholder.
     pub provinces: Vec<Province>,
     pub neighbors: BTreeMap<ProvinceId, Vec<Neighbor>>,
+    /// The player's armies and fleets. Routes, orders and the other army
+    /// capabilities take only land armies (`land`), and routes and orders
+    /// only those the core would let an extension order: with regiments,
+    /// none of the flags set that stop an order, and the game not paused.
     pub own_armies: Vec<Army>,
-    /// Visible armies per province, own and foreign.
+    /// Visible armies per province, own and foreign; an attack is judged only
+    /// on a target among them, in a visible province.
     pub province_armies: BTreeMap<ProvinceId, Vec<Army>>,
     pub routes_of_armies: BTreeMap<ArmyId, Vec<ProvinceId>>,
     /// Provinces each army may not enter.
@@ -203,7 +208,47 @@ impl FakeGame {
     fn own(&self, id: ArmyId) -> Result<&Army> {
         self.own_armies.iter().find(|a| a.id == id).ok_or_else(|| not_found(format!("no own army {}", id.0)))
     }
+
+    /// An own land army, as the core's army capabilities other than
+    /// [`Game::army`] take one: a fleet is refused.
+    fn own_land(&self, id: ArmyId) -> Result<&Army> {
+        let army = self.own(id)?;
+        if !army.land {
+            return Err(Error::new(Status::InvalidArgument, "not a land army"));
+        }
+        Ok(army)
+    }
+
+    /// An own land army an extension may route or order now, checked as the
+    /// core checks it, in its order and words: not while the game is paused,
+    /// and not one in battle, sieging, retreating, exiled, locked, attached
+    /// or with armies attached, busy with a task of the game's, or with no
+    /// regiments.
+    fn orderable(&self, id: ArmyId) -> Result<Army> {
+        let army = *self.own_land(id)?;
+        if self.session.paused {
+            return Err(Error::new(Status::NotReady, "game is paused"));
+        }
+        for (on, reason) in [
+            (army.in_battle, "army is in battle"),
+            (army.sieging, "army is sieging"),
+            (army.retreating, "army is retreating"),
+            (army.exiled, "army is exiled"),
+            (army.movement_locked, "army movement is locked"),
+            (army.attached, "army is attached to another army"),
+            (army.has_followers, "other armies are attached to this army"),
+            (army.busy, "army has a native task"),
+            (army.regiments == 0, "army has no regiments"),
+        ] {
+            if on {
+                return Err(rejected(reason));
+            }
+        }
+        Ok(army)
+    }
 }
+
+impl sealed::Sealed for FakeGame {}
 
 impl Backend for FakeGame {
     fn session(&mut self) -> Result<Session> {
@@ -235,30 +280,38 @@ impl Backend for FakeGame {
         Ok(if visible { self.province_armies.get(&province).cloned().unwrap_or_default() } else { Vec::new() })
     }
     fn army_route(&mut self, id: ArmyId) -> Result<Vec<ProvinceId>> {
-        self.own(id)?;
+        self.own_land(id)?;
         Ok(self.routes_of_armies.get(&id).cloned().unwrap_or_default())
     }
     fn army_can_enter(&mut self, id: ArmyId, province: ProvinceId) -> Result<bool> {
-        self.own(id)?;
+        self.own_land(id)?;
         Ok(!self.closed.contains(&(id, province)))
     }
     fn army_strait_open(&mut self, id: ArmyId, from: ProvinceId, to: ProvinceId) -> Result<bool> {
-        self.own(id)?;
+        self.own_land(id)?;
         Ok(!self.closed_straits.contains(&(from, to)))
     }
-    fn army_can_attack(&mut self, id: ArmyId, target: ArmyId, _province: ProvinceId) -> Result<bool> {
-        self.own(id)?;
+    fn army_can_attack(&mut self, id: ArmyId, target: ArmyId, province: ProvinceId) -> Result<bool> {
+        // As the core: visibility first, then the army, then the target among
+        // the armies visible in the province.
+        if !self.session.visibility_current {
+            return Err(Error::new(Status::NotReady, "visibility is not current yet"));
+        }
+        self.own_land(id)?;
+        if !self.province_armies(province)?.iter().any(|a| a.id == target) {
+            return Err(not_found(format!("no visible army {} in {province}", target.0)));
+        }
         Ok(id != target && !self.protected.contains(&(id, target)))
     }
     fn find_route(&mut self, id: ArmyId, goal: ProvinceId) -> Result<Vec<ProvinceId>> {
-        let army = *self.own(id)?;
+        let army = self.orderable(id)?;
         if goal == army.province {
             return Ok(Vec::new());
         }
         self.routes.get(&(id, goal)).cloned().ok_or_else(|| not_found(format!("no route to {goal}")))
     }
     fn army_move(&mut self, id: ArmyId, goal: ProvinceId) -> Result<()> {
-        self.own(id)?;
+        self.orderable(id)?;
         if let Some(reason) = &self.reject_orders {
             return Err(Error::new(Status::Rejected, reason.clone()));
         }
@@ -266,7 +319,7 @@ impl Backend for FakeGame {
         Ok(())
     }
     fn army_stop(&mut self, id: ArmyId) -> Result<()> {
-        self.own(id)?;
+        self.orderable(id)?;
         if let Some(reason) = &self.reject_orders {
             return Err(Error::new(Status::Rejected, reason.clone()));
         }
@@ -276,27 +329,27 @@ impl Backend for FakeGame {
     fn ui_selected_army(&mut self) -> Result<ArmyId> {
         self.selected.ok_or_else(|| not_found("no army selected"))
     }
-    fn ui_set_visible(&mut self, element: &str, visible: bool) -> Result<()> {
+    fn set_visible(&mut self, element: &str, visible: bool) -> Result<()> {
         self.elements.entry(element.into()).or_default().visible = Some(visible);
         Ok(())
     }
-    fn ui_set_enabled(&mut self, element: &str, enabled: bool) -> Result<()> {
+    fn set_enabled(&mut self, element: &str, enabled: bool) -> Result<()> {
         self.elements.entry(element.into()).or_default().enabled = Some(enabled);
         Ok(())
     }
-    fn ui_set_text(&mut self, element: &str, text: &str) -> Result<()> {
+    fn set_text(&mut self, element: &str, text: &str) -> Result<()> {
         self.elements.entry(element.into()).or_default().text = Some(text.into());
         Ok(())
     }
-    fn ui_set_tooltip(&mut self, element: &str, text: &str) -> Result<()> {
+    fn set_tooltip(&mut self, element: &str, text: &str) -> Result<()> {
         self.elements.entry(element.into()).or_default().tooltip = Some(text.into());
         Ok(())
     }
-    fn map_paint(&mut self, colors: &[MapColor]) -> Result<()> {
+    fn paint_map(&mut self, colors: &[MapColor]) -> Result<()> {
         self.map = Some(colors.to_vec());
         Ok(())
     }
-    fn map_clear(&mut self) -> Result<()> {
+    fn clear_map(&mut self) -> Result<()> {
         self.map = None;
         Ok(())
     }
@@ -340,7 +393,7 @@ impl Backend for FakeGame {
     fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
         self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
     }
-    fn console_run(&mut self, command: &str) -> Result<String> {
+    fn console(&mut self, command: &str) -> Result<String> {
         // The core's own refusals, in its words.
         let refused = if command.contains('|') {
             Some("a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out")
@@ -360,21 +413,21 @@ impl Backend for FakeGame {
     fn country(&mut self, country: CountryId) -> Result<Country> {
         self.countries.get(&country).cloned().ok_or_else(|| not_found("unknown country"))
     }
-    fn time_speed(&mut self) -> Result<u32> {
+    fn speed(&mut self) -> Result<u32> {
         Ok(self.speed.max(1))
     }
-    fn time_set_speed(&mut self, speed: u32) -> Result<()> {
+    fn set_speed(&mut self, speed: u32) -> Result<()> {
         if !(1..=5).contains(&speed) {
             return Err(Error::new(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}")));
         }
         self.speed = speed;
         Ok(())
     }
-    fn time_pause(&mut self) -> Result<()> {
+    fn pause(&mut self) -> Result<()> {
         self.session.paused = true;
         Ok(())
     }
-    fn time_resume(&mut self) -> Result<()> {
+    fn resume(&mut self) -> Result<()> {
         if self.session.paused && self.end_date.is_some_and(|end| self.session.date > end) {
             return Err(rejected(
                 "the game is over: it is past its end date, and stays paused, as for the player, until the end-of-game summary is closed to play on",
@@ -384,6 +437,9 @@ impl Backend for FakeGame {
         Ok(())
     }
     fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
+        if kind == UnitKind::Unknown {
+            return Err(unknown_unit_kind());
+        }
         let snapshot = self.province_snapshots.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
         // A kind the snapshot leaves out, which the core's never does, as one
         // the player has no unit type of.
@@ -511,6 +567,64 @@ mod tests {
         fake.province_snapshots.insert(151, snapshot.clone());
         assert_eq!(fake.game().province(151).unwrap(), snapshot);
         assert_eq!(fake.game().province(152).unwrap_err().status, Status::NotFound);
+    }
+
+    /// No route is `None`; an army that is not the player's own stays an
+    /// error, though the game says NotFound for both.
+    #[test]
+    fn a_route_is_none_only_for_an_own_army() {
+        let mut fake = FakeGame::new();
+        fake.own_armies.push(Army { id: ArmyId(7), province: 151, land: true, regiments: 1, ..Default::default() });
+        fake.routes.insert((ArmyId(7), 149), vec![150, 149]);
+        assert_eq!(fake.game().find_route(ArmyId(7), 149).unwrap(), Some(vec![150, 149]));
+        assert_eq!(fake.game().find_route(ArmyId(7), 1).unwrap(), None);
+        let err = fake.game().find_route(ArmyId(8), 149).unwrap_err();
+        assert_eq!((err.status, err.message.as_str()), (Status::NotFound, "no own army 8"));
+    }
+
+    /// Orders are checked as the core checks an extension's: a fleet, a
+    /// paused game, an army the game would not let move.
+    #[test]
+    fn orders_are_refused_where_the_core_refuses_them() {
+        let mut fake = FakeGame::new();
+        let army = Army { id: ArmyId(7), province: 151, land: true, regiments: 2, ..Default::default() };
+        fake.own_armies = vec![army, Army { id: ArmyId(8), land: false, regiments: 2, ..army }, Army { id: ArmyId(9), sieging: true, ..army }];
+        let refused = |fake: &mut FakeGame, id| {
+            let err = fake.game().army_move(ArmyId(id), 149).unwrap_err();
+            (err.status, err.message)
+        };
+        assert_eq!(refused(&mut fake, 8), (Status::InvalidArgument, "not a land army".into()));
+        assert_eq!(refused(&mut fake, 9), (Status::Rejected, "army is sieging".into()));
+        fake.session.paused = true;
+        assert_eq!(refused(&mut fake, 7), (Status::NotReady, "game is paused".into()));
+        assert_eq!(fake.game().find_route(ArmyId(7), 151).unwrap_err().status, Status::NotReady);
+        // Questions about the army are answered while paused.
+        assert!(fake.game().army_can_enter(ArmyId(7), 149).unwrap());
+        fake.session.paused = false;
+        fake.game().army_move(ArmyId(7), 149).unwrap();
+        fake.game().army_stop(ArmyId(7)).unwrap();
+        assert_eq!(fake.commands, [Command::Move(ArmyId(7), 149), Command::Stop(ArmyId(7))]);
+    }
+
+    /// An attack is judged on a target the player sees, once visibility is
+    /// current, as in the core.
+    #[test]
+    fn an_attack_is_judged_on_a_visible_target() {
+        let mut fake = FakeGame::new();
+        let own = Army { id: ArmyId(7), province: 151, land: true, regiments: 2, ..Default::default() };
+        let enemy = Army { id: ArmyId(20), province: 152, land: true, regiments: 4, ..Default::default() };
+        fake.own_armies.push(own);
+        fake.provinces = vec![Province::default(); 153];
+        fake.provinces[152] = Province { id: 152, land: true, visible: true, ..Default::default() };
+        fake.province_armies.insert(152, vec![enemy]);
+        assert_eq!(fake.game().army_can_attack(ArmyId(7), ArmyId(20), 152).unwrap_err().status, Status::NotReady);
+        fake.session.visibility_current = true;
+        assert!(fake.game().army_can_attack(ArmyId(7), ArmyId(20), 152).unwrap());
+        fake.protected.insert((ArmyId(7), ArmyId(20)));
+        assert!(!fake.game().army_can_attack(ArmyId(7), ArmyId(20), 152).unwrap());
+        assert_eq!(fake.game().army_can_attack(ArmyId(7), ArmyId(20), 151).unwrap_err().status, Status::NotFound);
+        fake.provinces[152].visible = false;
+        assert_eq!(fake.game().army_can_attack(ArmyId(7), ArmyId(20), 152).unwrap_err().status, Status::NotFound);
     }
 
     #[test]

@@ -532,6 +532,37 @@ mod tests {
         disjoint(&points, &addresses).unwrap();
     }
 
+    /// A jump stub continues where a point checks the code: inside one's
+    /// bytes, or right after them, where the jump's own bytes end.
+    #[test]
+    fn every_jump_resumes_at_code_a_point_checks() {
+        let points = crate::points();
+        let checked: Vec<(usize, usize)> = points
+            .iter()
+            .filter(|p| p.method.is_none())
+            .filter_map(|p| match p.place {
+                Place::Rva(rva) => Some((rva, rva + p.bytes.split_whitespace().count())),
+                Place::Export(_) => None,
+            })
+            .collect();
+        let mut loose = Vec::new();
+        for point in &points {
+            if let Action::Jump { resume, .. } = point.action {
+                for r in resume.iter().filter(|r| !checked.iter().any(|&(start, end)| (start..=end).contains(&r.rva))) {
+                    loose.push(format!("{} resumes at {:#x}, which no point checks", describe(point), r.rva));
+                }
+            }
+        }
+        assert!(loose.is_empty(), "{loose:#?}");
+    }
+
+    /// The framework's own observers leave slots over, for tracing.
+    #[test]
+    fn the_observers_leave_slots_over() {
+        let observers = crate::points().iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
+        assert!(observers < hooks::observer_slots(), "{observers} observers for {} slots", hooks::observer_slots());
+    }
+
     /// Every point carries in its own bytes, decoded where they lie, the
     /// numbers it says it uses: a named field or global and the instruction
     /// kept for it cannot drift apart.

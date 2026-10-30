@@ -1,7 +1,12 @@
 //! The events remote control keeps: the ones extensions hear, numbered, the
-//! latest 10,000 of them.
+//! latest [`KEPT`] of them.
 use crate::{ArmyId, Date};
 use serde::{Deserialize, Serialize};
+
+/// How many events are kept.
+pub const KEPT: usize = 10_000;
+/// The longest a read may wait, in milliseconds, as `wait_ms` states it.
+pub const LONGEST_WAIT: u32 = 60_000;
 
 group! {
     /// The events remote control keeps.

@@ -64,7 +64,7 @@ group! {
         /// declare war window would let the player call; `none`; or the
         /// tags of those to call, separated by commas, such as `DUL,CND`,
         /// each one the window must let the player call.
-        call_allies: Option<String>,
+        call_allies: Option<CallAllies>,
     } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms; passed_over: under call_allies all, every ally not called, each a country and the reasons, one a line";
     /// Offers a country the player is at war with a white peace, a peace
     /// treaty with no terms, in the war between them, as the peace view
@@ -142,6 +142,57 @@ pub enum AnswerKind {
     Pending,
 }
 
+/// Which of the player's allies a declaration of war calls to arms
+/// (`call_allies`). As text: `all`, `none`, or the tags of those to call,
+/// separated by commas.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CallAllies {
+    /// Each ally the declare war window would let the player call.
+    #[default]
+    All,
+    None,
+    /// These, each one the window must let the player call.
+    Only(Vec<CountryTag>),
+}
+
+impl CallAllies {
+    /// Read from its text, in either case and with spaces around its words.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        match text.trim() {
+            "all" => Ok(Self::All),
+            "none" => Ok(Self::None),
+            list => list
+                .split(',')
+                .map(str::trim)
+                .map(|word| CountryTag::parse(word).ok_or_else(|| format!("call_allies is all, none, or country tags separated by commas; {word:?} is not a tag")))
+                .collect::<Result<_, _>>()
+                .map(Self::Only),
+        }
+    }
+}
+
+impl std::fmt::Display for CallAllies {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::All => f.write_str("all"),
+            Self::None => f.write_str("none"),
+            Self::Only(tags) => f.write_str(&tags.iter().map(CountryTag::to_string).collect::<Vec<_>>().join(",")),
+        }
+    }
+}
+
+impl Serialize for CallAllies {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for CallAllies {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::parse(&String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +229,6 @@ mod tests {
             Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"BYZ"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None })
         );
         let request = request_from_json(r#"{"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": "DUL,CND"}"#).unwrap();
-        assert!(matches!(request, Request::Diplomacy(DiplomacyRequest::DeclareWar { call_allies: Some(ref c), .. }) if c == "DUL,CND"));
+        assert!(matches!(request, Request::Diplomacy(DiplomacyRequest::DeclareWar { call_allies: Some(ref c), .. }) if *c == CallAllies::Only(vec![CountryTag(*b"DUL"), CountryTag(*b"CND")])));
     }
 }

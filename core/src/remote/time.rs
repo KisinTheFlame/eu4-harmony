@@ -23,8 +23,7 @@ use eu4_harmony_remote::{
 };
 use std::time::{Duration, Instant};
 
-/// The most days one advance may ask for: a hundred years.
-pub const MOST_DAYS: u32 = 36_500;
+pub use eu4_harmony_remote::time::MOST_DAYS;
 /// A day in the game's dates.
 const DAY: i32 = 24;
 /// How long an advance that reached its date waits for that day's event,

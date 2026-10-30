@@ -268,8 +268,9 @@ extern "C" fn caret_stub() {
             "mov edx, ebx",
             call caret,
         ),
-        "mov rcx, qword ptr [rdi + 0x1f0]",
+        "mov rcx, qword ptr [rdi + {caret_sprite}]",
         "jmp qword ptr [rip + {done}]",
+        caret_sprite = const edit_box::CARET_SPRITE,
         caret = sym caret_at,
         done = sym CARET_PLACED,
     );
@@ -302,7 +303,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1764c7cusize, "4d 89 29", "SDL hides the input method windows"),
         // CoCreateInstance of TSF's thread manager fails: no UI-less mode.
         Point::write(TSF_CREATE, "ff 15 ac 26 40 00", "SDL TSF UI-less setup", "b8 05 40 00 80 90"),
-        Point::jump(CARET, "48 8b 8f f0 01 00 00", "edit box caret position", caret_stub as *const () as usize, &CARET_RESUME),
+        Point::jump(CARET, "48 8b 8f f0 01 00 00", "edit box caret position", caret_stub as *const () as usize, &CARET_RESUME)
+            .uses(&[edit_box::CARET_SPRITE]),
         Point::keep(CARET_DONE, "48 85 c9", "edit box caret sprite"),
         Point::keep(0x15343b0usize, "48 8d 55 30 ff 50 58 8b 18 89 5d 38", "edit box caret offset"),
         // The box's click handling takes its place on screen.

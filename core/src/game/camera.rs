@@ -84,23 +84,33 @@ pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
 pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (width, height) = map_size(m)?;
-    if x >= width || y >= height {
-        return fail(Status::InvalidArgument, format!("{x}, {y} is off the map, which is {width} pixels across and {height} up"));
-    }
+    check_position(x, y, map_size(m)?)?;
     let (manager, camera) = movable(m, &ctx)?;
     m.call(m.at(LOOK_AT_POSITION), &[manager, x as usize, y as usize])?;
     settle(m, camera)
+}
+
+/// Refuses a map position off a map `(width, height)` pixels large.
+pub fn check_position(x: u32, y: u32, (width, height): (u32, u32)) -> GResult<()> {
+    if x >= width || y >= height {
+        return fail(Status::InvalidArgument, format!("{x}, {y} is off the map, which is {width} pixels across and {height} up"));
+    }
+    Ok(())
+}
+
+/// Refuses a height outside the camera's `(lowest, highest)`.
+pub fn check_height(height: u32, (lowest, highest): (u32, u32)) -> GResult<()> {
+    if !(lowest..=highest).contains(&height) {
+        return fail(Status::InvalidArgument, format!("the height is from {lowest} to {highest}"));
+    }
+    Ok(())
 }
 
 /// Raises or lowers the camera to a height, looking at the same position.
 pub fn zoom(_: Caller, height: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    let (lowest, highest) = limits(m, find(m, &ctx)?.1)?;
-    if !(lowest..=highest).contains(&height) {
-        return fail(Status::InvalidArgument, format!("the height is from {lowest} to {highest}"));
-    }
+    check_height(height, limits(m, find(m, &ctx)?.1)?)?;
     let (_, camera) = movable(m, &ctx)?;
     let [x, _, z] = point(m, camera + fields::GOAL_LOOK_AT)?;
     let goal = [x, height as f32, z];

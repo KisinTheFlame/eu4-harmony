@@ -3,9 +3,10 @@
 //! call. It only keeps them; which glyph a character gets is `text_loops`'s.
 //!
 //! A font's own table is 256 glyph pointers at font + 0x120; the game frees it
-//! with the font (`fonts`, which also seals and clears a font's glyphs here). Glyphs for higher code points are kept here,
-//! by that table's address, in the same 16-byte layout, so text code can use
-//! them wherever it uses the game's own.
+//! with the font (`fonts`, which also seals and clears a font's glyphs here).
+//! Glyphs for higher code points are kept here, by the font's address, in the
+//! same 16-byte layout, so text code can use them wherever it uses the game's
+//! own.
 //!
 //! Many fonts load the same `.fnt` file: the Chinese language mod's 46 fonts
 //! use a handful, each with some 21,000 glyphs above 0xFF. So the glyphs a
@@ -99,22 +100,22 @@ fn shared(mut glyphs: Vec<(u32, Glyph)>) -> Arc<Set> {
     set
 }
 
-/// The font whose own table is at `table` has loaded: the glyphs its file
-/// brought become its set. Glyphs added after this are its own.
-pub fn seal(table: usize) {
+/// The font at `font` has loaded: the glyphs its file brought become its
+/// set. Glyphs added after this are its own.
+pub fn seal(font: usize) {
     let mut fonts = FONTS.write().unwrap_or_else(|e| e.into_inner());
-    let font = fonts.entry(table).or_default();
+    let font = fonts.entry(font).or_default();
     if font.set.is_none() {
         font.seen = HashSet::new();
         font.set = Some(shared(std::mem::take(&mut font.loading)));
     }
 }
 
-/// Adds the glyph for `scalar` to the font whose own table is at `table`.
-/// Returns false, keeping the first, when the font already has one.
-pub fn insert(table: usize, scalar: u32, glyph: Glyph) -> bool {
+/// Adds the glyph for `scalar` to the font at `font`. Returns false, keeping
+/// the first, when the font already has one.
+pub fn insert(font: usize, scalar: u32, glyph: Glyph) -> bool {
     let mut fonts = FONTS.write().unwrap_or_else(|e| e.into_inner());
-    let font = fonts.entry(table).or_default();
+    let font = fonts.entry(font).or_default();
     match &font.set {
         None => {
             let first = font.seen.insert(scalar);
@@ -131,10 +132,10 @@ pub fn insert(table: usize, scalar: u32, glyph: Glyph) -> bool {
     }
 }
 
-/// The glyph for a code point above 0xFF, or null when the font has none. The
-/// pointer stays valid until the font is cleared or forgotten, or, for a
-/// temporary glyph, until its draw call ends.
-pub fn get(table: usize, scalar: u32) -> *const Glyph {
+/// The glyph for a code point above 0xFF, or null when the font at `font`
+/// has none. The pointer stays valid until the font is cleared or forgotten,
+/// or, for a temporary glyph, until its draw call ends.
+pub fn get(at: usize, scalar: u32) -> *const Glyph {
     if (TEMPORARY..TEMPORARY_END).contains(&scalar) {
         let found = TEMPORARIES.with(|t| t.borrow().get((scalar - TEMPORARY) as usize).map(|g| &**g as *const Glyph));
         if let Some(found) = found {
@@ -143,11 +144,11 @@ pub fn get(table: usize, scalar: u32) -> *const Glyph {
     }
     loop {
         let fonts = FONTS.read().unwrap_or_else(|e| e.into_inner());
-        let Some(font) = fonts.get(&table) else { return std::ptr::null() };
+        let Some(font) = fonts.get(&at) else { return std::ptr::null() };
         let Some(set) = &font.set else {
             // A font whose load `fonts` did not see the end of: seal it now.
             drop(fonts);
-            seal(table);
+            seal(at);
             continue;
         };
         return match set.get(scalar).or_else(|| font.added.get(&scalar).map(|g| &**g)) {
@@ -157,16 +158,16 @@ pub fn get(table: usize, scalar: u32) -> *const Glyph {
     }
 }
 
-/// The font at `table` keeps none of the glyphs its file brought (the system
+/// The font at `font` keeps none of the glyphs its file brought (the system
 /// font look draws them all); glyphs added after this are its own.
-pub fn clear(table: usize) {
+pub fn clear(font: usize) {
     let mut fonts = FONTS.write().unwrap_or_else(|e| e.into_inner());
-    fonts.insert(table, Font { set: Some(shared(Vec::new())), ..Default::default() });
+    fonts.insert(font, Font { set: Some(shared(Vec::new())), ..Default::default() });
 }
 
-/// The font whose own table is at `table` is being destroyed.
-pub fn forget(table: usize) {
-    FONTS.write().unwrap_or_else(|e| e.into_inner()).remove(&table);
+/// The font at `font` is being destroyed.
+pub fn forget(font: usize) {
+    FONTS.write().unwrap_or_else(|e| e.into_inner()).remove(&font);
 }
 
 /// For the log: how many sets the fonts hold, and how many glyphs are in them.

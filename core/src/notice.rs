@@ -50,13 +50,16 @@ enum Mode {
 struct Notices {
     mode: Mode,
     shown: HashSet<String>,
-    queue: VecDeque<Message>,
+    /// The notices waiting, each with its number.
+    queue: VecDeque<(u64, Message)>,
     /// On screen in the notice window until the player closes it.
-    current: Option<Message>,
+    current: Option<(u64, Message)>,
+    /// The number the next notice gets.
+    next: u64,
 }
 
 static NOTICES: LazyLock<Mutex<Notices>> =
-    LazyLock::new(|| Mutex::new(Notices { mode: Mode::Window, shown: HashSet::new(), queue: VecDeque::new(), current: None }));
+    LazyLock::new(|| Mutex::new(Notices { mode: Mode::Window, shown: HashSet::new(), queue: VecDeque::new(), current: None, next: 1 }));
 
 fn notices() -> std::sync::MutexGuard<'static, Notices> {
     NOTICES.lock().unwrap_or_else(|e| e.into_inner())
@@ -70,14 +73,28 @@ pub fn post(once: &str, message: Message) {
         return;
     }
     match n.mode {
-        Mode::Window => n.queue.push_back(message),
+        Mode::Window => {
+            let number = n.next;
+            n.next += 1;
+            n.queue.push_back((number, message));
+        }
         Mode::MessageBox => message_box(&message),
     }
 }
 
-/// The title and text the notice window shows now; takes the next
-/// notice from the queue when none is showing.
-pub(crate) fn current() -> Option<(String, String)> {
+/// What the notice window shows now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Showing {
+    /// Which notice it is: the window stays where the player put it while
+    /// this stays the same, though the title changes as more notices wait.
+    pub number: u64,
+    pub title: String,
+    pub text: String,
+}
+
+/// What the notice window shows now; takes the next notice from the queue
+/// when none is showing.
+pub(crate) fn current() -> Option<Showing> {
     let mut n = notices();
     if n.mode != Mode::Window {
         return None;
@@ -90,7 +107,7 @@ pub(crate) fn current() -> Option<(String, String)> {
         0 => Message::new("EU4HARMONY_NOTICE_TITLE"),
         waiting => Message::new("EU4HARMONY_NOTICE_TITLE_MORE").arg("COUNT", waiting.to_string()),
     };
-    n.current.as_ref().map(|m| (title.words(language), m.words(language)))
+    n.current.as_ref().map(|(number, m)| Showing { number: *number, title: title.words(language), text: m.words(language) })
 }
 
 /// The player closed the notice window.
@@ -107,7 +124,7 @@ pub(crate) fn fall_back(reason: &str) {
     }
     log!("notices fall back to message boxes: {reason}");
     n.mode = Mode::MessageBox;
-    let pending: Vec<Message> = n.current.take().into_iter().chain(n.queue.drain(..)).collect();
+    let pending: Vec<Message> = n.current.take().into_iter().chain(n.queue.drain(..)).map(|(_, m)| m).collect();
     pending.iter().for_each(message_box);
 }
 
@@ -130,4 +147,27 @@ pub(crate) fn tell_and_wait(message: &Message) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_TOPMOST};
     log!("notice: {}", message.words(Language::English).replace('\n', " "));
     show(message, MB_ICONERROR | MB_TOPMOST);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The notice showing keeps its number while more come and its title
+    /// counts them; the next one shown has another.
+    #[test]
+    fn a_notice_keeps_its_number_while_more_wait() {
+        post("test:first", Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", "1"));
+        let first = current().unwrap();
+        post("test:second", Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", "2"));
+        post("test:second", Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", "2"));
+        let again = current().unwrap();
+        assert_eq!((again.number, &again.text), (first.number, &first.text));
+        assert_ne!(again.title, first.title, "the title counts the notice waiting");
+        dismiss();
+        let second = current().unwrap();
+        assert!(second.number > first.number && second.text.contains('2'), "{second:?}");
+        dismiss();
+        assert_eq!(current(), None);
+    }
 }

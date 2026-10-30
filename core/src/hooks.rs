@@ -17,10 +17,18 @@ extern "C" {
     fn MH_ApplyQueued() -> i32;
     fn eu4h_observer_thunk(slot: u32, argc: u32) -> usize;
     fn eu4h_observer_setup(slot: u32, original: usize, before: Option<Callback>, after: Option<Callback>);
+    fn eu4h_observer_slots() -> usize;
+    #[cfg(test)]
+    fn eu4h_hook_frame_layout(out: *mut usize);
 }
 const MH_OK: i32 = 0;
 const MH_ERROR_ALREADY_INITIALIZED: i32 = 1;
-const OBSERVER_SLOTS: usize = 48;
+
+/// How many functions can be observed in all: the native code's observer
+/// slots, which are never reused.
+pub fn observer_slots() -> usize {
+    unsafe { eu4h_observer_slots() }
+}
 
 /// Arguments and result of an observed call; `fault` is 1 when the original
 /// left through an exception, in which case `result` is meaningless.
@@ -74,7 +82,7 @@ pub fn create(target: usize, detour: usize) -> Result<usize> {
 pub fn observe(target: usize, argc: u32, before: Option<Callback>, after: Option<Callback>) -> Result<()> {
     let mut registry = registry();
     let slot = registry.observed.len();
-    if slot >= OBSERVER_SLOTS || argc > 12 {
+    if slot >= observer_slots() || argc > 12 {
         return Err("observer slots exhausted or too many arguments".into());
     }
     let thunk = unsafe { eu4h_observer_thunk(slot as u32, argc) };
@@ -114,4 +122,25 @@ pub fn remove(target: usize) {
         log!("MH_RemoveHook({target:#x}) failed: {code}");
     }
     registry.targets.retain(|&t| t != target);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The frame the native observers fill in is laid out as Rust reads it.
+    #[test]
+    fn the_hook_frame_is_the_native_code_s() {
+        let mut native = [0usize; 5];
+        unsafe { eu4h_hook_frame_layout(native.as_mut_ptr()) };
+        use std::mem::{offset_of, size_of};
+        let ours = [
+            size_of::<HookFrame>(),
+            offset_of!(HookFrame, result),
+            offset_of!(HookFrame, return_address),
+            offset_of!(HookFrame, slot),
+            offset_of!(HookFrame, fault),
+        ];
+        assert_eq!(native, ours);
+    }
 }

@@ -1,26 +1,14 @@
 //! Questions: the game's events waiting for the player's answer. Answering
 //! one is the player's choice (ADR 0015), made in its event window.
-use super::Live;
-use crate::game::{self, Caller, GResult};
+use crate::game::{self};
 use eu4_harmony_remote::{
     questions::{Question, QuestionAnswer, QuestionOption, QuestionRequest},
     Date, Error,
 };
 
-/// The group's slice of the capability layer.
-pub trait Layer {
-    fn questions(&mut self) -> GResult<Vec<game::questions::Question>>;
-    fn answer_question(&mut self, question: u32, option: u32) -> GResult<()>;
-}
-
-impl Layer for Live {
-    fn questions(&mut self) -> GResult<Vec<game::questions::Question>> {
-        game::questions::questions(Caller::Remote)
-    }
-
-    fn answer_question(&mut self, question: u32, option: u32) -> GResult<()> {
-        game::questions::answer(Caller::Remote, question, option)
-    }
+layer! {
+    fn questions() -> Vec<game::questions::Question> = game::questions::questions;
+    fn answer_question(question: u32, option: u32) -> () = game::questions::answer;
 }
 
 pub fn run(request: QuestionRequest, game: &mut (impl Layer + ?Sized)) -> Result<QuestionAnswer, Error> {

@@ -1,20 +1,13 @@
 //! The campaign being played.
-use super::{process, tag, Live};
-use crate::game::{self, Caller, GResult};
+use super::{process, tag};
+use crate::game::{self};
 use eu4_harmony_remote::{
     session::{Session, SessionAnswer, SessionRequest},
     Date, Error,
 };
 
-/// The group's slice of the capability layer.
-pub trait Layer {
-    fn session(&mut self) -> GResult<game::session::Session>;
-}
-
-impl Layer for Live {
-    fn session(&mut self) -> GResult<game::session::Session> {
-        game::session::session(Caller::Remote)
-    }
+layer! {
+    fn session() -> game::session::Session = game::session::session;
 }
 
 pub fn run(request: SessionRequest, game: &mut (impl Layer + ?Sized)) -> Result<SessionAnswer, Error> {

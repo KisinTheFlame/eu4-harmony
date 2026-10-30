@@ -29,8 +29,10 @@ usage:
       texts in English and Chinese.
   eu4-harmony build [<mod dir>] [--debug]
       Compiles the extension and copies the DLL to where the manifest says.
-  eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>]
-      Registers the mod folder with the Paradox launcher (enable it in a playset).
+  eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>] [--game-dir <game dir>]
+      Registers the mod folder with the Paradox launcher (enable it in a playset),
+      in the user dir the game folder's userdir.txt names, as the game finds it;
+      the game folder is --game-dir, EU4_GAME_DIR or the one this tool is in.
   eu4-harmony package [<mod dir>] [--out <dir>]
       Writes a clean folder for upload: no sources, no build output.
   eu4-harmony game <capability> [--<argument> <value>]...
@@ -285,20 +287,17 @@ fn cmd_build(args: &Args) -> Result<()> {
 
 // ---------- link ----------
 
-fn documents() -> Result<PathBuf> {
-    use windows_sys::Win32::{
-        System::Com::CoTaskMemFree,
-        UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath, KF_FLAG_DEFAULT},
-    };
-    let mut out: *mut u16 = std::ptr::null_mut();
-    let hr = unsafe { SHGetKnownFolderPath(&FOLDERID_Documents, KF_FLAG_DEFAULT as u32, std::ptr::null_mut(), &mut out) };
-    if hr < 0 || out.is_null() {
-        return Err(format!("cannot find the Documents folder: {hr:#x}"));
-    }
-    let len = (0..).take_while(|&i| unsafe { *out.add(i) } != 0).count();
-    let path = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(out, len) });
-    unsafe { CoTaskMemFree(out as _) };
-    Ok(PathBuf::from(path))
+/// The game folder: `--game-dir`, else `EU4_GAME_DIR`, else the one this
+/// tool is installed in (`<game>\eu4-harmony\eu4-harmony.exe`).
+fn game_dir(args: &Args) -> Option<PathBuf> {
+    let named = args.value("game-dir").map(PathBuf::from).or_else(|| std::env::var_os("EU4_GAME_DIR").map(PathBuf::from));
+    named.or_else(|| std::env::current_exe().ok().and_then(|exe| installed_in(&exe)))
+}
+
+/// The game folder holding the tool at `exe`, when it is installed there.
+fn installed_in(exe: &Path) -> Option<PathBuf> {
+    let game = exe.parent()?.parent()?;
+    game.join("eu4.exe").is_file().then(|| game.to_path_buf())
 }
 
 /// Writes `<user dir>/mod/eu4-harmony-<id>.mod` pointing at the mod folder.
@@ -317,7 +316,7 @@ fn cmd_link(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
     let user_dir = match args.value("user-dir") {
         Some(d) => PathBuf::from(d),
-        None => documents()?.join("Paradox Interactive").join("Europa Universalis IV"),
+        None => eu4_harmony_manifest::user_dir(game_dir(args).as_deref())?,
     };
     let file = link_mod(&root, &user_dir)?;
     println!("wrote {}", file.display());
@@ -356,7 +355,7 @@ fn copy_file(from: &Path, to: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// resource folders and the framework files the manifest names.
 fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     let manifest = read_manifest(root)?;
-    if manifest.api_version != abi::API_VERSION {
+    if !manifest.built_for(abi::API_VERSION) {
         return Err(format!("manifest api_version {} does not match this EU4 Harmony ({})", manifest.api_version, abi::API_VERSION));
     }
     let harmony = root.join("eu4-harmony");
@@ -515,6 +514,17 @@ mod tests {
         assert_eq!(file, user.join("mod").join("eu4-harmony-linked.mod"));
         let text = fs::read_to_string(file).unwrap();
         assert!(text.contains("name=\"Linked\"") && text.ends_with(&format!("path=\"{}\"\n", forward_slashes(&root))));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_game_folder_is_the_one_the_tool_is_installed_in() {
+        let dir = temp("installed");
+        let exe = dir.join("eu4-harmony").join("eu4-harmony.exe");
+        write(&exe, "MZ").unwrap();
+        assert_eq!(installed_in(&exe), None);
+        write(&dir.join("eu4.exe"), "MZ").unwrap();
+        assert_eq!(installed_in(&exe), Some(dir.clone()));
         let _ = fs::remove_dir_all(dir);
     }
 

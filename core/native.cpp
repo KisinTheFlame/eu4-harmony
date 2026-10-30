@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <intrin.h>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 
@@ -65,6 +66,19 @@ extern "C" Word eu4h_observer_thunk(unsigned slot, unsigned argc) {
 }
 extern "C" void eu4h_observer_setup(unsigned slot, Word original, Callback before, Callback after) {
     if (slot < kSlots) slots[slot] = {original, before, after};
+}
+// How many functions can be observed, for the Rust side to count on.
+extern "C" size_t eu4h_observer_slots() {
+    return kSlots;
+}
+// The HookFrame's size and where its fields after args lie, for the Rust side
+// to check its own against.
+extern "C" void eu4h_hook_frame_layout(size_t out[5]) {
+    out[0] = sizeof(HookFrame);
+    out[1] = offsetof(HookFrame, result);
+    out[2] = offsetof(HookFrame, return_address);
+    out[3] = offsetof(HookFrame, slot);
+    out[4] = offsetof(HookFrame, fault);
 }
 
 template <size_t... I> Word invoke(Word target, const Word* args, std::index_sequence<I...>) {

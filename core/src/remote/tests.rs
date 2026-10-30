@@ -1,6 +1,6 @@
 //! The engine driven with typed requests, a fake game behind the capability
 //! layer's traits.
-use super::fake::{self, Fake, ARMY, ENEMY, FLEET};
+use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
@@ -22,17 +22,6 @@ fn remember(line: &str) {
 
 fn log() -> Vec<String> {
     LOG.with(|l| l.borrow().clone())
-}
-
-const PLENTY: Duration = Duration::from_secs(10);
-
-/// What came back for a reply, in JSON; null when nothing came yet.
-fn answer(reply: &Reply) -> Value {
-    reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
-}
-
-fn ok(result: Value) -> Value {
-    json!({"ok": true, "result": result})
 }
 
 fn error(code: &str) -> impl Fn(&Value) -> bool + '_ {

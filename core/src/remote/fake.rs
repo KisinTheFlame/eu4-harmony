@@ -6,9 +6,26 @@ use crate::game::{
     menu::{Expected, Launch},
     GResult, Status, Tag,
 };
-use eu4_harmony_remote::CountryTag;
+use eu4_harmony_remote::{response_json, CountryTag};
+use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Time enough for whatever a test runs at one safe point.
+pub const PLENTY: Duration = Duration::from_secs(10);
+
+/// An engine's log, for a test that does not read it.
+pub fn quiet(_: &str) {}
+
+/// What came back for a reply, in JSON; null when nothing came yet.
+pub fn answer(reply: &super::Reply) -> Value {
+    reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
+}
+
+/// A successful answer, in JSON.
+pub fn ok(result: Value) -> Value {
+    json!({"ok": true, "result": result})
+}
 
 /// A tag as the game keeps it: the letters, the index, kind 0, valid.
 pub fn game_tag(letters: &[u8; 3], index: u16) -> Tag {
@@ -360,17 +377,14 @@ impl camera::Layer for Fake {
 
     fn look_at(&mut self, x: u32, y: u32) -> GResult<game::camera::Camera> {
         self.call(format!("look at {x} {y}"));
-        if x >= 5632 || y >= 2048 {
-            return fail(Status::InvalidArgument, "off the map");
-        }
+        game::camera::check_position(x, y, (5632, 2048))?;
         Ok(game::camera::Camera { x, y, province: None, ..view() })
     }
 
     fn zoom(&mut self, height: u32) -> GResult<game::camera::Camera> {
         self.call(format!("zoom {height}"));
-        if !(50..=3000).contains(&height) {
-            return fail(Status::InvalidArgument, "the height is from 50 to 3000");
-        }
+        let looking = view();
+        game::camera::check_height(height, (looking.min_height, looking.max_height))?;
         Ok(game::camera::Camera { height, ..view() })
     }
 }

@@ -91,7 +91,7 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |
 | `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组，其扩展随其余部分一起构建和测试 |
-| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有输入、截图、反汇编、崩溃转储和调用追踪，见 [tools/README.md](tools/README.md) |
+| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有测试运行前后备份与还原玩家文件、输入、截图、反汇编、崩溃转储和调用追踪的工具，见 [tools/README.md](tools/README.md) |
 | `docs/` | 方案、ADR、调研、实测记录和[框架对游戏性能的影响](docs/performance.md)；`docs/research/regional-combat/` 是游戏能力所依据的逆向记录 |
 
 代码、注释和文档都用英文。本文件是 [README.md](README.md) 的中文译本，其余文档只有英文版。在本仓库工作的约定（对人和编程代理都适用）见 [AGENTS.md](AGENTS.md)。
