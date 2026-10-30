@@ -131,9 +131,10 @@ fn responses_in_json() {
     assert_eq!(response_json(&ok), json!({"ok": true, "result": true}));
     let moved: Response = Ok(Answer::Army(armies::ArmyAnswer::Move(())));
     assert_eq!(response_json(&moved), json!({"ok": true, "result": null}));
-    let failed: Response = Err(Error::new(Code::NotInGame, "no game is running"));
+    let error = Error::new(Code::NotInGame, "no game is running");
+    assert_eq!(error.to_string(), "not_in_game: no game is running");
+    let failed: Response = Err(error);
     assert_eq!(response_json(&failed), json!({"ok": false, "error": {"code": "not_in_game", "message": "no game is running"}}));
-    assert_eq!(failed.unwrap_err().to_string(), "not_in_game: no game is running");
 
     let events = events::Events {
         process: 1_761_700_000_000,

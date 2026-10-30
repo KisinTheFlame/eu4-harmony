@@ -312,6 +312,7 @@ impl Orders {
 
     /// Moves the army along the game's route to `goal`. Returns the player's
     /// order when the caller acts as the player.
+    #[expect(clippy::too_many_arguments, reason = "each is its own input to the order; a struct would only rename them")]
     pub fn move_army(
         &mut self,
         m: &Memory,

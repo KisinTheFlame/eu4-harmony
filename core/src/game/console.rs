@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn a_command_the_window_would_not_run_as_it_is_is_refused() {
-        for (command, says) in [("", "no command"), (" \r\n", "no command"), ("cash 100 | out.txt", "a | sends"), ("cash\01", "NUL")] {
+        for (command, says) in [("", "no command"), (" \r\n", "no command"), ("cash 100 | out.txt", "a | sends"), ("cash\x001", "NUL")] {
             let fail = Words::new(command).err().unwrap_or_else(|| panic!("{command:?} was taken"));
             assert_eq!(fail.status, Status::InvalidArgument);
             assert!(fail.message.contains(says), "{command:?}: {}", fail.message);

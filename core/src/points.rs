@@ -63,6 +63,7 @@ pub struct Function<F> {
 }
 
 impl<F: Copy> Function<F> {
+    #[expect(clippy::new_without_default, reason = "made in statics, where only a const fn will do")]
     pub const fn new() -> Self {
         Self { address: AtomicUsize::new(0), kind: PhantomData }
     }

@@ -13,9 +13,9 @@
 //! `r9` before writing it, up to its first call. Stack arguments count when
 //! the function addresses `[entry rsp + 0x28 + 8k]` through `rsp`, or through
 //! `rbp` set up from `rsp` in its prologue. The prologue is followed exactly
-//! (pushes, `sub rsp`, the stack probe, `mov rbp/rax, rsp`, `lea rbp, [rsp
-//! + x]`); the body is read in address order within the function's bounds
-//! from the exception directory.
+//! (pushes, `sub rsp`, the stack probe, `mov rbp/rax, rsp`,
+//! `lea rbp, [rsp + x]`); the body is read in address order within the
+//! function's bounds from the exception directory.
 use iced_x86::{Code, Decoder, DecoderOptions, Instruction, InstructionInfoFactory, Mnemonic, OpAccess, OpKind, Register};
 
 fn u32_at(image: &[u8], at: usize) -> usize {

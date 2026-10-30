@@ -76,6 +76,9 @@ static FONTS: LazyLock<RwLock<HashMap<usize, Font>>> = LazyLock::new(Default::de
 static SETS: LazyLock<Mutex<HashMap<u64, Vec<Weak<Set>>>>> = LazyLock::new(Default::default);
 
 thread_local! {
+    // Boxed: the game holds pointers to these glyphs, which must not move
+    // when the vector grows.
+    #[expect(clippy::vec_box, reason = "the glyphs must stay where they are")]
     static TEMPORARIES: RefCell<Vec<Box<Glyph>>> = const { RefCell::new(Vec::new()) };
 }
 

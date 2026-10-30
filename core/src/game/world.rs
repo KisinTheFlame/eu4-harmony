@@ -85,7 +85,7 @@ fn le_u32(bytes: &[u8], offset: usize) -> GResult<u32> {
 }
 
 fn decode_edges(bytes: &[u8], id: usize, total: usize, address: usize) -> GResult<Vec<Edge>> {
-    if bytes.len() % adjacency::SIZE != 0 || bytes.len() / adjacency::SIZE > total {
+    if !bytes.len().is_multiple_of(adjacency::SIZE) ||bytes.len() / adjacency::SIZE > total {
         return Err("adjacency vector bound".to_string().into());
     }
     let mut edges = Vec::with_capacity(bytes.len() / adjacency::SIZE);

@@ -505,13 +505,10 @@ extern "C" fn tooltip_after(frame: *mut HookFrame) {
         drop(guard);
         let output = frame.args[1];
         let empty = |offset: usize| game_string::untouched(&m, output + offset);
-        match (empty(0), empty(game_string::OBJECT)) {
-            (Ok(true), Ok(true)) => {
-                if let Err(e) = game_string::append_checked(&m, output, &text) {
-                    log!("ui: tooltip append failed: {e}");
-                }
+        if let (Ok(true), Ok(true)) = (empty(0), empty(game_string::OBJECT)) {
+            if let Err(e) = game_string::append_checked(&m, output, &text) {
+                log!("ui: tooltip append failed: {e}");
             }
-            _ => {}
         }
     });
 }
