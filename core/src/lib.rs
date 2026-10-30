@@ -160,6 +160,26 @@ fn bootstrap() -> Result<()> {
     Ok(())
 }
 
+/// Opens the log and the report in the user directory's `eu4-harmony\logs`,
+/// or the fallback log when the folder cannot be written; returns the folder.
+fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
+    let logs = user_dir.join("eu4-harmony").join("logs");
+    if let Err(e) = log::open(&logs.join("core.log")) {
+        open_fallback_log();
+        log!("cannot open {}: {e}", logs.join("core.log").display());
+    }
+    report::open(logs.join("report.txt"));
+    logs
+}
+
+/// The report's first lines: this core, and the game folder when it is known.
+fn report_header(game_dir: Option<&std::path::Path>) {
+    report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, log::now()));
+    if let Some(dir) = game_dir {
+        report::line(format!("game: {}", dir.display()));
+    }
+}
+
 /// Startup failed and nothing was hooked: writes the log and report and tells
 /// the player, from a thread of its own since the loader lock is held here.
 fn fail_startup(reason: String) {
@@ -168,18 +188,11 @@ fn fail_startup(reason: String) {
         let user_dir = game_dir.as_deref().and_then(|d| paths::user_dir(d).ok());
         match &user_dir {
             Some(dir) => {
-                let logs = dir.join("eu4-harmony").join("logs");
-                if log::open(&logs.join("core.log")).is_err() {
-                    open_fallback_log();
-                }
-                report::open(logs.join("report.txt"));
+                open_logs(dir);
             }
             None => open_fallback_log(),
         }
-        report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, log::now()));
-        if let Some(dir) = &game_dir {
-            report::line(format!("game: {}", dir.display()));
-        }
+        report_header(game_dir.as_deref());
         report::line(format!("startup FAILED; nothing was hooked and no extension runs:\n{reason}"));
         report::write();
         if let Some(dir) = &user_dir {
@@ -196,55 +209,27 @@ fn fail_startup(reason: String) {
     });
 }
 
-/// Runs once, on the game thread, from the first PhysFS call.
-pub(crate) fn deferred_init() {
-    let game_dir = GAME_DIR.get().cloned().unwrap_or_default();
-    let user_dir = match paths::user_dir(&game_dir) {
-        Ok(d) => d,
-        Err(e) => {
-            log!("user dir: {e}");
-            open_fallback_log();
-            return;
-        }
-    };
-    let logs = user_dir.join("eu4-harmony").join("logs");
-    if let Err(e) = log::open(&logs.join("core.log")) {
-        open_fallback_log();
-        log!("cannot open {}: {e}", logs.join("core.log").display());
+/// A font chosen in the settings that is no longer installed: the default
+/// draws instead, and the player is told once (ADR 0012).
+fn tell_missing_fonts(chosen: &settings::Settings) {
+    let Ok(fonts) = unicode::system_font::SystemFonts::new() else { return };
+    for font in chosen.missing_fonts(|family| fonts.has_family(family)) {
+        log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
+        notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
     }
-    report::open(logs.join("report.txt"));
-    report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, log::now()));
-    report::line(format!("game: {}", game_dir.display()));
-    report::line(format!("user dir: {}", user_dir.display()));
-    log!("user dir {}", user_dir.display());
-    let language = lang::decide(&user_dir);
-    let chosen = settings::load(&user_dir);
-    log!("settings: {chosen:?}");
-    // A font chosen that is no longer installed: the default draws instead,
-    // and the player is told once (ADR 0012).
-    if let Ok(fonts) = unicode::system_font::SystemFonts::new() {
-        for font in chosen.missing_fonts(|family| fonts.has_family(family)) {
-            log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
-            notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
-        }
-    }
-    report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
-    report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
-    // Remote control is always on (ADR 0017).
-    pipe::start();
-    let memory = MEMORY.get().copied();
-    if let Some(m) = memory {
-        if let Err(e) = saves::initialize(m, user_dir.join("eu4-harmony").join("saves")) {
-            log!("save data: {e}");
-        }
-    }
-    let (mods, notes) = match mods::discover(&user_dir) {
+}
+
+/// The mods of the playset with an EU4 Harmony manifest, in its order, and
+/// what was skipped, which the player is told of; None when the playset
+/// cannot be read.
+fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec<mods::Skipped>)> {
+    let (mods, notes) = match mods::discover(user_dir) {
         Ok(v) => v,
         Err(e) => {
             log!("mod discovery failed: {e}");
             report::line(format!("mods: discovery failed: {e}"));
             report::write();
-            return;
+            return None;
         }
     };
     for note in &notes {
@@ -270,6 +255,60 @@ pub(crate) fn deferred_init() {
             m.manifest.ui.len()
         );
     }
+    Some((mods, notes))
+}
+
+/// The report's part on the mods: each one and what came of it, then every
+/// note from discovering, splicing and their texts.
+fn report_mods(mods: &[mods::DiscoveredMod], outcomes: &[ext::LoadOutcome], notes: &[String], plan: &splice::Plan) {
+    report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
+    for (m, outcome) in mods.iter().zip(outcomes) {
+        report::line(format!(
+            "  {} (id {}, api {}): {}; {} UI fragment(s)",
+            m.descriptor.name,
+            m.manifest.id,
+            m.manifest.api_version,
+            outcome.status,
+            m.manifest.ui.len()
+        ));
+        report::line(format!("    {}", m.dir.display()));
+    }
+    for note in notes {
+        report::line(format!("  {note}"));
+    }
+    report::line(format!("UI: {} mod element(s) spliced, {} button-area slot(s)", plan.elements.len(), plan.slots));
+    report::write();
+}
+
+/// Runs once, on the game thread, from the first PhysFS call.
+pub(crate) fn deferred_init() {
+    let game_dir = GAME_DIR.get().cloned().unwrap_or_default();
+    let user_dir = match paths::user_dir(&game_dir) {
+        Ok(d) => d,
+        Err(e) => {
+            log!("user dir: {e}");
+            open_fallback_log();
+            return;
+        }
+    };
+    let logs = open_logs(&user_dir);
+    report_header(Some(&game_dir));
+    report::line(format!("user dir: {}", user_dir.display()));
+    log!("user dir {}", user_dir.display());
+    let language = lang::decide(&user_dir);
+    let chosen = settings::load(&user_dir);
+    log!("settings: {chosen:?}");
+    tell_missing_fonts(&chosen);
+    report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
+    report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
+    // Remote control is always on (ADR 0017).
+    pipe::start();
+    if let Some(m) = MEMORY.get().copied() {
+        if let Err(e) = saves::initialize(m, user_dir.join("eu4-harmony").join("saves")) {
+            log!("save data: {e}");
+        }
+    }
+    let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
     let outcomes = ext::load(&mods, &logs);
     let indices = ext::extension_indices(&mods);
     let included = |i: usize| outcomes[i].included;
@@ -282,30 +321,14 @@ pub(crate) fn deferred_init() {
     for note in &loc_notes {
         log!("localisation: {note}");
     }
-    let mod_elements = plan.elements.len();
-    log!("splice plan ready: {mod_elements} mod element(s), {} button slot(s)", plan.slots);
-    report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
-    for (m, outcome) in mods.iter().zip(&outcomes) {
-        report::line(format!(
-            "  {} (id {}, api {}): {}; {} UI fragment(s)",
-            m.descriptor.name,
-            m.manifest.id,
-            m.manifest.api_version,
-            outcome.status,
-            m.manifest.ui.len()
-        ));
-        report::line(format!("    {}", m.dir.display()));
-    }
-    let all_notes = notes
+    log!("splice plan ready: {} mod element(s), {} button slot(s)", plan.elements.len(), plan.slots);
+    let notes: Vec<String> = discovery_notes
         .iter()
         .map(|n| format!("discovery: {}", n.text))
         .chain(ui_notes.iter().map(|n| format!("ui: {n}")))
-        .chain(loc_notes.iter().map(|n| format!("localisation: {n}")));
-    for note in all_notes {
-        report::line(format!("  {note}"));
-    }
-    report::line(format!("UI: {mod_elements} mod element(s) spliced, {} button-area slot(s)", plan.slots));
-    report::write();
+        .chain(loc_notes.iter().map(|n| format!("localisation: {n}")))
+        .collect();
+    report_mods(&mods, &outcomes, &notes, &plan);
     ui::set_elements(plan.elements.iter().map(|e| (e.clone(), indices.get(&e.owner).copied())).collect());
     physfs::set_plan(plan);
 }
