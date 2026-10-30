@@ -19,6 +19,7 @@ pub mod legacy;
 pub mod localisation;
 pub mod main_text;
 pub mod map_names;
+pub mod outline;
 pub mod save_names;
 pub mod scripts;
 pub mod search;

@@ -19,6 +19,7 @@ Kept in `eu4-harmony/settings.txt` in the user directory, written the way the ga
 | Text appearance (`text_appearance`) | Keep the fonts as they are (bitmap fonts first, with characters they lack filled in from the system font) / System fonts (all text in system fonts) | Keep the fonts as they are |
 | Text font (`body_font`) | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
 | Map font (`map_font`) | Same as above | KaiTi |
+| Outline around map names (`map_outline`) | As the game's map font draws it (system glyphs on the map get the outline the map font's own glyphs have) / None | As the game's map font draws it |
 
 Characters neither font has are left to the system's font fallback. The framework UI always uses the text font, whatever "Text appearance" is set to.
 
@@ -54,6 +55,7 @@ Characters neither font has are left to the system's font fallback. The framewor
     - With "Keep the fonts as they are", a font page grows by 1024 rows downward, and characters a bitmap font lacks come from the system font; the Chinese language mod's DXT5 pages stay DXT5, with new glyphs encoded and written as blocks (the ç in a Breton ruler's name is correct).
     - With "System fonts" chosen, every page is replaced by a new one, and all text uses the system fonts (the main menu, the country selection screen, and in a game the start-of-game introduction, the outliner and the top bar are all fine; map names are in KaiTi and stay black).
     - At an interface scale above 1, the system font look draws the interface's glyphs that many times larger and divides the font's scale to match, and button text gets a texture as dense, so text reaches the window a texel to a pixel instead of stretched by the game's linear filter; glyphs are anti-aliased across and down (2026-10-30, at 1.5).
+    - System glyphs on the map get the outline the map font's own glyphs have, read from its page (the Chinese language mod's soft grey band, 6 pixels), unless the player chooses none (2026-10-30, with system fonts in KaiTi; bitmap fonts' map page got it too).
   - Framework UI: the notice window, the corner button that appears only on the main menu's front page, the settings window (its drop-down lists scroll).
 - **Not verified in the game**:
   - M4's "found with unaccented Latin letters too": the Chinese language mod turns all place names into Chinese, so the game has no accented place name to search for; unit tests cover it.

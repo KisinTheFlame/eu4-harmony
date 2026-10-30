@@ -21,6 +21,9 @@ pub struct Settings {
     pub body_font: String,
     /// The system font family for names on the map.
     pub map_font: String,
+    /// Whether system glyphs on the map get the outline the map font's own
+    /// glyphs have.
+    pub map_outline: bool,
 }
 
 /// The system font family text falls back to, and the framework UI draws
@@ -30,7 +33,7 @@ pub const DEFAULT_FONT: &str = "Microsoft YaHei";
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { text_appearance: TextAppearance::Bitmap, body_font: DEFAULT_FONT.into(), map_font: "KaiTi".into() }
+        Self { text_appearance: TextAppearance::Bitmap, body_font: DEFAULT_FONT.into(), map_font: "KaiTi".into(), map_outline: true }
     }
 }
 
@@ -60,6 +63,11 @@ impl Settings {
                 },
                 "body_font" if !value.is_empty() => settings.body_font = value.to_string(),
                 "map_font" if !value.is_empty() => settings.map_font = value.to_string(),
+                "map_outline" => match value {
+                    "yes" => settings.map_outline = true,
+                    "no" => settings.map_outline = false,
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -71,7 +79,8 @@ impl Settings {
             TextAppearance::Bitmap => "bitmap",
             TextAppearance::System => "system",
         };
-        format!("text_appearance=\"{appearance}\"\nbody_font=\"{}\"\nmap_font=\"{}\"\n", self.body_font, self.map_font)
+        let outline = if self.map_outline { "yes" } else { "no" };
+        format!("text_appearance=\"{appearance}\"\nbody_font=\"{}\"\nmap_font=\"{}\"\nmap_outline={outline}\n", self.body_font, self.map_font)
     }
 }
 
@@ -131,10 +140,12 @@ mod tests {
 
     #[test]
     fn round_trips_and_keeps_defaults_for_the_rest() {
-        let custom = Settings { text_appearance: TextAppearance::System, body_font: "SimSun".into(), map_font: "KaiTi".into() };
+        let custom = Settings { text_appearance: TextAppearance::System, body_font: "SimSun".into(), map_font: "KaiTi".into(), map_outline: false };
         assert_eq!(Settings::parse(&custom.render()), custom);
-        let partial = Settings::parse("# comment\nbody_font=\"DengXian\"\ntext_appearance=\"neither\"\nunknown=1\n");
+        assert!(custom.render().contains("\nmap_outline=no\n"));
+        let partial = Settings::parse("# comment\nbody_font=\"DengXian\"\ntext_appearance=\"neither\"\nmap_outline=maybe\nunknown=1\n");
         assert_eq!(partial, Settings { body_font: "DengXian".into(), ..Settings::default() });
+        assert!(!Settings::parse("map_outline=\"no\"").map_outline);
         assert_eq!(Settings::parse(""), Settings::default());
     }
 }

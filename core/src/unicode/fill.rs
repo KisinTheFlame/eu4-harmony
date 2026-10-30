@@ -19,16 +19,19 @@
 //!   texel to a pixel, as sharp as the system font draws them ([`density`]).
 //!
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
-//! font; the rest in the body font. Pages live in video memory, like the
-//! game's own textures, which only Direct3D 9Ex keeps across a device reset;
-//! on a plain Direct3D 9 device nothing is filled. They are written through
-//! small system-memory textures: pages made dynamic and locked a band at a
-//! time made Direct3D keep several copies of each, 425 MB for the map's.
+//! font, inside the outline the font's own glyphs have when the player keeps
+//! it (`outline`); the rest in the body font. Pages live in video memory,
+//! like the game's own textures, which only Direct3D 9Ex keeps across a
+//! device reset; on a plain Direct3D 9 device nothing is filled. They are
+//! written through small system-memory textures: pages made dynamic and
+//! locked a band at a time made Direct3D keep several copies of each, 425 MB
+//! for the map's.
 use super::atlas::Page;
 use super::costs;
 use super::dxt;
 use super::game_text;
 use super::glyphs::{self, Glyph};
+use super::outline::Outline;
 use super::system_font::SystemFonts;
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
@@ -64,6 +67,9 @@ struct Own {
     height: u32,
     /// DXT5 blocks; A8R8G8B8 rows otherwise.
     compressed: bool,
+    /// Whether the texture has smaller levels too. Only the first is kept:
+    /// such a page is not grown, only read for how its glyphs look.
+    mipmapped: bool,
     data: Vec<u8>,
 }
 
@@ -95,6 +101,8 @@ struct Fill {
     family: String,
     /// The colour the glyphs are drawn in.
     ink: u32,
+    /// The outline drawn around them.
+    outline: Option<Outline>,
     /// Em sizes for characters before `CJK` and for the rest, in pixels.
     letter_em: f32,
     em: f32,
@@ -255,9 +263,9 @@ impl Fill {
     }
 }
 
-/// `ink`, with the coverage as alpha, as A8R8G8B8 pixels.
-fn inked(alpha: &[u8], ink: u32) -> Vec<u8> {
-    alpha.iter().flat_map(|&a| ((a as u32) << 24 | ink).to_le_bytes()).collect()
+/// `ink`, with the coverage as alpha, as 0xAARRGGBB pixels.
+fn inked(alpha: &[u8], ink: u32) -> Vec<u32> {
+    alpha.iter().map(|&a| (a as u32) << 24 | ink).collect()
 }
 
 /// What the font's own `H` shows, read from its page.
@@ -271,26 +279,34 @@ struct Letter {
     /// glyph's own box does not tell where the baseline is.
     top: i32,
     baseline: i32,
+    /// The outline around it, if it has one.
+    outline: Option<Outline>,
 }
 
 fn letter(m: &Memory, font: usize, own: &Own) -> Option<Letter> {
     let record = m.ptr(font + OWN_GLYPHS + b'H' as usize * 8).ok().filter(|&r| r != 0)?;
     let bytes = m.bytes(record, std::mem::size_of::<Glyph>()).ok()?;
     let h = unsafe { std::ptr::read_unaligned(bytes.as_ptr() as *const Glyph) };
+    let width = (h.width as u32).min(own.width.saturating_sub(h.x as u32));
+    let height = (h.height as u32).min(own.height.saturating_sub(h.y as u32));
+    let pixels: Vec<u32> = (0..height).flat_map(|y| (0..width).map(move |x| own.pixel(h.x as u32 + x, h.y as u32 + y))).collect();
     let (mut best, mut ink, mut rows) = (0, 0, None::<(u32, u32)>);
-    for y in 0..(h.height as u32).min(own.height.saturating_sub(h.y as u32)) {
-        for x in 0..(h.width as u32).min(own.width.saturating_sub(h.x as u32)) {
-            let pixel = own.pixel(h.x as u32 + x, h.y as u32 + y);
-            if pixel >> 24 > best {
-                (best, ink) = (pixel >> 24, pixel & 0x00ff_ffff);
-            }
-            if pixel >> 24 >= 0x80 {
-                rows = Some(rows.map_or((y, y), |(top, _)| (top, y)));
-            }
+    for (i, &pixel) in pixels.iter().enumerate() {
+        if pixel >> 24 > best {
+            (best, ink) = (pixel >> 24, pixel & 0x00ff_ffff);
+        }
+        if pixel >> 24 >= 0x80 {
+            let y = i as u32 / width;
+            rows = Some(rows.map_or((y, y), |(top, _)| (top, y)));
         }
     }
     let (top, bottom) = rows?;
-    Some(Letter { ink, top: h.y_offset as i32 + top as i32, baseline: h.y_offset as i32 + bottom as i32 + 1 })
+    Some(Letter {
+        ink,
+        top: h.y_offset as i32 + top as i32,
+        baseline: h.y_offset as i32 + bottom as i32 + 1,
+        outline: Outline::measure(&pixels, width, height, ink),
+    })
 }
 
 /// Characters before the CJK blocks are sized to the font's own capitals;
@@ -338,6 +354,13 @@ fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
     let fonts = SYSTEM.as_ref()?;
     let family = fonts.family_for(&fill.family, scalar)?.to_string();
     let bitmap = fonts.rasterize(&family, scalar, em_for(scalar, fill.letter_em, fill.em)).ok()?;
+    let (bitmap, pixels) = match &fill.outline {
+        Some(outline) if bitmap.width > 0 && bitmap.height > 0 => outline.around(&bitmap, fill.ink),
+        _ => {
+            let pixels = inked(&bitmap.alpha, fill.ink);
+            (bitmap, pixels)
+        }
+    };
     let (mut x, mut y) = (0, 0);
     if bitmap.width > 0 && bitmap.height > 0 {
         let (w, h) = room(bitmap.width, bitmap.height, fill.compressed);
@@ -351,8 +374,8 @@ fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
             }
         };
         let pixels = match fill.compressed {
-            true => dxt::encode_bitmap(bitmap.width, bitmap.height, &bitmap.alpha, fill.ink).concat(),
-            false => inked(&bitmap.alpha, fill.ink),
+            true => dxt::encode_bitmap(bitmap.width, bitmap.height, &pixels).concat(),
+            false => pixels.iter().flat_map(|p| p.to_le_bytes()).collect(),
         };
         if let Err(e) = fill.put(x, fill.top + y, bitmap.width, bitmap.height, &pixels) {
             log!("fill: cannot write a glyph: {e}");
@@ -456,9 +479,10 @@ fn scale_font(m: &Memory, font: usize, density: f32) -> crate::Result<()> {
 /// The width and height of the page a font gets, and the row its system
 /// glyphs start at: its own page (`own`, width and height) with
 /// [`EXTRA_ROWS`] below when the device allows `max` (width, height), or a
-/// square one sized to its `line` in GUI units, and `density` times as wide
-/// and tall, so that it holds as many glyphs drawn `density` times as large.
-fn page_size(own: Option<(u32, u32)>, line: i32, density: f32, max: (u32, u32)) -> crate::Result<(u32, u32, u32)> {
+/// square one sized to its `line` in GUI units, and `growth` times as wide
+/// and tall, so that it holds as many glyphs `growth` times as large: drawn
+/// denser, or inside an outline.
+fn page_size(own: Option<(u32, u32)>, line: i32, growth: f32, max: (u32, u32)) -> crate::Result<(u32, u32, u32)> {
     match own {
         // A DXT5 page is whole blocks, so the rows below start on one.
         Some((width, height)) if height + EXTRA_ROWS <= max.1 => Ok((width, height + EXTRA_ROWS, height)),
@@ -469,7 +493,7 @@ fn page_size(own: Option<(u32, u32)>, line: i32, density: f32, max: (u32, u32)) 
                 25..=48 => 2048,
                 _ => 4096,
             };
-            let side = ((side as f32 * density / 256.0).ceil() as u32 * 256).min(max.0).min(max.1);
+            let side = ((side as f32 * growth / 256.0).ceil() as u32 * 256).min(max.0).min(max.1);
             Ok((side, side, 0))
         }
     }
@@ -481,17 +505,21 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
     let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
-    let family = if draws_the_map(line) { current.map_font } else { current.body_font };
+    let map = draws_the_map(line);
+    let family = if map { current.map_font } else { current.body_font };
     let letter = own.as_ref().and_then(|own| letter(m, font, own));
     let own = if system { None } else { own };
+    let outline = letter.as_ref().and_then(|l| l.outline.clone()).filter(|_| map && current.map_outline);
     // The map's names are drawn on the map, which the interface scale does
     // not stretch.
-    let density = if system && !draws_the_map(line) { density(m, font) } else { 1.0 };
+    let density = if system && !map { density(m, font) } else { 1.0 };
     let (em, mut base) = metrics(fonts, &family, line as f32 * density);
     let mut caps = D3DCAPS9::default();
     unsafe { device.GetDeviceCaps(&mut caps) }.map_err(|e| format!("device caps: {e}"))?;
     let compressed = own.as_ref().is_some_and(|o| o.compressed);
-    let (width, height, top) = page_size(own.as_ref().map(|o| (o.width, o.height)), line, density, (caps.MaxTextureWidth, caps.MaxTextureHeight))?;
+    let reach = outline.as_ref().map_or(0, |o| o.reach());
+    let growth = (line as f32 * density + 2.0 * reach as f32) / line as f32;
+    let (width, height, top) = page_size(own.as_ref().map(|o| (o.width, o.height)), line, growth, (caps.MaxTextureWidth, caps.MaxTextureHeight))?;
     let format = if compressed { D3DFMT_DXT5 } else { D3DFMT_A8R8G8B8 };
     let mut texture = None;
     let creating = crate::heap::Change::begin();
@@ -539,6 +567,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
         top,
         family,
         ink,
+        outline,
         letter_em,
         em,
         base,
@@ -587,8 +616,8 @@ extern "C" fn create_before(frame: *mut HookFrame) {
             if !l.wants_page() {
                 return;
             }
-            // A 2D, single-level 32-bit or DXT5 page.
-            if description.is_null() || at(description, texture_description::KIND) != 0 || count != 1 {
+            // A 2D 32-bit or DXT5 page, its first level first.
+            if description.is_null() || at(description, texture_description::KIND) != 0 || count == 0 {
                 return;
             }
             let compressed = match at(description, texture_description::FORMAT) {
@@ -602,7 +631,7 @@ extern "C" fn create_before(frame: *mut HookFrame) {
                 return;
             }
             let size = height as usize / if compressed { 4 } else { 1 } * row_bytes(compressed, width);
-            l.give(Own { width, height, compressed, data: std::slice::from_raw_parts(data, size).to_vec() });
+            l.give(Own { width, height, compressed, mipmapped: count > 1, data: std::slice::from_raw_parts(data, size).to_vec() });
         });
     })
 }
@@ -627,9 +656,9 @@ pub fn loaded(font: usize) -> bool {
         }
         let mut pages = lock(&PAGES);
         if let Entry::Vacant(vacant) = pages.entry(wrapper) {
-            // A page loaded before, or in another format, keeps its own
-            // glyphs only.
-            if !system && own.is_none() {
+            // A page loaded before, in another format or with smaller
+            // levels keeps its own glyphs only.
+            if !system && own.as_ref().is_none_or(|o| o.mipmapped) {
                 return Ok(false);
             }
             let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own, system))?;
@@ -647,8 +676,9 @@ pub fn loaded(font: usize) -> bool {
                 (false, true) => "grown DXT5",
                 (false, false) => "grown",
             };
+            let outline = fill.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
             log!(
-                "fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}",
+                "fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}, outline {outline}",
                 fill.width,
                 fill.height,
                 fill.family,
@@ -735,6 +765,8 @@ mod tests {
         assert_eq!(page_size(None, 18, 1.5, max).unwrap(), (1536, 1536, 0));
         assert_eq!(page_size(None, 48, 1.25, max).unwrap(), (2560, 2560, 0));
         assert_eq!(page_size(None, 18, 1.5, (8192, 1280)).unwrap(), (1280, 1280, 0));
+        // A map font's glyphs inside a 6-pixel outline, on 88-pixel lines.
+        assert_eq!(page_size(None, 88, 100.0 / 88.0, max).unwrap(), (4864, 4864, 0));
         assert!(!draws_the_map(48) && draws_the_map(49));
     }
 
@@ -754,7 +786,7 @@ mod tests {
     }
 
     fn page(width: u32) -> Own {
-        Own { width, height: 4, compressed: false, data: vec![0; width as usize * 16] }
+        Own { width, height: 4, compressed: false, mipmapped: false, data: vec![0; width as usize * 16] }
     }
 
     #[test]
