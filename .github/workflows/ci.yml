@@ -3,18 +3,37 @@
 name: CI
 
 on:
-  push:
   pull_request:
+  push:
+    branches: [master]
+
+# A newer push to a pull request stops the run it replaces. Every merge into
+# master runs to the end, so a failure there names the merge that caused it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    runs-on: windows-latest
+    runs-on: windows-2025
+    # Optimized like a player's build, but without its link-time optimization
+    # and single codegen unit, which take most of the build time.
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
       - uses: actions/checkout@v5
       - name: Rust
-        run: |
-          rustup toolchain install 1.97.1 --profile minimal
-          rustup default 1.97.1
+        # The version rust-toolchain.toml names.
+        run: rustup toolchain install
+      # Pull requests read the cache master's runs save; saving one per pull
+      # request would push master's out of the repository's cache space.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Build
         run: cargo build --release --locked
       - name: Test
