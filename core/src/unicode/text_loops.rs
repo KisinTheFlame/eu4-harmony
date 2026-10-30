@@ -38,7 +38,7 @@ pub fn glyph(font: usize, c: char) -> *const Glyph {
             return glyph;
         }
     }
-    let found = glyphs::get(table, c as u32);
+    let found = glyphs::get(font, c as u32);
     if !found.is_null() {
         return found;
     }
@@ -147,7 +147,7 @@ mod tests {
         font[OWN_GLYPHS / 8 + b'?' as usize] = &question as *const Glyph as usize;
         let font = font.as_ptr() as usize;
         // The font keeps … (1252 byte 0x85) at U+2026.
-        assert!(glyphs::insert(font + OWN_GLYPHS, 0x2026, record(2)));
+        assert!(glyphs::insert(font, 0x2026, record(2)));
         assert_eq!(unsafe { *glyph(font, 'a') }.x, 1);
         assert_eq!(unsafe { *glyph(font, '…') }.x, 2);
         let text = b"\x85\0";
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(unsafe { *glyph(font, '中') }.x, 9);
         assert!(glyph(font, '\n').is_null());
         assert!(glyph(font, '\u{201c}').is_null());
-        glyphs::forget(font + OWN_GLYPHS);
+        glyphs::forget(font);
     }
 
     #[test]

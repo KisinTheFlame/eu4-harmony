@@ -380,8 +380,8 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
         // font gets the record the game reads in its glyph table, where the
         // next lookup finds it first.
         Some(g) => {
-            glyphs::insert(font + OWN_GLYPHS, scalar, g);
-            glyphs::get(font + OWN_GLYPHS, scalar)
+            glyphs::insert(font, scalar, g);
+            glyphs::get(font, scalar)
         }
         None => std::ptr::null(),
     }
