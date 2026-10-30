@@ -768,8 +768,9 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
         return Err(format!("built for ABI version {built}, this EU4 Harmony speaks version {}", abi::ABI_VERSION));
     }
     let entry = export(abi::ENTRY_SYMBOL)?;
-    let mut list = extensions();
-    let index = list.len();
+    // Extensions load one at a time, on this thread: the next index stays
+    // free while the entry point runs, without the list locked.
+    let index = extensions().len();
     let host =
         Box::new(Host { index, id: m.manifest.id.clone(), name: m.descriptor.name.clone(), last_error: Mutex::new(String::new()), log: Mutex::new(None) });
     let host_ptr = &*host as *const Host as *mut c_void;
@@ -789,6 +790,10 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     let code = Memory { base: 0 }.call(entry as usize, &[&*host_api as *const abi::HostApi as usize, &mut vtable as *mut _ as usize])?;
     if code as u32 as i32 != abi::OK {
         return Err(format!("entry point returned {}", code as u32 as i32));
+    }
+    let mut list = extensions();
+    if list.len() != index {
+        return Err("another extension was loaded meanwhile".into());
     }
     list.push(Loaded { host, _host_api: host_api, game_api, vtable, stopped: None, calls: 0, slow_calls: 0, total: Duration::ZERO, max: Duration::ZERO });
     Ok(())
