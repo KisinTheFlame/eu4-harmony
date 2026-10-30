@@ -98,7 +98,20 @@ fn a_request_that_cannot_be_read_says_why() {
     bad(json!({"capability": "army.get", "army": 4294967377u64}), "an army ID as a decimal string");
     bad(json!({"capability": "army.get", "army": "-1"}), "not an army ID");
     bad(json!({"capability": "country.hostile", "country": "FRANCE", "other": "ENG"}), "not a country tag");
+    bad(json!({"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": "WAL;TUR"}), "\"WAL;TUR\" is not a tag");
     assert_eq!(request_from_json("not json").unwrap_err().code, Code::BadRequest);
+}
+
+/// Allies to call are read as they are written: all, none, or tags.
+#[test]
+fn allies_to_call_are_read_and_written_back() {
+    use diplomacy::CallAllies;
+    assert_eq!(CallAllies::parse(" all "), Ok(CallAllies::All));
+    assert_eq!(CallAllies::parse("none"), Ok(CallAllies::None));
+    let named = CallAllies::parse("wal, TUR").unwrap();
+    assert_eq!(named, CallAllies::Only(vec![CountryTag(*b"WAL"), CountryTag(*b"TUR")]));
+    assert_eq!(named.to_string(), "WAL,TUR");
+    assert!(CallAllies::parse("").is_err() && CallAllies::parse("WAL,").is_err());
 }
 
 #[test]

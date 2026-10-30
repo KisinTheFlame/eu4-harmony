@@ -5,10 +5,10 @@
 use super::{countries, events, tag, Outcome as Ran, Poll, Wait};
 use crate::game::{
     diplomacy::{self as layer, Answer, Calls, Choice, Declaration, Ticket, NO_CASUS_BELLI as NONE},
-    Fail, GResult, Status, Tag,
+    GResult, Tag,
 };
 use eu4_harmony_remote::{
-    diplomacy::{AnswerKind, DiplomacyAnswer, DiplomacyRequest, Outcome, PassedOver, WarGoal},
+    diplomacy::{AnswerKind, CallAllies, DiplomacyAnswer, DiplomacyRequest, Outcome, PassedOver, WarGoal},
     Answer as Answered, CountryTag, Error, Response,
 };
 use std::time::{Duration, Instant};
@@ -38,7 +38,7 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
             let enemy = game.country(country)?;
             let target = target.map(|t| game.country(t)).transpose()?;
             let choice = Choice { casus_belli: (casus_belli != NONE).then_some(casus_belli), war_goal, province: province.map(|p| p.0), target };
-            let calls = calls(call_allies.as_deref(), game)?;
+            let calls = calls(call_allies.unwrap_or_default(), game)?;
             let declared = game.declare_war(enemy, &choice, &calls)?;
             let passed_over = declared.passed_over.into_iter().map(|p| PassedOver { country: tag(p.country), reasons: p.reasons }).collect();
             Ok((declared.ticket, Kind::DeclareWar, Some((declared.called.into_iter().map(tag).collect(), passed_over))))
@@ -58,26 +58,13 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
     }
 }
 
-/// The allies a declaration calls, from its `call_allies`: `all` (or left
-/// out), `none`, or tags separated by commas.
-fn calls(text: Option<&str>, game: &mut (impl countries::Layer + ?Sized)) -> GResult<Calls> {
-    match text.map(str::trim) {
-        None | Some("all") => Ok(Calls::All),
-        Some("none") => Ok(Calls::None),
-        Some(list) => {
-            let mut tags = Vec::new();
-            for word in list.split(',').map(str::trim) {
-                let Some(tag) = CountryTag::parse(word) else {
-                    return Err(Fail {
-                        status: Status::InvalidArgument,
-                        message: format!("call_allies is all, none, or country tags separated by commas; {word:?} is not a tag"),
-                    });
-                };
-                tags.push(game.country(tag)?);
-            }
-            Ok(Calls::Only(tags))
-        }
-    }
+/// The allies a declaration calls, the countries named found in the game.
+fn calls(call: CallAllies, game: &mut (impl countries::Layer + ?Sized)) -> GResult<Calls> {
+    Ok(match call {
+        CallAllies::All => Calls::All,
+        CallAllies::None => Calls::None,
+        CallAllies::Only(tags) => Calls::Only(tags.into_iter().map(|tag| game.country(tag)).collect::<GResult<_>>()?),
+    })
 }
 
 fn war_goal(g: &layer::WarGoal) -> WarGoal {
@@ -223,7 +210,7 @@ mod tests {
                 war_goal: None,
                 province: None,
                 target: None,
-                call_allies: Some(call_allies.into()),
+                call_allies: Some(CallAllies::parse(call_allies).unwrap()),
             };
             engine.submit(Request::Diplomacy(declare))
         };
@@ -233,17 +220,16 @@ mod tests {
         engine.end(menu::ending(), Duration::ZERO);
         assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "pending", "called": [], "passed_over": []}}));
 
-        // Allies by tag, in either case and with spaces; a word that is no
-        // tag, and a tag of no country. In a process of its own, since the
-        // engine above has ended.
+        // Allies by tag, in either case and with spaces, and a tag of no
+        // country. In a process of its own, since the engine above has
+        // ended. (A word that is no tag is no request: `bad_request`.)
         let engine = Engine::new(quiet);
-        let replies = [declare(&engine, "wal, TUR"), declare(&engine, "WAL;TUR"), declare(&engine, "WAL,QQQ")];
+        let replies = [declare(&engine, "wal, TUR"), declare(&engine, "WAL,QQQ")];
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         engine.end(menu::ending(), Duration::ZERO);
         assert!(game.calls.iter().any(|c| c.ends_with("calling Only([100012c004c4157, 100009a00525554])")), "{:?}", game.calls);
         assert_eq!(answer(&replies[0])["result"]["called"], json!(["WAL"]));
-        assert_eq!(answer(&replies[1])["error"]["code"], "invalid_argument");
-        assert_eq!(answer(&replies[2])["error"]["code"], "not_found");
+        assert_eq!(answer(&replies[1])["error"]["code"], "not_found");
     }
 
     #[test]
@@ -271,7 +257,10 @@ mod tests {
         let mut game = Fake::default();
         game.answers.push_back(Ok(Answer::Accepted));
         game.answers.push_back(Ok(Answer::Declined));
-        game.answers.push_back(Err(Fail { status: Status::NotInGame, message: "the game the diplomatic action was sent in has ended".into() }));
+        game.answers.push_back(Err(crate::game::Fail {
+            status: crate::game::Status::NotInGame,
+            message: "the game the diplomatic action was sent in has ended".into(),
+        }));
         let alliance = engine.submit(Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: byz() }));
         let peace = engine.submit(Request::Diplomacy(DiplomacyRequest::OfferPeace { country: byz() }));
         let again = engine.submit(Request::Diplomacy(DiplomacyRequest::OfferPeace { country: byz() }));

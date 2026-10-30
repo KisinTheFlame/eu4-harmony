@@ -282,6 +282,9 @@ pub enum Kind {
     /// A kind of regiment or ship, such as `"infantry"` (see
     /// [`provinces::UnitKind`]).
     UnitKind,
+    /// Allies to call to arms: `"all"`, `"none"` or tags separated by
+    /// commas, such as `"DUL,CND"` (see [`diplomacy::CallAllies`]).
+    Allies,
 }
 
 impl Kind {
@@ -296,6 +299,7 @@ impl Kind {
             Self::Boolean => "boolean",
             Self::Text => "text",
             Self::UnitKind => "unit_kind",
+            Self::Allies => "allies",
         }
     }
 
@@ -310,6 +314,7 @@ impl Kind {
             Self::Boolean => "true",
             Self::Text => "text",
             Self::UnitKind => "infantry",
+            Self::Allies => "DUL,CND",
         }
     }
 
@@ -323,6 +328,7 @@ impl Kind {
             Self::Boolean => text.parse().ok().map(Value::Bool),
             Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
             Self::UnitKind => serde_json::from_value::<provinces::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
+            Self::Allies => diplomacy::CallAllies::parse(text).ok().map(|_| Value::String(text.into())),
         }
     }
 }
@@ -353,6 +359,7 @@ arg_kind! {
     bool => Boolean,
     String => Text,
     provinces::UnitKind => UnitKind,
+    diplomacy::CallAllies => Allies,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
