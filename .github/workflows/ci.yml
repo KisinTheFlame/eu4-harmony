@@ -12,9 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Rust
-        run: |
-          rustup toolchain install 1.97.1 --profile minimal
-          rustup default 1.97.1
+        # The version rust-toolchain.toml names.
+        run: rustup toolchain install
       - name: Build
         run: cargo build --release --locked
       - name: Test

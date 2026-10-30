@@ -1,0 +1,5 @@
+# The Rust version for this repository, here and in CI. rustup reads this file.
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
