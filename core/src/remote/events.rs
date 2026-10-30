@@ -65,15 +65,13 @@ impl Default for Buffer {
     }
 }
 
-pub fn run(request: EventsRequest, events: &Buffer) -> Outcome {
+pub fn run(request: EventsRequest, events: &Buffer, now: Instant) -> Outcome {
     let EventsRequest::Read { since, wait_ms, process: from } = request;
     let (since, from) = (since.unwrap_or(0), from.unwrap_or_else(process));
     match wait_ms {
         Some(ms) if ms > LONGEST_WAIT => Outcome::Done(Err(Error::new(Code::InvalidArgument, format!("wait_ms is at most {LONGEST_WAIT}")))),
         // A `since` from another process has the events kept to read at once.
-        Some(ms) if from == process() && !events.news(since) => {
-            Outcome::Later(Box::new(Next { since, until: Instant::now() + Duration::from_millis(ms.into()) }))
-        }
+        Some(ms) if from == process() && !events.news(since) => Outcome::Later(Box::new(Next { since, until: now + Duration::from_millis(ms.into()) })),
         _ => Outcome::Done(read(events, since, from)),
     }
 }

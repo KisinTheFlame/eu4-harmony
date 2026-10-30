@@ -26,7 +26,7 @@ layer! {
     fn answer(ticket: Ticket) -> Answer = layer::answer;
 }
 
-pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer + ?Sized)) -> Ran {
+pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer + ?Sized), now: Instant) -> Ran {
     let sent = match request {
         DiplomacyRequest::WarGoals { country } => {
             return Ran::Done((|| {
@@ -53,7 +53,7 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
         })(),
     };
     match sent {
-        Ok((ticket, kind, called)) => Ran::Later(Box::new(Waiting { ticket, kind, called, until: Instant::now() + WAITED })),
+        Ok((ticket, kind, called)) => Ran::Later(Box::new(Waiting { ticket, kind, called, until: now + WAITED })),
         Err(e) => Ran::Done(Err(e)),
     }
 }

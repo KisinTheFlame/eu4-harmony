@@ -123,8 +123,7 @@ fn an_advance_waits_for_its_last_day_s_event_a_while() {
     game.clock.time.date += DAY;
     engine.run(&mut game, &Place::Game, PLENTY);
     assert!(answer(&unheard).is_null());
-    std::thread::sleep(DAY_EVENT_WAIT + Duration::from_millis(20));
-    engine.run(&mut game, &Place::Game, PLENTY);
+    engine.run_at(&mut game, &Place::Game, PLENTY, Instant::now() + DAY_EVENT_WAIT);
     let got = answer(&unheard);
     assert_eq!((&got["result"]["stopped"], &got["result"]["date"], &got["result"]["events"]), (&json!("date"), &json!(date(2)), &json!([])));
 }
