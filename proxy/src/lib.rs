@@ -145,7 +145,6 @@ fn attach(instance: HMODULE) {
 }
 
 #[no_mangle]
-#[allow(non_snake_case)]
 pub extern "system" fn DllMain(instance: HMODULE, reason: u32, _reserved: *mut c_void) -> i32 {
     if reason == DLL_PROCESS_ATTACH {
         // Never let a panic unwind into the loader.

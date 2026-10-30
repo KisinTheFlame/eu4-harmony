@@ -7,3 +7,6 @@ description = "C ABI shared by the EU4 Harmony core and the extension SDK"
 
 [lib]
 name = "eu4_harmony_abi"
+
+[lints]
+workspace = true

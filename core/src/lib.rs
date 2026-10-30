@@ -124,10 +124,9 @@ fn start(m: memory::Memory) -> Result<String> {
     if std::env::var_os("EU4HARMONY_FAIL_STARTUP").is_some() {
         return Err("EU4HARMONY_FAIL_STARTUP is set".into());
     }
-    #[allow(unused_mut)]
-    let mut all = points();
+    let all = points();
     #[cfg(feature = "trace")]
-    all.extend(trace::points(&m));
+    let all: Vec<_> = all.into_iter().chain(trace::points(&m)).collect();
     let installed = points::install(m, &all)?;
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }

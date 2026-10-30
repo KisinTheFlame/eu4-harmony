@@ -584,7 +584,6 @@ unsafe fn ticket_out(ticket: *mut u64, sent: diplomacy::Ticket) -> HResult<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 unsafe extern "C" fn h_declare_war(
     ptr: *mut c_void,
     country: u64,

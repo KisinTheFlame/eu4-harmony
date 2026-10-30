@@ -27,3 +27,6 @@ windows-sys = { workspace = true, features = [
 [dev-dependencies]
 # The tests' own pipes: one closed to everybody.
 windows-sys = { workspace = true, features = ["Win32_Security_Authorization", "Win32_System_IO"] }
+
+[lints]
+workspace = true

@@ -29,7 +29,7 @@ pub use backend::Backend;
 pub use game::*;
 
 /// Events an extension reacts to. All default to doing nothing.
-#[allow(unused_variables)]
+#[expect(unused_variables, reason = "the default methods ignore what they are given")]
 pub trait Extension: 'static {
     /// A campaign was loaded or started; drop state from the previous one,
     /// then read [`Game::save_data`].

@@ -673,7 +673,6 @@ mod tests {
     /// What `declare_war` was given last, as text.
     static DECLARED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-    #[allow(clippy::too_many_arguments)]
     unsafe extern "C" fn declare_war(
         _: H,
         id: u64,

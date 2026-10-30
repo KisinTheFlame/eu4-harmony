@@ -16,6 +16,12 @@ sha2 = "=0.10.9"
 cc = "=1.6.0"
 iced-x86 = { version = "=1.21.0", default-features = false }
 
+# Where the code is right as it is, #[expect(..., reason = "...")] says why
+# (AGENTS.md): an #[allow] is refused, as is an #[expect] with no reason.
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

@@ -68,3 +68,6 @@ trace = ["analysis"]
 [[example]]
 name = "disasm"
 required-features = ["analysis"]
+
+[lints]
+workspace = true

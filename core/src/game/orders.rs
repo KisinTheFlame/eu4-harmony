@@ -231,7 +231,7 @@ impl Orders {
 
     /// Runs the game's route query into a temporary list, hands the result to
     /// `consume` and frees the list. The army's own route is never touched.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "the game, its campaign and map, the army, its goal and caller, and what to do with the route")]
     fn with_route<T>(
         &mut self,
         m: &Memory,
