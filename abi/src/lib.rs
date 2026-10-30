@@ -479,9 +479,10 @@ pub struct ExtensionVTable {
 // field may only be appended, never moved or resized.
 
 /// Asserts that the fields of a table of pointer-sized slots sit in this
-/// order, one slot each, and that the table ends after the last.
+/// order, one slot each, and that the table ends after the last; a test
+/// checks each field's type ([`fields!`]).
 macro_rules! slots {
-    ($table:ty: $($field:ident),+ $(,)?) => {
+    ($table:ident: $($field:ident),+ $(,)?) => {
         const _: () = {
             let mut slot = 0;
             $(
@@ -490,16 +491,37 @@ macro_rules! slots {
             )+
             assert!(std::mem::size_of::<$table>() == slot * 8, concat!(stringify!($table), " changed size"));
         };
+        fields!($table: $($field),+);
     };
 }
 
-/// Asserts each field's offset and the struct's size.
+/// Asserts each field's offset and the struct's size; a test checks each
+/// field's type ([`fields!`]).
 macro_rules! layout {
-    ($ty:ty, $size:literal: $($field:ident @ $offset:literal),+ $(,)?) => {
+    ($ty:ident, $size:literal: $($field:ident @ $offset:literal),+ $(,)?) => {
         const _: () = {
             $(assert!(std::mem::offset_of!($ty, $field) == $offset, concat!(stringify!($ty), "::", stringify!($field), " moved"));)+
             assert!(std::mem::size_of::<$ty>() == $size, concat!(stringify!($ty), " changed size"));
         };
+        fields!($ty: $($field),+);
+    };
+}
+
+/// Each field of a struct with its type, one line each, for the test that
+/// keeps the ABI growing only by appending.
+macro_rules! fields {
+    ($ty:ident: $($field:ident),+) => {
+        #[cfg(test)]
+        impl $ty {
+            fn fields() -> Vec<String> {
+                fn type_of<T>(_: *const T) -> &'static str {
+                    std::any::type_name::<T>()
+                }
+                let value = std::mem::MaybeUninit::<$ty>::uninit();
+                let at = value.as_ptr();
+                vec![$(format!(concat!(stringify!($ty), ".", stringify!($field), ": {}"), type_of(unsafe { std::ptr::addr_of!((*at).$field) }))),+]
+            }
+        }
     };
 }
 
@@ -525,3 +547,52 @@ slots!(GameApi:
     war_goals, declare_war, offer_peace, propose_alliance, diplomacy_answer, allies_called,
 );
 slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every field of every struct and table, with its type, as extensions
+    /// were built against them.
+    const KNOWN: &str = include_str!("../fields.txt");
+
+    /// A field may only be appended to a table, never changed (ADR 0014):
+    /// the offsets are checked as the crate compiles, the types here, against
+    /// the list of what was released, which grows by appending too.
+    #[test]
+    fn fields_are_only_appended() {
+        let now: Vec<String> = [
+            HostApi::fields(),
+            Session::fields(),
+            Province::fields(),
+            Neighbor::fields(),
+            Army::fields(),
+            MapColor::fields(),
+            Camera::fields(),
+            GameApi::fields(),
+            ExtensionVTable::fields(),
+        ]
+        .concat();
+        let known: Vec<&str> = KNOWN.lines().filter(|l| !l.is_empty()).collect();
+        let changed: Vec<String> = known.iter().filter(|l| !now.iter().any(|n| n == *l)).map(|l| l.to_string()).collect();
+        assert!(
+            changed.is_empty(),
+            "fields changed or removed, which breaks every extension built before (ADR 0014):
+{}",
+            changed.join(
+                "
+"
+            )
+        );
+        let added: Vec<&String> = now.iter().filter(|n| !known.contains(&n.as_str())).collect();
+        let listed = added.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(
+            "
+",
+        );
+        assert!(
+            added.is_empty(),
+            "fields added: append them to abi/fields.txt as they are, once each table's are released:
+{listed}"
+        );
+    }
+}
