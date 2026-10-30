@@ -1,0 +1,8 @@
+# Proposes newer versions of the actions CI uses. The Rust dependencies are
+# pinned to exact versions in Cargo.toml and moved by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
