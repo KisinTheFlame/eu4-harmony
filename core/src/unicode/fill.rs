@@ -556,6 +556,11 @@ extern "C" fn create_before(frame: *mut HookFrame) {
 /// `font` has loaded: fills its page. Returns whether the font now draws
 /// every character from the system font, so that the glyphs its file brought
 /// no longer apply.
+/// A font's load ended in a fault: nothing is filled in for it.
+pub fn abandoned(font: usize) {
+    LOADING.with(|l| l.borrow_mut().finish(font));
+}
+
 pub fn loaded(font: usize) -> bool {
     let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return false };
     let system = settings::current().text_appearance == TextAppearance::System;

@@ -19,6 +19,11 @@ extern "C" fn load_before(frame: *mut HookFrame) {
 extern "C" fn load_after(frame: *mut HookFrame) {
     crate::guarded("font loaded", || {
         let font = unsafe { (*frame).args[0] };
+        // A load that faulted left no font to fill in or seal.
+        if unsafe { (*frame).fault } != 0 {
+            fill::abandoned(font);
+            return;
+        }
         // The font's file has been parsed: its glyphs above 0xFF are all in.
         glyphs::seal(font + OWN_GLYPHS);
         if fill::loaded(font) {
