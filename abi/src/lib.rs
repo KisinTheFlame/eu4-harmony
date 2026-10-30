@@ -202,7 +202,8 @@ pub struct GameApi {
     pub countries_hostile: unsafe extern "C" fn(host: *mut c_void, a: CountryId, b: CountryId, out: *mut u8) -> i32,
     /// Every province, indexed by ID (index 0 is a placeholder with no flags).
     pub provinces: unsafe extern "C" fn(host: *mut c_void, buf: *mut Province, cap: usize, len: *mut usize) -> i32,
-    /// Geographic land neighbors of a province.
+    /// The passable land provinces next to a province; none for a province
+    /// an army cannot stand on.
     pub province_neighbors: unsafe extern "C" fn(host: *mut c_void, province: u32, buf: *mut Neighbor, cap: usize, len: *mut usize) -> i32,
     /// The player's own army.
     pub army: unsafe extern "C" fn(host: *mut c_void, id: u64, out: *mut Army) -> i32,
