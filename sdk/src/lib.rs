@@ -118,7 +118,7 @@ pub mod __private {
         run(user, game, "on_day", |e, g| e.on_day(g, date))
     }
     unsafe extern "C" fn on_button(user: *mut c_void, game: *const abi::GameApi, name: *const u8, len: usize, click: u32, modifiers: u32) -> i32 {
-        let name = String::from_utf8_lossy(std::slice::from_raw_parts(name, len)).into_owned();
+        let name = if name.is_null() { String::new() } else { String::from_utf8_lossy(std::slice::from_raw_parts(name, len)).into_owned() };
         let click = Click { right: click == abi::CLICK_RIGHT, shift: modifiers & abi::MODIFIER_SHIFT != 0, ctrl: modifiers & abi::MODIFIER_CTRL != 0 };
         run(user, game, "on_button", |e, g| e.on_button(g, &name, click))
     }
@@ -132,31 +132,41 @@ pub mod __private {
         run(user, game, "on_map_lost", |e, g| e.on_map_lost(g))
     }
 
+    /// The end of `field` in `table`, which a table of the core's must reach
+    /// for the field to be there.
+    macro_rules! end_of {
+        ($table:ty, $field:ident) => {
+            std::mem::offset_of!($table, $field) + std::mem::size_of::<usize>()
+        };
+    }
+
+    /// Both tables may be smaller than this SDK's, from an older core (ADR
+    /// 0014): each field is read or written only where the table's size
+    /// says it is, through the raw pointer.
     pub unsafe fn entry(host: *const abi::HostApi, out: *mut abi::ExtensionVTable, make: impl FnOnce() -> Boxed) -> i32 {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             if host.is_null() || out.is_null() {
                 return abi::INVALID_ARGUMENT;
             }
-            let h = &*host;
-            if h.size < std::mem::size_of::<abi::HostApi>() || h.abi_version != abi::ABI_VERSION {
+            let host_size = std::ptr::addr_of!((*host).size).read();
+            if host_size < end_of!(abi::HostApi, log) || std::ptr::addr_of!((*host).abi_version).read() != abi::ABI_VERSION {
                 return abi::UNAVAILABLE;
             }
-            let _ = HOST.set(Host { host: h.host as usize, log: h.log });
-            let table = &mut *out;
+            let _ = HOST.set(Host { host: std::ptr::addr_of!((*host).host).read() as usize, log: std::ptr::addr_of!((*host).log).read() });
             // The callbacks the core's table has room for; an older core does
-            // not call the newer ones (ADR 0014).
-            let fits = |end: usize| table.size >= end;
+            // not call the newer ones.
+            let size = std::ptr::addr_of!((*out).size).read();
+            if size < end_of!(abi::ExtensionVTable, user) {
+                return abi::INVALID_ARGUMENT;
+            }
             macro_rules! set {
                 ($($field:ident),+) => {$(
-                    if fits(std::mem::offset_of!(abi::ExtensionVTable, $field) + std::mem::size_of::<usize>()) {
-                        table.$field = Some($field);
+                    if size >= end_of!(abi::ExtensionVTable, $field) {
+                        std::ptr::addr_of_mut!((*out).$field).write(Some($field));
                     }
                 )+};
             }
-            if !fits(std::mem::offset_of!(abi::ExtensionVTable, on_session)) {
-                return abi::INVALID_ARGUMENT;
-            }
-            table.user = Box::into_raw(Box::new(make())) as *mut c_void;
+            std::ptr::addr_of_mut!((*out).user).write(Box::into_raw(Box::new(make())) as *mut c_void);
             set!(on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
             abi::OK
         }))
@@ -203,6 +213,17 @@ mod tests {
         let mut table = callbacks(size_of::<abi::ExtensionVTable>());
         assert_eq!(enter(&host(abi::ABI_VERSION + 1), &mut table), abi::UNAVAILABLE);
         assert!(table.user.is_null() && table.on_session.is_none());
+    }
+
+    /// A host table must reach as far as the log function, all this SDK
+    /// reads; one that does is taken, whatever was appended to the SDK's.
+    #[test]
+    fn a_host_table_is_read_as_far_as_it_goes() {
+        let mut table = callbacks(size_of::<abi::ExtensionVTable>());
+        let short = abi::HostApi { size: offset_of!(abi::HostApi, log), ..host(abi::ABI_VERSION) };
+        assert_eq!(enter(&short, &mut table), abi::UNAVAILABLE);
+        let enough = abi::HostApi { size: offset_of!(abi::HostApi, log) + size_of::<usize>(), ..host(abi::ABI_VERSION) };
+        assert_eq!(enter(&enough, &mut table), abi::OK);
     }
 
     /// A core from before some events were added gets the callbacks it has
