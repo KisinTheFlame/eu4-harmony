@@ -30,6 +30,8 @@ pub struct Element {
     pub owner: usize,
     /// The vanilla `windowType` it was spliced into.
     pub window: String,
+    /// What binds it there.
+    pub host: crate::hosts::Host,
     pub name: String,
     pub prefixed: String,
     pub kind: ElementKind,
@@ -133,6 +135,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
                 plan.elements.push(Element {
                     owner: index,
                     window: ui.into.clone(),
+                    host: window.host,
                     prefixed: format!("{prefix}{}", e.name),
                     name: e.name,
                     kind: ElementKind::from_key(&e.key),

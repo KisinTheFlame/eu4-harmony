@@ -1,6 +1,6 @@
 //! Countries. A remote client names a country by its tag; the capability
 //! layer finds the country it stands for.
-use super::{tag, Live};
+use super::tag;
 use crate::game::{
     self,
     countries::{self as layer, RelationKind as Kind},
@@ -11,26 +11,16 @@ use eu4_harmony_remote::{
     CountryTag, Error,
 };
 
-/// The group's slice of the capability layer.
-pub trait Layer {
-    /// The country with this tag.
-    fn country(&mut self, tag: CountryTag) -> GResult<Tag>;
-    fn hostile(&mut self, a: Tag, b: Tag) -> GResult<bool>;
-    fn snapshot(&mut self, country: Tag) -> GResult<layer::Country>;
+/// The country with this tag.
+fn find(caller: Caller, tag: CountryTag) -> GResult<Tag> {
+    game::countries::find(caller, tag.0)
 }
 
-impl Layer for Live {
-    fn country(&mut self, tag: CountryTag) -> GResult<Tag> {
-        game::countries::find(Caller::Remote, tag.0)
-    }
-
-    fn hostile(&mut self, a: Tag, b: Tag) -> GResult<bool> {
-        game::countries::hostile(Caller::Remote, a, b)
-    }
-
-    fn snapshot(&mut self, country: Tag) -> GResult<layer::Country> {
-        game::countries::snapshot(Caller::Remote, country)
-    }
+layer! {
+    /// The country with this tag.
+    fn country(tag: CountryTag) -> Tag = find;
+    fn hostile(a: Tag, b: Tag) -> bool = game::countries::hostile;
+    fn snapshot(country: Tag) -> layer::Country = game::countries::snapshot;
 }
 
 pub fn run(request: CountryRequest, game: &mut (impl Layer + ?Sized)) -> Result<CountryAnswer, Error> {

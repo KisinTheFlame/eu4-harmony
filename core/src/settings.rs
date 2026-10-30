@@ -23,9 +23,25 @@ pub struct Settings {
     pub map_font: String,
 }
 
+/// The system font family text falls back to, and the framework UI draws
+/// with, when the one chosen is not installed: one Windows has in every
+/// language.
+pub const DEFAULT_FONT: &str = "Microsoft YaHei";
+
 impl Default for Settings {
     fn default() -> Self {
-        Self { text_appearance: TextAppearance::Bitmap, body_font: "Microsoft YaHei".into(), map_font: "KaiTi".into() }
+        Self { text_appearance: TextAppearance::Bitmap, body_font: DEFAULT_FONT.into(), map_font: "KaiTi".into() }
+    }
+}
+
+impl Settings {
+    /// The font families chosen that `installed` does not have; text that
+    /// asks for one is drawn with [`DEFAULT_FONT`] instead, and the player
+    /// is told once (ADR 0012).
+    pub fn missing_fonts(&self, installed: impl Fn(&str) -> bool) -> Vec<&str> {
+        let mut missing: Vec<&str> = [self.body_font.as_str(), self.map_font.as_str()].into_iter().filter(|f| !installed(f)).collect();
+        missing.dedup();
+        missing
     }
 }
 
@@ -105,6 +121,13 @@ pub fn save(settings: Settings) -> crate::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chosen_font_not_installed_is_missing() {
+        let chosen = Settings { body_font: "Gone".into(), map_font: "Gone".into(), ..Settings::default() };
+        assert_eq!(chosen.missing_fonts(|f| f != "Gone"), ["Gone"]);
+        assert!(Settings::default().missing_fonts(|_| true).is_empty());
+    }
 
     #[test]
     fn round_trips_and_keeps_defaults_for_the_rest() {

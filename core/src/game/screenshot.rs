@@ -67,8 +67,9 @@ impl Shot {
 
 /// Refuses an image size that is not 1 to 100 percent of the frame's.
 pub fn check_scale(percent: u32) -> GResult<()> {
-    if !(1..=100).contains(&percent) {
-        return fail(Status::InvalidArgument, format!("scale is a percent from 1 to 100; {percent} is not one"));
+    use eu4_harmony_remote::screenshot::SCALES;
+    if !SCALES.contains(&percent) {
+        return fail(Status::InvalidArgument, format!("scale is a percent from {} to {}; {percent} is not one", SCALES.start(), SCALES.end()));
     }
     Ok(())
 }

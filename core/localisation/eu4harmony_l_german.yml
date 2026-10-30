@@ -10,6 +10,7 @@ l_german:
  EU4HARMONY_NOT_LOADED:0 "Die Mod „$MOD$“ wurde nicht geladen:\n$DETAIL$"
  EU4HARMONY_STOPPED:0 "Die Mod „$MOD$“ ist fehlgeschlagen, ihre Erweiterung wurde angehalten: $DETAIL$\n\nDer Spielzustand ist möglicherweise inkonsistent; überschreiben Sie Ihre Spielstände besser nicht."
  EU4HARMONY_TEST_NOTICE:0 "EU4-Harmony-Testhinweis $NUMBER$. Schließen Sie ihn mit der Schaltfläche in seiner Ecke."
+ EU4HARMONY_FONT_MISSING:0 "Die in den Einstellungen von EU4 Harmony gewählte Schriftart „$FONT$“ ist nicht installiert; stattdessen wird $DEFAULT$ verwendet. Wählen Sie in den Einstellungen eine andere Schriftart."
  EU4HARMONY_SETTINGS_BUTTON:0 "EU4-Harmony-Einstellungen"
  EU4HARMONY_SETTINGS_TITLE:0 "EU4-Harmony-Einstellungen"
  EU4HARMONY_SETTINGS_APPEARANCE:0 "Textdarstellung"

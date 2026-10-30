@@ -10,6 +10,7 @@ l_english:
  EU4HARMONY_NOT_LOADED:0 "Mod "$MOD$" was not loaded:\n$DETAIL$"
  EU4HARMONY_STOPPED:0 "Mod "$MOD$" failed and its extension was stopped: $DETAIL$\n\nThe game state may be inconsistent; avoid overwriting your saves."
  EU4HARMONY_TEST_NOTICE:0 "EU4 Harmony test notice $NUMBER$. Close it with the button in its corner."
+ EU4HARMONY_FONT_MISSING:0 "The font "$FONT$" chosen in the EU4 Harmony settings is not installed, so $DEFAULT$ is used instead. Choose another font in the settings."
  EU4HARMONY_SETTINGS_BUTTON:0 "EU4 Harmony settings"
  EU4HARMONY_SETTINGS_TITLE:0 "EU4 Harmony settings"
  EU4HARMONY_SETTINGS_APPEARANCE:0 "Text appearance"

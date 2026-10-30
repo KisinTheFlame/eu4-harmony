@@ -8,6 +8,7 @@ Tools for trying things in a running game, finding dependency points and looking
 | `dev-install.ps1` | Installs them from the release build into the game directory (`-Uninstall` removes them) |
 | `release.ps1` | Packs them for players: `target\eu4-harmony\` and `target\eu4-harmony.zip`, whose contents go into the game's root folder |
 | `game-dir.ps1` | Prints the game folder: `EU4_GAME_DIR`, or else the Steam library that has the game; the other tools' default `-GameDir` |
+| `player-state.ps1` | Backs up the player's files a run of the game may change (`-Backup <new folder>`: the saves, extension save data and settings files it lists), and afterwards puts them back (`-Restore <folder>`): lists what the run changed, restores and compares every file, removes the run's crash folders (`-KeepCrashes` keeps them) and the backup (`-Keep` keeps it) |
 | `game-input.ps1` | Brings the game window to the front and sends it mouse and keyboard input: `-Click x,y`, `-RightClick x,y`, `-Drag x1,y1,x2,y2`, `-Wheel n -At x,y`, `-Type text` (Unicode characters, past any input method), `-Keys LEFT,SHIFT+END,CTRL+V` (key presses, letters and digits included, which an input method takes) |
 | `screenshot.ps1` | Captures the primary screen: `-Out a.png` (the whole screen, shrunk by `-Scale`) or `-Crop x,y,width,height` (at full size) |
 | `perf-run.ps1` | Measures one run of the game for [docs/performance.md](../docs/performance.md): launch to main menu, memory, CPU paused and at speed 5, game days per run; read its notes before the first run |
@@ -22,7 +23,7 @@ Coordinates are always physical pixels: both PowerShell scripts run per-monitor 
 ## Caveats
 
 - **Injected keys are not quite a keyboard.** One Backspace sent by `game-input.ps1` deletes more than one character in the game's edit boxes; vanilla without the framework does the same. To count how many characters are deleted, use a real keyboard.
-- **Back up before a test that loads a save.** The game rewrites a save after loading it. First copy `save games`, `eu4-harmony\saves`, `settings.txt`, `pdx_settings.txt`, `pdx_login_cache.txt`, `shortcuts.txt`, `continue_game.json` and `eu4-harmony\settings.txt` somewhere else; after the test, delete the new files, restore the copies and compare them with the backups.
+- **Back up before a test that loads a save.** The game rewrites a save after loading it: run `player-state.ps1 -Backup <new folder>` first and `player-state.ps1 -Restore <that folder>` after the test.
 - **Crash dumps** are in the documents folder at `Europa Universalis IV\crashes\eu4_<date>_<time>\minidump.dmp`; the framework's logs are in `eu4-harmony\logs\`.
 
 ## Disassembly

@@ -7,3 +7,6 @@ description = "EU4 Harmony localisation files: languages, parsing and lookup"
 
 [lib]
 name = "eu4_harmony_loc"
+
+[lints]
+workspace = true

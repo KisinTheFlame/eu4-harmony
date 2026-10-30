@@ -127,9 +127,29 @@ pub fn unescape(raw: &str) -> String {
     raw.replace("\\n", "\n")
 }
 
-/// Replaces each `$NAME$` in `text` with its value.
+/// Replaces each `$NAME$` in `text` with its value, in one pass: a value
+/// that holds a `$NAME$` of its own, a mod's name or an error message, stays
+/// as it is. A `$` that starts no name given stays too.
 pub fn fill(text: &str, args: &[(&str, &str)]) -> String {
-    args.iter().fold(text.to_string(), |text, (name, value)| text.replace(&format!("${name}$"), value))
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('$') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let named = after.find('$').and_then(|end| args.iter().find(|(name, _)| *name == &after[..end]).map(|(_, value)| (value, end)));
+        match named {
+            Some((value, end)) => {
+                out.push_str(value);
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push('$');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Texts by language and key.
@@ -246,6 +266,9 @@ mod tests {
         assert_eq!(c.raw(Language::French, "B"), Some("Radius $R$\\nmore"));
         assert_eq!(c.text(Language::English, "C"), None);
         assert_eq!(fill("Radius $R$", &[("R", "5")]), "Radius 5");
+        // A value is not filled in again, and a lone `$` stays.
+        assert_eq!(fill("$MOD$: $DETAIL$", &[("MOD", "$DETAIL$ mod"), ("DETAIL", "failed")]), "$DETAIL$ mod: failed");
+        assert_eq!(fill("costs $5, $R$ and $X$$", &[("R", "5")]), "costs $5, 5 and $X$$");
     }
 
     #[test]

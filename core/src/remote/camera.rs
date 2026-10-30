@@ -1,35 +1,15 @@
 //! The map camera.
-use super::Live;
-use crate::game::{self, Caller, GResult};
+use crate::game::{self};
 use eu4_harmony_remote::{
     camera::{Camera, CameraAnswer, CameraRequest},
     Error, ProvinceId,
 };
 
-/// The group's slice of the capability layer.
-pub trait Layer {
-    fn camera(&mut self) -> GResult<game::camera::Camera>;
-    fn look_at_province(&mut self, province: u32) -> GResult<game::camera::Camera>;
-    fn look_at(&mut self, x: u32, y: u32) -> GResult<game::camera::Camera>;
-    fn zoom(&mut self, height: u32) -> GResult<game::camera::Camera>;
-}
-
-impl Layer for Live {
-    fn camera(&mut self) -> GResult<game::camera::Camera> {
-        game::camera::camera(Caller::Remote)
-    }
-
-    fn look_at_province(&mut self, province: u32) -> GResult<game::camera::Camera> {
-        game::camera::look_at_province(Caller::Remote, province)
-    }
-
-    fn look_at(&mut self, x: u32, y: u32) -> GResult<game::camera::Camera> {
-        game::camera::look_at(Caller::Remote, x, y)
-    }
-
-    fn zoom(&mut self, height: u32) -> GResult<game::camera::Camera> {
-        game::camera::zoom(Caller::Remote, height)
-    }
+layer! {
+    fn camera() -> game::camera::Camera = game::camera::camera;
+    fn look_at_province(province: u32) -> game::camera::Camera = game::camera::look_at_province;
+    fn look_at(x: u32, y: u32) -> game::camera::Camera = game::camera::look_at;
+    fn zoom(height: u32) -> game::camera::Camera = game::camera::zoom;
 }
 
 fn camera(c: game::camera::Camera) -> Camera {

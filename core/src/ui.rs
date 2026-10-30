@@ -12,7 +12,7 @@ use crate::{
     game::{self, fail, GResult, Status},
     game_string,
     hooks::HookFrame,
-    hosts::{self, Host},
+    hosts::Host,
     memory::Memory,
     notice,
     objects::{
@@ -128,16 +128,8 @@ fn report_once(ui: &mut Ui, message: String) {
 /// Elements spliced this run, with the extension index that owns each.
 pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
     with_ui(|ui| {
-        ui.declared = elements
-            .into_iter()
-            .filter_map(|(element, extension)| match hosts::window(&element.window).map(|w| w.host) {
-                Some(host) => Some(Declared { element, host, extension, desired: Desired::default() }),
-                None => {
-                    log!("ui: {} is in window {:?}, which is not bound", element.prefixed, element.window);
-                    None
-                }
-            })
-            .collect();
+        ui.declared =
+            elements.into_iter().map(|(element, extension)| Declared { host: element.host, element, extension, desired: Desired::default() }).collect();
     });
 }
 

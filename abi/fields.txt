@@ -1,0 +1,92 @@
+HostApi.size: usize
+HostApi.abi_version: u32
+HostApi.host: *mut core::ffi::c_void
+HostApi.log: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize)
+Session.session: u64
+Session.date: i32
+Session.paused: u8
+Session.visibility_current: u8
+Session._reserved: u16
+Session.player: u64
+Province.id: u32
+Province.flags: u32
+Province.owner: u64
+Province.controller: u64
+Neighbor.to: u32
+Neighbor.flags: u32
+Army.id: u64
+Army.owner: u64
+Army.province: u32
+Army.flags: u32
+Army.regiments: u32
+Army.route_len: u32
+Army.destination: u32
+Army.route_source: u32
+MapColor.province: u32
+MapColor.rgba: [u8; 4]
+Camera.x: u32
+Camera.y: u32
+Camera.height: u32
+Camera.province: u32
+Camera.min_height: u32
+Camera.max_height: u32
+GameApi.size: usize
+GameApi.host: *mut core::ffi::c_void
+GameApi.last_error: unsafe extern "C" fn(*mut core::ffi::c_void, *mut u8, usize) -> usize
+GameApi.session: unsafe extern "C" fn(*mut core::ffi::c_void, *mut eu4_harmony_abi::Session) -> i32
+GameApi.country_tag: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut [u8; 3]) -> i32
+GameApi.countries_hostile: unsafe extern "C" fn(*mut core::ffi::c_void, u64, u64, *mut u8) -> i32
+GameApi.provinces: unsafe extern "C" fn(*mut core::ffi::c_void, *mut eu4_harmony_abi::Province, usize, *mut usize) -> i32
+GameApi.province_neighbors: unsafe extern "C" fn(*mut core::ffi::c_void, u32, *mut eu4_harmony_abi::Neighbor, usize, *mut usize) -> i32
+GameApi.army: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut eu4_harmony_abi::Army) -> i32
+GameApi.own_armies: unsafe extern "C" fn(*mut core::ffi::c_void, *mut eu4_harmony_abi::Army, usize, *mut usize) -> i32
+GameApi.province_armies: unsafe extern "C" fn(*mut core::ffi::c_void, u32, *mut eu4_harmony_abi::Army, usize, *mut usize) -> i32
+GameApi.army_route: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut u32, usize, *mut usize) -> i32
+GameApi.army_can_enter: unsafe extern "C" fn(*mut core::ffi::c_void, u64, u32, *mut u8) -> i32
+GameApi.army_strait_open: unsafe extern "C" fn(*mut core::ffi::c_void, u64, u32, u32, *mut u8) -> i32
+GameApi.army_can_attack: unsafe extern "C" fn(*mut core::ffi::c_void, u64, u64, u32, *mut u8) -> i32
+GameApi.find_route: unsafe extern "C" fn(*mut core::ffi::c_void, u64, u32, *mut u32, usize, *mut usize) -> i32
+GameApi.army_move: unsafe extern "C" fn(*mut core::ffi::c_void, u64, u32) -> i32
+GameApi.army_stop: unsafe extern "C" fn(*mut core::ffi::c_void, u64) -> i32
+GameApi.ui_selected_army: unsafe extern "C" fn(*mut core::ffi::c_void, *mut u64) -> i32
+GameApi.ui_set_visible: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, u8) -> i32
+GameApi.ui_set_enabled: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, u8) -> i32
+GameApi.ui_set_text: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, *const u8, usize) -> i32
+GameApi.ui_set_tooltip: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, *const u8, usize) -> i32
+GameApi.map_paint: unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::MapColor, usize) -> i32
+GameApi.map_clear: unsafe extern "C" fn(*mut core::ffi::c_void) -> i32
+GameApi.save_data_get: unsafe extern "C" fn(*mut core::ffi::c_void, *mut u8, usize, *mut usize) -> i32
+GameApi.save_data_set: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize) -> i32
+GameApi.language: unsafe extern "C" fn(*mut core::ffi::c_void, *mut u8, usize, *mut usize) -> i32
+GameApi.text: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, *mut u8, usize, *mut usize) -> i32
+GameApi.camera: unsafe extern "C" fn(*mut core::ffi::c_void, *mut eu4_harmony_abi::Camera) -> i32
+GameApi.camera_look_at_province: unsafe extern "C" fn(*mut core::ffi::c_void, u32, *mut eu4_harmony_abi::Camera) -> i32
+GameApi.camera_look_at: unsafe extern "C" fn(*mut core::ffi::c_void, u32, u32, *mut eu4_harmony_abi::Camera) -> i32
+GameApi.camera_zoom: unsafe extern "C" fn(*mut core::ffi::c_void, u32, *mut eu4_harmony_abi::Camera) -> i32
+GameApi.province: unsafe extern "C" fn(*mut core::ffi::c_void, u32, *mut u8, usize, *mut usize) -> i32
+GameApi.console_run: unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize, core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const u8, usize)>, *mut core::ffi::c_void) -> i32
+GameApi.country: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut u8, usize, *mut usize) -> i32
+GameApi.time_speed: unsafe extern "C" fn(*mut core::ffi::c_void, *mut u32) -> i32
+GameApi.time_set_speed: unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32
+GameApi.time_pause: unsafe extern "C" fn(*mut core::ffi::c_void) -> i32
+GameApi.time_resume: unsafe extern "C" fn(*mut core::ffi::c_void) -> i32
+GameApi.recruit: unsafe extern "C" fn(*mut core::ffi::c_void, u32, u32) -> i32
+GameApi.questions: unsafe extern "C" fn(*mut core::ffi::c_void, *mut u8, usize, *mut usize) -> i32
+GameApi.question_answer: unsafe extern "C" fn(*mut core::ffi::c_void, u32, u32) -> i32
+GameApi.offers: unsafe extern "C" fn(*mut core::ffi::c_void, *mut u8, usize, *mut usize) -> i32
+GameApi.offer_answer: unsafe extern "C" fn(*mut core::ffi::c_void, u32, u8) -> i32
+GameApi.war_goals: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut u8, usize, *mut usize) -> i32
+GameApi.declare_war: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *const u8, usize, *const u8, usize, u32, u64, u32, *const u64, usize, *mut u64) -> i32
+GameApi.offer_peace: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut u64) -> i32
+GameApi.propose_alliance: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut u64) -> i32
+GameApi.diplomacy_answer: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut u32) -> i32
+GameApi.allies_called: unsafe extern "C" fn(*mut core::ffi::c_void, u64, *mut u64, usize, *mut usize) -> i32
+ExtensionVTable.size: usize
+ExtensionVTable.user: *mut core::ffi::c_void
+ExtensionVTable.on_session: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi) -> i32>
+ExtensionVTable.on_frame: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi) -> i32>
+ExtensionVTable.on_day: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi, i32) -> i32>
+ExtensionVTable.on_button: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi, *const u8, usize, u32, u32) -> i32>
+ExtensionVTable.on_army_ordered: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi, u64) -> i32>
+ExtensionVTable.on_army_defeated: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi, u64) -> i32>
+ExtensionVTable.on_map_lost: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi) -> i32>

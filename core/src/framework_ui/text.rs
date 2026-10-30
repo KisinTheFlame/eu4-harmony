@@ -47,7 +47,7 @@ pub struct UiFont {
 impl UiFont {
     pub fn new(family: &str) -> crate::Result<Self> {
         let fonts = SystemFonts::new()?;
-        let family = if fonts.has_family(family) { family.to_string() } else { "Microsoft YaHei".to_string() };
+        let family = if fonts.has_family(family) { family } else { crate::settings::DEFAULT_FONT }.to_string();
         Ok(Self {
             fonts,
             family,

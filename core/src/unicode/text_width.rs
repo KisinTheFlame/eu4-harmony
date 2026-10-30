@@ -7,6 +7,7 @@
 //! The lookup takes a whole character and moves both indexes over it, leaving
 //! the lead byte in `edx` for the kerning call and the newline test after it.
 use super::text_loops;
+use crate::objects::text::font::OWN_GLYPHS;
 use crate::points::Point;
 use crate::resume;
 
@@ -36,9 +37,10 @@ extern "C" fn glyph_stub() {
             "add edi, dword ptr [rsp + 0x40]",
             "dec edi",
         ),
-        "lea rcx, [r15 + 0x120]",
+        "lea rcx, [r15 + {own}]",
         "test r11, r11",
         "jmp qword ptr [rip + {done}]",
+        own = const OWN_GLYPHS,
         glyph = sym text_loops::char_glyph,
         done = sym DONE,
     );
@@ -46,7 +48,8 @@ extern "C" fn glyph_stub() {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::jump(GLYPH, "0f b6 14 2b 49 8d 8f 20 01 00 00 4c 8b 1c d1 4d 85 db", "text width glyph", glyph_stub as *const () as usize, &RESUME),
+        Point::jump(GLYPH, "0f b6 14 2b 49 8d 8f 20 01 00 00 4c 8b 1c d1 4d 85 db", "text width glyph", glyph_stub as *const () as usize, &RESUME)
+            .uses(&[OWN_GLYPHS]),
         Point::keep(FOUND, "74 51", "text width null glyph"),
         Point::keep(0x159b999usize, "ff c7 48 ff c3", "text width next byte"),
     ]

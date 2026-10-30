@@ -10,6 +10,35 @@ fn sample(kind: Kind) -> Value {
     kind.json(kind.example()).unwrap_or_else(|| panic!("the example of {kind:?} is not one"))
 }
 
+/// Each code is named as JSON writes it, and the documentation explains it.
+#[test]
+fn every_code_is_named_and_explained() {
+    let documented = include_str!("../../docs/remote-control.md");
+    for code in Code::ALL {
+        assert_eq!(serde_json::to_value(code).unwrap(), json!(code.name()));
+        assert!(documented.contains(&format!("`{}`", code.name())), "docs/remote-control.md does not explain {}", code.name());
+    }
+}
+
+/// The limits the descriptions state are those the game keeps to.
+#[test]
+fn descriptions_state_the_limits_kept() {
+    let all = capabilities();
+    let about = |name: &str, arg: &str| {
+        let capability = all.iter().find(|c| c.name() == name).unwrap_or_else(|| panic!("no {name}"));
+        prose(capability.args.iter().find(|a| a.name == arg).unwrap_or_else(|| panic!("{name} has no {arg}")).about)
+    };
+    let speeds = format!("{} (slowest) to {} (fastest)", time::SPEEDS.start(), time::SPEEDS.end());
+    for (name, arg) in [("time.speed", "speed"), ("time.advance", "speed")] {
+        assert!(about(name, arg).contains(&speeds), "{name} {arg}");
+    }
+    let time = all.iter().find(|c| c.name() == "time").unwrap();
+    assert!(time.result.contains(&speeds), "time");
+    assert!(about("time.advance", "days").contains(&format!("from 1 to {}", time::MOST_DAYS)));
+    assert!(about("events", "wait_ms").contains(&format!("at most {}", events::LONGEST_WAIT)));
+    assert!(about("screenshot", "scale").contains(&format!("{} to {}", screenshot::SCALES.start(), screenshot::SCALES.end())));
+}
+
 #[test]
 fn every_capability_is_described_and_can_be_called_from_its_description() {
     let all = capabilities();
@@ -69,7 +98,20 @@ fn a_request_that_cannot_be_read_says_why() {
     bad(json!({"capability": "army.get", "army": 4294967377u64}), "an army ID as a decimal string");
     bad(json!({"capability": "army.get", "army": "-1"}), "not an army ID");
     bad(json!({"capability": "country.hostile", "country": "FRANCE", "other": "ENG"}), "not a country tag");
+    bad(json!({"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": "WAL;TUR"}), "\"WAL;TUR\" is not a tag");
     assert_eq!(request_from_json("not json").unwrap_err().code, Code::BadRequest);
+}
+
+/// Allies to call are read as they are written: all, none, or tags.
+#[test]
+fn allies_to_call_are_read_and_written_back() {
+    use diplomacy::CallAllies;
+    assert_eq!(CallAllies::parse(" all "), Ok(CallAllies::All));
+    assert_eq!(CallAllies::parse("none"), Ok(CallAllies::None));
+    let named = CallAllies::parse("wal, TUR").unwrap();
+    assert_eq!(named, CallAllies::Only(vec![CountryTag(*b"WAL"), CountryTag(*b"TUR")]));
+    assert_eq!(named.to_string(), "WAL,TUR");
+    assert!(CallAllies::parse("").is_err() && CallAllies::parse("WAL,").is_err());
 }
 
 #[test]

@@ -29,8 +29,8 @@ struct FrameworkUi {
     screen: (f32, f32),
     mouse: (f32, f32),
     scale: f32,
-    /// The notice on screen, by its title and text.
-    notice: Option<((String, String), Window)>,
+    /// The notice on screen, by its number.
+    notice: Option<(u64, Window)>,
     settings: Option<Window>,
     /// Families offered in the settings window, by English name.
     families: Vec<String>,
@@ -134,16 +134,17 @@ impl FrameworkUi {
         MODAL.store(false, Ordering::Relaxed);
     }
 
-    /// Takes the notice to show from the queue and keeps its window.
+    /// Takes the notice to show from the queue and keeps its window: where
+    /// the player moved it, while it shows the same notice.
     fn update_notice(&mut self) {
         let current = crate::notice::current();
-        match (current, &self.notice) {
+        match (current, &mut self.notice) {
             (None, _) => self.notice = None,
-            (Some(words), Some((shown, _))) if *shown == words => {}
-            (Some((title, text)), _) => {
-                let mut window = Window::new(title.clone(), vec![Widget::Label(text.clone())], 460.0);
+            (Some(showing), Some((shown, window))) if *shown == showing.number => window.title = showing.title,
+            (Some(showing), _) => {
+                let mut window = Window::new(showing.title, vec![Widget::Label(showing.text)], 460.0);
                 window.center(&self.font, self.screen.0, self.screen.1 * 0.6);
-                self.notice = Some(((title, text), window));
+                self.notice = Some((showing.number, window));
             }
         }
     }

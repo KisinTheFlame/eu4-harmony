@@ -21,6 +21,23 @@
 //! layer itself behind it ([`Live`]), and turns the group's requests into
 //! calls and the layer's types into the answers. Tests put a fake game behind
 //! the traits.
+
+/// Declares a group's slice of the capability layer once: its `Layer`
+/// trait, and [`Live`] calling each capability there as remote control.
+/// A group whose slice does more than call them writes both itself.
+macro_rules! layer {
+    ($( $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; )*) => {
+        /// The group's slice of the capability layer.
+        pub trait Layer {
+            $( $(#[$doc])* fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret>; )*
+        }
+
+        impl Layer for super::Live {
+            $( fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> { $capability(crate::game::Caller::Remote, $($arg),*) } )*
+        }
+    };
+}
+
 pub mod armies;
 pub mod camera;
 pub mod console;
@@ -364,11 +381,17 @@ impl Engine {
     /// runs queued requests in order until `budget` is spent. What does not
     /// run stays queued, in order.
     pub fn run(&self, game: &mut dyn Game, place: &Place, budget: Duration) {
+        self.run_at(game, place, budget, Instant::now());
+    }
+
+    /// [`run`](Self::run) with the time the requests' waits are measured
+    /// against: now, but for a test that lets time pass without waiting.
+    pub(crate) fn run_at(&self, game: &mut dyn Game, place: &Place, budget: Duration, now: Instant) {
         let started = Instant::now();
         self.delivering().retain(|slot| !slot.released());
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         let running = &mut *running;
-        self.poll(running, game, place);
+        self.poll(running, game, place, now);
         let mut queued = std::mem::take(&mut self.queue().requests);
         let mut kept = VecDeque::new();
         let mut ran = false;
@@ -402,7 +425,7 @@ impl Engine {
                 break;
             }
             ran = true;
-            self.start(running, game, q);
+            self.start(running, game, q, now);
         }
         let mut queue = self.queue();
         while let Some(q) = kept.pop_back() {
@@ -410,10 +433,10 @@ impl Engine {
         }
     }
 
-    /// Runs a request.
-    fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued) {
+    /// Runs a request at `now`.
+    fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued, now: Instant) {
         let started = Instant::now();
-        match dispatch(q.request.clone(), game, &running.events) {
+        match dispatch(q.request.clone(), game, &running.events, now) {
             Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
             Outcome::Later(wait) => {
                 (self.log)(&format!("remote #{} {}: answers later", q.number, json(&q.request)));
@@ -434,8 +457,7 @@ impl Engine {
         self.delivering().push(slot.clone());
     }
 
-    fn poll(&self, running: &mut Running, game: &mut dyn Game, place: &Place) {
-        let now = Instant::now();
+    fn poll(&self, running: &mut Running, game: &mut dyn Game, place: &Place, now: Instant) {
         let mut at = Poll::new(&running.events, now, place, game);
         for mut w in std::mem::take(&mut running.waiting) {
             if w.slot.released() {
@@ -502,8 +524,8 @@ impl Engine {
     }
 }
 
-/// Runs one request, group by group.
-fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> Outcome {
+/// Runs one request at `now`, group by group.
+fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now: Instant) -> Outcome {
     let done = |response: Response| Outcome::Done(response);
     match request {
         Request::Session(r) => done(session::run(r, game).map(Answer::Session)),
@@ -516,12 +538,12 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer) -> O
         Request::Console(r) => done(console::run(r, game).map(Answer::Console)),
         Request::Question(r) => done(questions::run(r, game).map(Answer::Question)),
         Request::Offer(r) => done(offers::run(r, game).map(Answer::Offer)),
-        Request::Events(r) => events::run(r, events),
+        Request::Events(r) => events::run(r, events, now),
         Request::Describe(r) => done(Ok(Answer::Describe(describe::run(r)))),
         Request::Camera(r) => done(camera::run(r, game).map(Answer::Camera)),
         Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
         Request::Menu(r) => menu::run(r, game),
-        Request::Diplomacy(r) => diplomacy::run(r, game),
+        Request::Diplomacy(r) => diplomacy::run(r, game, now),
     }
 }
 

@@ -11,3 +11,6 @@ name = "eu4_harmony_remote"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

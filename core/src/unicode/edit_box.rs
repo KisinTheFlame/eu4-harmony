@@ -226,6 +226,10 @@ extern "C" fn line_column(line: *const u8, column: u32) -> u32 {
 /// character it fell in.
 extern "C" fn snap_caret(frame: *mut HookFrame) {
     crate::guarded("edit box caret", || {
+        // Up or Down faulted: no caret to snap.
+        if unsafe { (*frame).fault } != 0 {
+            return;
+        }
         let inner = unsafe { (*frame).args[0] };
         let result = (|| -> crate::Result<()> {
             let (line, column) = unsafe { caret(inner) };

@@ -11,7 +11,7 @@ use crate::{
         armies::{self, RouteSource},
         countries, diplomacy, events, interface,
         map_coloring::{self, MapColor},
-        offers, provinces, questions, save_data, texts, thousandths, time, Caller, Status, Tag,
+        offers, provinces, questions, save_data, texts, time, Caller, Status, Tag,
     },
     map,
     memory::Memory,
@@ -31,6 +31,8 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_WITH_ALTERED_SEARCH_PATH};
+
+mod json;
 
 /// A single callback slower than this is logged.
 const SLOW: Duration = Duration::from_millis(5);
@@ -65,6 +67,10 @@ static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 thread_local! {
     /// Extension whose callback is running on this thread.
     static CURRENT: Cell<Option<usize>> = const { Cell::new(None) };
+    /// Why the running callback's extension faulted in its own code that a
+    /// capability called (a console_run output callback): it is stopped
+    /// when the callback returns, as if the callback itself had faulted.
+    static FAULTED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 fn extensions() -> std::sync::MutexGuard<'static, Vec<Loaded>> {
@@ -216,6 +222,7 @@ unsafe extern "C" fn h_log(ptr: *mut c_void, text: *const u8, len: usize) {
         let h = host(ptr);
         let message = match utf8(text, len) {
             Ok(s) => s.to_string(),
+            Err(_) if text.is_null() => String::new(),
             Err(_) => String::from_utf8_lossy(std::slice::from_raw_parts(text, len)).into_owned(),
         };
         extension_log(h, &message);
@@ -431,64 +438,28 @@ unsafe extern "C" fn h_camera_zoom(ptr: *mut c_void, height: u32, o: *mut abi::C
     capability(ptr, |caller| moved_out(o, game::camera::zoom(caller, height)?))
 }
 
-/// A province's snapshot as the JSON `abi::GameApi::province` describes.
-fn province_json(s: &provinces::Snapshot) -> serde_json::Value {
-    let country = |t: Option<Tag>| t.map(|t| t.0);
-    serde_json::json!({
-        "id": s.id,
-        "name": s.name,
-        "owner": country(s.owner),
-        "controller": country(s.controller),
-        "development": {"tax": thousandths(s.development.tax), "production": thousandths(s.development.production), "manpower": thousandths(s.development.manpower)},
-        "terrain": s.terrain,
-        "fort": {"level": s.fort.level, "mothballed": s.fort.mothballed},
-        "buildings": s.buildings,
-        "recruit": s.recruit.iter().map(|r| serde_json::json!({"kind": r.kind.key(), "unit_type": r.unit_type, "allowed": r.allowed, "reasons": r.reasons})).collect::<Vec<_>>(),
-    })
-}
-
 unsafe extern "C" fn h_province(ptr: *mut c_void, id: u32, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
-    capability(ptr, |caller| list_out(province_json(&provinces::province(caller, id)?).to_string().as_bytes(), buf, cap, len))
+    capability(ptr, |caller| list_out(json::province_json(&provinces::province(caller, id)?).to_string().as_bytes(), buf, cap, len))
 }
 
 unsafe extern "C" fn h_console_run(ptr: *mut c_void, command: *const u8, command_len: usize, printed: Option<abi::TextSink>, user: *mut c_void) -> i32 {
     capability(ptr, |caller| {
         let text = game::console::run(caller, utf8(command, command_len)?)?;
         if let Some(printed) = printed {
-            printed(user, text.as_ptr(), text.len());
+            // The extension's own code, through the SEH boundary as its
+            // callbacks are: a fault there stops it.
+            if let Err(e) = (Memory { base: 0 }).call(printed as usize, &[user as usize, text.as_ptr() as usize, text.len()]) {
+                let reason = format!("its console_run output callback crashed: {e}");
+                FAULTED.with(|f| f.replace(Some(reason.clone())));
+                return failure(abi::INTERNAL, reason);
+            }
         }
         Ok(())
     })
 }
 
-/// A country's snapshot as the JSON `abi::GameApi::country` describes.
-fn country_json(c: &countries::Country) -> serde_json::Value {
-    let ids = |tags: &[Tag]| tags.iter().map(|t| t.0).collect::<Vec<_>>();
-    serde_json::json!({
-        "id": c.tag.0,
-        "treasury": thousandths(c.treasury),
-        "manpower": c.manpower,
-        "max_manpower": c.max_manpower,
-        "stability": thousandths(c.stability),
-        "prestige": thousandths(c.prestige),
-        "power": {"adm": c.power[0], "dip": c.power[1], "mil": c.power[2]},
-        "wars": c.wars.iter().map(|w| serde_json::json!({"name": w.name, "attackers": ids(&w.attackers), "defenders": ids(&w.defenders)})).collect::<Vec<_>>(),
-        "relations": c
-            .relations
-            .iter()
-            .map(|r| {
-                let mut relation = serde_json::json!({"kind": r.kind.key(), "country": r.country.0});
-                if let Some(key) = &r.subject_type {
-                    relation["subject_type"] = key.as_str().into();
-                }
-                relation
-            })
-            .collect::<Vec<_>>(),
-    })
-}
-
 unsafe extern "C" fn h_country(ptr: *mut c_void, country: u64, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
-    capability(ptr, |caller| list_out(country_json(&countries::snapshot(caller, Tag(country))?).to_string().as_bytes(), buf, cap, len))
+    capability(ptr, |caller| list_out(json::country_json(&countries::snapshot(caller, Tag(country))?).to_string().as_bytes(), buf, cap, len))
 }
 
 unsafe extern "C" fn h_time_speed(ptr: *mut c_void, o: *mut u32) -> i32 {
@@ -516,23 +487,8 @@ unsafe extern "C" fn h_recruit(ptr: *mut c_void, province: u32, kind: u32) -> i3
     })
 }
 
-/// The questions as the JSON `abi::GameApi::questions` describes.
-fn questions_json(list: &[questions::Question]) -> serde_json::Value {
-    list.iter()
-        .map(|q| {
-            let options: Vec<_> = q.options.iter().map(|o| serde_json::json!({"index": o.index, "text": o.text})).collect();
-            serde_json::json!({"id": q.id, "event": q.event, "title": q.title, "description": q.description, "deadline": q.deadline, "options": options})
-        })
-        .collect()
-}
-
-/// The offers as the JSON `abi::GameApi::offers` describes.
-fn offers_json(list: &[offers::Offer]) -> serde_json::Value {
-    list.iter().map(|o| serde_json::json!({"id": o.id, "from": o.from.0, "date": o.date, "title": o.title, "description": o.description})).collect()
-}
-
 unsafe extern "C" fn h_questions(ptr: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
-    capability(ptr, |caller| list_out(questions_json(&questions::questions(caller)?).to_string().as_bytes(), buf, cap, len))
+    capability(ptr, |caller| list_out(json::questions_json(&questions::questions(caller)?).to_string().as_bytes(), buf, cap, len))
 }
 
 unsafe extern "C" fn h_question_answer(ptr: *mut c_void, id: u32, option: u32) -> i32 {
@@ -540,29 +496,15 @@ unsafe extern "C" fn h_question_answer(ptr: *mut c_void, id: u32, option: u32) -
 }
 
 unsafe extern "C" fn h_offers(ptr: *mut c_void, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
-    capability(ptr, |caller| list_out(offers_json(&offers::offers(caller)?).to_string().as_bytes(), buf, cap, len))
+    capability(ptr, |caller| list_out(json::offers_json(&offers::offers(caller)?).to_string().as_bytes(), buf, cap, len))
 }
 
 unsafe extern "C" fn h_offer_answer(ptr: *mut c_void, id: u32, accept: u8) -> i32 {
     capability(ptr, |caller| Ok(offers::answer(caller, id, accept != 0)?))
 }
 
-/// The war goals offered, as the JSON `abi::GameApi::war_goals` describes.
-fn war_goals_json(goals: &[diplomacy::WarGoal]) -> serde_json::Value {
-    let goal = |g: &diplomacy::WarGoal| {
-        serde_json::json!({
-            "casus_belli": g.casus_belli.as_deref().unwrap_or(diplomacy::NO_CASUS_BELLI),
-            "war_goal": g.war_goal,
-            "province": g.province,
-            "target": g.target.map(|t| t.0),
-            "name": g.name,
-        })
-    };
-    serde_json::Value::Array(goals.iter().map(goal).collect())
-}
-
 unsafe extern "C" fn h_war_goals(ptr: *mut c_void, country: u64, buf: *mut u8, cap: usize, len: *mut usize) -> i32 {
-    capability(ptr, |caller| list_out(war_goals_json(&diplomacy::war_goals(caller, Tag(country))?).to_string().as_bytes(), buf, cap, len))
+    capability(ptr, |caller| list_out(json::war_goals_json(&diplomacy::war_goals(caller, Tag(country))?).to_string().as_bytes(), buf, cap, len))
 }
 
 /// A diplomatic action's ticket, for a `ticket` that may be null.
@@ -573,7 +515,6 @@ unsafe fn ticket_out(ticket: *mut u64, sent: diplomacy::Ticket) -> HResult<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 unsafe extern "C" fn h_declare_war(
     ptr: *mut c_void,
     country: u64,
@@ -732,7 +673,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path) -> Vec<LoadOutcome> {
 /// What the player is told about an extension that was not loaded. An API
 /// mismatch is the one they can fix, so it is spelled out.
 fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
-    if m.manifest.api_version != abi::API_VERSION {
+    if !m.manifest.built_for(abi::API_VERSION) {
         return Message::new("EU4HARMONY_API_MISMATCH").arg("MOD", &m.descriptor.name).arg("BUILT", &m.manifest.api_version).arg("PROVIDED", abi::API_VERSION);
     }
     Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", &m.descriptor.name).arg("DETAIL", e)
@@ -742,7 +683,7 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     if memory.is_none() {
         return Err("the game executable is not supported, so no extension can run".into());
     }
-    if m.manifest.api_version != abi::API_VERSION {
+    if !m.manifest.built_for(abi::API_VERSION) {
         return Err(format!("built for api_version {}, this EU4 Harmony provides {}", m.manifest.api_version, abi::API_VERSION));
     }
     let path = m.dir.join("eu4-harmony").join(relative);
@@ -757,8 +698,9 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
         return Err(format!("built for ABI version {built}, this EU4 Harmony speaks version {}", abi::ABI_VERSION));
     }
     let entry = export(abi::ENTRY_SYMBOL)?;
-    let mut list = extensions();
-    let index = list.len();
+    // Extensions load one at a time, on this thread: the next index stays
+    // free while the entry point runs, without the list locked.
+    let index = extensions().len();
     let host =
         Box::new(Host { index, id: m.manifest.id.clone(), name: m.descriptor.name.clone(), last_error: Mutex::new(String::new()), log: Mutex::new(None) });
     let host_ptr = &*host as *const Host as *mut c_void;
@@ -778,6 +720,10 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     let code = Memory { base: 0 }.call(entry as usize, &[&*host_api as *const abi::HostApi as usize, &mut vtable as *mut _ as usize])?;
     if code as u32 as i32 != abi::OK {
         return Err(format!("entry point returned {}", code as u32 as i32));
+    }
+    let mut list = extensions();
+    if list.len() != index {
+        return Err("another extension was loaded meanwhile".into());
     }
     list.push(Loaded { host, _host_api: host_api, game_api, vtable, stopped: None, calls: 0, slow_calls: 0, total: Duration::ZERO, max: Duration::ZERO });
     Ok(())
@@ -806,11 +752,14 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
     let mut full = vec![user, game];
     full.extend_from_slice(args);
     CURRENT.with(|c| c.set(Some(index)));
+    FAULTED.with(|f| f.replace(None));
     let started = Instant::now();
     let result = Memory { base: 0 }.call(target, &full);
     let elapsed = started.elapsed();
     CURRENT.with(|c| c.set(None));
+    let faulted = FAULTED.with(|f| f.take());
     let failure = match result {
+        Ok(_) if faulted.is_some() => faulted.map(|reason| format!("{name}: {reason}")),
         Ok(code) if code as u32 as i32 == abi::OK => None,
         Ok(code) => Some(format!("{name} returned {}", code as u32 as i32)),
         Err(e) => Some(format!("{name} crashed: {e}")),
@@ -932,34 +881,7 @@ pub fn timing_lines() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::{countries::RelationKind, provinces::UnitKind};
-
-    /// The snapshots the SDK's tests read (ADR 0018).
-    const PROVINCE_JSON: &str = include_str!("../../abi/json/province.json");
-    const COUNTRY_JSON: &str = include_str!("../../abi/json/country.json");
-    const WAR_GOALS_JSON: &str = include_str!("../../abi/json/war_goals.json");
-
-    /// Constantinople as the engine's fake game has it, every kind of unit
-    /// in it, is written as the same JSON value as the file holds: the same
-    /// members, holding the same values, each number of the same sort
-    /// (`10.0`, not `10`). Only the spaces and the order of the members may
-    /// differ, which no JSON reader sees.
-    #[test]
-    fn a_province_snapshot_is_written_as_the_abi_says() {
-        let snapshot = crate::remote::fake::constantinople();
-        assert_eq!(snapshot.recruit.iter().map(|r| r.kind).collect::<Vec<_>>(), UnitKind::ALL);
-        assert_eq!(province_json(&snapshot), serde_json::from_str::<serde_json::Value>(PROVINCE_JSON).unwrap());
-    }
-
-    /// Wallachia as the engine's fake game has it, a relation of every kind
-    /// and a war on either side, is written as the same JSON value as the
-    /// file holds, as a province's is.
-    #[test]
-    fn a_country_snapshot_is_written_as_the_abi_says() {
-        let snapshot = crate::remote::fake::wallachia();
-        assert_eq!(snapshot.relations.iter().map(|r| r.kind).collect::<Vec<_>>(), RelationKind::ALL);
-        assert_eq!(country_json(&snapshot), serde_json::from_str::<serde_json::Value>(COUNTRY_JSON).unwrap());
-    }
+    use crate::game::provinces::UnitKind;
 
     /// `GameApi::recruit` takes a kind by the layer's index.
     #[test]
@@ -967,45 +889,5 @@ mod tests {
         let abi =
             [abi::UNIT_INFANTRY, abi::UNIT_CAVALRY, abi::UNIT_ARTILLERY, abi::UNIT_HEAVY_SHIP, abi::UNIT_LIGHT_SHIP, abi::UNIT_GALLEY, abi::UNIT_TRANSPORT];
         assert_eq!(UnitKind::ALL.map(|k| k.index() as u32), abi);
-    }
-
-    /// The questions and offers the SDK's test reads (ADR 0018).
-    const QUESTIONS_JSON: &str = include_str!("../../abi/json/questions.json");
-    const OFFERS_JSON: &str = include_str!("../../abi/json/offers.json");
-
-    /// A question (the engine's fake one, its title in Chinese) and an offer
-    /// are written as the same JSON values as the files hold.
-    #[test]
-    fn questions_and_offers_are_written_as_the_abi_says() {
-        let question = questions::Question { title: "禁卫军".into(), ..crate::remote::fake::question() };
-        assert_eq!(questions_json(&[question]), serde_json::from_str::<serde_json::Value>(QUESTIONS_JSON).unwrap());
-        let offer =
-            offers::Offer { id: 3, from: crate::remote::fake::byz(), date: 0x035D_7710, title: "皇室联姻".into(), description: "A royal marriage.".into() };
-        assert_eq!(offers_json(&[offer]), serde_json::from_str::<serde_json::Value>(OFFERS_JSON).unwrap());
-    }
-
-    /// War goals with a province, with a country and of none are written as
-    /// the same JSON value as the file holds, as a province's snapshot is.
-    #[test]
-    fn the_war_goals_offered_are_written_as_the_abi_says() {
-        let goal = |cb: Option<&str>, wg: Option<&str>, province, target, name: &str| diplomacy::WarGoal {
-            casus_belli: cb.map(str::to_string),
-            war_goal: wg.map(str::to_string),
-            province,
-            target,
-            name: name.into(),
-        };
-        let goals = [
-            goal(Some("cb_claim"), Some("take_claim"), Some(151), None, "征服君士坦丁堡"),
-            goal(
-                Some("cb_restore_personal_union"),
-                Some("take_capital_personal_union"),
-                None,
-                Some(crate::remote::fake::byz()),
-                "Restore the Union with Byzantium",
-            ),
-            goal(None, Some("nowargoal"), None, None, "无战争目标"),
-        ];
-        assert_eq!(war_goals_json(&goals), serde_json::from_str::<serde_json::Value>(WAR_GOALS_JSON).unwrap());
     }
 }

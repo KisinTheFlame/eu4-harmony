@@ -34,7 +34,6 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
     "Win32_System_Com",
-    "Win32_UI_Shell",
     "Win32_UI_Input_Ime",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
@@ -69,3 +68,6 @@ trace = ["analysis"]
 [[example]]
 name = "disasm"
 required-features = ["analysis"]
+
+[lints]
+workspace = true

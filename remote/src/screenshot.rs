@@ -2,6 +2,10 @@
 use crate::Binary;
 use serde::{Deserialize, Serialize};
 
+/// The sizes an image may have, in percent of the frame's, as `scale`
+/// states them.
+pub const SCALES: std::ops::RangeInclusive<u32> = 1..=100;
+
 group! {
     /// The frame the player sees, as an image.
     "screenshot": ScreenshotRequest, ScreenshotAnswer;

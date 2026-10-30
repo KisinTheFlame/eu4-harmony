@@ -282,6 +282,9 @@ pub enum Kind {
     /// A kind of regiment or ship, such as `"infantry"` (see
     /// [`provinces::UnitKind`]).
     UnitKind,
+    /// Allies to call to arms: `"all"`, `"none"` or tags separated by
+    /// commas, such as `"DUL,CND"` (see [`diplomacy::CallAllies`]).
+    Allies,
 }
 
 impl Kind {
@@ -296,6 +299,7 @@ impl Kind {
             Self::Boolean => "boolean",
             Self::Text => "text",
             Self::UnitKind => "unit_kind",
+            Self::Allies => "allies",
         }
     }
 
@@ -310,6 +314,7 @@ impl Kind {
             Self::Boolean => "true",
             Self::Text => "text",
             Self::UnitKind => "infantry",
+            Self::Allies => "DUL,CND",
         }
     }
 
@@ -323,6 +328,7 @@ impl Kind {
             Self::Boolean => text.parse().ok().map(Value::Bool),
             Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
             Self::UnitKind => serde_json::from_value::<provinces::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
+            Self::Allies => diplomacy::CallAllies::parse(text).ok().map(|_| Value::String(text.into())),
         }
     }
 }
@@ -353,6 +359,7 @@ arg_kind! {
     bool => Boolean,
     String => Text,
     provinces::UnitKind => UnitKind,
+    diplomacy::CallAllies => Allies,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
@@ -609,6 +616,37 @@ pub enum Code {
     Internal,
 }
 
+impl Code {
+    /// Every code a client may get, which its help and the documentation
+    /// explain.
+    pub const ALL: [Code; 9] = [
+        Self::NotInGame,
+        Self::NotReady,
+        Self::NotFound,
+        Self::Rejected,
+        Self::InvalidArgument,
+        Self::Unavailable,
+        Self::BadRequest,
+        Self::SessionChanged,
+        Self::Internal,
+    ];
+
+    /// Its name, as JSON writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::NotInGame => "not_in_game",
+            Self::NotReady => "not_ready",
+            Self::NotFound => "not_found",
+            Self::Rejected => "rejected",
+            Self::InvalidArgument => "invalid_argument",
+            Self::Unavailable => "unavailable",
+            Self::BadRequest => "bad_request",
+            Self::SessionChanged => "session_changed",
+            Self::Internal => "internal",
+        }
+    }
+}
+
 /// A failed request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Error {
@@ -624,8 +662,7 @@ impl Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let code = serde_json::to_value(self.code).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
-        write!(f, "{code}: {}", self.message)
+        write!(f, "{}: {}", self.code.name(), self.message)
     }
 }
 
