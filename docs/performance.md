@@ -26,6 +26,7 @@ Measured from the framework's log, Chinese playset, to the main menu:
 
 - **Memory**: bitmap fonts now hold about 590 MB less than before, and as much as system fonts. Against the plugin, both should now be within a few dozen MB of it; that was not measured again. The 994,216 glyph records the 46 fonts brought are kept as 6 shared sets of 115,053.
 - **Starting the game**: system fonts no longer take longer than bitmap fonts. Their 3,143 glyphs were drawn in 28 ms instead of 3.5 s; the time had been the locks.
+- **System fonts at an interface scale above 1** (2026-10-30): glyphs are drawn that many times larger, on pages that many times wider and taller, so a page holds as many. At 1.5 the five pages of Microsoft YaHei are 1536 pixels square instead of 1024, and creating each added 9 MB of private bytes instead of 4, about 25 MB in all, as the framework's log counts it; the process at the main menu was not measured again.
 - The tables below are from before the changes. Game speed was not measured again.
 
 ## Setups

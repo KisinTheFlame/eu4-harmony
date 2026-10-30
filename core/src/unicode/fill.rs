@@ -13,7 +13,10 @@
 //!   (`dxt`).
 //! - The system font look ("System fonts"): a new page holds every
 //!   character, drawn from the system font; the font's own glyphs are
-//!   replaced.
+//!   replaced. The game stretches a font's glyphs by the interface scale,
+//!   with a linear filter, so an interface font's glyphs are drawn that many
+//!   times larger and its scale divided to match: they reach the window a
+//!   texel to a pixel, as sharp as the system font draws them ([`density`]).
 //!
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
 //! font; the rest in the body font. Pages live in video memory, like the
@@ -97,6 +100,8 @@ struct Fill {
     em: f32,
     /// From the top of a line to the baseline, in pixels.
     base: f32,
+    /// How many pixels of the page a GUI unit takes (see [`density`]).
+    density: f32,
     drawn: HashMap<u32, Option<Glyph>>,
     full: bool,
 }
@@ -405,21 +410,66 @@ fn draws_the_map(line: i32) -> bool {
     line > MAP_LINE
 }
 
+/// The most pixels of a page a GUI unit takes.
+const MOST_DENSE: f32 = 4.0;
+
+/// How many pixels of its page a GUI unit of `font` takes under the system
+/// font look: the interface scale the font loads at, when it is above 1 (up
+/// to [`MOST_DENSE`]). The game draws a font's glyphs that many times larger
+/// than their pixels, with a linear filter, which blurs them; drawn that much
+/// larger, and with the font's scale divided by as much ([`dense_line`]),
+/// they reach the window a texel to a pixel.
+fn density(m: &Memory, font: usize) -> f32 {
+    let scale = m.ptr(font + objects::font::CONTEXT).and_then(|context| m.u32(context + objects::context::INTERFACE_SCALE)).map(f32::from_bits);
+    match scale {
+        Ok(s) if s > 1.0 && s.is_finite() => s.min(MOST_DENSE),
+        _ => 1.0,
+    }
+}
+
+/// The line height and scale for a font of lines `line` GUI units tall whose
+/// glyphs are `density` times their size in GUI units: the game takes a line
+/// as `(line height * scale) as i32` GUI units, so the line height grows to
+/// at least `line * density` and keeps that.
+fn dense_line(line: i32, density: f32) -> Option<(i32, f32)> {
+    let scale = 1.0 / density;
+    let least = (line as f32 * density).ceil() as i32;
+    (least..least + 2).find(|&l| (l as f32 * scale) as i32 == line).map(|l| (l, scale))
+}
+
+/// Makes `font` draw from glyphs `density` times their size in GUI units.
+/// Only once: a font whose scale is no longer the 1.0 it was made with keeps
+/// it.
+fn scale_font(m: &Memory, font: usize, density: f32) -> crate::Result<()> {
+    if m.u32(font + objects::font::SCALE)? != 1.0f32.to_bits() {
+        return Ok(());
+    }
+    let line = m.i32(font + objects::font::LINE_HEIGHT)?;
+    let (line, scale) = dense_line(line, density).ok_or_else(|| format!("no line height draws {line} GUI units at {density}"))?;
+    unsafe {
+        *((font + objects::font::LINE_HEIGHT) as *mut i32) = line;
+        *((font + objects::font::SCALE) as *mut f32) = scale;
+    }
+    Ok(())
+}
+
 /// The width and height of the page a font gets, and the row its system
 /// glyphs start at: its own page (`own`, width and height) with
-/// [`EXTRA_ROWS`] below when the device allows `max_height`, or a square one
-/// sized to its `line`.
-fn page_size(own: Option<(u32, u32)>, line: i32, max_height: u32) -> crate::Result<(u32, u32, u32)> {
+/// [`EXTRA_ROWS`] below when the device allows `max` (width, height), or a
+/// square one sized to its `line` in GUI units, and `density` times as wide
+/// and tall, so that it holds as many glyphs drawn `density` times as large.
+fn page_size(own: Option<(u32, u32)>, line: i32, density: f32, max: (u32, u32)) -> crate::Result<(u32, u32, u32)> {
     match own {
         // A DXT5 page is whole blocks, so the rows below start on one.
-        Some((width, height)) if height + EXTRA_ROWS <= max_height => Ok((width, height + EXTRA_ROWS, height)),
+        Some((width, height)) if height + EXTRA_ROWS <= max.1 => Ok((width, height + EXTRA_ROWS, height)),
         Some(_) => Err("page too tall to grow".into()),
         None => {
-            let side = match line {
+            let side: u32 = match line {
                 ..=24 => 1024,
                 25..=48 => 2048,
                 _ => 4096,
             };
+            let side = ((side as f32 * density / 256.0).ceil() as u32 * 256).min(max.0).min(max.1);
             Ok((side, side, 0))
         }
     }
@@ -434,11 +484,14 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     let family = if draws_the_map(line) { current.map_font } else { current.body_font };
     let letter = own.as_ref().and_then(|own| letter(m, font, own));
     let own = if system { None } else { own };
-    let (em, mut base) = metrics(fonts, &family, line as f32);
+    // The map's names are drawn on the map, which the interface scale does
+    // not stretch.
+    let density = if system && !draws_the_map(line) { density(m, font) } else { 1.0 };
+    let (em, mut base) = metrics(fonts, &family, line as f32 * density);
     let mut caps = D3DCAPS9::default();
     unsafe { device.GetDeviceCaps(&mut caps) }.map_err(|e| format!("device caps: {e}"))?;
     let compressed = own.as_ref().is_some_and(|o| o.compressed);
-    let (width, height, top) = page_size(own.as_ref().map(|o| (o.width, o.height)), line, caps.MaxTextureHeight)?;
+    let (width, height, top) = page_size(own.as_ref().map(|o| (o.width, o.height)), line, density, (caps.MaxTextureWidth, caps.MaxTextureHeight))?;
     let format = if compressed { D3DFMT_DXT5 } else { D3DFMT_A8R8G8B8 };
     let mut texture = None;
     let creating = crate::heap::Change::begin();
@@ -489,6 +542,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
         letter_em,
         em,
         base,
+        density,
         drawn: HashMap::new(),
         full: false,
     })
@@ -594,13 +648,14 @@ pub fn loaded(font: usize) -> bool {
                 (false, false) => "grown",
             };
             log!(
-                "fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), ink {:06x}",
+                "fill: {look} page {}x{} for {:?} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}",
                 fill.width,
                 fill.height,
                 fill.family,
                 fill.em,
                 fill.letter_em,
                 fill.base,
+                fill.density,
                 fill.ink
             );
             vacant.insert(fill);
@@ -609,6 +664,9 @@ pub fn loaded(font: usize) -> bool {
         unsafe {
             *((font + objects::font::PAGE_SIZE) as *mut u32) = fill.width;
             *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = fill.height;
+        }
+        if fill.density != 1.0 {
+            scale_font(&m, font, fill.density)?;
         }
         lock(&OWNERS).insert(font, wrapper);
         if system {
@@ -648,16 +706,35 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{draws_the_map, em_for, own_rows, page_size, record, room, Loading, Own};
+    use super::{dense_line, draws_the_map, em_for, own_rows, page_size, record, room, Loading, Own};
     use crate::unicode::system_font::Bitmap;
 
     #[test]
+    fn a_denser_font_keeps_its_line_in_gui_units() {
+        for line in 8..=48 {
+            for density in [1.0f32, 1.1, 1.25, 1.5, 1.75, 2.0, 3.0, 4.0] {
+                let (height, scale) = dense_line(line, density).unwrap();
+                assert_eq!((height as f32 * scale) as i32, line, "{line} at {density}");
+                assert!(height as f32 >= line as f32 * density, "{line} at {density}: {height}");
+            }
+        }
+        assert_eq!(dense_line(18, 1.5), Some((27, 1.0 / 1.5)));
+        assert_eq!(dense_line(18, 1.0), Some((18, 1.0)));
+    }
+
+    #[test]
     fn pages_grow_below_or_are_sized_to_the_line() {
-        assert_eq!(page_size(Some((2048, 4096)), 60, 16384).unwrap(), (2048, 5120, 4096));
-        assert!(page_size(Some((2048, 16000)), 60, 16384).is_err());
-        assert_eq!(page_size(None, 18, 16384).unwrap(), (1024, 1024, 0));
-        assert_eq!(page_size(None, 48, 16384).unwrap(), (2048, 2048, 0));
-        assert_eq!(page_size(None, 72, 16384).unwrap(), (4096, 4096, 0));
+        let max = (16384, 16384);
+        assert_eq!(page_size(Some((2048, 4096)), 60, 1.0, max).unwrap(), (2048, 5120, 4096));
+        assert!(page_size(Some((2048, 16000)), 60, 1.0, max).is_err());
+        assert_eq!(page_size(None, 18, 1.0, max).unwrap(), (1024, 1024, 0));
+        assert_eq!(page_size(None, 48, 1.0, max).unwrap(), (2048, 2048, 0));
+        assert_eq!(page_size(None, 72, 1.0, max).unwrap(), (4096, 4096, 0));
+        // Glyphs drawn 1.5 times as large: as many fit on a page 1.5 times
+        // as wide and tall, which the device's largest texture caps.
+        assert_eq!(page_size(None, 18, 1.5, max).unwrap(), (1536, 1536, 0));
+        assert_eq!(page_size(None, 48, 1.25, max).unwrap(), (2560, 2560, 0));
+        assert_eq!(page_size(None, 18, 1.5, (8192, 1280)).unwrap(), (1280, 1280, 0));
         assert!(!draws_the_map(48) && draws_the_map(49));
     }
 

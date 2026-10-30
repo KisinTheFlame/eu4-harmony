@@ -6,10 +6,12 @@
 pub mod font {
     /// 256 pointers to glyph records, by byte (the font's own table).
     pub const OWN_GLYPHS: usize = 0x120;
-    /// The line height, i32; times [`SCALE`] it is the line in pixels.
+    /// The line height, i32; times [`SCALE`] it is the line in GUI units.
     pub const LINE_HEIGHT: usize = 0x960;
-    /// f32. Code that holds the glyph table reaches it at
-    /// [`SCALE_FROM_GLYPHS`] from there.
+    /// f32, 1.0 when the font is made: how many GUI units a pixel of its page
+    /// takes. Every text path multiplies the line height and each glyph's
+    /// size, offsets and advance by it. Code that holds the glyph table
+    /// reaches it at [`SCALE_FROM_GLYPHS`] from there.
     pub const SCALE: usize = 0x968;
     pub const SCALE_FROM_GLYPHS: usize = SCALE - OWN_GLYPHS;
     /// The page's index in the texture manager, i32.
@@ -18,6 +20,13 @@ pub mod font {
     pub const PAGE_SIZE: usize = 0x978;
     /// The graphics context, which holds the texture manager.
     pub const CONTEXT: usize = 0x48;
+}
+
+/// The graphics context, at `[font.CONTEXT]`.
+pub mod context {
+    /// The interface scale, f32, as fonts load: how many window pixels a GUI
+    /// unit takes.
+    pub const INTERFACE_SCALE: usize = 0x32600;
 }
 
 /// The texture manager, at `[font.CONTEXT] + MANAGER`.
@@ -62,6 +71,10 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1595cf2usize, "49 89 84 ff 20 01 00 00", "font own glyph table").uses(&[font::OWN_GLYPHS]),
         Point::keep(0x159ba20usize, "66 0f 6e 81 60 09 00 00 0f 5b c0 f3 0f 59 81 68 09 00 00", "font line height and scale")
             .uses(&[font::LINE_HEIGHT, font::SCALE]),
+        // Made 1.0, through the glyph table in rdi.
+        Point::keep(0x1594663usize, "c7 87 48 08 00 00 00 00 80 3f", "font scale made").uses(&[font::SCALE_FROM_GLYPHS]),
+        // The page load reads the interface scale through the context.
+        Point::keep(0x15953f5usize, "48 8b 41 48 f3 0f 10 80 00 26 03 00", "font load interface scale").uses(&[font::CONTEXT, context::INTERFACE_SCALE]),
         // The font's page load: the page's index, then through the context
         // the manager, its entries and the entry's size, kept as the page's.
         Point::keep(
