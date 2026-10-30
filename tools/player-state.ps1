@@ -37,7 +37,8 @@ if (Get-Process -Name eu4 -ErrorAction SilentlyContinue) { throw 'eu4.exe is run
 if (-not $UserDir) {
     if (-not $GameDir) { $GameDir = & (Join-Path $PSScriptRoot 'game-dir.ps1') }
     $named = Join-Path $GameDir 'userdir.txt'
-    $text = if (Test-Path $named) { (Get-Content -Raw $named).Trim([char]0xfeff, ' ', "`t", "`r", "`n") } else { '' }
+    # An empty file reads as null.
+    $text = if (Test-Path $named) { "$(Get-Content -Raw $named)".Trim([char]0xfeff, ' ', "`t", "`r", "`n") } else { '' }
     $UserDir = if ($text) {
         if ([IO.Path]::IsPathRooted($text)) { $text } else { Join-Path $GameDir $text }
     } else {
