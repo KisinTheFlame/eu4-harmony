@@ -45,7 +45,7 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
             }
         });
         crate::guarded("safe point", crate::safe_point::presented);
-        crate::unicode::costs::log_when_due();
+        crate::guarded("text costs", crate::unicode::costs::log_when_due);
     }
     ORIGINAL_PRESENT.get()(renderer)
 }
