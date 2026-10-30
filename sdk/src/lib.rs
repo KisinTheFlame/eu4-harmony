@@ -25,7 +25,6 @@ mod backend;
 mod game;
 pub mod testing;
 
-pub use backend::Backend;
 pub use game::*;
 
 /// Events an extension reacts to. All default to doing nothing.

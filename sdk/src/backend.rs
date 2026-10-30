@@ -1,79 +1,17 @@
-//! What a [`Game`](crate::Game) talks to: the real capability table, or the
-//! fake in [`testing`](crate::testing).
+//! The core's capability table behind a [`Game`](crate::Game), as a
+//! [`Backend`]; [`testing`](crate::testing) has the fake one.
 use crate::{abi, game::*};
 
 /// The room a snapshot's JSON gets in the first call: several times a
 /// province's.
 const SNAPSHOT_ROOM: usize = 16 * 1024;
 
-/// The capabilities behind a `Game`.
-pub trait Backend {
-    fn session(&mut self) -> Result<Session>;
-    fn country_tag(&mut self, country: CountryId) -> Result<String>;
-    fn countries_hostile(&mut self, a: CountryId, b: CountryId) -> Result<bool>;
-    fn provinces(&mut self) -> Result<Vec<Province>>;
-    fn province_neighbors(&mut self, province: ProvinceId) -> Result<Vec<Neighbor>>;
-    fn army(&mut self, id: ArmyId) -> Result<Army>;
-    fn own_armies(&mut self) -> Result<Vec<Army>>;
-    fn province_armies(&mut self, province: ProvinceId) -> Result<Vec<Army>>;
-    fn army_route(&mut self, id: ArmyId) -> Result<Vec<ProvinceId>>;
-    fn army_can_enter(&mut self, id: ArmyId, province: ProvinceId) -> Result<bool>;
-    fn army_strait_open(&mut self, id: ArmyId, from: ProvinceId, to: ProvinceId) -> Result<bool>;
-    fn army_can_attack(&mut self, id: ArmyId, target: ArmyId, province: ProvinceId) -> Result<bool>;
-    /// `NotFound` when there is no route.
-    fn find_route(&mut self, id: ArmyId, goal: ProvinceId) -> Result<Vec<ProvinceId>>;
-    fn army_move(&mut self, id: ArmyId, goal: ProvinceId) -> Result<()>;
-    fn army_stop(&mut self, id: ArmyId) -> Result<()>;
-    /// `NotFound` when no own land army is shown.
-    fn ui_selected_army(&mut self) -> Result<ArmyId>;
-    fn ui_set_visible(&mut self, element: &str, visible: bool) -> Result<()>;
-    fn ui_set_enabled(&mut self, element: &str, enabled: bool) -> Result<()>;
-    fn ui_set_text(&mut self, element: &str, text: &str) -> Result<()>;
-    fn ui_set_tooltip(&mut self, element: &str, text: &str) -> Result<()>;
-    fn map_paint(&mut self, colors: &[MapColor]) -> Result<()>;
-    fn map_clear(&mut self) -> Result<()>;
-    /// JSON text; empty when there is none.
-    fn save_data_get(&mut self) -> Result<String>;
-    fn save_data_set(&mut self, json: &str) -> Result<()>;
-    /// The player language's Paradox name.
-    fn language(&mut self) -> Result<String>;
-    /// This mod's text for `key`; `NotFound` when it has none.
-    fn text(&mut self, key: &str) -> Result<String>;
-    fn camera(&mut self) -> Result<Camera>;
-    fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera>;
-    fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera>;
-    fn camera_zoom(&mut self, height: u32) -> Result<Camera>;
-    /// `NotFound` for a number that names no province.
-    fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot>;
-    /// What the game console command printed; `Rejected`, with what it
-    /// printed, when the game console refused it or it failed.
-    fn console_run(&mut self, command: &str) -> Result<String>;
-    /// `NotFound` when there is no such country.
-    fn country(&mut self, country: CountryId) -> Result<Country>;
-    /// The game speed, 1 to 5.
-    fn time_speed(&mut self) -> Result<u32>;
-    fn time_set_speed(&mut self, speed: u32) -> Result<()>;
-    fn time_pause(&mut self) -> Result<()>;
-    fn time_resume(&mut self) -> Result<()>;
-    /// `Rejected` with the game's reasons. [`Game::recruit`] never passes
-    /// [`UnitKind::Unknown`].
-    fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()>;
-    fn questions(&mut self) -> Result<Vec<Question>>;
-    fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()>;
-    fn offers(&mut self) -> Result<Vec<Offer>>;
-    fn answer_offer(&mut self, offer: OfferId, accept: bool) -> Result<()>;
-    fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>>;
-    /// `Rejected`, with the game's reasons, when the player may not.
-    fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration>;
-    fn offer_peace(&mut self, country: CountryId) -> Result<Ticket>;
-    fn propose_alliance(&mut self, country: CountryId) -> Result<Ticket>;
-    fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer>;
-}
-
 /// The core's capability table for the current callback.
 pub(crate) struct RealBackend {
     api: *const abi::GameApi,
 }
+
+impl sealed::Sealed for RealBackend {}
 
 impl RealBackend {
     pub(crate) fn new(api: *const abi::GameApi) -> Self {
@@ -133,7 +71,7 @@ impl RealBackend {
     }
 
     /// Fails when the core's table ends before `end`, the offset just past a
-    /// field appended after the first release of the table.
+    /// field: a core older than this SDK may not have it (ADR 0014).
     fn require(&self, end: usize) -> Result<()> {
         if self.api().size < end {
             return Err(Error::new(Status::Unavailable, "the installed EU4 Harmony is older than this SDK"));
@@ -146,209 +84,199 @@ impl RealBackend {
     }
 }
 
-/// Offset just past a function-pointer field of the game table.
-macro_rules! end_of {
-    ($field:ident) => {
-        std::mem::offset_of!(abi::GameApi, $field) + std::mem::size_of::<usize>()
-    };
+/// The core's function in the table's field `$field`, and the host to call
+/// it with, once the table is known to reach that far: every function is
+/// taken through here, so none is called past the end of an older core's
+/// table.
+macro_rules! function {
+    ($self:ident.$field:ident) => {{
+        $self.require(std::mem::offset_of!(abi::GameApi, $field) + std::mem::size_of::<usize>())?;
+        let api = $self.api();
+        (api.$field, api.host)
+    }};
 }
 
 impl Backend for RealBackend {
     fn session(&mut self) -> Result<Session> {
-        let api = self.api();
+        let (session, host) = function!(self.session);
         let mut out = abi::Session::default();
-        self.check(unsafe { (api.session)(api.host, &mut out) })?;
+        self.check(unsafe { session(host, &mut out) })?;
         Ok(out.into())
     }
     fn country_tag(&mut self, country: CountryId) -> Result<String> {
-        let api = self.api();
+        let (country_tag, host) = function!(self.country_tag);
         let mut out = [0u8; 3];
-        self.check(unsafe { (api.country_tag)(api.host, country.0, &mut out) })?;
+        self.check(unsafe { country_tag(host, country.0, &mut out) })?;
         Ok(String::from_utf8_lossy(&out).into_owned())
     }
     fn countries_hostile(&mut self, a: CountryId, b: CountryId) -> Result<bool> {
-        let api = self.api();
-        self.flag(|o| unsafe { (api.countries_hostile)(api.host, a.0, b.0, o) })
+        let (countries_hostile, host) = function!(self.countries_hostile);
+        self.flag(|o| unsafe { countries_hostile(host, a.0, b.0, o) })
     }
     fn provinces(&mut self) -> Result<Vec<Province>> {
-        let api = self.api();
-        Ok(self.list(|b, c, l| unsafe { (api.provinces)(api.host, b, c, l) })?.into_iter().map(Province::from).collect())
+        let (provinces, host) = function!(self.provinces);
+        Ok(self.list(|b, c, l| unsafe { provinces(host, b, c, l) })?.into_iter().map(Province::from).collect())
     }
     fn province_neighbors(&mut self, province: ProvinceId) -> Result<Vec<Neighbor>> {
-        let api = self.api();
-        Ok(self.list(|b, c, l| unsafe { (api.province_neighbors)(api.host, province, b, c, l) })?.into_iter().map(Neighbor::from).collect())
+        let (province_neighbors, host) = function!(self.province_neighbors);
+        Ok(self.list(|b, c, l| unsafe { province_neighbors(host, province, b, c, l) })?.into_iter().map(Neighbor::from).collect())
     }
     fn army(&mut self, id: ArmyId) -> Result<Army> {
-        let api = self.api();
+        let (army, host) = function!(self.army);
         let mut out = abi::Army::default();
-        self.check(unsafe { (api.army)(api.host, id.0, &mut out) })?;
+        self.check(unsafe { army(host, id.0, &mut out) })?;
         Ok(out.into())
     }
     fn own_armies(&mut self) -> Result<Vec<Army>> {
-        let api = self.api();
-        Ok(self.list(|b, c, l| unsafe { (api.own_armies)(api.host, b, c, l) })?.into_iter().map(Army::from).collect())
+        let (own_armies, host) = function!(self.own_armies);
+        Ok(self.list(|b, c, l| unsafe { own_armies(host, b, c, l) })?.into_iter().map(Army::from).collect())
     }
     fn province_armies(&mut self, province: ProvinceId) -> Result<Vec<Army>> {
-        let api = self.api();
-        Ok(self.list(|b, c, l| unsafe { (api.province_armies)(api.host, province, b, c, l) })?.into_iter().map(Army::from).collect())
+        let (province_armies, host) = function!(self.province_armies);
+        Ok(self.list(|b, c, l| unsafe { province_armies(host, province, b, c, l) })?.into_iter().map(Army::from).collect())
     }
     fn army_route(&mut self, id: ArmyId) -> Result<Vec<ProvinceId>> {
-        let api = self.api();
-        self.list(|b, c, l| unsafe { (api.army_route)(api.host, id.0, b, c, l) })
+        let (army_route, host) = function!(self.army_route);
+        self.list(|b, c, l| unsafe { army_route(host, id.0, b, c, l) })
     }
     fn army_can_enter(&mut self, id: ArmyId, province: ProvinceId) -> Result<bool> {
-        let api = self.api();
-        self.flag(|o| unsafe { (api.army_can_enter)(api.host, id.0, province, o) })
+        let (army_can_enter, host) = function!(self.army_can_enter);
+        self.flag(|o| unsafe { army_can_enter(host, id.0, province, o) })
     }
     fn army_strait_open(&mut self, id: ArmyId, from: ProvinceId, to: ProvinceId) -> Result<bool> {
-        let api = self.api();
-        self.flag(|o| unsafe { (api.army_strait_open)(api.host, id.0, from, to, o) })
+        let (army_strait_open, host) = function!(self.army_strait_open);
+        self.flag(|o| unsafe { army_strait_open(host, id.0, from, to, o) })
     }
     fn army_can_attack(&mut self, id: ArmyId, target: ArmyId, province: ProvinceId) -> Result<bool> {
-        let api = self.api();
-        self.flag(|o| unsafe { (api.army_can_attack)(api.host, id.0, target.0, province, o) })
+        let (army_can_attack, host) = function!(self.army_can_attack);
+        self.flag(|o| unsafe { army_can_attack(host, id.0, target.0, province, o) })
     }
     fn find_route(&mut self, id: ArmyId, goal: ProvinceId) -> Result<Vec<ProvinceId>> {
-        let api = self.api();
-        self.list(|b, c, l| unsafe { (api.find_route)(api.host, id.0, goal, b, c, l) })
+        let (find_route, host) = function!(self.find_route);
+        self.list(|b, c, l| unsafe { find_route(host, id.0, goal, b, c, l) })
     }
     fn army_move(&mut self, id: ArmyId, goal: ProvinceId) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.army_move)(api.host, id.0, goal) })
+        let (army_move, host) = function!(self.army_move);
+        self.check(unsafe { army_move(host, id.0, goal) })
     }
     fn army_stop(&mut self, id: ArmyId) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.army_stop)(api.host, id.0) })
+        let (army_stop, host) = function!(self.army_stop);
+        self.check(unsafe { army_stop(host, id.0) })
     }
     fn ui_selected_army(&mut self) -> Result<ArmyId> {
-        let api = self.api();
+        let (ui_selected_army, host) = function!(self.ui_selected_army);
         let mut out = 0u64;
-        self.check(unsafe { (api.ui_selected_army)(api.host, &mut out) })?;
+        self.check(unsafe { ui_selected_army(host, &mut out) })?;
         Ok(ArmyId(out))
     }
-    fn ui_set_visible(&mut self, element: &str, visible: bool) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.ui_set_visible)(api.host, element.as_ptr(), element.len(), visible as u8) })
+    fn set_visible(&mut self, element: &str, visible: bool) -> Result<()> {
+        let (ui_set_visible, host) = function!(self.ui_set_visible);
+        self.check(unsafe { ui_set_visible(host, element.as_ptr(), element.len(), visible as u8) })
     }
-    fn ui_set_enabled(&mut self, element: &str, enabled: bool) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.ui_set_enabled)(api.host, element.as_ptr(), element.len(), enabled as u8) })
+    fn set_enabled(&mut self, element: &str, enabled: bool) -> Result<()> {
+        let (ui_set_enabled, host) = function!(self.ui_set_enabled);
+        self.check(unsafe { ui_set_enabled(host, element.as_ptr(), element.len(), enabled as u8) })
     }
-    fn ui_set_text(&mut self, element: &str, text: &str) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.ui_set_text)(api.host, element.as_ptr(), element.len(), text.as_ptr(), text.len()) })
+    fn set_text(&mut self, element: &str, text: &str) -> Result<()> {
+        let (ui_set_text, host) = function!(self.ui_set_text);
+        self.check(unsafe { ui_set_text(host, element.as_ptr(), element.len(), text.as_ptr(), text.len()) })
     }
-    fn ui_set_tooltip(&mut self, element: &str, text: &str) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.ui_set_tooltip)(api.host, element.as_ptr(), element.len(), text.as_ptr(), text.len()) })
+    fn set_tooltip(&mut self, element: &str, text: &str) -> Result<()> {
+        let (ui_set_tooltip, host) = function!(self.ui_set_tooltip);
+        self.check(unsafe { ui_set_tooltip(host, element.as_ptr(), element.len(), text.as_ptr(), text.len()) })
     }
-    fn map_paint(&mut self, colors: &[MapColor]) -> Result<()> {
-        let api = self.api();
+    fn paint_map(&mut self, colors: &[MapColor]) -> Result<()> {
+        let (map_paint, host) = function!(self.map_paint);
         let raw: Vec<abi::MapColor> = colors.iter().map(|c| abi::MapColor { province: c.province, rgba: c.rgba }).collect();
-        self.check(unsafe { (api.map_paint)(api.host, raw.as_ptr(), raw.len()) })
+        self.check(unsafe { map_paint(host, raw.as_ptr(), raw.len()) })
     }
-    fn map_clear(&mut self) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.map_clear)(api.host) })
+    fn clear_map(&mut self) -> Result<()> {
+        let (map_clear, host) = function!(self.map_clear);
+        self.check(unsafe { map_clear(host) })
     }
     fn save_data_get(&mut self) -> Result<String> {
-        let api = self.api();
-        let bytes = self.list(|b, c, l| unsafe { (api.save_data_get)(api.host, b, c, l) })?;
+        let (save_data_get, host) = function!(self.save_data_get);
+        let bytes = self.list(|b, c, l| unsafe { save_data_get(host, b, c, l) })?;
         self.utf8(bytes)
     }
     fn save_data_set(&mut self, json: &str) -> Result<()> {
-        let api = self.api();
-        self.check(unsafe { (api.save_data_set)(api.host, json.as_ptr(), json.len()) })
+        let (save_data_set, host) = function!(self.save_data_set);
+        self.check(unsafe { save_data_set(host, json.as_ptr(), json.len()) })
     }
     fn language(&mut self) -> Result<String> {
-        self.require(end_of!(language))?;
-        let api = self.api();
-        let bytes = self.list(|b, c, l| unsafe { (api.language)(api.host, b, c, l) })?;
+        let (language, host) = function!(self.language);
+        let bytes = self.list(|b, c, l| unsafe { language(host, b, c, l) })?;
         self.utf8(bytes)
     }
     fn text(&mut self, key: &str) -> Result<String> {
-        self.require(end_of!(text))?;
-        let api = self.api();
-        let bytes = self.list(|b, c, l| unsafe { (api.text)(api.host, key.as_ptr(), key.len(), b, c, l) })?;
+        let (text, host) = function!(self.text);
+        let bytes = self.list(|b, c, l| unsafe { text(host, key.as_ptr(), key.len(), b, c, l) })?;
         self.utf8(bytes)
     }
     fn camera(&mut self) -> Result<Camera> {
-        self.require(end_of!(camera))?;
-        let api = self.api();
+        let (camera, host) = function!(self.camera);
         let mut out = abi::Camera::default();
-        self.check(unsafe { (api.camera)(api.host, &mut out) })?;
+        self.check(unsafe { camera(host, &mut out) })?;
         Ok(out.into())
     }
     fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
-        self.require(end_of!(camera_look_at_province))?;
-        let api = self.api();
+        let (camera_look_at_province, host) = function!(self.camera_look_at_province);
         let mut out = abi::Camera::default();
-        self.check(unsafe { (api.camera_look_at_province)(api.host, province, &mut out) })?;
+        self.check(unsafe { camera_look_at_province(host, province, &mut out) })?;
         Ok(out.into())
     }
     fn camera_look_at(&mut self, x: u32, y: u32) -> Result<Camera> {
-        self.require(end_of!(camera_look_at))?;
-        let api = self.api();
+        let (camera_look_at, host) = function!(self.camera_look_at);
         let mut out = abi::Camera::default();
-        self.check(unsafe { (api.camera_look_at)(api.host, x, y, &mut out) })?;
+        self.check(unsafe { camera_look_at(host, x, y, &mut out) })?;
         Ok(out.into())
     }
     fn camera_zoom(&mut self, height: u32) -> Result<Camera> {
-        self.require(end_of!(camera_zoom))?;
-        let api = self.api();
+        let (camera_zoom, host) = function!(self.camera_zoom);
         let mut out = abi::Camera::default();
-        self.check(unsafe { (api.camera_zoom)(api.host, height, &mut out) })?;
+        self.check(unsafe { camera_zoom(host, height, &mut out) })?;
         Ok(out.into())
     }
     fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
-        self.require(end_of!(province))?;
-        let api = self.api();
-        let json: ProvinceJson = self.snapshot("province", |b, c, l| unsafe { (api.province)(api.host, province, b, c, l) })?;
-        Ok(json.into())
+        let (snapshot, host) = function!(self.province);
+        self.snapshot("province", |b, c, l| unsafe { snapshot(host, province, b, c, l) })
     }
-    fn console_run(&mut self, command: &str) -> Result<String> {
-        self.require(end_of!(console_run))?;
+    fn console(&mut self, command: &str) -> Result<String> {
+        let (console_run, host) = function!(self.console_run);
         unsafe extern "C" fn keep(user: *mut std::ffi::c_void, text: *const u8, len: usize) {
             if len > 0 && !text.is_null() {
                 (*(user as *mut Vec<u8>)).extend_from_slice(std::slice::from_raw_parts(text, len));
             }
         }
-        let api = self.api();
         let mut printed: Vec<u8> = Vec::new();
         let user = &mut printed as *mut Vec<u8> as *mut std::ffi::c_void;
-        self.check(unsafe { (api.console_run)(api.host, command.as_ptr(), command.len(), Some(keep), user) })?;
+        self.check(unsafe { console_run(host, command.as_ptr(), command.len(), Some(keep), user) })?;
         self.utf8(printed)
     }
     fn country(&mut self, country: CountryId) -> Result<Country> {
-        self.require(end_of!(country))?;
-        let api = self.api();
-        let json: CountryJson = self.snapshot("country", |b, c, l| unsafe { (api.country)(api.host, country.0, b, c, l) })?;
-        Ok(json.into())
+        let (snapshot, host) = function!(self.country);
+        self.snapshot("country", |b, c, l| unsafe { snapshot(host, country.0, b, c, l) })
     }
-    fn time_speed(&mut self) -> Result<u32> {
-        self.require(end_of!(time_speed))?;
-        let api = self.api();
+    fn speed(&mut self) -> Result<u32> {
+        let (time_speed, host) = function!(self.time_speed);
         let mut out = 0u32;
-        self.check(unsafe { (api.time_speed)(api.host, &mut out) })?;
+        self.check(unsafe { time_speed(host, &mut out) })?;
         Ok(out)
     }
-    fn time_set_speed(&mut self, speed: u32) -> Result<()> {
-        self.require(end_of!(time_set_speed))?;
-        let api = self.api();
-        self.check(unsafe { (api.time_set_speed)(api.host, speed) })
+    fn set_speed(&mut self, speed: u32) -> Result<()> {
+        let (time_set_speed, host) = function!(self.time_set_speed);
+        self.check(unsafe { time_set_speed(host, speed) })
     }
-    fn time_pause(&mut self) -> Result<()> {
-        self.require(end_of!(time_pause))?;
-        let api = self.api();
-        self.check(unsafe { (api.time_pause)(api.host) })
+    fn pause(&mut self) -> Result<()> {
+        let (time_pause, host) = function!(self.time_pause);
+        self.check(unsafe { time_pause(host) })
     }
-    fn time_resume(&mut self) -> Result<()> {
-        self.require(end_of!(time_resume))?;
-        let api = self.api();
-        self.check(unsafe { (api.time_resume)(api.host) })
+    fn resume(&mut self) -> Result<()> {
+        let (time_resume, host) = function!(self.time_resume);
+        self.check(unsafe { time_resume(host) })
     }
     fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
-        self.require(end_of!(recruit))?;
+        let (recruit, host) = function!(self.recruit);
         let kind = match kind {
             UnitKind::Infantry => abi::UNIT_INFANTRY,
             UnitKind::Cavalry => abi::UNIT_CAVALRY,
@@ -357,41 +285,34 @@ impl Backend for RealBackend {
             UnitKind::LightShip => abi::UNIT_LIGHT_SHIP,
             UnitKind::Galley => abi::UNIT_GALLEY,
             UnitKind::Transport => abi::UNIT_TRANSPORT,
-            UnitKind::Unknown => return Err(Error::new(Status::InvalidArgument, "a unit kind this SDK does not know cannot be recruited")),
+            UnitKind::Unknown => return Err(unknown_unit_kind()),
         };
-        let api = self.api();
-        self.check(unsafe { (api.recruit)(api.host, province, kind) })
+        self.check(unsafe { recruit(host, province, kind) })
     }
     fn questions(&mut self) -> Result<Vec<Question>> {
-        self.require(end_of!(questions))?;
-        let api = self.api();
-        self.snapshot("questions", |b, c, l| unsafe { (api.questions)(api.host, b, c, l) })
+        let (questions, host) = function!(self.questions);
+        self.snapshot("questions", |b, c, l| unsafe { questions(host, b, c, l) })
     }
     fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
-        self.require(end_of!(question_answer))?;
-        let api = self.api();
-        self.check(unsafe { (api.question_answer)(api.host, question.0, option) })
+        let (question_answer, host) = function!(self.question_answer);
+        self.check(unsafe { question_answer(host, question.0, option) })
     }
     fn offers(&mut self) -> Result<Vec<Offer>> {
-        self.require(end_of!(offers))?;
-        let api = self.api();
-        let json: Vec<OfferJson> = self.snapshot("offers", |b, c, l| unsafe { (api.offers)(api.host, b, c, l) })?;
-        Ok(json.into_iter().map(Offer::from).collect())
+        let (offers, host) = function!(self.offers);
+        self.snapshot("offers", |b, c, l| unsafe { offers(host, b, c, l) })
     }
     fn answer_offer(&mut self, offer: OfferId, accept: bool) -> Result<()> {
-        self.require(end_of!(offer_answer))?;
-        let api = self.api();
-        self.check(unsafe { (api.offer_answer)(api.host, offer.0, accept as u8) })
+        let (offer_answer, host) = function!(self.offer_answer);
+        self.check(unsafe { offer_answer(host, offer.0, accept as u8) })
     }
     fn war_goals(&mut self, country: CountryId) -> Result<Vec<WarGoal>> {
-        self.require(end_of!(war_goals))?;
-        let api = self.api();
-        let json: Vec<WarGoalJson> = self.snapshot("war goals", |b, c, l| unsafe { (api.war_goals)(api.host, country.0, b, c, l) })?;
-        Ok(json.into_iter().map(Into::into).collect())
+        let (war_goals, host) = function!(self.war_goals);
+        self.snapshot("war goals", |b, c, l| unsafe { war_goals(host, country.0, b, c, l) })
     }
     fn declare_war(&mut self, country: CountryId, goal: &WarGoal, call: &CallAllies) -> Result<Declaration> {
-        self.require(end_of!(allies_called))?;
-        let api = self.api();
+        let (declare_war, host) = function!(self.declare_war);
+        // Read back after the declaration; the last field of the two.
+        let (allies_called, _) = function!(self.allies_called);
         let casus_belli = goal.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI);
         let war_goal = goal.war_goal.as_deref().unwrap_or("");
         let (province, target) = (goal.province.unwrap_or(0), goal.target.map_or(0, |t| t.0));
@@ -402,8 +323,8 @@ impl Backend for RealBackend {
         };
         let mut ticket = 0u64;
         let code = unsafe {
-            (api.declare_war)(
-                api.host,
+            declare_war(
+                host,
                 country.0,
                 casus_belli.as_ptr(),
                 casus_belli.len(),
@@ -418,28 +339,25 @@ impl Backend for RealBackend {
             )
         };
         self.check(code)?;
-        let called = self.list(|b, c, l| unsafe { (api.allies_called)(api.host, ticket, b, c, l) })?;
+        let called = self.list(|b, c, l| unsafe { allies_called(host, ticket, b, c, l) })?;
         Ok(Declaration { ticket: Ticket(ticket), called: called.into_iter().map(CountryId).collect() })
     }
     fn offer_peace(&mut self, country: CountryId) -> Result<Ticket> {
-        self.require(end_of!(offer_peace))?;
-        let api = self.api();
+        let (offer_peace, host) = function!(self.offer_peace);
         let mut ticket = 0u64;
-        self.check(unsafe { (api.offer_peace)(api.host, country.0, &mut ticket) })?;
+        self.check(unsafe { offer_peace(host, country.0, &mut ticket) })?;
         Ok(Ticket(ticket))
     }
     fn propose_alliance(&mut self, country: CountryId) -> Result<Ticket> {
-        self.require(end_of!(propose_alliance))?;
-        let api = self.api();
+        let (propose_alliance, host) = function!(self.propose_alliance);
         let mut ticket = 0u64;
-        self.check(unsafe { (api.propose_alliance)(api.host, country.0, &mut ticket) })?;
+        self.check(unsafe { propose_alliance(host, country.0, &mut ticket) })?;
         Ok(Ticket(ticket))
     }
     fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer> {
-        self.require(end_of!(diplomacy_answer))?;
-        let api = self.api();
+        let (diplomacy_answer, host) = function!(self.diplomacy_answer);
         let mut out = 0u32;
-        self.check(unsafe { (api.diplomacy_answer)(api.host, ticket.0, &mut out) })?;
+        self.check(unsafe { diplomacy_answer(host, ticket.0, &mut out) })?;
         Ok(DiplomacyAnswer::from_code(out))
     }
 }
@@ -820,7 +738,7 @@ mod tests {
         json["religion"] = "orthodox".into();
         json["wars"][0]["score"] = 12.5.into();
         json["relations"][1]["kind"] = "guarantee".into();
-        let c: Country = serde_json::from_value::<CountryJson>(json).unwrap().into();
+        let c: Country = serde_json::from_value(json).unwrap();
         let kinds: Vec<_> = c.relations.iter().map(|r| r.kind).collect();
         assert_eq!(kinds, [RelationKind::Ally, RelationKind::Unknown, RelationKind::Overlord, RelationKind::Rival]);
         assert_eq!((c.wars.len(), c.wars[0].name.as_str()), (2, "Ottoman Conquest of Constantinople"));
@@ -828,7 +746,7 @@ mod tests {
         for relation in older["relations"].as_array_mut().unwrap() {
             relation.as_object_mut().unwrap().remove("subject_type");
         }
-        let c: Country = serde_json::from_value::<CountryJson>(older).unwrap().into();
+        let c: Country = serde_json::from_value(older).unwrap();
         assert!(c.relations.iter().all(|r| r.subject_type.is_none()));
     }
 
@@ -848,7 +766,7 @@ mod tests {
         assert_eq!(backend.language().unwrap(), "simp_chinese");
         let camera = backend.camera().unwrap();
         assert_eq!((camera.x, camera.y, camera.height, camera.province), (2842, 1494, 800, Some(183)));
-        assert_eq!(backend.time_speed().unwrap(), 4);
+        assert_eq!(backend.speed().unwrap(), 4);
     }
 
     #[test]
@@ -905,7 +823,7 @@ mod tests {
         json["religion"] = "orthodox".into();
         json["recruit"][2]["kind"] = "marines".into();
         json["recruit"][2]["cost"] = 10.0.into();
-        let p: ProvinceSnapshot = serde_json::from_value::<ProvinceJson>(json).unwrap().into();
+        let p: ProvinceSnapshot = serde_json::from_value(json).unwrap();
         let kinds: Vec<_> = p.recruit.iter().map(|r| r.kind).collect();
         assert_eq!(kinds[1..4], [UnitKind::Cavalry, UnitKind::Unknown, UnitKind::HeavyShip]);
         assert_eq!((p.name.as_str(), p.recruit.len()), ("君士坦丁堡", 7));
@@ -963,10 +881,10 @@ mod tests {
         // A core from before time control.
         api.size = std::mem::offset_of!(abi::GameApi, time_speed);
         let mut backend = RealBackend::new(&api);
-        assert_eq!(backend.time_speed().unwrap_err().status, Status::Unavailable);
-        assert_eq!(backend.time_set_speed(3).unwrap_err().status, Status::Unavailable);
-        assert_eq!(backend.time_pause().unwrap_err().status, Status::Unavailable);
-        assert_eq!(backend.time_resume().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.speed().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.set_speed(3).unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.pause().unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.resume().unwrap_err().status, Status::Unavailable);
         assert_eq!(backend.language().unwrap(), "simp_chinese");
         // A core with the questions but not the offers.
         api.size = std::mem::offset_of!(abi::GameApi, offers);
@@ -1010,9 +928,9 @@ mod tests {
     fn a_console_command_hands_back_what_it_printed() {
         let api = table();
         let mut backend = RealBackend::new(&api);
-        assert_eq!(backend.console_run("cash 100").unwrap(), "Gold changed by 100 ✓");
+        assert_eq!(backend.console("cash 100").unwrap(), "Gold changed by 100 ✓");
         // A refusal's message comes from `last_error`, as every failure's.
-        let err = backend.console_run("cahs 100").unwrap_err();
+        let err = backend.console("cahs 100").unwrap_err();
         assert_eq!((err.status, err.message.as_str()), (Status::Rejected, "no such army"));
     }
 
@@ -1081,7 +999,7 @@ mod tests {
         let mut api = table();
         api.size = std::mem::offset_of!(abi::GameApi, console_run);
         let mut backend = RealBackend::new(&api);
-        assert_eq!(backend.console_run("cash 100").unwrap_err().status, Status::Unavailable);
+        assert_eq!(backend.console("cash 100").unwrap_err().status, Status::Unavailable);
         assert!(backend.camera().is_ok());
     }
 }

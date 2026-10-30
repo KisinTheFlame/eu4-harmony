@@ -5,7 +5,7 @@
 //! events with [`FakeGame::game`], and inspect [`FakeGame::commands`], the UI
 //! state and the map. Orders have no effect unless the test applies them.
 //! [`FakeGame::load_localisation`] gives it the mod's real texts.
-use crate::{backend::Backend, game::*};
+use crate::game::*;
 use eu4_harmony_loc::Language;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -248,6 +248,8 @@ impl FakeGame {
     }
 }
 
+impl sealed::Sealed for FakeGame {}
+
 impl Backend for FakeGame {
     fn session(&mut self) -> Result<Session> {
         Ok(self.session)
@@ -327,27 +329,27 @@ impl Backend for FakeGame {
     fn ui_selected_army(&mut self) -> Result<ArmyId> {
         self.selected.ok_or_else(|| not_found("no army selected"))
     }
-    fn ui_set_visible(&mut self, element: &str, visible: bool) -> Result<()> {
+    fn set_visible(&mut self, element: &str, visible: bool) -> Result<()> {
         self.elements.entry(element.into()).or_default().visible = Some(visible);
         Ok(())
     }
-    fn ui_set_enabled(&mut self, element: &str, enabled: bool) -> Result<()> {
+    fn set_enabled(&mut self, element: &str, enabled: bool) -> Result<()> {
         self.elements.entry(element.into()).or_default().enabled = Some(enabled);
         Ok(())
     }
-    fn ui_set_text(&mut self, element: &str, text: &str) -> Result<()> {
+    fn set_text(&mut self, element: &str, text: &str) -> Result<()> {
         self.elements.entry(element.into()).or_default().text = Some(text.into());
         Ok(())
     }
-    fn ui_set_tooltip(&mut self, element: &str, text: &str) -> Result<()> {
+    fn set_tooltip(&mut self, element: &str, text: &str) -> Result<()> {
         self.elements.entry(element.into()).or_default().tooltip = Some(text.into());
         Ok(())
     }
-    fn map_paint(&mut self, colors: &[MapColor]) -> Result<()> {
+    fn paint_map(&mut self, colors: &[MapColor]) -> Result<()> {
         self.map = Some(colors.to_vec());
         Ok(())
     }
-    fn map_clear(&mut self) -> Result<()> {
+    fn clear_map(&mut self) -> Result<()> {
         self.map = None;
         Ok(())
     }
@@ -391,7 +393,7 @@ impl Backend for FakeGame {
     fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
         self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
     }
-    fn console_run(&mut self, command: &str) -> Result<String> {
+    fn console(&mut self, command: &str) -> Result<String> {
         // The core's own refusals, in its words.
         let refused = if command.contains('|') {
             Some("a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out")
@@ -411,21 +413,21 @@ impl Backend for FakeGame {
     fn country(&mut self, country: CountryId) -> Result<Country> {
         self.countries.get(&country).cloned().ok_or_else(|| not_found("unknown country"))
     }
-    fn time_speed(&mut self) -> Result<u32> {
+    fn speed(&mut self) -> Result<u32> {
         Ok(self.speed.max(1))
     }
-    fn time_set_speed(&mut self, speed: u32) -> Result<()> {
+    fn set_speed(&mut self, speed: u32) -> Result<()> {
         if !(1..=5).contains(&speed) {
             return Err(Error::new(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}")));
         }
         self.speed = speed;
         Ok(())
     }
-    fn time_pause(&mut self) -> Result<()> {
+    fn pause(&mut self) -> Result<()> {
         self.session.paused = true;
         Ok(())
     }
-    fn time_resume(&mut self) -> Result<()> {
+    fn resume(&mut self) -> Result<()> {
         if self.session.paused && self.end_date.is_some_and(|end| self.session.date > end) {
             return Err(rejected(
                 "the game is over: it is past its end date, and stays paused, as for the player, until the end-of-game summary is closed to play on",
@@ -435,6 +437,9 @@ impl Backend for FakeGame {
         Ok(())
     }
     fn recruit(&mut self, province: ProvinceId, kind: UnitKind) -> Result<()> {
+        if kind == UnitKind::Unknown {
+            return Err(unknown_unit_kind());
+        }
         let snapshot = self.province_snapshots.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
         // A kind the snapshot leaves out, which the core's never does, as one
         // the player has no unit type of.
