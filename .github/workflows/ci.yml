@@ -24,6 +24,11 @@ jobs:
       - name: Rust
         # The version rust-toolchain.toml names.
         run: rustup toolchain install
+      # Pull requests read the cache master's runs save; saving one per pull
+      # request would push master's out of the repository's cache space.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Build
         run: cargo build --release --locked
       - name: Test
