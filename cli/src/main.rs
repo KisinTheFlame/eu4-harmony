@@ -355,7 +355,7 @@ fn copy_file(from: &Path, to: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// resource folders and the framework files the manifest names.
 fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     let manifest = read_manifest(root)?;
-    if manifest.api_version != abi::API_VERSION {
+    if !manifest.built_for(abi::API_VERSION) {
         return Err(format!("manifest api_version {} does not match this EU4 Harmony ({})", manifest.api_version, abi::API_VERSION));
     }
     let harmony = root.join("eu4-harmony");

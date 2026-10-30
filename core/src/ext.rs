@@ -742,7 +742,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path) -> Vec<LoadOutcome> {
 /// What the player is told about an extension that was not loaded. An API
 /// mismatch is the one they can fix, so it is spelled out.
 fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
-    if m.manifest.api_version != abi::API_VERSION {
+    if !m.manifest.built_for(abi::API_VERSION) {
         return Message::new("EU4HARMONY_API_MISMATCH").arg("MOD", &m.descriptor.name).arg("BUILT", &m.manifest.api_version).arg("PROVIDED", abi::API_VERSION);
     }
     Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", &m.descriptor.name).arg("DETAIL", e)
@@ -752,7 +752,7 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
     if memory.is_none() {
         return Err("the game executable is not supported, so no extension can run".into());
     }
-    if m.manifest.api_version != abi::API_VERSION {
+    if !m.manifest.built_for(abi::API_VERSION) {
         return Err(format!("built for api_version {}, this EU4 Harmony provides {}", m.manifest.api_version, abi::API_VERSION));
     }
     let path = m.dir.join("eu4-harmony").join(relative);

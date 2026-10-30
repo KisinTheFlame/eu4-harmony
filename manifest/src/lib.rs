@@ -32,6 +32,12 @@ impl Manifest {
     pub fn parse(text: &str) -> Result<Self, String> {
         serde_json::from_str(text).map_err(|e| e.to_string())
     }
+
+    /// Whether the mod was built for the interface version `provided`: in
+    /// 0.x only that version itself (docs/v1.md, "Interface version").
+    pub fn built_for(&self, provided: &str) -> bool {
+        self.api_version == provided
+    }
 }
 
 /// The descriptor keys that say where the mod is: the launcher writes them,
