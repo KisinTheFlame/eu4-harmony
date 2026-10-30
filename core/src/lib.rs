@@ -126,7 +126,11 @@ fn start(m: memory::Memory) -> Result<String> {
     }
     let all = points();
     #[cfg(feature = "trace")]
-    let all: Vec<_> = all.into_iter().chain(trace::points(&m)).collect();
+    let all: Vec<_> = {
+        let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
+        let room = hooks::observer_slots().saturating_sub(observers);
+        all.into_iter().chain(trace::points(&m, room)).collect()
+    };
     let installed = points::install(m, &all)?;
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }

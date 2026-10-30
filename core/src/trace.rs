@@ -108,8 +108,9 @@ extern "C" fn after(frame: *mut HookFrame) {
 }
 
 /// Observe points for the functions `EU4HARMONY_TRACE` names; none when it is
-/// not set. A function whose argument count cannot be told is left out.
-pub fn points(m: &Memory) -> Vec<Point> {
+/// not set. A function whose argument count cannot be told is left out, as
+/// are those past the `room` observer slots the framework leaves.
+pub fn points(m: &Memory, room: usize) -> Vec<Point> {
     let Ok(spec) = std::env::var("EU4HARMONY_TRACE") else { return Vec::new() };
     let limit = std::env::var("EU4HARMONY_TRACE_CALLS").ok().and_then(|n| n.parse().ok()).unwrap_or(20);
     LIMIT.get_or_init(|| limit);
@@ -129,6 +130,10 @@ pub fn points(m: &Memory) -> Vec<Point> {
             log!("trace: {rva:#x} starts no function in the exception directory; give its argument count as {rva:#x}:N");
             continue;
         };
+        if traced.len() == room {
+            log!("trace: {rva:#x} left out: only {room} functions can be traced besides the framework's own");
+            continue;
+        }
         log!("trace: {rva:#x}, {argc} argument(s), first {limit} calls");
         traced.push(Traced { address: m.at(rva), rva, argc: argc.min(12), calls: AtomicUsize::new(0) });
     }

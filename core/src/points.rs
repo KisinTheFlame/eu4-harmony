@@ -556,6 +556,13 @@ mod tests {
         assert!(loose.is_empty(), "{loose:#?}");
     }
 
+    /// The framework's own observers leave slots over, for tracing.
+    #[test]
+    fn the_observers_leave_slots_over() {
+        let observers = crate::points().iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
+        assert!(observers < hooks::observer_slots(), "{observers} observers for {} slots", hooks::observer_slots());
+    }
+
     /// Every point carries in its own bytes, decoded where they lie, the
     /// numbers it says it uses: a named field or global and the instruction
     /// kept for it cannot drift apart.
