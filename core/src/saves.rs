@@ -219,7 +219,8 @@ pub fn set(id: &str, value: Option<Value>) {
     };
 }
 
-/// Replaces all extensions' data at a session start.
+/// Replaces all extensions' data, when a load replaces the world and at a
+/// session start.
 pub fn replace_all(data: BTreeMap<String, Value>) {
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = data;
 }
@@ -505,18 +506,31 @@ extern "C" fn load_after(f: *mut HookFrame) {
         let (world, date, daily) = world_date(&c.memory)?;
         let read = h.result == txn.success && c.memory.u8(txn.success)? == 1 && world == txn.world && daily == 0;
         LAST_READ.store(read, Ordering::SeqCst);
-        if let Some(e) = txn.error {
-            return Err(format!("loaded save not identified: {e}"));
-        }
-        if !read {
-            return Err("load did not establish the current world".into());
-        }
-        let locked = txn.locked.ok_or("no loaded file")?;
-        let data = c.store.read(&locked.identity, date)?;
-        log!("saves: loaded {} with data for {} extension(s)", locked.identity.absolute_path, data.as_ref().map_or(0, |d| d.len()));
-        *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = Some(data.unwrap_or_default());
-        Ok(())
+        let data = (|| {
+            if let Some(e) = txn.error {
+                return Err(format!("loaded save not identified: {e}"));
+            }
+            if !read {
+                return Err("load did not establish the current world".into());
+            }
+            let locked = txn.locked.ok_or("no loaded file")?;
+            let data = c.store.read(&locked.identity, date)?;
+            log!("saves: loaded {} with data for {} extension(s)", locked.identity.absolute_path, data.as_ref().map_or(0, |d| d.len()));
+            Ok(data.unwrap_or_default())
+        })();
+        loaded(read, data)
     });
+}
+
+/// Keeps what a load brought for its session. Once the load has replaced the
+/// world, the data is current at once: the game saves an ironman game it
+/// loads before the session starts, and that save must carry it.
+fn loaded(read: bool, data: Result<BTreeMap<String, Value>>) -> Result<()> {
+    if read {
+        replace_all(data.clone().unwrap_or_default());
+    }
+    *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = Some(data?);
+    Ok(())
 }
 
 /// The path in the engine's `std::string` at `p`, and where its text is, a C
@@ -574,6 +588,24 @@ mod tests {
         let other = Identity { sha256: "cd".repeat(32), ..id };
         assert_eq!(store.read(&other, 7).unwrap(), None);
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_load_makes_its_data_current_before_the_session_starts() {
+        let data = BTreeMap::from([("regional-combat".to_string(), serde_json::json!({"armies": [1]}))]);
+        replace_all(BTreeMap::new());
+        loaded(true, Ok(data.clone())).unwrap();
+        assert_eq!(get("regional-combat"), Some(serde_json::json!({"armies": [1]})));
+        assert_eq!(take_loaded(), Some(data));
+        // A world whose data could not be read starts with none.
+        assert!(loaded(true, Err("save data belongs to a different save or date".into())).is_err());
+        assert_eq!(get("regional-combat"), None);
+        assert_eq!(take_loaded(), None);
+        // A load that did not replace the world leaves its data alone.
+        set("regional-combat", Some(serde_json::json!(2)));
+        assert!(loaded(false, Err("load did not establish the current world".into())).is_err());
+        assert_eq!(get("regional-combat"), Some(serde_json::json!(2)));
+        replace_all(BTreeMap::new());
     }
 
     #[test]
