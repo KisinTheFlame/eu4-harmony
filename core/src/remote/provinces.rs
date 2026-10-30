@@ -1,30 +1,15 @@
 //! Provinces, their neighbors, and one province's snapshot.
-use super::{tag, Live};
-use crate::game::{self, provinces as layer, Caller, GResult};
+use super::tag;
+use crate::game::{self, provinces as layer};
 use eu4_harmony_remote::{
     provinces::{Development, Fort, Neighbor, Province, ProvinceAnswer, ProvinceRequest, ProvinceSnapshot, Recruit, UnitKind},
     Error, ProvinceId,
 };
 
-/// The group's slice of the capability layer.
-pub trait Layer {
-    fn provinces(&mut self) -> GResult<Vec<game::provinces::Province>>;
-    fn neighbors(&mut self, province: u32) -> GResult<Vec<game::provinces::Neighbor>>;
-    fn province(&mut self, province: u32) -> GResult<layer::Snapshot>;
-}
-
-impl Layer for Live {
-    fn provinces(&mut self) -> GResult<Vec<game::provinces::Province>> {
-        game::provinces::provinces(Caller::Remote)
-    }
-
-    fn neighbors(&mut self, province: u32) -> GResult<Vec<game::provinces::Neighbor>> {
-        game::provinces::neighbors(Caller::Remote, province)
-    }
-
-    fn province(&mut self, province: u32) -> GResult<layer::Snapshot> {
-        layer::province(Caller::Remote, province)
-    }
+layer! {
+    fn provinces() -> Vec<game::provinces::Province> = game::provinces::provinces;
+    fn neighbors(province: u32) -> Vec<game::provinces::Neighbor> = game::provinces::neighbors;
+    fn province(province: u32) -> layer::Snapshot = layer::province;
 }
 
 pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result<ProvinceAnswer, Error> {

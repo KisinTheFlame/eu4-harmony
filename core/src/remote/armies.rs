@@ -1,65 +1,25 @@
 //! The player's armies and the armies they can see. A move or a stop from a
 //! remote client is the player's order (ADR 0015): the capability layer
 //! takes the army back from an extension moving it.
-use super::{tag, Live};
-use crate::game::{
-    armies::{self as layer, RouteSource as Source},
-    Caller, GResult,
-};
+use super::tag;
+use crate::game::armies::{self as layer, RouteSource as Source};
 use eu4_harmony_remote::{
     armies::{Army, ArmyAnswer, ArmyRequest, RouteSource},
     ArmyId, Error, ProvinceId,
 };
 
-/// The group's slice of the capability layer.
-pub trait Layer {
-    fn army(&mut self, id: u64) -> GResult<layer::Army>;
-    fn own_armies(&mut self) -> GResult<Vec<layer::Army>>;
-    fn armies_in(&mut self, province: u32) -> GResult<Vec<layer::Army>>;
-    fn route(&mut self, id: u64) -> GResult<Vec<u32>>;
-    fn can_enter(&mut self, id: u64, province: u32) -> GResult<bool>;
-    fn strait_open(&mut self, id: u64, from: u32, to: u32) -> GResult<bool>;
-    fn can_attack(&mut self, id: u64, target: u64, province: u32) -> GResult<bool>;
-    fn find_route(&mut self, id: u64, goal: u32) -> GResult<Vec<u32>>;
-    fn move_to(&mut self, id: u64, goal: u32) -> GResult<()>;
-    fn stop(&mut self, id: u64) -> GResult<()>;
-    fn selected(&mut self) -> GResult<u64>;
-}
-
-impl Layer for Live {
-    fn army(&mut self, id: u64) -> GResult<layer::Army> {
-        layer::army(Caller::Remote, id)
-    }
-    fn own_armies(&mut self) -> GResult<Vec<layer::Army>> {
-        layer::own_armies(Caller::Remote)
-    }
-    fn armies_in(&mut self, province: u32) -> GResult<Vec<layer::Army>> {
-        layer::in_province(Caller::Remote, province)
-    }
-    fn route(&mut self, id: u64) -> GResult<Vec<u32>> {
-        layer::route(Caller::Remote, id)
-    }
-    fn can_enter(&mut self, id: u64, province: u32) -> GResult<bool> {
-        layer::can_enter(Caller::Remote, id, province)
-    }
-    fn strait_open(&mut self, id: u64, from: u32, to: u32) -> GResult<bool> {
-        layer::strait_open(Caller::Remote, id, from, to)
-    }
-    fn can_attack(&mut self, id: u64, target: u64, province: u32) -> GResult<bool> {
-        layer::can_attack(Caller::Remote, id, target, province)
-    }
-    fn find_route(&mut self, id: u64, goal: u32) -> GResult<Vec<u32>> {
-        layer::find_route(Caller::Remote, id, goal)
-    }
-    fn move_to(&mut self, id: u64, goal: u32) -> GResult<()> {
-        layer::move_to(Caller::Remote, id, goal)
-    }
-    fn stop(&mut self, id: u64) -> GResult<()> {
-        layer::stop(Caller::Remote, id)
-    }
-    fn selected(&mut self) -> GResult<u64> {
-        layer::selected(Caller::Remote)
-    }
+layer! {
+    fn army(id: u64) -> layer::Army = layer::army;
+    fn own_armies() -> Vec<layer::Army> = layer::own_armies;
+    fn armies_in(province: u32) -> Vec<layer::Army> = layer::in_province;
+    fn route(id: u64) -> Vec<u32> = layer::route;
+    fn can_enter(id: u64, province: u32) -> bool = layer::can_enter;
+    fn strait_open(id: u64, from: u32, to: u32) -> bool = layer::strait_open;
+    fn can_attack(id: u64, target: u64, province: u32) -> bool = layer::can_attack;
+    fn find_route(id: u64, goal: u32) -> Vec<u32> = layer::find_route;
+    fn move_to(id: u64, goal: u32) -> () = layer::move_to;
+    fn stop(id: u64) -> () = layer::stop;
+    fn selected() -> u64 = layer::selected;
 }
 
 pub fn run(request: ArmyRequest, game: &mut (impl Layer + ?Sized)) -> Result<ArmyAnswer, Error> {

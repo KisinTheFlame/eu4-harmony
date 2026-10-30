@@ -1,27 +1,17 @@
 //! The frame the player sees, as an image. The capability layer takes it at
 //! the next frame the main thread presents and encodes it on a thread of its
 //! own, so the answer comes at a later safe point.
-use super::{Live, Outcome, Poll, Wait};
-use crate::game::{
-    screenshot::{self as layer, Shot},
-    Caller, GResult,
-};
+use super::{Outcome, Poll, Wait};
+use crate::game::screenshot::{self as layer, Shot};
 use eu4_harmony_remote::{
     screenshot::{Screenshot, ScreenshotAnswer, ScreenshotRequest},
     Answer, Binary, Error, Response,
 };
 use std::sync::Arc;
 
-/// The group's slice of the capability layer.
-pub trait Layer {
+layer! {
     /// Asks for the next frame at `percent` of its size.
-    fn screenshot(&mut self, percent: u32) -> GResult<Arc<Shot>>;
-}
-
-impl Layer for Live {
-    fn screenshot(&mut self, percent: u32) -> GResult<Arc<Shot>> {
-        layer::screenshot(Caller::Remote, percent)
-    }
+    fn screenshot(percent: u32) -> Arc<Shot> = layer::screenshot;
 }
 
 pub fn run(request: ScreenshotRequest, game: &mut (impl Layer + ?Sized)) -> Outcome {

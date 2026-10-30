@@ -21,6 +21,23 @@
 //! layer itself behind it ([`Live`]), and turns the group's requests into
 //! calls and the layer's types into the answers. Tests put a fake game behind
 //! the traits.
+
+/// Declares a group's slice of the capability layer once: its `Layer`
+/// trait, and [`Live`] calling each capability there as remote control.
+/// A group whose slice does more than call them writes both itself.
+macro_rules! layer {
+    ($( $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; )*) => {
+        /// The group's slice of the capability layer.
+        pub trait Layer {
+            $( $(#[$doc])* fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret>; )*
+        }
+
+        impl Layer for super::Live {
+            $( fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> { $capability(crate::game::Caller::Remote, $($arg),*) } )*
+        }
+    };
+}
+
 pub mod armies;
 pub mod camera;
 pub mod console;

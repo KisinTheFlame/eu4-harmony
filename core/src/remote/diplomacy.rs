@@ -2,10 +2,10 @@
 //! one at once; the answer comes at a later safe point, once the game has
 //! carried it out and the other country has answered, or as `pending` after
 //! [`WAITED`] or when the game returns to the main menu first.
-use super::{countries, events, tag, Live, Outcome as Ran, Poll, Wait};
+use super::{countries, events, tag, Outcome as Ran, Poll, Wait};
 use crate::game::{
     diplomacy::{self as layer, Answer, Calls, Choice, Declaration, Ticket, NO_CASUS_BELLI as NONE},
-    Caller, Fail, GResult, Status, Tag,
+    Fail, GResult, Status, Tag,
 };
 use eu4_harmony_remote::{
     diplomacy::{AnswerKind, DiplomacyAnswer, DiplomacyRequest, Outcome, PassedOver, WarGoal},
@@ -18,35 +18,12 @@ use std::time::{Duration, Instant};
 /// other country answer within a few frames.
 pub const WAITED: Duration = Duration::from_secs(5);
 
-/// The group's slice of the capability layer.
-pub trait Layer {
-    fn war_goals(&mut self, enemy: Tag) -> GResult<Vec<layer::WarGoal>>;
-    fn declare_war(&mut self, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration>;
-    fn offer_peace(&mut self, enemy: Tag) -> GResult<Ticket>;
-    fn propose_alliance(&mut self, ally: Tag) -> GResult<Ticket>;
-    fn answer(&mut self, ticket: Ticket) -> GResult<Answer>;
-}
-
-impl Layer for Live {
-    fn war_goals(&mut self, enemy: Tag) -> GResult<Vec<layer::WarGoal>> {
-        layer::war_goals(Caller::Remote, enemy)
-    }
-
-    fn declare_war(&mut self, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration> {
-        layer::declare_war(Caller::Remote, enemy, choice, calls)
-    }
-
-    fn offer_peace(&mut self, enemy: Tag) -> GResult<Ticket> {
-        layer::offer_peace(Caller::Remote, enemy)
-    }
-
-    fn propose_alliance(&mut self, ally: Tag) -> GResult<Ticket> {
-        layer::propose_alliance(Caller::Remote, ally)
-    }
-
-    fn answer(&mut self, ticket: Ticket) -> GResult<Answer> {
-        layer::answer(Caller::Remote, ticket)
-    }
+layer! {
+    fn war_goals(enemy: Tag) -> Vec<layer::WarGoal> = layer::war_goals;
+    fn declare_war(enemy: Tag, choice: &Choice, calls: &Calls) -> Declaration = layer::declare_war;
+    fn offer_peace(enemy: Tag) -> Ticket = layer::offer_peace;
+    fn propose_alliance(ally: Tag) -> Ticket = layer::propose_alliance;
+    fn answer(ticket: Ticket) -> Answer = layer::answer;
 }
 
 pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer + ?Sized)) -> Ran {
