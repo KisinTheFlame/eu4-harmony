@@ -223,6 +223,8 @@ pub mod diplomacy_dialog {
 pub mod edit_box {
     /// Its keyboard listener interface, [`super::classes::EDIT_BOX_LISTENER`].
     pub const LISTENER: usize = 0x1d0;
+    /// Its caret's sprite.
+    pub const CARET_SPRITE: usize = 0x1f0;
     /// Its text editor (see [`super::editor`]).
     pub const EDITOR: usize = 0xc8;
     /// Whether it has the keyboard, u8.
