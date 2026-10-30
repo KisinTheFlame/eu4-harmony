@@ -7,6 +7,12 @@ on:
   push:
     branches: [master]
 
+# A newer push to a pull request stops the run it replaces. Every merge into
+# master runs to the end, so a failure there names the merge that caused it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
 jobs:
   test:
     runs-on: windows-latest
