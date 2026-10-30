@@ -12,7 +12,7 @@ use windows::Win32::Graphics::DirectWrite::*;
 
 /// Tried after the chosen family, in order.
 const FALLBACK: &[&str] = &[
-    "Microsoft YaHei",
+    crate::settings::DEFAULT_FONT,
     "SimSun",
     "SimSun-ExtB",
     "SimSun-ExtG",

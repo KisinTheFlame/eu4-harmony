@@ -220,6 +220,14 @@ pub(crate) fn deferred_init() {
     let language = lang::decide(&user_dir);
     let chosen = settings::load(&user_dir);
     log!("settings: {chosen:?}");
+    // A font chosen that is no longer installed: the default draws instead,
+    // and the player is told once (ADR 0012).
+    if let Ok(fonts) = unicode::system_font::SystemFonts::new() {
+        for font in chosen.missing_fonts(|family| fonts.has_family(family)) {
+            log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
+            notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
+        }
+    }
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
     report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
     // Remote control is always on (ADR 0017).

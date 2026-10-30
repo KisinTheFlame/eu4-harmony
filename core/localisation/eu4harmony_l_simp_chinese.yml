@@ -10,6 +10,7 @@ l_simp_chinese:
  EU4HARMONY_NOT_LOADED:0 "Mod“$MOD$”没有加载：\n$DETAIL$"
  EU4HARMONY_STOPPED:0 "Mod“$MOD$”的扩展出错，已停止运行：$DETAIL$\n\n游戏状态可能已不一致，请不要覆盖原有存档。"
  EU4HARMONY_TEST_NOTICE:0 "EU4 Harmony 测试提示 $NUMBER$。点角上的按钮关闭。"
+ EU4HARMONY_FONT_MISSING:0 "EU4 Harmony 设置中选择的字体“$FONT$”未安装，已改用$DEFAULT$。请在设置中另选字体。"
  EU4HARMONY_SETTINGS_BUTTON:0 "EU4 Harmony 设置"
  EU4HARMONY_SETTINGS_TITLE:0 "EU4 Harmony 设置"
  EU4HARMONY_SETTINGS_APPEARANCE:0 "文字外观"

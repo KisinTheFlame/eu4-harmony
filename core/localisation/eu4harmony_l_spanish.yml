@@ -10,6 +10,7 @@ l_spanish:
  EU4HARMONY_NOT_LOADED:0 "No se cargó el mod «$MOD$»:\n$DETAIL$"
  EU4HARMONY_STOPPED:0 "El mod «$MOD$» falló y su extensión se detuvo: $DETAIL$\n\nEl estado de la partida puede ser incoherente; evita sobrescribir tus partidas guardadas."
  EU4HARMONY_TEST_NOTICE:0 "Aviso de prueba $NUMBER$ de EU4 Harmony. Ciérralo con el botón de su esquina."
+ EU4HARMONY_FONT_MISSING:0 "La fuente «$FONT$» elegida en la configuración de EU4 Harmony no está instalada; se usa $DEFAULT$ en su lugar. Elige otra fuente en la configuración."
  EU4HARMONY_SETTINGS_BUTTON:0 "Ajustes de EU4 Harmony"
  EU4HARMONY_SETTINGS_TITLE:0 "Ajustes de EU4 Harmony"
  EU4HARMONY_SETTINGS_APPEARANCE:0 "Aspecto del texto"
