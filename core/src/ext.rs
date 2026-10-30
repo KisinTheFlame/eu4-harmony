@@ -65,6 +65,10 @@ static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 thread_local! {
     /// Extension whose callback is running on this thread.
     static CURRENT: Cell<Option<usize>> = const { Cell::new(None) };
+    /// Why the running callback's extension faulted in its own code that a
+    /// capability called (a console_run output callback): it is stopped
+    /// when the callback returns, as if the callback itself had faulted.
+    static FAULTED: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 fn extensions() -> std::sync::MutexGuard<'static, Vec<Loaded>> {
@@ -455,7 +459,13 @@ unsafe extern "C" fn h_console_run(ptr: *mut c_void, command: *const u8, command
     capability(ptr, |caller| {
         let text = game::console::run(caller, utf8(command, command_len)?)?;
         if let Some(printed) = printed {
-            printed(user, text.as_ptr(), text.len());
+            // The extension's own code, through the SEH boundary as its
+            // callbacks are: a fault there stops it.
+            if let Err(e) = (Memory { base: 0 }).call(printed as usize, &[user as usize, text.as_ptr() as usize, text.len()]) {
+                let reason = format!("its console_run output callback crashed: {e}");
+                FAULTED.with(|f| f.replace(Some(reason.clone())));
+                return failure(abi::INTERNAL, reason);
+            }
         }
         Ok(())
     })
@@ -806,11 +816,14 @@ fn call(index: usize, name: &str, pick: impl Fn(&abi::ExtensionVTable) -> Option
     let mut full = vec![user, game];
     full.extend_from_slice(args);
     CURRENT.with(|c| c.set(Some(index)));
+    FAULTED.with(|f| f.replace(None));
     let started = Instant::now();
     let result = Memory { base: 0 }.call(target, &full);
     let elapsed = started.elapsed();
     CURRENT.with(|c| c.set(None));
+    let faulted = FAULTED.with(|f| f.take());
     let failure = match result {
+        Ok(_) if faulted.is_some() => faulted.map(|reason| format!("{name}: {reason}")),
         Ok(code) if code as u32 as i32 == abi::OK => None,
         Ok(code) => Some(format!("{name} returned {}", code as u32 as i32)),
         Err(e) => Some(format!("{name} crashed: {e}")),
