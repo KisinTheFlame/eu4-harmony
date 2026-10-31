@@ -99,6 +99,20 @@ impl From<String> for Fail {
         Self { status: Status::Internal, message }
     }
 }
+
+/// A refusal of the framework's own checks (`eu4_harmony_checks`).
+impl From<eu4_harmony_checks::Refusal> for Fail {
+    fn from(refusal: eu4_harmony_checks::Refusal) -> Self {
+        use eu4_harmony_checks::Status as Checked;
+        let status = match refusal.status {
+            Checked::NotReady => Status::NotReady,
+            Checked::NotFound => Status::NotFound,
+            Checked::Rejected => Status::Rejected,
+            Checked::InvalidArgument => Status::InvalidArgument,
+        };
+        Self { status, message: refusal.message }
+    }
+}
 pub fn fail<T>(status: Status, message: impl Into<String>) -> GResult<T> {
     Err(Fail { status, message: message.into() })
 }

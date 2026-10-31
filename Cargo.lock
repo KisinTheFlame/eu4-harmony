@@ -61,6 +61,10 @@ name = "eu4-harmony-abi"
 version = "0.1.0"
 
 [[package]]
+name = "eu4-harmony-checks"
+version = "0.1.0"
+
+[[package]]
 name = "eu4-harmony-cli"
 version = "0.1.0"
 dependencies = [
@@ -79,6 +83,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "eu4-harmony-abi",
+ "eu4-harmony-checks",
  "eu4-harmony-loc",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
@@ -114,6 +119,7 @@ dependencies = [
 name = "eu4-harmony-remote"
 version = "0.1.0"
 dependencies = [
+ "eu4-harmony-checks",
  "serde",
  "serde_json",
 ]
@@ -123,6 +129,7 @@ name = "eu4-harmony-sdk"
 version = "0.1.0"
 dependencies = [
  "eu4-harmony-abi",
+ "eu4-harmony-checks",
  "eu4-harmony-loc",
  "serde",
  "serde_json",

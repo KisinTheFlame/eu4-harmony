@@ -377,14 +377,14 @@ impl camera::Layer for Fake {
 
     fn look_at(&mut self, x: u32, y: u32) -> GResult<game::camera::Camera> {
         self.call(format!("look at {x} {y}"));
-        game::camera::check_position(x, y, (5632, 2048))?;
+        eu4_harmony_checks::camera::position(x, y, (5632, 2048))?;
         Ok(game::camera::Camera { x, y, province: None, ..view() })
     }
 
     fn zoom(&mut self, height: u32) -> GResult<game::camera::Camera> {
         self.call(format!("zoom {height}"));
         let looking = view();
-        game::camera::check_height(height, (looking.min_height, looking.max_height))?;
+        eu4_harmony_checks::camera::height(height, (looking.min_height, looking.max_height))?;
         Ok(game::camera::Camera { height, ..view() })
     }
 }
@@ -492,7 +492,7 @@ impl time::Layer for Fake {
 
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
         self.call(format!("speed {speed}"));
-        game::time::check_speed(speed)?;
+        eu4_harmony_checks::time::speed(speed)?;
         self.clock.time.speed = speed;
         Ok(())
     }

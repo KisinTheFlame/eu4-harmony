@@ -59,6 +59,21 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
+/// A refusal of the framework's own checks, as the core gives it; the fake
+/// game refuses through the same checks.
+impl From<eu4_harmony_checks::Refusal> for Error {
+    fn from(refusal: eu4_harmony_checks::Refusal) -> Self {
+        use eu4_harmony_checks::Status as Checked;
+        let status = match refusal.status {
+            Checked::NotReady => Status::NotReady,
+            Checked::NotFound => Status::NotFound,
+            Checked::Rejected => Status::Rejected,
+            Checked::InvalidArgument => Status::InvalidArgument,
+        };
+        Self::new(status, refusal.message)
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -666,6 +666,20 @@ impl fmt::Display for Error {
     }
 }
 
+/// A refusal of the framework's own checks, as remote clients get it.
+impl From<eu4_harmony_checks::Refusal> for Error {
+    fn from(refusal: eu4_harmony_checks::Refusal) -> Self {
+        use eu4_harmony_checks::Status;
+        let code = match refusal.status {
+            Status::NotReady => Code::NotReady,
+            Status::NotFound => Code::NotFound,
+            Status::Rejected => Code::Rejected,
+            Status::InvalidArgument => Code::InvalidArgument,
+        };
+        Self::new(code, refusal.message)
+    }
+}
+
 /// What a request comes to.
 pub type Response = Result<Answer, Error>;
 

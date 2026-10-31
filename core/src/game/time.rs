@@ -29,15 +29,6 @@ const TOGGLE_PAUSE: usize = 0x7e0250;
 /// the game returns to the main menu.
 const RESTART: usize = 0x14c3a10;
 
-/// Refuses a speed the game does not have.
-pub fn check_speed(speed: u32) -> GResult<()> {
-    use eu4_harmony_remote::time::SPEEDS;
-    if !SPEEDS.contains(&speed) {
-        return fail(Status::InvalidArgument, format!("the speed is from {} to {}, not {speed}", SPEEDS.start(), SPEEDS.end()));
-    }
-    Ok(())
-}
-
 /// What holds the game paused.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Pause {
@@ -141,7 +132,7 @@ pub fn game_over(end: i32) -> super::Fail {
 
 /// Sets the game speed, 1 (slowest) to 5 (fastest), as the player would.
 pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
-    check_speed(speed)?;
+    eu4_harmony_checks::time::speed(speed)?;
     let m = game()?;
     let ctx = context(m)?;
     m.call(m.at(SET_SPEED), &[ctx.world, (speed - 1) as usize])?;

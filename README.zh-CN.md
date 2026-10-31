@@ -88,6 +88,7 @@ eu4-harmony package                       # 生成上传用的干净目录 ..\my
 | `loc/` | 本地化文件的格式、语言列表和查找，核心、SDK 和命令行工具共用 |
 | `manifest/` | 模组的 `eu4-harmony/manifest.json` 和描述文件的各行，核心和命令行工具共用 |
 | `remote/` | 远程控制的请求与响应、它们的 JSON 形式和每项能力的说明，核心和命令行工具共用 |
+| `checks/` | 框架自己对能力调用做的检查，以及每种拒绝的状态和措辞，核心、`remote/` 和 SDK 共用，让 SDK 的 `FakeGame` 拒绝核心会拒绝的调用，措辞也一样 |
 | `abi/` | 核心与扩展之间的 C ABI |
 | `sdk/` | 扩展用的 Rust SDK |
 | `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组，其扩展随其余部分一起构建和测试 |

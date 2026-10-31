@@ -6,6 +6,7 @@
 //! state and the map. Orders have no effect unless the test applies them.
 //! [`FakeGame::load_localisation`] gives it the mod's real texts.
 use crate::game::*;
+use eu4_harmony_checks as checks;
 use eu4_harmony_loc::Language;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -197,10 +198,10 @@ impl FakeGame {
         self.neighbors.entry(b).or_default().push(Neighbor { to: a, strait: false });
     }
 
-    /// Refuses a move of the camera while it is locked, in the core's words.
+    /// Refuses a move of the camera while it is locked, as the core does.
     fn camera_movable(&self) -> Result<()> {
         if self.camera_locked {
-            return Err(rejected("the camera is locked"));
+            return Err(checks::camera::locked().into());
         }
         Ok(())
     }
@@ -382,10 +383,7 @@ impl Backend for FakeGame {
         Ok(self.camera)
     }
     fn camera_zoom(&mut self, height: u32) -> Result<Camera> {
-        let Camera { min_height, max_height, .. } = self.camera;
-        if !(min_height..=max_height).contains(&height) {
-            return Err(Error::new(Status::InvalidArgument, format!("the height is from {min_height} to {max_height}")));
-        }
+        checks::camera::height(height, (self.camera.min_height, self.camera.max_height))?;
         self.camera_movable()?;
         self.camera.height = height;
         Ok(self.camera)
@@ -394,19 +392,7 @@ impl Backend for FakeGame {
         self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
     }
     fn console(&mut self, command: &str) -> Result<String> {
-        // The core's own refusals, in its words.
-        let refused = if command.contains('|') {
-            Some("a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out")
-        } else if command.contains('\0') {
-            Some("a command cannot hold a NUL")
-        } else if command.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
-            Some("no command")
-        } else {
-            None
-        };
-        if let Some(why) = refused {
-            return Err(Error::new(Status::InvalidArgument, why));
-        }
+        checks::console::command(command)?;
         self.console_commands.push(command.into());
         self.console_output.get(command).cloned().ok_or_else(|| Error::new(Status::Rejected, "Unknown command"))
     }
@@ -417,9 +403,7 @@ impl Backend for FakeGame {
         Ok(self.speed.max(1))
     }
     fn set_speed(&mut self, speed: u32) -> Result<()> {
-        if !(1..=5).contains(&speed) {
-            return Err(Error::new(Status::InvalidArgument, format!("the speed is from 1 to 5, not {speed}")));
-        }
+        checks::time::speed(speed)?;
         self.speed = speed;
         Ok(())
     }
