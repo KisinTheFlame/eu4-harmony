@@ -3,7 +3,7 @@
 //! answered as the player does, by choosing an option in the window.
 //! [`count`] says how many wait, for advancing time too. The evidence is in
 //! docs/research/questions-and-offers.md.
-use super::{context, game, map_manager, span, Caller, Ctx, GResult, Status};
+use super::{context, game, map_manager, span, Caller, Ctx, GResult};
 use crate::{
     game_string,
     memory::Memory,
@@ -83,10 +83,10 @@ pub fn answer(_: Caller, id: u32, option: u32) -> GResult<()> {
     let w = find(m, &ctx, id)?;
     let options = options(m, w.event)?;
     let Some(&chosen) = options.get(option as usize) else {
-        return super::fail(Status::InvalidArgument, format!("question {id} has no option {option}"));
+        return Err(eu4_harmony_checks::questions::no_option(id, option).into());
     };
     if !may_choose(m, chosen, w.scope)? {
-        return super::fail(Status::Rejected, format!("the player may not choose option {option} of question {id}"));
+        return Err(eu4_harmony_checks::questions::not_allowed(id, option).into());
     }
     m.call(m.at(CHOOSE), &[w.address, option as usize])?;
     if m.u8(w.address + window::OPEN)? != 0 {
@@ -170,7 +170,7 @@ fn open(m: &Memory, ctx: &Ctx) -> GResult<Vec<Window>> {
 fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Window> {
     match open(m, ctx)?.into_iter().find(|w| w.id == id) {
         Some(w) => Ok(w),
-        None => super::fail(Status::NotFound, format!("no question {id}")),
+        None => Err(eu4_harmony_checks::questions::not_found(id).into()),
     }
 }
 

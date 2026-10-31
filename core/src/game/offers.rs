@@ -42,7 +42,7 @@ pub fn offer(_: Caller, id: u32) -> GResult<Offer> {
     let ctx = context(m)?;
     match listed(m, &ctx)?.into_iter().find(|w| w.id == id) {
         Some(w) => read(m, &w),
-        None => super::fail(Status::NotFound, format!("no offer {id}")),
+        None => Err(eu4_harmony_checks::offers::not_found(id).into()),
     }
 }
 
@@ -63,7 +63,7 @@ pub fn answer(_: Caller, id: u32, accept: bool) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
     let Some(w) = held(m, &ctx)?.into_iter().find(|w| w.id == id) else {
-        return super::fail(Status::NotFound, format!("no offer {id}"));
+        return Err(eu4_harmony_checks::offers::not_found(id).into());
     };
     let open = m.call(m.vslot(w.dialog, dialog::VALID)?, &[w.dialog])? as u8 != 0;
     if open {

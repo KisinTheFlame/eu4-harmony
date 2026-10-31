@@ -506,86 +506,9 @@ impl<'de> Deserialize<'de> for ArmyId {
     }
 }
 
-/// A game date, as the game keeps it: hours since 1 January 5000 BC in a
-/// calendar of 365-day years (docs/research/dates.md). In JSON
-/// `"year.month.day"`, such as `"1444.11.11"`.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Date(pub i32);
-
-/// The days of each month, January's first: the game's calendar has no leap
-/// years. The framework's one copy of it.
-const MONTH_DAYS: [i32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-const EPOCH_YEAR: i32 = -5000;
-
-impl Date {
-    pub fn from_ymd(year: i32, month: u32, day: u32) -> Option<Self> {
-        let length = *MONTH_DAYS.get(month.checked_sub(1)? as usize)?;
-        if day == 0 || day as i32 > length {
-            return None;
-        }
-        let before: i32 = MONTH_DAYS[..month as usize - 1].iter().sum();
-        let days = year.checked_sub(EPOCH_YEAR)?.checked_mul(365)?.checked_add(before + day as i32 - 1)?;
-        days.checked_mul(24).filter(|_| days >= 0).map(Self)
-    }
-
-    /// Year, month (from 1) and day (from 1).
-    pub fn ymd(self) -> (i32, u32, u32) {
-        let days = self.0.div_euclid(24);
-        let mut day = days.rem_euclid(365);
-        let year = days.div_euclid(365) + EPOCH_YEAR;
-        let mut month = 0;
-        while day >= MONTH_DAYS[month] {
-            day -= MONTH_DAYS[month];
-            month += 1;
-        }
-        (year, month as u32 + 1, day as u32 + 1)
-    }
-
-    /// The date `months` on, as the game adds months (0x14c8030): the same
-    /// day of the month, or the month's last when that month is shorter, at
-    /// the same hour; None past the calendar's end.
-    pub fn months_later(self, months: u32) -> Option<Self> {
-        let (year, month, day) = self.ymd();
-        let month = month - 1 + months;
-        let (year, month) = (year.checked_add((month / 12) as i32)?, month % 12);
-        let day = day.min(MONTH_DAYS[month as usize] as u32);
-        Some(Self(Self::from_ymd(year, month + 1, day)?.0.checked_add(self.0.rem_euclid(24))?))
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        let mut parts = text.splitn(3, '.');
-        let year = parts.next()?.parse().ok()?;
-        let month = parts.next()?.parse().ok()?;
-        let day = parts.next()?.parse().ok()?;
-        Self::from_ymd(year, month, day)
-    }
-}
-
-impl fmt::Display for Date {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (year, month, day) = self.ymd();
-        write!(f, "{year}.{month}.{day}")
-    }
-}
-
-impl fmt::Debug for Date {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self}")
-    }
-}
-
-impl Serialize for Date {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(self)
-    }
-}
-
-impl<'de> Deserialize<'de> for Date {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        Self::parse(&text).ok_or_else(|| de::Error::custom(format!("{text:?} is not a date (year.month.day, such as 1444.11.11)")))
-    }
-}
+/// A game date (`eu4_harmony_checks::Date`), in JSON `"year.month.day"`,
+/// such as `"1444.11.11"`.
+pub use eu4_harmony_checks::Date;
 
 // ---------- responses ----------
 
@@ -663,6 +586,20 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}: {}", self.code.name(), self.message)
+    }
+}
+
+/// A refusal of the framework's own checks, as remote clients get it.
+impl From<eu4_harmony_checks::Refusal> for Error {
+    fn from(refusal: eu4_harmony_checks::Refusal) -> Self {
+        use eu4_harmony_checks::Status;
+        let code = match refusal.status {
+            Status::NotReady => Code::NotReady,
+            Status::NotFound => Code::NotFound,
+            Status::Rejected => Code::Rejected,
+            Status::InvalidArgument => Code::InvalidArgument,
+        };
+        Self::new(code, refusal.message)
     }
 }
 

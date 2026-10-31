@@ -1,7 +1,7 @@
 //! Provinces: every province, a province's land neighbors, and one
 //! province's snapshot: its name, development, terrain, fort, buildings and
 //! what the player can recruit there (docs/research/provinces.md).
-use super::{context, events, fail, game, span, with_state, Caller, Ctx, GResult, Status, Tag};
+use super::{context, events, game, span, with_state, Caller, Ctx, GResult, Tag};
 use crate::{
     game_string,
     memory::Memory,
@@ -132,7 +132,7 @@ pub fn province(_: Caller, id: u32) -> GResult<Snapshot> {
     let m = game()?;
     let ctx = context(m)?;
     if id == 0 {
-        return fail(Status::NotFound, "no province 0");
+        return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     snapshot(m, &ctx, address)
