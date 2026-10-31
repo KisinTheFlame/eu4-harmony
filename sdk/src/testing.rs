@@ -412,10 +412,8 @@ impl Backend for FakeGame {
         Ok(())
     }
     fn resume(&mut self) -> Result<()> {
-        if self.session.paused && self.end_date.is_some_and(|end| self.session.date > end) {
-            return Err(rejected(
-                "the game is over: it is past its end date, and stays paused, as for the player, until the end-of-game summary is closed to play on",
-            ));
+        if let Some(end) = self.end_date.filter(|&end| self.session.paused && self.session.date > end) {
+            return Err(checks::time::over(checks::Date(end)).into());
         }
         self.session.paused = false;
         Ok(())

@@ -6,10 +6,15 @@
 //! refuses, in the core's words. A refusal whose reasons the game gives is
 //! not here: only the game has those.
 //!
-//! One module per group of capabilities, as in the core's capability layer.
+//! One module per group of capabilities, as in the core's capability layer,
+//! and the game's calendar ([`Date`]), which the refusals, remote control's
+//! JSON and the core's own wording write dates in.
 pub mod camera;
 pub mod console;
+mod date;
 pub mod time;
+
+pub use date::Date;
 
 /// How a check refuses, as the core's status for it says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

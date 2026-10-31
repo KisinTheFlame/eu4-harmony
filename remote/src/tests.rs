@@ -128,46 +128,6 @@ fn identifiers_in_json() {
 }
 
 #[test]
-fn dates_as_the_game_keeps_them() {
-    // docs/research/dates.md: 1444.11.11 is 0x035D7710.
-    let start = Date(0x035D_7710);
-    assert_eq!(start.ymd(), (1444, 11, 11));
-    assert_eq!(start.to_string(), "1444.11.11");
-    assert_eq!(Date::parse("1444.11.11"), Some(start));
-    assert_eq!(Date::parse("1445.01.01"), Date::from_ymd(1445, 1, 1));
-    assert_eq!(Date::from_ymd(1445, 1, 1).unwrap().0 - start.0, 51 * 24);
-    // Every day of a year comes back as itself, and the hour is ignored.
-    let first = Date::from_ymd(1450, 1, 1).unwrap();
-    for day in 0..365 {
-        let date = Date(first.0 + day * 24 + 13);
-        let (y, m, d) = date.ymd();
-        assert_eq!(Date::from_ymd(y, m, d), Some(Date(first.0 + day * 24)));
-    }
-    assert_eq!(Date(first.0 + 364 * 24).to_string(), "1450.12.31");
-    for bad in ["1444.2.29", "1444.13.1", "1444.0.1", "1444.1.0", "1444.11", "x.1.1", "-5001.1.1"] {
-        assert_eq!(Date::parse(bad), None, "{bad}");
-    }
-    assert_eq!(serde_json::to_value(start).unwrap(), json!("1444.11.11"));
-}
-
-#[test]
-fn months_on_keep_the_day_or_take_the_month_s_last() {
-    let date = |year, month, day| Date::from_ymd(year, month, day).unwrap();
-    let later = |from: Date, months| from.months_later(months).unwrap();
-    assert_eq!(later(date(1444, 11, 11), 2), date(1445, 1, 11));
-    assert_eq!(later(date(1444, 12, 31), 2), date(1445, 2, 28));
-    assert_eq!(later(date(1445, 1, 31), 2), date(1445, 3, 31));
-    assert_eq!(later(date(1445, 8, 31), 2), date(1445, 10, 31));
-    assert_eq!(later(date(1445, 10, 31), 2), date(1445, 12, 31));
-    assert_eq!(later(date(1445, 12, 30), 2), date(1446, 2, 28));
-    assert_eq!(later(Date(date(1445, 3, 1).0 + 5), 2), Date(date(1445, 5, 1).0 + 5));
-    assert_eq!(later(date(1445, 1, 31), 1), date(1445, 2, 28));
-    assert_eq!(later(date(1445, 11, 30), 15), date(1447, 2, 28));
-    assert_eq!(later(date(1445, 5, 9), 0), date(1445, 5, 9));
-    assert_eq!(Date(i32::MAX).months_later(1), None);
-}
-
-#[test]
 fn responses_in_json() {
     let ok: Response = Ok(Answer::Country(countries::CountryAnswer::Hostile(true)));
     assert_eq!(response_json(&ok), json!({"ok": true, "result": true}));

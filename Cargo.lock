@@ -63,6 +63,10 @@ version = "0.1.0"
 [[package]]
 name = "eu4-harmony-checks"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "eu4-harmony-cli"

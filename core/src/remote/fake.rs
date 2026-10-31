@@ -484,7 +484,7 @@ impl time::Layer for Fake {
         self.call("resume".into());
         self.clock.check("resume")?;
         if let Some(end) = self.clock.time.over {
-            return Err(game::time::game_over(end));
+            return Err(eu4_harmony_checks::time::over(eu4_harmony_checks::Date(end)).into());
         }
         self.clock.time.pause = game::time::Pause::Running;
         Ok(())

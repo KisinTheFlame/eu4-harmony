@@ -97,7 +97,7 @@ pub fn resume(_: Caller) -> GResult<()> {
     let ctx = context(m)?;
     if paused(m, &ctx)? {
         if let Some(end) = over(m, &ctx)? {
-            return Err(game_over(end));
+            return Err(eu4_harmony_checks::time::over(eu4_harmony_checks::Date(end)).into());
         }
         toggle(m, pause_state_of(m, &ctx)?)?;
         if paused(m, &ctx)? {
@@ -117,17 +117,6 @@ pub fn resume(_: Caller) -> GResult<()> {
 fn over(m: &Memory, ctx: &Ctx) -> GResult<Option<i32>> {
     let end = m.i32(m.at(END_DATE))?;
     Ok((ctx.date > end && m.u8(ctx.world + world::PLAY_ON)? == 0).then_some(end))
-}
-
-/// Why time does not run once the game is over, at its end date `end`.
-pub fn game_over(end: i32) -> super::Fail {
-    let end = eu4_harmony_remote::Date(end);
-    super::Fail {
-        status: Status::Rejected,
-        message: format!(
-            "the game is over: it is past its end date, {end}, and stays paused, as for the player, until the end-of-game summary is closed to play on"
-        ),
-    }
 }
 
 /// Sets the game speed, 1 (slowest) to 5 (fastest), as the player would.

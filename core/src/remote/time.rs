@@ -109,7 +109,7 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     }
     let time = game.time()?;
     if let Some(end) = time.over {
-        return Err(game::time::game_over(end).into());
+        return Err(eu4_harmony_checks::time::over(Date(end)).into());
     }
     let since = events.last();
     if game.questions_waiting()? > 0 {
