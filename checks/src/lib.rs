@@ -13,6 +13,12 @@ pub mod armies;
 pub mod camera;
 pub mod console;
 mod date;
+pub mod diplomacy;
+pub mod offers;
+pub mod provinces;
+pub mod questions;
+pub mod recruiting;
+pub mod texts;
 pub mod time;
 
 pub use date::Date;

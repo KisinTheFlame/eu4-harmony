@@ -192,7 +192,7 @@ impl provinces::Layer for Fake {
     fn province(&mut self, province: u32) -> GResult<game::provinces::Snapshot> {
         self.call(format!("province {province}"));
         if province != 151 {
-            return fail(Status::NotFound, format!("no province {province}"));
+            return Err(eu4_harmony_checks::provinces::not_found(province).into());
         }
         Ok(constantinople())
     }
@@ -371,7 +371,7 @@ impl camera::Layer for Fake {
         self.call(format!("look at province {province}"));
         match province {
             151 => Ok(game::camera::Camera { x: 3270, y: 1366, province: Some(151), ..view() }),
-            _ => fail(Status::NotFound, format!("no province {province}")),
+            _ => Err(eu4_harmony_checks::provinces::not_found(province).into()),
         }
     }
 
@@ -517,7 +517,7 @@ impl recruiting::Layer for Fake {
         match province {
             149 => Ok(()),
             151 => fail(Status::Rejected, "君士坦丁堡不是我们的领土"),
-            _ => fail(Status::NotFound, format!("no province {province}")),
+            _ => Err(eu4_harmony_checks::provinces::not_found(province).into()),
         }
     }
 }
@@ -551,9 +551,9 @@ impl questions::Layer for Fake {
                 self.answered.push((question, option));
                 Ok(())
             }
-            (7, 1) => fail(Status::Rejected, "the player may not choose option 1 of question 7"),
-            (7, _) => fail(Status::InvalidArgument, format!("question 7 has no option {option}")),
-            _ => fail(Status::NotFound, format!("no question {question}")),
+            (7, 1) => Err(eu4_harmony_checks::questions::not_allowed(question, option).into()),
+            (7, _) => Err(eu4_harmony_checks::questions::no_option(question, option).into()),
+            _ => Err(eu4_harmony_checks::questions::not_found(question).into()),
         }
     }
 }
@@ -568,7 +568,7 @@ impl offers::Layer for Fake {
     fn answer_offer(&mut self, offer: u32, accept: bool) -> GResult<()> {
         self.call(format!("answer offer {offer} {accept}"));
         if offer != 3 {
-            return fail(Status::NotFound, format!("no offer {offer}"));
+            return Err(eu4_harmony_checks::offers::not_found(offer).into());
         }
         self.answered.push((offer, accept as u32));
         Ok(())

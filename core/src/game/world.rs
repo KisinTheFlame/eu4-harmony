@@ -202,7 +202,7 @@ impl Geography {
         let nodes = self.nodes(m, ctx)?;
         let count = nodes.len();
         let Some(node) = nodes.get(id as usize).cloned() else {
-            return fail(Status::NotFound, format!("no province {id}"));
+            return Err(eu4_harmony_checks::provinces::not_found(id).into());
         };
         if let Err(e) = validate_node(m, &node, count) {
             self.clear();

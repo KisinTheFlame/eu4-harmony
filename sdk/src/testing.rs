@@ -361,13 +361,13 @@ impl Backend for FakeGame {
         Ok(if self.language.is_empty() { "english".into() } else { self.language.clone() })
     }
     fn text(&mut self, key: &str) -> Result<String> {
-        self.texts.get(key).cloned().ok_or_else(|| not_found(format!("no localisation text for {key}")))
+        self.texts.get(key).cloned().ok_or_else(|| checks::texts::not_found(key).into())
     }
     fn camera(&mut self) -> Result<Camera> {
         Ok(self.camera)
     }
     fn camera_look_at_province(&mut self, province: ProvinceId) -> Result<Camera> {
-        let &(x, y) = self.province_positions.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
+        let &(x, y) = self.province_positions.get(&province).ok_or_else(|| Error::from(checks::provinces::not_found(province)))?;
         self.camera_movable()?;
         self.camera = Camera { x, y, province: Some(province), ..self.camera };
         Ok(self.camera)
@@ -385,7 +385,7 @@ impl Backend for FakeGame {
         Ok(self.camera)
     }
     fn province(&mut self, province: ProvinceId) -> Result<ProvinceSnapshot> {
-        self.province_snapshots.get(&province).cloned().ok_or_else(|| not_found(format!("no province {province}")))
+        self.province_snapshots.get(&province).cloned().ok_or_else(|| checks::provinces::not_found(province).into())
     }
     fn console(&mut self, command: &str) -> Result<String> {
         checks::console::command(command)?;
@@ -418,18 +418,14 @@ impl Backend for FakeGame {
         if kind == UnitKind::Unknown {
             return Err(unknown_unit_kind());
         }
-        let snapshot = self.province_snapshots.get(&province).ok_or_else(|| not_found(format!("no province {province}")))?;
+        let snapshot = self.province_snapshots.get(&province).ok_or_else(|| Error::from(checks::provinces::not_found(province)))?;
         // A kind the snapshot leaves out, which the core's never does, as one
         // the player has no unit type of.
         let Some(recruit) = snapshot.recruit.iter().find(|r| r.kind == kind && r.unit_type.is_some()) else {
-            return Err(rejected(format!("the player has no unit type of the kind {}", kind_key(kind))));
+            return Err(checks::recruiting::no_unit_type(kind_key(kind)).into());
         };
         if !recruit.allowed {
-            return Err(rejected(if recruit.reasons.is_empty() {
-                "the game does not let the player recruit it there, and gives no reason".to_string()
-            } else {
-                recruit.reasons.join("\n")
-            }));
+            return Err(checks::recruiting::not_allowed(&recruit.reasons).into());
         }
         if let Some(reason) = &self.reject_orders {
             return Err(rejected(reason.clone()));
@@ -441,9 +437,9 @@ impl Backend for FakeGame {
         Ok(self.questions.clone())
     }
     fn answer_question(&mut self, question: QuestionId, option: u32) -> Result<()> {
-        let q = self.questions.iter().find(|q| q.id == question).ok_or_else(|| not_found(format!("no question {}", question.0)))?;
+        let q = self.questions.iter().find(|q| q.id == question).ok_or_else(|| Error::from(checks::questions::not_found(question.0)))?;
         if !q.options.iter().any(|o| o.index == option) {
-            return Err(Error::new(Status::Rejected, format!("the player may not choose option {option} of question {}", question.0)));
+            return Err(checks::questions::not_allowed(question.0, option).into());
         }
         self.commands.push(Command::AnswerQuestion(question, option));
         Ok(())
@@ -453,7 +449,7 @@ impl Backend for FakeGame {
     }
     fn answer_offer(&mut self, offer: OfferId, accept: bool) -> Result<()> {
         if !self.offers.iter().any(|o| o.id == offer) {
-            return Err(not_found(format!("no offer {}", offer.0)));
+            return Err(checks::offers::not_found(offer.0).into());
         }
         self.commands.push(Command::AnswerOffer(offer, accept));
         Ok(())
@@ -467,22 +463,23 @@ impl Backend for FakeGame {
         // goal offered, the game's own refusal, then the allies.
         self.other(country)?;
         if goal.casus_belli.as_deref() == Some("") {
-            return Err(Error::new(Status::InvalidArgument, "no casus belli: name one by its key, or none"));
+            return Err(checks::diplomacy::no_casus_belli(NO_CASUS_BELLI).into());
         }
         let same = |g: &WarGoal| (&g.casus_belli, &g.war_goal, g.province, g.target) == (&goal.casus_belli, &goal.war_goal, goal.province, goal.target);
         if !self.war_goals.get(&country).is_some_and(|offered| offered.iter().any(same)) {
-            return Err(Error::new(Status::Rejected, "the game offers no such war goal"));
+            let casus_belli = goal.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI);
+            return Err(checks::diplomacy::no_such_war_goal(casus_belli, self.named(country)).into());
         }
         self.allowed()?;
         let called = match call {
             CallAllies::All => self.allies.iter().filter(|&&(_, callable)| callable).map(|&(ally, _)| ally).collect(),
             CallAllies::None => Vec::new(),
             CallAllies::Only(named) => {
-                if let Some(stranger) = named.iter().find(|n| !self.allies.iter().any(|(a, _)| a == *n)) {
-                    return Err(Error::new(Status::InvalidArgument, format!("{} is not among the allies the declare war window lists", stranger.0)));
+                if let Some(&stranger) = named.iter().find(|n| !self.allies.iter().any(|(a, _)| a == *n)) {
+                    return Err(checks::diplomacy::not_listed(self.named(stranger)).into());
                 }
-                if let Some(refused) = named.iter().find(|n| self.allies.iter().any(|(a, callable)| a == *n && !callable)) {
-                    return Err(rejected(format!("the declare war window does not let the player call {} to arms", refused.0)));
+                if let Some(&refused) = named.iter().find(|n| self.allies.iter().any(|(a, callable)| a == *n && !callable)) {
+                    return Err(checks::diplomacy::not_callable(self.named(refused), &[]).into());
                 }
                 self.allies.iter().map(|&(a, _)| a).filter(|a| named.contains(a)).collect()
             }
@@ -500,7 +497,7 @@ impl Backend for FakeGame {
     }
     fn diplomacy_answer(&mut self, ticket: Ticket) -> Result<DiplomacyAnswer> {
         if ticket.0 == 0 || ticket.0 as usize > self.diplomacy.len() {
-            return Err(not_found(format!("no diplomatic action {}", ticket.0)));
+            return Err(checks::diplomacy::not_kept(ticket.0).into());
         }
         Ok(self.diplomacy_answers.get(&ticket).copied().unwrap_or(DiplomacyAnswer::Pending))
     }
@@ -514,9 +511,15 @@ impl FakeGame {
             return Err(not_found("unknown country"));
         }
         if country == self.session.player {
-            return Err(Error::new(Status::InvalidArgument, "the player's own country"));
+            return Err(checks::diplomacy::own_country().into());
         }
         Ok(())
+    }
+
+    /// A country as the core's refusals name it: by its tag, here the one
+    /// [`tags`](Self::tags) has, or else by its ID.
+    fn named(&self, country: CountryId) -> String {
+        self.tags.get(&country).cloned().unwrap_or_else(|| country.0.to_string())
     }
 
     /// The game's own refusal, [`reject_diplomacy`](Self::reject_diplomacy).

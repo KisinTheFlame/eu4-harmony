@@ -7,7 +7,7 @@
 //! from its left edge, y from its bottom edge, as `map/positions.txt` writes
 //! them. The camera's height is in the same unit, above the map's base plane
 //! (docs/research/camera.md).
-use super::{context, fail, game, map_manager, with_state, Caller, Ctx, GResult, Status};
+use super::{context, game, map_manager, with_state, Caller, Ctx, GResult};
 use crate::{
     memory::Memory,
     objects::{
@@ -73,7 +73,7 @@ pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
     if province == 0 {
-        return fail(Status::NotFound, "no province 0");
+        return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let (manager, camera) = movable(m, &ctx)?;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
