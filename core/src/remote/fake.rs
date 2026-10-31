@@ -235,7 +235,7 @@ impl armies::Layer for Fake {
         match id {
             ARMY => Ok(army()),
             FLEET => Ok(game::armies::Army { id: FLEET, owner: tur(), ..Default::default() }),
-            _ => fail(Status::NotFound, format!("no own army {id}")),
+            _ => Err(eu4_harmony_checks::armies::not_own(id).into()),
         }
     }
 

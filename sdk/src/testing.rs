@@ -207,7 +207,7 @@ impl FakeGame {
     }
 
     fn own(&self, id: ArmyId) -> Result<&Army> {
-        self.own_armies.iter().find(|a| a.id == id).ok_or_else(|| not_found(format!("no own army {}", id.0)))
+        self.own_armies.iter().find(|a| a.id == id).ok_or_else(|| checks::armies::not_own(id.0).into())
     }
 
     /// An own land army, as the core's army capabilities other than
@@ -215,36 +215,32 @@ impl FakeGame {
     fn own_land(&self, id: ArmyId) -> Result<&Army> {
         let army = self.own(id)?;
         if !army.land {
-            return Err(Error::new(Status::InvalidArgument, "not a land army"));
+            return Err(checks::armies::not_land().into());
         }
         Ok(army)
     }
 
     /// An own land army an extension may route or order now, checked as the
-    /// core checks it, in its order and words: not while the game is paused,
-    /// and not one in battle, sieging, retreating, exiled, locked, attached
-    /// or with armies attached, busy with a task of the game's, or with no
-    /// regiments.
+    /// core checks it (`eu4_harmony_checks::armies`): not while the game is
+    /// paused, and not one in battle, sieging, retreating, exiled, locked,
+    /// attached or with armies attached, busy with a task of the game's, or
+    /// with no regiments.
     fn orderable(&self, id: ArmyId) -> Result<Army> {
         let army = *self.own_land(id)?;
         if self.session.paused {
-            return Err(Error::new(Status::NotReady, "game is paused"));
+            return Err(checks::armies::paused().into());
         }
-        for (on, reason) in [
-            (army.in_battle, "army is in battle"),
-            (army.sieging, "army is sieging"),
-            (army.retreating, "army is retreating"),
-            (army.exiled, "army is exiled"),
-            (army.movement_locked, "army movement is locked"),
-            (army.attached, "army is attached to another army"),
-            (army.has_followers, "other armies are attached to this army"),
-            (army.busy, "army has a native task"),
-            (army.regiments == 0, "army has no regiments"),
-        ] {
-            if on {
-                return Err(rejected(reason));
-            }
-        }
+        checks::armies::orderable(&checks::armies::Condition {
+            in_battle: army.in_battle,
+            sieging: army.sieging,
+            retreating: army.retreating,
+            exiled: army.exiled,
+            movement_locked: army.movement_locked,
+            attached: army.attached,
+            has_followers: army.has_followers,
+            busy: army.busy,
+            regiments: army.regiments,
+        })?;
         Ok(army)
     }
 }
@@ -275,7 +271,7 @@ impl Backend for FakeGame {
     }
     fn province_armies(&mut self, province: ProvinceId) -> Result<Vec<Army>> {
         if !self.session.visibility_current {
-            return Err(Error::new(Status::NotReady, "visibility is not current yet"));
+            return Err(checks::armies::visibility_not_current().into());
         }
         let visible = self.provinces.get(province as usize).is_some_and(|p| p.visible);
         Ok(if visible { self.province_armies.get(&province).cloned().unwrap_or_default() } else { Vec::new() })
@@ -296,11 +292,11 @@ impl Backend for FakeGame {
         // As the core: visibility first, then the army, then the target among
         // the armies visible in the province.
         if !self.session.visibility_current {
-            return Err(Error::new(Status::NotReady, "visibility is not current yet"));
+            return Err(checks::armies::visibility_not_current().into());
         }
         self.own_land(id)?;
         if !self.province_armies(province)?.iter().any(|a| a.id == target) {
-            return Err(not_found(format!("no visible army {} in {province}", target.0)));
+            return Err(checks::armies::not_visible(target.0, province).into());
         }
         Ok(id != target && !self.protected.contains(&(id, target)))
     }
@@ -309,7 +305,7 @@ impl Backend for FakeGame {
         if goal == army.province {
             return Ok(Vec::new());
         }
-        self.routes.get(&(id, goal)).cloned().ok_or_else(|| not_found(format!("no route to {goal}")))
+        self.routes.get(&(id, goal)).cloned().ok_or_else(|| checks::armies::no_route(goal).into())
     }
     fn army_move(&mut self, id: ArmyId, goal: ProvinceId) -> Result<()> {
         self.orderable(id)?;

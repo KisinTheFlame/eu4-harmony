@@ -5,8 +5,9 @@
 //! else changes it. A remote client's order is the player's: it takes the
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once (ADR 0015).
-use super::{context, events, fail, game, orders, with_state, world, Caller, GResult, Status, Tag};
+use super::{context, events, game, orders, with_state, world, Caller, GResult, Tag};
 use crate::{memory::Memory, objects::campaign::unit};
+use eu4_harmony_checks::armies as checks;
 
 /// Who set the route an army is following, as the caller sees it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -50,6 +51,23 @@ pub struct Army {
     pub route_source: RouteSource,
 }
 
+impl Army {
+    /// What of its state stops an order (`eu4_harmony_checks::armies`).
+    pub fn condition(&self) -> checks::Condition {
+        checks::Condition {
+            in_battle: self.in_battle,
+            sieging: self.sieging,
+            retreating: self.retreating,
+            exiled: self.exiled,
+            movement_locked: self.movement_locked,
+            attached: self.attached,
+            has_followers: self.has_followers,
+            busy: self.busy,
+            regiments: self.regiments,
+        }
+    }
+}
+
 /// An own army with its route, as `caller` sees it.
 fn own(m: &Memory, caller: Caller, address: usize, id: u64) -> GResult<Army> {
     let mut army = world::army_record(m, &super::special_countries(m)?, address)?;
@@ -67,7 +85,7 @@ pub fn army(caller: Caller, id: u64) -> GResult<Army> {
     let m = game()?;
     let ctx = context(m)?;
     let Some((_, address, _)) = world::own_roster(m, &ctx)?.into_iter().find(|(i, _, _)| *i == id) else {
-        return fail(Status::NotFound, format!("no own army {id}"));
+        return Err(checks::not_own(id).into());
     };
     own(m, caller, address, id)
 }
@@ -85,7 +103,7 @@ pub fn in_province(_: Caller, province: u32) -> GResult<Vec<Army>> {
     let m = game()?;
     let ctx = context(m)?;
     if !events::visibility_current(m, &ctx) {
-        return fail(Status::NotReady, "visibility is not current yet");
+        return Err(checks::visibility_not_current().into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     Ok(world::province_armies(m, &ctx, address)?.into_iter().map(|(a, _)| a).collect())
@@ -122,12 +140,12 @@ pub fn can_attack(_: Caller, id: u64, target: u64, province: u32) -> GResult<boo
     let m = game()?;
     let ctx = context(m)?;
     if !events::visibility_current(m, &ctx) {
-        return fail(Status::NotReady, "visibility is not current yet");
+        return Err(checks::visibility_not_current().into());
     }
     let army = world::own_land_army(m, &ctx, id)?;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     let Some((_, unit)) = world::province_armies(m, &ctx, address)?.into_iter().find(|(a, _)| a.id == target) else {
-        return fail(Status::NotFound, format!("no visible army {target} in {province}"));
+        return Err(checks::not_visible(target, province).into());
     };
     Ok(unit != army && world::can_attack(m, army, unit)?)
 }
