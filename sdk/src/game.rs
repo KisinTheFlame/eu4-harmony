@@ -781,7 +781,8 @@ impl<'a> Game<'a> {
             Err(e) => Err(e),
         }
     }
-    /// This extension's data stored with the current save.
+    /// This extension's data in the current save: what it set last in this
+    /// session, or else what the save it was loaded from held.
     pub fn save_data<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
         let text = self.backend.save_data_get()?;
         if text.is_empty() {
@@ -789,7 +790,8 @@ impl<'a> Game<'a> {
         }
         serde_json::from_str(&text).map(Some).map_err(|e| Error::new(Status::InvalidArgument, format!("save data: {e}")))
     }
-    /// Replaces this extension's data; written with the next save.
+    /// Replaces this extension's data, which every save from now on carries.
+    /// More than 16 MiB of JSON is refused ([`Status::InvalidArgument`]).
     pub fn set_save_data<T: Serialize>(&mut self, value: &T) -> Result<()> {
         let text = serde_json::to_string(value).map_err(|e| Error::new(Status::InvalidArgument, e.to_string()))?;
         self.backend.save_data_set(&text)

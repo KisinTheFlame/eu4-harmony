@@ -57,7 +57,7 @@ All of a game object's fields at one moment, fetched by an extension in one go.
 _Avoid_: view, reference
 
 **Extension save data**:
-An extension's own data kept with a particular save: tied to that save, but stored outside the save file.
+An extension's own data kept with a particular save, written into the save file itself. It is kept only for the extensions loaded when the save is loaded.
 _Avoid_: sidecar, companion file
 
 **Game console**:

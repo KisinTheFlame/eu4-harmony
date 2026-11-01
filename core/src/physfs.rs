@@ -177,23 +177,13 @@ unsafe extern "C" fn eof_detour(handle: File) -> i32 {
     ORIG_EOF.get()(handle)
 }
 
-/// `PHYSFS_close` is observed rather than detoured because the save tracker
-/// watches it too.
+/// `PHYSFS_close` is only observed: a spliced copy is dropped as its file
+/// closes.
 extern "C" fn close_before(frame: *mut HookFrame) {
     crate::guarded("PHYSFS_close", || {
         let handle = unsafe { (*frame).args[0] };
         state().open.remove(&handle);
     });
-    crate::saves::close_before(frame);
-}
-
-extern "C" fn close_after(frame: *mut HookFrame) {
-    crate::saves::close_after(frame);
-}
-
-/// `PHYSFS_getRealDir`, which the save tracker calls too.
-pub fn real_dir() -> usize {
-    GET_REAL_DIR.address()
 }
 
 /// Every PhysFS function the core detours, observes or calls, by export name.
@@ -212,7 +202,7 @@ pub fn points() -> Vec<Point> {
         Point::replace(c"PHYSFS_seek", "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "PhysFS seek", seek_detour as SeekFn, &ORIG_SEEK),
         Point::replace(c"PHYSFS_tell", "40 53 48 83 ec 20 48 8b 01 48 8b d9 48 8b c8 ff", "PhysFS tell", tell_detour as TellFn, &ORIG_TELL),
         Point::replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as EofFn, &ORIG_EOF),
-        Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), Some(close_after)),
+        Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), None),
         Point::keep(c"PHYSFS_getRealDir", "48 83 ec 28 e8 37 38 00 00 48 85 c0 74 09 48 8b", "PhysFS real directory").recorded(GET_REAL_DIR.slot()),
     ]
 }

@@ -309,13 +309,9 @@ pub(crate) fn deferred_init() {
     report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
     // Remote control is always on (ADR 0017).
     pipe::start();
-    if let Some(m) = MEMORY.get().copied() {
-        if let Err(e) = saves::initialize(m, user_dir.join("eu4-harmony").join("saves")) {
-            log!("save data: {e}");
-        }
-    }
     let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
     let outcomes = ext::load(&mods, &logs);
+    saves::keep_for(ext::mod_ids());
     let indices = ext::extension_indices(&mods);
     let included = |i: usize| outcomes[i].included;
     let (mut plan, ui_notes) = splice::build(&mods, included);

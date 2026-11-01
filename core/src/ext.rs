@@ -82,6 +82,11 @@ pub fn mod_id(index: usize) -> Option<String> {
     extensions().get(index).map(|l| l.host.id.clone())
 }
 
+/// The ids of the mods whose extensions loaded.
+pub fn mod_ids() -> Vec<String> {
+    extensions().iter().map(|l| l.host.id.clone()).collect()
+}
+
 // ---------- host functions ----------
 //
 // Each converts between the ABI and the capability layer (`crate::game`),
