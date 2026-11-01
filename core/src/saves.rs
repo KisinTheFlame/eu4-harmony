@@ -1,190 +1,96 @@
-//! Extension save data: written next to a save after the game finishes writing
-//! it, bound to the save's full SHA-256, absolute path and game date, and read
-//! back when that exact save is loaded. The `.eu4` file is never changed.
+//! Extension save data (ADR 0020), kept in the save itself: the game's writer
+//! writes it as one more top-level entry of the game state, `eu4_harmony`,
+//! after the world's own entries, before the AI a plain save holds and before
+//! the checksum, and when a save is loaded the framework reads that entry
+//! before the world's handler of top-level entries sees it. How the game
+//! writes and reads saves is in docs/research/saves.md.
 //!
-//! The observers follow the game's save pipeline (save request, local writer,
-//! file close, final move to the absolute path) and its loader, as recovered for
-//! eu4-regional-combat (docs/research/regional-combat/native-save-findings.txt).
+//! The save loader is observed as well, which tells the rest of the core when
+//! a save is being read and whether it was.
 use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
-use serde::{Deserialize, Serialize};
+use eu4_harmony_remote::binary as base64;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::{
     cell::RefCell,
-    collections::BTreeMap,
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
-    path::{Path, PathBuf},
-    rc::{Rc, Weak},
+    collections::{BTreeMap, BTreeSet},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Mutex, OnceLock,
     },
-    time::{Duration, Instant},
 };
 
-const SAVE: usize = 0x5cbde0;
-const LOCAL_NORMAL: usize = 0x5c6500;
-const LOCAL_IRONMAN: usize = 0x5c7ac0;
-const FINAL_MOVE: usize = 0x1715bb0;
-const ABSOLUTE_PATH: usize = 0x1a5ed40;
+/// In the world's write of itself into a save (`0x74ff30(world, writer)`), the
+/// writer in `rsi`: where the game state has been written, and the AI follows
+/// in a plain save (`AI`) or not in the `gamestate` of a zipped one (`NO_AI`).
+/// A plain save's top-level entries are read only up to the AI.
+const BEFORE_AI: usize = 0x751c87;
+const AI: usize = 0x751c8c;
+const NO_AI: usize = 0x751c98;
+/// The game's writer: one token as given; `{` and `}`, each with a line
+/// break; a quoted string, with a line break; a line break; a line's indent.
+/// Line breaks and indents are written in text saves only.
+const WRITE_TOKEN: usize = 0x1708870;
+const WRITE_OPEN: usize = 0x1708750;
+const WRITE_CLOSE: usize = 0x17087e0;
+const WRITE_QUOTED: usize = 0x1707d90;
+const WRITE_LINE_BREAK: usize = 0x17084a0;
+const WRITE_INDENT: usize = 0x1708560;
+/// In the world's handler of top-level entries (`0x751cd0`), the branch for an
+/// entry it has no case for begins by calling the content registry, then asks
+/// it about the entry's key; the handler returns at `ENTRY_HANDLED`.
+const UNKNOWN_ENTRY: usize = 0x7552bb;
+const UNKNOWN_ENTRY_NEXT: usize = 0x7552c0;
+const UNKNOWN_ENTRY_KEY: usize = 0x7552c3;
+const CONTENT_REGISTRY: usize = 0x7e2d40;
+const ENTRY_HANDLED: usize = 0x752d61;
+/// The game's own way of skipping a block, which reads the reader's fields
+/// below as the framework does.
+const SKIP_BLOCK: usize = 0x170a4e6;
 const LOAD: usize = 0x5cdc60;
-/// Return addresses that tie a file close or move to the save writer that made it.
-const CLOSE_FROM_NORMAL: usize = 0x5c6c51;
-const CLOSE_FROM_IRONMAN: usize = 0x5c820f;
-const MOVE_FROM_NORMAL: usize = 0x5c788d;
-const MOVE_FROM_IRONMAN: usize = 0x5c88f4;
-const ABSOLUTE_FROM_MOVE: usize = 0x171614f;
 
-const MAX_SAVE: u64 = 512 * 1024 * 1024;
-const MAX_JSON: usize = 16 * 1024 * 1024;
-const IO_BUDGET: Duration = Duration::from_secs(3);
+/// The writer's depth of blocks: 0 inside the world's own entries.
+const WRITER_DEPTH: usize = 0x8;
+/// The reader of a save: its tokenizer, the key of the entry it stands in,
+/// and the type of the value after the key's `=`.
+const READER_TOKENIZER: usize = 0x28;
+const READER_KEY_TEXT: usize = 0x34;
+const READER_VALUE_TYPE: usize = 0x440;
+/// The tokenizer: the method that reads the next token, returning 0 at the
+/// end; the token's type, followed by its text.
+const TOKENIZER_NEXT: usize = 0x8;
+const TOKEN_TYPE: usize = 0x14;
+const TOKEN_TEXT: usize = TOKEN_TYPE + 4;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct Identity {
-    absolute_path: String,
-    sha256: String,
-    size: u64,
-}
+/// Token types, the same for what the writer takes and what the tokenizer
+/// reads: `=`, `{`, `}`, a number, and a string with no id of its own.
+const EQUALS: u32 = 1;
+const OPEN: u32 = 3;
+const CLOSE: u32 = 4;
+const NUMBER: u32 = 0xc;
+const STRING: u32 = 0xf;
+/// The text a token holds, its NUL included.
+const TOKEN_TEXT_LEN: usize = 512;
 
-/// The file that holds the extension save data of one save.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SaveDataFile {
-    schema: u32,
-    identity: Identity,
-    date: i32,
-    /// Extension id -> its data.
-    extensions: BTreeMap<String, Value>,
-}
+const KEY: &str = "eu4_harmony";
+const VERSION: &str = "1";
+/// The game's reader returns an empty string for one of 512 bytes or more.
+const CHUNK: usize = 500;
+/// How much JSON one extension's data may be.
+const MAX_DATA: usize = 16 * 1024 * 1024;
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Lower-cased absolute path without the `\\?\` prefix, as the identity key.
-fn slot(path: &Path) -> Result<String> {
-    let mut s = path.to_str().ok_or("non-Unicode save path")?.to_string();
-    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
-        s = format!(r"\\{rest}");
-    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
-        s = rest.to_string();
-    }
-    Ok(s.replace('/', "\\").to_lowercase())
-}
-
-/// A save file opened without write/delete sharing while it is hashed.
-struct LockedSave {
-    _file: File,
-    identity: Identity,
-}
-
-impl LockedSave {
-    fn open(path: &Path) -> Result<Self> {
-        use std::os::windows::fs::OpenOptionsExt;
-        if !path.is_absolute() || !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("eu4")) {
-            return Err(format!("not an absolute .eu4 path: {}", path.display()));
-        }
-        let path = fs::canonicalize(path).map_err(|e| e.to_string())?;
-        let mut file = OpenOptions::new().read(true).share_mode(1).open(&path).map_err(|e| format!("open save: {e}"))?;
-        let before = file.metadata().map_err(|e| e.to_string())?;
-        if before.len() == 0 || before.len() > MAX_SAVE {
-            return Err("save size out of bounds".into());
-        }
-        let started = Instant::now();
-        let mut sha = Sha256::new();
-        let mut count = 0u64;
-        let mut buf = vec![0u8; 1024 * 1024];
-        loop {
-            if started.elapsed() > IO_BUDGET {
-                return Err("hashing the save took too long".into());
-            }
-            let n = file.read(&mut buf).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            count += n as u64;
-            sha.update(&buf[..n]);
-        }
-        let after = file.metadata().map_err(|e| e.to_string())?;
-        if count != before.len() || after.len() != before.len() || before.modified().ok() != after.modified().ok() {
-            return Err("save changed while hashing".into());
-        }
-        Ok(Self { _file: file, identity: Identity { absolute_path: slot(&path)?, sha256: hex(&sha.finalize()), size: count } })
-    }
-}
-
-struct Store {
-    directory: PathBuf,
-}
-
-impl Store {
-    fn path(&self, id: &Identity) -> PathBuf {
-        self.directory.join(format!("{}-{}.json", hex(&Sha256::digest(id.absolute_path.as_bytes())), id.sha256))
-    }
-
-    fn read(&self, id: &Identity, date: i32) -> Result<Option<BTreeMap<String, Value>>> {
-        let raw = match fs::read(self.path(id)) {
-            Ok(r) => r,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e.to_string()),
-        };
-        if raw.len() > MAX_JSON {
-            return Err("save data file too large".into());
-        }
-        let value: SaveDataFile = serde_json::from_slice(&raw).map_err(|e| e.to_string())?;
-        if value.schema != 1 || value.identity != *id || value.date != date {
-            return Err("save data belongs to a different save or date".into());
-        }
-        Ok(Some(value.extensions))
-    }
-
-    fn write(&self, value: &SaveDataFile) -> Result<PathBuf> {
-        let data = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-        if data.len() > MAX_JSON {
-            return Err("save data too large".into());
-        }
-        fs::create_dir_all(&self.directory).map_err(|e| e.to_string())?;
-        let temp = self.directory.join(format!(".eu4h-{}.tmp", std::process::id()));
-        let dest = self.path(&value.identity);
-        let result = (|| {
-            let mut f = OpenOptions::new().write(true).create(true).truncate(true).open(&temp).map_err(|e| e.to_string())?;
-            f.write_all(&data).map_err(|e| e.to_string())?;
-            f.sync_all().map_err(|e| e.to_string())?;
-            drop(f);
-            replace_file(&temp, &dest)
-        })();
-        let _ = fs::remove_file(&temp);
-        result.map(|_| dest)
-    }
-}
-
-fn replace_file(from: &Path, to: &Path) -> Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
-    let a: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-    let b: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    if unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } == 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
-    Ok(())
-}
-
-struct Context {
-    memory: Memory,
-    store: Store,
-}
-static CONTEXT: OnceLock<Context> = OnceLock::new();
 static LOAD_DEPTH: AtomicUsize = AtomicUsize::new(0);
 /// The saves the game began to read since it started.
 static LOADS: AtomicUsize = AtomicUsize::new(0);
 /// The game read the last save it began to read into its world.
 static LAST_READ: AtomicBool = AtomicBool::new(false);
 
+/// The extensions loaded in this run, the only ones a save's data is kept for.
+static EXTENSIONS: OnceLock<BTreeSet<String>> = OnceLock::new();
+/// What the save being read held in its entry, once read.
+static READ: Mutex<Option<Result<BTreeMap<String, Value>>>> = Mutex::new(None);
 /// Data loaded with the last save, waiting for the session that loaded it.
 static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
-/// Current data of every extension, captured at save time.
+/// Current data of every extension, written with every save.
 static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
 
 pub fn load_in_progress() -> bool {
@@ -202,6 +108,11 @@ pub fn last_load_read() -> bool {
     LAST_READ.load(Ordering::SeqCst)
 }
 
+/// Says which extensions loaded, once they have.
+pub fn keep_for(ids: impl IntoIterator<Item = String>) {
+    let _ = EXTENSIONS.set(ids.into_iter().collect());
+}
+
 /// Data the last load brought along, if the session has not taken it yet.
 pub fn take_loaded() -> Option<BTreeMap<String, Value>> {
     LOADED.lock().unwrap_or_else(|e| e.into_inner()).take()
@@ -211,12 +122,20 @@ pub fn get(id: &str) -> Option<Value> {
     CURRENT.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
 }
 
-pub fn set(id: &str, value: Option<Value>) {
+/// Replaces one extension's data; more than [`MAX_DATA`] of JSON is refused.
+pub fn set(id: &str, value: Option<Value>) -> Result<()> {
+    if let Some(v) = &value {
+        let len = v.to_string().len();
+        if len > MAX_DATA {
+            return Err(format!("save data is {len} bytes of JSON; at most {MAX_DATA} are kept"));
+        }
+    }
     let mut current = CURRENT.lock().unwrap_or_else(|e| e.into_inner());
     match value {
         Some(v) => current.insert(id.to_string(), v),
         None => current.remove(id),
     };
+    Ok(())
 }
 
 /// Replaces all extensions' data, when a load replaces the world and at a
@@ -225,307 +144,100 @@ pub fn replace_all(data: BTreeMap<String, Value>) {
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = data;
 }
 
-fn world_date(m: &Memory) -> Result<(usize, i32, u8)> {
-    use crate::objects::campaign::{globals, world};
-    let at = m.ptr(m.at(globals::WORLD))?;
-    if at == 0 {
-        return Err("no world".into());
+/// One step of writing the entry, as the game's writer takes it.
+#[derive(Debug, PartialEq, Eq)]
+enum Write {
+    Token(u32, &'static str),
+    Open,
+    Close,
+    Quoted(String),
+    LineBreak,
+    Indent,
+}
+
+/// The entry for `data`, which must not be empty:
+///
+/// ```text
+/// eu4_harmony={
+///     version=1
+///     data={
+///         "<the data as JSON, in base64, at most 500 bytes a string>"
+///     }
+/// }
+/// ```
+fn entry(data: &BTreeMap<String, Value>) -> Vec<Write> {
+    let json = serde_json::to_vec(data).expect("JSON values serialize");
+    let mut writes = vec![
+        Write::Token(STRING, KEY),
+        Write::Token(EQUALS, "="),
+        Write::Open,
+        Write::Indent,
+        Write::Token(STRING, "version"),
+        Write::Token(EQUALS, "="),
+        Write::Token(NUMBER, VERSION),
+        Write::LineBreak,
+        Write::Indent,
+        Write::Token(STRING, "data"),
+        Write::Token(EQUALS, "="),
+        Write::Open,
+    ];
+    for chunk in base64::encode(&json).as_bytes().chunks(CHUNK) {
+        writes.push(Write::Indent);
+        writes.push(Write::Quoted(String::from_utf8(chunk.to_vec()).expect("base64 is ASCII")));
     }
-    Ok((at, m.i32(at + world::DATE)?, m.u8(at + world::DAILY_UPDATE)?))
+    writes.extend([Write::Close, Write::Close]);
+    writes
 }
 
-fn wide_cstring(m: &Memory, p: usize) -> Result<String> {
-    let mut chars = Vec::new();
-    for n in 0..4096 {
-        let c = m.u16(p + n * 2)?;
-        if c == 0 {
-            return String::from_utf16(&chars).map_err(|e| e.to_string());
+/// A token of the entry's block, as the tokenizer reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Token {
+    Equals,
+    Open,
+    Close,
+    Text(String),
+}
+
+/// The data in the tokens of the entry's block, from after its `{` to before
+/// its `}`.
+fn decode(tokens: &[Token]) -> Result<BTreeMap<String, Value>> {
+    let rest = match tokens {
+        [Token::Text(key), Token::Equals, Token::Text(version), rest @ ..] if key == "version" => {
+            if version != VERSION {
+                return Err(format!("the data is in format version {version}, which this framework does not read"));
+            }
+            rest
         }
-        chars.push(c);
+        _ => return Err("the data has no format version".into()),
+    };
+    let [Token::Text(key), Token::Equals, Token::Open, chunks @ .., Token::Close] = rest else { return Err("no data after the format version".into()) };
+    if key != "data" {
+        return Err(format!("{key:?} where the data should be"));
     }
-    Err("path too long".into())
-}
-
-fn cstring(m: &Memory, p: usize) -> Result<String> {
-    let mut bytes = Vec::new();
-    for n in 0..4096 {
-        let c = m.u8(p + n)?;
-        if c == 0 {
-            return String::from_utf8(bytes).map_err(|e| e.to_string());
-        }
-        bytes.push(c);
+    let mut text = String::new();
+    for chunk in chunks {
+        let Token::Text(chunk) = chunk else { return Err("the data holds more than strings".into()) };
+        text.push_str(chunk);
     }
-    Err("path too long".into())
+    let json = base64::decode(&text).ok_or("the data is not base64")?;
+    serde_json::from_slice(&json).map_err(|e| format!("the data is not JSON of extension ids: {e}"))
 }
 
-// Per-thread record of the save operations in progress, matched by hook slot.
-type SaveRef = Rc<RefCell<SaveTxn>>;
-type LocalRef = Rc<RefCell<LocalTxn>>;
-type MoveRef = Rc<RefCell<MoveTxn>>;
-struct SaveTxn {
-    request: usize,
-    world: (usize, i32, u8),
-    data: BTreeMap<String, Value>,
-    locals: Vec<LocalRef>,
-    moves: Vec<MoveRef>,
-}
-struct LocalTxn {
-    save: Weak<RefCell<SaveTxn>>,
-    ironman: bool,
-    success: bool,
-    closed: bool,
-}
-struct MoveTxn {
-    local: LocalRef,
-    absolute: Option<PathBuf>,
-    absolute_ok: bool,
-    helper_ok: bool,
-}
-struct LoadTxn {
-    world: usize,
-    success: usize,
-    locked: Option<LockedSave>,
-    error: Option<String>,
-}
-enum Record {
-    Ignored,
-    Save(SaveRef),
-    Local(LocalRef),
-    Close(Option<LocalRef>),
-    Move(MoveRef),
-    Absolute(Option<(MoveRef, PathBuf)>),
-    Load(LoadTxn),
-}
-thread_local! { static STACK: RefCell<Vec<(usize, Record)>> = const { RefCell::new(Vec::new()) }; }
-
-fn ancestor<T>(pick: impl Fn(&Record) -> Option<T>) -> Option<T> {
-    STACK.with(|s| s.borrow().iter().rev().find_map(|(_, r)| pick(r)))
-}
-
-fn context() -> Result<&'static Context> {
-    CONTEXT.get().ok_or_else(|| "save data not initialized".to_string())
-}
-
-fn before(frame: *mut HookFrame, f: impl FnOnce(&HookFrame) -> Result<Record>) {
-    crate::guarded("save observer", || {
-        let h = unsafe { &*frame };
-        STACK.with(|s| s.borrow_mut().push((h.slot, Record::Ignored)));
-        match f(h) {
-            Ok(record) => STACK.with(|s| {
-                if let Some((slot, r)) = s.borrow_mut().last_mut() {
-                    if *slot == h.slot {
-                        *r = record;
-                    }
-                }
-            }),
-            Err(e) => log!("saves: {e}"),
-        }
-    });
-}
-
-fn after(frame: *mut HookFrame, f: impl FnOnce(&HookFrame, Record) -> Result<()>) {
-    crate::guarded("save observer", || {
-        let h = unsafe { &*frame };
-        let record = STACK.with(|s| match s.borrow_mut().pop() {
-            Some((slot, r)) if slot == h.slot => Ok(r),
-            _ => Err("save observer nesting mismatch".to_string()),
+/// Keeps what a load brought, only for the extensions loaded in this run,
+/// for its session. Once the load has replaced the world, the data is current
+/// at once: the game saves an ironman game it loads before the session starts,
+/// and that save must carry it.
+fn loaded(read: bool, data: Result<BTreeMap<String, Value>>, extensions: &BTreeSet<String>) -> Result<()> {
+    let data = data.map(|mut data| {
+        data.retain(|id, _| {
+            let kept = extensions.contains(id);
+            if !kept {
+                log!("saves: dropped the data of {id:?}, which is not loaded");
+            }
+            kept
         });
-        let result = record.and_then(|r| if h.fault != 0 { Err("native call unwound; save evidence discarded".into()) } else { f(h, r) });
-        if let Err(e) = result {
-            log!("saves: {e}");
-        }
+        data
     });
-}
-
-extern "C" fn save_before(frame: *mut HookFrame) {
-    before(frame, |h| {
-        let c = context()?;
-        let world = world_date(&c.memory)?;
-        let data = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        Ok(Record::Save(Rc::new(RefCell::new(SaveTxn { request: h.args[0], world, data, locals: vec![], moves: vec![] }))))
-    });
-}
-
-extern "C" fn save_after(frame: *mut HookFrame) {
-    after(frame, |h, r| {
-        let Record::Save(save) = r else { return Ok(()) };
-        let save = save.borrow();
-        let c = context()?;
-        if save.data.is_empty() {
-            return Ok(());
-        }
-        if h.result as u32 != 0 || world_date(&c.memory)? != save.world || save.locals.len() != 1 || save.moves.len() != 1 {
-            return Err("incomplete evidence that the save was written".into());
-        }
-        let local = save.locals[0].borrow();
-        let moved = save.moves[0].borrow();
-        if !Rc::ptr_eq(&moved.local, &save.locals[0]) || !local.success || !local.closed || !moved.absolute_ok || !moved.helper_ok {
-            return Err("save writer, close or final move failed".into());
-        }
-        let path = moved.absolute.as_ref().ok_or("no absolute save path")?;
-        let locked = LockedSave::open(path)?;
-        let value = SaveDataFile { schema: 1, identity: locked.identity.clone(), date: save.world.1, extensions: save.data.clone() };
-        let dest = c.store.write(&value)?;
-        log!("saves: wrote extension data for {} to {}", locked.identity.absolute_path, dest.display());
-        Ok(())
-    });
-}
-
-fn local_before(frame: *mut HookFrame, ironman: bool) {
-    before(frame, |h| {
-        let Some(save) = ancestor(|r| if let Record::Save(x) = r { Some(x.clone()) } else { None }) else {
-            return Ok(Record::Ignored);
-        };
-        if save.borrow().request != h.args[0] {
-            return Err("save request pointer mismatch".into());
-        }
-        let local = Rc::new(RefCell::new(LocalTxn { save: Rc::downgrade(&save), ironman, success: false, closed: false }));
-        save.borrow_mut().locals.push(local.clone());
-        Ok(Record::Local(local))
-    });
-}
-extern "C" fn normal_before(f: *mut HookFrame) {
-    local_before(f, false)
-}
-extern "C" fn ironman_before(f: *mut HookFrame) {
-    local_before(f, true)
-}
-extern "C" fn local_after(f: *mut HookFrame) {
-    after(f, |h, r| {
-        if let Record::Local(x) = r {
-            x.borrow_mut().success = h.result as u32 == 0;
-        }
-        Ok(())
-    });
-}
-
-/// `PHYSFS_close`; shared with the PhysFS splicer, which calls these.
-pub fn close_before(f: *mut HookFrame) {
-    before(f, |h| {
-        let c = context()?;
-        let local = ancestor(|r| if let Record::Local(x) = r { Some(x.clone()) } else { None })
-            .filter(|l| h.return_address == c.memory.at(if l.borrow().ironman { CLOSE_FROM_IRONMAN } else { CLOSE_FROM_NORMAL }));
-        Ok(Record::Close(local))
-    });
-}
-pub fn close_after(f: *mut HookFrame) {
-    after(f, |h, r| {
-        if let Record::Close(Some(x)) = r {
-            x.borrow_mut().closed = h.result as u32 == 1;
-        }
-        Ok(())
-    });
-}
-
-extern "C" fn move_before(f: *mut HookFrame) {
-    before(f, |h| {
-        let c = context()?;
-        let Some(local) = ancestor(|r| if let Record::Local(x) = r { Some(x.clone()) } else { None }) else {
-            return Ok(Record::Ignored);
-        };
-        let expected = if local.borrow().ironman { MOVE_FROM_IRONMAN } else { MOVE_FROM_NORMAL };
-        if h.return_address != c.memory.at(expected) {
-            return Ok(Record::Ignored);
-        }
-        let save = local.borrow().save.upgrade().ok_or("save record expired")?;
-        let moved = Rc::new(RefCell::new(MoveTxn { local, absolute: None, absolute_ok: false, helper_ok: false }));
-        save.borrow_mut().moves.push(moved.clone());
-        Ok(Record::Move(moved))
-    });
-}
-extern "C" fn move_after(f: *mut HookFrame) {
-    after(f, |h, r| {
-        if let Record::Move(x) = r {
-            x.borrow_mut().helper_ok = h.result & 255 == 1;
-        }
-        Ok(())
-    });
-}
-
-extern "C" fn absolute_before(f: *mut HookFrame) {
-    before(f, |h| {
-        let c = context()?;
-        if h.return_address != c.memory.at(ABSOLUTE_FROM_MOVE) {
-            return Ok(Record::Absolute(None));
-        }
-        let Some(m) = ancestor(|r| if let Record::Move(x) = r { Some(x.clone()) } else { None }) else {
-            return Ok(Record::Absolute(None));
-        };
-        Ok(Record::Absolute(Some((m, PathBuf::from(wide_cstring(&c.memory, h.args[1])?)))))
-    });
-}
-extern "C" fn absolute_after(f: *mut HookFrame) {
-    after(f, |h, r| {
-        if let Record::Absolute(Some((m, path))) = r {
-            let mut m = m.borrow_mut();
-            m.absolute = Some(path);
-            m.absolute_ok = h.result as u32 == 0;
-        }
-        Ok(())
-    });
-}
-
-extern "C" fn load_before(f: *mut HookFrame) {
-    LOAD_DEPTH.fetch_add(1, Ordering::SeqCst);
-    LOADS.fetch_add(1, Ordering::SeqCst);
-    LAST_READ.store(false, Ordering::SeqCst);
-    *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    crate::game::events::load_begin();
-    crate::remote::campaign_changes();
-    before(f, |h| {
-        let c = context()?;
-        let mut txn = LoadTxn { world: h.args[2], success: h.args[1], locked: None, error: None };
-        let binding = (|| {
-            let file = c.memory.ptr(h.args[0])?;
-            let (path, data) = engine_path(&c.memory, file + 0x18)?;
-            let root = c.memory.call(crate::physfs::real_dir(), &[data])?;
-            if root == 0 {
-                return Err("loaded path has no real directory".to_string());
-            }
-            LockedSave::open(&PathBuf::from(cstring(&c.memory, root)?).join(path))
-        })();
-        match binding {
-            Ok(locked) => txn.locked = Some(locked),
-            Err(e) => txn.error = Some(e),
-        }
-        Ok(Record::Load(txn))
-    });
-}
-
-extern "C" fn load_after(f: *mut HookFrame) {
-    struct Exit;
-    impl Drop for Exit {
-        fn drop(&mut self) {
-            let _ = LOAD_DEPTH.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
-        }
-    }
-    let _exit = Exit;
-    after(f, |h, r| {
-        let Record::Load(txn) = r else { return Ok(()) };
-        let c = context()?;
-        let (world, date, daily) = world_date(&c.memory)?;
-        let read = h.result == txn.success && c.memory.u8(txn.success)? == 1 && world == txn.world && daily == 0;
-        LAST_READ.store(read, Ordering::SeqCst);
-        let data = (|| {
-            if let Some(e) = txn.error {
-                return Err(format!("loaded save not identified: {e}"));
-            }
-            if !read {
-                return Err("load did not establish the current world".into());
-            }
-            let locked = txn.locked.ok_or("no loaded file")?;
-            let data = c.store.read(&locked.identity, date)?;
-            log!("saves: loaded {} with data for {} extension(s)", locked.identity.absolute_path, data.as_ref().map_or(0, |d| d.len()));
-            Ok(data.unwrap_or_default())
-        })();
-        loaded(read, data)
-    });
-}
-
-/// Keeps what a load brought for its session. Once the load has replaced the
-/// world, the data is current at once: the game saves an ironman game it
-/// loads before the session starts, and that save must carry it.
-fn loaded(read: bool, data: Result<BTreeMap<String, Value>>) -> Result<()> {
     if read {
         replace_all(data.clone().unwrap_or_default());
     }
@@ -533,83 +245,354 @@ fn loaded(read: bool, data: Result<BTreeMap<String, Value>>) -> Result<()> {
     Ok(())
 }
 
-/// The path in the engine's `std::string` at `p`, and where its text is, a C
-/// string for PhysFS.
-fn engine_path(m: &Memory, p: usize) -> Result<(String, usize)> {
-    let bytes = crate::game_string::read(m, p)?;
-    if bytes.is_empty() || bytes.len() > 4095 {
-        return Err("engine path bounds".into());
-    }
-    let data = crate::game_string::text_address(m, p)?;
-    if m.u8(data + bytes.len())? != 0 {
-        return Err("engine path terminator".into());
-    }
-    let s = String::from_utf8(bytes).map_err(|e| e.to_string())?;
-    Ok((s, data))
+/// A token as the game's writer takes it: its type, then its text up to a
+/// NUL; the byte after the text stays 0, as the game's own callers leave it.
+#[repr(C)]
+struct GameToken {
+    kind: u32,
+    text: [u8; TOKEN_TEXT_LEN],
+    rest: u32,
 }
 
-/// Sets where data files go; the user directory is only known after bootstrap.
-pub fn initialize(memory: Memory, directory: PathBuf) -> Result<()> {
-    CONTEXT.set(Context { memory, store: Store { directory } }).map_err(|_| "save data already initialized".to_string())
+impl GameToken {
+    fn new(kind: u32, text: &str) -> Self {
+        let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
+        token.text[..text.len()].copy_from_slice(text.as_bytes());
+        token
+    }
 }
 
-/// The save and load functions the tracker observes, and the calls whose
-/// return addresses tie a file close or move to the writer that made it.
+/// Writes the entry with the game's writer, after the world's game state and
+/// before the checksum is taken of it.
+fn write_entry(m: Memory, writer: usize) -> Result<()> {
+    let data = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if data.is_empty() {
+        return Ok(());
+    }
+    let depth = m.i32(writer + WRITER_DEPTH)?;
+    if depth != 0 {
+        return Err(format!("the writer is {depth} blocks deep after the world; no data written"));
+    }
+    let writes = entry(&data);
+    for write in &writes {
+        match write {
+            Write::Token(kind, text) => m.call(m.at(WRITE_TOKEN), &[writer, &GameToken::new(*kind, text) as *const _ as usize])?,
+            Write::Open => m.call(m.at(WRITE_OPEN), &[writer])?,
+            Write::Close => m.call(m.at(WRITE_CLOSE), &[writer])?,
+            Write::Quoted(text) => {
+                let text: Vec<u8> = text.bytes().chain([0]).collect();
+                m.call(m.at(WRITE_QUOTED), &[writer, text.as_ptr() as usize, 0, 0])?
+            }
+            Write::LineBreak => m.call(m.at(WRITE_LINE_BREAK), &[writer])?,
+            Write::Indent => m.call(m.at(WRITE_INDENT), &[writer])?,
+        };
+    }
+    let chunks = writes.iter().filter(|w| matches!(w, Write::Quoted(_))).count();
+    log!("saves: wrote the data of {} extension(s), {chunks} string(s)", data.len());
+    Ok(())
+}
+
+extern "C" fn game_state_written(writer: usize) {
+    crate::guarded("save data writer", || {
+        if let Err(e) = write_entry(crate::hooked_memory(), writer) {
+            log!("saves: {e}");
+        }
+    });
+}
+
+crate::resume!(AI_RESUME: WRITE_AI = AI, SKIP_AI = NO_AI);
+
+/// Replaces `test r15b, r15b; je <no AI>` where the world has written its game
+/// state: the entry is written, then the AI or not, as the game chose.
+#[unsafe(naked)]
+extern "C" fn before_ai_stub() {
+    std::arch::naked_asm!(
+        crate::call_rust!("mov rcx, rsi", call written),
+        "test r15b, r15b",
+        "je 2f",
+        "jmp qword ptr [rip + {ai}]",
+        "2:",
+        "jmp qword ptr [rip + {no_ai}]",
+        written = sym game_state_written,
+        ai = sym WRITE_AI,
+        no_ai = sym SKIP_AI,
+    );
+}
+
+/// Whether the reader stands in the framework's entry: its key, and a block.
+fn our_entry(m: Memory, reader: usize) -> Result<bool> {
+    let key = m.bytes(reader + READER_KEY_TEXT, KEY.len() + 1)?;
+    if key[..KEY.len()] != *KEY.as_bytes() || key[KEY.len()] != 0 {
+        return Ok(false);
+    }
+    if m.u32(reader + READER_VALUE_TYPE)? != OPEN {
+        return Err(format!("the {KEY} entry is not a block"));
+    }
+    Ok(true)
+}
+
+/// The tokens of the block the reader stands in, up to its `}`, which is read
+/// too, as the game's own skipping of a block does.
+fn block_tokens(m: Memory, reader: usize) -> Result<Vec<Token>> {
+    let tokenizer = m.ptr(reader + READER_TOKENIZER)?;
+    let next = m.vslot(tokenizer, TOKENIZER_NEXT)?;
+    let mut depth = 0usize;
+    let mut tokens = Vec::new();
+    loop {
+        if m.call(next, &[tokenizer])? as u32 == 0 {
+            return Err(format!("the save ends inside the {KEY} entry"));
+        }
+        let token = match m.u32(tokenizer + TOKEN_TYPE)? {
+            EQUALS => Token::Equals,
+            OPEN => {
+                depth += 1;
+                Token::Open
+            }
+            CLOSE if depth == 0 => return Ok(tokens),
+            CLOSE => {
+                depth -= 1;
+                Token::Close
+            }
+            _ => {
+                let text = m.bytes(tokenizer + TOKEN_TEXT, TOKEN_TEXT_LEN)?;
+                let end = text.iter().position(|&b| b == 0).unwrap_or(text.len());
+                Token::Text(String::from_utf8_lossy(&text[..end]).into_owned())
+            }
+        };
+        tokens.push(token);
+    }
+}
+
+/// Reads the framework's entry, when the reader (`rsi`) stands in it, and
+/// says whether it did; the game then goes on as if it had read it itself.
+extern "C" fn take_entry(reader: usize) -> bool {
+    crate::guarded("save data reader", || {
+        let m = crate::hooked_memory();
+        let read = match our_entry(m, reader) {
+            Ok(false) => return false,
+            Ok(true) => block_tokens(m, reader).and_then(|tokens| decode(&tokens)),
+            // The game skips the entry, as one it does not know.
+            Err(e) if !load_in_progress() => {
+                log!("saves: {e}");
+                return false;
+            }
+            Err(e) => {
+                *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(Err(e));
+                return false;
+            }
+        };
+        if load_in_progress() {
+            *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
+        } else {
+            log!("saves: read a {KEY} entry outside a load, and left it");
+        }
+        true
+    })
+}
+
+crate::resume!(ENTRY_RESUME: ENTRY_UNKNOWN = UNKNOWN_ENTRY_NEXT, ENTRY_DONE = ENTRY_HANDLED);
+static REGISTRY: AtomicUsize = AtomicUsize::new(0);
+
+/// Replaces `call <content registry>` at the start of the branch for an entry
+/// the world's handler has no case for, the reader in `rsi`. The framework's
+/// entry is read and the handler returns; for any other the registry is
+/// called as the game called it, returning to the game's next instruction.
+#[unsafe(naked)]
+extern "C" fn entry_stub() {
+    std::arch::naked_asm!(
+        crate::call_rust!("mov rcx, rsi", call take, "cmp byte ptr [rsp + 0x48], 0"),
+        "jne 2f",
+        "push qword ptr [rip + {unknown}]",
+        "jmp qword ptr [rip + {registry}]",
+        "2:",
+        "jmp qword ptr [rip + {handled}]",
+        take = sym take_entry,
+        unknown = sym ENTRY_UNKNOWN,
+        registry = sym REGISTRY,
+        handled = sym ENTRY_DONE,
+    );
+}
+
+/// The loads in progress on this thread: the world each reads into, and where
+/// its loader reports success.
+struct Load {
+    world: usize,
+    success: usize,
+}
+thread_local! { static LOADING: RefCell<Vec<Load>> = const { RefCell::new(Vec::new()) }; }
+
+fn world_state(m: &Memory) -> Result<(usize, u8)> {
+    use crate::objects::campaign::{globals, world};
+    let at = m.ptr(m.at(globals::WORLD))?;
+    if at == 0 {
+        return Err("no world".into());
+    }
+    Ok((at, m.u8(at + world::DAILY_UPDATE)?))
+}
+
+extern "C" fn load_before(frame: *mut HookFrame) {
+    LOAD_DEPTH.fetch_add(1, Ordering::SeqCst);
+    LOADS.fetch_add(1, Ordering::SeqCst);
+    LAST_READ.store(false, Ordering::SeqCst);
+    *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *READ.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    crate::game::events::load_begin();
+    crate::remote::campaign_changes();
+    let h = unsafe { &*frame };
+    LOADING.with(|l| l.borrow_mut().push(Load { world: h.args[2], success: h.args[1] }));
+}
+
+extern "C" fn load_after(frame: *mut HookFrame) {
+    struct Exit;
+    impl Drop for Exit {
+        fn drop(&mut self) {
+            let _ = LOAD_DEPTH.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+        }
+    }
+    let _exit = Exit;
+    crate::guarded("save loader", || {
+        let h = unsafe { &*frame };
+        let Some(load) = LOADING.with(|l| l.borrow_mut().pop()) else { return };
+        let outcome = (|| {
+            if h.fault != 0 {
+                return Err("the loader unwound".to_string());
+            }
+            let m = crate::hooked_memory();
+            let (world, daily) = world_state(&m)?;
+            let read = h.result == load.success && m.u8(load.success)? == 1 && world == load.world && daily == 0;
+            LAST_READ.store(read, Ordering::SeqCst);
+            let data = READ.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_else(|| Ok(BTreeMap::new()));
+            if read {
+                match &data {
+                    Ok(d) => log!("saves: loaded a save with data for {} extension(s)", d.len()),
+                    Err(e) => log!("saves: loaded a save whose data cannot be read, so no extension has any: {e}"),
+                }
+            }
+            loaded(read, data, EXTENSIONS.get().unwrap_or(&BTreeSet::new()))
+        })();
+        if let Err(e) = outcome {
+            log!("saves: {e}");
+        }
+    });
+}
+
+/// Where the data is written and read, and the loader.
 pub fn points() -> Vec<Point> {
     vec![
-        Point::observe(SAVE, "48 89 5c 24 10 57 48 83 ec 20 48 8b f9 e8 be 49", "save request", 1, Some(save_before), Some(save_after)),
-        Point::observe(LOCAL_NORMAL, "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55 41", "normal save writer", 1, Some(normal_before), Some(local_after)),
-        Point::observe(LOCAL_IRONMAN, "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55 41", "ironman save writer", 1, Some(ironman_before), Some(local_after)),
-        Point::observe(FINAL_MOVE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20 55", "save final move", 2, Some(move_before), Some(move_after)),
-        Point::observe(ABSOLUTE_PATH, "48 83 ec 28 41 b8 02 00 00 00 ff 15 90 76 10 00", "save absolute move", 2, Some(absolute_before), Some(absolute_after)),
+        Point::jump(BEFORE_AI, "45 84 ff 74 0c", "world has written its game state", before_ai_stub as *const () as usize, &AI_RESUME),
+        Point::keep(AI, "48 8b d6 49 8b ce e8 f9 dd ff ff", "world writes the AI with the writer it was given"),
+        Point::keep(NO_AI, "48 8d 4c 24 50 e8 3e 27 94 ff", "world write ends"),
+        Point::keep(WRITE_TOKEN, "40 55 53 56 57 41 54 41 56 41 57 48 8d 6c 24 d9", "save writer writes a token"),
+        Point::keep(WRITE_OPEN, "40 53 48 81 ec 30 02 00 00 83 79 08 00 48 8b d9", "save writer opens a block").uses(&[WRITER_DEPTH]),
+        Point::keep(WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block").uses(&[WRITER_DEPTH]),
+        Point::keep(WRITE_QUOTED, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57", "save writer writes a quoted string"),
+        Point::keep(WRITE_LINE_BREAK, "40 53 48 83 ec 20 48 8b d9 b9 08 00 00 00 65 48", "save writer breaks a line"),
+        Point::keep(WRITE_INDENT, "48 89 5c 24 08 48 89 74 24 10 57 48 81 ec 30 02", "save writer indents a line"),
+        Point::jump(UNKNOWN_ENTRY, "e8 80 da 08 00", "world reads an entry it has no case for", entry_stub as *const () as usize, &ENTRY_RESUME),
+        Point::keep(UNKNOWN_ENTRY_KEY, "48 8d 56 34", "world reads an unknown entry's key").uses(&[READER_KEY_TEXT]),
+        Point::keep(CONTENT_REGISTRY, "48 89 5c 24 10 57 48 83 ec 20 48 8b 05 4f 8f c4", "content registry").recorded(&REGISTRY),
+        Point::keep(ENTRY_HANDLED, "48 8b 9c 24 90 0b 00 00 48 81 c4 50 0b 00 00", "world has read an entry"),
+        Point::keep(
+            SKIP_BLOCK,
+            "83 b9 40 04 00 00 03 48 8b f9 75 50 48 8b 49 28 48 89 5c 24 30 33 db 48 8b 01 ff 50 08 85 c0 74 2e 66 0f 1f 84 00 00 00 00 00 48 8b 4f 28 8b 41 14 83 f8 03",
+            "save reader skips a block",
+        )
+        .uses(&[READER_VALUE_TYPE, READER_TOKENIZER, TOKENIZER_NEXT, TOKEN_TYPE]),
         Point::observe(LOAD, "48 89 5c 24 18 55 56 57 48 8b ec 48 81 ec 80 00", "save loader", 4, Some(load_before), Some(load_after)),
-        Point::keep(CLOSE_FROM_NORMAL - 5, "e8 6f fa 42 01", "normal save writer closes its file"),
-        Point::keep(CLOSE_FROM_IRONMAN - 5, "e8 b1 e4 42 01", "ironman save writer closes its file"),
-        Point::keep(MOVE_FROM_NORMAL - 5, "e8 23 e3 14 01", "normal save writer moves its file"),
-        Point::keep(MOVE_FROM_IRONMAN - 5, "e8 bc d2 14 01", "ironman save writer moves its file"),
-        Point::keep(ABSOLUTE_FROM_MOVE - 5, "e8 f1 8b 34 00", "final move makes the path absolute"),
     ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
-    #[test]
-    fn store_round_trip_requires_identity_and_date() {
-        let dir = std::env::temp_dir().join(format!("eu4h-saves-test-{}", std::process::id()));
-        let store = Store { directory: dir.clone() };
-        let id = Identity { absolute_path: r"c:\saves\a.eu4".into(), sha256: "ab".repeat(32), size: 10 };
-        let mut ext = BTreeMap::new();
-        ext.insert("regional-combat".to_string(), serde_json::json!({"armies": [1, 2]}));
-        store.write(&SaveDataFile { schema: 1, identity: id.clone(), date: 7, extensions: ext.clone() }).unwrap();
-        assert_eq!(store.read(&id, 7).unwrap(), Some(ext));
-        assert!(store.read(&id, 8).is_err());
-        let other = Identity { sha256: "cd".repeat(32), ..id };
-        assert_eq!(store.read(&other, 7).unwrap(), None);
-        let _ = fs::remove_dir_all(dir);
+    /// The tokens the game's tokenizer reads from what the writer wrote,
+    /// after the entry's `{`, up to before its `}`.
+    fn read_back(writes: &[Write]) -> Vec<Token> {
+        let [Write::Token(STRING, KEY), Write::Token(EQUALS, "="), Write::Open, inner @ .., Write::Close] = writes else { panic!("{writes:?}") };
+        inner
+            .iter()
+            .filter_map(|w| match w {
+                Write::Token(EQUALS, _) => Some(Token::Equals),
+                Write::Token(_, text) => Some(Token::Text(text.to_string())),
+                Write::Quoted(text) => Some(Token::Text(text.clone())),
+                Write::Open => Some(Token::Open),
+                Write::Close => Some(Token::Close),
+                Write::LineBreak | Write::Indent => None,
+            })
+            .collect()
+    }
+
+    fn some_data() -> BTreeMap<String, Value> {
+        BTreeMap::from([
+            ("regional-combat".to_string(), json!({"armies": [{"army": 12345678901234i64, "center": 151, "radius": 3}]})),
+            ("other".to_string(), json!("quotes \" and \\ and 中文 and a long tail ".repeat(40))),
+        ])
     }
 
     #[test]
-    fn a_load_makes_its_data_current_before_the_session_starts() {
-        let data = BTreeMap::from([("regional-combat".to_string(), serde_json::json!({"armies": [1]}))]);
+    fn what_is_written_reads_back_as_it_was() {
+        let data = some_data();
+        let writes = entry(&data);
+        assert!(writes.iter().all(|w| !matches!(w, Write::Quoted(s) if s.len() > CHUNK || s.is_empty())));
+        assert!(writes.iter().filter(|w| matches!(w, Write::Quoted(_))).count() > 1, "the data fills more than one string");
+        assert_eq!(decode(&read_back(&writes)).unwrap(), data);
+    }
+
+    #[test]
+    fn data_that_cannot_be_read_says_why() {
+        let good = read_back(&entry(&some_data()));
+        let newer: Vec<Token> = good.iter().map(|t| if *t == Token::Text(VERSION.into()) { Token::Text("2".into()) } else { t.clone() }).collect();
+        assert!(decode(&newer).unwrap_err().contains("format version 2"));
+        assert!(decode(&[]).unwrap_err().contains("no format version"));
+        let last_chunk = good.len() - 2;
+        let mut broken = good.clone();
+        broken[last_chunk] = Token::Text("not*base64".into());
+        assert!(decode(&broken).unwrap_err().contains("not base64"));
+        let mut nested = good.clone();
+        nested.splice(last_chunk..last_chunk, [Token::Open, Token::Close]);
+        assert!(decode(&nested).unwrap_err().contains("more than strings"));
+        let mut not_ids = good.clone();
+        not_ids.splice(6.., [Token::Text(base64::encode(b"[1, 2]")), Token::Close]);
+        assert!(decode(&not_ids).unwrap_err().contains("not JSON of extension ids"));
+    }
+
+    #[test]
+    fn the_tokens_written_fit_the_game_s() {
+        for write in entry(&some_data()) {
+            if let Write::Token(_, text) = write {
+                assert!(text.len() < TOKEN_TEXT_LEN);
+            }
+        }
+        assert_eq!(std::mem::size_of::<GameToken>(), 0x208);
+    }
+
+    #[test]
+    fn too_much_data_is_refused() {
+        let big = json!("x".repeat(MAX_DATA));
+        let err = set("too-big", Some(big)).unwrap_err();
+        assert!(err.contains("at most 16777216"), "{err}");
+        assert_eq!(get("too-big"), None);
+    }
+
+    #[test]
+    fn a_load_keeps_the_data_of_loaded_extensions_and_makes_it_current() {
+        let loaded_here = BTreeSet::from(["regional-combat".to_string()]);
+        let data = BTreeMap::from([("regional-combat".to_string(), json!({"armies": [1]})), ("gone".to_string(), json!(1))]);
         replace_all(BTreeMap::new());
-        loaded(true, Ok(data.clone())).unwrap();
-        assert_eq!(get("regional-combat"), Some(serde_json::json!({"armies": [1]})));
-        assert_eq!(take_loaded(), Some(data));
+        loaded(true, Ok(data), &loaded_here).unwrap();
+        assert_eq!(get("regional-combat"), Some(json!({"armies": [1]})));
+        assert_eq!(get("gone"), None);
+        assert_eq!(take_loaded(), Some(BTreeMap::from([("regional-combat".to_string(), json!({"armies": [1]}))])));
         // A world whose data could not be read starts with none.
-        assert!(loaded(true, Err("save data belongs to a different save or date".into())).is_err());
+        assert!(loaded(true, Err("the data is not base64".into()), &loaded_here).is_err());
         assert_eq!(get("regional-combat"), None);
         assert_eq!(take_loaded(), None);
         // A load that did not replace the world leaves its data alone.
-        set("regional-combat", Some(serde_json::json!(2)));
-        assert!(loaded(false, Err("load did not establish the current world".into())).is_err());
-        assert_eq!(get("regional-combat"), Some(serde_json::json!(2)));
+        set("regional-combat", Some(json!(2))).unwrap();
+        assert!(loaded(false, Err("the save ends inside the eu4_harmony entry".into()), &loaded_here).is_err());
+        assert_eq!(get("regional-combat"), Some(json!(2)));
         replace_all(BTreeMap::new());
-    }
-
-    #[test]
-    fn slot_normalizes_verbatim_prefix_and_case() {
-        assert_eq!(slot(Path::new(r"\\?\C:\Saves\A.eu4")).unwrap(), r"c:\saves\a.eu4");
     }
 }

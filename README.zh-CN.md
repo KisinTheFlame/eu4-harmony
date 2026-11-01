@@ -14,7 +14,7 @@
 
 用框架玩出的存档里，玩家输入或改过的名字是 UTF-8；卸掉框架、换回中文字体插件后，这些名字会显示为乱码。
 
-日志、启动报告（`report.txt`）和扩展存档数据在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`。
+日志和启动报告（`report.txt`）在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`。扩展存档数据直接写在存档里；用会保存数据的扩展玩出的存档，不保证在没有框架时还能读取。
 
 ## 远程控制（玩家与 AI）
 

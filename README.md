@@ -14,7 +14,7 @@ To uninstall, delete `version.dll` from the root folder, move the backed-up `ver
 
 In saves played with the framework, names the player typed or changed are UTF-8. After removing the framework and going back to the CJK font plugin, those names show as garbage.
 
-Logs, the startup report (`report.txt`) and extension save data are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`.
+Logs and the startup report (`report.txt`) are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`. Extension save data is written into the save itself; a save played with an extension that keeps data is not promised to load without the framework.
 
 ## Remote control (players and AIs)
 
