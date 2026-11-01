@@ -11,11 +11,7 @@
 //! menu, or the player can no longer play the game (observing, say), which
 //! leave the advance no game of its own to pause.
 use super::{events, process, Live, Outcome, Poll, Wait};
-use crate::game::{
-    self,
-    time::{check_speed, Pause},
-    Caller, GResult, Status,
-};
+use crate::game::{self, time::Pause, Caller, GResult, Status};
 use eu4_harmony_remote::{
     events::Event,
     time::{Advanced, Stop, Time, TimeAnswer, TimeRequest},
@@ -109,11 +105,11 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
         return Err(Error::new(Code::InvalidArgument, format!("days is from 1 to {MOST_DAYS}, not {days}")));
     }
     if let Some(speed) = speed {
-        check_speed(speed)?;
+        eu4_harmony_checks::time::speed(speed)?;
     }
     let time = game.time()?;
     if let Some(end) = time.over {
-        return Err(game::time::game_over(end).into());
+        return Err(eu4_harmony_checks::time::over(Date(end)).into());
     }
     let since = events.last();
     if game.questions_waiting()? > 0 {

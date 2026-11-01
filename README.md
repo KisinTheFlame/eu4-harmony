@@ -88,6 +88,7 @@ Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of
 | `loc/` | The localisation file format, the languages and lookup, shared by the core, the SDK and the command line tool |
 | `manifest/` | A mod's `eu4-harmony/manifest.json` and the lines of its descriptor, shared by the core and the command line tool |
 | `remote/` | Remote control's requests and responses, their JSON form and a description of every capability, shared by the core and the command line tool |
+| `checks/` | The checks the framework makes of a capability's call itself, with the status and words of each refusal, shared by the core, `remote/` and the SDK, so that the SDK's `FakeGame` refuses what the core refuses, in its words; and the game's calendar |
 | `abi/` | The C ABI between the core and extensions |
 | `sdk/` | The Rust SDK for extensions |
 | `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes, its extension built and tested with the rest |

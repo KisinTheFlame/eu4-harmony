@@ -9,6 +9,7 @@ use crate::{
     },
     points::Point,
 };
+use eu4_harmony_checks::armies as checks;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -90,29 +91,12 @@ struct OrderState {
 /// docs/research/regional-combat/native-manual-findings.txt).
 fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<OrderState> {
     if m.ptr(army)? != m.at(classes::ARMY) {
-        return fail(Status::InvalidArgument, "not a land army");
+        return Err(checks::not_land().into());
     }
     if waits_for_time(caller) && paused(m, ctx)? {
-        return fail(Status::NotReady, "game is paused");
+        return Err(checks::paused().into());
     }
-    let record = world::army_record(m, &super::special_countries(m)?, army)?;
-    for (on, reason) in [
-        (record.in_battle, "army is in battle"),
-        (record.sieging, "army is sieging"),
-        (record.retreating, "army is retreating"),
-        (record.exiled, "army is exiled"),
-        (record.movement_locked, "army movement is locked"),
-        (record.attached, "army is attached to another army"),
-        (record.has_followers, "other armies are attached to this army"),
-        (record.busy, "army has a native task"),
-    ] {
-        if on {
-            return fail(Status::Rejected, reason);
-        }
-    }
-    if record.regiments == 0 {
-        return fail(Status::Rejected, "army has no regiments");
-    }
+    checks::orderable(&world::army_record(m, &super::special_countries(m)?, army)?.condition())?;
     let origin_ptr = m.ptr(army + unit::LOCATION)?;
     let origin = m.u32(origin_ptr + province::ID)?;
     if origin == 0 {
@@ -303,7 +287,7 @@ impl Orders {
     pub fn find_route(&mut self, m: &Memory, ctx: &Ctx, geography: &mut world::Geography, army: usize, goal: u32, caller: Caller) -> GResult<Vec<u32>> {
         match self.with_route(m, ctx, geography, army, goal, caller, |path, _| Ok(path.ids.clone()))? {
             Some(ids) => Ok(ids),
-            None => fail(Status::NotFound, format!("no route to {goal}")),
+            None => Err(checks::no_route(goal).into()),
         }
     }
 
@@ -335,7 +319,7 @@ impl Orders {
             Ok(after)
         })?;
         let Some(path) = installed else {
-            return fail(Status::NotFound, format!("no route to {goal}"));
+            return Err(checks::no_route(goal).into());
         };
         Ok(self.settle(caller, id, before.origin, path))
     }

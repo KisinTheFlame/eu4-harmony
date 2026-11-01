@@ -202,7 +202,7 @@ impl Geography {
         let nodes = self.nodes(m, ctx)?;
         let count = nodes.len();
         let Some(node) = nodes.get(id as usize).cloned() else {
-            return fail(Status::NotFound, format!("no province {id}"));
+            return Err(eu4_harmony_checks::provinces::not_found(id).into());
         };
         if let Err(e) = validate_node(m, &node, count) {
             self.clear();
@@ -289,7 +289,7 @@ pub fn hidden(m: &Memory, province: usize) -> GResult<bool> {
 fn check_army_vtable(m: &Memory, army: usize) -> GResult<()> {
     let vt = m.ptr(army)?;
     if vt != m.at(classes::ARMY) || m.ptr(vt + unit::CAN_ENTER)? != m.at(CAN_ENTER) || m.ptr(vt + unit::MILITARY_TAG)? != m.at(MILITARY_TAG) {
-        return fail(Status::InvalidArgument, "not a land army");
+        return Err(eu4_harmony_checks::armies::not_land().into());
     }
     Ok(())
 }
@@ -352,8 +352,8 @@ pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
 pub fn own_land_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     match own_roster(m, ctx)?.into_iter().find(|(i, _, _)| *i == id) {
         Some((_, address, true)) => Ok(address),
-        Some(_) => fail(Status::InvalidArgument, "not a land army"),
-        None => fail(Status::NotFound, format!("no own army {id}")),
+        Some(_) => Err(eu4_harmony_checks::armies::not_land().into()),
+        None => Err(eu4_harmony_checks::armies::not_own(id).into()),
     }
 }
 

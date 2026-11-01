@@ -9,6 +9,7 @@ description = "EU4 Harmony remote control: the requests and responses, their JSO
 name = "eu4_harmony_remote"
 
 [dependencies]
+eu4-harmony-checks = { path = "../checks" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

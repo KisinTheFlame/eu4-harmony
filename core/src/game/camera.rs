@@ -7,7 +7,7 @@
 //! from its left edge, y from its bottom edge, as `map/positions.txt` writes
 //! them. The camera's height is in the same unit, above the map's base plane
 //! (docs/research/camera.md).
-use super::{context, fail, game, map_manager, with_state, Caller, Ctx, GResult, Status};
+use super::{context, game, map_manager, with_state, Caller, Ctx, GResult};
 use crate::{
     memory::Memory,
     objects::{
@@ -16,6 +16,7 @@ use crate::{
     },
     points::Point,
 };
+use eu4_harmony_checks::camera as checks;
 
 /// The map manager looking at a province (rcx the map manager, rdx the
 /// province), at its map data's position, keeping the camera's height.
@@ -72,7 +73,7 @@ pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
     if province == 0 {
-        return fail(Status::NotFound, "no province 0");
+        return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let (manager, camera) = movable(m, &ctx)?;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
@@ -84,33 +85,17 @@ pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
 pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    check_position(x, y, map_size(m)?)?;
+    checks::position(x, y, map_size(m)?)?;
     let (manager, camera) = movable(m, &ctx)?;
     m.call(m.at(LOOK_AT_POSITION), &[manager, x as usize, y as usize])?;
     settle(m, camera)
-}
-
-/// Refuses a map position off a map `(width, height)` pixels large.
-pub fn check_position(x: u32, y: u32, (width, height): (u32, u32)) -> GResult<()> {
-    if x >= width || y >= height {
-        return fail(Status::InvalidArgument, format!("{x}, {y} is off the map, which is {width} pixels across and {height} up"));
-    }
-    Ok(())
-}
-
-/// Refuses a height outside the camera's `(lowest, highest)`.
-pub fn check_height(height: u32, (lowest, highest): (u32, u32)) -> GResult<()> {
-    if !(lowest..=highest).contains(&height) {
-        return fail(Status::InvalidArgument, format!("the height is from {lowest} to {highest}"));
-    }
-    Ok(())
 }
 
 /// Raises or lowers the camera to a height, looking at the same position.
 pub fn zoom(_: Caller, height: u32) -> GResult<Camera> {
     let m = game()?;
     let ctx = context(m)?;
-    check_height(height, limits(m, find(m, &ctx)?.1)?)?;
+    checks::height(height, limits(m, find(m, &ctx)?.1)?)?;
     let (_, camera) = movable(m, &ctx)?;
     let [x, _, z] = point(m, camera + fields::GOAL_LOOK_AT)?;
     let goal = [x, height as f32, z];
@@ -132,7 +117,7 @@ fn find(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
 fn movable(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
     let (manager, camera) = find(m, ctx)?;
     if m.u8(camera + fields::LOCKED)? != 0 {
-        return fail(Status::Rejected, "the camera is locked");
+        return Err(checks::locked().into());
     }
     Ok((manager, camera))
 }

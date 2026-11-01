@@ -192,7 +192,7 @@ impl provinces::Layer for Fake {
     fn province(&mut self, province: u32) -> GResult<game::provinces::Snapshot> {
         self.call(format!("province {province}"));
         if province != 151 {
-            return fail(Status::NotFound, format!("no province {province}"));
+            return Err(eu4_harmony_checks::provinces::not_found(province).into());
         }
         Ok(constantinople())
     }
@@ -235,7 +235,7 @@ impl armies::Layer for Fake {
         match id {
             ARMY => Ok(army()),
             FLEET => Ok(game::armies::Army { id: FLEET, owner: tur(), ..Default::default() }),
-            _ => fail(Status::NotFound, format!("no own army {id}")),
+            _ => Err(eu4_harmony_checks::armies::not_own(id).into()),
         }
     }
 
@@ -371,20 +371,20 @@ impl camera::Layer for Fake {
         self.call(format!("look at province {province}"));
         match province {
             151 => Ok(game::camera::Camera { x: 3270, y: 1366, province: Some(151), ..view() }),
-            _ => fail(Status::NotFound, format!("no province {province}")),
+            _ => Err(eu4_harmony_checks::provinces::not_found(province).into()),
         }
     }
 
     fn look_at(&mut self, x: u32, y: u32) -> GResult<game::camera::Camera> {
         self.call(format!("look at {x} {y}"));
-        game::camera::check_position(x, y, (5632, 2048))?;
+        eu4_harmony_checks::camera::position(x, y, (5632, 2048))?;
         Ok(game::camera::Camera { x, y, province: None, ..view() })
     }
 
     fn zoom(&mut self, height: u32) -> GResult<game::camera::Camera> {
         self.call(format!("zoom {height}"));
         let looking = view();
-        game::camera::check_height(height, (looking.min_height, looking.max_height))?;
+        eu4_harmony_checks::camera::height(height, (looking.min_height, looking.max_height))?;
         Ok(game::camera::Camera { height, ..view() })
     }
 }
@@ -484,7 +484,7 @@ impl time::Layer for Fake {
         self.call("resume".into());
         self.clock.check("resume")?;
         if let Some(end) = self.clock.time.over {
-            return Err(game::time::game_over(end));
+            return Err(eu4_harmony_checks::time::over(eu4_harmony_checks::Date(end)).into());
         }
         self.clock.time.pause = game::time::Pause::Running;
         Ok(())
@@ -492,7 +492,7 @@ impl time::Layer for Fake {
 
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
         self.call(format!("speed {speed}"));
-        game::time::check_speed(speed)?;
+        eu4_harmony_checks::time::speed(speed)?;
         self.clock.time.speed = speed;
         Ok(())
     }
@@ -517,7 +517,7 @@ impl recruiting::Layer for Fake {
         match province {
             149 => Ok(()),
             151 => fail(Status::Rejected, "君士坦丁堡不是我们的领土"),
-            _ => fail(Status::NotFound, format!("no province {province}")),
+            _ => Err(eu4_harmony_checks::provinces::not_found(province).into()),
         }
     }
 }
@@ -551,9 +551,9 @@ impl questions::Layer for Fake {
                 self.answered.push((question, option));
                 Ok(())
             }
-            (7, 1) => fail(Status::Rejected, "the player may not choose option 1 of question 7"),
-            (7, _) => fail(Status::InvalidArgument, format!("question 7 has no option {option}")),
-            _ => fail(Status::NotFound, format!("no question {question}")),
+            (7, 1) => Err(eu4_harmony_checks::questions::not_allowed(question, option).into()),
+            (7, _) => Err(eu4_harmony_checks::questions::no_option(question, option).into()),
+            _ => Err(eu4_harmony_checks::questions::not_found(question).into()),
         }
     }
 }
@@ -568,7 +568,7 @@ impl offers::Layer for Fake {
     fn answer_offer(&mut self, offer: u32, accept: bool) -> GResult<()> {
         self.call(format!("answer offer {offer} {accept}"));
         if offer != 3 {
-            return fail(Status::NotFound, format!("no offer {offer}"));
+            return Err(eu4_harmony_checks::offers::not_found(offer).into());
         }
         self.answered.push((offer, accept as u32));
         Ok(())

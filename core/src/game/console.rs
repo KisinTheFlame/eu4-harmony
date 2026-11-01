@@ -25,9 +25,6 @@ const GET: usize = 0x6e74c0;
 /// word names with the words after it, and fills in the [`result`].
 const RUN: usize = 0x1721320;
 
-/// The characters the window trims from both ends of a line.
-const TRIMMED: [char; 4] = [' ', '\t', '\r', '\n'];
-
 pub fn points() -> Vec<Point> {
     vec![
         // The getter, making the game console with its flags cleared.
@@ -92,23 +89,11 @@ struct Words {
 }
 
 impl Words {
-    /// The window trims the line, cuts it at `|` and runs the part before,
-    /// writing what it printed to the file named after it; the framework
-    /// answers what it printed instead, so it refuses a `|`.
+    /// The line the window would run for `command`, trimmed as it trims one,
+    /// but for what the framework's check refuses
+    /// (`eu4_harmony_checks::console`).
     fn new(command: &str) -> GResult<Self> {
-        if command.contains('|') {
-            return fail(
-                Status::InvalidArgument,
-                "a | sends the game console's output to a file; remote control and extensions get it in the answer, so leave it out",
-            );
-        }
-        if command.contains('\0') {
-            return fail(Status::InvalidArgument, "a command cannot hold a NUL");
-        }
-        let line = command.trim_matches(TRIMMED);
-        if line.is_empty() {
-            return fail(Status::InvalidArgument, "no command");
-        }
+        let line = eu4_harmony_checks::console::command(command)?;
         let texts: Vec<Vec<u8>> = cut(line)
             .map(|word| {
                 let mut text = game_text::from_str(word);

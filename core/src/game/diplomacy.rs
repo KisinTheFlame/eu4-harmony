@@ -24,6 +24,7 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
+use eu4_harmony_checks::diplomacy as checks;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -228,15 +229,11 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GRe
     let ctx = context(m)?;
     other(m, &ctx, enemy)?;
     if choice.casus_belli.as_deref() == Some("") {
-        return fail(Status::InvalidArgument, format!("no casus belli: name one by its key, or {NO_CASUS_BELLI}"));
+        return Err(checks::no_casus_belli(NO_CASUS_BELLI).into());
     }
     let offered = Offered::list(m, &ctx, enemy)?;
     let Some(&(goal, _)) = offered.goals.iter().find(|(_, g)| choice.matches(g)) else {
-        let cb = choice.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI);
-        return fail(
-            Status::Rejected,
-            format!("the game offers no such war goal under {cb} against {}; diplomacy.war_goals lists those it offers", letters(enemy)),
-        );
+        return Err(checks::no_such_war_goal(choice.casus_belli.as_deref().unwrap_or(NO_CASUS_BELLI), letters(enemy)).into());
     };
     let mut made = Made::new(m, action::DECLARE_WAR_SIZE);
     m.call(m.at(DECLARE_WAR_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 0, ctx.date as u32 as usize, goal])?;
@@ -329,8 +326,7 @@ pub fn allies_called(_: Caller, ticket: Ticket) -> GResult<Vec<Tag>> {
 /// The action sent with `ticket`, and what the game did with it so far,
 /// while it is kept and its game goes on.
 fn kept(ticket: Ticket) -> GResult<(Sent, Seen)> {
-    let (sent, seen) =
-        ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail { status: Status::NotFound, message: format!("no diplomatic action {} is kept", ticket.0) })?;
+    let (sent, seen) = ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail::from(checks::not_kept(ticket.0)))?;
     if sent.session != events::session() {
         return fail(Status::NotInGame, "the game the diplomatic action was sent in has ended");
     }
@@ -348,7 +344,7 @@ fn war_with(caller: Caller, ctx: &Ctx, enemy: Tag) -> GResult<Option<String>> {
 fn other(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<()> {
     country(m, ctx, tag)?;
     if tag.index() == ctx.player.index() {
-        return fail(Status::InvalidArgument, "the player's own country");
+        return Err(checks::own_country().into());
     }
     Ok(())
 }
@@ -506,7 +502,7 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
     let listed = |s: &Side| ![player.index(), enemy.index()].contains(&s.country().index());
     let first: Vec<Tag> = window.gather()?.0.iter().filter(|s| listed(s)).map(Side::country).collect();
     if let Some(stranger) = named.and_then(|named| named.iter().find(|t| !first.iter().any(|f| f.index() == t.index()))) {
-        return fail(Status::InvalidArgument, format!("{} is not among the allies the declare war window lists", letters(*stranger)));
+        return Err(checks::not_listed(letters(*stranger)).into());
     }
     let mut asked: Vec<i16> = Vec::new();
     let mut called = Vec::new();
@@ -550,11 +546,7 @@ fn call_allies(window: &mut impl CallBoxes, player: Tag, enemy: Tag, calls: &Cal
         }
         let reasons = if enemy_asks { window.allied_to_enemy()? } else { window.why_not(&ally)? };
         if named.is_some() {
-            let call = format!("the declare war window does not let the player call {} to arms", letters(country));
-            return fail(
-                Status::Rejected,
-                if reasons.is_empty() { format!("{call}, and gives no reason") } else { format!("{call}:\n{}", reasons.join("\n")) },
-            );
+            return Err(checks::not_callable(letters(country), &reasons).into());
         }
         passed_over.push(PassedOver { country, reasons });
     }

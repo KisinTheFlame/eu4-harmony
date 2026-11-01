@@ -77,15 +77,15 @@ pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
     if id == 0 {
-        return fail(Status::NotFound, "no province 0");
+        return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     let Some(unit_type) = unit_type(m, ctx.country, kind)? else {
-        return fail(Status::Rejected, format!("the player has no unit type of the kind {}", kind.key()));
+        return Err(eu4_harmony_checks::recruiting::no_unit_type(kind.key()).into());
     };
     let (allowed, reasons) = can_recruit(m, &ctx, address, unit_type)?;
     if !allowed {
-        return fail(Status::Rejected, refusal(&reasons));
+        return Err(eu4_harmony_checks::recruiting::not_allowed(&reasons).into());
     }
     // The session before the command: once the command is made, only a call
     // into the game can fail before it is posted or destroyed. The game owns
@@ -107,25 +107,5 @@ pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
         // What the snapshot leaves out: the command's own rule for ships.
         (false, _) => fail(Status::Rejected, "the game's recruit command refuses it, and gives no reason"),
         (true, false) => fail(Status::Rejected, "the game takes no orders from the player now"),
-    }
-}
-
-/// The game's reasons as one message.
-fn refusal(reasons: &[String]) -> String {
-    if reasons.is_empty() {
-        "the game does not let the player recruit it there, and gives no reason".into()
-    } else {
-        reasons.join("\n")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_refusal_says_the_game_s_reasons_one_a_line() {
-        assert_eq!(refusal(&["没有足够的manpower。".into(), "没有足够的ducats。".into()]), "没有足够的manpower。\n没有足够的ducats。");
-        assert!(refusal(&[]).contains("no reason"));
     }
 }
