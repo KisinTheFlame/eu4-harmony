@@ -1,3 +1,7 @@
+---
+status: superseded in part by ADR-0021
+---
+
 # A built-in Unicode module replaces the CJK font plugin
 
 The framework has a built-in Unicode module: text in the game is always kept, shown and typed as UTF-8. The module is always on, for every player, and replaces the CJK font plugin. While relying on the plugin, the framework had to encode Chinese characters by the plugin's escape rules, full-width punctuation could only be swapped for half-width, characters outside the ideograph range turned into `?`, and players without the plugin saw garbage. With the framework itself in charge of text, mods and extensions write only plain UTF-8, and any character can be shown.

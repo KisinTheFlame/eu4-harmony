@@ -17,11 +17,11 @@
 //!
 //! Between the passes the texture is made, as many pixels across and down as
 //! the text takes GUI units, and the window shows it stretched by the
-//! interface scale. A font whose glyphs have more pixels than GUI units (the
-//! system font look, `fill`) gets a texture with as many more, so that its
-//! glyphs are drawn into it, and it onto the window, a texel to a pixel:
-//! drawn into a smaller one, the game's point filter would drop rows and
-//! columns of them. Everything else keeps the size in GUI units: the
+//! interface scale. A font whose glyphs have more pixels than GUI units (at
+//! an interface scale above 1, `fill`) gets a texture with as many more, so
+//! that its glyphs are drawn into it, and it onto the window, a texel to a
+//! pixel: drawn into a smaller one, the game's point filter would drop rows
+//! and columns of them. Everything else keeps the size in GUI units: the
 //! projection, the layout and the size the game keeps for the texture.
 use super::{breaks, text_loops};
 use crate::objects::text::font::{OWN_GLYPHS, SCALE};

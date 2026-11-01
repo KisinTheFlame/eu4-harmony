@@ -1,10 +1,10 @@
 # Unicode module and framework UI plan
 
-Status: final (2026-10-27). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0010](adr/0010-built-in-unicode-module.md) (the Unicode module), [ADR 0011](adr/0011-version-proxy-injection.md) (the version.dll entry), [ADR 0012](adr/0012-framework-succeeds-or-fails-as-a-whole.md) (succeeding or failing as a whole) and [ADR 0013](adr/0013-framework-draws-its-own-ui.md) (framework UI).
+Status: final (2026-10-27). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0010](adr/0010-built-in-unicode-module.md) (the Unicode module), [ADR 0011](adr/0011-version-proxy-injection.md) (the version.dll entry), [ADR 0012](adr/0012-framework-succeeds-or-fails-as-a-whole.md) (succeeding or failing as a whole), [ADR 0013](adr/0013-framework-draws-its-own-ui.md) (framework UI) and [ADR 0021](adr/0021-game-text-in-system-fonts.md) (the game's text in system fonts).
 
 ## Goal and scope
 
-- **Goal**: the framework itself takes charge of text in the game, replacing the CJK font plugin. With a Chinese language mod installed, text looks as it did before; without one, as in vanilla. Mods and extensions write only plain UTF-8.
+- **Goal**: the framework itself takes charge of text in the game, replacing the CJK font plugin, and draws all of it in system fonts. Mods and extensions write only plain UTF-8.
 - **In scope**: display (interface and map); compatibility with legacy escapes (localisation, GUI and scripts, old saves); Chinese input; Chinese search in the diplomacy country list and the province search; complex text layout (last); framework UI (notice window, settings window).
 - **Out of scope**: the IME itself; drawing uncommitted pinyin in the edit box; undo, redo, Ctrl+A to select all; pinyin search and searching across simplified and traditional characters; Japanese, Korean; multiplayer; save compatibility in the other direction (back to the CJK font plugin); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
 - **Platform**: Windows 10 1903 or later (it relies on the system's `icu.dll`); the baseline is still 1.37.5.
@@ -16,7 +16,6 @@ Kept in `eu4-harmony/settings.txt` in the user directory, written the way the ga
 
 | Setting (in the file) | Options | Default |
 |---|---|---|
-| Text appearance (`text_appearance`) | Keep the fonts as they are (bitmap fonts first, with characters they lack filled in from the system font) / System fonts (all text in system fonts) | Keep the fonts as they are |
 | Body text font (`body_font`) | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
 | Body text font weight (`body_weight`) | The weights the body text font comes in, by the English names the font gives them; kept in the file as the weight's number | Regular (400) |
 | Heading font (`heading_font`) | Same as the body text font | Microsoft YaHei |
@@ -37,7 +36,7 @@ Which font draws which text follows the Chinese language mod, which draws body t
 
 Fonts that load the same page draw from one page in one font and weight, those of the first of them to load. The vanilla fonts and the mod's never share a page between body text and headings; when fonts of a mod do, the log says so.
 
-Characters none of the chosen fonts has are left to the system's font fallback, in the same weight. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI always uses the body text font and its weight, whatever "Text appearance" is set to.
+Characters none of the chosen fonts has are left to the system's font fallback, in the same weight. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI uses the body text font and its weight too.
 
 ## Milestones
 
@@ -68,10 +67,9 @@ Characters none of the chosen fonts has are left to the system's font fallback, 
     - saves with Chinese names save and load, and the extension's save data loads back with them.
   - M4: searching in Chinese finds results on the country selection screen and in the province search.
   - System fonts (`unicode/fill.rs`):
-    - With "Keep the fonts as they are", a font page grows by 1024 rows downward, and characters a bitmap font lacks come from the system font; the Chinese language mod's DXT5 pages stay DXT5, with new glyphs encoded and written as blocks (the ç in a Breton ruler's name is correct).
-    - With "System fonts" chosen, every page is replaced by a new one, and all text uses the system fonts (the main menu, the country selection screen, and in a game the start-of-game introduction, the outliner and the top bar are all fine; map names are in KaiTi and stay black).
-    - At an interface scale above 1, the system font look draws the interface's glyphs that many times larger and divides the font's scale to match, and button text gets a texture as dense, so text reaches the window a texel to a pixel instead of stretched by the game's linear filter; glyphs are anti-aliased across and down (2026-10-30, at 1.5).
-    - System glyphs on the map get the outline the map font's own glyphs have, read from its page (the Chinese language mod's soft grey band, 6 pixels), unless the player chooses none (2026-10-30, with system fonts in KaiTi; bitmap fonts' map page got it too).
+    - Every page is replaced by a new one, and all text uses the system fonts (the main menu, the country selection screen, and in a game the start-of-game introduction, the outliner and the top bar are all fine; map names are in KaiTi and stay black). Until 2026-11-02 this was the "System fonts" choice of a "Text appearance" setting, whose default kept the bitmap fonts and filled in from the system font only the characters they lacked; the setting is gone ([ADR 0021](adr/0021-game-text-in-system-fonts.md)).
+    - At an interface scale above 1, the interface's glyphs are drawn that many times larger and divides the font's scale to match, and button text gets a texture as dense, so text reaches the window a texel to a pixel instead of stretched by the game's linear filter; glyphs are anti-aliased across and down (2026-10-30, at 1.5).
+    - System glyphs on the map get the outline the map font's own glyphs have, read from its page (the Chinese language mod's soft grey band, 6 pixels), unless the player chooses none (2026-10-30, in KaiTi).
   - Framework UI: the notice window, the corner button that appears only on the main menu's front page, the settings window (its drop-down lists scroll).
 - **Not verified in the game**:
   - M4's "found with unaccented Latin letters too": the Chinese language mod turns all place names into Chinese, so the game has no accented place name to search for; unit tests cover it.
@@ -82,7 +80,7 @@ Characters none of the chosen fonts has are left to the system's font fallback, 
 
 - Logic that does not depend on the game (walking UTF-8, decoding legacy escapes, line breaking, editing by character, search matching, the atlas) gets unit tests.
 - Each milestone is tested in the game against a checklist, and the results go into [prototype-log.md](prototype-log.md).
-- For each milestone, the main interface is opened once in each of the four game languages, English, French, German and Spanish, to confirm it does not differ from vanilla.
+- For each milestone, the main interface is opened once in each of the four game languages, English, French, German and Spanish, to confirm it differs from vanilla in its fonts only.
 - All dependency points can be checked against an installed eu4.exe without starting the game: `EU4_GAME_DIR=<game dir> cargo test -p eu4-harmony-core -- --ignored`.
 
 ### M0 checklist

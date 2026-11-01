@@ -1,7 +1,8 @@
 //! Bitmap fonts with code points above 0xFF. The game's `.fnt` loader parses
 //! each `char` line and drops any id above 0xFF; a jump at that check stores
-//! those glyphs in the glyph table instead, so a mod's font that carries
-//! Chinese is drawn as it is (ADR 0010: bitmap fonts first).
+//! those glyphs in the glyph table instead, so that a mod's font that carries
+//! Chinese still draws it when the framework cannot give the font system
+//! glyphs (`fill`), which otherwise replace them (ADR 0021).
 //!
 //! In the loader (function at 0x15953c0), a `char` line's fields are parsed
 //! into: id `edi`, x `r14d`, y `r15d`, width `r12d`, height `esi`, x offset

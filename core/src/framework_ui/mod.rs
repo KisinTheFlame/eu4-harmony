@@ -11,7 +11,7 @@ pub mod input;
 pub mod text;
 pub mod widgets;
 
-use crate::settings::{self, Settings, TextAppearance};
+use crate::settings::{self, Settings};
 use crate::unicode::system_font::{self, Face, SystemFonts};
 use crate::{lang, loc};
 use std::collections::HashMap;
@@ -120,12 +120,6 @@ impl FrameworkUi {
         let (heading_weights, heading_names, heading_weight) = weight_options(fonts.as_ref(), &next.heading_font);
         let (map_weights, map_names, map_weight) = weight_options(fonts.as_ref(), &next.map_font);
         let body = vec![
-            Widget::Label(words("EU4HARMONY_SETTINGS_APPEARANCE")),
-            Widget::Dropdown {
-                id: "appearance",
-                options: vec![words("EU4HARMONY_SETTINGS_BITMAP"), words("EU4HARMONY_SETTINGS_SYSTEM")],
-                selected: usize::from(next.text_appearance == TextAppearance::System),
-            },
             Widget::Label(words("EU4HARMONY_SETTINGS_BODY_FONT")),
             Widget::Dropdown { id: "body", options: shown.clone(), selected: index(&next.body_font.family) },
             Widget::Label(words("EU4HARMONY_SETTINGS_BODY_WEIGHT")),
@@ -179,7 +173,6 @@ impl FrameworkUi {
             let family = |id| w.selected(id).and_then(|i| self.families.get(i)).cloned();
             let weight = |id: &str| w.selected(id).and_then(|i| self.weights.get(id)?.get(i).copied());
             let chosen = Settings {
-                text_appearance: if w.selected("appearance") == Some(1) { TextAppearance::System } else { TextAppearance::Bitmap },
                 body_font: Face::new(family("body").unwrap_or(next.body_font.family), weight("body_weight").unwrap_or(next.body_font.weight)),
                 heading_font: Face::new(family("heading").unwrap_or(next.heading_font.family), weight("heading_weight").unwrap_or(next.heading_font.weight)),
                 map_font: Face::new(family("map").unwrap_or(next.map_font.family), weight("map_weight").unwrap_or(next.map_font.weight)),
