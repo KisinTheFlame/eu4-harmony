@@ -354,6 +354,7 @@ impl Backend for FakeGame {
         Ok(self.save_data.clone())
     }
     fn save_data_set(&mut self, json: &str) -> Result<()> {
+        checks::save_data::size(json.len())?;
         self.save_data = json.into();
         Ok(())
     }
@@ -699,6 +700,15 @@ mod tests {
         fake.countries.insert(CountryId(7), country.clone());
         assert_eq!(fake.game().country(CountryId(7)).unwrap(), country);
         assert_eq!(fake.game().country(CountryId(8)).unwrap_err().status, Status::NotFound);
+    }
+
+    #[test]
+    fn save_data_over_16_mib_is_refused_and_the_old_kept() {
+        let mut fake = FakeGame::new();
+        fake.game().set_save_data(&vec![1, 2]).unwrap();
+        let err = fake.game().set_save_data(&"x".repeat(checks::save_data::MAX_JSON)).unwrap_err();
+        assert_eq!((err.status, err.message.as_str()), (Status::InvalidArgument, "save data is 16777218 bytes of JSON; at most 16777216 are kept"));
+        assert_eq!(fake.game().save_data::<Vec<u8>>().unwrap(), Some(vec![1, 2]));
     }
 
     #[test]

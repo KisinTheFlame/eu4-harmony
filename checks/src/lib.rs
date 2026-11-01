@@ -18,6 +18,7 @@ pub mod offers;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
+pub mod save_data;
 pub mod texts;
 pub mod time;
 

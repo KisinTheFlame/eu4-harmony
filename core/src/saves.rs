@@ -75,8 +75,6 @@ const KEY: &str = "eu4_harmony";
 const VERSION: &str = "1";
 /// The game's reader returns an empty string for one of 512 bytes or more.
 const CHUNK: usize = 500;
-/// How much JSON one extension's data may be.
-const MAX_DATA: usize = 16 * 1024 * 1024;
 
 static LOAD_DEPTH: AtomicUsize = AtomicUsize::new(0);
 /// The saves the game began to read since it started.
@@ -122,20 +120,12 @@ pub fn get(id: &str) -> Option<Value> {
     CURRENT.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
 }
 
-/// Replaces one extension's data; more than [`MAX_DATA`] of JSON is refused.
-pub fn set(id: &str, value: Option<Value>) -> Result<()> {
-    if let Some(v) = &value {
-        let len = v.to_string().len();
-        if len > MAX_DATA {
-            return Err(format!("save data is {len} bytes of JSON; at most {MAX_DATA} are kept"));
-        }
-    }
+pub fn set(id: &str, value: Option<Value>) {
     let mut current = CURRENT.lock().unwrap_or_else(|e| e.into_inner());
     match value {
         Some(v) => current.insert(id.to_string(), v),
         None => current.remove(id),
     };
-    Ok(())
 }
 
 /// Replaces all extensions' data, when a load replaces the world and at a
@@ -569,14 +559,6 @@ mod tests {
     }
 
     #[test]
-    fn too_much_data_is_refused() {
-        let big = json!("x".repeat(MAX_DATA));
-        let err = set("too-big", Some(big)).unwrap_err();
-        assert!(err.contains("at most 16777216"), "{err}");
-        assert_eq!(get("too-big"), None);
-    }
-
-    #[test]
     fn a_load_keeps_the_data_of_loaded_extensions_and_makes_it_current() {
         let loaded_here = BTreeSet::from(["regional-combat".to_string()]);
         let data = BTreeMap::from([("regional-combat".to_string(), json!({"armies": [1]})), ("gone".to_string(), json!(1))]);
@@ -590,7 +572,7 @@ mod tests {
         assert_eq!(get("regional-combat"), None);
         assert_eq!(take_loaded(), None);
         // A load that did not replace the world leaves its data alone.
-        set("regional-combat", Some(json!(2))).unwrap();
+        set("regional-combat", Some(json!(2)));
         assert!(loaded(false, Err("the save ends inside the eu4_harmony entry".into()), &loaded_here).is_err());
         assert_eq!(get("regional-combat"), Some(json!(2)));
         replace_all(BTreeMap::new());
