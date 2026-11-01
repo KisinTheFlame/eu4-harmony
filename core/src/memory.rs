@@ -17,8 +17,13 @@ pub struct Memory {
 }
 
 impl Memory {
-    /// Absolute address of an RVA in the game image.
+    /// Absolute address of an RVA in the game image that a dependency point
+    /// checks. Asking for one that none checks is a framework bug: it ends the
+    /// game at its first use, on any build, instead of reading or calling
+    /// whatever another build holds there (ADR 0012). The code that declares
+    /// points adds the base itself.
     pub fn at(&self, rva: usize) -> usize {
+        assert!(crate::points::checks(rva), "the framework used {rva:#x}, which no dependency point checks");
         self.base + rva
     }
 

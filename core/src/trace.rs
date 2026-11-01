@@ -135,7 +135,7 @@ pub fn points(m: &Memory, room: usize) -> Vec<Point> {
             continue;
         }
         log!("trace: {rva:#x}, {argc} argument(s), first {limit} calls");
-        traced.push(Traced { address: m.at(rva), rva, argc: argc.min(12), calls: AtomicUsize::new(0) });
+        traced.push(Traced { address: m.base + rva, rva, argc: argc.min(12), calls: AtomicUsize::new(0) });
     }
     let points = traced
         .iter()
