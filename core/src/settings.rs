@@ -6,18 +6,8 @@ use crate::unicode::system_font::Face;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-/// How the game's own text is drawn (ADR 0010).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TextAppearance {
-    /// A font's bitmap glyphs first; system fonts only for what it lacks.
-    Bitmap,
-    /// Every character from the chosen system fonts.
-    System,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
-    pub text_appearance: TextAppearance,
     /// The system font and weight for body text (GLOSSARY), and for the
     /// framework UI.
     pub body_font: Face,
@@ -37,13 +27,7 @@ pub const DEFAULT_FONT: &str = "Microsoft YaHei";
 
 impl Default for Settings {
     fn default() -> Self {
-        Self {
-            text_appearance: TextAppearance::Bitmap,
-            body_font: Face::regular(DEFAULT_FONT),
-            heading_font: Face::regular(DEFAULT_FONT),
-            map_font: Face::regular("KaiTi"),
-            map_outline: true,
-        }
+        Self { body_font: Face::regular(DEFAULT_FONT), heading_font: Face::regular(DEFAULT_FONT), map_font: Face::regular("KaiTi"), map_outline: true }
     }
 }
 
@@ -70,11 +54,6 @@ impl Settings {
             let Some((key, value)) = line.split_once('=') else { continue };
             let value = value.trim().trim_matches('"');
             match key.trim() {
-                "text_appearance" => match value {
-                    "bitmap" => settings.text_appearance = TextAppearance::Bitmap,
-                    "system" => settings.text_appearance = TextAppearance::System,
-                    _ => {}
-                },
                 "body_font" if !value.is_empty() => settings.body_font.family = value.to_string(),
                 "heading_font" if !value.is_empty() => settings.heading_font.family = value.to_string(),
                 "map_font" if !value.is_empty() => settings.map_font.family = value.to_string(),
@@ -93,14 +72,10 @@ impl Settings {
     }
 
     pub fn render(&self) -> String {
-        let appearance = match self.text_appearance {
-            TextAppearance::Bitmap => "bitmap",
-            TextAppearance::System => "system",
-        };
         let outline = if self.map_outline { "yes" } else { "no" };
         let (body, heading, map) = (&self.body_font, &self.heading_font, &self.map_font);
         format!(
-            "text_appearance=\"{appearance}\"\nbody_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={outline}\n",
+            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={outline}\n",
             body.family, body.weight, heading.family, heading.weight, map.family, map.weight
         )
     }
@@ -169,7 +144,6 @@ mod tests {
     #[test]
     fn round_trips_and_keeps_defaults_for_the_rest() {
         let custom = Settings {
-            text_appearance: TextAppearance::System,
             body_font: Face::new("SimSun", 700),
             heading_font: Face::new("Microsoft YaHei", 700),
             map_font: Face::new("KaiTi", 290),
@@ -179,8 +153,9 @@ mod tests {
         assert!(custom.render().contains("\nbody_weight=700\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nmap_outline=no\n"));
-        // A file from before headings had a font of their own.
-        let partial = Settings::parse("# comment\nbody_font=\"DengXian\"\ntext_appearance=\"neither\"\nmap_outline=maybe\nmap_weight=1000\nunknown=1\n");
+        // A file from before headings had a font of their own, and from when
+        // text could keep the fonts' own glyphs.
+        let partial = Settings::parse("# comment\ntext_appearance=\"bitmap\"\nbody_font=\"DengXian\"\nmap_outline=maybe\nmap_weight=1000\nunknown=1\n");
         assert_eq!(partial, Settings { body_font: Face::regular("DengXian"), ..Settings::default() });
         assert!(!Settings::parse("map_outline=\"no\"").map_outline);
         // A weight before its font, in quotes, keeps to its font.

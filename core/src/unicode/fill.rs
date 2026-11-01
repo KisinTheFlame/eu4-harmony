@@ -1,22 +1,18 @@
-//! Glyphs from system fonts in the game's font pages (ADR 0010): characters a
-//! bitmap font lacks and, with the system font look, every character. A font
-//! draws from one page texture, which the game reads from the page's wrapper
-//! at every draw, so the framework gives a page a texture of its own with room
-//! for system glyphs. Glyph positions and the page's size are baked into the
-//! game's caches, so the page is sized once, when it loads, and a glyph is
-//! drawn into it before its first use (docs/research/font-textures.md).
+//! Glyphs from system fonts in the game's font pages (ADR 0021): every
+//! character the game draws. A font draws from one page texture, which the
+//! game reads from the page's wrapper at every draw, so the framework gives a
+//! page a new texture of its own, where every character is drawn from the
+//! system font and the font's own glyphs are replaced. Glyph positions and the
+//! page's size are baked into the game's caches, so the page is sized once,
+//! when it loads, and a glyph is drawn into it before its first use: the
+//! font's Windows-1252 characters as it loads, the rest the first time they
+//! are needed (docs/research/font-textures.md). The font's own page is read
+//! only for how its `H` looks: the color of its ink and its outline.
 //!
-//! - Bitmap fonts first ("Keep the fonts as they are" in the settings
-//!   window): the page gets 1024 more rows below it, where a character the
-//!   font lacks is drawn the first time it is needed. A DXT5 page (the
-//!   Chinese language mod's) stays DXT5, its new glyphs written as blocks
-//!   (`dxt`).
-//! - The system font look ("System fonts"): a new page holds every
-//!   character, drawn from the system font; the font's own glyphs are
-//!   replaced. The game stretches a font's glyphs by the interface scale,
-//!   with a linear filter, so an interface font's glyphs are drawn that many
-//!   times larger and its scale divided to match: they reach the window a
-//!   texel to a pixel, as sharp as the system font draws them ([`density`]).
+//! The game stretches a font's glyphs by the interface scale, with a linear
+//! filter, so an interface font's glyphs are drawn that many times larger and
+//! its scale divided to match: they reach the window a texel to a pixel, as
+//! sharp as the system font draws them ([`density`]).
 //!
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
 //! font, inside the outline the font's own glyphs have when the player keeps
@@ -39,7 +35,7 @@ use crate::hooks::HookFrame;
 use crate::memory::Memory;
 use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use crate::points::Point;
-use crate::settings::{self, TextAppearance};
+use crate::settings;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -60,18 +56,15 @@ pub const ALLOCATE: usize = 0x1a332d4;
 /// (0x16f9850 maps them to Direct3D's).
 const ARGB: u32 = 0xb;
 const DXT5: [u32; 2] = [5, 6];
-const EXTRA_ROWS: u32 = 1024;
 const MAP_LINE: i32 = 48;
 
-/// A page as the game decoded it.
+/// A font's own page as the game decoded it, its first level only: read for
+/// how its glyphs look.
 struct Own {
     width: u32,
     height: u32,
     /// DXT5 blocks; A8R8G8B8 rows otherwise.
     compressed: bool,
-    /// Whether the texture has smaller levels too. Only the first is kept:
-    /// such a page is not grown, only read for how its glyphs look.
-    mipmapped: bool,
     data: Vec<u8>,
 }
 
@@ -94,19 +87,15 @@ struct Fill {
     texture: IDirect3DTexture9,
     /// The system-memory texture glyphs are written through, and its size.
     staging: Option<(u32, u32, IDirect3DTexture9)>,
-    compressed: bool,
-    width: u32,
-    height: u32,
+    /// The page is square, `side` pixels across and down.
+    side: u32,
     atlas: Page,
-    /// Rows above the system glyphs: the font's own page, or none.
-    top: u32,
     face: Face,
     /// The colour the glyphs are drawn in.
     ink: u32,
     /// The outline drawn around them.
     outline: Option<Outline>,
-    /// Em sizes for characters before `CJK` and for the rest, in pixels.
-    letter_em: f32,
+    /// The em size, in pixels.
     em: f32,
     /// From the top of a line to the baseline, in pixels.
     base: f32,
@@ -160,7 +149,7 @@ impl Loading {
 
     /// The page `font` loaded, when it was `font` that was loading (None
     /// otherwise); the inner None when the game made no page of a kind the
-    /// framework can grow.
+    /// framework can read.
     fn finish(&mut self, font: usize) -> Option<Option<Own>> {
         let done = std::mem::replace(self, Loading { font: None, page: None });
         (done.font == Some(font)).then_some(done.page)
@@ -206,24 +195,22 @@ fn row_bytes(compressed: bool, width: u32) -> usize {
     }
 }
 
-/// A system-memory texture to write a page of `format` through.
-fn staging(device: &IDirect3DDevice9, format: D3DFORMAT, width: u32, height: u32) -> crate::Result<IDirect3DTexture9> {
+/// A system-memory texture to write a page through.
+fn staging(device: &IDirect3DDevice9, width: u32, height: u32) -> crate::Result<IDirect3DTexture9> {
     let mut texture = None;
-    unsafe { device.CreateTexture(width, height, 1, 0, format, D3DPOOL_SYSTEMMEM, &mut texture, std::ptr::null_mut()) }
+    unsafe { device.CreateTexture(width, height, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &mut texture, std::ptr::null_mut()) }
         .map_err(|e| format!("staging texture: {e}"))?;
     texture.ok_or_else(|| "no staging texture".to_string())
 }
 
 /// Writes `width` × `height` pixels at (x, y) of `page`, given as rows of
-/// A8R8G8B8 pixels or of DXT5 blocks (on a DXT5 page (x, y) is a whole
-/// block), through `staging`, a system-memory texture of the page's format at
-/// least that large, from which the device copies them into the page.
-#[expect(clippy::too_many_arguments, reason = "the device, the textures, the format, a rectangle and its pixels; a struct would only rename them")]
+/// A8R8G8B8 pixels, through `staging`, a system-memory texture at least that
+/// large, from which the device copies them into the page.
+#[expect(clippy::too_many_arguments, reason = "the device, the textures, a rectangle and its pixels; a struct would only rename them")]
 fn put(
     device: &IDirect3DDevice9,
     page: &IDirect3DTexture9,
     staging: &IDirect3DTexture9,
-    compressed: bool,
     x: u32,
     y: u32,
     width: u32,
@@ -233,16 +220,13 @@ fn put(
     if width == 0 || height == 0 {
         return Ok(());
     }
-    let rows = if compressed { height.div_ceil(4) } else { height } as usize;
-    let row = row_bytes(compressed, width);
-    // A DXT5 page takes whole blocks only.
-    let (width, height) = if compressed { (width.next_multiple_of(4), height.next_multiple_of(4)) } else { (width, height) };
+    let row = width as usize * 4;
     let rect = RECT { left: 0, top: 0, right: width as i32, bottom: height as i32 };
     let at = POINT { x: x as i32, y: y as i32 };
     let mut locked = D3DLOCKED_RECT::default();
     unsafe {
         staging.LockRect(0, &mut locked, &rect, 0)?;
-        for n in 0..rows {
+        for n in 0..height as usize {
             let line = (locked.pBits as *mut u8).add(n * locked.Pitch as usize);
             std::ptr::copy_nonoverlapping(data.as_ptr().add(n * row), line, row);
         }
@@ -257,11 +241,10 @@ impl Fill {
     fn put(&mut self, x: u32, y: u32, width: u32, height: u32, data: &[u8]) -> crate::Result<()> {
         if !matches!(&self.staging, Some((w, h, _)) if *w >= width && *h >= height) {
             let (w, h) = (width.next_multiple_of(64), height.next_multiple_of(64));
-            let format = if self.compressed { D3DFMT_DXT5 } else { D3DFMT_A8R8G8B8 };
-            self.staging = Some((w, h, staging(&self.device, format, w, h)?));
+            self.staging = Some((w, h, staging(&self.device, w, h)?));
         }
         let (_, _, staging) = self.staging.as_ref().expect("made above");
-        put(&self.device, &self.texture, staging, self.compressed, x, y, width, height, data).map_err(|e| e.to_string())
+        put(&self.device, &self.texture, staging, x, y, width, height, data).map_err(|e| e.to_string())
     }
 }
 
@@ -276,15 +259,12 @@ struct Letter {
     /// its pages are white; the map draws its names in the page's colour,
     /// black in the fonts the game ships.
     ink: u32,
-    /// From the top of a line to the top and the bottom (the baseline) of its
-    /// ink, in pixels. Some fonts' glyphs fill the whole line, so the
-    /// glyph's own box does not tell where the baseline is.
-    top: i32,
-    baseline: i32,
     /// The outline around it, if it has one.
     outline: Option<Outline>,
 }
 
+/// What the font's own `H` shows; None when none of it is at least half
+/// opaque.
 fn letter(m: &Memory, font: usize, own: &Own) -> Option<Letter> {
     let record = m.ptr(font + OWN_GLYPHS + b'H' as usize * 8).ok().filter(|&r| r != 0)?;
     let bytes = m.bytes(record, std::mem::size_of::<Glyph>()).ok()?;
@@ -292,56 +272,21 @@ fn letter(m: &Memory, font: usize, own: &Own) -> Option<Letter> {
     let width = (h.width as u32).min(own.width.saturating_sub(h.x as u32));
     let height = (h.height as u32).min(own.height.saturating_sub(h.y as u32));
     let pixels: Vec<u32> = (0..height).flat_map(|y| (0..width).map(move |x| own.pixel(h.x as u32 + x, h.y as u32 + y))).collect();
-    let (mut best, mut ink, mut rows) = (0, 0, None::<(u32, u32)>);
-    for (i, &pixel) in pixels.iter().enumerate() {
+    let (mut best, mut ink) = (0, 0);
+    for &pixel in &pixels {
         if pixel >> 24 > best {
             (best, ink) = (pixel >> 24, pixel & 0x00ff_ffff);
         }
-        if pixel >> 24 >= 0x80 {
-            let y = i as u32 / width;
-            rows = Some(rows.map_or((y, y), |(top, _)| (top, y)));
-        }
     }
-    let (top, bottom) = rows?;
-    Some(Letter {
-        ink,
-        top: h.y_offset as i32 + top as i32,
-        baseline: h.y_offset as i32 + bottom as i32 + 1,
-        outline: Outline::measure(&pixels, width, height, ink),
-    })
+    (best >= 0x80).then(|| Letter { ink, outline: Outline::measure(&pixels, width, height, ink) })
 }
 
-/// Characters before the CJK blocks are sized to the font's own capitals;
-/// the rest to its line.
-const CJK: u32 = 0x2e80;
-
-/// The em size `scalar` is drawn at, given the font's for letters and for
-/// the rest.
-fn em_for(scalar: u32, letter_em: f32, em: f32) -> f32 {
-    if scalar < CJK {
-        letter_em
-    } else {
-        em
-    }
-}
-
-/// The room a glyph `width` by `height` pixels takes in the atlas, which adds
-/// a pixel of padding: on a DXT5 page it and its padding take whole blocks,
-/// so every place is a whole block too.
-fn room(width: u32, height: u32, compressed: bool) -> (u32, u32) {
-    match compressed {
-        true => ((width + 1).next_multiple_of(4) - 1, (height + 1).next_multiple_of(4) - 1),
-        false => (width, height),
-    }
-}
-
-/// The game's record for `bitmap` drawn at (`x`, `y`) of the system glyphs'
-/// area, which starts `top` rows down the page, on lines whose baseline is
-/// `base` pixels down.
-fn record(bitmap: &super::system_font::Bitmap, (x, y): (u32, u32), top: u32, base: f32) -> Glyph {
+/// The game's record for `bitmap` drawn at (`x`, `y`) of the page, on lines
+/// whose baseline is `base` pixels down.
+fn record(bitmap: &super::system_font::Bitmap, (x, y): (u32, u32), base: f32) -> Glyph {
     Glyph {
         x: x as u16,
-        y: (top + y) as u16,
+        y: y as u16,
         width: bitmap.width as u16,
         height: bitmap.height as u16,
         x_offset: bitmap.left as i16,
@@ -355,7 +300,7 @@ fn record(bitmap: &super::system_font::Bitmap, (x, y): (u32, u32), top: u32, bas
 fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
     let fonts = SYSTEM.as_ref()?;
     let face = fonts.face_for(&fill.face, scalar)?;
-    let bitmap = fonts.rasterize(&face, scalar, em_for(scalar, fill.letter_em, fill.em)).ok()?;
+    let bitmap = fonts.rasterize(&face, scalar, fill.em).ok()?;
     let (bitmap, pixels) = match &fill.outline {
         Some(outline) if bitmap.width > 0 && bitmap.height > 0 => outline.around(&bitmap, fill.ink),
         _ => {
@@ -365,26 +310,22 @@ fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
     };
     let (mut x, mut y) = (0, 0);
     if bitmap.width > 0 && bitmap.height > 0 {
-        let (w, h) = room(bitmap.width, bitmap.height, fill.compressed);
-        (x, y) = match fill.atlas.place(w, h) {
+        (x, y) = match fill.atlas.place(bitmap.width, bitmap.height) {
             Some(spot) => spot,
             None => {
                 if !std::mem::replace(&mut fill.full, true) {
-                    log!("fill: a {}x{} page is full; characters past it show as '?'", fill.width, fill.height);
+                    log!("fill: a {0}x{0} page is full; characters past it show as '?'", fill.side);
                 }
                 return None;
             }
         };
-        let pixels = match fill.compressed {
-            true => dxt::encode_bitmap(bitmap.width, bitmap.height, &pixels).concat(),
-            false => pixels.iter().flat_map(|p| p.to_le_bytes()).collect(),
-        };
-        if let Err(e) = fill.put(x, fill.top + y, bitmap.width, bitmap.height, &pixels) {
+        let pixels: Vec<u8> = pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
+        if let Err(e) = fill.put(x, y, bitmap.width, bitmap.height, &pixels) {
             log!("fill: cannot write a glyph: {e}");
             return None;
         }
     }
-    Some(record(&bitmap, (x, y), fill.top, fill.base))
+    Some(record(&bitmap, (x, y), fill.base))
 }
 
 fn glyph_of(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
@@ -396,8 +337,8 @@ fn glyph_of(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
     glyph
 }
 
-/// The glyph a filled `font` draws for `scalar`, which its bitmap glyphs
-/// lack: drawn into its page the first time. Null when the font is not filled
+/// The glyph a filled `font` draws for `scalar`, which its own table does not
+/// hold: drawn into its page the first time. Null when the font is not filled
 /// or no system font has the character.
 pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
     let Some(wrapper) = lock(&OWNERS).get(&font).copied() else { return std::ptr::null() };
@@ -422,12 +363,6 @@ fn metrics(fonts: &SystemFonts, face: &Face, line: f32) -> (f32, f32) {
     let (ascent, descent) = fonts.line_metrics(face).unwrap_or((0.9, 0.25));
     let em = line / (ascent + descent);
     (em, em * ascent)
-}
-
-/// Which rows of a font's own page (`own_height` pixels tall, rows of `per`
-/// pixel rows each) fall in the `rows` pixel rows from `band`.
-fn own_rows(own_height: u32, band: u32, rows: u32, per: u32) -> std::ops::Range<usize> {
-    (band.min(own_height) / per) as usize..((band + rows).min(own_height) / per) as usize
 }
 
 /// Whether a font with lines `line` pixels tall is one of the map's.
@@ -523,12 +458,12 @@ fn kind(name: &[u8], line: i32) -> Kind {
 /// The most pixels of a page a GUI unit takes.
 const MOST_DENSE: f32 = 4.0;
 
-/// How many pixels of its page a GUI unit of `font` takes under the system
-/// font look: the interface scale the font loads at, when it is above 1 (up
-/// to [`MOST_DENSE`]). The game draws a font's glyphs that many times larger
-/// than their pixels, with a linear filter, which blurs them; drawn that much
-/// larger, and with the font's scale divided by as much ([`dense_line`]),
-/// they reach the window a texel to a pixel.
+/// How many pixels of its page a GUI unit of `font` takes: the interface
+/// scale the font loads at, when it is above 1 (up to [`MOST_DENSE`]). The
+/// game draws a font's glyphs that many times larger than their pixels, with
+/// a linear filter, which blurs them; drawn that much larger, and with the
+/// font's scale divided by as much ([`dense_line`]), they reach the window a
+/// texel to a pixel.
 fn density(m: &Memory, font: usize) -> f32 {
     let scale = m.ptr(font + objects::font::CONTEXT).and_then(|context| m.u32(context + objects::context::INTERFACE_SCALE)).map(f32::from_bits);
     match scale {
@@ -563,27 +498,17 @@ fn scale_font(m: &Memory, font: usize, density: f32) -> crate::Result<()> {
     Ok(())
 }
 
-/// The width and height of the page a font gets, and the row its system
-/// glyphs start at: its own page (`own`, width and height) with
-/// [`EXTRA_ROWS`] below when the device allows `max` (width, height), or a
-/// square one sized to its `line` in GUI units, and `growth` times as wide
-/// and tall, so that it holds as many glyphs `growth` times as large: drawn
-/// denser, or inside an outline.
-fn page_size(own: Option<(u32, u32)>, line: i32, growth: f32, max: (u32, u32)) -> crate::Result<(u32, u32, u32)> {
-    match own {
-        // A DXT5 page is whole blocks, so the rows below start on one.
-        Some((width, height)) if height + EXTRA_ROWS <= max.1 => Ok((width, height + EXTRA_ROWS, height)),
-        Some(_) => Err("page too tall to grow".into()),
-        None => {
-            let side: u32 = match line {
-                ..=24 => 1024,
-                25..=48 => 2048,
-                _ => 4096,
-            };
-            let side = ((side as f32 * growth / 256.0).ceil() as u32 * 256).min(max.0).min(max.1);
-            Ok((side, side, 0))
-        }
-    }
+/// How wide and tall the square page a font gets is: sized to its `line` in
+/// GUI units, and `growth` times as wide and tall, so that it holds as many
+/// glyphs `growth` times as large (drawn denser, or inside an outline), up to
+/// the device's largest texture, `max` (width, height).
+fn page_side(line: i32, growth: f32, max: (u32, u32)) -> u32 {
+    let side: u32 = match line {
+        ..=24 => 1024,
+        25..=48 => 2048,
+        _ => 4096,
+    };
+    ((side as f32 * growth / 256.0).ceil() as u32 * 256).min(max.0).min(max.1)
 }
 
 /// The system font and weight the player chose for fonts of `kind`.
@@ -596,77 +521,56 @@ fn chosen_face(kind: Kind) -> Face {
     }
 }
 
-/// A page for `font`, which draws `kind`: its own pixels (`own`, when the
-/// game decoded them) with room below (bitmap fonts first), or an empty one
-/// (the system font look).
-fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own>, system: bool, kind: Kind) -> crate::Result<Fill> {
+/// An empty page for `font`, which draws `kind`, in the ink and the outline
+/// of its own page (`own`, when the game decoded it).
+fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Own>, kind: Kind) -> crate::Result<Fill> {
     let fonts = SYSTEM.as_ref().ok_or("no system fonts")?;
     let line = m.i32(font + objects::font::LINE_HEIGHT)?.max(1);
     let current = settings::current();
     let map = kind == Kind::Map;
     let face = chosen_face(kind);
-    let letter = own.as_ref().and_then(|own| letter(m, font, own));
-    let own = if system { None } else { own };
+    let letter = own.and_then(|own| letter(m, font, own));
     let outline = letter.as_ref().and_then(|l| l.outline.clone()).filter(|_| map && current.map_outline);
     // The map's names are drawn on the map, which the interface scale does
     // not stretch.
-    let density = if system && !map { density(m, font) } else { 1.0 };
-    let (em, mut base) = metrics(fonts, &face, line as f32 * density);
+    let density = if map { 1.0 } else { density(m, font) };
+    let (em, base) = metrics(fonts, &face, line as f32 * density);
     let mut caps = D3DCAPS9::default();
     unsafe { device.GetDeviceCaps(&mut caps) }.map_err(|e| format!("device caps: {e}"))?;
-    let compressed = own.as_ref().is_some_and(|o| o.compressed);
     let reach = outline.as_ref().map_or(0, |o| o.reach());
     let growth = (line as f32 * density + 2.0 * reach as f32) / line as f32;
-    let (width, height, top) = page_size(own.as_ref().map(|o| (o.width, o.height)), line, growth, (caps.MaxTextureWidth, caps.MaxTextureHeight))?;
-    let format = if compressed { D3DFMT_DXT5 } else { D3DFMT_A8R8G8B8 };
+    let side = page_side(line, growth, (caps.MaxTextureWidth, caps.MaxTextureHeight));
     let mut texture = None;
     let creating = crate::heap::Change::begin();
     unsafe {
-        device.CreateTexture(width, height, 1, 0, format, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut()).map_err(|e| format!("page texture: {e}"))?;
+        device
+            .CreateTexture(side, side, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &mut texture, std::ptr::null_mut())
+            .map_err(|e| format!("page texture: {e}"))?;
     }
     let texture = texture.ok_or("no page texture")?;
     let created = creating.end();
     let writing = crate::heap::Change::begin();
-    // The font's own page on top, the rest clear (all zero bytes, in either
-    // format), a band of rows at a time through one staging texture.
+    // Clear (all zero bytes), a band of rows at a time through one staging
+    // texture.
     const BAND: u32 = 256;
-    let band = staging(device, format, width, BAND)?;
-    let (row, rows_per_row) = (row_bytes(compressed, width), if compressed { 4 } else { 1 });
-    for top in (0..height).step_by(BAND as usize) {
-        let rows = BAND.min(height - top);
-        let mut data = vec![0u8; (rows / rows_per_row) as usize * row];
-        if let Some(own) = &own {
-            let range = own_rows(own.height, top, rows, rows_per_row);
-            let (from, to) = (range.start * row, range.end * row);
-            data[..to - from].copy_from_slice(&own.data[from..to]);
-        }
-        put(device, &texture, &band, compressed, 0, top, width, rows, &data).map_err(|e| format!("page pixels: {e}"))?;
+    let band = staging(device, side, BAND)?;
+    for top in (0..side).step_by(BAND as usize) {
+        let rows = BAND.min(side - top);
+        let data = vec![0u8; (rows * side) as usize * 4];
+        put(device, &texture, &band, 0, top, side, rows, &data).map_err(|e| format!("page pixels: {e}"))?;
     }
-    log!("fill: {width}x{height} page texture: creating it {created}; writing it {}", writing.end());
+    log!("fill: {side}x{side} page texture: creating it {created}; writing it {}", writing.end());
     // Without the page's pixels: black for a map font, white otherwise.
     let ink = letter.as_ref().map_or(if map { 0 } else { 0x00ff_ffff }, |l| l.ink);
-    let mut letter_em = em;
-    if let (Some(l), false) = (&letter, system) {
-        // Characters drawn among the font's own letters sit on their
-        // baseline, and letters are as tall as its capitals.
-        base = l.baseline as f32;
-        if let Some(cap) = fonts.cap_height(&face) {
-            letter_em = (l.baseline - l.top) as f32 / cap;
-        }
-    }
     Ok(Fill {
         device: device.clone(),
         texture,
         staging: None,
-        compressed,
-        width,
-        height,
-        atlas: Page::new(width, height - top),
-        top,
+        side,
+        atlas: Page::new(side, side),
         face,
         ink,
         outline,
-        letter_em,
         em,
         base,
         density,
@@ -675,9 +579,9 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<Own
     })
 }
 
-/// The system font look: the font's glyphs for Windows-1252 characters
-/// become system glyphs, written into its own records (or records allocated
-/// as the game allocates them, which it frees with the font).
+/// The font's glyphs for Windows-1252 characters become system glyphs,
+/// written into its own records (or records allocated as the game allocates
+/// them, which it frees with the font).
 fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill) -> crate::Result<()> {
     for byte in 0x20u8..=0xff {
         let (c, _) = game_text::char_at(&[byte]);
@@ -729,22 +633,21 @@ extern "C" fn create_before(frame: *mut HookFrame) {
                 return;
             }
             let size = height as usize / if compressed { 4 } else { 1 } * row_bytes(compressed, width);
-            l.give(Own { width, height, compressed, mipmapped: count > 1, data: std::slice::from_raw_parts(data, size).to_vec() });
+            l.give(Own { width, height, compressed, data: std::slice::from_raw_parts(data, size).to_vec() });
         });
     })
 }
 
-/// `font` has loaded: fills its page. Returns whether the font now draws
-/// every character from the system font, so that the glyphs its file brought
-/// no longer apply.
 /// A font's load ended in a fault: nothing is filled in for it.
 pub fn abandoned(font: usize) {
     LOADING.with(|l| l.borrow_mut().finish(font));
 }
 
+/// `font` has loaded: gives it a page of system glyphs. Returns whether the
+/// font now draws every character from the system font, so that the glyphs
+/// its file brought no longer apply.
 pub fn loaded(font: usize) -> bool {
     let Some(own) = LOADING.with(|l| l.borrow_mut().finish(font)) else { return false };
-    let system = settings::current().text_appearance == TextAppearance::System;
     let m = crate::hooked_memory();
     let result = (|| -> crate::Result<bool> {
         let (manager, entry) = page_entry(&m, font)?;
@@ -764,34 +667,22 @@ pub fn loaded(font: usize) -> bool {
             }
             Entry::Occupied(_) => {}
             Entry::Vacant(vacant) => {
-                // A page loaded before, in another format or with smaller
-                // levels keeps its own glyphs only.
-                if !system && own.as_ref().is_none_or(|o| o.mipmapped) {
-                    return Ok(false);
-                }
-                let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own, system, kind))?;
+                let fill = costs::PAGES.time(|| make_page(&m, font, &device(&m, manager)?, own.as_ref(), kind))?;
                 // The wrapper holds the game's reference: it gets one of
                 // ours, and its old texture is released.
                 let old = m.ptr(wrapper)? as *mut c_void;
                 unsafe {
                     *(wrapper as *mut *mut c_void) = fill.texture.clone().into_raw();
                     drop(IDirect3DTexture9::from_raw(old));
-                    *((entry + textures::ENTRY_SIZE) as *mut u32) = fill.width;
-                    *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = fill.height;
+                    *((entry + textures::ENTRY_SIZE) as *mut u32) = fill.side;
+                    *((entry + textures::ENTRY_SIZE + 4) as *mut u32) = fill.side;
                 }
-                let look = match (system, fill.compressed) {
-                    (true, _) => "system",
-                    (false, true) => "grown DXT5",
-                    (false, false) => "grown",
-                };
                 let outline = fill.outline.as_ref().map_or("none".to_string(), |o| format!("{:06x}, {} px", o.color, o.reach()));
                 log!(
-                    "fill: {look} page {}x{} for font {name:?} ({kind:?}) in {} at {:.1} px (letters {:.1} px, baseline {:.0}), {:.2} px a GUI unit, ink {:06x}, outline {outline}",
-                    fill.width,
-                    fill.height,
+                    "fill: system page {0}x{0} for font {name:?} ({kind:?}) in {1} at {2:.1} px (baseline {3:.0}), {4:.2} px a GUI unit, ink {5:06x}, outline {outline}",
+                    fill.side,
                     fill.face,
                     fill.em,
-                    fill.letter_em,
                     fill.base,
                     fill.density,
                     fill.ink
@@ -801,17 +692,15 @@ pub fn loaded(font: usize) -> bool {
         }
         let fill = pages.get_mut(&wrapper).expect("just made");
         unsafe {
-            *((font + objects::font::PAGE_SIZE) as *mut u32) = fill.width;
-            *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = fill.height;
+            *((font + objects::font::PAGE_SIZE) as *mut u32) = fill.side;
+            *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = fill.side;
         }
         if fill.density != 1.0 {
             scale_font(&m, font, fill.density)?;
         }
         lock(&OWNERS).insert(font, wrapper);
-        if system {
-            replace_own_glyphs(&m, font, fill)?;
-        }
-        Ok(system)
+        replace_own_glyphs(&m, font, fill)?;
+        Ok(true)
     })();
     result.unwrap_or_else(|e| {
         log!("fill: font page left as it is: {e}");
@@ -845,7 +734,7 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dense_line, draws_the_map, em_for, kind, own_rows, page_size, record, room, Kind, Loading, Own, BODY, HEADINGS};
+    use super::{dense_line, draws_the_map, kind, page_side, record, Kind, Loading, Own, BODY, HEADINGS};
     use crate::unicode::system_font::Bitmap;
 
     #[test]
@@ -880,40 +769,31 @@ mod tests {
     }
 
     #[test]
-    fn pages_grow_below_or_are_sized_to_the_line() {
+    fn pages_are_sized_to_the_line() {
         let max = (16384, 16384);
-        assert_eq!(page_size(Some((2048, 4096)), 60, 1.0, max).unwrap(), (2048, 5120, 4096));
-        assert!(page_size(Some((2048, 16000)), 60, 1.0, max).is_err());
-        assert_eq!(page_size(None, 18, 1.0, max).unwrap(), (1024, 1024, 0));
-        assert_eq!(page_size(None, 48, 1.0, max).unwrap(), (2048, 2048, 0));
-        assert_eq!(page_size(None, 72, 1.0, max).unwrap(), (4096, 4096, 0));
+        assert_eq!(page_side(18, 1.0, max), 1024);
+        assert_eq!(page_side(48, 1.0, max), 2048);
+        assert_eq!(page_side(72, 1.0, max), 4096);
         // Glyphs drawn 1.5 times as large: as many fit on a page 1.5 times
         // as wide and tall, which the device's largest texture caps.
-        assert_eq!(page_size(None, 18, 1.5, max).unwrap(), (1536, 1536, 0));
-        assert_eq!(page_size(None, 48, 1.25, max).unwrap(), (2560, 2560, 0));
-        assert_eq!(page_size(None, 18, 1.5, (8192, 1280)).unwrap(), (1280, 1280, 0));
+        assert_eq!(page_side(18, 1.5, max), 1536);
+        assert_eq!(page_side(48, 1.25, max), 2560);
+        assert_eq!(page_side(18, 1.5, (8192, 1280)), 1280);
         // A map font's glyphs inside a 6-pixel outline, on 88-pixel lines.
-        assert_eq!(page_size(None, 88, 100.0 / 88.0, max).unwrap(), (4864, 4864, 0));
+        assert_eq!(page_side(88, 100.0 / 88.0, max), 4864);
         assert!(!draws_the_map(48) && draws_the_map(49));
     }
 
     #[test]
-    fn glyphs_are_placed_and_sized_as_the_page_needs() {
-        // Latin letters go by the capitals' size, the rest by the line.
-        assert_eq!(em_for('H' as u32, 11.0, 14.0), 11.0);
-        assert_eq!(em_for('中' as u32, 11.0, 14.0), 14.0);
-        // With its padding a glyph takes whole 4x4 blocks on a DXT5 page.
-        assert_eq!(room(10, 13, true), (11, 15));
-        assert_eq!(room(11, 15, true), (11, 15));
-        assert_eq!(room(10, 13, false), (10, 13));
+    fn a_glyph_is_recorded_where_it_was_drawn() {
         let bitmap = Bitmap { width: 12, height: 14, left: 1, top: -11, advance: 13.6, alpha: Vec::new() };
-        let glyph = record(&bitmap, (40, 8), 1024, 13.4);
-        assert_eq!((glyph.x, glyph.y, glyph.width, glyph.height), (40, 1032, 12, 14));
+        let glyph = record(&bitmap, (40, 8), 13.4);
+        assert_eq!((glyph.x, glyph.y, glyph.width, glyph.height), (40, 8, 12, 14));
         assert_eq!((glyph.x_offset, glyph.y_offset, glyph.advance), (1, 2, 14));
     }
 
     fn page(width: u32) -> Own {
-        Own { width, height: 4, compressed: false, mipmapped: false, data: vec![0; width as usize * 16] }
+        Own { width, height: 4, compressed: false, data: vec![0; width as usize * 16] }
     }
 
     #[test]
@@ -931,19 +811,8 @@ mod tests {
         // Another font's return does not take this one's page.
         loading.begin(0x20);
         assert!(loading.finish(0x30).is_none());
-        // A page of no kind the framework grows.
+        // A page of no kind the framework reads.
         loading.begin(0x40);
         assert!(loading.finish(0x40).unwrap().is_none());
-    }
-
-    #[test]
-    fn bands_past_the_own_page_copy_nothing() {
-        // A 4096-row DXT5 page grown by 1024 rows, copied 256 rows at a time.
-        assert_eq!(own_rows(4096, 0, 256, 4), 0..64);
-        assert_eq!(own_rows(4096, 3840, 256, 4), 960..1024);
-        assert_eq!(own_rows(4096, 4096, 256, 4), 1024..1024);
-        assert_eq!(own_rows(4096, 4864, 256, 4), 1024..1024);
-        // A 32-bit page 100 rows tall.
-        assert_eq!(own_rows(100, 0, 256, 1), 0..100);
     }
 }

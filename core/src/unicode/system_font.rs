@@ -1,8 +1,7 @@
 //! Glyphs from system fonts (GLOSSARY), drawn with DirectWrite into 8-bit
-//! coverage bitmaps, anti-aliased across and down: for characters a bitmap
-//! font lacks, and for every character when the player picks the system font
-//! look (ADR 0010). Anti-aliased across only, as DirectWrite's natural mode
-//! draws, the slanting strokes of Chinese characters show steps.
+//! coverage bitmaps, anti-aliased across and down: for every character the
+//! game draws (ADR 0021). Anti-aliased across only, as DirectWrite's natural
+//! mode draws, the slanting strokes of Chinese characters show steps.
 //!
 //! A character goes to the first of the chosen family and the fallback
 //! families that has it, in the chosen weight when that family has it, else
@@ -245,13 +244,6 @@ impl SystemFonts {
         let metrics = self.metrics(face)?;
         let em = metrics.designUnitsPerEm as f32;
         (em > 0.0).then(|| (metrics.ascent as f32 / em, metrics.descent as f32 / em))
-    }
-
-    /// How tall `face`'s capital letters are, in ems.
-    pub fn cap_height(&self, face: &Face) -> Option<f32> {
-        let metrics = self.metrics(face)?;
-        let em = metrics.designUnitsPerEm as f32;
-        (em > 0.0 && metrics.capHeight > 0).then(|| metrics.capHeight as f32 / em)
     }
 
     fn metrics(&self, face: &Face) -> Option<DWRITE_FONT_METRICS> {
