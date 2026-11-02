@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0024
+---
+
 # A command's output crosses the ABI lent to a callback, for the call
 
 A host function that does something it cannot do again to be asked a second time, such as running a game console command (`GameApi::console_run`), hands back text of unknown length through a callback the caller passes (`abi::TextSink`) with a `user` pointer of its own. The core calls it once, on the game thread, before the host function returns, with the text as UTF-8; the text is lent for that call only, and the caller copies what it keeps. The SDK's `Game::console` does that and returns a `String`, so an extension never sees the callback.

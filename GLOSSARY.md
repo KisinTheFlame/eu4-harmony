@@ -1,6 +1,6 @@
 # EU4 Harmony
 
-A framework that lets developers extend Europa Universalis IV with native code, and the mods it loads.
+A framework that lets developers extend Europa Universalis IV with Lua scripts, and the mods it loads.
 
 ## Language
 
@@ -10,9 +10,37 @@ A framework that lets developers extend Europa Universalis IV with native code, 
 What a player subscribes to and enables in the Paradox launcher, that is, a Paradox mod. It may hold only game scripts and assets, or carry an extension as well.
 _Avoid_: mod pack
 
+**Harmony mod**:
+A mod with a manifest, whether or not it carries an extension. Where players see it, it is an EU4 Harmony mod.
+_Avoid_: framework mod, extension mod
+
 **Extension**:
-The native code part of a mod that the framework loads and runs inside the game process, declared by the mod's manifest. A mod has at most one.
-_Avoid_: plugin, module, DLL mod
+A mod's Lua scripts, which the framework runs inside the game process in a Lua state of their own. A mod has at most one.
+_Avoid_: plugin, module, script mod, DLL mod
+
+**Lua state**:
+The Lua interpreter the framework gives one extension. Extensions share nothing.
+_Avoid_: VM, interpreter on its own, sandbox
+
+**Sandbox**:
+What an extension's Lua state can reach: Lua's own libraries for strings, tables, numbers and coroutines, the framework's globals and capabilities, and nothing of the process or the system.
+_Avoid_: jail, safe mode
+
+**Handler**:
+A function an extension gives the framework for one event, which the framework calls at a safe point.
+_Avoid_: callback, listener, hook
+
+**Task**:
+One run of a handler, or of a function an extension starts on its own, that may wait for something, such as an answer from the network, and is taken up again at a later safe point.
+_Avoid_: coroutine (that is how it is built), promise, job, thread
+
+**Time limit**:
+The longest a task may run without waiting before the framework stops it. An extension whose calls are stopped several times in a row is stopped for the rest of the game.
+_Avoid_: budget, watchdog
+
+**Data folder**:
+An extension's own folder in the user folder, where it keeps files it writes while running, apart from any save.
+_Avoid_: data directory, storage, sandbox folder
 
 **Manifest**:
 The file in a mod that declares its extension to the framework.
@@ -24,7 +52,7 @@ _Avoid_: load list, mod list
 
 **Framework (EU4 Harmony)**:
 The program that runs inside the game process, finds and loads extensions, and gives them capabilities.
-_Avoid_: Harmony on its own (easily confused with other projects of that name), loader, engine
+_Avoid_: Harmony on its own where players or other projects see the name (other projects share it; there it is EU4 Harmony or `eu4-harmony`), loader, engine
 
 **Installation**:
 The one-off step of copying the framework's files into the game folder; uninstalling is deleting them.
@@ -49,8 +77,24 @@ _Avoid_: fix, patch, workaround
 ### Capabilities
 
 **Capability**:
-One thing the framework lets an extension or a remote client read or change in the game, such as reading an army, ordering a move, adding a button to a panel, or keeping data per save. Extensions and remote clients reach the game only through capabilities.
+One thing the framework lets an extension or a remote client read or change in the game, such as reading an army, ordering a move, adding a button to a panel, or keeping data per save. Extensions and remote clients reach the game only through capabilities, the same ones, named and shaped after what a player sees and does rather than after how the game keeps it.
 _Avoid_: API, service, hook
+
+**Capability group**:
+The capabilities about one kind of thing, such as armies, provinces or time; the same groups in Lua and in remote control.
+_Avoid_: namespace, module
+
+**Capability catalogue**:
+The one description of every capability: its group, name, arguments, result and failures, and whether extensions, remote clients or both have it.
+_Avoid_: API reference, schema
+
+**Sensitive capability**:
+A capability that reaches beyond the game, such as the real time, files or the network. An extension can use one only when its manifest declares it as a permission.
+_Avoid_: privilege, dangerous capability
+
+**Permission**:
+A sensitive capability as a mod's manifest declares it. In this version the player sees a mod's permissions in the mods window; confirming them is to come.
+_Avoid_: grant, right, access
 
 **Safe point**:
 A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.
@@ -62,7 +106,7 @@ _Avoid_: view, reference
 
 **Extension save data**:
 An extension's own data kept with a particular save, written into the save file itself. It is kept only for the extensions loaded when the save is loaded.
-_Avoid_: sidecar, companion file
+_Avoid_: sidecar, companion file, store
 
 **Game console**:
 The game's own console, where commands such as `cash` are typed. The framework offers running a command in it as a capability.
@@ -165,6 +209,10 @@ _Avoid_: dialog; message box (that is the Windows message box used when startup 
 **Settings window**:
 The window in the framework UI where the player changes framework settings, opened from the framework button in the main menu's corner. Like the notice window, it is not a window in the game's sense.
 _Avoid_: options menu (that is the game's own settings)
+
+**Mods window**:
+The window in the framework UI, opened from the main menu's corner, that lists the Harmony mods of this start, each with its name, version, description and the sensitive capabilities it declares.
+_Avoid_: mod list (that is a playset), mod manager (it manages nothing)
 
 **Framework settings**:
 The player's preferences for the framework, such as which fonts the Unicode module uses. Some take effect when they are saved, others, such as the fonts, at the next start.
