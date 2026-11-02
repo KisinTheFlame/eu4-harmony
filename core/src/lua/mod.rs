@@ -180,6 +180,14 @@ fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
 /// The extension of `m`, as the `index`th: its state made and its
 /// `main.lua` run.
 fn open(index: usize, m: &DiscoveredMod) -> Result<Extension, String> {
+    // The last start's log is kept beside it; this start's begins before
+    // main.lua runs, which may write to it already.
+    if let Some(dir) = LOG_DIR.get() {
+        let path = log_file(dir, &m.manifest.id);
+        if path.exists() {
+            let _ = std::fs::rename(&path, path.with_extension("prev.log"));
+        }
+    }
     let lua_dir = m.dir.join("eu4-harmony").join("lua");
     let opened = sandbox::open(index, &m.manifest.id, &m.dir.join("eu4-harmony"), &m.manifest.permissions).map_err(|e| e.to_string())?;
     let main = lua_dir.join("main.lua");
@@ -219,11 +227,7 @@ impl Extension {
         let mut file = self.log.lock().unwrap_or_else(|e| e.into_inner());
         if file.is_none() {
             if let Some(dir) = LOG_DIR.get() {
-                let path = dir.join(format!("{}.log", self.id));
-                if path.exists() {
-                    let _ = std::fs::rename(&path, path.with_extension("prev.log"));
-                }
-                *file = OpenOptions::new().create(true).write(true).truncate(true).open(path).ok();
+                *file = OpenOptions::new().create(true).append(true).open(log_file(dir, &self.id)).ok();
             }
         }
         if let Some(f) = file.as_mut() {
@@ -231,6 +235,11 @@ impl Extension {
             let _ = f.flush();
         }
     }
+}
+
+/// The log of the mod `id`'s extension in the logs folder `dir`.
+fn log_file(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.log"))
 }
 
 /// Appends a line to the log of the extension with this index, from its
@@ -241,8 +250,7 @@ pub(crate) fn extension_log(index: usize, id: &str, message: &str) {
         // While main.lua runs, before the extension is in the list.
         None => {
             if let Some(dir) = LOG_DIR.get() {
-                let path = dir.join(format!("{id}.log"));
-                if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
+                if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_file(dir, id)) {
                     let _ = writeln!(f, "{message}");
                 }
             }
