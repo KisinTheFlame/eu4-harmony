@@ -67,14 +67,15 @@ Inside, a pure function lays out the steps from where the game is, where it is g
 
 Decided 2026-11-03: left as they are in this version. Each is the game's own: a restart hides it, and the game's own in-game load leaves its share in vanilla too. Measured 2026-11-02 with the GUI root's elements, the process's private bytes and the heap census ([prototype-log.md](prototype-log.md), "A sprite type unloaded while shown, and the stability runs"):
 
-- **Each return**, with the session it left: 8 to 9 MB of the game's heap (46,000 to 47,600 blocks) and about 1,030 GUI elements; the process's private bytes grow about 15 MB. Handles do not grow.
-- **Each in-game load**: 5 to 7 MB of the game's heap and 300 to 400 GUI elements.
+- **Each return**, with the session it left: 8 to 9 MB of the game's heap (46,000 to 47,600 blocks) and about 1,030 GUI elements; the process's private bytes grow about 15 MB. Handles do not grow. Since the AI's agents are let go too (2026-11-03): 6.5 to 6.9 MB of the heap (43,400 to 44,400 blocks); the private bytes were not measured again.
+- **Each in-game load**: 5 to 7 MB of the game's heap and 300 to 400 GUI elements; since the agents are let go, 4.0 to 4.2 MB of the heap.
 - **What it comes to**: ten returns in one process keep about 150 MB until the game is closed. Twenty rounds of returns, loads and new games ran without a crash.
 - **Where it comes from**:
-  - what the game's AI makes for every session where `ai_king.cpp` logs "Start new agents": 747 blocks of 0xbf8 bytes, about 2.2 MB, each time, the largest part;
-  - blocks of 0x178 bytes from two sites, 0.6 to 1 MB each, 1,585 blocks of 0x120 bytes, and smaller sites, about forty in all; none was followed to what owns it;
+  - blocks of 0x178 bytes from two sites, 0.6 to 1 MB each, copies of an object a country keeps, which something holds by `shared_ptr` after the country goes;
+  - the monarchs, heirs and queens a country's history keeps, 0.6 MB: deleting them where the history goes crashed the game;
+  - smaller sites, about forty in all, and buffers of vectors and strings the census cannot follow;
   - windows the map manager's destructor leaves: the two plain structs, which crash the game when the framework lets them go, and windows not found yet, among them those still showing the building icons (`macrobuildinterface.gui`) and the government reforms (`countryreformview.gui`).
-- **Already let go by the framework** ([research/main-menu.md](research/main-menu.md)): the countries' arrays, the mercenary companies' leaders, the rebel factions, the session's interface and the message windows' popups.
+- **Already let go by the framework** ([research/main-menu.md](research/main-menu.md)): the countries' arrays, the mercenary companies' leaders, the rebel factions, the agents the countries' AI started (about 2.2 MB a session, the largest part before), the session's interface and the message windows' popups.
 - **To take them up later**: the census (the `trace` feature, `EU4HARMONY_CENSUS` set) counts what each world reset's generation leaves by call site; research/main-menu.md lists the sites and how far each was followed.
 
 ## Parts

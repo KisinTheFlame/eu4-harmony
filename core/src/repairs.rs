@@ -4,7 +4,8 @@
 //!
 //! - What a world reset leaks: a destructor or a clear that lets an object
 //!   go without what it owns. A country's array of bytes, a mercenary
-//!   company's leader and a country's rebel factions are let go with them.
+//!   company's leader, a country's rebel factions and the agents its AI
+//!   started are let go with them.
 //! - What a world reset leaves of a session, which vanilla never meets
 //!   outside a load, whose save sets it again: put back as a new start has
 //!   it.
@@ -21,8 +22,8 @@ use crate::{
     memory::Memory,
     objects::{
         campaign::{
-            achievements, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, mercenary_company, message_window,
-            religions, world,
+            achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, mercenary_company,
+            message_window, religions, world,
         },
         gui::{classes as gui_classes, sprite_type},
         list,
@@ -66,11 +67,21 @@ const EMPTY_MESSAGE_ICONS: usize = 0xdffca0;
 /// `(sprite type)`: unloads a sprite type with its group of graphics
 /// (`0x14dc240`), letting its textures go; its [`sprite_type::UNLOAD`].
 const SPRITE_TYPE_UNLOAD: usize = 0x156d730;
+/// `(agent, flags)`: the deleting destructor of the agent at the top of a
+/// country's AI, its vtable's first slot, which the country's AI calls as
+/// it goes; and the destructor it calls, which the game also runs alone for
+/// agents it makes for a moment on the stack.
+const AI_KING_DELETE: usize = 0x148260;
 
 /// What the repairs let go since the last world reset, for the log:
-/// mercenary companies' leaders and rebel factions.
+/// mercenary companies' leaders, rebel factions and the AI's agents.
 static LEADERS: AtomicUsize = AtomicUsize::new(0);
 static FACTIONS: AtomicUsize = AtomicUsize::new(0);
+static AGENTS: AtomicUsize = AtomicUsize::new(0);
+
+/// The agents of the AI whose top agent is being deleted, by that agent:
+/// they are deleted once it is gone.
+static AGENTS_LEFT: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
 
 /// A country's destructor begins: its array of bytes
 /// ([`country::ENTRY_BYTES`]), which the destructor leaves, is freed.
@@ -150,6 +161,65 @@ extern "C" fn world_clearing() {
         })();
         if let Err(e) = deleted {
             log!("repair: the rebel factions were not deleted: {e}");
+        }
+    });
+}
+
+/// The items of one of the game's lists.
+fn list_items(m: &Memory, header: usize) -> crate::Result<Vec<usize>> {
+    let mut items = Vec::new();
+    let mut node = m.ptr(header + list::HEAD)?;
+    while node != 0 {
+        items.push(m.ptr(node + list::ITEM)?);
+        node = m.ptr(node + list::NEXT)?;
+    }
+    Ok(items)
+}
+
+/// The agent at the top of a country's AI is being deleted: the agents it
+/// started, and those that retired since its last update, which its
+/// destructor leaves, are kept to be deleted once it is gone
+/// ([`ai_king_gone`]), when nothing of it can use them any more.
+extern "C" fn ai_king_going(frame: *mut HookFrame) {
+    crate::guarded("AI king delete", || {
+        let (king, flags) = unsafe { ((*frame).args[0], (*frame).args[1]) };
+        if flags & 1 == 0 {
+            return;
+        }
+        let m = crate::hooked_memory();
+        let kept = (|| {
+            let mut agents = list_items(&m, king + ai_king::AGENTS)?;
+            agents.extend(list_items(&m, king + ai_king::RETIRED)?);
+            agents.retain(|&a| a != 0);
+            crate::Result::Ok(agents)
+        })();
+        match kept {
+            Ok(agents) => AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((king, agents)),
+            Err(e) => log!("repair: the agents of a country's AI were not read: {e}"),
+        }
+    });
+}
+
+/// The agent at the top of a country's AI is gone: the agents it left are
+/// deleted, as its update deletes those that retire.
+extern "C" fn ai_king_gone(frame: *mut HookFrame) {
+    crate::guarded("AI king deleted", || {
+        let king = unsafe { (*frame).args[0] };
+        let agents = {
+            let mut left = AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner());
+            match left.iter().rposition(|(k, _)| *k == king) {
+                Some(at) => left.swap_remove(at).1,
+                None => return,
+            }
+        };
+        let m = crate::hooked_memory();
+        for agent in agents {
+            match m.vslot(agent, 0).and_then(|delete| m.call(delete, &[agent, 1])) {
+                Ok(_) => {
+                    AGENTS.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => log!("repair: an agent of a country's AI was not deleted: {e}"),
+            }
         }
     });
 }
@@ -297,9 +367,10 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders and {} rebel factions were deleted with what owned them",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions and {} agents of the AI were deleted with what owned them",
             LEADERS.swap(0, Ordering::Relaxed),
-            FACTIONS.swap(0, Ordering::Relaxed)
+            FACTIONS.swap(0, Ordering::Relaxed),
+            AGENTS.swap(0, Ordering::Relaxed)
         );
         #[cfg(feature = "trace")]
         crate::census::world_reset();
@@ -450,6 +521,19 @@ pub fn points() -> Vec<Point> {
             None,
         ),
         Point::keep(0x8fdb69usize, "e8 d2 19 bd 00 f6 c3 01 74 0d ba 68 00 00 00", "mercenary company destructor end"),
+        // The deleting destructor of the agent at the top of a country's AI,
+        // which leaves its agents; its update deletes those that retire by
+        // their first slots.
+        Point::observe(
+            AI_KING_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 2c 00 00 00 f6 c3 01 74 0d ba 58 0d 00 00",
+            "AI king deleting destructor",
+            2,
+            Some(ai_king_going),
+            Some(ai_king_gone),
+        ),
+        Point::method(classes::AI_KING, 0, AI_KING_DELETE, "AI king deleting destructor method"),
+        Point::keep(0x14b2f1usize, "48 8b 0b 48 8b 5b 10 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10", "AI retired agents deleted by their first slots"),
         Point::observe(WORLD_RESET, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1", "world's own reset", 1, None, Some(world_reset)),
         Point::observe(
             MAP_MANAGER_DESTRUCTOR,
