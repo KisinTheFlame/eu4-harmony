@@ -31,7 +31,7 @@ Clippy's warnings are fixed, not allowed. Where the code is right as it is, `#[e
 With the game installed, the offline checks compare every dependency point's bytes with the game's `eu4.exe`, and check that each observer forwards at least the arguments its function reads:
 
 ```bash
-EU4_GAME_DIR='E:\SteamLibrary\steamapps\common\Europa Universalis IV' cargo test --release -p eu4-harmony-core -- --ignored
+EU4_GAME_DIR=<install dir> cargo test --release -p eu4-harmony-core -- --ignored
 ```
 
 The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, which rustup picks up. CI (`.github/workflows/ci.yml`) checks the formatting and runs the build, the tests and clippy on Windows for every pull request and every merge into master; the offline checks need the game and are run by hand.
