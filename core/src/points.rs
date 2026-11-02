@@ -1,7 +1,8 @@
 //! Dependency points (GLOSSARY): the places in the game image the framework
 //! relies on. Each is declared once, with the bytes it must hold and what the
 //! framework does there, and that one declaration drives checking, hooking and
-//! undoing (ADR 0012). [`install`] applies every point or none.
+//! undoing (ADR 0012). [`install`] applies every point or none, and
+//! [`Memory::at`] gives the address of only what a point checks.
 use crate::{
     hooks::{self, Callback},
     memory::Memory,
@@ -10,6 +11,7 @@ use crate::{
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
     LibraryLoader::{GetModuleHandleW, GetProcAddress},
@@ -169,6 +171,49 @@ impl Point {
     }
 }
 
+/// The RVAs the dependency points check, as ranges from the first to the
+/// last: each point's bytes and the address right after them, where a call
+/// among them returns or a jump stub continues; a method's function; and the
+/// numbers a point's bytes use, which a test finds in them.
+struct Checked(Vec<(usize, usize)>);
+
+impl Checked {
+    fn of(points: &[Point]) -> Self {
+        let mut ranges = Vec::new();
+        for point in points {
+            let Place::Rva(rva) = point.place else { continue };
+            match point.method {
+                Some(function) => ranges.extend([(rva, rva + 8), (function, function)]),
+                None => ranges.push((rva, rva + point.bytes.split_whitespace().count())),
+            }
+            ranges.extend(point.uses.iter().map(|&value| (value, value)));
+        }
+        ranges.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+        for (start, end) in ranges {
+            match merged.last_mut() {
+                Some(last) if start <= last.1 + 1 => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
+            }
+        }
+        Self(merged)
+    }
+
+    fn contains(&self, rva: usize) -> bool {
+        let after = self.0.partition_point(|&(start, _)| start <= rva);
+        after > 0 && rva <= self.0[after - 1].1
+    }
+}
+
+static CHECKED: OnceLock<Checked> = OnceLock::new();
+
+/// Whether a dependency point checks the game's bytes at `rva`, or a point's
+/// bytes use it: one of [`crate::points`], which startup installs all of or
+/// none.
+pub(crate) fn checks(rva: usize) -> bool {
+    CHECKED.get_or_init(|| Checked::of(&crate::points())).contains(rva)
+}
+
 /// What [`install`] did, for the log and the startup report.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Installed {
@@ -201,7 +246,7 @@ fn game_export(name: &CStr) -> Result<usize> {
 
 fn resolve(m: Memory, place: Place, exports: Exports) -> Result<usize> {
     match place {
-        Place::Rva(rva) => Ok(m.at(rva)),
+        Place::Rva(rva) => Ok(m.base + rva),
         Place::Export(name) => exports(name),
     }
 }
@@ -278,7 +323,7 @@ fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
             continue;
         }
         let expected = match point.method {
-            Some(function) => (m.at(function) as u64).to_le_bytes().to_vec(),
+            Some(function) => ((m.base + function) as u64).to_le_bytes().to_vec(),
             None => hex(point.bytes)?,
         };
         let found = resolve(m, point.place, exports).and_then(|at| m.bytes(at, expected.len()).map(|found| (at, found)));
@@ -350,7 +395,7 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
             Action::Jump { stub, resume } => {
                 made(hooks::create(at, *stub).map(|_| ()))?;
                 for r in *resume {
-                    r.address.store(m.at(r.rva), Ordering::Release);
+                    r.address.store(m.base + r.rva, Ordering::Release);
                 }
             }
         }
@@ -583,12 +628,37 @@ mod tests {
     }
 
     #[test]
+    fn a_point_checks_its_bytes_what_they_use_and_a_method_its_function() {
+        let points = [
+            Point::keep(0x100usize, "48 89 c8 c3", "four bytes").uses(&[0x5000]),
+            Point::keep(0x102usize, "c3 90 90 90 90", "overlapping"),
+            Point::method(0x200, 8, 0x300, "method"),
+            Point::keep(c"PHYSFS_init", "48 89 5c 24 08", "export"),
+        ];
+        let checked = Checked::of(&points);
+        // The bytes of both, and the address right after the second's.
+        assert!((0x100..=0x107).all(|rva| checked.contains(rva)));
+        assert!(!checked.contains(0xff) && !checked.contains(0x108));
+        assert!(checked.contains(0x5000) && !checked.contains(0x5001));
+        // The vtable's slot and the function it holds.
+        assert!(checked.contains(0x208) && checked.contains(0x300));
+        assert!(!checked.contains(0x200) && !checked.contains(0x301));
+    }
+
+    #[test]
+    #[should_panic(expected = "the framework used 0x100000000, which no dependency point checks")]
+    fn an_address_no_point_checks_is_refused() {
+        // Past the end of the game image.
+        Memory { base: 0 }.at(0x1_0000_0000);
+    }
+
+    #[test]
     fn a_method_is_checked_by_its_function_address() {
         let m = code(ADDER, PAGE_EXECUTE_READWRITE);
         // A vtable at RVA 0x100 whose method at 8 is the function at RVA 3.
-        m.write(m.at(0x108), &(m.at(3) as u64).to_le_bytes()).unwrap();
+        m.write(m.base + 0x108, &((m.base + 3) as u64).to_le_bytes()).unwrap();
         let lookup = |_: &CStr| -> Result<usize> { Err("no exports".into()) };
-        assert_eq!(check(m, &[Point::method(0x100, 8, 3, "method")], &lookup).unwrap(), [m.at(0x108)]);
+        assert_eq!(check(m, &[Point::method(0x100, 8, 3, "method")], &lookup).unwrap(), [m.base + 0x108]);
         let err = check(m, &[Point::method(0x100, 8, 5, "method")], &lookup).unwrap_err();
         assert!(err.contains("method at 0x108: expected the function at 0x5, found 0x3"), "{err}");
     }
@@ -635,7 +705,7 @@ mod tests {
         let dir = std::path::PathBuf::from(std::env::var("EU4_GAME_DIR").expect("set EU4_GAME_DIR"));
         let (m, exports) = map_game(&dir.join("eu4.exe"));
         assert_eq!(crate::baseline::recognize(&m).unwrap(), "1.37.5");
-        let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.at(rva)).ok_or_else(|| format!("no export {name:?}"));
+        let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.base + rva).ok_or_else(|| format!("no export {name:?}"));
         let points = crate::points();
         let addresses = check(m, &points, &lookup).unwrap();
         assert_eq!(addresses.len(), points.len());
@@ -648,7 +718,7 @@ mod tests {
     fn observers_forward_every_argument_their_function_reads() {
         let dir = std::path::PathBuf::from(std::env::var("EU4_GAME_DIR").expect("set EU4_GAME_DIR"));
         let (m, exports) = map_game(&dir.join("eu4.exe"));
-        let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.at(rva)).ok_or_else(|| format!("no export {name:?}"));
+        let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.base + rva).ok_or_else(|| format!("no export {name:?}"));
         let points = crate::points();
         let addresses = check(m, &points, &lookup).unwrap();
         let image = unsafe { crate::analysis::loaded(m.base) };

@@ -1,45 +1,9 @@
-//! DXT5 (BC3) blocks, for glyphs drawn into a compressed font page: 16 bytes
-//! for 4×4 pixels, alpha first (two 8-bit ends and a 3-bit index per pixel),
-//! then color (two RGB565 ends and a 2-bit index per pixel).
+//! DXT5 (BC3) blocks, as a compressed font page holds them (the Chinese
+//! language mod's): 16 bytes for 4×4 pixels, alpha first (two 8-bit ends and
+//! a 3-bit index per pixel), then color (two RGB565 ends and a 2-bit index
+//! per pixel).
 
 pub const BLOCK: usize = 16;
-
-/// A block of these 16 pixels (0xAARRGGBB), row by row. The alphas go
-/// between the block's lowest and highest in eight steps; the colors of the
-/// pixels it shows at all between its darkest and lightest in four.
-pub fn encode(pixels: &[u32; 16]) -> [u8; BLOCK] {
-    let alpha = pixels.map(|p| (p >> 24) as u8);
-    let (low, high) = (*alpha.iter().min().unwrap(), *alpha.iter().max().unwrap());
-    let mut block = [0u8; BLOCK];
-    block[0] = high;
-    block[1] = low;
-    if high > low {
-        let levels = alpha_levels(high, low);
-        let mut bits = 0u64;
-        for (i, &a) in alpha.iter().enumerate() {
-            let code = (0..8).min_by_key(|&c| (levels[c] as i32 - a as i32).abs()).unwrap();
-            bits |= (code as u64) << (3 * i);
-        }
-        block[2..8].copy_from_slice(&bits.to_le_bytes()[..6]);
-    }
-    let shown = || pixels.iter().copied().filter(|p| p >> 24 > 0);
-    let lightness = |p: &u32| (p >> 16 & 0xff) + (p >> 8 & 0xff) + (p & 0xff);
-    let (dark, light) = (shown().min_by_key(lightness).unwrap_or(0), shown().max_by_key(lightness).unwrap_or(0));
-    let (c0, c1) = (rgb565(dark), rgb565(light));
-    block[8..10].copy_from_slice(&c0.to_le_bytes());
-    block[10..12].copy_from_slice(&c1.to_le_bytes());
-    if c0 != c1 {
-        let colors = palette(c0, c1);
-        let mut bits = 0u32;
-        for (i, &p) in pixels.iter().enumerate() {
-            let rgb = [p >> 16 & 0xff, p >> 8 & 0xff, p & 0xff];
-            let code = (0..4).min_by_key(|&c| (0..3).map(|k| colors[c][k].abs_diff(rgb[k]).pow(2)).sum::<u32>()).unwrap();
-            bits |= (code as u32) << (2 * i);
-        }
-        block[12..16].copy_from_slice(&bits.to_le_bytes());
-    }
-    block
-}
 
 /// The eight alphas a block with ends `a0 > a1` can give.
 fn alpha_levels(a0: u8, a1: u8) -> [u8; 8] {
@@ -49,11 +13,6 @@ fn alpha_levels(a0: u8, a1: u8) -> [u8; 8] {
         *level = (((8 - k as u32) * a0 + (k as u32 - 1) * a1) / 7) as u8;
     }
     levels
-}
-
-fn rgb565(rgb: u32) -> u16 {
-    let (r, g, b) = ((rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff);
-    ((r >> 3) << 11 | (g >> 2) << 5 | b >> 3) as u16
 }
 
 fn rgb888(c: u16) -> [u32; 3] {
@@ -93,81 +52,46 @@ pub fn decode(block: &[u8; BLOCK]) -> [u32; 16] {
     out
 }
 
-/// `width`×`height` pixels (0xAARRGGBB) as blocks, padded with clear pixels
-/// to whole blocks; row by row, `width.div_ceil(4)` blocks to a row.
-pub fn encode_bitmap(width: u32, height: u32, pixels: &[u32]) -> Vec<[u8; BLOCK]> {
-    let (across, down) = (width.div_ceil(4), height.div_ceil(4));
-    let mut blocks = Vec::with_capacity((across * down) as usize);
-    for by in 0..down {
-        for bx in 0..across {
-            let mut cell = [0u32; 16];
-            for (i, p) in cell.iter_mut().enumerate() {
-                let (x, y) = (bx * 4 + i as u32 % 4, by * 4 + i as u32 / 4);
-                if x < width && y < height {
-                    *p = pixels[(y * width + x) as usize];
-                }
-            }
-            blocks.push(encode(&cell));
-        }
-    }
-    blocks
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// `ink` (0x00RRGGBB) at each of these alphas.
-    fn inked(alpha: &[u8; 16], ink: u32) -> [u32; 16] {
-        alpha.map(|a| (a as u32) << 24 | ink)
+    /// A block of these alpha and color ends and each pixel's alpha and
+    /// color codes.
+    fn block(alpha_ends: [u8; 2], alpha_codes: [u64; 16], color_ends: [u16; 2], color_codes: [u32; 16]) -> [u8; BLOCK] {
+        let mut block = [0u8; BLOCK];
+        block[..2].copy_from_slice(&alpha_ends);
+        let alpha = alpha_codes.iter().enumerate().fold(0u64, |bits, (i, &code)| bits | code << (3 * i));
+        block[2..8].copy_from_slice(&alpha.to_le_bytes()[..6]);
+        block[8..10].copy_from_slice(&color_ends[0].to_le_bytes());
+        block[10..12].copy_from_slice(&color_ends[1].to_le_bytes());
+        let color = color_codes.iter().enumerate().fold(0u32, |bits, (i, &code)| bits | code << (2 * i));
+        block[12..].copy_from_slice(&color.to_le_bytes());
+        block
     }
 
     #[test]
-    fn a_block_keeps_its_alphas_within_a_step_and_its_ink() {
-        let alpha: [u8; 16] = [0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255];
-        let pixels = decode(&encode(&inked(&alpha, 0x00ff_ffff)));
-        for (px, &a) in pixels.iter().zip(&alpha) {
-            assert!(((px >> 24) as i32 - a as i32).abs() <= 255 / 14 + 1, "{a} came back as {}", px >> 24);
-            assert_eq!(px & 0x00ff_ffff, 0x00ff_ffff);
-        }
-        let black = decode(&encode(&inked(&alpha, 0)));
-        assert!(black.iter().all(|px| px & 0x00ff_ffff == 0));
+    fn eight_alphas_go_from_the_higher_end_to_the_lower() {
+        let pixels = decode(&block([255, 0], std::array::from_fn(|i| i as u64 % 8), [0xffff, 0], [0; 16]));
+        assert_eq!(pixels[..8].iter().map(|px| px >> 24).collect::<Vec<_>>(), [255, 0, 218, 182, 145, 109, 72, 36]);
+        assert!(pixels.iter().all(|px| px & 0x00ff_ffff == 0x00ff_ffff));
     }
 
     #[test]
-    fn a_block_keeps_ink_and_outline_apart() {
-        // Near-black ink inside a grey outline, and a pixel between them.
-        let mut pixels = [0x8083_8283u32; 16];
-        pixels[..6].fill(0xff10_0c10);
-        pixels[6] = 0xd050_4c50;
-        pixels[15] = 0;
-        let back = decode(&encode(&pixels));
-        // Within a step of the alphas, and of the colors, a third of the way from
-        // the ink to the outline.
-        let near = |a: u32, b: u32| [16, 8, 0, 24].iter().all(|s| (a >> s & 0xff).abs_diff(b >> s & 0xff) <= 20);
-        for (got, want) in back.iter().zip(&pixels) {
-            assert!(near(*got, *want) || *want == 0 && got >> 24 == 0, "{want:08x} came back as {got:08x}");
-        }
+    fn six_alphas_go_from_the_lower_end_to_the_higher_with_clear_and_opaque() {
+        let alphas = decode(&block([0, 100], std::array::from_fn(|i| i as u64 % 8), [0, 0], [0; 16])).map(|px| px >> 24);
+        assert_eq!(alphas[..8], [0, 100, 20, 40, 60, 80, 0, 255]);
     }
 
     #[test]
-    fn flat_and_clear_blocks_stay_exact() {
-        assert!(decode(&encode(&[0; 16])).iter().all(|px| px >> 24 == 0));
-        assert!(decode(&encode(&inked(&[200; 16], 0x00ff_ffff))).iter().all(|px| *px == 0xc8ff_ffff));
-        // An all-zero block is clear.
+    fn four_colors_go_between_the_ends() {
+        // A third and two thirds of the way from black to white.
+        let colors = decode(&block([255, 255], [0; 16], [0, 0xffff], std::array::from_fn(|i| i as u32 % 4))).map(|px| px & 0x00ff_ffff);
+        assert_eq!(colors[..4], [0, 0x00ff_ffff, 0x0055_5555, 0x00aa_aaaa]);
+    }
+
+    #[test]
+    fn an_all_zero_block_is_clear() {
         assert!(decode(&[0; BLOCK]).iter().all(|px| px >> 24 == 0));
-    }
-
-    #[test]
-    fn a_bitmap_is_padded_to_whole_blocks() {
-        // 5×2: two blocks across, one down; the padding is clear.
-        let pixels = [0xffff_ffffu32; 10];
-        let blocks = encode_bitmap(5, 2, &pixels);
-        assert_eq!(blocks.len(), 2);
-        let first = decode(&blocks[0]);
-        assert!(first[..8].iter().all(|px| *px == 0xffff_ffff));
-        assert!(first[8..].iter().all(|px| px >> 24 == 0));
-        let second = decode(&blocks[1]);
-        assert_eq!([second[0] >> 24, second[1] >> 24, second[4] >> 24, second[5] >> 24], [255, 0, 255, 0]);
     }
 }
