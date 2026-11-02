@@ -1,2 +1,4 @@
 /target/
 *.pdb
+# Skills kept on one machine for its own sessions.
+/.claude/skills/
