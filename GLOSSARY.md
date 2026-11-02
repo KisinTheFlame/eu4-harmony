@@ -42,6 +42,10 @@ _Avoid_: version, base exe
 One place in the baseline's code or data that the framework relies on: a location, the bytes that should be there, and what the framework changes there (possibly nothing).
 _Avoid_: patch point, hook point
 
+**Repair**:
+A defect of the game's own that the framework puts right where the game goes wrong, so that it holds in vanilla's paths too: memory a world reset leaks, what it leaves of a session, what the map manager leaves of the session's interface. All of them are in one module of the core.
+_Avoid_: fix, patch, workaround
+
 ### Capabilities
 
 **Capability**:
@@ -75,6 +79,36 @@ _Avoid_: event (that is remote control's numbered events), game event, popup, de
 **Offer**:
 A proposal another country made to the player that waits for the player to accept or decline it, such as an alliance or a royal marriage, shown as a diplomatic message icon or a dialog.
 _Avoid_: request, diplomatic request, diplomatic message, question (that is one of the game's events)
+
+### Sessions
+
+**Session**:
+One stretch of play of one game, from when a save is loaded or a new game is started until it is left: by returning to the main menu, by an in-game load, or by quitting. Sessions are numbered.
+_Avoid_: campaign, game on its own
+
+**Restart**:
+The game ending its own process and starting `eu4.exe` again, as vanilla does on returning to the main menu.
+_Avoid_: relaunch, reboot
+
+**Return to the main menu**:
+Leaving a session for the main menu, by the game's own question, the end-of-game summary or remote control. It says where the game goes, not how: by a restart or by an in-process return.
+_Avoid_: exit, quit (that is leaving the game for the desktop)
+
+**In-process return**:
+A return to the main menu without a restart: the process goes on with the game's interface, graphics and scripts still loaded, and only the session is left behind.
+_Avoid_: fast return, soft return
+
+**World reset**:
+The game putting its world back as a new start has it, without loading its content again: before every in-game load without the game's history, which the save that follows makes up for, and with the history before a new game. It leaves some of a session behind, and some of its memory, which the framework's repairs put right.
+_Avoid_: reload, rebuild
+
+**In-game load**:
+Loading a save while a session goes on, which ends that session and begins another without the main menu in between. Vanilla offers it only outside ironman.
+_Avoid_: switching saves, reload
+
+**Ironman exit save**:
+The save the game writes of an ironman session as it is left, from which that ironman game goes on. Leaving without it goes back to the last save.
+_Avoid_: autosave (the game's periodic save), checkpoint
 
 ### Remote control
 
@@ -120,6 +154,10 @@ _Avoid_: overlay (that is how it is drawn), HUD
 A building block of the framework UI, such as a button or a drop-down list.
 _Avoid_: element (that means a button, text box and so on in the game's `.gui`)
 
+**Toggle**:
+A widget that is either on or off, switched by a click.
+_Avoid_: checkbox, switch, radio button (a different widget: one choice among several)
+
 **Notice window**:
 The window in the framework UI that shows notices to the player. To the player it is a window, but it is not a window in the game's sense. When the framework fails to start, a Windows message box is used instead.
 _Avoid_: dialog; message box (that is the Windows message box used when startup fails)
@@ -129,7 +167,7 @@ The window in the framework UI where the player changes framework settings, open
 _Avoid_: options menu (that is the game's own settings)
 
 **Framework settings**:
-The player's preferences for the framework, such as which fonts the Unicode module uses; they take effect at the next start.
+The player's preferences for the framework, such as which fonts the Unicode module uses. Some take effect when they are saved, others, such as the fonts, at the next start.
 _Avoid_: configuration; game settings (the game's own `settings.txt`)
 
 ### Localisation
