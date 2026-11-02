@@ -4,7 +4,7 @@ An error raised in a Lua handler ends that call and is logged with its traceback
 
 The same error at the same place is written in full only its first three times in a session, then counted, so a broken `on_frame` does not fill the log; the player is told once per session per extension that its log has errors.
 
-What a script cannot recover from is time. A handler call that runs for more than 1 s is stopped with an error; after three stopped calls in a row the extension is stopped as a panicking one was: not called again until the game closes, its interface elements hidden, a notice saying why.
+What a script cannot recover from is time. A handler that runs for more than 1 s without waiting (ADR 0030) is stopped with an error; after three stops in a row the extension is stopped as a panicking one was: not called again until the game closes, its interface elements hidden, a notice saying why.
 
 ## Considered Options
 

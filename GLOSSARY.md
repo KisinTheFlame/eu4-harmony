@@ -30,8 +30,12 @@ _Avoid_: jail, safe mode
 A function an extension gives the framework for one event, which the framework calls at a safe point.
 _Avoid_: callback, listener, hook
 
+**Task**:
+One run of a handler, or of a function an extension starts on its own, that may wait for something, such as an answer from the network, and is taken up again at a later safe point.
+_Avoid_: coroutine (that is how it is built), promise, job, thread
+
 **Time limit**:
-The longest one call of a handler may run before the framework stops it. An extension whose calls are stopped several times in a row is stopped for the rest of the game.
+The longest a task may run without waiting before the framework stops it. An extension whose calls are stopped several times in a row is stopped for the rest of the game.
 _Avoid_: budget, watchdog
 
 **Data folder**:

@@ -1,11 +1,11 @@
 # Lua extensions plan
 
-Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns) and [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention).
+Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns), [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
 
 ## Goal and scope
 
 - **Goal**: mods carry Lua scripts instead of native DLLs, for two reasons. A mod from the Steam Workshop can no longer do anything in the game process it likes: it reaches the game only through capabilities, and beyond the game only through the sensitive capabilities its manifest declares. And writing one takes no Rust toolchain, no Visual Studio build tools and no build: a mod is text files.
-- **In scope**: the Lua host in the core, with its sandbox, handlers, errors and time limit; the capability catalogue, shared by extensions and remote control, with remote control moved onto it; the sensitive capabilities `clock`, `files` and `network`; the manifest in TOML and the layout of a mod's files by convention; the mods window; the command line tool for mod authors (`new`, `test`, `link`, `package`, `types`, `wiki`, `skills`, `help`); removing native extensions (`abi/`, `sdk/`, loading DLLs, `build`); the regional combat mod rewritten in Lua, as the acceptance test.
+- **In scope**: the Lua host in the core, with its sandbox, handlers and tasks, errors and time limit; the capability catalogue, shared by extensions and remote control, with remote control moved onto it; the sensitive capabilities `clock`, `files` and `network`; the manifest in TOML and the layout of a mod's files by convention; the mods window; the command line tool for mod authors (`new`, `test`, `link`, `package`, `types`, `wiki`, `skills`, `help`); removing native extensions (`abi/`, `sdk/`, loading DLLs, `build`); the regional combat mod rewritten in Lua, as the acceptance test.
 - **Out of scope**: hot reloading (a later version may add it); the player refusing a sensitive capability; extensions calling each other or sharing code; a shared library of Lua code that mods depend on; anything the first version design leaves out and this plan does not take up.
 
 ## Behavior
@@ -31,9 +31,31 @@ Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.
   ```
 
 - A handler left out is an event the extension does not hear.
-- `game` is passed to every handler and is valid only until it returns: a capability called through a `game` kept past that raises an error. Game state and commands are reached only through it, by capability group: `game.army.get(id)`, `game.army.move(id, province)`, `game.province.get(id)`, `game.ui.button.visible = true`, `game.map.paint(colors)`, `game.text(key, values)`.
-- What has nothing to do with the game's state is global and can be used at any time, at the top of `main.lua` too: `log(...)`, `json.encode` and `json.decode`, `mod_files`, `files`, `http`.
+- `game` is passed to every handler and is valid only while its task runs (see Tasks): a capability called through a `game` kept past that raises an error. Game state and commands are reached only through it, by capability group: `game.army.get(id)`, `game.army.move(id, province)`, `game.province.get(id)`, `game.ui.button.visible = true`, `game.map.paint(colors)`, `game.text(key, values)`.
+- What has nothing to do with the game's state is global and can be used at any time, at the top of `main.lua` too: `log(...)`, `json.encode` and `json.decode`, `mod_files`, `files`, `http`, `spawn`.
 - Game objects are the game's own identifiers, as in the first version: a province's number, a country's tag, an army's full 64-bit ID, which a Lua integer holds exactly.
+
+### Tasks
+
+Every handler call runs as a task ([ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md)), so a handler can wait for something, such as an answer from the network, written as plain sequential code, as an `await` would be in TypeScript, but with no keyword:
+
+```lua
+on_day = function(game, date)
+  local response, err = http.fetch("https://api.example.com/score", {
+    method = "POST", body = json.encode(score), timeout = 10,
+  })                                  -- the task waits here; the game goes on
+  if err then return log("not sent: " .. err.message) end
+  game.ui.label.text = json.decode(response.body).rank   -- game is valid again
+end
+```
+
+- A function that waits gives up its task's turn; the framework takes the task up again at a later safe point once what it waited for has come, and `game` is valid again from there.
+- While a task waits, the game and the extension's other events go on: the extension's own state may have changed by the time it is taken up again.
+- `spawn(fn)` starts `fn` as a task of its own and returns as soon as `fn` first waits, or ends: two requests sent at once, or one left to finish after the handler that sent it has returned. A spawned task cannot yet be waited for or cancelled.
+- The time limit applies to each stretch a task runs, not to the time it waits.
+- A session's waiting tasks are dropped when it ends, by a return to the main menu, an in-game load or a new game, and when the game closes: they are never taken up again, and the log says how many were dropped.
+- `on_save` and the top of `main.lua` cannot wait: a function that waits raises an error there.
+- The type definitions and `wiki` mark every function that waits. Later capabilities may wait too (for a number of game days, say) in the same way.
 
 ### Results and errors
 
@@ -45,10 +67,10 @@ Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.
 
 ### The time limit
 
-- Each handler call's time is measured, as in the first version: a call over 5 ms is logged, and the startup report sums each extension's time.
-- A call that runs for more than 1 s is stopped with an error, as any other error.
-- After three stopped calls in a row, the extension is stopped: it is not called again until the game is closed, its interface elements are hidden, and a notice says why.
-- The call is watched from another thread, which reaches into the Lua state only once the limit has passed, so a call within the limit pays nothing for it. Measured 2026-11-03: a count hook set for the whole call slows Lua 5.4 by 50 to 80% in tight loops, whatever its interval.
+- Each stretch a task runs is measured, as handler calls were in the first version: one over 5 ms is logged, and the startup report sums each extension's time.
+- A task that runs for more than 1 s without waiting is stopped with an error, as any other error.
+- After three stops in a row, the extension is stopped: it is not called again until the game is closed, its interface elements are hidden, and a notice says why.
+- A task is watched from another thread, which reaches into the Lua state only once the limit has passed, so a task within the limit pays nothing for it. Measured 2026-11-03: a count hook set for the whole run slows Lua 5.4 by 50 to 80% in tight loops, whatever its interval.
 
 ### The sandbox
 
@@ -59,7 +81,7 @@ Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.
 
 ### Sensitive capabilities
 
-A sensitive capability reaches beyond the game. An extension can use one only when its manifest declares it; using one it did not declare raises an error. The player sees what each mod declares in the mods window and cannot refuse it in this version ([ADR 0025](adr/0025-sensitive-capabilities-are-declared.md)).
+A sensitive capability reaches beyond the game. An extension can use one only when its manifest declares it; using one it did not declare raises an error. The player sees what each mod declares in the mods window and cannot refuse it in this version; the manifest calls these declarations `permissions`, which the player is to confirm in a later version ([ADR 0025](adr/0025-sensitive-capabilities-are-declared.md)).
 
 - **`clock`**: the real date and time, `os.time` and `os.date`.
 - **`files`**: the extension's data folder, `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\data\<id>\`, made the first time the extension writes to it, kept across mod updates and never cleaned up by the framework:
@@ -71,16 +93,11 @@ A sensitive capability reaches beyond the game. An extension can use one only wh
   files.remove("cache/routes.json")
   ```
 
-- **`network`**: HTTP and HTTPS requests to the hosts the manifest lists, by name or address and with a port where it is not the default. A request is sent at once and answered at a later safe point, to the function passed with it, which receives a `game` as a handler does and is held to the time limit:
-
-  ```lua
-  http.request({ method = "POST", url = "https://api.example.com/score", body = json.encode(s) },
-    function(game, response, err)  -- response: { status = 200, headers = {...}, body = "..." }
-      if err then log("not sent: " .. err.message) end
-    end)
-  ```
-
-  A request not answered within 30 s is answered with an error. Answers wait while no session runs and are dropped when the game closes.
+- **`network`**: HTTP and HTTPS requests to the hosts the manifest lists, by name or address and with a port where it is not the default, with `http.fetch(url, options)`, named and shaped after JavaScript's `fetch`. It waits (see Tasks) and returns `response, err`:
+  - `options`: `method` (`"GET"` when left out), `headers` (a table), `body` (a string), `timeout` (seconds, 30 when left out, at most 300).
+  - `response`: `{ status = 200, headers = {...}, body = "..." }`. A status other than 2xx is a response, not a failure, as with `fetch`.
+  - `err`, only when no response came: `code` `timeout`, or `network` (no connection, a broken one, a name that does not resolve).
+  - A host the manifest does not list, a malformed URL or a `timeout` out of range raises an error.
 
 Reading the mod's own files needs no declaration: `mod_files.read("data/units.json")` reads `eu4-harmony/data/units.json` from the mod's folder; nothing writes there. Paths for `files` and `mod_files` are relative, separated by `/`, without `..`, a drive or a leading `/`.
 
@@ -133,12 +150,12 @@ permissions = { clock = true, files = true, network = ["api.example.com", "192.1
 ### The command line tool
 
 - `eu4-harmony new <id>`: a mod with `main.lua` (a button, as now), a test, localisation in English and Chinese, an `AGENTS.md` telling a coding agent to read `eu4-harmony skills`, and the editor's type definitions with a `.luarc.json`.
-- `eu4-harmony test [<mod dir>]`: runs the mod's `eu4-harmony/tests/*.lua` against a fake game, in the same Lua 5.4 and sandbox. The fake game is a data store, as the SDK's was: a test sets out snapshots, picks routes, raises events and reads back what was recorded (elements, coloring, commands, save data). It refuses what the core refuses, in its words, through `checks/`. In a test, `files` is a temporary folder and `mod_files` the mod's real folder.
+- `eu4-harmony test [<mod dir>]`: runs the mod's `eu4-harmony/tests/*.lua` against a fake game, in the same Lua 5.4 and sandbox. The fake game is a data store, as the SDK's was: a test sets out snapshots, picks routes, raises events, answers `http.fetch` requests, takes waiting tasks up again, and reads back what was recorded (elements, coloring, commands, save data). It refuses what the core refuses, in its words, through `checks/`. In a test, `files` is a temporary folder and `mod_files` the mod's real folder.
 - `eu4-harmony link`: as now.
 - `eu4-harmony package`: a clean folder to upload; refuses when a Lua file does not compile or a localisation file has errors. The type definitions and `.luarc.json` are left out.
 - `eu4-harmony types`: writes the editor's type definitions again, for the catalogue of this tool's version. They are LuaLS annotations of every capability, handler and global, so an editor completes them and marks a misspelled capability or a wrong argument.
 - `eu4-harmony wiki [<topic>...]`: the reference, made from the framework's own descriptions, never written by hand: the catalogue (each capability as a Lua call and as an `eu4-harmony game` command), handlers, error codes, manifest fields, sensitive capabilities, the sandbox's globals; and for remote clients, how a game goes and what each exit code means. Topics nest: `wiki`, `wiki army`, `wiki army move`. `eu4-harmony game help` goes; `eu4-harmony game` alone prints the command line's form and points to `wiki`.
-- `eu4-harmony skills [<topic>...]`: guides for a mod author's coding agent, written by hand in English and embedded in the tool, nesting as `wiki` does: making a mod, writing tests, interface fragments, localisation, trying a mod in the game through remote control. They point into `wiki` instead of repeating it. CI runs the Lua examples in them with `eu4-harmony test`.
+- `eu4-harmony skills [<topic>...]`: guides for a mod author's coding agent, written by hand in English and embedded in the tool, nesting as `wiki` does: making a mod, tasks and waiting (what may change while a task waits, and that a session's waiting tasks are dropped when it ends), writing tests, interface fragments, localisation, trying a mod in the game through remote control. They point into `wiki` instead of repeating it. CI runs the Lua examples in them with `eu4-harmony test`.
 - `eu4-harmony help`: lists the commands, as now. `build` goes.
 
 ### Open questions
@@ -180,11 +197,11 @@ The catalogue, group by group, reviewed before it is built: each capability's na
 
 ### L2 Lua host
 
-Lua 5.4 in the core; a Lua state per extension with the sandbox; `main.lua` and its handlers, including `on_save` and `on_session`'s save data; the `game` adapter over the catalogue; results and errors, the log's deduplication and the notice; the time limit and its watcher; `log`, `json` and `mod_files`; `manifest.toml` and the layout by convention, with the startup report. Native extensions removed: `abi/`, `sdk/`, `ext.rs`, loading DLLs.
+Lua 5.4 in the core; a Lua state per extension with the sandbox; `main.lua` and its handlers, run as tasks, with `spawn`, including `on_save` and `on_session`'s save data; the `game` adapter over the catalogue; results and errors, the log's deduplication and the notice; the time limit and its watcher; `log`, `json` and `mod_files`; `manifest.toml` and the layout by convention, with the startup report. Native extensions removed: `abi/`, `sdk/`, `ext.rs`, loading DLLs.
 
 ### L3 Sensitive capabilities
 
-`clock`, `files` and `network`, declared in the manifest, and the error when one is used undeclared.
+`clock`, `files` and `network` (`http.fetch`), declared in the manifest, and the error when one is used undeclared.
 
 ### L4 Mods window
 
@@ -201,6 +218,6 @@ The regional combat mod rewritten in Lua, in its own repository ([ADR 0004](adr/
 1. **The same mod**: the button, the radius settings, the range preview, the automatic decisions, and a task turned off by a hand-given order or a defeat, as the native extension does them.
 2. **Its saves**: a save written with the native extension, loaded with the Lua one, restores the tasks it held.
 3. **Its tests**: the decision core's C++ tests and the extension's Rust tests, as `eu4-harmony test` tests.
-4. **Its cost**: in a normal game, no handler call over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the catalogue gains a coarser general capability (a province's range, provinces read in one call), not native code. Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a capability call 30 to 60 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms.
+4. **Its cost**: in a normal game, no stretch of a task over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the catalogue gains a coarser general capability (a province's range, provinces read in one call), not native code. Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a capability call 30 to 60 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms.
 
 Capabilities the rewrite finds missing are added to the catalogue as general capabilities ([ADR 0005](adr/0005-extensions-use-capabilities-only.md)).
