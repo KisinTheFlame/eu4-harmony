@@ -491,7 +491,7 @@ The main menu's frame draws the same way, without units and overlays. The mouse 
   - it makes its root window;
   - it finds its children by name;
   - it binds callbacks to them;
-  - it refreshes them every frame ([notice-window.md](notice-window.md), [regional-combat/native-ui-findings.txt](regional-combat/native-ui-findings.txt)).
+  - it refreshes them every frame ([notice-window.md](notice-window.md), [interface-bindings.md](interface-bindings.md)).
 
   The fourteen country-view tabs are made by `0x81ecf0`.
 

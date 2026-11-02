@@ -1,9 +1,8 @@
 //! Binds spliced elements in the vanilla windows that host them, applies the
 //! state extensions ask for, and turns button clicks into events. Ported from
 //! eu4-regional-combat's native UI; the ABI evidence is in
-//! docs/research/regional-combat/native-{ui,settings}-findings.txt and
-//! ui-polish-validation.md (tooltip aggregate). Window teardown and the main
-//! menu's windows are in docs/research/notice-window.md.
+//! docs/research/interface-bindings.md (tooltips included). Window teardown
+//! and the main menu's windows are in docs/research/notice-window.md.
 //!
 //! Extensions state what they want (visible, enabled, text, tooltip) and each
 //! host's update hook applies it, so state survives the game rebuilding the
