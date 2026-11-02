@@ -72,6 +72,11 @@ pub fn not_visible(target: u64, province: u32) -> Refusal {
     Refusal::new(Status::NotFound, format!("no visible army {target} in {province}"))
 }
 
+/// The refusal of an army the player sees nowhere.
+pub fn not_seen(target: u64) -> Refusal {
+    Refusal::new(Status::NotFound, format!("the player sees no army {target}"))
+}
+
 /// The refusal of a goal the game finds no route to.
 pub fn no_route(goal: u32) -> Refusal {
     Refusal::new(Status::NotFound, format!("no route to {goal}"))

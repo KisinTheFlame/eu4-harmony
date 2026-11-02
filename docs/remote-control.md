@@ -1,6 +1,6 @@
 # Remote control plan
 
-Status: final (2026-10-29). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0015](adr/0015-remote-control-uses-capabilities.md) (built in, capabilities only, acting as the player), [ADR 0016](adr/0016-remote-control-engine-and-transports.md) (engine and transports) and [ADR 0017](adr/0017-remote-control-is-always-on.md) (always on).
+Status: final (2026-10-29). The capabilities' names and shapes have since changed with the capability catalogue ([ADR 0026](adr/0026-one-capability-catalogue.md), [lua-extensions.md](lua-extensions.md) L1, 2026-11-03), and `eu4-harmony wiki` replaced `eu4-harmony game help`; this plan keeps the names it was built with. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0015](adr/0015-remote-control-uses-capabilities.md) (built in, capabilities only, acting as the player), [ADR 0016](adr/0016-remote-control-engine-and-transports.md) (engine and transports) and [ADR 0017](adr/0017-remote-control-is-always-on.md) (always on).
 
 ## Goal and scope
 

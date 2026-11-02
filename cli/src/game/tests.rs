@@ -43,10 +43,13 @@ fn temp(name: &str) -> PathBuf {
 
 #[test]
 fn arguments_by_name_or_in_order() {
-    let moved = Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), goal: ProvinceId(151) });
-    for text in
-        ["army.move --army 4294967377 --goal 151", "army move --goal 151 --army 4294967377", "army move 4294967377 151", "army.move --goal 151 4294967377"]
-    {
+    let moved = Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) });
+    for text in [
+        "army.move --army 4294967377 --province 151",
+        "army move --province 151 --army 4294967377",
+        "army move 4294967377 151",
+        "army.move --province 151 4294967377",
+    ] {
         assert_eq!(ask(text).request, moved, "{text}");
     }
     let read = |since, wait_ms| Request::Events(EventsRequest::Read { since, wait_ms, process: None });
@@ -54,69 +57,53 @@ fn arguments_by_name_or_in_order() {
     assert_eq!(ask("events 3").request, read(Some(3), None));
     assert_eq!(ask("events --since 3 --wait-ms 500").request, read(Some(3), Some(500)));
     assert_eq!(ask("events --wait_ms 500").request, read(None, Some(500)));
-    assert_eq!(ask("session").request, Request::Session(SessionRequest::Get {}));
+    assert_eq!(ask("session get").request, Request::Session(SessionRequest::Get {}));
 }
 
 #[test]
 fn the_command_lines_own_options_go_anywhere() {
-    let a = ask("--timeout 2.5 session --compact");
+    let a = ask("--timeout 2.5 session.get --compact");
     assert_eq!((a.timeout, a.compact, a.out), (Some(Duration::from_millis(2500)), true, None));
     let a = ask("army get --out shot.png 4294967377");
     assert_eq!((a.timeout, a.compact, a.out), (None, false, Some(PathBuf::from("shot.png"))));
     assert_eq!(a.request, Request::Army(ArmyRequest::Get { army: ArmyId(4294967377) }));
 }
 
-/// The help explains every error code the game may answer.
 #[test]
-fn the_help_explains_every_error_code() {
-    let text = usage();
-    for code in eu4_harmony_remote::Code::ALL {
-        assert!(text.contains(code.name()), "the help does not explain {}", code.name());
-    }
-}
-
-#[test]
-fn help_from_the_descriptions() {
-    for text in ["", "help", "--help", "-h"] {
+fn help_points_to_the_wiki() {
+    for text in ["", "--help", "-h"] {
         assert_eq!(help(text), None, "{text}");
     }
-    for text in ["help army move", "help army.move", "army.move --help", "army move -h"] {
+    for text in ["army.move --help", "army move -h"] {
         assert_eq!(help(text).as_deref(), Some("army.move"), "{text}");
     }
+    assert!(wrong("help").contains("eu4-harmony game help is gone"));
+    assert!(wrong("help army move").contains("eu4-harmony wiki"));
     let usage = usage();
-    for capability in capabilities() {
-        assert!(usage.contains(&format!("\n  {}", capability.name())), "{} is not listed", capability.name());
-        let text = capability_help(&capability);
-        assert!(text.contains(capability.result) && text.contains(&prose(capability.about)), "{text}");
-        for arg in capability.args {
-            assert!(text.contains(&format!("--{} <{}", arg.name, arg.kind.name())), "{text}");
-        }
-    }
-    assert!(usage.contains("  army.move --army <army> --goal <province> *\n      Orders an army of the player's along the game's route, as the player would, also while the game is paused.\n"));
-    assert!(usage.contains("  events [--since <integer>] [--wait_ms <integer>] [--process <integer>]\n"));
+    assert!(usage.contains("eu4-harmony wiki") && usage.contains("--timeout <seconds>"), "{usage}");
 }
 
 #[test]
 fn a_wrong_command_line_says_why() {
     for (text, says) in [
-        ("fly", "no capability fly; eu4-harmony game help lists them"),
+        ("fly", "no capability fly; eu4-harmony wiki lists them"),
         ("army fly", "no capability army.fly; the army group has army.get, army.list"),
         ("army.fly --army 1", "no capability army.fly"),
         ("--army 1 army.get", "name the capability before its arguments"),
-        ("army.move 1", "army.move needs --goal <province>: Where it should go."),
-        ("army.move 1 2 3", "\"3\" is one value too many: its arguments: --army <army> --goal <province>"),
-        ("army.move --army 1 --army 2 --goal 3", "--army is given twice"),
+        ("army.move 1", "army.move needs --province <province>: Where it should go."),
+        ("army.move 1 2 3", "\"3\" is one value too many: its arguments: --army <army> --province <province>"),
+        ("army.move --army 1 --army 2 --province 3", "--army is given twice"),
         ("army.move --army 1 --speed 3", "army.move has no argument --speed"),
-        ("army.move --army 1 --goal", "--goal needs a value, a province such as 151"),
-        ("army.move --army 1 --goal Paris", "--goal is a province, such as 151; \"Paris\" is not one"),
+        ("army.move --army 1 --province", "--province needs a value, a province such as 151"),
+        ("army.move --army 1 --province Paris", "--province is a province, such as 151; \"Paris\" is not one"),
         ("army.get x", "\"x\" is not an army ID"),
         ("country.hostile FRANCE ENG", "\"FRANCE\" is not a country tag"),
         ("events --since -1", "events: invalid value: integer `-1`"),
-        ("session 1", "session takes no arguments"),
-        ("session --timeout 0", "--timeout takes a number of seconds above 0"),
-        ("session --timeout soon", "--timeout takes a number of seconds"),
-        ("session --timeout", "--timeout needs a value"),
-        ("session --out", "--out needs a value"),
+        ("session.get 1", "session.get takes no arguments"),
+        ("session.get --timeout 0", "--timeout takes a number of seconds above 0"),
+        ("session.get --timeout soon", "--timeout takes a number of seconds"),
+        ("session.get --timeout", "--timeout needs a value"),
+        ("session.get --out", "--out needs a value"),
     ] {
         let error = wrong(text);
         assert!(error.contains(says), "{text}: {error}");
@@ -129,6 +116,7 @@ const FLAGS: Capability = Capability {
     action: "flags",
     about: " Flags.",
     in_game: false,
+    extensions: true,
     args: &[
         Parameter { name: "paused", kind: Kind::Boolean, optional: true, about: " Paused." },
         Parameter { name: "province", kind: Kind::Province, optional: true, about: " A province." },
@@ -155,6 +143,7 @@ const SAY: Capability = Capability {
     action: "say",
     about: " Says a text.",
     in_game: false,
+    extensions: true,
     args: &[
         Parameter { name: "text", kind: Kind::Text, optional: false, about: " The text." },
         Parameter { name: "times", kind: Kind::Integer, optional: true, about: " How often." },
@@ -179,12 +168,12 @@ fn after_a_double_dash_every_word_is_a_value() {
 
     // The command line's own options before it still count, and nothing after it does.
     let a = ask("--compact army move --timeout 2 -- 4294967377 151");
-    assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), goal: ProvinceId(151) }));
+    assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) }));
     assert_eq!((a.compact, a.timeout), (true, Some(Duration::from_secs(2))));
     assert_eq!(ask("events -- 3").request, Request::Events(EventsRequest::Read { since: Some(3), wait_ms: None, process: None }));
-    assert!(wrong("session -- --compact").contains("session takes no arguments"));
+    assert!(wrong("session.get -- --compact").contains("session.get takes no arguments"));
     assert!(wrong("events -- --help").contains("--since is a integer, such as 3; \"--help\" is not one"));
-    assert!(wrong("-- session").contains("name the capability before --"));
+    assert!(wrong("-- session.get").contains("name the capability before --"));
     assert_eq!(help("--help army move --"), Some("army.move".into()));
 }
 
@@ -306,7 +295,7 @@ fn the_usage_names_the_files_as_they_are_written() {
 fn asks_the_game_down_its_pipe() {
     let name = pipe_name("game-asks");
     let served = serve_one(&name, |pipe, line| {
-        assert_eq!(line, "{\"capability\":\"army.move\",\"army\":\"4294967377\",\"goal\":151}\n");
+        assert_eq!(line, "{\"capability\":\"army.move\",\"army\":\"4294967377\",\"province\":151}\n");
         answer(pipe, "{\"ok\":true,\"result\":null}\n");
     });
     let outcome = ask("army move 4294967377 151 --compact").run(&name, &this_program());
@@ -317,7 +306,7 @@ fn asks_the_game_down_its_pipe() {
 #[test]
 fn no_answer_in_time_says_how_long_it_waited() {
     // No pipe at all.
-    let outcome = ask("session --timeout 0.3").run(&pipe_name("game-none"), &this_program());
+    let outcome = ask("session.get --timeout 0.3").run(&pipe_name("game-none"), &this_program());
     assert_eq!((outcome.code, outcome.stdout), (EXIT_NO_ANSWER, None));
     let error = outcome.stderr.unwrap();
     assert!(error.starts_with("error: no game with EU4 Harmony opened") && error.ends_with("(0.3 s)"), "{error}");
@@ -339,7 +328,7 @@ fn no_answer_in_time_says_how_long_it_waited() {
     // A pipe served by something other than the game.
     let name = pipe_name("game-other");
     let served = serve_one(&name, |_, line| assert_eq!(line, ""));
-    let outcome = ask("session").run(&name, pipe::GAME);
+    let outcome = ask("session.get").run(&name, pipe::GAME);
     assert_eq!(outcome.code, EXIT_NO_ANSWER);
     assert!(outcome.stderr.unwrap().contains("nothing was sent"));
     served.join().unwrap();

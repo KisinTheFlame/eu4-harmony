@@ -11,7 +11,6 @@ use crate::pipe::{self, Failure};
 use eu4_harmony_remote::{capabilities, prose, Binary, Capability, Kind, Parameter, Request};
 use serde_json::{Map, Value};
 use std::{
-    fmt::Write as _,
     fs,
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -49,7 +48,7 @@ pub fn run(raw: &[String]) -> i32 {
             EXIT_OK
         }
         Ok(Command::Help(Some(capability))) => {
-            print!("{}", capability_help(&capability));
+            print!("{}", crate::wiki::capability_page(&capability));
             EXIT_OK
         }
         Ok(Command::Ask(ask)) => {
@@ -68,7 +67,7 @@ pub fn run(raw: &[String]) -> i32 {
 /// What the command line asks for.
 #[derive(Debug)]
 enum Command {
-    /// The capabilities, or one of them, described.
+    /// The command line's form, or one capability described.
     Help(Option<Capability>),
     Ask(Ask),
 }
@@ -128,8 +127,7 @@ fn parse(raw: &[String]) -> Result<Command, String> {
     match words.first().map(String::as_str) {
         None if !values.is_empty() => Err("name the capability before --: eu4-harmony game <capability> -- <value>...".into()),
         None => Ok(Command::Help(None)),
-        Some("help") if words.len() == 1 => Ok(Command::Help(None)),
-        Some("help") => Ok(Command::Help(Some(name(&words[1..])?.0))),
+        Some("help") => Err("eu4-harmony game help is gone: eu4-harmony wiki describes every capability, and eu4-harmony game -h the command line".into()),
         Some(_) => {
             let (capability, used) = name(&words)?;
             if help {
@@ -177,7 +175,7 @@ fn name(words: &[String]) -> Result<(Capability, usize), String> {
     let group = first.split('.').next().unwrap_or_default();
     let in_group: Vec<String> = all.iter().filter(|c| c.group == group).map(Capability::name).collect();
     if in_group.is_empty() {
-        return Err(format!("no capability {first}; eu4-harmony game help lists them"));
+        return Err(format!("no capability {first}; eu4-harmony wiki lists them"));
     }
     // A group named, and a word after it that names nothing in it.
     let asked = match words.get(1) {
@@ -275,7 +273,7 @@ fn its_arguments(capability: &Capability) -> String {
 
 /// The arguments as written on the command line, the optional ones in
 /// brackets.
-fn signature(capability: &Capability) -> String {
+pub(crate) fn signature(capability: &Capability) -> String {
     let args: Vec<String> = capability
         .args
         .iter()
@@ -292,19 +290,9 @@ fn signature(capability: &Capability) -> String {
     args.join(" ")
 }
 
-/// The first sentence of a description.
-fn first_sentence(about: &str) -> String {
-    let text = prose(about);
-    match text.find(". ") {
-        Some(end) => text[..=end].to_string(),
-        None => text,
-    }
-}
-
 fn usage() -> String {
-    let mut text = format!(
-        "\
-eu4-harmony game: use the running game through remote control
+    format!(
+        "eu4-harmony game: use the running game through remote control
 
 usage:
   eu4-harmony game <capability> [--<argument> <value>]... [--timeout <seconds>] [--out <file>] [--compact] [-- <value>...]
@@ -313,9 +301,8 @@ usage:
       name's dot may be a space: eu4-harmony game army move <army> 151. The
       last argument, when it is a text, takes every value left, a space
       between each: eu4-harmony game console run cash 100.
-  eu4-harmony game help [<capability>]
-      Describes the capabilities this tool knows, or one of them;
-      eu4-harmony game describe asks the running game instead.
+  eu4-harmony game <capability> --help
+      Describes the capability, as eu4-harmony wiki does.
 
 options:
   --timeout <seconds>  Gives up after this long in all, waiting for the game to
@@ -330,71 +317,12 @@ options:
   --                   Ends the options: every word after it is a value, even
                        one that starts with --.
 
-exit codes:
-  0  the game answered; the result is printed
-  1  the game answered with an error, printed as {{\"code\": ..., \"message\": ...}}
-  2  the command line is wrong; nothing was sent
-  3  no answer: the game's pipe did not open in time, is not served by the
-     game run by this Windows user, broke, or the time ran out; the line the
-     game sent is no answer (not JSON, or not of an answer's shape); or the
-     bytes in the answer could not be written
-
-errors the game answers (code, then what to do):
-  not_in_game       no game the player can play: the main menu is open, or
-                    the player only observes; menu says where the game is
-  not_ready         the game cannot answer it right now; ask again shortly
-  session_changed   another game was loaded or started before it ran; read
-                    the session again
-  rejected          the game refused it, as it would refuse the player; the
-                    message gives the game's reasons, one a line
-  not_found, invalid_argument, unavailable
-                    no such thing; a wrong value; not here or not now
-  bad_request, internal
-                    a request the game could not read; a fault
-
-playing a game, as the player does:
-  menu says where the game is and which process answers. From the main
-  menu, menu.saves lists the saves, and menu.load <save> or
-  menu.start <country> goes into a game, answering once it is ready. There
-  session, country.get, province.get, army.list and screenshot show the
-  game; question.list and offer.list what waits for the player's answer,
-  which question.answer, offer.accept and offer.decline give. time.advance
-  <days> lets time run and pauses the game again, stopping early for a
-  question: answer it, and advance again. Orders (army.move, recruit,
-  diplomacy) are given while the game is paused too. menu.return goes back
-  to the main menu, as a new process: ask menu until its process differs
-  and its place is main_menu.
-
-capabilities (* only while a game is going on):
+eu4-harmony wiki lists every capability; eu4-harmony wiki remote says how a
+game goes and what each exit code means, eu4-harmony wiki errors what each
+error means. eu4-harmony game describe asks the running game.
 ",
         PIPE_WAIT.as_secs()
-    );
-    for capability in capabilities() {
-        let star = if capability.in_game { " *" } else { "" };
-        let signature = signature(&capability);
-        let space = if signature.is_empty() { "" } else { " " };
-        let _ = writeln!(text, "  {}{space}{signature}{star}", capability.name());
-        let _ = writeln!(text, "      {}", first_sentence(capability.about));
-    }
-    text
-}
-
-fn capability_help(capability: &Capability) -> String {
-    let mut text = String::new();
-    let signature = signature(capability);
-    let space = if signature.is_empty() { "" } else { " " };
-    let _ = writeln!(text, "eu4-harmony game {}{space}{signature}\n", capability.name());
-    let _ = writeln!(text, "{}", prose(capability.about));
-    let _ = writeln!(text, "{}", if capability.in_game { "Only while a game is going on." } else { "In the main menu too." });
-    if !capability.args.is_empty() {
-        let _ = writeln!(text, "\narguments:");
-        for arg in capability.args {
-            let optional = if arg.optional { ", optional" } else { "" };
-            let _ = writeln!(text, "  --{} <{}{optional}>: {}", arg.name, arg.kind.name(), prose(arg.about));
-        }
-    }
-    let _ = writeln!(text, "\nresult: {}", capability.result);
-    text
+    )
 }
 
 // ---------- asking ----------

@@ -15,28 +15,25 @@ group! {
     "camera": CameraRequest, CameraAnswer;
 
     /// Where the camera looks and how high it is.
-    game Get "" {} -> Camera, "the camera: x and y, the map position it looks at; height; province, the province there (null where the map has none); min_height and max_height";
+    game Get "get" {} -> Camera, "the camera: x and y, the map position it looks at; height; province, the province there (null where the map has none); min_height and max_height";
     /// Turns the camera to a province, at the position the game itself
-    /// looks at it from, keeping the height. At once: the next frame shows it.
-    game LookAtProvince "look_at_province" {
-        /// The province.
-        province: ProvinceId,
-    } -> Camera, "the camera afterwards, as camera answers it";
-    /// Turns the camera to a map position, keeping the height. At once: the
-    /// next frame shows it.
+    /// looks at it from, or to a map position, keeping the height: a
+    /// province, or x and y. At once: the next frame shows it.
     game LookAt "look_at" {
+        /// The province.
+        province: Option<ProvinceId>,
         /// Pixels from the map's left edge.
-        x: u32,
+        x: Option<u32>,
         /// Pixels from the map's bottom edge.
-        y: u32,
-    } -> Camera, "the camera afterwards, as camera answers it";
+        y: Option<u32>,
+    } -> Camera, "the camera afterwards, as camera.get answers it";
     /// Raises or lowers the camera, looking at the same position. At once:
     /// the next frame shows it.
     game Zoom "zoom" {
         /// The height above the map, in pixels of the map, from the camera's
         /// min_height to its max_height.
         height: u32,
-    } -> Camera, "the camera afterwards, as camera answers it";
+    } -> Camera, "the camera afterwards, as camera.get answers it";
 }
 
 /// Where the camera looks and how high it is.

@@ -19,7 +19,7 @@ group! {
     /// startup until the main menu shows, nor while a save loads: a request
     /// sent then is taken up only after that, and an answer due then comes
     /// late, after it, however long that takes.
-    anywhere Read "" {
+    remote_anywhere Read "" {
         /// The number of the last event already seen; 0 or absent for every
         /// event kept.
         since: Option<u64>,
@@ -59,12 +59,37 @@ pub struct Numbered {
     pub event: Event,
 }
 
+/// Why a session is left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionEnd {
+    /// For the main menu.
+    Return,
+    /// For a save loaded from the session.
+    Load,
+    /// For a new game started from the session.
+    NewGame,
+}
+
+/// Every event by its name, with what it carries and when it comes.
+pub const EVENTS: &[(&str, &str)] = &[
+    ("session", "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
+    ("session_ended", "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save) or new_game"),
+    ("day", "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
+    ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
+    ("army_defeated", "one of the player's armies lost a battle; army"),
+];
+
 /// Something that happened in the game, as extensions hear it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    /// A campaign was loaded or started.
+    /// A session began: a save was loaded or a game started. Its number, as
+    /// session.get answers it (`number` there; here the event's own number
+    /// is `number`).
     Session { session: u64 },
+    /// The session is being left, while its state is still there to read.
+    SessionEnded { reason: SessionEnd },
     /// A new day, once visibility reflects it; with the game running fast,
     /// days in between may be left out.
     Day { date: Date },

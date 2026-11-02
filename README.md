@@ -28,7 +28,7 @@ The client is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder. `eu4-harmo
 
 ```powershell
 cd "<game folder>\eu4-harmony"
-.\eu4-harmony game help                    # how a game goes, what each error means, every capability
+.\eu4-harmony wiki remote                 # how a game goes, and what each exit code means
 .\eu4-harmony game menu                    # where the game is: main_menu, starting or game
 .\eu4-harmony game menu start FRA          # a new game as France, answered once it is ready
 .\eu4-harmony game question list           # the game's events waiting for the player's answer
@@ -47,17 +47,17 @@ The capabilities, by group:
 | Group | Capabilities |
 | --- | --- |
 | Main menu | `menu` (where the game is), `menu.saves`, `menu.load`, `menu.start`, `menu.return` |
-| Session and time | `session`, `time`, `time.pause`, `time.resume`, `time.speed`, `time.advance` (let days pass and wait, with the events on the way) |
-| Countries and provinces | `country.get` (treasury, manpower, stability, prestige, monarch points, wars, allies, subjects and overlord with the kind of subject, rivals), `country.hostile`, `province.list`, `province.get` (name, owner, development, terrain, fort, buildings, what can be recruited there), `province.neighbors` |
-| Armies | `army.list`, `army.get`, `army.in_province`, `army.route`, `army.find_route`, `army.can_enter`, `army.strait_open`, `army.can_attack`, `army.move`, `army.stop`, `army.selected` |
-| Recruiting | `recruit` (a regiment or ship of a kind in a province) |
+| Session and time | `session.get`, `time.get`, `time.pause`, `time.resume`, `time.set_speed`, `time.advance` (let days pass and wait, with the events on the way) |
+| Countries and provinces | `country.get` (treasury, manpower, stability, prestige, monarch points, wars, allies, subjects and overlord with the kind of subject, rivals), `country.hostile`, `province.list`, `province.get` (name, owner, development, terrain, fort, buildings), `province.neighbors` |
+| Armies | `army.list`, `army.get` (with the route still to go and what stops it taking orders), `army.at`, `army.route_to`, `army.can_step`, `army.can_attack`, `army.move`, `army.stop`, `army.selected` |
+| Recruiting | `recruit.options` (what can be recruited in a province, and why not), `recruit.order` (a regiment or ship of a kind) |
 | Questions and offers | `question.list`, `question.answer` (the game's events waiting for the player's answer); `offer.list`, `offer.accept`, `offer.decline` (other countries' proposals) |
 | Diplomacy | `diplomacy.war_goals`, `diplomacy.declare_war` (calling allies to arms), `diplomacy.offer_peace` (a white peace), `diplomacy.propose_alliance` |
 | Game console | `console.run` (a command, as the player types it, and what it printed) |
-| Camera and screenshots | `camera`, `camera.look_at_province`, `camera.look_at`, `camera.zoom`; `screenshot` (the frame as the player sees it, as a PNG) |
-| Events and descriptions | `events` (numbered: a new session, a new day, an army ordered or defeated), `describe` (every capability, from the running game), `text.language` |
+| Camera and screenshots | `camera.get`, `camera.look_at` (a province or a map position), `camera.zoom`; `screenshot` (the frame as the player sees it, as a PNG) |
+| Events and descriptions | `events` (numbered: a session begun or ended, a new day, an army ordered or defeated), `describe` (the catalogue's version and every capability, from the running game), `text.language` |
 
-The full list, with every argument and result, is `eu4-harmony game help`, which works without the game, and `eu4-harmony game help <capability>` for one; `eu4-harmony game describe` asks the running game. How each capability works in the game is in [docs/remote-control.md](docs/remote-control.md).
+The full list, with every argument and result, is `eu4-harmony wiki`, which works without the game: `eu4-harmony wiki army` for a group, `eu4-harmony wiki army move` for one capability, `eu4-harmony wiki errors` for what each error means; `eu4-harmony game describe` asks the running game. How each capability works in the game is in [docs/remote-control.md](docs/remote-control.md).
 
 ## Writing a mod (developers)
 
@@ -77,7 +77,7 @@ eu4-harmony link                          # register it under mod\ in the user f
 eu4-harmony package                       # make a clean folder to upload, ..\my-mod-package
 ```
 
-With the game running, `eu4-harmony game` asks it things through remote control (above): `eu4-harmony game session` reads the date and the player's country, and `eu4-harmony game help` lists every capability.
+With the game running, `eu4-harmony game` asks it things through remote control (above): `eu4-harmony game session get` reads the date and the player's country, and `eu4-harmony wiki` lists every capability.
 
 An extension implements `eu4_harmony_sdk::Extension`, with one method per kind of event; every capability is a method on the `Game` passed to the callbacks. Unit tests use `eu4_harmony_sdk::testing::FakeGame` in place of the game. The smallest example is the mod `eu4-harmony new` creates; a full one is the regional combat mod in the eu4-regional-combat repository.
 
