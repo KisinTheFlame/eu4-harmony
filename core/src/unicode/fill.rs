@@ -425,6 +425,12 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
     }
 }
 
+/// The device a filled font's page lives on; None for a font not filled.
+pub fn device_of(font: usize) -> Option<IDirect3DDevice9> {
+    let (wrapper, _) = lock(&OWNERS).get(&font).copied()?;
+    lock(&PAGES).get(&wrapper).map(|fill| fill.device.clone())
+}
+
 /// The em size and baseline that fit `face` to a line of `line` pixels.
 fn metrics(fonts: &SystemFonts, face: &Face, line: f32) -> (f32, f32) {
     let (ascent, descent) = fonts.line_metrics(face).unwrap_or((0.9, 0.25));

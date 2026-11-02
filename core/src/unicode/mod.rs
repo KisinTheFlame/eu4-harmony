@@ -20,6 +20,7 @@ pub mod localisation;
 pub mod main_text;
 pub mod map_names;
 pub mod outline;
+pub mod pixels;
 pub mod save_names;
 pub mod scripts;
 pub mod search;
@@ -48,6 +49,7 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(edit_box::points());
     points.extend(save_names::points());
+    points.extend(pixels::points());
     points
 }
 
