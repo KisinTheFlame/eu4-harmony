@@ -16,7 +16,7 @@ use crate::unicode::system_font::{self, Face, SystemFonts};
 use crate::{lang, loc};
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::Mutex;
 use widgets::{Action, Command, Measure, Rect, Widget, Window};
 
@@ -62,6 +62,8 @@ unsafe impl Send for FrameworkUi {}
 static UI: Mutex<Option<FrameworkUi>> = Mutex::new(None);
 static FAILED: AtomicBool = AtomicBool::new(false);
 static FRAME: AtomicU64 = AtomicU64::new(0);
+/// The device the game presented its last frame with, for [`still`].
+static DEVICE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static MAIN_MENU_FRAME: AtomicU64 = AtomicU64::new(u64::MAX);
 static MODAL: AtomicBool = AtomicBool::new(false);
 
@@ -132,13 +134,11 @@ impl FrameworkUi {
             Widget::Dropdown { id: "map", options: shown, selected: index(&next.map_font.family) },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_WEIGHT")),
             Widget::Dropdown { id: "map_weight", options: map_names, selected: map_weight },
-            Widget::Label(words("EU4HARMONY_SETTINGS_MAP_OUTLINE")),
-            Widget::Dropdown {
-                id: "outline",
-                options: vec![words("EU4HARMONY_SETTINGS_OUTLINE_FONT"), words("EU4HARMONY_SETTINGS_OUTLINE_NONE")],
-                selected: usize::from(!next.map_outline),
-            },
+            Widget::Toggle { id: "outline", label: words("EU4HARMONY_SETTINGS_MAP_OUTLINE"), on: next.map_outline },
             Widget::Label(words("EU4HARMONY_SETTINGS_RESTART")),
+            Widget::Toggle { id: "return", label: words("EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART"), on: next.return_without_restart },
+            Widget::Toggle { id: "ironman_save", label: words("EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD"), on: next.save_ironman_before_load },
+            Widget::Label(words("EU4HARMONY_SETTINGS_UNDO")),
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
             Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
         ];
@@ -176,10 +176,12 @@ impl FrameworkUi {
                 body_font: Face::new(family("body").unwrap_or(next.body_font.family), weight("body_weight").unwrap_or(next.body_font.weight)),
                 heading_font: Face::new(family("heading").unwrap_or(next.heading_font.family), weight("heading_weight").unwrap_or(next.heading_font.weight)),
                 map_font: Face::new(family("map").unwrap_or(next.map_font.family), weight("map_weight").unwrap_or(next.map_font.weight)),
-                map_outline: w.selected("outline") != Some(1),
+                map_outline: w.is_on("outline").unwrap_or(next.map_outline),
+                return_without_restart: w.is_on("return").unwrap_or(next.return_without_restart),
+                save_ironman_before_load: w.is_on("ironman_save").unwrap_or(next.save_ironman_before_load),
             };
             match settings::save(chosen.clone()) {
-                Ok(()) => log!("settings saved for the next start: {chosen:?}"),
+                Ok(()) => log!("settings saved: {chosen:?}"),
                 Err(e) => log!("settings not saved: {e}"),
             }
         }
@@ -283,6 +285,38 @@ impl FrameworkUi {
         }
         out
     }
+
+    /// The still notice: `text` in a box in the middle of the screen, which
+    /// is dimmed.
+    fn still_commands(&self, text: String) -> Vec<Command> {
+        let (w, h) = (self.font.width(&text, widgets::TEXT_SIZE) + 48.0, widgets::TEXT_SIZE + 32.0);
+        let r = Rect { x: ((self.screen.0 - w) / 2.0).round(), y: ((self.screen.1 - h) / 2.0).round(), w, h };
+        vec![
+            Command::Fill { rect: Rect { x: 0.0, y: 0.0, w: self.screen.0, h: self.screen.1 }, color: 0x80000000 },
+            Command::Fill { rect: Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 }, color: widgets::BORDER },
+            Command::Fill { rect: r, color: widgets::TITLE_BAR },
+            Command::Text { x: r.x + 24.0, y: r.y + 14.0, text, size: widgets::TEXT_SIZE, color: widgets::TEXT },
+        ]
+    }
+}
+
+/// Shows the framework's words for `key` over the frame the game presented
+/// last, and presents that at once: on the main thread, just before work
+/// that keeps it from drawing for seconds, such as leaving a session. The
+/// game's window shows it until the game presents its next frame.
+pub fn still(key: &str) {
+    if crate::thread_id() != crate::main_thread() || FAILED.load(Ordering::Relaxed) {
+        return;
+    }
+    let device = DEVICE.load(Ordering::Relaxed);
+    let mut guard = UI.lock().unwrap_or_else(|e| e.into_inner());
+    let (Some(ui), false) = (guard.as_mut(), device.is_null()) else { return };
+    let commands = ui.still_commands(words(key));
+    let shown = unsafe { ui.backend.draw(device, &ui.font, &commands, ui.scale) }.and_then(|()| unsafe { d3d9::Backend::present(device) });
+    match shown {
+        Ok(()) => log!("framework UI: still notice {key}"),
+        Err(e) => log!("framework UI: no still notice {key}: {e}"),
+    }
 }
 
 fn handle(event: input::Event) -> bool {
@@ -317,6 +351,7 @@ pub unsafe fn frame(device: *mut c_void) {
         }
     }
     let ui = guard.as_mut().expect("just made");
+    DEVICE.store(device, Ordering::Relaxed);
     input::attach(handle);
     // The framework UI is as large as the game's own, whatever its scale.
     let scale = crate::memory().and_then(crate::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));

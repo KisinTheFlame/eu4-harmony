@@ -14,6 +14,8 @@ pub mod stub;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
 pub mod baseline;
+#[cfg(feature = "trace")]
+pub mod census;
 pub mod ext;
 pub mod framework_ui;
 pub mod game;
@@ -35,6 +37,7 @@ pub mod physfs;
 pub mod pipe;
 pub mod points;
 pub mod remote;
+pub mod repairs;
 pub mod report;
 pub mod safe_point;
 pub mod saves;
@@ -111,6 +114,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(ui::points());
     all.extend(map::points());
     all.extend(saves::points());
+    all.extend(repairs::points());
     all.extend(unicode::points());
     all.extend(wording::points());
     all.extend(framework_ui::hook::points());
@@ -127,6 +131,7 @@ fn start(m: memory::Memory) -> Result<String> {
     let all = points();
     #[cfg(feature = "trace")]
     let all: Vec<_> = {
+        let all: Vec<_> = all.into_iter().chain(census::points(&m)).collect();
         let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
         let room = hooks::observer_slots().saturating_sub(observers);
         all.into_iter().chain(trace::points(&m, room)).collect()

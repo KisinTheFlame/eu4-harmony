@@ -22,6 +22,12 @@ pub mod globals {
     /// The game's end date, i32 (docs/research/time.md): past it, time
     /// stands still unless the player plays on ([`super::world::PLAY_ON`]).
     pub const END_DATE: usize = 0x1fc2328;
+    /// The campaign's achievements ([`super::achievements`]), made on first
+    /// use and kept until the process ends.
+    pub const ACHIEVEMENTS: usize = 0x233d890;
+    /// The religions ([`super::religions`]), made on first use and kept until
+    /// the process ends.
+    pub const RELIGIONS: usize = 0x242bd98;
 }
 
 /// Classes, by vtable RVA.
@@ -41,6 +47,12 @@ pub mod classes {
     /// The window of one of the game's events, as the map manager shows it
     /// to the player (see [`super::event_window`]).
     pub const EVENT_WINDOW: usize = 0x1d590f8;
+    /// A rebel faction, which a country holds among its
+    /// [`super::country::REBEL_FACTIONS`].
+    pub const REBEL_FACTION: usize = 0x1cdfc80;
+    /// A leader (see [`super::leader`]), and the game's null leader.
+    pub const LEADER: usize = 0x1cbc1b8;
+    pub const NULL_LEADER: usize = 0x1cbc158;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -92,6 +104,55 @@ pub mod world {
     /// Set to 1 (i32) before the single player setup is entered to continue
     /// a save (docs/research/main-menu.md).
     pub const SETUP: usize = 0x23b4;
+    /// The session is ironman, u8, as its save says.
+    pub const IRONMAN: usize = 0x24d0;
+    /// The Empire's religious status, u32, which saves call
+    /// `hre_religion_status`: 0 at a new start. The world's own reset leaves
+    /// it (docs/research/main-menu.md).
+    pub const HRE_RELIGION_STATUS: usize = 0x2418;
+    /// Nonzero while the world's own reset clears it (`0x74a260`), u8: a
+    /// rebel faction's destructor then leaves its provinces be.
+    pub const CLEARING: usize = 0x7485;
+}
+
+/// The religions, at [`globals::RELIGIONS`].
+pub mod religions {
+    /// The Empire's religion and its heretic religion, pointers to
+    /// religions, which a session changes; and the ones the game's
+    /// definitions give, which a new start has (saves call them
+    /// `hre_religion`, `hre_heretic_religion` and their `original_` forms).
+    pub const HRE: usize = 0x60;
+    pub const HRE_HERETIC: usize = 0x68;
+    pub const ORIGINAL_HRE: usize = 0x70;
+    pub const ORIGINAL_HRE_HERETIC: usize = 0x78;
+}
+
+/// The campaign's achievements, at [`globals::ACHIEVEMENTS`].
+pub mod achievements {
+    /// Its lists of achievements, each a vector of i16, empty at a new start
+    /// and filled by a load from the save: the campaign's when it can still
+    /// earn them and when it cannot (both written to saves as
+    /// `achievement`), and `completed_achievements`.
+    pub const WHEN_POSSIBLE: usize = 0x38;
+    pub const WHEN_NOT: usize = 0x88;
+    pub const COMPLETED: usize = 0x50;
+    pub const LISTS: [usize; 3] = [WHEN_POSSIBLE, WHEN_NOT, COMPLETED];
+}
+
+/// What the game's in-game load (`game::menu::leave`) is asked to load, a
+/// struct of [`SIZE`] bytes the load question builds on its stack
+/// (docs/research/main-menu.md).
+pub mod load_request {
+    /// The save's name without `.eu4`, a `std::string`.
+    pub const NAME: usize = 0;
+    /// The folders below `save games` it is in, a vector of `std::string`s.
+    pub const FOLDERS: usize = 0x20;
+    pub const MAP_MANAGER: usize = 0x38;
+    /// It is in the cloud, u8.
+    pub const CLOUD: usize = 0x40;
+    /// What the game's `0x8bf160` answers, which may be null.
+    pub const CONTEXT: usize = 0x48;
+    pub const SIZE: usize = 0x50;
 }
 
 /// The country manager, at [`globals::COUNTRY_MANAGER`].
@@ -106,6 +167,15 @@ pub mod countries {
 pub mod country {
     /// Its tag.
     pub const TAG: usize = 0x20;
+    /// A byte for each entry of a global table of the game's (`[0x242bce0]`),
+    /// an array the country tags' setup (`0x283d20`) gives each country
+    /// that has none, and that the country's destructor never frees
+    /// (docs/research/main-menu.md).
+    pub const ENTRY_BYTES: usize = 0x10a0;
+    /// The rebel factions in it, which it owns: a vector (begin, end) of
+    /// pointers. The country's clear (`0x2e1a30`) lets the vector go
+    /// without destroying them (docs/research/main-menu.md).
+    pub const REBEL_FACTIONS: usize = 0xe68;
     /// Its armies and fleets, a [`super::list`].
     pub const UNITS: usize = 0xd18;
     /// The countries it is at war with: a pointer to [`HOSTILE_SIZE`]-byte
@@ -149,6 +219,21 @@ pub mod country {
     pub const RIVALS: usize = 0x2248;
     pub const RIVAL_TAG: usize = 0x10;
     pub const RIVAL_NEXT: usize = 0x28;
+}
+
+/// A mercenary company, which a country keeps among those it can hire.
+pub mod mercenary_company {
+    /// Its leader, which it owns: a [`super::leader`], the game's null
+    /// leader, or null.
+    pub const LEADER: usize = 0x48;
+}
+
+/// A leader: a general, an admiral, a conquistador or an explorer.
+pub mod leader {
+    /// A method, by vtable offset, answering whether it is a leader: the
+    /// game's null leader (`NO_LEADER`, made once, at `[0x233fec0]`) answers
+    /// no.
+    pub const REAL: usize = 0x50;
 }
 
 /// A country's diplomacy, which its [`country::RELATIONS`] records point to.
@@ -391,11 +476,31 @@ pub mod map_manager {
     pub const POPUPS: usize = 0x78;
     /// What holds the diplomatic message icons, `gui::message_icon_holder`.
     pub const MESSAGE_ICON_HOLDER: usize = 0x1400;
+    /// The menubar's message windows, a [`super::list`] of the
+    /// [`super::message_window`]s its message list shows, which go with
+    /// that list.
+    pub const MESSAGE_WINDOWS: usize = 0x4b8;
     /// The dialogs open from those icons, a [`super::list`].
     pub const OPEN_DIALOGS: usize = 0x370;
     /// Return to the main menu at its next frame, u8: the game starts
     /// `eu4.exe` again (docs/research/main-menu.md).
     pub const RETURN: usize = 0x12e9;
+    /// Its minimap, a window it makes and never lets go: its destructor lets
+    /// the others go, not this one.
+    pub const MINIMAP: usize = 0x10e0;
+    /// More of the session's interface it makes, in its rebuild (`0x81af10`),
+    /// and its destructor never lets go, in the order the rebuild makes them
+    /// but for the end-of-game summary, last (docs/research/main-menu.md).
+    /// Each has its deleting destructor in its vtable's first slot.
+    pub const SESSION_WINDOWS: [usize; 19] =
+        [0x12e0, 0x558, 0x1450, 0x11b8, 0x11b0, 0x1b80, 0x5ba0, 0x1280, 0x1288, 0x1290, 0x1270, 0x1278, 0x12c0, 0x12a8, 0x12b0, 0x1228, 0x1230, 0x1408, 0x1458];
+    /// Two more, which the game lets go with a function of their own (the
+    /// rebuild calls it before it makes them again): the field and the
+    /// function's RVA.
+    pub const SESSION_OBJECTS: [(usize, usize); 2] = [(0x1418, 0x81dc30), (0x2448, 0x81de20)];
+    /// The size of [`MESSAGE_ICON_HOLDER`], which its function `0xdffca0`
+    /// empties of its icons without freeing it.
+    pub const MESSAGE_ICON_HOLDER_SIZE: usize = 0x7000;
 }
 
 /// The map manager's pause state, at [`map_manager::PAUSE`].
@@ -406,6 +511,14 @@ pub mod pause {
     /// remote control or an extension did); when it is zero and the game is
     /// paused, windows hold it paused.
     pub const PLAYER_PAUSED: usize = 0x48;
+}
+
+/// One of the map manager's [`map_manager::MESSAGE_WINDOWS`].
+pub mod message_window {
+    /// Closed, u8: its popup is gone. The in-game load marks every one so.
+    pub const CLOSING: usize = 0x1d0;
+    /// The popup it holds, made with it and never let go by it.
+    pub const POPUP: usize = 0x130;
 }
 
 /// A window among the map manager's [`map_manager::POPUPS`].
@@ -471,6 +584,72 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x9c376usize, "48 8b 0d fb 3a 2a 02 8b 44 24 60 39 81 d0 1d 00 00", "world date").uses(&[WORLD, world::DATE]),
         Point::keep(0x10a5213usize, "48 8b 05 5e ac 29 01 80 b8 10 1e 00 00 00", "daily update flag").uses(&[WORLD, world::DAILY_UPDATE]),
         Point::keep(0xa3595usize, "48 8b 05 dc c8 29 02 48 8b 88 00 1e 00 00", "world map manager").uses(&[WORLD, world::MAP_MANAGER]),
+        Point::keep(0x80b241usize, "48 89 86 e0 10 00 00", "map manager minimap").uses(&[map_manager::MINIMAP]),
+        // The interface rebuild keeping what the map manager's destructor
+        // never lets go.
+        Point::keep(0x81b2e1usize, "49 89 86 e0 12 00 00", "map manager window 0x12e0").uses(&[0x12e0]),
+        Point::keep(0x81b453usize, "49 89 86 58 05 00 00", "map manager window 0x558").uses(&[0x558]),
+        Point::keep(0x81c902usize, "49 89 86 50 14 00 00", "map manager window 0x1450").uses(&[0x1450]),
+        Point::keep(0x81cd5eusize, "49 89 86 b8 11 00 00", "map manager window 0x11b8").uses(&[0x11b8]),
+        Point::keep(0x81cdb5usize, "49 89 86 80 1b 00 00", "map manager window 0x1b80").uses(&[0x1b80]),
+        Point::keep(0x81cdefusize, "49 89 86 a0 5b 00 00", "map manager window 0x5ba0").uses(&[0x5ba0]),
+        Point::keep(0x81d091usize, "49 89 86 58 14 00 00", "map manager window 0x1458").uses(&[0x1458]),
+        Point::keep(0x81d200usize, "49 89 86 80 12 00 00", "map manager window 0x1280").uses(&[0x1280]),
+        Point::keep(0x81d224usize, "49 89 86 88 12 00 00", "map manager window 0x1288").uses(&[0x1288]),
+        Point::keep(0x81d248usize, "49 89 86 90 12 00 00", "map manager window 0x1290").uses(&[0x1290]),
+        Point::keep(0x81d26cusize, "49 89 86 70 12 00 00", "map manager window 0x1270").uses(&[0x1270]),
+        Point::keep(0x81d290usize, "49 89 86 78 12 00 00", "map manager window 0x1278").uses(&[0x1278]),
+        Point::keep(0x81d2d5usize, "49 89 86 c0 12 00 00", "map manager window 0x12c0").uses(&[0x12c0]),
+        Point::keep(0x81d31ausize, "49 89 86 a8 12 00 00", "map manager window 0x12a8").uses(&[0x12a8]),
+        Point::keep(0x81d33eusize, "49 89 86 b0 12 00 00", "map manager window 0x12b0").uses(&[0x12b0]),
+        Point::keep(0x81d495usize, "49 89 86 28 12 00 00", "map manager window 0x1228").uses(&[0x1228]),
+        Point::keep(0x81d4b6usize, "49 89 86 30 12 00 00", "map manager window 0x1230").uses(&[0x1230]),
+        Point::keep(0x81d4dausize, "49 89 86 08 14 00 00", "map manager window 0x1408").uses(&[0x1408]),
+        Point::keep(0x81cd7busize, "49 89 b6 b0 11 00 00", "map manager window 0x11b0").uses(&[0x11b0]),
+        Point::keep(0x81b7c0usize, "49 89 86 18 14 00 00", "map manager window 0x1418").uses(&[0x1418]),
+        Point::keep(0x81c509usize, "49 89 86 48 24 00 00", "map manager window 0x2448").uses(&[0x2448]),
+        Point::keep(0x81d568usize, "49 89 86 00 14 00 00", "map manager message icon holder").uses(&[map_manager::MESSAGE_ICON_HOLDER]),
+        Point::keep(0x814824usize, "49 8b 8d b8 04 00 00", "map manager message windows").uses(&[map_manager::MESSAGE_WINDOWS]),
+        // A message window that is not closed has its popup closed as it
+        // goes out of date; it holds the popup it is made with.
+        Point::keep(
+            0x8147f5usize,
+            "80 bf d0 01 00 00 00 75 26 8b 8f cc 01 00 00 48 8b 05 6d b6 b2 01 39 88 d0 1d 00 00 0f 8e a5 00 00 00 48 8b 8f 30 01 00 00",
+            "message window popup",
+        )
+        .uses(&[message_window::CLOSING, message_window::POPUP]),
+        Point::keep(0x123f9e1usize, "4c 89 a6 30 01 00 00", "message window keeps its popup").uses(&[message_window::POPUP]),
+        // The country tags' setup gives a country its array of bytes.
+        Point::keep(0x283d8dusize, "48 89 83 a0 10 00 00", "country entry bytes").uses(&[country::ENTRY_BYTES]),
+        // A rebel faction's destructor leaves its provinces be while the
+        // world is being cleared.
+        Point::keep(0xaa02cbusize, "48 8b 35 a6 fb 89 01 80 be 85 74 00 00 00 0f 85 e9 00 00 00", "rebel faction provinces").uses(&[WORLD, world::CLEARING]),
+        // The country's clear lets its rebel factions' vector go.
+        Point::keep(0x2e2209usize, "48 8d 9f 68 0e 00 00 48 8d 45 0f 48 3b d8 74 13 48 8b cb e8 9f c8 da ff 4c 89 2b 4c 89 6b 08 4c 89 6b 10", "country rebel factions")
+            .uses(&[country::REBEL_FACTIONS]),
+        // A mercenary company's leader, which the game takes for one only
+        // when it answers that it is.
+        Point::keep(0x8fe37cusize, "48 8b 49 48 48 85 c9 0f 84 2e 0a 00 00 48 8b 01 ff 50 50 84 c0", "mercenary company leader")
+            .uses(&[mercenary_company::LEADER, leader::REAL]),
+        // The saver writes the Empire's religious status, and the
+        // achievements' lists.
+        Point::keep(0x75117busize, "45 8b 86 18 24 00 00", "world religious status").uses(&[world::HRE_RELIGION_STATUS]),
+        Point::keep(0x96080usize, "48 83 ec 28 48 8b 05 05 78 2a 02 48 85 c0", "achievements").uses(&[ACHIEVEMENTS]),
+        Point::keep(0x751b07usize, "84 db 74 06 48 83 c0 38 eb 06 48 05 88 00 00 00", "achievement lists").uses(&[achievements::WHEN_POSSIBLE, achievements::WHEN_NOT]),
+        Point::keep(0x751b2cusize, "4c 8d 40 50 ba 8a 33 00 00", "completed achievements").uses(&[achievements::COMPLETED]),
+        // A religion's saver, which says which of the Empire's religions it is.
+        Point::keep(0x99b60usize, "48 89 5c 24 10 57 48 83 ec 20 48 8b 05 27 22 39 02 48 85 c0", "religions").uses(&[RELIGIONS]),
+        Point::keep(0xa7bdb4usize, "48 39 68 60", "Empire religion").uses(&[religions::HRE]),
+        Point::keep(0xa7be0ausize, "48 39 68 68", "Empire heretic religion").uses(&[religions::HRE_HERETIC]),
+        Point::keep(0xa7be5ausize, "48 39 68 70", "original Empire religion").uses(&[religions::ORIGINAL_HRE]),
+        Point::keep(0xa7beaausize, "48 39 68 78", "original Empire heretic religion").uses(&[religions::ORIGINAL_HRE_HERETIC]),
+        // The ironman exit save, which writes only for an ironman session.
+        Point::keep(0x5cc17ausize, "48 8b 3d f7 3c d7 01 80 bf d0 24 00 00 00", "world ironman").uses(&[WORLD, world::IRONMAN]),
+        // The in-game load reading its request.
+        Point::keep(0x5d059fusize, "4c 8b 71 38", "load request map manager").uses(&[load_request::MAP_MANAGER]),
+        Point::keep(0x5d0714usize, "80 7e 40 00", "load request cloud").uses(&[load_request::CLOUD]),
+        Point::keep(0x5d093busize, "4c 8d 46 20", "load request folders").uses(&[load_request::FOLDERS]),
+        Point::keep(0x5d0a08usize, "48 8b 46 48", "load request context").uses(&[load_request::CONTEXT]),
         Point::keep(0x9b811usize, "4c 8b 25 60 46 2a 02 48 8b bb 88 00 00 00 48 63 07 48 69 c0 10 2e 00 00 49 03 84 24 a8 1c 00 00", "province by ID")
             .uses(&[WORLD, province::SIZE, world::PROVINCES]),
         // The fog of war refresh reads the player and whether there is fog.

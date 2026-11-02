@@ -24,7 +24,7 @@
 use crate::{
     ext,
     game::{self, menu::At},
-    remote,
+    remote, repairs,
 };
 use std::{
     sync::{
@@ -46,6 +46,7 @@ static MAIN_MENU: AtomicUsize = AtomicUsize::new(0);
 pub fn main_menu_frame(frontend: usize) {
     MAIN_MENU.store(frontend, Ordering::Relaxed);
     if let Some(m) = crate::memory() {
+        repairs::main_menu_shown(m);
         game::menu::main_menu_frame(m, frontend);
     }
 }
@@ -89,6 +90,12 @@ static UNPLAYABLE: Mutex<Unplayable> = Mutex::new(Unplayable { since: None });
 pub fn game_frame() {
     let Some(m) = crate::memory().copied() else { return };
     if crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    // An in-game load remote control asked for takes the frame: the next
+    // one is the new session's.
+    if game::menu::game_frame(&m) {
+        GAME_FRAME.store(true, Ordering::Relaxed);
         return;
     }
     let unplayable = || UNPLAYABLE.lock().unwrap_or_else(|e| e.into_inner());

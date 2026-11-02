@@ -30,6 +30,8 @@ pub mod classes {
     /// An edit box's keyboard listener, at [`super::edit_box::LISTENER`].
     pub const EDIT_BOX_LISTENER: usize = 0x1d917d8;
     pub const EDITOR: usize = 0x1d915c0;
+    /// A sprite type (see [`super::sprite_type`]).
+    pub const SPRITE_TYPE: usize = 0x1d9cf40;
 }
 
 pub mod scale {
@@ -165,6 +167,27 @@ pub mod main_menu {
 pub mod text_box {
     /// Its text, a `std::string`.
     pub const TEXT: usize = 0x170;
+}
+
+/// A sprite type: one of the sprites the `.gfx` files define, made at
+/// startup and kept by the process (`spritetype.cpp`, constructor
+/// `0x156ba70`), as one of the game's graphics.
+pub mod sprite_type {
+    /// Its name, a game string (`GFX_…`).
+    pub const NAME: usize = 0x10;
+    /// The group of graphics it is one of, u32: 1 the main menu's, 3 the
+    /// game's; and whether its group loaded it, u8.
+    pub const GROUP: usize = 0x40;
+    pub const LOADED: usize = 0x44;
+    /// Its method that unloads it with its group, by vtable offset.
+    pub const UNLOAD: usize = 0x48;
+    /// The ID its texture is lent by, i32, -1 while it is not loaded.
+    pub const TEXTURE: usize = 0x258;
+    /// How many shown sprites show it, u32; and whether its texture is
+    /// loaded only once one shows it, u8: the first loads it, the last to
+    /// hide unloads it.
+    pub const SHOWN: usize = 0x288;
+    pub const LAZY: usize = 0x28c;
 }
 
 /// What holds the diplomatic message icons, at the map manager's

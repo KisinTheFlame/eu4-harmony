@@ -1,7 +1,8 @@
 //! Framework settings (GLOSSARY): the player's choices for the framework,
 //! kept in `eu4-harmony/settings.txt` under the user directory and written the
-//! way the game writes its own `settings.txt`. They are read once at startup;
-//! a change made in the settings window takes effect at the next start.
+//! way the game writes its own `settings.txt`. They are read once at startup.
+//! A change made in the settings window to how a session is left takes effect
+//! when it is saved; a change to the fonts, at the next start.
 use crate::unicode::system_font::Face;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -18,6 +19,12 @@ pub struct Settings {
     /// Whether system glyphs on the map get the outline the map font's own
     /// glyphs have.
     pub map_outline: bool,
+    /// Whether returning to the main menu is an in-process return (GLOSSARY)
+    /// rather than a restart (ADR 0022).
+    pub return_without_restart: bool,
+    /// Whether an in-game load in ironman writes the ironman exit save first;
+    /// without it, loading the same save again is an undo (ADR 0023).
+    pub save_ironman_before_load: bool,
 }
 
 /// The system font family text falls back to, and the framework UI draws
@@ -27,7 +34,14 @@ pub const DEFAULT_FONT: &str = "Microsoft YaHei";
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { body_font: Face::regular(DEFAULT_FONT), heading_font: Face::regular(DEFAULT_FONT), map_font: Face::regular("KaiTi"), map_outline: true }
+        Self {
+            body_font: Face::regular(DEFAULT_FONT),
+            heading_font: Face::regular(DEFAULT_FONT),
+            map_font: Face::regular("KaiTi"),
+            map_outline: true,
+            return_without_restart: true,
+            save_ironman_before_load: true,
+        }
     }
 }
 
@@ -60,11 +74,9 @@ impl Settings {
                 "body_weight" => settings.body_font.weight = weight(value).unwrap_or(settings.body_font.weight),
                 "heading_weight" => settings.heading_font.weight = weight(value).unwrap_or(settings.heading_font.weight),
                 "map_weight" => settings.map_font.weight = weight(value).unwrap_or(settings.map_font.weight),
-                "map_outline" => match value {
-                    "yes" => settings.map_outline = true,
-                    "no" => settings.map_outline = false,
-                    _ => {}
-                },
+                "map_outline" => settings.map_outline = yes(value).unwrap_or(settings.map_outline),
+                "return_without_restart" => settings.return_without_restart = yes(value).unwrap_or(settings.return_without_restart),
+                "save_ironman_before_load" => settings.save_ironman_before_load = yes(value).unwrap_or(settings.save_ironman_before_load),
                 _ => {}
             }
         }
@@ -72,12 +84,36 @@ impl Settings {
     }
 
     pub fn render(&self) -> String {
-        let outline = if self.map_outline { "yes" } else { "no" };
+        let yes_no = |on: bool| if on { "yes" } else { "no" };
         let (body, heading, map) = (&self.body_font, &self.heading_font, &self.map_font);
         format!(
-            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={outline}\n",
-            body.family, body.weight, heading.family, heading.weight, map.family, map.weight
+            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nreturn_without_restart={}\nsave_ironman_before_load={}\n",
+            body.family,
+            body.weight,
+            heading.family,
+            heading.weight,
+            map.family,
+            map.weight,
+            yes_no(self.map_outline),
+            yes_no(self.return_without_restart),
+            yes_no(self.save_ironman_before_load)
         )
+    }
+
+    /// Takes from `chosen` the settings that take effect when they are saved:
+    /// those for leaving a session.
+    fn take_immediate(&mut self, chosen: &Settings) {
+        self.return_without_restart = chosen.return_without_restart;
+        self.save_ironman_before_load = chosen.save_ironman_before_load;
+    }
+}
+
+/// A yes-or-no value as the file keeps it.
+fn yes(value: &str) -> Option<bool> {
+    match value {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
     }
 }
 
@@ -118,13 +154,15 @@ pub fn next() -> Settings {
     store().map(|s| s.next.clone()).unwrap_or_default()
 }
 
-/// Saves settings for the next session.
+/// Saves settings: those for leaving a session take effect now, the rest at
+/// the next start.
 pub fn save(settings: Settings) -> crate::Result<()> {
     let mut store = store().ok_or("settings not loaded")?;
     if let Some(dir) = store.path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     std::fs::write(&store.path, settings.render()).map_err(|e| format!("{}: {e}", store.path.display()))?;
+    store.current.take_immediate(&settings);
     store.next = settings;
     Ok(())
 }
@@ -148,11 +186,13 @@ mod tests {
             heading_font: Face::new("Microsoft YaHei", 700),
             map_font: Face::new("KaiTi", 290),
             map_outline: false,
+            return_without_restart: false,
+            save_ironman_before_load: false,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().contains("\nbody_weight=700\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
-        assert!(custom.render().contains("\nmap_outline=no\n"));
+        assert!(custom.render().contains("\nmap_outline=no\nreturn_without_restart=no\nsave_ironman_before_load=no\n"));
         // A file from before headings had a font of their own, and from when
         // text could keep the fonts' own glyphs.
         let partial = Settings::parse("# comment\ntext_appearance=\"bitmap\"\nbody_font=\"DengXian\"\nmap_outline=maybe\nmap_weight=1000\nunknown=1\n");
@@ -162,5 +202,21 @@ mod tests {
         assert_eq!(Settings::parse("body_weight=\"300\"\nbody_font=\"DengXian\"").body_font, Face::new("DengXian", 300));
         assert_eq!(Settings::parse("body_weight=bold").body_font, Settings::default().body_font);
         assert_eq!(Settings::parse(""), Settings::default());
+        assert!(Settings::parse("return_without_restart=maybe").return_without_restart);
+        assert!(!Settings::parse("save_ironman_before_load=\"no\"").save_ironman_before_load);
+    }
+
+    #[test]
+    fn only_the_settings_for_leaving_a_session_take_effect_when_saved() {
+        let mut current = Settings::default();
+        let chosen = Settings {
+            body_font: Face::regular("SimSun"),
+            map_outline: false,
+            return_without_restart: false,
+            save_ironman_before_load: false,
+            ..Settings::default()
+        };
+        current.take_immediate(&chosen);
+        assert_eq!(current, Settings { return_without_restart: false, save_ironman_before_load: false, ..Settings::default() });
     }
 }

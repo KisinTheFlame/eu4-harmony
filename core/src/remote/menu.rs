@@ -10,7 +10,7 @@
 use super::{process, session, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
-    menu::{Expected, Launch},
+    menu::{Expected, ExpectedProbe, Launch, Returned},
     Caller, GResult, Status,
 };
 use eu4_harmony_remote::{
@@ -24,14 +24,17 @@ pub trait Layer {
     fn place(&mut self) -> GResult<game::menu::Place>;
     fn saves(&mut self) -> GResult<Vec<game::menu::Save>>;
     /// Asks for the save to be loaded and played; what its header says the
-    /// game will be.
-    fn load(&mut self, save: &str) -> GResult<Expected>;
+    /// game will be, asked once the game came.
+    fn load(&mut self, save: &str) -> GResult<ExpectedProbe>;
     /// Asks for a new game as the country.
     fn start(&mut self, country: CountryTag) -> GResult<()>;
     /// What came of the load or start just asked for so far, asked again at
     /// each safe point until the game's first frame.
     fn launch(&mut self) -> Box<dyn FnMut() -> Launch + Send>;
-    fn return_to_main_menu(&mut self) -> GResult<()>;
+    /// Asks for a return to the main menu: with an in-process return, what
+    /// came of it so far, asked again at each safe point; None when the game
+    /// starts again.
+    fn return_to_main_menu(&mut self) -> GResult<Option<Box<dyn FnMut() -> Returned + Send>>>;
 }
 
 impl Layer for Live {
@@ -43,7 +46,7 @@ impl Layer for Live {
         game::menu::saves(Caller::Remote)
     }
 
-    fn load(&mut self, save: &str) -> GResult<Expected> {
+    fn load(&mut self, save: &str) -> GResult<ExpectedProbe> {
         game::menu::load(Caller::Remote, save)
     }
 
@@ -56,8 +59,8 @@ impl Layer for Live {
         Box::new(move || game::menu::launch(Caller::Remote, number))
     }
 
-    fn return_to_main_menu(&mut self) -> GResult<()> {
-        game::menu::return_to_main_menu(Caller::Remote)
+    fn return_to_main_menu(&mut self) -> GResult<Option<Box<dyn FnMut() -> Returned + Send>>> {
+        Ok(game::menu::return_to_main_menu(Caller::Remote)?.map(|number| Box::new(move || game::menu::returned(Caller::Remote, number)) as Box<_>))
     }
 }
 
@@ -84,9 +87,25 @@ pub fn run(request: MenuRequest, game: &mut (impl Layer + ?Sized)) -> Outcome {
             Err(fail) => done(Err(fail.into())),
         },
         MenuRequest::Return {} => match game.return_to_main_menu() {
-            Ok(()) => done(Ok(MenuAnswer::Return(Menu { process: process(), place: Place::Ending }))),
+            Ok(None) => done(Ok(MenuAnswer::Return(Menu { process: process(), place: Place::Ending }))),
+            Ok(Some(probe)) => Outcome::Later(Box::new(Returning { probe })),
             Err(fail) => done(Err(fail.into())),
         },
+    }
+}
+
+/// An in-process return waiting for the main menu.
+struct Returning {
+    probe: Box<dyn FnMut() -> Returned + Send>,
+}
+
+impl Wait for Returning {
+    fn poll(&mut self, _: &mut Poll<'_>) -> Option<Response> {
+        match (self.probe)() {
+            Returned::Waiting => None,
+            Returned::Failed(why) => Some(Err(Error::new(Code::Rejected, why))),
+            Returned::Done => Some(Ok(Answer::Menu(MenuAnswer::Return(Menu { process: process(), place: Place::MainMenu })))),
+        }
     }
 }
 
@@ -115,13 +134,16 @@ struct Starting {
     probe: Box<dyn FnMut() -> Launch + Send>,
     answer: fn(Session) -> MenuAnswer,
     /// For a load, the game its save's header says will come.
-    expected: Option<Expected>,
+    expected: Option<ExpectedProbe>,
 }
 
 impl Wait for Starting {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
-        if let Launch::Failed(why) = (self.probe)() {
-            return Some(Err(Error::new(Code::Rejected, why)));
+        match (self.probe)() {
+            Launch::Failed(why) => return Some(Err(Error::new(Code::Rejected, why))),
+            // A start from a session leaves it first, at its next frame.
+            Launch::Asked => return None,
+            Launch::Waiting => {}
         }
         // The game came, but its frames have no game to play: no frame
         // after it would answer otherwise.
@@ -133,9 +155,12 @@ impl Wait for Starting {
         }
         let game = at.game()?;
         match game.session() {
-            Ok(s) => Some(match self.expected.and_then(|e| other_game(&e, &s)) {
-                Some(why) => Err(Error::new(Code::Rejected, why)),
-                None => Ok(Answer::Menu((self.answer)(session::answer(s)))),
+            Ok(s) => Some(match self.expected.as_mut().map(|probe| probe()).transpose() {
+                Err(fail) => Err(fail.into()),
+                Ok(expected) => match expected.and_then(|e| other_game(&e, &s)) {
+                    Some(why) => Err(Error::new(Code::Rejected, why)),
+                    None => Ok(Answer::Menu((self.answer)(session::answer(s)))),
+                },
             }),
             Err(fail) if fail.status == Status::NotReady => None,
             Err(fail) => Some(Err(fail.into())),

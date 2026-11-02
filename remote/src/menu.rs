@@ -18,10 +18,15 @@ group! {
     anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded, and at startup until the main menu shows) or game";
     /// The saves in the save games folder, newest first.
     anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), player and date as the save's header says them (null when it cannot be read), and missing_mods, the mods it was made with that the game did not start with (menu.load refuses it while there are any)";
-    /// Loads a save from the main menu and plays it as the country it was
-    /// saved as, as the continue box does. Only from the main menu's first
-    /// page (at startup, once menu says main_menu). Answers once the game is
-    /// ready, however long the save takes to load. Rejected, before anything
+    /// Loads a save and plays it as the country it was saved as: from the
+    /// main menu's first page (at startup, once menu says main_menu) as the
+    /// continue box does, and from a game as the game's own load does,
+    /// without the main menu between. A game left so is not saved, but an
+    /// ironman game is, first, unless the framework settings turn that off;
+    /// rejected, the game going on, when that save fails. Answers once the
+    /// game is ready, however long the save takes to load. Sent while neither
+    /// the main menu nor a game's frame shows (a game being started, a frame
+    /// the game is not ready in), it waits for one. Rejected, before anything
     /// happens, when the save was made with mods the game did not start
     /// with, any one of them, with no way past it: one such save crashed the
     /// game as it loaded, and which mods change the game cannot be told, so
@@ -34,8 +39,10 @@ group! {
         save: String,
     } -> Session, "the session of the loaded game, as session answers it, its player and date the save's";
     /// Starts a new game at the default start date as a country, as the
-    /// single player setup does. Only from the main menu's first page (at
-    /// startup, once menu says main_menu). Answers once the game is ready.
+    /// single player setup does: from the main menu's first page (at
+    /// startup, once menu says main_menu), or from a game, which is left
+    /// first as menu.return leaves it (an ironman game saved), when the
+    /// framework settings return without restarting. Answers once the game is ready.
     /// Rejected, before anything happens, for a country with no land at the
     /// start date, which the setup does not offer the player (the game would
     /// only be observed); and rejected when the game does not take the start
@@ -45,16 +52,28 @@ group! {
         country: CountryTag,
     } -> Session, "the session of the new game, as session answers it";
     /// Returns to the main menu, without the game's question or its summary,
-    /// as the player would. Whenever a game is going on, also while the
-    /// player only observes (when capabilities that need a game are
-    /// refused); not_in_game where none is. The game returns by starting
-    /// eu4.exe again, so the answer comes from this process at once; once
-    /// the game starts again, every request to this process, waiting or
-    /// sent, is answered not_ready (an advance waiting, main_menu). The new
-    /// process opens the pipe a few seconds later and answers once it
-    /// presents its first frame: ask menu again until its process differs
-    /// and its place is main_menu.
-    anywhere Return "return" {} -> Menu, "this process, and place ending";
+    /// as the player would; an ironman game is saved first, and rejected,
+    /// the game going on, when that save fails. Whenever a game is going on,
+    /// also while the player only observes (when capabilities that need a
+    /// game are refused); not_in_game where none is. With the framework
+    /// settings returning without restarting (the default), this process
+    /// answers once its main menu is up, place main_menu. Otherwise the game
+    /// returns by starting eu4.exe again, and the answer comes from this
+    /// process at once, place ending; once the game starts again, every
+    /// request to this process, waiting or sent, is answered not_ready (an
+    /// advance waiting, main_menu). The new process opens the pipe a few
+    /// seconds later and answers once it presents its first frame: ask menu
+    /// again until its process differs and its place is main_menu.
+    anywhere Return "return" {} -> Menu, "this process, and place main_menu once its main menu is up, or ending when the game starts again";
+}
+
+impl MenuRequest {
+    /// Whether it does one thing in the main menu and another in a game, so
+    /// that it runs only where it is known which: loading a save, starting a
+    /// game, returning to the main menu.
+    pub fn needs_place(&self) -> bool {
+        matches!(self, Self::Load { .. } | Self::Start { .. } | Self::Return {})
+    }
 }
 
 /// Where the game is.

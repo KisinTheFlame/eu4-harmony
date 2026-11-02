@@ -185,6 +185,15 @@ macro_rules! groups {
     };
 }
 
+impl Request {
+    /// Whether it runs only where it is known whether a game is going on:
+    /// what needs a game, and what does one thing in the main menu and
+    /// another in a game.
+    pub fn needs_place(&self) -> bool {
+        self.in_game() || matches!(self, Self::Menu(r) if r.needs_place())
+    }
+}
+
 groups! {
     /// The campaign being played.
     Session(session::SessionRequest, SessionAnswer),

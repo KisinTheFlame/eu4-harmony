@@ -28,6 +28,9 @@ pub const MUTED: Color = 0xffa0a8b0;
 pub const CONTROL: Color = 0xff34404c;
 pub const HOVER: Color = 0xff455768;
 pub const LIST: Color = 0xff232a31;
+/// A toggle's track while it is on.
+pub const ON: Color = 0xff3f7fbf;
+pub const ON_HOVER: Color = 0xff5592cc;
 
 /// What a frame draws, in order.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,8 +48,22 @@ pub trait Measure {
 
 pub enum Widget {
     Label(String),
-    Button { id: &'static str, label: String },
-    Dropdown { id: &'static str, options: Vec<String>, selected: usize },
+    Button {
+        id: &'static str,
+        label: String,
+    },
+    Dropdown {
+        id: &'static str,
+        options: Vec<String>,
+        selected: usize,
+    },
+    /// A toggle (GLOSSARY): its label on the left, the switch on the right;
+    /// a click anywhere on the row switches it.
+    Toggle {
+        id: &'static str,
+        label: String,
+        on: bool,
+    },
 }
 
 /// What the player did.
@@ -54,6 +71,7 @@ pub enum Widget {
 pub enum Action {
     Pressed(&'static str),
     Chose(&'static str, usize),
+    Switched(&'static str, bool),
     Closed,
 }
 
@@ -62,6 +80,10 @@ const PAD: f32 = 12.0;
 const ROW: f32 = 28.0;
 const TITLE: f32 = 30.0;
 const CLOSE: f32 = 22.0;
+const SWITCH_W: f32 = 40.0;
+const SWITCH_H: f32 = 20.0;
+const KNOB: f32 = 14.0;
+const LINE: f32 = TEXT_SIZE + 6.0;
 
 pub struct Window {
     pub title: String,
@@ -105,6 +127,13 @@ impl Window {
         })
     }
 
+    pub fn is_on(&self, id: &str) -> Option<bool> {
+        self.body.iter().find_map(|w| match w {
+            Widget::Toggle { id: i, on, .. } if *i == id => Some(*on),
+            _ => None,
+        })
+    }
+
     /// Gives the drop-down list `id` new options, with `selected` chosen.
     pub fn set_options(&mut self, id: &str, options: Vec<String>, selected: usize) {
         for w in &mut self.body {
@@ -121,6 +150,16 @@ impl Window {
         self.width - 2.0 * PAD
     }
 
+    /// How wide a toggle's label may be, left of its switch.
+    fn toggle_text(&self) -> f32 {
+        self.inner() - SWITCH_W - PAD
+    }
+
+    /// The switch at the right end of a toggle's row.
+    fn switch(row: Rect) -> Rect {
+        Rect { x: row.x + row.w - SWITCH_W, y: row.y + ((row.h - SWITCH_H) / 2.0).round(), w: SWITCH_W, h: SWITCH_H }
+    }
+
     fn layout(&self, measure: &dyn Measure) -> Vec<Slot> {
         let mut y = self.y + TITLE + PAD;
         let mut slots = Vec::new();
@@ -128,13 +167,19 @@ impl Window {
             match w {
                 Widget::Label(text) => {
                     let lines = measure.wrap(text, TEXT_SIZE, self.inner());
-                    let h = lines.len().max(1) as f32 * (TEXT_SIZE + 6.0);
+                    let h = lines.len().max(1) as f32 * LINE;
                     slots.push(Slot::Lines(lines, Rect { x: self.x + PAD, y, w: self.inner(), h }));
                     y += h + 4.0;
                 }
                 Widget::Button { .. } | Widget::Dropdown { .. } => {
                     slots.push(Slot::Control(i, Rect { x: self.x + PAD, y, w: self.inner(), h: ROW }));
                     y += ROW + 8.0;
+                }
+                Widget::Toggle { label, .. } => {
+                    let lines = measure.wrap(label, TEXT_SIZE, self.toggle_text());
+                    let h = (lines.len().max(1) as f32 * LINE).max(ROW);
+                    slots.push(Slot::Control(i, Rect { x: self.x + PAD, y, w: self.inner(), h }));
+                    y += h + 8.0;
                 }
             }
         }
@@ -229,6 +274,10 @@ impl Window {
         for slot in self.layout(measure) {
             if let Slot::Control(i, r) = slot {
                 if r.contains(x, y) {
+                    if let Widget::Toggle { id, on, .. } = &mut self.body[i] {
+                        *on = !*on;
+                        return Some(Action::Switched(id, *on));
+                    }
                     return match &self.body[i] {
                         Widget::Button { id, .. } => Some(Action::Pressed(id)),
                         Widget::Dropdown { options, selected, .. } => {
@@ -238,7 +287,7 @@ impl Window {
                             self.open = Some(i);
                             None
                         }
-                        Widget::Label(_) => None,
+                        Widget::Label(_) | Widget::Toggle { .. } => None,
                     };
                 }
             }
@@ -263,15 +312,34 @@ impl Window {
             match slot {
                 Slot::Lines(lines, r) => {
                     for (n, line) in lines.into_iter().enumerate() {
-                        out.push(Command::Text { x: r.x, y: r.y + n as f32 * (TEXT_SIZE + 6.0), text: line, size: TEXT_SIZE, color: TEXT });
+                        out.push(Command::Text { x: r.x, y: r.y + n as f32 * LINE, text: line, size: TEXT_SIZE, color: TEXT });
                     }
+                }
+                Slot::Control(i, r) if matches!(self.body[i], Widget::Toggle { .. }) => {
+                    let Widget::Toggle { label, on, .. } = &self.body[i] else { continue };
+                    let lines = measure.wrap(label, TEXT_SIZE, self.toggle_text());
+                    let top = r.y + ((r.h - lines.len().max(1) as f32 * LINE) / 2.0).round();
+                    for (n, line) in lines.into_iter().enumerate() {
+                        out.push(Command::Text { x: r.x, y: top + 2.0 + n as f32 * LINE, text: line, size: TEXT_SIZE, color: TEXT });
+                    }
+                    let track = Self::switch(r);
+                    let color = match (*on, hover(&r)) {
+                        (true, false) => ON,
+                        (true, true) => ON_HOVER,
+                        (false, false) => CONTROL,
+                        (false, true) => HOVER,
+                    };
+                    out.push(Command::Fill { rect: track, color });
+                    let inset = (SWITCH_H - KNOB) / 2.0;
+                    let knob_x = if *on { track.x + track.w - inset - KNOB } else { track.x + inset };
+                    out.push(Command::Fill { rect: Rect { x: knob_x, y: track.y + inset, w: KNOB, h: KNOB }, color: TEXT });
                 }
                 Slot::Control(i, r) => {
                     out.push(Command::Fill { rect: r, color: if hover(&r) { HOVER } else { CONTROL } });
                     let (label, centred) = match &self.body[i] {
                         Widget::Button { label, .. } => (label.clone(), true),
                         Widget::Dropdown { options, selected, .. } => (format!("{}  ▾", options.get(*selected).map_or("", String::as_str)), false),
-                        Widget::Label(_) => continue,
+                        Widget::Label(_) | Widget::Toggle { .. } => continue,
                     };
                     let x = if centred { r.x + (r.w - measure.width(&label, TEXT_SIZE)) / 2.0 } else { r.x + 8.0 };
                     out.push(Command::Text { x, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: label, size: TEXT_SIZE, color: TEXT });
@@ -396,6 +464,49 @@ mod tests {
         // The list now starts at F5; its first row picks it.
         let (fx, fy) = spot(&w, "F5");
         assert_eq!(w.mouse_down(&Mono, fx, fy), Some(Action::Chose("font", 5)));
+    }
+
+    #[test]
+    fn a_toggle_switches_where_its_row_is_clicked() {
+        let mut w = Window::new("Settings", vec![Widget::Toggle { id: "fast", label: "Fast".into(), on: true }], 300.0);
+        w.center(&Mono, 1000.0, 800.0);
+        assert_eq!(w.is_on("fast"), Some(true));
+        assert_eq!(w.is_on("none"), None);
+        // Its knob sits at the right end of the switch while it is on.
+        let knob = |w: &Window| {
+            w.draw(&Mono)
+                .into_iter()
+                .filter_map(|c| match c {
+                    Command::Fill { rect, color: TEXT } => Some(rect),
+                    _ => None,
+                })
+                .next_back()
+                .unwrap()
+        };
+        let on = knob(&w);
+        let (x, y) = spot(&w, "Fast");
+        assert_eq!(w.mouse_down(&Mono, x, y), Some(Action::Switched("fast", false)));
+        assert_eq!(w.is_on("fast"), Some(false));
+        assert!(knob(&w).x < on.x);
+        // The switch itself switches it back.
+        let (sx, sy) = (on.x + 2.0, on.y + 2.0);
+        assert_eq!(w.mouse_down(&Mono, sx, sy), Some(Action::Switched("fast", true)));
+    }
+
+    #[test]
+    fn a_toggle_with_a_long_label_wraps_it_beside_the_switch() {
+        let short = Window::new("T", vec![Widget::Toggle { id: "t", label: "x".into(), on: false }], 200.0);
+        let long = Window::new("T", vec![Widget::Toggle { id: "t", label: "x".repeat(100), on: false }], 200.0);
+        assert!(long.height(&Mono) > short.height(&Mono) + 3.0 * TEXT_SIZE);
+        let widest = long
+            .draw(&Mono)
+            .into_iter()
+            .filter_map(|c| match c {
+                Command::Text { text, .. } if text.starts_with('x') => Some(Mono.width(&text, TEXT_SIZE)),
+                _ => None,
+            })
+            .fold(0.0, f32::max);
+        assert!(widest <= 200.0 - 2.0 * PAD - SWITCH_W - PAD);
     }
 
     #[test]

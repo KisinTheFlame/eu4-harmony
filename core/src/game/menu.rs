@@ -4,8 +4,9 @@
 //!
 //! Each does what the game's own flows do, on the main thread:
 //!
-//! * a save is loaded into the single player setup and played as the
-//!   continue box does it;
+//! * a save is loaded from the main menu into the single player setup and
+//!   played as the continue box does it, and from a session by the game's
+//!   in-game load, as its load question does it ([`leave`]);
 //! * a new game starts as the `-start_tag` launch option makes the single
 //!   player setup start one: the country is put where that option leaves it,
 //!   and the setup, on being entered, selects it and starts;
@@ -14,7 +15,9 @@
 //!
 //! The main menu's part runs in the main menu's frame ([`main_menu_frame`]),
 //! where the game's own clicks run, not at the safe point that asked for it,
-//! which is inside the frame being presented.
+//! which is inside the frame being presented; an in-game load runs at the
+//! next game frame, after the map manager's ([`game_frame`]).
+pub mod leave;
 mod save_file;
 
 use super::{fail, game, Caller, GResult, Status, Tag};
@@ -31,7 +34,7 @@ use crate::{
     Result,
 };
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU8, AtomicUsize, Ordering},
         Mutex, OnceLock,
@@ -117,9 +120,11 @@ pub struct Save {
 /// What came of a load or start.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Launch {
-    /// It has not run yet, or the game is starting.
+    /// It ran, and the game is starting.
     #[default]
     Waiting,
+    /// It has not run yet: a game frame now is still the session it leaves.
+    Asked,
     /// It failed, and why.
     Failed(String),
 }
@@ -131,6 +136,11 @@ pub struct Expected {
     pub player: [u8; 3],
     pub date: Option<i32>,
 }
+
+/// What a save being loaded says it is, read once the game came: an in-game
+/// load from an ironman session writes the session's ironman exit save
+/// first, which may be the very save being loaded.
+pub type ExpectedProbe = Box<dyn FnMut() -> GResult<Expected> + Send>;
 
 /// How long the main menu's frames may go on, after a load or start ran in
 /// one, with none of the game's steps towards a game ([`Steps`]) changing,
@@ -146,6 +156,8 @@ enum Action {
     /// The save's PhysFS path, and its player's country.
     Load(String, Tag),
     Start([u8; 3]),
+    /// From a session: the save's name, without `.eu4`.
+    LoadInGame(String),
 }
 
 /// What the main menu's frame sees of a game being started from it; each
@@ -188,6 +200,10 @@ enum Stage {
         since: Instant,
         loads: usize,
     },
+    /// An in-game load ran, with this many saves begun to be read before.
+    LoadedInGame {
+        loads: usize,
+    },
     Failed(String),
 }
 
@@ -214,10 +230,16 @@ fn ask(action: Action) {
     });
 }
 
+/// Whether a load remote control asked for from a session has not run yet.
+fn loading_in_game() -> bool {
+    attempt(|a| matches!(a, Some(Attempt { action: Action::LoadInGame(_), stage: Stage::Asked, .. })))
+}
+
 /// Where the game is.
 pub fn place(_: Caller) -> GResult<Place> {
     let m = game()?;
     Ok(match at() {
+        At::Game if loading_in_game() => Place::Starting,
         At::Game => Place::Game,
         At::MainMenu(frontend) if !starting(m, frontend) => Place::MainMenu,
         At::MainMenu(_) | At::Elsewhere => Place::Starting,
@@ -354,16 +376,23 @@ fn first_page(m: &Memory) -> GResult<usize> {
     Ok(frontend)
 }
 
-/// Loads the save `name` from the main menu and plays it, at the main
-/// menu's next frame; [`launch`] says what came of it, and the save's
-/// header what the game should come to.
-pub fn load(_: Caller, name: &str) -> GResult<Expected> {
+/// Loads the save `name` and plays it: from the main menu at its next frame,
+/// from a session by an in-game load at the next game frame; [`launch`]
+/// says what came of it, and the save's header what the game should come to.
+pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
     let m = game()?;
-    // Where the game is first: in a game, any save is refused alike.
-    first_page(m)?;
+    // Where the game is first: a save is refused alike wherever it cannot be loaded.
+    let in_game = at() == At::Game;
+    if in_game {
+        if loading_in_game() {
+            return fail(Status::Unavailable, "a save is already being loaded");
+        }
+    } else {
+        first_page(m)?;
+    }
     let file = save_file(name)?;
-    let header =
-        save_file::read(&save_games()?.join(&file)).map_err(|e| super::Fail { status: Status::Rejected, message: format!("the save cannot be read: {e}") })?;
+    let path = save_games()?.join(&file);
+    let header = read_header(&path)?;
     let Some(letters) = header.player else {
         return fail(Status::Rejected, "the save has no country to play");
     };
@@ -378,16 +407,68 @@ pub fn load(_: Caller, name: &str) -> GResult<Expected> {
         );
     }
     let player = find(m, letters)?;
-    ask(Action::Load(format!("save games/{file}"), player));
-    Ok(Expected { player: letters, date: header.date })
+    ask(if in_game { Action::LoadInGame(save_name(&file).unwrap_or(&file).to_string()) } else { Action::Load(format!("save games/{file}"), player) });
+    Ok(Box::new(move || {
+        let header = read_header(&path)?;
+        match header.player {
+            Some(player) => Ok(Expected { player, date: header.date }),
+            None => fail(Status::Rejected, "the save the game loaded has no country to play"),
+        }
+    }))
+}
+
+fn read_header(path: &Path) -> GResult<save_file::Header> {
+    save_file::read(path).map_err(|e| super::Fail { status: Status::Rejected, message: format!("the save cannot be read: {e}") })
+}
+
+/// At a game frame, after the map manager's: runs the in-game load remote
+/// control asked for, if there is one; then the frame is over.
+pub(crate) fn game_frame(m: &Memory) -> bool {
+    let Some((number, name)) = attempt(|a| match a {
+        Some(Attempt { number, action: Action::LoadInGame(name), stage: Stage::Asked }) => Some((*number, name.clone())),
+        _ => None,
+    }) else {
+        return false;
+    };
+    let loads = crate::saves::loads();
+    let stage = match leave::load_in_game(m, &name) {
+        Ok(()) => {
+            log!("menu: loading {name} in the session's place started");
+            Stage::LoadedInGame { loads }
+        }
+        Err(why) => {
+            log!("menu: loading {name} in the session's place failed: {why}");
+            Stage::Failed(why)
+        }
+    };
+    attempt(|a| {
+        if let Some(a) = a.as_mut().filter(|a| a.number == number) {
+            a.stage = stage;
+        }
+    });
+    true
 }
 
 /// Starts a new game as the country `letters` from the main menu, at the
 /// main menu's next frame; [`launch`] says what came of it. Refused for a
 /// country with no land at the start date, which the single player setup
 /// does not offer: started so, the game is left to the player to observe.
+/// From a session, the session is left as a return to the main menu leaves
+/// it, and the game starts at the new main menu's first frame; the land is
+/// not looked at then, nor after an in-process return before the single
+/// player setup is entered, since the world has no history yet.
 pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
     let m = game()?;
+    if at() == At::Game {
+        if let Err(why) = leave::plan(leave::Destination::NewGame, false, leave::Rules::now()) {
+            return fail(Status::Unavailable, why);
+        }
+        find(m, letters)?;
+        ask_return(m)?;
+        log!("menu: a new game as {} from the session", String::from_utf8_lossy(&letters));
+        ask(Action::Start(letters));
+        return Ok(());
+    }
     first_page(m)?;
     let tag = find(m, letters)?;
     if super::world::owned_provinces(m, world_now(m)?, tag)? == 0 {
@@ -413,7 +494,9 @@ pub fn launch(_: Caller, number: u64) -> Launch {
         Some(Attempt { number: n, action, stage }) if *n == number => match stage {
             Stage::Failed(why) => Launch::Failed(why.clone()),
             Stage::Taken { loads, .. } if matches!(action, Action::Load(..)) && unread(*loads) => Launch::Failed(UNREAD.into()),
-            Stage::Asked | Stage::Taken { .. } => Launch::Waiting,
+            Stage::LoadedInGame { loads } if unread(*loads) => Launch::Failed(UNREAD.into()),
+            Stage::Asked => Launch::Asked,
+            Stage::Taken { .. } | Stage::LoadedInGame { .. } => Launch::Waiting,
         },
         _ => Launch::Failed("another load or start was asked for".into()),
     })
@@ -439,6 +522,12 @@ pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
         Follow(Action, Steps, Instant, usize),
     }
     let Some((number, now)) = attempt(|a| match a {
+        // Asked for in a session that ended before its next game frame.
+        Some(Attempt { action: Action::LoadInGame(name), stage: stage @ Stage::Asked, .. }) => {
+            log!("menu: loading {name} in the session's place failed: the session ended first");
+            *stage = Stage::Failed("the session ended before the load could run".into());
+            None
+        }
         Some(Attempt { number, action, stage: Stage::Asked }) => Some((*number, Now::Run(action.clone()))),
         Some(Attempt { number, action, stage: Stage::Taken { seen, since, loads } }) => Some((*number, Now::Follow(action.clone(), *seen, *since, *loads))),
         _ => None,
@@ -468,6 +557,7 @@ fn run(m: &Memory, frontend: usize, action: &Action) -> Stage {
         let result = match action {
             Action::Load(path, player) => load_now(m, frontend, path, *player),
             Action::Start(letters) => start_now(m, frontend, *letters),
+            Action::LoadInGame(_) => Err("an in-game load runs only in a session".to_string()),
         };
         match result {
             Ok(()) => steps(m, frontend),
@@ -566,6 +656,7 @@ fn describe(action: &Action) -> String {
     match action {
         Action::Load(path, _) => format!("loading {path}"),
         Action::Start(letters) => format!("a new game as {}", String::from_utf8_lossy(letters)),
+        Action::LoadInGame(name) => format!("loading {name} in the session's place"),
     }
 }
 
@@ -686,27 +777,89 @@ fn find(m: &Memory, letters: [u8; 3]) -> GResult<Tag> {
     fail(Status::NotFound, format!("no country {}", String::from_utf8_lossy(&letters)))
 }
 
-/// Returns to the main menu, as the game's own question does when the
-/// player confirms it: the game's next frame starts `eu4.exe` again. It
-/// needs the game's map manager, not a game with a player: it also works
-/// while the player only observes, say after their country was annexed.
-pub fn return_to_main_menu(_: Caller) -> GResult<()> {
-    let m = game()?;
+/// What came of a return to the main menu so far.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Returned {
+    Waiting,
+    /// The session stays, and why: its ironman exit save failed, say.
+    Failed(String),
+    /// The main menu is up, in this process.
+    Done,
+}
+
+/// The returns to the main menu.
+struct Returns {
+    /// How many remote control asked for.
+    asked: u64,
+    /// What came of the last one the map manager's frame acted on, whoever
+    /// asked for it: how many remote control had asked for by then, and its
+    /// outcome.
+    last: Option<(u64, std::result::Result<(), String>)>,
+}
+
+static RETURNS: Mutex<Returns> = Mutex::new(Returns { asked: 0, last: None });
+
+/// The map manager's frame acted on a return ([`leave`]): an in-process
+/// return was set off, or the session stays, and why.
+pub(crate) fn return_done(outcome: std::result::Result<(), String>) {
+    if let Err(why) = &outcome {
+        // A new game asked for from the session does not come either.
+        attempt(|a| {
+            if let Some(a @ Attempt { action: Action::Start(_), stage: Stage::Asked, .. }) = a {
+                a.stage = Stage::Failed(why.clone());
+            }
+        });
+    }
+    let mut returns = RETURNS.lock().unwrap_or_else(|e| e.into_inner());
+    returns.last = Some((returns.asked, outcome));
+}
+
+/// What came of the return remote control asked for as `number`.
+pub fn returned(_: Caller, number: u64) -> Returned {
+    let outcome = RETURNS.lock().unwrap_or_else(|e| e.into_inner()).last.clone();
+    match outcome {
+        Some((n, Err(why))) if n == number => Returned::Failed(why),
+        Some((n, Ok(()))) if n == number && matches!(place(Caller::Remote), Ok(Place::MainMenu)) => Returned::Done,
+        _ => Returned::Waiting,
+    }
+}
+
+/// Sets the flag the game's own question sets when the player confirms a
+/// return: the map manager acts on it at its next frame ([`leave`]).
+fn ask_return(m: &Memory) -> GResult<()> {
     let world = m.ptr(m.at(globals::WORLD))?;
     let manager = if world == 0 { 0 } else { m.ptr(world + world::MAP_MANAGER)? };
     if manager == 0 || m.ptr(manager)? != m.at(campaign_classes::MAP_MANAGER) {
         return fail(Status::NotInGame, "no game is going on");
     }
     m.write(manager + map_manager::RETURN, &[1])?;
-    log!("menu: returning to the main menu");
     Ok(())
+}
+
+/// Returns to the main menu, as the game's own question does when the
+/// player confirms it. With "return without restarting" on it is an
+/// in-process return, whose number [`returned`] takes; otherwise the game's
+/// next frame starts `eu4.exe` again (None). It needs the game's map
+/// manager, not a game with a player: it also works while the player only
+/// observes, say after their country was annexed.
+pub fn return_to_main_menu(_: Caller) -> GResult<Option<u64>> {
+    let m = game()?;
+    ask_return(m)?;
+    log!("menu: returning to the main menu");
+    if !leave::Rules::now().return_without_restart {
+        return Ok(None);
+    }
+    let mut returns = RETURNS.lock().unwrap_or_else(|e| e.into_inner());
+    returns.asked += 1;
+    Ok(Some(returns.asked))
 }
 
 /// The code the main menu capabilities rely on; the fields they use are in
 /// `objects` (`gui::main_menu`, `setup`, `application`, `campaign::world`,
 /// `campaign::map_manager`).
 pub fn points() -> Vec<Point> {
-    vec![
+    let mut points = leave::points();
+    points.extend([
         Point::keep(SHOW_PAGE, "48 89 5c 24 10 48 89 74 24 20 55 57 41 54 41 56 41 57 48 8d 6c 24 e0 48", "main menu show page"),
         Point::keep(CHOOSE_SAVE, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d9 48 81 ec", "single player setup choose save"),
         Point::keep(CONTINUE, "48 89 5c 24 08 55 56 57 41 56 41 57 48 8d 6c 24 c9 48 81 ec 00 01 00 00", "single player setup continue"),
@@ -718,7 +871,8 @@ pub fn points() -> Vec<Point> {
             "45 33 c0 48 8d 95 f8 00 00 00 48 8d 4e d8 e8 0a e3 00 00 45 33 c0 48 8d 15 d0 98 b2 00 48 8b cf e8 88 68 f8 fe 48 8d 4e d8 e8 ef 19 01 00",
             "start tag select and start",
         ),
-    ]
+    ]);
+    points
 }
 
 #[cfg(test)]

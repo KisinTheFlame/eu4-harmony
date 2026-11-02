@@ -27,7 +27,7 @@ pub type EntryFn = unsafe extern "C" fn(host: *const HostApi, out: *mut Extensio
 
 // Status codes.
 pub const OK: i32 = 0;
-/// No campaign is running, or one is being loaded.
+/// No session is running, or one is being loaded.
 pub const NOT_IN_GAME: i32 = 1;
 /// The game state cannot be read right now (for example visibility is not yet
 /// refreshed for the new day). Retry on a later frame.
@@ -61,7 +61,7 @@ pub type CountryId = u64;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Session {
-    /// Increases whenever a different campaign state is loaded or started.
+    /// Increases whenever a session begins.
     pub session: u64,
     /// Game date as a monotonic number; the same value throughout one day.
     pub date: i32,
@@ -457,9 +457,10 @@ pub const DIPLOMACY_DECLARED: u32 = 3;
 pub struct ExtensionVTable {
     pub size: usize,
     pub user: *mut c_void,
-    /// A campaign was loaded or started; previous game state no longer applies.
+    /// A session began: a save was loaded or a new game started; previous
+    /// game state no longer applies.
     pub on_session: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi) -> i32>,
-    /// Every UI frame while a campaign runs, paused or not.
+    /// Every UI frame while a session runs, paused or not.
     pub on_frame: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi) -> i32>,
     /// Once per game day, after the day's update and visibility refresh.
     pub on_day: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi, date: i32) -> i32>,
@@ -473,7 +474,17 @@ pub struct ExtensionVTable {
     pub on_army_defeated: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi, army: u64) -> i32>,
     /// Another extension took over the map coloring.
     pub on_map_lost: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi) -> i32>,
+    /// The session is being left, for `reason` (`SESSION_ENDED_*`). Its state
+    /// is still there to read, and extension save data set now goes into the
+    /// ironman exit save when one follows.
+    pub on_session_ended: Option<unsafe extern "C" fn(user: *mut c_void, game: *const GameApi, reason: u32) -> i32>,
 }
+
+/// Why a session ended (`ExtensionVTable::on_session_ended`): the game
+/// returns to the main menu, loads a save in its place, or starts a new game.
+pub const SESSION_ENDED_RETURN: u32 = 0;
+pub const SESSION_ENDED_LOAD: u32 = 1;
+pub const SESSION_ENDED_NEW_GAME: u32 = 2;
 
 // The layout extensions are built against, checked as the crate compiles: a
 // field may only be appended, never moved or resized.
@@ -546,7 +557,7 @@ slots!(GameApi:
     questions, question_answer, offers, offer_answer,
     war_goals, declare_war, offer_peace, propose_alliance, diplomacy_answer, allies_called,
 );
-slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
+slots!(ExtensionVTable: size, user, on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost, on_session_ended);
 
 #[cfg(test)]
 mod tests {
