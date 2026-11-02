@@ -211,7 +211,7 @@ The program has three layers: third-party libraries, the Clausewitz engine and t
 - When the day has run past its budget, `0x769ea0` runs a whole application frame, `0x14c25a0(app, 0)`. The budget is the float at `0x245b070` times a factor by speed, at `0x1c33e18`.
 - That frame includes input, the in-game frame, Present and possibly an idler switch.
 - While it runs, `world+0x1e18` and the random-forbidden flag are set. The session does not execute commands inside it ("Update within execution. Skipping.").
-- It is on by default (`[0x1fc23d8]` = 1, toggled by a console command `0xe84320`). This is why the map manager's frame can run inside `daily_tick`, as [regional-combat/native-scheduler-findings.txt](regional-combat/native-scheduler-findings.txt) observed.
+- It is on by default (`[0x1fc23d8]` = 1, toggled by a console command `0xe84320`). This is why the map manager's frame can run inside `daily_tick`, as [time.md](time.md) records.
 
 ## Threads
 
