@@ -479,7 +479,7 @@ The main menu's frame draws the same way, without units and overlays. The mouse 
 
 - **Map modes.** There are 85 (0–0x54).
   - A change goes through the idler's `+0xc8` (`0x821ff0`) to `0x10a8c30`.
-  - That function fills a two-layer province color texture: the colors (`0x12f0b40`, through `0x12fd9b0`) and the stripes over them (`0x12fdcb0`) ([regional-combat/native-range-preview-findings.txt](regional-combat/native-range-preview-findings.txt)).
+  - That function fills a two-layer province color texture: the colors (`0x12f0b40`, through `0x12fd9b0`) and the stripes over them (`0x12fdcb0`) ([map-modes.md](map-modes.md)).
 - **Picking** (`0x833360`): the screen point becomes a map position (`0x10a3e50`), and the province ID grid gives the province. The camera is in [camera.md](camera.md).
 
 **The GUI** (`clausewitzlib\graphics`).
