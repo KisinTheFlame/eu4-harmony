@@ -17,7 +17,11 @@
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
 //! font, inside the outline the font's own glyphs have when the player keeps
 //! it (`outline`); the rest in the heading font or the body text font, as
-//! their names say ([`kind`]). Pages live in video memory,
+//! their names say ([`kind`]). Light text and dark text get glyphs of their
+//! own (`tone`): the fonts that load one page may draw in either, as
+//! `vic_18` in white and `vic_18_black` in black do, so a page holds a
+//! character's glyph in each tone its fonts draw in ([`shown`]). Pages live
+//! in video memory,
 //! like the game's own textures, which only Direct3D 9Ex keeps across a
 //! device reset; on a plain Direct3D 9 device nothing is filled. They are
 //! written through small system-memory textures: pages made dynamic and
@@ -30,6 +34,7 @@ use super::game_text;
 use super::glyphs::{self, Glyph};
 use super::outline::Outline;
 use super::system_font::{Face, SystemFonts};
+use super::tone::Tone;
 use crate::game_string;
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
@@ -101,7 +106,9 @@ struct Fill {
     base: f32,
     /// How many pixels of the page a GUI unit takes (see [`density`]).
     density: f32,
-    drawn: HashMap<u32, Option<Glyph>>,
+    drawn: HashMap<(u32, Tone), Option<Glyph>>,
+    /// The tones its fonts have drawn in so far, for the log.
+    tones: Vec<Tone>,
     full: bool,
 }
 
@@ -112,8 +119,8 @@ unsafe impl Send for Fill {}
 static SYSTEM: LazyLock<Option<SystemFonts>> = LazyLock::new(|| SystemFonts::new().ok());
 /// By page wrapper.
 static PAGES: LazyLock<Mutex<HashMap<usize, Fill>>> = LazyLock::new(Default::default);
-/// The page wrapper each filled font draws from, by font.
-static OWNERS: LazyLock<Mutex<HashMap<usize, usize>>> = LazyLock::new(Default::default);
+/// The page wrapper each filled font draws from, and in which tone, by font.
+static OWNERS: LazyLock<Mutex<HashMap<usize, (usize, Tone)>>> = LazyLock::new(Default::default);
 
 thread_local! {
     /// The font whose page is loading on this thread, and the page once the
@@ -297,10 +304,11 @@ fn record(bitmap: &super::system_font::Bitmap, (x, y): (u32, u32), base: f32) ->
     }
 }
 
-fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
+fn draw(fill: &mut Fill, scalar: u32, tone: Tone) -> Option<Glyph> {
     let fonts = SYSTEM.as_ref()?;
     let face = fonts.face_for(&fill.face, scalar)?;
-    let bitmap = fonts.rasterize(&face, scalar, fill.em).ok()?;
+    let mut bitmap = fonts.rasterize(&face, scalar, fill.em).ok()?;
+    tone.apply(&mut bitmap.alpha);
     let (bitmap, pixels) = match &fill.outline {
         Some(outline) if bitmap.width > 0 && bitmap.height > 0 => outline.around(&bitmap, fill.ink),
         _ => {
@@ -328,12 +336,12 @@ fn draw(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
     Some(record(&bitmap, (x, y), fill.base))
 }
 
-fn glyph_of(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
-    if let Some(found) = fill.drawn.get(&scalar) {
+fn glyph_of(fill: &mut Fill, scalar: u32, tone: Tone) -> Option<Glyph> {
+    if let Some(found) = fill.drawn.get(&(scalar, tone)) {
         return *found;
     }
-    let glyph = costs::GLYPHS.time(|| draw(fill, scalar));
-    fill.drawn.insert(scalar, glyph);
+    let glyph = costs::GLYPHS.time(|| draw(fill, scalar, tone));
+    fill.drawn.insert((scalar, tone), glyph);
     glyph
 }
 
@@ -341,9 +349,9 @@ fn glyph_of(fill: &mut Fill, scalar: u32) -> Option<Glyph> {
 /// hold: drawn into its page the first time. Null when the font is not filled
 /// or no system font has the character.
 pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
-    let Some(wrapper) = lock(&OWNERS).get(&font).copied() else { return std::ptr::null() };
+    let Some((wrapper, tone)) = lock(&OWNERS).get(&font).copied() else { return std::ptr::null() };
     let glyph = match lock(&PAGES).get_mut(&wrapper) {
-        Some(fill) => glyph_of(fill, scalar),
+        Some(fill) => glyph_of(fill, scalar, tone),
         None => None,
     };
     match glyph {
@@ -356,6 +364,12 @@ pub fn glyph(font: usize, scalar: u32) -> *const Glyph {
         }
         None => std::ptr::null(),
     }
+}
+
+/// The device a filled font's page lives on; None for a font not filled.
+pub fn device_of(font: usize) -> Option<IDirect3DDevice9> {
+    let (wrapper, _) = lock(&OWNERS).get(&font).copied()?;
+    lock(&PAGES).get(&wrapper).map(|fill| fill.device.clone())
 }
 
 /// The em size and baseline that fit `face` to a line of `line` pixels.
@@ -511,6 +525,18 @@ fn page_side(line: i32, growth: f32, max: (u32, u32)) -> u32 {
     ((side as f32 * growth / 256.0).ceil() as u32 * 256).min(max.0).min(max.1)
 }
 
+/// The color, 0xRRGGBB, text of a font of `kind` shows in, drawn from a page
+/// whose ink is `ink` with the font's `color` (0xAARRGGBB, 0 when its `.gfx`
+/// files give none): the page's ink tinted with it, as the game draws
+/// interface text. The map draws its names in the page's own colors.
+fn shown(ink: u32, color: u32, kind: Kind) -> u32 {
+    if kind == Kind::Map || color == 0 {
+        return ink & 0x00ff_ffff;
+    }
+    let channel = |shift: u32| ((ink >> shift & 0xff) * (color >> shift & 0xff) / 255) << shift;
+    channel(16) | channel(8) | channel(0)
+}
+
 /// The system font and weight the player chose for fonts of `kind`.
 fn chosen_face(kind: Kind) -> Face {
     let current = settings::current();
@@ -575,6 +601,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
         base,
         density,
         drawn: HashMap::new(),
+        tones: Vec::new(),
         full: false,
     })
 }
@@ -582,13 +609,13 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
 /// The font's glyphs for Windows-1252 characters become system glyphs,
 /// written into its own records (or records allocated as the game allocates
 /// them, which it frees with the font).
-fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill) -> crate::Result<()> {
+fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill, tone: Tone) -> crate::Result<()> {
     for byte in 0x20u8..=0xff {
         let (c, _) = game_text::char_at(&[byte]);
         if c.is_control() {
             continue;
         }
-        let Some(glyph) = glyph_of(fill, c as u32) else { continue };
+        let Some(glyph) = glyph_of(fill, c as u32, tone) else { continue };
         let slot = font + OWN_GLYPHS + byte as usize * 8;
         let mut record = m.ptr(slot)?;
         if record == 0 {
@@ -691,6 +718,12 @@ pub fn loaded(font: usize) -> bool {
             }
         }
         let fill = pages.get_mut(&wrapper).expect("just made");
+        let shown = shown(fill.ink, m.u32(font + objects::font::COLOR)?, kind);
+        let tone = Tone::of(shown);
+        if !fill.tones.contains(&tone) {
+            fill.tones.push(tone);
+            log!("fill: font {name:?} ({kind:?}) is the first to draw {tone:?} text, in {shown:06x}, from the page in {} at {:.1} px", fill.face, fill.em);
+        }
         unsafe {
             *((font + objects::font::PAGE_SIZE) as *mut u32) = fill.side;
             *((font + objects::font::PAGE_SIZE + 4) as *mut u32) = fill.side;
@@ -698,8 +731,8 @@ pub fn loaded(font: usize) -> bool {
         if fill.density != 1.0 {
             scale_font(&m, font, fill.density)?;
         }
-        lock(&OWNERS).insert(font, wrapper);
-        replace_own_glyphs(&m, font, fill)?;
+        lock(&OWNERS).insert(font, (wrapper, tone));
+        replace_own_glyphs(&m, font, fill, tone)?;
         Ok(true)
     })();
     result.unwrap_or_else(|e| {
@@ -712,7 +745,7 @@ extern "C" fn destroy_before(frame: *mut HookFrame) {
     crate::guarded("font page release", || {
         let wrapper = unsafe { (*frame).args[0] };
         if lock(&PAGES).remove(&wrapper).is_some() {
-            lock(&OWNERS).retain(|_, w| *w != wrapper);
+            lock(&OWNERS).retain(|_, (w, _)| *w != wrapper);
         }
     })
 }
@@ -734,8 +767,9 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dense_line, draws_the_map, kind, page_side, record, Kind, Loading, Own, BODY, HEADINGS};
+    use super::{dense_line, draws_the_map, kind, page_side, record, shown, Kind, Loading, Own, BODY, HEADINGS};
     use crate::unicode::system_font::Bitmap;
+    use crate::unicode::tone::Tone;
 
     #[test]
     fn a_font_draws_what_its_name_says() {
@@ -753,6 +787,24 @@ mod tests {
         assert_eq!(kind(b"my_mod_font", 20), Kind::Heading);
         assert_eq!(kind(b"", 14), Kind::Body);
         assert!(HEADINGS.iter().all(|name| !BODY.contains(name)));
+    }
+
+    #[test]
+    fn text_shows_in_its_page_tinted_with_its_font() {
+        // `vic_18` and `vic_18_black` on one white page.
+        assert_eq!(shown(0xffffff, 0xffffffff, Kind::Body), 0xffffff);
+        assert_eq!(shown(0xffffff, 0xff000000, Kind::Body), 0x000000);
+        assert_eq!(shown(0xffffff, 0xffffbb00, Kind::Body), 0xffbb00);
+        assert_eq!(Tone::of(shown(0xffffff, 0xffffffff, Kind::Body)), Tone::Light);
+        assert_eq!(Tone::of(shown(0xffffff, 0xff000000, Kind::Heading)), Tone::Dark);
+        // A grey page, each channel multiplied by the font's.
+        assert_eq!(shown(0x808080, 0xff80ff00, Kind::Body), 0x408000);
+        // A font whose files give no color keeps its page's.
+        assert_eq!(shown(0xffffff, 0, Kind::Body), 0xffffff);
+        // The map draws its page's colors: the Chinese language mod's ink, not
+        // `tahoma_60`'s `0xff333333`.
+        assert_eq!(shown(0x100c10, 0xff333333, Kind::Map), 0x100c10);
+        assert_eq!(Tone::of(shown(0x100c10, 0xff333333, Kind::Map)), Tone::Dark);
     }
 
     #[test]
