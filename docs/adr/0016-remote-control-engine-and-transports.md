@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0026
+---
+
 # Remote control separates the engine from transports; the first transport is a named pipe carrying JSON lines
+
+The command line client takes its capabilities from the capability catalogue (ADR 0026); `eu4-harmony game describe` stays, and `wiki` replaces `game help`. The engine and transports still hold.
 
 The remote control engine takes typed requests and gives typed responses: Rust values, one variant per capability, grouped by area, with no bytes or text format in them. It queues them, runs them at safe points, keeps the numbered event buffer and holds back the response to a request that waits, such as advancing time. It has no idea of connections.
 
