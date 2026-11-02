@@ -61,9 +61,10 @@ group! {
         /// The country the war goal is about.
         target: Option<CountryTag>,
         /// The allies to call to arms: `all`, the default, for each ally the
-        /// declare war window would let the player call; `none`; or the
-        /// tags of those to call, separated by commas, such as `DUL,CND`,
-        /// each one the window must let the player call.
+        /// declare war window would let the player call; `none`; or a list
+        /// of the tags of those to call, such as `["DUL", "CND"]` (on the
+        /// command line `DUL,CND`), each one the window must let the player
+        /// call.
         call_allies: Option<CallAllies>,
     } -> Outcome, "answer: declared (with war, its name) or pending; called: the allies called to arms; passed_over: under call_allies all, every ally not called, each a country and the reasons, one a line";
     /// Offers a country the player is at war with a white peace, a peace
@@ -181,15 +182,31 @@ impl std::fmt::Display for CallAllies {
     }
 }
 
+/// `"all"`, `"none"`, or a list of tags.
 impl Serialize for CallAllies {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(self)
+        match self {
+            Self::All => serializer.serialize_str("all"),
+            Self::None => serializer.serialize_str("none"),
+            Self::Only(tags) => tags.serialize(serializer),
+        }
     }
 }
 
 impl<'de> Deserialize<'de> for CallAllies {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::parse(&String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Form {
+            Word(String),
+            Tags(Vec<CountryTag>),
+        }
+        match Form::deserialize(deserializer)? {
+            Form::Word(word) if word.trim() == "all" => Ok(Self::All),
+            Form::Word(word) if word.trim() == "none" => Ok(Self::None),
+            Form::Word(word) => Err(serde::de::Error::custom(format!("call_allies is all, none, or a list of country tags; {word:?} is none of them"))),
+            Form::Tags(tags) => Ok(Self::Only(tags)),
+        }
     }
 }
 
@@ -228,7 +245,7 @@ mod tests {
             request,
             Request::Diplomacy(DiplomacyRequest::DeclareWar { country: CountryTag(*b"BYZ"), casus_belli: "none".into(), war_goal: None, province: None, target: None, call_allies: None })
         );
-        let request = request_from_json(r#"{"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": "DUL,CND"}"#).unwrap();
+        let request = request_from_json(r#"{"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": ["DUL", "CND"]}"#).unwrap();
         assert!(matches!(request, Request::Diplomacy(DiplomacyRequest::DeclareWar { call_allies: Some(ref c), .. }) if *c == CallAllies::Only(vec![CountryTag(*b"DUL"), CountryTag(*b"CND")])));
     }
 }

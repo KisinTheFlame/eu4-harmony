@@ -29,11 +29,11 @@ fn descriptions_state_the_limits_kept() {
         prose(capability.args.iter().find(|a| a.name == arg).unwrap_or_else(|| panic!("{name} has no {arg}")).about)
     };
     let speeds = format!("{} (slowest) to {} (fastest)", time::SPEEDS.start(), time::SPEEDS.end());
-    for (name, arg) in [("time.speed", "speed"), ("time.advance", "speed")] {
+    for (name, arg) in [("time.set_speed", "speed"), ("time.advance", "speed")] {
         assert!(about(name, arg).contains(&speeds), "{name} {arg}");
     }
-    let time = all.iter().find(|c| c.name() == "time").unwrap();
-    assert!(time.result.contains(&speeds), "time");
+    let time = all.iter().find(|c| c.name() == "time.get").unwrap();
+    assert!(time.result.contains(&speeds), "time.get");
     assert!(about("time.advance", "days").contains(&format!("from 1 to {}", time::MOST_DAYS)));
     assert!(about("events", "wait_ms").contains(&format!("at most {}", events::LONGEST_WAIT)));
     assert!(about("screenshot", "scale").contains(&format!("{} to {}", screenshot::SCALES.start(), screenshot::SCALES.end())));
@@ -68,14 +68,14 @@ fn every_capability_is_described_and_can_be_called_from_its_description() {
 
 #[test]
 fn a_request_is_one_flat_object() {
-    let wire = json!({"capability": "army.move", "army": "4294967377", "goal": 151});
+    let wire = json!({"capability": "army.move", "army": "4294967377", "province": 151});
     let decoded = request(wire.clone()).unwrap();
-    assert_eq!(decoded, Request::Army(armies::ArmyRequest::Move { army: ArmyId(4294967377), goal: ProvinceId(151) }));
+    assert_eq!(decoded, Request::Army(armies::ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) }));
     assert_eq!(serde_json::to_value(&decoded).unwrap(), wire);
 
-    let session = request(json!({"capability": "session"})).unwrap();
+    let session = request(json!({"capability": "session.get"})).unwrap();
     assert_eq!(session, Request::Session(session::SessionRequest::Get {}));
-    assert_eq!(serde_json::to_value(&session).unwrap(), json!({"capability": "session"}));
+    assert_eq!(serde_json::to_value(&session).unwrap(), json!({"capability": "session.get"}));
 
     let events = request(json!({"capability": "events", "since": 5})).unwrap();
     assert_eq!(events, Request::Events(events::EventsRequest::Read { since: Some(5), wait_ms: None, process: None }));
@@ -93,12 +93,12 @@ fn a_request_that_cannot_be_read_says_why() {
     bad(json!({"capability": 5}), "not a text");
     bad(json!({"capability": "army.fly"}), "no capability army.fly");
     bad(json!({"capability": "army"}), "no capability army");
-    bad(json!({"capability": "army.move", "army": "1"}), "missing field `goal`");
-    bad(json!({"capability": "army.move", "army": "1", "goal": 2, "speed": 3}), "unknown field `speed`");
+    bad(json!({"capability": "army.move", "army": "1"}), "missing field `province`");
+    bad(json!({"capability": "army.move", "army": "1", "province": 2, "speed": 3}), "unknown field `speed`");
     bad(json!({"capability": "army.get", "army": 4294967377u64}), "an army ID as a decimal string");
     bad(json!({"capability": "army.get", "army": "-1"}), "not an army ID");
     bad(json!({"capability": "country.hostile", "country": "FRANCE", "other": "ENG"}), "not a country tag");
-    bad(json!({"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": "WAL;TUR"}), "\"WAL;TUR\" is not a tag");
+    bad(json!({"capability": "diplomacy.declare_war", "country": "BYZ", "casus_belli": "none", "call_allies": "WAL;TUR"}), "\"WAL;TUR\" is none of them");
     assert_eq!(request_from_json("not json").unwrap_err().code, Code::BadRequest);
 }
 
@@ -112,6 +112,32 @@ fn allies_to_call_are_read_and_written_back() {
     assert_eq!(named, CallAllies::Only(vec![CountryTag(*b"WAL"), CountryTag(*b"TUR")]));
     assert_eq!(named.to_string(), "WAL,TUR");
     assert!(CallAllies::parse("").is_err() && CallAllies::parse("WAL,").is_err());
+    // In JSON, a word or a list of tags.
+    assert_eq!(serde_json::to_value(&named).unwrap(), json!(["WAL", "TUR"]));
+    assert_eq!(serde_json::to_value(CallAllies::All).unwrap(), json!("all"));
+    assert_eq!(serde_json::from_value::<CallAllies>(json!(["WAL", "TUR"])).unwrap(), named);
+    assert_eq!(serde_json::from_value::<CallAllies>(json!("none")).unwrap(), CallAllies::None);
+}
+
+/// The events described are those there are, by the names JSON gives them.
+#[test]
+fn every_event_is_described() {
+    use events::{Event, SessionEnd, EVENTS};
+    let date = Date::from_ymd(1444, 11, 11).unwrap();
+    let all = [
+        Event::Session { session: 1 },
+        Event::SessionEnded { reason: SessionEnd::Return },
+        Event::Day { date },
+        Event::ArmyOrdered { army: ArmyId(1) },
+        Event::ArmyDefeated { army: ArmyId(1) },
+    ];
+    // An event is flattened beside its own number: none of its fields may
+    // be named so.
+    for event in &all {
+        assert!(serde_json::to_value(event).unwrap().get("number").is_none(), "{event:?} has a field named number");
+    }
+    let names: Vec<Value> = all.iter().map(|e| serde_json::to_value(e).unwrap()["event"].clone()).collect();
+    assert_eq!(names, EVENTS.iter().map(|(name, _)| json!(name)).collect::<Vec<_>>());
 }
 
 #[test]
@@ -168,6 +194,7 @@ fn descriptions_in_json() {
             "capability": "country.hostile",
             "about": "Whether two countries are at war with each other, or either is a rebel faction.",
             "in_game": true,
+            "extensions": true,
             "args": [
                 {"name": "country", "kind": "country", "optional": false, "about": "One country."},
                 {"name": "other", "kind": "country", "optional": false, "about": "The other."},

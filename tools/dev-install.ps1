@@ -5,8 +5,8 @@ removes them.
 
 Mirrors the player install instructions, with the files player-files.ps1
 lists: version.dll in the game root, the core and eu4-harmony.exe under
-eu4-harmony\. A foreign version.dll already in the root (a CJK font plugin's
-loader, say) is moved to eu4-harmony\backup\version.dll; the proxy never
+eu4-harmony\. A foreign version.dll already in the root is moved to
+eu4-harmony\backup\version.dll; the proxy never
 loads it (ADR 0011), and uninstalling puts it back. The game folder is found
 by game-dir.ps1 unless -GameDir names it.
 #>

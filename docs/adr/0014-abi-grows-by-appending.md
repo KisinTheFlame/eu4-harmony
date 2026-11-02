@@ -1,4 +1,10 @@
+---
+status: superseded by ADR-0024
+---
+
 # The ABI grows by appending; its version changes only when something breaks
+
+Superseded with the C ABI, which ADR 0024 removes. Its versioning rule lives on for the capability catalogue (ADR 0026): additions change no version, a breaking change raises `api_version`.
 
 Every table between the core and an extension starts with its own `size`, and a field is only ever appended; the layout of every table and struct is checked as the `abi` crate compiles, so moving or resizing a field stops the build. Adding a capability, a callback or a field to a struct changes no version: each side uses only what the other's table has.
 

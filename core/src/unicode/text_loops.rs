@@ -21,7 +21,7 @@
 //!
 //! A glyph comes from, in order: the font's own table for a character
 //! Windows-1252 has; the glyph table (`glyphs`) by code point, where fonts
-//! made for the CJK plugin also keep `“ ” … —`; a system font (`fill`); the
+//! of older Chinese language mods also keep `“ ” … —`; a system font (`fill`); the
 //! font's own `?`. Null only where the font's own table is and nothing else
 //! has the character (control characters), as the loops expect.
 use super::glyphs::{self, Glyph};

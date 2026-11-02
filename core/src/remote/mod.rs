@@ -588,6 +588,18 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     frame.heard().into_iter().map(event).collect()
 }
 
+/// The session is being left, for `reason` (`abi::SESSION_ENDED_*`), as
+/// extensions hear it.
+pub(crate) fn session_ended(reason: u32) {
+    use eu4_harmony_remote::events::{Event, SessionEnd};
+    let reason = match reason {
+        eu4_harmony_abi::SESSION_ENDED_LOAD => SessionEnd::Load,
+        eu4_harmony_abi::SESSION_ENDED_NEW_GAME => SessionEnd::NewGame,
+        _ => SessionEnd::Return,
+    };
+    ENGINE.record([Event::SessionEnded { reason }]);
+}
+
 /// At a game's safe frame: keeps what extensions just heard, then runs.
 pub(crate) fn run_in_game(frame: &game::Frame) {
     ENGINE.record(happened(frame));

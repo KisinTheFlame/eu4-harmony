@@ -856,6 +856,7 @@ pub fn frame(state: &game::Frame) {
 /// main thread, before anything of it is saved or taken down.
 pub fn session_ended(reason: u32) {
     log!("session ending (reason {reason})");
+    crate::remote::session_ended(reason);
     for i in 0..count() {
         call(i, "on_session_ended", |v| v.on_session_ended.map(|f| f as usize), &[reason as usize]);
     }

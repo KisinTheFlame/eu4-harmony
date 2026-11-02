@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0029
+---
+
 # Discover extensions through Paradox mods
+
+The manifest is now `eu4-harmony/manifest.toml` (ADR 0029); discovery through the playset still holds.
 
 Extensions are distributed with ordinary Paradox mods and declared by `eu4-harmony/manifest.json` in the mod's folder. The framework loads only the extensions of mods enabled in the current playset: it reads the `.mod` descriptor files listed in `dlc_load.json` and finds each mod's folder from the `path=` in it. Extensions are loaded only once, when the game starts; after changing the playset the game has to be restarted. So players subscribe on the Steam Workshop and enable mods in the launcher, with no second way of managing mods, and the game still loads the mods' interface, localisation and other assets itself.
 

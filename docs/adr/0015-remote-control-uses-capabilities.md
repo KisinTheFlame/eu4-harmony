@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0026
+---
+
 # Remote control is built into the framework and uses the same capabilities as extensions
+
+Neither adapter mirrors the layer below it any more: both expose one capability catalogue (ADR 0026). Which side sees which capability still holds; the C ABI named here is now the Lua host (ADR 0024).
 
 Programs outside the game process, such as a debugging session or an AI playing the game from the command line, use the game through remote control, a part of the framework itself. It needs no mod in the playset. A remote client reaches the game only through capabilities, the same ones extensions use (ADR 0005): there is no way to read memory, call game functions or patch code from outside.
 

@@ -84,7 +84,7 @@ pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), events: &even
         TimeRequest::Get {} => answer(game.time().map(|t| TimeAnswer::Get(Time { date: Date(t.date), paused: t.paused(), speed: t.speed }))),
         TimeRequest::Pause {} => answer(game.pause().map(TimeAnswer::Pause)),
         TimeRequest::Resume {} => answer(game.resume().map(TimeAnswer::Resume)),
-        TimeRequest::Speed { speed } => answer(game.set_speed(speed).map(TimeAnswer::Speed)),
+        TimeRequest::SetSpeed { speed } => answer(game.set_speed(speed).map(TimeAnswer::SetSpeed)),
         TimeRequest::Advance { days, speed } => match start(game, events, days, speed) {
             Ok(Started::Running(advance)) => Outcome::Later(Box::new(advance)),
             Ok(Started::Stopped(advanced)) => Outcome::Done(Ok(Answer::Time(TimeAnswer::Advance(advanced)))),

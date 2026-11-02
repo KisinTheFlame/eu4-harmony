@@ -1,7 +1,8 @@
 //! The campaign's objects: the world, countries, provinces and their map
 //! data, units and their routes, battles, commands, the map manager, and the
 //! game's events and diplomatic actions waiting for the player's answer
-//! (docs/research/regional-combat/, docs/research/questions-and-offers.md).
+//! (docs/research/: provinces.md, armies.md, routes.md, defeat.md, time.md,
+//! questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {

@@ -1,4 +1,4 @@
-//! Old saves and plugin-era mods' scripts keep characters as legacy escapes
+//! Old saves and older mods' scripts keep characters as legacy escapes
 //! (GLOSSARY). Everything the game reads from script files (`.txt`, `.gui`,
 //! `.gfx`) and saves (plain text, compressed and ironman, and the save list's
 //! titles) comes out of one of two lexers, a token at a time, into the lexer's

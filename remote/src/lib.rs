@@ -29,6 +29,11 @@ use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::fmt;
 
+/// The version of the capability catalogue (ADR 0026), which `describe`
+/// answers: it changes when a capability that exists changes what it means
+/// or how it is shaped, not when one is added.
+pub const API_VERSION: &str = "0.2";
+
 /// The named pipe the game serves remote control on (ADR 0016), one JSON
 /// request per line in and one response per line out.
 pub const PIPE: &str = r"\\.\pipe\eu4-harmony";
@@ -39,6 +44,29 @@ macro_rules! in_game {
         true
     };
     (anywhere) => {
+        false
+    };
+    (remote_game) => {
+        true
+    };
+    (remote_anywhere) => {
+        false
+    };
+}
+
+/// Whether extensions have a capability too, or only remote control (ADR
+/// 0015).
+macro_rules! for_extensions {
+    (game) => {
+        true
+    };
+    (anywhere) => {
+        true
+    };
+    (remote_game) => {
+        false
+    };
+    (remote_anywhere) => {
         false
     };
 }
@@ -52,7 +80,8 @@ macro_rules! in_game {
 /// ```
 ///
 /// `game` for a capability that needs a game going on, `anywhere` for one
-/// that does not; `"name"` empty for one the group's name alone names.
+/// that does not, each with `remote_` before it for one only remote control
+/// has; `"name"` empty for one the group's name alone names.
 macro_rules! group {
     (
         $(#[doc = $about:literal])*
@@ -66,6 +95,8 @@ macro_rules! group {
     ) => {
         /// The group's name, the first part of its capabilities' full names.
         pub const GROUP: &str = $group;
+        /// What the group is about.
+        pub const ABOUT: &str = concat!($($about),*);
 
         $(#[doc = $about])*
         #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -111,6 +142,7 @@ macro_rules! group {
                     action: $action,
                     about: concat!($($doc),*),
                     in_game: in_game!($place),
+                    extensions: for_extensions!($place),
                     args: &[
                         $(
                             $crate::Parameter {
@@ -181,6 +213,11 @@ macro_rules! groups {
         /// Every capability remote control has, described, group by group.
         pub fn capabilities() -> Vec<Capability> {
             [$( $module::CAPABILITIES ),*].concat()
+        }
+
+        /// Every group, by name and what it is about.
+        pub fn groups() -> Vec<Group> {
+            vec![$( Group { name: $module::GROUP, about: $module::ABOUT } ),*]
         }
     };
 }
@@ -289,10 +326,11 @@ pub enum Kind {
     Boolean,
     Text,
     /// A kind of regiment or ship, such as `"infantry"` (see
-    /// [`provinces::UnitKind`]).
+    /// [`recruiting::UnitKind`]).
     UnitKind,
-    /// Allies to call to arms: `"all"`, `"none"` or tags separated by
-    /// commas, such as `"DUL,CND"` (see [`diplomacy::CallAllies`]).
+    /// Allies to call to arms: `"all"`, `"none"` or a list of tags, such as
+    /// `["DUL", "CND"]`, which a command line writes `DUL,CND` (see
+    /// [`diplomacy::CallAllies`]).
     Allies,
 }
 
@@ -336,8 +374,8 @@ impl Kind {
             Self::Province | Self::Integer => serde_json::from_str::<serde_json::Number>(text).ok().filter(|n| n.is_i64() || n.is_u64()).map(Value::Number),
             Self::Boolean => text.parse().ok().map(Value::Bool),
             Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
-            Self::UnitKind => serde_json::from_value::<provinces::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
-            Self::Allies => diplomacy::CallAllies::parse(text).ok().map(|_| Value::String(text.into())),
+            Self::UnitKind => serde_json::from_value::<recruiting::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
+            Self::Allies => diplomacy::CallAllies::parse(text).ok().and_then(|allies| serde_json::to_value(allies).ok()),
         }
     }
 }
@@ -367,7 +405,7 @@ arg_kind! {
     i32 => Integer,
     bool => Boolean,
     String => Text,
-    provinces::UnitKind => UnitKind,
+    recruiting::UnitKind => UnitKind,
     diplomacy::CallAllies => Allies,
 }
 
@@ -388,6 +426,8 @@ pub struct Capability {
     pub about: &'static str,
     /// It runs only while a game is going on.
     pub in_game: bool,
+    /// Extensions have it too, not only remote control.
+    pub extensions: bool,
     pub args: &'static [Parameter],
     /// What a successful call answers.
     pub result: &'static str,
@@ -398,6 +438,13 @@ impl Capability {
     pub fn name(&self) -> String {
         full_name(self.group, self.action)
     }
+}
+
+/// A group of capabilities, described.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Group {
+    pub name: &'static str,
+    pub about: &'static str,
 }
 
 /// One argument of a capability, described.
@@ -418,10 +465,11 @@ pub fn prose(doc: &str) -> String {
 impl Serialize for Capability {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Capability", 5)?;
+        let mut s = serializer.serialize_struct("Capability", 6)?;
         s.serialize_field("capability", &self.name())?;
         s.serialize_field("about", &prose(self.about))?;
         s.serialize_field("in_game", &self.in_game)?;
+        s.serialize_field("extensions", &self.extensions)?;
         s.serialize_field("args", self.args)?;
         s.serialize_field("result", self.result)?;
         s.end()
@@ -575,6 +623,21 @@ impl Code {
             Self::BadRequest => "bad_request",
             Self::SessionChanged => "session_changed",
             Self::Internal => "internal",
+        }
+    }
+
+    /// What it means, and what a client does about it.
+    pub fn about(self) -> &'static str {
+        match self {
+            Self::NotInGame => "no game the player can play: the main menu is open, or the player only observes; menu says where the game is",
+            Self::NotReady => "the game cannot answer it right now, such as before visibility has caught up with the date; ask again shortly",
+            Self::NotFound => "no such thing: an army, a province, a save, a route",
+            Self::Rejected => "the game refused it, as it would refuse the player; the message gives the game's reasons, one a line",
+            Self::InvalidArgument => "a value that cannot be right, such as a speed of 9",
+            Self::Unavailable => "not here or not now, or not for this caller",
+            Self::BadRequest => "a request the game could not read: not JSON, no such capability, or arguments missing or of the wrong kind",
+            Self::SessionChanged => "another game was loaded or started before it ran, so it did not run; read the session again",
+            Self::Internal => "a fault in the framework or the game; the framework log says more",
         }
     }
 }
