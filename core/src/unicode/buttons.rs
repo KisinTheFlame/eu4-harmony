@@ -66,12 +66,17 @@ fn texture_pixels(scale: f32, size: [i32; 2], powers_of_two: bool) -> [i32; 2] {
     })
 }
 
+/// Whether the game makes text textures a power of two across and down.
+pub fn powers_of_two() -> bool {
+    unsafe { *(crate::hooked_memory().at(POWERS_OF_TWO) as *const u8) != 0 }
+}
+
 /// The pixels the texture of `font`'s text of `width` × `height` GUI units
 /// takes, as width | height << 32.
 extern "C" fn texture_for(font: usize, width: i32, height: i32) -> u64 {
     crate::guarded("button text texture", || {
-        let (scale, powers_of_two) = unsafe { (*((font + SCALE) as *const f32), *(crate::hooked_memory().at(POWERS_OF_TWO) as *const u8) != 0) };
-        let [w, h] = texture_pixels(scale, [width, height], powers_of_two);
+        let scale = unsafe { *((font + SCALE) as *const f32) };
+        let [w, h] = texture_pixels(scale, [width, height], powers_of_two());
         w as u32 as u64 | (h as u32 as u64) << 32
     })
 }

@@ -70,6 +70,27 @@ pub mod texture_level {
     pub const DATA: usize = 0x18;
 }
 
+/// An element that shows its text through a texture of its own, as buttons,
+/// instant text boxes and tooltips do: 0x1550e90 draws the text into the
+/// texture, 0x1552040 builds the mesh that shows it and 0x1551840 draws the
+/// mesh.
+pub mod text_texture {
+    /// The texture's wrapper, its `IDirect3DTexture9` first; null until the
+    /// text is drawn.
+    pub const TEXTURE: usize = 0x278;
+    /// The text's width and height in GUI units, i32 each: the mesh spans
+    /// them, its UVs all of the texture unless the game makes text textures
+    /// a power of two across and down.
+    pub const SIZE: usize = 0x280;
+    /// The mesh's first vertex, the texture's bottom left, in GUI units from
+    /// the element's place and with the game's half pixel in it: x and y,
+    /// f32 each.
+    pub const CORNER: usize = 0x2c8;
+    /// From the first vertex to the last, the texture's top right: x and y,
+    /// f32 each. The text's size when the mesh is neither cut nor turned.
+    pub const EXTENT: usize = 0x2d0;
+}
+
 use crate::{game_string, points::Point};
 
 pub fn points() -> Vec<Point> {
@@ -120,5 +141,15 @@ pub fn points() -> Vec<Point> {
         )
         .uses(&[texture_level::WIDTH, texture_level::DATA - texture_level::WIDTH]),
         Point::keep(0x16d7c2cusize, "33 c9 48 89 4c 24 50 8b 47 04", "texture level height").uses(&[texture_level::HEIGHT - texture_level::WIDTH]),
+        // Showing an element's text texture: the texture set for the draw,
+        // the size the mesh is built from, and the first vertex and the
+        // extent the mesh builder keeps.
+        Point::keep(0x1551ac3usize, "4c 8d 83 78 02 00 00", "text texture shown").uses(&[text_texture::TEXTURE]),
+        Point::keep(0x155209eusize, "8b 89 80 02 00 00", "text texture mesh width").uses(&[text_texture::SIZE]),
+        Point::keep(0x1552050usize, "44 8b 81 84 02 00 00", "text texture mesh height").uses(&[text_texture::SIZE + 4]),
+        Point::keep(0x1552309usize, "f3 0f 11 93 c8 02 00 00", "text texture mesh corner x").uses(&[text_texture::CORNER]),
+        Point::keep(0x155232eusize, "f3 44 0f 11 8b cc 02 00 00", "text texture mesh corner y").uses(&[text_texture::CORNER + 4]),
+        Point::keep(0x1552498usize, "f3 0f 11 bb d0 02 00 00", "text texture mesh extent x").uses(&[text_texture::EXTENT]),
+        Point::keep(0x15524c7usize, "f3 44 0f 11 83 d4 02 00 00", "text texture mesh extent y").uses(&[text_texture::EXTENT + 4]),
     ]
 }
