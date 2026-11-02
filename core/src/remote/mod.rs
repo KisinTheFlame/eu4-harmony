@@ -580,7 +580,7 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     use eu4_harmony_remote::{events::Event, ArmyId, Date};
     use game::{events::Change, Heard};
     let event = |heard| match heard {
-        Heard::Session(number) => Event::Session { number },
+        Heard::Session(session) => Event::Session { session },
         Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
         Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
         Heard::Day(date) => Event::Day { date: Date(date) },

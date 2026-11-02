@@ -73,7 +73,7 @@ pub enum SessionEnd {
 
 /// Every event by its name, with what it carries and when it comes.
 pub const EVENTS: &[(&str, &str)] = &[
-    ("session", "a session began: a save was loaded or a game started; number, the session's, as session.get answers it"),
+    ("session", "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
     ("session_ended", "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save) or new_game"),
     ("day", "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
     ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
@@ -85,8 +85,9 @@ pub const EVENTS: &[(&str, &str)] = &[
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// A session began: a save was loaded or a game started. Its number, as
-    /// session.get answers it.
-    Session { number: u64 },
+    /// session.get answers it (`number` there; here the event's own number
+    /// is `number`).
+    Session { session: u64 },
     /// The session is being left, while its state is still there to read.
     SessionEnded { reason: SessionEnd },
     /// A new day, once visibility reflects it; with the game running fast,

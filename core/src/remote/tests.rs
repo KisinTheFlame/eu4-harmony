@@ -476,7 +476,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     assert_eq!(
         answer(&read)["result"]["events"],
         json!([
-            {"number": 1, "event": "session", "number": 3},
+            {"number": 1, "event": "session", "session": 3},
             {"number": 2, "event": "army_ordered", "army": ARMY.to_string()},
             {"number": 3, "event": "army_defeated", "army": ARMY.to_string()},
             {"number": 4, "event": "day", "date": "1444.11.11"},

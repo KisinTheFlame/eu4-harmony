@@ -125,12 +125,17 @@ fn every_event_is_described() {
     use events::{Event, SessionEnd, EVENTS};
     let date = Date::from_ymd(1444, 11, 11).unwrap();
     let all = [
-        Event::Session { number: 1 },
+        Event::Session { session: 1 },
         Event::SessionEnded { reason: SessionEnd::Return },
         Event::Day { date },
         Event::ArmyOrdered { army: ArmyId(1) },
         Event::ArmyDefeated { army: ArmyId(1) },
     ];
+    // An event is flattened beside its own number: none of its fields may
+    // be named so.
+    for event in &all {
+        assert!(serde_json::to_value(event).unwrap().get("number").is_none(), "{event:?} has a field named number");
+    }
     let names: Vec<Value> = all.iter().map(|e| serde_json::to_value(e).unwrap()["event"].clone()).collect();
     assert_eq!(names, EVENTS.iter().map(|(name, _)| json!(name)).collect::<Vec<_>>());
 }
