@@ -1,6 +1,6 @@
 # Sessions plan
 
-Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Of S5, against a new process a new game and a loaded save after a return are the same as in a new process but for what the game chooses at random; the odd moments (a window open, an autosave, observing, the end-of-game summary), a failing ironman exit save and the setting off were tried; returning by the game's own question and summary crashed the game until the session's interface the map manager leaves was let go. A return after time ran crashed the game until the return took the session's interface down as the in-game load does and let the message windows' popups go, and a sprite type that sprites still show was no longer unloaded with its group (research/main-menu.md). Then 20 rounds, the odd moments, ironman and the player's own buttons ran without a crash. Open: each return with its session still leaves about 1,030 of the session's GUI elements and 8 to 9 MB of the game's heap, each in-game load about 300 to 400 elements and 5 to 7 MB, all the game's own (the AI's agents the largest part), now that the framework's repairs let a world reset's countries' arrays, companies' leaders and rebel factions go; private bytes grow about 15 MB a return. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Sessions). The decisions and their reasons are in [ADR 0022](adr/0022-return-to-the-main-menu-in-process.md) (returning to the main menu without a restart) and [ADR 0023](adr/0023-in-game-load-in-ironman.md) (an in-game load in ironman, and undo). What the game does is in [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Of S5, against a new process a new game and a loaded save after a return are the same as in a new process but for what the game chooses at random; the odd moments (a window open, an autosave, observing, the end-of-game summary), a failing ironman exit save and the setting off were tried; returning by the game's own question and summary crashed the game until the session's interface the map manager leaves was let go. A return after time ran crashed the game until the return took the session's interface down as the in-game load does and let the message windows' popups go, and a sprite type that sprites still show was no longer unloaded with its group (research/main-menu.md). Then 20 rounds, the odd moments, ironman and the player's own buttons ran without a crash. What the game still leaves of each session is known and left as it is in this version ([Known leaks](#known-leaks)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Sessions). The decisions and their reasons are in [ADR 0022](adr/0022-return-to-the-main-menu-in-process.md) (returning to the main menu without a restart) and [ADR 0023](adr/0023-in-game-load-in-ironman.md) (an in-game load in ironman, and undo). What the game does is in [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
@@ -63,6 +63,20 @@ pub fn go(caller: Caller, to: Destination) -> GResult<Expected>;
 
 Inside, a pure function lays out the steps from where the game is, where it is going and the two settings (the checks, the ironman exit save, taking the session down, the world reset, the load or the start), with unit tests of its own; an executor carries them out against the game and answers.
 
+## Known leaks
+
+Decided 2026-11-03: left as they are in this version. Each is the game's own: a restart hides it, and the game's own in-game load leaves its share in vanilla too. Measured 2026-11-02 with the GUI root's elements, the process's private bytes and the heap census ([prototype-log.md](prototype-log.md), "A sprite type unloaded while shown, and the stability runs"):
+
+- **Each return**, with the session it left: 8 to 9 MB of the game's heap (46,000 to 47,600 blocks) and about 1,030 GUI elements; the process's private bytes grow about 15 MB. Handles do not grow.
+- **Each in-game load**: 5 to 7 MB of the game's heap and 300 to 400 GUI elements.
+- **What it comes to**: ten returns in one process keep about 150 MB until the game is closed. Twenty rounds of returns, loads and new games ran without a crash.
+- **Where it comes from**:
+  - what the game's AI makes for every session where `ai_king.cpp` logs "Start new agents": 747 blocks of 0xbf8 bytes, about 2.2 MB, each time, the largest part;
+  - blocks of 0x178 bytes from two sites, 0.6 to 1 MB each, 1,585 blocks of 0x120 bytes, and smaller sites, about forty in all; none was followed to what owns it;
+  - windows the map manager's destructor leaves: the two plain structs, which crash the game when the framework lets them go, and windows not found yet, among them those still showing the building icons (`macrobuildinterface.gui`) and the government reforms (`countryreformview.gui`).
+- **Already let go by the framework** ([research/main-menu.md](research/main-menu.md)): the countries' arrays, the mercenary companies' leaders, the rebel factions, the session's interface and the message windows' popups.
+- **To take them up later**: the census (the `trace` feature, `EU4HARMONY_CENSUS` set) counts what each world reset's generation leaves by call site; research/main-menu.md lists the sites and how far each was followed.
+
 ## Parts
 
 ### Every part is done when
@@ -92,6 +106,6 @@ The in-process return, with the world reset with the history; what the world res
 Run by remote control; any of these failing is a defect to fix before the change is merged:
 
 1. **Against a new process**: a new game started after an in-process return from a late save, saved at once, is the same as one started and saved in a new process, but for times and the random seed. A save loaded after an in-process return gives the same first save as one loaded in a new process.
-2. **Over and over**: returning, loading, starting and loading in a session, 20 times round, without memory or handles growing and without a crash.
+2. **Over and over**: returning, loading, starting and loading in a session, 20 times round, without handles growing and without a crash, and memory growing by no more than the [Known leaks](#known-leaks).
 3. **At odd moments**: returning with one of the game's windows open, during an autosave, while observing, and from the end-of-game summary.
 4. **Ironman**: with the setting on, the ironman exit save is written before the load; with it off, loading the same save gives the session as that save holds it; when the ironman exit save fails, the player stays in the session with a notice.

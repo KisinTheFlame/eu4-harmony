@@ -18,7 +18,7 @@ Logs and the startup report (`report.txt`) are in `Documents\Paradox Interactive
 
 ## Leaving a game
 
-Returning to the main menu does not start the game again: the main menu is back in a few seconds instead of about 45 ([ADR 0022](docs/adr/0022-return-to-the-main-menu-in-process.md)). An ironman game can be left by loading another save from the game's menu too; the current game is saved first ([ADR 0023](docs/adr/0023-in-game-load-in-ironman.md)). Both are framework settings, in the settings window the "EU4 Harmony settings" button opens in the main menu's corner: with "Return to the main menu without restarting the game" off, the game starts again as in vanilla; with "In ironman, save the game before loading another save" off, loading the same save again undoes what was played since it was written.
+Returning to the main menu does not start the game again: the main menu is back in a few seconds instead of about 45 ([ADR 0022](docs/adr/0022-return-to-the-main-menu-in-process.md)). An ironman game can be left by loading another save from the game's menu too; the current game is saved first ([ADR 0023](docs/adr/0023-in-game-load-in-ironman.md)). Both are framework settings, in the settings window the "EU4 Harmony settings" button opens in the main menu's corner: with "Return to the main menu without restarting the game" off, the game starts again as in vanilla; with "In ironman, save the game before loading another save" off, loading the same save again undoes what was played since it was written. The game keeps some memory of every game left so, about 15 MB a return, until it is closed ([known leaks](docs/sessions.md#known-leaks)); after many returns, starting the game again gives it back.
 
 ## Remote control (players and AIs)
 
