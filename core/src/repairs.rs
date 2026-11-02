@@ -13,6 +13,9 @@
 //!   never meets, as it restarts instead: the popups its message windows
 //!   hold, let go before an in-process return takes the interface down, and
 //!   what the map manager's destructor leaves, let go as it goes.
+//! - What of its interface the game leaves as it lets a part of it go, at
+//!   every interface rebuild in vanilla too: the map modes' window, which it
+//!   never kills, and the outliner's entries, which it never deletes.
 //! - What the game unloads while it is shown, which vanilla never meets, as
 //!   it makes the main menu only at startup: a sprite type shown sprites
 //!   still count, which the main menu, made again, would unload with the
@@ -22,10 +25,10 @@ use crate::{
     memory::Memory,
     objects::{
         campaign::{
-            achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, mercenary_company,
-            message_window, religions, world,
+            achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
+            message_window, outliner, religions, world,
         },
-        gui::{classes as gui_classes, sprite_type},
+        gui::{classes as gui_classes, sprite_type, window as gui_window},
         list,
     },
     points::{Function, Point},
@@ -72,6 +75,12 @@ const SPRITE_TYPE_UNLOAD: usize = 0x156d730;
 /// it goes; and the destructor it calls, which the game also runs alone for
 /// agents it makes for a moment on the stack.
 const AI_KING_DELETE: usize = 0x148260;
+
+/// `(map modes' panel)`, `(outliner)`: let the map manager's map modes'
+/// panel and its outliner go, which its interface rebuild does before it
+/// makes them again, and the framework as the map manager goes.
+const LET_MAP_MODES_GO: usize = 0x81de20;
+const LET_OUTLINER_GO: usize = 0x81dc30;
 
 /// What the repairs let go since the last world reset, for the log:
 /// mercenary companies' leaders, rebel factions and the AI's agents.
@@ -220,6 +229,74 @@ extern "C" fn ai_king_gone(frame: *mut HookFrame) {
                 }
                 Err(e) => log!("repair: an agent of a country's AI was not deleted: {e}"),
             }
+        }
+    });
+}
+
+/// The window of the map modes' panel being let go, killed once it is.
+static MAP_MODES_WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// The map modes' panel is being let go: its window, which the game hides
+/// and takes off the map manager's windows without killing it, would stay in
+/// the GUI with the map modes' entries; it is kept to be killed once the
+/// panel is gone ([`map_modes_gone`]), as the game kills its other windows.
+extern "C" fn map_modes_going(frame: *mut HookFrame) {
+    crate::guarded("map modes let go", || {
+        let m = crate::hooked_memory();
+        match m.ptr(unsafe { (*frame).args[0] } + map_modes::WINDOW) {
+            Ok(window) => MAP_MODES_WINDOW.store(window, Ordering::Relaxed),
+            Err(e) => log!("repair: the map modes' window was not read: {e}"),
+        }
+    });
+}
+
+/// The map modes' panel is gone: its window is killed, and the GUI lets it
+/// go with what it holds at its next sweep.
+extern "C" fn map_modes_gone(_: *mut HookFrame) {
+    crate::guarded("map modes let go", || {
+        let window = MAP_MODES_WINDOW.swap(0, Ordering::Relaxed);
+        if window == 0 {
+            return;
+        }
+        let m = crate::hooked_memory();
+        if let Err(e) = m.vslot(window, gui_window::KILL).and_then(|kill| m.call(kill, &[window])) {
+            log!("repair: the map modes' window was not killed: {e}");
+        }
+    });
+}
+
+/// The outliner is being let go: its categories' entries, which the
+/// function letting it go leaves (its headers with their windows among
+/// them), are deleted first as its refresh deletes them: what shows them is
+/// told first, then each goes by its first slot.
+extern "C" fn outliner_going(frame: *mut HookFrame) {
+    crate::guarded("outliner let go", || {
+        let m = crate::hooked_memory();
+        let outliner = unsafe { (*frame).args[0] };
+        let deleted = (|| {
+            let view = m.ptr(outliner + outliner::VIEW)?;
+            if view != 0 {
+                m.call(m.vslot(view, outliner::VIEW_EMPTIED)?, &[view])?;
+            }
+            let mut deleted = 0;
+            for category in 0..outliner::CATEGORY_COUNT {
+                let entries = outliner + outliner::CATEGORIES + category * outliner::CATEGORY_SIZE + outliner::ENTRIES;
+                let mut node = m.ptr(entries + list::HEAD)?;
+                while node != 0 {
+                    let entry = m.ptr(node + list::ITEM)?;
+                    if entry != 0 {
+                        m.write(node + list::ITEM, &0usize.to_le_bytes())?;
+                        m.call(m.vslot(entry, 0)?, &[entry, 1])?;
+                        deleted += 1;
+                    }
+                    node = m.ptr(node + list::NEXT)?;
+                }
+            }
+            crate::Result::Ok(deleted)
+        })();
+        match deleted {
+            Ok(n) => log!("repair: {n} entries of the outliner were deleted as it went"),
+            Err(e) => log!("repair: the outliner's entries were not deleted: {e}"),
         }
     });
 }
@@ -548,8 +625,16 @@ pub fn points() -> Vec<Point> {
         Point::keep(EMPTY_MESSAGE_ICONS, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b f1 48 8d 59 40", "empty message icons"),
         // The rebuild empties the message icons, then makes a holder of this size.
         Point::keep(0x81d542usize, "e8 59 27 5e 00 b9 00 70 00 00", "message icon holder size"),
-        Point::keep(0x81dc30usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9 48 8b 89 b0 04 00 00", "let a session object go"),
-        Point::keep(0x81de20usize, "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 83 c1 30", "let another session object go"),
+        Point::observe(LET_OUTLINER_GO, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9 48 8b 89 b0 04 00 00", "let the outliner go", 1, Some(outliner_going), None),
+        Point::observe(
+            LET_MAP_MODES_GO,
+            "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 83 c1 30",
+            "let the map modes' panel go",
+            1,
+            Some(map_modes_going),
+            Some(map_modes_gone),
+        )
+        .uses(&[map_modes::WINDOW]),
         // A sprite type unloaded with its group of graphics, which the main
         // menu's interface rebuild does for the game's (group 3); a sprite
         // shown loads its lazily loaded type only when none showed it.

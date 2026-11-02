@@ -519,6 +519,32 @@ pub mod map_manager {
     pub const MESSAGE_ICON_HOLDER_SIZE: usize = 0x7000;
 }
 
+/// The map modes' panel, at the map manager's `+0x2448`, which the game
+/// lets go with `0x81de20`: it hides its window and takes it off the map
+/// manager's windows, and never kills it.
+pub mod map_modes {
+    /// Its window, with the map modes' entries.
+    pub const WINDOW: usize = 8;
+}
+
+/// The outliner, at the map manager's `+0x1418`, which the game lets go
+/// with `0x81dc30`.
+pub mod outliner {
+    /// Its categories, [`CATEGORY_COUNT`] of [`CATEGORY_SIZE`] bytes each:
+    /// each holds the outliner's entries of the category, a [`super::list`]
+    /// at [`ENTRIES`]; the first holds the categories' headers, each holding
+    /// its window. Its refresh tells [`VIEW`] by its method [`VIEW_EMPTIED`],
+    /// then deletes the entries by their first slots before it makes them
+    /// again; `0x81dc30` lets the nodes go, and the headers stay.
+    pub const CATEGORIES: usize = 0x18;
+    pub const CATEGORY_SIZE: usize = 0x28;
+    pub const CATEGORY_COUNT: usize = 0x1a;
+    pub const ENTRIES: usize = 8;
+    /// What shows the entries, and its method the refresh calls first.
+    pub const VIEW: usize = 0x4b0;
+    pub const VIEW_EMPTIED: usize = 0x48;
+}
+
 /// The map manager's pause state, at [`map_manager::PAUSE`].
 pub mod pause {
     /// The map manager it belongs to.
@@ -647,6 +673,18 @@ pub fn points() -> Vec<Point> {
         // when it answers that it is.
         Point::keep(0x8fe37cusize, "48 8b 49 48 48 85 c9 0f 84 2e 0a 00 00 48 8b 01 ff 50 50 84 c0", "mercenary company leader")
             .uses(&[mercenary_company::LEADER, leader::REAL]),
+        // The outliner's refresh deletes every category's entries; its
+        // function that lets it go lets only the nodes go.
+        Point::keep(
+            0x1290640usize,
+            "48 0f be c6 48 8d 0c 80 49 8d 3c ce 48 8b 5f 08 48 85 db 74 1e 48 8b 0b 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10",
+            "outliner entries deleted",
+        )
+        .uses(&[outliner::ENTRIES]),
+        Point::keep(0x12906a2usize, "ff c6 83 fe 1a", "outliner categories").uses(&[outliner::CATEGORY_COUNT]),
+        Point::keep(0x1290618usize, "49 8b 8f b0 04 00 00 48 85 c9 74 06 48 8b 01 ff 50 48", "outliner view emptied").uses(&[outliner::VIEW, outliner::VIEW_EMPTIED]),
+        Point::keep(0x81dcb8usize, "48 8d 4b 18 4c 8d 0d 1d f0 a6 00 ba 28 00 00 00 44 8d 42 f2", "outliner categories' nodes let go")
+            .uses(&[outliner::CATEGORIES, outliner::CATEGORY_SIZE]),
         // An agent of the AI that retires leaves its parent's agents for
         // those retired, which the parent's update deletes; the parent's
         // destructor lets both lists' nodes go.
