@@ -15,6 +15,7 @@ These rules hold for everyone who changes this repository, people and coding age
 - [docs/adr/](docs/adr/): decisions that are hard to reverse. A new decision gets the next number; a changed decision gets a new ADR that supersedes the old one, which stays.
 - [docs/research/](docs/research/): what is known about the game's code, with addresses as RVAs into the 1.37.5 baseline.
 - [docs/prototype-log.md](docs/prototype-log.md): what was tested in the running game and what came out, one dated section per run. Say what was not verified as plainly as what was.
+- [docs/performance.md](docs/performance.md): what the framework costs the game, as measured with `tools/perf-run.ps1`.
 
 ## Building and checking
 

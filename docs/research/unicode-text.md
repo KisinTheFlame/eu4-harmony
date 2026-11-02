@@ -49,7 +49,7 @@ Bending a country name along its curve (`0xfd3850`):
 Game text in the module: a character Windows-1252 has is stored as its single byte, anything else as UTF-8 (see `unicode/game_text.rs`). So punctuation used in Chinese, such as `·`, `“`, `”`, `…` and `—`, is single bytes mixed in with UTF-8.
 
 - Line break opportunities have to be worked out character by character over this mixed text: if only the valid UTF-8 at the start is passed to ICU, there are no break points after the first 1252 byte, and everything after it becomes one "word" (what happened before the 2026-10-28 fix: short lines, full stops at the start of a line, pinyin cut apart).
-- Fonts made for the CJK font plugin (such as the Chinese language mod's `zh-hans-*.fnt`) put these punctuation marks at their Unicode code points (`char id=8230` and so on), and the 1252 byte positions (0x85, 0x93, …) are empty; looking glyphs up by single byte alone cannot draw them.
+- The fonts of older Chinese language mods (such as the Chinese language mod's `zh-hans-*.fnt`) put these punctuation marks at their Unicode code points (`char id=8230` and so on), and the 1252 byte positions (0x85, 0x93, …) are empty; looking glyphs up by single byte alone cannot draw them.
 
 ## Open questions
 

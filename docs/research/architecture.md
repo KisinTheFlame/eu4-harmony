@@ -211,7 +211,7 @@ The program has three layers: third-party libraries, the Clausewitz engine and t
 - When the day has run past its budget, `0x769ea0` runs a whole application frame, `0x14c25a0(app, 0)`. The budget is the float at `0x245b070` times a factor by speed, at `0x1c33e18`.
 - That frame includes input, the in-game frame, Present and possibly an idler switch.
 - While it runs, `world+0x1e18` and the random-forbidden flag are set. The session does not execute commands inside it ("Update within execution. Skipping.").
-- It is on by default (`[0x1fc23d8]` = 1, toggled by a console command `0xe84320`). This is why the map manager's frame can run inside `daily_tick`, as [regional-combat/native-scheduler-findings.txt](regional-combat/native-scheduler-findings.txt) observed.
+- It is on by default (`[0x1fc23d8]` = 1, toggled by a console command `0xe84320`). This is why the map manager's frame can run inside `daily_tick`, as [time.md](time.md) records.
 
 ## Threads
 
@@ -479,7 +479,7 @@ The main menu's frame draws the same way, without units and overlays. The mouse 
 
 - **Map modes.** There are 85 (0–0x54).
   - A change goes through the idler's `+0xc8` (`0x821ff0`) to `0x10a8c30`.
-  - That function fills a two-layer province color texture: the colors (`0x12f0b40`, through `0x12fd9b0`) and the stripes over them (`0x12fdcb0`) ([regional-combat/native-range-preview-findings.txt](regional-combat/native-range-preview-findings.txt)).
+  - That function fills a two-layer province color texture: the colors (`0x12f0b40`, through `0x12fd9b0`) and the stripes over them (`0x12fdcb0`) ([map-modes.md](map-modes.md)).
 - **Picking** (`0x833360`): the screen point becomes a map position (`0x10a3e50`), and the province ID grid gives the province. The camera is in [camera.md](camera.md).
 
 **The GUI** (`clausewitzlib\graphics`).
@@ -491,7 +491,7 @@ The main menu's frame draws the same way, without units and overlays. The mouse 
   - it makes its root window;
   - it finds its children by name;
   - it binds callbacks to them;
-  - it refreshes them every frame ([notice-window.md](notice-window.md), [regional-combat/native-ui-findings.txt](regional-combat/native-ui-findings.txt)).
+  - it refreshes them every frame ([notice-window.md](notice-window.md), [interface-bindings.md](interface-bindings.md)).
 
   The fourteen country-view tabs are made by `0x81ecf0`.
 

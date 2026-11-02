@@ -16,8 +16,8 @@
 //! more (`cmp r14d, 0x1000000` at 0x16c2cb7), leaving the texture empty. A
 //! font with every Chinese character needs a large page: the Chinese language
 //! mod's map font page is a 49 MB DXT5 file, so every name on the map drew
-//! with a texture of size 0 and vanished, with or without the framework (the
-//! old font plugin lifted the limit). The limit is raised to 256 MiB.
+//! with a texture of size 0 and vanished, with or without the framework. The
+//! limit is raised to 256 MiB.
 use super::glyphs::{self, Glyph};
 use crate::points::Point;
 use crate::resume;

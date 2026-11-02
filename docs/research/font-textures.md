@@ -33,7 +33,7 @@ Baseline 1.37.5 (`9ad3efe1…`). All addresses are RVAs. What is marked [V] come
 ## The 16 MiB limit (tested)
 
 - After 0x16c2980 reads the file, it runs `cmp r14d, 0x1000000` at 0x16c2cb7: a file of 16 MiB or more is not decoded, no error is reported, the texture stays empty, and the font's `+0x978` / `+0x97c` are both 0.
-- The Chinese language mod's map font page `zh-hans-map.dds` is 49 MB (DXT5, 6400×7663), so the country, province and sea names on the map are all invisible. Vanilla without the framework behaves the same; the CJK font plugin relaxed this limit.
+- The Chinese language mod's map font page `zh-hans-map.dds` is 49 MB (DXT5, 6400×7663), so the country, province and sea names on the map are all invisible. Vanilla without the framework behaves the same.
 - The framework raises the limit to 256 MiB (`font_load`). Tested after the change: map names all show as correct Chinese.
 
 ## How drawing gets the texture

@@ -155,7 +155,7 @@ The hard part is "attaching it under the live panel":
 
 So attaching means writing the live window's internal vectors directly, and taking on unknown risks in rendering, input traversal and ownership at destruction. **Not recommended for injecting child elements.**
 
-A variant: CreateWindow can create a top-level floating window of the framework's own, positioned every frame to follow the army panel, and destroyed the way the panel's destructor does it (`0x6ecc80(mgr, root)`, then `root->vtbl[+0x130]`; see regional-combat's static findings). This suits a separate small window "stuck beside the panel"; it is not real injection.
+A variant: CreateWindow can create a top-level floating window of the framework's own, positioned every frame to follow the army panel, and destroyed the way the panel's destructor does it (`0x6ecc80(mgr, root)`, then `root->vtbl[+0x130]`; see [interface-bindings.md](interface-bindings.md)). This suits a separate small window "stuck beside the panel"; it is not real injection.
 
 ## Recommendation
 
