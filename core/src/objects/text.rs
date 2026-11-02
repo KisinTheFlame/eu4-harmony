@@ -7,6 +7,10 @@ pub mod font {
     /// Its name in the `.gfx` files (`vic_18`), a `std::string`: the game
     /// looks fonts up by it.
     pub const NAME: usize = 0x18;
+    /// The color its text is drawn in, 0xAARRGGBB, from the `color` its
+    /// `.gfx` files give it (0 when they give none): its page is tinted with
+    /// it.
+    pub const COLOR: usize = 0x58;
     /// 256 pointers to glyph records, by byte (the font's own table).
     pub const OWN_GLYPHS: usize = 0x120;
     /// The line height, i32; times [`SCALE`] it is the line in GUI units.
@@ -79,6 +83,10 @@ pub fn points() -> Vec<Point> {
             "font lookup by name",
         )
         .uses(&[font::NAME, game_string::SIZE, game_string::CAPACITY]),
+        // The `.gfx` key `color`, read as hex into the font, and main text
+        // splitting it into the channels it draws with.
+        Point::keep(0x1594b46usize, "4c 8d 41 58 48 8d 8b 44 04 00 00", "font color key").uses(&[font::COLOR]),
+        Point::keep(0x1598997usize, "41 8b 4e 58 44 0f b6 c9", "font color drawn").uses(&[font::COLOR]),
         Point::keep(0x1595cf2usize, "49 89 84 ff 20 01 00 00", "font own glyph table").uses(&[font::OWN_GLYPHS]),
         Point::keep(0x159ba20usize, "66 0f 6e 81 60 09 00 00 0f 5b c0 f3 0f 59 81 68 09 00 00", "font line height and scale")
             .uses(&[font::LINE_HEIGHT, font::SCALE]),

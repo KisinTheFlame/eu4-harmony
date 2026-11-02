@@ -45,6 +45,15 @@ Baseline 1.37.5 (`9ad3efe1…`). All addresses are RVAs. What is marked [V] come
   - map names: 0xfd7d86 (binds 3 textures, the first being the font page).
 - They then call slot `[0x1fd11f0]` = 0x16d8560, which reads `wrapper+0` every time and then calls `SetTexture`. So **replacing the texture at +0 in the wrapper makes every text path use the new texture**, without hooking any drawing code.
 
+## A font's color
+
+Read 2026-11-01.
+
+- **`font+0x58`** (u32, 0xAARRGGBB) holds the `color` its `.gfx` block gives [V]. The block's keys are tokens with numbers, kept in a table in `.data` (`color` is 0x56, `border_color` 0x1cd), and the font's key method 0x1594a40 switches on them: `name` (0x1b) to `+0x18`, `effect` (0x59) to `+0x10`, `path` (0x174) to `+0xe0`, `color` to `+0x58` (0x1594b46: `lea r8, [rcx+0x58]`), `border_color` to `+0x60`. Colors are read with the format `%x` (0x125b470, the format at 0x1dbf9b8). The base constructor zeroes `+0x58` and `+0x60` (0x15944e6), so a font whose block gives no `color` has 0; every `bitmapfont` in vanilla's and the Chinese language mod's `.gfx` files gives one.
+- **Drawn with**: main text (0x1598997), buttons (0x1597bd7) and floating text (0x159cb03, which keeps its red, green and blue and takes the alpha from its fading) split it into channels for the vertex color [V]. `gfx/FX/text.shader` multiplies the page's pixel by that color (`TexColor * v.vFillColor`), so a white page shows in the font's color; an edge pixel whose alpha is below the border color's draws in the border color instead, which was not looked into further. Color codes (`§Y` and the like, from the font's `textcolors`) replace the color for a run of text.
+- **Light and dark fonts on one page**: the game keeps one texture per page file, and fonts of different colors load the same files. In vanilla `vic_18` (white) and `vic_18_black` both load `gfx/fonts/vic_18`, and `garamond_14` serves `Main_14` in white, `Main_14_plain` and `ledger` in black, and `Main_14_grey`; the Chinese language mod gives `zh-hans-14` to 22 fonts, 5 of them black. An event window's description is `vic_18_black` (`interface/eventwindow.gui`), black on parchment (tested 2026-11-01).
+- **Coverage on the Chinese language mod's pages** (measured 2026-11-01 from the pages and from GDI drawing the faces their `.fnt` files name at the sizes they give, 10, 12 and 14 pixels to the em for `zh-hans-12`, `-14` and `-16`): the body text pages' glyphs have the outlines' shapes and places, but their partial pixels raised. Coverage of 25% is about 67% on the page, 50% about 88%, and 65% or more is 255. Ten common characters take 40 to 44% of their em squares in ink, against the outlines' 26.8%. The heading pages are raised less (`zh-hans-18`, 41.3% against 37.2%) or not at all (`zh-hans-24`, 35.5% against 34.6%). How the pages were made was not found.
+
 ## UV
 
 - The four text paths use the same formula [V]: `u = x / W`, `v = y / H`, where `W = font+0x978` and `H = font+0x97c`, with no half-pixel offset.

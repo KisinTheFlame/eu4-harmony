@@ -27,6 +27,7 @@ pub mod system_font;
 pub mod text_height;
 pub mod text_loops;
 pub mod text_width;
+pub mod tone;
 
 use crate::points::Point;
 

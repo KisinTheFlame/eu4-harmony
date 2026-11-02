@@ -39,6 +39,8 @@ Fonts that load the same page draw from one page in one font and weight, those o
 
 Characters none of the chosen fonts has are left to the system's font fallback, in the same weight. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI always uses the body text font and its weight, whatever "Text appearance" is set to.
 
+The game blends text with what lies under it in the screen's sRGB values, not in light, so the edges of light text on dark ground come out too dark and the text looks thinner and greyer than its font, Song faces with their thin strokes most. Glyphs drawn from system fonts for light text, such as the white text of most windows and all of the framework UI's, are drawn with the alpha that gives over black what a blend in light would. Dark text, such as event descriptions and the ledger in black, keeps its coverage: blending in sRGB values makes it a little heavier, which Windows does to dark text too. A text's color is its page's ink tinted with its font's `color` in the `.gfx` files, and whether it is light goes by its luminance against middle grey. Fonts that load one page may draw in either, as `vic_18` in white and `vic_18_black` in black do, so the page holds a glyph in each tone. The Chinese language mod's own body text pages go further, light and dark alike: their partial pixels are raised well beyond that ([research](research/font-textures.md#a-fonts-color)).
+
 ## Milestones
 
 | Milestone | Content | Done when |
