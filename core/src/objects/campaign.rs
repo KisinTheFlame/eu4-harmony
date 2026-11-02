@@ -56,8 +56,6 @@ pub mod classes {
     pub const NULL_LEADER: usize = 0x1cbc158;
     /// The agent at the top of a country's AI (see [`super::ai_king`]).
     pub const AI_KING: usize = 0x1c3e9e0;
-    /// A set of modifiers, by value (see [`super::modifiers`]).
-    pub const MODIFIER_SET: usize = 0x1c42ae0;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -522,16 +520,6 @@ pub mod map_manager {
     pub const MESSAGE_ICON_HOLDER_SIZE: usize = 0x7000;
 }
 
-/// A country's modifiers, at `+0x28c8`, which the country makes again in
-/// place as they change, and copies whole from ones it makes on the stack.
-pub mod modifiers {
-    /// Sets of modifiers they copy from others and add to their own, a vector
-    /// of pointers to [`super::classes::MODIFIER_SET`]s nothing else points
-    /// to. Their destructor frees the vector, not the sets; their copy copies
-    /// the pointers.
-    pub const COPIES: usize = 0x6440;
-}
-
 /// The map modes' panel, at the map manager's `+0x2448`, which the game
 /// lets go with `0x81de20`: it hides its window and takes it off the map
 /// manager's windows, and never kills it.
@@ -698,12 +686,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1290618usize, "49 8b 8f b0 04 00 00 48 85 c9 74 06 48 8b 01 ff 50 48", "outliner view emptied").uses(&[outliner::VIEW, outliner::VIEW_EMPTIED]),
         Point::keep(0x81dcb8usize, "48 8d 4b 18 4c 8d 0d 1d f0 a6 00 ba 28 00 00 00 44 8d 42 f2", "outliner categories' nodes let go")
             .uses(&[outliner::CATEGORIES, outliner::CATEGORY_SIZE]),
-        // A country's modifiers keep the sets they copy, and their destructor
-        // frees only the vector.
-        Point::keep(0x931d69usize, "48 8b 5d 67 48 8b 0b 48 81 c1 40 64 00 00 48 8b 51 08 48 3b 51 10 74 14 4c 89 2a", "modifier copies kept")
-            .uses(&[modifiers::COPIES]),
-        Point::keep(0x93ae6dusize, "48 8d 8b 40 64 00 00 e8 47 3c 75 ff", "modifier copies' vector freed").uses(&[modifiers::COPIES]),
-        Point::keep(0x3eaf2busize, "48 8d 05 ae 7b 85 01", "modifier set copied").uses(&[classes::MODIFIER_SET]),
         // An agent of the AI that retires leaves its parent's agents for
         // those retired, which the parent's update deletes; the parent's
         // destructor lets both lists' nodes go.

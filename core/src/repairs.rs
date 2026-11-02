@@ -6,8 +6,6 @@
 //!   go without what it owns. A country's array of bytes, a mercenary
 //!   company's leader, a country's rebel factions and the agents its AI
 //!   started are let go with them.
-//! - What a country's modifiers leak as they go or are made again, in play
-//!   too: the sets of modifiers they copy, which they alone point to.
 //! - What a world reset leaves of a session, which vanilla never meets
 //!   outside a load, whose save sets it again: put back as a new start has
 //!   it.
@@ -28,7 +26,7 @@ use crate::{
     objects::{
         campaign::{
             achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
-            message_window, modifiers, outliner, religions, world,
+            message_window, outliner, religions, world,
         },
         gui::{classes as gui_classes, sprite_type, window as gui_window},
         list,
@@ -84,19 +82,11 @@ const AI_KING_DELETE: usize = 0x148260;
 const LET_MAP_MODES_GO: usize = 0x81de20;
 const LET_OUTLINER_GO: usize = 0x81dc30;
 
-/// `(modifiers)`: the destructor of a country's modifiers; `(modifiers,
-/// other)`: their copy from another's.
-const MODIFIERS_DESTRUCTOR: usize = 0x93ae10;
-const MODIFIERS_COPY: usize = 0x3296b0;
-/// `(set, flags)`: a set of modifiers' deleting destructor, its first slot.
-const MODIFIER_SET_DELETE: usize = 0x1b2290;
-
 /// What the repairs let go since the last world reset, for the log:
 /// mercenary companies' leaders, rebel factions and the AI's agents.
 static LEADERS: AtomicUsize = AtomicUsize::new(0);
 static FACTIONS: AtomicUsize = AtomicUsize::new(0);
 static AGENTS: AtomicUsize = AtomicUsize::new(0);
-static MODIFIER_SETS: AtomicUsize = AtomicUsize::new(0);
 
 /// The agents of the AI whose top agent is being deleted, by that agent:
 /// they are deleted once it is gone.
@@ -311,107 +301,6 @@ extern "C" fn outliner_going(frame: *mut HookFrame) {
     });
 }
 
-/// The sets of modifiers to delete once a country's modifiers have gone or
-/// been copied over, by those modifiers.
-static MODIFIER_SETS_LEFT: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
-
-/// The sets a country's modifiers copied, which nothing else points to.
-fn modifier_copies(m: &Memory, modifiers: usize) -> crate::Result<Vec<usize>> {
-    let (begin, end) = (m.ptr(modifiers + modifiers::COPIES)?, m.ptr(modifiers + modifiers::COPIES + 8)?);
-    let mut sets = Vec::new();
-    if end > begin {
-        for at in (begin..end).step_by(8) {
-            let set = m.ptr(at)?;
-            if set != 0 && !sets.contains(&set) {
-                sets.push(set);
-            }
-        }
-    }
-    Ok(sets)
-}
-
-/// Deletes sets of modifiers by their first slots, those of their class.
-fn delete_modifier_sets(m: &Memory, sets: Vec<usize>) {
-    for set in sets {
-        let deleted = (|| {
-            if m.ptr(set)? != m.at(classes::MODIFIER_SET) {
-                return Err(format!("{set:#x} is not a set of modifiers"));
-            }
-            m.call(m.vslot(set, 0)?, &[set, 1])
-        })();
-        match deleted {
-            Ok(_) => {
-                MODIFIER_SETS.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(e) => log!("repair: a set of modifiers was not deleted: {e}"),
-        }
-    }
-}
-
-fn keep_modifier_sets(modifiers: usize, sets: crate::Result<Vec<usize>>) {
-    match sets {
-        Ok(sets) if sets.is_empty() => {}
-        Ok(sets) => MODIFIER_SETS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((modifiers, sets)),
-        Err(e) => log!("repair: a country's sets of modifiers were not read: {e}"),
-    }
-}
-
-fn kept_modifier_sets(modifiers: usize) -> Vec<usize> {
-    let mut left = MODIFIER_SETS_LEFT.lock().unwrap_or_else(|e| e.into_inner());
-    match left.iter().rposition(|(k, _)| *k == modifiers) {
-        Some(at) => left.swap_remove(at).1,
-        None => Vec::new(),
-    }
-}
-
-/// A country's modifiers go, or are made again in place: the sets they
-/// copied, which their destructor leaves, are kept to be deleted once they
-/// are gone ([`modifiers_gone`]) with what of them points to the sets.
-extern "C" fn modifiers_going(frame: *mut HookFrame) {
-    crate::guarded("modifiers destructor", || {
-        let m = crate::hooked_memory();
-        let modifiers = unsafe { (*frame).args[0] };
-        keep_modifier_sets(modifiers, modifier_copies(&m, modifiers));
-    });
-}
-
-extern "C" fn modifiers_gone(frame: *mut HookFrame) {
-    crate::guarded("modifiers destructor", || {
-        let m = crate::hooked_memory();
-        delete_modifier_sets(&m, kept_modifier_sets(unsafe { (*frame).args[0] }));
-    });
-}
-
-/// A country's modifiers are copied over from other modifiers: the sets
-/// they copied that the others do not hold would be lost, and are deleted
-/// once the copy is made ([`modifiers_copied`]).
-extern "C" fn modifiers_copying(frame: *mut HookFrame) {
-    crate::guarded("modifiers copy", || {
-        let m = crate::hooked_memory();
-        let (modifiers, other) = unsafe { ((*frame).args[0], (*frame).args[1]) };
-        let lost = (|| {
-            let kept = modifier_copies(&m, other)?;
-            Ok(modifier_copies(&m, modifiers)?.into_iter().filter(|s| !kept.contains(s)).collect())
-        })();
-        keep_modifier_sets(modifiers, lost);
-    });
-}
-
-/// The copy is made: the lost sets are deleted, and the other modifiers no
-/// longer point to the sets they now share, so that the sets go with these
-/// alone: the copy moves them.
-extern "C" fn modifiers_copied(frame: *mut HookFrame) {
-    crate::guarded("modifiers copy", || {
-        let m = crate::hooked_memory();
-        let (modifiers, other) = unsafe { ((*frame).args[0], (*frame).args[1]) };
-        delete_modifier_sets(&m, kept_modifier_sets(modifiers));
-        let moved = m.ptr(other + modifiers::COPIES).and_then(|begin| m.write(other + modifiers::COPIES + 8, &begin.to_le_bytes()));
-        if let Err(e) = moved {
-            log!("repair: the sets of modifiers copied were not moved: {e}");
-        }
-    });
-}
-
 crate::resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);
 
 /// Replaces the world's clear marking the world as being cleared: marks it,
@@ -555,11 +444,10 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers were deleted with what owned them",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions and {} agents of the AI were deleted with what owned them",
             LEADERS.swap(0, Ordering::Relaxed),
             FACTIONS.swap(0, Ordering::Relaxed),
-            AGENTS.swap(0, Ordering::Relaxed),
-            MODIFIER_SETS.swap(0, Ordering::Relaxed)
+            AGENTS.swap(0, Ordering::Relaxed)
         );
         #[cfg(feature = "trace")]
         crate::census::world_reset();
@@ -723,25 +611,6 @@ pub fn points() -> Vec<Point> {
         ),
         Point::method(classes::AI_KING, 0, AI_KING_DELETE, "AI king deleting destructor method"),
         Point::keep(0x14b2f1usize, "48 8b 0b 48 8b 5b 10 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10", "AI retired agents deleted by their first slots"),
-        // A country's modifiers' destructor and copy, which leave the sets
-        // they copied; a set goes by its first slot.
-        Point::observe(
-            MODIFIERS_DESTRUCTOR,
-            "40 53 48 83 ec 20 48 8b d9 48 81 c1 78 6c 00 00 e8 8b 96 75 ff",
-            "modifiers destructor",
-            1,
-            Some(modifiers_going),
-            Some(modifiers_gone),
-        ),
-        Point::observe(
-            MODIFIERS_COPY,
-            "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 83 ec 20 8b 02 48 8b f2 89 01",
-            "modifiers copy",
-            2,
-            Some(modifiers_copying),
-            Some(modifiers_copied),
-        ),
-        Point::method(classes::MODIFIER_SET, 0, MODIFIER_SET_DELETE, "modifier set deleting destructor"),
         Point::observe(WORLD_RESET, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1", "world's own reset", 1, None, Some(world_reset)),
         Point::observe(
             MAP_MANAGER_DESTRUCTOR,
