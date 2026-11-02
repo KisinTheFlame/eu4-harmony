@@ -11,7 +11,7 @@ use super::{process, session, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
     menu::{Expected, ExpectedProbe, Launch, Returned},
-    Caller, GResult, Status,
+    GResult, Status,
 };
 use eu4_harmony_remote::{
     menu::{Menu, MenuAnswer, MenuRequest, Place, Save},
@@ -39,28 +39,29 @@ pub trait Layer {
 
 impl Layer for Live {
     fn place(&mut self) -> GResult<game::menu::Place> {
-        game::menu::place(Caller::Remote)
+        game::menu::place(self.0)
     }
 
     fn saves(&mut self) -> GResult<Vec<game::menu::Save>> {
-        game::menu::saves(Caller::Remote)
+        game::menu::saves(self.0)
     }
 
     fn load(&mut self, save: &str) -> GResult<ExpectedProbe> {
-        game::menu::load(Caller::Remote, save)
+        game::menu::load(self.0, save)
     }
 
     fn start(&mut self, country: CountryTag) -> GResult<()> {
-        game::menu::start(Caller::Remote, country.0)
+        game::menu::start(self.0, country.0)
     }
 
     fn launch(&mut self) -> Box<dyn FnMut() -> Launch + Send> {
-        let number = game::menu::last(Caller::Remote);
-        Box::new(move || game::menu::launch(Caller::Remote, number))
+        let (caller, number) = (self.0, game::menu::last(self.0));
+        Box::new(move || game::menu::launch(caller, number))
     }
 
     fn return_to_main_menu(&mut self) -> GResult<Option<Box<dyn FnMut() -> Returned + Send>>> {
-        Ok(game::menu::return_to_main_menu(Caller::Remote)?.map(|number| Box::new(move || game::menu::returned(Caller::Remote, number)) as Box<_>))
+        let caller = self.0;
+        Ok(game::menu::return_to_main_menu(caller)?.map(|number| Box::new(move || game::menu::returned(caller, number)) as Box<_>))
     }
 }
 

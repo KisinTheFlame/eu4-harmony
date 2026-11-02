@@ -19,10 +19,10 @@ Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.
   ```lua
   return {
     on_session = function(game, saved) end,        -- a session began; saved is this extension's save data, or nil
-    on_session_ended = function(game, reason) end, -- the session is being left; its state is still there to read
+    on_session_ended = function(game, reason) end, -- the session is being left ("return", "load" or "new_game"); its state is still there to read
     on_frame = function(game) end,                 -- every frame while a session runs, paused or not
-    on_day = function(game, date) end,             -- a day finished advancing
-    on_button = function(game, name, click) end,   -- a button of this mod was clicked
+    on_day = function(game, date) end,             -- a day finished advancing; date is a date table
+    on_button = function(game, name, click) end,   -- a button of this mod was clicked; click is { right, shift, ctrl }
     on_army_ordered = function(game, army) end,    -- something other than an extension changed an own army's route
     on_army_defeated = function(game, army) end,   -- an own army lost a battle
     on_map_lost = function(game) end,              -- another extension took over the map coloring
@@ -31,7 +31,9 @@ Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.
   ```
 
 - A handler left out is an event the extension does not hear.
-- `game` is passed to every handler and is valid only while its task runs (see Tasks): a capability called through a `game` kept past that raises an error. Game state and commands are reached only through it, by capability group: `game.army.get(id)`, `game.army.move(id, province)`, `game.province.get(id)`, `game.ui.button.visible = true`, `game.map.paint(colors)`, `game.text(key, values)`.
+- `game` is passed to every handler, the same table each time. Game state and commands are reached only through it, by capability group: `game.army.get(id)`, `game.army.move(id, province)`, `game.province.get(id)`, `game.ui.button.visible = true`, `game.map.paint(colors)`. Its capabilities run only while the extension runs, in a handler or a task: at the top of `main.lua` they raise an error.
+- A capability takes its required arguments in order and its optional ones in a table last, as `eu4-harmony wiki` writes each one: `game.diplomacy.declare_war("ENG", "cb_core", { province = 167, call_allies = { "DUL" } })`. One with no result returns `true`.
+- `game.map.paint` takes `{ [province] = color }`, a color `0xRRGGBB` or `{ r, g, b, a }`; `game.map.release()` gives the map back. An element's `visible`, `enabled`, `text` and `tooltip` are set, never read.
 - What has nothing to do with the game's state is global and can be used at any time, at the top of `main.lua` too: `log(...)`, `json.encode` and `json.decode`, `mod_files`, `files`, `http`, `spawn`.
 - Game objects are the game's own identifiers, as in the first version: a province's number, a country's tag, an army's full 64-bit ID, which a Lua integer holds exactly.
 
@@ -179,7 +181,7 @@ The capability layer (`core/src/game/`) is the module everything rests on: it ho
 ```
 
 - **The catalogue** grows out of `remote/`, which already describes every remote capability for the command line tool: one description per capability, from which the Lua host's bindings, the type definitions, `wiki` and `describe` are made, so none can drift from another.
-- **The Lua host** (in the core) owns the Lua states: loading `main.lua` with the sandbox, calling handlers at safe points, the `game` passed to them, errors and their log, the time limit's watcher, the globals and the sensitive capabilities.
+- **The Lua host** (`core/src/lua/`) owns the Lua states: loading `main.lua` with the sandbox, calling handlers at safe points as tasks, the `game` passed to them, errors and their log, the time limit's watcher, the globals and the sensitive capabilities. A call through `game` is turned into the catalogue's request and run by remote control's own groups, called as the extension (`remote::run_for`, `Caller::Extension`); its answer is written in Lua's form (an army's ID an integer, a date a table, `checks::form`). So both sides of the catalogue have one implementation, and a request that waits in remote control is a task that waits in Lua.
 - **The fake game** (in the command line tool) is the Lua host's other adapter, over a data store instead of the capability layer; `checks/` keeps its refusals the core's.
 - Removed: `abi/`, `sdk/`, `core/src/ext.rs`, `core/src/ext/`, `cli/template/extension/`, `build`, loading DLLs.
 

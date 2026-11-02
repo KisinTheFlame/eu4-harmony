@@ -2,13 +2,13 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A framework for writing native Europa Universalis IV mods in Rust. The framework gets into the game process, reads game state, gives orders, adds elements to the vanilla interface and keeps data per save; a mod's extension reaches the game only through the capabilities the framework provides and never touches memory addresses. The design is in [docs/v1.md](docs/v1.md), the terms in [GLOSSARY.md](GLOSSARY.md), and the reasons behind decisions in [docs/adr/](docs/adr/).
+A framework for Europa Universalis IV mods that carry Lua scripts. The framework gets into the game process, reads game state, gives orders, adds elements to the vanilla interface and keeps data per save; a mod's extension reaches the game only through the capabilities the framework provides and never touches memory addresses. The design is in [docs/v1.md](docs/v1.md), the terms in [GLOSSARY.md](GLOSSARY.md), and the reasons behind decisions in [docs/adr/](docs/adr/).
 
 Supported game: vanilla 1.37.5, and patched builds of it with the same layout. Single player only.
 
 ## Installing the framework (players)
 
-The framework comes as a folder, or a zip of it, holding `version.dll` and an `eu4-harmony\` folder with the core (`eu4_harmony_core.dll`) and the command line tool (`eu4-harmony.exe`); `tools\release.ps1` makes both from a release build. Put `version.dll` and the `eu4-harmony\` folder into the game's root folder. If the root folder already has a `version.dll`, move it into `eu4-harmony\backup\` first; the framework does not load it. The framework draws Chinese and every other script itself ([ADR 0010](docs/adr/0010-built-in-unicode-module.md)). Then start the game from the Paradox launcher as usual and enable mods built on the framework in your playset.
+The framework comes as a folder, or a zip of it, holding `version.dll` and an `eu4-harmony\` folder with the core (`eu4_harmony_core.dll`) and the command line tool (`eu4-harmony.exe`); `tools\release.ps1` makes both from a release build. Put `version.dll` and the `eu4-harmony\` folder into the game's root folder. If the root folder already has a `version.dll`, move it into `eu4-harmony\backup\` first; the framework does not load it. The framework draws Chinese and every other script itself ([ADR 0010](docs/adr/0010-built-in-unicode-module.md)). Then start the game from the Paradox launcher as usual and enable mods built on the framework in your playset. Mods whose extension is a DLL, made for earlier versions of the framework, are no longer loaded: their extensions have to be rewritten in Lua.
 
 To uninstall, delete `version.dll` from the root folder, move the backed-up `version.dll`, if there is one, from `eu4-harmony\backup\` back into the root folder, and then delete `eu4-harmony\`.
 
@@ -61,41 +61,32 @@ The full list, with every argument and result, is `eu4-harmony wiki`, which work
 
 ## Writing a mod (developers)
 
-You need Windows x64, Rust (the MSVC toolchain) and the Visual Studio C++ build tools. First build this repository:
+A mod's extension is Lua 5.4 scripts, run by the framework in a sandbox of their own ([ADR 0024](docs/adr/0024-extensions-are-lua-in-a-sandbox.md)): nothing to install and nothing to build. The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder (or `target\x86_64-pc-windows-msvc\release\` in a build of this repository):
 
 ```powershell
-cargo build --release
-```
-
-The command line tool is `target\x86_64-pc-windows-msvc\release\eu4-harmony.exe`:
-
-```powershell
-eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifest, a button, English and Chinese texts, a Rust extension project
+eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifest.toml, lua\main.lua, a button, English and Chinese texts
 cd my-mod
-eu4-harmony build                         # build the extension and put the DLL where the manifest says
 eu4-harmony link                          # register it under mod\ in the user folder, then tick it in the launcher
-eu4-harmony package                       # make a clean folder to upload, ..\my-mod-package
+eu4-harmony package                       # once every Lua and localisation file reads, make a clean folder to upload, ..\my-mod-package
 ```
 
-With the game running, `eu4-harmony game` asks it things through remote control (above): `eu4-harmony game session get` reads the date and the player's country, and `eu4-harmony wiki` lists every capability.
+A mod's own files are in its `eu4-harmony\` folder, where they are says what they are ([ADR 0029](docs/adr/0029-manifest-in-toml-layout-by-convention.md)): `manifest.toml` (`id`, `api_version`, `description`, `permissions`), the extension in `lua\` with `main.lua` first, interface fragments in `ui\<window>\` (and `ui\<window>\buttons\` for the button area), texts in `localisation\`, and files the extension reads in `data\`.
 
-An extension implements `eu4_harmony_sdk::Extension`, with one method per kind of event; every capability is a method on the `Game` passed to the callbacks. Unit tests use `eu4_harmony_sdk::testing::FakeGame` in place of the game. The smallest example is the mod `eu4-harmony new` creates; a full one is the regional combat mod in the eu4-regional-combat repository.
+`main.lua` returns a table of handlers, one per event (`on_session`, `on_day`, `on_button`, `on_frame`, `on_save` and the rest). Each gets `game`, through which every capability is called by its group, such as `game.army.move(army, province)`; a refusal returns `nil, err`, and a handler may wait for a capability's answer, such as another country's to a proposal, as with `await`. `eu4-harmony wiki` lists every capability with its Lua form; `eu4-harmony game` asks the running game the same through remote control (above). The smallest example is the mod `eu4-harmony new` creates; the plan, with handlers, errors, the time limit and extension save data, is [docs/lua-extensions.md](docs/lua-extensions.md).
 
-Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of the game's localisation files but as plain UTF-8, one file per language (`english`, `french`, `german`, `spanish`, `simp_chinese`). Interface fragments use the keys directly, and an extension gets a text with `game.text("KEY")`; the framework shows the player language, see [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md).
+Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of the game's localisation files but as plain UTF-8, one file per language (`english`, `french`, `german`, `spanish`, `simp_chinese`). Interface fragments use the keys directly, and an extension gets a text with `text.get("KEY")`; the framework shows the player language, see [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md).
 
 ## Repository
 
 | Folder | Contents |
 | --- | --- |
 | `proxy/` | The `version.dll` proxy: forwards version.dll and loads the core, only in `eu4.exe` |
-| `core/` | The framework core: dependency points and startup, where the game keeps what the framework reads (`core/src/objects/`), `.gui` splicing, loading extensions, the capabilities, one file per group (`core/src/game/`), remote control's engine (`core/src/remote/`), interface bindings, extension save data, player language, framework settings, the framework UI (`core/src/framework_ui/`) and the Unicode module (`core/src/unicode/`); `core/localisation/` holds the framework's own texts |
-| `loc/` | The localisation file format, the languages and lookup, shared by the core, the SDK and the command line tool |
-| `manifest/` | A mod's `eu4-harmony/manifest.json` and the lines of its descriptor, shared by the core and the command line tool |
-| `remote/` | Remote control's requests and responses, their JSON form and a description of every capability, shared by the core and the command line tool |
-| `checks/` | The checks the framework makes of a capability's call itself, with the status and words of each refusal, shared by the core, `remote/` and the SDK, so that the SDK's `FakeGame` refuses what the core refuses, in its words; and the game's calendar |
-| `abi/` | The C ABI between the core and extensions |
-| `sdk/` | The Rust SDK for extensions |
-| `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes, its extension built and tested with the rest |
+| `core/` | The framework core: dependency points and startup, where the game keeps what the framework reads (`core/src/objects/`), `.gui` splicing, the Lua host that runs extensions (`core/src/lua/`), the capabilities, one file per group (`core/src/game/`), remote control's engine (`core/src/remote/`), interface bindings, extension save data, player language, framework settings, the framework UI (`core/src/framework_ui/`) and the Unicode module (`core/src/unicode/`); `core/localisation/` holds the framework's own texts |
+| `loc/` | The localisation file format, the languages and lookup, shared by the core and the command line tool |
+| `manifest/` | A mod's `eu4-harmony/manifest.toml`, where the layout puts its other files, and the lines of its descriptor, shared by the core and the command line tool |
+| `remote/` | The capability catalogue: remote control's requests and responses, their JSON form and a description of every capability, saying which extensions have too, shared by the core and the command line tool |
+| `checks/` | The checks the framework makes of a capability's call itself, with the status and words of each refusal, shared by the core and `remote/`; and the game's calendar |
+| `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes |
 | `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus tools for backing up the player's files around a test run, input, screenshots, disassembly, crash dumps and call tracing, see [tools/README.md](tools/README.md) |
 | `docs/` | The design, ADRs, research, in-game test records and [what the framework costs the game](docs/performance.md) |
 

@@ -70,8 +70,18 @@ impl fmt::Debug for Date {
     }
 }
 
+/// `"1444.11.11"`, or in Lua's form (`crate::form`) its year, month and day.
 impl Serialize for Date {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if crate::form::lua() {
+            use serde::ser::SerializeStruct;
+            let (year, month, day) = self.ymd();
+            let mut s = serializer.serialize_struct("Date", 3)?;
+            s.serialize_field("year", &year)?;
+            s.serialize_field("month", &month)?;
+            s.serialize_field("day", &day)?;
+            return s.end();
+        }
         serializer.collect_str(self)
     }
 }

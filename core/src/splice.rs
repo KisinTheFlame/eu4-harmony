@@ -86,8 +86,7 @@ pub fn prefix(id: &str) -> String {
 }
 
 /// `include(i)` decides whether mod `i` takes part (its extension loaded, or it has none).
-pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, Vec<String>) {
-    let mut plan = Plan::default();
+pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut Plan) -> Vec<String> {
     let mut notes = Vec::new();
     // Button-area slots taken, by window.
     let mut slots: HashMap<&str, i32> = HashMap::new();
@@ -96,7 +95,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
             continue;
         }
         let prefix = prefix(&m.manifest.id);
-        for ui in &m.manifest.ui {
+        for ui in &m.layout.ui {
             let Some(window) = hosts::window(&ui.into) else {
                 notes.push(format!("{}: window {:?} is not supported", m.manifest.id, ui.into));
                 continue;
@@ -145,7 +144,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
         }
     }
     plan.slots = slots.values().sum::<i32>() as usize;
-    (plan, notes)
+    notes
 }
 
 #[cfg(test)]

@@ -1,2 +1,3 @@
 l_simp_chinese:
  TEMPLATE_MOD_TOOLTIP:0 "§YTemplate Mod§!\n点击后在日志里写一行。"
+ TEMPLATE_MOD_DESCRIPTION:0 "军队面板里的一个按钮，点击后在日志里写一行。"

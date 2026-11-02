@@ -22,7 +22,7 @@ pub fn line(text: impl Into<String>) {
 
 /// Writes the report with the current extension timing.
 pub fn write() {
-    let timing = crate::ext::timing_lines();
+    let timing = crate::lua::timing_lines();
     let report = REPORT.lock().unwrap_or_else(|e| e.into_inner());
     let Some(path) = &report.path else { return };
     let mut text = report.lines.join("\n");

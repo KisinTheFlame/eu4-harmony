@@ -11,11 +11,11 @@ name = "eu4_harmony_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-eu4-harmony-abi = { path = "../abi" }
 eu4-harmony-checks = { path = "../checks" }
 eu4-harmony-loc = { path = "../loc" }
 eu4-harmony-manifest = { path = "../manifest" }
 eu4-harmony-remote = { path = "../remote" }
+mlua = { workspace = true, features = ["send"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 windows-sys = { workspace = true, features = [

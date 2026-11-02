@@ -1,41 +1,38 @@
-//! `eu4-harmony`: create, build, register and package EU4 Harmony mods, and
-//! use the running game through remote control (`game`, in `game.rs`).
+//! `eu4-harmony`: create, register and package EU4 Harmony mods, and use the
+//! running game through remote control (`game`, in `game.rs`).
 //!
-//! A mod is a folder with `descriptor.mod`, `eu4-harmony/manifest.json`, its
-//! texts in `eu4-harmony/localisation/` and an `extension/` Rust crate; game
+//! A mod is a folder with `descriptor.mod` and `eu4-harmony/manifest.toml`;
+//! in `eu4-harmony/` its extension in `lua/`, interface fragments in `ui/`,
+//! texts in `localisation/` and its own files in `data/` (ADR 0029); game
 //! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
 mod game;
 mod pipe;
 mod templates;
 mod wiki;
 
-use eu4_harmony_abi as abi;
 use std::{
     collections::HashMap,
     fs,
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
 };
 
 type Result<T> = std::result::Result<T, String>;
 
 const USAGE: &str = "\
-eu4-harmony: create, build, register and package EU4 Harmony mods, and use
-the running game through remote control
+eu4-harmony: create, register and package EU4 Harmony mods, and use the
+running game through remote control
 
 usage:
-  eu4-harmony new <id> [--name <display name>] [--dir <parent dir>] [--sdk <sdk dir>]
-      Creates the mod folder <id>/ with a Rust extension, one button and its
+  eu4-harmony new <id> [--name <display name>] [--dir <parent dir>]
+      Creates the mod folder <id>/ with a Lua extension, one button and its
       texts in English and Chinese.
-  eu4-harmony build [<mod dir>] [--debug]
-      Compiles the extension and copies the DLL to where the manifest says.
   eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>] [--game-dir <game dir>]
       Registers the mod folder with the Paradox launcher (enable it in a playset),
       in the user dir the game folder's userdir.txt names, as the game finds it;
       the game folder is --game-dir, EU4_GAME_DIR or the one this tool is in.
   eu4-harmony package [<mod dir>] [--out <dir>]
-      Writes a clean folder for upload: no sources, no build output.
+      Writes a clean folder for upload, once every Lua file compiles and
+      every localisation file reads.
   eu4-harmony game <capability> [--<argument> <value>]...
       Sends the running game one request through remote control and prints
       the answer as JSON; eu4-harmony game -h describes the command line.
@@ -79,17 +76,12 @@ impl Args {
     fn value(&self, key: &str) -> Option<&str> {
         self.options.get(key).and_then(|v| v.as_deref())
     }
-
-    fn flag(&self, key: &str) -> bool {
-        self.options.contains_key(key)
-    }
 }
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let result = match raw.first().map(String::as_str) {
         Some("new") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_new(&a)),
-        Some("build") => Args::parse(&raw[1..], &["debug"]).and_then(|a| cmd_build(&a)),
         Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
@@ -132,12 +124,12 @@ fn mod_root(start: &Path) -> Result<PathBuf> {
     let start = plain(start)?;
     let mut dir = Some(start.as_path());
     while let Some(d) = dir {
-        if d.join("descriptor.mod").is_file() && d.join("eu4-harmony").join("manifest.json").is_file() {
+        if d.join("descriptor.mod").is_file() && d.join("eu4-harmony").join(eu4_harmony_manifest::FILE).is_file() {
             return Ok(d.to_path_buf());
         }
         dir = d.parent();
     }
-    Err(format!("{} is not inside an EU4 Harmony mod (no descriptor.mod with eu4-harmony/manifest.json)", start.display()))
+    Err(format!("{} is not inside an EU4 Harmony mod (no descriptor.mod with eu4-harmony/{})", start.display(), eu4_harmony_manifest::FILE))
 }
 
 fn start_dir(args: &Args) -> Result<PathBuf> {
@@ -148,7 +140,7 @@ fn start_dir(args: &Args) -> Result<PathBuf> {
 }
 
 fn read_manifest(root: &Path) -> Result<Manifest> {
-    let path = root.join("eu4-harmony").join("manifest.json");
+    let path = root.join("eu4-harmony").join(eu4_harmony_manifest::FILE);
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     Manifest::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -174,26 +166,7 @@ fn write(path: &Path, text: &str) -> Result<()> {
 
 // ---------- new ----------
 
-/// The SDK crate: `--sdk`, `EU4_HARMONY_SDK`, or the framework checkout this
-/// executable was built in.
-fn find_sdk(explicit: Option<&str>) -> Result<PathBuf> {
-    let is_sdk = |d: &Path| fs::read_to_string(d.join("Cargo.toml")).is_ok_and(|t| t.contains("name = \"eu4-harmony-sdk\""));
-    if let Some(p) = explicit.map(str::to_string).or_else(|| std::env::var("EU4_HARMONY_SDK").ok()) {
-        let p = plain(Path::new(&p))?;
-        return if is_sdk(&p) { Ok(p) } else { Err(format!("{} is not the eu4-harmony-sdk crate", p.display())) };
-    }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let mut dir = exe.parent();
-    while let Some(d) = dir {
-        if is_sdk(&d.join("sdk")) {
-            return plain(&d.join("sdk"));
-        }
-        dir = d.parent();
-    }
-    Err("cannot find the EU4 Harmony SDK; pass --sdk <path to eu4-harmony/sdk> or set EU4_HARMONY_SDK".into())
-}
-
-fn create_mod(parent: &Path, id: &str, name: &str, sdk: &Path) -> Result<PathBuf> {
+fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
     if !valid_id(id) {
         return Err(format!("invalid id {id:?}: use lowercase letters, digits and '-', starting with a letter"));
     }
@@ -205,24 +178,18 @@ fn create_mod(parent: &Path, id: &str, name: &str, sdk: &Path) -> Result<PathBuf
         return Err(format!("{} already exists", root.display()));
     }
     let lib = id.replace('-', "_");
-    let krate = format!("{id}-extension");
-    let sdk = forward_slashes(sdk);
-    let values = [("lib", lib.as_str()), ("crate", krate.as_str()), ("sdk", sdk.as_str())];
     let english = format!("eu4-harmony/localisation/{lib}_l_english.yml");
     let chinese = format!("eu4-harmony/localisation/{lib}_l_simp_chinese.yml");
     let files = [
         ("descriptor.mod", templates::DESCRIPTOR),
-        (".gitignore", templates::GITIGNORE),
-        ("eu4-harmony/manifest.json", templates::MANIFEST),
-        ("eu4-harmony/ui/button.gui", templates::BUTTON_GUI),
+        ("eu4-harmony/manifest.toml", templates::MANIFEST),
+        ("eu4-harmony/lua/main.lua", templates::MAIN_LUA),
+        ("eu4-harmony/ui/single_unitpanel/buttons/button.gui", templates::BUTTON_GUI),
         (english.as_str(), templates::LOC_ENGLISH),
         (chinese.as_str(), templates::LOC_SIMP_CHINESE),
-        ("extension/Cargo.toml", templates::CARGO_TOML),
-        ("extension/.cargo/config.toml", templates::CARGO_CONFIG),
-        ("extension/src/lib.rs", templates::LIB_RS),
     ];
     for (relative, template) in files {
-        write(&root.join(relative), &templates::fill(template, id, name, &values))?;
+        write(&root.join(relative), &templates::fill(template, id, name))?;
     }
     Ok(root)
 }
@@ -233,61 +200,9 @@ fn cmd_new(args: &Args) -> Result<()> {
         Some(d) => PathBuf::from(d),
         None => std::env::current_dir().map_err(|e| e.to_string())?,
     };
-    let sdk = find_sdk(args.value("sdk"))?;
-    let root = create_mod(&parent, id, args.value("name").unwrap_or(id), &sdk)?;
+    let root = create_mod(&parent, id, args.value("name").unwrap_or(id))?;
     println!("created {}", root.display());
-    println!("next: cd {id} && eu4-harmony build && eu4-harmony link, then enable the mod in the Paradox launcher");
-    Ok(())
-}
-
-// ---------- build ----------
-
-/// The cdylib built for the crate at `manifest_path`, from cargo's JSON messages.
-fn built_dll(messages: &[serde_json::Value], manifest_path: &Path) -> Option<PathBuf> {
-    let wanted = forward_slashes(manifest_path).to_lowercase();
-    messages.iter().rev().find_map(|m| {
-        if m["reason"] != "compiler-artifact" {
-            return None;
-        }
-        let path = forward_slashes(Path::new(m["manifest_path"].as_str()?)).to_lowercase();
-        let cdylib = m["target"]["kind"].as_array()?.iter().any(|k| k == "cdylib");
-        if path != wanted || !cdylib {
-            return None;
-        }
-        m["filenames"].as_array()?.iter().filter_map(|f| f.as_str()).find(|f| f.to_lowercase().ends_with(".dll")).map(PathBuf::from)
-    })
-}
-
-fn cmd_build(args: &Args) -> Result<()> {
-    let root = mod_root(&start_dir(args)?)?;
-    let manifest = read_manifest(&root)?;
-    let target = manifest.extension.as_deref().ok_or("the manifest declares no extension")?;
-    let crate_dir = root.join("extension");
-    let cargo_toml = crate_dir.join("Cargo.toml");
-    if !cargo_toml.is_file() {
-        return Err(format!("no extension crate at {}", crate_dir.display()));
-    }
-    let mut cargo = Command::new("cargo");
-    cargo.arg("build").arg("--message-format=json-render-diagnostics").current_dir(&crate_dir).stdout(Stdio::piped());
-    if !args.flag("debug") {
-        cargo.arg("--release");
-    }
-    let mut child = cargo.spawn().map_err(|e| format!("cannot run cargo: {e}"))?;
-    let mut messages = Vec::new();
-    for line in BufReader::new(child.stdout.take().unwrap()).lines() {
-        let line = line.map_err(|e| e.to_string())?;
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-            messages.push(value);
-        }
-    }
-    if !child.wait().map_err(|e| e.to_string())?.success() {
-        return Err("cargo build failed".into());
-    }
-    let dll = built_dll(&messages, &plain(&cargo_toml)?).ok_or("cargo built no DLL for the extension crate (is crate-type cdylib?)")?;
-    let dest = target.split(['/', '\\']).fold(root.join("eu4-harmony"), |p, part| p.join(part));
-    fs::create_dir_all(dest.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::copy(&dll, &dest).map_err(|e| format!("copy {} to {}: {e}", dll.display(), dest.display()))?;
-    println!("built {}", dest.display());
+    println!("next: cd {id} && eu4-harmony link, then enable the mod in the Paradox launcher");
     Ok(())
 }
 
@@ -358,24 +273,18 @@ fn copy_file(from: &Path, to: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 /// Copies what players need into `out`: the descriptor, thumbnail, game
-/// resource folders and the framework files the manifest names.
+/// resource folders, and in `eu4-harmony/` the manifest, the Lua files, the
+/// interface fragments where the layout puts them, the texts and the mod's
+/// own files in `data/`.
 fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     let manifest = read_manifest(root)?;
-    if !manifest.built_for(abi::API_VERSION) {
-        return Err(format!("manifest api_version {} does not match this EU4 Harmony ({})", manifest.api_version, abi::API_VERSION));
+    let provided = eu4_harmony_remote::API_VERSION;
+    if !manifest.built_for(provided) {
+        return Err(format!("manifest api_version {} does not match this EU4 Harmony ({provided})", manifest.api_version));
     }
     let harmony = root.join("eu4-harmony");
-    if let Some(ext) = &manifest.extension {
-        let dll = fs::read(harmony.join(ext)).map_err(|_| format!("eu4-harmony/{ext} is missing; run eu4-harmony build first"))?;
-        if !dll.windows(abi::ENTRY_SYMBOL.len()).any(|w| w == abi::ENTRY_SYMBOL.as_bytes()) {
-            return Err(format!("eu4-harmony/{ext} does not export {}", abi::ENTRY_SYMBOL));
-        }
-    }
-    for ui in &manifest.ui {
-        if !harmony.join(&ui.file).is_file() {
-            return Err(format!("UI fragment eu4-harmony/{} is missing", ui.file));
-        }
-    }
+    let layout = eu4_harmony_manifest::layout(&harmony);
+    let scripts = lua_files(&harmony.join("lua"))?;
     let texts = localisation_files(&harmony.join("localisation"))?;
     if out.exists() {
         // Only replace an earlier package of this same mod.
@@ -395,22 +304,58 @@ fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     for entry in fs::read_dir(root).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().to_string();
-        let skip = name.starts_with('.') || ["extension", "eu4-harmony", "target"].contains(&name.as_str());
+        let skip = name.starts_with('.') || name == "eu4-harmony";
         if entry.file_type().map_err(|e| e.to_string())?.is_dir() && !skip {
             copy_tree(&entry.path(), &out.join(&name), &mut files)?;
         }
     }
-    copy_file(&harmony.join("manifest.json"), &out.join("eu4-harmony").join("manifest.json"), &mut files)?;
-    for ui in &manifest.ui {
-        copy_file(&harmony.join(&ui.file), &out.join("eu4-harmony").join(&ui.file), &mut files)?;
+    let inside = out.join("eu4-harmony");
+    copy_file(&harmony.join(eu4_harmony_manifest::FILE), &inside.join(eu4_harmony_manifest::FILE), &mut files)?;
+    for script in scripts {
+        let relative = script.strip_prefix(&harmony).map_err(|e| e.to_string())?;
+        copy_file(&script, &inside.join(relative), &mut files)?;
     }
-    if let Some(ext) = &manifest.extension {
-        copy_file(&harmony.join(ext), &out.join("eu4-harmony").join(ext), &mut files)?;
+    for ui in &layout.ui {
+        copy_file(&harmony.join(&ui.file), &inside.join(&ui.file), &mut files)?;
     }
     for path in texts {
-        copy_file(&path, &out.join("eu4-harmony").join("localisation").join(path.file_name().unwrap()), &mut files)?;
+        copy_file(&path, &inside.join("localisation").join(path.file_name().unwrap()), &mut files)?;
+    }
+    if harmony.join("data").is_dir() {
+        copy_tree(&harmony.join("data"), &inside.join("data"), &mut files)?;
     }
     Ok(files)
+}
+
+/// The `.lua` files under a mod's `eu4-harmony/lua/`, once each of them
+/// compiles.
+fn lua_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    fn walk(dir: &Path, found: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for path in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.extension().is_some_and(|x| x == "lua") {
+                found.push(path);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(dir, &mut found);
+    found.sort();
+    let lua = mlua::Lua::new();
+    let mut problems = Vec::new();
+    for path in &found {
+        let source = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let name = format!("@{}", forward_slashes(path.strip_prefix(dir).unwrap_or(path)));
+        if let Err(e) = lua.load(source).set_name(name).set_mode(mlua::ChunkMode::Text).into_function() {
+            problems.push(e.to_string());
+        }
+    }
+    if !problems.is_empty() {
+        return Err(format!("eu4-harmony/lua does not compile:\n  {}", problems.join("\n  ")));
+    }
+    Ok(found)
 }
 
 /// The `.yml` files of a mod's `eu4-harmony/localisation/`, once each of them
@@ -465,55 +410,54 @@ mod tests {
         assert_eq!(strip_location(d), "name=\"X\"\nversion=\"1\"\n");
     }
 
-    /// The template mod, which the workspace builds, claims the interface
-    /// version the framework implements.
+    /// The template mod is written for the catalogue the framework serves.
     #[test]
-    fn the_template_mod_is_for_this_interface_version() {
+    fn the_template_mod_is_for_this_catalogue_version() {
         let manifest = Manifest::parse(templates::MANIFEST).unwrap();
-        assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), (templates::ID, abi::API_VERSION));
+        assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), (templates::ID, eu4_harmony_remote::API_VERSION));
     }
 
     #[test]
     fn new_mod_has_every_file_filled_in() {
         let dir = temp("new");
-        let root = create_mod(&dir, "my-mod", "My Mod", Path::new("D:/sdk")).unwrap();
+        let root = create_mod(&dir, "my-mod", "My Mod").unwrap();
         let manifest = read_manifest(&root).unwrap();
-        assert_eq!(
-            (manifest.id.as_str(), manifest.api_version.as_str(), manifest.extension.as_deref()),
-            ("my-mod", abi::API_VERSION, Some("win64/my_mod.dll"))
-        );
+        assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), ("my-mod", eu4_harmony_remote::API_VERSION));
+        assert_eq!(manifest.description.as_deref(), Some("MY_MOD_DESCRIPTION"));
+        let layout = eu4_harmony_manifest::layout(&root.join("eu4-harmony"));
+        assert_eq!(layout.extension.as_deref(), Some("lua/main.lua"));
+        assert_eq!(layout.ui.len(), 1);
+        assert_eq!((layout.ui[0].into.as_str(), layout.ui[0].area.as_deref()), ("single_unitpanel", Some("buttons")));
         let english = "eu4-harmony/localisation/my_mod_l_english.yml";
         for f in [
             "descriptor.mod",
-            ".gitignore",
-            "eu4-harmony/ui/button.gui",
+            "eu4-harmony/manifest.toml",
+            "eu4-harmony/lua/main.lua",
+            "eu4-harmony/ui/single_unitpanel/buttons/button.gui",
             english,
             "eu4-harmony/localisation/my_mod_l_simp_chinese.yml",
-            "extension/Cargo.toml",
-            "extension/.cargo/config.toml",
-            "extension/src/lib.rs",
         ] {
             let text = fs::read_to_string(root.join(f)).unwrap();
-            assert!(!text.contains("@@"), "{f} has an unfilled placeholder");
             for name in [templates::ID, templates::NAME, templates::LIB, templates::KEY] {
                 assert!(!text.contains(name), "{f} still names the template mod");
             }
         }
-        let lib = fs::read_to_string(root.join("extension/src/lib.rs")).unwrap();
-        assert!(lib.contains("game.text(\"MY_MOD_TOOLTIP\")") && lib.contains("log!(\"{name} clicked"));
+        let main = fs::read_to_string(root.join("eu4-harmony/lua/main.lua")).unwrap();
+        assert!(main.contains("text.get(\"MY_MOD_TOOLTIP\")") && main.contains("my-mod.log"));
+        assert!(lua_files(&root.join("eu4-harmony/lua")).is_ok());
         let (texts, problems) = eu4_harmony_loc::load_dir(&root.join("eu4-harmony/localisation"));
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(texts.text(eu4_harmony_loc::Language::English, "MY_MOD_TOOLTIP").as_deref(), Some("§YMy Mod§!\nClick to write a line to the log."));
-        assert!(fs::read_to_string(root.join("extension/Cargo.toml")).unwrap().contains("path = \"D:/sdk\""));
-        assert!(create_mod(&dir, "my-mod", "My Mod", Path::new("D:/sdk")).is_err());
-        assert!(create_mod(&dir, "Bad", "x", Path::new("D:/sdk")).is_err());
+        assert!(texts.text(eu4_harmony_loc::Language::SimpChinese, "MY_MOD_DESCRIPTION").is_some());
+        assert!(create_mod(&dir, "my-mod", "My Mod").is_err());
+        assert!(create_mod(&dir, "Bad", "x").is_err());
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn link_points_the_launcher_at_the_mod_folder() {
         let dir = temp("link");
-        let root = create_mod(&dir, "linked", "Linked", Path::new("D:/sdk")).unwrap();
+        let root = create_mod(&dir, "linked", "Linked").unwrap();
         let user = dir.join("user");
         fs::create_dir_all(&user).unwrap();
         let file = link_mod(&root, &user).unwrap();
@@ -537,14 +481,18 @@ mod tests {
     #[test]
     fn package_keeps_only_what_players_need() {
         let dir = temp("package");
-        let root = create_mod(&dir, "pkg", "Pkg", Path::new("D:/sdk")).unwrap();
+        let root = create_mod(&dir, "pkg", "Pkg").unwrap();
         let out = dir.join("pkg-package");
-        assert!(package_mod(&root, &out).unwrap_err().contains("run eu4-harmony build"));
-        write(&root.join("eu4-harmony/win64/pkg.dll"), "MZ...eu4h_extension_main...").unwrap();
-        write(&root.join("eu4-harmony/notes.txt"), "not declared").unwrap();
+        write(&root.join("eu4-harmony/lua/range/bfs.lua"), "return {}").unwrap();
+        write(&root.join("eu4-harmony/data/units.json"), "{}").unwrap();
+        write(&root.join("eu4-harmony/notes.txt"), "not where the layout puts anything").unwrap();
+        write(&root.join("eu4-harmony/ui/stray.gui"), "x").unwrap();
         write(&root.join("interface/pkg.gfx"), "spriteTypes = {}").unwrap();
-        write(&root.join("extension/target/debug/junk.txt"), "x").unwrap();
         write(&root.join(".git/HEAD"), "ref").unwrap();
+        write(&root.join(".luarc.json"), "{}").unwrap();
+        write(&root.join("eu4-harmony/lua/broken.lua"), "return {").unwrap();
+        assert!(package_mod(&root, &out).unwrap_err().contains("broken.lua"));
+        fs::remove_file(root.join("eu4-harmony/lua/broken.lua")).unwrap();
         write(&root.join("eu4-harmony/localisation/broken_l_english.yml"), "l_english:\n PKG_X:0 missing quotes\n").unwrap();
         assert!(package_mod(&root, &out).unwrap_err().contains("broken_l_english.yml: line 2"));
         fs::remove_file(root.join("eu4-harmony/localisation/broken_l_english.yml")).unwrap();
@@ -554,11 +502,13 @@ mod tests {
             files,
             [
                 "descriptor.mod",
+                "eu4-harmony/data/units.json",
                 "eu4-harmony/localisation/pkg_l_english.yml",
                 "eu4-harmony/localisation/pkg_l_simp_chinese.yml",
-                "eu4-harmony/manifest.json",
-                "eu4-harmony/ui/button.gui",
-                "eu4-harmony/win64/pkg.dll",
+                "eu4-harmony/lua/main.lua",
+                "eu4-harmony/lua/range/bfs.lua",
+                "eu4-harmony/manifest.toml",
+                "eu4-harmony/ui/single_unitpanel/buttons/button.gui",
                 "interface/pkg.gfx"
             ]
         );
@@ -568,17 +518,5 @@ mod tests {
         fs::create_dir_all(&other).unwrap();
         assert!(package_mod(&root, &other).is_err());
         let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn finds_the_dll_of_the_extension_crate() {
-        let crate_toml = Path::new("D:/m/extension/Cargo.toml");
-        let messages = vec![
-            serde_json::json!({"reason":"compiler-artifact","manifest_path":"D:\\sdk\\Cargo.toml","target":{"kind":["lib"]},"filenames":["D:/t/libsdk.rlib"]}),
-            serde_json::json!({"reason":"compiler-artifact","manifest_path":"D:\\m\\extension\\Cargo.toml","target":{"kind":["cdylib"]},"filenames":["D:/m/extension/target/release/m.dll","D:/m/extension/target/release/m.dll.lib"]}),
-            serde_json::json!({"reason":"build-finished","success":true}),
-        ];
-        assert_eq!(built_dll(&messages, crate_toml), Some(PathBuf::from("D:/m/extension/target/release/m.dll")));
-        assert_eq!(built_dll(&messages[..1], crate_toml), None);
     }
 }

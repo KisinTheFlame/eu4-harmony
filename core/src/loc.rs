@@ -127,7 +127,12 @@ mod tests {
             descriptor_file: dir.join("t.mod"),
             descriptor: crate::mods::Descriptor { name: "T".into(), path: Some(dir.clone()), archive: None },
             dir: dir.clone(),
-            manifest: serde_json::from_str(r#"{ "id": "t", "api_version": "0.1" }"#).unwrap(),
+            manifest: crate::mods::Manifest::parse(
+                "id = \"t\"
+api_version = \"0.2\"",
+            )
+            .unwrap(),
+            layout: Default::default(),
         };
         let mut plan = Plan::default();
         // A German player in a game that runs in English.

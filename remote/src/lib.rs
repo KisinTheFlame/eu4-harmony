@@ -538,8 +538,13 @@ pub struct ProvinceId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArmyId(pub u64);
 
+/// A decimal string, or in Lua's form (`eu4_harmony_checks::form`) the
+/// integer itself.
 impl Serialize for ArmyId {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if eu4_harmony_checks::form::lua() {
+            return serializer.serialize_u64(self.0);
+        }
         serializer.collect_str(&self.0)
     }
 }
