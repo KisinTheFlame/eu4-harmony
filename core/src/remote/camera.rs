@@ -2,7 +2,7 @@
 use crate::game::{self};
 use eu4_harmony_remote::{
     camera::{Camera, CameraAnswer, CameraRequest},
-    Error, ProvinceId,
+    Code, Error, ProvinceId,
 };
 
 layer! {
@@ -19,8 +19,11 @@ fn camera(c: game::camera::Camera) -> Camera {
 pub fn run(request: CameraRequest, game: &mut (impl Layer + ?Sized)) -> Result<CameraAnswer, Error> {
     Ok(match request {
         CameraRequest::Get {} => CameraAnswer::Get(camera(game.camera()?)),
-        CameraRequest::LookAtProvince { province } => CameraAnswer::LookAtProvince(camera(game.look_at_province(province.0)?)),
-        CameraRequest::LookAt { x, y } => CameraAnswer::LookAt(camera(game.look_at(x, y)?)),
+        CameraRequest::LookAt { province, x, y } => CameraAnswer::LookAt(camera(match (province, x, y) {
+            (Some(province), None, None) => game.look_at_province(province.0)?,
+            (None, Some(x), Some(y)) => game.look_at(x, y)?,
+            _ => return Err(Error::new(Code::InvalidArgument, "look_at takes a province, or x and y")),
+        })),
         CameraRequest::Zoom { height } => CameraAnswer::Zoom(camera(game.zoom(height)?)),
     })
 }

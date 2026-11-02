@@ -150,6 +150,30 @@ pub fn can_attack(_: Caller, id: u64, target: u64, province: u32) -> GResult<boo
     Ok(unit != army && world::can_attack(m, army, unit)?)
 }
 
+/// Whether an own land army may attack an army the player sees, wherever
+/// that is.
+pub fn can_attack_seen(_: Caller, id: u64, target: u64) -> GResult<bool> {
+    let m = game()?;
+    let ctx = context(m)?;
+    if !events::visibility_current(m, &ctx) {
+        return Err(checks::visibility_not_current().into());
+    }
+    let army = world::own_land_army(m, &ctx, id)?;
+    for (_, address) in with_state(|s| s.geography.land_provinces(m, &ctx))? {
+        if let Some((_, unit)) = world::province_armies(m, &ctx, address)?.into_iter().find(|(a, _)| a.id == target) {
+            return Ok(unit != army && world::can_attack(m, army, unit)?);
+        }
+    }
+    Err(checks::not_seen(target).into())
+}
+
+/// Whether an own land army may go from a province to a neighboring one
+/// now: the neighbor is open to it (military access and terrain; forts are
+/// not considered), and so is the strait between them, if any.
+pub fn can_step(caller: Caller, id: u64, from: u32, to: u32) -> GResult<bool> {
+    Ok(can_enter(caller, id, to)? && strait_open(caller, id, from, to)?)
+}
+
 /// The route the game itself would choose for an own land army; empty when
 /// `goal` is where the army is. [`Status::NotFound`] when there is none.
 /// Asked by an extension, [`Status::NotReady`] while the game is paused, as

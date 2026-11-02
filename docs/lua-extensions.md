@@ -195,6 +195,22 @@ The capability layer (`core/src/game/`) is the module everything rests on: it ho
 
 The catalogue, group by group, reviewed before it is built: each capability's name and shape after what a player sees and does. Remote control moved onto it, with its command line names changed; `describe` and `wiki` made from it; `game help` removed.
 
+Reviewed 2026-11-03. In Lua a capability is `game.<group>.<name>(...)`, in remote control `<group>.<name>`:
+
+- **Values**: a country is its tag on both sides; a province its number; an army its ID, an integer in Lua and a decimal string in JSON. A date is `{ year, month, day }` in Lua, compared with `<` and `==` and written `1444.11.11` by `tostring`, and `"1444.11.11"` in JSON. A province's `kind` is `land`, `sea`, `lake` or `wasteland`.
+- **`session`**: `get`, the session's number, the player's country and the date; the process is `menu`'s, and a capability that needs visibility to have caught up with the date answers `not_ready` until it has.
+- **`time`**: `get` (date, paused, speed), `pause`, `resume`, `set_speed`; `advance` for remote clients only.
+- **`country`**: `get`, `hostile`.
+- **`province`**: `list`, `get` (without what can be recruited there), `neighbors`.
+- **`army`**: `get` and `list` (with the route still to go, `kind` army or navy, `blocked`, the reasons it cannot take orders now, and `route_by`: `this_mod`, `other_mod`, `player_or_game` or none), `at` (the armies the player sees in a province), `route_to` (the game's route, or the reason there is none), `can_step` (whether the army may go from a province to a neighboring one now: access, terrain, straits), `can_attack` (an army it sees, wherever it is), `move`, `stop`, `selected`.
+- **`recruit`**: `options` (each kind, whether it can be recruited in a province now and why not), `order`.
+- **`question`**: `list`, `answer`. **`offer`**: `list`, `accept`, `decline`.
+- **`diplomacy`**: `war_goals`, `declare_war` (allies to call: `all`, `none` or a list of tags), `offer_peace`, `propose_alliance`.
+- **`console`**: `run`. **`camera`**: `get`, `look_at` (a province or a map position), `zoom`.
+- **Extensions only**: `game.ui.<element>` with `visible`, `enabled`, `text` and `tooltip`; `map.paint` and `map.release`; texts are the global `text.get` and `text.language` (remote control keeps `text.language`).
+- **Remote control only**: `menu`, `events`, `screenshot`, `time.advance`, `describe` (with `api_version`).
+- **Events**: the same names on both sides (`session`, `session_ended`, `day`, `army_ordered`, `army_defeated`); `frame`, `button`, `map_lost` and `save` are extensions' only.
+
 ### L2 Lua host
 
 Lua 5.4 in the core; a Lua state per extension with the sandbox; `main.lua` and its handlers, run as tasks, with `spawn`, including `on_save` and `on_session`'s save data; the `game` adapter over the catalogue; results and errors, the log's deduplication and the notice; the time limit and its watcher; `log`, `json` and `mod_files`; `manifest.toml` and the layout by convention, with the startup report. Native extensions removed: `abi/`, `sdk/`, `ext.rs`, loading DLLs.

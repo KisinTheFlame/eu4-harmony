@@ -28,7 +28,7 @@
 
 ```powershell
 cd "<游戏目录>\eu4-harmony"
-.\eu4-harmony game help                    # 一局怎么进行、每种错误的含义、全部能力
+.\eu4-harmony wiki remote                 # 一局怎么进行、每个退出码的含义
 .\eu4-harmony game menu                    # 游戏在哪里：main_menu、starting 或 game
 .\eu4-harmony game menu start FRA          # 以法兰西开新局，准备好后回答
 .\eu4-harmony game question list           # 等待玩家回答的游戏事件
@@ -47,17 +47,17 @@ cd "<游戏目录>\eu4-harmony"
 | 组 | 能力 |
 | --- | --- |
 | 主菜单 | `menu`（游戏在哪里）、`menu.saves`、`menu.load`、`menu.start`、`menu.return` |
-| 会话与时间 | `session`、`time`、`time.pause`、`time.resume`、`time.speed`、`time.advance`（让若干天过去并等待，带回途中的事件） |
-| 国家与省份 | `country.get`（国库、人力、稳定度、威望、君主点数、战争、盟友、附属国与宗主国及附属类型、宿敌）、`country.hostile`、`province.list`、`province.get`（名字、所有者、发展度、地形、要塞、建筑、此地能招募什么）、`province.neighbors` |
-| 军队 | `army.list`、`army.get`、`army.in_province`、`army.route`、`army.find_route`、`army.can_enter`、`army.strait_open`、`army.can_attack`、`army.move`、`army.stop`、`army.selected` |
-| 招募 | `recruit`（在一个省份招募某一类的一个团或一艘船） |
+| 会话与时间 | `session.get`、`time.get`、`time.pause`、`time.resume`、`time.set_speed`、`time.advance`（让若干天过去并等待，带回途中的事件） |
+| 国家与省份 | `country.get`（国库、人力、稳定度、威望、君主点数、战争、盟友、附属国与宗主国及附属类型、宿敌）、`country.hostile`、`province.list`、`province.get`（名字、所有者、发展度、地形、要塞、建筑）、`province.neighbors` |
+| 军队 | `army.list`、`army.get`（带剩余路线和不能接受命令的原因）、`army.at`、`army.route_to`、`army.can_step`、`army.can_attack`、`army.move`、`army.stop`、`army.selected` |
+| 招募 | `recruit.options`（一个省份能招募什么、为什么不能）、`recruit.order`（招募某一类的一个团或一艘船） |
 | 事件与提议 | `question.list`、`question.answer`（等待玩家回答的游戏事件）；`offer.list`、`offer.accept`、`offer.decline`（其他国家的提议） |
 | 外交 | `diplomacy.war_goals`、`diplomacy.declare_war`（召集盟友参战）、`diplomacy.offer_peace`（白和平）、`diplomacy.propose_alliance` |
 | 游戏控制台 | `console.run`（像玩家那样输入一条命令，带回它的输出） |
-| 镜头与截图 | `camera`、`camera.look_at_province`、`camera.look_at`、`camera.zoom`；`screenshot`（玩家看到的画面，PNG） |
-| 事件流与说明 | `events`（编号的事件：新会话、新的一天、军队被下令或被击败）、`describe`（运行中的游戏给出的全部能力）、`text.language` |
+| 镜头与截图 | `camera.get`、`camera.look_at`（省份或地图位置）、`camera.zoom`；`screenshot`（玩家看到的画面，PNG） |
+| 事件流与说明 | `events`（编号的事件：会话开始或结束、新的一天、军队被下令或被击败）、`describe`（运行中的游戏给出的能力目录版本和全部能力）、`text.language` |
 
-完整的列表，连同每个参数和结果，见 `eu4-harmony game help`（不需要游戏运行），单个能力用 `eu4-harmony game help <能力>`；`eu4-harmony game describe` 则向运行中的游戏询问。每项能力在游戏里如何工作，见 [docs/remote-control.md](docs/remote-control.md)。
+完整的列表，连同每个参数和结果，见 `eu4-harmony wiki`（不需要游戏运行）：`eu4-harmony wiki army` 看一组，`eu4-harmony wiki army move` 看单个能力，`eu4-harmony wiki errors` 看每种错误的含义；`eu4-harmony game describe` 则向运行中的游戏询问。每项能力在游戏里如何工作，见 [docs/remote-control.md](docs/remote-control.md)。
 
 ## 写一个 Mod（开发者）
 
@@ -77,7 +77,7 @@ eu4-harmony link                          # 在用户目录 mod\ 下登记，之
 eu4-harmony package                       # 生成上传用的干净目录 ..\my-mod-package
 ```
 
-游戏运行时，`eu4-harmony game` 通过远程控制（见上文）向游戏发请求：`eu4-harmony game session` 读出日期和玩家的国家，`eu4-harmony game help` 列出全部能力。
+游戏运行时，`eu4-harmony game` 通过远程控制（见上文）向游戏发请求：`eu4-harmony game session get` 读出日期和玩家的国家，`eu4-harmony wiki` 列出全部能力。
 
 扩展实现 `eu4_harmony_sdk::Extension`，每类事件一个方法；所有能力都是回调参数 `Game` 上的方法。单元测试用 `eu4_harmony_sdk::testing::FakeGame` 代替游戏。最小的示例就是 `eu4-harmony new` 生成的 Mod；完整的例子是 eu4-regional-combat 仓库里的区域作战 Mod。
 

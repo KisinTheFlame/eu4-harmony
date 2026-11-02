@@ -2,7 +2,8 @@
 use super::tag;
 use crate::game::{self, provinces as layer};
 use eu4_harmony_remote::{
-    provinces::{Development, Fort, Neighbor, Province, ProvinceAnswer, ProvinceRequest, ProvinceSnapshot, Recruit, UnitKind},
+    provinces::{Development, Fort, Neighbor, Province, ProvinceAnswer, ProvinceKind, ProvinceRequest, ProvinceSnapshot},
+    recruiting::UnitKind,
     Error, ProvinceId,
 };
 
@@ -21,9 +22,12 @@ pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result
                 .filter(|p| p.id != 0)
                 .map(|p| Province {
                     id: ProvinceId(p.id),
-                    land: p.land,
-                    lake: p.lake,
-                    impassable: p.impassable,
+                    kind: match (p.land, p.lake, p.impassable) {
+                        (_, true, _) => ProvinceKind::Lake,
+                        (true, _, true) => ProvinceKind::Wasteland,
+                        (true, _, false) => ProvinceKind::Land,
+                        (false, _, _) => ProvinceKind::Sea,
+                    },
                     visible: p.visible,
                     owner: p.owner.map(tag),
                     controller: p.controller.map(tag),
@@ -51,7 +55,6 @@ fn snapshot(s: layer::Snapshot) -> ProvinceSnapshot {
         terrain: s.terrain,
         fort: Fort { level: s.fort.level, mothballed: s.fort.mothballed },
         buildings: s.buildings,
-        recruit: s.recruit.into_iter().map(|r| Recruit { kind: kind(r.kind), unit_type: r.unit_type, allowed: r.allowed, reasons: r.reasons }).collect(),
     }
 }
 

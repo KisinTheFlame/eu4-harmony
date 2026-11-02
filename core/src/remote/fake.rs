@@ -239,7 +239,7 @@ impl armies::Layer for Fake {
     fn army(&mut self, id: u64) -> GResult<game::armies::Army> {
         self.call(format!("army {id}"));
         match id {
-            ARMY => Ok(army()),
+            ARMY => Ok(game::armies::Army { route_len: self.route.len() as u32, ..army() }),
             FLEET => Ok(game::armies::Army { id: FLEET, owner: tur(), ..Default::default() }),
             _ => Err(eu4_harmony_checks::armies::not_own(id).into()),
         }
@@ -268,18 +268,13 @@ impl armies::Layer for Fake {
         Ok(self.route.clone())
     }
 
-    fn can_enter(&mut self, id: u64, province: u32) -> GResult<bool> {
-        self.call(format!("can enter {id} {province}"));
-        Ok(province == 151)
+    fn can_step(&mut self, id: u64, from: u32, to: u32) -> GResult<bool> {
+        self.call(format!("can step {id} {from} {to}"));
+        Ok(to == 151)
     }
 
-    fn strait_open(&mut self, id: u64, from: u32, to: u32) -> GResult<bool> {
-        self.call(format!("strait open {id} {from} {to}"));
-        Ok(false)
-    }
-
-    fn can_attack(&mut self, id: u64, target: u64, province: u32) -> GResult<bool> {
-        self.call(format!("can attack {id} {target} {province}"));
+    fn can_attack(&mut self, id: u64, target: u64) -> GResult<bool> {
+        self.call(format!("can attack {id} {target}"));
         Ok(target == ENEMY)
     }
 
@@ -524,6 +519,10 @@ impl time::Layer for Fake {
 /// The Ottomans recruit in Edirne (149); in Constantinople (151), not
 /// theirs, the game refuses with its reason.
 impl recruiting::Layer for Fake {
+    fn province_snapshot(&mut self, province: u32) -> GResult<game::provinces::Snapshot> {
+        provinces::Layer::province(self, province)
+    }
+
     fn recruit(&mut self, province: u32, kind: game::provinces::UnitKind) -> GResult<()> {
         self.call(format!("recruit {province} {}", kind.key()));
         match province {

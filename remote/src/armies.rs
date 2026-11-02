@@ -12,55 +12,42 @@ group! {
     game Get "get" {
         /// The army.
         army: ArmyId,
-    } -> Army, "the army: id, owner, province (null for a fleet, of which only id and owner are read), land, the states that stop orders (in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), regiments, route_len, destination, and route_source: none, external (the player or the game) or extension";
+    } -> Army, "the army: id, owner, kind (army or navy; of a navy only id, owner and kind are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order) and route_by (who set the route: this_mod, other_mod or player_or_game; null without one)";
     /// The player's armies and fleets.
     game List "list" {} -> Vec<Army>, "the armies and fleets, each as army.get answers it";
-    /// The land armies in a province the player can see; none under fog of
-    /// war. Not ready while visibility is not current.
-    game InProvince "in_province" {
+    /// The land armies the player sees in a province; none under fog of
+    /// war. Not ready while visibility has not caught up with the date.
+    game At "at" {
         /// The province.
         province: ProvinceId,
-    } -> Vec<Army>, "the armies there, each as army.get answers it";
-    /// The provinces on the route an army of the player's is following.
-    game Route "route" {
+    } -> Vec<Army>, "the armies there, each as army.get answers it, the route read for the player's own only";
+    /// The route the game itself would choose for an army of the player's;
+    /// not_found, with the reason, when there is none.
+    game RouteTo "route_to" {
         /// The player's land army.
         army: ArmyId,
-    } -> Vec<ProvinceId>, "the provinces still to go, in order";
-    /// Whether an army of the player's may enter a province now (military
-    /// access and terrain; forts are not considered).
-    game CanEnter "can_enter" {
-        /// The player's land army.
-        army: ArmyId,
-        /// The province.
+        /// Where it should go.
         province: ProvinceId,
-    } -> bool, "whether it may";
-    /// Whether the strait between two neighboring provinces is open to an
-    /// army of the player's.
-    game StraitOpen "strait_open" {
+    } -> Vec<ProvinceId>, "the provinces on the route, in order; empty when the army is there already";
+    /// Whether an army of the player's may go from a province to a
+    /// neighboring one now: military access and terrain, and the strait
+    /// between them, if any, open to it; forts are not considered.
+    game CanStep "can_step" {
         /// The player's land army.
         army: ArmyId,
-        /// One side of the strait.
+        /// The province it would go from.
         from: ProvinceId,
-        /// The other side.
+        /// The neighboring province it would go to.
         to: ProvinceId,
-    } -> bool, "whether it is open";
-    /// Whether an army of the player's may attack an army it can see in a
-    /// province.
+    } -> bool, "whether it may";
+    /// Whether an army of the player's may attack an army the player sees,
+    /// wherever that is.
     game CanAttack "can_attack" {
         /// The player's land army.
         army: ArmyId,
         /// The army to attack.
         target: ArmyId,
-        /// Where the target is.
-        province: ProvinceId,
     } -> bool, "whether it may";
-    /// The route the game itself would choose for an army of the player's.
-    game FindRoute "find_route" {
-        /// The player's land army.
-        army: ArmyId,
-        /// Where it should go.
-        goal: ProvinceId,
-    } -> Vec<ProvinceId>, "the provinces on the route, in order; empty when the army is there already";
     /// Orders an army of the player's along the game's route, as the player
     /// would, also while the game is paused. Done means the route is set, not
     /// that the army has arrived.
@@ -68,7 +55,7 @@ group! {
         /// The player's land army.
         army: ArmyId,
         /// Where it should go.
-        goal: ProvinceId,
+        province: ProvinceId,
     } -> (), "nothing";
     /// Stops an army of the player's where it is, as the player would, also
     /// while the game is paused.
@@ -80,42 +67,59 @@ group! {
     game Selected "selected" {} -> ArmyId, "the army's id";
 }
 
-/// Who set the route an army is following.
+/// Whether an army fights on land or at sea.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RouteSource {
-    /// The army has no route.
-    None,
-    /// The player (remote control included) or the game itself.
-    External,
-    /// An extension, which keeps moving the army until someone else orders it.
-    Extension,
+pub enum ArmyKind {
+    Army,
+    Navy,
 }
 
-/// A land army, or a fleet, of which only the ID and owner are read.
+/// What stops an army taking orders now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Blocked {
+    InBattle,
+    Sieging,
+    Retreating,
+    Exiled,
+    MovementLocked,
+    /// It is attached to another army.
+    Attached,
+    /// Other armies are attached to it.
+    HasFollowers,
+    /// It runs a task of the game's own (such as hunting rebels) or is
+    /// otherwise not idle.
+    Busy,
+}
+
+/// Who set the route an army follows, as the caller sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteBy {
+    /// The calling extension, and nobody changed it since.
+    ThisMod,
+    /// Another extension, which keeps moving the army until someone else
+    /// orders it.
+    OtherMod,
+    /// The player (remote control included) or the game itself.
+    PlayerOrGame,
+}
+
+/// An army, or a navy, of which only the ID, owner and kind are read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Army {
     pub id: ArmyId,
     pub owner: CountryTag,
-    /// Where it is; none for a fleet.
+    pub kind: ArmyKind,
+    /// Where it is; none for a navy.
     pub province: Option<ProvinceId>,
-    pub land: bool,
-    pub in_battle: bool,
-    pub sieging: bool,
-    pub retreating: bool,
-    pub exiled: bool,
-    pub movement_locked: bool,
-    /// Attached to another army.
-    pub attached: bool,
-    /// Other armies are attached to this one.
-    pub has_followers: bool,
-    /// Running a task of the game's own (such as hunting rebels) or otherwise
-    /// not idle.
-    pub busy: bool,
     pub regiments: u32,
-    /// Provinces left on its route; read for the player's own armies only.
-    pub route_len: u32,
-    /// The last province of its route.
-    pub destination: Option<ProvinceId>,
-    pub route_source: RouteSource,
+    /// What stops it taking orders now; empty when it can take them.
+    pub blocked: Vec<Blocked>,
+    /// The provinces still to go, in order; read for the player's own
+    /// armies only.
+    pub route: Vec<ProvinceId>,
+    /// Who set its route; none without one.
+    pub route_by: Option<RouteBy>,
 }

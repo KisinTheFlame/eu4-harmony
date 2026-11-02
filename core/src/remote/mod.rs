@@ -580,12 +580,24 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     use eu4_harmony_remote::{events::Event, ArmyId, Date};
     use game::{events::Change, Heard};
     let event = |heard| match heard {
-        Heard::Session(session) => Event::Session { session },
+        Heard::Session(number) => Event::Session { number },
         Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
         Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
         Heard::Day(date) => Event::Day { date: Date(date) },
     };
     frame.heard().into_iter().map(event).collect()
+}
+
+/// The session is being left, for `reason` (`abi::SESSION_ENDED_*`), as
+/// extensions hear it.
+pub(crate) fn session_ended(reason: u32) {
+    use eu4_harmony_remote::events::{Event, SessionEnd};
+    let reason = match reason {
+        eu4_harmony_abi::SESSION_ENDED_LOAD => SessionEnd::Load,
+        eu4_harmony_abi::SESSION_ENDED_NEW_GAME => SessionEnd::NewGame,
+        _ => SessionEnd::Return,
+    };
+    ENGINE.record([Event::SessionEnded { reason }]);
 }
 
 /// At a game's safe frame: keeps what extensions just heard, then runs.

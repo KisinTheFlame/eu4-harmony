@@ -14,7 +14,7 @@ group! {
     /// UI included, as a PNG: in the main menu and in a game. The game
     /// shows no frame of its own while a save loads, and the answer then
     /// waits for the first one after the load.
-    anywhere Take "" {
+    remote_anywhere Take "" {
         /// The image's size in percent of the frame's, 1 to 100; absent for
         /// 100.
         scale: Option<u32>,

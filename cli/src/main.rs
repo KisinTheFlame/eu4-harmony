@@ -7,6 +7,7 @@
 mod game;
 mod pipe;
 mod templates;
+mod wiki;
 
 use eu4_harmony_abi as abi;
 use std::{
@@ -37,7 +38,11 @@ usage:
       Writes a clean folder for upload: no sources, no build output.
   eu4-harmony game <capability> [--<argument> <value>]...
       Sends the running game one request through remote control and prints
-      the answer as JSON; eu4-harmony game help lists the capabilities.
+      the answer as JSON; eu4-harmony game -h describes the command line.
+  eu4-harmony wiki [<topic>...]
+      The reference: every capability, how Lua and the command line call
+      it, what it answers; how a remote client plays a game; errors and
+      events.
 
 <mod dir> defaults to the current folder or the mod folder containing it.
 ";
@@ -88,6 +93,7 @@ fn main() {
         Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
+        Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("help" | "-h" | "--help") | None => {
             print!("{USAGE}");
             Ok(())
