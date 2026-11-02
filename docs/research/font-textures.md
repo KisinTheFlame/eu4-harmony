@@ -14,7 +14,7 @@ Baseline 1.37.5 (`9ad3efe1…`). All addresses are RVAs. What is marked [V] come
   - `+0x34` reference count;
   - `+0x38` the "loaded" flag.
 - **The texture wrapper (0x28 bytes, allocated with the game's allocator)**[V]: `+0x00` is the `IDirect3DTexture9*`, `+0x08` the sRGB sampling flag, `+0x0c` the usage (0 or 0x200 = DYNAMIC).
-- **The renderer's function table**: 0x1fd11a8–0x1fd1378, 81 slots in all, filled in at run time by 0x16c1480 with the same values as the static ones in `.data` [V].
+- **The renderer's function table**: 0x1fd10f8–0x1fd1378, 81 slots in all. The static values in `.data` are the DX9 functions; 0x16c1480 writes every slot again, the same DX9 values but for `-opengl`, only when the command line names a renderer [V] ([architecture.md](architecture.md)).
 
 ## How a font page loads
 
