@@ -15,4 +15,4 @@ What a mod has no imaginable use for, such as the operating system's details, th
 
 - The mods window shows what every Harmony mod declares, each sensitive capability in words a player understands, with the hosts for `network`.
 - Declaring is cheap, so the list says what a mod can do, not what it does; nothing checks what it sends.
-- A new sensitive capability is added to the list, the manifest's `capabilities` and the mods window together.
+- A new sensitive capability is added to the list, the manifest's `permissions` and the mods window together.

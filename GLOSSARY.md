@@ -85,8 +85,12 @@ The one description of every capability: its group, name, arguments, result and 
 _Avoid_: API reference, schema
 
 **Sensitive capability**:
-A capability that reaches beyond the game, such as the real time, files or the network. An extension can use one only when its manifest declares it.
-_Avoid_: permission (nothing is granted yet), privilege
+A capability that reaches beyond the game, such as the real time, files or the network. An extension can use one only when its manifest declares it as a permission.
+_Avoid_: privilege, dangerous capability
+
+**Permission**:
+A sensitive capability as a mod's manifest declares it. In this version the player sees a mod's permissions in the mods window; confirming them is to come.
+_Avoid_: grant, right, access
 
 **Safe point**:
 A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.

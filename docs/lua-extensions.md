@@ -117,7 +117,7 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 id = "template-mod"
 api_version = "0.2"
 description = "TEMPLATE_MOD_DESCRIPTION"   # a key in the mod's localisation
-capabilities = { clock = true, files = true, network = ["api.example.com", "192.168.1.10:8080"] }
+permissions = { clock = true, files = true, network = ["api.example.com", "192.168.1.10:8080"] }
 ```
 
 - `id` and `api_version` mean what they meant ([ADR 0014](adr/0014-abi-grows-by-appending.md)'s versioning, now of the catalogue): an extension whose `api_version` is not the framework's is not loaded, and the player is told which version it was written for and which the framework provides.

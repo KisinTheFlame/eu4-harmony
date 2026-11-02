@@ -1,6 +1,6 @@
 # The manifest is TOML; the rest of a mod's layout is fixed by convention
 
-A Harmony mod's manifest is `eu4-harmony/manifest.toml`, and it holds only what cannot be told from the files: `id`, `api_version`, `description` (a key in the mod's localisation, for the mods window) and `capabilities` (the sensitive capabilities it declares, ADR 0025). Everything else is where it is: the extension is `eu4-harmony/lua/main.lua`, a fragment for a host window is in `eu4-harmony/ui/<host window>/`, and one for its button area in `eu4-harmony/ui/<host window>/buttons/`. Name and version stay in `descriptor.mod`, which the launcher reads, and are not repeated. This supersedes ADR 0003's `manifest.json`; discovery through the playset stands.
+A Harmony mod's manifest is `eu4-harmony/manifest.toml`, and it holds only what cannot be told from the files: `id`, `api_version`, `description` (a key in the mod's localisation, for the mods window) and `permissions` (the sensitive capabilities it declares, ADR 0025). Everything else is where it is: the extension is `eu4-harmony/lua/main.lua`, a fragment for a host window is in `eu4-harmony/ui/<host window>/`, and one for its button area in `eu4-harmony/ui/<host window>/buttons/`. Name and version stay in `descriptor.mod`, which the launcher reads, and are not repeated. This supersedes ADR 0003's `manifest.json`; discovery through the playset stands.
 
 ## Considered Options
 
