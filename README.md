@@ -16,6 +16,10 @@ In saves played with the framework, names the player typed or changed are UTF-8.
 
 Logs and the startup report (`report.txt`) are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`. Extension save data is written into the save itself; a save played with an extension that keeps data is not promised to load without the framework.
 
+## Leaving a game
+
+Returning to the main menu does not start the game again: the main menu is back in a few seconds instead of about 45 ([ADR 0022](docs/adr/0022-return-to-the-main-menu-in-process.md)). An ironman game can be left by loading another save from the game's menu too; the current game is saved first ([ADR 0023](docs/adr/0023-in-game-load-in-ironman.md)). Both are framework settings, in the settings window the "EU4 Harmony settings" button opens in the main menu's corner: with "Return to the main menu without restarting the game" off, the game starts again as in vanilla; with "In ironman, save the game before loading another save" off, loading the same save again undoes what was played since it was written.
+
 ## Remote control (players and AIs)
 
 Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera and screenshots. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md), [ADR 0017](docs/adr/0017-remote-control-is-always-on.md)).
@@ -35,7 +39,7 @@ cd "<game folder>\eu4-harmony"
 .\eu4-harmony game diplomacy war_goals ENG
 .\eu4-harmony game diplomacy declare_war ENG cb_core --province 167
 .\eu4-harmony game screenshot --scale 50 --out shot.png
-.\eu4-harmony game menu return             # back to the main menu: the game starts again
+.\eu4-harmony game menu return             # back to the main menu, answered once it is up
 ```
 
 The capabilities, by group:

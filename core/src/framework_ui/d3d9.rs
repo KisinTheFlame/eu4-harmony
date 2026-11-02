@@ -168,6 +168,16 @@ impl Backend {
         drawn
     }
 
+    /// Presents what was drawn, as the game's Present wrapper does, outside
+    /// the game's frame.
+    ///
+    /// # Safety
+    /// `device` is null or the game's live device, on the main thread.
+    pub unsafe fn present(device: *mut c_void) -> windows::core::Result<()> {
+        let Some(device) = IDirect3DDevice9::from_raw_borrowed(&device) else { return Ok(()) };
+        device.Present(std::ptr::null(), std::ptr::null(), windows::Win32::Foundation::HWND::default(), std::ptr::null())
+    }
+
     unsafe fn draw_scene(&mut self, device: &IDirect3DDevice9, font: &UiFont, commands: &[Command], scale: f32) -> windows::core::Result<()> {
         // Lay out text first, so the page holds every glyph before it is uploaded.
         let mut texts = Vec::new();

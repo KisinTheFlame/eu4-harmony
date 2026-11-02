@@ -418,6 +418,9 @@ impl Engine {
                         continue;
                     }
                 }
+            } else if q.request.needs_place() && matches!(place, Place::Outside(None)) {
+                kept.push_back(q);
+                continue;
             }
             if ran && started.elapsed() >= budget {
                 kept.push_back(q);

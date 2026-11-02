@@ -35,6 +35,7 @@ pub mod physfs;
 pub mod pipe;
 pub mod points;
 pub mod remote;
+pub mod repairs;
 pub mod report;
 pub mod safe_point;
 pub mod saves;
@@ -111,6 +112,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(ui::points());
     all.extend(map::points());
     all.extend(saves::points());
+    all.extend(repairs::points());
     all.extend(unicode::points());
     all.extend(wording::points());
     all.extend(framework_ui::hook::points());

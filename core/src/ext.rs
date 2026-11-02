@@ -721,6 +721,7 @@ fn load_one(memory: Option<Memory>, m: &DiscoveredMod, relative: &str) -> crate:
         on_army_ordered: None,
         on_army_defeated: None,
         on_map_lost: None,
+        on_session_ended: None,
     };
     let code = Memory { base: 0 }.call(entry as usize, &[&*host_api as *const abi::HostApi as usize, &mut vtable as *mut _ as usize])?;
     if code as u32 as i32 != abi::OK {
@@ -848,6 +849,16 @@ pub fn frame(state: &game::Frame) {
         call(i, "on_frame", |v| v.on_frame.map(|f| f as usize), &[]);
     }
     refresh_report(false);
+}
+
+/// The session is being left, for `reason` (`abi::SESSION_ENDED_*`): every
+/// extension hears it while the session's state is still the game's, on the
+/// main thread, before anything of it is saved or taken down.
+pub fn session_ended(reason: u32) {
+    log!("session ending (reason {reason})");
+    for i in 0..count() {
+        call(i, "on_session_ended", |v| v.on_session_ended.map(|f| f as usize), &[reason as usize]);
+    }
 }
 
 /// Rewrites the startup report at session starts and every few minutes.

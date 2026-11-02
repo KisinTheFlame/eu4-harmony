@@ -3,7 +3,7 @@
 use super::{armies, camera, console, countries, diplomacy, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time};
 use crate::game::{
     self, fail,
-    menu::{Expected, Launch},
+    menu::{Expected, ExpectedProbe, Launch},
     GResult, Status, Tag,
 };
 use eu4_harmony_remote::{response_json, CountryTag};
@@ -69,6 +69,12 @@ pub struct Fake {
     pub answered: Vec<(u32, u32)>,
     /// What came of the last load or start, as the game would say.
     pub launch: Arc<Mutex<Launch>>,
+    /// The save `rewritten` as the game would read it now; the Ottomans'
+    /// at 1444.11.1 until set.
+    pub rewritten: Arc<Mutex<Option<Expected>>>,
+    /// What came of a return to the main menu, when it is an in-process
+    /// one; None when the game starts again.
+    pub returning: Option<Arc<Mutex<game::menu::Returned>>>,
     /// What each diplomatic action sent comes to, asked one after another;
     /// pending once they run out.
     pub answers: std::collections::VecDeque<GResult<game::diplomacy::Answer>>,
@@ -322,15 +328,21 @@ impl menu::Layer for Fake {
         }])
     }
 
-    fn load(&mut self, save: &str) -> GResult<Expected> {
+    fn load(&mut self, save: &str) -> GResult<ExpectedProbe> {
         self.call(format!("load {save}"));
-        match save {
-            "missing" => fail(Status::NotFound, "no save \"missing\" in the save games folder"),
+        let expected = match save {
+            "missing" => return fail(Status::NotFound, "no save \"missing\" in the save games folder"),
             // A save of Castile in 1470, which the game does not load.
-            "Castilla-5" => Ok(Expected { player: *b"CAS", date: Some(eu4_harmony_remote::Date::from_ymd(1470, 3, 13).unwrap().0) }),
+            "Castilla-5" => Expected { player: *b"CAS", date: Some(eu4_harmony_remote::Date::from_ymd(1470, 3, 13).unwrap().0) },
+            "rewritten" => {
+                let rewritten = self.rewritten.clone();
+                let first = Expected { player: *b"TUR", date: Some(eu4_harmony_remote::Date::from_ymd(1444, 11, 1).unwrap().0) };
+                return Ok(Box::new(move || Ok(rewritten.lock().unwrap().unwrap_or(first))));
+            }
             // 1444.11.11, as the session says.
-            _ => Ok(Expected { player: *b"TUR", date: Some(0x035D_7710) }),
-        }
+            _ => Expected { player: *b"TUR", date: Some(0x035D_7710) },
+        };
+        Ok(Box::new(move || Ok(expected)))
     }
 
     fn start(&mut self, country: CountryTag) -> GResult<()> {
@@ -343,9 +355,9 @@ impl menu::Layer for Fake {
         Box::new(move || launch.lock().unwrap().clone())
     }
 
-    fn return_to_main_menu(&mut self) -> GResult<()> {
+    fn return_to_main_menu(&mut self) -> GResult<Option<Box<dyn FnMut() -> game::menu::Returned + Send>>> {
         self.call("return".into());
-        Ok(())
+        Ok(self.returning.clone().map(|returned| Box::new(move || returned.lock().unwrap().clone()) as Box<_>))
     }
 }
 

@@ -530,12 +530,32 @@ fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
 }
 
 #[test]
+fn loading_starting_and_returning_wait_while_it_is_not_known_where_the_game_is() {
+    // A frame the game is not ready in, between a game's frames: neither the
+    // main menu nor a game is known. Where the game is answers; loading and
+    // returning, which do one thing in the main menu and another in a game,
+    // wait for a frame that knows which.
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let state = engine.submit(Request::Menu(MenuRequest::State {}));
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
+    let back = engine.submit(Request::Menu(MenuRequest::Return {}));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert_eq!(answer(&state)["ok"], true);
+    assert!(answer(&load).is_null() && answer(&back).is_null());
+    assert_eq!(game.calls, ["place"]);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(game.calls, ["place", "load 奥斯曼1444_11_11", "return"]);
+    assert_eq!(answer(&back), ok(json!({"process": process(), "place": "ending"})));
+}
+
+#[test]
 fn a_load_or_start_whose_game_cannot_be_played_says_so_at_its_first_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
     let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
-    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
     // Every frame of the game that came fails: without this answer, they
     // would wait until the process ends.
     let unplayable = Place::Unplayable(Error::new(Code::NotInGame, "no controllable player"));
@@ -552,11 +572,27 @@ fn a_load_or_start_whose_game_cannot_be_played_says_so_at_its_first_frame() {
 }
 
 #[test]
+fn a_load_is_compared_with_its_save_as_the_game_read_it() {
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    let load = engine.submit(Request::Menu(MenuRequest::Load { save: "rewritten".into() }));
+    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
+    // The load wrote the save before the game read it, as an in-game load
+    // writes the ironman exit save of the session it leaves.
+    *game.rewritten.lock().unwrap() = Some(game::menu::Expected { player: *b"TUR", date: Some(0x035D_7710) });
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&load),
+        ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))
+    );
+}
+
+#[test]
 fn a_load_the_game_could_not_read_is_refused_though_a_game_comes() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
-    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
     // The game's loader failed, and the game starts from what it read.
     *game.launch.lock().unwrap() = game::menu::Launch::Failed("the game could not read the save".into());
     engine.run(&mut game, &Place::Game, PLENTY);
@@ -587,6 +623,28 @@ fn returning_to_the_main_menu_is_answered_before_the_process_ends() {
         assert!(got["error"]["message"].as_str().unwrap().contains("returning to the main menu"), "{got}");
     }
     assert_eq!(game.calls, ["return", "session"]);
+}
+
+#[test]
+fn an_in_process_return_is_answered_once_the_main_menu_is_up() {
+    let engine = Engine::new(remember);
+    let returned = Arc::new(Mutex::new(game::menu::Returned::Waiting));
+    let mut game = Fake { returning: Some(returned.clone()), ..Fake::default() };
+    let back = engine.submit(Request::Menu(MenuRequest::Return {}));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(back.wait(Duration::ZERO).is_none());
+    // The main menu's safe points: the same process answers.
+    *returned.lock().unwrap() = game::menu::Returned::Done;
+    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
+    assert_eq!(answer(&back), ok(json!({"process": process(), "place": "main_menu"})));
+    // One whose ironman exit save failed leaves the session going on.
+    *returned.lock().unwrap() = game::menu::Returned::Waiting;
+    let again = engine.submit(Request::Menu(MenuRequest::Return {}));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    *returned.lock().unwrap() = game::menu::Returned::Failed("the game could not write the ironman exit save".into());
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert_eq!(answer(&again), json!({"ok": false, "error": {"code": "rejected", "message": "the game could not write the ironman exit save"}}));
+    assert_eq!(game.calls, ["return", "return"]);
 }
 
 #[test]

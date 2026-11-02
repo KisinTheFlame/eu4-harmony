@@ -43,6 +43,8 @@ windows = { workspace = true, features = [
     "Win32_Graphics_DirectWrite",
     "Win32_Graphics_Direct2D_Common",
     "Win32_Graphics_Direct3D9",
+    # Present, which the still notice calls itself.
+    "Win32_Graphics_Gdi",
     # Screenshots: scaled and encoded as PNG with Windows' own imaging.
     "Win32_Graphics_Imaging",
     "Win32_System_Com",

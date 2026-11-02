@@ -90,3 +90,4 @@ ExtensionVTable.on_button: core::option::Option<unsafe extern "C" fn(*mut core::
 ExtensionVTable.on_army_ordered: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi, u64) -> i32>
 ExtensionVTable.on_army_defeated: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi, u64) -> i32>
 ExtensionVTable.on_map_lost: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi) -> i32>
+ExtensionVTable.on_session_ended: core::option::Option<unsafe extern "C" fn(*mut core::ffi::c_void, *const eu4_harmony_abi::GameApi, u32) -> i32>

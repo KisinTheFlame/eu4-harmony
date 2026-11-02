@@ -16,7 +16,7 @@ use crate::unicode::system_font::{self, Face, SystemFonts};
 use crate::{lang, loc};
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::Mutex;
 use widgets::{Action, Command, Measure, Rect, Widget, Window};
 
@@ -62,6 +62,8 @@ unsafe impl Send for FrameworkUi {}
 static UI: Mutex<Option<FrameworkUi>> = Mutex::new(None);
 static FAILED: AtomicBool = AtomicBool::new(false);
 static FRAME: AtomicU64 = AtomicU64::new(0);
+/// The device the game presented its last frame with, for [`still`].
+static DEVICE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static MAIN_MENU_FRAME: AtomicU64 = AtomicU64::new(u64::MAX);
 static MODAL: AtomicBool = AtomicBool::new(false);
 
@@ -283,6 +285,38 @@ impl FrameworkUi {
         }
         out
     }
+
+    /// The still notice: `text` in a box in the middle of the screen, which
+    /// is dimmed.
+    fn still_commands(&self, text: String) -> Vec<Command> {
+        let (w, h) = (self.font.width(&text, widgets::TEXT_SIZE) + 48.0, widgets::TEXT_SIZE + 32.0);
+        let r = Rect { x: ((self.screen.0 - w) / 2.0).round(), y: ((self.screen.1 - h) / 2.0).round(), w, h };
+        vec![
+            Command::Fill { rect: Rect { x: 0.0, y: 0.0, w: self.screen.0, h: self.screen.1 }, color: 0x80000000 },
+            Command::Fill { rect: Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 }, color: widgets::BORDER },
+            Command::Fill { rect: r, color: widgets::TITLE_BAR },
+            Command::Text { x: r.x + 24.0, y: r.y + 14.0, text, size: widgets::TEXT_SIZE, color: widgets::TEXT },
+        ]
+    }
+}
+
+/// Shows the framework's words for `key` over the frame the game presented
+/// last, and presents that at once: on the main thread, just before work
+/// that keeps it from drawing for seconds, such as leaving a session. The
+/// game's window shows it until the game presents its next frame.
+pub fn still(key: &str) {
+    if crate::thread_id() != crate::main_thread() || FAILED.load(Ordering::Relaxed) {
+        return;
+    }
+    let device = DEVICE.load(Ordering::Relaxed);
+    let mut guard = UI.lock().unwrap_or_else(|e| e.into_inner());
+    let (Some(ui), false) = (guard.as_mut(), device.is_null()) else { return };
+    let commands = ui.still_commands(words(key));
+    let shown = unsafe { ui.backend.draw(device, &ui.font, &commands, ui.scale) }.and_then(|()| unsafe { d3d9::Backend::present(device) });
+    match shown {
+        Ok(()) => log!("framework UI: still notice {key}"),
+        Err(e) => log!("framework UI: no still notice {key}: {e}"),
+    }
 }
 
 fn handle(event: input::Event) -> bool {
@@ -317,6 +351,7 @@ pub unsafe fn frame(device: *mut c_void) {
         }
     }
     let ui = guard.as_mut().expect("just made");
+    DEVICE.store(device, Ordering::Relaxed);
     input::attach(handle);
     // The framework UI is as large as the game's own, whatever its scale.
     let scale = crate::memory().and_then(crate::game::gui_scale).map_or(1.0, |(across, _)| across.clamp(0.5, 4.0));

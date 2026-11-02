@@ -16,6 +16,10 @@
 
 日志和启动报告（`report.txt`）在 `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`。扩展存档数据直接写在存档里；用会保存数据的扩展玩出的存档，不保证在没有框架时还能读取。
 
+## 离开一局游戏
+
+返回主菜单时游戏不再重启：几秒钟就回到主菜单，而不是约 45 秒（[ADR 0022](docs/adr/0022-return-to-the-main-menu-in-process.md)）。铁人模式下也能在游戏菜单里读取另一个存档，读取前会先保存当前游戏（[ADR 0023](docs/adr/0023-in-game-load-in-ironman.md)）。两者都是框架设置，在主菜单角落"EU4 Harmony 设置"按钮打开的设置窗口里：关掉"返回主菜单时不重启游戏"，就会像原版一样重启；关掉"铁人模式下读档前先保存当前游戏"，重新读取同一个存档就能撤销此后的游玩（悔棋）。
+
 ## 远程控制（玩家与 AI）
 
 远程控制让游戏进程之外的程序通过框架的能力使用游戏，就像玩家一样：从主菜单进入游戏再回来，读取游戏，让时间流逝，回答游戏的事件和其他国家的提议，调动军队，招募，外交，游戏控制台，镜头和截图。AI 靠它玩完整的一局，开发者靠它在命令行里试用框架。框架运行时它始终开启，只对正在玩的 Windows 用户开放、只限本机（一个命名管道），并且以玩家身份行事：玩家做不到的，它也做不到（[ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md)、[ADR 0017](docs/adr/0017-remote-control-is-always-on.md)）。
@@ -35,7 +39,7 @@ cd "<游戏目录>\eu4-harmony"
 .\eu4-harmony game diplomacy war_goals ENG
 .\eu4-harmony game diplomacy declare_war ENG cb_core --province 167
 .\eu4-harmony game screenshot --scale 50 --out shot.png
-.\eu4-harmony game menu return             # 回到主菜单：游戏会重新启动
+.\eu4-harmony game menu return             # 回到主菜单，主菜单出现后回答
 ```
 
 按组列出的能力：

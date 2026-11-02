@@ -114,7 +114,7 @@ struct Window {
 
 /// The items of the game's list whose header is at `header`, skipping nodes
 /// removed while the list was being walked.
-pub(super) fn items(m: &Memory, header: usize) -> GResult<Vec<usize>> {
+pub(crate) fn items(m: &Memory, header: usize) -> GResult<Vec<usize>> {
     let mut node = m.ptr(header + list::HEAD)?;
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();

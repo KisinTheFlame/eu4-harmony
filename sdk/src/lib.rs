@@ -30,10 +30,15 @@ pub use game::*;
 /// Events an extension reacts to. All default to doing nothing.
 #[expect(unused_variables, reason = "the default methods ignore what they are given")]
 pub trait Extension: 'static {
-    /// A campaign was loaded or started; drop state from the previous one,
-    /// then read [`Game::save_data`].
+    /// A session began, from a save or as a new game; drop state from the
+    /// previous one, then read [`Game::save_data`].
     fn on_session(&mut self, game: &mut Game) {}
-    /// Every UI frame while a campaign runs, paused or not.
+    /// The session is being left, for `reason`, while its state is still
+    /// there to read. Save data set now ([`Game::set_save_data`]) goes into
+    /// the ironman exit save when one follows; otherwise only what was saved
+    /// before stays.
+    fn on_session_ended(&mut self, game: &mut Game, reason: SessionEnd) {}
+    /// Every UI frame while a session runs, paused or not.
     fn on_frame(&mut self, game: &mut Game) {}
     /// Once per game day, after the day's update and visibility refresh.
     fn on_day(&mut self, game: &mut Game, date: i32) {}
@@ -71,7 +76,7 @@ macro_rules! export_extension {
 
 #[doc(hidden)]
 pub mod __private {
-    use super::{abi, backend::RealBackend, ArmyId, Click, Extension, Game};
+    use super::{abi, backend::RealBackend, ArmyId, Click, Extension, Game, SessionEnd};
     use std::ffi::c_void;
     use std::sync::OnceLock;
 
@@ -130,6 +135,9 @@ pub mod __private {
     unsafe extern "C" fn on_map_lost(user: *mut c_void, game: *const abi::GameApi) -> i32 {
         run(user, game, "on_map_lost", |e, g| e.on_map_lost(g))
     }
+    unsafe extern "C" fn on_session_ended(user: *mut c_void, game: *const abi::GameApi, reason: u32) -> i32 {
+        run(user, game, "on_session_ended", |e, g| e.on_session_ended(g, SessionEnd::from_abi(reason)))
+    }
 
     /// The end of `field` in `table`, which a table of the core's must reach
     /// for the field to be there.
@@ -166,7 +174,7 @@ pub mod __private {
                 )+};
             }
             std::ptr::addr_of_mut!((*out).user).write(Box::into_raw(Box::new(make())) as *mut c_void);
-            set!(on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost);
+            set!(on_session, on_frame, on_day, on_button, on_army_ordered, on_army_defeated, on_map_lost, on_session_ended);
             abi::OK
         }))
         .unwrap_or(abi::INTERNAL)
@@ -197,6 +205,7 @@ mod tests {
             on_army_ordered: None,
             on_army_defeated: None,
             on_map_lost: None,
+            on_session_ended: None,
         }
     }
 

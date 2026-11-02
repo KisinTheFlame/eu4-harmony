@@ -6,6 +6,7 @@
 //! driver's. Counting costs two relaxed atomic operations per allocation.
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use windows_sys::Win32::System::Memory::{GetProcessHeaps, HeapSummary, HEAP_SUMMARY};
 use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
@@ -75,6 +76,24 @@ pub fn private_bytes() -> usize {
     }
 }
 
+/// What the process's heaps hold, the game's and the framework's alike: the
+/// bytes allocated from them and the bytes they have committed. Private
+/// bytes beyond the committed are Direct3D's, the driver's and other
+/// allocations of whole pages.
+pub fn heaps() -> (usize, usize) {
+    let mut handles = vec![std::ptr::null_mut(); 64];
+    let count = unsafe { GetProcessHeaps(handles.len() as u32, handles.as_mut_ptr()) } as usize;
+    handles.truncate(count.min(handles.len()));
+    handles.iter().fold((0, 0), |(allocated, committed), &heap| {
+        let mut summary = HEAP_SUMMARY { cb: std::mem::size_of::<HEAP_SUMMARY>() as u32, ..unsafe { std::mem::zeroed() } };
+        if unsafe { HeapSummary(heap, 0, &mut summary) } == 0 {
+            (allocated, committed)
+        } else {
+            (allocated + summary.cbAllocated, committed + summary.cbCommitted)
+        }
+    })
+}
+
 const MB: f64 = 1024.0 * 1024.0;
 
 /// Both, now, for the log.
@@ -103,4 +122,18 @@ impl Change {
         let delta = |now: usize, then: usize| (now as f64 - then as f64) / MB;
         format!("private {:+.1} MB, framework heap {:+.1} MB", delta(private_bytes(), self.private), delta(live(), self.live))
     }
+}
+
+/// Private bytes, and what the heaps hold of them, now, for the log.
+pub fn split() -> String {
+    let (allocated, committed) = heaps();
+    let private = private_bytes();
+    format!(
+        "process private {:.0} MB: heaps {:.0} MB allocated of {:.0} MB committed, {:.0} MB outside the heaps; framework heap {:.1} MB",
+        private as f64 / MB,
+        allocated as f64 / MB,
+        committed as f64 / MB,
+        private.saturating_sub(committed) as f64 / MB,
+        live() as f64 / MB
+    )
 }

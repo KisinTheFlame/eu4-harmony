@@ -78,7 +78,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Session {
-    /// Changes whenever a different campaign state is loaded or started.
+    /// Changes whenever a session begins.
     pub id: u64,
     /// The same value throughout one game day.
     pub date: i32,
@@ -159,6 +159,27 @@ pub struct Click {
     pub right: bool,
     pub shift: bool,
     pub ctrl: bool,
+}
+
+/// Why a session ended ([`crate::Extension::on_session_ended`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionEnd {
+    /// The game returns to the main menu.
+    Return,
+    /// A save is loaded in its place.
+    Load,
+    /// A new game is started from it.
+    NewGame,
+}
+
+impl SessionEnd {
+    pub(crate) fn from_abi(reason: u32) -> Self {
+        match reason {
+            crate::abi::SESSION_ENDED_LOAD => Self::Load,
+            crate::abi::SESSION_ENDED_NEW_GAME => Self::NewGame,
+            _ => Self::Return,
+        }
+    }
 }
 
 /// A question waiting for the player's answer, while it waits.
