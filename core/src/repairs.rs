@@ -301,6 +301,8 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             LEADERS.swap(0, Ordering::Relaxed),
             FACTIONS.swap(0, Ordering::Relaxed)
         );
+        #[cfg(feature = "trace")]
+        crate::census::world_reset();
     });
 }
 
