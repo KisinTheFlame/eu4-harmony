@@ -12,7 +12,8 @@
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
 //! [`events`], which establishes the safe point everything here runs at);
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
-//! in docs/research/regional-combat/.
+//! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
+//! defeat.md, time.md, fog-of-war.md).
 pub mod armies;
 pub mod camera;
 pub mod console;
