@@ -1,7 +1,7 @@
 //! The game's GUI objects: elements, windows, the army panel, the main menu,
 //! edit boxes and their editors, the GUI manager, and the diplomatic message
-//! icons and the dialogs they open (docs/research/regional-combat/
-//! native-ui-findings.txt, text-input.md, questions-and-offers.md).
+//! icons and the dialogs they open (docs/research/interface-bindings.md,
+//! text-input.md, questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {

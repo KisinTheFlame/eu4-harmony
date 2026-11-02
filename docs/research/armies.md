@@ -1,0 +1,85 @@
+# Armies: identity, state, access, hostility, visible armies (for `game::armies` and `game::world`)
+
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-10-26 and checked again on 2026-11-03 with `core/examples/disasm.rs`; fields are named as `objects::campaign` names them. What was checked in the running game is marked "tested", from [prototype-log.md](../prototype-log.md); what was seen on 2026-10-26, before the framework existed, says so and is not in that log. Everything else was only read from the code. Neighbors, straits, owners and controllers are in [provinces.md](provinces.md).
+
+## The army's classes
+
+- **An army** has two vtables: `0x1c42540` at `+0x00` and `0x1c424f0` at `+0x10`, both set by its constructors `0x1a20a0` and `0x1a21a0` (`0x1a20ae`). A fleet's vtable is `0x1cca7e0` (`0x909600`). Both constructors also set two tags at `+0x220` and `+0x22c` to `---`.
+- **Methods of the first vtable**, by offset:
+  - `+0x80` answers whether the unit is an army (`0x8f440`, `mov al, 1`, for an army; the fleet's `+0x80` is `0x8f450`, false); `+0x88` whether it is a fleet (the other way round).
+  - `+0x90` is `0x1a8b00`: whether the byte at `+0x227` is set, that is whether the tag at `+0x220` is valid (its byte 7); `+0x98` is `0x1a8c10`, the same for the tag at `+0x22c` (byte `+0x233`). Both answer no unless a switch of the game's is on: the byte at `0x233ff3c` set and the one at `0x233fed6` clear, or else a flag of the thread's, which `0x1a334c0` sets up on first use (the same kind of switch as `0xcfc70` asks about, [provinces.md](provinces.md)). Which game rule or DLC it is was not worked out.
+  - `+0x120` is the access query `0x1a2280`; `+0x138` the military tag `0x1a8d20` (both below).
+- **Not what they look like**, so not to be called as questions: `+0x10` (`0xd41ae0`) compares a tag the object at `+0x140` gives with the owner; `+0xa8` (`0xd3fd30`) moves the army's location (`+0xe8`) and tells the interface and the province lists; `+0xb0` (`0xd4cbc0`) adds up regiment fields against a global threshold; `0xd3f490` sets the owner of an army and its regiments (the unit constructor calls it); `0xd41870` looks only at the sides of the army's battle (`+0xc0`).
+
+## Identity
+
+- **An army's ID is the u64 at `+0x20`**: the low 32 bits a type, the high 32 a sequence number. `0x000019d300000036` is type 54 (`0x36`), number 6611. The framework uses the whole u64 as the army's ID (`unit::ID`).
+- **Made**: the army's constructor with arguments calls the unit constructor `0xd3b0a0`, which first clears the unit (`0xd3acd0`: `+0x20` set to the empty ID at `[0x233fea8]` (`0xd3ad0b`), the byte at `+0x28` cleared, the owner `+0xd0` set to `---`), then takes type `0x36` and the number `0x771be0`(world, 9, -1, ...) answers, and registers the ID through `0x14cf190`(army+`0x10`, ID, 0), which sets `+0x28`. A number of 0 makes the whole ID 0.
+- **Numbers**: `0x771be0`(world, counter, candidate, ...) keeps a vector of u32 counters at `world+0x2508` (begin), `+0x2510` (end), `+0x2518` (capacity), 12 of them at most (a counter of `0xc` or more answers 0); units use counter 9. With candidate -1 it answers the counter and adds 1 to it; with a candidate at or above the counter it answers the candidate and sets the counter one past it; below the counter it answers the candidate as it is. Reaching `0xffffffff` throws "ID range overflow" (`0x1cb1298`). So new armies get rising numbers; whether a number can come back (after a load, a world reset or a script) was not traced.
+- **Registered**: `0x14cf190` looks the ID up first (`0x14cf730`) and, when it is taken, logs "Failed to create id ... Already exists in game." (`clausewitzlib/id.cpp`). The byte at `+0x28` only says whether the ID is registered.
+- **Saved**: the second vtable's `+0x10` is the army's writer `0x1a6320`, called with `this` at `army+0x10`; it starts with the unit writer `0xd3d2f0`, whose first field is `0xcd8f0`(writer, token `0xb`, `this+0x10`), the ID. `0xce610` writes it as two numbers: the high half under token `0xb`, the low half under `0xe1`. Nothing else goes with it: no address, no generation.
+- **Loaded**: the second vtable's `+0x20` is the army's reader `0x1a5e50`, which hands what it does not know to the unit reader `0xd3c640`; for token `0xb` that calls `0x14cece0`(reader, `this+0x10`), which reads the number under `0xb` and the type under `0xe1` (or `0x15`; a `0x16` is read and dropped) and stores both halves. The type is read as a u16.
+- **So** the ID is what a save keeps of an army, and nothing in it tells two armies with the same ID apart. An extension that keeps army IDs in its extension save data relies on loading giving the army the same ID. Tested once (prototype-log.md, 2026-10-30, ironman saves): a task kept for an army by its ID in an ironman save was restored on loading that save, and the army's radius box opened with it. Not checked: what splitting, merging or a change of owner do to an ID, and whether a number is ever given again.
+
+## The player's country
+
+- **The game's getter** `0x811b20`(unused, out) writes the player's tag into `out` and returns `out`: `world+0x1e68` when the byte at `world+0x1e66` is 7 and the one at `world+0x1e6f` is set, otherwise `world+0x1e60` (the world at `[0x233fe78]`). It checks nothing: no world, no valid tag. The army panel's `0xd423b0` makes the same choice and compares it with the army's owner. What mode 7 is (`world::SWITCHED`) was not worked out.
+- **The framework** reads the same fields (`game::context`, with the getter's bytes as a dependency point), and has a player only when the tag is valid, its index above 0, its kind not 7 (rebels), and the country at that index in the country array holds the same tag.
+- **A tag** (`objects::campaign::tag`) is three letters, the country's index (i16) at bit 32, its kind (u8) at bit 48 and a byte at bit 56 that is set when it is valid: `0x010000b900534143` is `CAS`, index 185. `0x2d2d2d` is `---`, the tag of no country, which the game passes where a call wants none.
+
+## The military tag
+
+- **`0x1a8d20`(army, out)**, method `+0x138`, writes the tag the army acts for and returns `out`: when the method `+0x90` answers yes (the switch above, and a valid tag at `+0x220`), `0x1a8b70`(army, out) copies the tag at `+0x220` (or `---` when the switch is off); otherwise the owner, `+0xd0`. The tag at `+0x220` is probably the country that hired the army: `0xd447d0` reads it through `0x1a8b70` and gives the keys `CONDOTTIERI_ACCESS` and `HIREDBY` (not followed through).
+- **The route edge check** asks the blockade query with this tag ([provinces.md](provinces.md)). The framework does the same: it checks the army's vtable and both methods first, calls `0x1a8d20`, wants `out` back, and refuses a tag that is not a normal country or does not match its country.
+
+## Access to a province
+
+- **The access query** `0x1a2280`(army, province, flag 3, flag 4, flag 5, tag, tooltip, flag 8, cache), method `+0x120`, answers in `al` whether the army may be in the province. The flags are bytes; with a tooltip it appends the reason's text, and the cache is written to when given. The framework calls it as the game's rebel hunt does: `(army, province, 0, 0, 0, ---, null, 0, null)`; the flags' meanings were not worked out. In order:
+  - with flag 4 clear, a province that is not land: `0x9dd6a0`(province, army, -1), and yes when that finds something (`BOARD_SHIPS_ACCESS`), otherwise no. So for a sea zone, yes means ships to board, not a way by land;
+  - yes when `0x40d2b0` answers yes for the province owner's country and the object at the army's `+0xd8` has 2 or 3 at its `+0x40` (`PRIMITIVE_ACCESS`; neither worked out);
+  - for land with flag 5 clear: yes for the provinces at the army's `+0xf8` and `+0xf0`, and for its own location while the byte at `+0x206` is set;
+  - with flag 8 clear, for an exiled army (below): no for an impassable province; no when the province's byte `+0x959` has `0x10` and the owner's index is not set in the bit array at `+0x5e0` (inferred: the countries that have discovered the province; the fog of war refresh reads the same bits for the player, [fog-of-war.md](fog-of-war.md)); otherwise yes (`EXILED_ACCESS`);
+  - otherwise `0xd447d0`(army, province, flag 3, flag 4, 0, tag, tooltip, flag 8, cache).
+- **`0xd447d0`** logs "HaveAccess, %s, %d, %d, %d" (`0x1d1a6f0`) and gives the keys `EXPLORE_ACCESS`, `IMPASSABLE_ACCESS` and `CONDOTTIERI_ACCESS` (`0x1d1a730`); its ordinary way is `0xd44e00` ("HasAccessOnBehalfOfCountry1/2"), which calls `0x374c50`(country, province, two flags, tooltip, cache), a country's access to a province: the impassable bit, then the owner's and the controller's relations to the country through `0x28b220` (war, subjects, access granted; the key `ASK_FOR_ACCESS`). `0x374c50` alone lacks the army's exceptions (exiled, hired, exploring), so the framework does not call it.
+- **None of these reads a fort, a zone of control or a route**, so the answer is not whether a move would succeed: that is the route search's ([routes.md](routes.md)).
+- **What a call writes**: no army, country or route, but `0x374c50` adds 1 to a counter at `0x2458e70` when its cache is null, and the switch above sets up the thread's flags on first use. The framework calls it only on the game's main thread at a safe point.
+- Tested (prototype-log.md): `army.can_enter` 4779 true for the Ottoman army in Edirne (2026-10-29, F2); 316 across the Bosporus turned from false to true for Byzantium's army when it went to war with the Ottomans (2026-10-30). Seen on 2026-10-26: asked for all 4027 passable land provinces for one army, 467 yes, in one read ([provinces.md](provinces.md)).
+
+## What an army is doing
+
+Fields of a land army (vtable `0x1c42540`, `objects::campaign::unit`) that the framework reads into an army's snapshot (`game::world`):
+
+- **In a battle**: `army+0xc0` (a pointer) is set. The game explains `NO_REORGANISE_UNIT_IN_COMBAT` when it is (`0xd45de0`), and `UNIT_IN_BATTLE` (`0xd55e70`). `+0xc8`, beside it, is the siege; it is not a retreat (a rebel army leaving a siege, "Removing REB unit from siege", `0xa9e160`, works on it).
+- **Locked in its move**: the u8 `army+0x202`. The army's method `+0x118` is `0xd4f2a0`, `movzx eax, byte ptr [rcx+0x202]; ret`, and the caller at `0x1229425` then shows `MOVEMENT_LOCKED_DESC`. How an order treats a locked army is in [army-orders.md](army-orders.md).
+- **Retreating**: the u8s `army+0x203` and `army+0x204`, either set. `0xd45de0` explains `NO_REORGANISE_UNIT_RETREATING` for either; `+0x204` alone leads to `UNIT_MOVEMENT_RETREATING` (`0xd55e70`). A side's retreat (`0x21eb30`) and the rebel's leaving every battle (`0xa9e160`) write both at once (a word `0x0101`), and elsewhere `+0x204` alone, so they are two flags, not one value; which kind of retreat each stands for was not settled. What sets them is in [defeat.md](defeat.md).
+- **Its task**: `army+0x1f8`, the object of what the army is doing on its own (the task's vtable `0x1c440c0`). The army's method `+0x140`, `0xd3c560`, runs it once a day, from the army's daily update ([time.md](time.md)): it asks the task's method `+0x50`, then calls its methods `+0x78` and `+0x80` and hands their results to `0xd3b8b0`. It runs only while the army has a task, so it is no day boundary of its own.
+
+None of these alone is the game's own test for accepting an order: the move `0xd50340` also asks the battle's method `+0x70`, and `0xd55e70` mixes in embarking.
+
+## Hostility between countries
+
+- **A country's hostility records**: a pointer at `+0x1548` and a count (i32) at `+0x1554` (`0xb252e`), 16-byte records whose first i32 is the other country's index. The game only asks whether the index is among them, and assumes nothing about duplicates.
+- **The special countries**: three country indices (i32) at `0x233d8a4`, `0x233d8d8` and `0x233d8dc`, hostile to every country wherever the game asks. `0x233d8a4` is the rebels' (in `0xd54a60` its armies' rebel factions are compared); the other two were not worked out (the recruit check lets both through, [provinces.md](provinces.md)). The framework reads their values each time and does not assume them.
+- **The game's question** appears inlined wherever it is needed, the same each time: a country is hostile to another when the other's index is among its records, or either index is a special country. An army arriving in a province asks it of the province's controller and the army's owner (`0xd4fe76` to `0xd4fed1`), before it looks at retreat, siege and battle and calls `0x247c80`; the blockade query and the army question below ask it too.
+- **The framework's** `country.hostile` (`game::world::hostile`) asks the same of two tags: false for the same country, true when either is special, otherwise whether the second's index is among the first's records. It reads one side's records, as the game does. Tested (prototype-log.md): `TUR`/`BYZ` false at the start (2026-10-29, F2); `CAS`/`TUR` true during their war, false once the peace was accepted (2026-10-29, C7).
+- **Hostile occupation** of a province the player owns is a controller (`+0x470`) that is not the player and is hostile to it. A controller that differs from the owner is not enough: an ally or a neutral country may hold it.
+
+## Hostility between armies
+
+- **`0xd54a60`(army, other)** answers in `al` (the rest of `rax` is not set) whether the first army is hostile to the second. In order:
+  - when the switch above is on, an army whose method `+0x90` answers yes stands for the tag `0x1a8b70` gives it (through its method `+0x60`), not its owner, and the two are compared as countries are;
+  - otherwise: not hostile when the tag at either army's `+0xe0` has the other's owner index (what that tag is was not worked out); for a rebels' army with a rebel faction (`+0x188`), not hostile when `0xa95f60`(faction, the other's owner) says so (not worked out); then hostile as the countries are (the other's owner index among the first owner's records, or either special), but two rebels' armies of the same faction are not;
+  - the same owner is never hostile.
+- It looks at no troop numbers, no visibility, no route and no province. The rebel hunt (`0x1c8860`) picks rebels itself and compares strength itself (`0xd46800`) before it calls this; those rules are not part of it. Whether every case answers the same both ways round was not checked, so the framework keeps the order: its own army first.
+- **The framework's** `army.can_attack` asks it of an own land army and an army in a visible province (below), not the same one. Not called in a recorded run (prototype-log.md, 2026-10-29 F2 and 2026-10-30 Z2).
+
+## Visible armies
+
+- **Fog of war hides a province** when bit `0x20` of its byte `+0x959` and bit `0x02` of its byte `+0x958` are both set (`0xa075d1`), as the fog of war refresh `0x8275e0` leaves them for the player ([fog-of-war.md](fog-of-war.md)). The framework reads them only after that refresh has completed for the current session, world, date, player and fog setting (`game::events`); before then `army.in_province` answers `not_ready` (tested, prototype-log.md 2026-10-29 F2) and `province.list` marks no province visible.
+- **A province's units** are a list at `+0x350` (`objects::list`: nodes with the unit at `+0`, the next node at `+0x10`). The framework reads it only for a province not hidden, and never reads anything of a unit in a hidden one: not its ID, owner, size or location. It skips fleets (`0x1cca7e0`), refuses anything else that is not an army or not located there (`+0xe8`), stops at a loop, and reads the head and the fog bits again at the end: a change fails the read.
+- **What the army snapshot takes from these notes**: retreating, either byte `+0x203` or `+0x204` (`0xd4fd28`); its regiments, a vector of pointers at `+0x30` (`0xd3ace9`), counted, not weighed; exiled, as `0x99ca0` answers it: for an army (method `+0x80`) whose owner tag is valid, not kind 7 and not a special country, the byte at `+0x207`, otherwise false (`0x99cb6`; `0x1a2280` takes its exile branch on it, with the key `EXILED_ACCESS` at `0x1c41d98`).
+- **Not which armies the player sees**: which provinces have been discovered (the bit array at `+0x5e0`, above), the battle sides of `0xd41870`, and the map's coloring. The world's armies as a whole are not the visible ones either.
+
+## What the framework relies on
+
+The fields are in `objects::campaign` (`unit`, `tag`, `country::HOSTILE`, `province::FOGGED` and `HIDDEN`, `globals::SPECIAL_COUNTRIES`, `world::PLAYER` and the fields beside it), each with a dependency point keeping an instruction of the game's that uses it; the functions it calls (`0x1a2280`, `0x1a8d20`, `0x96f650`, `0xd54a60`) are points in `game::world`, with the army class's methods `+0x120` and `+0x138` checked to hold them.

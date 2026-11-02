@@ -4,9 +4,9 @@ Status: final (2026-10-27). Terms are in [GLOSSARY.md](../GLOSSARY.md). The deci
 
 ## Goal and scope
 
-- **Goal**: the framework itself takes charge of text in the game, replacing the CJK font plugin, and draws all of it in system fonts. Mods and extensions write only plain UTF-8.
+- **Goal**: the framework itself takes charge of text in the game and draws all of it in system fonts. Mods and extensions write only plain UTF-8.
 - **In scope**: display (interface and map); compatibility with legacy escapes (localisation, GUI and scripts, old saves); Chinese input; Chinese search in the diplomacy country list and the province search; complex text layout (last); framework UI (notice window, settings window).
-- **Out of scope**: the IME itself; drawing uncommitted pinyin in the edit box; undo, redo, Ctrl+A to select all; pinyin search and searching across simplified and traditional characters; Japanese, Korean; multiplayer; save compatibility in the other direction (back to the CJK font plugin); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
+- **Out of scope**: the IME itself; drawing uncommitted pinyin in the edit box; undo, redo, Ctrl+A to select all; pinyin search and searching across simplified and traditional characters; Japanese, Korean; multiplayer; save compatibility in the other direction (playing such a save without the framework); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
 - **Platform**: Windows 10 1903 or later (it relies on the system's `icu.dll`); the baseline is still 1.37.5.
 - **Implementation**: in Rust. A jump from the middle of a function goes to a stub written as a Rust naked function, placed next to the handler it calls. Every address used and the bytes expected there are first checked against eu4.exe or in the game, then recorded in [research/](research/).
 
@@ -47,7 +47,7 @@ The game blends text with what lies under it in the screen's sRGB values, not in
 | M0 Infrastructure | Dependency points declared in one place (location by RVA or export name; leave unchanged, replace the entry, jump from the middle, rewrite bytes); all-or-nothing startup, undone on failure; stubs for jumps from the middle of a function; all existing hooks moved over; bindings to ICU | The game behaves as before, the startup report lists the check result for every dependency point, and all existing in-game checks pass |
 | M1a Chinese in the main interface | The entry moves to `version.dll`; localisation and GUI/scripts are read as UTF-8; glyph table (code points above 0xFF, with temporary glyphs); bitmap fonts first, system fonts for missing characters (atlas, textures, device reset); walking and line breaking of main text; remove the framework's conversion code, and decide the player language from Windows | A Chinese mod with UTF-8 localisation shows Chinese in the main interface; framework notices and mod texts show in Chinese |
 | UI | Drawing on top of the game's picture; capturing input; widgets (window, text, button, drop-down list); moving the notice window over; the settings window and the button in the main menu's corner; the framework settings file; removing the spliced notice window | Notices show and close correctly in the main menu and in the game; a changed setting takes effect at the next start |
-| M2 Compatibility with old Chinese language mods | Legacy escapes in localisation, GUI/scripts and old saves (text and binary) become UTF-8 as they are read | Existing Chinese language mods show without conversion; old saves played with the CJK font plugin load, with the right names |
+| M2 Compatibility with old Chinese language mods | Legacy escapes in localisation, GUI/scripts and old saves (text and binary) become UTF-8 as they are read | Existing Chinese language mods show without conversion; old saves with legacy escapes load, with the right names |
 | M1b The rest of the interface | Walking and wrapping text in buttons, tooltips, lists and so on | The whole interface shows Chinese, with no garbled text, and nothing cut off or out of place |
 | M1c Map text | Laying country and province names along curves, and aligning them | Chinese names on the map look right |
 | M3 Input | Committing text; moving, backspacing and selecting by character; pasting; telling the system where the caret is, so the IME window appears beside the edit box; Chinese save names | Every edit box takes Chinese; saves with Chinese names save and load, with their extension save data matched to them |
@@ -62,7 +62,7 @@ The game blends text with what lies under it in the screen's sRGB values, not in
     - paragraph line breaking (scenario introductions, start-of-game introductions, the country history window; fixed-size multi-line text boxes, such as the description on the macro builder's diplomacy page, break lines between Chinese characters through vtable `+0x80`);
     - names cut short with "..." are cut between characters.
   - M1c: country, province and sea names on the map (this first needed the 16 MiB texture limit raised, see [research/font-textures.md](research/font-textures.md)).
-  - M2: the Chinese language mod shows without conversion; save names written by the CJK font plugin.
+  - M2: the Chinese language mod shows without conversion; save names in legacy escapes.
   - M3 ([research/text-input.md](research/text-input.md)):
     - typing, moving and deleting by character, Home/End, selecting with Shift+Left/Right, copy, cut, paste;
     - the IME composition string and candidate window appear at the caret;

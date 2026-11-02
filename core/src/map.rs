@@ -1,8 +1,7 @@
 //! Province coloring on the map. The core switches to a native map mode whose
 //! color pass it can observe (mode 12, option 26) and overwrites the colors of
 //! the requested provinces; clearing restores the mode that was active before.
-//! Ported from eu4-regional-combat's range preview
-//! (docs/research/regional-combat/native-range-preview-findings.txt).
+//! Ported from eu4-regional-combat's range preview (docs/research/map-modes.md).
 use crate::{
     game::{self, fail, map_coloring::MapColor, GResult, Status},
     hooks::HookFrame,
