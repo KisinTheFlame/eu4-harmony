@@ -132,13 +132,11 @@ impl FrameworkUi {
             Widget::Dropdown { id: "map", options: shown, selected: index(&next.map_font.family) },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_WEIGHT")),
             Widget::Dropdown { id: "map_weight", options: map_names, selected: map_weight },
-            Widget::Label(words("EU4HARMONY_SETTINGS_MAP_OUTLINE")),
-            Widget::Dropdown {
-                id: "outline",
-                options: vec![words("EU4HARMONY_SETTINGS_OUTLINE_FONT"), words("EU4HARMONY_SETTINGS_OUTLINE_NONE")],
-                selected: usize::from(!next.map_outline),
-            },
+            Widget::Toggle { id: "outline", label: words("EU4HARMONY_SETTINGS_MAP_OUTLINE"), on: next.map_outline },
             Widget::Label(words("EU4HARMONY_SETTINGS_RESTART")),
+            Widget::Toggle { id: "return", label: words("EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART"), on: next.return_without_restart },
+            Widget::Toggle { id: "ironman_save", label: words("EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD"), on: next.save_ironman_before_load },
+            Widget::Label(words("EU4HARMONY_SETTINGS_UNDO")),
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
             Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
         ];
@@ -176,10 +174,12 @@ impl FrameworkUi {
                 body_font: Face::new(family("body").unwrap_or(next.body_font.family), weight("body_weight").unwrap_or(next.body_font.weight)),
                 heading_font: Face::new(family("heading").unwrap_or(next.heading_font.family), weight("heading_weight").unwrap_or(next.heading_font.weight)),
                 map_font: Face::new(family("map").unwrap_or(next.map_font.family), weight("map_weight").unwrap_or(next.map_font.weight)),
-                map_outline: w.selected("outline") != Some(1),
+                map_outline: w.is_on("outline").unwrap_or(next.map_outline),
+                return_without_restart: w.is_on("return").unwrap_or(next.return_without_restart),
+                save_ironman_before_load: w.is_on("ironman_save").unwrap_or(next.save_ironman_before_load),
             };
             match settings::save(chosen.clone()) {
-                Ok(()) => log!("settings saved for the next start: {chosen:?}"),
+                Ok(()) => log!("settings saved: {chosen:?}"),
                 Err(e) => log!("settings not saved: {e}"),
             }
         }
