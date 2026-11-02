@@ -180,15 +180,11 @@ _Avoid_: game language (the language in the game's settings, which for Chinese p
 A file of texts in one language that a mod provides under `eu4-harmony/localisation/`. It keeps the game's format but holds plain UTF-8; the framework hands it to the game.
 _Avoid_: translation file, language pack
 
-**CJK font plugin**:
-The third-party plugin `plugin64.dll` that lets the game draw Chinese characters, commonly called the double-byte patch. The Unicode module replaces it.
-_Avoid_: Chinese localisation (that means the text of a Chinese language mod)
-
 ### Text
 
 **Unicode module**:
-The part built into the framework that makes the game keep, show and take input of text as UTF-8, replacing the CJK font plugin. It belongs to the framework itself and is not an extension.
-_Avoid_: text engine, font plugin, Chinese patch
+The part built into the framework that makes the game keep, show and take input of text as UTF-8. It belongs to the framework itself and is not an extension.
+_Avoid_: text engine
 
 **Game text**:
 Text as the game keeps it once the Unicode module runs: a character Windows-1252 has is its single 1252 byte, as the game always kept it; any other character is its UTF-8 sequence.
@@ -215,5 +211,5 @@ The game's interface text in its larger fonts, named `vic_22`, `vic_29`, `vic_36
 _Avoid_: titles (a ruler's title is a game concept), large text
 
 **Legacy escape**:
-The escape byte sequences the CJK font plugin uses to stand for Chinese characters in game text, found in Chinese language mods made for it and in saves played with it.
+The escape byte sequences older Chinese language mods and saves use to stand for Chinese characters in the game's single-byte text.
 _Avoid_: double-byte encoding, mojibake

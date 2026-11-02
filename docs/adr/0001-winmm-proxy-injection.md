@@ -10,7 +10,7 @@ The framework gets into the eu4 process through a `winmm.dll` proxy in the game'
 
 - **Replace `eu4.exe` with a launcher** (what eu4-regional-combat 0.3.x does): verifying the files in Steam restores the entry; the Paradox launcher's arguments have to be passed on; it takes the `eu4.exe` file name, so it cannot be used together with other modified exes.
 - **Patch the exe statically**: of several patches only one can be used, the whole Paradox exe has to be distributed, and the work has to be redone for every game version.
-- **`version.dll` / `d3d9.dll`**: eu4 imports these statically too, but the CJK font plugin already uses them.
+- **`version.dll` / `d3d9.dll`**: eu4 imports these statically too, but other native mods already use them.
 - **`bcrypt` / `crypt32` / `d3dx9_43` / `opengl32`**: these sit on the cryptography or rendering path, every import of the same name in the process would go through the proxy, and they have far more exports.
 
 ## Consequences

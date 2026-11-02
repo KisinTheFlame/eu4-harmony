@@ -8,9 +8,9 @@ The "How it is decided" part and the "transcode" part have been superseded by AD
 
 The framework's and every mod's texts are all shown in the same "player language", which the framework decides once at startup. The deciding logic lives only in the core's `lang` module; other code only reads the result.
 
-**How it is decided**: when the CJK font plugin is loaded and the Windows display language is Chinese, Simplified Chinese; otherwise whichever of English, French, German or Spanish is set in the game's settings (`language` in `settings.txt`). Windows is consulted as well because Chinese players' game language is in fact English, with Chinese characters shown by a Chinese language mod and the font plugin; and the plugin serves Chinese, Japanese and Korean alike, so the plugin alone cannot tell which language it is.
+**How it is decided**: from the Windows display language and the language set in the game's settings (`language` in `settings.txt`: English, French, German or Spanish). Windows is consulted as well because Chinese players' game language is in fact English, with Chinese shown by a Chinese language mod.
 
-**Where mods' texts go**: in `eu4-harmony/localisation/<name>_l_<language>.yml`. The format is the game's own localisation file format, but the content is plain UTF-8, so authors do not have to write the escapes the font plugin requires themselves.
+**Where mods' texts go**: in `eu4-harmony/localisation/<name>_l_<language>.yml`. The format is the game's own localisation file format, but the content is plain UTF-8, so authors do not have to write legacy escapes themselves.
 
 **How the framework uses these texts**:
 - At startup, the framework transcodes each mod's keys for the player language and appends them to the end of `localisation/text_l_<language>.yml` for the game's current language. Interface fragments can therefore use them as they use vanilla keys.
@@ -21,15 +21,14 @@ The file format, the list of languages and the lookup rules (falling back to Eng
 
 ## Considered Options
 
-- **Each mod handles it itself** (the earlier approach; v1 once listed "converting the encoding of mods' localisation files" as out of scope): regional-combat implemented the plugin's escapes on its own for this, and the localisation files it generated were Chinese only, so players without the plugin saw garbage. Every mod would repeat this work, and each could support only one language.
-- **Mods put their files in the game's own `localisation/` as usual**: the game reads them directly, but Chinese has to be escaped beforehand, and an escaped file is garbage in a game without the plugin. One file cannot suit both kinds of player.
+- **Each mod handles it itself** (the earlier approach; v1 once listed "converting the encoding of mods' localisation files" as out of scope): regional-combat wrote legacy escapes on its own for this, and the localisation files it generated were Chinese only, and garbage for every other player. Every mod would repeat this work, and each could support only one language.
+- **Mods put their files in the game's own `localisation/` as usual**: the game reads them directly, but Chinese has to be written as legacy escapes beforehand, and such a file is garbage in a game that does not read them. One file cannot suit both kinds of player.
 - **Make a new virtual localisation file in PhysFS**: cleaner than appending to a vanilla file, but it needs directory enumeration hooked as well, which takes more reverse engineering. Appending uses only the existing splicing.
-- **Decide on Chinese from the font plugin alone**: Japanese and Korean players install this plugin too, and would be taken for Chinese.
 
 ## Consequences
 
 - Adding an in-game language setting later needs only the decision in the `lang` module changed. But the game reads localisation files only once, at startup, so the spliced keys change language only at the next start; texts at run time and notices can follow at once.
 - The file appended to is often overridden by a Chinese language mod. The splice applies to the file actually read, so this does no harm. But if a mod replaces `localisation/` as a whole with `replace_path`, the target file may not exist.
 - Mods' keys share one namespace with vanilla keys, so authors have to add their own prefixes. When several mods define the same key, the mod earlier in the playset wins, and this is recorded in the startup report.
-- Japanese and Korean are not supported for now, because the framework escapes for the plugin only the characters in the CJK ideograph range.
+- Japanese and Korean are not supported for now, because the framework writes legacy escapes only for the characters in the CJK ideograph range.
 - Error details, logs and the startup report are for developers and stay in English.
