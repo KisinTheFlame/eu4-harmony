@@ -1,10 +1,12 @@
 //! The framework UI's text: characters from a system font, drawn once each
 //! into one coverage page, measured by their advances and wrapped where
 //! Unicode line breaking allows. Widgets measure in GUI units; glyphs are
-//! drawn at the size in pixels the game's GUI scale gives them.
+//! drawn at the size in pixels the game's GUI scale gives them, in the tone
+//! of light text, which is all the framework UI draws (`unicode::tone`).
 use super::widgets::{Measure, Rect};
 use crate::unicode::atlas::Page;
 use crate::unicode::system_font::{Face, SystemFonts};
+use crate::unicode::tone::Tone;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
@@ -75,7 +77,8 @@ impl UiFont {
 
     fn draw(&self, c: char, size: f32) -> Option<Placed> {
         let face = self.fonts.face_for(&self.face, c as u32)?;
-        let bitmap = self.fonts.rasterize(&face, c as u32, size).ok()?;
+        let mut bitmap = self.fonts.rasterize(&face, c as u32, size).ok()?;
+        Tone::Light.apply(&mut bitmap.alpha);
         let mut cache = self.cache.borrow_mut();
         let spot = match cache.page.place(bitmap.width.max(1), bitmap.height.max(1)) {
             Some(spot) => spot,
@@ -192,6 +195,13 @@ mod tests {
         let words = font.wrap("one two three four", 16.0, font.width("three four", 16.0) + 1.0);
         assert_eq!(words, ["one two", "three four"]);
         assert_eq!(font.wrap("a\n\nb", 16.0, 100.0), ["a", "", "b"]);
+    }
+
+    #[test]
+    fn the_framework_ui_draws_light_text_only() {
+        use super::super::widgets::{MUTED, TEXT};
+        assert_eq!(Tone::of(TEXT), Tone::Light);
+        assert_eq!(Tone::of(MUTED), Tone::Light);
     }
 
     #[test]
