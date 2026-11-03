@@ -1,7 +1,7 @@
 //! Just enough understanding of Paradox script text to splice GUI elements into
 //! a `windowType` block: a tokenizer that honours quoted strings and `#`
-//! comments, a block finder, and the rewrite of a fragment's element names and
-//! positions.
+//! comments, a block finder, the rewrite of a fragment's element names and
+//! positions, and one value for a key throughout a window.
 use crate::Result;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -260,6 +260,26 @@ pub fn splice_window(file: &str, window: &str, additions: &str) -> Result<String
     Ok(out)
 }
 
+/// Sets every `key = <value>` inside the named window, at any depth, to
+/// `value`, quoted. Fails when the window has none.
+pub fn set_in_window(file: &str, window: &str, key: &str, value: &str) -> Result<String> {
+    let tokens = tokenize(file);
+    let block = find_window(file, &tokens, window).ok_or_else(|| format!("window {window:?} not found"))?;
+    let values: Vec<&Token> = (block.open + 1..block.close.saturating_sub(1))
+        .filter(|&i| tokens[i].kind == Kind::Ident && text_of(file, &tokens[i]).eq_ignore_ascii_case(key) && tokens[i + 1].kind == Kind::Eq)
+        .map(|i| &tokens[i + 2])
+        .filter(|v| matches!(v.kind, Kind::Ident | Kind::Str))
+        .collect();
+    if values.is_empty() {
+        return Err(format!("window {window:?} has no {key}"));
+    }
+    let mut out = file.to_string();
+    for v in values.into_iter().rev() {
+        out.replace_range(v.start..v.end, &format!("\"{value}\""));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +341,16 @@ guiTypes = {
         assert!(render_fragment("guiButtonType = { size = { x = 1 y = 1 } }", "p_", None).is_err());
         assert!(render_fragment("iconType = { name = \"a\" } iconType = { name = \"a\" }", "p_", None).is_err());
         assert!(render_fragment("# nothing\n", "p_", None).is_err());
+    }
+
+    #[test]
+    fn a_window_gets_one_value_for_a_key_at_every_depth() {
+        let file = "guiTypes = {\n\twindowType = { name = \"console_wnd\" editBoxType = { font = \"Arial12\" } instantTextBoxType = { Font = vic_18 } }\n\twindowType = { name = \"other\" editBoxType = { font = \"Arial12\" } }\n}\n";
+        let out = set_in_window(file, "console_wnd", "font", "mine").unwrap();
+        assert_eq!(out.matches("font = \"mine\"").count(), 1);
+        assert_eq!(out.matches("Font = \"mine\"").count(), 1);
+        assert!(out.contains("name = \"other\" editBoxType = { font = \"Arial12\" }"));
+        assert!(set_in_window(file, "missing", "font", "mine").is_err());
+        assert!(set_in_window("windowType = { name = \"bare\" }", "bare", "font", "mine").is_err());
     }
 }
