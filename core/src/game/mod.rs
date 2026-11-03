@@ -232,7 +232,6 @@ pub fn points() -> Vec<Point> {
     points.extend(provinces::points());
     points.extend(console::points());
     points.extend(time::points());
-    points.extend(recruiting::points());
     points.extend(questions::points());
     points.extend(menu::points());
     points.extend(diplomacy::points());

@@ -9,7 +9,7 @@
 //! The game's reader takes almost any text and says nothing of what it could
 //! not read, so [`post`] writes the command it read out again and refuses it
 //! unless every key given came back with the value given.
-use super::{command_session, context, fail, game, Fail, GResult, Status};
+use super::{command_session, context, game, Fail, GResult, Status};
 use crate::{game_string, hooks::HookFrame, memory::Memory, points::Point, unicode::game_text};
 use std::cell::OnceCell;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -150,17 +150,54 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
+/// Why [`post`] did not post a command.
+#[derive(Debug)]
+pub enum Refused {
+    /// The game could not be read or called, as the failure says.
+    Game(Fail),
+    /// The text names no command of the game's, or the game read it
+    /// otherwise than it is written: how.
+    Unread(String),
+    /// The command's own check refuses it; it gives no reason.
+    Check,
+    /// The game's session takes no commands now.
+    NotTaken,
+}
+
+impl From<Fail> for Refused {
+    fn from(fail: Fail) -> Self {
+        Self::Game(fail)
+    }
+}
+
+impl From<String> for Refused {
+    fn from(message: String) -> Self {
+        Self::Game(message.into())
+    }
+}
+
+/// A refusal in the layer's own words, for a caller with none of its own:
+/// [`Status::InvalidArgument`] for a text the game read otherwise,
+/// [`Status::Rejected`] for the check and the session.
+impl From<Refused> for Fail {
+    fn from(refused: Refused) -> Self {
+        let (status, message) = match refused {
+            Refused::Game(fail) => return fail,
+            Refused::Unread(how) => (Status::InvalidArgument, how),
+            Refused::Check => (Status::Rejected, "the game's command refuses it, and gives no reason".to_string()),
+            Refused::NotTaken => (Status::Rejected, "the game takes no commands now".to_string()),
+        };
+        Fail { status, message }
+    }
+}
+
 /// Posts the command `text` writes, such as `buildunit={ country="FRA"
 /// province=183 unit="western_medieval_infantry" }`, to the game's session,
 /// as the game's interface posts its own; it runs at the game's next frame,
 /// for whichever country the text names. A key left out takes the game's
-/// default. Refused, the command not posted: [`Status::InvalidArgument`]
-/// when the text names no command of the game's or a key given did not come
-/// back from the game's reader with the value given; [`Status::Rejected`]
-/// when the command's own check refuses it, which gives no reason, or the
-/// session takes no commands now.
-pub fn post(text: &str) -> GResult<()> {
-    let given = Written::parse(text).map_err(|e| Fail { status: Status::InvalidArgument, message: e })?;
+/// default. A command refused is not posted.
+pub fn post(text: &str) -> Result<(), Refused> {
+    let given = Written::parse(text).map_err(Refused::Unread)?;
     let m = game()?;
     let ctx = context(m)?;
     // The session before the command: once the command is made, only a call
@@ -169,11 +206,11 @@ pub fn post(text: &str) -> GResult<()> {
     // free. A command a call into the game failed on is left alone.
     let session = command_session(m, &ctx)?;
     let Some(command) = read(m, &game_text::from_str(text))? else {
-        return fail(Status::InvalidArgument, format!("the game has no command {:?}", given.kind));
+        return Err(Refused::Unread(format!("the game has no command {:?}", given.kind)));
     };
     let refusal = match refused(m, command, &given)? {
         Some(refusal) => Some(refusal),
-        None if !super::post(m, session, command)? => Some(Fail { status: Status::Rejected, message: "the game takes no commands now".into() }),
+        None if !super::post(m, session, command)? => Some(Refused::NotTaken),
         None => None,
     };
     match refusal {
@@ -185,6 +222,14 @@ pub fn post(text: &str) -> GResult<()> {
     }
 }
 
+/// The command at `command`, one the game made, in its written form on one
+/// line, as the game writes it: for a capability that has the game make its
+/// command, to [`post`] it as text.
+pub fn text(m: &Memory, command: usize) -> GResult<String> {
+    let token = m.call(m.vslot(command, TYPE)?, &[command])? as u32;
+    Ok(one_line(&game_text::to_utf8(&written(m, command, token)?)))
+}
+
 /// Posts dev.toml's test commands (`[test-switches]` `post`), at the first
 /// frame of a game, and logs what came of each.
 #[cfg(feature = "dev-test-switches")]
@@ -192,21 +237,20 @@ pub fn post_test_commands() {
     for text in &crate::dev::options().test_switches.post {
         match post(text) {
             Ok(()) => log!("test command posted: {text}"),
-            Err(e) => log!("test command not posted ({:?}: {}): {text}", e.status, e.message),
+            Err(refused) => log!("test command not posted ({refused:?}): {text}"),
         }
     }
 }
 
 /// Why the command read from `given` must not be posted: a key that did not
 /// come back as given, or its check; None when it may be.
-fn refused(m: &Memory, command: usize, given: &Written) -> GResult<Option<Fail>> {
-    let token = m.call(m.vslot(command, TYPE)?, &[command])? as u32;
-    let again = Written::parse(&game_text::to_utf8(&written(m, command, token)?))?;
-    if let Err(e) = given.came_back(&again) {
-        return Ok(Some(Fail { status: Status::InvalidArgument, message: e }));
+fn refused(m: &Memory, command: usize, given: &Written) -> GResult<Option<Refused>> {
+    let again = Written::parse(&text(m, command)?)?;
+    if let Err(how) = given.came_back(&again) {
+        return Ok(Some(Refused::Unread(how)));
     }
     if m.call(m.vslot(command, CHECK)?, &[command])? as u8 == 0 {
-        return Ok(Some(Fail { status: Status::Rejected, message: format!("the game's {} command refuses it, and gives no reason", given.kind) }));
+        return Ok(Some(Refused::Check));
     }
     Ok(None)
 }

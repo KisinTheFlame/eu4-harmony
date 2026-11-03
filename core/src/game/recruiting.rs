@@ -1,65 +1,22 @@
 //! Recruiting: one regiment or ship of a kind in a province, ordered for the
 //! player through the game's own recruit command, as the recruit button in
-//! the province view orders it, so that the game's checks, costs and
-//! multiplayer rules apply (docs/research/recruiting.md).
+//! the province view orders it, so that the game's checks and costs apply
+//! (docs/research/recruiting.md). The command goes in its written form
+//! through the command layer ([`super::commands`]).
 use super::{
-    command_session, context, fail, game, post,
+    commands::{self, Refused},
+    context, fail, game,
     provinces::{can_recruit, unit_type, UnitKind},
     with_state, Caller, GResult, Status,
 };
-use crate::{
-    objects::campaign::{self, classes, globals, province, recruit_command, world},
-    points::Point,
-    unicode::fill::ALLOCATE,
-};
+use crate::{game_string, objects::campaign::unit_type as unit_type_fields, unicode::game_text};
 
-/// The recruit command's constructor, as the recruit button calls it:
-/// (command, country, unit type, province ID, mercenary company), no company
-/// for a regular unit.
-const COMMAND: usize = 0x26ce40;
-/// The command's check, its vtable's [`recruit_command::CHECK`]: (command),
-/// whether the game would carry it out now.
-const CHECK: usize = 0x26e080;
-/// The command's destructor, its vtable's [`recruit_command::DESTROY`]:
-/// (command, flags), flag 1 freeing it.
-const DESTROY: usize = 0x26cda0;
-const FREE: usize = 1;
-/// The recruit button in the province view: it makes the command and posts
-/// it to the session.
-const BUTTON: usize = 0xe2151f;
-
-pub fn points() -> Vec<Point> {
-    use world::*;
-    vec![
-        Point::keep(COMMAND, "48 89 4c 24 08 53 48 83 ec 20 48 8b d9 c7 41 08 65 01 00 00", "recruit command"),
-        Point::method(classes::RECRUIT_COMMAND, recruit_command::CHECK, CHECK, "recruit command check"),
-        Point::keep(CHECK, "40 57 48 83 ec 50 0f bf 41 54 48 8b f9", "recruit command check"),
-        Point::method(classes::RECRUIT_COMMAND, recruit_command::DESTROY, DESTROY, "recruit command destructor"),
-        Point::keep(DESTROY, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9 8b fa 48 8b 89 98 00 00 00", "recruit command destructor"),
-        // The button: the command's size, the player, the province's ID,
-        // no mercenary company, the constructor; the session from the map
-        // manager, and the post.
-        Point::keep(
-            BUTTON,
-            "48 8b 3d 52 e9 51 01 b9 a0 00 00 00 e8 a4 1d c1 00 48 89 44 24 68 48 8b 4b 08 80 bf 66 1e 00 00 07 75 12 \
-             80 bf 6f 1e 00 00 00 74 09 48 8b 97 68 1e 00 00 eb 07 48 8b 97 60 1e 00 00 48 c7 44 24 20 00 00 00 00 \
-             44 8b 49 20 4c 8b c6 48 8b c8 e8 cd b8 44 ff 48 8b d8 48 8b 8f 00 1e 00 00 48 8b 11 ff 92 80 00 00 00 \
-             48 8b d3 48 8b c8 e8 3f 8d 6a 00",
-            "recruit button",
-        )
-        .uses(&[
-            globals::WORLD,
-            recruit_command::SIZE,
-            PLAYER_MODE,
-            SWITCHED as usize,
-            PLAYER_SWITCHED,
-            SWITCHED_PLAYER,
-            PLAYER,
-            province::ID,
-            MAP_MANAGER,
-            campaign::map_manager::SESSION,
-        ]),
-    ]
+/// The recruit command in its written form: the country by its tag, the
+/// province by its ID, the unit type by its key (`common/units`), as the
+/// recruit button makes it, a regular unit with no mercenary company; the
+/// keys left out take the game's defaults.
+fn written(country: [u8; 3], province: u32, unit: &str) -> String {
+    format!("buildunit={{ country=\"{}\" province={province} unit=\"{unit}\" }}", String::from_utf8_lossy(&country))
 }
 
 /// Recruits one regiment or ship of `kind` in `province` for the player, the
@@ -87,25 +44,21 @@ pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
     if !allowed {
         return Err(eu4_harmony_checks::recruiting::not_allowed(&reasons).into());
     }
-    // The session before the command: once the command is made, only a call
-    // into the game can fail before it is posted or destroyed. The game owns
-    // it once its session took it; until then, it is the framework's to
-    // free. A command a call into the game failed on is left alone.
-    let session = command_session(m, &ctx)?;
-    let command = m.call(m.at(ALLOCATE), &[recruit_command::SIZE])?;
-    if command == 0 {
-        return Err("the game could not allocate a recruit command".to_string().into());
-    }
-    m.call(m.at(COMMAND), &[command, ctx.player.0 as usize, unit_type, id as usize, 0])?;
-    let checked = m.call(m.at(CHECK), &[command])? as u8 != 0;
-    let taken = checked && post(m, session, command)?;
-    if !taken {
-        m.call(m.at(DESTROY), &[command, FREE])?;
-    }
-    match (checked, taken) {
-        (true, true) => Ok(()),
+    let unit = game_text::to_utf8(&game_string::read(m, unit_type + unit_type_fields::NAME)?);
+    match commands::post(&written(ctx.player.letters(), id, &unit)) {
+        Ok(()) => Ok(()),
         // What the snapshot leaves out: the command's own rule for ships.
-        (false, _) => fail(Status::Rejected, "the game's recruit command refuses it, and gives no reason"),
-        (true, false) => fail(Status::Rejected, "the game takes no orders from the player now"),
+        Err(Refused::Check) => fail(Status::Rejected, "the game's recruit command refuses it, and gives no reason"),
+        Err(Refused::NotTaken) => fail(Status::Rejected, "the game takes no orders from the player now"),
+        Err(Refused::Unread(how)) => fail(Status::Internal, format!("the game read the recruit command otherwise: {how}")),
+        Err(Refused::Game(fail)) => Err(fail),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_command_names_the_country_the_province_and_the_unit_type() {
+        assert_eq!(super::written(*b"FRA", 183, "western_medieval_infantry"), r#"buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }"#);
     }
 }
