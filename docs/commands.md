@@ -1,6 +1,6 @@
 # Commands plan
 
-Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)); C1 and C2 built, not yet tried in the game. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md) and [ADR 0033](adr/0033-commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
+Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)); C1 to C3 built, not yet tried in the game. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md) and [ADR 0033](adr/0033-commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
 
 ## Goal and scope
 
@@ -75,7 +75,19 @@ Recruiting, declaring war, offering peace and proposing an alliance write their 
 
 ### C3 Army orders and the rest
 
-The game's own command for moving an army and for stopping it are tried in the game against what `army.move` and `army.stop` do now, by calling the game's functions: the route taken, straits, an army already moving. Where they do the same, the two capabilities move onto the layer. Every other capability that changes the game is listed with how it reaches the game, such as the game's speed, which is set directly; each that bypasses a command it has is moved onto the layer or written down with why not.
+`army.move` and `army.stop` move onto the game's own commands, as the player's right click makes them ([research/army-orders.md](research/army-orders.md)): a move command to another province, with the route replaced and the fleet's own orders cancelled, and, for the province the army is in, the command that cancels its movement. The game finds the route itself as it runs the command; the framework asks the same route query first, so that a goal with no route is refused with its reason, as now, and reads the route the game set afterwards. The route changes the command makes are the framework's own, as its direct calls' were, so route ownership and the orders heard stay as they are. `time.set_speed` posts one of the game's speed commands for each step, as the speed keys do. Tried in the game against what the two did before by calling the game's functions: the route taken, straits, an army already moving, an army stopped; the speed.
+
+How every other capability that changes the game reaches it:
+
+| Capability | How | Why |
+| --- | --- | --- |
+| `recruit.order`, `diplomacy.*` | the layer (C2) | |
+| `army.move`, `army.stop`, `time.set_speed` | the layer (C3) | |
+| `time.pause`, `time.resume` | the game's pause toggle, directly | in single player the player's pause key toggles the pause directly too; only in multiplayer does it post a command |
+| `question.answer`, `offer.accept`, `offer.decline` | the game's own buttons, pressed | the buttons post the game's commands themselves |
+| `console.run` | the game console's run function | console commands change the game directly; they are not commands |
+| `camera.*` | the camera, directly | the camera is not game state, and the game posts no command for it |
+| `menu.*` | the main menu's own steps | the setup commands are posted by the game's own interface, which the steps drive |
 
 ### C4 Events
 

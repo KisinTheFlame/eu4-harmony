@@ -1,9 +1,10 @@
 //! Time: the date, whether the game is paused and by what, and its speed;
-//! pausing, resuming and setting the speed as the player would; stopping time
+//! pausing and resuming as the player would, and setting the speed with the
+//! game's speed commands, as the player's speed keys do; stopping time
 //! as a date is reached, for remote control's advancing; and whether a
 //! question waits for the player's answer. The evidence is in
 //! docs/research/time.md.
-use super::{context, context_any, events, fail, game, map_manager, paused, questions, Caller, Ctx, GResult, Status};
+use super::{commands, context, context_any, events, fail, game, map_manager, paused, questions, Caller, Ctx, GResult, Status};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -16,7 +17,7 @@ use crate::{
 use std::sync::Mutex;
 
 /// `(world, index)`: sets the speed, clamped to 0..=4, as both speed commands
-/// do.
+/// do; kept for the speed's field and its last index.
 const SET_SPEED: usize = 0x7579f0;
 /// The speed-up command's execution, which reads the speed.
 const SPEED_UP: usize = 0xb79970;
@@ -119,12 +120,23 @@ fn over(m: &Memory, ctx: &Ctx) -> GResult<Option<i32>> {
     Ok((ctx.date > end && m.u8(ctx.world + world::PLAY_ON)? == 0).then_some(end))
 }
 
-/// Sets the game speed, 1 (slowest) to 5 (fastest), as the player would.
+/// Sets the game speed, 1 (slowest) to 5 (fastest), as the player's speed
+/// keys do: one of the game's speed commands for each step, each carried out
+/// at once.
 pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
     eu4_harmony_checks::time::speed(speed)?;
     let m = game()?;
     let ctx = context(m)?;
-    m.call(m.at(SET_SPEED), &[ctx.world, (speed - 1) as usize])?;
+    let target = speed as i32 - 1;
+    let now = m.i32(ctx.world + world::SPEED)?;
+    let command = if target > now { "increase_game_speed={ }" } else { "decrease_game_speed={ }" };
+    for _ in 0..(target - now).abs() {
+        commands::post(command)?;
+    }
+    let set = m.i32(ctx.world + world::SPEED)?;
+    if set != target {
+        return Err(format!("the game's speed commands left the speed at {}", set + 1).into());
+    }
     Ok(())
 }
 
