@@ -42,7 +42,7 @@ Nothing changes: when the new `main.lua` does not compile or fails as it runs, o
 
 ## Parts
 
-- **R1**: `on_save` becomes `save_data` (ADR 0034), `api_version` 0.3; the type definitions, the guides, `wiki`, the tests and regional combat follow.
+- **R1**: `on_save` becomes `save_data` (ADR 0036), `api_version` 0.3; the type definitions, the guides, `wiki`, the tests and regional combat follow.
 - **R2**: the core reloads one extension in place, keeping its number, so what belongs to it (its interface elements, its map coloring, the orders it gave) stays its own; `extension.reload` in the catalogue.
 - **R3**: `eu4-harmony reload` and `--watch`.
 - **Acceptance**, in the game with regional combat: a changed text shows in the tooltip; a changed decision rule takes effect with the task still on; a syntax error leaves the old code running and is printed; a reload in the main menu and one after a stop both work.

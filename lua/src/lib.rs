@@ -559,7 +559,7 @@ impl Extension {
         }
     }
 
-    /// The extension's save data, from its `save_data` (ADR 0034), as a
+    /// The extension's save data, from its `save_data` (ADR 0036), as a
     /// plain call that cannot wait: `None` when it has no `save_data` or is
     /// stopped; `Some(Ok(None))` when it keeps nothing; an error when
     /// `save_data` fails or returns what JSON cannot hold, which is logged as

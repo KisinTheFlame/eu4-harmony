@@ -255,7 +255,7 @@ impl GameToken {
 /// Writes the entry with the game's writer, after the world's game state and
 /// before the checksum is taken of it.
 fn write_entry(m: Memory, writer: usize) -> Result<()> {
-    // Each extension's data is what its save_data returns now (ADR 0034).
+    // Each extension's data is what its save_data returns now (ADR 0036).
     // Off the main thread the data its last save_data returned is written.
     if crate::thread_id() == crate::main_thread() {
         crate::lua::save_data();
