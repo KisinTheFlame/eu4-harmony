@@ -68,6 +68,7 @@ eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifes
 cd my-mod
 eu4-harmony test                          # run its eu4-harmony\tests\*.lua against a fake game
 eu4-harmony link                          # register it under mod\ in the user folder, then tick it in the launcher
+eu4-harmony reload --watch                # with the game running: reload its Lua and texts in place whenever they change
 eu4-harmony package                       # once every Lua and localisation file reads, make a clean folder to upload, ..\my-mod-package
 ```
 

@@ -68,6 +68,7 @@ eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、manifes
 cd my-mod
 eu4-harmony test                          # 用假游戏运行它的 eu4-harmony\tests\*.lua
 eu4-harmony link                          # 在用户文件夹的 mod\ 下注册，然后在启动器里勾选
+eu4-harmony reload --watch                # 游戏运行时：Lua 和文字一改动，就在游戏里就地重载
 eu4-harmony package                       # 所有 Lua 和本地化文件都能读通后，生成一个干净的上传文件夹 ..\my-mod-package
 ```
 

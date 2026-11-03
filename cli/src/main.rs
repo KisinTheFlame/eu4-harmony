@@ -8,6 +8,7 @@
 mod fake;
 mod game;
 mod pipe;
+mod reload;
 mod skills;
 mod templates;
 mod test;
@@ -39,6 +40,11 @@ usage:
   eu4-harmony test [<mod dir>]
       Runs the mod's eu4-harmony/tests/*.lua against a fake game, with the
       game's Lua host and sandbox; eu4-harmony skills testing says how.
+  eu4-harmony reload [<mod dir>] [--watch]
+      Reloads the mod's Lua code and texts in the running game, its state
+      carried through save_data; with --watch, whenever a file under
+      eu4-harmony/lua/ or eu4-harmony/localisation/ changes, until stopped.
+      Interface fragments and the manifest take a restart of the game.
   eu4-harmony types [<mod dir>]
       Writes the editor's type definitions for this tool's catalogue again,
       in .eu4-harmony/types/, and a .luarc.json pointing at them where the
@@ -102,6 +108,7 @@ fn main() {
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
         Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
         Some("test") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_test(&a)),
+        Some("reload") => Args::parse(&raw[1..], &["watch"]).and_then(|a| cmd_reload(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
@@ -115,6 +122,17 @@ fn main() {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
+}
+
+/// `eu4-harmony reload`: the mod at or above the start folder, by its id.
+fn cmd_reload(args: &Args) -> Result<()> {
+    let root = mod_root(&start_dir(args)?)?;
+    let id = read_manifest(&root)?.id;
+    if args.options.contains_key("watch") {
+        reload::watch(&root, &id);
+    }
+    println!("{}", reload::once(&id)?);
+    Ok(())
 }
 
 // ---------- shared ----------
