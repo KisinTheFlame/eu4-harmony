@@ -64,7 +64,7 @@ The full list, with every argument and result, is `eu4-harmony wiki`, which work
 A mod's extension is Lua 5.4 scripts, run by the framework in a sandbox of their own ([ADR 0024](docs/adr/0024-extensions-are-lua-in-a-sandbox.md)): nothing to install and nothing to build. The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder (or `target\x86_64-pc-windows-msvc\release\` in a build of this repository):
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifest.toml, lua\main.lua, a button, English and Chinese texts, the editor's type definitions
+eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifest.toml, lua\main.lua, a button, English and Chinese texts, the editor's type definitions, an AGENTS.md
 cd my-mod
 eu4-harmony link                          # register it under mod\ in the user folder, then tick it in the launcher
 eu4-harmony package                       # once every Lua and localisation file reads, make a clean folder to upload, ..\my-mod-package
@@ -75,6 +75,8 @@ A mod's own files are in its `eu4-harmony\` folder, where they are says what the
 `permissions` declares what the extension may do beyond the game: the real time (`clock = true`), files in a data folder of its own (`files = true`) and HTTP requests to the hosts it lists (`network = ["api.example.com"]`); using one it did not declare raises an error ([ADR 0025](docs/adr/0025-sensitive-capabilities-are-declared.md)). Players see what each mod declares, with its name, version and description, in the mods window the "EU4 Harmony mods" button opens in the main menu's corner.
 
 `main.lua` returns a table of handlers, one per event (`on_session`, `on_day`, `on_button`, `on_frame`, `on_save` and the rest). Each gets `game`, through which every capability is called by its group, such as `game.army.move(army, province)`; a refusal returns `nil, err`, and a handler may wait for a capability's answer, such as another country's to a proposal, as with `await`. `eu4-harmony wiki` lists every capability with its Lua form, `eu4-harmony wiki lua` the handlers and globals, `eu4-harmony wiki manifest` the manifest's fields and permissions; `eu4-harmony game` asks the running game the same through remote control (above). The smallest example is the mod `eu4-harmony new` creates; the plan, with handlers, errors, the time limit and extension save data, is [docs/lua-extensions.md](docs/lua-extensions.md).
+
+`eu4-harmony skills` holds guides for making a mod, written for a coding agent and readable by anyone: the steps of each kind of work and how to tell each is done (`eu4-harmony skills mod` first, then `tasks`, `state`, `ui`, `localisation`, `game`). The `AGENTS.md` that `eu4-harmony new` writes points an agent at them.
 
 An editor with the Lua language server (LuaLS) completes `game`, the capabilities, the handlers and the globals, and marks a misspelled capability or a wrong argument: `eu4-harmony new` writes the type definitions into the mod's `.eu4-harmony\types\` with a `.luarc.json`, and `eu4-harmony types` writes them again for a newer tool. `eu4-harmony package` leaves both out.
 
