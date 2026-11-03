@@ -1182,7 +1182,6 @@ M1 of [leak-finding.md](leak-finding.md): the developer build with the heap cens
 - **A mistake the run showed**: the first run listed one place that let blocks go five times, once for each shard of the census that had counted some; the counts are added up across shards since, and the second run gave each place once.
 - **Not tried**: `memory.generation` inside a long game; the player build, which has no memory group (the build and its tests and clippy pass); a run of more than four rounds.
 - **Cleanup**: the game was closed by the script, or by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The runs' reports and a scratch folder the script made were deleted.
-||||||| 0fa4311
 
 ## How the implementation differs from the final design
 
