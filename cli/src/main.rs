@@ -7,6 +7,7 @@
 //! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
 mod game;
 mod pipe;
+mod skills;
 mod templates;
 mod types;
 mod wiki;
@@ -45,6 +46,9 @@ usage:
       The reference: every capability, how Lua and the command line call
       it, what it answers; a mod's handlers, globals and manifest; how a
       remote client plays a game; errors and events.
+  eu4-harmony skills [<topic>...]
+      Guides for making a mod, for a coding agent or a person: the steps,
+      and how to tell each is done.
 
 <mod dir> defaults to the current folder or the mod folder containing it.
 ";
@@ -92,6 +96,7 @@ fn main() {
         Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
+        Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
         Some("help" | "-h" | "--help") | None => {
             print!("{USAGE}");
             Ok(())
