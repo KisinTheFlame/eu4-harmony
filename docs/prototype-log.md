@@ -1093,7 +1093,7 @@ This branch's uncommitted change for part C0 of [commands.md](commands.md): the 
 
 ## 2026-11-03 Commands C1 to C3 (tested by me)
 
-The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0033), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
+The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0035), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
 
 - **Startup**: 756 dependency points matched for ff49db0, 758 for the change after it; 132 hooks, 10 writes.
 - **The test commands, at the first frame of each game**: the recruit in Paris and the alliance with Scotland were carried out (France's manpower 11,798 → 10,798); the recruit in London was refused by its check (`Check`); `province=abc` (read as -1), `provinec`, `nosuchcommand` and the missing brace were refused unread, each with its reason.
@@ -1162,6 +1162,16 @@ L6's fourth point: regional combat in Lua, France from 1444.11.11, war on Englan
 - **Not met**: no stretch over 5 ms.
 - **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
 
+## 2026-11-04 A new game after an in-process return is a session (tested by me)
+
+The build of `claude/session-after-return`, which begins a session at each world reset with the history (an in-process return, the single player setup left). Regional combat as the extension to watch, its manifest set to api_version 0.2 for the run (as master provides) and put back after; `eu4.exe` started directly.
+
+- **Before**: in the runs of the same night ([Extension reload](#2026-11-04-extension-reload-tested-by-me)), France, `menu.return`, then `menu.start FRA` began a game the framework took for the old session: no "session N started", no `on_session`, the number still 1.
+- **After**: France (session 1), a return, Castile (3), France from that session (5), `menu.load autosave` from it (7, "from a loaded save: true"), France (9), a return, France again (10), France from that session (11). Each logged "session N started", each ended with the session's timing line, and regional combat's `on_session` ran each time ("session N: restored 0 task(s)").
+- **The numbers**: a session begun by a load, or with another world or player, is counted twice (by the load or the world reset, and by the frame that finds the world or player changed), so the numbers rise by 2 there and by 1 for France after France. They only ever rise, which is what extensions and remote clients rely on.
+- **Not verified in the game**: leaving the single player setup by its back button, then starting a game.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
+
 ## 2026-11-04 The heap census through remote control, and a leak run (tested by me)
 
 M1 of [leak-finding.md](leak-finding.md): the developer build with the heap census (`--features eu4-harmony-core/dev-heap-census`) answering `memory`, `memory.leftovers` and `memory.generation`, and `tools/leak-run.ps1`. Four processes under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `eu4.exe` started directly by the script, the playset as installed; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
@@ -1172,6 +1182,7 @@ M1 of [leak-finding.md](leak-finding.md): the developer build with the heap cens
 - **A mistake the run showed**: the first run listed one place that let blocks go five times, once for each shard of the census that had counted some; the counts are added up across shards since, and the second run gave each place once.
 - **Not tried**: `memory.generation` inside a long game; the player build, which has no memory group (the build and its tests and clippy pass); a run of more than four rounds.
 - **Cleanup**: the game was closed by the script, or by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The runs' reports and a scratch folder the script made were deleted.
+||||||| 0fa4311
 
 ## How the implementation differs from the final design
 

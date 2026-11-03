@@ -7,7 +7,7 @@
 //! Then it has the action make the command that carries it, as the window
 //! does, and posts the command in its written form through the command layer
 //! ([`super::commands`]), which asks the command's own check too and has the
-//! game carry it out at once (ADR 0033), with its own checks and costs: an AI
+//! game carry it out at once (ADR 0035), with its own checks and costs: an AI
 //! country answers a proposal there, and its answer comes back as a command
 //! of its own, carried out at the game's next frame. Each
 //! action sent is a [`Ticket`]; [`answer`] says what came of it, from the
