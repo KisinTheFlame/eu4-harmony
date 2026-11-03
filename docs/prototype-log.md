@@ -1084,7 +1084,6 @@ L6 of [lua-extensions.md](lua-extensions.md): the regional combat mod rewritten 
 - **Cost, not met**: 32,694 stretches, 5,037 ms in all, about 0.15 ms a stretch (the average target is met); but 142 stretches over 5 ms, most 25 to 35 ms and the longest 65 ms, about one a game day: the day's read of every province (`province.list`, about 4,900 provinces made Lua tables) for the snapshot, and the range's `can_step` calls, rebuilt each day. Coarser capabilities are to bring it down (L6's fourth point).
 - **Not verified in the game**: a defeat turning the task off, a recovery of an occupied province, a split or merged army; a save written by the native extension (none of the player's saves holds its data: they were written before data went into saves, ADR 0020).
 - **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
-||||||| 9abc82c
 
 ## How the implementation differs from the final design
 
