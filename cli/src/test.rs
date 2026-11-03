@@ -361,7 +361,7 @@ impl UserData for TestMod {
             this.handle(lua, "on_map_lost", &[]);
             Ok(())
         });
-        methods.add_method("save", |lua, this, ()| match this.extension.on_save() {
+        methods.add_method("save", |lua, this, ()| match this.extension.save_data() {
             None | Some(Ok(None)) => Ok((LuaValue::Nil, LuaValue::Nil)),
             Some(Ok(Some(data))) => Ok((values::to_lua(lua, &data)?, LuaValue::Nil)),
             Some(Err(message)) => Ok((LuaValue::Nil, LuaValue::String(lua.create_string(message)?))),
@@ -464,7 +464,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("eu4-harmony/lua")).unwrap();
         std::fs::write(dir.join("eu4-harmony/lua/main.lua"), "return {}").unwrap();
-        let manifest = Manifest::parse("id = \"g\"\napi_version = \"0.2\"").unwrap();
+        let manifest = Manifest::parse("id = \"g\"\napi_version = \"0.3\"").unwrap();
         let opened = Arc::new(Opened { root: dir.clone(), manifest, name: "G".into(), scratch: dir.join("scratch") });
         let lua = harness(&opened).unwrap();
         for method in named {

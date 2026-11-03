@@ -4,9 +4,9 @@ use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
-    diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
-    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, menu::MenuRequest, offers::OfferRequest,
+    provinces::ProvinceRequest, questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest,
+    session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -224,6 +224,7 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }), Box::new(Value::is_null)),
         (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(Value::is_null)),
         (Request::Menu(MenuRequest::Return {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "ending"})))),
+        (Request::Extension(ExtensionRequest::Reload { id: "regional-combat".into() }), Box::new(|v: &Value| *v == ok(json!({"session": true, "lost": null})))),
     ];
     // A developer build's census, which counts nothing here.
     #[cfg(feature = "dev-heap-census")]

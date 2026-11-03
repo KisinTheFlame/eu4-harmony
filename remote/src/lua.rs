@@ -75,7 +75,7 @@ pub struct Permission {
 pub const HANDLERS: &[Handler] = &[
     Handler {
         name: "on_session",
-        args: &[optional("saved", "any", "what this mod's on_save returned when the save it began from was written; nil for a new game or a save without it")],
+        args: &[optional("saved", "any", "what this mod's save_data returned when the save it began from was written, or, after an extension reload, what the code before it returned; nil for a new game or a save without it")],
         returns: None,
         about: "A session began: a save was loaded or a game started.",
     },
@@ -112,10 +112,10 @@ pub const HANDLERS: &[Handler] = &[
         about: "Every frame of a game, after the events above. Keep it short: it runs as often as the game draws.",
     },
     Handler {
-        name: "on_save",
+        name: "save_data",
         args: &[],
         returns: Some(optional("data", "any", "this mod's save data, any value JSON can hold; nil keeps nothing")),
-        about: "The game writes its world, the ironman exit save included. It cannot wait.",
+        about: "The framework asks for this mod's data: the game writes its world, the ironman exit save included, or the mod's code is about to be reloaded. It cannot wait.",
     },
 ];
 
@@ -300,7 +300,7 @@ pub const MANIFEST: &[Field] = &[
     Field {
         name: "api_version",
         required: true,
-        example: "api_version = \"0.2\"",
+        example: "api_version = \"0.3\"",
         about: "The capability catalogue the mod was written for; in 0.x the framework loads only a mod written for its own.",
     },
     Field {

@@ -8,6 +8,7 @@
 mod fake;
 mod game;
 mod pipe;
+mod reload;
 mod skills;
 mod templates;
 mod test;
@@ -39,6 +40,11 @@ usage:
   eu4-harmony test [<mod dir>]
       Runs the mod's eu4-harmony/tests/*.lua against a fake game, with the
       game's Lua host and sandbox; eu4-harmony skills testing says how.
+  eu4-harmony reload [<mod dir>] [--watch]
+      Reloads the mod's Lua code and texts in the running game, its state
+      carried through save_data; with --watch, whenever a file under
+      eu4-harmony/lua/ or eu4-harmony/localisation/ changes, until stopped.
+      Interface fragments and the manifest take a restart of the game.
   eu4-harmony types [<mod dir>]
       Writes the editor's type definitions for this tool's catalogue again,
       in .eu4-harmony/types/, and a .luarc.json pointing at them where the
@@ -102,6 +108,7 @@ fn main() {
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
         Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
         Some("test") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_test(&a)),
+        Some("reload") => Args::parse(&raw[1..], &["watch"]).and_then(|a| cmd_reload(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
@@ -115,6 +122,17 @@ fn main() {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
+}
+
+/// `eu4-harmony reload`: the mod at or above the start folder, by its id.
+fn cmd_reload(args: &Args) -> Result<()> {
+    let root = mod_root(&start_dir(args)?)?;
+    let id = read_manifest(&root)?.id;
+    if args.options.contains_key("watch") {
+        reload::watch(&root, &id);
+    }
+    println!("{}", reload::once(&id)?);
+    Ok(())
 }
 
 // ---------- shared ----------
@@ -519,7 +537,7 @@ mod tests {
     fn tests_drive_waiting_tasks_and_requests_and_report_what_fails() {
         let dir = temp("tests-drive");
         let root = create_mod(&dir, "driven", "Driven").unwrap();
-        write(&root.join("eu4-harmony/manifest.toml"), "id = \"driven\"\napi_version = \"0.2\"\npermissions = { network = [\"api.example.com\"] }\n").unwrap();
+        write(&root.join("eu4-harmony/manifest.toml"), "id = \"driven\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }\n").unwrap();
         write(
             &root.join("eu4-harmony/lua/main.lua"),
             r#"
@@ -538,7 +556,7 @@ mod tests {
                 game.map.paint({ [151] = 0xFF0000 })
                 log("day " .. tostring(date) .. " " .. tostring(select(2, game.country.get("FRA")).code))
               end,
-              on_save = function(game) return { kept = true } end,
+              save_data = function(game) return { kept = true } end,
             }
             "#,
         )
