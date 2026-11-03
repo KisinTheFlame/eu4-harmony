@@ -965,6 +965,17 @@ L3 of [lua-extensions.md](lua-extensions.md): `clock`, `files` and `network` fro
 - **Not verified in the game**: a timeout (a unit test has one at 0.3 s), a body over 16 MiB, a redirect (a unit test has a 302 answered as a response), a mod whose manifest does not declare what it uses (unit tests), and a host in the manifest written wrongly.
 - **Cleanup**: the game was closed by ending its process; the test mod's data folder and descriptor were removed. Releasing the game restored the player's files, `dlc_load.json`, the autosaves and the logs among them, and found every file as the backup had it. The framework files in the game folder were replaced by this build without a copy of the ones there before; see the pull request.
 
+## 2026-11-03 The mods window (tested by me)
+
+L4 of [lua-extensions.md](lua-extensions.md): the mods window in the main menu. Two test mods made by `eu4-harmony new`: `l4-full`, version 1.2 in its descriptor, a description key and `permissions = { clock = true, files = true, network = ["api.example.com", "192.168.1.10:8080"] }`; `l4-bare`, with no version, description or permissions. Both registered with `eu4-harmony link` and added to the player's playset in `dlc_load.json`. One run of `eu4.exe`, started directly, at 3840×2160 with the player language Chinese, clicked with `tools/game-input.ps1` and looked at with `tools/screenshot.ps1`. The game was claimed with the game-lock skill, which backed up the player's files first.
+
+- **The corner**: "EU4 Harmony Mod" stood left of "EU4 Harmony 设置", the same height and look.
+- **The window**: a click opened it in the middle of the dimmed screen, titled "EU4 Harmony Mod", the two mods listed on the left in playset order with the first chosen. On the right: "L4 Full", "版本 1.2", the mod's description in Chinese from its localisation, "在游戏之外，这个 Mod 可以：", then one line each for the clock, the data folder (the full path in the user folder, wrapped) and the two hosts, and the closing line that the mod declares these itself.
+- **Choosing**: a click on "L4 Bare" chose it and the right side changed to its name, "这个 Mod 没有介绍。" and "这个 Mod 不做游戏之外的事。"; the window grew shorter with it, its top where it was.
+- **Closing**: Esc closed the window and the two corner buttons came back; the settings button then opened the settings window as before, and Esc closed it without saving.
+- **Not verified in the game**: a playset without Harmony mods ("当前启用的 Mod 中没有 EU4 Harmony Mod。", a unit test), a name too long for the list (cut with an ellipsis, a unit test), the window's close box, the other four languages, a smaller screen.
+- **Cleanup**: the game was closed by ending its process; the two test mods' descriptors were removed. Releasing the game restored the player's files, `dlc_load.json` and the logs among them, and found every file as the backup had it. The framework files in the game folder are this build, as after the run before.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
