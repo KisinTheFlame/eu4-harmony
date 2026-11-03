@@ -1,9 +1,10 @@
 //! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR 0015). Each capability is a function taking the
-//! [`Caller`] and returning the framework's own types; the C ABI for
-//! extensions (`crate::ext`) only converts to and from them. One file per
-//! group: [`session`], [`countries`], [`provinces`], [`armies`],
-//! [`interface`], [`map_coloring`], [`save_data`], [`texts`], [`camera`],
+//! [`Caller`] and returning the framework's own types; remote control
+//! (`crate::remote`) and the Lua host (`crate::lua`), which runs remote
+//! control's groups as the extension, only convert to and from them (ADR
+//! 0026). One file per group: [`session`], [`countries`], [`provinces`],
+//! [`armies`], [`interface`], [`map_coloring`], [`texts`], [`camera`],
 //! [`screenshot`], [`console`], [`time`], [`recruiting`], [`menu`] and
 //! [`diplomacy`]; the game's questions and offers waiting for the player's
 //! answer, [`questions`] and [`offers`].
@@ -12,7 +13,8 @@
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
 //! [`events`], which establishes the safe point everything here runs at);
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
-//! in docs/research/regional-combat/.
+//! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
+//! defeat.md, time.md, fog-of-war.md).
 pub mod armies;
 pub mod camera;
 pub mod console;
@@ -27,7 +29,6 @@ pub mod orders;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
-pub mod save_data;
 pub mod screenshot;
 pub mod session;
 pub mod texts;
@@ -58,12 +59,6 @@ impl Caller {
             Caller::Extension(index) => Ok(index),
             Caller::Remote => fail(Status::Unavailable, format!("only extensions have {what}")),
         }
-    }
-
-    /// The id of the calling extension's mod.
-    fn mod_id(self, what: &str) -> GResult<String> {
-        let index = self.extension(what)?;
-        crate::ext::mod_id(index).ok_or_else(|| format!("no extension {index}").into())
     }
 }
 

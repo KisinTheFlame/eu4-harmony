@@ -15,9 +15,9 @@ group! {
     /// Where the game is, and which process answers: a game started again
     /// (after returning to the main menu, say) is a new process, whose
     /// sessions and events are numbered from 1 again.
-    anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded, and at startup until the main menu shows) or game";
+    remote_anywhere State "" {} -> Menu, "process (when the game process started, in milliseconds since 1970), and place: main_menu, starting (a game is being started from the main menu, set up or loaded, and at startup until the main menu shows) or game";
     /// The saves in the save games folder, newest first.
-    anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), player and date as the save's header says them (null when it cannot be read), and missing_mods, the mods it was made with that the game did not start with (menu.load refuses it while there are any)";
+    remote_anywhere Saves "saves" {} -> Vec<Save>, "the saves: name (to load it by), file, bytes, modified (seconds since 1970), player and date as the save's header says them (null when it cannot be read), and missing_mods, the mods it was made with that the game did not start with (menu.load refuses it while there are any)";
     /// Loads a save and plays it as the country it was saved as: from the
     /// main menu's first page (at startup, once menu says main_menu) as the
     /// continue box does, and from a game as the game's own load does,
@@ -34,7 +34,7 @@ group! {
     /// the game does not take the load up, cannot read the save (it then
     /// starts a game from what it read), begins another game than the
     /// save's, or begins one the player cannot play.
-    anywhere Load "load" {
+    remote_anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
     } -> Session, "the session of the loaded game, as session answers it, its player and date the save's";
@@ -47,7 +47,7 @@ group! {
     /// start date, which the setup does not offer the player (the game would
     /// only be observed); and rejected when the game does not take the start
     /// up or begins a game the player cannot play.
-    anywhere Start "start" {
+    remote_anywhere Start "start" {
         /// The country to play.
         country: CountryTag,
     } -> Session, "the session of the new game, as session answers it";
@@ -64,7 +64,7 @@ group! {
     /// advance waiting, main_menu). The new process opens the pipe a few
     /// seconds later and answers once it presents its first frame: ask menu
     /// again until its process differs and its place is main_menu.
-    anywhere Return "return" {} -> Menu, "this process, and place main_menu once its main menu is up, or ending when the game starts again";
+    remote_anywhere Return "return" {} -> Menu, "this process, and place main_menu once its main menu is up, or ending when the game starts again";
 }
 
 impl MenuRequest {

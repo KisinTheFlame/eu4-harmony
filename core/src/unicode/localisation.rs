@@ -35,9 +35,9 @@ struct Context {
 type Import = unsafe extern "C" fn(*const u8, *const u8, u32, usize, *const Context);
 type Register = unsafe extern "C" fn(usize, *const u8, *const u8, i32, u32, u8);
 
-/// `string` as NUL-terminated game text, when it is UTF-8. A Chinese
-/// localisation mod made for the CJK font plugin carries legacy escapes as
-/// the 1252 characters of their bytes; they become plain characters here.
+/// `string` as NUL-terminated game text, when it is UTF-8. An older Chinese
+/// language mod carries legacy escapes as the 1252 characters of their
+/// bytes; they become plain characters here.
 unsafe fn converted(string: *const u8) -> Option<Vec<u8>> {
     let mut text = game_text::from_str(std::str::from_utf8(game_string::text(string)).ok()?);
     if let Some(decoded) = super::legacy::decode(&text) {

@@ -1,4 +1,10 @@
+---
+status: superseded in part by ADR-0028
+---
+
 # Extension save data is written into the save file
+
+An extension's data is now what its `on_save` handler returns (ADR 0028), not what it set with `set_save_data`. Where and how it is written into the save still holds.
 
 The framework writes the extensions' save data into the save itself: one more top-level entry of the save's game state, `eu4_harmony`, written by the game's own writer in the same pass as the rest of the save, after the game state's last entry, before the AI that a plain save holds (the game reads a plain save's entries only up to it), and before the checksum. When a save is loaded, the framework takes the entry out before the game's handling of top-level entries sees it. The data goes wherever the save goes: copied, renamed or moved, into the game's backup copy, through rotated autosaves and into the cloud. Nothing gathers in the user folder. This supersedes ADR 0007.
 

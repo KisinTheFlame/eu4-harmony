@@ -12,6 +12,7 @@ pub mod fitted_text;
 pub mod floating_text;
 pub mod font_load;
 pub mod fonts;
+pub mod framework_fonts;
 pub mod game_text;
 pub mod glyphs;
 pub mod input;

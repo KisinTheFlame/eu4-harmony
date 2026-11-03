@@ -11,10 +11,11 @@ These rules hold for everyone who changes this repository, people and coding age
 
 ## Where things are written down
 
-- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its parts and what each delivers. [docs/sessions.md](docs/sessions.md): leaving a session without a restart, its plan and parts.
+- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its parts and what each delivers. [docs/sessions.md](docs/sessions.md): leaving a session without a restart, its plan and parts. [docs/lua-extensions.md](docs/lua-extensions.md): extensions in Lua instead of native DLLs, its plan and parts.
 - [docs/adr/](docs/adr/): decisions that are hard to reverse. A new decision gets the next number; a changed decision gets a new ADR that supersedes the old one, which stays.
 - [docs/research/](docs/research/): what is known about the game's code, with addresses as RVAs into the 1.37.5 baseline.
 - [docs/prototype-log.md](docs/prototype-log.md): what was tested in the running game and what came out, one dated section per run. Say what was not verified as plainly as what was.
+- [docs/performance.md](docs/performance.md): what the framework costs the game, as measured with `tools/perf-run.ps1`.
 
 ## Building and checking
 
@@ -30,7 +31,7 @@ Clippy's warnings are fixed, not allowed. Where the code is right as it is, `#[e
 With the game installed, the offline checks compare every dependency point's bytes with the game's `eu4.exe`, and check that each observer forwards at least the arguments its function reads:
 
 ```bash
-EU4_GAME_DIR='E:\SteamLibrary\steamapps\common\Europa Universalis IV' cargo test --release -p eu4-harmony-core -- --ignored
+EU4_GAME_DIR=<install dir> cargo test --release -p eu4-harmony-core -- --ignored
 ```
 
 The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, which rustup picks up. CI (`.github/workflows/ci.yml`) checks the formatting and runs the build, the tests and clippy on Windows for every pull request and every merge into master; the offline checks need the game and are run by hand.

@@ -125,16 +125,21 @@ mod tests {
         std::fs::write(loc.join("t_l_german.yml"), "l_german:\n T_APPLY:0 \"Übernehmen\"\n").unwrap();
         let m = crate::mods::DiscoveredMod {
             descriptor_file: dir.join("t.mod"),
-            descriptor: crate::mods::Descriptor { name: "T".into(), path: Some(dir.clone()), archive: None },
+            descriptor: crate::mods::Descriptor { name: "T".into(), version: None, path: Some(dir.clone()), archive: None },
             dir: dir.clone(),
-            manifest: serde_json::from_str(r#"{ "id": "t", "api_version": "0.1" }"#).unwrap(),
+            manifest: crate::mods::Manifest::parse(
+                "id = \"t\"
+api_version = \"0.2\"",
+            )
+            .unwrap(),
+            layout: Default::default(),
         };
         let mut plan = Plan::default();
         // A German player in a game that runs in English.
         let language = lang::Decision { player: Language::German, game: Language::English, reason: String::new() };
         let notes = install(&language, &[&m], &mut plan);
         assert!(notes.is_empty(), "{notes:?}");
-        let additions = plan.for_file("localisation/text_l_english.yml").unwrap();
+        let additions = plan.for_file("localisation/text_l_english.yml", b"");
         let Addition::Append(text) = &additions[0] else { panic!() };
         assert!(text.contains(" T_APPLY:0 \"Übernehmen\"\n") && text.contains(" T_ONLY:0 \"English\"\n"), "{text}");
         assert_eq!(mod_text("t", "T_APPLY").as_deref(), Some("Apply"));

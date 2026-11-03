@@ -4,7 +4,11 @@
 //!
 //! - What a world reset leaks: a destructor or a clear that lets an object
 //!   go without what it owns. A country's array of bytes, a mercenary
-//!   company's leader and a country's rebel factions are let go with them.
+//!   company's leader, a country's rebel factions and the agents its AI
+//!   started are let go with them.
+//! - What a country's modifiers leak as they go or are made again, in play
+//!   too: the sets of modifiers they copy, which they alone own. Those they
+//!   are copied over from their own set still lists, and go with them.
 //! - What a world reset leaves of a session, which vanilla never meets
 //!   outside a load, whose save sets it again: put back as a new start has
 //!   it.
@@ -12,6 +16,9 @@
 //!   never meets, as it restarts instead: the popups its message windows
 //!   hold, let go before an in-process return takes the interface down, and
 //!   what the map manager's destructor leaves, let go as it goes.
+//! - What of its interface the game leaves as it lets a part of it go, at
+//!   every interface rebuild in vanilla too: the map modes' window, which it
+//!   never kills, and the outliner's entries, which it never deletes.
 //! - What the game unloads while it is shown, which vanilla never meets, as
 //!   it makes the main menu only at startup: a sprite type shown sprites
 //!   still count, which the main menu, made again, would unload with the
@@ -21,10 +28,10 @@ use crate::{
     memory::Memory,
     objects::{
         campaign::{
-            achievements, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, mercenary_company, message_window,
-            religions, world,
+            achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
+            message_window, modifier_set, modifiers, outliner, religions, world,
         },
-        gui::{classes as gui_classes, sprite_type},
+        gui::{classes as gui_classes, sprite_type, window as gui_window},
         list,
     },
     points::{Function, Point},
@@ -66,11 +73,37 @@ const EMPTY_MESSAGE_ICONS: usize = 0xdffca0;
 /// `(sprite type)`: unloads a sprite type with its group of graphics
 /// (`0x14dc240`), letting its textures go; its [`sprite_type::UNLOAD`].
 const SPRITE_TYPE_UNLOAD: usize = 0x156d730;
+/// `(agent, flags)`: the deleting destructor of the agent at the top of a
+/// country's AI, its vtable's first slot, which the country's AI calls as
+/// it goes; and the destructor it calls, which the game also runs alone for
+/// agents it makes for a moment on the stack.
+const AI_KING_DELETE: usize = 0x148260;
+
+/// `(map modes' panel)`, `(outliner)`: let the map manager's map modes'
+/// panel and its outliner go, which its interface rebuild does before it
+/// makes them again, and the framework as the map manager goes.
+const LET_MAP_MODES_GO: usize = 0x81de20;
+const LET_OUTLINER_GO: usize = 0x81dc30;
+
+/// `(modifiers)`: the destructor of a country's modifiers; `(modifiers,
+/// other)`: their copy from another's.
+const MODIFIERS_DESTRUCTOR: usize = 0x93ae10;
+const MODIFIERS_COPY: usize = 0x3296b0;
+/// `(set, flags)`: a set of modifiers' deleting destructor, its first slot.
+const MODIFIER_SET_DELETE: usize = 0x1b2290;
 
 /// What the repairs let go since the last world reset, for the log:
-/// mercenary companies' leaders and rebel factions.
+/// mercenary companies' leaders, rebel factions and the AI's agents.
 static LEADERS: AtomicUsize = AtomicUsize::new(0);
 static FACTIONS: AtomicUsize = AtomicUsize::new(0);
+static AGENTS: AtomicUsize = AtomicUsize::new(0);
+static MODIFIER_SETS: AtomicUsize = AtomicUsize::new(0);
+static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
+static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
+
+/// The agents of the AI whose top agent is being deleted, by that agent:
+/// they are deleted once it is gone.
+static AGENTS_LEFT: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
 
 /// A country's destructor begins: its array of bytes
 /// ([`country::ENTRY_BYTES`]), which the destructor leaves, is freed.
@@ -152,6 +185,292 @@ extern "C" fn world_clearing() {
             log!("repair: the rebel factions were not deleted: {e}");
         }
     });
+}
+
+/// The items of one of the game's lists.
+fn list_items(m: &Memory, header: usize) -> crate::Result<Vec<usize>> {
+    let mut items = Vec::new();
+    let mut node = m.ptr(header + list::HEAD)?;
+    while node != 0 {
+        items.push(m.ptr(node + list::ITEM)?);
+        node = m.ptr(node + list::NEXT)?;
+    }
+    Ok(items)
+}
+
+/// The agent at the top of a country's AI is being deleted: the agents it
+/// started, and those that retired since its last update, which its
+/// destructor leaves, are kept to be deleted once it is gone
+/// ([`ai_king_gone`]), when nothing of it can use them any more.
+extern "C" fn ai_king_going(frame: *mut HookFrame) {
+    crate::guarded("AI king delete", || {
+        let (king, flags) = unsafe { ((*frame).args[0], (*frame).args[1]) };
+        if flags & 1 == 0 {
+            return;
+        }
+        let m = crate::hooked_memory();
+        let kept = (|| {
+            let mut agents = list_items(&m, king + ai_king::AGENTS)?;
+            agents.extend(list_items(&m, king + ai_king::RETIRED)?);
+            agents.retain(|&a| a != 0);
+            crate::Result::Ok(agents)
+        })();
+        match kept {
+            Ok(agents) => AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((king, agents)),
+            Err(e) => log!("repair: the agents of a country's AI were not read: {e}"),
+        }
+    });
+}
+
+/// The agent at the top of a country's AI is gone: the agents it left are
+/// deleted, as its update deletes those that retire.
+extern "C" fn ai_king_gone(frame: *mut HookFrame) {
+    crate::guarded("AI king deleted", || {
+        let king = unsafe { (*frame).args[0] };
+        let agents = {
+            let mut left = AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner());
+            match left.iter().rposition(|(k, _)| *k == king) {
+                Some(at) => left.swap_remove(at).1,
+                None => return,
+            }
+        };
+        let m = crate::hooked_memory();
+        for agent in agents {
+            match m.vslot(agent, 0).and_then(|delete| m.call(delete, &[agent, 1])) {
+                Ok(_) => {
+                    AGENTS.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => log!("repair: an agent of a country's AI was not deleted: {e}"),
+            }
+        }
+    });
+}
+
+/// The window of the map modes' panel being let go, killed once it is.
+static MAP_MODES_WINDOW: AtomicUsize = AtomicUsize::new(0);
+
+/// The map modes' panel is being let go: its window, which the game hides
+/// and takes off the map manager's windows without killing it, would stay in
+/// the GUI with the map modes' entries; it is kept to be killed once the
+/// panel is gone ([`map_modes_gone`]), as the game kills its other windows.
+extern "C" fn map_modes_going(frame: *mut HookFrame) {
+    crate::guarded("map modes let go", || {
+        let m = crate::hooked_memory();
+        match m.ptr(unsafe { (*frame).args[0] } + map_modes::WINDOW) {
+            Ok(window) => MAP_MODES_WINDOW.store(window, Ordering::Relaxed),
+            Err(e) => log!("repair: the map modes' window was not read: {e}"),
+        }
+    });
+}
+
+/// The map modes' panel is gone: its window is killed, and the GUI lets it
+/// go with what it holds at its next sweep.
+extern "C" fn map_modes_gone(_: *mut HookFrame) {
+    crate::guarded("map modes let go", || {
+        let window = MAP_MODES_WINDOW.swap(0, Ordering::Relaxed);
+        if window == 0 {
+            return;
+        }
+        let m = crate::hooked_memory();
+        if let Err(e) = m.vslot(window, gui_window::KILL).and_then(|kill| m.call(kill, &[window])) {
+            log!("repair: the map modes' window was not killed: {e}");
+        }
+    });
+}
+
+/// The outliner is being let go: its categories' entries, which the
+/// function letting it go leaves (its headers with their windows among
+/// them), are deleted first as its refresh deletes them: what shows them is
+/// told first, then each goes by its first slot.
+extern "C" fn outliner_going(frame: *mut HookFrame) {
+    crate::guarded("outliner let go", || {
+        let m = crate::hooked_memory();
+        let outliner = unsafe { (*frame).args[0] };
+        let deleted = (|| {
+            let view = m.ptr(outliner + outliner::VIEW)?;
+            if view != 0 {
+                m.call(m.vslot(view, outliner::VIEW_EMPTIED)?, &[view])?;
+            }
+            let mut deleted = 0;
+            for category in 0..outliner::CATEGORY_COUNT {
+                let entries = outliner + outliner::CATEGORIES + category * outliner::CATEGORY_SIZE + outliner::ENTRIES;
+                let mut node = m.ptr(entries + list::HEAD)?;
+                while node != 0 {
+                    let entry = m.ptr(node + list::ITEM)?;
+                    if entry != 0 {
+                        m.write(node + list::ITEM, &0usize.to_le_bytes())?;
+                        m.call(m.vslot(entry, 0)?, &[entry, 1])?;
+                        deleted += 1;
+                    }
+                    node = m.ptr(node + list::NEXT)?;
+                }
+            }
+            crate::Result::Ok(deleted)
+        })();
+        match deleted {
+            Ok(n) => log!("repair: {n} entries of the outliner were deleted as it went"),
+            Err(e) => log!("repair: the outliner's entries were not deleted: {e}"),
+        }
+    });
+}
+
+/// The sets of modifiers to delete once a country's modifiers have gone, or
+/// to wait for them once they are copied over, by those modifiers.
+static MODIFIER_SETS_LEFT: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
+
+/// The sets of modifiers a country's modifiers had before they were copied
+/// over, which their own set still lists: deleted when they go, by them.
+static MODIFIER_SETS_WAITING: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
+
+/// The sets a country's modifiers copied, which nothing else points to.
+fn modifier_copies(m: &Memory, modifiers: usize) -> crate::Result<Vec<usize>> {
+    let (begin, end) = (m.ptr(modifiers + modifiers::COPIES)?, m.ptr(modifiers + modifiers::COPIES + 8)?);
+    let mut sets = Vec::new();
+    if end > begin {
+        for at in (begin..end).step_by(8) {
+            let set = m.ptr(at)?;
+            if set != 0 && !sets.contains(&set) {
+                sets.push(set);
+            }
+        }
+    }
+    Ok(sets)
+}
+
+/// Deletes sets of modifiers by their first slots, those of their class.
+fn delete_modifier_sets(m: &Memory, sets: Vec<usize>) {
+    for set in sets {
+        let deleted = (|| {
+            if m.ptr(set)? != m.at(classes::MODIFIER_SET) {
+                return Err(format!("{set:#x} is not a set of modifiers"));
+            }
+            m.call(m.vslot(set, 0)?, &[set, 1])
+        })();
+        match deleted {
+            Ok(_) => {
+                MODIFIER_SETS.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(e) => log!("repair: a set of modifiers was not deleted: {e}"),
+        }
+    }
+}
+
+fn keep_modifier_sets(modifiers: usize, sets: crate::Result<Vec<usize>>) {
+    match sets {
+        Ok(sets) if sets.is_empty() => {}
+        Ok(sets) => MODIFIER_SETS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((modifiers, sets)),
+        Err(e) => log!("repair: a country's sets of modifiers were not read: {e}"),
+    }
+}
+
+fn take_modifier_sets(list: &Mutex<Vec<(usize, Vec<usize>)>>, modifiers: usize) -> Vec<usize> {
+    let mut left = list.lock().unwrap_or_else(|e| e.into_inner());
+    match left.iter().rposition(|(k, _)| *k == modifiers) {
+        Some(at) => left.swap_remove(at).1,
+        None => Vec::new(),
+    }
+}
+
+fn kept_modifier_sets(modifiers: usize) -> Vec<usize> {
+    take_modifier_sets(&MODIFIER_SETS_LEFT, modifiers)
+}
+
+/// A country's modifiers go, or are made again in place: the sets they
+/// copied, which their destructor leaves, and those they had before they
+/// were copied over, which their own set listed until now, are kept to be
+/// deleted once they are gone ([`modifiers_gone`]) with what of them points
+/// to the sets.
+extern "C" fn modifiers_going(frame: *mut HookFrame) {
+    crate::guarded("modifiers destructor", || {
+        let m = crate::hooked_memory();
+        let modifiers = unsafe { (*frame).args[0] };
+        let waiting = take_modifier_sets(&MODIFIER_SETS_WAITING, modifiers);
+        MODIFIER_SETS_WAITING_COUNT.fetch_sub(waiting.len(), Ordering::Relaxed);
+        MODIFIER_SETS_WAITED.fetch_add(waiting.len(), Ordering::Relaxed);
+        let sets = modifier_copies(&m, modifiers).map(|mut sets| {
+            for set in waiting {
+                if !sets.contains(&set) {
+                    sets.push(set);
+                }
+            }
+            sets
+        });
+        keep_modifier_sets(modifiers, sets);
+    });
+}
+
+extern "C" fn modifiers_gone(frame: *mut HookFrame) {
+    crate::guarded("modifiers destructor", || {
+        let m = crate::hooked_memory();
+        delete_modifier_sets(&m, kept_modifier_sets(unsafe { (*frame).args[0] }));
+    });
+}
+
+/// A country's modifiers are copied over from other modifiers: the sets
+/// they copied that the others do not hold would be lost, and wait for them
+/// to go once the copy is made ([`modifiers_copied`]).
+extern "C" fn modifiers_copying(frame: *mut HookFrame) {
+    crate::guarded("modifiers copy", || {
+        let m = crate::hooked_memory();
+        let (modifiers, other) = unsafe { ((*frame).args[0], (*frame).args[1]) };
+        let lost = (|| {
+            let kept = modifier_copies(&m, other)?;
+            Ok(modifier_copies(&m, modifiers)?.into_iter().filter(|s| !kept.contains(s)).collect())
+        })();
+        keep_modifier_sets(modifiers, lost);
+    });
+}
+
+/// The copy is made: their own set still lists the lost sets, as a set's
+/// copy leaves the list it has, so the lost sets wait for the modifiers to
+/// go; and the other modifiers no longer point to the sets they now share,
+/// so that the sets go with these alone: the copy moves them.
+extern "C" fn modifiers_copied(frame: *mut HookFrame) {
+    crate::guarded("modifiers copy", || {
+        let m = crate::hooked_memory();
+        let (modifiers, other) = unsafe { ((*frame).args[0], (*frame).args[1]) };
+        let lost = kept_modifier_sets(modifiers);
+        if !lost.is_empty() {
+            #[cfg(feature = "trace")]
+            check_listed(&m, modifiers, &lost);
+            MODIFIER_SETS_WAITING_COUNT.fetch_add(lost.len(), Ordering::Relaxed);
+            let mut waiting = MODIFIER_SETS_WAITING.lock().unwrap_or_else(|e| e.into_inner());
+            match waiting.iter_mut().find(|(k, _)| *k == modifiers) {
+                Some((_, sets)) => sets.extend(lost),
+                None => waiting.push((modifiers, lost)),
+            }
+        }
+        let moved = m.ptr(other + modifiers::COPIES).and_then(|begin| m.write(other + modifiers::COPIES + 8, &begin.to_le_bytes()));
+        if let Err(e) = moved {
+            log!("repair: the sets of modifiers copied were not moved: {e}");
+        }
+    });
+}
+
+/// Logs the lost sets the modifiers' own set does not list: a check, in
+/// `trace` builds, of what the repair takes the game to do.
+#[cfg(feature = "trace")]
+fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
+    let listed = (|| {
+        let added = modifiers + modifiers::OWN + modifier_set::ADDED;
+        let (begin, end) = (m.ptr(added)?, m.ptr(added + 8)?);
+        let mut sets = Vec::new();
+        if end > begin {
+            for at in (begin..end).step_by(8) {
+                sets.push(m.ptr(at)?);
+            }
+        }
+        crate::Result::Ok(sets)
+    })();
+    match listed {
+        Ok(listed) => {
+            let unlisted = lost.iter().filter(|s| !listed.contains(s)).count();
+            if unlisted > 0 {
+                log!("repair: {unlisted} of {} sets of modifiers copied over are not listed by the modifiers' own set", lost.len());
+            }
+        }
+        Err(e) => log!("repair: the modifiers' own set's list was not read: {e}"),
+    }
 }
 
 crate::resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);
@@ -297,9 +616,13 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders and {} rebel factions were deleted with what owned them",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them",
             LEADERS.swap(0, Ordering::Relaxed),
-            FACTIONS.swap(0, Ordering::Relaxed)
+            FACTIONS.swap(0, Ordering::Relaxed),
+            AGENTS.swap(0, Ordering::Relaxed),
+            MODIFIER_SETS.swap(0, Ordering::Relaxed),
+            MODIFIER_SETS_WAITED.swap(0, Ordering::Relaxed),
+            MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed)
         );
         #[cfg(feature = "trace")]
         crate::census::world_reset();
@@ -450,6 +773,38 @@ pub fn points() -> Vec<Point> {
             None,
         ),
         Point::keep(0x8fdb69usize, "e8 d2 19 bd 00 f6 c3 01 74 0d ba 68 00 00 00", "mercenary company destructor end"),
+        // The deleting destructor of the agent at the top of a country's AI,
+        // which leaves its agents; its update deletes those that retire by
+        // their first slots.
+        Point::observe(
+            AI_KING_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 2c 00 00 00 f6 c3 01 74 0d ba 58 0d 00 00",
+            "AI king deleting destructor",
+            2,
+            Some(ai_king_going),
+            Some(ai_king_gone),
+        ),
+        Point::method(classes::AI_KING, 0, AI_KING_DELETE, "AI king deleting destructor method"),
+        Point::keep(0x14b2f1usize, "48 8b 0b 48 8b 5b 10 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10", "AI retired agents deleted by their first slots"),
+        // A country's modifiers' destructor and copy, which leave the sets
+        // they copied; a set goes by its first slot.
+        Point::observe(
+            MODIFIERS_DESTRUCTOR,
+            "40 53 48 83 ec 20 48 8b d9 48 81 c1 78 6c 00 00 e8 8b 96 75 ff",
+            "modifiers destructor",
+            1,
+            Some(modifiers_going),
+            Some(modifiers_gone),
+        ),
+        Point::observe(
+            MODIFIERS_COPY,
+            "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 83 ec 20 8b 02 48 8b f2 89 01",
+            "modifiers copy",
+            2,
+            Some(modifiers_copying),
+            Some(modifiers_copied),
+        ),
+        Point::method(classes::MODIFIER_SET, 0, MODIFIER_SET_DELETE, "modifier set deleting destructor"),
         Point::observe(WORLD_RESET, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1", "world's own reset", 1, None, Some(world_reset)),
         Point::observe(
             MAP_MANAGER_DESTRUCTOR,
@@ -464,8 +819,16 @@ pub fn points() -> Vec<Point> {
         Point::keep(EMPTY_MESSAGE_ICONS, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b f1 48 8d 59 40", "empty message icons"),
         // The rebuild empties the message icons, then makes a holder of this size.
         Point::keep(0x81d542usize, "e8 59 27 5e 00 b9 00 70 00 00", "message icon holder size"),
-        Point::keep(0x81dc30usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9 48 8b 89 b0 04 00 00", "let a session object go"),
-        Point::keep(0x81de20usize, "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 83 c1 30", "let another session object go"),
+        Point::observe(LET_OUTLINER_GO, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9 48 8b 89 b0 04 00 00", "let the outliner go", 1, Some(outliner_going), None),
+        Point::observe(
+            LET_MAP_MODES_GO,
+            "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 83 c1 30",
+            "let the map modes' panel go",
+            1,
+            Some(map_modes_going),
+            Some(map_modes_gone),
+        )
+        .uses(&[map_modes::WINDOW]),
         // A sprite type unloaded with its group of graphics, which the main
         // menu's interface rebuild does for the game's (group 3); a sprite
         // shown loads its lazily loaded type only when none showed it.

@@ -22,9 +22,8 @@
 //! [`UNPLAYABLE_AFTER`]; until then what needs a game waits, as at a frame
 //! that is not ready.
 use crate::{
-    ext,
     game::{self, menu::At},
-    remote, repairs,
+    lua, remote, repairs,
 };
 use std::{
     sync::{
@@ -102,7 +101,7 @@ pub fn game_frame() {
     match game::begin_frame(&m) {
         Ok(frame) => {
             unplayable().read();
-            ext::frame(&frame);
+            lua::frame(&frame);
             game::menu::set_at(At::Game);
             remote::run_in_game(&frame);
         }

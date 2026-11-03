@@ -5,7 +5,7 @@ use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
     diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
-    provinces::UnitKind, questions::QuestionRequest, recruiting::RecruitRequest, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
+    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
     texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
@@ -41,26 +41,17 @@ fn every_capability_runs_at_a_game_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     let snapshot = json!({
-        "id": ARMY.to_string(), "owner": "TUR", "province": 149, "land": true, "in_battle": false, "sieging": false, "retreating": false,
-        "exiled": false, "movement_locked": false, "attached": false, "has_followers": false, "busy": false, "regiments": 12,
-        "route_len": 0, "destination": null, "route_source": "none",
+        "id": ARMY.to_string(), "owner": "TUR", "kind": "army", "province": 149, "regiments": 12, "blocked": [], "route": [], "route_by": null,
     });
     let fleet = json!({
-        "id": FLEET.to_string(), "owner": "TUR", "province": null, "land": false, "in_battle": false, "sieging": false, "retreating": false,
-        "exiled": false, "movement_locked": false, "attached": false, "has_followers": false, "busy": false, "regiments": 0,
-        "route_len": 0, "destination": null, "route_source": "none",
+        "id": FLEET.to_string(), "owner": "TUR", "kind": "navy", "province": null, "regiments": 0, "blocked": [], "route": [], "route_by": null,
     });
-    let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "land": true, "lake": false, "impassable": false, "visible": true, "owner": owner, "controller": controller});
+    let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
     let cases: Vec<(Request, Check)> = vec![
-        (
-            Request::Session(SessionRequest::Get {}),
-            Box::new(|v: &Value| {
-                *v == ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))
-            }),
-        ),
+        (Request::Session(SessionRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})))),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
-        (Request::Time(TimeRequest::Speed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Time(TimeRequest::SetSpeed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Time(TimeRequest::Resume {}), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Time(TimeRequest::Pause {}), Box::new(|v: &Value| *v == ok(Value::Null))),
         // An advance answers at once when it cannot run; time::tests has the rest.
@@ -107,25 +98,28 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Army(ArmyRequest::Get { army: army(1) }), Box::new(error("not_found"))),
         (Request::Army(ArmyRequest::List {}), Box::new(move |v: &Value| *v == ok(json!([snapshot, fleet])))),
         (
-            Request::Army(ArmyRequest::InProvince { province: province(151) }),
+            Request::Army(ArmyRequest::At { province: province(151) }),
             Box::new(|v: &Value| {
                 let a = &v["result"][0];
-                a["id"] == json!(ENEMY.to_string()) && a["owner"] == "BYZ" && a["province"] == 151 && a["sieging"] == true && a["route_source"] == "extension"
+                a["id"] == json!(ENEMY.to_string())
+                    && a["owner"] == "BYZ"
+                    && a["province"] == 151
+                    && a["blocked"] == json!(["sieging"])
+                    && a["route_by"] == "other_mod"
             }),
         ),
-        (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),
-        (Request::Army(ArmyRequest::CanEnter { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(json!(true)))),
-        (Request::Army(ArmyRequest::StraitOpen { army: army(ARMY), from: province(149), to: province(316) }), Box::new(|v: &Value| *v == ok(json!(false)))),
-        (Request::Army(ArmyRequest::CanAttack { army: army(ARMY), target: army(ENEMY), province: province(151) }), Box::new(|v: &Value| *v == ok(json!(true)))),
-        (Request::Army(ArmyRequest::FindRoute { army: army(ARMY), goal: province(151) }), Box::new(|v: &Value| *v == ok(json!([150, 151])))),
-        (Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
-        (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([150, 151])))),
+        (Request::Army(ArmyRequest::CanStep { army: army(ARMY), from: province(149), to: province(151) }), Box::new(|v: &Value| *v == ok(json!(true)))),
+        (Request::Army(ArmyRequest::CanStep { army: army(ARMY), from: province(149), to: province(316) }), Box::new(|v: &Value| *v == ok(json!(false)))),
+        (Request::Army(ArmyRequest::CanAttack { army: army(ARMY), target: army(ENEMY) }), Box::new(|v: &Value| *v == ok(json!(true)))),
+        (Request::Army(ArmyRequest::RouteTo { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(json!([150, 151])))),
+        (Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Get { army: army(ARMY) }), Box::new(|v: &Value| v["result"]["route"] == json!([150, 151]))),
         (
-            Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(1) }),
+            Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1) }),
             Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "no route to 1"),
         ),
         (Request::Army(ArmyRequest::Stop { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
-        (Request::Army(ArmyRequest::Route { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!([])))),
+        (Request::Army(ArmyRequest::Get { army: army(ARMY) }), Box::new(|v: &Value| v["result"]["route"] == json!([]))),
         (Request::Army(ArmyRequest::Selected {}), Box::new(error("not_found"))),
         (Request::Text(TextRequest::Language {}), Box::new(|v: &Value| *v == ok(json!("simp_chinese")))),
         (Request::Console(ConsoleRequest::Run { command: "cash 100".into() }), Box::new(|v: &Value| *v == ok(json!("Gold changed by 100")))),
@@ -167,23 +161,28 @@ fn every_capability_runs_at_a_game_frame() {
             Box::new(|v: &Value| *v == ok(json!({"x": 3248, "y": 1376, "height": 800, "province": 149, "min_height": 50, "max_height": 3000}))),
         ),
         (
-            Request::Camera(CameraRequest::LookAtProvince { province: province(151) }),
+            Request::Camera(CameraRequest::LookAt { province: Some(province(151)), x: None, y: None }),
             Box::new(|v: &Value| v["result"]["province"] == 151 && v["result"]["x"] == 3270),
         ),
-        (Request::Camera(CameraRequest::LookAtProvince { province: province(1) }), Box::new(error("not_found"))),
+        (Request::Camera(CameraRequest::LookAt { province: Some(province(1)), x: None, y: None }), Box::new(error("not_found"))),
+        (Request::Camera(CameraRequest::LookAt { province: Some(province(151)), x: Some(1), y: None }), Box::new(error("invalid_argument"))),
         (
-            Request::Camera(CameraRequest::LookAt { x: 100, y: 200 }),
+            Request::Camera(CameraRequest::LookAt { province: None, x: Some(100), y: Some(200) }),
             Box::new(|v: &Value| v["result"]["x"] == 100 && v["result"]["y"] == 200 && v["result"]["province"].is_null()),
         ),
-        (Request::Camera(CameraRequest::LookAt { x: 6000, y: 200 }), Box::new(error("invalid_argument"))),
+        (Request::Camera(CameraRequest::LookAt { province: None, x: Some(6000), y: Some(200) }), Box::new(error("invalid_argument"))),
         (Request::Camera(CameraRequest::Zoom { height: 1200 }), Box::new(|v: &Value| v["result"]["height"] == 1200 && v["result"]["province"] == 149)),
         (Request::Camera(CameraRequest::Zoom { height: 10 }), Box::new(error("invalid_argument"))),
-        (Request::Recruit(RecruitRequest::Recruit { province: province(149), kind: UnitKind::Infantry }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (
-            Request::Recruit(RecruitRequest::Recruit { province: province(151), kind: UnitKind::Cavalry }),
+            Request::Recruit(RecruitRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"].as_array().map(Vec::len) == Some(7) && v["result"][0]["kind"] == "infantry" && v["result"][0]["allowed"] == false),
+        ),
+        (Request::Recruit(RecruitRequest::Order { province: province(149), kind: UnitKind::Infantry }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Recruit(RecruitRequest::Order { province: province(151), kind: UnitKind::Cavalry }),
             Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "君士坦丁堡不是我们的领土"),
         ),
-        (Request::Recruit(RecruitRequest::Recruit { province: province(1), kind: UnitKind::Galley }), Box::new(error("not_found"))),
+        (Request::Recruit(RecruitRequest::Order { province: province(1), kind: UnitKind::Galley }), Box::new(error("not_found"))),
         (Request::Diplomacy(DiplomacyRequest::WarGoals { country: CountryTag(*b"BYZ") }), Box::new(|v: &Value| v["result"][1]["casus_belli"] == "none")),
         (
             Request::Diplomacy(DiplomacyRequest::DeclareWar {
@@ -200,7 +199,11 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
         (
             Request::Describe(DescribeRequest::All {}),
-            Box::new(|v: &Value| v["result"].as_array().map(Vec::len) == Some(capabilities().len()) && v["result"][0]["capability"] == "session"),
+            Box::new(|v: &Value| {
+                v["result"]["api_version"] == eu4_harmony_remote::API_VERSION
+                    && v["result"]["capabilities"].as_array().map(Vec::len) == Some(capabilities().len())
+                    && v["result"]["capabilities"][0]["capability"] == "session.get"
+            }),
         ),
         (Request::Menu(MenuRequest::State {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "game"})))),
         (
@@ -233,7 +236,7 @@ fn every_capability_runs_at_a_game_frame() {
     let byz = format!("{:x}", fake::byz().0);
     let tur = format!("{:x}", fake::tur().0);
     for call in
-        [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("strait open {ARMY} 149 316"), "console cash 100".into()]
+        [format!("hostile {tur} {byz}"), format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("can step {ARMY} 149 316"), "console cash 100".into()]
     {
         assert!(game.calls.contains(&call), "{call} not in {:#?}", game.calls);
     }
@@ -259,7 +262,14 @@ fn a_province_snapshot_carries_its_name_s_characters_and_every_kind() {
         "development": {"tax": 10.0, "production": 9.5, "manpower": 6.0},
         "terrain": "farmlands", "fort": {"level": 2, "mothballed": false},
         "buildings": ["fort_15th", "marketplace"],
-        "recruit": [
+    }));
+    assert_eq!(answer(&reply), expected);
+    // What can be recruited there is recruit.options', every kind in order.
+    let options = engine.submit(Request::Recruit(RecruitRequest::Options { province: province(151) }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    assert_eq!(
+        answer(&options),
+        ok(json!([
             recruit("infantry", json!("eastern_medieval_infantry"), not_ours.clone()),
             recruit("cavalry", json!("eastern_knights"), not_ours),
             recruit("artillery", Value::Null, json!([])),
@@ -267,9 +277,8 @@ fn a_province_snapshot_carries_its_name_s_characters_and_every_kind() {
             recruit("light_ship", json!("early_war_galley"), json!([])),
             recruit("galley", json!("galley"), json!([])),
             recruit("transport", json!("cog"), json!([])),
-        ],
-    }));
-    assert_eq!(answer(&reply), expected);
+        ]))
+    );
     // On the pipe the name is its characters, not escapes.
     let line = response_json(&reply_again(&engine)).to_string();
     assert!(line.contains(r#""name":"君士坦丁堡""#), "{line}");
@@ -288,7 +297,9 @@ fn a_recruit_order_from_json_reaches_the_layer_with_its_kind() {
     let mut game = Fake::default();
     let replies: Vec<Reply> = ["infantry", "cavalry", "artillery", "heavy_ship", "light_ship", "galley", "transport"]
         .iter()
-        .map(|kind| engine.submit(eu4_harmony_remote::request_from_json(&json!({"capability": "recruit", "province": 149, "kind": kind}).to_string()).unwrap()))
+        .map(|kind| {
+            engine.submit(eu4_harmony_remote::request_from_json(&json!({"capability": "recruit.order", "province": 149, "kind": kind}).to_string()).unwrap())
+        })
         .collect();
     engine.run(&mut game, &Place::Game, PLENTY);
     assert!(replies.iter().all(|r| answer(r) == ok(Value::Null)));
@@ -301,14 +312,14 @@ fn a_recruit_order_from_json_reaches_the_layer_with_its_kind() {
 #[test]
 fn every_request_is_written_to_the_log() {
     let engine = Engine::new(remember);
-    let reply = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(1) }));
+    let reply = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1) }));
     let fine = engine.submit(Request::Session(SessionRequest::Get {}));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     assert!(answer(&reply)["ok"] == false && answer(&fine)["ok"] == true);
     let lines = log();
     let line = |text: &str| lines.iter().any(|l| l.contains(text));
-    assert!(line(&format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":1}}: rejected: no route to 1 in "#)), "{lines:#?}");
-    assert!(line(r#"{"capability":"session"}: ok in "#), "{lines:#?}");
+    assert!(line(&format!(r#"{{"capability":"army.move","army":"{ARMY}","province":1}}: rejected: no route to 1 in "#)), "{lines:#?}");
+    assert!(line(r#"{"capability":"session.get"}: ok in "#), "{lines:#?}");
 }
 
 #[test]
@@ -339,13 +350,14 @@ fn outside_a_game_requests_that_need_one_wait_or_are_answered() {
 fn waiting_requests_keep_their_order_and_run_at_the_game_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    let moved = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }));
+    let moved = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }));
     let stopped = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
-    let route = engine.submit(Request::Army(ArmyRequest::Route { army: army(ARMY) }));
+    let read = engine.submit(Request::Army(ArmyRequest::Get { army: army(ARMY) }));
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(game.calls, [format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("route {ARMY}")]);
-    assert_eq!((answer(&moved), answer(&stopped), answer(&route)), (ok(Value::Null), ok(Value::Null), ok(json!([]))));
+    assert_eq!(game.calls, [format!("move {ARMY} 151"), format!("stop {ARMY}"), format!("army {ARMY}")]);
+    assert_eq!((answer(&moved), answer(&stopped)), (ok(Value::Null), ok(Value::Null)));
+    assert_eq!(answer(&read)["result"]["route"], json!([]));
 }
 
 #[test]
@@ -367,12 +379,12 @@ fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
 fn a_request_given_up_before_it_runs_never_runs() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    drop(engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) })));
-    let kept = engine.submit(Request::Army(ArmyRequest::Route { army: army(ARMY) }));
+    drop(engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) })));
+    let kept = engine.submit(Request::Army(ArmyRequest::Get { army: army(ARMY) }));
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(game.calls, [format!("route {ARMY}")]);
-    assert_eq!(answer(&kept), ok(json!([])));
-    let given_up = format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":151}}: given up by its client before it ran"#);
+    assert_eq!(game.calls, [format!("army {ARMY}")]);
+    assert_eq!(answer(&kept)["result"]["route"], json!([]));
+    let given_up = format!(r#"{{"capability":"army.move","army":"{ARMY}","province":151}}: given up by its client before it ran"#);
     assert!(log().iter().any(|l| l.contains(&given_up)), "{:#?}", log());
 }
 
@@ -429,7 +441,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
             std::thread::spawn(move || {
                 let mut got = Vec::new();
                 for _ in 0..5 {
-                    let reply = ENGINE.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(200 + i) }));
+                    let reply = ENGINE.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(200 + i) }));
                     got.push(reply.wait(PLENTY).map(|r| response_json(&r)));
                 }
                 got
@@ -503,10 +515,7 @@ fn a_load_or_start_answers_with_the_session_once_the_game_is_ready() {
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     assert!(answer(&load).is_null());
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(
-        answer(&load),
-        ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))
-    );
+    assert_eq!(answer(&load), ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})));
     assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "session"]);
 
     // A load that comes to another game than its save's says so.
@@ -581,10 +590,7 @@ fn a_load_is_compared_with_its_save_as_the_game_read_it() {
     // writes the ironman exit save of the session it leaves.
     *game.rewritten.lock().unwrap() = Some(game::menu::Expected { player: *b"TUR", date: Some(0x035D_7710) });
     engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(
-        answer(&load),
-        ok(json!({"process": process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}))
-    );
+    assert_eq!(answer(&load), ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})));
 }
 
 #[test]
@@ -666,7 +672,7 @@ fn a_request_sent_in_one_session_never_runs_in_the_next() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     engine.enter(2);
-    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), goal: province(151) }));
+    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }));
     let reads = engine.submit(Request::Text(TextRequest::Language {}));
     // A save begins to load; what is sent while it loads is for the next.
     engine.leave();

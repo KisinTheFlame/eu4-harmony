@@ -11,13 +11,17 @@ name = "eu4_harmony_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-eu4-harmony-abi = { path = "../abi" }
 eu4-harmony-checks = { path = "../checks" }
 eu4-harmony-loc = { path = "../loc" }
 eu4-harmony-manifest = { path = "../manifest" }
 eu4-harmony-remote = { path = "../remote" }
+mlua = { workspace = true, features = ["send"] }
+# http.fetch (src/lua/fetch.rs): the system's proxy and, through SChannel, its
+# certificates; one tokio thread sends every request.
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }
 windows-sys = { workspace = true, features = [
     "Wdk_Storage_FileSystem",
     "Win32_Foundation",

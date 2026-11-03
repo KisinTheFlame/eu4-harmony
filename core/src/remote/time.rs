@@ -11,7 +11,7 @@
 //! menu, or the player can no longer play the game (observing, say), which
 //! leave the advance no game of its own to pause.
 use super::{events, process, Live, Outcome, Poll, Wait};
-use crate::game::{self, time::Pause, Caller, GResult, Status};
+use crate::game::{self, time::Pause, GResult, Status};
 use eu4_harmony_remote::{
     events::Event,
     time::{Advanced, Stop, Time, TimeAnswer, TimeRequest},
@@ -54,27 +54,27 @@ impl Held for game::time::Stop {
 
 impl Layer for Live {
     fn time(&mut self) -> GResult<game::time::Time> {
-        game::time::time(Caller::Remote)
+        game::time::time(self.0)
     }
 
     fn pause(&mut self) -> GResult<()> {
-        game::time::pause(Caller::Remote)
+        game::time::pause(self.0)
     }
 
     fn resume(&mut self) -> GResult<()> {
-        game::time::resume(Caller::Remote)
+        game::time::resume(self.0)
     }
 
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
-        game::time::set_speed(Caller::Remote, speed)
+        game::time::set_speed(self.0, speed)
     }
 
     fn questions_waiting(&mut self) -> GResult<usize> {
-        game::time::questions_waiting(Caller::Remote)
+        game::time::questions_waiting(self.0)
     }
 
     fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Held>> {
-        Ok(Box::new(game::time::stop_at(Caller::Remote, date)?))
+        Ok(Box::new(game::time::stop_at(self.0, date)?))
     }
 }
 
@@ -84,7 +84,7 @@ pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), events: &even
         TimeRequest::Get {} => answer(game.time().map(|t| TimeAnswer::Get(Time { date: Date(t.date), paused: t.paused(), speed: t.speed }))),
         TimeRequest::Pause {} => answer(game.pause().map(TimeAnswer::Pause)),
         TimeRequest::Resume {} => answer(game.resume().map(TimeAnswer::Resume)),
-        TimeRequest::Speed { speed } => answer(game.set_speed(speed).map(TimeAnswer::Speed)),
+        TimeRequest::SetSpeed { speed } => answer(game.set_speed(speed).map(TimeAnswer::SetSpeed)),
         TimeRequest::Advance { days, speed } => match start(game, events, days, speed) {
             Ok(Started::Running(advance)) => Outcome::Later(Box::new(advance)),
             Ok(Started::Stopped(advanced)) => Outcome::Done(Ok(Answer::Time(TimeAnswer::Advance(advanced)))),

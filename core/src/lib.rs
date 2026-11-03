@@ -18,7 +18,7 @@ pub mod baseline;
 pub mod census;
 #[cfg(feature = "trace")]
 mod command_log;
-pub mod ext;
+pub mod files;
 pub mod framework_ui;
 pub mod game;
 pub mod game_string;
@@ -28,6 +28,7 @@ pub mod hosts;
 pub mod icu;
 pub mod lang;
 pub mod loc;
+pub mod lua;
 pub mod map;
 pub mod memory;
 pub mod mods;
@@ -110,6 +111,7 @@ pub(crate) fn fatal(detail: &str) -> ! {
 /// Every dependency point, in one declaration list.
 pub(crate) fn points() -> Vec<points::Point> {
     let mut all = physfs::points();
+    all.extend(files::points());
     all.extend(objects::points());
     all.extend(game_string::points());
     all.extend(game::points());
@@ -156,7 +158,7 @@ fn bootstrap() -> Result<()> {
     MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
-    log!("eu4-harmony core {} (api {}) bootstrap in {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, game_dir.display());
+    log!("eu4-harmony core {} (api {}) bootstrap in {}", env!("CARGO_PKG_VERSION"), eu4_harmony_remote::API_VERSION, game_dir.display());
     let _ = GAME_DIR.set(game_dir);
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
     let _ = MEMORY.set(m);
@@ -181,7 +183,7 @@ fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
 
 /// The report's first lines: this core, and the game folder when it is known.
 fn report_header(game_dir: Option<&std::path::Path>) {
-    report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_abi::API_VERSION, log::now()));
+    report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_remote::API_VERSION, log::now()));
     if let Some(dir) = game_dir {
         report::line(format!("game: {}", dir.display()));
     }
@@ -225,7 +227,7 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
         log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
         notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
     }
-    for face in [&chosen.body_font, &chosen.heading_font, &chosen.map_font] {
+    for face in chosen.fonts() {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
             log!("settings: the font {:?} has no weight {}; {} draws instead", face.family, face.weight, drawn.weight);
         }
@@ -264,8 +266,8 @@ fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec
             m.manifest.id,
             m.manifest.api_version,
             m.dir.display(),
-            m.manifest.extension,
-            m.manifest.ui.len()
+            m.layout.extension,
+            m.layout.ui.len()
         );
     }
     Some((mods, notes))
@@ -273,7 +275,7 @@ fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec
 
 /// The report's part on the mods: each one and what came of it, then every
 /// note from discovering, splicing and their texts.
-fn report_mods(mods: &[mods::DiscoveredMod], outcomes: &[ext::LoadOutcome], notes: &[String], plan: &splice::Plan) {
+fn report_mods(mods: &[mods::DiscoveredMod], outcomes: &[lua::LoadOutcome], notes: &[String], plan: &splice::Plan) {
     report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
     for (m, outcome) in mods.iter().zip(outcomes) {
         report::line(format!(
@@ -282,9 +284,12 @@ fn report_mods(mods: &[mods::DiscoveredMod], outcomes: &[ext::LoadOutcome], note
             m.manifest.id,
             m.manifest.api_version,
             outcome.status,
-            m.manifest.ui.len()
+            m.layout.ui.len()
         ));
         report::line(format!("    {}", m.dir.display()));
+        for file in &m.layout.misplaced {
+            report::line(format!("    eu4-harmony/{file}: the layout has no place for it, so it is not used"));
+        }
     }
     for note in notes {
         report::line(format!("  {note}"));
@@ -317,19 +322,35 @@ pub(crate) fn deferred_init() {
     // Remote control is always on (ADR 0017).
     pipe::start();
     let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
-    let outcomes = ext::load(&mods, &logs);
-    saves::keep_for(ext::mod_ids());
-    let indices = ext::extension_indices(&mods);
-    let included = |i: usize| outcomes[i].included;
-    let (mut plan, ui_notes) = splice::build(&mods, included);
-    for note in &ui_notes {
-        log!("ui: {note}");
-    }
-    let taking_part: Vec<_> = mods.iter().enumerate().filter(|(i, _)| included(*i)).map(|(_, m)| m).collect();
-    let loc_notes = loc::install(language, &taking_part, &mut plan);
+    // Texts first: an extension may read its own at the top of main.lua.
+    let mut plan = splice::Plan::default();
+    let every: Vec<_> = mods.iter().collect();
+    let loc_notes = loc::install(language, &every, &mut plan);
     for note in &loc_notes {
         log!("localisation: {note}");
     }
+    let data_dir = user_dir.join("eu4-harmony").join("data");
+    let outcomes = lua::load(&mods, &logs, &data_dir);
+    framework_ui::mods_window::set(
+        mods.iter()
+            .map(|m| framework_ui::mods_window::Card {
+                id: m.manifest.id.clone(),
+                name: if m.descriptor.name.is_empty() { m.manifest.id.clone() } else { m.descriptor.name.clone() },
+                version: m.descriptor.version.clone(),
+                description: m.manifest.description.clone(),
+                permissions: m.manifest.permissions.clone(),
+                data_folder: data_dir.join(&m.manifest.id).display().to_string(),
+            })
+            .collect(),
+    );
+    saves::keep_for(lua::mod_ids());
+    let indices = lua::extension_indices(&mods);
+    let included = |i: usize| outcomes[i].included;
+    let ui_notes = splice::build(&mods, included, &mut plan);
+    for note in &ui_notes {
+        log!("ui: {note}");
+    }
+    unicode::framework_fonts::plan(&mut plan);
     log!("splice plan ready: {} mod element(s), {} button slot(s)", plan.elements.len(), plan.slots);
     let notes: Vec<String> = discovery_notes
         .iter()

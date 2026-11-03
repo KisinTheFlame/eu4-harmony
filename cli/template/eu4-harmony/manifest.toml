@@ -1,0 +1,9 @@
+# What EU4 Harmony cannot tell from where this mod's files are (ADR 0029):
+# its extension is lua/main.lua, its interface fragments are in ui/.
+id = "template-mod"
+api_version = "0.2"
+description = "TEMPLATE_MOD_DESCRIPTION"
+# What the extension may do beyond the game, which the mods window shows the
+# player: the real time (clock), its own data folder (files), and HTTP and
+# HTTPS requests to the hosts listed (network).
+# permissions = { clock = true, files = true, network = ["api.example.com"] }

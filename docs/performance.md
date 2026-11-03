@@ -2,9 +2,9 @@
 
 What the framework costs the game, measured on 2026-10-28 with the framework at commit 44b89f3. In short:
 
-- **Running the game**: at speed 5 the game advanced about 2 to 3% fewer days per second with the framework, on as much CPU. With the English playset, each of three runs with the framework was behind each of three runs without it (17.8 against 18.2 days per second). With the Chinese playset the framework was behind the CJK font plugin it replaces by about as much, though there the runs spread too widely to show it on their own. Where the time goes was not looked into.
-- **Starting the game**: about 1 s longer with the English playset. With the Chinese playset and bitmap fonts (the default) the main menu came about 2 s sooner than with the plugin; with system fonts about 1.3 s later, because every character is drawn at startup.
-- **Memory**: 30 to 65 MB more with the English playset. With the Chinese playset and system fonts, about the same as the plugin (+15 to 35 MB); with bitmap fonts about **420 MB more**, in the menu and in the game. That is the largest cost, and the first to reduce: most of it is what Direct3D keeps after the framework writes its grown font pages, the rest the glyph records each font keeps a copy of.
+- **Running the game**: at speed 5 the game advanced about 2.5% fewer days per second with the framework, on as much CPU: with the English playset, each of three runs with the framework was behind each of three runs without it (17.8 against 18.2 days per second). Where the time goes was not looked into.
+- **Starting the game**: about 1 s longer with the English playset. With the Chinese playset, system fonts took about 3.3 s longer than bitmap fonts (the default), because every character is drawn at startup.
+- **Memory**: 30 to 65 MB more with the English playset. With the Chinese playset, bitmap fonts took about **410 MB more** than system fonts, in the menu and in the game. That is the largest cost, and the first to reduce: most of it is what Direct3D keeps after the framework writes its grown font pages, the rest the glyph records each font keeps a copy of.
 
 ## Since then
 
@@ -24,7 +24,7 @@ Measured from the framework's log, Chinese playset, to the main menu:
 | Making the six pages | 181 ms | 27 ms | 27 ms | 84 ms | 23 ms | 22 ms |
 | From the framework loading to the main menu | 30.8 s | 31.5 s | 31.2 s | 34.9 s | 30.8 s | 30.6 s, 30.5 s |
 
-- **Memory**: bitmap fonts now hold about 590 MB less than before, and as much as system fonts. Against the plugin, both should now be within a few dozen MB of it; that was not measured again. The 994,216 glyph records the 46 fonts brought are kept as 6 shared sets of 115,053.
+- **Memory**: bitmap fonts now hold about 590 MB less than before, and as much as system fonts. The 994,216 glyph records the 46 fonts brought are kept as 6 shared sets of 115,053.
 - **Starting the game**: system fonts no longer take longer than bitmap fonts. Their 3,143 glyphs were drawn in 28 ms instead of 3.5 s; the time had been the locks.
 - **System fonts at an interface scale above 1** (2026-10-30): glyphs are drawn that many times larger, on pages that many times wider and taller, so a page holds as many. At 1.5 the five pages of Microsoft YaHei are 1536 pixels square instead of 1024, and creating each added 9 MB of private bytes instead of 4, about 25 MB in all, as the framework's log counts it; the process at the main menu was not measured again.
 - **Bitmap fonts are gone** (2026-11-02, [ADR 0021](adr/0021-game-text-in-system-fonts.md)): every font is drawn from system fonts, which the measurements above put level with bitmap fonts in memory and in the time to start.
@@ -34,21 +34,17 @@ Measured from the framework's log, Chinese playset, to the main menu:
 
 Two playsets:
 
-- **Chinese**, the one the project's author plays: the Chinese language mod (made for the CJK font plugin), a mod that sorts and colors modifiers (whose text also needs the plugin), Graphical Map Improvements, Emoji Universalis, and the regional combat mod (inert without the framework).
-- **English**: the same without the two mods whose text needs the plugin.
+- **Chinese**, the one the project's author plays: the Chinese language mod, a mod that sorts and colors modifiers, Graphical Map Improvements, Emoji Universalis, and the regional combat mod (inert without the framework).
+- **English**: the same without the Chinese language mod and the modifier mod.
 
 | Setup | Playset | In the game folder |
 | --- | --- | --- |
 | Framework, bitmap fonts | Chinese | the framework; framework settings "Keep the fonts as they are" (the default) |
 | Framework, system fonts | Chinese | the framework; "System fonts", Microsoft YaHei for text, KaiTi for the map |
-| CJK font plugin | Chinese | the plugin's `version.dll` loader and `plugins\`, no framework: how the game ran in Chinese before the framework |
-| Neither | Chinese | neither the framework nor the plugin |
-| Vanilla | English | neither the framework nor the plugin |
+| Vanilla | English | no framework |
 | Framework | English | the framework, bitmap fonts |
 
 The game ran in English with Windows in Chinese, so the framework's player language was Simplified Chinese throughout.
-
-"Neither" is not a setup anyone plays: mods made for the CJK font plugin ran without it. Entering single player crashed the game both times it was tried, in the Epic Online Services SDK (`EOSSDK-Win64-Shipping.dll`, `EOS_Presence_RemoveNotifyJoinGameAccepted`), which the game calls as it reports what the player is doing. Vanilla with the English playset never crashed there, so the crash comes from running those mods without the plugin, possibly from their legacy escapes reaching the SDK (not checked). "Neither" was measured up to the main menu only.
 
 ## Machine
 
@@ -74,17 +70,17 @@ Means, with the single runs in brackets where there were several.
 
 ### Chinese playset
 
-| | Neither | CJK font plugin | Framework, bitmap fonts | Framework, system fonts |
-| --- | --- | --- | --- | --- |
-| Launch to main menu (s) | 35.2 (34.9, 35.5) | 35.5 (36.0, 35.3, 35.3) | 33.5 (33.1, 33.1, 34.2) | 36.8 (37.4, 36.3, 36.8) |
-| Main menu: working set / private (MB) | 2350 / 3638 | 2440 / 3769 | 2856 / 4194 | 2466 / 3787 |
-| Main menu, idle: CPU (cores) | 0.53 (0.57, 0.49) | 0.53 | 0.56 | 0.56 |
-| Loading a new game (s) | — | 3.7 (3.7, 3.7) | 3.5 (3.4, 3.5) | 3.7 (3.7, 3.7) |
-| Paused in game: CPU (cores) | — | 1.02 (0.99, 1.05) | 0.99 (1.01, 0.97) | 0.93 (0.88, 0.99) |
-| Paused in game: working set / private (MB) | — | 2653 / 4052 | 3073 / 4494 | 2672 / 4077 |
-| Speed 5: game days per second | — | 17.7 (17.4, 18.0) | 17.3 (16.7, 18.0) | 17.4 (17.5, 17.4) |
-| Speed 5: CPU (cores) | — | 2.91 (2.93, 2.90) | 2.95 (2.96, 2.93) | 2.98 (3.07, 2.90) |
-| After 2 min at speed 5: working set / private (MB) | — | 2739 / 4169 | 3164 / 4596 | 2774 / 4185 |
+| | Framework, bitmap fonts | Framework, system fonts |
+| --- | --- | --- |
+| Launch to main menu (s) | 33.5 (33.1, 33.1, 34.2) | 36.8 (37.4, 36.3, 36.8) |
+| Main menu: working set / private (MB) | 2856 / 4194 | 2466 / 3787 |
+| Main menu, idle: CPU (cores) | 0.56 | 0.56 |
+| Loading a new game (s) | 3.5 (3.4, 3.5) | 3.7 (3.7, 3.7) |
+| Paused in game: CPU (cores) | 0.99 (1.01, 0.97) | 0.93 (0.88, 0.99) |
+| Paused in game: working set / private (MB) | 3073 / 4494 | 2672 / 4077 |
+| Speed 5: game days per second | 17.3 (16.7, 18.0) | 17.4 (17.5, 17.4) |
+| Speed 5: CPU (cores) | 2.95 (2.96, 2.93) | 2.98 (3.07, 2.90) |
+| After 2 min at speed 5: working set / private (MB) | 3164 / 4596 | 2774 / 4185 |
 
 ### English playset
 
@@ -103,15 +99,13 @@ Means, with the single runs in brackets where there were several.
 
 With the English playset, vanilla advanced 2210 to 2212 days in 121.3 s and the framework 2134 to 2179: every framework run was behind every vanilla run, by 2.5% on average. CPU was the same, so with the framework each game day took slightly more of it. Candidates, none measured: the stubs every drawn glyph goes through, the daily events the framework sends the regional combat extension, and the framework UI's work each frame. A profile of a run at speed 5 would tell.
 
-With the Chinese playset the framework, with either font look, advanced 17.3 to 17.4 days per second against the plugin's 17.7: about 2% fewer, the same direction. There the runs of one setup spread from 16.7 to 18.0 days per second, so these runs alone could not have shown it.
+With the Chinese playset, where the runs of one setup spread from 16.7 to 18.0 days per second, the two font looks ran alike.
 
-Paused, the framework used as much CPU as the setups without it, within the spread between runs. All runs kept to the map: paused as the game opens and running at speed 5, without opening windows full of text.
-
-For scale: the Chinese playset with the plugin starts 5 s slower than vanilla in English and runs about 3% slower (17.7 against 18.2 days per second), about what the framework costs at speed 5.
+Paused, the framework used as much CPU as vanilla, within the spread between runs. All runs kept to the map: paused as the game opens and running at speed 5, without opening windows full of text.
 
 ### Starting the game
 
-With the English playset the framework added about 0.9 s; every framework run was slower than every vanilla run. With the Chinese playset and bitmap fonts the main menu came about 2 s sooner than with the plugin or with neither, in every run. The cause was not looked into; one candidate is that the framework turns the localisation into game text itself (255,864 entries, none left to the game's own conversion).
+With the English playset the framework added about 0.9 s; every framework run was slower than every vanilla run.
 
 System fonts take about 3.3 s longer than bitmap fonts. The framework's log accounts for it: every character of the text fonts and the map font is drawn at startup, about 3150 glyphs at 1.1 ms each (3.4 to 3.5 s, on the thread that loads the fonts). Bitmap fonts draw only the few characters the mod's fonts lack (7 glyphs, 15 ms).
 
@@ -119,7 +113,7 @@ System fonts take about 3.3 s longer than bitmap fonts. The framework's log acco
 
 With the English playset the framework took 27 to 37 MB more working set and 52 to 65 MB more private memory, at the menu and in the game. Its bitmap fonts grow the 18 vanilla font pages too, but those are small (256×1280 for most).
 
-With the Chinese playset, system fonts cost 15 to 35 MB more than the plugin. Bitmap fonts cost about 420 MB more, at the menu and in the game alike; the difference does not grow while the game runs.
+With the Chinese playset, bitmap fonts cost about 410 MB more than system fonts, at the menu and in the game alike; the difference does not grow while the game runs.
 
 With bitmap fonts, each of the Chinese language mod's six font pages is grown by 1024 rows for the characters the font lacks (log of one run):
 
@@ -160,8 +154,8 @@ The regional combat mod's extension was called once by the time of the report, f
 
 ## Not covered
 
-- Where the 2 to 3% at speed 5 goes.
+- Where the 2.5% at speed 5 goes.
 - Frame rate and frame times: no tool for them was at hand.
 - Graphics memory.
 - Interface-heavy play (the ledger, long tooltips, many open windows), late game, and games longer than the six years each run covered.
-- Other machines, in particular ones with 8 or 16 GB of memory, where 420 MB matters more; other playsets.
+- Other machines, in particular ones with 8 or 16 GB of memory, where 410 MB matters more; other playsets.

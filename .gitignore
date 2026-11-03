@@ -1,2 +1,7 @@
 /target/
 *.pdb
+# Skills kept on one machine for its own sessions.
+/.claude/skills/
+# Worktrees and local settings of the sessions working in this checkout.
+/.claude/worktrees/
+/.claude/settings.local.json

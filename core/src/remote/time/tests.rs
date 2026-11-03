@@ -51,7 +51,7 @@ fn the_clock_is_read_and_set_as_the_player_would() {
     };
     assert_eq!(read(&engine, &mut game), ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})));
     let replies: Vec<Reply> =
-        [TimeRequest::Resume {}, TimeRequest::Speed { speed: 5 }, TimeRequest::Speed { speed: 6 }].into_iter().map(|r| engine.submit(time(r))).collect();
+        [TimeRequest::Resume {}, TimeRequest::SetSpeed { speed: 5 }, TimeRequest::SetSpeed { speed: 6 }].into_iter().map(|r| engine.submit(time(r))).collect();
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(answer(&replies[0]), ok(Value::Null));
     assert_eq!(answer(&replies[1]), ok(Value::Null));

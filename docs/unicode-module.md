@@ -4,9 +4,9 @@ Status: final (2026-10-27). Terms are in [GLOSSARY.md](../GLOSSARY.md). The deci
 
 ## Goal and scope
 
-- **Goal**: the framework itself takes charge of text in the game, replacing the CJK font plugin, and draws all of it in system fonts. Mods and extensions write only plain UTF-8.
+- **Goal**: the framework itself takes charge of text in the game and draws all of it in system fonts. Mods and extensions write only plain UTF-8.
 - **In scope**: display (interface and map); compatibility with legacy escapes (localisation, GUI and scripts, old saves); Chinese input; Chinese search in the diplomacy country list and the province search; complex text layout (last); framework UI (notice window, settings window).
-- **Out of scope**: the IME itself; drawing uncommitted pinyin in the edit box; undo, redo, Ctrl+A to select all; pinyin search and searching across simplified and traditional characters; Japanese, Korean; multiplayer; save compatibility in the other direction (back to the CJK font plugin); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
+- **Out of scope**: the IME itself; drawing uncommitted pinyin in the edit box; undo, redo, Ctrl+A to select all; pinyin search and searching across simplified and traditional characters; Japanese, Korean; multiplayer; save compatibility in the other direction (playing such a save without the framework); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
 - **Platform**: Windows 10 1903 or later (it relies on the system's `icu.dll`); the baseline is still 1.37.5.
 - **Implementation**: in Rust. A jump from the middle of a function goes to a stub written as a Rust naked function, placed next to the handler it calls. Every address used and the bytes expected there are first checked against eu4.exe or in the game, then recorded in [research/](research/).
 
@@ -23,10 +23,13 @@ Kept in `eu4-harmony/settings.txt` in the user directory, written the way the ga
 | Map font (`map_font`) | Same as the body text font | KaiTi |
 | Map font weight (`map_weight`) | The weights the map font comes in, as for the body text font | Regular (400) |
 | Outline around map names (`map_outline`) | As the game's map font draws it (system glyphs on the map get the outline the map font's own glyphs have) / None | As the game's map font draws it |
+| Game console font (`console_font`) | System fonts installed on this machine that can show Latin letters, Chinese or not | Consolas |
+| Game console font weight (`console_weight`) | The weights the game console font comes in, as for the body text font | Regular (400) |
 
 Which font draws which text follows the Chinese language mod, which draws body text in FZ PingXian YaSong, a face made for small sizes on screen, and headings in FZ Cu YaSong, a bold one. A heading font of the same family as the body text font in a heavier weight, such as Microsoft YaHei Bold, draws them the same way without a second family.
 
 - **Map names**: fonts with lines taller than 48 GUI units (vanilla `tahoma_60`, which loads `Mapfont`).
+- **The game console** (GLOSSARY): its window and its lines, in a framework font (GLOSSARY, [ADR 0031](adr/0031-framework-files-in-the-game-file-system.md)), `eu4harmony_console`, on 14-unit lines as the game's `Arial12`, which the console draws in otherwise. `Arial12` also draws the strength of armies on the map, siege progress, the dates of saves and the right-click menu, which stay body text. As the game reads any `.gui` file under `interface/` that defines `console_wnd` or `console_entry_wnd`, every font in them becomes `eu4harmony_console`, once that font has its page of system glyphs; otherwise the console keeps `Arial12`, and the log says why.
 - **Headings** and **body text** (GLOSSARY): by the font's name in the game's `.gfx` files, which the framework reads from the font (`font+0x18`). The mod keeps the names and changes the files, and with them the lines: its headings in `vic_22` are on 18-pixel lines, as tall as vanilla's body text in `vic_18`. A font whose name vanilla does not have, one a mod adds, draws headings when its lines are 20 GUI units or taller.
 
 | | Vanilla fonts (their lines) | The Chinese language mod's files |
@@ -36,7 +39,7 @@ Which font draws which text follows the Chinese language mod, which draws body t
 
 Fonts that load the same page draw from one page in one font and weight, those of the first of them to load. The vanilla fonts and the mod's never share a page between body text and headings; when fonts of a mod do, the log says so.
 
-Characters none of the chosen fonts has are left to the system's font fallback, in the same weight. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI uses the body text font and its weight too.
+Characters none of the chosen fonts has are left to the system's font fallback, in the same weight: Chinese in the game console, when its font is Consolas, comes from Microsoft YaHei. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI uses the body text font and its weight too.
 
 The game blends text with what lies under it in the screen's sRGB values, not in light, so the edges of light text on dark ground come out too dark and the text looks thinner and greyer than its font, Song faces with their thin strokes most. Glyphs drawn from system fonts for light text, such as the white text of most windows and all of the framework UI's, are drawn with the alpha that gives over black what a blend in light would. Dark text, such as event descriptions and the ledger in black, keeps its coverage: blending in sRGB values makes it a little heavier, which Windows does to dark text too. A text's color is its page's ink tinted with its font's `color` in the `.gfx` files, and whether it is light goes by its luminance against middle grey. Fonts that load one page may draw in either, as `vic_18` in white and `vic_18_black` in black do, so the page holds a glyph in each tone. The Chinese language mod's own body text pages go further, light and dark alike: their partial pixels are raised well beyond that ([research](research/font-textures.md#a-fonts-color)).
 
@@ -47,7 +50,7 @@ The game blends text with what lies under it in the screen's sRGB values, not in
 | M0 Infrastructure | Dependency points declared in one place (location by RVA or export name; leave unchanged, replace the entry, jump from the middle, rewrite bytes); all-or-nothing startup, undone on failure; stubs for jumps from the middle of a function; all existing hooks moved over; bindings to ICU | The game behaves as before, the startup report lists the check result for every dependency point, and all existing in-game checks pass |
 | M1a Chinese in the main interface | The entry moves to `version.dll`; localisation and GUI/scripts are read as UTF-8; glyph table (code points above 0xFF, with temporary glyphs); bitmap fonts first, system fonts for missing characters (atlas, textures, device reset); walking and line breaking of main text; remove the framework's conversion code, and decide the player language from Windows | A Chinese mod with UTF-8 localisation shows Chinese in the main interface; framework notices and mod texts show in Chinese |
 | UI | Drawing on top of the game's picture; capturing input; widgets (window, text, button, drop-down list); moving the notice window over; the settings window and the button in the main menu's corner; the framework settings file; removing the spliced notice window | Notices show and close correctly in the main menu and in the game; a changed setting takes effect at the next start |
-| M2 Compatibility with old Chinese language mods | Legacy escapes in localisation, GUI/scripts and old saves (text and binary) become UTF-8 as they are read | Existing Chinese language mods show without conversion; old saves played with the CJK font plugin load, with the right names |
+| M2 Compatibility with old Chinese language mods | Legacy escapes in localisation, GUI/scripts and old saves (text and binary) become UTF-8 as they are read | Existing Chinese language mods show without conversion; old saves with legacy escapes load, with the right names |
 | M1b The rest of the interface | Walking and wrapping text in buttons, tooltips, lists and so on | The whole interface shows Chinese, with no garbled text, and nothing cut off or out of place |
 | M1c Map text | Laying country and province names along curves, and aligning them | Chinese names on the map look right |
 | M3 Input | Committing text; moving, backspacing and selecting by character; pasting; telling the system where the caret is, so the IME window appears beside the edit box; Chinese save names | Every edit box takes Chinese; saves with Chinese names save and load, with their extension save data matched to them |
@@ -62,7 +65,7 @@ The game blends text with what lies under it in the screen's sRGB values, not in
     - paragraph line breaking (scenario introductions, start-of-game introductions, the country history window; fixed-size multi-line text boxes, such as the description on the macro builder's diplomacy page, break lines between Chinese characters through vtable `+0x80`);
     - names cut short with "..." are cut between characters.
   - M1c: country, province and sea names on the map (this first needed the 16 MiB texture limit raised, see [research/font-textures.md](research/font-textures.md)).
-  - M2: the Chinese language mod shows without conversion; save names written by the CJK font plugin.
+  - M2: the Chinese language mod shows without conversion; save names in legacy escapes.
   - M3 ([research/text-input.md](research/text-input.md)):
     - typing, moving and deleting by character, Home/End, selecting with Shift+Left/Right, copy, cut, paste;
     - the IME composition string and candidate window appear at the caret;

@@ -1,7 +1,8 @@
 //! The campaign's objects: the world, countries, provinces and their map
 //! data, units and their routes, battles, commands, the map manager, and the
 //! game's events and diplomatic actions waiting for the player's answer
-//! (docs/research/regional-combat/, docs/research/questions-and-offers.md).
+//! (docs/research/: provinces.md, armies.md, routes.md, defeat.md, time.md,
+//! questions-and-offers.md).
 
 /// Globals, by RVA.
 pub mod globals {
@@ -53,6 +54,10 @@ pub mod classes {
     /// A leader (see [`super::leader`]), and the game's null leader.
     pub const LEADER: usize = 0x1cbc1b8;
     pub const NULL_LEADER: usize = 0x1cbc158;
+    /// The agent at the top of a country's AI (see [`super::ai_king`]).
+    pub const AI_KING: usize = 0x1c3e9e0;
+    /// A set of modifiers, by value (see [`super::modifiers`]).
+    pub const MODIFIER_SET: usize = 0x1c42ae0;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -234,6 +239,20 @@ pub mod leader {
     /// game's null leader (`NO_LEADER`, made once, at `[0x233fec0]`) answers
     /// no.
     pub const REAL: usize = 0x50;
+}
+
+/// The agent at the top of a country's AI (`ai_king.cpp`), which the
+/// country's AI makes and deletes with itself; the AIs go with the world's
+/// clear. The agents it starts are not among those it deletes as it goes,
+/// the ones working for it.
+pub mod ai_king {
+    /// The agents it started ("Start new agents"), a [`super::list`] it owns.
+    /// One that retires leaves it for [`RETIRED`]. Its destructor lets the
+    /// nodes go, not the agents.
+    pub const AGENTS: usize = 0xc50;
+    /// The agents that retired since its last update, a [`super::list`],
+    /// which that update deletes; its destructor lets the nodes go.
+    pub const RETIRED: usize = 0xac8;
 }
 
 /// A country's diplomacy, which its [`country::RELATIONS`] records point to.
@@ -503,6 +522,53 @@ pub mod map_manager {
     pub const MESSAGE_ICON_HOLDER_SIZE: usize = 0x7000;
 }
 
+/// A country's modifiers, at `+0x28c8`, which the country makes again in
+/// place as they change, and copies whole from ones it makes on the stack.
+pub mod modifiers {
+    /// Sets of modifiers they copy from others and add to their own, a vector
+    /// of pointers to [`super::classes::MODIFIER_SET`]s nothing else owns.
+    /// Their destructor frees the vector, not the sets; their copy copies
+    /// the pointers.
+    pub const COPIES: usize = 0x6440;
+    /// Their own set, the [`super::modifier_set`] the copies are added to.
+    pub const OWN: usize = 8;
+}
+
+/// A set of modifiers, the base of [`classes::MODIFIER_SET`] and of the sets
+/// a country's modifiers hold.
+pub mod modifier_set {
+    /// The sets added to it, a vector of pointers it does not own. A set's
+    /// copy leaves the destination's as it was; its destructor frees the
+    /// vector.
+    pub const ADDED: usize = 0x38;
+}
+
+/// The map modes' panel, at the map manager's `+0x2448`, which the game
+/// lets go with `0x81de20`: it hides its window and takes it off the map
+/// manager's windows, and never kills it.
+pub mod map_modes {
+    /// Its window, with the map modes' entries.
+    pub const WINDOW: usize = 8;
+}
+
+/// The outliner, at the map manager's `+0x1418`, which the game lets go
+/// with `0x81dc30`.
+pub mod outliner {
+    /// Its categories, [`CATEGORY_COUNT`] of [`CATEGORY_SIZE`] bytes each:
+    /// each holds the outliner's entries of the category, a [`super::list`]
+    /// at [`ENTRIES`]; the first holds the categories' headers, each holding
+    /// its window. Its refresh tells [`VIEW`] by its method [`VIEW_EMPTIED`],
+    /// then deletes the entries by their first slots before it makes them
+    /// again; `0x81dc30` lets the nodes go, and the headers stay.
+    pub const CATEGORIES: usize = 0x18;
+    pub const CATEGORY_SIZE: usize = 0x28;
+    pub const CATEGORY_COUNT: usize = 0x1a;
+    pub const ENTRIES: usize = 8;
+    /// What shows the entries, and its method the refresh calls first.
+    pub const VIEW: usize = 0x4b0;
+    pub const VIEW_EMPTIED: usize = 0x48;
+}
+
 /// The map manager's pause state, at [`map_manager::PAUSE`].
 pub mod pause {
     /// The map manager it belongs to.
@@ -631,6 +697,40 @@ pub fn points() -> Vec<Point> {
         // when it answers that it is.
         Point::keep(0x8fe37cusize, "48 8b 49 48 48 85 c9 0f 84 2e 0a 00 00 48 8b 01 ff 50 50 84 c0", "mercenary company leader")
             .uses(&[mercenary_company::LEADER, leader::REAL]),
+        // The outliner's refresh deletes every category's entries; its
+        // function that lets it go lets only the nodes go.
+        Point::keep(
+            0x1290640usize,
+            "48 0f be c6 48 8d 0c 80 49 8d 3c ce 48 8b 5f 08 48 85 db 74 1e 48 8b 0b 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10",
+            "outliner entries deleted",
+        )
+        .uses(&[outliner::ENTRIES]),
+        Point::keep(0x12906a2usize, "ff c6 83 fe 1a", "outliner categories").uses(&[outliner::CATEGORY_COUNT]),
+        Point::keep(0x1290618usize, "49 8b 8f b0 04 00 00 48 85 c9 74 06 48 8b 01 ff 50 48", "outliner view emptied").uses(&[outliner::VIEW, outliner::VIEW_EMPTIED]),
+        Point::keep(0x81dcb8usize, "48 8d 4b 18 4c 8d 0d 1d f0 a6 00 ba 28 00 00 00 44 8d 42 f2", "outliner categories' nodes let go")
+            .uses(&[outliner::CATEGORIES, outliner::CATEGORY_SIZE]),
+        // A country's modifiers keep the sets they copy, and their destructor
+        // frees only the vector.
+        Point::keep(0x931d69usize, "48 8b 5d 67 48 8b 0b 48 81 c1 40 64 00 00 48 8b 51 08 48 3b 51 10 74 14 4c 89 2a", "modifier copies kept")
+            .uses(&[modifiers::COPIES]),
+        Point::keep(0x93ae6dusize, "48 8d 8b 40 64 00 00 e8 47 3c 75 ff", "modifier copies' vector freed").uses(&[modifiers::COPIES]),
+        Point::keep(0x3eaf2busize, "48 8d 05 ae 7b 85 01", "modifier set copied").uses(&[classes::MODIFIER_SET]),
+        Point::keep(0x931da2usize, "48 8b 0b 48 83 c1 08 49 8b d5 e8 6f 86 fb ff", "modifier copy added to the modifiers' own set").uses(&[modifiers::OWN]),
+        Point::keep(0x8ea5ccusize, "48 8b 55 40 48 8d 4d 38 4c 8b 7c 24 20", "modifier set added to a set's list").uses(&[modifier_set::ADDED]),
+        Point::keep(0x943bdusize, "48 8d 4b 38 48 89 43 50 c7 43 64 00 00 00 00 e8 ef a6 ff ff", "modifier set's list freed").uses(&[modifier_set::ADDED]),
+        // The modifiers' copy copies their own set by a set's copy, which
+        // copies its name, its shared sets and its values, and leaves the
+        // destination's list of sets added as it was.
+        Point::keep(0x3296c9usize, "48 8b f9 48 83 c1 08 48 83 c2 08 e8 f7 0b 5c 00", "modifiers' own set copied").uses(&[modifiers::OWN]),
+        Point::keep(0x8ea2d0usize, "40 53 55 57 48 83 ec 20 48 8b 02 48 8b e9 48 8b ca 48 8b fa ff 50 40", "modifier set copy"),
+        Point::keep(0x8ea316usize, "33 db 48 8d 97 a8 00 00 00 48 8d 8d a8 00 00 00 89 5d 64", "modifier set copy's shared sets and values"),
+        // An agent of the AI that retires leaves its parent's agents for
+        // those retired, which the parent's update deletes; the parent's
+        // destructor lets both lists' nodes go.
+        Point::keep(0x14a1f0usize, "48 8d 8f 50 0c 00 00", "AI agent retires").uses(&[ai_king::AGENTS]),
+        Point::keep(0x14b2e5usize, "48 8b 9f c8 0a 00 00", "AI retired agents deleted").uses(&[ai_king::RETIRED]),
+        Point::keep(0x14833fusize, "48 8b 8f 50 0c 00 00", "AI agents' nodes let go").uses(&[ai_king::AGENTS]),
+        Point::keep(0x148422usize, "48 8b 8f c8 0a 00 00", "AI retired agents' nodes let go").uses(&[ai_king::RETIRED]),
         // The saver writes the Empire's religious status, and the
         // achievements' lists.
         Point::keep(0x75117busize, "45 8b 86 18 24 00 00", "world religious status").uses(&[world::HRE_RELIGION_STATUS]),

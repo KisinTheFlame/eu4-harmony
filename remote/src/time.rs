@@ -13,7 +13,7 @@ group! {
     "time": TimeRequest, TimeAnswer;
 
     /// The date, whether the game is paused, and its speed.
-    game Get "" {} -> Time, "the date, whether the game is paused, and the speed from 1 (slowest) to 5 (fastest)";
+    game Get "get" {} -> Time, "the date, whether the game is paused, and the speed from 1 (slowest) to 5 (fastest)";
     /// Pauses the game with the player's own pause, as the player would,
     /// also when a window holds it paused already, such as an event window:
     /// the game then stays paused once the window closes, until it is
@@ -27,7 +27,7 @@ group! {
     game Resume "resume" {} -> (), "nothing";
     /// Sets the game speed, as the player would; the game stays paused or
     /// running as it was.
-    game Speed "speed" {
+    game SetSpeed "set_speed" {
         /// From 1 (slowest) to 5 (fastest).
         speed: u32,
     } -> (), "nothing";
@@ -47,7 +47,7 @@ group! {
     /// off, and time stops at the end of the day under way. Once the player
     /// can no longer play the game (the country annexed, observing), it is
     /// answered not_in_game, and time runs on as the game runs it.
-    game Advance "advance" {
+    remote_game Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,
         /// The speed to run at, from 1 (slowest) to 5 (fastest); the game

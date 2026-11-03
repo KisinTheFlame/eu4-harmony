@@ -153,10 +153,7 @@ fn bad_request(answer: &Value, saying: &str) -> bool {
 fn a_client_reads_the_session_and_errors_come_as_json() {
     let test = test_pipe!("session", Place::Game);
     let mut client = test.connect();
-    assert_eq!(
-        client.ask(r#"{"capability": "session"}"#),
-        json!({"ok": true, "result": {"process": crate::remote::process(), "session": 2, "date": "1444.11.11", "paused": true, "visibility_current": true, "player": "TUR"}})
-    );
+    assert_eq!(client.ask(r#"{"capability": "session.get"}"#), json!({"ok": true, "result": {"number": 2, "player": "TUR", "date": "1444.11.11"}}));
     let missing = client.ask(r#"{"capability": "army.get", "army": "1"}"#);
     assert_eq!(missing, json!({"ok": false, "error": {"code": "not_found", "message": "no own army 1"}}), "{missing}");
     // A line may end in CR LF, and a blank line is not answered.
@@ -189,7 +186,7 @@ fn a_line_that_is_no_request_is_answered_bad_request_and_the_client_goes_on() {
     client.send("x".repeat(LONGEST_LINE + 10) + "\n");
     let answer = client.answer(PLENTY).unwrap();
     assert!(bad_request(&answer, "at most 1048576 bytes"), "{answer}");
-    assert_eq!(client.ask(r#"{"capability": "session"}"#)["ok"], true);
+    assert_eq!(client.ask(r#"{"capability": "session.get"}"#)["ok"], true);
     assert!(test.log().iter().any(|l| l == "remote pipe: client 1: bad_request: no capability army.fly"), "{:#?}", test.log());
     test.stop();
 }
@@ -201,7 +198,7 @@ fn a_client_gets_its_answers_in_the_order_it_sent_its_requests() {
     // still waits.
     let test = test_pipe!("order", Place::Outside(None));
     let mut client = test.connect();
-    client.send("{\"capability\": \"session\"}\n{\"capability\": \"text.language\"}\n");
+    client.send("{\"capability\": \"session.get\"}\n{\"capability\": \"text.language\"}\n");
     assert_eq!(client.answer(Duration::from_millis(300)), None);
     test.set(Place::Game);
     assert_eq!(client.answer(PLENTY).unwrap()["result"]["player"], "TUR");
@@ -218,7 +215,7 @@ fn several_clients_are_served_at_once() {
         .map(|i| {
             let mut client = test.connect();
             std::thread::spawn(move || {
-                (0..5).map(|_| client.ask(&format!(r#"{{"capability": "army.move", "army": "{ARMY}", "goal": {}}}"#, 200 + i))).collect::<Vec<_>>()
+                (0..5).map(|_| client.ask(&format!(r#"{{"capability": "army.move", "army": "{ARMY}", "province": {}}}"#, 200 + i))).collect::<Vec<_>>()
             })
         })
         .collect();
@@ -235,12 +232,12 @@ fn several_clients_are_served_at_once() {
 fn a_client_that_closes_the_pipe_gives_its_request_up() {
     let test = test_pipe!("give-up", Place::Outside(None));
     let mut client = test.connect();
-    client.send(format!("{{\"capability\": \"army.move\", \"army\": \"{ARMY}\", \"goal\": 151}}\n"));
+    client.send(format!("{{\"capability\": \"army.move\", \"army\": \"{ARMY}\", \"province\": 151}}\n"));
     std::thread::sleep(Duration::from_millis(200));
     drop(client);
     assert!(test.logged("remote pipe: client 1 closed the pipe before its answer came, which gave the request up, after 0 answer(s)"), "{:#?}", test.log());
     test.set(Place::Game);
-    assert!(test.logged(&format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":151}}: given up by its client before it ran"#)), "{:#?}", test.log());
+    assert!(test.logged(&format!(r#"{{"capability":"army.move","army":"{ARMY}","province":151}}: given up by its client before it ran"#)), "{:#?}", test.log());
 
     // A request that already waits is given up too.
     let mut reader = test.connect();
@@ -255,15 +252,15 @@ fn a_client_that_closes_the_pipe_gives_its_request_up() {
 fn a_client_that_closes_the_pipe_gives_its_request_up_with_later_ones_unread() {
     let test = test_pipe!("give-up-unread", Place::Outside(None));
     let mut client = test.connect();
-    client.send(format!("{{\"capability\": \"army.move\", \"army\": \"{ARMY}\", \"goal\": 151}}\n"));
+    client.send(format!("{{\"capability\": \"army.move\", \"army\": \"{ARMY}\", \"province\": 151}}\n"));
     std::thread::sleep(Duration::from_millis(200));
     // The transport reads the next line only once the first is answered, so
     // this one is still in the pipe when the client closes it.
-    client.send("{\"capability\": \"session\"}\n");
+    client.send("{\"capability\": \"session.get\"}\n");
     drop(client);
     assert!(test.logged("remote pipe: client 1 closed the pipe before its answer came, which gave the request up, after 0 answer(s)"), "{:#?}", test.log());
     test.set(Place::Game);
-    assert!(test.logged(&format!(r#"{{"capability":"army.move","army":"{ARMY}","goal":151}}: given up by its client before it ran"#)), "{:#?}", test.log());
+    assert!(test.logged(&format!(r#"{{"capability":"army.move","army":"{ARMY}","province":151}}: given up by its client before it ran"#)), "{:#?}", test.log());
     assert!(test.stop().calls.is_empty());
 }
 
@@ -352,7 +349,7 @@ fn the_pipe_keeps_its_name_while_clients_come_and_go() {
         other.join().unwrap()
     });
     assert_eq!(made, 0, "the other process made the pipe {made} time(s)");
-    assert_eq!(test.connect().ask(r#"{"capability": "session"}"#)["ok"], true);
+    assert_eq!(test.connect().ask(r#"{"capability": "session.get"}"#)["ok"], true);
     test.stop();
 }
 
@@ -363,7 +360,7 @@ fn a_game_started_again_opens_the_pipe_once_the_one_before_is_gone() {
     assert!(test.logged("yet (another process has it); trying again every second"), "{:#?}", test.log());
     drop(before);
     assert!(test.logged("remote pipe: open at"), "{:#?}", test.log());
-    assert_eq!(test.connect().ask(r#"{"capability": "session"}"#)["ok"], true);
+    assert_eq!(test.connect().ask(r#"{"capability": "session.get"}"#)["ok"], true);
     test.stop();
 }
 

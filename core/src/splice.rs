@@ -38,25 +38,61 @@ pub struct Element {
 }
 
 /// A change to one game file.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Addition {
     /// Text inserted before the closing brace of the named `windowType`.
     Window { window: String, text: String },
     /// Text appended to the end of the file.
     Append(String),
+    /// What `edit` makes of the file; `what` names it when it fails.
+    Edit { what: &'static str, edit: fn(&str) -> Result<String> },
 }
 
 #[derive(Default)]
 pub struct Plan {
     /// normalized file path -> additions, applied in order
     by_file: HashMap<String, Vec<Addition>>,
+    /// Additions to every file whose normalized path starts and ends so and
+    /// whose bytes it is for, applied after those to the file itself.
+    everywhere: Vec<Everywhere>,
     pub elements: Vec<Element>,
     pub slots: usize,
 }
 
+/// An addition to every file of some paths that it is for.
+struct Everywhere {
+    start: &'static str,
+    end: &'static str,
+    /// Whether the file's bytes are for it.
+    wants: fn(&[u8]) -> bool,
+    addition: Addition,
+}
+
+impl Everywhere {
+    fn has_path(&self, normalized: &str) -> bool {
+        normalized.starts_with(self.start) && normalized.ends_with(self.end)
+    }
+}
+
 impl Plan {
-    pub fn for_file(&self, normalized: &str) -> Option<Vec<Addition>> {
-        self.by_file.get(normalized).cloned()
+    /// Whether the file may have additions, which its bytes then decide
+    /// ([`Plan::for_file`]).
+    pub fn may_add_to(&self, normalized: &str) -> bool {
+        self.by_file.contains_key(normalized) || self.everywhere.iter().any(|e| e.has_path(normalized))
+    }
+
+    /// The additions to the file whose bytes are `data`, in order.
+    pub fn for_file(&self, normalized: &str, data: &[u8]) -> Vec<Addition> {
+        let mut additions = self.by_file.get(normalized).cloned().unwrap_or_default();
+        additions.extend(self.everywhere.iter().filter(|e| e.has_path(normalized) && (e.wants)(data)).map(|e| e.addition.clone()));
+        additions
+    }
+
+    /// Adds `addition` to every file whose normalized path starts with
+    /// `start` and ends with `end` and whose bytes `wants`; a file it does
+    /// not want is never decoded for it.
+    pub fn add_to_every(&mut self, start: &'static str, end: &'static str, wants: fn(&[u8]) -> bool, addition: Addition) {
+        self.everywhere.push(Everywhere { start, end, wants, addition });
     }
 
     pub fn add(&mut self, normalized: &str, addition: Addition) {
@@ -74,6 +110,7 @@ pub fn apply(text: &str, additions: &[Addition]) -> Result<String> {
                 text.push('\n');
                 text.push_str(added);
             }
+            Addition::Edit { what, edit } => text = edit(&text).map_err(|e| format!("{what}: {e}"))?,
         }
     }
     Ok(text)
@@ -86,8 +123,7 @@ pub fn prefix(id: &str) -> String {
 }
 
 /// `include(i)` decides whether mod `i` takes part (its extension loaded, or it has none).
-pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, Vec<String>) {
-    let mut plan = Plan::default();
+pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool, plan: &mut Plan) -> Vec<String> {
     let mut notes = Vec::new();
     // Button-area slots taken, by window.
     let mut slots: HashMap<&str, i32> = HashMap::new();
@@ -96,7 +132,7 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
             continue;
         }
         let prefix = prefix(&m.manifest.id);
-        for ui in &m.manifest.ui {
+        for ui in &m.layout.ui {
             let Some(window) = hosts::window(&ui.into) else {
                 notes.push(format!("{}: window {:?} is not supported", m.manifest.id, ui.into));
                 continue;
@@ -145,12 +181,28 @@ pub fn build(mods: &[DiscoveredMod], include: impl Fn(usize) -> bool) -> (Plan, 
         }
     }
     plan.slots = slots.values().sum::<i32>() as usize;
-    (plan, notes)
+    notes
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{apply, prefix, Addition};
+    use super::{apply, prefix, Addition, Plan};
+
+    #[test]
+    fn additions_to_every_file_follow_the_file_s_own() {
+        let mut plan = Plan::default();
+        plan.add("interface/core.gui", Addition::Append("own".into()));
+        plan.add_to_every("interface/", ".gui", |data| data.starts_with(b"wanted"), Addition::Append("every".into()));
+        let appended = |path, data: &[u8]| {
+            plan.for_file(path, data).iter().map(|a| if let Addition::Append(t) = a { t.clone() } else { String::new() }).collect::<Vec<_>>()
+        };
+        assert_eq!(appended("interface/core.gui", b"wanted"), ["own", "every"]);
+        assert_eq!(appended("interface/core.gui", b"other"), ["own"]);
+        assert_eq!(appended("interface/topbar.gui", b"wanted"), ["every"]);
+        assert!(appended("interface/topbar.gui", b"\xff other").is_empty());
+        assert!(plan.may_add_to("interface/topbar.gui") && plan.may_add_to("interface/core.gui"));
+        assert!(!plan.may_add_to("interface/core.gfx") && !plan.may_add_to("common/x.gui"));
+    }
 
     #[test]
     fn prefix_is_identifier_safe() {
@@ -164,5 +216,9 @@ mod tests {
         let out = apply(file, &[Addition::Append("spriteTypes = {}".into()), Addition::Window { window: "w".into(), text: " X ".into() }]).unwrap();
         assert!(out.ends_with("\nspriteTypes = {}"));
         assert!(out.contains(" X }"));
+        let edited = apply(file, &[Addition::Edit { what: "upper", edit: |t| Ok(t.to_uppercase()) }]).unwrap();
+        assert!(edited.starts_with("GUITYPES"));
+        let failed = apply(file, &[Addition::Edit { what: "nothing", edit: |_| Err("no".into()) }]);
+        assert_eq!(failed.unwrap_err(), "nothing: no");
     }
 }

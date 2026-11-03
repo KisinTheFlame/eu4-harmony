@@ -1,0 +1,92 @@
+# Interface bindings: the army panel, buttons, clicks, text and tooltips (for `ui`)
+
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`. What is marked "seen in the game" was seen in the running game on 2026-10-26, while regional-combat was being written, before this repository existed; it is not in [prototype-log.md](../prototype-log.md). The rest was read from the code only. The windows in general (creating one, the lookups of other windows, every teardown path, the main menu's windows) are in [notice-window.md](notice-window.md); how spliced elements get into a host window in the first place is in [ui-injection.md](ui-injection.md).
+
+`ui` binds the elements spliced into a host window by looking them up by name in the window's current instance, subscribes its own callback to each button's click signal, and applies what extensions asked for (shown, enabled, text, tooltip) after the host's own update. The constants are in `objects::gui`.
+
+## The army panel
+
+- **The panel object** (class `0x1d87088`, 0x1518 bytes) is not the window: it holds its window (its root, built from `single_unitpanel` in `interface/unitpanel_main.gui`) at `+0x38`, the army it shows at `+0x40` and the map manager at `+0x48`. Its methods: `+0x00` the deleting destructor `0x144f560`; `+0x08` `0x129270` (`mov rax, [rcx+0x40]; ret`), the army; `+0x10` `0x25ba60` (`mov rax, [rcx+0x48]; ret`), the map manager (the rebel button's action reads its `+0x5ba0` through it, below). A second interface sits at `panel+0x10`.
+- **The constructor** `0x144def0` sets the class (at `0x144dfce`), fills the callbacks it keeps inside the panel (below), makes its actions with `0x147a360` (at `0x144f523`), then calls the binding `0x144fb00(panel)`.
+- **The binding** `0x144fb00(panel)` makes the window: the GUI manager `*(*(panel+0x48)+0x58)`, its method `+0x48`, with `"single_unitpanel"` as a `std::string`; the window goes to `panel+0x38`. Then for every button: the window's method `+0x68` with the button's name as a NUL-terminated C string (not a `std::string`) gives the button, and the button's signal at `+0xc8` gets one of the panel's callbacks through the signal's method `+0x08`, the subscription. The first is `attacknatives_button` with the callback at `panel+0x8a8` (the dependency point at `0x144fbb5`); `enable_rebel_button` gets `panel+0xf18` (at `0x144ffc4`). The settings for missions are a window inside it: the window's method `+0x180` (`0x1548190`, which jumps to its method `+0x1c0`, the subwindow of a `std::string` name) with `"mission_settings_win"` and a third argument 1; its `close`, `aggressiveness_up`/`_down` and `repair_up`/`_down` buttons are bound the same way, and the subwindow is hidden through its interface at `+0x30`, method `+0x90`. The window has no close button of its own: the `close` bound here is the mission settings'. At the end the binding hides the window the same way and hands it to `0x6ecbd0(map manager, window)` (map manager `[0x233fe78]+0x1e00`), which adds it to the map manager's windows updated each frame.
+- **The rebuild** `0x1450580(panel+0x10)` takes the window out of that list (`0x6ecc80`), kills it (its method `+0x130`) and binds again: `0x144fb00(panel)` at `0x1450645`. So the panel gets a new window and new buttons while the panel object stays. `ui` observes its entry (with the second interface's `this`, so `panel = arg - 0x10`) to detach before the old window goes.
+- **The destructor** `0x144f560` calls `0x6ecc80(map manager, window)` and the window's kill (`+0x130`), destroys its actions and rewrites the classes of the callbacks inside it, then frees 0x1518 bytes. `ui` observes its entry. Nothing may be added to the panel's own allocation; the framework keeps its callbacks in its own memory.
+- **The update** `0x1450660(panel, …)` runs whenever the panel is updated and sets its buttons each time: it looks them up by name again (`+0x68`, and `+0xc8` for icons such as `enable_rebel_button_glow`), shows or hides them (`+0x88`, `+0x90`), and writes the mission settings' numbers: the text boxes `repair_value` and `aggressiveness_value`, found with the subwindow's method `+0x98`, set with `0x152ae10(text box, string, 0)` (at `0x14522d3`). `ui` binds and applies after it (`panel_after`): whatever an extension asked for then holds after the game's own update, and a rebuilt window is bound at its first update.
+- **Closing the panel**: `0x1453970(panel)`, when the window is open (`window+0xf5`), hides it through its interface: `window+0x30`, method `+0x90`, which is `0x1547b00` and clears the interface's `+0xc5`, that is `window+0xf5`. The panel's army at `+0x40` is not cleared: seen in the game, the pointer stayed set after the panel was closed. So whether the panel is open is `window+0xf5`, which is what `ui::selected_army` reads, together with the panel's class, its window and the window's classes.
+
+The game's own `enable_rebel_button` is defined at `x=378 y=325` with `GFX_unitpanel_button_hunt_rebels`. An element added to the `.gui` only shows; nothing happens on its clicks until something subscribes to its signal, which is what `ui` does for spliced buttons.
+
+## Looking elements up
+
+The window's methods (all windows share the class `0x1d926b0`; [notice-window.md](notice-window.md) §4): `+0x68` `0x1548700` a button, `+0x98` `0x1548d30` a text box, `+0xc8` `0x15492e0` an icon, each by a C string; `+0x1c0` a subwindow by a `std::string`, which `+0x180` reaches too. They look only at the window's own elements, not into subwindows, and on a miss may return a stand-in object of the kind asked for, so `ui` checks the class of what it gets (button `0x1d58218`, text box `0x1d8fd10`) and its name, through the method `+0xa0` that every element class shares (`0xfbf480`, which returns a `std::string*`).
+
+## Buttons
+
+- **Classes**: the game's button class `0x1d58218` with its signal's class `0x1d581f8`, set by the constructor `0x10b53e0` (at `0x10b55fc`) after the GUI button constructor `0x15ac670`, which calls the base button constructor `0x1592840`; the base makes the signal at `button+0xc8`. A button's deleting destructor is its method `+0x38`, `0x10b5670`; `ui` observes its entry, before the base destructors put their own classes back.
+- **Methods**, by vtable offset:
+  - `+0x48` takes input: the base's `0x1592bd0`, which the GUI button's `0x15aefc0` overrides (that override was not read).
+  - `+0x80` `0xfaab30(button, enabled)`: enable or disable, through the button's own `+0x268` or `+0x270`.
+  - `+0x88` `0x15aeb30`: show. Unless `+0x100` is set, it sets `+0xc5` to 1 and shows the button's graphics (`+0x290`, `+0x188`, `+0x198`).
+  - `+0x90` `0x15aead0`: hide. It clears `+0xc5` and hides its graphics, text and tooltip.
+  - `+0x160` `0x1593870`, `+0x168` `0x1593850`, `+0x170` `0x1593860`: set the byte that lets it take double clicks (`+0x162`), left clicks (`+0x160`) and right clicks (`+0x161`); each is a single `mov [rcx+…], dl; ret`. The constructor leaves `+0x161` clear, so a button reports right clicks only once it is set: `ui` sets it when it binds a button and puts the old value back when it detaches.
+
+  `ui` shows, hides and enables buttons only through these methods, after checking that the button's class still has them.
+
+## The click signal
+
+- **Its methods**: `+0x08` `0xfbe3f0` subscribes, `+0x10` `0xfbe370` unsubscribes, `+0x18` `0xfbe360` returns a global (it does not unsubscribe everything).
+- **Its layout**: a list of the game's usual kind (`objects::list`) at `+0x08`: first node `+0x08`, last `+0x10`, count (i32) `+0x18`, and at `+0x1c` the byte set while the signal calls its listeners. At `+0x20` a single listener that, when set, is called instead of the list; it is null on every button the framework binds, and one that is not is refused.
+- **Subscribing** allocates a node of 0x20 bytes (the listener `+0x00`, previous `+0x08`, next `+0x10`, a "removed" byte `+0x18`) and appends it; it does not look for the listener already being there, so subscribing twice calls it twice.
+- **Unsubscribing** finds the node with that exact listener pointer. While the signal calls its listeners, it only marks the node's `+0x18`; otherwise it unlinks and frees the node. It never destroys the listener, and neither does the signal's destruction `0x1593f80`, which frees the nodes left. So the framework's callbacks need not come from the game's allocator, as long as they outlive their subscription: `ui` keeps a detached binding's callbacks for the rest of the process. It unsubscribes only when the signal is not calling its listeners, and checks the list afterwards.
+
+## Callbacks
+
+- **The class** `0x1cb80c8`, 0x78 bytes: the class, at `+0x08` the context, then function pointers. Each method loads one pointer, returns if it is null, and otherwise jumps to it with the context in place of the callback (`rcx`), the other arguments as they came:
+
+  | Method | Function | Pointer |
+  | --- | --- | --- |
+  | `+0x08` | `0x836550` | `+0x70`: the left click, (context, click) |
+  | `+0x10` | `0x836570` | `+0x40` |
+  | `+0x18` | `0x836430` | `+0x10` |
+  | `+0x20` | `0x8363d0` | `+0x28` |
+  | `+0x30` | `0x836410` | `+0x18` |
+  | `+0x40` | `0x8363f0` | `+0x20` |
+  | `+0x50` | `0x8363b0` | `+0x30` |
+  | `+0x58` | `0x836590` | `+0x50`; when null, the callback's own method `+0x10` instead |
+  | `+0x60` | `0x8365b0` | `+0x38`; when null, the callback's own method `+0x18` instead |
+  | `+0x68` | `0x836530` | `+0x48`: the right click, (context, button) |
+  | `+0x70` | `0x836510` | `+0x58` |
+  | `+0x78` | `0x8364d0` | `+0x68`, called rather than jumped to; returns 1 when it was set |
+  | `+0x80` | `0x8364f0` | `+0x60`, likewise |
+
+  `+0x28`, `+0x38` and `+0x48` are `0x955a0`, the same for all three.
+- **The panel's own callbacks** are built inside it by the constructor; the one at `panel+0xf18`: the class, the context `panel+0x1468` (the rebel button's action, below), at `+0x70` the function `0x1411cb0`, and zero in between. `0x1411cb0(action, click)` asks the action's methods `+0x20` and `+0x08`; when both say yes it calls `+0x10` (carry it out) and sets the click's `+0x10` to 1 (taken), otherwise it clears it.
+- **The framework's** are the same class, 0x78 bytes in its own memory: the class, the callback's own address as the context, `right_click` at `+0x48` and `left_click` at `+0x70`. A click is matched to its element by the context and the button.
+
+## From input to a click
+
+- **The input** a button's method `+0x48` gets (read in the base `0x1592bd0`): `+0x14` what happened (3 pressed, 4 released), `+0x18` which mouse button (1 left, 2 right), `+0x20`/`+0x24` a position, `+0x50` the device (0 for the mouse), `+0x54` a 16-bit mask set when something took it, `+0x56` a byte that makes a shown button ask its method `+0x18` first. The GUI's mouse input skips hidden elements (`+0xc5` clear) before this ([notice-window.md](notice-window.md) §4).
+- **A left click**: released with the left button, the base calls `0x1593c80`, which builds the click on its stack: `+0x00` the button, `+0x08`/`+0x0c` the position (i32, scaled by the float at `+0x4d8` of the GUI scale object `0x23494b8`), `+0x10` the "taken" byte, set to 1 to begin with. The dispatch `0x1593260` calls each listener's methods `+0x18`, `+0x10` and `+0x08`, the last with (listener, click): for a callback, `0x836550`, so its `+0x70` gets (context, click). `ui`'s `left_click` reads the button at `click+0x00` and sets `click+0x10` to 1, so the click does not go on to the map.
+- **A right click**: pressed with the right button while `+0x161` is set, the base sets `+0x102`; released with `+0x161` and `+0x102` set, it clears `+0x102` and calls `0x15935b0(signal, button)`. That calls the single listener at `signal+0x20` if there is one, otherwise each listener in the list, its method `+0x68` with (listener, button), reading the next node before each call. For a callback that is `0x836530`, so its `+0x48` gets (context, button): the second argument is the button itself, not a click.
+- **Seen in the game**: a button bound this way, in the army panel, took a left and a right click, each with the arguments above, and was detached again with no subscription left behind. A button without any subscription, laid over the panel, kept clicks on it from reaching the map. Destroying and rebuilding the panel's window while bound was not tried then.
+
+## Text
+
+- **A text box** (class `0x1d8fd10`) keeps its text as a `std::string` at `+0x170`.
+- **The setter** `0x152ae10(text box, string, flag)` moves the string in: it destroys the text box's old string, takes the 32 bytes of the one given, leaves that one empty (size 0, capacity 15, a NUL), then redraws the text (`0x15f42c0` with `+0x118`, and `0x152b3f0`). The text box now owns whatever the string pointed to and frees it with the game's allocator, so `ui` builds the string with the game's own append (`0x932f0`, [`game_string`](../../core/src/game_string.rs)) and never hands over its own allocation. The game's update passes 0 as the flag; so does `ui`.
+- A text box's own show and hide methods were not read. `ui` shows a hidden text box as empty text instead.
+
+## Tooltips
+
+- **The army panel's tooltip** `0x1453b70(panel, out, element)` (it reads three arguments) asks the element its name (`+0xa0`) and compares it with the names of the panel's own elements (`consolidate_button`, the unit type icons, `enable_rebel_button` and so on), fills `out` for the one it knows, and returns `out`. For any other name it leaves `out` as it came.
+- **What it fills**: two game strings, the tooltip's text at `+0x00` and its delayed text at `+0x20`, then a few bytes at `+0x40`..`+0x4b` (as the move `0x8daf0` copies them). Its destructor `0x8dad0` destroys the strings at `+0x20` and `+0x00`.
+- `ui` observes after it: when the element is one of the buttons it bound in that panel and has a tooltip, and both strings are still empty and inline (size 0, capacity 15), it appends the text to `+0x00` with the game's append, so the caller frees it as usual.
+- **Seen in the game**: text appended at `+0x00` showed as the tooltip, with a colored first line and line breaks; text put at `+0x20` did not show as a heading. That it is the part shown after a delay is inferred.
+
+## The rebel button's action
+
+What the game's own `enable_rebel_button` does, and why it is no use for anything but hunting rebels:
+
+- **The actions**: `0x147a360(panel+0x1378, panel)` (a leaf with no entry in the exception directory) makes the panel's actions in place; the rebel button's is the one at `+0xf0` of them, `panel+0x1468`: the class `0x1d891a0` (set at `0x147a40b`) and the panel at `+0x08`. Its methods: `+0x00` `0x147a560` the destructor (it frees 0x10 bytes), `+0x08` `0xe151a0`, `+0x10` `0x147e670` carry it out, `+0x18` `0x147d960` the tooltip (the panel's tooltip calls it for some names), `+0x20` `0x147ea10` the selected army, `+0x30` `0x147ea40` whether it is on (the army's mission at `army+0x1f8`, whose method `+0x50` gives its type, is of type `0xd`), `+0x38` `0x147e520`, `+0x40` `0x147e830` and `+0x48` `0x147e9e0` the tooltip's text and heading.
+- **Carrying it out** `0x147e670` takes the army and the map manager from the panel's methods `+0x08` and `+0x10`. Depending on two global bytes (`0x233ff98`, `0x233fed6`) and a thread-local one, none of them identified, it either opens the suppression window, or posts a command (`0xd66240` with `0x36`, through `0x14ca2d0`); then it plays `army_click`. The window: 0x120 bytes, built by `0x1462aa0(window, army)` and kept at `[map manager+0x5ba0]+0x228`, the one there before destroyed through its method `+0x08`.
+- **`0x1462aa0` changes the game**: when the army has no mission or one of another type than `0xd`, it gives it the rebel-hunting mission (`0x1c7a60`). Then it switches the map mode through the map manager's method `+0xc8` with `0xc`; its destructor `0x1462e20` switches back to the mode kept at its `+0x30`. Building it only to show a range would change the army's mission, so the framework colors the map itself ([map-modes.md](map-modes.md)).

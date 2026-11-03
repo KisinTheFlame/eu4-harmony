@@ -2,7 +2,8 @@
 //!
 //! The launcher writes the active playset to `<user_dir>/dlc_load.json`; each
 //! entry names a `.mod` descriptor whose `path=` points at the mod directory.
-//! A mod carries an extension when it has `eu4-harmony/manifest.json`.
+//! A mod is a Harmony mod when it has `eu4-harmony/manifest.toml`; where its
+//! other files are says the rest (ADR 0029).
 use crate::{notice::Message, Result};
 use serde::Deserialize;
 use std::{
@@ -16,11 +17,13 @@ struct DlcLoad {
     enabled_mods: Vec<String>,
 }
 
-pub use eu4_harmony_manifest::{Manifest, UiFragment};
+pub use eu4_harmony_manifest::{Layout, Manifest, Permissions, UiFragment};
 
 #[derive(Debug)]
 pub struct Descriptor {
     pub name: String,
+    /// The mod's own version, as its descriptor gives it.
+    pub version: Option<String>,
     pub path: Option<PathBuf>,
     pub archive: Option<String>,
 }
@@ -31,11 +34,14 @@ pub struct DiscoveredMod {
     pub descriptor: Descriptor,
     pub dir: PathBuf,
     pub manifest: Manifest,
+    /// Where its files are: the extension, its interface fragments.
+    pub layout: Layout,
 }
 
 /// Minimal reader for the `key="value"` lines of a `.mod` descriptor.
 pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
     let mut name = String::new();
+    let mut version = None;
     let mut path = None;
     let mut archive = None;
     for line in text.lines() {
@@ -43,6 +49,7 @@ pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
         let value = value.replace('\\', "/");
         match key {
             "name" => name = value,
+            "version" => version = Some(value),
             "path" => {
                 let p = PathBuf::from(&value);
                 path = Some(if p.is_absolute() { p } else { user_dir.join(p) });
@@ -51,7 +58,7 @@ pub fn parse_descriptor(text: &str, user_dir: &Path) -> Descriptor {
             _ => {}
         }
     }
-    Descriptor { name, path, archive }
+    Descriptor { name, version, path, archive }
 }
 
 /// An enabled mod that discovery skipped, and why.
@@ -113,7 +120,7 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
             }
             continue;
         };
-        let manifest_file = dir.join("eu4-harmony").join("manifest.json");
+        let manifest_file = dir.join("eu4-harmony").join(eu4_harmony_manifest::FILE);
         if !manifest_file.is_file() {
             continue;
         }
@@ -133,7 +140,8 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
             });
             continue;
         }
-        mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest });
+        let layout = eu4_harmony_manifest::layout(&dir.join("eu4-harmony"));
+        mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest, layout });
     }
     Ok((mods, notes))
 }
@@ -145,10 +153,11 @@ mod tests {
     #[test]
     fn descriptor_resolves_relative_and_absolute_paths() {
         let user = Path::new("C:\\u");
-        let d = parse_descriptor("name=\"X\"\npath=\"mod/x\"\nremote_file_id=\"1\"\n", user);
-        assert_eq!(d.name, "X");
+        let d = parse_descriptor("name=\"X\"\nversion=\"1.2\"\npath=\"mod/x\"\nremote_file_id=\"1\"\n", user);
+        assert_eq!((d.name.as_str(), d.version.as_deref()), ("X", Some("1.2")));
         assert_eq!(d.path.unwrap(), Path::new("C:\\u").join("mod/x"));
         let d = parse_descriptor("path=\"E:/Steam/workshop/1\"\n", user);
+        assert!(d.version.is_none());
         assert_eq!(d.path.unwrap(), PathBuf::from("E:/Steam/workshop/1"));
         let d = parse_descriptor("archive=\"mod/x.zip\"\n", user);
         assert!(d.path.is_none());

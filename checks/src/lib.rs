@@ -14,6 +14,7 @@ pub mod camera;
 pub mod console;
 mod date;
 pub mod diplomacy;
+pub mod form;
 pub mod offers;
 pub mod provinces;
 pub mod questions;

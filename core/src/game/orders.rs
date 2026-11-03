@@ -88,7 +88,7 @@ struct OrderState {
 /// game to run, as regional-combat's always have; remote control's are the
 /// player's, which the player gives while the game is paused too (a paused
 /// right-click on the map queries the route and submits it as these do,
-/// docs/research/regional-combat/native-manual-findings.txt).
+/// docs/research/army-orders.md).
 fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<OrderState> {
     if m.ptr(army)? != m.at(classes::ARMY) {
         return Err(checks::not_land().into());
