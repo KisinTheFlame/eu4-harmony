@@ -14,4 +14,5 @@ topics:
   ui             interface fragments: elements in the game's windows
   ui buttons     a button in the army panel's button area
   localisation   texts in the player language
+  testing        tests against a fake game, run by eu4-harmony test
   game           trying the mod in the running game through remote control
