@@ -79,7 +79,7 @@ A mod's own files are in its `eu4-harmony\` folder, where they are says what the
 
 `eu4-harmony skills` holds guides for making a mod, written for a coding agent and readable by anyone: the steps of each kind of work and how to tell each is done (`eu4-harmony skills mod` first, then `tasks`, `state`, `ui`, `localisation`, `testing`, `game`). The `AGENTS.md` that `eu4-harmony new` writes points an agent at them.
 
-An editor with the Lua language server (LuaLS) completes `game`, the capabilities, the handlers and the globals, and marks a misspelled capability or a wrong argument: `eu4-harmony new` writes the type definitions into the mod's `.eu4-harmony\types\` with a `.luarc.json`, and `eu4-harmony types` writes them again for a newer tool. `eu4-harmony package` leaves both out.
+An editor with the Lua language server (LuaLS) completes `game`, the capabilities and their results' fields, the handlers and the globals, and marks a misspelled capability or a wrong argument: `eu4-harmony new` writes the type definitions into the mod's `.eu4-harmony\types\` with a `.luarc.json`, and `eu4-harmony types` writes them again for a newer tool. `eu4-harmony package` leaves both out.
 
 Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of the game's localisation files but as plain UTF-8, one file per language (`english`, `french`, `german`, `spanish`, `simp_chinese`). Interface fragments use the keys directly, and an extension gets a text with `text.get("KEY")`; the framework shows the player language, see [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md).
 
