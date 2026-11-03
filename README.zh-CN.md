@@ -79,7 +79,7 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 
 `eu4-harmony skills` 是制作 Mod 的指南，写给 coding agent，人也能读：每类工作的步骤，以及怎样算做完（先看 `eu4-harmony skills mod`，再看 `tasks`、`state`、`ui`、`localisation`、`testing`、`game`）。`eu4-harmony new` 生成的 `AGENTS.md` 会让 agent 去读这些指南。
 
-装了 Lua 语言服务器（LuaLS）的编辑器能补全 `game`、各项能力、事件函数和全局函数，并标出拼错的能力或传错的参数：`eu4-harmony new` 会把类型定义写进 Mod 的 `.eu4-harmony\types\`，并附一个 `.luarc.json`；换了新版工具后用 `eu4-harmony types` 重写一遍。`eu4-harmony package` 不会打包这两样。
+装了 Lua 语言服务器（LuaLS）的编辑器能补全 `game`、各项能力和返回值的字段、事件函数和全局函数，并标出拼错的能力或传错的参数：`eu4-harmony new` 会把类型定义写进 Mod 的 `.eu4-harmony\types\`，并附一个 `.luarc.json`；换了新版工具后用 `eu4-harmony types` 重写一遍。`eu4-harmony package` 不会打包这两样。
 
 文字放在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`，格式同游戏的本地化文件，但内容是普通 UTF-8，每种语言一个文件（`english`、`french`、`german`、`spanish`、`simp_chinese`）。界面片段直接用这些键，扩展用 `text.get("KEY")` 取文字；框架按玩家语言显示，见 [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md)。
 

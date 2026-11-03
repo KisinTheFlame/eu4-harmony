@@ -58,7 +58,7 @@ group! {
 }
 
 /// The game's clock.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Time {
     pub date: Date,
     pub paused: bool,
@@ -67,7 +67,7 @@ pub struct Time {
 }
 
 /// Why an advance stopped.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum Stop {
     /// The date was reached; the game is paused.
@@ -85,7 +85,7 @@ pub enum Stop {
 }
 
 /// Where an advance stopped, and what happened on the way.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Advanced {
     pub stopped: Stop,
     /// Why, in words.

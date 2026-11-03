@@ -34,7 +34,7 @@ group! {
 }
 
 /// Events read from remote control.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Events {
     /// When the game process answering started, in milliseconds since 1970
     /// (as menu answers it). Events are numbered from 1 again in a new
@@ -52,7 +52,7 @@ pub struct Events {
 }
 
 /// An event and its number, which increases by one with each event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Numbered {
     pub number: u64,
     #[serde(flatten)]
@@ -60,7 +60,7 @@ pub struct Numbered {
 }
 
 /// Why a session is left.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionEnd {
     /// For the main menu.
@@ -81,7 +81,7 @@ pub const EVENTS: &[(&str, &str)] = &[
 ];
 
 /// Something that happened in the game, as extensions hear it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// A session began: a save was loaded or a game started. Its number, as

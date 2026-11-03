@@ -68,7 +68,7 @@ group! {
 }
 
 /// Whether an army fights on land or at sea.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum ArmyKind {
     Army,
@@ -76,7 +76,7 @@ pub enum ArmyKind {
 }
 
 /// What stops an army taking orders now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum Blocked {
     InBattle,
@@ -94,7 +94,7 @@ pub enum Blocked {
 }
 
 /// Who set the route an army follows, as the caller sees it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum RouteBy {
     /// The calling extension, and nobody changed it since.
@@ -107,7 +107,7 @@ pub enum RouteBy {
 }
 
 /// An army, or a navy, of which only the ID, owner and kind are read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Army {
     pub id: ArmyId,
     pub owner: CountryTag,

@@ -5,7 +5,7 @@
 //! drives it through the handle `open` returns (`eu4-harmony skills testing`
 //! lists what it can do). A test fails when it raises an error, an `assert`
 //! included.
-use crate::fake::{code_named, Answer, Fake};
+use crate::fake::{check, code_named, Answer, Fake};
 use eu4_harmony_lua::{fetch, values, Arg, Extension, Mod};
 use eu4_harmony_manifest::Manifest;
 use mlua::{Function, Lua, LuaOptions, StdLib, Table, UserData, UserDataMethods, Value as LuaValue, Variadic};
@@ -78,10 +78,13 @@ fn run_file(opened: &Arc<Opened>, file: &Path, outcome: &mut Outcome) {
     };
     let (lua, registered) = tests;
     for (name, function) in registered {
-        let result = function.call::<()>(());
+        let mut result = function.call::<()>(()).map_err(|e| e.to_string());
         // What the mods this test opened were left with.
-        let notes: Vec<String> = lua.app_data_ref::<Notes>().map(|n| n.0.clone()).unwrap_or_default();
+        let (notes, misshapen) = lua.app_data_ref::<Notes>().map(|n| (n.0.clone(), n.1.clone())).unwrap_or_default();
         lua.set_app_data(Notes::default());
+        if let (Ok(()), Some(first)) = (&result, misshapen.first()) {
+            result = Err(first.clone());
+        }
         match result {
             Ok(()) => {
                 outcome.passed += 1;
@@ -89,7 +92,7 @@ fn run_file(opened: &Arc<Opened>, file: &Path, outcome: &mut Outcome) {
             }
             Err(e) => {
                 outcome.failed += 1;
-                let message = e.to_string().lines().next().unwrap_or_default().to_string();
+                let message = e.lines().next().unwrap_or_default().to_string();
                 outcome.report.push_str(&format!("  FAILED  {name}\n          {message}\n"));
             }
         }
@@ -99,13 +102,15 @@ fn run_file(opened: &Arc<Opened>, file: &Path, outcome: &mut Outcome) {
     }
 }
 
-/// Notes about the mods a test opened: capabilities it left unanswered and
-/// errors the mod logged.
+/// Notes about the mods a test opened: capabilities it left unanswered; and
+/// answers its functions gave not of their capability's shape, which fail
+/// it.
 #[derive(Default)]
-struct Notes(Vec<String>);
+struct Notes(Vec<String>, Vec<String>);
 
 /// The tests' own Lua state: Lua's string, table, math and utf8, with
-/// `test`, `open` and `print`.
+/// `test`, `open`, `print`, and `require` for helper modules in
+/// `eu4-harmony/tests/`.
 fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
     let lua = Lua::new_with(StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8, LuaOptions::default()).map_err(|e| e.to_string())?;
     let setup = || -> mlua::Result<()> {
@@ -120,6 +125,26 @@ fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
         )?;
         let at = opened.clone();
         globals.set("open", lua.create_function(move |lua, ()| open(lua, &at).map_err(mlua::Error::runtime))?)?;
+        let tests = opened.root.join("eu4-harmony").join(TESTS);
+        globals.set("__modules", lua.create_table()?)?;
+        globals.set(
+            "require",
+            lua.create_function(move |lua, name: String| {
+                let modules: Table = lua.globals().get("__modules")?;
+                if let Ok(module @ (LuaValue::Table(_) | LuaValue::Function(_) | LuaValue::Boolean(_))) = modules.get::<LuaValue>(name.as_str()) {
+                    return Ok(module);
+                }
+                if name.is_empty() || !name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
+                    return Err(mlua::Error::runtime(format!("require {name:?}: a module is named by words between dots")));
+                }
+                let file = tests.join(format!("{}.lua", name.replace('.', "/")));
+                let source = std::fs::read_to_string(&file).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {}: {e}", file.display())))?;
+                let module = lua.load(source).set_name(format!("@{}.lua", name.replace('.', "/"))).set_mode(mlua::ChunkMode::Text).call::<LuaValue>(())?;
+                let module = if module.is_nil() { LuaValue::Boolean(true) } else { module };
+                modules.set(name.as_str(), module.clone())?;
+                Ok(module)
+            })?,
+        )?;
         globals.set(
             "print",
             lua.create_function(|lua, args: Variadic<LuaValue>| {
@@ -196,6 +221,11 @@ impl TestMod {
                     kept.0.push(note);
                 }
             }
+            for why in &store.misshapen {
+                if !kept.1.contains(why) {
+                    kept.1.push(why.clone());
+                }
+            }
         }
     }
 
@@ -209,6 +239,18 @@ fn json(value: &LuaValue) -> mlua::Result<Value> {
     values::to_json(value).map_err(mlua::Error::runtime)
 }
 
+/// Where the test called from: `file:line: `.
+fn here(lua: &Lua) -> String {
+    lua.inspect_stack(1, |d| format!("{}:{}: ", d.source().short_src.as_deref().unwrap_or("?"), d.current_line().unwrap_or(0))).unwrap_or_default()
+}
+
+/// `answer` held to `capability`'s result, as the test gave it.
+fn shaped(lua: &Lua, capability: &str, answer: &LuaValue) -> mlua::Result<Value> {
+    let json = json(answer)?;
+    check(capability, &json).map_err(|why| mlua::Error::runtime(format!("{}{why}", here(lua))))?;
+    Ok(json)
+}
+
 fn code(name: &str) -> mlua::Result<eu4_harmony_remote::Code> {
     code_named(name).ok_or_else(|| mlua::Error::runtime(format!("no error code {name}; eu4-harmony wiki errors lists them")))
 }
@@ -216,10 +258,11 @@ fn code(name: &str) -> mlua::Result<eu4_harmony_remote::Code> {
 impl UserData for TestMod {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // What the fake game answers.
-        methods.add_method("answer", |_, this, (capability, answer): (String, LuaValue)| {
+        methods.add_method("answer", |lua, this, (capability, answer): (String, LuaValue)| {
             let answer = match answer {
-                LuaValue::Function(f) => Answer::Function(f),
-                other => Answer::Value(json(&other)?),
+                LuaValue::Function(f) if eu4_harmony_remote::result_shape(&capability).is_some() => Answer::Function(f),
+                LuaValue::Function(_) => return Err(mlua::Error::runtime(format!("{}there is no capability {capability}", here(lua)))),
+                other => Answer::Value(shaped(lua, &capability, &other)?),
             };
             this.fake.store().answers.insert(capability, answer);
             Ok(())
@@ -232,7 +275,7 @@ impl UserData for TestMod {
             this.fake.store().answers.insert(capability, Answer::Later);
             Ok(())
         });
-        methods.add_method("reply", |_, this, (capability, answer): (String, LuaValue)| reply(this, &capability, Ok(json(&answer)?)));
+        methods.add_method("reply", |lua, this, (capability, answer): (String, LuaValue)| reply(this, &capability, Ok(shaped(lua, &capability, &answer)?)));
         methods.add_method("reply_refusal", |_, this, (capability, name, message): (String, String, Option<String>)| {
             reply(this, &capability, Err(eu4_harmony_remote::Error::new(code(&name)?, message.unwrap_or_default())))
         });
@@ -253,6 +296,11 @@ impl UserData for TestMod {
                 other => return Err(mlua::Error::runtime(format!("a request fails with timeout, network or too_large, not {other}"))),
             };
             respond(this, n, Err(failure))
+        });
+        methods.add_method("world", |lua, this, world: LuaValue| {
+            let world = crate::world::World::new(json(&world)?).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
+            this.fake.store().world = Some(world);
+            Ok(())
         });
         methods.add_method("language", |_, this, name: String| {
             let language = eu4_harmony_loc::Language::from_id(&name).ok_or_else(|| mlua::Error::runtime(format!("no language {name}")))?;

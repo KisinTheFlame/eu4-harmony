@@ -25,6 +25,9 @@
 //! Every capability is declared once, in its group's file: the request, the
 //! answer and the description [`capabilities`] lists come from that one
 //! declaration, so a client can be built from the descriptions alone.
+// derive(Shaped) names the crate by its own name, here too.
+extern crate self as eu4_harmony_remote;
+
 use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::fmt;
@@ -134,6 +137,11 @@ macro_rules! group {
             }
         }
 
+        /// The shape of each capability's result, by its full name.
+        pub fn result_shapes() -> ::std::vec::Vec<(::std::string::String, $crate::shape::Shape)> {
+            ::std::vec![ $( ($crate::full_name($group, $action), <$Result as $crate::shape::Shaped>::shape()), )* ]
+        }
+
         /// The group's capabilities, described.
         pub const CAPABILITIES: &[$crate::Capability] = &[
             $(
@@ -215,6 +223,12 @@ macro_rules! groups {
             [$( $module::CAPABILITIES ),*].concat()
         }
 
+        /// The shape of the result of the capability named `name`, as Lua
+        /// has it.
+        pub fn result_shape(name: &str) -> Option<shape::Shape> {
+            [$( $module::result_shapes() ),*].concat().into_iter().find(|(n, _)| *n == name).map(|(_, s)| s)
+        }
+
         /// Every group, by name and what it is about.
         pub fn groups() -> Vec<Group> {
             vec![$( Group { name: $module::GROUP, about: $module::ABOUT } ),*]
@@ -270,6 +284,7 @@ groups! {
 pub mod binary;
 pub use binary::Binary;
 pub mod lua;
+pub mod shape;
 
 fn full_name(group: &str, action: &str) -> String {
     if action.is_empty() {

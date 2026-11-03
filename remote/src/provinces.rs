@@ -24,7 +24,7 @@ group! {
     } -> ProvinceSnapshot, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings";
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Province {
     pub id: ProvinceId,
     pub kind: ProvinceKind,
@@ -35,7 +35,7 @@ pub struct Province {
 }
 
 /// What a province is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum ProvinceKind {
     /// Land an army can stand on.
@@ -47,7 +47,7 @@ pub enum ProvinceKind {
 }
 
 /// A province next to another over land.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Neighbor {
     pub province: ProvinceId,
     /// Across a strait.
@@ -55,7 +55,7 @@ pub struct Neighbor {
 }
 
 /// All of one province at one moment.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct ProvinceSnapshot {
     pub id: ProvinceId,
     /// Its name as the game shows it, in its own characters (the game keeps
@@ -72,14 +72,14 @@ pub struct ProvinceSnapshot {
 }
 
 /// Base development, as the game shows it.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Development {
     pub tax: f64,
     pub production: f64,
     pub manpower: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Fort {
     /// The fort level that defends the province now; 0 for none.
     pub level: i32,

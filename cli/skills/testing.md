@@ -11,14 +11,37 @@ steps:
 1. Register each test: test("what it checks", function() ... end). Open the
    mod afresh in each with local mod = open(); main.lua runs again.
 2. Answer every capability the code under test calls, before raising the
-   event that calls it. The report notes "<capability> had no answer" for
-   any you left out: the mod got nil, not_ready.
+   event that calls it: describe a world for the map, the countries and the
+   armies, and answer the rest one by one. The report notes "<capability>
+   had no answer" for any you left out: the mod got nil, not_ready.
 3. Raise the event, then read back what the mod did and assert on it.
    A test fails when it raises an error, assert included.
 4. Run eu4-harmony test. Done when every test is ok, no note says a
    capability had no answer, and each handler you changed has a test.
 
-answering:
+a world, which answers session.get, country.get and hostile, province.get,
+list and neighbors, and army.get, list, at, selected, route_to, can_step,
+can_attack, move and stop:
+
+  mod:world{
+    player = "CAS", date = "1444.11.11", hostile = { { "CAS", "GRA" } },
+    countries = { CAS = { treasury = 120 } },      -- fields as country.get has them
+    provinces = {
+      { id = 217, name = "Madrid", owner = "CAS", neighbors = { 219 } },
+      { id = 219, name = "Toledo", owner = "CAS", straits = { 223 } },
+      { id = 1300, kind = "sea" },
+    },
+    armies = { { id = 1, owner = "CAS", province = 217, regiments = 10 } },
+    selected = 1,
+  }
+
+- Neighbors count both ways; a route is the shortest over land, across
+  straits. An order sets or clears the army's route as this mod's; armies
+  do not move as days pass.
+- Put a world shared by several tests in eu4-harmony/tests/helpers/<name>.lua
+  returning the table, and local spain = require("helpers.spain").
+
+answering one by one, which goes before the world:
   mod:answer(capability, value)          the answer, whatever the request
   mod:answer(capability, function(request) ... end)
                                          an answer from the request's arguments;
@@ -30,6 +53,11 @@ answering:
   mod:respond(n, { status, headers, body })   the nth http.fetch request's response
   mod:fail(n, "timeout" | "network" | "too_large")
   mod:language("simp_chinese")           the player language, english until set
+
+An answer is held to its capability's result (eu4-harmony wiki <group>
+<name>, and the editor's eu4.<Class>): a field the result does not have, or
+a value of the wrong type, is an error at that line. Leave out the fields
+the test is not about.
 
 events, as the game raises them:
   mod:session(saved)   mod:session_ended(reason)   mod:day("1444.11.12")

@@ -83,7 +83,7 @@ group! {
 }
 
 /// A war goal the game offers for a declaration of war.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct WarGoal {
     /// Its casus belli's key, such as `cb_claim`; `none` for declaring war
     /// without one.
@@ -99,7 +99,7 @@ pub struct WarGoal {
 }
 
 /// What came of a diplomatic action.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Outcome {
     pub answer: AnswerKind,
     /// The war that began, by its name as the game shows it, for `declared`.
@@ -119,7 +119,7 @@ pub struct Outcome {
 /// An ally a declaration of war did not call to arms: the declare war
 /// window's call box would not let the player tick it, or the window no
 /// longer listed it once others were called.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct PassedOver {
     pub country: CountryTag,
     /// Why, one a line: the reasons the call box's check gives, as its
@@ -129,7 +129,7 @@ pub struct PassedOver {
     pub reasons: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum AnswerKind {
     /// The other country accepted the proposal.

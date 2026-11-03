@@ -59,6 +59,21 @@ pub struct Store {
     pub requests: Vec<(fetch::Request, Slot<fetch::Answer>)>,
     /// What the player was told: errors and stops.
     pub told: Vec<String>,
+    /// Answers the test's functions gave that are not their capability's
+    /// shape, which fail the test.
+    pub misshapen: Vec<String>,
+    /// The world the test described, which answers what no answer of the
+    /// test's does.
+    pub world: Option<crate::world::World>,
+}
+
+/// Whether `answer` (JSON in Lua's form) is the shape of `capability`'s
+/// result, or why not. A field left out is allowed.
+pub fn check(capability: &str, answer: &Value) -> Result<(), String> {
+    match eu4_harmony_remote::result_shape(capability) {
+        Some(shape) => shape.check(answer).map_err(|why| format!("{capability}'s answer: {why}")),
+        None => Err(format!("there is no capability {capability}")),
+    }
 }
 
 /// The fake game, for one mod.
@@ -114,6 +129,9 @@ impl Host for Fake {
         let mut store = self.store();
         store.calls.push(json.clone());
         let answered = match store.answers.get(&name) {
+            None if store.world.is_some() && crate::world::ANSWERS.contains(&name.as_str()) => {
+                store.world.as_mut().and_then(|w| w.answer(&name, &json)).unwrap_or(Ok(Value::Null))
+            }
             None => {
                 store.unanswered.push(name.clone());
                 Err(Error::new(Code::NotReady, format!("the fake game has no answer for {name}; give one with mod:answer(\"{name}\", ...)")))
@@ -128,7 +146,12 @@ impl Host for Fake {
             Some(Answer::Function(function)) => {
                 let function = function.clone();
                 drop(store);
-                return Called::Done(self.call(&function, &json));
+                let answered = self.call(&function, &json);
+                if let Err(why) = answered.as_ref().map_or(Ok(()), |answer| check(&name, answer)) {
+                    self.store().misshapen.push(why.clone());
+                    return Called::Done(Err(Error::new(Code::Internal, why)));
+                }
+                return Called::Done(answered);
             }
         };
         Called::Done(answered)

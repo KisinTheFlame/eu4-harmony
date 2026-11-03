@@ -232,6 +232,23 @@ fn every_capability_runs_at_a_game_frame() {
         let got = answer(reply);
         assert!(expected(&got), "{}: {got}", request.name());
     }
+    // Every answer has the shape its capability describes, as Lua has it.
+    let mut shaped = BTreeSet::new();
+    for (request, _) in &cases {
+        let name = request.name();
+        if let Outcome::Done(Ok(answer)) = dispatch(request.clone(), &mut Fake::default(), &events::Buffer::new(), std::time::Instant::now()) {
+            let lua = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
+            let shape = eu4_harmony_remote::result_shape(&name).unwrap_or_else(|| panic!("{name} has no result shape"));
+            if let Err(why) = shape.check(&lua) {
+                panic!(
+                    "{name}'s answer is not its shape: {why}
+{lua}"
+                );
+            }
+            shaped.insert(name);
+        }
+    }
+    assert!(shaped.len() > 25, "only {} answers were checked against their shapes", shaped.len());
     // The layer was called with what the requests said, in their order.
     let byz = format!("{:x}", fake::byz().0);
     let tur = format!("{:x}", fake::tur().0);

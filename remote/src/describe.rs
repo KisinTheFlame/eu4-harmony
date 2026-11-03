@@ -12,7 +12,7 @@ group! {
 }
 
 /// The catalogue, as remote control has it.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, crate::shape::Shaped)]
 pub struct Description {
     /// The catalogue's version (ADR 0026): it changes when a capability
     /// that exists changes what it means or how it is shaped.

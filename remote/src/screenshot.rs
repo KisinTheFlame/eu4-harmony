@@ -22,7 +22,7 @@ group! {
 }
 
 /// A frame, as an image.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Screenshot {
     /// The image, `image/png`.
     pub image: Binary,

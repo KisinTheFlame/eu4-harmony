@@ -37,7 +37,7 @@ group! {
 }
 
 /// Where the camera looks and how high it is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Camera {
     /// The map position at the middle of the view, where the line of sight
     /// meets the map's base plane: pixels from the left edge, and from the
