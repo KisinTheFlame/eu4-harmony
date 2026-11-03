@@ -77,6 +77,9 @@ pub fn normalize(path: &str) -> String {
 
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
+    if result != 0 {
+        crate::guarded("framework files", crate::files::mount);
+    }
     crate::guarded("PHYSFS_init", || INIT_ONCE.call_once(crate::deferred_init));
     result
 }

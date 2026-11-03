@@ -54,6 +54,10 @@ _Avoid_: load list, mod list
 The program that runs inside the game process, finds and loads extensions, and gives them capabilities.
 _Avoid_: Harmony on its own where players or other projects see the name (other projects share it; there it is EU4 Harmony or `eu4-harmony`), loader, engine
 
+**Framework files**:
+Files of the framework's own that the game reads as it reads its own and the mods', such as the framework fonts' files. The framework makes them in memory and mounts them into the game's file system; they are never on disk (ADR 0031).
+_Avoid_: virtual files, framework mod, assets
+
 **Installation**:
 The one-off step of copying the framework's files into the game folder; uninstalling is deleting them.
 _Avoid_: using it for the hooking done at startup
@@ -109,7 +113,7 @@ An extension's own data kept with a particular save, written into the save file 
 _Avoid_: sidecar, companion file, store
 
 **Game console**:
-The game's own console, where commands such as `cash` are typed. The framework offers running a command in it as a capability.
+The game's own console, where commands such as `cash` are typed. The framework offers running a command in it as a capability. Its window draws in a framework font, in a system font and weight of its own.
 _Avoid_: console on its own
 
 **Map position**:
@@ -251,12 +255,16 @@ How heavy a system font's strokes are, such as Light, Regular or Bold, numbered 
 _Avoid_: boldness, thickness, style (that is upright or italic)
 
 **Body text**:
-The game's interface text in its smaller fonts, named in its `.gfx` files `vic_18`, `Main_14`, `ToolTip_Font` and the like, whose lines are at most 18 GUI units tall in vanilla: what windows hold, tooltips, lists and numbers. Body text is drawn in one system font and weight, which the framework UI uses too.
+The game's interface text in its smaller fonts, named in its `.gfx` files `vic_18`, `Main_14`, `ToolTip_Font` and the like, whose lines are at most 18 GUI units tall in vanilla: what windows hold, tooltips, lists and numbers, but not the game console's window. Body text is drawn in one system font and weight, which the framework UI uses too.
 _Avoid_: text font, normal text, small text
 
 **Headings**:
 The game's interface text in its larger fonts, named `vic_22`, `vic_29`, `vic_36`, `Main_24` and the like, whose lines are 20 to 36 GUI units tall in vanilla: window titles, section headings, the large titles of dialogs. Headings are drawn in a system font and weight of their own. A Chinese language mod that gives these fonts other files keeps their names, so the names, not the lines, say which text is which.
 _Avoid_: titles (a ruler's title is a game concept), large text
+
+**Framework font**:
+A font the framework defines among its framework files, for text of the game's that draws in a system font of its own, such as the game console's window. The game's windows that draw in it are given it as their files are read.
+_Avoid_: custom font, own font, console font on its own
 
 **Legacy escape**:
 The escape byte sequences older Chinese language mods and saves use to stand for Chinese characters in the game's single-byte text.
