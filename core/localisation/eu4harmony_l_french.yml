@@ -2,7 +2,7 @@ l_french:
  # Les textes du framework lui-même : les notifications au joueur.
  EU4HARMONY_NOTICE_TITLE:0 "EU4 Harmony"
  EU4HARMONY_NOTICE_TITLE_MORE:0 "EU4 Harmony ($COUNT$ de plus)"
- EU4HARMONY_SKIPPED_MANIFEST:0 "Le mod « $MOD$ » a été ignoré : son fichier eu4-harmony/manifest.json n'est pas valide.\n$DETAIL$"
+ EU4HARMONY_SKIPPED_MANIFEST:0 "Le mod « $MOD$ » a été ignoré : son fichier eu4-harmony/manifest.toml n'est pas valide.\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "Le mod « $MOD$ » a été ignoré : son identifiant « $ID$ » est déjà utilisé par un mod chargé avant lui."
  EU4HARMONY_STARTUP_FAILED:0 "EU4 Harmony n'a pas pu démarrer ; les mods qui en dépendent sont donc inactifs.\n\n$DETAIL$"
  EU4HARMONY_FATAL:0 "EU4 Harmony a rencontré une erreur inattendue et le jeu va se fermer.\n\n$DETAIL$\n\nLes détails se trouvent dans eu4-harmony/logs/core.log, dans le dossier de documents du jeu."

@@ -2,7 +2,7 @@ l_spanish:
  # Los textos propios del framework: avisos al jugador.
  EU4HARMONY_NOTICE_TITLE:0 "EU4 Harmony"
  EU4HARMONY_NOTICE_TITLE_MORE:0 "EU4 Harmony ($COUNT$ más)"
- EU4HARMONY_SKIPPED_MANIFEST:0 "Se omitió el mod «$MOD$»: su archivo eu4-harmony/manifest.json no es válido.\n$DETAIL$"
+ EU4HARMONY_SKIPPED_MANIFEST:0 "Se omitió el mod «$MOD$»: su archivo eu4-harmony/manifest.toml no es válido.\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "Se omitió el mod «$MOD$»: su id «$ID$» ya lo usa un mod cargado antes."
  EU4HARMONY_STARTUP_FAILED:0 "EU4 Harmony no pudo iniciarse, así que los mods basados en él están inactivos.\n\n$DETAIL$"
  EU4HARMONY_FATAL:0 "EU4 Harmony encontró un error inesperado y el juego se cerrará.\n\n$DETAIL$\n\nLos detalles están en eu4-harmony/logs/core.log, en la carpeta de documentos del juego."

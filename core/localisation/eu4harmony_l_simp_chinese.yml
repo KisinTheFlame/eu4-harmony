@@ -2,7 +2,7 @@ l_simp_chinese:
  # 框架自己的文字：给玩家的提示。
  EU4HARMONY_NOTICE_TITLE:0 "EU4 Harmony"
  EU4HARMONY_NOTICE_TITLE_MORE:0 "EU4 Harmony（还有 $COUNT$ 条）"
- EU4HARMONY_SKIPPED_MANIFEST:0 "已跳过 Mod“$MOD$”：它的 eu4-harmony/manifest.json 有误。\n$DETAIL$"
+ EU4HARMONY_SKIPPED_MANIFEST:0 "已跳过 Mod“$MOD$”：它的 eu4-harmony/manifest.toml 有误。\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "已跳过 Mod“$MOD$”：它的 id“$ID$”已被前面启用的另一个 Mod 使用。"
  EU4HARMONY_STARTUP_FAILED:0 "EU4 Harmony 没能启动，基于它的 Mod 都不会生效。\n\n$DETAIL$"
  EU4HARMONY_FATAL:0 "EU4 Harmony 遇到意外错误，游戏即将关闭。\n\n$DETAIL$\n\n详情见游戏文档目录下的 eu4-harmony/logs/core.log。"

@@ -2,7 +2,7 @@ l_english:
  # The framework's own texts: notices to the player.
  EU4HARMONY_NOTICE_TITLE:0 "EU4 Harmony"
  EU4HARMONY_NOTICE_TITLE_MORE:0 "EU4 Harmony ($COUNT$ more)"
- EU4HARMONY_SKIPPED_MANIFEST:0 "Mod "$MOD$" was skipped: its eu4-harmony/manifest.json is invalid.\n$DETAIL$"
+ EU4HARMONY_SKIPPED_MANIFEST:0 "Mod "$MOD$" was skipped: its eu4-harmony/manifest.toml is invalid.\n$DETAIL$"
  EU4HARMONY_SKIPPED_DUPLICATE_ID:0 "Mod "$MOD$" was skipped: its id "$ID$" is already used by an earlier mod in the playset."
  EU4HARMONY_STARTUP_FAILED:0 "EU4 Harmony could not start, so mods built on it are inactive.\n\n$DETAIL$"
  EU4HARMONY_FATAL:0 "EU4 Harmony ran into an unexpected error, and the game will close.\n\n$DETAIL$\n\nDetails are in eu4-harmony/logs/core.log in the game's documents folder."
