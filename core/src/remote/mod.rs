@@ -47,6 +47,7 @@ pub mod diplomacy;
 pub mod events;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod input;
 pub mod menu;
 pub mod offers;
 pub mod provinces;
@@ -90,6 +91,7 @@ pub trait Game:
     + offers::Layer
     + menu::Layer
     + diplomacy::Layer
+    + input::Layer
 {
 }
 impl<
@@ -107,6 +109,7 @@ impl<
             + offers::Layer
             + menu::Layer
             + diplomacy::Layer
+            + input::Layer
             + ?Sized,
     > Game for T
 {
@@ -304,6 +307,9 @@ struct Waiting {
 struct Running {
     waiting: Vec<Waiting>,
     events: events::Buffer,
+    /// The last input taken, until the game has had it: the requests after
+    /// it wait till then.
+    input: Option<game::input::Taken>,
 }
 
 /// The engine: a queue any thread adds to, and what runs at safe points.
@@ -325,7 +331,7 @@ impl Engine {
     pub const fn new(log: fn(&str)) -> Self {
         Self {
             queue: Mutex::new(Queue { requests: VecDeque::new(), ending: None }),
-            running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new() }),
+            running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new(), input: None }),
             delivering: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
             session: AtomicU64::new(0),
@@ -402,6 +408,16 @@ impl Engine {
                 (self.log)(&format!("remote #{} {}: given up by its client before it ran", q.number, json(&q.request)));
                 continue;
             }
+            // A request after an input runs once the game has had the input;
+            // it and those after it wait, in order.
+            if let Some(taken) = running.input.filter(|_| !q.request.gives_input()) {
+                if !game.handled(taken) {
+                    kept.push_back(q);
+                    kept.append(&mut queued);
+                    break;
+                }
+                running.input = None;
+            }
             if q.request.in_game() {
                 match place {
                     Place::Game if q.session != 0 && q.session != session => {
@@ -440,6 +456,12 @@ impl Engine {
     /// Runs a request at `now`.
     fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued, now: Instant) {
         let started = Instant::now();
+        if let Request::Input(r) = &q.request {
+            let (response, taken) = input::run(r.clone(), game);
+            running.input = taken.or(running.input);
+            self.answer(&q, response.map(Answer::Input), started.elapsed());
+            return;
+        }
         match dispatch(q.request.clone(), game, &running.events, now) {
             Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
             Outcome::Later(wait) => {
@@ -563,6 +585,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
         Request::Menu(r) => menu::run(r, game),
         Request::Diplomacy(r) => diplomacy::run(r, game, now),
+        Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
     }
 }
 

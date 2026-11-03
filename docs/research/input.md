@@ -1,0 +1,24 @@
+# Input: where the game reads the mouse and keyboard
+
+What remote control's input (docs/input.md, I1) relies on. Addresses are RVAs into the 1.37.5 baseline. How SDL's events reach the game is in [architecture.md](architecture.md) (the main loop, idlers) and [text-input.md](text-input.md) (text and edit boxes).
+
+## From Windows to the game
+
+- The game's window is SDL's (2.0.4, linked in). Windows' messages go to SDL's window procedure, which turns them into SDL events; the event pump (`0x1569c70`) reads them at the start of each frame and hands key, mouse and text events to the current idler. The framework's window procedure is in front of SDL's (`framework_ui::input`), so a message handed to it goes through the framework UI, then to SDL, as Windows' own do.
+- **Messages handed to the procedure while another program is in front** are taken as Windows' own: clicks, the wheel, keys and text all reached the game with another window in the foreground (tried, below). SDL makes its key events from the scan code in the message's `lParam` (bits 16 to 23, and bit 24 for an extended key), and its text events from `WM_CHAR` and `WM_UNICHAR`; the text reaches the edit box through the Unicode module's text branch in the pump ([text-input.md](text-input.md) §1).
+- **The game reads no key state of its own.** No game code calls `GetKeyState`, `GetAsyncKeyState`, `SDL_GetKeyboardState` or `SDL_GetModState`; the only calls to the first two are SDL's (its window procedure, `0x173ac20`, and its keyboard's setup, `0x1765766`, the caps and num lock toggles), around the window's focus. What the game knows of modifiers comes with the key events, so a shift pressed in an earlier frame holds for a later click (tried: a shift right click queued a move).
+- **The speed keys** are the characters `+` and `-`: on a US keyboard shift and `=`, and `-`; or the keypad's plus and minus (tried). The `=` key alone does nothing.
+
+## Where the cursor is
+
+The game reads the cursor's position once a frame, in its input device's update (`0x162ddb0`, and `0x162e2d0`, which answers it unless `[0x233ff4f]`), through `0x14e5e50(point, full screen, borderless)`, which writes the position in pixels of the window's client area:
+
+- **While `[0x1fd10c5]` is set** (and `0x169a200` answers no, not followed further: it asks something of `[0x2433ccc] == 6`), from Windows' own cursor: `GetCursorPos` less `GetWindowRect(GetActiveWindow())`, and less the frame and the caption (`GetSystemMetrics(8)`, `(4)`) for a window that is neither full screen nor borderless (the flags passed, or `[0x242bf50]+0x81` and `+0x82` once the settings exist).
+- **Otherwise**, from SDL's (`SDL_GetMouseState`, `0x1734630`), which SDL keeps from the mouse messages.
+- **`[0x1fd10c5]`** is the pump's: set by SDL's window events shown (1), moved (4), resized (5), maximized (8), restored (9) and focus gained (12), and by every mouse button pressed (`0x156a6d3`); cleared by minimized (7) and focus lost (13) (the pump's switch at `0x1569dc1`, its table at `0x156aa28`). So with the game in front the position is Windows' cursor, and with another program in front it is SDL's until a button is pressed in the game.
+
+So a move handed to the window procedure moves the game's cursor only while the game is behind another program and no button has been pressed since. The framework answers `0x14e5e50` itself while input holds the cursor (`game::input`, the virtual cursor), and keeps from the game, meanwhile, a mouse message Windows sends with its cursor where it was when the input last moved and the message for the cursor leaving the window, which SDL would turn into a move to Windows' cursor. The player's mouse moving over the game, or a button or the wheel, ends it.
+
+## Tried in the game
+
+2026-11-04 ([prototype-log.md](../prototype-log.md), "Input"): clicks on the framework UI's notice window and the game's main menu, the single player setup, an event window's option and an army; a right click order and a shift right click queuing a second; a box drawn round an army; the wheel; a tooltip on hover; the console opened with the key left of 1, a command and Chinese typed into it, one Backspace deleting one character; the pause and speed keys; a key held across requests, let go when a session began. With another program in front from the setup on.

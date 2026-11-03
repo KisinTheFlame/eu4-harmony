@@ -3,7 +3,11 @@
 //! message from the game when the framework UI takes it (ADR 0013): every
 //! input message while a modal window is open, the input method's text
 //! included, and mouse messages over the framework UI otherwise.
-use std::sync::atomic::{AtomicIsize, Ordering};
+//!
+//! Remote control's input (`crate::game::input`) comes through here too, as
+//! the messages Windows would send ([`inject`]); a message Windows sends
+//! itself is first asked whether it hands the cursor back to the player.
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
@@ -23,6 +27,8 @@ pub enum Event {
 
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static ORIGINAL: AtomicIsize = AtomicIsize::new(0);
+/// A message [`inject`] hands over is going through the procedure.
+static INJECTING: AtomicBool = AtomicBool::new(false);
 
 /// Decides for each event whether the framework UI takes it.
 pub type Handler = fn(Event) -> bool;
@@ -33,6 +39,9 @@ fn position(lparam: LPARAM) -> (f32, f32) {
 }
 
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if !INJECTING.load(Ordering::Relaxed) && crate::guarded("input from Windows", || crate::game::input::real(message)) {
+        return 0;
+    }
     let handler = HANDLER.get().copied();
     let event = match message {
         WM_MOUSEMOVE => Some(Event::Move(position(lparam).0, position(lparam).1)),
@@ -59,10 +68,13 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
             | WM_RBUTTONDBLCLK
             | WM_MBUTTONDOWN
             | WM_MBUTTONUP
+            | WM_MBUTTONDBLCLK
             | WM_MOUSEWHEEL
+            | WM_MOUSEHWHEEL
             | WM_KEYDOWN
             | WM_KEYUP
             | WM_CHAR
+            | WM_UNICHAR
             | WM_SYSKEYDOWN
             | WM_SYSKEYUP
     );
@@ -87,6 +99,24 @@ unsafe extern "system" fn find(window: HWND, found: LPARAM) -> BOOL {
         return 0;
     }
     1
+}
+
+/// The game's window, once the framework's procedure is in front of the
+/// game's.
+pub fn window() -> Option<HWND> {
+    let window = WINDOW.load(Ordering::Acquire);
+    (window != 0).then_some(window as HWND)
+}
+
+/// Hands the window procedure a message as Windows would send it, on the
+/// main thread: the framework UI has it first, then the game. False before
+/// the procedure is in place.
+pub fn inject(message: u32, wparam: WPARAM, lparam: LPARAM) -> bool {
+    let Some(window) = window() else { return false };
+    INJECTING.store(true, Ordering::Relaxed);
+    unsafe { procedure(window, message, wparam, lparam) };
+    INJECTING.store(false, Ordering::Relaxed);
+    true
 }
 
 /// Puts the framework's window procedure in front of the game's, once the

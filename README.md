@@ -22,7 +22,7 @@ Returning to the main menu does not start the game again: the main menu is back 
 
 ## Remote control (players and AIs)
 
-Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera and screenshots. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md), [ADR 0017](docs/adr/0017-remote-control-is-always-on.md)).
+Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera, screenshots, and the player's own mouse and keyboard where nothing else reaches. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md), [ADR 0017](docs/adr/0017-remote-control-is-always-on.md)).
 
 The client is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder. `eu4-harmony game <capability> [<arguments>]` sends the running game one request and prints the answer as JSON; the exit code is 0 when the game answered, 1 when it answered with an error (`{"code": ..., "message": ...}`, the game's own reasons for a refusal), 2 when the command line is wrong and nothing was sent, and 3 when no answer came. Arguments may be named (`--province 167`) or given in their order, and a capability's dot may be a space:
 
@@ -39,6 +39,7 @@ cd "<game folder>\eu4-harmony"
 .\eu4-harmony game diplomacy war_goals ENG
 .\eu4-harmony game diplomacy declare_war ENG cb_core --province 167
 .\eu4-harmony game screenshot --scale 50 --out shot.png
+.\eu4-harmony game input click 960 540 --scale 50   # click where that screenshot shows something
 .\eu4-harmony game menu return             # back to the main menu, answered once it is up
 ```
 
@@ -55,6 +56,7 @@ The capabilities, by group:
 | Diplomacy | `diplomacy.war_goals`, `diplomacy.declare_war` (calling allies to arms), `diplomacy.offer_peace` (a white peace), `diplomacy.propose_alliance` |
 | Game console | `console.run` (a command, as the player types it, and what it printed) |
 | Camera and screenshots | `camera.get`, `camera.look_at` (a province or a map position), `camera.zoom`; `screenshot` (the frame as the player sees it, as a PNG) |
+| Input | `input.click`, `input.move`, `input.drag`, `input.scroll`, `input.key`, `input.type` (any Unicode), `input.mouse_down`, `input.mouse_up`, `input.key_down`, `input.key_up`, `input.get`: the player's mouse and keyboard at positions in the frame, for what has no capability of its own, with the game in front or behind other windows ([ADR 0034](docs/adr/0034-remote-clients-give-the-players-input.md)) |
 | Events and descriptions | `events` (numbered: a session begun or ended, a new day, an army ordered or defeated), `describe` (the catalogue's version and every capability, from the running game), `text.language` |
 
 The full list, with every argument and result, is `eu4-harmony wiki`, which works without the game: `eu4-harmony wiki army` for a group, `eu4-harmony wiki army move` for one capability, `eu4-harmony wiki errors` for what each error means; `eu4-harmony game describe` asks the running game. How each capability works in the game is in [docs/remote-control.md](docs/remote-control.md).

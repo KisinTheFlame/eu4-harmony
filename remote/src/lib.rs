@@ -243,6 +243,12 @@ impl Request {
     pub fn needs_place(&self) -> bool {
         self.in_game() || matches!(self, Self::Menu(r) if r.needs_place())
     }
+
+    /// Whether it gives the game input: the requests after it run once the
+    /// game has had it.
+    pub fn gives_input(&self) -> bool {
+        matches!(self, Self::Input(r) if !matches!(r, input::InputRequest::Get {}))
+    }
 }
 
 groups! {
@@ -279,6 +285,8 @@ groups! {
     Menu(menu::MenuRequest, MenuAnswer),
     /// The player's diplomatic actions.
     Diplomacy(diplomacy::DiplomacyRequest, DiplomacyAnswer),
+    /// Mouse and keyboard input at screen positions, as the player gives it.
+    Input(input::InputRequest, InputAnswer),
 }
 
 pub mod binary;
@@ -361,6 +369,15 @@ pub enum Kind {
     /// Province numbers, such as `[151, 152]`, which a command line writes
     /// `151,152` (see [`ProvinceList`]).
     Provinces,
+    /// A mouse button: `"left"`, `"right"` or `"middle"` (see
+    /// [`input::Button`]).
+    Button,
+    /// Which way the mouse wheel turns: `"up"`, `"down"`, `"left"` or
+    /// `"right"` (see [`input::Direction`]).
+    Direction,
+    /// A key, or keys pressed together joined with `+`, such as `"ctrl+s"`
+    /// (see [`input::Keys`]).
+    Keys,
 }
 
 impl Kind {
@@ -377,6 +394,9 @@ impl Kind {
             Self::UnitKind => "unit_kind",
             Self::Allies => "allies",
             Self::Provinces => "provinces",
+            Self::Button => "button",
+            Self::Direction => "direction",
+            Self::Keys => "keys",
         }
     }
 
@@ -393,6 +413,9 @@ impl Kind {
             Self::UnitKind => "infantry",
             Self::Allies => "DUL,CND",
             Self::Provinces => "151,152",
+            Self::Button => "left",
+            Self::Direction => "up",
+            Self::Keys => "ctrl+s",
         }
     }
 
@@ -408,6 +431,9 @@ impl Kind {
             Self::UnitKind => serde_json::from_value::<recruiting::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
             Self::Allies => diplomacy::CallAllies::parse(text).ok().and_then(|allies| serde_json::to_value(allies).ok()),
             Self::Provinces => text.split(',').map(|word| word.trim().parse::<u32>().ok().map(Value::from)).collect::<Option<Vec<_>>>().map(Value::Array),
+            Self::Button => serde_json::from_value::<input::Button>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
+            Self::Direction => serde_json::from_value::<input::Direction>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
+            Self::Keys => input::Keys::parse(text).ok().map(|keys| Value::String(keys.to_string())),
         }
     }
 }
@@ -440,6 +466,9 @@ arg_kind! {
     recruiting::UnitKind => UnitKind,
     diplomacy::CallAllies => Allies,
     ProvinceList => Provinces,
+    input::Button => Button,
+    input::Direction => Direction,
+    input::Keys => Keys,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
