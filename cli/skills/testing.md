@@ -41,6 +41,11 @@ can_attack, move and stop:
 - Put a world shared by several tests in eu4-harmony/tests/helpers/<name>.lua
   returning the table, and local spain = require("helpers.spain").
 
+A module of the mod's own with no game in it, such as a decision core, is
+tested on its own: require("core") loads eu4-harmony/lua/core.lua into the
+test (a helper in eu4-harmony/tests/ of that name goes first). It runs in the
+test's state, not the mod's sandbox: log, json and game are not there.
+
 answering one by one, which goes before the world:
   mod:answer(capability, value)          the answer, whatever the request
   mod:answer(capability, function(request) ... end)

@@ -655,6 +655,10 @@ end)
             &root.join("eu4-harmony/tests/main_test.lua"),
             r#"
             local spain = require("helpers.spain")
+            local steps = require("steps")
+            test("a module of the mod's own is tested on its own", function()
+              assert(steps.count({ 1, 2, 3 }) == 3)
+            end)
             test("the world routes, names and takes the order", function()
               local mod = open()
               mod:world(spain)
@@ -673,8 +677,9 @@ end)
             "#,
         )
         .unwrap();
+        write(&root.join("eu4-harmony/lua/steps.lua"), "return { count = function(t) return #t end }").unwrap();
         let outcome = test::run(&root, read_manifest(&root).unwrap(), "Worldly".into()).unwrap();
-        assert_eq!((outcome.passed, outcome.failed), (2, 0), "{}", outcome.report);
+        assert_eq!((outcome.passed, outcome.failed), (3, 0), "{}", outcome.report);
         assert!(!outcome.report.contains("note:"), "{}", outcome.report);
         let _ = fs::remove_dir_all(dir);
     }
