@@ -253,19 +253,23 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Input(InputRequest::KeyDown { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Input(InputRequest::KeyUp { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
     ];
-    // A developer build's census, which counts nothing here.
+    // A developer build's census, which counts nothing here; first, ahead of
+    // the input, which waits for frames of its own.
     #[cfg(feature = "dev-heap-census")]
     {
         use eu4_harmony_remote::memory::MemoryRequest;
-        cases.push((
-            Request::Memory(MemoryRequest::Get {}),
-            Box::new(|v: &Value| v["result"]["private"].as_u64() > Some(0) && v["result"]["generations"] == json!([])),
-        ));
-        cases.push((
-            Request::Memory(MemoryRequest::Leftovers { sites: None }),
-            Box::new(|v: &Value| v["result"]["sites"] == json!([]) && v["result"]["bytes"] == 0),
-        ));
-        cases.push((Request::Memory(MemoryRequest::Generation {}), Box::new(|v: &Value| v["result"].as_u64() > Some(0))));
+        let census: Vec<(Request, Check)> = vec![
+            (
+                Request::Memory(MemoryRequest::Get {}),
+                Box::new(|v: &Value| v["result"]["private"].as_u64() > Some(0) && v["result"]["generations"] == json!([])),
+            ),
+            (
+                Request::Memory(MemoryRequest::Leftovers { sites: None, holders: Some(true) }),
+                Box::new(|v: &Value| v["result"]["sites"] == json!([]) && v["result"]["bytes"] == 0),
+            ),
+            (Request::Memory(MemoryRequest::Generation {}), Box::new(|v: &Value| v["result"].as_u64() > Some(0))),
+        ];
+        cases.splice(0..0, census);
     }
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();

@@ -21,7 +21,10 @@ group! {
     remote_anywhere Leftovers "leftovers" {
         /// How many sites to give; 40 when left out.
         sites: Option<u32>,
-    } -> Leftovers, "generation, the generation now; blocks and bytes, every leftover; sites, by site: site and function (RVAs in eu4.exe), trend (steady, first or sometimes), per_generation (the bytes the last three generations left there, on average), blocks, bytes, generations (what each generation left there), freed_at (the places that let blocks of the site go, with how many)";
+        /// Whether to look for what still points at the sites' leftovers,
+        /// which stops the game for seconds; false when left out.
+        holders: Option<bool>,
+    } -> Leftovers, "generation, the generation now; blocks and bytes, every leftover; sites, by site: site and function (RVAs in eu4.exe), trend (steady, first or sometimes), per_generation (the bytes the last three generations left there, on average), blocks, bytes, generations (what each generation left there), freed_at (the places that let blocks of the site go, with how many), and with holders, holders (how many of its leftovers the game's data, other live blocks, only the leftovers given, or nothing points at, and what points at them most)";
     /// Ends the census's generation now, as a world reset ends one, for
     /// leftovers inside one long game.
     remote_anywhere Generation "generation" {} -> u32, "the generation that begins";
@@ -93,6 +96,42 @@ pub struct Site {
     /// The places that let blocks of the site go, by RVA, with how many each
     /// let go, the most first; at most five.
     pub freed_at: Vec<Freed>,
+    /// What still points at its leftovers, when asked for.
+    pub holders: Option<Holders>,
+}
+
+/// What still points at a site's leftovers: each leftover counted once, by
+/// the best that points at it. A pointer is any eight bytes in the game's
+/// writable data or in a live block of the game's heap that hold an address
+/// in a leftover's first 64 bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Holders {
+    /// Leftovers the game's data points at: a registry or a cache the game
+    /// keeps.
+    pub by_data: u64,
+    /// Leftovers that live blocks point at, other than the leftovers given:
+    /// their owners.
+    pub by_blocks: u64,
+    /// Leftovers that only leftovers given point at, such as the next one in
+    /// a list nothing else reaches.
+    pub by_leftovers: u64,
+    /// Leftovers nothing points at: memory something forgot to let go.
+    pub by_nothing: u64,
+    /// What points at them most, with how many pointers; at most five.
+    pub top: Vec<Holder>,
+}
+
+/// One thing that points at a site's leftovers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Holder {
+    /// `data`, the game's writable data, or `block`, a block of the game's
+    /// heap.
+    pub kind: String,
+    /// For data its RVA, for a block its site, in hex.
+    pub at: String,
+    /// For a block, the start of the function its site is in.
+    pub function: Option<String>,
+    pub references: u64,
 }
 
 /// How the leftovers of a site are spread over the generations.

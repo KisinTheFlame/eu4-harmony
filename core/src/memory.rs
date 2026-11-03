@@ -32,7 +32,7 @@ impl Memory {
         Ok(out)
     }
 
-    fn read_into(&self, addr: usize, out: &mut [u8]) -> Result<()> {
+    pub fn read_into(&self, addr: usize, out: &mut [u8]) -> Result<()> {
         if addr == 0 || out.is_empty() || addr.checked_add(out.len()).is_none() {
             return Err(format!("invalid read {addr:#x}+{}", out.len()));
         }

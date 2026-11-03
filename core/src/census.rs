@@ -19,10 +19,13 @@
 //! blocks of other modules' heaps and allocators.
 use crate::hooks::HookFrame;
 use crate::points::Point;
-use eu4_harmony_remote::memory::{Freed, Generation, Leftovers, Memory, MemoryAnswer, MemoryRequest, Site, Trend};
-use std::collections::{BTreeMap, HashMap};
+use eu4_harmony_remote::memory::{Freed, Generation, Holder, Holders, Leftovers, Memory, MemoryAnswer, MemoryRequest, Site, Trend};
+use holders::{Held, Scan, Source, Target};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
+
+mod holders;
 
 /// `(size)`, `(count, size)`, `(block, size)`, `(block)`: the C runtime's
 /// allocation functions, on its heap.
@@ -274,9 +277,9 @@ fn named(site: SiteKey) -> (String, Option<String>) {
 
 /// The leftovers, by site, from the census's counts: the `sites` that leave
 /// the most per generation first, with what each generation left there and
-/// where the site's blocks were let go. `name` writes a site and its
-/// function.
-fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey) -> (String, Option<String>)) -> Leftovers {
+/// where the site's blocks were let go; and the sites given, in the same
+/// order. `name` writes a site and its function.
+fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey) -> (String, Option<String>)) -> (Leftovers, Vec<SiteKey>) {
     let mut all: Vec<(SiteKey, Vec<Generation>, Trend, u64)> = counts
         .sites
         .iter()
@@ -292,9 +295,10 @@ fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey
         (n + ln, b + lb)
     });
     all.sort_by_key(|(site, left, _, per_generation)| (std::cmp::Reverse(*per_generation), std::cmp::Reverse(total(left).1), *site));
+    all.truncate(sites);
+    let keys = all.iter().map(|(site, ..)| *site).collect();
     let sites = all
         .into_iter()
-        .take(sites)
         .map(|(site, generations, trend, per_generation)| {
             let (site_text, function) = name(site);
             let mut freed: Vec<(u32, u64)> = counts.freed.get(&site).map(|by| by.iter().map(|(by, n)| (*by, *n)).collect()).unwrap_or_default();
@@ -308,10 +312,107 @@ fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey
                 })
                 .collect();
             let (blocks, bytes) = total(&generations);
-            Site { site: site_text, function, trend, per_generation, blocks, bytes, generations, freed_at }
+            Site { site: site_text, function, trend, per_generation, blocks, bytes, generations, freed_at, holders: None }
         })
         .collect();
-    Leftovers { generation: now, blocks, bytes, sites }
+    (Leftovers { generation: now, blocks, bytes, sites }, keys)
+}
+
+/// The game's writable sections, by RVA and size, from its headers.
+fn writable_sections(m: &crate::memory::Memory) -> Vec<(u32, usize)> {
+    const WRITE: u32 = 0x8000_0000;
+    let read = || -> crate::Result<Vec<(u32, usize)>> {
+        let nt = m.base + m.u32(m.base + 0x3c)? as usize;
+        let count = m.u16(nt + 6)? as usize;
+        let first = nt + 24 + m.u16(nt + 20)? as usize;
+        let mut sections = Vec::new();
+        for i in 0..count {
+            let header = first + i * 40;
+            let (size, rva, flags) = (m.u32(header + 8)? as usize, m.u32(header + 12)?, m.u32(header + 36)?);
+            if flags & WRITE != 0 {
+                sections.push((rva, size));
+            }
+        }
+        Ok(sections)
+    };
+    read().unwrap_or_default()
+}
+
+/// Reads `size` bytes from `start` into the scan, a megabyte at a time;
+/// what cannot be read is passed over.
+fn scan_range(m: &crate::memory::Memory, scan: &mut Scan, buffer: &mut [u8], source: Source, start: usize, size: usize) {
+    let mut offset = 0;
+    while offset + 8 <= size {
+        let n = (size - offset).min(buffer.len()) & !7;
+        if m.read_into(start + offset, &mut buffer[..n]).is_ok() {
+            scan.read(source, offset, &buffer[..n]);
+        }
+        offset += n;
+    }
+}
+
+/// What still points at the leftovers of `sites` when the generation is
+/// `now`: the game's writable data and every live block the census counts
+/// are read, with every shard of the census locked, so that none of those
+/// blocks is let go meanwhile; the game's threads wait at their next
+/// allocation until the reading is done.
+fn holders_of(now: u32, sites: &[SiteKey]) -> HashMap<SiteKey, Holders> {
+    let Some(last) = now.checked_sub(2) else { return HashMap::new() };
+    let began = std::time::Instant::now();
+    let m = crate::memory::Memory { base: BASE.load(Ordering::Relaxed) };
+    let wanted: HashSet<SiteKey> = sites.iter().copied().collect();
+    let shards: Vec<_> = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner())).collect();
+    let live = || shards.iter().filter_map(|s| s.as_ref()).flat_map(|s| s.blocks.iter());
+    let targets: Vec<Target> = live()
+        .filter(|(_, b)| b.generation <= last && wanted.contains(&b.site))
+        .map(|(start, b)| Target { start: *start, size: b.size, site: b.site })
+        .collect();
+    let looked_for = targets.len();
+    let mut scan = Scan::new(targets);
+    let mut buffer = vec![0u8; 1 << 20];
+    let mut read = 0usize;
+    for (rva, size) in writable_sections(&m) {
+        scan_range(&m, &mut scan, &mut buffer, Source::Data { rva }, m.base + rva as usize, size);
+        read += size;
+    }
+    for (start, block) in live() {
+        scan_range(&m, &mut scan, &mut buffer, Source::Block { start: *start, site: block.site }, *start, block.size);
+        read += block.size;
+    }
+    drop(shards);
+    log!(
+        "census: looked for what points at {looked_for} leftovers of {} sites in {:.0} MB, in {} ms",
+        sites.len(),
+        read as f64 / MB,
+        began.elapsed().as_millis()
+    );
+    scan.found()
+        .into_iter()
+        .map(|(site, (held, references))| {
+            let count = |h: Held| held.get(&h).copied().unwrap_or(0);
+            let mut top: Vec<(holders::Holder, u64)> = references.into_iter().collect();
+            top.sort_by_key(|(holder, n)| (std::cmp::Reverse(*n), *holder));
+            let top = top
+                .into_iter()
+                .take(5)
+                .map(|(holder, references)| match holder {
+                    holders::Holder::Data(rva) => Holder { kind: "data".into(), at: hex(rva), function: None, references },
+                    holders::Holder::Site(site) => {
+                        let (at, function) = named(site);
+                        Holder { kind: "block".into(), at, function, references }
+                    }
+                })
+                .collect();
+            let holders = Holders {
+                by_data: count(Held::Data),
+                by_blocks: count(Held::Blocks),
+                by_leftovers: count(Held::Leftovers),
+                by_nothing: count(Held::Nothing),
+                top,
+            };
+            (site, holders)
+        })
+        .collect()
 }
 
 /// What the process holds now, and the census's live blocks by generation.
@@ -337,9 +438,16 @@ fn memory() -> Memory {
 pub fn answer(request: MemoryRequest) -> MemoryAnswer {
     match request {
         MemoryRequest::Get {} => MemoryAnswer::Get(memory()),
-        MemoryRequest::Leftovers { sites } => {
+        MemoryRequest::Leftovers { sites, holders } => {
             let now = GENERATION.load(Ordering::Relaxed);
-            MemoryAnswer::Leftovers(leftovers_from(now, &counts(true), sites.unwrap_or(40) as usize, named))
+            let (mut leftovers, keys) = leftovers_from(now, &counts(true), sites.unwrap_or(40) as usize, named);
+            if holders == Some(true) {
+                let mut found = holders_of(now, &keys);
+                for (site, key) in leftovers.sites.iter_mut().zip(&keys) {
+                    site.holders = Some(found.remove(key).unwrap_or(Holders { by_data: 0, by_blocks: 0, by_leftovers: 0, by_nothing: 0, top: Vec::new() }));
+                }
+            }
+            MemoryAnswer::Leftovers(leftovers)
         }
         MemoryRequest::Generation {} => {
             let now = end_generation();
@@ -408,7 +516,8 @@ mod tests {
         counts.sites.insert(ABOVE | (0x40 << 32) | 0x41, live(&[(4, 7)]));
         counts.freed.insert(0x30, HashMap::from([(0x90, 2), (0x91, 9)]));
         let name = |site: SiteKey| (format!("{site:#x}"), None);
-        let leftovers = leftovers_from(5, &counts, 2, name);
+        let (leftovers, keys) = leftovers_from(5, &counts, 2, name);
+        assert_eq!(keys, [0x30, 0x20]);
         assert_eq!(leftovers.sites.iter().map(|s| s.site.as_str()).collect::<Vec<_>>(), ["0x30", "0x20"]);
         assert_eq!(leftovers.sites[0].per_generation, 50);
         assert_eq!(leftovers.sites[0].bytes, 150);
