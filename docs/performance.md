@@ -154,7 +154,7 @@ The regional combat mod's extension was called once by the time of the report, f
 
 ## Not covered
 
-- Where the 2.5% at speed 5 goes.
+- Where the 2.5% at speed 5 goes. Since measured in part: the framework's line breaking was 1.8% of the main thread at speed 5 early in a game and 6% late ([research/main-thread.md](research/main-thread.md)), what the game itself spends its time on is there too, and making the game faster is planned in [game-speed.md](game-speed.md).
 - Frame rate and frame times: no tool for them was at hand.
 - Graphics memory.
 - Interface-heavy play (the ledger, long tooltips, many open windows), late game, and games longer than the six years each run covered.

@@ -1229,6 +1229,36 @@ I1 to I3 of [input.md](input.md): remote control's input, through `eu4-harmony g
 - **Not tried**: the game minimized; a modal framework window holding input back; the middle button, `mouse_down` and `mouse_up`, the wheel's left and right, alt and win; an input dropped because the frame changed size; `tools/perf-run.ps1` sending its own input, vanilla or with the framework.
 - **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
 
+## 2026-11-04 Where the main thread's time goes (tested by me)
+
+S0 of [game-speed.md](game-speed.md): `tools/profile.py`, sampling the main thread from outside the process, in the running game; the findings are in [research/main-thread.md](research/main-thread.md). The player build that was in the game folder (built 2026-11-04 01:31), not replaced; the player's playset, 3840x2160, `eu4.exe` started directly, three times; the game claimed with the game-lock skill, which backed up the player's files. Every request went through `eu4-harmony game`; questions were answered with their first option and offers declined by a script as they came.
+
+- **Austria-1** (an ironman save of 1618.9.2, the player Spain), speed 5: 60 s at 200 samples a second, the main thread suspended 30% of the time, 8.1 days a second; then 120 s at 50 a second from 1624.7, suspended 7%, 9.8 days a second. The shares of the second run, and the samples of the first under the autosave, are the note's.
+- **阿尔达比勒1462_08_30** (a normal save), paused 20 s and at speed 5 for 60 s at 50 a second: 16.8 days a second.
+- **The game does not repeat itself**: that save loaded again for each run, the same days let pass with `time.advance`, every province and the 20 largest countries read after. 0 and 1 days: the same twice. 10 days: 13 provinces and at least 6 countries different; with `-threads=1` (the game started again with it), 3 and 8. 120 days, five runs (two with the sampler at 250 a second): 24 to 32 provinces and all 20 countries different between any two; 0, 0, 0, 1 and 2 questions. The draw count after the first day, in eight loads at speeds 1 and 5: 8,664 to 8,763 draws.
+- **POPS** was read in `pops_api.dll` with Ghidra, not changed or tried.
+- **A mistake**: after the game was released, a run of the sampler meant to show its message without a game found the game another session had claimed running (`memory-leak-fixes-ca4945`, a leak run) and sampled it for 60 s at 50 a second, suspending its main thread about 3% of the time; it reads only, so the run's memory was not touched, its timings in that minute were.
+- **Not verified**: a vanilla profile, without the framework; frame rates; what any of the changes the plan proposes would gain.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files (the ironman save and its backup, the autosaves, `settings.txt` and the login cache among them) and found every file as the backup had it. The samples and scripts stayed in the session's scratch folder.
+
+## 2026-11-04 Frames inside a day, looked at by the owner (tested by me)
+
+S4 of [game-speed.md](game-speed.md), before anything was built: the interval of frames inside a day (`[0x245b070]` times 0.05 s at speed 5) written into the running game by a script of the run's own (`WriteProcessMemory`, not kept), while the owner watched. The player build another session had installed in the game folder (built 2026-11-04 02:30), not replaced; the player's playset, 3840x2160, vsync at 144 Hz; `eu4.exe` started directly; the game claimed with the game-lock skill, which backed up the player's files. Austria-1 (an ironman save of 1618.9.2) at speed 5, questions answered with their first option and offers declined by a script; frames counted at the application's `+0x320`, days at the date, 32 s each, no sampler.
+
+| Interval | Years | Frames a second | Days a second |
+| --- | --- | --- | --- |
+| 1.0 (the game's, 50 ms) | 1618 to 1620 | 18.2 | 12.5 |
+| 2.0 | 1620 to 1621 | 15.0 | 12.6 |
+| 4.0 | 1621 to 1623 | 15.3 | 14.6 |
+| none inside a day (1000) | 1623 to 1624 | 13.6 | 13.4 |
+| 1.0 | 1624 to 1626 | 19.0 | 13.1 |
+| none inside a day | 1626 to 1627 | 14.4 | 14.3 |
+
+- Days grow slower as the game goes on, and an autosave falls in some runs, so only the last two, side by side, compare: 9% more days a second, 5 frames a second fewer. Paused, 63 frames a second.
+- **The owner's decision**: two choices, the game's pace and no frames inside a day, with a tooltip; recorded in game-speed.md.
+- **Not verified**: a game after 1700, where days are slower and the gain larger; input lag measured rather than seen.
+- **Cleanup**: the interval was put back to 1.0 and the game closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
