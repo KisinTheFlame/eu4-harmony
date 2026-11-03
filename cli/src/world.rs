@@ -278,12 +278,13 @@ impl World {
                     None => Ok(json!(self.hostile(&a, &b))),
                 }
             }
-            "province.list" => Ok(Value::Array(
-                self.provinces
-                    .iter()
-                    .map(|p| json!({"id": p.id, "kind": p.kind, "visible": p.visible, "owner": p.owner, "controller": p.controller.clone().or_else(|| p.owner.clone())}))
-                    .collect(),
-            )),
+            "province.list" => {
+                let row = |p: &Place| json!({"id": p.id, "kind": p.kind, "visible": p.visible, "owner": p.owner, "controller": p.controller.clone().or_else(|| p.owner.clone())});
+                Ok(Value::Array(match request.get("provinces").and_then(Value::as_array) {
+                    Some(ids) => ids.iter().filter_map(Value::as_u64).filter_map(|id| self.provinces.iter().find(|p| u64::from(p.id) == id)).map(row).collect(),
+                    None => self.provinces.iter().map(row).collect(),
+                }))
+            }
             "province.get" => self.province(province("province")).map(|p| self.province_json(p)),
             "province.neighbors" => {
                 let id = province("province");
@@ -420,6 +421,8 @@ mod tests {
         assert_eq!(neighbors, json!([{"province": 217, "strait": false}, {"province": 220, "strait": false}, {"province": 223, "strait": true}]));
         assert_eq!(ask(&mut w, "army.can_step", json!({"army": 1, "from": 217, "to": 219})).unwrap(), json!(true));
         assert_eq!(ask(&mut w, "army.can_step", json!({"army": 1, "from": 217, "to": 220})).unwrap(), json!(false));
+        let listed = ask(&mut w, "province.list", json!({"provinces": [223, 1, 217]})).unwrap();
+        assert_eq!(listed.as_array().unwrap().iter().map(|p| p["id"].clone()).collect::<Vec<_>>(), vec![json!(223), json!(217)]);
         assert_eq!(ask(&mut w, "army.can_attack", json!({"army": 1, "target": 2})).unwrap(), json!(true));
         ask(&mut w, "army.move", json!({"army": 1, "province": 220})).unwrap();
         let army = ask(&mut w, "army.get", json!({"army": 1})).unwrap();

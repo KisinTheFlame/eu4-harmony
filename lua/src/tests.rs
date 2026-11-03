@@ -400,9 +400,9 @@ fn the_time_limit_stops_a_handler_and_three_in_a_row_the_extension() {
     e.handle("on_frame", &[]);
     assert!(e.state().stopped.as_deref().is_some_and(|r| r.contains("time limit")));
     // A stopped extension is not called again.
-    let before = e.state().stretches;
+    let before = e.state().all.count;
     e.handle("on_frame", &[]);
-    assert_eq!(e.state().stretches, before);
+    assert_eq!(e.state().all.count, before);
 }
 
 #[test]

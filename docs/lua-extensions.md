@@ -208,7 +208,7 @@ Reviewed 2026-11-03. In Lua a capability is `game.<group>.<name>(...)`, in remot
 - **`session`**: `get`, the session's number, the player's country and the date; the process is `menu`'s, and a capability that needs visibility to have caught up with the date answers `not_ready` until it has.
 - **`time`**: `get` (date, paused, speed), `pause`, `resume`, `set_speed`; `advance` for remote clients only.
 - **`country`**: `get`, `hostile`.
-- **`province`**: `list`, `get` (without what can be recruited there), `neighbors`.
+- **`province`**: `list` (every province, or only those named), `get` (without what can be recruited there), `neighbors`.
 - **`army`**: `get` and `list` (with the route still to go, `kind` army or navy, `blocked`, the reasons it cannot take orders now, and `route_by`: `this_mod`, `other_mod`, `player_or_game` or none), `at` (the armies the player sees in a province), `route_to` (the game's route, or the reason there is none), `can_step` (whether the army may go from a province to a neighboring one now: access, terrain, straits), `can_attack` (an army it sees, wherever it is), `move`, `stop`, `selected`.
 - **`recruit`**: `options` (each kind, whether it can be recruited in a province now and why not), `order`.
 - **`question`**: `list`, `answer`. **`offer`**: `list`, `accept`, `decline`.
@@ -249,6 +249,6 @@ The regional combat mod rewritten in Lua, in its own repository ([ADR 0004](adr/
 1. **The same mod**: the button, the radius settings, the range preview, the automatic decisions, and a task turned off by a hand-given order or a defeat, as the native extension does them.
 2. **Its saves**: a save written with the native extension, loaded with the Lua one, restores the tasks it held.
 3. **Its tests**: the decision core's C++ tests and the extension's Rust tests, as `eu4-harmony test` tests.
-4. **Its cost**: in a normal game, no stretch of a task over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the catalogue gains a coarser general capability (a province's range, provinces read in one call), not native code. Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a capability call 30 to 60 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms.
+4. **Its cost**: in a normal game, no stretch of a task over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the cause is measured first, and the framework makes the capabilities the mod calls cheaper; the mod's own logic, such as its range, stays in Lua, and native code is not the answer ([ADR 0033](adr/0033-capabilities-answer-facts-mods-hold-the-logic.md)). Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a capability call 30 to 60 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms.
 
 Capabilities the rewrite finds missing are added to the catalogue as general capabilities ([ADR 0005](adr/0005-extensions-use-capabilities-only.md)).

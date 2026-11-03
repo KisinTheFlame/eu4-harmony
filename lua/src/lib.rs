@@ -14,6 +14,7 @@
 pub mod fetch;
 mod files;
 mod sandbox;
+mod times;
 pub mod values;
 mod watch;
 
@@ -32,10 +33,8 @@ use std::{
 };
 
 pub use eu4_harmony_manifest::Permissions;
+pub use times::{Times, SLOW};
 pub use watch::LIMIT;
-
-/// A stretch slower than this is logged.
-pub const SLOW: Duration = Duration::from_millis(5);
 
 /// The same error at the same place is written in full this many times in a
 /// session, then only counted.
@@ -159,10 +158,9 @@ pub struct Extension {
 #[derive(Default)]
 struct State {
     stopped: Option<String>,
-    stretches: u64,
-    slow: u64,
-    total: Duration,
-    longest: Duration,
+    /// Every stretch since it was loaded, and those of the session going on.
+    all: Times,
+    session: Times,
     timeouts: u32,
     /// Errors of this session by where and what, and how often.
     errors: HashMap<String, u32>,
@@ -313,7 +311,7 @@ fn call(lua: &Lua, at: &sandbox::Calling, name: &str, args: MultiValue) -> mlua:
         return Err(mlua::Error::runtime(format!("game.{name}: the game is reached only from a handler, at a safe point, not at the top of main.lua")));
     }
     let request = sandbox::request(name, args).map_err(|e| mlua::Error::runtime(format!("game.{name}: {e}")))?;
-    let request = eu4_harmony_remote::request_from_json(&request.to_string()).map_err(|e| mlua::Error::runtime(format!("game.{name}: {}", e.message)))?;
+    let request = eu4_harmony_remote::request_from_fields(request).map_err(|e| mlua::Error::runtime(format!("game.{name}: {}", e.message)))?;
     match at.host.run(at.index, request) {
         Called::Done(response) => answer(lua, name, response),
         Called::Later(pending) => Ok(Waits::keep(&at.waits, &at.wait, Waiting::Capability(pending))),
@@ -388,12 +386,8 @@ impl Extension {
     /// Times a stretch, and counts stretches stopped in a row.
     fn count(&self, elapsed: Duration, timed_out: bool) {
         let mut state = self.state();
-        state.stretches += 1;
-        state.total += elapsed;
-        state.longest = state.longest.max(elapsed);
-        if elapsed > SLOW {
-            state.slow += 1;
-        }
+        state.all.add(elapsed);
+        state.session.add(elapsed);
         state.timeouts = if timed_out { state.timeouts + 1 } else { 0 };
         drop(state);
         if elapsed > SLOW {
@@ -601,19 +595,17 @@ impl Extension {
     /// the startup report writes them.
     pub fn timing(&self) -> String {
         let state = self.state();
-        let mut line = format!(
-            "{}: {} stretch(es), {} ms in total, longest {} ms, {} over {} ms",
-            self.id,
-            state.stretches,
-            state.total.as_millis(),
-            state.longest.as_millis(),
-            state.slow,
-            SLOW.as_millis()
-        );
+        let mut line = format!("{}: {}", self.id, state.all.summary());
         if let Some(reason) = &state.stopped {
             line.push_str(&format!("; STOPPED: {reason}"));
         }
         line
+    }
+
+    /// The stretches since this was last asked, which the host asks at a
+    /// session's start and end.
+    pub fn take_session_times(&self) -> Times {
+        std::mem::take(&mut self.state().session)
     }
 }
 
