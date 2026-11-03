@@ -110,7 +110,7 @@ struct Notes(Vec<String>, Vec<String>);
 
 /// The tests' own Lua state: Lua's string, table, math and utf8, with
 /// `test`, `open`, `print`, and `require` for helper modules in
-/// `eu4-harmony/tests/`.
+/// `eu4-harmony/tests/` and the mod's own modules in `eu4-harmony/lua/`.
 fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
     let lua = Lua::new_with(StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8, LuaOptions::default()).map_err(|e| e.to_string())?;
     let setup = || -> mlua::Result<()> {
@@ -125,7 +125,9 @@ fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
         )?;
         let at = opened.clone();
         globals.set("open", lua.create_function(move |lua, ()| open(lua, &at).map_err(mlua::Error::runtime))?)?;
-        let tests = opened.root.join("eu4-harmony").join(TESTS);
+        // A helper of the tests', or else one of the mod's own modules, such as
+        // a decision core to test on its own.
+        let folders = [opened.root.join("eu4-harmony").join(TESTS), opened.root.join("eu4-harmony").join("lua")];
         globals.set("__modules", lua.create_table()?)?;
         globals.set(
             "require",
@@ -137,7 +139,10 @@ fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
                 if name.is_empty() || !name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
                     return Err(mlua::Error::runtime(format!("require {name:?}: a module is named by words between dots")));
                 }
-                let file = tests.join(format!("{}.lua", name.replace('.', "/")));
+                let relative = format!("{}.lua", name.replace('.', "/"));
+                let Some(file) = folders.iter().map(|f| f.join(&relative)).find(|f| f.is_file()) else {
+                    return Err(mlua::Error::runtime(format!("require {name:?}: no {relative} in eu4-harmony/{TESTS}/ or eu4-harmony/lua/")));
+                };
                 let source = std::fs::read_to_string(&file).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {}: {e}", file.display())))?;
                 let module = lua.load(source).set_name(format!("@{}.lua", name.replace('.', "/"))).set_mode(mlua::ChunkMode::Text).call::<LuaValue>(())?;
                 let module = if module.is_nil() { LuaValue::Boolean(true) } else { module };
