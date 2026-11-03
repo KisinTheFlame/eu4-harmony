@@ -404,3 +404,56 @@ fn a_redirect_is_a_response_and_not_followed() {
     e.handle("on_frame", none);
     assert_eq!(text(poll_until(&e, "GOT")), "302 http://example.com/", "{:?}", errors(&e));
 }
+
+#[test]
+fn the_sandbox_has_every_global_the_catalogue_describes_and_no_other() {
+    use eu4_harmony_remote::lua::{FUNCTIONS, GLOBALS};
+    use std::collections::BTreeSet;
+    const LUA_S_OWN: &[&str] = &[
+        "_G",
+        "_VERSION",
+        "assert",
+        "collectgarbage",
+        "error",
+        "getmetatable",
+        "ipairs",
+        "load",
+        "next",
+        "pairs",
+        "pcall",
+        "rawequal",
+        "rawget",
+        "rawlen",
+        "rawset",
+        "select",
+        "setmetatable",
+        "tonumber",
+        "tostring",
+        "type",
+        "warn",
+        "xpcall",
+        "string",
+        "table",
+        "math",
+        "utf8",
+        "coroutine",
+        "os",
+    ];
+    let e = load_one("described", "return { on_frame = function(game) GAME = game end }", &[]).unwrap();
+    let keys = |t: &Table| -> BTreeSet<String> { t.pairs::<String, LuaValue>().map(|p| p.unwrap().0).collect() };
+    let globals: BTreeSet<String> = keys(&e.lua.globals()).into_iter().filter(|k| !LUA_S_OWN.contains(&k.as_str()) && k != "GAME").collect();
+    assert_eq!(globals, GLOBALS.iter().map(|g| g.to_string()).collect::<BTreeSet<_>>());
+    // Each global table holds the functions described under it.
+    let under = |table: &str| -> BTreeSet<String> {
+        FUNCTIONS.iter().filter_map(|f| f.name.strip_prefix(&format!("{table}.")).filter(|rest| !rest.contains('.')).map(String::from)).collect()
+    };
+    for table in GLOBALS {
+        if let Ok(t) = e.lua.globals().get::<Table>(*table) {
+            assert_eq!(keys(&t), under(table), "{table}");
+        }
+    }
+    let os: Table = e.lua.globals().get("os").unwrap();
+    assert_eq!(keys(&os), under("os"));
+    let game: Table = after(&e, "on_frame", "GAME").as_table().cloned().unwrap();
+    assert_eq!(keys(&game.get::<Table>("map").unwrap()), under("game.map"));
+}

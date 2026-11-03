@@ -269,6 +269,7 @@ groups! {
 
 pub mod binary;
 pub use binary::Binary;
+pub mod lua;
 
 fn full_name(group: &str, action: &str) -> String {
     if action.is_empty() {
