@@ -1,25 +1,32 @@
 <#
 .SYNOPSIS
-Plays rounds of sessions on a developer build with the heap census, and
-reports what the game's memory keeps of them (docs/leak-finding.md).
+Plays rounds of sessions on a developer build, and reports what the game's
+memory keeps of them (docs/leak-finding.md).
 
 .DESCRIPTION
-Needs the developer build with the heap census installed (cargo build
---release --features eu4-harmony-core/dev-heap-census, then dev-install.ps1),
-and the game claimed and its player's files backed up: the run loads saves
-and starts games, which autosave. It starts eu4.exe unless it runs, and plays
--Rounds rounds through remote control. Each round:
+Needs a developer build with the memory account installed (cargo build
+--release --features eu4-harmony-core/dev-memory, then dev-install.ps1), which
+costs the game nothing between rounds; with the heap census
+(eu4-harmony-core/dev-heap-census) the report adds the leftovers by site and
+what holds them, but the census slows the game and holds hundreds of
+megabytes of its own. And the game claimed and its player's files backed up:
+the run loads saves and starts games, which autosave. It starts eu4.exe
+unless it runs, and plays -Rounds rounds through remote control. Each round:
 1. loads the first save from the main menu, and lets -Days days run;
 2. loads the second save from that game, and lets a third of them run;
 3. returns to the main menu;
 4. starts a new game as -Country, and lets a third of the days run;
 5. returns to the main menu.
-After each round it asks memory and memory.leftovers and prints a line; after
-the last, memory.leftovers looks for what still points at the leftovers too,
-which stops the game for seconds. At the end it writes into -Out report.json,
-every answer, and report.md, the rounds, the leftover sites that leave the
-most per generation, and what holds them. The game is closed unless
--KeepGame.
+After each round it asks memory, and with the census memory.leftovers, and
+prints a line; after the last, memory.leftovers looks for what still points at
+the leftovers too, which stops the game for seconds. At the end it writes into
+-Out report.json, every answer, and report.md: the rounds; where each round's
+growth went, part by part and heap by heap, as the least-squares slope over
+the rounds from the second on (the first loads what stays for good, and one
+round's figures jump about); and with the census the leftover sites that
+leave the most per generation, and what holds them. The game is closed unless
+-KeepGame. -FromReport writes report.md again from the report.json in -Out,
+with no game.
 
 .PARAMETER Saves
 The two saves, by the names menu.saves lists; the two newest by default.
@@ -31,14 +38,15 @@ param(
     [int]$Days = 30,
     [int]$Sites = 40,
     [Parameter(Mandatory)][string]$Out,
-    [string]$GameDir = (& (Join-Path $PSScriptRoot 'game-dir.ps1')),
-    [switch]$KeepGame
+    [string]$GameDir,
+    [switch]$KeepGame,
+    [switch]$FromReport
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$cli = Join-Path $GameDir 'eu4-harmony\eu4-harmony.exe'
-if (-not (Test-Path $cli)) { throw "no command line tool at ${cli}: install the developer build with dev-install.ps1" }
 New-Item -ItemType Directory -Force $Out | Out-Null
+$mb = { param($bytes) '{0:N1}' -f ($bytes / 1MB) }
+$line = { param($m) "private $(& $mb $m.private) MB, game heap $(& $mb $m.game_heap) MB, free in heaps $(& $mb $m.free_in_heaps) MB, outside heaps $(& $mb $m.outside_heaps) MB, framework $(& $mb $m.framework_heap) MB, handles $($m.handles)" }
 
 # Asks the game; the result, or a stop with what it answered.
 function Ask([string[]]$words, [int]$timeout = 600) {
@@ -61,53 +69,101 @@ function Run([int]$days) {
     $null = Ask 'time.advance', "$days", '--speed', '5'
 }
 
-if (-not (Get-Process eu4 -ErrorAction SilentlyContinue)) {
-    Start-Process -FilePath (Join-Path $GameDir 'eu4.exe') -WorkingDirectory $GameDir | Out-Null
-}
-MainMenu
-try { $null = Ask 'memory' } catch { throw "the game has no memory group: install a developer build with the heap census ($_)" }
-if (-not $Saves) { $Saves = @((Ask 'menu.saves') | Select-Object -First 2 | ForEach-Object name) }
-if ($Saves.Count -lt 2) { throw 'two saves are needed: pass -Saves, or have two in the save games folder' }
-"saves: $($Saves -join ', '); new games as $Country; $Days days"
-
-$mb = { param($bytes) '{0:N1}' -f ($bytes / 1MB) }
-$played = @()
-$start = Ask 'memory'
-"startup: private $(& $mb $start.private) MB, outside heaps $(& $mb $start.outside_heaps) MB, framework $(& $mb $start.framework_heap) MB, handles $($start.handles)"
-for ($i = 1; $i -le $Rounds; $i++) {
-    $began = Get-Date
-    $null = Ask 'menu.load', $Saves[0]
-    Run $Days
-    $null = Ask 'menu.load', $Saves[1]
-    Run ([Math]::Max(1, [int]($Days / 3)))
-    $null = Ask 'menu.return'
+if ($FromReport) {
+    $report = Get-Content -Encoding utf8 -Raw (Join-Path $Out 'report.json') | ConvertFrom-Json
+} else {
+    if (-not $GameDir) { $GameDir = & (Join-Path $PSScriptRoot 'game-dir.ps1') }
+    $cli = Join-Path $GameDir 'eu4-harmony\eu4-harmony.exe'
+    if (-not (Test-Path $cli)) { throw "no command line tool at ${cli}: install the developer build with dev-install.ps1" }
+    if (-not (Get-Process eu4 -ErrorAction SilentlyContinue)) {
+        Start-Process -FilePath (Join-Path $GameDir 'eu4.exe') -WorkingDirectory $GameDir | Out-Null
+    }
     MainMenu
-    $null = Ask 'menu.start', $Country
-    Run ([Math]::Max(1, [int]($Days / 3)))
-    $null = Ask 'menu.return'
-    MainMenu
-    Start-Sleep 5
-    $memory = Ask 'memory'
-    $asked = @('memory.leftovers', '--sites', "$Sites")
-    if ($i -eq $Rounds) { $asked += '--holders', 'true' }
-    $leftovers = Ask $asked
-    $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers }
-    $played += $round
-    $grew = if ($i -gt 1) { ' ({0:+0.0;-0.0} MB)' -f (($memory.private - $played[-2].memory.private) / 1MB) } else { '' }
-    "round $i ($($round.seconds) s): private $(& $mb $memory.private) MB$grew, heaps $(& $mb $memory.heaps_allocated) of $(& $mb $memory.heaps_committed) MB, outside heaps $(& $mb $memory.outside_heaps) MB, framework $(& $mb $memory.framework_heap) MB, handles $($memory.handles), generation $($memory.generation)"
-}
-$report = [ordered]@{ saves = $Saves; country = $Country; days = $Days; startup = $start; rounds = $played }
-$report | ConvertTo-Json -Depth 12 | Set-Content -Encoding utf8 (Join-Path $Out 'report.json')
+    try { $null = Ask 'memory' } catch { throw "the game has no memory group: install a developer build with the memory account ($_)" }
+    if (-not $Saves) { $Saves = @((Ask 'menu.saves') | Select-Object -First 2 | ForEach-Object name) }
+    if ($Saves.Count -lt 2) { throw 'two saves are needed: pass -Saves, or have two in the save games folder' }
+    "saves: $($Saves -join ', '); new games as $Country; $Days days"
 
-$md = @("# Leak run, $(Get-Date -Format 'yyyy-MM-dd HH:mm')", '', "Saves $($Saves -join ' and '), new games as $Country, $Days days; $Rounds rounds.", '')
-$md += '| Round | Seconds | Private MB | Change | Heaps allocated MB | Outside heaps MB | Framework MB | Handles |', '| --- | --- | --- | --- | --- | --- | --- | --- |'
+    $played = @()
+    $start = Ask 'memory'
+    $census = [bool]$start.census
+    "startup: $(& $line $start); the census $(if ($census) { 'is' } else { 'is not' }) built in"
+    for ($i = 1; $i -le $Rounds; $i++) {
+        $began = Get-Date
+        $null = Ask 'menu.load', $Saves[0]
+        Run $Days
+        $null = Ask 'menu.load', $Saves[1]
+        Run ([Math]::Max(1, [int]($Days / 3)))
+        $null = Ask 'menu.return'
+        MainMenu
+        $null = Ask 'menu.start', $Country
+        Run ([Math]::Max(1, [int]($Days / 3)))
+        $null = Ask 'menu.return'
+        MainMenu
+        Start-Sleep 5
+        $memory = Ask 'memory'
+        $leftovers = $null
+        if ($census) {
+            $asked = @('memory.leftovers', '--sites', "$Sites")
+            if ($i -eq $Rounds) { $asked += '--holders', 'true' }
+            $leftovers = Ask $asked
+        }
+        $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers }
+        $played += $round
+        $grew = if ($i -gt 1) { ' ({0:+0.0;-0.0;0.0} MB)' -f (($memory.private - $played[-2].memory.private) / 1MB) } else { '' }
+        "round $i ($($round.seconds) s)${grew}: $(& $line $memory)"
+    }
+    $report = [ordered]@{ saves = $Saves; country = $Country; days = $Days; startup = $start; rounds = $played }
+    $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding utf8 (Join-Path $Out 'report.json')
+    if (-not $KeepGame) { Get-Process eu4 -ErrorAction SilentlyContinue | Stop-Process -Force }
+}
+$Saves = @($report.saves); $Country = $report.country; $Days = $report.days; $start = $report.startup; $played = @($report.rounds)
+$census = [bool]$start.census
+
+$md = @("# Leak run, $(Get-Date -Format 'yyyy-MM-dd HH:mm')", '', "Saves $($Saves -join ' and '), new games as $Country, $Days days; $($played.Count) rounds.", '')
+$md += '| Round | Seconds | Private MB | Change | Game heap MB | Free in heaps MB | Outside heaps MB | Framework MB | Handles |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- |'
 $before = $start.private
 foreach ($r in $played) {
     $m = $r.memory
-    $md += "| $($r.round) | $($r.seconds) | $(& $mb $m.private) | $('{0:+0.0;-0.0}' -f (($m.private - $before) / 1MB)) | $(& $mb $m.heaps_allocated) | $(& $mb $m.outside_heaps) | $(& $mb $m.framework_heap) | $($m.handles) |"
+    $md += "| $($r.round) | $($r.seconds) | $(& $mb $m.private) | $('{0:+0.0;-0.0;0.0}' -f (($m.private - $before) / 1MB)) | $(& $mb $m.game_heap) | $(& $mb $m.free_in_heaps) | $(& $mb $m.outside_heaps) | $(& $mb $m.framework_heap) | $($m.handles) |"
     $before = $m.private
 }
-if ($played) {
+
+if ($played.Count -ge 2) {
+    # The least-squares slope per round, over the rounds from the second on
+    # (or both, when there are two), of what $of reads of a round's memory.
+    $from = if ($played.Count -ge 3) { 1 } else { 0 }
+    $slope = {
+        param([scriptblock]$of)
+        $x = @($played[$from..($played.Count - 1)] | ForEach-Object { [double]$_.round })
+        $y = @($played[$from..($played.Count - 1)] | ForEach-Object { [double](& $of $_.memory) })
+        $mx = ($x | Measure-Object -Average).Average
+        $my = ($y | Measure-Object -Average).Average
+        $sxy = 0.0; $sxx = 0.0
+        for ($k = 0; $k -lt $x.Count; $k++) { $sxy += ($x[$k] - $mx) * ($y[$k] - $my); $sxx += ($x[$k] - $mx) * ($x[$k] - $mx) }
+        $sxy / $sxx
+    }
+    $per = { param([scriptblock]$of) '{0:+0.00;-0.00;0.00}' -f ((& $slope $of) / 1MB) }
+    $md += '', "## Where each round's growth goes", '', "The least-squares slope over rounds $($from + 1) to $($played.Count).", ''
+    $md += '| Part | MB a round |', '| --- | --- |'
+    $md += "| Private bytes | $(& $per { $args[0].private }) |"
+    $md += "| The game's heap, what the game holds | $(& $per { $args[0].game_heap }) |"
+    $md += "| The other heaps, what they hold | $(& $per { $args[0].heaps_allocated - $args[0].game_heap - $args[0].framework_heap }) |"
+    $md += "| The heaps, committed and unused | $(& $per { $args[0].free_in_heaps }) |"
+    $md += "| Outside the heaps (Direct3D, the driver, whole pages) | $(& $per { $args[0].outside_heaps }) |"
+    $md += "| The framework's heap | $(& $per { $args[0].framework_heap }) |"
+    $md += "| Handles | $('{0:+0.0;-0.0;0.0}' -f (& $slope { $args[0].handles })) |"
+    $md += '', '### Each heap', '', 'At the end of the last round, in MB, and the slope as above.', ''
+    $md += "| Heap | Game's | Default | Allocated | Allocated a round | Committed | Committed a round |", '| --- | --- | --- | --- | --- | --- | --- |'
+    foreach ($h in $played[-1].memory.heaps) {
+        $handle = $h.handle
+        $allocated = { ($args[0].heaps | Where-Object handle -eq $handle | Select-Object -First 1).allocated }.GetNewClosure()
+        $committed = { ($args[0].heaps | Where-Object handle -eq $handle | Select-Object -First 1).committed }.GetNewClosure()
+        $md += "| $handle | $(if ($h.game) { 'yes' }) | $(if ($h.process) { 'yes' }) | $(& $mb $h.allocated) | $(& $per $allocated) | $(& $mb $h.committed) | $(& $per $committed) |"
+    }
+}
+
+if ($census -and $played) {
     $last = $played[-1].leftovers
     $md += '', "## Leftovers at generation $($last.generation)", '', "$($last.blocks) blocks, $(& $mb $last.bytes) MB in all.", ''
     $md += '| Site | Function | Trend | Per generation KB | Leftover KB | Blocks | Let go at (blocks) |', '| --- | --- | --- | --- | --- | --- | --- |'
@@ -115,16 +171,15 @@ if ($played) {
         $freed = ($s.freed_at | ForEach-Object { "$($_.site) in $($_.function) ($($_.blocks))" }) -join '; '
         $md += "| $($s.site) | $($s.function) | $($s.trend) | $('{0:N0}' -f ($s.per_generation / 1KB)) | $('{0:N0}' -f ($s.bytes / 1KB)) | $($s.blocks) | $freed |"
     }
-}
-if ($played -and $last.sites[0].holders) {
-    $md += '', '## What holds them', '', 'Each leftover counted once, by the best that points at it: the game''s data, other live blocks, only the leftovers listed, or nothing.', ''
-    $md += '| Site | Trend | Leftovers | By data | By blocks | By leftovers | By nothing | Held most by (pointers) |', '| --- | --- | --- | --- | --- | --- | --- | --- |'
-    foreach ($s in $last.sites) {
-        $h = $s.holders
-        $top = ($h.top | ForEach-Object { if ($_.kind -eq 'data') { "data $($_.at) ($($_.references))" } else { "$($_.at) in $($_.function) ($($_.references))" } }) -join '; '
-        $md += "| $($s.site) | $($s.trend) | $($s.blocks) | $($h.by_data) | $($h.by_blocks) | $($h.by_leftovers) | $($h.by_nothing) | $top |"
+    if ($last.sites -and $last.sites[0].holders) {
+        $md += '', '## What holds them', '', "Each leftover counted once, by the best that points at it: the game's data, other live blocks, only the leftovers listed, or nothing.", ''
+        $md += '| Site | Trend | Leftovers | By data | By blocks | By leftovers | By nothing | Held most by (pointers) |', '| --- | --- | --- | --- | --- | --- | --- | --- |'
+        foreach ($s in $last.sites) {
+            $h = $s.holders
+            $top = ($h.top | ForEach-Object { if ($_.kind -eq 'data') { "data $($_.at) ($($_.references))" } else { "$($_.at) in $($_.function) ($($_.references))" } }) -join '; '
+            $md += "| $($s.site) | $($s.trend) | $($s.blocks) | $($h.by_data) | $($h.by_blocks) | $($h.by_leftovers) | $($h.by_nothing) | $top |"
+        }
     }
 }
 $md | Set-Content -Encoding utf8 (Join-Path $Out 'report.md')
 "report: $(Join-Path $Out 'report.md')"
-if (-not $KeepGame) { Get-Process eu4 -ErrorAction SilentlyContinue | Stop-Process -Force }
