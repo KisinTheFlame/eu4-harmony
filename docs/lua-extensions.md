@@ -1,6 +1,6 @@
 # Lua extensions plan
 
-Status: decided (2026-11-03); L1 to L3 built. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns), [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
+Status: decided (2026-11-03); L1 to L4 built. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns), [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
 
 ## Goal and scope
 
@@ -233,6 +233,8 @@ The corner button and the two-column window, with descriptions and sensitive cap
 ### L5 Tools for mod authors
 
 `new` with its new template, `test` and the fake game, `types`, `package`'s checks, `skills` with its first guides, `help`; `build` removed.
+
+Built in three pull requests: the reference (`wiki lua`, `wiki manifest` and `types`, from descriptions of the handlers, globals, manifest and permissions in `remote/src/lua.rs`, which a core test holds to the sandbox), the guides (`skills`, the `AGENTS.md` `new` writes, `help`), and the tests (`test` and the fake game). The reference is built, and the guides: `cli/skills/`, embedded by `skills`, whose test holds every `wiki` and `skills` page a guide names to one there is; running their Lua examples with `eu4-harmony test` waits for `test`.
 
 ### L6 Acceptance
 

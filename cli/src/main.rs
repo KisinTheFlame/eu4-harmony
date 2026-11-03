@@ -7,7 +7,9 @@
 //! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
 mod game;
 mod pipe;
+mod skills;
 mod templates;
+mod types;
 mod wiki;
 
 use std::{
@@ -24,12 +26,17 @@ running game through remote control
 
 usage:
   eu4-harmony new <id> [--name <display name>] [--dir <parent dir>]
-      Creates the mod folder <id>/ with a Lua extension, one button and its
-      texts in English and Chinese.
+      Creates the mod folder <id>/ with a Lua extension, one button, its
+      texts in English and Chinese, the editor's type definitions and an
+      AGENTS.md pointing a coding agent at eu4-harmony skills.
   eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>] [--game-dir <game dir>]
       Registers the mod folder with the Paradox launcher (enable it in a playset),
       in the user dir the game folder's userdir.txt names, as the game finds it;
       the game folder is --game-dir, EU4_GAME_DIR or the one this tool is in.
+  eu4-harmony types [<mod dir>]
+      Writes the editor's type definitions for this tool's catalogue again,
+      in .eu4-harmony/types/, and a .luarc.json pointing at them where the
+      mod has none.
   eu4-harmony package [<mod dir>] [--out <dir>]
       Writes a clean folder for upload, once every Lua file compiles and
       every localisation file reads.
@@ -38,8 +45,11 @@ usage:
       the answer as JSON; eu4-harmony game -h describes the command line.
   eu4-harmony wiki [<topic>...]
       The reference: every capability, how Lua and the command line call
-      it, what it answers; how a remote client plays a game; errors and
-      events.
+      it, what it answers; a mod's handlers, globals and manifest; how a
+      remote client plays a game; errors and events.
+  eu4-harmony skills [<topic>...]
+      Guides for making a mod, for a coding agent or a person: the steps,
+      and how to tell each is done.
 
 <mod dir> defaults to the current folder or the mod folder containing it.
 ";
@@ -84,8 +94,10 @@ fn main() {
         Some("new") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_new(&a)),
         Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
+        Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
+        Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
         Some("help" | "-h" | "--help") | None => {
             print!("{USAGE}");
             Ok(())
@@ -182,6 +194,7 @@ fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
     let chinese = format!("eu4-harmony/localisation/{lib}_l_simp_chinese.yml");
     let files = [
         ("descriptor.mod", templates::DESCRIPTOR),
+        ("AGENTS.md", templates::AGENTS),
         ("eu4-harmony/manifest.toml", templates::MANIFEST),
         ("eu4-harmony/lua/main.lua", templates::MAIN_LUA),
         ("eu4-harmony/ui/single_unitpanel/buttons/button.gui", templates::BUTTON_GUI),
@@ -191,6 +204,7 @@ fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
     for (relative, template) in files {
         write(&root.join(relative), &templates::fill(template, id, name))?;
     }
+    types::write(&root)?;
     Ok(root)
 }
 
@@ -203,6 +217,16 @@ fn cmd_new(args: &Args) -> Result<()> {
     let root = create_mod(&parent, id, args.value("name").unwrap_or(id))?;
     println!("created {}", root.display());
     println!("next: cd {id} && eu4-harmony link, then enable the mod in the Paradox launcher");
+    Ok(())
+}
+
+// ---------- types ----------
+
+fn cmd_types(args: &Args) -> Result<()> {
+    let root = mod_root(&start_dir(args)?)?;
+    for file in types::write(&root)? {
+        println!("wrote {}", root.join(file).display());
+    }
     Ok(())
 }
 
@@ -431,6 +455,7 @@ mod tests {
         let english = "eu4-harmony/localisation/my_mod_l_english.yml";
         for f in [
             "descriptor.mod",
+            "AGENTS.md",
             "eu4-harmony/manifest.toml",
             "eu4-harmony/lua/main.lua",
             "eu4-harmony/ui/single_unitpanel/buttons/button.gui",
@@ -445,6 +470,7 @@ mod tests {
         let main = fs::read_to_string(root.join("eu4-harmony/lua/main.lua")).unwrap();
         assert!(main.contains("text.get(\"MY_MOD_TOOLTIP\")") && main.contains("my-mod.log"));
         assert!(lua_files(&root.join("eu4-harmony/lua")).is_ok());
+        assert!(root.join(types::FILE).is_file() && root.join(types::LUARC).is_file());
         let (texts, problems) = eu4_harmony_loc::load_dir(&root.join("eu4-harmony/localisation"));
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(texts.text(eu4_harmony_loc::Language::English, "MY_MOD_TOOLTIP").as_deref(), Some("§YMy Mod§!\nClick to write a line to the log."));
