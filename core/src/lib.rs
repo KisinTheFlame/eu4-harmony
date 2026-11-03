@@ -136,21 +136,18 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(
-        not(any(feature = "dev-heap-census", feature = "dev-command-log", feature = "dev-call-trace")),
-        expect(unused_mut, reason = "only the development tools add points")
-    )]
+    #[cfg_attr(not(any(feature = "dev-heap-census", feature = "dev-call-trace")), expect(unused_mut, reason = "only the development tools add points"))]
     let mut all = points();
     #[cfg(feature = "dev-heap-census")]
     all.extend(census::points(&m));
-    #[cfg(feature = "dev-command-log")]
-    all.extend(command_log::points());
     #[cfg(feature = "dev-call-trace")]
     {
         let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
         all.extend(trace::points(&m, hooks::observer_slots().saturating_sub(observers)));
     }
     let installed = points::install(m, &all)?;
+    #[cfg(feature = "dev-command-log")]
+    command_log::start();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }
 

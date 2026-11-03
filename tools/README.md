@@ -16,8 +16,8 @@ Tools for trying things in a running game, finding dependency points and looking
 | `core/examples/disasm.rs` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments |
 | `dev-call-trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value (`core/src/trace.rs`; [below](#call-tracing)) |
 | `dev-heap-census` feature | Counts the game's live heap blocks by call site and logs at every world reset those the earlier sessions left (`core/src/census.rs`) |
-| `dev-command-log` feature | Logs every command the game executes, or those of the types named, in its written form (`core/src/command_log.rs`) |
-| `dev-test-switches` feature | Makes startup fail, or shows two test notices, to try the failure and the notice window on a supported game |
+| `dev-command-log` feature | Logs every command the game executes, or those of the types named, in its written form, as the command layer hears them (`core/src/command_log.rs`, `core/src/game/commands.rs`) |
+| `dev-test-switches` feature | Makes startup fail, shows two test notices, or posts commands written in the game's form through the command layer at the first frame of every game, to try the failure, the notice window and the game's commands on a supported game |
 
 To ask the running game things through remote control, such as the session or the player's armies, use the command line tool: `eu4-harmony game session get`, and `eu4-harmony wiki` for the rest. `eu4-harmony game screenshot --out shot.png` saves the frame as the game draws it, framework UI included, wherever its window is; `screenshot.ps1` captures what the screen shows.
 

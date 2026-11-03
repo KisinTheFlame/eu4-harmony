@@ -27,3 +27,7 @@ types = []
 fail-startup = false
 # Two test notices are shown, so that the notice window can be tried.
 test-notice = false
+# Commands in the game's written form, posted through the command layer at the
+# first frame of every game, each with what came of it in the log, such as
+# 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.
+post = []

@@ -17,6 +17,7 @@
 //! defeat.md, time.md, fog-of-war.md).
 pub mod armies;
 pub mod camera;
+pub mod commands;
 pub mod console;
 pub mod countries;
 pub mod diplomacy;
@@ -223,6 +224,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query"),
         Point::keep(POST, "48 89 5c 24 08 57 48 83 ec 20 48 83 79 58 00 48", "command post"),
     ];
+    points.extend(commands::points());
     points.extend(world::points());
     points.extend(orders::points());
     points.extend(events::points());

@@ -65,6 +65,10 @@ pub struct TestSwitches {
     pub fail_startup: bool,
     /// Two test notices are shown, so that the notice window can be tried.
     pub test_notice: bool,
+    /// Commands in their written form, posted through the command layer at
+    /// the first frame of every game, so that the game's commands can be
+    /// tried.
+    pub post: Vec<String>,
 }
 
 impl Options {
@@ -97,7 +101,12 @@ impl Options {
         if built("test-switches") {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
-            lines.push(format!("test switches: fail-startup {}, test-notice {}", on(switches.fail_startup), on(switches.test_notice)));
+            lines.push(format!(
+                "test switches: fail-startup {}, test-notice {}, {} command(s) to post",
+                on(switches.fail_startup),
+                on(switches.test_notice),
+                switches.post.len()
+            ));
         }
         for (name, section, built) in TOOLS {
             if !built && self.sections.iter().any(|s| s == section) {
@@ -165,11 +174,12 @@ mod tests {
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\npost = [\"a={ }\"]\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
         assert!(options.test_switches.fail_startup && options.test_switches.test_notice);
+        assert_eq!(options.test_switches.post, ["a={ }"]);
     }
 
     #[test]
