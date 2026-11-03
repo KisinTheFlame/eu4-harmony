@@ -1,6 +1,7 @@
 //! What the game holds in memory, and what the heap census found: a
 //! developer build's, with the `dev-memory` feature (docs/leak-finding.md).
-//! A player's build has none of it.
+//! A player's build has none of it; memory.leftovers and memory.generation
+//! need the heap census built in too.
 //!
 //! The census counts the live blocks of the game's C runtime heap by their
 //! site, the code that allocated them, and their generation. A generation
@@ -15,7 +16,7 @@ group! {
 
     /// What the process holds now, and the census's live blocks by
     /// generation.
-    remote_anywhere Get "" {} -> Memory, "private bytes; heaps_allocated and heaps_committed, what the process's heaps hold of them; outside_heaps, the rest (Direct3D's, the driver's); framework_heap; handles; generation, the census's generation now; generations, the census's live blocks and bytes by the generation they were allocated in";
+    remote_anywhere Get "" {} -> Memory, "private bytes; heaps_allocated and heaps_committed, what the process's heaps hold of them; free_in_heaps, what they committed and do not use; outside_heaps, the rest (Direct3D's, the driver's); framework_heap; game_heap, what the game's own heap holds for the game; heaps, each heap; handles; census, whether the heap census is built in; generation, the census's generation now; generations, the census's live blocks and bytes by the generation they were allocated in";
     /// The census's leftovers, the blocks still live two generations after
     /// their own, by site, those that leave the most per generation first.
     remote_anywhere Leftovers "leftovers" {
@@ -40,18 +41,42 @@ pub struct Memory {
     pub heaps_allocated: u64,
     /// Bytes the process's heaps have committed.
     pub heaps_committed: u64,
+    /// Bytes the process's heaps have committed and do not use.
+    pub free_in_heaps: u64,
     /// Private bytes beyond what the heaps committed: Direct3D's, the
     /// driver's and other allocations of whole pages.
     pub outside_heaps: u64,
     /// Bytes the framework's own heap holds.
     pub framework_heap: u64,
+    /// Bytes the game's own heap, its C runtime's, holds for the game: what
+    /// it allocated, less the framework's when the two share it.
+    pub game_heap: u64,
+    /// Each heap of the process, the largest first.
+    pub heaps: Vec<Heap>,
     pub handles: u32,
+    /// Whether the heap census is built in; without it generation is 0 and
+    /// generations empty, and memory.leftovers and memory.generation are
+    /// unavailable.
+    pub census: bool,
     /// The census's generation now: the world resets, and the ends
     /// `memory.generation` asked for, so far.
     pub generation: u32,
     /// The census's live blocks, by the generation they were allocated in,
     /// oldest first.
     pub generations: Vec<Generation>,
+}
+
+/// One heap of the process.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Heap {
+    /// Its handle, in hex.
+    pub handle: String,
+    /// The game's C runtime allocates from it.
+    pub game: bool,
+    /// It is the process's default heap, which the framework allocates from.
+    pub process: bool,
+    pub allocated: u64,
+    pub committed: u64,
 }
 
 /// Blocks of one generation.

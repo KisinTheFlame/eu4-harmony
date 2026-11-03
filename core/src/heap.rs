@@ -81,17 +81,22 @@ pub fn private_bytes() -> usize {
 /// bytes beyond the committed are Direct3D's, the driver's and other
 /// allocations of whole pages.
 pub fn heaps() -> (usize, usize) {
+    each_heap().iter().fold((0, 0), |(allocated, committed), (_, a, c)| (allocated + a, committed + c))
+}
+
+/// Each heap of the process: its handle, the bytes allocated from it and
+/// the bytes it has committed.
+pub fn each_heap() -> Vec<(usize, usize, usize)> {
     let mut handles = vec![std::ptr::null_mut(); 64];
     let count = unsafe { GetProcessHeaps(handles.len() as u32, handles.as_mut_ptr()) } as usize;
     handles.truncate(count.min(handles.len()));
-    handles.iter().fold((0, 0), |(allocated, committed), &heap| {
-        let mut summary = HEAP_SUMMARY { cb: std::mem::size_of::<HEAP_SUMMARY>() as u32, ..unsafe { std::mem::zeroed() } };
-        if unsafe { HeapSummary(heap, 0, &mut summary) } == 0 {
-            (allocated, committed)
-        } else {
-            (allocated + summary.cbAllocated, committed + summary.cbCommitted)
-        }
-    })
+    handles
+        .iter()
+        .filter_map(|&heap| {
+            let mut summary = HEAP_SUMMARY { cb: std::mem::size_of::<HEAP_SUMMARY>() as u32, ..unsafe { std::mem::zeroed() } };
+            (unsafe { HeapSummary(heap, 0, &mut summary) } != 0).then_some((heap as usize, summary.cbAllocated, summary.cbCommitted))
+        })
+        .collect()
 }
 
 const MB: f64 = 1024.0 * 1024.0;

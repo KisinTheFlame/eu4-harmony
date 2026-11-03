@@ -19,7 +19,7 @@
 //! blocks of other modules' heaps and allocators.
 use crate::hooks::HookFrame;
 use crate::points::Point;
-use eu4_harmony_remote::memory::{Freed, Generation, Holder, Holders, Leftovers, Memory, MemoryAnswer, MemoryRequest, Site, Trend};
+use eu4_harmony_remote::memory::{Freed, Generation, Holder, Holders, Leftovers, MemoryAnswer, MemoryRequest, Site, Trend};
 use holders::{Held, Scan, Source, Target};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -415,29 +415,22 @@ fn holders_of(now: u32, sites: &[SiteKey]) -> HashMap<SiteKey, Holders> {
         .collect()
 }
 
-/// What the process holds now, and the census's live blocks by generation.
-fn memory() -> Memory {
+/// The generation now, and the census's live blocks by generation.
+pub fn generations() -> (u32, Vec<Generation>) {
     let counts = counts(false);
-    let (allocated, committed) = crate::heap::heaps();
-    let private = crate::heap::private_bytes();
-    let mut handles = 0u32;
-    unsafe { windows_sys::Win32::System::Threading::GetProcessHandleCount(windows_sys::Win32::System::Threading::GetCurrentProcess(), &mut handles) };
-    Memory {
-        private: private as u64,
-        heaps_allocated: allocated as u64,
-        heaps_committed: committed as u64,
-        outside_heaps: private.saturating_sub(committed) as u64,
-        framework_heap: crate::heap::live() as u64,
-        handles,
-        generation: GENERATION.load(Ordering::Relaxed),
-        generations: counts.generations.iter().map(|(g, (blocks, bytes))| Generation { generation: *g, blocks: *blocks, bytes: *bytes }).collect(),
-    }
+    let generations = counts.generations.iter().map(|(g, (blocks, bytes))| Generation { generation: *g, blocks: *blocks, bytes: *bytes }).collect();
+    (GENERATION.load(Ordering::Relaxed), generations)
 }
 
-/// Answers remote control's memory group.
+/// Answers remote control's memory.leftovers and memory.generation; memory
+/// itself is the memory account's.
 pub fn answer(request: MemoryRequest) -> MemoryAnswer {
     match request {
-        MemoryRequest::Get {} => MemoryAnswer::Get(memory()),
+        MemoryRequest::Get {} => {
+            let mut memory = crate::memory_account::memory();
+            (memory.generation, memory.generations) = generations();
+            MemoryAnswer::Get(memory)
+        }
         MemoryRequest::Leftovers { sites, holders } => {
             let now = GENERATION.load(Ordering::Relaxed);
             let (mut leftovers, keys) = leftovers_from(now, &counts(true), sites.unwrap_or(40) as usize, named);

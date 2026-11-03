@@ -589,8 +589,8 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Menu(r) => menu::run(r, game),
         Request::Diplomacy(r) => diplomacy::run(r, game, now),
         Request::Extension(r) => done(extensions::run(r, game).map(Answer::Extension)),
-        #[cfg(feature = "dev-heap-census")]
-        Request::Memory(r) => done(Ok(Answer::Memory(crate::census::answer(r)))),
+        #[cfg(feature = "dev-memory")]
+        Request::Memory(r) => done(crate::memory_account::answer(r).map(Answer::Memory)),
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
     }
 }
