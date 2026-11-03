@@ -44,6 +44,20 @@ impl<V: Copy> Index<V> {
         pages(start, end).for_each(|p| _ = self.pages[p].fetch_add(1, Ordering::Relaxed));
     }
 
+    pub fn remove(&self, start: usize) -> Option<V> {
+        let (end, value) = self.blocks().remove(&start)?;
+        pages(start, end).for_each(|p| _ = self.pages[p].fetch_sub(1, Ordering::Relaxed));
+        Some(value)
+    }
+
+    /// Takes every block out.
+    pub fn clear(&self) {
+        let mut blocks = self.blocks();
+        for (start, (end, _)) in std::mem::take(&mut *blocks) {
+            pages(start, end).for_each(|p| _ = self.pages[p].fetch_sub(1, Ordering::Relaxed));
+        }
+    }
+
     /// The value of the block that starts at `start`.
     pub fn get(&self, start: usize) -> Option<V> {
         self.blocks().get(&start).map(|(_, value)| *value)
@@ -95,6 +109,12 @@ mod tests {
         assert_eq!(index.pointed(&words), [(0, 0x1000, 'a'), (1, 0x1000, 'a'), (3, 0x1100, 'b'), (6, 0x2_0000_1000, 'c')]);
         assert!(index.may_point(0x1040) && !index.may_point(0x5000));
         assert_eq!(index.get(0x1100), Some('b'));
+        assert_eq!(index.remove(0x1000), Some('a'));
+        assert_eq!(index.remove(0x1000), None);
+        assert!(index.pointed(&[(0, 0x1000)]).is_empty());
+        index.clear();
+        assert!(index.pages.iter().all(|p| p.load(Ordering::Relaxed) == 0));
+        assert_eq!(index.get(0x1100), None);
     }
 
     #[test]

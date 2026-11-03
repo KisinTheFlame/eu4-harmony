@@ -93,6 +93,11 @@ impl Scan {
         }
     }
 
+    /// The leftovers nothing points at.
+    pub fn unheld(&self) -> impl Iterator<Item = &Target> {
+        self.targets.iter().zip(&self.held).filter(|(_, held)| **held == Held::Nothing).map(|(t, _)| t)
+    }
+
     /// For each site: how many of its leftovers are held best by each kind
     /// of holder, and the pointers each holder has to them.
     pub fn found(self) -> Found {

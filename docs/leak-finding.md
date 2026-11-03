@@ -50,6 +50,7 @@ Only in a developer build with the memory account do these capabilities exist; a
     - `first`: only the first generations left any, which is a cache filled once;
     - `sometimes`: anything else;
   - the places that let its blocks go.
+- `memory.watch` watches sites, for who let their leftovers' owners go (M3, below).
 - `memory.generation` ends the generation now and answers the new one's number.
 
 ### A leak run
@@ -83,9 +84,15 @@ Each site also gets the five that point at its leftovers most: an RVA of the dat
 
 The game's threads wait at their next allocation while the reading lasts, seconds at the main menu; a leak run asks for holders after its last round only.
 
-### The call paths of chosen sites (M3)
+### Who let a leftover's owner go (M3)
 
-In dev.toml, `[heap-census]` `paths` names sites. Each block allocated at one of them is kept with the calls above it, and `memory.leftovers` adds the paths that leftovers took. A leak run with `-Paths` runs twice: the first run finds the steady sites that leave the most, the second runs with their paths.
+A leftover nothing points at was lost somewhere: most often its owner was let go, and the owner's destructor did not let it go too. `memory.watch` names sites to watch, at most 16, from then on in the same process. While some are watched, every block the game lets go is read first, and for each live block of a watched site the census keeps the last block let go while it pointed into it, with the code that let it go. `memory.leftovers` with `holders` then gives, for each watched site, its leftovers nothing points at by their last owner: the owner's site and function, and the place that let the owner go, which is in the destructor or the code that deletes it. Those with no owner let go are counted apart: they were lost before watching began, or the pointer was written over.
+
+An owner let go after its pointer was copied elsewhere, as a vector's buffer is when it grows, is kept too, and is the last owner until a later one; for a leftover nothing points at, the last owner let go is the one that lost it.
+
+A leak run with `-Watch N` watches, after round `-WatchAfter`, the N steady sites that leave the most and whose leftovers nothing (or only other leftovers) mostly points at, and adds a table of who let them go. Reading every block let go slows the game while sites are watched.
+
+Both this and M2 take a word for a pointer by one rule, in one module (`core/src/census/pointers.rs`): eight bytes that hold an address in a block's first 64 bytes.
 
 ### The quarantine (M4)
 
@@ -93,8 +100,9 @@ With the `dev-quarantine` feature, the blocks a repair lets go, and the blocks t
 
 ## How it fits together
 
-- `remote` declares the `memory` group behind its `dev-memory` feature, which the core's `dev-heap-census` turns on. A workspace build of the developer build gives the command line tool the same group.
-- `core/src/census.rs` keeps the blocks and answers the group. Building the answer from the census's figures (the leftovers by generation, the trend, the average) is a function of its own, tested without a game.
+- `remote` declares the `memory` group behind its `dev-memory` feature, which the core's `dev-memory` turns on, and `dev-heap-census` with it. A workspace build of the developer build gives the command line tool the same group.
+- `core/src/memory_account.rs` answers `memory` from Windows' figures, and hands the group to the census when it is built in.
+- `core/src/census.rs` keeps the blocks and answers the group. Building the answer from the census's figures (the leftovers by generation, the trend, the average) is a function of its own, tested without a game. Its modules, each tested without a game: `pointers` (the rule for a pointer), `holders` (M2's scan) and `watch` (M3's owners).
 - `tools/leak-run.ps1` uses only remote control, as `perf-run.ps1` does.
 
 ## Parts
@@ -116,9 +124,9 @@ The `dev-memory` feature, `memory` without the census, and the leak run's split 
 
 `holders` in `memory.leftovers`, the scan, and the report's table of what holds each leftover site.
 
-### M3 The call paths of chosen sites
+### M3 Who let a leftover's owner go
 
-`paths` in dev.toml, the paths in `memory.leftovers`, and the leak run's second run.
+`memory.watch`; the owners let go in `memory.leftovers` with `holders`; the leak run's `-Watch`; the rule for a pointer shared with M2.
 
 ### M4 The quarantine
 
