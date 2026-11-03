@@ -908,6 +908,20 @@ L2 of [lua-extensions.md](lua-extensions.md): a Lua extension in the running gam
 - **Not verified in the game**: the time limit (a unit test stops `while true do end` after about a second, and the extension after three); a handler waiting off a coroutine of its own; the button (on_frame set its visibility; it was not clicked); `game.map.paint`; an extension that fails to load, and its notice.
 - **Cleanup**: each game was closed by ending its process. The three framework files in the game folder were put back and compared equal to the copies; the test mod's descriptor was removed from `mod\`. Releasing the game restored the player's files, `dlc_load.json`, the autosaves and the logs among them, and found every file as the backup had it. The test mod, scripts and copies of the run were deleted.
 
+## 2026-11-03 Sensitive capabilities (tested by me)
+
+L3 of [lua-extensions.md](lua-extensions.md): `clock`, `files` and `network` from a Lua extension in the running game. A test mod made by `eu4-harmony new l3-check`, its manifest declaring `permissions = { clock = true, files = true, network = ["example.com", "127.0.0.1:9"] }`, its `main.lua` using each and logging what came back; registered with `eu4-harmony link` and added to the player's playset in `dlc_load.json`. One run of `eu4.exe`, started directly, driven by `eu4-harmony game`: a new game as Castile, a few days at speed 5, `menu.return`. The system's proxy was on (a proxy on this computer), so requests went through it. The game was claimed with the game-lock skill, which backed up the player's files first.
+
+- **At the top of main.lua**: `os.date` gave the real date and time and `os.time` an integer; the data folder listed empty; `files.write("runs/top.txt", ...)` made `eu4-harmony\data\l3-check\runs\top.txt` in the user directory and `files.read` gave it back; `files.write("../escape.txt", ...)` raised "is not a relative path of file names"; `http.fetch` raised "waits for its answer, which it cannot do here".
+- **From on_session**: `runs/` held `top.txt`; a host the manifest does not list raised an error naming the hosts it does. Three tasks started with `spawn`, each sending a request, and `on_session` returned while they waited:
+  - `https://example.com/`: status 200, 577 bytes, `text/html; charset=utf-8`, about a second later; the task's `game.session.get()` then answered with the date of two days on, and it wrote and read back `runs/fetched.json`.
+  - `HEAD https://example.com/no-such-page`: status 404, a response and not a failure.
+  - `http://127.0.0.1:9/`, where nothing listens: `nil` and `code` `network`, "the host cannot be reached", with Windows' reason in the system's language.
+- **Later**: `on_day` on the third day listed both files; `on_session_ended("return")` came with `menu.return`. The report counted four stretches, 1 ms in all, none over 5 ms.
+- **Seen on the way**: an error raised by the framework reaches `pcall` as a value whose `tostring` begins "runtime error:" and carries a traceback, longer than a mod would want to show; unchanged for now. The leftover `menu.start` attempt after `menu.return` noted in the Lua host's run was logged again.
+- **Not verified in the game**: a timeout (a unit test has one at 0.3 s), a body over 16 MiB, a redirect (a unit test has a 302 answered as a response), a mod whose manifest does not declare what it uses (unit tests), and a host in the manifest written wrongly.
+- **Cleanup**: the game was closed by ending its process; the test mod's data folder and descriptor were removed. Releasing the game restored the player's files, `dlc_load.json`, the autosaves and the logs among them, and found every file as the backup had it. The framework files in the game folder were replaced by this build without a copy of the ones there before; see the pull request.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
