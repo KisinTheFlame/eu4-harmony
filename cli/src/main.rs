@@ -584,6 +584,38 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_not_of_its_capability_s_shape_fails_the_test_at_its_line() {
+        let dir = temp("tests-shape");
+        let root = create_mod(&dir, "shaped", "Shaped").unwrap();
+        write(&root.join("eu4-harmony/lua/main.lua"), "return { on_frame = function(game) ARMY = game.army.get(1) end }").unwrap();
+        write(
+            &root.join("eu4-harmony/tests/main_test.lua"),
+            "test(\"a field it does not have\", function()
+  local mod = open()
+  mod:answer(\"army.get\", { id = 1, regiment = 3 })
+end)
+             test(\"a field left out\", function()
+  local mod = open()
+  mod:answer(\"army.get\", { id = 1 })
+  mod:frame()
+end)
+             test(\"a function's answer of the wrong type\", function()
+  local mod = open()
+  mod:answer(\"army.get\", function(request) return { province = \"x\" } end)
+  mod:frame()
+end)
+",
+        )
+        .unwrap();
+        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Shaped".into()).unwrap();
+        let report = &outcome.report;
+        assert_eq!((outcome.passed, outcome.failed), (1, 2), "{report}");
+        assert!(report.contains("main_test.lua:3: army.get's answer: regiment is no field of eu4.Army"), "{report}");
+        assert!(report.contains("army.get's answer: province: an integer, not a string"), "{report}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn link_points_the_launcher_at_the_mod_folder() {
         let dir = temp("link");
         let root = create_mod(&dir, "linked", "Linked").unwrap();
