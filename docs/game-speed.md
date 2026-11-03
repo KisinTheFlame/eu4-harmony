@@ -60,8 +60,8 @@ S1, S2 and S3 change nothing the player sees but how long things take, so they h
 
 ### Saves written in the background (S3)
 
-- While a local save runs, the game stores its zip's entries instead of deflating them (a zip any reader reads) and writes, checks and moves its file by its own steps, as before. The file it leaves is a whole save, only larger.
-- A thread of the framework's then deflates the file's stored entries, reads them back, and moves the result into the file's place, unless the file changed meanwhile.
+- While a local save runs, the game deflates its zip's entries at level 0, which copies them without compressing (a zip any reader reads), and writes, checks and moves its file by its own steps, as before. The file it leaves is a whole save, only larger. (The zip's "stored" method was tried first and wrote a save of zeros: the game's code for it reads past its data; research/saves.md.)
+- A thread of the framework's then checks every entry (its CRC, and that a save's own entries begin with `EU4`), deflates the uncompressed ones at level 6, reads them back, and moves the result into the file's place, unless the file changed meanwhile.
 - Every local save goes so: autosaves, the player's saves, ironman saves. Cloud saves keep the game's own path, untouched.
 - The file holds what the game would have put in it, entry by entry; its compressed bytes, and so its size, differ from what the game would have written. The game, vanilla too, and other tools read it as before; the save's own checksum is of its contents and stays right.
 - The next local save, a load and a restart wait until the thread is done. The game's exit does not: a file the thread had not finished stays stored.
@@ -116,7 +116,7 @@ The table and the iterator opened once, in `core/src/unicode/breaks.rs` and `cor
 
 ### S3 Saves written in the background
 
-Built: the game's zip entry, `0x153b9a0(zip, name, data, method, level)`, writes method 0 as stored (reading the data in chunks, with its CRC); the save asks for 8 at level 3 (zlib 1.2.3's fast setting, so a faster deflate on the main thread would gain little). The file move `0x1715bb0(from, to)` takes C strings in the folder the game writes to ([research/saves.md](research/saves.md)). Expected: about 40% of each compressed save's time on the main thread, up to 4% of the main thread late in a game with half-yearly autosaves, and a shorter pause at each. Tried in the game: an autosave, a save of the player's and an ironman save written in the background each load in vanilla and with the framework; a cloud save still reaches Steam's cloud and loads back; a load, a return and the exit right after a save wait for it.
+Built: the game's zip entry, `0x153b9a0(zip, name, data, method, level)`, takes the level the framework gives it, 0 in place of the save's 3; the save asks for method 8 at level 3 (zlib 1.2.3's fast setting, so a faster deflate on the main thread would gain little). The file move `0x1715bb0(from, to)` takes C strings in the folder the game writes to ([research/saves.md](research/saves.md)). Expected was 40% of each compressed save's time on the main thread; measured, about a sixth: level 0 still passes the data through zlib, which took 23% of a save where compressing took 39% ([performance.md](performance.md)). Tried in the game: an autosave, a save of the player's and an ironman save written in the background each load in vanilla and with the framework; a cloud save still reaches Steam's cloud and loads back; a load, a return and the exit right after a save wait for it.
 
 ### S4 No frames inside a day
 
