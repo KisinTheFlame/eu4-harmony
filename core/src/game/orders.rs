@@ -1,6 +1,6 @@
-//! Native route queries and move/stop commands for own land armies, plus the
-//! record of which extension installed which route.
-use super::{armies::RouteSource, events::Change, fail, paused, span, world, Caller, Ctx, GResult, Status, MAX_UNITS};
+//! Route queries, moving and stopping own land armies with the game's move
+//! command (ADR 0033), and the record of which extension set which route.
+use super::{armies::RouteSource, commands, events::Change, fail, paused, span, world, Caller, Ctx, Fail, GResult, Status, MAX_UNITS};
 use crate::{
     memory::Memory,
     objects::{
@@ -291,8 +291,11 @@ impl Orders {
         }
     }
 
-    /// Moves the army along the game's route to `goal`. Returns the player's
-    /// order when the caller acts as the player.
+    /// Moves the army to `goal` with the game's move command, which takes
+    /// the game's route there, as the player's right click on the map does;
+    /// refused when the game finds none. To the province it is in, it stops
+    /// the army, as the right click there does. Returns the player's order
+    /// when the caller acts as the player.
     #[expect(clippy::too_many_arguments, reason = "each is its own input to the order; a struct would only rename them")]
     pub fn move_army(
         &mut self,
@@ -305,32 +308,29 @@ impl Orders {
         caller: Caller,
     ) -> GResult<Option<Change>> {
         let before = preflight(m, ctx, army, caller)?;
-        let installed = self.with_route(m, ctx, geography, army, goal, caller, |route, header| {
-            let _own = OwnGuard::new();
-            if !route.ids.is_empty() {
-                m.call(m.at(MOVE), &[army, header, 1, 0])?;
-            } else if !before.path.ids.is_empty() {
-                m.call(m.at(STOP), &[army, 0, 0])?;
-            }
-            let after = read_path(m, army + unit::PATH)?;
-            if after.ids != route.ids {
-                return Err("installed route differs from the queried route".to_string().into());
-            }
-            Ok(after)
-        })?;
-        let Some(path) = installed else {
+        if goal == before.origin {
+            return self.stop_army(m, ctx, army, id, caller);
+        }
+        // The route query the command makes, asked first: the command does
+        // nothing, and says nothing, when it finds no route.
+        if self.with_route(m, ctx, geography, army, goal, caller, |_, _| Ok(()))?.is_none() {
             return Err(checks::no_route(goal).into());
-        };
-        Ok(self.settle(caller, id, before.origin, path))
+        }
+        order(&move_text(m.u64(army + unit::ID)?, before.origin, goal))?;
+        let after = read_path(m, army + unit::PATH)?;
+        if after.ids.last() != Some(&goal) {
+            return Err("the game's move command left the army without a route to its goal".to_string().into());
+        }
+        Ok(self.settle(caller, id, before.origin, after))
     }
 
-    /// Stops the army where it is. Returns the player's order when the caller
-    /// acts as the player.
+    /// Stops the army where it is, with the game's command that cancels its
+    /// movement, as the player's right click on the province it is in does.
+    /// Returns the player's order when the caller acts as the player.
     pub fn stop_army(&mut self, m: &Memory, ctx: &Ctx, army: usize, id: u64, caller: Caller) -> GResult<Option<Change>> {
         let before = preflight(m, ctx, army, caller)?;
         if !before.path.ids.is_empty() {
-            let _own = OwnGuard::new();
-            m.call(m.at(STOP), &[army, 0, 0])?;
+            order(&stop_text(m.u64(army + unit::ID)?))?;
         }
         if !read_path(m, army + unit::PATH)?.ids.is_empty() {
             return Err("army still has a route after stop".to_string().into());
@@ -339,12 +339,50 @@ impl Orders {
     }
 }
 
+/// The game's move command for the army with the ID `id`, in `origin`, to
+/// `goal`, as the player's right click on another province makes it: the
+/// army's route replaced, and its fleet's own orders cancelled
+/// (docs/research/army-orders.md).
+fn move_text(id: u64, origin: u32, goal: u32) -> String {
+    format!("move_order={{ unit={} province={{ {goal} }} location={origin} clear=yes cancel_autofleet=yes }}", unit_text(id))
+}
+
+/// The game's command that cancels the movement of the army with the ID
+/// `id`, as the player's right click on the province it is in makes it.
+fn stop_text(id: u64) -> String {
+    format!("cancel_movement={{ unit={} cancel_autofleet=yes reason=1 }}", unit_text(id))
+}
+
+/// An army's ID, as the game writes it: its number and its type.
+fn unit_text(id: u64) -> String {
+    format!("{{ id={} type={} }}", (id >> 32) as i32, id as u32 as i32)
+}
+
+/// Has the game carry out the army's command `text` at once, the route
+/// changes it makes the framework's own.
+fn order(text: &str) -> GResult<()> {
+    commands::post_with(text, |run| {
+        let _own = OwnGuard::new();
+        run()
+    })
+    .map_err(|refused| match refused {
+        commands::Refused::Check => Fail { status: Status::Rejected, message: "the game's command refuses it, and gives no reason".into() },
+        refused => refused.into(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn path(ids: &[u32], nodes: &[usize]) -> Path {
         Path { ids: ids.into(), nodes: nodes.into() }
+    }
+
+    #[test]
+    fn an_order_names_the_army_by_its_number_and_type() {
+        assert_eq!(move_text(12 << 32 | 54, 183, 185), "move_order={ unit={ id=12 type=54 } province={ 185 } location=183 clear=yes cancel_autofleet=yes }");
+        assert_eq!(stop_text(12 << 32 | 54), "cancel_movement={ unit={ id=12 type=54 } cancel_autofleet=yes reason=1 }");
     }
 
     #[test]

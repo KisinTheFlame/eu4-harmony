@@ -460,7 +460,7 @@ extern "C" fn modifiers_copied(frame: *mut HookFrame) {
         let (modifiers, other) = unsafe { ((*frame).args[0], (*frame).args[1]) };
         let lost = kept_modifier_sets(modifiers);
         if !lost.is_empty() {
-            #[cfg(feature = "trace")]
+            #[cfg(feature = "dev-heap-census")]
             check_listed(&m, modifiers, &lost);
             MODIFIER_SETS_WAITING_COUNT.fetch_add(lost.len(), Ordering::Relaxed);
             let mut waiting = MODIFIER_SETS_WAITING.lock().unwrap_or_else(|e| e.into_inner());
@@ -477,8 +477,8 @@ extern "C" fn modifiers_copied(frame: *mut HookFrame) {
 }
 
 /// Logs the lost sets the modifiers' own set does not list: a check, in
-/// `trace` builds, of what the repair takes the game to do.
-#[cfg(feature = "trace")]
+/// builds with the heap census, of what the repair takes the game to do.
+#[cfg(feature = "dev-heap-census")]
 fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
     let listed = (|| {
         let added = modifiers + modifiers::OWN + crate::objects::campaign::modifier_set::ADDED;
@@ -774,7 +774,7 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed),
             MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
         );
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "dev-heap-census")]
         crate::census::world_reset();
     });
 }

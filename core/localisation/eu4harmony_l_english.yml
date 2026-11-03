@@ -10,7 +10,6 @@ l_english:
  EU4HARMONY_NOT_LOADED:0 "Mod "$MOD$" was not loaded:\n$DETAIL$"
  EU4HARMONY_STOPPED:0 "The extension of mod "$MOD$" was stopped: $DETAIL$"
  EU4HARMONY_ERRORS:0 "The extension of mod "$MOD$" ran into an error. It goes on running; its log has the details."
- EU4HARMONY_TEST_NOTICE:0 "EU4 Harmony test notice $NUMBER$. Close it with the button in its corner."
  EU4HARMONY_FONT_MISSING:0 "The font "$FONT$" chosen in the EU4 Harmony settings is not installed, so $DEFAULT$ is used instead. Choose another font in the settings."
  EU4HARMONY_IRONMAN_SAVE_FAILED:0 "The ironman game could not be saved, so it was not left. Check the save folder, the free disk space or the cloud connection, and try again."
  EU4HARMONY_CONFIRM_LOAD_IRONMAN:0 "Load the save $NAME$? The current ironman game is saved first."

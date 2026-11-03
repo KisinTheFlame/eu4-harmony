@@ -7,8 +7,10 @@ Mirrors the player install instructions, with the files player-files.ps1
 lists: version.dll in the game root, the core and eu4-harmony.exe under
 eu4-harmony\. A foreign version.dll already in the root is moved to
 eu4-harmony\backup\version.dll; the proxy never
-loads it (ADR 0011), and uninstalling puts it back. The game folder is found
-by game-dir.ps1 unless -GameDir names it.
+loads it (ADR 0011), and uninstalling puts it back. The repository's
+dev.toml, a developer build's options, goes into eu4-harmony\ too; with none,
+one installed before is removed. Whichever build was built last is installed.
+The game folder is found by game-dir.ps1 unless -GameDir names it.
 #>
 param(
     [string]$GameDir = (& (Join-Path $PSScriptRoot 'game-dir.ps1')),
@@ -40,8 +42,8 @@ if ($Uninstall) {
         Write-Host "restored the backed-up version.dll to $proxyDst"
     }
     # Everything else under eu4-harmony\ is ours: the core, the command line
-    # tool, and the logs the proxy, and the core when it cannot find the user
-    # folder, write there.
+    # tool, dev.toml, and the logs the proxy, and the core when it cannot find
+    # the user folder, write there.
     if (Test-Path $harmony) { Remove-Item $harmony -Recurse -Force; Write-Host "removed $harmony" }
     Write-Host 'logs, reports and extension save data stay in Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony'
     return
@@ -62,5 +64,14 @@ $installed = foreach ($f in $PlayerFiles) {
     $to = Join-Path $root $f.Installed
     Copy-Item (Join-Path $out $f.Built) $to -Force
     "  $to"
+}
+$devOptions = Join-Path $repo 'dev.toml'
+$devInstalled = Join-Path $harmony 'dev.toml'
+if (Test-Path $devOptions) {
+    Copy-Item $devOptions $devInstalled -Force
+    $installed = @($installed) + "  $devInstalled"
+} elseif (Test-Path $devInstalled) {
+    Remove-Item $devInstalled
+    Write-Host "removed ${devInstalled}: the repository has no dev.toml"
 }
 Write-Host "installed:`n$($installed -join "`n")"

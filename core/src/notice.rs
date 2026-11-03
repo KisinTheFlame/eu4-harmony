@@ -157,10 +157,10 @@ mod tests {
     /// counts them; the next one shown has another.
     #[test]
     fn a_notice_keeps_its_number_while_more_wait() {
-        post("test:first", Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", "1"));
+        post("test:first", Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "1").arg("DETAIL", "d"));
         let first = current().unwrap();
-        post("test:second", Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", "2"));
-        post("test:second", Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", "2"));
+        post("test:second", Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "2").arg("DETAIL", "d"));
+        post("test:second", Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "2").arg("DETAIL", "d"));
         let again = current().unwrap();
         assert_eq!((again.number, &again.text), (first.number, &first.text));
         assert_ne!(again.title, first.title, "the title counts the notice waiting");

@@ -37,8 +37,6 @@ pub mod classes {
     pub const FLEET: usize = 0x1cca7e0;
     pub const MAP_MANAGER: usize = 0x1cb8460;
     pub const IDLE_TASK: usize = 0x1d1e800;
-    /// The recruit command (see [`super::recruit_command`]).
-    pub const RECRUIT_COMMAND: usize = 0x1c4dff8;
     /// A kind of regiment or ship (see [`super::unit_type`]); the placeholder
     /// for none, `---`, has a class of its own.
     pub const UNIT_TYPE: usize = 0x1ce3830;
@@ -468,17 +466,6 @@ pub mod side {
     /// Its units, a [`super::list`], and their count (i32).
     pub const UNITS: usize = 0xe8;
     pub const COUNT: usize = 0xf8;
-}
-
-/// The recruit command, of class [`classes::RECRUIT_COMMAND`]
-/// (docs/research/provinces.md).
-pub mod recruit_command {
-    /// Its size, as the recruit button allocates it.
-    pub const SIZE: usize = 0xa0;
-    /// Its methods, by vtable offset: the destructor (command, flags) and the
-    /// check (command).
-    pub const DESTROY: usize = 0;
-    pub const CHECK: usize = 0x40;
 }
 
 /// The map manager, at [`world::MAP_MANAGER`].
@@ -1024,7 +1011,6 @@ pub fn points() -> Vec<Point> {
         // unless the player plays on (docs/research/time.md).
         Point::keep(0x8105bbusize, "8b 05 67 1d 7b 01 39 87 d0 1d 00 00 7e 0d 80 bf d8 1d 00 00 00 0f 84 25 02 00 00", "resume past the end date")
             .uses(&[END_DATE, world::DATE, world::PLAY_ON]),
-        Point::keep(0x26ce8eusize, "48 8d 05 63 11 9e 01 48 89 01", "recruit command class").uses(&[classes::RECRUIT_COMMAND]),
         // A province's snapshot (docs/research/provinces.md). The province
         // writer in saves: its name.
         Point::keep(0x9d6fb0usize, "49 8b 5f 28 48 83 c3 10", "province name").uses(&[province::GEOMETRY, geometry::NAME]),

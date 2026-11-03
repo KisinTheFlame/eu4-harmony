@@ -102,6 +102,10 @@ pub fn game_frame() {
         Ok(frame) => {
             unplayable().read();
             repairs::session_frame();
+            #[cfg(feature = "dev-test-switches")]
+            if frame.new_session {
+                game::commands::post_test_commands();
+            }
             lua::frame(&frame);
             game::menu::set_at(At::Game);
             remote::run_in_game(&frame);

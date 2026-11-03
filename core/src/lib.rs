@@ -14,8 +14,12 @@ pub mod stub;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
 pub mod baseline;
-#[cfg(feature = "trace")]
+#[cfg(feature = "dev-heap-census")]
 pub mod census;
+#[cfg(feature = "dev-command-log")]
+mod command_log;
+#[cfg(any(test, dev_build))]
+pub mod dev;
 pub mod files;
 pub mod framework_ui;
 pub mod game;
@@ -44,7 +48,7 @@ pub mod safe_point;
 pub mod saves;
 pub mod settings;
 pub mod splice;
-#[cfg(feature = "trace")]
+#[cfg(feature = "dev-call-trace")]
 mod trace;
 pub mod ui;
 pub mod unicode;
@@ -126,19 +130,24 @@ pub(crate) fn points() -> Vec<points::Point> {
 fn start(m: memory::Memory) -> Result<String> {
     let baseline = baseline::recognize(&m)?;
     icu::load()?;
-    // Lets the failure path be tried on a supported game: run eu4.exe with it set.
-    if std::env::var_os("EU4HARMONY_FAIL_STARTUP").is_some() {
-        return Err("EU4HARMONY_FAIL_STARTUP is set".into());
+    #[cfg(dev_build)]
+    dev::load(GAME_DIR.get().map_or(std::path::Path::new(""), |d| d.as_path()))?;
+    #[cfg(feature = "dev-test-switches")]
+    if dev::options().test_switches.fail_startup {
+        return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    let all = points();
-    #[cfg(feature = "trace")]
-    let all: Vec<_> = {
-        let all: Vec<_> = all.into_iter().chain(census::points(&m)).collect();
+    #[cfg_attr(not(any(feature = "dev-heap-census", feature = "dev-call-trace")), expect(unused_mut, reason = "only the development tools add points"))]
+    let mut all = points();
+    #[cfg(feature = "dev-heap-census")]
+    all.extend(census::points(&m));
+    #[cfg(feature = "dev-call-trace")]
+    {
         let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
-        let room = hooks::observer_slots().saturating_sub(observers);
-        all.into_iter().chain(trace::points(&m, room)).collect()
-    };
+        all.extend(trace::points(&m, hooks::observer_slots().saturating_sub(observers)));
+    }
     let installed = points::install(m, &all)?;
+    #[cfg(feature = "dev-command-log")]
+    command_log::start();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
 }
 
@@ -156,7 +165,7 @@ fn bootstrap() -> Result<()> {
     MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
-    log!("eu4-harmony core {} (api {}) bootstrap in {}", env!("CARGO_PKG_VERSION"), eu4_harmony_remote::API_VERSION, game_dir.display());
+    log!("eu4-harmony core {}{} bootstrap in {}", env!("CARGO_PKG_VERSION"), build(), game_dir.display());
     let _ = GAME_DIR.set(game_dir);
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
     let _ = MEMORY.set(m);
@@ -179,11 +188,25 @@ fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
     logs
 }
 
-/// The report's first lines: this core, and the game folder when it is known.
+/// What this core is, after its version: its api, and in a developer build
+/// that it is one and its tools.
+fn build() -> String {
+    let api = format!(" (api {})", eu4_harmony_remote::API_VERSION);
+    #[cfg(dev_build)]
+    let api = format!("{api}, {}", dev::build());
+    api
+}
+
+/// The report's first lines: this core, and the game folder when it is known;
+/// in a developer build, its tools' options.
 fn report_header(game_dir: Option<&std::path::Path>) {
-    report::line(format!("EU4 Harmony core {} (api {}), started {}", env!("CARGO_PKG_VERSION"), eu4_harmony_remote::API_VERSION, log::now()));
+    report::line(format!("EU4 Harmony core {}{}, started {}", env!("CARGO_PKG_VERSION"), build(), log::now()));
     if let Some(dir) = game_dir {
         report::line(format!("game: {}", dir.display()));
+    }
+    #[cfg(dev_build)]
+    for line in dev::report_lines() {
+        report::line(line);
     }
 }
 
@@ -251,8 +274,9 @@ fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec
             notice::post(&format!("skipped:{}", note.text), message.clone());
         }
     }
-    // Lets the notice window be tried without a broken mod: run eu4.exe with it set.
-    if std::env::var_os("EU4HARMONY_TEST_NOTICE").is_some() {
+    // Lets the notice window be tried without a broken mod.
+    #[cfg(feature = "dev-test-switches")]
+    if dev::options().test_switches.test_notice {
         for number in ["1", "2"] {
             notice::post(&format!("test:{number}"), notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
         }

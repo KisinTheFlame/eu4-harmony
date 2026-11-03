@@ -337,6 +337,8 @@ Which thread draws the loading screen while a save loads from the main menu ([sa
 3. Even in single player, the local handler (`0x1580370`) writes the command out and makes the command that runs from that copy, as a network command would be. So the check runs on "a command object of its own" ([recruiting.md](recruiting.md)).
 4. In the next in-game frame, `CSession::Update` `0x14ca360` executes the queued commands (`0x14ca870`, the main thread only): it asks the check again and drops a command that fails it ("Discarding invalid command!"), then calls before, execute and after.
 
+Commands' written form, the factory and the one place every executed command passes: [commands.md](commands.md).
+
 **What is not a command.** The game console's handlers change the state directly; the console is refused in multiplayer and ironman ([game-console.md](game-console.md)), and the checksum records whether it was used. In single player the pause key toggles the pause directly ([time.md](time.md)).
 
 **Session kinds** (`server.cpp`), by the session's configuration (`0x14c83e0`):
