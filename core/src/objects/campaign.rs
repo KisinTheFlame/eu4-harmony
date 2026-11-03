@@ -56,6 +56,8 @@ pub mod classes {
     pub const NULL_LEADER: usize = 0x1cbc158;
     /// The agent at the top of a country's AI (see [`super::ai_king`]).
     pub const AI_KING: usize = 0x1c3e9e0;
+    /// A set of modifiers, by value (see [`super::modifiers`]).
+    pub const MODIFIER_SET: usize = 0x1c42ae0;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -520,6 +522,27 @@ pub mod map_manager {
     pub const MESSAGE_ICON_HOLDER_SIZE: usize = 0x7000;
 }
 
+/// A country's modifiers, at `+0x28c8`, which the country makes again in
+/// place as they change, and copies whole from ones it makes on the stack.
+pub mod modifiers {
+    /// Sets of modifiers they copy from others and add to their own, a vector
+    /// of pointers to [`super::classes::MODIFIER_SET`]s nothing else owns.
+    /// Their destructor frees the vector, not the sets; their copy copies
+    /// the pointers.
+    pub const COPIES: usize = 0x6440;
+    /// Their own set, the [`super::modifier_set`] the copies are added to.
+    pub const OWN: usize = 8;
+}
+
+/// A set of modifiers, the base of [`classes::MODIFIER_SET`] and of the sets
+/// a country's modifiers hold.
+pub mod modifier_set {
+    /// The sets added to it, a vector of pointers it does not own. A set's
+    /// copy leaves the destination's as it was; its destructor frees the
+    /// vector.
+    pub const ADDED: usize = 0x38;
+}
+
 /// The map modes' panel, at the map manager's `+0x2448`, which the game
 /// lets go with `0x81de20`: it hides its window and takes it off the map
 /// manager's windows, and never kills it.
@@ -686,6 +709,21 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1290618usize, "49 8b 8f b0 04 00 00 48 85 c9 74 06 48 8b 01 ff 50 48", "outliner view emptied").uses(&[outliner::VIEW, outliner::VIEW_EMPTIED]),
         Point::keep(0x81dcb8usize, "48 8d 4b 18 4c 8d 0d 1d f0 a6 00 ba 28 00 00 00 44 8d 42 f2", "outliner categories' nodes let go")
             .uses(&[outliner::CATEGORIES, outliner::CATEGORY_SIZE]),
+        // A country's modifiers keep the sets they copy, and their destructor
+        // frees only the vector.
+        Point::keep(0x931d69usize, "48 8b 5d 67 48 8b 0b 48 81 c1 40 64 00 00 48 8b 51 08 48 3b 51 10 74 14 4c 89 2a", "modifier copies kept")
+            .uses(&[modifiers::COPIES]),
+        Point::keep(0x93ae6dusize, "48 8d 8b 40 64 00 00 e8 47 3c 75 ff", "modifier copies' vector freed").uses(&[modifiers::COPIES]),
+        Point::keep(0x3eaf2busize, "48 8d 05 ae 7b 85 01", "modifier set copied").uses(&[classes::MODIFIER_SET]),
+        Point::keep(0x931da2usize, "48 8b 0b 48 83 c1 08 49 8b d5 e8 6f 86 fb ff", "modifier copy added to the modifiers' own set").uses(&[modifiers::OWN]),
+        Point::keep(0x8ea5ccusize, "48 8b 55 40 48 8d 4d 38 4c 8b 7c 24 20", "modifier set added to a set's list").uses(&[modifier_set::ADDED]),
+        Point::keep(0x943bdusize, "48 8d 4b 38 48 89 43 50 c7 43 64 00 00 00 00 e8 ef a6 ff ff", "modifier set's list freed").uses(&[modifier_set::ADDED]),
+        // The modifiers' copy copies their own set by a set's copy, which
+        // copies its name, its shared sets and its values, and leaves the
+        // destination's list of sets added as it was.
+        Point::keep(0x3296c9usize, "48 8b f9 48 83 c1 08 48 83 c2 08 e8 f7 0b 5c 00", "modifiers' own set copied").uses(&[modifiers::OWN]),
+        Point::keep(0x8ea2d0usize, "40 53 55 57 48 83 ec 20 48 8b 02 48 8b e9 48 8b ca 48 8b fa ff 50 40", "modifier set copy"),
+        Point::keep(0x8ea316usize, "33 db 48 8d 97 a8 00 00 00 48 8d 8d a8 00 00 00 89 5d 64", "modifier set copy's shared sets and values"),
         // An agent of the AI that retires leaves its parent's agents for
         // those retired, which the parent's update deletes; the parent's
         // destructor lets both lists' nodes go.
