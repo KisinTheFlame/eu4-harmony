@@ -245,6 +245,10 @@ pub fn frame(state: &game::Frame) {
             game::Heard::Session(session) => {
                 let loaded = saves::take_loaded();
                 log!("session {session} started (from a loaded save: {})", loaded.is_some());
+                for e in all {
+                    e.take_session_times();
+                }
+                *SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Clocks::now());
                 saves::replace_all(loaded.unwrap_or_default());
                 for e in all {
                     let saved = saves::get(e.id()).unwrap_or(serde_json::Value::Null);
@@ -292,6 +296,57 @@ pub fn session_ended(reason: u32) {
     for e in extensions() {
         e.handle("on_session_ended", &[Arg::Text(word.into())]);
         e.session_over();
+    }
+    let Some(began) = SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+    let now = Clocks::now();
+    let (wall, main, game) = (now.wall - began.wall, now.main.saturating_sub(began.main), now.game.saturating_sub(began.game));
+    let share = |part: Duration, of: Duration| if of.is_zero() { 0.0 } else { part.as_secs_f64() / of.as_secs_f64() * 100.0 };
+    for e in extensions() {
+        let t = e.take_session_times();
+        log!(
+            "{}, the session: {}; {:.2}% of its {:.1} s, {:.2}% of the main thread's {:.1} s of CPU, {:.2}% of the game's {:.1} s of CPU",
+            e.id(),
+            t.summary(),
+            share(t.total, wall),
+            wall.as_secs_f64(),
+            share(t.total, main),
+            main.as_secs_f64(),
+            share(t.total, game),
+            game.as_secs_f64()
+        );
+    }
+}
+
+/// A session's clocks: the time, and the CPU time the game's main thread and
+/// the whole game have had, to set what extensions took against.
+struct Clocks {
+    wall: Instant,
+    main: Duration,
+    game: Duration,
+}
+
+/// The clocks when the session going on began.
+static SESSION_CLOCKS: Mutex<Option<Clocks>> = Mutex::new(None);
+
+impl Clocks {
+    /// Read on the main thread, which sessions start and end on.
+    fn now() -> Self {
+        use windows_sys::Win32::{
+            Foundation::FILETIME,
+            System::Threading::{GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes},
+        };
+        let zero = || FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let time = |t: FILETIME| Duration::from_nanos((u64::from(t.dwHighDateTime) << 32 | u64::from(t.dwLowDateTime)) * 100);
+        let (mut created, mut exited, mut kernel, mut user) = (zero(), zero(), zero(), zero());
+        let main = match unsafe { GetThreadTimes(GetCurrentThread(), &mut created, &mut exited, &mut kernel, &mut user) } {
+            0 => Duration::ZERO,
+            _ => time(kernel) + time(user),
+        };
+        let game = match unsafe { GetProcessTimes(GetCurrentProcess(), &mut created, &mut exited, &mut kernel, &mut user) } {
+            0 => Duration::ZERO,
+            _ => time(kernel) + time(user),
+        };
+        Clocks { wall: Instant::now(), main, game }
     }
 }
 
