@@ -97,7 +97,7 @@ Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of
 | `remote/` | The capability catalogue: remote control's requests and responses, their JSON form and a description of every capability, saying which extensions have too, shared by the core and the command line tool |
 | `checks/` | The checks the framework makes of a capability's call itself, with the status and words of each refusal, shared by the core and `remote/`; and the game's calendar |
 | `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes |
-| `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus tools for backing up the player's files around a test run, input, screenshots, disassembly, crash dumps and call tracing, see [tools/README.md](tools/README.md) |
+| `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus tools for backing up the player's files around a test run, measuring what the framework costs, disassembly, crash dumps and call tracing, see [tools/README.md](tools/README.md) |
 | `docs/` | The design, ADRs, research, in-game test records and [what the framework costs the game](docs/performance.md) |
 
 Code, comments and documentation are in English. [README.zh-CN.md](README.zh-CN.md) is a Chinese translation of this file; the rest of the documentation is English only. Rules for working in this repository, for people and coding agents alike, are in [AGENTS.md](AGENTS.md).
