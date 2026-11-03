@@ -1044,6 +1044,18 @@ L4 of [lua-extensions.md](lua-extensions.md): the mods window in the main menu. 
 - **Not verified in the game**: a playset without Harmony mods ("当前启用的 Mod 中没有 EU4 Harmony Mod。", a unit test), the wheel elsewhere over the window leaving the list where it is (a unit test), the other four languages, a smaller screen.
 - **Cleanup**: each game was closed by ending its process; the test mods' descriptors were removed. Releasing the game restored the player's files, `dlc_load.json` and the logs among them, and found every file as the backup had it. The framework files in the game folder are this build, as after the run before.
 
+## 2026-11-03 The Lua host in a crate of its own (tested by me)
+
+L5 of [lua-extensions.md](lua-extensions.md): the Lua host moved into `lua/` behind its `Host` trait, with the core's live host as the running game, tried again with what the Lua host and the sensitive capabilities runs tried. A test mod made by `eu4-harmony new l5-host`, declaring `clock`, `files` and `network = ["example.com"]`, registered with `eu4-harmony link` and added to the player's playset in `dlc_load.json`. One run of `eu4.exe`, started directly, driven by `eu4-harmony game`: a new game as Castile, time advanced past 1445.1.1 with the questions on the way answered, `menu.load autosave`, `menu.return`. The game was claimed with the game-lock skill, which backed up the player's files first.
+
+- **At the top of main.lua**: `os.date`, `files.write` and `files.read` worked; `http.fetch` raised "waits for its answer, which it cannot do here".
+- **From on_session**: `saved` nil; `game.session.get()` answered CAS on 1444.11.11; the button's tooltip set from `text.get`. Two tasks started with `spawn` waited while `on_session` returned: `game.diplomacy.propose_alliance("POR")` was taken up with `{ answer = "accepted" }`, `http.fetch("https://example.com/")` with 200 and 577 bytes, through the system's proxy.
+- **An error**: thrown on the third day, logged with its traceback, and the core logged it for the player's notice; the mod was called on the days after.
+- **Save data**: the autosave of 1445.1.1 called `on_save` ("saves: wrote the data of 1 extension(s)"); `menu.load autosave` called `on_session_ended("load")`, then `on_session` with `{"days":50,"note":"l5"}`, what `on_save` had returned. There `propose_alliance` answered `nil, rejected` at once (an ally already), and the request again 200. `on_session_ended("return")` came with `menu.return`.
+- **Cost**: the report counted 10,602 stretches, 520 ms in all, the longest 10 ms, three over 5 ms (the session's first frames).
+- **Not verified in the game**: as before, the time limit, `game.map.paint`, a click on the button and an extension that fails to load (unit tests have the first two); `eu4-harmony test` and the fake game do not reach the game.
+- **Cleanup**: the game was closed by ending its process; the test mod's descriptor and data folder were removed. Releasing the game restored the player's files, `dlc_load.json`, the autosaves and the logs among them, and found every file as the backup had it.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

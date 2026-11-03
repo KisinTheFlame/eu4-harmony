@@ -1,19 +1,12 @@
 //! `http.fetch(url, options)`, the `network` sensitive capability (ADR 0025):
-//! an HTTP or HTTPS request to a host the manifest lists, sent by reqwest
-//! while the task that sent it waits (ADR 0030). Every extension's requests
-//! go from one thread of the framework's.
+//! an HTTP or HTTPS request to a host the manifest lists, which the host
+//! sends while the task that sent it waits (ADR 0030). Here: what the
+//! manifest allows, what the options ask for, and the answer as Lua gets it.
 //!
-//! Redirects are not followed, so a request never reaches a host the
-//! manifest does not list: a 3xx is a response like any other. The system's
-//! proxy settings are used, and its certificates, through SChannel.
+//! The host follows no redirect, so a request never reaches a host the
+//! manifest does not list: a 3xx is a response like any other.
 use mlua::{Lua, MultiValue, Table, Value as LuaValue};
-use std::{
-    sync::{
-        mpsc::{self, Receiver, TryRecvError},
-        OnceLock,
-    },
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 /// `timeout` when left out, and the most it may be.
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -23,13 +16,22 @@ const LONGEST: Duration = Duration::from_secs(300);
 pub const LARGEST: usize = 16 << 20;
 
 /// Where a URL sends its request.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
-    secure: bool,
-    host: String,
-    port: u16,
+    pub secure: bool,
+    /// A name or an address, lowercased; an IPv6 address in brackets.
+    pub host: String,
+    pub port: u16,
     /// The path and query, `/` at least; no fragment.
-    path: String,
+    pub path: String,
+}
+
+impl Target {
+    /// The URL to send to, with its port written out.
+    pub fn url(&self) -> String {
+        let scheme = if self.secure { "https" } else { "http" };
+        format!("{scheme}://{}:{}{}", self.host, self.port, self.path)
+    }
 }
 
 /// A URL's target: `http://` or `https://`, a host, and the rest.
@@ -66,17 +68,20 @@ pub fn listed(target: &Target, hosts: &[String]) -> bool {
     hosts.iter().filter_map(|h| eu4_harmony_manifest::host(h).ok()).any(|(host, port)| host == target.host && port.unwrap_or(default) == target.port)
 }
 
-/// What `options` asks for.
+/// A request the manifest allows, as `options` asks for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
-    method: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
-    timeout: Duration,
+    pub target: Target,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+    pub timeout: Duration,
 }
 
-/// The request `options` describes: `method`, `headers`, `body`, `timeout`.
-pub fn request(options: Option<Table>) -> Result<Request, String> {
-    let mut request = Request { method: "GET".into(), headers: Vec::new(), body: Vec::new(), timeout: TIMEOUT };
+/// The request to `target` that `options` describes: `method`, `headers`,
+/// `body`, `timeout`.
+pub fn request(target: Target, options: Option<Table>) -> Result<Request, String> {
+    let mut request = Request { target, method: "GET".into(), headers: Vec::new(), body: Vec::new(), timeout: TIMEOUT };
     let Some(options) = options else { return Ok(request) };
     let token = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c));
     for pair in options.pairs::<String, LuaValue>() {
@@ -125,59 +130,27 @@ fn timeout(seconds: f64) -> Result<Duration, String> {
 }
 
 /// A response, whatever its status.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response {
-    status: u32,
+    pub status: u32,
     /// Lowercased names; a header given more than once joined with `, `.
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
 }
 
 /// Why no response came.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Failure {
     Timeout,
     Network(String),
     TooLarge,
 }
 
-/// A request on its way.
-pub struct Pending {
-    answer: Receiver<Result<Response, Failure>>,
-    deadline: Instant,
-}
-
-impl Pending {
-    /// Its answer, once it has come or its time is up.
-    pub fn poll(&mut self) -> Option<Result<Response, Failure>> {
-        match self.answer.try_recv() {
-            Ok(answer) => Some(answer),
-            Err(TryRecvError::Disconnected) => Some(Err(Failure::Network("the request ended without an answer".into()))),
-            Err(TryRecvError::Empty) if Instant::now() >= self.deadline => Some(Err(Failure::Timeout)),
-            Err(TryRecvError::Empty) => None,
-        }
-    }
-}
-
-/// Sends the request from the framework's thread for them.
-pub fn start(target: Target, request: Request) -> Pending {
-    let (tell, answer) = mpsc::channel();
-    let deadline = Instant::now() + request.timeout;
-    match sender() {
-        Ok((runtime, client)) => {
-            runtime.spawn(async move {
-                let _ = tell.send(send(client, &target, &request).await);
-            });
-        }
-        Err(e) => {
-            let _ = tell.send(Err(Failure::Network(format!("no request can be sent: {e}"))));
-        }
-    }
-    Pending { answer, deadline }
-}
+/// What a request comes to.
+pub type Answer = Result<Response, Failure>;
 
 /// The answer as `http.fetch` returns it: `response`, or `nil, err`.
-pub fn answer(lua: &Lua, answer: Result<Response, Failure>) -> mlua::Result<MultiValue> {
+pub fn answer(lua: &Lua, answer: Answer) -> mlua::Result<MultiValue> {
     match answer {
         Ok(response) => {
             let headers = lua.create_table()?;
@@ -202,76 +175,6 @@ pub fn answer(lua: &Lua, answer: Result<Response, Failure>) -> mlua::Result<Mult
             Ok(MultiValue::from_iter([LuaValue::Nil, LuaValue::Table(err)]))
         }
     }
-}
-
-// ---------- sending ----------
-
-/// The thread requests are sent from, as a tokio runtime, and the client
-/// that sends them: made with the first request.
-fn sender() -> Result<&'static (tokio::runtime::Handle, reqwest::Client), &'static str> {
-    static SENDER: OnceLock<Result<(tokio::runtime::Handle, reqwest::Client), String>> = OnceLock::new();
-    let made = SENDER.get_or_init(|| {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
-        let handle = runtime.handle().clone();
-        let client = {
-            let _inside = handle.enter();
-            reqwest::Client::builder()
-                .user_agent(concat!("EU4 Harmony/", env!("CARGO_PKG_VERSION")))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|e| e.to_string())?
-        };
-        std::thread::Builder::new().name("eu4harmony-http".into()).spawn(move || runtime.block_on(std::future::pending::<()>())).map_err(|e| e.to_string())?;
-        Ok((handle, client))
-    });
-    made.as_ref().map_err(String::as_str)
-}
-
-/// Sends the request and reads its response.
-async fn send(client: &reqwest::Client, target: &Target, request: &Request) -> Result<Response, Failure> {
-    let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|e| Failure::Network(e.to_string()))?;
-    let scheme = if target.secure { "https" } else { "http" };
-    let url = format!("{scheme}://{}:{}{}", target.host, target.port, target.path);
-    let mut sending = client.request(method, url).timeout(request.timeout).body(request.body.clone());
-    for (name, value) in &request.headers {
-        sending = sending.header(name, value);
-    }
-    let mut response = sending.send().await.map_err(failure)?;
-    let status = u32::from(response.status().as_u16());
-    let mut headers: Vec<(String, String)> = Vec::new();
-    for (name, value) in response.headers() {
-        let value = String::from_utf8_lossy(value.as_bytes());
-        match headers.iter_mut().find(|(n, _)| n == name.as_str()) {
-            Some((_, joined)) => {
-                joined.push_str(", ");
-                joined.push_str(&value);
-            }
-            None => headers.push((name.as_str().to_string(), value.into_owned())),
-        }
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(failure)? {
-        if body.len() + chunk.len() > LARGEST {
-            return Err(Failure::TooLarge);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(Response { status, headers, body })
-}
-
-/// Why reqwest got no response, with the causes it gives.
-fn failure(e: reqwest::Error) -> Failure {
-    if e.is_timeout() {
-        return Failure::Timeout;
-    }
-    let mut message = if e.is_connect() { "the host cannot be reached".to_string() } else { "the request failed".to_string() };
-    let mut cause = std::error::Error::source(&e);
-    while let Some(c) = cause {
-        message.push_str(": ");
-        message.push_str(&c.to_string());
-        cause = c.source();
-    }
-    Failure::Network(message)
 }
 
 #[cfg(test)]
