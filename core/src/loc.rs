@@ -139,7 +139,7 @@ api_version = \"0.2\"",
         let language = lang::Decision { player: Language::German, game: Language::English, reason: String::new() };
         let notes = install(&language, &[&m], &mut plan);
         assert!(notes.is_empty(), "{notes:?}");
-        let additions = plan.for_file("localisation/text_l_english.yml").unwrap();
+        let additions = plan.for_file("localisation/text_l_english.yml", b"");
         let Addition::Append(text) = &additions[0] else { panic!() };
         assert!(text.contains(" T_APPLY:0 \"Übernehmen\"\n") && text.contains(" T_ONLY:0 \"English\"\n"), "{text}");
         assert_eq!(mod_text("t", "T_APPLY").as_deref(), Some("Apply"));

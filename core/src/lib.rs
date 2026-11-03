@@ -16,6 +16,7 @@ pub mod analysis;
 pub mod baseline;
 #[cfg(feature = "trace")]
 pub mod census;
+pub mod files;
 pub mod framework_ui;
 pub mod game;
 pub mod game_string;
@@ -108,6 +109,7 @@ pub(crate) fn fatal(detail: &str) -> ! {
 /// Every dependency point, in one declaration list.
 pub(crate) fn points() -> Vec<points::Point> {
     let mut all = physfs::points();
+    all.extend(files::points());
     all.extend(objects::points());
     all.extend(game_string::points());
     all.extend(game::points());
@@ -223,7 +225,7 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
         log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
         notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
     }
-    for face in [&chosen.body_font, &chosen.heading_font, &chosen.map_font] {
+    for face in chosen.fonts() {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
             log!("settings: the font {:?} has no weight {}; {} draws instead", face.family, face.weight, drawn.weight);
         }
@@ -325,7 +327,7 @@ pub(crate) fn deferred_init() {
     for note in &loc_notes {
         log!("localisation: {note}");
     }
-    let outcomes = lua::load(&mods, &logs);
+    let outcomes = lua::load(&mods, &logs, &user_dir.join("eu4-harmony").join("data"));
     saves::keep_for(lua::mod_ids());
     let indices = lua::extension_indices(&mods);
     let included = |i: usize| outcomes[i].included;
@@ -333,6 +335,7 @@ pub(crate) fn deferred_init() {
     for note in &ui_notes {
         log!("ui: {note}");
     }
+    unicode::framework_fonts::plan(&mut plan);
     log!("splice plan ready: {} mod element(s), {} button slot(s)", plan.elements.len(), plan.slots);
     let notes: Vec<String> = discovery_notes
         .iter()

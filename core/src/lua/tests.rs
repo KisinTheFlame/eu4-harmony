@@ -66,15 +66,186 @@ fn the_sandbox_has_lua_s_own_libraries_and_nothing_of_the_system() {
     .unwrap();
     assert_eq!(
         text(e.lua.globals().get("SEEN").unwrap()),
-        "io=nil debug=nil package=nil dofile=nil loadfile=nil collectgarbage=function string.dump=nil os.clock=function os.time=nil os.execute=nil bytecode=nil"
+        "io=nil debug=nil package=nil dofile=nil loadfile=nil collectgarbage=function string.dump=nil os.clock=function os.time=function os.execute=nil bytecode=nil"
     );
 }
 
 #[test]
-fn the_clock_is_there_when_declared() {
+fn the_clock_tells_the_time_only_when_declared() {
     let manifest = "id = \"t\"\napi_version = \"0.2\"\npermissions = { clock = true }";
-    let e = load_one("clock", "TIME = type(os.time) .. type(os.date) return {}", &[("eu4-harmony/manifest.toml", manifest)]).unwrap();
-    assert_eq!(text(e.lua.globals().get("TIME").unwrap()), "functionfunction");
+    let e = load_one("clock", "TIME = math.type(os.time()) .. ' ' .. os.date('%Y'):len() return {}", &[("eu4-harmony/manifest.toml", manifest)]).unwrap();
+    assert_eq!(text(e.lua.globals().get("TIME").unwrap()), "integer 4");
+    let undeclared =
+        load_one("no-clock", "WHY = tostring(select(2, pcall(os.time))) .. ' | ' .. tostring(select(2, pcall(os.date, '%Y'))) return {}", &[]).unwrap();
+    let why = text(undeclared.lua.globals().get("WHY").unwrap());
+    assert!(why.contains("os.time: the manifest does not declare the clock permission (permissions = { clock = true }"), "{why}");
+    assert!(why.contains("os.date: the manifest does not declare the clock permission"), "{why}");
+}
+
+/// The folder data folders are made in, in a test.
+fn data_dir() -> PathBuf {
+    DATA_DIR.get_or_init(|| std::env::temp_dir().join(format!("eu4h-lua-data-{}", std::process::id()))).clone()
+}
+
+#[test]
+fn files_keep_the_extension_s_data_in_its_own_folder() {
+    let folder = data_dir().join("keeper");
+    let _ = std::fs::remove_dir_all(&folder);
+    let manifest = "id = \"keeper\"\napi_version = \"0.2\"\npermissions = { files = true }";
+    let e = load_one(
+        "data",
+        r#"
+        local seen = {}
+        seen[#seen + 1] = table.concat(files.list(), ",")
+        local missing, err = files.read("cache/routes.json")
+        seen[#seen + 1] = tostring(missing) .. " " .. err.code
+        seen[#seen + 1] = tostring(files.write("cache/routes.json", json.encode({ 151, 152 })))
+        files.write("cache/routes.json", "[151]")
+        files.write("notes.txt", "x")
+        seen[#seen + 1] = files.read("cache/routes.json")
+        seen[#seen + 1] = table.concat(files.list(), ",") .. " " .. table.concat(files.list("cache"), ",")
+        seen[#seen + 1] = tostring(files.remove("cache/routes.json")) .. " " .. select(2, files.remove("cache/routes.json")).code
+        seen[#seen + 1] = tostring(files.remove("cache")) .. " " .. table.concat(files.list(), ",")
+        seen[#seen + 1] = tostring(select(2, pcall(files.write, "../escape.txt", "x")))
+        seen[#seen + 1] = tostring(select(2, pcall(files.read, "nul")))
+        SEEN = table.concat(seen, " | ")
+        return {}
+        "#,
+        &[("eu4-harmony/manifest.toml", manifest)],
+    )
+    .unwrap();
+    let seen = text(e.lua.globals().get("SEEN").unwrap());
+    let parts: Vec<&str> = seen.split(" | ").collect();
+    assert_eq!(parts[..7], ["", "nil not_found", "true", "[151]", "cache/,notes.txt routes.json", "true not_found", "true notes.txt"], "{seen}");
+    assert!(parts[7].contains("not a relative path of file names") && parts[8].contains("not a relative path of file names"), "{seen}");
+    assert_eq!(std::fs::read_to_string(folder.join("notes.txt")).unwrap(), "x");
+    let _ = std::fs::remove_dir_all(&folder);
+
+    let undeclared = load_one("no-data", "WHY = select(2, pcall(files.read, 'x')) return {}", &[]).unwrap();
+    let why = text(undeclared.lua.globals().get("WHY").unwrap());
+    assert!(why.contains("files.read: the manifest does not declare the files permission (permissions = { files = true }"), "{why}");
+}
+
+/// A server on this machine that answers one request with `answer` (or
+/// never, for none) and tells what it was asked.
+fn serve_once(answer: Option<&'static str>) -> (u16, std::sync::mpsc::Receiver<String>) {
+    use std::io::{Read as _, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tell, asked) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0u8; 4096];
+        while let Ok(n) = stream.read(&mut buffer) {
+            request.extend_from_slice(&buffer[..n]);
+            let text = String::from_utf8_lossy(&request).to_string();
+            if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()));
+                if body.len() >= length.unwrap_or(0) {
+                    break;
+                }
+            }
+            if n == 0 {
+                break;
+            }
+        }
+        let _ = tell.send(String::from_utf8_lossy(&request).to_string());
+        match answer {
+            Some(answer) => {
+                let _ = stream.write_all(answer.as_bytes());
+            }
+            None => std::thread::sleep(Duration::from_secs(5)),
+        }
+    });
+    (port, asked)
+}
+
+/// Polls `e`'s waiting tasks until the global `name` is set.
+fn poll_until(e: &Extension, name: &str) -> LuaValue {
+    let started = Instant::now();
+    loop {
+        e.poll();
+        let value: LuaValue = e.lua.globals().get(name).unwrap();
+        if !value.is_nil() || started.elapsed() > Duration::from_secs(10) {
+            return value;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn a_request_waits_for_its_response_and_the_task_goes_on() {
+    let (port, asked) =
+        serve_once(Some("HTTP/1.1 201 Created\r\nX-Rank: 3\r\nSet-Cookie: a=1\r\nset-cookie: b=2\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"));
+    let manifest = format!("id = \"t\"\napi_version = \"0.2\"\npermissions = {{ network = [\"127.0.0.1:{port}\"] }}");
+    let main = format!(
+        r#"
+        return {{
+          on_frame = function(game)
+            local response, err = http.fetch("http://127.0.0.1:{port}/score?x=1", {{
+              method = "post", headers = {{ ["Content-Type"] = "application/json" }}, body = '{{"a":1}}', timeout = 5,
+            }})
+            GOT = response.status .. " " .. response.headers["x-rank"] .. " " .. response.headers["set-cookie"] .. " " .. response.body
+          end,
+        }}
+        "#
+    );
+    let e = load_one("fetch", &main, &[("eu4-harmony/manifest.toml", &manifest)]).unwrap();
+    e.handle("on_frame", none);
+    assert_eq!(e.state().tasks.len(), 1, "{:?}", errors(&e));
+    assert_eq!(text(poll_until(&e, "GOT")), "201 3 a=1, b=2 hello", "{:?}", errors(&e));
+    let request = asked.recv().unwrap();
+    assert!(request.starts_with("POST /score?x=1 HTTP/1.1\r\n"), "{request}");
+    // Header names are sent in lowercase, which HTTP allows.
+    assert!(request.to_ascii_lowercase().contains("content-type: application/json\r\n") && request.ends_with("{\"a\":1}"), "{request}");
+    assert!(e.state().tasks.is_empty());
+}
+
+#[test]
+fn a_request_with_no_answer_in_time_fails_with_timeout() {
+    let (port, _asked) = serve_once(None);
+    let manifest = format!("id = \"t\"\napi_version = \"0.2\"\npermissions = {{ network = [\"127.0.0.1:{port}\"] }}");
+    let main = format!("return {{ on_frame = function(game) local r, err = http.fetch('http://127.0.0.1:{port}/', {{ timeout = 0.3 }}) GOT = tostring(r) .. ' ' .. err.code end }}");
+    let e = load_one("fetch-timeout", &main, &[("eu4-harmony/manifest.toml", &manifest)]).unwrap();
+    e.handle("on_frame", none);
+    assert_eq!(text(poll_until(&e, "GOT")), "nil timeout");
+}
+
+#[test]
+fn a_request_the_manifest_does_not_allow_is_an_error() {
+    let manifest = "id = \"t\"\napi_version = \"0.2\"\npermissions = { network = [\"api.example.com\"] }";
+    let e = load_one(
+        "fetch-refused",
+        r#"
+        TOP = select(2, pcall(http.fetch, "https://api.example.com/"))
+        return {
+          on_frame = function(game)
+            local seen = {}
+            for _, call in ipairs({
+              { "https://example.com/" }, { "https://api.example.com:8443/" }, { "ftp://api.example.com/" },
+              { "https://api.example.com/", { timeout = 301 } }, { "https://api.example.com/", { retries = 2 } },
+            }) do
+              seen[#seen + 1] = tostring(select(2, pcall(http.fetch, call[1], call[2])))
+            end
+            SEEN = table.concat(seen, " | ")
+          end,
+        }
+        "#,
+        &[("eu4-harmony/manifest.toml", manifest)],
+    )
+    .unwrap();
+    assert!(text(e.lua.globals().get("TOP").unwrap()).contains("http.fetch waits for its answer, which it cannot do here"));
+    let seen = text(after(&e, "on_frame", "SEEN"));
+    let parts: Vec<&str> = seen.split(" | ").collect();
+    assert!(parts[0].contains("does not list (api.example.com)") && parts[1].contains("does not list"), "{seen}");
+    assert!(parts[2].contains("begins with http:// or https://"), "{seen}");
+    assert!(parts[3].contains("timeout is more than 0 and at most 300 seconds") && parts[4].contains("has no option retries"), "{seen}");
+    assert!(e.state().tasks.is_empty() && e.waits().by_number.is_empty());
+
+    let undeclared = load_one("no-network", "return { on_frame = function(game) WHY = select(2, pcall(http.fetch, 'https://x.com/')) end }", &[]).unwrap();
+    let why = text(after(&undeclared, "on_frame", "WHY"));
+    assert!(why.contains("http.fetch: the manifest does not declare the network permission"), "{why}");
 }
 
 #[test]
@@ -221,4 +392,15 @@ fn a_yield_of_the_mod_s_own_outside_its_coroutines_is_an_error() {
         load_one("own-coroutine", "return { on_frame = function(game) local c = coroutine.wrap(function() coroutine.yield(7) end) SEVEN = c() end }", &[])
             .unwrap();
     assert_eq!(after(&own, "on_frame", "SEVEN"), LuaValue::Integer(7));
+}
+
+#[test]
+fn a_redirect_is_a_response_and_not_followed() {
+    let (port, _asked) = serve_once(Some("HTTP/1.1 302 Found\r\nLocation: http://example.com/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+    let manifest = format!("id = \"t\"\napi_version = \"0.2\"\npermissions = {{ network = [\"127.0.0.1:{port}\"] }}");
+    let main =
+        format!("return {{ on_frame = function(game) local r = http.fetch('http://127.0.0.1:{port}/') GOT = r.status .. ' ' .. r.headers.location end }}");
+    let e = load_one("fetch-redirect", &main, &[("eu4-harmony/manifest.toml", &manifest)]).unwrap();
+    e.handle("on_frame", none);
+    assert_eq!(text(poll_until(&e, "GOT")), "302 http://example.com/", "{:?}", errors(&e));
 }

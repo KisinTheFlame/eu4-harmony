@@ -8,7 +8,7 @@
 use crate::{
     hooks::HookFrame,
     points::{Function, Point},
-    splice::{self, Addition, Plan},
+    splice::{self, Plan},
     Result,
 };
 use std::{
@@ -77,6 +77,9 @@ pub fn normalize(path: &str) -> String {
 
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
+    if result != 0 {
+        crate::guarded("framework files", crate::files::mount);
+    }
     crate::guarded("PHYSFS_init", || INIT_ONCE.call_once(crate::deferred_init));
     result
 }
@@ -90,13 +93,21 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
         }
         let raw = c_str(path);
         let normalized = normalize(&raw);
-        let Some(additions) = state().plan.as_ref().and_then(|p| p.for_file(&normalized)) else { return };
+        if !state().plan.as_ref().is_some_and(|p| p.may_add_to(&normalized)) {
+            return;
+        }
         let real_dir = match GET_REAL_DIR.address() {
             0 => "<n/a>".into(),
             _ => c_str(GET_REAL_DIR.get()(path)),
         };
-        match splice_handle(handle, &additions) {
-            Ok((before, data)) => {
+        match splice_handle(handle, &normalized) {
+            // Nothing in the file to change: read as it is.
+            Ok((_, None)) => {
+                if ORIG_SEEK.get()(handle, 0) == 0 {
+                    log!("rewind of the unchanged {raw:?} failed");
+                }
+            }
+            Ok((before, Some(data))) => {
                 log!("spliced {raw:?} from {real_dir:?}: {before} -> {} bytes", data.len());
                 state().open.insert(handle as usize, Spliced { data, cursor: 0 });
             }
@@ -111,8 +122,9 @@ unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
     handle
 }
 
-/// Reads the whole original file through the trampolines and applies the plan.
-fn splice_handle(handle: File, additions: &[Addition]) -> Result<(usize, Vec<u8>)> {
+/// Reads the whole original file through the trampolines and applies the
+/// plan: the file's length, and what it becomes, None when nothing changed.
+fn splice_handle(handle: File, normalized: &str) -> Result<(usize, Option<Vec<u8>>)> {
     let len = unsafe { ORIG_FILE_LENGTH.get()(handle) };
     if !(0..=64 * 1024 * 1024).contains(&len) {
         return Err(format!("unexpected file length {len}"));
@@ -122,8 +134,13 @@ fn splice_handle(handle: File, additions: &[Addition]) -> Result<(usize, Vec<u8>
     if read != len {
         return Err(format!("short read {read} of {len}"));
     }
+    let additions = state().plan.as_ref().map(|p| p.for_file(normalized, &data)).unwrap_or_default();
+    if additions.is_empty() {
+        return Ok((len as usize, None));
+    }
     let text = String::from_utf8(data).map_err(|e| format!("file is not UTF-8: {e}"))?;
-    Ok((len as usize, splice::apply(&text, additions)?.into_bytes()))
+    let spliced = splice::apply(&text, &additions)?;
+    Ok((len as usize, (spliced != text).then(|| spliced.into_bytes())))
 }
 
 unsafe extern "C" fn file_length_detour(handle: File) -> i64 {

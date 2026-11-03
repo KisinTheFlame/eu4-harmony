@@ -1,6 +1,6 @@
 -- Run once in every extension's Lua state, before its main.lua, with what
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
-local call, WAIT, task, names, set_element = ...
+local call, WAIT, task, names, set_element, fetch = ...
 
 -- The sandbox (ADR 0024): code from text only, nothing that reads files.
 local raw_load = load
@@ -12,18 +12,32 @@ string.dump = nil
 
 local yield, running = coroutine.yield, coroutine.running
 
--- A capability: its answer, or for one that waits (ADR 0030), the task gives
--- up its turn until the answer has come.
+-- A function that waits (ADR 0030) is called only in a task: raises the
+-- error at `level` otherwise.
+local function can_wait(name, level)
+  local current = task()
+  if current == nil or running() ~= current then
+    error(name .. " waits for its answer, which it cannot do here: in on_save, at the top of main.lua, or in a coroutine of the mod's own", level + 1)
+  end
+end
+
+-- A capability: its answer, or for one that waits, the task gives up its
+-- turn until the answer has come.
 local function finish(name, first, ...)
   if first ~= WAIT then
     return first, ...
   end
-  local current = task()
-  if current == nil or running() ~= current then
-    error(name .. " waits for its answer, which it cannot do here: in on_save, at the top of main.lua, or in a coroutine of the mod's own", 3)
-  end
+  can_wait(name, 3)
   return yield(WAIT, (...))
 end
+
+-- http.fetch, the network permission: it always waits.
+http = {
+  fetch = function(url, options)
+    can_wait("http.fetch", 2)
+    return finish("http.fetch", fetch(url, options))
+  end,
+}
 
 local game = {}
 for _, name in ipairs(names) do

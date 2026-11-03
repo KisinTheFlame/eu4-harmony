@@ -16,8 +16,9 @@
 //!
 //! Fonts with lines taller than 48 pixels are the map's and draw in the map
 //! font, inside the outline the font's own glyphs have when the player keeps
-//! it (`outline`); the rest in the heading font or the body text font, as
-//! their names say ([`kind`]). Light text and dark text get glyphs of their
+//! it (`outline`); framework fonts ([`framework_fonts`]) in the system font
+//! of their own kind, such as the game console's; the rest in the heading
+//! font or the body text font, as their names say ([`kind`]). Light text and dark text get glyphs of their
 //! own (`tone`): the fonts that load one page may draw in either, as
 //! `vic_18` in white and `vic_18_black` in black do, so a page holds a
 //! character's glyph in each tone its fonts draw in ([`shown`]). Pages live
@@ -30,6 +31,7 @@
 use super::atlas::Page;
 use super::costs;
 use super::dxt;
+use super::framework_fonts;
 use super::game_text;
 use super::glyphs::{self, Glyph};
 use super::outline::Outline;
@@ -386,10 +388,12 @@ fn draws_the_map(line: i32) -> bool {
 
 /// What a font draws, which picks the system font family it draws in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
+pub enum Kind {
     Body,
     Heading,
     Map,
+    /// The game console's text, in the framework font made for it.
+    Console,
 }
 
 /// The game's fonts for headings, by their names in `interface/core.gfx`:
@@ -458,7 +462,9 @@ const HEADING_LINE: i32 = 20;
 /// text in the game. So the name says what the font draws, and only a name
 /// the game does not have goes by the line.
 fn kind(name: &[u8], line: i32) -> Kind {
-    if draws_the_map(line) {
+    if let Some(font) = framework_fonts::named(name) {
+        font.kind
+    } else if draws_the_map(line) {
         Kind::Map
     } else if HEADINGS.contains(&name) {
         Kind::Heading
@@ -544,6 +550,7 @@ fn chosen_face(kind: Kind) -> Face {
         Kind::Body => current.body_font,
         Kind::Heading => current.heading_font,
         Kind::Map => current.map_font,
+        Kind::Console => current.console_font,
     }
 }
 
@@ -685,6 +692,7 @@ pub fn loaded(font: usize) -> bool {
         // A name that cannot be read goes by the line.
         let name = game_string::read(&m, font + objects::font::NAME).unwrap_or_default();
         let kind = kind(&name, m.i32(font + objects::font::LINE_HEIGHT)?);
+        let framework_font = framework_fonts::named(&name);
         let name = String::from_utf8_lossy(&name);
         let mut pages = lock(&PAGES);
         match pages.entry(wrapper) {
@@ -733,6 +741,9 @@ pub fn loaded(font: usize) -> bool {
         }
         lock(&OWNERS).insert(font, (wrapper, tone));
         replace_own_glyphs(&m, font, fill, tone)?;
+        if let Some(framework_font) = framework_font {
+            framework_fonts::drawn(framework_font);
+        }
         Ok(true)
     })();
     result.unwrap_or_else(|e| {
@@ -786,6 +797,8 @@ mod tests {
         assert_eq!(kind(b"my_mod_font", 18), Kind::Body);
         assert_eq!(kind(b"my_mod_font", 20), Kind::Heading);
         assert_eq!(kind(b"", 14), Kind::Body);
+        assert_eq!(kind(b"eu4harmony_console", 14), Kind::Console);
+        assert_eq!(kind(b"Arial12", 14), Kind::Body);
         assert!(HEADINGS.iter().all(|name| !BODY.contains(name)));
     }
 
