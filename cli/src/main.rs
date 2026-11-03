@@ -5,6 +5,7 @@
 //! in `eu4-harmony/` its extension in `lua/`, interface fragments in `ui/`,
 //! texts in `localisation/` and its own files in `data/` (ADR 0029); game
 //! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
+mod check;
 mod fake;
 mod game;
 mod pipe;
@@ -49,9 +50,13 @@ usage:
       Writes the editor's type definitions for this tool's catalogue again,
       in .eu4-harmony/types/, and a .luarc.json pointing at them where the
       mod has none.
+  eu4-harmony check [<mod dir>]
+      Reads the mod as the framework does, without the game: the manifest
+      (and that its api_version is this tool's), every Lua file compiling,
+      every localisation file, and no file under ui/ where the layout puts
+      nothing. Lists each problem, and fails when there is one.
   eu4-harmony package [<mod dir>] [--out <dir>]
-      Writes a clean folder for upload, once every Lua file compiles and
-      every localisation file reads.
+      Writes a clean folder for upload, once eu4-harmony check passes.
   eu4-harmony game <capability> [--<argument> <value>]...
       Sends the running game one request through remote control and prints
       the answer as JSON; eu4-harmony game -h describes the command line.
@@ -106,6 +111,7 @@ fn main() {
         Some("new") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_new(&a)),
         Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
+        Some("check") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_check(&a)),
         Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
         Some("test") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_test(&a)),
         Some("reload") => Args::parse(&raw[1..], &["watch"]).and_then(|a| cmd_reload(&a)),
@@ -343,15 +349,13 @@ fn copy_file(from: &Path, to: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// interface fragments where the layout puts them, the texts and the mod's
 /// own files in `data/`.
 fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
-    let manifest = read_manifest(root)?;
-    let provided = eu4_harmony_remote::API_VERSION;
-    if !manifest.built_for(provided) {
-        return Err(format!("manifest api_version {} does not match this EU4 Harmony ({provided})", manifest.api_version));
+    let checked = check::check(root);
+    if !checked.problems.is_empty() {
+        return Err(format!("eu4-harmony check finds problems:\n  {}", checked.problems.join("\n  ")));
     }
+    let check::Checked { manifest, layout, scripts, texts, .. } = checked;
+    let manifest = manifest.ok_or("the manifest does not read")?;
     let harmony = root.join("eu4-harmony");
-    let layout = eu4_harmony_manifest::layout(&harmony);
-    let scripts = lua_files(&harmony.join("lua"))?;
-    let texts = localisation_files(&harmony.join("localisation"))?;
     if out.exists() {
         // Only replace an earlier package of this same mod.
         let ours = read_manifest(out).is_ok_and(|m| m.id == manifest.id) && out.join("descriptor.mod").is_file();
@@ -395,46 +399,23 @@ fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
 
 /// The `.lua` files under a mod's `eu4-harmony/lua/`, once each of them
 /// compiles.
-fn lua_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    fn walk(dir: &Path, found: &mut Vec<PathBuf>) {
-        let Ok(entries) = fs::read_dir(dir) else { return };
-        for path in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
-            if path.is_dir() {
-                walk(&path, found);
-            } else if path.extension().is_some_and(|x| x == "lua") {
-                found.push(path);
-            }
-        }
+/// `eu4-harmony check`: each problem a line, and a failure when there is one.
+fn cmd_check(args: &Args) -> Result<()> {
+    let root = mod_root(&start_dir(args)?)?;
+    let checked = check::check(&root);
+    if checked.problems.is_empty() {
+        println!(
+            "ok: {} Lua file(s) compile, {} localisation file(s) read, the manifest is for api_version {}",
+            checked.scripts.len(),
+            checked.texts.len(),
+            eu4_harmony_remote::API_VERSION
+        );
+        return Ok(());
     }
-    let mut found = Vec::new();
-    walk(dir, &mut found);
-    found.sort();
-    let lua = mlua::Lua::new();
-    let mut problems = Vec::new();
-    for path in &found {
-        let source = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let name = format!("@{}", forward_slashes(path.strip_prefix(dir).unwrap_or(path)));
-        if let Err(e) = lua.load(source).set_name(name).set_mode(mlua::ChunkMode::Text).into_function() {
-            problems.push(e.to_string());
-        }
+    for problem in &checked.problems {
+        println!("{problem}");
     }
-    if !problems.is_empty() {
-        return Err(format!("eu4-harmony/lua does not compile:\n  {}", problems.join("\n  ")));
-    }
-    Ok(found)
-}
-
-/// The `.yml` files of a mod's `eu4-harmony/localisation/`, once each of them
-/// is one the framework reads.
-fn localisation_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let (_, problems) = eu4_harmony_loc::load_dir(dir);
-    if !problems.is_empty() {
-        return Err(format!("eu4-harmony/localisation has problems:\n  {}", problems.join("\n  ")));
-    }
-    let Ok(entries) = fs::read_dir(dir) else { return Ok(Vec::new()) };
-    let mut files: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yml")).collect();
-    files.sort();
-    Ok(files)
+    Err(format!("{} problem(s)", checked.problems.len()))
 }
 
 fn cmd_package(args: &Args) -> Result<()> {
@@ -512,7 +493,7 @@ mod tests {
         }
         let main = fs::read_to_string(root.join("eu4-harmony/lua/main.lua")).unwrap();
         assert!(main.contains("text.get(\"MY_MOD_TOOLTIP\")") && main.contains("my-mod.log"));
-        assert!(lua_files(&root.join("eu4-harmony/lua")).is_ok());
+        assert_eq!(check::check(&root).problems, Vec::<String>::new());
         assert!(root.join(types::FILE).is_file() && root.join(types::LUARC).is_file());
         let (texts, problems) = eu4_harmony_loc::load_dir(&root.join("eu4-harmony/localisation"));
         assert!(problems.is_empty(), "{problems:?}");
@@ -734,7 +715,6 @@ end)
         write(&root.join("eu4-harmony/lua/range/bfs.lua"), "return {}").unwrap();
         write(&root.join("eu4-harmony/data/units.json"), "{}").unwrap();
         write(&root.join("eu4-harmony/notes.txt"), "not where the layout puts anything").unwrap();
-        write(&root.join("eu4-harmony/ui/stray.gui"), "x").unwrap();
         write(&root.join("interface/pkg.gfx"), "spriteTypes = {}").unwrap();
         write(&root.join(".git/HEAD"), "ref").unwrap();
         write(&root.join(".luarc.json"), "{}").unwrap();
@@ -744,6 +724,9 @@ end)
         write(&root.join("eu4-harmony/localisation/broken_l_english.yml"), "l_english:\n PKG_X:0 missing quotes\n").unwrap();
         assert!(package_mod(&root, &out).unwrap_err().contains("broken_l_english.yml: line 2"));
         fs::remove_file(root.join("eu4-harmony/localisation/broken_l_english.yml")).unwrap();
+        write(&root.join("eu4-harmony/ui/stray.gui"), "x").unwrap();
+        assert!(package_mod(&root, &out).unwrap_err().contains("eu4-harmony/ui/stray.gui: not where the layout puts anything"));
+        fs::remove_file(root.join("eu4-harmony/ui/stray.gui")).unwrap();
         let mut files: Vec<String> = package_mod(&root, &out).unwrap().iter().map(|f| forward_slashes(f.strip_prefix(&out).unwrap())).collect();
         files.sort();
         assert_eq!(

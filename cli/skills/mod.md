@@ -33,13 +33,15 @@ steps:
 4. Keep every handler short. A stretch of a handler over 5 ms is logged; one
    over 1 s is stopped, and three in a row stop the mod. Spread long work
    over frames or days, keeping where it got to in a local of main.lua.
-5. Test it: eu4-harmony skills testing. Done when eu4-harmony test passes
-   with a test for each handler.
+5. Check and test it: eu4-harmony check reads the manifest, the Lua files,
+   the localisation and where the files are as the framework does, and
+   eu4-harmony skills testing has the tests. Done when eu4-harmony check
+   says ok and eu4-harmony test passes with a test for each handler.
 6. Try it in the game: eu4-harmony skills game. Done when each handler has
    run there and the mod's log shows no error.
 7. Package it: eu4-harmony package. Done when it reports the package
-   folder; it refuses a Lua file that does not compile or a localisation
-   file with errors, and says which.
+   folder; it refuses a mod eu4-harmony check finds problems in, and lists
+   them.
 
 A newer eu4-harmony: run eu4-harmony types for its type definitions, and
 check api_version in eu4-harmony wiki.
