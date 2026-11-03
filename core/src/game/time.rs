@@ -328,6 +328,7 @@ fn pause_game(m: &Memory, ctx: &Ctx) -> GResult<()> {
 extern "C" fn restart_before(_: *mut HookFrame) {
     crate::guarded("restart", || {
         log!("the game starts eu4.exe again");
+        crate::saves::background::wait();
         crate::remote::restarting();
     });
 }
