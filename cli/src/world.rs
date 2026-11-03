@@ -11,7 +11,7 @@
 use eu4_harmony_remote::{Code, Error};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use std::collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// The world as a test describes it.
 #[derive(Debug, Default, Deserialize)]
@@ -110,7 +110,6 @@ pub const ANSWERS: &[&str] = &[
     "army.selected",
     "army.route_to",
     "army.can_step",
-    "army.range",
     "army.can_attack",
     "army.move",
     "army.stop",
@@ -178,33 +177,6 @@ impl World {
 
     /// A province's neighbors, each with whether it is across a strait,
     /// both ways round whichever province listed them.
-    /// army.range's answer: breadth first from `from`, each step one
-    /// army.can_step allows, as the game's own counts them.
-    fn range(&self, from: u32, most: u32) -> Vec<Value> {
-        let can_step = |a: u32, b: u32| self.passable(b) && self.neighbors(a).iter().any(|(n, _)| *n == b);
-        let mut steps = BTreeMap::from([(from, 0u32)]);
-        let mut next: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        let mut queue = VecDeque::from([from]);
-        while let Some(at) = queue.pop_front() {
-            let here = steps[&at];
-            let mut may = Vec::new();
-            for (n, _) in self.neighbors(at) {
-                if (here == most && !steps.contains_key(&n)) || !can_step(at, n) {
-                    continue;
-                }
-                may.push(n);
-                if let Entry::Vacant(e) = steps.entry(n) {
-                    e.insert(here + 1);
-                    queue.push_back(n);
-                }
-            }
-            next.insert(at, may);
-        }
-        let mut members: Vec<(u32, u32)> = steps.into_iter().map(|(p, s)| (s, p)).collect();
-        members.sort();
-        members.into_iter().map(|(s, p)| json!({"province": p, "steps": s, "next": next.remove(&p).unwrap_or_default()})).collect()
-    }
-
     fn neighbors(&self, id: u32) -> Vec<(u32, bool)> {
         let mut found: BTreeMap<u32, bool> = BTreeMap::new();
         for p in &self.provinces {
@@ -349,10 +321,6 @@ impl World {
                 let (from, to) = (province("from"), province("to"));
                 self.own(int("army")).map(|_| json!(self.passable(to) && self.neighbors(from).iter().any(|(n, _)| *n == to)))
             }
-            "army.range" => {
-                let (from, most) = (province("province"), int("steps") as u32);
-                self.own(int("army")).map(|_| json!(self.range(from, most)))
-            }
             "army.can_attack" => {
                 let player = self.player();
                 self.own(int("army")).and_then(|_| {
@@ -436,7 +404,7 @@ mod tests {
     fn the_world_answers_with_the_game_s_shapes() {
         let mut w = spain();
         for capability in ANSWERS {
-            let request = json!({"army": 1, "province": 219, "country": "CAS", "other": "GRA", "from": 217, "to": 219, "target": 2, "steps": 2});
+            let request = json!({"army": 1, "province": 219, "country": "CAS", "other": "GRA", "from": 217, "to": 219, "target": 2});
             let _ = ask(&mut w, capability, request);
         }
         assert_eq!(ask(&mut w, "session.get", json!({})).unwrap()["date"], json!({"year": 1444, "month": 11, "day": 11}));
@@ -453,8 +421,6 @@ mod tests {
         assert_eq!(neighbors, json!([{"province": 217, "strait": false}, {"province": 220, "strait": false}, {"province": 223, "strait": true}]));
         assert_eq!(ask(&mut w, "army.can_step", json!({"army": 1, "from": 217, "to": 219})).unwrap(), json!(true));
         assert_eq!(ask(&mut w, "army.can_step", json!({"army": 1, "from": 217, "to": 220})).unwrap(), json!(false));
-        let range = ask(&mut w, "army.range", json!({"army": 1, "province": 217, "steps": 1})).unwrap();
-        assert_eq!(range, json!([{"province": 217, "steps": 0, "next": [219]}, {"province": 219, "steps": 1, "next": [217]}]));
         let listed = ask(&mut w, "province.list", json!({"provinces": [223, 1, 217]})).unwrap();
         assert_eq!(listed.as_array().unwrap().iter().map(|p| p["id"].clone()).collect::<Vec<_>>(), vec![json!(223), json!(217)]);
         assert_eq!(ask(&mut w, "army.can_attack", json!({"army": 1, "target": 2})).unwrap(), json!(true));

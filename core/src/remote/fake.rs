@@ -273,13 +273,6 @@ impl armies::Layer for Fake {
         Ok(self.route.clone())
     }
 
-    fn steps(&mut self, id: u64, from: u32) -> GResult<Vec<u32>> {
-        self.call(format!("steps {id} {from}"));
-        // 149 and 151 next to each other, 316 across a strait from 149;
-        // as can_step says, only steps into 151 are open.
-        Ok(if from == 149 { vec![151] } else { Vec::new() })
-    }
-
     fn can_step(&mut self, id: u64, from: u32, to: u32) -> GResult<bool> {
         self.call(format!("can step {id} {from} {to}"));
         Ok(to == 151)

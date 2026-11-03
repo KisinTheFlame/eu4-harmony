@@ -83,10 +83,6 @@ fn every_capability_runs_at_a_game_frame() {
             Request::Province(ProvinceRequest::List { provinces: Some(eu4_harmony_remote::ProvinceList(vec![province(151), province(1), province(149)])) }),
             Box::new(move |v: &Value| *v == ok(json!([province_json(151, "BYZ", "TUR"), province_json(149, "TUR", "TUR")]))),
         ),
-        (
-            Request::Army(ArmyRequest::Range { army: army(ARMY), province: province(149), steps: 1 }),
-            Box::new(|v: &Value| *v == ok(json!([{"province": 149, "steps": 0, "next": [151]}, {"province": 151, "steps": 1, "next": []}]))),
-        ),
         (Request::Province(ProvinceRequest::Get { province: province(151) }), Box::new(|v: &Value| v["result"]["name"] == "君士坦丁堡")),
         (Request::Province(ProvinceRequest::Get { province: province(1) }), Box::new(error("not_found"))),
         (
