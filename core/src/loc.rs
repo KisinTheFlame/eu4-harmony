@@ -10,7 +10,7 @@ use crate::{
 };
 use eu4_harmony_loc::{self as format, Catalog, Language};
 use std::collections::BTreeMap;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{LazyLock, RwLock};
 
 static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
     let mut catalog = Catalog::default();
@@ -37,7 +37,7 @@ static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
 });
 
 /// The catalogs of the mods taking part, by mod id.
-static MODS: OnceLock<BTreeMap<String, Catalog>> = OnceLock::new();
+static MODS: RwLock<BTreeMap<String, Catalog>> = RwLock::new(BTreeMap::new());
 
 /// A framework text in `language`, with its `$NAME$` values filled in.
 pub fn framework(language: Language, key: &str, args: &[(&str, &str)]) -> String {
@@ -53,7 +53,17 @@ pub fn framework_own(language: Language, key: &str, args: &[(&str, &str)]) -> Op
 
 /// A mod's text in the player language; `None` when the mod has no such key.
 pub fn mod_text(id: &str, key: &str) -> Option<String> {
-    MODS.get()?.get(id)?.text(lang::player(), key)
+    MODS.read().unwrap_or_else(|e| e.into_inner()).get(id)?.text(lang::player(), key)
+}
+
+/// Reads the mod `id`'s localisation again from its `eu4-harmony/` folder,
+/// for an extension reload: `text.get` gives the new texts. What was spliced
+/// into the game's own localisation at startup stays. Returns problems for
+/// the log.
+pub fn reload_mod(id: &str, harmony: &std::path::Path) -> Vec<String> {
+    let (catalog, problems) = format::load_dir(&harmony.join("localisation"));
+    MODS.write().unwrap_or_else(|e| e.into_inner()).insert(id.to_string(), catalog);
+    problems
 }
 
 /// The vanilla file the mods' keys are appended to. The game loads it in
@@ -92,7 +102,7 @@ pub fn install(language: &lang::Decision, mods: &[&DiscoveredMod], plan: &mut Pl
         plan.add(&target(language.game), Addition::Append(format!("# EU4 Harmony: mod texts in {}\n{lines}", player.id())));
     }
     log!("localisation: {} key(s) of {} mod(s) in {}", owners.len(), catalogs.len(), player.id());
-    let _ = MODS.set(catalogs);
+    *MODS.write().unwrap_or_else(|e| e.into_inner()) = catalogs;
     notes
 }
 
@@ -139,7 +149,7 @@ mod tests {
             dir: dir.clone(),
             manifest: crate::mods::Manifest::parse(
                 "id = \"t\"
-api_version = \"0.2\"",
+api_version = \"0.3\"",
             )
             .unwrap(),
             layout: Default::default(),

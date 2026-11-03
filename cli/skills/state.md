@@ -5,16 +5,17 @@ what belongs to one session in on_session. Two places outlive the game:
 
 save data, in the save
 
-  on_save = function(game)
+  save_data = function(game)
     return { routes = routes, version = 1 }    -- any value JSON can hold
   end,
   on_session = function(game, saved)
     routes = saved and saved.routes or {}      -- nil for a new game
   end,
 
-- on_save is called whenever the game writes its world, autosaves and the
-  ironman exit save included; what it returns goes into that save. It
-  cannot wait.
+- save_data is called whenever the game writes its world, autosaves and
+  the ironman exit save included, and what it returns goes into that save;
+  and before eu4-harmony reload replaces the mod's code, whose new
+  on_session gets it. It cannot wait.
 - Tables whose keys are all strings, sequences, strings, numbers (integers
   stay 64-bit, so army IDs survive), booleans. A function, a table with
   mixed keys or a cycle fails: that save holds nothing for the mod, and the
@@ -22,7 +23,7 @@ save data, in the save
 - Put a version in it, and read older shapes in on_session.
 
 Done when a save written by the mod and loaded again (eu4-harmony skills
-game) gives on_session what on_save returned.
+game) gives on_session what save_data returned.
 
 files, in the data folder
 

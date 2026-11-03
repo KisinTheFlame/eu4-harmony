@@ -1,12 +1,12 @@
 # Commands plan
 
-Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)); C1 to C3 built and tried in the game the same day. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md) and [ADR 0033](adr/0033-commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
+Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)); C1 to C3 built and tried in the game the same day. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR 0034](adr/0034-commands-through-one-internal-layer-in-their-written-form.md) and [ADR 0035](adr/0035-commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
 
 ## Goal and scope
 
 - **Goal**: every capability that changes the game reaches it the way the game's own interface does, as a command, through one module of the core that posts commands from their written form and hears every command the game executes.
 - **In scope**: developer builds, one Cargo feature for each development tool, before anything else (C0); the command layer, posting and hearing (C1); the command log rebuilt on it; recruiting and diplomacy moved onto it (C2); the army orders tried in the game and moved onto it, and a list of the capabilities that change the game without a command (C3).
-- **Out of scope**: multiplayer; offering commands, their type names or their keys to extensions or remote clients (ADR 0026, ADR 0032); events from what the layer hears, which are added as mods need them (C4).
+- **Out of scope**: multiplayer; offering commands, their type names or their keys to extensions or remote clients (ADR 0026, ADR 0034); events from what the layer hears, which are added as mods need them (C4).
 
 ## Behavior
 
@@ -16,7 +16,7 @@ Status: decided (2026-11-03); C0 built and tried in the game the same day ([prot
 - It then writes its command as text, in the game's own written form, and hands the text to the layer.
 - The layer reads the text with the game's reader. It writes the command read out again and refuses the text when any key it was given did not come back with the same value: the reader passes over what it cannot read and says nothing of it. A key left out takes the game's default.
 - The layer asks the command's own check. A command the check refuses is destroyed and not posted; the caller is told only that the game refused it, since the check gives no reasons.
-- A command the check accepts is executed at once, as the session's update executes one at the next frame, with the stamp the session's post gives it (ADR 0033); it does not go through the session's queue, so what the game posted before it, such as the next day, runs at the next frame, after it. When the capability returns, the game has carried the command out.
+- A command the check accepts is executed at once, as the session's update executes one at the next frame, with the stamp the session's post gives it (ADR 0035); it does not go through the session's queue, so what the game posted before it, such as the next day, runs at the next frame, after it. When the capability returns, the game has carried the command out.
 - The layer executes only on the main thread, at the safe point, in the states in which the session's update executes commands, and never while a command executes; a session that executes none then takes no command.
 - The layer posts for whichever country the text names. The capabilities on it act for the player alone (ADR 0015).
 

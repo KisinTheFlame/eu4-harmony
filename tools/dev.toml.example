@@ -12,8 +12,9 @@ functions = []
 # How many of each function's first calls are logged.
 calls = 20
 
-# Counts the game's live heap blocks by call site, and logs at every world
-# reset those the earlier sessions left. No options.
+# Counts the game's live heap blocks by site and generation, logs at every
+# world reset those the earlier sessions left, and answers remote control's
+# memory group (docs/leak-finding.md). No options.
 [heap-census]
 
 # Logs every command the game executes, in its written form.

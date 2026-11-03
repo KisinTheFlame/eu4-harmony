@@ -35,7 +35,7 @@ use std::fmt;
 /// The version of the capability catalogue (ADR 0026), which `describe`
 /// answers: it changes when a capability that exists changes what it means
 /// or how it is shaped, not when one is added.
-pub const API_VERSION: &str = "0.2";
+pub const API_VERSION: &str = "0.3";
 
 /// The named pipe the game serves remote control on (ADR 0016), one JSON
 /// request per line in and one response per line out.
@@ -169,50 +169,51 @@ macro_rules! group {
 }
 
 /// Declares the groups: [`Request`] and [`Answer`] with a variant for each,
-/// the JSON form of a request, and [`capabilities`].
+/// the JSON form of a request, and [`capabilities`]. A group with
+/// `#[cfg(...)]` before it exists only in builds that meet it.
 macro_rules! groups {
-    ($( $(#[doc = $doc:literal])* $Group:ident($module:ident::$Request:ident, $Answer:ident), )*) => {
-        $( pub mod $module; )*
+    ($( $(#[cfg($cfg:meta)])? $(#[doc = $doc:literal])* $Group:ident($module:ident::$Request:ident, $Answer:ident), )*) => {
+        $( $(#[cfg($cfg)])? pub mod $module; )*
 
         /// A request to remote control: one capability and its arguments.
         #[derive(Clone, Debug, PartialEq)]
         pub enum Request {
-            $( $(#[doc = $doc])* $Group($module::$Request), )*
+            $( $(#[cfg($cfg)])? $(#[doc = $doc])* $Group($module::$Request), )*
         }
 
         /// What a capability answers, by group and capability.
         #[derive(Clone, Debug, PartialEq, Serialize)]
         #[serde(untagged)]
         pub enum Answer {
-            $( $Group($module::$Answer), )*
+            $( $(#[cfg($cfg)])? $Group($module::$Answer), )*
         }
 
         impl Request {
             /// The capability's full name, such as `army.move`.
             pub fn name(&self) -> String {
                 match self {
-                    $( Self::$Group(r) => full_name($module::GROUP, r.action()), )*
+                    $( $(#[cfg($cfg)])? Self::$Group(r) => full_name($module::GROUP, r.action()), )*
                 }
             }
 
             /// Whether it runs only while a game is going on.
             pub fn in_game(&self) -> bool {
                 match self {
-                    $( Self::$Group(r) => r.in_game(), )*
+                    $( $(#[cfg($cfg)])? Self::$Group(r) => r.in_game(), )*
                 }
             }
 
             /// The request's arguments and its `"capability"` as the group sees it.
             fn inner(&self) -> serde_json::Result<Value> {
                 match self {
-                    $( Self::$Group(r) => serde_json::to_value(r), )*
+                    $( $(#[cfg($cfg)])? Self::$Group(r) => serde_json::to_value(r), )*
                 }
             }
 
             /// The request of `group` from its arguments and its own name.
             fn from_group<E: de::Error>(group: &str, fields: Map<String, Value>) -> Result<Self, E> {
                 match group {
-                    $( $module::GROUP => serde_json::from_value(Value::Object(fields)).map(Self::$Group).map_err(E::custom), )*
+                    $( $(#[cfg($cfg)])? $module::GROUP => serde_json::from_value(Value::Object(fields)).map(Self::$Group).map_err(E::custom), )*
                     _ => Err(E::custom(format!("no group {group}"))),
                 }
             }
@@ -220,18 +221,25 @@ macro_rules! groups {
 
         /// Every capability remote control has, described, group by group.
         pub fn capabilities() -> Vec<Capability> {
-            [$( $module::CAPABILITIES ),*].concat()
+            let mut all = Vec::new();
+            $( $(#[cfg($cfg)])? all.extend_from_slice($module::CAPABILITIES); )*
+            all
         }
 
         /// The shape of the result of the capability named `name`, as Lua
         /// has it.
         pub fn result_shape(name: &str) -> Option<shape::Shape> {
-            [$( $module::result_shapes() ),*].concat().into_iter().find(|(n, _)| *n == name).map(|(_, s)| s)
+            let mut all = Vec::new();
+            $( $(#[cfg($cfg)])? all.extend($module::result_shapes()); )*
+            all.into_iter().find(|(n, _)| *n == name).map(|(_, s)| s)
         }
 
         /// Every group, by name and what it is about.
+        #[expect(clippy::vec_init_then_push, reason = "a group may be left out of the build, which vec! cannot do")]
         pub fn groups() -> Vec<Group> {
-            vec![$( Group { name: $module::GROUP, about: $module::ABOUT } ),*]
+            let mut all = Vec::new();
+            $( $(#[cfg($cfg)])? all.push(Group { name: $module::GROUP, about: $module::ABOUT }); )*
+            all
         }
     };
 }
@@ -285,6 +293,12 @@ groups! {
     Menu(menu::MenuRequest, MenuAnswer),
     /// The player's diplomatic actions.
     Diplomacy(diplomacy::DiplomacyRequest, DiplomacyAnswer),
+    /// The mods' extensions: reloading one in the running game.
+    Extension(extensions::ExtensionRequest, ExtensionAnswer),
+    #[cfg(feature = "dev-memory")]
+    /// What the game holds in memory, and what the heap census found: a
+    /// developer build's (docs/leak-finding.md).
+    Memory(memory::MemoryRequest, MemoryAnswer),
     /// Mouse and keyboard input at screen positions, as the player gives it.
     Input(input::InputRequest, InputAnswer),
 }

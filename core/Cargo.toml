@@ -78,8 +78,9 @@ analysis = ["dep:iced-x86"]
 dev = ["dev-call-trace", "dev-heap-census", "dev-command-log", "dev-test-switches"]
 # Logs calls of the game functions dev.toml names (src/trace.rs).
 dev-call-trace = ["analysis", "dep:toml"]
-# Counts the game's live heap blocks by call site (src/census.rs).
-dev-heap-census = ["dep:toml"]
+# Counts the game's live heap blocks by call site, and answers remote
+# control's memory group (src/census.rs).
+dev-heap-census = ["dep:toml", "eu4-harmony-remote/dev-memory"]
 # Logs the commands the game executes, in their written form (src/command_log.rs).
 dev-command-log = ["dep:toml"]
 # Makes startup fail, or shows test notices, as dev.toml says.

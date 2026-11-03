@@ -45,6 +45,7 @@ pub mod countries;
 pub mod describe;
 pub mod diplomacy;
 pub mod events;
+pub mod extensions;
 #[cfg(test)]
 pub(crate) mod fake;
 pub mod input;
@@ -91,6 +92,7 @@ pub trait Game:
     + offers::Layer
     + menu::Layer
     + diplomacy::Layer
+    + extensions::Layer
     + input::Layer
 {
 }
@@ -109,6 +111,7 @@ impl<
             + offers::Layer
             + menu::Layer
             + diplomacy::Layer
+            + extensions::Layer
             + input::Layer
             + ?Sized,
     > Game for T
@@ -585,6 +588,9 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
         Request::Menu(r) => menu::run(r, game),
         Request::Diplomacy(r) => diplomacy::run(r, game, now),
+        Request::Extension(r) => done(extensions::run(r, game).map(Answer::Extension)),
+        #[cfg(feature = "dev-heap-census")]
+        Request::Memory(r) => done(Ok(Answer::Memory(crate::census::answer(r)))),
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
     }
 }

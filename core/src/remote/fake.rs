@@ -1,6 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, diplomacy, input, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time};
+use super::{
+    armies, camera, console, countries, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time,
+};
 use crate::game::{
     self, fail,
     menu::{Expected, ExpectedProbe, Launch},
@@ -310,6 +312,16 @@ impl armies::Layer for Fake {
     fn selected(&mut self) -> GResult<u64> {
         self.call("selected".into());
         fail(Status::NotFound, "army panel not open")
+    }
+}
+
+impl extensions::Layer for Fake {
+    fn reload(&mut self, id: String) -> GResult<crate::lua::Reloaded> {
+        self.call(format!("reload {id}"));
+        match id.as_str() {
+            "regional-combat" => Ok(crate::lua::Reloaded { session: true, lost: None }),
+            _ => Err(game::Fail { status: game::Status::NotFound, message: format!("no extension of a mod {id:?} is loaded") }),
+        }
     }
 }
 

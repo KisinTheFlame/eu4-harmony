@@ -559,19 +559,20 @@ impl Extension {
         }
     }
 
-    /// The extension's save data, from its `on_save` (ADR 0028), as a plain
-    /// call that cannot wait: `None` when it has no `on_save` or is stopped;
-    /// `Some(Ok(None))` when it keeps nothing; an error when `on_save` fails
-    /// or returns what JSON cannot hold, which is logged as other errors.
-    pub fn on_save(&self) -> Option<Result<Option<Value>, String>> {
+    /// The extension's save data, from its `save_data` (ADR 0036), as a
+    /// plain call that cannot wait: `None` when it has no `save_data` or is
+    /// stopped; `Some(Ok(None))` when it keeps nothing; an error when
+    /// `save_data` fails or returns what JSON cannot hold, which is logged as
+    /// other errors.
+    pub fn save_data(&self) -> Option<Result<Option<Value>, String>> {
         if self.state().stopped.is_some() {
             return None;
         }
-        let Ok(LuaValue::Function(on_save)) = self.handlers.get::<LuaValue>("on_save") else { return None };
+        let Ok(LuaValue::Function(save_data)) = self.handlers.get::<LuaValue>("save_data") else { return None };
         let previous = CURRENT.with(|c| c.replace(Some(self.serial)));
         watch::start(sandbox::main_state(&self.lua));
         let started = Instant::now();
-        let returned = on_save.call::<LuaValue>(self.game.clone());
+        let returned = save_data.call::<LuaValue>(self.game.clone());
         let elapsed = started.elapsed();
         let timed_out = watch::end();
         CURRENT.with(|c| c.set(previous));
@@ -584,8 +585,8 @@ impl Extension {
             Ok(Value::Null) => Ok(None),
             Ok(v) => Ok(Some(v)),
             Err(message) => {
-                let message = format!("{message}; this save holds no data for the mod");
-                self.error("on_save", &message);
+                let message = format!("{message}; no data is kept for the mod");
+                self.error("save_data", &message);
                 Err(message)
             }
         })

@@ -75,7 +75,7 @@ fn write_mod(name: &str, main: &str, others: &[(&str, &str)]) -> (PathBuf, eu4_h
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
     }
-    let manifest_text = others.iter().find(|(f, _)| *f == "eu4-harmony/manifest.toml").map_or("id = \"t\"\napi_version = \"0.2\"", |(_, t)| *t);
+    let manifest_text = others.iter().find(|(f, _)| *f == "eu4-harmony/manifest.toml").map_or("id = \"t\"\napi_version = \"0.3\"", |(_, t)| *t);
     (dir, eu4_harmony_manifest::Manifest::parse(manifest_text).unwrap())
 }
 
@@ -136,7 +136,7 @@ fn the_sandbox_has_lua_s_own_libraries_and_nothing_of_the_system() {
 
 #[test]
 fn the_clock_tells_the_time_only_when_declared() {
-    let manifest = "id = \"t\"\napi_version = \"0.2\"\npermissions = { clock = true }";
+    let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { clock = true }";
     let e = load_one("clock", "TIME = math.type(os.time()) .. ' ' .. os.date('%Y'):len() return {}", &[("eu4-harmony/manifest.toml", manifest)]).unwrap();
     assert_eq!(text(e.lua.globals().get("TIME").unwrap()), "integer 4");
     let undeclared =
@@ -148,7 +148,7 @@ fn the_clock_tells_the_time_only_when_declared() {
 
 #[test]
 fn files_keep_the_extension_s_data_in_its_own_folder() {
-    let manifest = "id = \"keeper\"\napi_version = \"0.2\"\npermissions = { files = true }";
+    let manifest = "id = \"keeper\"\napi_version = \"0.3\"\npermissions = { files = true }";
     let e = load_one(
         "data",
         r#"
@@ -199,7 +199,7 @@ fn poll_until(e: &Extension, name: &str) -> LuaValue {
 
 #[test]
 fn a_request_waits_for_its_response_and_the_task_goes_on() {
-    let manifest = "id = \"t\"\napi_version = \"0.2\"\npermissions = { network = [\"api.example.com\"] }";
+    let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
     let main = r#"
         return {
           on_frame = function(game)
@@ -230,7 +230,7 @@ fn a_request_waits_for_its_response_and_the_task_goes_on() {
 
 #[test]
 fn a_request_with_no_answer_in_time_fails_with_timeout() {
-    let manifest = "id = \"t\"\napi_version = \"0.2\"\npermissions = { network = [\"api.example.com\"] }";
+    let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
     let main = "return { on_frame = function(game) local r, err = http.fetch('https://api.example.com/', { timeout = 0.3 }) GOT = tostring(r) .. ' ' .. err.code end }";
     let e = load_one("fetch-timeout", main, &[("eu4-harmony/manifest.toml", manifest)]).unwrap();
     e.handle("on_frame", &[]);
@@ -239,7 +239,7 @@ fn a_request_with_no_answer_in_time_fails_with_timeout() {
 
 #[test]
 fn a_request_the_manifest_does_not_allow_is_an_error() {
-    let manifest = "id = \"t\"\napi_version = \"0.2\"\npermissions = { network = [\"api.example.com\"] }";
+    let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
     let e = load_one(
         "fetch-refused",
         r#"

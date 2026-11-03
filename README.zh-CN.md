@@ -70,6 +70,7 @@ eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、manifes
 cd my-mod
 eu4-harmony test                          # 用假游戏运行它的 eu4-harmony\tests\*.lua
 eu4-harmony link                          # 在用户文件夹的 mod\ 下注册，然后在启动器里勾选
+eu4-harmony reload --watch                # 游戏运行时：Lua 和文字一改动，就在游戏里就地重载
 eu4-harmony package                       # 所有 Lua 和本地化文件都能读通后，生成一个干净的上传文件夹 ..\my-mod-package
 ```
 
@@ -77,7 +78,7 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 
 `permissions` 声明扩展在游戏之外能做什么：读取现实时间（`clock = true`）、在自己的数据文件夹里读写文件（`files = true`）、向列出的主机发 HTTP 请求（`network = ["api.example.com"]`）；用了没声明的就会报错（[ADR 0025](docs/adr/0025-sensitive-capabilities-are-declared.md)）。玩家在主菜单角落"EU4 Harmony Mod"按钮打开的 Mod 窗口里，能看到每个 Mod 的名称、版本、介绍和它声明的这些能力。
 
-`main.lua` 返回一张事件函数表，每类事件一个（`on_session`、`on_day`、`on_button`、`on_frame`、`on_save` 等）。每个函数都拿到 `game`，所有能力都按组从它调用，例如 `game.army.move(army, province)`；被拒绝时返回 `nil, err`。事件函数可以等一个能力的答复（比如别国对提议的答复），写起来像 `await`。`eu4-harmony wiki` 列出全部能力和它们的 Lua 写法，`eu4-harmony wiki lua` 列出事件函数和全局函数，`eu4-harmony wiki manifest` 列出清单的字段和权限；`eu4-harmony game` 则通过远程控制（见上文）向运行中的游戏问同样的东西。最小的示例就是 `eu4-harmony new` 生成的 Mod；事件函数、出错、时间限制和扩展存档数据的设计见 [docs/lua-extensions.md](docs/lua-extensions.md)。
+`main.lua` 返回一张事件函数表，每类事件一个（`on_session`、`on_day`、`on_button`、`on_frame` 等，另有交出存档数据的 `save_data`）。每个函数都拿到 `game`，所有能力都按组从它调用，例如 `game.army.move(army, province)`；被拒绝时返回 `nil, err`。事件函数可以等一个能力的答复（比如别国对提议的答复），写起来像 `await`。`eu4-harmony wiki` 列出全部能力和它们的 Lua 写法，`eu4-harmony wiki lua` 列出事件函数和全局函数，`eu4-harmony wiki manifest` 列出清单的字段和权限；`eu4-harmony game` 则通过远程控制（见上文）向运行中的游戏问同样的东西。最小的示例就是 `eu4-harmony new` 生成的 Mod；事件函数、出错、时间限制和扩展存档数据的设计见 [docs/lua-extensions.md](docs/lua-extensions.md)。
 
 `eu4-harmony skills` 是制作 Mod 的指南，写给 coding agent，人也能读：每类工作的步骤，以及怎样算做完（先看 `eu4-harmony skills mod`，再看 `tasks`、`state`、`ui`、`localisation`、`testing`、`game`）。`eu4-harmony new` 生成的 `AGENTS.md` 会让 agent 去读这些指南。
 

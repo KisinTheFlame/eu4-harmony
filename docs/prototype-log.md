@@ -1093,7 +1093,7 @@ This branch's uncommitted change for part C0 of [commands.md](commands.md): the 
 
 ## 2026-11-03 Commands C1 to C3 (tested by me)
 
-The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0033), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
+The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0035), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
 
 - **Startup**: 756 dependency points matched for ff49db0, 758 for the change after it; 132 hooks, 10 writes.
 - **The test commands, at the first frame of each game**: the recruit in Paris and the alliance with Scotland were carried out (France's manpower 11,798 → 10,798); the recruit in London was refused by its check (`Check`); `province=abc` (read as -1), `provinec`, `nosuchcommand` and the missing brace were refused unread, each with its reason.
@@ -1161,6 +1161,40 @@ L6's fourth point: regional combat in Lua, France from 1444.11.11, war on Englan
 - **The spread, a sixth run**, the same build with stretches kept as a histogram and the session's share logged at its end (`menu.return` after the 120 days; the session from 1444.11.11, the task on from 1444.12.12): 20,547 stretches, 1,908 ms in all; mean 0.093 ms, median 0.063 ms, p95 0.132 ms, p99 0.424 ms, the longest 12.7 ms; 12 over 5 ms (5 to 12 ms). 0.59% of the session's 321.0 s, 0.95% of the main thread's 200.5 s of CPU, 0.46% of the game's 417.0 s of CPU. The task attacked, moved between 174 and 4387, and returned to 183, each move accepted.
 - **Not met**: no stretch over 5 ms.
 - **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
+
+## 2026-11-04 Extension reload (tested by me)
+
+[extension-reload.md](extension-reload.md) R1 to R3: regional combat at api_version 0.3 with `save_data`, France from 1444.11.11, war on England in December, the Paris army's task on; the mod's files changed by a script for each step and put back with git afterwards. Two runs of `eu4.exe`, started directly.
+
+- **Startup**: "Regional Combat (EU4 Harmony) (id regional-combat, api 0.3): extension lua/main.lua loaded".
+- **In a session**: the title text changed in both localisation files and a log line added to `on_session`; `eu4-harmony reload` printed "reloaded regional-combat; on_session got what save_data gave"; the mod's log had the new title ("区域战斗 v2") and "saved tasks 1", then "session 1: restored 1 task(s)", and the task went on deciding.
+- **Code that does not compile**: printed "the new code did not load, and the old goes on: syntax error: main.lua:328: '}' expected ... (rejected)", exit code 1; over the next 120 days the old code attacked, moved to 4112 and 174 and returned to 183, each move accepted.
+- **--watch**: three edits in a row (the new title, a syntax error, the code as committed) gave two reloads, each carrying the task, and one "not reloaded" line with the syntax error between them.
+- **After a stop**: `on_frame` made to loop; the framework stopped the extension after three stretches past the time limit; reloading the committed code ran it again. The first run's build said "on_session got what save_data gave" though nothing was carried, as a stopped extension's `save_data` is not asked; the second run's says "on_session got nil: the old code was stopped (...), so its save_data was not asked".
+- **In the main menu**: after `menu.return`, the reload printed "no session is going on, so on_session comes with the next".
+- **Found, not of the reload**: after an in-process return, `menu.start` began a game the framework did not take for a new session: no "session N started" in the core log, `on_session` not called, the session number still 1. The same without a reload in between. The new game's first session after startup was announced; one after a return was not. Fixed the same night ([the next section](#2026-11-04-a-new-game-after-an-in-process-return-is-a-session-tested-by-me)).
+- **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
+
+## 2026-11-04 A new game after an in-process return is a session (tested by me)
+
+The build of `claude/session-after-return`, which begins a session at each world reset with the history (an in-process return, the single player setup left). Regional combat as the extension to watch, its manifest set to api_version 0.2 for the run (as master provides) and put back after; `eu4.exe` started directly.
+
+- **Before**: in the runs of the same night ([Extension reload](#2026-11-04-extension-reload-tested-by-me)), France, `menu.return`, then `menu.start FRA` began a game the framework took for the old session: no "session N started", no `on_session`, the number still 1.
+- **After**: France (session 1), a return, Castile (3), France from that session (5), `menu.load autosave` from it (7, "from a loaded save: true"), France (9), a return, France again (10), France from that session (11). Each logged "session N started", each ended with the session's timing line, and regional combat's `on_session` ran each time ("session N: restored 0 task(s)").
+- **The numbers**: a session begun by a load, or with another world or player, is counted twice (by the load or the world reset, and by the frame that finds the world or player changed), so the numbers rise by 2 there and by 1 for France after France. They only ever rise, which is what extensions and remote clients rely on.
+- **Not verified in the game**: leaving the single player setup by its back button, then starting a game.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
+
+## 2026-11-04 The heap census through remote control, and a leak run (tested by me)
+
+M1 of [leak-finding.md](leak-finding.md): the developer build with the heap census (`--features eu4-harmony-core/dev-heap-census`) answering `memory`, `memory.leftovers` and `memory.generation`, and `tools/leak-run.ps1`. Four processes under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `eu4.exe` started directly by the script, the playset as installed; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **The first start failed**: "census new at 0x1a332d4: observer slots exhausted". The framework's 44 observers and the census's 5 came to 49, one more than the 48 slots, so a developer build with the census did not start since the command layer's observers came in; the slots are 64 now, and the test that the observers leave slots over counts the census's.
+- **Four rounds, twice**: every answer right, no crash, each round 37 to 40 s; generation 1 at the main menu, three world resets a round (13 after four). Private bytes 4,300 MB at startup and 4,609 MB after four rounds in the first run, 4,388 and 4,610 MB in the second; about 535 to 542 MB of it the framework's heap, which is the census's own count of about six million blocks. Handles 1,034 to 1,060.
+- **The leftovers**, after four rounds: 5.66 million blocks, 1,207 MB, nearly all of generation 0 (what the game loaded at startup). The sites that leave the most per generation, `steady`: `0x1529f85` in `0x1529d20`, 488 KB a generation, 33,796 blocks, none of its blocks ever let go; `0x15a2658 < 0x152a00a`, the same number of blocks, its buffers; `0x155c294` (199 KB, let go elsewhere at `0x1546536`), `0x156acc9` (166 KB, at `0x15bd3d6`), `0x10b59fe` (100 KB, at `0x10b5696`). The history's sites in `0x2976f0` came out `sometimes`: only the generations that read history leave there. These match what the census in the log found by hand on 2026-11-03.
+- **A mistake the run showed**: the first run listed one place that let blocks go five times, once for each shard of the census that had counted some; the counts are added up across shards since, and the second run gave each place once.
+- **Not tried**: `memory.generation` inside a long game; the player build, which has no memory group (the build and its tests and clippy pass); a run of more than four rounds.
+- **Cleanup**: the game was closed by the script, or by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The runs' reports and a scratch folder the script made were deleted.
 
 ## 2026-11-04 Input (tested by me)
 
