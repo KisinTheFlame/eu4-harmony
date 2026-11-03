@@ -4,17 +4,21 @@
 //! zlib's level 3: about 40% of an ironman autosave's time late in a game
 //! (docs/research/main-thread.md). While one of the local saves runs (the
 //! save `0x5c6500` and the ironman save `0x5c7ac0`), the framework has the
-//! game store the entries instead (method 0, a zip any reader reads), so the
-//! game writes, checks and moves its file as it always does, only sooner.
+//! game deflate them at level 0, which copies the data into stored blocks
+//! without compressing it, so the game writes, checks and moves its file as it
+//! always does, only sooner. (Not the zip's method 0, "stored": the game's
+//! code for it reads its data from where the stream stands, after the end,
+//! and wrote a save of zeros when it was tried; docs/prototype-log.md.)
 //! Each file the save moved into place is then handed to a thread of the
-//! framework's, which compresses its stored entries with deflate, reads the
-//! result back, and puts it in the file's place, unless the file changed in
-//! the meantime. A save that thread cannot compress stays as the game wrote
-//! it, stored and whole.
+//! framework's, which deflates its uncompressed entries again at a real level,
+//! reads the result back, and puts it in the file's place, unless the file
+//! changed in the meantime. It first checks every entry: its CRC, and that a
+//! save's own entries begin as the game begins them, with `EU4`. A save the
+//! thread cannot compress stays as the game wrote it, uncompressed and whole.
 //!
 //! The next local save, a load and a restart wait for the thread first, so it
 //! never puts an older file over one the game wrote since. The game's exit
-//! does not: a file it had not finished stays stored. Cloud saves take
+//! does not: a file it had not finished stays uncompressed. Cloud saves take
 //! another path (`0x5c8ba0`) and keep the game's compression.
 use crate::hooks::HookFrame;
 use crate::points::Point;
@@ -36,11 +40,19 @@ const MOVE_FILE: usize = 0x1715bb0;
 
 const STORED: u16 = 0;
 const DEFLATED: u16 = 8;
+/// The level the save asks for, and the one it gets during a local save.
+const GAME_LEVEL: usize = 3;
+const COPY_LEVEL: usize = 0;
 
 /// How hard the thread compresses: zlib's default, a smaller file than the
 /// game's level 3 in a little more time, which the main thread does not wait
 /// for.
 const LEVEL: u8 = 6;
+
+/// The entries a save's zip holds that the game writes with its header, and
+/// the header they begin with.
+const SAVE_ENTRIES: [&[u8]; 3] = [b"meta", b"gamestate", b"ai"];
+const HEADER: &[u8] = b"EU4";
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -87,8 +99,12 @@ extern "C" fn save_after(_: *mut HookFrame) {
 
 extern "C" fn entry_before(frame: *mut HookFrame) {
     let h = unsafe { &mut *frame };
-    if SAVING.load(Ordering::SeqCst) && h.args[3] as u32 == DEFLATED as u32 && crate::thread_id() == crate::main_thread() {
-        h.args[3] = STORED as usize;
+    if SAVING.load(Ordering::SeqCst)
+        && h.args[3] as u32 == DEFLATED as u32
+        && h.args[4] as u32 == GAME_LEVEL as u32
+        && crate::thread_id() == crate::main_thread()
+    {
+        h.args[4] = COPY_LEVEL;
     }
 }
 
@@ -101,7 +117,7 @@ extern "C" fn moved(frame: *mut HookFrame) {
         let to = unsafe { std::ffi::CStr::from_ptr(h.args[1] as *const std::ffi::c_char) };
         match to.to_str() {
             Ok(to) => MOVED.lock().unwrap_or_else(|e| e.into_inner()).push(to.to_string()),
-            Err(_) => log!("saves: a file moved to a path that is not UTF-8 stays stored"),
+            Err(_) => log!("saves: a file moved to a path that is not UTF-8 stays uncompressed"),
         }
     });
 }
@@ -127,7 +143,7 @@ fn hand_over(path: PathBuf) {
                         log!("saves: {} compressed in the background, {before} to {after} bytes, in {:.1?}", path.display(), start.elapsed())
                     }
                     Ok(None) => {}
-                    Err(e) => log!("saves: {} stays stored, as the game wrote it: {e}", path.display()),
+                    Err(e) => log!("saves: {} stays uncompressed, as the game wrote it: {e}", path.display()),
                 }
                 let mut count = PENDING.count.lock().unwrap_or_else(|e| e.into_inner());
                 *count -= 1;
@@ -165,8 +181,8 @@ pub fn wait() {
     log!("saves: waited {:.1?} for the background compression", start.elapsed());
 }
 
-/// Compresses the stored entries of the zip at `path` and puts the result in
-/// its place; None when it has none, or is no zip (a plain save).
+/// Compresses the uncompressed entries of the zip at `path` and puts the
+/// result in its place; None when it has none, or is no zip (a plain save).
 fn compact_file(path: &Path) -> Result<Option<(usize, usize)>> {
     let error = |e: std::io::Error| e.to_string();
     let before = std::fs::metadata(path).map_err(error)?;
@@ -295,31 +311,54 @@ fn zip(entries: &[Entry]) -> Vec<u8> {
     out
 }
 
-/// The zip file `bytes` with its stored entries deflated, checked by reading
-/// every entry back; None when it is no zip file or has no stored entry.
+/// Whether an entry's data is not compressed: stored, or deflated at level 0,
+/// whose first block (like all its blocks) copies the data: block type 0,
+/// in bits 1 and 2 of its first byte.
+fn uncompressed(e: &Entry) -> bool {
+    e.method == STORED || (e.method == DEFLATED && e.data.first().is_some_and(|b| (b >> 1) & 3 == 0))
+}
+
+/// What an entry holds, checked against its CRC and, for a save's own
+/// entries, against the header the game begins them with.
+fn contents(e: &Entry) -> Result<Vec<u8>> {
+    let name = String::from_utf8_lossy(&e.name);
+    let data = match e.method {
+        STORED => e.data.clone(),
+        DEFLATED => crate::game::menu::save_file::inflate(&e.data, e.unpacked as usize)?,
+        method => return Err(format!("{name}: zip method {method}")),
+    };
+    if data.len() != e.unpacked as usize || crate::game::menu::save_file::crc32(&data) != e.crc {
+        return Err(format!("{name} does not match its CRC"));
+    }
+    if SAVE_ENTRIES.contains(&e.name.as_slice()) && !data.starts_with(HEADER) {
+        return Err(format!("{name} does not begin as a save does"));
+    }
+    Ok(data)
+}
+
+/// The zip file `bytes` with its uncompressed entries deflated, checked by
+/// reading every entry back; None when it is no zip file or has nothing
+/// uncompressed.
 fn compact(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
     let Some(mut entries) = entries(bytes)? else { return Ok(None) };
-    if !entries.iter().any(|e| e.method == STORED) {
+    if !entries.iter().any(uncompressed) {
         return Ok(None);
     }
-    for e in entries.iter_mut().filter(|e| e.method == STORED) {
-        if crate::game::menu::save_file::crc32(&e.data) != e.crc {
-            return Err(format!("{} does not match its CRC", String::from_utf8_lossy(&e.name)));
-        }
-        e.data = miniz_oxide::deflate::compress_to_vec(&e.data, LEVEL);
+    for e in &entries {
+        contents(e)?;
+    }
+    for e in entries.iter_mut().filter(|e| uncompressed(e)) {
+        e.data = miniz_oxide::deflate::compress_to_vec(&contents(e)?, LEVEL);
         e.method = DEFLATED;
     }
     let packed = zip(&entries);
     // Every entry read back, as the game will read it.
     let read = self::entries(&packed)?.ok_or("the zip written is no zip")?;
+    if read.len() != entries.len() {
+        return Err("the zip written lost an entry".into());
+    }
     for e in &read {
-        let data = match e.method {
-            DEFLATED => crate::game::menu::save_file::inflate(&e.data, e.unpacked as usize)?,
-            _ => e.data.clone(),
-        };
-        if data.len() != e.unpacked as usize || crate::game::menu::save_file::crc32(&data) != e.crc {
-            return Err(format!("{} does not read back", String::from_utf8_lossy(&e.name)));
-        }
+        contents(e).map_err(|e| format!("read back: {e}"))?;
     }
     Ok(Some(packed))
 }
@@ -344,6 +383,7 @@ mod tests {
 
     fn texts() -> Vec<(&'static str, Vec<u8>)> {
         let gamestate: Vec<u8> = (0..2000).flat_map(|i| format!("province={i}\n{{\n\towner=\"FRA\"\n}}\n").into_bytes()).collect();
+        let gamestate = [b"EU4txt\n".to_vec(), gamestate].concat();
         vec![("meta", b"EU4txt\ndate=1444.11.11\n".to_vec()), ("gamestate", gamestate), ("ai", b"EU4txt\nai={ }\n".to_vec())]
     }
 
@@ -373,6 +413,31 @@ mod tests {
         assert!(header.date.is_some());
     }
 
+    /// An entry deflated at level 0, as the game writes it during a local save.
+    fn copied(name: &str, data: &[u8]) -> Entry {
+        Entry { method: DEFLATED, data: miniz_oxide::deflate::compress_to_vec(data, 0), ..stored(name, data) }
+    }
+
+    #[test]
+    fn entries_deflated_at_level_0_are_deflated_again() {
+        let entries: Vec<Entry> = texts().iter().map(|(n, d)| copied(n, d)).collect();
+        assert!(entries.iter().all(uncompressed));
+        let packed = compact(&zip(&entries)).unwrap().unwrap();
+        let read = super::entries(&packed).unwrap().unwrap();
+        assert!(!read.iter().any(uncompressed));
+        for ((_, data), e) in texts().iter().zip(&read) {
+            assert_eq!(&contents(e).unwrap(), data);
+        }
+    }
+
+    #[test]
+    fn a_save_of_zeros_is_refused_though_its_crc_matches() {
+        // What the game's stored method wrote when it was tried.
+        let zeros = vec![0u8; 50_000];
+        let entries = [copied("meta", &zeros), copied("gamestate", &zeros), copied("ai", &zeros)];
+        assert!(compact(&zip(&entries)).unwrap_err().contains("does not begin as a save does"));
+    }
+
     #[test]
     fn a_compressed_zip_and_a_plain_save_are_left_as_they_are() {
         let mut deflated = stored("meta", b"EU4txt\n");
@@ -383,8 +448,8 @@ mod tests {
     }
 
     #[test]
-    fn a_damaged_stored_entry_is_refused() {
-        let mut e = stored("gamestate", b"EU4txt\nprovinces={ }\n");
+    fn a_damaged_entry_is_refused() {
+        let mut e = copied("gamestate", b"EU4txt\nprovinces={ }\n");
         e.crc ^= 1;
         assert!(compact(&zip(&[e])).is_err());
         let mut cut = zip(&[stored("meta", b"EU4txt\n")]);
