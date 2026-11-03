@@ -1,0 +1,81 @@
+# Commands plan
+
+Status: being designed (2026-11-03). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decision and its reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
+
+## Goal and scope
+
+- **Goal**: every capability that changes the game reaches it the way the game's own interface does, as a command, through one module of the core that posts commands from their written form and hears every command the game executes.
+- **In scope**: developer builds, one Cargo feature for each development tool, before anything else (C0); the command layer, posting and hearing (C1); the command log rebuilt on it; recruiting and diplomacy moved onto it (C2); the army orders tried in the game and moved onto it, and a list of the capabilities that change the game without a command (C3).
+- **Out of scope**: multiplayer; offering commands, their type names or their keys to extensions or remote clients (ADR 0026, ADR 0032); events from what the layer hears, which are added as mods need them (C4).
+
+## Behavior
+
+### Posting a command
+
+- A capability checks its arguments and the player's situation as it does now, and refuses with the game's reasons as the game's interface gives them.
+- It then writes its command as text, in the game's own written form, and hands the text to the layer.
+- The layer reads the text with the game's reader. It writes the command read out again and refuses the text when any key it was given did not come back with the same value: the reader passes over what it cannot read and says nothing of it. A key left out takes the game's default.
+- The layer asks the command's own check. A command the check refuses is destroyed and not posted; the caller is told only that the game refused it, since the check gives no reasons.
+- A command the check accepts is posted, as the game's interface posts one, and runs at the game's next frame.
+- The layer posts for whichever country the text names. The capabilities on it act for the player alone (ADR 0015).
+
+### Hearing commands
+
+- Every command the game executes, the player's, the AI's and the game's own, is heard once, before it runs, with its type and its written form.
+- A command is written out only while something listens. In a player build nothing listens until C4 adds events, and the layer costs nothing per command; writing one out costs about 10 µs.
+- A command's sender does not tell the player's commands from the AI's: what is heard says what happens and to which country, not who asked for it.
+
+### The command log
+
+A tool of developer builds, on the layer: it logs every command heard, or only the types `dev.toml` names, in its written form. The parts the verification needed (reading each command back and comparing, reading and posting lines from a file) go; their results are in research/commands.md.
+
+### Developer builds
+
+- **Features**: one for each development tool, each named with `dev-`: `dev-call-trace`, `dev-heap-census`, `dev-command-log` and `dev-test-switches` (the switches that make startup fail and show a test notice); and `dev`, which turns them all on. `trace` goes; `analysis` stays, for the disassembly example and the offline checks only.
+- **On when built in**: a tool built in is on; no environment variable turns it on. The tools' options are in a developer settings file, `eu4-harmony\dev.toml` in the game folder next to the core, one section for each tool. `dev-install.ps1` copies it there from the repository's `dev.toml`, which is not checked in; `tools/dev.toml.example` shows every section and option. Where the folder is, the player-state backup and restore leave it alone.
+- **Defaults**: a section that is missing takes its defaults: the command log logs every type, the call trace traces nothing, the census counts at every world reset, the test switches are off.
+- **What a developer build says**: the first line of the startup report and of the framework log says "developer build" and lists the tools built in; the report lists each tool's options as they took effect.
+- **Test switches**: making startup fail and showing a test notice move out of player builds into `dev-test-switches`, turned on in `dev.toml`. The test notice's text leaves the player's localisation files. Player builds then hold no hidden switches. The steps in docs/unicode-module.md and the prototype log's notes that use them are changed to match.
+- **Packing**: `release.ps1` builds the player build itself before packing it, so what was built last does not matter. `dev-install.ps1` installs what was built last, as now.
+- **CI**: the player build is built, tested and checked with clippy, as now; the developer build is built and checked with clippy with `dev`, so the tools keep building.
+
+## How it fits together
+
+One module of the core, `commands`, has two entries:
+
+```rust
+/// Reads the text, writes it out again and compares, asks the command's check, posts.
+pub fn post(text: &str) -> GResult<()>;
+/// Calls `heard` with each command the game executes, before it runs.
+pub fn listen(heard: fn(&Heard));
+```
+
+`post` runs where capabilities run, at the safe point. Inside, comparing what was given with what came back is a pure function on two texts, with unit tests of its own; the reader, the check and the post are the game's, kept as dependency points. Capabilities write their texts with a small writer of the written form, not by hand.
+
+## Parts
+
+### Every part is done when
+
+- `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`, and so do the offline checks against `eu4.exe`;
+- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md);
+- docs/research holds what was found in the game's code, and README.md and README.zh-CN.md say what changed for players.
+
+### C0 Developer builds
+
+Its own pull request, before the rest. The features, `dev.toml` and its example, the developer build's first lines and options in the startup report, the test switches moved, `release.ps1` building the player build, CI, and AGENTS.md's and tools/README.md's commands and notes. The call trace, the census and the command log as they are now, under their new features and reading their options from `dev.toml`; no environment variable is left.
+
+### C1 The command layer
+
+`post` and `listen`, with their dependency points; the command log rebuilt on `listen`. Tried in the game: a command posted from text does what the same command does from the game's interface, its check refusing what the interface would refuse; a key that does not come back is refused; posting at the safe point. Why commands posted from text so far ran with no sender (research/commands.md) is found out, and the layer fills in what the game's interface fills in.
+
+### C2 Recruiting and diplomacy
+
+Recruiting, declaring war, offering peace and proposing an alliance write their commands as text and post them through the layer; the constructors, sizes and fields they made their commands with go, with their dependency points. Their checks and reasons stay as they are. Tried in the game: each gives the same results and the same refusals as before.
+
+### C3 Army orders and the rest
+
+The game's own command for moving an army and for stopping it are tried in the game against what `army.move` and `army.stop` do now, by calling the game's functions: the route taken, straits, an army already moving. Where they do the same, the two capabilities move onto the layer. Every other capability that changes the game is listed with how it reaches the game, such as the game's speed, which is set directly; each that bypasses a command it has is moved onto the layer or written down with why not.
+
+### C4 Events
+
+A placeholder. Events for extensions and remote clients from what the layer hears, named and shaped after what a player sees (ADR 0026), each added when a mod needs it.
