@@ -234,7 +234,7 @@ The corner button and the two-column window, with descriptions and sensitive cap
 
 `new` with its new template, `test` and the fake game, `types`, `package`'s checks, `skills` with its first guides, `help`; `build` removed.
 
-Built in three pull requests: the reference (`wiki lua`, `wiki manifest` and `types`, from descriptions of the handlers, globals, manifest and permissions in `remote/src/lua.rs`, which a core test holds to the sandbox), the guides (`skills`, the `AGENTS.md` `new` writes, `help`), and the tests (`test` and the fake game). The reference is built.
+Built in three pull requests: the reference (`wiki lua`, `wiki manifest` and `types`, from descriptions of the handlers, globals, manifest and permissions in `remote/src/lua.rs`, which a core test holds to the sandbox), the guides (`skills`, the `AGENTS.md` `new` writes, `help`), and the tests (`test` and the fake game). The reference is built, and the guides: `cli/skills/`, embedded by `skills`, whose test holds every `wiki` and `skills` page a guide names to one there is; running their Lua examples with `eu4-harmony test` waits for `test`.
 
 ### L6 Acceptance
 

@@ -7,6 +7,7 @@
 //! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
 mod game;
 mod pipe;
+mod skills;
 mod templates;
 mod types;
 mod wiki;
@@ -26,7 +27,8 @@ running game through remote control
 usage:
   eu4-harmony new <id> [--name <display name>] [--dir <parent dir>]
       Creates the mod folder <id>/ with a Lua extension, one button, its
-      texts in English and Chinese, and the editor's type definitions.
+      texts in English and Chinese, the editor's type definitions and an
+      AGENTS.md pointing a coding agent at eu4-harmony skills.
   eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>] [--game-dir <game dir>]
       Registers the mod folder with the Paradox launcher (enable it in a playset),
       in the user dir the game folder's userdir.txt names, as the game finds it;
@@ -45,6 +47,9 @@ usage:
       The reference: every capability, how Lua and the command line call
       it, what it answers; a mod's handlers, globals and manifest; how a
       remote client plays a game; errors and events.
+  eu4-harmony skills [<topic>...]
+      Guides for making a mod, for a coding agent or a person: the steps,
+      and how to tell each is done.
 
 <mod dir> defaults to the current folder or the mod folder containing it.
 ";
@@ -92,6 +97,7 @@ fn main() {
         Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
+        Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
         Some("help" | "-h" | "--help") | None => {
             print!("{USAGE}");
             Ok(())
@@ -188,6 +194,7 @@ fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
     let chinese = format!("eu4-harmony/localisation/{lib}_l_simp_chinese.yml");
     let files = [
         ("descriptor.mod", templates::DESCRIPTOR),
+        ("AGENTS.md", templates::AGENTS),
         ("eu4-harmony/manifest.toml", templates::MANIFEST),
         ("eu4-harmony/lua/main.lua", templates::MAIN_LUA),
         ("eu4-harmony/ui/single_unitpanel/buttons/button.gui", templates::BUTTON_GUI),
@@ -448,6 +455,7 @@ mod tests {
         let english = "eu4-harmony/localisation/my_mod_l_english.yml";
         for f in [
             "descriptor.mod",
+            "AGENTS.md",
             "eu4-harmony/manifest.toml",
             "eu4-harmony/lua/main.lua",
             "eu4-harmony/ui/single_unitpanel/buttons/button.gui",
