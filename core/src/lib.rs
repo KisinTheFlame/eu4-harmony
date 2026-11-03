@@ -47,6 +47,7 @@ pub mod report;
 pub mod safe_point;
 pub mod saves;
 pub mod settings;
+pub mod speed;
 pub mod splice;
 #[cfg(feature = "dev-call-trace")]
 mod trace;
@@ -124,6 +125,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(unicode::points());
     all.extend(wording::points());
     all.extend(framework_ui::hook::points());
+    all.extend(speed::points());
     all
 }
 
