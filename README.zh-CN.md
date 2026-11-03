@@ -87,7 +87,8 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 | 目录 | 内容 |
 | --- | --- |
 | `proxy/` | `version.dll` 代理：转发 version.dll，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：依赖点与启动、框架读取的游戏对象布局（`core/src/objects/`）、`.gui` 拼接、运行扩展的 Lua 宿主（`core/src/lua/`）、能力，每组一个文件（`core/src/game/`）、远程控制的引擎（`core/src/remote/`）、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
+| `core/` | 框架核心：依赖点与启动、框架读取的游戏对象布局（`core/src/objects/`）、`.gui` 拼接、在真实游戏这个宿主上加载扩展并调用它的事件函数（`core/src/lua/`）、能力，每组一个文件（`core/src/game/`）、远程控制的引擎（`core/src/remote/`）、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
+| `lua/` | Lua 宿主：扩展的沙箱、事件函数和任务、出错和时间限制；宿主在核心里是运行中的游戏，在命令行工具里是假游戏 |
 | `loc/` | 本地化文件的格式、语言列表和查找，核心和命令行工具共用 |
 | `manifest/` | 模组的 `eu4-harmony/manifest.toml`、目录约定下其他文件的位置，以及描述文件的各行，核心和命令行工具共用 |
 | `remote/` | 能力目录：远程控制的请求与响应、它们的 JSON 形式和每项能力的说明（含扩展是否也有），核心和命令行工具共用 |
