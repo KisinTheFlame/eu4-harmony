@@ -1,7 +1,8 @@
-//! The command layer (ADR 0032, docs/commands.md): posts one of the game's
-//! commands from its written form, through the game's own reader, check and
-//! post, as the local handler reads back every command it posts; and hears
-//! every command the game executes, in the same form
+//! The command layer (ADR 0032, ADR 0033, docs/commands.md): posts one of the
+//! game's commands from its written form, through the game's own reader,
+//! check and post, as the local handler reads back every command it posts,
+//! and has the session run it at once, as its update would at the next
+//! frame; and hears every command the game executes, in the same form
 //! (docs/research/commands.md). Its vocabulary, the commands' type names and
 //! keys, is the game's and stays in the core: capabilities write their
 //! command's text and post it here.
@@ -10,9 +11,16 @@
 //! not read, so [`post`] writes the command it read out again and refuses it
 //! unless every key given came back with the value given.
 use super::{command_session, context, game, Fail, GResult, Status};
-use crate::{game_string, hooks::HookFrame, memory::Memory, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    hooks::HookFrame,
+    memory::Memory,
+    objects::session::{self, fields as session_fields},
+    points::Point,
+    unicode::game_text,
+};
 use std::cell::OnceCell;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// `(lambda)`: the session's call of a command's execute, for every command
@@ -70,6 +78,16 @@ const POST_DESTROYS: usize = 0x1580c4a;
 const SESSION_CHECKS: usize = 0x14cab2a;
 /// Where the token read stores the token in the reader.
 const TOKEN_STORED: usize = 0x170ae2c;
+/// `(session)`: runs the session's queued commands, each checked again, as
+/// its update does; and the handler's slot that takes the commands posted to
+/// it into that queue, `(handler, 0)`, which the update calls first. Where
+/// the update reads the session's state, and its two branches that run the
+/// queue.
+const RUN_QUEUE: usize = 0x14ca870;
+const TAKE_POSTED: usize = 0x38;
+const UPDATE_STATE: usize = 0x14ca572;
+const UPDATE_RUNS_QUEUE: usize = 0x14ca5de;
+const UPDATE_RUNS_QUEUE_RUNNING: usize = 0x14ca651;
 
 /// The memory stream, as the local handler's post makes it: a line, a mode,
 /// whether it writes, a name, and the byte vector it writes to or reads from.
@@ -147,6 +165,28 @@ pub fn points() -> Vec<Point> {
         Point::keep(READ_TOKEN, "48 89 5c 24 10 57 48 81 ec 30 02 00 00 48 8b 59 28 48 8b f9", "read a token"),
         Point::keep(TOKEN_STORED, "48 8d 57 30", "a token stored in its reader").uses(&[READER_TOKEN]),
         Point::keep(MAKE, "48 89 5c 24 08 55 56 57 48 8d 6c 24 c0 48 81 ec 40 01 00 00 41 8b f8", "make a command"),
+        Point::keep(UPDATE_STATE, "8b 47 48 83 f8 07", "session state").uses(&[session_fields::STATE]),
+        Point::keep(
+            UPDATE_RUNS_QUEUE,
+            "83 f8 0f 77 43 b9 14 c0 00 00 0f a3 c1 73 39 c6 87 14 08 00 00 01 80 bf d4 07 00 00 00 75 1d 80 bf 41 08 00 00 00 75 14 \
+             48 8b 4f 58 48 8b 01 33 d2 ff 50 38 48 8b cf e8 56 02 00 00",
+            "the session's update runs its queue",
+        )
+        .uses(&[
+            session::RUNS_QUEUE as usize,
+            session_fields::UPDATING,
+            session_fields::EXECUTING,
+            session_fields::HELD,
+            session_fields::HANDLER,
+            TAKE_POSTED,
+        ]),
+        Point::keep(
+            UPDATE_RUNS_QUEUE_RUNNING,
+            "80 bf d4 07 00 00 00 75 62 80 bf 41 08 00 00 00 75 59 83 7f 48 06 0f 85 c2 01 00 00 80 bf 40 08 00 00 00",
+            "the running session's update runs its queue",
+        )
+        .uses(&[session_fields::EXECUTING, session_fields::HELD, session_fields::STATE, session::RUNNING as usize, session_fields::STARTING]),
+        Point::keep(RUN_QUEUE, "48 89 5c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 60 fe ff ff", "run the queued commands"),
     ]
 }
 
@@ -158,9 +198,10 @@ pub enum Refused {
     /// The text names no command of the game's, or the game read it
     /// otherwise than it is written: how.
     Unread(String),
-    /// The command's own check refuses it; it gives no reason.
+    /// The command's own check refuses it, before it is posted or as the
+    /// session runs it; it gives no reason.
     Check,
-    /// The game's session takes no commands now.
+    /// The game's session takes no commands now, or cannot run them at once.
     NotTaken,
 }
 
@@ -193,10 +234,17 @@ impl From<Refused> for Fail {
 
 /// Posts the command `text` writes, such as `buildunit={ country="FRA"
 /// province=183 unit="western_medieval_infantry" }`, to the game's session,
-/// as the game's interface posts its own; it runs at the game's next frame,
-/// for whichever country the text names. A key left out takes the game's
-/// default. A command refused is not posted.
+/// as the game's interface posts its own, and has the session run it at once
+/// (ADR 0033), for whichever country the text names: when this returns, the
+/// game has carried it out. A key left out takes the game's default. A
+/// command refused is not posted. Only on the main thread, at a safe point.
 pub fn post(text: &str) -> Result<(), Refused> {
+    post_with(text, |run| run())
+}
+
+/// [`post`], with `around` called to run the session's queue while it holds
+/// this command alone: the commands posted before it run first.
+pub fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
     let given = Written::parse(text).map_err(Refused::Unread)?;
     let m = game()?;
     let ctx = context(m)?;
@@ -205,6 +253,12 @@ pub fn post(text: &str) -> Result<(), Refused> {
     // it once its session took it; until then, it is the framework's to
     // free. A command a call into the game failed on is left alone.
     let session = command_session(m, &ctx)?;
+    if crate::thread_id() != crate::main_thread() || !runs_queue(m, session)? {
+        return Err(Refused::NotTaken);
+    }
+    // What was posted since the session's last update runs now, as it would
+    // have at the next.
+    run_queue(m, session)?;
     let Some(command) = read(m, &game_text::from_str(text))? else {
         return Err(Refused::Unread(format!("the game has no command {:?}", given.kind)));
     };
@@ -213,13 +267,43 @@ pub fn post(text: &str) -> Result<(), Refused> {
         None if !super::post(m, session, command)? => Some(Refused::NotTaken),
         None => None,
     };
-    match refusal {
-        Some(refusal) => {
-            m.call(m.vslot(command, DESTROY)?, &[command, FREE])?;
-            Err(refusal)
-        }
-        None => Ok(()),
+    if let Some(refusal) = refusal {
+        m.call(m.vslot(command, DESTROY)?, &[command, FREE])?;
+        return Err(refusal);
     }
+    let executed = EXECUTED.load(Ordering::Relaxed);
+    around(&|| run_queue(m, session))?;
+    // The session drops a command its check refuses as it runs the queue.
+    if EXECUTED.load(Ordering::Relaxed) == executed {
+        return Err(Refused::Check);
+    }
+    Ok(())
+}
+
+/// Whether the session's update would run its queue now: in a state it runs
+/// it in, with no command executing and none held back.
+fn runs_queue(m: &Memory, session: usize) -> GResult<bool> {
+    let state = m.u32(session + session_fields::STATE)?;
+    let runs = (state < 32 && session::RUNS_QUEUE >> state & 1 == 1) || (state == session::RUNNING && m.u8(session + session_fields::STARTING)? == 0);
+    Ok(runs && m.u8(session + session_fields::EXECUTING)? == 0 && m.u8(session + session_fields::HELD)? == 0)
+}
+
+/// Runs the session's queue as its update does: the handler takes the
+/// commands posted to it into the queue, and the session runs them.
+fn run_queue(m: &Memory, session: usize) -> GResult<()> {
+    if !runs_queue(m, session)? {
+        return Err("the session cannot run its queue now".to_string().into());
+    }
+    let updating = m.u32(session + session_fields::STATE)? != session::RUNNING;
+    if updating {
+        m.write(session + session_fields::UPDATING, &[1])?;
+    }
+    let handler = m.ptr(session + session_fields::HANDLER)?;
+    let ran = m.call(m.vslot(handler, TAKE_POSTED)?, &[handler, 0]).and_then(|_| m.call(m.at(RUN_QUEUE), &[session]));
+    if updating {
+        m.write(session + session_fields::UPDATING, &[0])?;
+    }
+    ran.map(|_| ()).map_err(Into::into)
 }
 
 /// The command at `command`, one the game made, in its written form on one
@@ -236,7 +320,7 @@ pub fn text(m: &Memory, command: usize) -> GResult<String> {
 pub fn post_test_commands() {
     for text in &crate::dev::options().test_switches.post {
         match post(text) {
-            Ok(()) => log!("test command posted: {text}"),
+            Ok(()) => log!("test command carried out: {text}"),
             Err(refused) => log!("test command not posted ({refused:?}): {text}"),
         }
     }
@@ -292,6 +376,9 @@ impl Heard {
 
 static LISTENERS: Mutex<Vec<fn(&Heard)>> = Mutex::new(Vec::new());
 static LISTENING: AtomicBool = AtomicBool::new(false);
+/// How many commands the game executed, for [`post_with`] to tell whether
+/// its command ran.
+static EXECUTED: AtomicU64 = AtomicU64::new(0);
 static WRITING_BROKEN: AtomicBool = AtomicBool::new(false);
 
 /// Calls `heard` with every command the game executes, the player's, the
@@ -303,6 +390,7 @@ pub fn listen(heard: fn(&Heard)) {
 }
 
 extern "C" fn executing(frame: *mut HookFrame) {
+    EXECUTED.fetch_add(1, Ordering::Relaxed);
     if !LISTENING.load(Ordering::Relaxed) {
         return;
     }

@@ -6,10 +6,10 @@
 //! window that sends it ask; a refusal comes back with the game's reasons.
 //! Then it has the action make the command that carries it, as the window
 //! does, and posts the command in its written form through the command layer
-//! ([`super::commands`]), which asks the command's own check too. The game carries the
-//! command out at its next frame, with its own checks, costs, AI answers and
-//! multiplayer rules: an AI country answers a proposal there, and its answer
-//! comes back as a command of its own, carried out at a frame after. Each
+//! ([`super::commands`]), which asks the command's own check too and has the
+//! game carry it out at once (ADR 0033), with its own checks and costs: an AI
+//! country answers a proposal there, and its answer comes back as a command
+//! of its own, carried out at the game's next frame. Each
 //! action sent is a [`Ticket`]; [`answer`] says what came of it, from the
 //! commands the game carried out, which an observer of the game's own
 //! function sees.

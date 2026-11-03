@@ -1,6 +1,6 @@
 # Commands plan
 
-Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decision and its reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
+Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)); C1 and C2 built, not yet tried in the game. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decisions and their reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md) and [ADR 0033](adr/0033-commands-run-at-once.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
 
 ## Goal and scope
 
@@ -16,7 +16,8 @@ Status: decided (2026-11-03); C0 built and tried in the game the same day ([prot
 - It then writes its command as text, in the game's own written form, and hands the text to the layer.
 - The layer reads the text with the game's reader. It writes the command read out again and refuses the text when any key it was given did not come back with the same value: the reader passes over what it cannot read and says nothing of it. A key left out takes the game's default.
 - The layer asks the command's own check. A command the check refuses is destroyed and not posted; the caller is told only that the game refused it, since the check gives no reasons.
-- A command the check accepts is posted, as the game's interface posts one, and runs at the game's next frame.
+- A command the check accepts is posted, as the game's interface posts one, and the layer has the session run it at once, as its update would at the next frame (ADR 0033): what was posted before it runs first, then the command, checked again. When the capability returns, the game has carried the command out. A command the session drops as it runs it is refused, as one the check refuses.
+- The session runs its queue only on the main thread, in the states in which its update runs it, and never while a command executes; a session that cannot run it then takes no command.
 - The layer posts for whichever country the text names. The capabilities on it act for the player alone (ADR 0015).
 
 ### Hearing commands
@@ -44,8 +45,8 @@ A tool of developer builds, on the layer: it logs every command heard, or only t
 One module of the core, `commands`, has two entries:
 
 ```rust
-/// Reads the text, writes it out again and compares, asks the command's check, posts.
-pub fn post(text: &str) -> GResult<()>;
+/// Reads the text, writes it out again and compares, asks the command's check, posts, and has the session run it at once.
+pub fn post(text: &str) -> Result<(), Refused>;
 /// Calls `heard` with each command the game executes, before it runs.
 pub fn listen(heard: fn(&Heard));
 ```

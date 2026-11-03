@@ -125,7 +125,7 @@ What is typed into the game console, such as `cash 100`. Not a command: the game
 _Avoid_: cheat, command on its own
 
 **Command**:
-One of the game's own instructions that changes the game, such as recruiting a regiment, proposing an alliance or choosing an event's option, which the game checks and carries out at its next frame. The player's orders, the AI's choices and the game's own daily update all reach the game as commands. Each is of a type, named by the game, and has a written form that says everything it carries.
+One of the game's own instructions that changes the game, such as recruiting a regiment, proposing an alliance or choosing an event's option, which the game checks and carries out. The player's orders, the AI's choices and the game's own daily update all reach the game as commands. Each is of a type, named by the game, and has a written form that says everything it carries.
 _Avoid_: order (what the player gives, which the game makes into a command), action, console command
 
 **Map position**:

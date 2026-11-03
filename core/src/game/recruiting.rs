@@ -23,13 +23,10 @@ fn written(country: [u8; 3], province: u32, unit: &str) -> String {
 /// way the recruit button in the province view does. Refused
 /// ([`Status::Rejected`]) when the game would not let the player recruit it
 /// there now, with the game's reasons, one a line; [`Status::NotFound`] for a
-/// number that names no province. Done once the game's session has the
-/// order: the game carries it out at its next frame, paying for it and
-/// putting it in the province's recruit queue. It checks the order again
-/// then and drops one that no longer passes with only a line in its own log,
-/// so orders given at one safe point or in one callback are each checked
-/// here against the same treasury, manpower and sailors, and those the first
-/// ones leave too little for are dropped at that frame.
+/// number that names no province. Done once the game has carried the order
+/// out, paying for it and putting it in the province's recruit queue: the
+/// command layer has the game run it at once (ADR 0033), so orders given one
+/// after another are each checked against what the ones before left.
 pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
