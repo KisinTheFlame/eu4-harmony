@@ -33,7 +33,7 @@ use crate::{
     objects::{
         campaign::{
             achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
-            message_window, modifier_set, modifiers, outliner, religions, world,
+            message_window, modifiers, outliner, religions, world,
         },
         gui::{classes as gui_classes, sprite_type, window as gui_window},
         list,
@@ -463,7 +463,7 @@ extern "C" fn modifiers_copied(frame: *mut HookFrame) {
 #[cfg(feature = "trace")]
 fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
     let listed = (|| {
-        let added = modifiers + modifiers::OWN + modifier_set::ADDED;
+        let added = modifiers + modifiers::OWN + crate::objects::campaign::modifier_set::ADDED;
         let (begin, end) = (m.ptr(added)?, m.ptr(added + 8)?);
         let mut sets = Vec::new();
         if end > begin {
