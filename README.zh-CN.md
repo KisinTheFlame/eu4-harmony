@@ -72,6 +72,8 @@ eu4-harmony package                       # 所有 Lua 和本地化文件都能�
 
 Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说明是什么（[ADR 0029](docs/adr/0029-manifest-in-toml-layout-by-convention.md)）：`manifest.toml`（`id`、`api_version`、`description`、`permissions`），`lua\` 里是扩展、入口是 `main.lua`，`ui\<窗口名>\` 里是界面片段（按钮区的放 `ui\<窗口名>\buttons\`），`localisation\` 里是文字，`data\` 里是扩展要读的文件。
 
+`permissions` 声明扩展在游戏之外能做什么：读取现实时间（`clock = true`）、在自己的数据文件夹里读写文件（`files = true`）、向列出的主机发 HTTP 请求（`network = ["api.example.com"]`）；用了没声明的就会报错（[ADR 0025](docs/adr/0025-sensitive-capabilities-are-declared.md)）。玩家在主菜单角落"EU4 Harmony Mod"按钮打开的 Mod 窗口里，能看到每个 Mod 的名称、版本、介绍和它声明的这些能力。
+
 `main.lua` 返回一张事件函数表，每类事件一个（`on_session`、`on_day`、`on_button`、`on_frame`、`on_save` 等）。每个函数都拿到 `game`，所有能力都按组从它调用，例如 `game.army.move(army, province)`；被拒绝时返回 `nil, err`。事件函数可以等一个能力的答复（比如别国对提议的答复），写起来像 `await`。`eu4-harmony wiki` 列出全部能力和它们的 Lua 写法；`eu4-harmony game` 则通过远程控制（见上文）向运行中的游戏问同样的东西。最小的示例就是 `eu4-harmony new` 生成的 Mod；事件函数、出错、时间限制和扩展存档数据的设计见 [docs/lua-extensions.md](docs/lua-extensions.md)。
 
 文字放在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`，格式同游戏的本地化文件，但内容是普通 UTF-8，每种语言一个文件（`english`、`french`、`german`、`spanish`、`simp_chinese`）。界面片段直接用这些键，扩展用 `text.get("KEY")` 取文字；框架按玩家语言显示，见 [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md)。

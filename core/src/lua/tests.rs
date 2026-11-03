@@ -16,7 +16,7 @@ fn write_mod(name: &str, main: &str, others: &[(&str, &str)]) -> DiscoveredMod {
     let manifest_text = others.iter().find(|(f, _)| *f == "eu4-harmony/manifest.toml").map_or("id = \"t\"\napi_version = \"0.2\"", |(_, t)| *t);
     DiscoveredMod {
         descriptor_file: dir.join("t.mod"),
-        descriptor: Descriptor { name: "T".into(), path: Some(dir.clone()), archive: None },
+        descriptor: Descriptor { name: "T".into(), version: None, path: Some(dir.clone()), archive: None },
         layout: eu4_harmony_manifest::layout(&dir.join("eu4-harmony")),
         manifest: Manifest::parse(manifest_text).unwrap(),
         dir,

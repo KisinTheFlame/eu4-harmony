@@ -48,6 +48,13 @@ pub trait Measure {
 
 pub enum Widget {
     Label(String),
+    /// A heading: larger text, with room above it where something comes
+    /// before.
+    Heading(String),
+    /// One item of a list: a bullet, and its text wrapped beside it.
+    Item(String),
+    /// Room between two parts of a window's body.
+    Gap,
     Button {
         id: &'static str,
         label: String,
@@ -64,6 +71,25 @@ pub enum Widget {
         label: String,
         on: bool,
     },
+}
+
+/// A side list (GLOSSARY): a list down a window's left side, one row per
+/// item, one of them chosen, which a click chooses. The window's body is
+/// beside it. A list longer than the screen allows shows as many rows as fit
+/// and scrolls with the mouse wheel.
+pub struct Side {
+    pub id: &'static str,
+    pub items: Vec<String>,
+    pub selected: usize,
+    pub width: f32,
+    /// The first item shown.
+    scroll: usize,
+}
+
+impl Side {
+    pub fn new(id: &'static str, items: Vec<String>, width: f32) -> Self {
+        Self { id, items, selected: 0, width, scroll: 0 }
+    }
 }
 
 /// What the player did.
@@ -84,10 +110,19 @@ const SWITCH_W: f32 = 40.0;
 const SWITCH_H: f32 = 20.0;
 const KNOB: f32 = 14.0;
 const LINE: f32 = TEXT_SIZE + 6.0;
+const HEADING_SIZE: f32 = 20.0;
+const HEADING_LINE: f32 = HEADING_SIZE + 6.0;
+/// How far an item's text stands right of its bullet.
+const INDENT: f32 = 16.0;
+const GAP: f32 = 10.0;
+/// The share of the screen a side list may take, and its scroll bar's width.
+const SIDE_SHARE: f32 = 0.6;
+const SCROLL_BAR: f32 = 4.0;
 
 pub struct Window {
     pub title: String,
     pub body: Vec<Widget>,
+    pub side: Option<Side>,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -103,13 +138,45 @@ pub struct Window {
 
 /// One laid-out piece of a window.
 enum Slot {
-    Lines(Vec<String>, Rect),
+    Lines(Vec<String>, Rect, Style),
     Control(usize, Rect),
+}
+
+/// How a piece of text is drawn.
+#[derive(Clone, Copy, PartialEq)]
+enum Style {
+    Body,
+    Heading,
+    Item,
+}
+
+impl Style {
+    fn size(self) -> f32 {
+        if self == Style::Heading {
+            HEADING_SIZE
+        } else {
+            TEXT_SIZE
+        }
+    }
+
+    fn line(self) -> f32 {
+        if self == Style::Heading {
+            HEADING_LINE
+        } else {
+            LINE
+        }
+    }
 }
 
 impl Window {
     pub fn new(title: impl Into<String>, body: Vec<Widget>, width: f32) -> Self {
-        Self { title: title.into(), body, x: 0.0, y: 0.0, width, open: None, scroll: 0, screen_h: f32::MAX, drag: None, mouse: (-1.0, -1.0) }
+        Self { title: title.into(), body, side: None, x: 0.0, y: 0.0, width, open: None, scroll: 0, screen_h: f32::MAX, drag: None, mouse: (-1.0, -1.0) }
+    }
+
+    /// The window with a list down its left side.
+    pub fn with_side(mut self, side: Side) -> Self {
+        self.side = Some(side);
+        self
     }
 
     /// Puts the window in the middle of a screen.
@@ -146,8 +213,35 @@ impl Window {
         }
     }
 
+    /// How wide the body is: the window's inside, less the side list.
     fn inner(&self) -> f32 {
-        self.width - 2.0 * PAD
+        self.width - 2.0 * PAD - self.side.as_ref().map_or(0.0, |s| s.width + PAD)
+    }
+
+    /// Where the body begins, right of the side list.
+    fn left(&self) -> f32 {
+        self.x + PAD + self.side.as_ref().map_or(0.0, |s| s.width + PAD)
+    }
+
+    /// How many rows of the side list show: all of them, or as many as fit
+    /// in its share of the screen (at least three).
+    fn side_shown(&self) -> usize {
+        let Some(side) = &self.side else { return 0 };
+        let room = ((self.screen_h * SIDE_SHARE - TITLE - 2.0 * PAD) / ROW).floor().max(3.0);
+        side.items.len().min(room as usize)
+    }
+
+    /// Where the side list is.
+    fn side_area(&self) -> Option<Rect> {
+        let side = self.side.as_ref()?;
+        Some(Rect { x: self.x + PAD, y: self.y + TITLE + PAD, w: side.width, h: self.side_shown() as f32 * ROW })
+    }
+
+    /// The side list's rows that show, each with its item's index.
+    fn side_rows(&self) -> Vec<(usize, Rect)> {
+        let (Some(side), Some(area)) = (&self.side, self.side_area()) else { return Vec::new() };
+        let width = if side.items.len() > self.side_shown() { area.w - SCROLL_BAR } else { area.w };
+        (0..self.side_shown()).map(|n| (side.scroll + n, Rect { x: area.x, y: area.y + n as f32 * ROW, w: width, h: ROW })).collect()
     }
 
     /// How wide a toggle's label may be, left of its switch.
@@ -165,20 +259,30 @@ impl Window {
         let mut slots = Vec::new();
         for (i, w) in self.body.iter().enumerate() {
             match w {
-                Widget::Label(text) => {
-                    let lines = measure.wrap(text, TEXT_SIZE, self.inner());
-                    let h = lines.len().max(1) as f32 * LINE;
-                    slots.push(Slot::Lines(lines, Rect { x: self.x + PAD, y, w: self.inner(), h }));
+                Widget::Label(text) | Widget::Heading(text) | Widget::Item(text) => {
+                    let style = match w {
+                        Widget::Heading(_) => Style::Heading,
+                        Widget::Item(_) => Style::Item,
+                        _ => Style::Body,
+                    };
+                    if style == Style::Heading && i > 0 {
+                        y += GAP;
+                    }
+                    let indent = if style == Style::Item { INDENT } else { 0.0 };
+                    let lines = measure.wrap(text, style.size(), self.inner() - indent);
+                    let h = lines.len().max(1) as f32 * style.line();
+                    slots.push(Slot::Lines(lines, Rect { x: self.left(), y, w: self.inner(), h }, style));
                     y += h + 4.0;
                 }
+                Widget::Gap => y += GAP,
                 Widget::Button { .. } | Widget::Dropdown { .. } => {
-                    slots.push(Slot::Control(i, Rect { x: self.x + PAD, y, w: self.inner(), h: ROW }));
+                    slots.push(Slot::Control(i, Rect { x: self.left(), y, w: self.inner(), h: ROW }));
                     y += ROW + 8.0;
                 }
                 Widget::Toggle { label, .. } => {
                     let lines = measure.wrap(label, TEXT_SIZE, self.toggle_text());
                     let h = (lines.len().max(1) as f32 * LINE).max(ROW);
-                    slots.push(Slot::Control(i, Rect { x: self.x + PAD, y, w: self.inner(), h }));
+                    slots.push(Slot::Control(i, Rect { x: self.left(), y, w: self.inner(), h }));
                     y += h + 8.0;
                 }
             }
@@ -187,10 +291,11 @@ impl Window {
     }
 
     pub fn height(&self, measure: &dyn Measure) -> f32 {
-        let bottom = self.layout(measure).last().map_or(self.y + TITLE, |s| match s {
-            Slot::Lines(_, r) | Slot::Control(_, r) => r.y + r.h,
+        let body = self.layout(measure).last().map_or(self.y + TITLE, |s| match s {
+            Slot::Lines(_, r, _) | Slot::Control(_, r) => r.y + r.h,
         });
-        bottom - self.y + PAD
+        let side = self.side_area().map_or(self.y + TITLE, |r| r.y + r.h);
+        body.max(side) - self.y + PAD
     }
 
     pub fn bounds(&self, measure: &dyn Measure) -> Rect {
@@ -212,9 +317,18 @@ impl Window {
         Rect { x: control.x, y: control.y + ROW, w: control.w, h: self.rows(control, options) as f32 * ROW }
     }
 
-    /// The mouse wheel turned `notches` (up is positive) over the window.
+    /// The mouse wheel turned `notches` (up is positive) over the window: an
+    /// open list scrolls, or the side list under the mouse.
     pub fn wheel(&mut self, measure: &dyn Measure, notches: i32) {
-        let Some(open) = self.open else { return };
+        let Some(open) = self.open else {
+            let over = self.side_area().is_some_and(|r| r.contains(self.mouse.0, self.mouse.1));
+            let shown = self.side_shown();
+            if let (true, Some(side)) = (over, self.side.as_mut()) {
+                let last = side.items.len().saturating_sub(shown);
+                side.scroll = (side.scroll as i64 - notches as i64).clamp(0, last as i64) as usize;
+            }
+            return;
+        };
         let Some(Slot::Control(_, control)) = self.layout(measure).into_iter().find(|s| matches!(s, Slot::Control(i, _) if *i == open)) else { return };
         let Widget::Dropdown { options, .. } = &self.body[open] else { return };
         let last = options.len().saturating_sub(self.rows(control, options.len()));
@@ -271,6 +385,11 @@ impl Window {
             self.drag = Some((x - self.x, y - self.y));
             return None;
         }
+        if let Some((index, _)) = self.side_rows().into_iter().find(|(_, r)| r.contains(x, y)) {
+            let side = self.side.as_mut().expect("it has rows");
+            side.selected = index;
+            return Some(Action::Chose(side.id, index));
+        }
         for slot in self.layout(measure) {
             if let Slot::Control(i, r) = slot {
                 if r.contains(x, y) {
@@ -287,7 +406,7 @@ impl Window {
                             self.open = Some(i);
                             None
                         }
-                        Widget::Label(_) | Widget::Toggle { .. } => None,
+                        Widget::Label(_) | Widget::Heading(_) | Widget::Item(_) | Widget::Gap | Widget::Toggle { .. } => None,
                     };
                 }
             }
@@ -305,14 +424,41 @@ impl Window {
             Command::Fill { rect: Rect { h: TITLE, ..bounds }, color: TITLE_BAR },
             Command::Text { x: bounds.x + PAD, y: bounds.y + (TITLE - TEXT_SIZE) / 2.0 - 2.0, text: self.title.clone(), size: TEXT_SIZE, color: TEXT },
         ];
+        if let (Some(side), Some(area)) = (&self.side, self.side_area()) {
+            out.push(Command::Fill { rect: Rect { h: bounds.y + bounds.h - PAD - area.y, ..area }, color: LIST });
+            for (index, row) in self.side_rows() {
+                if hover(&row) || index == side.selected {
+                    out.push(Command::Fill { rect: row, color: if hover(&row) { HOVER } else { CONTROL } });
+                }
+                let text = elide(measure, &side.items[index], row.w - 16.0);
+                out.push(Command::Text { x: row.x + 8.0, y: row.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: TEXT });
+            }
+            // Where the rows shown are in the whole list.
+            let (shown, all) = (self.side_shown(), side.items.len());
+            if all > shown {
+                let thumb = Rect {
+                    x: area.x + area.w - SCROLL_BAR,
+                    y: area.y + area.h * side.scroll as f32 / all as f32,
+                    w: SCROLL_BAR,
+                    h: area.h * shown as f32 / all as f32,
+                };
+                out.push(Command::Fill { rect: thumb, color: BORDER });
+            }
+        }
         let close = self.close_box();
         out.push(Command::Fill { rect: close, color: if hover(&close) { HOVER } else { CONTROL } });
         out.push(Command::Text { x: close.x + 6.0, y: close.y + 1.0, text: "×".into(), size: TEXT_SIZE, color: TEXT });
         for slot in self.layout(measure) {
             match slot {
-                Slot::Lines(lines, r) => {
+                Slot::Lines(lines, r, style) => {
+                    let x = if style == Style::Item {
+                        out.push(Command::Text { x: r.x + 2.0, y: r.y, text: "•".into(), size: TEXT_SIZE, color: TEXT });
+                        r.x + INDENT
+                    } else {
+                        r.x
+                    };
                     for (n, line) in lines.into_iter().enumerate() {
-                        out.push(Command::Text { x: r.x, y: r.y + n as f32 * LINE, text: line, size: TEXT_SIZE, color: TEXT });
+                        out.push(Command::Text { x, y: r.y + n as f32 * style.line(), text: line, size: style.size(), color: TEXT });
                     }
                 }
                 Slot::Control(i, r) if matches!(self.body[i], Widget::Toggle { .. }) => {
@@ -339,7 +485,7 @@ impl Window {
                     let (label, centred) = match &self.body[i] {
                         Widget::Button { label, .. } => (label.clone(), true),
                         Widget::Dropdown { options, selected, .. } => (format!("{}  ▾", options.get(*selected).map_or("", String::as_str)), false),
-                        Widget::Label(_) | Widget::Toggle { .. } => continue,
+                        Widget::Label(_) | Widget::Heading(_) | Widget::Item(_) | Widget::Gap | Widget::Toggle { .. } => continue,
                     };
                     let x = if centred { r.x + (r.w - measure.width(&label, TEXT_SIZE)) / 2.0 } else { r.x + 8.0 };
                     out.push(Command::Text { x, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: label, size: TEXT_SIZE, color: TEXT });
@@ -362,6 +508,22 @@ impl Window {
         }
         out
     }
+}
+
+/// `text` cut to fit `width`, with an ellipsis where it was cut.
+fn elide(measure: &dyn Measure, text: &str, width: f32) -> String {
+    if measure.width(text, TEXT_SIZE) <= width {
+        return text.to_string();
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    while !chars.is_empty() {
+        chars.pop();
+        let cut = format!("{}…", chars.iter().collect::<String>());
+        if measure.width(&cut, TEXT_SIZE) <= width {
+            return cut;
+        }
+    }
+    "…".into()
 }
 
 #[cfg(test)]
@@ -392,6 +554,14 @@ mod tests {
         );
         w.center(&Mono, 1000.0, 800.0);
         w
+    }
+
+    /// Where the text that starts with `label` is drawn, if it is.
+    fn spot_of(w: &Window, label: &str) -> Option<(f32, f32)> {
+        w.draw(&Mono).into_iter().find_map(|c| match c {
+            Command::Text { x, y, text, .. } if text == label => Some((x + 2.0, y + 8.0)),
+            _ => None,
+        })
     }
 
     /// The centre of the first command of `kind` whose text is `label`.
@@ -507,6 +677,77 @@ mod tests {
             })
             .fold(0.0, f32::max);
         assert!(widest <= 200.0 - 2.0 * PAD - SWITCH_W - PAD);
+    }
+
+    #[test]
+    fn a_side_list_chooses_and_the_body_stands_beside_it() {
+        let side = Side::new("mods", vec!["First".into(), "Second".into(), "x".repeat(40)], 100.0);
+        let mut w = Window::new("Mods", vec![Widget::Label("About the first".into())], 400.0).with_side(side);
+        w.center(&Mono, 1000.0, 800.0);
+        let (lx, _) = spot(&w, "About");
+        assert!(lx >= w.x + PAD + 100.0 + PAD, "the body begins right of the list");
+        let (x, y) = spot(&w, "Second");
+        assert_eq!(w.mouse_down(&Mono, x, y), Some(Action::Chose("mods", 1)));
+        assert_eq!(w.side.as_ref().map(|s| s.selected), Some(1));
+        // A name too long for the list is cut with an ellipsis.
+        let cut = w.draw(&Mono).into_iter().find_map(|c| match c {
+            Command::Text { text, .. } if text.starts_with("xx") => Some(text),
+            _ => None,
+        });
+        assert!(cut.as_deref().is_some_and(|t| t.ends_with('…') && Mono.width(t, TEXT_SIZE) <= 100.0 - 16.0), "{cut:?}");
+        // The window is as tall as the longer of the two.
+        let rows = Window::new("Mods", vec![], 400.0).with_side(Side::new("mods", (0..10).map(|n| n.to_string()).collect(), 100.0)).height(&Mono);
+        assert!(rows >= TITLE + PAD + 10.0 * ROW);
+    }
+
+    #[test]
+    fn a_long_side_list_shows_what_fits_and_scrolls() {
+        let items: Vec<String> = (0..40).map(|n| format!("M{n}")).collect();
+        let mut w = Window::new("Mods", vec![Widget::Label("About".into())], 400.0).with_side(Side::new("mods", items, 100.0));
+        w.center(&Mono, 1000.0, 600.0);
+        let shown = |w: &Window| w.draw(&Mono).iter().filter(|c| matches!(c, Command::Text { text, .. } if text.starts_with('M'))).count();
+        let rows = shown(&w);
+        assert!((3..40).contains(&rows), "{rows} rows on a 600-pixel screen");
+        assert!(w.height(&Mono) <= 600.0 * SIDE_SHARE + PAD);
+        // The wheel scrolls it while the mouse is over it, and not elsewhere.
+        let (x, y) = spot(&w, "M0");
+        w.mouse_move(x, y);
+        w.wheel(&Mono, -5);
+        let (x5, y5) = spot(&w, "M5");
+        assert_eq!(w.mouse_down(&Mono, x5, y5), Some(Action::Chose("mods", 5)));
+        w.mouse_move(w.x + 300.0, y);
+        w.wheel(&Mono, 5);
+        assert!(spot_of(&w, "M5").is_some());
+        // It stops at the end.
+        w.mouse_move(x, y);
+        w.wheel(&Mono, -100);
+        assert!(spot_of(&w, "M39").is_some() && spot_of(&w, "M0").is_none());
+    }
+
+    #[test]
+    fn a_heading_is_larger_and_an_item_stands_beside_its_bullet() {
+        let mut w = Window::new("T", vec![Widget::Heading("Name".into()), Widget::Label("Text".into()), Widget::Gap, Widget::Item("x".repeat(60))], 300.0);
+        w.center(&Mono, 1000.0, 800.0);
+        let commands = w.draw(&Mono);
+        let size_of = |start: &str| {
+            commands.iter().find_map(|c| match c {
+                Command::Text { text, size, .. } if text.starts_with(start) => Some(*size),
+                _ => None,
+            })
+        };
+        assert_eq!((size_of("Name"), size_of("Text")), (Some(HEADING_SIZE), Some(TEXT_SIZE)));
+        // spot is 2 to the right of the bullet, which is 2 right of the item.
+        let (bullet, _) = spot(&w, "•");
+        let lefts: Vec<f32> = commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Text { x, text, .. } if text.starts_with('x') => Some(*x),
+                _ => None,
+            })
+            .collect();
+        assert!(lefts.len() > 1 && lefts.iter().all(|x| *x >= bullet - 4.0 + INDENT), "every line of the item is indented: {lefts:?}");
+        let gapless = Window::new("T", vec![Widget::Heading("Name".into()), Widget::Label("Text".into()), Widget::Item("x".repeat(60))], 300.0);
+        assert_eq!(w.height(&Mono) - gapless.height(&Mono), GAP);
     }
 
     #[test]

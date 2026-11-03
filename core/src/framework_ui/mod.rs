@@ -1,6 +1,7 @@
 //! The framework UI (GLOSSARY, ADR 0013): windows the framework draws itself
 //! on top of the game's picture, with widgets of its own: the notice window,
-//! the settings window and, in the main menu, a corner button that opens it.
+//! the settings window and the mods window, and in the main menu the corner
+//! buttons that open those two.
 //!
 //! [`frame`] runs once a frame on the main thread, just before the game
 //! presents (`hook`); the window procedure ([`input`]) hands it the
@@ -8,6 +9,7 @@
 pub mod d3d9;
 pub mod hook;
 pub mod input;
+pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
@@ -24,6 +26,10 @@ fn words(key: &str) -> String {
     loc::framework(lang::player(), key, &[])
 }
 
+fn words_with(key: &str, args: &[(&str, &str)]) -> String {
+    loc::framework(lang::player(), key, args)
+}
+
 struct FrameworkUi {
     font: text::UiFont,
     backend: d3d9::Backend,
@@ -34,6 +40,7 @@ struct FrameworkUi {
     /// The notice on screen, by its number.
     notice: Option<(u64, Window)>,
     settings: Option<Window>,
+    mods: Option<Window>,
     /// The system fonts the settings window offers.
     system_fonts: Option<SystemFonts>,
     /// Families offered in the settings window, by English name, by their
@@ -78,15 +85,33 @@ fn in_main_menu() -> bool {
     menu != u64::MAX && FRAME.load(Ordering::Relaxed).saturating_sub(menu) <= 2
 }
 
-/// Whether a modal window (the settings window) is open.
+/// Whether a modal window (the settings window, the mods window) is open.
 pub fn modal() -> bool {
     MODAL.load(Ordering::Relaxed)
 }
 
-fn corner(screen: (f32, f32), measure: &dyn Measure) -> Rect {
-    let label = words("EU4HARMONY_SETTINGS_BUTTON");
-    let w = measure.width(&label, widgets::TEXT_SIZE) + 24.0;
-    Rect { x: screen.0 - w - 16.0, y: screen.1 - 44.0, w, h: 30.0 }
+/// What a corner button opens.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Opens {
+    Settings,
+    Mods,
+}
+
+/// The main menu's corner buttons, right to left: each one's place, label
+/// and what it opens.
+fn corner(screen: (f32, f32), measure: &dyn Measure) -> Vec<(Rect, String, Opens)> {
+    let mut right = screen.0 - 16.0;
+    [("EU4HARMONY_SETTINGS_BUTTON", Opens::Settings), ("EU4HARMONY_MODS_BUTTON", Opens::Mods)]
+        .into_iter()
+        .map(|(key, opens)| {
+            let label = words(key);
+            let w = measure.width(&label, widgets::TEXT_SIZE) + 24.0;
+            right -= w;
+            let rect = Rect { x: right, y: screen.1 - 44.0, w, h: 30.0 };
+            right -= 8.0;
+            (rect, label, opens)
+        })
+        .collect()
 }
 
 impl FrameworkUi {
@@ -100,6 +125,7 @@ impl FrameworkUi {
             scale: 1.0,
             notice: None,
             settings: None,
+            mods: None,
             system_fonts: None,
             families: HashMap::new(),
             weights: HashMap::new(),
@@ -211,6 +237,24 @@ impl FrameworkUi {
         MODAL.store(false, Ordering::Relaxed);
     }
 
+    fn open_mods(&mut self) {
+        let mut window = mods_window::window(mods_window::cards(), &words_with, &loc::mod_text);
+        window.center(&self.font, self.screen.0, self.screen.1);
+        self.mods = Some(window);
+        MODAL.store(true, Ordering::Relaxed);
+    }
+
+    /// The player chose the mod at `index` in the mods window's list.
+    fn mod_chosen(&mut self, index: usize) {
+        let (Some(card), Some(window)) = (mods_window::cards().get(index), self.mods.as_mut()) else { return };
+        window.body = mods_window::details(card, &words_with, &loc::mod_text);
+    }
+
+    fn close_mods(&mut self) {
+        self.mods = None;
+        MODAL.store(false, Ordering::Relaxed);
+    }
+
     /// Takes the notice to show from the queue and keeps its window: where
     /// the player moved it, while it shows the same notice.
     fn update_notice(&mut self) {
@@ -239,25 +283,16 @@ impl FrameworkUi {
         if let Move(x, y) | Down(x, y) | Up(x, y) = event {
             self.mouse = (x, y);
         }
+        if let Some(w) = self.mods.as_mut() {
+            match Self::modal_event(w, &self.font, event) {
+                Some(Action::Chose("mods", index)) => self.mod_chosen(index),
+                Some(Action::Closed) => self.close_mods(),
+                _ => {}
+            }
+            return true;
+        }
         if let Some(w) = self.settings.as_mut() {
-            let action = match event {
-                Move(x, y) => {
-                    w.mouse_move(x, y);
-                    None
-                }
-                Up(..) => {
-                    w.mouse_up();
-                    None
-                }
-                Down(x, y) if w.covers(&self.font, x, y) => w.mouse_down(&self.font, x, y),
-                Down(..) => None,
-                Wheel(notches) => {
-                    w.wheel(&self.font, notches);
-                    None
-                }
-                Escape => Some(Action::Closed),
-            };
-            match action {
+            match Self::modal_event(w, &self.font, event) {
                 Some(Action::Chose(id @ ("body" | "heading" | "map" | "console"), index)) => self.family_chosen(id, index),
                 Some(Action::Pressed("save")) => self.close_settings(true),
                 Some(Action::Pressed(_)) | Some(Action::Closed) => self.close_settings(false),
@@ -280,27 +315,53 @@ impl FrameworkUi {
             }
         }
         if let Down(x, y) = event {
-            if in_main_menu() && corner(self.screen, &self.font).contains(x, y) {
-                self.open_settings();
-                return true;
+            let hit = in_main_menu().then(|| corner(self.screen, &self.font).into_iter().find(|(r, ..)| r.contains(x, y))).flatten();
+            match hit.map(|(.., opens)| opens) {
+                Some(Opens::Settings) => self.open_settings(),
+                Some(Opens::Mods) => self.open_mods(),
+                None => return false,
             }
+            return true;
         }
         false
     }
 
+    /// What the player did in a modal window `w`, which takes every event.
+    fn modal_event(w: &mut Window, measure: &dyn Measure, event: input::Event) -> Option<Action> {
+        use input::Event::*;
+        match event {
+            Move(x, y) => {
+                w.mouse_move(x, y);
+                None
+            }
+            Up(..) => {
+                w.mouse_up();
+                None
+            }
+            Down(x, y) if w.covers(measure, x, y) => w.mouse_down(measure, x, y),
+            Down(..) => None,
+            Wheel(notches) => {
+                w.wheel(measure, notches);
+                None
+            }
+            Escape => Some(Action::Closed),
+        }
+    }
+
     fn commands(&self) -> Vec<Command> {
         let mut out = Vec::new();
-        if in_main_menu() && self.settings.is_none() {
-            let r = corner(self.screen, &self.font);
-            let hover = r.contains(self.mouse.0, self.mouse.1);
-            out.push(Command::Fill { rect: Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 }, color: widgets::BORDER });
-            out.push(Command::Fill { rect: r, color: if hover { widgets::HOVER } else { widgets::TITLE_BAR } });
-            out.push(Command::Text { x: r.x + 12.0, y: r.y + 5.0, text: words("EU4HARMONY_SETTINGS_BUTTON"), size: widgets::TEXT_SIZE, color: widgets::TEXT });
+        if in_main_menu() && self.settings.is_none() && self.mods.is_none() {
+            for (r, label, _) in corner(self.screen, &self.font) {
+                let hover = r.contains(self.mouse.0, self.mouse.1);
+                out.push(Command::Fill { rect: Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 }, color: widgets::BORDER });
+                out.push(Command::Fill { rect: r, color: if hover { widgets::HOVER } else { widgets::TITLE_BAR } });
+                out.push(Command::Text { x: r.x + 12.0, y: r.y + 5.0, text: label, size: widgets::TEXT_SIZE, color: widgets::TEXT });
+            }
         }
         if let Some((_, w)) = &self.notice {
             out.extend(w.draw(&self.font));
         }
-        if let Some(w) = &self.settings {
+        if let Some(w) = self.settings.as_ref().or(self.mods.as_ref()) {
             out.push(Command::Fill { rect: Rect { x: 0.0, y: 0.0, w: self.screen.0, h: self.screen.1 }, color: 0x80000000 });
             out.extend(w.draw(&self.font));
         }

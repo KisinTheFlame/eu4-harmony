@@ -1015,6 +1015,21 @@ The console's font as a framework font ([ADR 0031](adr/0031-framework-files-in-t
 - **Not seen in the running game**: a failed mount, and a framework font without a page of system glyphs, whose windows then keep the game's font (unit tests only); the vanilla fonts without the Chinese language mod; an interface scale of 1; the settings window, unchanged since the section before.
 - **Cleanup**: each game was closed by ending its process. The framework files copied aside were put back and compared equal by hash; releasing the claim put every player file back and compared them with the backup, which it removed. No save was written, no crash folder was made. The scratch script, screenshots and copies were deleted.
 
+## 2026-11-03 The mods window (tested by me)
+
+L4 of [lua-extensions.md](lua-extensions.md): the mods window in the main menu. Two test mods made by `eu4-harmony new`: `l4-full`, version 1.2 in its descriptor, a description key and `permissions = { clock = true, files = true, network = ["api.example.com", "192.168.1.10:8080"] }`; `l4-bare`, with no version, description or permissions. Both registered with `eu4-harmony link` and added to the player's playset in `dlc_load.json`. One run of `eu4.exe`, started directly, at 3840×2160 with the player language Chinese, clicked with `tools/game-input.ps1` and looked at with `tools/screenshot.ps1`. The game was claimed with the game-lock skill, which backed up the player's files first.
+
+- **The corner**: "EU4 Harmony Mod" stood left of "EU4 Harmony 设置", the same height and look.
+- **The window**: a click opened it in the middle of the dimmed screen, titled "EU4 Harmony Mod", the two mods listed on the left in playset order with the first chosen. On the right: "L4 Full", "版本 1.2", the mod's description in Chinese from its localisation, "在游戏之外，这个 Mod 可以：", then one line each for the clock, the data folder (the full path in the user folder, wrapped) and the two hosts, and the closing line that the mod declares these itself.
+- **Choosing**: a click on "L4 Bare" chose it and the right side changed to its name, "这个 Mod 没有介绍。" and "这个 Mod 不做游戏之外的事。"; the window grew shorter with it, its top where it was.
+- **Closing**: Esc closed the window and the two corner buttons came back; the settings button then opened the settings window as before, and Esc closed it without saving.
+- **Second run, the same day**, after the window's text got a heading, gaps between paragraphs and list items, and its side list a scroll: 45 test mods, `l4-full` named "L4 Full, with a name long enough to be cut" and 44 with a manifest and nothing else.
+  - The name was cut in the list with an ellipsis and shown whole, wrapped, as the heading on the right, larger than the text; the version under it, then the description and the declarations parted by gaps; each declaration a bullet with its wrapped lines indented beside it.
+  - With 25 mods every row fitted at this screen's interface scale; with 45 the list showed 28 rows with a scroll bar at its right edge. The wheel over the list scrolled it to the end (Mod 17 to 44) and stopped there; a click on "L4 Mod 40" then chose that mod.
+  - The window's close box closed it, and the corner buttons came back.
+- **Not verified in the game**: a playset without Harmony mods ("当前启用的 Mod 中没有 EU4 Harmony Mod。", a unit test), the wheel elsewhere over the window leaving the list where it is (a unit test), the other four languages, a smaller screen.
+- **Cleanup**: each game was closed by ending its process; the test mods' descriptors were removed. Releasing the game restored the player's files, `dlc_load.json` and the logs among them, and found every file as the backup had it. The framework files in the game folder are this build, as after the run before.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
