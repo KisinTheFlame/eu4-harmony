@@ -1,6 +1,7 @@
 //! Widgets (GLOSSARY) and the windows that hold them: layout, what the mouse
 //! hits, and the drawing commands for a frame. Nothing here touches the game
 //! or Direct3D; [`Measure`] stands in for the fonts.
+use std::time::{Duration, Instant};
 
 /// A rectangle in screen pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -71,6 +72,20 @@ pub enum Widget {
         label: String,
         on: bool,
     },
+    /// A choice bar (GLOSSARY): its options side by side in one bar, the
+    /// chosen one under a highlight that slides to another when it is
+    /// clicked.
+    Choice {
+        id: &'static str,
+        options: Vec<String>,
+        selected: usize,
+    },
+    /// A label followed by an info mark (GLOSSARY): while the pointer is on
+    /// the mark, `info` shows beside it.
+    Explained {
+        label: String,
+        info: String,
+    },
 }
 
 /// A side list (GLOSSARY): a list down a window's left side, one row per
@@ -118,6 +133,13 @@ const GAP: f32 = 10.0;
 /// The share of the screen a side list may take, and its scroll bar's width.
 const SIDE_SHARE: f32 = 0.6;
 const SCROLL_BAR: f32 = 4.0;
+/// The info mark, and how far it stands after its label.
+const MARK: &str = "ⓘ";
+const MARK_GAP: f32 = 6.0;
+/// How wide an info mark's text is laid out.
+const INFO_W: f32 = 320.0;
+/// How long a choice bar's highlight takes to slide to another option.
+const SLIDE: Duration = Duration::from_millis(150);
 
 pub struct Window {
     pub title: String,
@@ -134,12 +156,17 @@ pub struct Window {
     screen_h: f32,
     drag: Option<(f32, f32)>,
     mouse: (f32, f32),
+    /// A choice bar's highlight on its way: the bar, by body index, the
+    /// option it left, and when.
+    slide: Option<(usize, usize, Instant)>,
 }
 
 /// One laid-out piece of a window.
 enum Slot {
     Lines(Vec<String>, Rect, Style),
     Control(usize, Rect),
+    /// The info mark of an explained label, by body index.
+    Mark(usize, Rect),
 }
 
 /// How a piece of text is drawn.
@@ -170,7 +197,20 @@ impl Style {
 
 impl Window {
     pub fn new(title: impl Into<String>, body: Vec<Widget>, width: f32) -> Self {
-        Self { title: title.into(), body, side: None, x: 0.0, y: 0.0, width, open: None, scroll: 0, screen_h: f32::MAX, drag: None, mouse: (-1.0, -1.0) }
+        Self {
+            title: title.into(),
+            body,
+            side: None,
+            x: 0.0,
+            y: 0.0,
+            width,
+            open: None,
+            scroll: 0,
+            screen_h: f32::MAX,
+            drag: None,
+            mouse: (-1.0, -1.0),
+            slide: None,
+        }
     }
 
     /// The window with a list down its left side.
@@ -189,7 +229,7 @@ impl Window {
 
     pub fn selected(&self, id: &str) -> Option<usize> {
         self.body.iter().find_map(|w| match w {
-            Widget::Dropdown { id: i, selected, .. } if *i == id => Some(*selected),
+            Widget::Dropdown { id: i, selected, .. } | Widget::Choice { id: i, selected, .. } if *i == id => Some(*selected),
             _ => None,
         })
     }
@@ -254,6 +294,24 @@ impl Window {
         Rect { x: row.x + row.w - SWITCH_W, y: row.y + ((row.h - SWITCH_H) / 2.0).round(), w: SWITCH_W, h: SWITCH_H }
     }
 
+    /// A choice bar's options, side by side across its row.
+    fn segments(row: Rect, options: usize) -> Vec<Rect> {
+        let w = row.w / options.max(1) as f32;
+        (0..options).map(|n| Rect { x: (row.x + n as f32 * w).round(), y: row.y, w: w.round(), h: row.h }).collect()
+    }
+
+    /// Where a choice bar's highlight is, over the option chosen or on its
+    /// way there from the one left.
+    fn highlight(&self, i: usize, segments: &[Rect], selected: usize) -> Rect {
+        let to = segments[selected];
+        let Some((bar, from, since)) = self.slide.filter(|s| s.0 == i) else { return to };
+        let t = (since.elapsed().as_secs_f32() / SLIDE.as_secs_f32()).min(1.0);
+        let eased = t * t * (3.0 - 2.0 * t);
+        let from = segments.get(from).copied().unwrap_or(to);
+        debug_assert_eq!(bar, i);
+        Rect { x: (from.x + (to.x - from.x) * eased).round(), ..to }
+    }
+
     fn layout(&self, measure: &dyn Measure) -> Vec<Slot> {
         let mut y = self.y + TITLE + PAD;
         let mut slots = Vec::new();
@@ -275,7 +333,17 @@ impl Window {
                     y += h + 4.0;
                 }
                 Widget::Gap => y += GAP,
-                Widget::Button { .. } | Widget::Dropdown { .. } => {
+                Widget::Explained { label, .. } => {
+                    let mark = measure.width(MARK, TEXT_SIZE);
+                    let lines = measure.wrap(label, TEXT_SIZE, self.inner() - mark - MARK_GAP);
+                    let h = lines.len().max(1) as f32 * LINE;
+                    let last = lines.last().map_or(0.0, |l| measure.width(l, TEXT_SIZE));
+                    let mark = Rect { x: self.left() + last + MARK_GAP, y: y + h - LINE, w: mark, h: LINE };
+                    slots.push(Slot::Lines(lines, Rect { x: self.left(), y, w: self.inner(), h }, Style::Body));
+                    slots.push(Slot::Mark(i, mark));
+                    y += h + 4.0;
+                }
+                Widget::Button { .. } | Widget::Dropdown { .. } | Widget::Choice { .. } => {
                     slots.push(Slot::Control(i, Rect { x: self.left(), y, w: self.inner(), h: ROW }));
                     y += ROW + 8.0;
                 }
@@ -291,9 +359,11 @@ impl Window {
     }
 
     pub fn height(&self, measure: &dyn Measure) -> f32 {
-        let body = self.layout(measure).last().map_or(self.y + TITLE, |s| match s {
-            Slot::Lines(_, r, _) | Slot::Control(_, r) => r.y + r.h,
+        let slots = self.layout(measure);
+        let ends = slots.iter().map(|s| match s {
+            Slot::Lines(_, r, _) | Slot::Control(_, r) | Slot::Mark(_, r) => r.y + r.h,
         });
+        let body = ends.fold(self.y + TITLE, f32::max);
         let side = self.side_area().map_or(self.y + TITLE, |r| r.y + r.h);
         body.max(side) - self.y + PAD
     }
@@ -397,6 +467,15 @@ impl Window {
                         *on = !*on;
                         return Some(Action::Switched(id, *on));
                     }
+                    if let Widget::Choice { id, options, selected } = &mut self.body[i] {
+                        let index = Self::segments(r, options.len()).iter().position(|s| s.contains(x, y))?;
+                        if index == *selected {
+                            return None;
+                        }
+                        self.slide = Some((i, *selected, Instant::now()));
+                        *selected = index;
+                        return Some(Action::Chose(id, index));
+                    }
                     return match &self.body[i] {
                         Widget::Button { id, .. } => Some(Action::Pressed(id)),
                         Widget::Dropdown { options, selected, .. } => {
@@ -406,7 +485,13 @@ impl Window {
                             self.open = Some(i);
                             None
                         }
-                        Widget::Label(_) | Widget::Heading(_) | Widget::Item(_) | Widget::Gap | Widget::Toggle { .. } => None,
+                        Widget::Label(_)
+                        | Widget::Heading(_)
+                        | Widget::Item(_)
+                        | Widget::Gap
+                        | Widget::Toggle { .. }
+                        | Widget::Choice { .. }
+                        | Widget::Explained { .. } => None,
                     };
                 }
             }
@@ -480,12 +565,38 @@ impl Window {
                     let knob_x = if *on { track.x + track.w - inset - KNOB } else { track.x + inset };
                     out.push(Command::Fill { rect: Rect { x: knob_x, y: track.y + inset, w: KNOB, h: KNOB }, color: TEXT });
                 }
+                Slot::Control(i, r) if matches!(self.body[i], Widget::Choice { .. }) => {
+                    let Widget::Choice { options, selected, .. } = &self.body[i] else { continue };
+                    out.push(Command::Fill { rect: r, color: CONTROL });
+                    let segments = Self::segments(r, options.len());
+                    for (n, segment) in segments.iter().enumerate() {
+                        if n != *selected && hover(segment) {
+                            out.push(Command::Fill { rect: *segment, color: HOVER });
+                        }
+                    }
+                    let highlight = self.highlight(i, &segments, *selected);
+                    out.push(Command::Fill { rect: highlight, color: if hover(&highlight) { ON_HOVER } else { ON } });
+                    for (option, segment) in options.iter().zip(&segments) {
+                        let text = elide(measure, option, segment.w - 12.0);
+                        let x = segment.x + ((segment.w - measure.width(&text, TEXT_SIZE)) / 2.0).round();
+                        out.push(Command::Text { x, y: segment.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: TEXT });
+                    }
+                }
+                Slot::Mark(_, r) => {
+                    out.push(Command::Text { x: r.x, y: r.y, text: MARK.into(), size: TEXT_SIZE, color: if hover(&r) { TEXT } else { MUTED } });
+                }
                 Slot::Control(i, r) => {
                     out.push(Command::Fill { rect: r, color: if hover(&r) { HOVER } else { CONTROL } });
                     let (label, centred) = match &self.body[i] {
                         Widget::Button { label, .. } => (label.clone(), true),
                         Widget::Dropdown { options, selected, .. } => (format!("{}  ▾", options.get(*selected).map_or("", String::as_str)), false),
-                        Widget::Label(_) | Widget::Heading(_) | Widget::Item(_) | Widget::Gap | Widget::Toggle { .. } => continue,
+                        Widget::Label(_)
+                        | Widget::Heading(_)
+                        | Widget::Item(_)
+                        | Widget::Gap
+                        | Widget::Toggle { .. }
+                        | Widget::Choice { .. }
+                        | Widget::Explained { .. } => continue,
                     };
                     let x = if centred { r.x + (r.w - measure.width(&label, TEXT_SIZE)) / 2.0 } else { r.x + 8.0 };
                     out.push(Command::Text { x, y: r.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: label, size: TEXT_SIZE, color: TEXT });
@@ -504,6 +615,21 @@ impl Window {
                     }
                     out.push(Command::Text { x: row.x + 8.0, y: row.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text: option.clone(), size: TEXT_SIZE, color: TEXT });
                 }
+            }
+        }
+        // An info mark's text, over everything, while the pointer is on it.
+        for slot in self.layout(measure) {
+            let Slot::Mark(i, mark) = slot else { continue };
+            let Widget::Explained { info, .. } = &self.body[i] else { continue };
+            if !hover(&mark) {
+                continue;
+            }
+            let lines = measure.wrap(info, TEXT_SIZE, INFO_W - 2.0 * PAD);
+            let r = Rect { x: mark.x + mark.w + MARK_GAP, y: mark.y, w: INFO_W, h: lines.len().max(1) as f32 * LINE + PAD };
+            out.push(Command::Fill { rect: Rect { x: r.x - 1.0, y: r.y - 1.0, w: r.w + 2.0, h: r.h + 2.0 }, color: BORDER });
+            out.push(Command::Fill { rect: r, color: LIST });
+            for (n, line) in lines.into_iter().enumerate() {
+                out.push(Command::Text { x: r.x + PAD, y: r.y + PAD / 2.0 + n as f32 * LINE, text: line, size: TEXT_SIZE, color: TEXT });
             }
         }
         out
@@ -588,6 +714,65 @@ mod tests {
         assert_eq!(w.mouse_down(&Mono, bx, by), Some(Action::Chose("font", 1)));
         assert_eq!(w.selected("font"), Some(1));
         assert!(!w.draw(&Mono).iter().any(|c| matches!(c, Command::Text { text, .. } if text == "C")));
+    }
+
+    fn speed() -> Window {
+        let mut w = Window::new(
+            "Settings",
+            vec![
+                Widget::Explained { label: "At the fastest speed".into(), info: "Faster time: days pass sooner".into() },
+                Widget::Choice { id: "pace", options: vec!["Smooth".into(), "Faster".into()], selected: 0 },
+            ],
+            300.0,
+        );
+        w.center(&Mono, 1000.0, 800.0);
+        w
+    }
+
+    /// The filled rectangles of a colour.
+    fn fills(w: &Window, color: Color) -> Vec<Rect> {
+        w.draw(&Mono).into_iter().filter_map(|c| if let Command::Fill { rect, color: c } = c { (c == color).then_some(rect) } else { None }).collect()
+    }
+
+    #[test]
+    fn a_choice_bar_chooses_where_it_is_clicked_and_its_highlight_slides_there() {
+        let mut w = speed();
+        let (fx, fy) = spot(&w, "Faster");
+        let (sx, _) = spot(&w, "Smooth");
+        let before = fills(&w, ON);
+        assert_eq!(before.len(), 1);
+        assert!(before[0].x <= sx && sx < before[0].x + before[0].w);
+        // A click on the option chosen chooses nothing.
+        assert_eq!(w.mouse_down(&Mono, sx, fy + 4.0), None);
+        assert_eq!(w.mouse_down(&Mono, fx, fy + 4.0), Some(Action::Chose("pace", 1)));
+        assert_eq!(w.selected("pace"), Some(1));
+        // Right after the click the highlight is still over the option left;
+        // once the slide is over, over the one chosen.
+        w.mouse_move(0.0, 0.0);
+        assert_eq!(fills(&w, ON), before);
+        let (bar, from, since) = w.slide.unwrap();
+        w.slide = Some((bar, from, since - SLIDE));
+        let after = fills(&w, ON);
+        assert!(after[0].x <= fx && fx < after[0].x + after[0].w, "{after:?}");
+    }
+
+    /// Whether a text that starts with `start` is drawn.
+    fn shows(w: &Window, start: &str) -> bool {
+        w.draw(&Mono).into_iter().any(|c| matches!(c, Command::Text { text, .. } if text.starts_with(start)))
+    }
+
+    #[test]
+    fn an_info_mark_shows_its_text_while_the_pointer_is_on_it() {
+        let mut w = speed();
+        assert!(!shows(&w, "Faster time"));
+        let (mx, my) = spot(&w, MARK);
+        w.mouse_move(mx + 1.0, my + 4.0);
+        let (ix, _) = spot(&w, "Faster time");
+        assert!(ix > mx);
+        // A click on it does nothing.
+        assert_eq!(w.mouse_down(&Mono, mx + 1.0, my + 4.0), None);
+        w.mouse_move(0.0, 0.0);
+        assert!(!shows(&w, "Faster time"));
     }
 
     #[test]
