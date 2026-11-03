@@ -9,24 +9,18 @@ use eu4_harmony_remote::{
 
 layer! {
     fn provinces() -> Vec<game::provinces::Province> = game::provinces::provinces;
+    fn named_provinces(ids: Vec<u32>) -> Vec<game::provinces::Province> = game::provinces::named;
     fn neighbors(province: u32) -> Vec<game::provinces::Neighbor> = game::provinces::neighbors;
     fn province(province: u32) -> layer::Snapshot = layer::province;
 }
 
 pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result<ProvinceAnswer, Error> {
     match request {
-        // The layer's list starts with a placeholder for number 0, and is
-        // indexed by number.
+        // The layer's whole list starts with a placeholder for number 0.
         ProvinceRequest::List { provinces } => {
-            let all = game.provinces()?;
-            let chosen: Vec<&game::provinces::Province> = match provinces {
-                None => all.iter().filter(|p| p.id != 0).collect(),
-                Some(list) => list
-                    .0
-                    .iter()
-                    .filter_map(|id| all.get(id.0 as usize).filter(|p| p.id == id.0).or_else(|| all.iter().find(|p| p.id == id.0)))
-                    .filter(|p| p.id != 0)
-                    .collect(),
+            let chosen: Vec<game::provinces::Province> = match provinces {
+                None => game.provinces()?.into_iter().filter(|p| p.id != 0).collect(),
+                Some(list) => game.named_provinces(list.0.iter().map(|id| id.0).collect())?,
             };
             Ok(ProvinceAnswer::List(
                 chosen

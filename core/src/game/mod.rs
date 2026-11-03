@@ -137,6 +137,8 @@ struct State {
     orders: orders::Orders,
     session: u64,
     day: Option<i32>,
+    /// Where each army was last seen in a province, to look there first.
+    seen_at: std::collections::BTreeMap<u64, u32>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -194,6 +196,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
             s.geography.clear();
             s.orders.clear();
             s.day = None;
+            s.seen_at.clear();
         }
         for change in &state.changes {
             if let events::Change::Ordered(army) = change {

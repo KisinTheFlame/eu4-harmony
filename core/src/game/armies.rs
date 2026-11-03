@@ -106,7 +106,9 @@ pub fn in_province(_: Caller, province: u32) -> GResult<Vec<Army>> {
         return Err(checks::visibility_not_current().into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    Ok(world::province_armies(m, &ctx, address)?.into_iter().map(|(a, _)| a).collect())
+    let armies: Vec<Army> = world::province_armies(m, &ctx, address)?.into_iter().map(|(a, _)| a).collect();
+    with_state(|s| s.seen_at.extend(armies.iter().map(|a| (a.id, province))));
+    Ok(armies)
 }
 
 /// Provinces on the current route of an own land army, in order.
@@ -159,6 +161,14 @@ pub fn can_attack_seen(_: Caller, id: u64, target: u64) -> GResult<bool> {
         return Err(checks::visibility_not_current().into());
     }
     let army = world::own_land_army(m, &ctx, id)?;
+    // Where the player last saw it first; the whole map only when it has
+    // gone from there.
+    if let Some(province) = with_state(|s| s.seen_at.get(&target).copied()) {
+        let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
+        if let Some((_, unit)) = world::province_armies(m, &ctx, address)?.into_iter().find(|(a, _)| a.id == target) {
+            return Ok(unit != army && world::can_attack(m, army, unit)?);
+        }
+    }
     for (_, address) in with_state(|s| s.geography.land_provinces(m, &ctx))? {
         if let Some((_, unit)) = world::province_armies(m, &ctx, address)?.into_iter().find(|(a, _)| a.id == target) {
             return Ok(unit != army && world::can_attack(m, army, unit)?);
@@ -172,6 +182,15 @@ pub fn can_attack_seen(_: Caller, id: u64, target: u64) -> GResult<bool> {
 /// not considered), and so is the strait between them, if any.
 pub fn can_step(caller: Caller, id: u64, from: u32, to: u32) -> GResult<bool> {
     Ok(can_enter(caller, id, to)? && strait_open(caller, id, from, to)?)
+}
+
+/// The neighbors of `from` an own land army may step to now, as
+/// [`can_step`] answers for each.
+pub fn steps(_: Caller, id: u64, from: u32) -> GResult<Vec<u32>> {
+    let m = game()?;
+    let ctx = context(m)?;
+    let army = world::own_land_army(m, &ctx, id)?;
+    with_state(|s| s.geography.steps(m, &ctx, army, from))
 }
 
 /// The route the game itself would choose for an own land army; empty when

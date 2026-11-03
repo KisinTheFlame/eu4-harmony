@@ -37,6 +37,14 @@ pub fn provinces(_: Caller) -> GResult<Vec<Province>> {
     with_state(|s| s.geography.provinces(m, &ctx, visible))
 }
 
+/// The provinces numbered in `ids` that there are, in their order.
+pub fn named(_: Caller, ids: Vec<u32>) -> GResult<Vec<Province>> {
+    let m = game()?;
+    let ctx = context(m)?;
+    let visible = events::visibility_current(m, &ctx);
+    with_state(|s| s.geography.named_provinces(m, &ctx, visible, &ids))
+}
+
 /// The passable land provinces next to a province; none for a province an
 /// army cannot stand on.
 pub fn neighbors(_: Caller, province: u32) -> GResult<Vec<Neighbor>> {

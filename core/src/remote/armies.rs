@@ -15,7 +15,7 @@ layer! {
     fn armies_in(province: u32) -> Vec<layer::Army> = layer::in_province;
     fn route(id: u64) -> Vec<u32> = layer::route;
     fn can_step(id: u64, from: u32, to: u32) -> bool = layer::can_step;
-    fn land_neighbors(province: u32) -> Vec<crate::game::provinces::Neighbor> = crate::game::provinces::neighbors;
+    fn steps(id: u64, from: u32) -> Vec<u32> = layer::steps;
     fn can_attack(id: u64, target: u64) -> bool = layer::can_attack_seen;
     fn find_route(id: u64, goal: u32) -> Vec<u32> = layer::find_route;
     fn move_to(id: u64, goal: u32) -> () = layer::move_to;
@@ -52,19 +52,16 @@ fn range(game: &mut (impl Layer + ?Sized), army: u64, from: u32, most: u32) -> R
     while let Some(at) = queue.pop_front() {
         let here = steps[&at];
         let mut next = Vec::new();
-        for n in game.land_neighbors(at)? {
+        for to in game.steps(army, at)? {
             // From the range's edge only steps within it count; breadth first,
             // every province of the range is found by then.
-            if here == most && !steps.contains_key(&n.to) {
+            if here == most && !steps.contains_key(&to) {
                 continue;
             }
-            if !game.can_step(army, at, n.to)? {
-                continue;
-            }
-            next.push(n.to);
-            if let Entry::Vacant(e) = steps.entry(n.to) {
+            next.push(to);
+            if let Entry::Vacant(e) = steps.entry(to) {
                 e.insert(here + 1);
-                queue.push_back(n.to);
+                queue.push_back(to);
             }
         }
         may.insert(at, next);

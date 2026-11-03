@@ -1070,6 +1070,17 @@ What the census's largest site, `0x950ce` (the vectors' generic allocation), sto
 - **Not seen in the running game**: a click on a sprite whose texture's mask was let go and made again (the mask is written whole before any use, as before); multiplayer.
 - **Cleanup**: each game was closed by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files, the ironman saves and the autosaves the runs rewrote among them, and found every file as the backup had it. Scripts and copies of the runs were deleted.
 
+## 2026-11-03 Regional combat's cost, and what the capabilities read (tested by me)
+
+L6's fourth point: regional combat in Lua with `province.list` naming its provinces and `army.range`, France from 1444.11.11, war on England in December, the Paris army's task on (center 183, radius 5), then 120 days at speed. Three runs, the same steps each time; the mod's `main.lua` timed every capability call with `os.clock` for the second and third (not committed) and logged each frame over 5 ms.
+
+- **The new capabilities alone, not enough**: 17,975 stretches, 4,917 ms in all, 111 over 5 ms, the longest 55 ms; no better than the run before them. The timing showed Lua's own work at about nothing: a day's decision spent 30 to 55 ms in the capabilities, `province.list` 13 to 29 ms for two provinces (the core read every province, then picked), `army.range` 11 to 21 ms (every `can_step` found the army in the player's units and validated the province's map data again, twice), `army.can_attack` about 1 ms a call (it looked through every land province for the army).
+- **The core reading less**: a list of named provinces reads only those; `army.range` asks the layer once for each province of the range which neighbors the army may step to, the army found and the province validated once; `army.can_attack` looks first where `army.at` last saw the army. Then 17,937 stretches, 2,966 ms in all, 37 over 5 ms, the longest 18 ms; a day's decision took 5 to 8 ms, `army.range` about 3 ms of it and the 47 to 51 `army.at` calls 1 to 2 ms.
+- **Frames over 5 ms with no capability in them**: a few each run, 5 to 13 ms spent in a single cheap call (`session.get`, `army.selected`) or in no call at all, also before the task was on; not explained (`os.clock` counts the wall clock, so the thread may have waited).
+- **Behavior unchanged**: the task waited, then attacked Bordeaux (174), the game accepted the move, and the task waited while the army's orders were locked, as before.
+- **Not met**: no stretch over 5 ms. The day's decision is still 5 to 8 ms in one stretch.
+- **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

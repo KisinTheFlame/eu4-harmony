@@ -217,25 +217,14 @@ impl Geography {
     }
 
     pub fn provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool) -> GResult<Vec<Province>> {
-        let nodes = self.nodes(m, ctx)?.to_vec();
-        let mut out = Vec::with_capacity(nodes.len());
-        for n in &nodes {
-            if n.id == 0 {
-                out.push(Province::default());
-                continue;
-            }
-            let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(n.address + at)?)).filter(|t| t.valid())) };
-            out.push(Province {
-                id: n.id,
-                land: n.land,
-                lake: n.lake,
-                impassable: n.impassable,
-                visible: visibility_current && !hidden(m, n.address)?,
-                owner: tag_at(province::OWNER)?,
-                controller: tag_at(province::CONTROLLER)?,
-            });
-        }
-        Ok(out)
+        self.nodes(m, ctx)?.iter().map(|n| if n.id == 0 { Ok(Province::default()) } else { province_now(m, n, visibility_current) }).collect()
+    }
+
+    /// The provinces numbered in `ids` that there are, in their order; only
+    /// those are read.
+    pub fn named_provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool, ids: &[u32]) -> GResult<Vec<Province>> {
+        let nodes = self.nodes(m, ctx)?;
+        ids.iter().filter_map(|id| nodes.get(*id as usize).filter(|n| n.id != 0)).map(|n| province_now(m, n, visibility_current)).collect()
     }
 
     /// Every province armies can stand on, as (number, address).
@@ -268,14 +257,41 @@ impl Geography {
         if edge.kind != adjacency::STRAIT {
             return Ok(true);
         }
-        if edge.through != 0 {
-            let nodes = self.nodes(m, ctx)?;
-            if edge.through < 0 || !nodes.get(edge.through as usize).is_some_and(|n| !n.land && !n.lake) {
-                return Err("strait crosses an invalid province".to_string().into());
-            }
-        }
+        let edge = edge.clone();
         let military = military_tag(m, ctx, army)?;
-        Ok(m.call(m.at(STRAIT_BLOCKED), &[military.0 as usize, edge.address])? as u8 == 0)
+        strait_open_to(m, self.nodes(m, ctx)?, &edge, military)
+    }
+
+    /// The land neighbors of `from` the army may step to now, as
+    /// [`can_enter`] and [`Self::strait_open`] answer for each, with the army
+    /// and the province looked at once for all of them.
+    pub fn steps(&mut self, m: &Memory, ctx: &Ctx, army: usize, from: u32) -> GResult<Vec<u32>> {
+        let node = self.node(m, ctx, from)?;
+        if !node.admissible() {
+            return Ok(Vec::new());
+        }
+        let nodes = self.nodes(m, ctx)?;
+        let mut military = None;
+        let mut out = Vec::new();
+        for edge in node.edges.iter().filter(|e| by_land(e.kind)) {
+            let Some(to) = nodes.get(edge.to as usize).filter(|n| n.admissible()) else {
+                continue;
+            };
+            if !can_enter(m, army, to.address)? {
+                continue;
+            }
+            if edge.kind == adjacency::STRAIT {
+                let tag = match military {
+                    Some(tag) => tag,
+                    None => *military.insert(military_tag(m, ctx, army)?),
+                };
+                if !strait_open_to(m, nodes, edge, tag)? {
+                    continue;
+                }
+            }
+            out.push(edge.to);
+        }
+        Ok(out)
     }
 
     pub fn clear_if_changed(&mut self, m: &Memory, ctx: &Ctx) {
@@ -283,6 +299,28 @@ impl Geography {
             self.clear();
         }
     }
+}
+
+/// A province's owner, controller and fog now, with its cached map data.
+fn province_now(m: &Memory, n: &Node, visibility_current: bool) -> GResult<Province> {
+    let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(n.address + at)?)).filter(|t| t.valid())) };
+    Ok(Province {
+        id: n.id,
+        land: n.land,
+        lake: n.lake,
+        impassable: n.impassable,
+        visible: visibility_current && !hidden(m, n.address)?,
+        owner: tag_at(province::OWNER)?,
+        controller: tag_at(province::CONTROLLER)?,
+    })
+}
+
+/// Whether a strait is open to armies of the country `military`.
+fn strait_open_to(m: &Memory, nodes: &[Node], edge: &Edge, military: Tag) -> GResult<bool> {
+    if edge.through != 0 && (edge.through < 0 || !nodes.get(edge.through as usize).is_some_and(|n| !n.land && !n.lake)) {
+        return Err("strait crosses an invalid province".to_string().into());
+    }
+    Ok(m.call(m.at(STRAIT_BLOCKED), &[military.0 as usize, edge.address])? as u8 == 0)
 }
 
 /// Fog of war hides this province.

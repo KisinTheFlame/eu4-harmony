@@ -190,6 +190,11 @@ impl provinces::Layer for Fake {
         Ok(vec![Default::default(), province(149, tur(), tur()), province(151, byz(), tur())])
     }
 
+    fn named_provinces(&mut self, ids: Vec<u32>) -> GResult<Vec<game::provinces::Province>> {
+        let all = self.provinces()?;
+        Ok(ids.iter().filter_map(|id| all.iter().find(|p| p.id == *id && *id != 0).copied()).collect())
+    }
+
     fn neighbors(&mut self, province: u32) -> GResult<Vec<game::provinces::Neighbor>> {
         self.call(format!("neighbors {province}"));
         Ok(vec![game::provinces::Neighbor { to: 151, strait: false }, game::provinces::Neighbor { to: 316, strait: true }])
@@ -268,14 +273,11 @@ impl armies::Layer for Fake {
         Ok(self.route.clone())
     }
 
-    fn land_neighbors(&mut self, province: u32) -> GResult<Vec<game::provinces::Neighbor>> {
-        self.call(format!("land neighbors {province}"));
-        // 149 and 151 next to each other, 316 across a strait from 149.
-        Ok(match province {
-            149 => vec![game::provinces::Neighbor { to: 151, strait: false }, game::provinces::Neighbor { to: 316, strait: true }],
-            151 => vec![game::provinces::Neighbor { to: 149, strait: false }],
-            _ => Vec::new(),
-        })
+    fn steps(&mut self, id: u64, from: u32) -> GResult<Vec<u32>> {
+        self.call(format!("steps {id} {from}"));
+        // 149 and 151 next to each other, 316 across a strait from 149;
+        // as can_step says, only steps into 151 are open.
+        Ok(if from == 149 { vec![151] } else { Vec::new() })
     }
 
     fn can_step(&mut self, id: u64, from: u32, to: u32) -> GResult<bool> {
