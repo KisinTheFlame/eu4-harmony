@@ -83,7 +83,7 @@ pub fn points() -> Vec<Point> {
 pub fn set_pace(pace: Pace) {
     let at = FASTEST_FACTOR.load(Ordering::Acquire);
     let Some(m) = crate::memory().filter(|_| at != 0) else { return };
-    match m.write(at, &pace.factor().to_le_bytes()) {
+    match m.write_read_only(at, &pace.factor().to_le_bytes()) {
         Ok(()) => log!("speed: at the fastest speed, {}", pace.name()),
         Err(e) => log!("speed: the pace at the fastest speed stays the game's: {e}"),
     }
