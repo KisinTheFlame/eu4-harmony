@@ -325,7 +325,7 @@ pub(crate) fn deferred_init() {
     for note in &loc_notes {
         log!("localisation: {note}");
     }
-    let outcomes = lua::load(&mods, &logs);
+    let outcomes = lua::load(&mods, &logs, &user_dir.join("eu4-harmony").join("data"));
     saves::keep_for(lua::mod_ids());
     let indices = lua::extension_indices(&mods);
     let included = |i: usize| outcomes[i].included;

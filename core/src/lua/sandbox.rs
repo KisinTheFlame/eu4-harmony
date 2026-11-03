@@ -1,10 +1,15 @@
 //! An extension's Lua state: the sandbox (ADR 0024) and what the host puts
 //! in it. Lua's own string, table, math, utf8 and coroutine libraries, the
-//! base library without loading files or bytecode, `os.clock` (and
-//! `os.time` and `os.date` when the manifest declares `clock`); the
+//! base library without loading files or bytecode, `os.clock`; the
 //! framework's globals `log`, `json`, `mod_files`, `text` and `spawn`, and
-//! `require` for the mod's own modules; and `game`.
-use super::values::{self, date_text};
+//! `require` for the mod's own modules; the sensitive capabilities
+//! (ADR 0025) `os.time` and `os.date`, `files` and `http`, which raise an
+//! error where the manifest does not declare them; and `game`.
+use super::{
+    files,
+    values::{self, date_text},
+    Waits,
+};
 use crate::{
     game::{interface, map_coloring, Caller},
     lang,
@@ -16,6 +21,7 @@ use serde_json::{Map, Number, Value};
 use std::{
     ffi::c_void,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 /// A new extension's state, with `game` and the sentinel a capability that
@@ -32,8 +38,9 @@ pub struct Opened {
 const LOADED: &str = "eu4harmony.loaded";
 
 /// The state of the extension `index` of the mod `id`, whose files are in
-/// `harmony` (its `eu4-harmony/` folder).
-pub fn open(index: usize, id: &str, harmony: &Path, permissions: &Permissions) -> mlua::Result<Opened> {
+/// `harmony` (its `eu4-harmony/` folder) and whose data folder is `data`;
+/// what its tasks wait for is kept in `waits`.
+pub fn open(index: usize, id: &str, harmony: &Path, data: Option<PathBuf>, permissions: &Permissions, waits: Arc<Mutex<Waits>>) -> mlua::Result<Opened> {
     let libs = StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE | StdLib::OS;
     let lua = Lua::new_with(libs, LuaOptions::default())?;
     let globals = lua.globals();
@@ -42,9 +49,12 @@ pub fn open(index: usize, id: &str, harmony: &Path, permissions: &Permissions) -
     let full: Table = globals.get("os")?;
     let os = lua.create_table()?;
     os.set("clock", full.get::<Function>("clock")?)?;
-    if permissions.clock {
-        os.set("time", full.get::<Function>("time")?)?;
-        os.set("date", full.get::<Function>("date")?)?;
+    for name in ["time", "date"] {
+        let function = match permissions.clock {
+            true => full.get::<Function>(name)?,
+            false => lua.create_function(move |_, _: MultiValue| Err::<(), _>(undeclared(&format!("os.{name}"), "clock", "clock = true")))?,
+        };
+        os.set(name, function)?;
     }
     globals.set("os", os)?;
 
@@ -151,13 +161,23 @@ pub fn open(index: usize, id: &str, harmony: &Path, permissions: &Permissions) -
         })?,
     )?;
 
-    // game, built by the prelude around the host's functions.
+    // files: the extension's data folder.
+    globals.set("files", files::table(&lua, data, permissions.files)?)?;
+
+    // The sentinel a function that waits returns to its wrapper.
     let wait = LuaValue::Table(lua.create_table()?);
+
+    // http.fetch, which the prelude wraps: it waits.
+    let hosts = permissions.network.clone();
+    let sentinel = wait.clone();
+    let fetch = lua.create_function(move |_, (url, options): (String, Option<Table>)| super::fetch(index, &hosts, &waits, &sentinel, &url, options))?;
+
+    // game, built by the prelude around the host's functions.
     let call = lua.create_function(move |lua, (name, args): (String, MultiValue)| super::call(lua, index, &name, args))?;
     let task = lua.create_function(|_, ()| Ok(super::current_task()))?;
     let names = lua.create_sequence_from(extension_capabilities().map(|c| c.name()))?;
     let set_element = lua.create_function(move |_, (element, property, value): (String, String, LuaValue)| set_element(index, &element, &property, value))?;
-    let game: Table = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((call, wait.clone(), task, names, set_element))?;
+    let game: Table = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((call, wait.clone(), task, names, set_element, fetch))?;
     let map = lua.create_table()?;
     map.set("paint", lua.create_function(move |lua, colors: Table| paint(lua, index, colors))?)?;
     map.set(
@@ -185,7 +205,7 @@ fn extension_capabilities() -> impl Iterator<Item = Capability> {
 }
 
 /// `nil, err` for a failure, as capabilities answer one.
-fn failure(lua: &Lua, code: &str, message: &str) -> mlua::Result<MultiValue> {
+pub(super) fn failure(lua: &Lua, code: &str, message: &str) -> mlua::Result<MultiValue> {
     let err = lua.create_table()?;
     err.set("code", code)?;
     err.set("message", message)?;
@@ -205,14 +225,37 @@ fn status(status: crate::game::Status) -> &'static str {
     }
 }
 
-/// A path under `root`: relative, with `/`, no `..`, drive or leading `/`.
-fn within(root: &Path, path: &str) -> Result<PathBuf, String> {
+/// The error for a sensitive capability `what` used though the manifest
+/// does not declare `permission`, which `example` declares.
+pub(super) fn undeclared(what: &str, permission: &str, example: &str) -> mlua::Error {
+    mlua::Error::runtime(format!(
+        "{what}: the manifest does not declare the {permission} permission (permissions = {{ {example} }} in eu4-harmony/manifest.toml)"
+    ))
+}
+
+/// A path under `root`: relative, with `/`, no `..`, drive or leading `/`,
+/// and each part a name Windows can give a file.
+pub(super) fn within(root: &Path, path: &str) -> Result<PathBuf, String> {
     let parts: Vec<&str> = path.split('/').collect();
-    let bad = path.is_empty() || path.contains('\\') || path.contains(':') || parts.iter().any(|p| p.is_empty() || *p == "." || *p == "..");
-    if bad {
-        return Err(format!("{path:?} is not a relative path with / between its parts"));
+    if path.is_empty() || !parts.iter().all(|p| file_name(p)) {
+        return Err(format!("{path:?} is not a relative path of file names with / between them"));
     }
     Ok(parts.iter().fold(root.to_path_buf(), |at, part| at.join(part)))
+}
+
+/// Whether Windows can give a file this name, and it names no device.
+fn file_name(name: &str) -> bool {
+    const DEVICES: [&str; 22] = [
+        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6",
+        "lpt7", "lpt8", "lpt9",
+    ];
+    let stem = name.split('.').next().unwrap_or_default().trim_end().to_ascii_lowercase();
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c.is_control() || r#"<>:"\|?*"#.contains(c))
+        && !DEVICES.contains(&stem.as_str())
 }
 
 /// The file of the module `name` (`range.bfs` is `range/bfs.lua`) under the
@@ -364,7 +407,7 @@ mod tests {
     fn paths_stay_under_their_root() {
         let root = Path::new(r"C:\mod\eu4-harmony");
         assert_eq!(within(root, "data/units.json").unwrap(), root.join("data").join("units.json"));
-        for bad in ["", "../x", "data/../../x", "/x", r"data\x", "C:/x", "data//x", "./x"] {
+        for bad in ["", "../x", "data/../../x", "/x", r"data\x", "C:/x", "data//x", "./x", "nul", "con.txt", "a/aux", "x.", "x ", "a?b", "a*", "a|b"] {
             assert!(within(root, bad).is_err(), "{bad}");
         }
         assert_eq!(module_file(Path::new("lua"), "range.bfs").unwrap(), Path::new("lua").join("range").join("bfs.lua"));
