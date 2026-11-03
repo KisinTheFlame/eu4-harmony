@@ -1,0 +1,105 @@
+# Commands as data: the factory, their written form, where they run
+
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-03 with `core/examples/disasm.rs` and scripts over the PE file (the `.rdata` scan for command vtables, the token table). Hearing commands, writing them as text, reading text back into a command and posting a command read from text were then tried in the game with the trace build's command log ([below](#tried-in-the-game-the-command-log), [reading back](#tried-in-the-game-reading-text-back), [posting](#tried-in-the-game-posting-a-command-read-from-text)). What is marked _inferred_ was concluded from the shape of the code.
+
+The question was whether the framework can post any of the game's commands from a written form, and hear every command the game runs, through a few dependency points instead of one per command. The life of a command and the session's kinds are in [architecture.md](architecture.md#commands-and-multiplayer); recruiting's post and the session's flags in [recruiting.md](recruiting.md).
+
+## Every command is written out and read back, in single player too
+
+- **The local handler's post** `0x1580370(handler, command)` (slot `+0x30` of the local handler, vtable `0x1d96178`; the host's is `0x15774f0`, the client's `0x157c6e0`), which both posts (`0x14ca2d0`, `0x14ca210`) reach:
+  1. stamps the command (`+0x48`) and, unless `+0x4a` is set, gives it the next ID (`+0x4c`);
+  2. makes a memory stream over a byte vector (vtable `0x1dc0358`) and a writer over it (vtable `0x1dbf7d8`) in binary (the writer's `+0x18` set);
+  3. writes the command's type token as a key (`0x1709280`) and the command as a block (its `+0x08`, `0xd2f410` for all of them, which calls its `+0x10`);
+  4. for each entry of the vector at `0x23587e8` (one in single player; inferred), makes a binary tokenizer (vtable `0x1dbf988`) and a reader (`0x17096f0`) over the bytes, reads the first token (`0x170ada0`), has the factory make a command of that type (`0x14c6500`), reads it (its `+0x18`, `0x17068b0` for all of them, which calls `+0x20` for each key), and queues it (`0x1580ff0`);
+  5. destroys the posted command (`[rsp+0xbf8]`, its `+0` with flag 1).
+- So **what the game runs is only what the written form carries.** Whatever a command's caller set and did not write is lost on the way, in single player as in multiplayer. Every command that works in the game round-trips through its writer and reader.
+- The post `0x14ca2d0` does not free the command itself: the handler takes it. `0x14ca210` takes the pointer out of its `std::unique_ptr` before handing it over, so it destroys nothing either.
+
+## The factory and the registry
+
+- **The registry** is a vector of prototypes at `0x23587b0` (begin), `0x23587b8` (end), indexed by type token. `0x14c6930(prototype)` stores one at the index its `+0x50` answers, growing the vector.
+- **The factory** `0x14c6500(_, reader, token)` takes the prototype at the token's index and clones it (its `+0x60`, given the string at `reader + 0x648`). Out of bounds it logs "Command type out of bounds", for an empty slot "Couldn't find command, token: " with the token's name (`0x14c6f00`), and returns null.
+- **The command classes.** `.rdata` holds 340 vtables with the command layout: `+0x08` = `0xd2f410`, `+0x18` = `0x17068b0`, `+0x38` = `0x1707670`, `+0x90` = `0x14c64d0`, `+0x98` = `0x14c64e0`. One is the base `0x1c3a710`; the other 339 each answer a type token from `+0x50` (`mov eax, imm32; ret`), and each token is a name in the token table (`0x1fd8660`): `buildunit`, `move_order`, `diplomaticactioncommand`, `select_event_option`, `daily_tick` and so on. `0x249120` calls `0x14c6930` at 336 places; where the other classes are registered was not followed.
+- So **a command type is a name**, the same name in its written form, and the factory makes an empty one from it.
+
+## The written form
+
+- **The writer writes text or binary with the same code.** `0x1709280(writer, token)` writes the token's id when the writer's `+0x18` is set and its name otherwise; the saves' writer (`0x14e3f00`) is the same class. A command's `+0x10` writes through that interface only.
+- **The base fields** (`0x14c6290`, called first by both commands' `+0x10` read here): `tickstamp` (`0xc7`), `istargetasynchronous` (`0xcc`), `identity` (`0xdb`), `sender` (`0x240`).
+- **The recruit command** (`buildunit`, vtable `0x1c4dff8`; write `0x26d880`, read one key `0x26dba0`) writes `country` (the tag as a string), `province` (`%d`), `unit` (the unit type's key, when there is one), a mercenary company (`0x2660e0`) when there is one, `category`, `trade_mission`, `node` (each `%d`), `update_macro`, `update_map`, `flagship` (a block, through the object's own `+0x08`) and `refresh_modifier`, the yes-or-no ones only when they are not the default. Numbers are written as text (`0x15c230` with `"%d"`) and read back from the token's text (`reader + 0x444`, `"%i"`), so a value reads the same from a text tokenizer as from a binary one (inferred).
+- **A command that carries an object of a kind of its own** writes that object's type token as the key: the diplomatic action command (vtable `0x1c814b0`, write `0x4e8440`) writes the action under its type (`+0x98`) as a block (`+0x08`); reading (`0x4e8490`) makes the action by that token (`0x35d210`) when the slot is empty and has it read itself (`+0x18`). So nested objects of any kind come back as the right class.
+- **Which country.** 124 of the 339 writers write `country` (`0x289d`) themselves (counted by the instructions that carry the token; others may write it through a helper or under another key, as the diplomatic actions do inside the action). Nothing in the session's post or its execution compares the country a command names with the sender (inferred from `0x14ca2d0`, `0x1580370` and `0x14ca870`); whether each command's check does is per command.
+
+## Where commands run
+
+- **`CSession::Update`'s execution** `0x14ca870` takes the queued commands from the handler (`+0x48`), drops those held back during a hot join, asks each command's check (`+0x40`, at `0x14cab30`) and logs and drops a command that fails it ("Discarding invalid command! ID: %u, Type: %s"). For one that passes (`0x14caed8`) it:
+  1. calls before (`+0x68`) unless the session's mode (`+0x50`) is 4, 6 or 7;
+  2. sets the session's `+0x7d4` (executing) and the random-forbidden flag `0x1fd10c4` to the command's `+0x4a`;
+  3. runs a lambda (vtable `0x1d8c8b0`, holding the command at `+8`) through `0x14d4e70`;
+  4. puts both flags back, calls after (`+0x70`) under the same condition as before, and, unless `+0x4a` is set, hands the command to `0x157b1a0(handler, command)`, which writes it out once more in binary (whether to send it or to record it is still open).
+- **The lambda's call** `0x14cea10` (its vtable's `+0x10`; the vtable is referenced only at `0x14caf25`) logs "Executing command! ID: %u, Type: %s" when a log category's bit is set and the command's `+0x78` does not say otherwise, then jumps to the command's execute (`+0x48`). `0x14d4e70` reaches it through `0x14d4e30` and `0x10a0f20`, which jumps to the function object's `+0x10` too, so an execute returns to `0x14d4e62`: the call trace of recruiting saw the recruit command's execute called from there ([recruiting.md](recruiting.md)). It is called only for commands that passed their check, on the main thread, with the command object whole: **one observe point there hears every command the game executes**, the player's, the AI's (`0xbfe50`) and the game's own (`daily_tick`), before and after it runs.
+- **What it does not hear**: what the game does without a command (the game console's handlers, the pause key in single player; [architecture.md](architecture.md#commands-and-multiplayer)), and commands the game executes by calling their execute directly (the diplomatic action command's `0x4e7c50` is called so for actions the game sends itself; [diplomacy.md](diplomacy.md)).
+
+## Kinds of command
+
+From the vtables' slots (a slot that is not the base's answer, `0x8f450`, is the class's own):
+
+- `+0x58`, a command that may be posted outside the frame (lobby and setup): 61 classes, the custom nations, teams, the lobby (`startgame`, `selectbookmark`, `setdifficulty`, `quit`, `load_file` and so on).
+- `+0x80`, the other answer the post asks: `daily_tick`, `client_ping`, `increase_game_speed`, `decrease_game_speed`, `doautosave`, `savegamecommand`.
+- `+0x78`, not logged by the lambda: the chat commands, `set_DLCs` and `increase_game_speed`.
+- The rest are the game's actions: building, recruiting, armies, diplomacy, estates, reforms, events' options, decisions, trade, religion. `console_command` is one of them: its execute was not read.
+
+## What this means for the framework
+
+- **Posting a command from its written form** needs: a memory stream over the framework's text, a text tokenizer over it (the base `0x170d1d0(tokenizer, stream, flag)`, vtable `0x1dbf958`, as the local handler makes the binary one), a reader (`0x17096f0`), the factory, the command's read, its check, and the post. Each of these is used by the game for every command, so the path is the one the game takes; what is new is only that the text was not written by the game. Tried in the game: see below.
+- **Hearing commands** needs one observe point, on `0x14cea10`; writing the command out as text (its `+0x08` with a text writer) gives its fields by name. Tried in the game: see below.
+- **Not yet known**, to settle before a design: what the reader's string vector and name (`r8`, `r9` of `0x17096f0`) hold, which reading back did without (below); whether `+0x4a` and the session's mode `+0x50` matter in single player; and why three classes run without their sender and stamp (below).
+
+## Tried in the game: the command log
+
+`core/src/command_log.rs`, in the trace build with `EU4HARMONY_COMMANDS` set, observes `0x14cea10` and has each command write itself in text before it runs ([prototype-log.md](../prototype-log.md)).
+
+- **The memory stream** the local handler's post makes is inline (`0x15803d6` to `0x158053d`): 0x58 bytes, vtable `0x1dc0358`; `+0x08` 1 (the line), `+0x10` the mode (0), `+0x14` 1, `+0x18` an empty `std::string` (its name), `+0x38` the byte vector it writes to, `+0x40` to `+0x56` zero. Its slot `+0x18` (`0x171ed90`) sets the mode and `+0x14` again; a text write is its slot `+0x38`. **The writer** is `{vtable 0x1dbf7d8, +0x08 depth, +0x10 stream, +0x18 binary, +0x19 owns the stream}`, its methods not virtual; the post sets `+0x18` when the stream's mode is 0. The log makes both in its own memory as the post does, with `+0x18` clear, and frees the vector's buffer as the game does (`0x17394f0`, through the block before it when it is 0x1000 bytes or more).
+- **Every command wrote itself.** Three processes, each a new game as France at 1444.11.11, 40 to 52 days at speed 5: 40,712 commands of 74 types, none failing. Lines as the game writes them, on one line: `buildunit={ tickstamp=65535 istargetasynchronous=no identity=24 sender=-1 country="FRA" province=183 unit="western_medieval_infantry" category=0 trade_mission=0 node=0 }`. Fixed point is written with three decimals (`cost=17.004`), dates as `1444.11.11`, strings quoted, names in UTF-8 under the framework (`name="祖尼联盟"`); a unit is `{ id=25 type=54 }`, and a command may carry another whole (`spend_money` carries `command={ buy_indulgence={ ... } }`).
+- **What was heard**: the lobby and setup commands of a new game (`setgameplayoptions`, `addplayer`, `set_controller` with `country="FRA"`, `startgame`, `setrandom` with its seed), the AI's (`grant_privilege`, `diplomaticactioncommand`, `change_maintenance`, `move_order`, `select_event_option` for its own events, with the country in its `scope`), the game's (`daily_tick`, `client_ping`), and the player's through remote control (`buildunit`, the alliance proposal and the answer to it). Most of a day's commands are the AI's: about 275 a day.
+- **What was not**: the framework's `army.move` and `army.stop`, which call the route install `0xd50340` and the stop `0xd4fcb0` themselves, as a move command's execute does, without a command ([army-orders.md](army-orders.md)); the console's `stability`.
+- **Where the country is** differs by class: `country`, `tag`, `members={ dummy="KNI" ... }`, or inside the carried object (`actor` and `recipient` of a diplomatic action).
+- **Sender and stamp.** Every `diplomaticactioncommand` (2,399 in the first process), every `spend_money` and the framework's `buildunit` ran with `sender=-1 tickstamp=65535`, which is what a command never posted holds (the carried `buy_indulgence` has the same); every other class ran with `sender=1` and the session's tick. Both posts set both fields (`0x14ca318`, `0x14ca274`), and the identities of these commands follow on from the others', so they were posted as the rest were. It is not their readers: read back from a hand text with `tickstamp=5 identity=77 sender=1`, a `buildunit`, a `diplomaticactioncommand` and a `spend_money` each wrote those values again (below). Why the executed copies keep the defaults is still open. So a command's `sender` does not tell the player's commands from the AI's.
+- **`daily_tick`** carries `date=1.1.1`.
+- **Cost**: 9 to 10 µs a command, written and logged; at speed 5, 40 days took 6.4 s with the log off and 4.1 and 6.4 s with it on, as much as runs differ.
+- **Not tried**: a save loaded, multiplayer.
+
+## Tried in the game: reading text back
+
+With `EU4HARMONY_COMMANDS_READ` set as well, the log reads each command's one-line text back as the local handler's post reads the binary, writes the new command out again, compares the two texts, and destroys the new command (its `+0`, flag 1) without checking or executing it. With `EU4HARMONY_COMMANDS_TEXTS` naming a file, it also reads back each line of that file once, at the first `daily_tick` ([prototype-log.md](../prototype-log.md)).
+
+- **The path**: the memory stream as for writing, with `+0x14` 0 (the post's reading stream has it so, `0x15806fc` to `0x15807fe`) and the vector over the text; the tokenizer's base `0x170d1d0(tokenizer, stream, 0)` (0x220 bytes; `+0x21d`, from the flag, says whether it owns the stream), then the text tokenizer's vtable `0x1dbf958` over the base's (as the file tokenizer `0x170cd10` and its callers do, `0x8ded9`); the reader `0x17096f0(reader, tokenizer, vector, name, owns)` (0x6a8 bytes; `owns` lands at `+0x680`, and its destructor `0x1709950` deletes the tokenizer only then); the first token `0x170ada0(reader)`, read into `reader + 0x30`; the factory `0x14c6500(factory, reader, token)`, whose first argument is an object with the vtable `0x1c448b8` (as the post makes it, `0x15809af`); the command's read, its `+0x18`. The tokenizer is let go through its `+0`, flag 0.
+- **The vector and the name were given empty**, and every read worked. The post gives the session's vector at `[handler+0x70]+0x30` (entries of 0x28 bytes, a `std::string` and 8 bytes) and the peer's string at `+0x108`; the factory hands the name to the prototype's clone (`+0x60`), which takes it by value. What either is for is still open.
+- **Every command came back the same.** Two processes, each a new game as France, 40 days at speed 5, a recruit and an alliance proposal through remote control: 26,429 commands of 70 types read back, each written again exactly as before, none failing and none the factory could not make; the fixed point, dates, quoted strings, UTF-8 names and carried commands among them. The texts were read back on one line, so line breaks and tabs mean nothing to the reader.
+- **Text the game did not write** (one line each, read back once):
+  - `buildunit={ country="FRA" province=184 unit="western_medieval_infantry" }` came back with province 184 and every key left out at its default: `tickstamp=65535 istargetasynchronous=no identity=0 sender=-1 ... category=0 trade_mission=0 node=0`. So the reader takes the values from the text, and a text needs only the keys whose value is not the default.
+  - `buildunit = { province = 185 country = "FRA" category = 1 }`: spaces around `=`, keys in another order, and `unit` left out; read as written, with no unit.
+  - `playerconnected={ name="Two Words  here" machineid=7 value=no }` came back with the name as it was, two spaces included; `name="玩家 一"` too.
+  - `diplomaticactioncommand={ allianceaction={ type=0 actor="FRA" recipient="ENG" date=1444.11.12 } }`: the carried action was made by its key and read, its keys left out at their defaults (`original="---"`, `last_command_date=1.1.1`, `envoy=-1`).
+  - **Mistakes are not refused.** An unknown key (`unknown_key=5`) was passed over and the rest read; `province=abc` read as -1 and `country=FRA` unquoted as `"FRA"`; a text cut off before its closing brace was read as far as it went. The game logged the first two in `error.log` (`persistent.cpp:88`, "Parsing Error. File: "", Error: Unexpected token: unknown_key, near line: 1, Last good read: province=183" and "Malformed token: abc"), and nothing told the caller. An unknown type (`nosuchcommand`) made no command, with "Couldn't find command, token: , index: 15" in `system.log`: a name the token table does not have reads as token 15.
+- So **text is a complete form of every command seen, and the reader is lenient**: a command read from text is exactly what its keys say, and a mistake in the text shows only as a default or a line in the game's logs. Whatever offers posting from text has to check the text itself, or compare the command written again with what it asked for.
+- **Cost**: 18 to 25 µs a command, written, read back, written again and logged; 40 days at speed 5 took 4.3 and 5.2 s.
+- **The base keys are read.** A third process read back `buildunit`, `diplomaticactioncommand` and `spend_money` texts that set `tickstamp=5 identity=77 sender=1`, and each was written again with those values.
+- **Not tried**: the session's vector and the peer's name given as the post gives them.
+
+## Tried in the game: posting a command read from text
+
+With `EU4HARMONY_COMMANDS_POST` naming a file, the log reads each of its lines into a command at the first `daily_tick`, asks the command's check (its `+0x40`, `(command)`, as the session does before it executes a command and the framework's recruit before it posts one), and, when the check passes, posts it to the session the map manager answers with `0x14ca2d0`, as the framework's recruit does; a command the check refuses, or the session does not take, is destroyed. The post runs inside `daily_tick`'s execute, as the AI's do. One process, a new game as France, 10 days at speed 5; the country and province snapshots through remote control before the first day and after the tenth ([prototype-log.md](../prototype-log.md)).
+
+| Line | Check | What happened |
+|---|---|---|
+| `buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }` | passed | executed as ID 27; France's manpower 11,798 → 10,798 and treasury 66.495 → 56.495 |
+| `diplomaticactioncommand={ allianceaction={ type=0 actor="FRA" original="FRA" recipient="SCO" date=1444.11.11 value=yes } }` | passed | executed as ID 28; Scotland accepted, and France's relations then listed `SCO` as an ally |
+| `buildunit={ country="FRA" province=236 unit="western_medieval_infantry" }` (London, England's) | refused | destroyed, not posted |
+| `buildunit={ country="ENG" province=236 unit="western_medieval_infantry" }` | passed | executed as ID 29; England's manpower 8,585 → 7,585, its treasury down by the recruit's 10 as well as an advisor's 63.2 (its own `spend_money`); England recruited nothing else in those days |
+| `buildunit={ country="FRA" province=abc unit="western_medieval_infantry" }` | refused | read as province -1; destroyed, not posted |
+
+- So **a command written by the framework is checked, posted and executed as the game's own are**, with the game's costs and the other side's answer, and the check refuses what the game would refuse the country named.
+- **The check judges the command for the country it names, not for the player.** A recruit for England, posted from France's game, passed and was carried out at England's cost: nothing on the way compares the country with who posted it, as the static reading above found. Whatever offers posting from text decides itself which countries a caller may command.
+- The posted commands ran with `sender=-1 tickstamp=65535`, as these classes' did in the earlier runs.
+- **Not tried**: the post `0x14ca210`; posting outside a command's execute (the framework's safe point, where its recruit posts); a class that is not `buildunit` or a diplomatic action; a command a later check drops (the session's check at execution, which the framework's recruit has seen drop orders); a save loaded, ironman, multiplayer.
