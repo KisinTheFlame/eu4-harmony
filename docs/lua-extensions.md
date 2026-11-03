@@ -234,6 +234,8 @@ The corner button and the two-column window, with descriptions and sensitive cap
 
 `new` with its new template, `test` and the fake game, `types`, `package`'s checks, `skills` with its first guides, `help`; `build` removed.
 
+Built in three pull requests: the reference (`wiki lua`, `wiki manifest` and `types`, from descriptions of the handlers, globals, manifest and permissions in `remote/src/lua.rs`, which a core test holds to the sandbox), the guides (`skills`, the `AGENTS.md` `new` writes, `help`), and the tests (`test` and the fake game). The reference is built.
+
 ### L6 Acceptance
 
 The regional combat mod rewritten in Lua, in its own repository ([ADR 0004](adr/0004-ports-live-outside-framework-repo.md)):
