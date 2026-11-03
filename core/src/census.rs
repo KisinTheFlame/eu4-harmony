@@ -26,6 +26,7 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 mod holders;
+mod pointers;
 
 /// `(size)`, `(count, size)`, `(block, size)`, `(block)`: the C runtime's
 /// allocation functions, on its heap.
