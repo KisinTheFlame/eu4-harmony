@@ -56,7 +56,7 @@ cd "<游戏目录>\eu4-harmony"
 | 外交 | `diplomacy.war_goals`、`diplomacy.declare_war`（召集盟友参战）、`diplomacy.offer_peace`（白和平）、`diplomacy.propose_alliance` |
 | 游戏控制台 | `console.run`（像玩家那样输入一条命令，带回它的输出） |
 | 镜头与截图 | `camera.get`、`camera.look_at`（省份或地图位置）、`camera.zoom`；`screenshot`（玩家看到的画面，PNG） |
-| 输入 | `input.click`、`input.move`、`input.drag`、`input.scroll`、`input.key`、`input.type`（任意 Unicode 文字）、`input.mouse_down`、`input.mouse_up`、`input.key_down`、`input.key_up`、`input.get`：在画面上的位置做玩家的鼠标键盘操作，用于还没有专门能力的地方；游戏在前台或被其他窗口挡住都能用（[ADR 0034](docs/adr/0034-remote-clients-give-the-players-input.md)） |
+| 输入 | `input.click`、`input.move`、`input.drag`、`input.scroll`、`input.key`、`input.type`（任意 Unicode 文字）、`input.mouse_down`、`input.mouse_up`、`input.key_down`、`input.key_up`、`input.get`：在画面上的位置做玩家的鼠标键盘操作，用于还没有专门能力的地方；游戏在前台或被其他窗口挡住都能用（[ADR 0037](docs/adr/0037-remote-clients-give-the-players-input.md)） |
 | 事件流与说明 | `events`（编号的事件：会话开始或结束、新的一天、军队被下令或被击败）、`describe`（运行中的游戏给出的能力目录版本和全部能力）、`text.language` |
 
 完整的列表，连同每个参数和结果，见 `eu4-harmony wiki`（不需要游戏运行）：`eu4-harmony wiki army` 看一组，`eu4-harmony wiki army move` 看单个能力，`eu4-harmony wiki errors` 看每种错误的含义；`eu4-harmony game describe` 则向运行中的游戏询问。每项能力在游戏里如何工作，见 [docs/remote-control.md](docs/remote-control.md)。

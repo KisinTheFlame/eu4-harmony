@@ -1,12 +1,12 @@
 # Input plan
 
-Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the game ([prototype-log.md](prototype-log.md), "Input"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Input, Screen position). The decision and its reasons are in [ADR 0034](adr/0034-remote-clients-give-the-players-input.md). How the game reads its input is in [research/input.md](research/input.md); how the framework UI takes its own is in `core/src/framework_ui/input.rs`.
+Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the game ([prototype-log.md](prototype-log.md), "Input"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Input, Screen position). The decision and its reasons are in [ADR 0037](adr/0037-remote-clients-give-the-players-input.md). How the game reads its input is in [research/input.md](research/input.md); how the framework UI takes its own is in `core/src/framework_ui/input.rs`.
 
 ## Goal and scope
 
 - **Goal**: a remote client gives the game mouse and keyboard input at screen positions, as the player does, for what has no capability of its own, such as an AI that looks at `screenshot` and clicks.
 - **In scope**: the `input` group of remote control: clicks, moving the mouse, dragging, the wheel, keys and key combinations, typing text, holding a button or a key; reading where the game takes the cursor to be; the order between input and the requests after it; removing `tools/game-input.ps1` and `tools/screenshot.ps1`.
-- **Out of scope**: input for extensions (ADR 0034); the input method (composing text from keys); waiting in the framework for what the input does; multiplayer.
+- **Out of scope**: input for extensions (ADR 0037); the input method (composing text from keys); waiting in the framework for what the input does; multiplayer.
 
 ## Behavior
 
