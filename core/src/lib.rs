@@ -16,6 +16,8 @@ pub mod analysis;
 pub mod baseline;
 #[cfg(feature = "trace")]
 pub mod census;
+#[cfg(feature = "trace")]
+mod command_log;
 pub mod ext;
 pub mod framework_ui;
 pub mod game;
@@ -131,7 +133,7 @@ fn start(m: memory::Memory) -> Result<String> {
     let all = points();
     #[cfg(feature = "trace")]
     let all: Vec<_> = {
-        let all: Vec<_> = all.into_iter().chain(census::points(&m)).collect();
+        let all: Vec<_> = all.into_iter().chain(census::points(&m)).chain(command_log::points()).collect();
         let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
         let room = hooks::observer_slots().saturating_sub(observers);
         all.into_iter().chain(trace::points(&m, room)).collect()
