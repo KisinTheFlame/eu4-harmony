@@ -10,6 +10,11 @@
 use eu4_harmony_remote::{capabilities, lua, prose, Capability, Kind, API_VERSION};
 use std::{fmt::Write as _, path::Path};
 
+/// How `err` is returned: not as `eu4.Err|nil`, which would have the editor
+/// ask for a nil check after testing the result instead of `err`, though
+/// `err` is there exactly when the result is not.
+const ERR: &str = "eu4.Err err why it failed: nil when it did not";
+
 /// Where the definitions go in a mod, and the editor's settings.
 pub const FILE: &str = ".eu4-harmony/types/eu4-harmony.lua";
 pub const LUARC: &str = ".luarc.json";
@@ -59,8 +64,8 @@ const CLASSES: &str = r#"---@class eu4.Date
 ---@class eu4.Element
 ---@field visible boolean set, never read
 ---@field enabled boolean set, never read
----@field text string set, never read
----@field tooltip string set, never read
+---@field text string|nil set, never read; nil is no text
+---@field tooltip string|nil set, never read; nil is no tooltip
 "#;
 
 /// Writes the definitions, and the editor's settings where the mod has none,
@@ -149,7 +154,7 @@ fn capability(out: &mut String, table: &str, c: &Capability) {
         let _ = writeln!(out, "---@param options? {{ {} }}", optional.join(", "));
         names.push("options".into());
     }
-    let _ = writeln!(out, "---@return any|nil result {}\n---@return eu4.Err|nil err", prose(c.result));
+    let _ = writeln!(out, "---@return any result {}, or nil when it failed\n---@return {ERR}", prose(c.result));
     let _ = writeln!(out, "function {table}.{}({}) end\n", c.action, names.join(", "));
 }
 
@@ -169,6 +174,10 @@ fn function(out: &mut String, name: &str, f: &lua::Function) {
         names.push(arg.name);
     }
     for r in f.returns {
+        if r.ty == "eu4.Err" {
+            let _ = writeln!(out, "---@return {ERR}");
+            continue;
+        }
         let ty = if r.optional { format!("{}|nil", r.ty) } else { r.ty.to_string() };
         let _ = writeln!(out, "---@return {ty} {} {}", r.name, r.about);
     }
@@ -228,6 +237,11 @@ mod tests {
         assert!(declare.contains("function eu4_game_diplomacy.declare_war(country, casus_belli, options) end"), "{declare}");
         let fetch = text.split("\n\n").find(|block| block.contains("function http.fetch(")).unwrap();
         assert!(fetch.contains("It waits") && fetch.contains("Needs permissions = { network = "), "{fetch}");
+        // err is not nil-checked once the result has been (LuaLS, 2026-11-03).
+        assert!(declare.contains(&format!("---@return {ERR}")) && fetch.contains(&format!("---@return {ERR}")), "{declare}\n{fetch}");
+        assert!(!text.contains("eu4.Err|nil"));
+        // An element takes nil, as text.get may answer.
+        assert!(text.contains("---@field tooltip string|nil"));
     }
 
     #[test]
