@@ -1093,7 +1093,7 @@ This branch's uncommitted change for part C0 of [commands.md](commands.md): the 
 
 ## 2026-11-03 Commands C1 to C3 (tested by me)
 
-The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0033), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
+The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0035), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
 
 - **Startup**: 756 dependency points matched for ff49db0, 758 for the change after it; 132 hooks, 10 writes.
 - **The test commands, at the first frame of each game**: the recruit in Paris and the alliance with Scotland were carried out (France's manpower 11,798 → 10,798); the recruit in London was refused by its check (`Check`); `province=abc` (read as -1), `provinec`, `nosuchcommand` and the missing brace were refused unread, each with its reason.
@@ -1172,8 +1172,18 @@ L6's fourth point: regional combat in Lua, France from 1444.11.11, war on Englan
 - **--watch**: three edits in a row (the new title, a syntax error, the code as committed) gave two reloads, each carrying the task, and one "not reloaded" line with the syntax error between them.
 - **After a stop**: `on_frame` made to loop; the framework stopped the extension after three stretches past the time limit; reloading the committed code ran it again. The first run's build said "on_session got what save_data gave" though nothing was carried, as a stopped extension's `save_data` is not asked; the second run's says "on_session got nil: the old code was stopped (...), so its save_data was not asked".
 - **In the main menu**: after `menu.return`, the reload printed "no session is going on, so on_session comes with the next".
-- **Found, not of the reload**: after an in-process return, `menu.start` began a game the framework did not take for a new session: no "session N started" in the core log, `on_session` not called, the session number still 1. The same without a reload in between. The new game's first session after startup was announced; one after a return was not. Not looked into here.
+- **Found, not of the reload**: after an in-process return, `menu.start` began a game the framework did not take for a new session: no "session N started" in the core log, `on_session` not called, the session number still 1. The same without a reload in between. The new game's first session after startup was announced; one after a return was not. Fixed the same night ([the next section](#2026-11-04-a-new-game-after-an-in-process-return-is-a-session-tested-by-me)).
 - **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
+
+## 2026-11-04 A new game after an in-process return is a session (tested by me)
+
+The build of `claude/session-after-return`, which begins a session at each world reset with the history (an in-process return, the single player setup left). Regional combat as the extension to watch, its manifest set to api_version 0.2 for the run (as master provides) and put back after; `eu4.exe` started directly.
+
+- **Before**: in the runs of the same night ([Extension reload](#2026-11-04-extension-reload-tested-by-me)), France, `menu.return`, then `menu.start FRA` began a game the framework took for the old session: no "session N started", no `on_session`, the number still 1.
+- **After**: France (session 1), a return, Castile (3), France from that session (5), `menu.load autosave` from it (7, "from a loaded save: true"), France (9), a return, France again (10), France from that session (11). Each logged "session N started", each ended with the session's timing line, and regional combat's `on_session` ran each time ("session N: restored 0 task(s)").
+- **The numbers**: a session begun by a load, or with another world or player, is counted twice (by the load or the world reset, and by the frame that finds the world or player changed), so the numbers rise by 2 there and by 1 for France after France. They only ever rise, which is what extensions and remote clients rely on.
+- **Not verified in the game**: leaving the single player setup by its back button, then starting a game.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
 
 ## How the implementation differs from the final design
 
