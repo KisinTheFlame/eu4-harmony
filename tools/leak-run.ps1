@@ -14,10 +14,12 @@ and starts games, which autosave. It starts eu4.exe unless it runs, and plays
 3. returns to the main menu;
 4. starts a new game as -Country, and lets a third of the days run;
 5. returns to the main menu.
-After each round it asks memory and memory.leftovers and prints a line. At the
-end it writes into -Out report.json, every answer, and report.md, the rounds
-and the leftover sites that leave the most per generation. The game is closed
-unless -KeepGame.
+After each round it asks memory and memory.leftovers and prints a line; after
+the last, memory.leftovers looks for what still points at the leftovers too,
+which stops the game for seconds. At the end it writes into -Out report.json,
+every answer, and report.md, the rounds, the leftover sites that leave the
+most per generation, and what holds them. The game is closed unless
+-KeepGame.
 
 .PARAMETER Saves
 The two saves, by the names menu.saves lists; the two newest by default.
@@ -86,7 +88,9 @@ for ($i = 1; $i -le $Rounds; $i++) {
     MainMenu
     Start-Sleep 5
     $memory = Ask 'memory'
-    $leftovers = Ask 'memory.leftovers', '--sites', "$Sites"
+    $asked = @('memory.leftovers', '--sites', "$Sites")
+    if ($i -eq $Rounds) { $asked += '--holders', 'true' }
+    $leftovers = Ask $asked
     $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers }
     $played += $round
     $grew = if ($i -gt 1) { ' ({0:+0.0;-0.0} MB)' -f (($memory.private - $played[-2].memory.private) / 1MB) } else { '' }
@@ -110,6 +114,15 @@ if ($played) {
     foreach ($s in $last.sites) {
         $freed = ($s.freed_at | ForEach-Object { "$($_.site) in $($_.function) ($($_.blocks))" }) -join '; '
         $md += "| $($s.site) | $($s.function) | $($s.trend) | $('{0:N0}' -f ($s.per_generation / 1KB)) | $('{0:N0}' -f ($s.bytes / 1KB)) | $($s.blocks) | $freed |"
+    }
+}
+if ($played -and $last.sites[0].holders) {
+    $md += '', '## What holds them', '', 'Each leftover counted once, by the best that points at it: the game''s data, other live blocks, only the leftovers listed, or nothing.', ''
+    $md += '| Site | Trend | Leftovers | By data | By blocks | By leftovers | By nothing | Held most by (pointers) |', '| --- | --- | --- | --- | --- | --- | --- | --- |'
+    foreach ($s in $last.sites) {
+        $h = $s.holders
+        $top = ($h.top | ForEach-Object { if ($_.kind -eq 'data') { "data $($_.at) ($($_.references))" } else { "$($_.at) in $($_.function) ($($_.references))" } }) -join '; '
+        $md += "| $($s.site) | $($s.trend) | $($s.blocks) | $($h.by_data) | $($h.by_blocks) | $($h.by_leftovers) | $($h.by_nothing) | $top |"
     }
 }
 $md | Set-Content -Encoding utf8 (Join-Path $Out 'report.md')
