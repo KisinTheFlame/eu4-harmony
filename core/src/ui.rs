@@ -23,7 +23,6 @@ use crate::{
     splice::{Element, ElementKind},
     Result,
 };
-use eu4_harmony_abi as abi;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
@@ -86,6 +85,13 @@ struct Binding {
     root: usize,
     bound: Vec<Bound>,
 }
+
+/// Which button clicked a mod's button.
+pub const CLICK_LEFT: u32 = 1;
+pub const CLICK_RIGHT: u32 = 2;
+/// The keys held down with a click, as bits.
+pub const MODIFIER_SHIFT: u32 = 1;
+pub const MODIFIER_CTRL: u32 = 2;
 
 pub struct Click {
     pub extension: usize,
@@ -435,10 +441,10 @@ fn modifiers() -> u32 {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
     let mut out = 0;
     if unsafe { GetKeyState(VK_SHIFT as i32) } < 0 {
-        out |= abi::MODIFIER_SHIFT;
+        out |= MODIFIER_SHIFT;
     }
     if unsafe { GetKeyState(VK_CONTROL as i32) } < 0 {
-        out |= abi::MODIFIER_CTRL;
+        out |= MODIFIER_CTRL;
     }
     out
 }
@@ -469,14 +475,14 @@ extern "system" fn left_click(context: usize, event: usize) {
             return;
         }
         let Ok(button) = m.ptr(event) else { return };
-        enqueue(context, button, abi::CLICK_LEFT);
+        enqueue(context, button, CLICK_LEFT);
         // Mark the click consumed so it does not fall through to the map.
         let _ = m.write(event + event::CONSUMED, &[1]);
     });
 }
 
 extern "system" fn right_click(context: usize, button: usize) {
-    crate::guarded("right click", || enqueue(context, button, abi::CLICK_RIGHT));
+    crate::guarded("right click", || enqueue(context, button, CLICK_RIGHT));
 }
 
 /// Fills the panel's tooltip for our buttons that have one. The game builds

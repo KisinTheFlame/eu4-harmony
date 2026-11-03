@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["abi", "checks", "cli", "cli/template/extension", "core", "loc", "manifest", "proxy", "remote", "sdk"]
+members = ["checks", "cli", "core", "loc", "manifest", "proxy", "remote"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,8 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 cc = "=1.6.0"
 iced-x86 = { version = "=1.21.0", default-features = false }
+toml = "=0.9.8"
+mlua = { version = "=0.11.6", features = ["lua54", "vendored", "serialize"] }
 
 # Where the code is right as it is, #[expect(..., reason = "...")] says why
 # (AGENTS.md): an #[allow] is refused, as is an #[expect] with no reason.

@@ -2,7 +2,8 @@
 //!
 //! The launcher writes the active playset to `<user_dir>/dlc_load.json`; each
 //! entry names a `.mod` descriptor whose `path=` points at the mod directory.
-//! A mod carries an extension when it has `eu4-harmony/manifest.json`.
+//! A mod is a Harmony mod when it has `eu4-harmony/manifest.toml`; where its
+//! other files are says the rest (ADR 0029).
 use crate::{notice::Message, Result};
 use serde::Deserialize;
 use std::{
@@ -16,7 +17,7 @@ struct DlcLoad {
     enabled_mods: Vec<String>,
 }
 
-pub use eu4_harmony_manifest::{Manifest, UiFragment};
+pub use eu4_harmony_manifest::{Layout, Manifest, Permissions, UiFragment};
 
 #[derive(Debug)]
 pub struct Descriptor {
@@ -31,6 +32,8 @@ pub struct DiscoveredMod {
     pub descriptor: Descriptor,
     pub dir: PathBuf,
     pub manifest: Manifest,
+    /// Where its files are: the extension, its interface fragments.
+    pub layout: Layout,
 }
 
 /// Minimal reader for the `key="value"` lines of a `.mod` descriptor.
@@ -113,7 +116,7 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
             }
             continue;
         };
-        let manifest_file = dir.join("eu4-harmony").join("manifest.json");
+        let manifest_file = dir.join("eu4-harmony").join(eu4_harmony_manifest::FILE);
         if !manifest_file.is_file() {
             continue;
         }
@@ -133,7 +136,8 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
             });
             continue;
         }
-        mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest });
+        let layout = eu4_harmony_manifest::layout(&dir.join("eu4-harmony"));
+        mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest, layout });
     }
     Ok((mods, notes))
 }

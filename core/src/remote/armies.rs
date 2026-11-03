@@ -66,11 +66,12 @@ fn snapshot(a: &layer::Army, route: Vec<ProvinceId>) -> Army {
         blocked: blocked.into_iter().filter_map(|(set, why)| set.then_some(why)).collect(),
         route,
         // Remote control's orders are the player's, so to it a route is
-        // never its own.
+        // never its own: only an extension's is.
         route_by: match a.route_source {
             Source::None => None,
             Source::External => Some(RouteBy::PlayerOrGame),
-            Source::Own | Source::OtherExtension => Some(RouteBy::OtherMod),
+            Source::Own => Some(RouteBy::ThisMod),
+            Source::OtherExtension => Some(RouteBy::OtherMod),
         },
     }
 }

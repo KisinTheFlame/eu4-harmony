@@ -23,7 +23,7 @@
 //! the traits.
 
 /// Declares a group's slice of the capability layer once: its `Layer`
-/// trait, and [`Live`] calling each capability there as remote control.
+/// trait, and [`Live`] calling each capability there as its caller.
 /// A group whose slice does more than call them writes both itself.
 macro_rules! layer {
     ($( $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; )*) => {
@@ -33,7 +33,7 @@ macro_rules! layer {
         }
 
         impl Layer for super::Live {
-            $( fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> { $capability(crate::game::Caller::Remote, $($arg),*) } )*
+            $( fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> { $capability(self.0, $($arg),*) } )*
         }
     };
 }
@@ -112,8 +112,9 @@ impl<
 {
 }
 
-/// The capability layer itself, called as remote control.
-pub struct Live;
+/// The capability layer itself, called as its caller: remote control, or an
+/// extension through the Lua host, which runs the same groups (ADR 0026).
+pub struct Live(pub game::Caller);
 
 impl From<game::Fail> for Error {
     fn from(fail: game::Fail) -> Self {
@@ -527,6 +528,21 @@ impl Engine {
     }
 }
 
+/// Runs one request for an extension, as the Lua host has it: a capability
+/// of the catalogue both sides have, called as `caller`. A request that
+/// waits (a diplomatic action waiting for its answer) is polled with
+/// [`poll_for`] at later safe points.
+pub fn run_for(caller: game::Caller, request: Request) -> Outcome {
+    dispatch(request, &mut Live(caller), &events::Buffer::new(), Instant::now())
+}
+
+/// Polls a request [`run_for`] left waiting, at a game's safe frame.
+pub fn poll_for(caller: game::Caller, wait: &mut dyn Wait) -> Option<Response> {
+    let events = events::Buffer::new();
+    let mut live = Live(caller);
+    wait.poll(&mut Poll::new(&events, Instant::now(), &Place::Game, &mut live))
+}
+
 /// Runs one request at `now`, group by group.
 fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now: Instant) -> Outcome {
     let done = |response: Response| Outcome::Done(response);
@@ -588,13 +604,13 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     frame.heard().into_iter().map(event).collect()
 }
 
-/// The session is being left, for `reason` (`abi::SESSION_ENDED_*`), as
+/// The session is being left, for `reason` (`crate::lua::SESSION_ENDED_*`), as
 /// extensions hear it.
 pub(crate) fn session_ended(reason: u32) {
     use eu4_harmony_remote::events::{Event, SessionEnd};
     let reason = match reason {
-        eu4_harmony_abi::SESSION_ENDED_LOAD => SessionEnd::Load,
-        eu4_harmony_abi::SESSION_ENDED_NEW_GAME => SessionEnd::NewGame,
+        crate::lua::SESSION_ENDED_LOAD => SessionEnd::Load,
+        crate::lua::SESSION_ENDED_NEW_GAME => SessionEnd::NewGame,
         _ => SessionEnd::Return,
     };
     ENGINE.record([Event::SessionEnded { reason }]);
@@ -604,7 +620,7 @@ pub(crate) fn session_ended(reason: u32) {
 pub(crate) fn run_in_game(frame: &game::Frame) {
     ENGINE.record(happened(frame));
     ENGINE.enter(frame.session);
-    ENGINE.run(&mut Live, &Place::Game, BUDGET);
+    ENGINE.run(&mut Live(game::Caller::Remote), &Place::Game, BUDGET);
 }
 
 /// The campaign changes (a save begins to load): requests that need a game
@@ -616,13 +632,13 @@ pub(crate) fn campaign_changes() {
 /// At a safe point with no game to read: `why` answers the requests that
 /// need one, or, when None, they wait.
 pub(crate) fn run_outside(why: Option<game::Fail>) {
-    ENGINE.run(&mut Live, &Place::Outside(why.map(Error::from)), BUDGET);
+    ENGINE.run(&mut Live(game::Caller::Remote), &Place::Outside(why.map(Error::from)), BUDGET);
 }
 
 /// At a game's frame with no game the player can play: `why` answers the
 /// requests that need one.
 pub(crate) fn run_unplayable(why: game::Fail) {
-    ENGINE.run(&mut Live, &Place::Unplayable(Error::from(why)), BUDGET);
+    ENGINE.run(&mut Live(game::Caller::Remote), &Place::Unplayable(Error::from(why)), BUDGET);
 }
 
 /// Before the game starts `eu4.exe` again, which ends this process: every
