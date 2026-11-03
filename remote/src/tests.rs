@@ -206,7 +206,20 @@ fn descriptions_in_json() {
 
 #[test]
 fn kinds_from_text() {
-    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text, Kind::UnitKind, Kind::Provinces];
+    let all = [
+        Kind::Country,
+        Kind::Province,
+        Kind::Army,
+        Kind::Date,
+        Kind::Integer,
+        Kind::Boolean,
+        Kind::Text,
+        Kind::UnitKind,
+        Kind::Provinces,
+        Kind::Button,
+        Kind::Direction,
+        Kind::Keys,
+    ];
     for kind in all {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
     }
@@ -218,6 +231,8 @@ fn kinds_from_text() {
     assert_eq!(Kind::UnitKind.json("heavy_ship"), Some(json!("heavy_ship")));
     assert_eq!(sample(Kind::Provinces), json!([151, 152]));
     assert_eq!(Kind::Provinces.json("1, 2"), Some(json!([1, 2])));
+    assert_eq!(Kind::Keys.json("Control+Return"), Some(json!("ctrl+enter")));
+    assert_eq!(Kind::Button.json("right"), Some(json!("right")));
     for (kind, bad) in [
         (Kind::Provinces, "151,Paris"),
         (Kind::Provinces, ""),
@@ -228,6 +243,9 @@ fn kinds_from_text() {
         (Kind::Boolean, "yes"),
         (Kind::UnitKind, "Infantry"),
         (Kind::UnitKind, "marines"),
+        (Kind::Keys, "ctrl+banana"),
+        (Kind::Button, "back"),
+        (Kind::Direction, "sideways"),
     ] {
         assert_eq!(kind.json(bad), None, "{kind:?} {bad}");
     }

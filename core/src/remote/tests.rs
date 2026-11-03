@@ -4,9 +4,10 @@ use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
-    diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, menu::MenuRequest, offers::OfferRequest,
-    provinces::ProvinceRequest, questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest,
-    session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, input::Button, input::Direction, input::InputRequest,
+    input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, questions::QuestionRequest, recruiting::RecruitRequest,
+    recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag,
+    ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -26,6 +27,10 @@ fn log() -> Vec<String> {
 
 fn error(code: &str) -> impl Fn(&Value) -> bool + '_ {
     move |v: &Value| v["ok"] == false && v["error"]["code"] == code
+}
+
+fn keys(text: &str) -> Keys {
+    Keys::parse(text).unwrap()
 }
 
 fn army(id: u64) -> ArmyId {
@@ -225,6 +230,28 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(Value::is_null)),
         (Request::Menu(MenuRequest::Return {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "ending"})))),
         (Request::Extension(ExtensionRequest::Reload { id: "regional-combat".into() }), Box::new(|v: &Value| *v == ok(json!({"session": true, "lost": null})))),
+        // The cursor first: a request after an input waits for the game to
+        // have it (input::tests).
+        (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),
+        (
+            Request::Input(InputRequest::Click { x: 1, y: 2, button: None, count: None, modifiers: None, scale: None }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (Request::Input(InputRequest::Move { x: 1, y: 2, modifiers: None, scale: Some(50) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Input(InputRequest::Drag { from_x: 1, from_y: 2, to_x: 3, to_y: 4, button: Some(Button::Right), modifiers: None, scale: None }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (
+            Request::Input(InputRequest::Scroll { x: 1, y: 2, direction: Direction::Up, amount: Some(3), modifiers: None, scale: None }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (Request::Input(InputRequest::Key { keys: keys("f1"), repeat: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::Type { text: "中文".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::MouseDown { x: 1, y: 2, button: None, scale: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::MouseUp { x: 1, y: 2, button: None, scale: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::KeyDown { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::KeyUp { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
     ];
     // A developer build's census, which counts nothing here.
     #[cfg(feature = "dev-heap-census")]

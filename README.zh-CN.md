@@ -22,7 +22,7 @@
 
 ## 远程控制（玩家与 AI）
 
-远程控制让游戏进程之外的程序通过框架的能力使用游戏，就像玩家一样：从主菜单进入游戏再回来，读取游戏，让时间流逝，回答游戏的事件和其他国家的提议，调动军队，招募，外交，游戏控制台，镜头和截图。AI 靠它玩完整的一局，开发者靠它在命令行里试用框架。框架运行时它始终开启，只对正在玩的 Windows 用户开放、只限本机（一个命名管道），并且以玩家身份行事：玩家做不到的，它也做不到（[ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md)、[ADR 0017](docs/adr/0017-remote-control-is-always-on.md)）。
+远程控制让游戏进程之外的程序通过框架的能力使用游戏，就像玩家一样：从主菜单进入游戏再回来，读取游戏，让时间流逝，回答游戏的事件和其他国家的提议，调动军队，招募，外交，游戏控制台，镜头、截图，以及在没有其他能力可用的地方像玩家一样用鼠标和键盘。AI 靠它玩完整的一局，开发者靠它在命令行里试用框架。框架运行时它始终开启，只对正在玩的 Windows 用户开放、只限本机（一个命名管道），并且以玩家身份行事：玩家做不到的，它也做不到（[ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md)、[ADR 0017](docs/adr/0017-remote-control-is-always-on.md)）。
 
 客户端是游戏 `eu4-harmony\` 文件夹里的 `eu4-harmony.exe`。`eu4-harmony game <能力> [<参数>]` 向运行中的游戏发一个请求，以 JSON 打印回答；退出码为 0 表示游戏回答了，1 表示游戏回答了一个错误（`{"code": ..., "message": ...}`，拒绝时带着游戏自己的理由），2 表示命令行有误、什么也没发出，3 表示没有收到回答。参数可以带名字（`--province 167`），也可以按顺序直接写；能力名里的点可以写成空格：
 
@@ -39,6 +39,7 @@ cd "<游戏目录>\eu4-harmony"
 .\eu4-harmony game diplomacy war_goals ENG
 .\eu4-harmony game diplomacy declare_war ENG cb_core --province 167
 .\eu4-harmony game screenshot --scale 50 --out shot.png
+.\eu4-harmony game input click 960 540 --scale 50   # 点击那张截图上看到的位置
 .\eu4-harmony game menu return             # 回到主菜单，主菜单出现后回答
 ```
 
@@ -55,6 +56,7 @@ cd "<游戏目录>\eu4-harmony"
 | 外交 | `diplomacy.war_goals`、`diplomacy.declare_war`（召集盟友参战）、`diplomacy.offer_peace`（白和平）、`diplomacy.propose_alliance` |
 | 游戏控制台 | `console.run`（像玩家那样输入一条命令，带回它的输出） |
 | 镜头与截图 | `camera.get`、`camera.look_at`（省份或地图位置）、`camera.zoom`；`screenshot`（玩家看到的画面，PNG） |
+| 输入 | `input.click`、`input.move`、`input.drag`、`input.scroll`、`input.key`、`input.type`（任意 Unicode 文字）、`input.mouse_down`、`input.mouse_up`、`input.key_down`、`input.key_up`、`input.get`：在画面上的位置做玩家的鼠标键盘操作，用于还没有专门能力的地方；游戏在前台或被其他窗口挡住都能用（[ADR 0037](docs/adr/0037-remote-clients-give-the-players-input.md)） |
 | 事件流与说明 | `events`（编号的事件：会话开始或结束、新的一天、军队被下令或被击败）、`describe`（运行中的游戏给出的能力目录版本和全部能力）、`text.language` |
 
 完整的列表，连同每个参数和结果，见 `eu4-harmony wiki`（不需要游戏运行）：`eu4-harmony wiki army` 看一组，`eu4-harmony wiki army move` 看单个能力，`eu4-harmony wiki errors` 看每种错误的含义；`eu4-harmony game describe` 则向运行中的游戏询问。每项能力在游戏里如何工作，见 [docs/remote-control.md](docs/remote-control.md)。
@@ -96,7 +98,7 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 | `remote/` | 能力目录：远程控制的请求与响应、它们的 JSON 形式和每项能力的说明（含扩展是否也有），核心和命令行工具共用 |
 | `checks/` | 框架自己对能力调用做的检查，以及每种拒绝的状态和措辞，核心和 `remote/` 共用；以及游戏的历法 |
 | `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组 |
-| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有测试运行前后备份与还原玩家文件、输入、截图、反汇编、崩溃转储和调用追踪的工具，见 [tools/README.md](tools/README.md) |
+| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有测试运行前后备份与还原玩家文件、测量框架开销、反汇编、崩溃转储和调用追踪的工具，见 [tools/README.md](tools/README.md) |
 | `docs/` | 方案、ADR、调研、实测记录和[框架对游戏性能的影响](docs/performance.md) |
 
 代码、注释和文档都用英文。本文件是 [README.md](README.md) 的中文译本，其余文档只有英文版。在本仓库工作的约定（对人和编程代理都适用）见 [AGENTS.md](AGENTS.md)。

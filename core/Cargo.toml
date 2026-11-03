@@ -26,6 +26,8 @@ windows-sys = { workspace = true, features = [
     "Wdk_Storage_FileSystem",
     "Win32_Foundation",
     "Win32_Globalization",
+    # Positions in the game's window and on the screen, for input.
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",

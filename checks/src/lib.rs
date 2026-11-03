@@ -15,6 +15,7 @@ pub mod console;
 mod date;
 pub mod diplomacy;
 pub mod form;
+pub mod input;
 pub mod offers;
 pub mod provinces;
 pub mod questions;

@@ -17,9 +17,11 @@ Clicks are physical pixels for a 3840x2160 screen at the game's default
 interface scale. The run recognizes two screens by comparing a region with a
 reference taken on this machine, once:
 - the main menu: with the main menu showing, run with -Reference;
-- the start-of-game introduction: with it open, save its bottom left
-  ornament with screenshot.ps1 -Crop 1195,1500,100,80 -Out <Out>\intro-corner.png.
-Keep the game window in front, and the machine otherwise idle, while it runs.
+- the start-of-game introduction: with it open, run with -IntroReference.
+It measures vanilla too, where no framework runs and remote control cannot
+click or press keys, so it sends the game its clicks and keys itself, as a
+mouse and keyboard would: keep the game window in front, and the machine
+otherwise idle, while it runs.
 
 .PARAMETER Name
 The run's name, used for its files.
@@ -27,7 +29,7 @@ The run's name, used for its files.
 .PARAMETER Out
 The folder for results and references.
 #>
-param([string]$Name, [Parameter(Mandatory)][string]$Out, [string]$GameDir = (& (Join-Path $PSScriptRoot 'game-dir.ps1')), [switch]$Reference, [switch]$MenuOnly)
+param([string]$Name, [Parameter(Mandatory)][string]$Out, [string]$GameDir = (& (Join-Path $PSScriptRoot 'game-dir.ps1')), [switch]$Reference, [switch]$IntroReference, [switch]$MenuOnly)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $gdi = [AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -in 'System.Drawing.Common', 'System.Drawing.Primitives', 'System.Private.Windows.GdiPlus', 'System.Private.Windows.Core', 'System.Runtime', 'System.Runtime.InteropServices' } | ForEach-Object Location
@@ -49,8 +51,29 @@ public static class ScreenRegion {
     }
   }
   public static byte[] Load(string path) { using (var b = new Bitmap(path)) return Sample(b); }
+  public static void Save(int x, int y, int w, int h, string path) {
+    using (var b = new Bitmap(w, h)) {
+      using (var g = Graphics.FromImage(b)) g.CopyFromScreen(x, y, 0, 0, new Size(w, h));
+      b.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+    }
+  }
   // Mean difference per colour value, 0 to 255.
   public static double Diff(byte[] a, byte[] b) { long s = 0; for (int i = 0; i < a.Length; i++) s += Math.Abs(a[i] - b[i]); return (double)s / a.Length; }
+}
+// A mouse and keyboard, for the window in front.
+public static class Hand {
+  [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] static extern void mouse_event(uint f, int dx, int dy, int d, UIntPtr e);
+  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint f, UIntPtr e);
+  public static void Click(int x, int y) {
+    SetCursorPos(x, y); System.Threading.Thread.Sleep(150);
+    mouse_event(0x02, 0, 0, 0, UIntPtr.Zero); System.Threading.Thread.Sleep(60);
+    mouse_event(0x04, 0, 0, 0, UIntPtr.Zero); System.Threading.Thread.Sleep(300);
+  }
+  public static void Space() {
+    keybd_event(0x20, 0x39, 0, UIntPtr.Zero); System.Threading.Thread.Sleep(30);
+    keybd_event(0x20, 0x39, 2, UIntPtr.Zero); System.Threading.Thread.Sleep(300);
+  }
 }
 "@
 [ScreenRegion]::SetProcessDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
@@ -61,11 +84,12 @@ $introArea = 1195, 1500, 100, 80
 New-Item -ItemType Directory -Force $Out | Out-Null
 $menuRef = Join-Path $Out 'menu-reference.bin'
 if ($Reference) { [IO.File]::WriteAllBytes($menuRef, [ScreenRegion]::Grab($menuArea[0], $menuArea[1], $menuArea[2], $menuArea[3])); "saved $menuRef"; return }
+if ($IntroReference) { $f = Join-Path $Out 'intro-corner.png'; [ScreenRegion]::Save($introArea[0], $introArea[1], $introArea[2], $introArea[3], $f); "saved $f"; return }
 $menuBytes = [IO.File]::ReadAllBytes($menuRef)
 
 function Sample($p) { $p.Refresh(); [pscustomobject]@{ cpu = $p.TotalProcessorTime.TotalSeconds; ws = [math]::Round($p.WorkingSet64 / 1MB); priv = [math]::Round($p.PrivateMemorySize64 / 1MB); peak = [math]::Round($p.PeakWorkingSet64 / 1MB) } }
-function Click($x, $y) { & "$PSScriptRoot\game-input.ps1" -Click $x, $y }
-function Shot($file, $crop) { & "$PSScriptRoot\screenshot.ps1" -Out (Join-Path $Out $file) -Crop $crop | Out-Null }
+function Click($x, $y) { [Hand]::Click($x, $y) }
+function Shot($file, $crop) { [ScreenRegion]::Save($crop[0], $crop[1], $crop[2], $crop[3], (Join-Path $Out $file)) }
 function WaitFor($bytes, $area, $limit) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     while ($clock.Elapsed.TotalSeconds -lt $limit) {
@@ -108,9 +132,9 @@ $result.paused = [ordered]@{ cpu_share = [math]::Round(($b.cpu - $a.cpu) / 30, 3
 Shot "$Name-date0.png" @(3380, 0, 460, 90)
 # The date panel's + button, four times: speed 5.
 foreach ($i in 1..4) { Click 3725 40 }
-$a = Sample $p; & "$PSScriptRoot\game-input.ps1" -Keys SPACE; $t = [Diagnostics.Stopwatch]::StartNew()
+$a = Sample $p; [Hand]::Space(); $t = [Diagnostics.Stopwatch]::StartNew()
 Start-Sleep -Seconds 120
-& "$PSScriptRoot\game-input.ps1" -Keys SPACE; $ran = $t.Elapsed.TotalSeconds; $b = Sample $p
+[Hand]::Space(); $ran = $t.Elapsed.TotalSeconds; $b = Sample $p
 $result.running = [ordered]@{ seconds = [math]::Round($ran, 1); cpu_share = [math]::Round(($b.cpu - $a.cpu) / $ran, 3); ws = $b.ws; priv = $b.priv; peak = $b.peak }
 Start-Sleep -Seconds 1
 Shot "$Name-date1.png" @(3380, 0, 460, 90)

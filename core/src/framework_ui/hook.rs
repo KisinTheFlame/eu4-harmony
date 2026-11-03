@@ -45,6 +45,14 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
             }
         });
         crate::guarded("safe point", crate::safe_point::presented);
+        // Input taken at this safe point or before reaches the game at its
+        // next frame.
+        crate::guarded("input", || {
+            if let Some(device) = device {
+                let (width, height) = unsafe { super::d3d9::Backend::screen(device) };
+                crate::game::input::presenting((width as u32, height as u32));
+            }
+        });
         crate::guarded("text costs", crate::unicode::costs::log_when_due);
     }
     ORIGINAL_PRESENT.get()(renderer)
