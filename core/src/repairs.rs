@@ -23,6 +23,10 @@
 //!   it makes the main menu only at startup: a sprite type shown sprites
 //!   still count, which the main menu, made again, would unload with the
 //!   game's graphics, stays loaded.
+//! - What the game's heap keeps of the sessions it let go: free pages, which
+//!   the blocks a session leaves among them keep committed. The first frame
+//!   after a world reset, of the main menu or of the session it began, has
+//!   the heaps give them back.
 //! - What the game's AI changes on several worker threads at once without a
 //!   lock, in vanilla too: a country's coalition, which the AI of the
 //!   countries in it leaves in parallel. Leaving and joining a coalition
@@ -41,7 +45,7 @@ use crate::{
     points::{Function, Point},
 };
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
 };
 
@@ -587,9 +591,53 @@ unsafe extern "C" fn sprite_type_unloading(kind: usize) {
 /// any session.
 static DEFINED_RELIGIONS: Mutex<Option<(usize, usize)>> = Mutex::new(None);
 
+/// A world reset was made, and no frame has run since: the heaps have free
+/// pages to give back.
+static PAGES_TO_GIVE_BACK: AtomicBool = AtomicBool::new(false);
+
+/// The first frame after a world reset: the heaps give back the free pages
+/// the sessions they held leave, which they would keep committed. A heap
+/// keeps a page while a block on it lives, and what a session leaves is
+/// strewn among what it let go.
+fn give_back_pages() {
+    if !PAGES_TO_GIVE_BACK.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    #[repr(C)]
+    struct Optimize {
+        version: u32,
+        flags: u32,
+    }
+    let started = std::time::Instant::now();
+    let before = crate::heap::private_bytes();
+    let optimize = Optimize { version: 1, flags: 0 };
+    let ok = unsafe {
+        windows_sys::Win32::System::Memory::HeapSetInformation(
+            std::ptr::null_mut(),
+            windows_sys::Win32::System::Memory::HeapOptimizeResources,
+            &optimize as *const Optimize as *const _,
+            std::mem::size_of::<Optimize>(),
+        )
+    };
+    if ok == 0 {
+        log!("repair: the heaps did not give back their free pages: {}", std::io::Error::last_os_error());
+        return;
+    }
+    let after = crate::heap::private_bytes();
+    log!("repair: the heaps gave back {:.0} MB of free pages in {} ms", before.saturating_sub(after) as f64 / (1024.0 * 1024.0), started.elapsed().as_millis());
+}
+
+/// A session's frame ran: the first after a world reset gives back free
+/// pages ([`give_back_pages`]).
+pub fn session_frame() {
+    give_back_pages();
+}
+
 /// The main menu showed: the first time, the Empire's religions as the
-/// definitions give them are kept, for [`as_a_new_start`].
+/// definitions give them are kept, for [`as_a_new_start`]; the first frame
+/// after a world reset gives back free pages ([`give_back_pages`]).
 pub fn main_menu_shown(m: &Memory) {
+    give_back_pages();
     let mut defined = DEFINED_RELIGIONS.lock().unwrap_or_else(|e| e.into_inner());
     if defined.is_some() {
         return;
@@ -662,6 +710,7 @@ pub fn after_history(m: &Memory) {
 /// new start has it ([`as_a_new_start`]). A load sets it again from its save.
 extern "C" fn world_reset(frame: *mut HookFrame) {
     crate::guarded("world reset", || {
+        PAGES_TO_GIVE_BACK.store(true, Ordering::Relaxed);
         let m = crate::hooked_memory();
         let world = unsafe { (*frame).args[0] };
         match as_a_new_start(&m, world, true) {
