@@ -18,8 +18,8 @@ use crate::{
     remote::{self, Wait},
     saves, ui,
 };
-use eu4_harmony_lua::{fetch, Arg, Called, Element, Extension, Host, Mod, Pending};
-use eu4_harmony_remote::{Error, Request, Response};
+use eu4_harmony_lua::{fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending};
+use eu4_harmony_remote::{Code, Error, Request, Response};
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{File, OpenOptions},
@@ -63,17 +63,23 @@ struct Live {
 /// A capability's answer still to come in remote control.
 struct Later(Caller, Box<dyn Wait>);
 
-impl Pending<Response> for Later {
-    fn poll(&mut self) -> Option<Response> {
-        remote::poll_for(self.0, self.1.as_mut())
+impl Pending<Answered> for Later {
+    fn poll(&mut self) -> Option<Answered> {
+        remote::poll_for(self.0, self.1.as_mut()).map(lua_form)
     }
+}
+
+/// A response as the Lua host takes it: the answer written in Lua's form.
+fn lua_form(response: Response) -> Answered {
+    let answer = response?;
+    eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).map_err(|e| Error::new(Code::Internal, format!("the answer cannot be written: {e}")))
 }
 
 impl Host for Live {
     fn run(&self, extension: usize, request: Request) -> Called {
         let caller = Caller::Extension(extension);
         match remote::run_for(caller, request) {
-            remote::Outcome::Done(response) => Called::Done(response),
+            remote::Outcome::Done(response) => Called::Done(lua_form(response)),
             remote::Outcome::Later(wait) => Called::Later(Box::new(Later(caller, wait))),
         }
     }

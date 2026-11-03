@@ -17,7 +17,7 @@ mod sandbox;
 pub mod values;
 mod watch;
 
-use eu4_harmony_remote::{Answer, Code, Request, Response};
+use eu4_harmony_remote::{Code, Request};
 use mlua::{Function, Lua, MultiValue, Table, Thread, ThreadStatus, Value as LuaValue};
 use serde_json::Value;
 use std::{
@@ -79,10 +79,16 @@ pub trait Host: Send + Sync {
 
 /// What running a capability came to.
 pub enum Called {
-    Done(Response),
+    Done(Answered),
     /// Its answer comes later.
-    Later(Box<dyn Pending<Response>>),
+    Later(Box<dyn Pending<Answered>>),
 }
+
+/// A capability's answer as Lua is to have it, written as JSON in Lua's form
+/// (`eu4_harmony_checks::form::as_lua`: an army's ID a number, a date an
+/// object of year, month and day); `null` for one with no result. Or why it
+/// failed.
+pub type Answered = Result<Value, eu4_harmony_remote::Error>;
 
 /// An answer still to come, asked for whenever the host polls its
 /// extensions.
@@ -197,7 +203,7 @@ struct Task {
 /// What a task waits for: a capability's answer, or a response from the
 /// network by its deadline.
 enum Waiting {
-    Capability(Box<dyn Pending<Response>>),
+    Capability(Box<dyn Pending<Answered>>),
     Fetch(Box<dyn Pending<fetch::Answer>>, Instant),
 }
 
@@ -334,20 +340,13 @@ fn fetch(at: &sandbox::Calling, hosts: &[String], url: &str, options: Option<Tab
     Ok(Waits::keep(&at.waits, &at.wait, Waiting::Fetch(at.host.fetch(request), deadline)))
 }
 
-/// A capability's response as Lua values: the result (`true` for one with
+/// A capability's answer as Lua values: the result (`true` for one with
 /// none), or `nil, err` for a refusal; an error for a request the game could
 /// not read.
-fn answer(lua: &Lua, name: &str, response: Response) -> mlua::Result<MultiValue> {
-    match response {
-        Ok(answer) => {
-            let json = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).map_err(mlua::Error::external)?;
-            let value = match (&answer, json) {
-                (_, Value::Null) => LuaValue::Boolean(true),
-                (Answer::Describe(_), _) => LuaValue::Nil,
-                (_, json) => values::to_lua(lua, &json)?,
-            };
-            Ok(MultiValue::from_iter([value]))
-        }
+fn answer(lua: &Lua, name: &str, answered: Answered) -> mlua::Result<MultiValue> {
+    match answered {
+        Ok(Value::Null) => Ok(MultiValue::from_iter([LuaValue::Boolean(true)])),
+        Ok(json) => Ok(MultiValue::from_iter([values::to_lua(lua, &json)?])),
         Err(e) if matches!(e.code, Code::BadRequest | Code::Unavailable) => Err(mlua::Error::runtime(format!("game.{name}: {}", e.message))),
         Err(e) => sandbox::failure(lua, e.code.name(), &e.message),
     }
