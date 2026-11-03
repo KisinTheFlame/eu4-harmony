@@ -297,10 +297,15 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
     let new = eu4_harmony_lua::open(index, &opening, host).map_err(|e| rejected(format!("the new code did not load, and the old goes on: {e}")))?;
     let Some(old) = extensions().get(index).cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
     let session = IN_SESSION.load(Ordering::Relaxed);
-    let (saved, lost) = match session.then(|| old.save_data()).flatten() {
-        Some(Ok(saved)) => (saved, None),
-        Some(Err(e)) => (None, Some(format!("save_data failed: {e}"))),
-        None => (None, None),
+    // A stopped extension's code is not run again, save_data included.
+    let (saved, lost) = match (session, old.stopped()) {
+        (false, _) => (None, None),
+        (true, Some(reason)) => (None, Some(format!("the old code was stopped ({reason}), so its save_data was not asked"))),
+        (true, None) => match old.save_data() {
+            Some(Ok(saved)) => (saved, None),
+            Some(Err(e)) => (None, Some(format!("save_data failed: {e}"))),
+            None => (None, None),
+        },
     };
     old.session_over();
     ui::forget_extension(index);

@@ -1,6 +1,6 @@
 # Extension reload plan
 
-Status: decided (2026-11-04).
+Status: decided (2026-11-04); R1 to R3 built and tried in the game the same day ([prototype-log.md](prototype-log.md)).
 
 ## Goal and scope
 
@@ -28,7 +28,7 @@ Status: decided (2026-11-04).
 - Its waiting tasks are dropped, as at the end of a session (ADR 0030).
 - Its map coloring is released.
 - The values it set on its interface elements are forgotten; the new code sets them again, usually in its first frame. An element it never sets keeps the last look the old code gave it.
-- An extension the framework stopped (ADR 0027) runs again after a reload.
+- An extension the framework stopped (ADR 0027) runs again after a reload. Its old code is not run again, `save_data` included, so `on_session` gets nil, and the answer says why.
 
 ### When the new code fails
 
