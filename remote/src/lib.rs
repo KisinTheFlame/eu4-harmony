@@ -312,18 +312,28 @@ impl Serialize for Request {
 
 impl<'de> Deserialize<'de> for Request {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let mut fields = Map::deserialize(deserializer)?;
-        let name = match fields.get("capability") {
-            Some(Value::String(name)) => name.clone(),
-            Some(_) => return Err(de::Error::custom("the capability is not a text")),
-            None => return Err(de::Error::custom("no capability named")),
-        };
-        let Some(known) = capabilities().into_iter().find(|c| c.name() == name) else {
-            return Err(de::Error::custom(format!("no capability {name}")));
+        Self::from_fields(Map::deserialize(deserializer)?)
+    }
+}
+
+impl Request {
+    /// The request the JSON object `fields` writes, its capability by its
+    /// full name in `capability`.
+    fn from_fields<E: de::Error>(mut fields: Map<String, Value>) -> Result<Self, E> {
+        let known = match fields.get("capability") {
+            Some(Value::String(name)) => capability(name).ok_or_else(|| E::custom(format!("no capability {name}")))?,
+            Some(_) => return Err(E::custom("the capability is not a text")),
+            None => return Err(E::custom("no capability named")),
         };
         fields.insert("capability".into(), Value::String(known.action.into()));
         Self::from_group(known.group, fields)
     }
+}
+
+/// The capability named `name` (such as `army.move`), from an index made once.
+pub fn capability(name: &str) -> Option<&'static Capability> {
+    static INDEX: std::sync::OnceLock<std::collections::HashMap<String, Capability>> = std::sync::OnceLock::new();
+    INDEX.get_or_init(|| capabilities().into_iter().map(|c| (c.name(), c)).collect()).get(name)
 }
 
 /// What kind of value an argument is, which says how to write it in JSON.
@@ -715,6 +725,12 @@ pub type Response = Result<Answer, Error>;
 /// [`Code::BadRequest`] error.
 pub fn request_from_json(text: &str) -> Result<Request, Error> {
     serde_json::from_str(text).map_err(|e| Error::new(Code::BadRequest, e.to_string()))
+}
+
+/// The request a JSON object already read writes, as [`request_from_json`]
+/// takes it from text.
+pub fn request_from_fields(fields: Map<String, Value>) -> Result<Request, Error> {
+    Request::from_fields(fields).map_err(|e: serde_json::Error| Error::new(Code::BadRequest, e.to_string()))
 }
 
 /// The JSON form of a response: `{"ok": true, "result": ...}` or

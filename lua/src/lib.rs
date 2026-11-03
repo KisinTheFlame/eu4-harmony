@@ -313,7 +313,7 @@ fn call(lua: &Lua, at: &sandbox::Calling, name: &str, args: MultiValue) -> mlua:
         return Err(mlua::Error::runtime(format!("game.{name}: the game is reached only from a handler, at a safe point, not at the top of main.lua")));
     }
     let request = sandbox::request(name, args).map_err(|e| mlua::Error::runtime(format!("game.{name}: {e}")))?;
-    let request = eu4_harmony_remote::request_from_json(&request.to_string()).map_err(|e| mlua::Error::runtime(format!("game.{name}: {}", e.message)))?;
+    let request = eu4_harmony_remote::request_from_fields(request).map_err(|e| mlua::Error::runtime(format!("game.{name}: {}", e.message)))?;
     match at.host.run(at.index, request) {
         Called::Done(response) => answer(lua, name, response),
         Called::Later(pending) => Ok(Waits::keep(&at.waits, &at.wait, Waiting::Capability(pending))),
