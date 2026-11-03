@@ -3,6 +3,7 @@
 //! `TEMPLATE_MOD`), with the new mod's names in their place.
 
 pub const DESCRIPTOR: &str = include_str!("../template/descriptor.mod");
+pub const AGENTS: &str = include_str!("../template/AGENTS.template.md");
 pub const MANIFEST: &str = include_str!("../template/eu4-harmony/manifest.toml");
 pub const MAIN_LUA: &str = include_str!("../template/eu4-harmony/lua/main.lua");
 pub const BUTTON_GUI: &str = include_str!("../template/eu4-harmony/ui/single_unitpanel/buttons/button.gui");
