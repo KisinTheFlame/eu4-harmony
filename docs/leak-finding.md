@@ -1,6 +1,6 @@
 # Leak finding plan
 
-Status: decided (2026-11-04); M1 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-04); M1 and M2 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
