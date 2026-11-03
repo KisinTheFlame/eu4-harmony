@@ -1,8 +1,10 @@
 //! Framework settings (GLOSSARY): the player's choices for the framework,
 //! kept in `eu4-harmony/settings.txt` under the user directory and written the
 //! way the game writes its own `settings.txt`. They are read once at startup.
-//! A change made in the settings window to how a session is left takes effect
-//! when it is saved; a change to the fonts, at the next start.
+//! A change made in the settings window to how a session is left, or to the
+//! pace at the fastest speed, takes effect when it is saved; a change to the
+//! fonts, at the next start.
+use crate::speed::Pace;
 use crate::unicode::system_font::Face;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -27,6 +29,9 @@ pub struct Settings {
     /// Whether an in-game load in ironman writes the ironman exit save first;
     /// without it, loading the same save again is an undo (ADR 0023).
     pub save_ironman_before_load: bool,
+    /// Whether the game draws frames inside a day at the fastest speed
+    /// (docs/game-speed.md, S4).
+    pub fastest_speed: Pace,
 }
 
 /// The system font family text falls back to, and the framework UI draws
@@ -48,6 +53,7 @@ impl Default for Settings {
             map_outline: true,
             return_without_restart: true,
             save_ironman_before_load: true,
+            fastest_speed: Pace::Smooth,
         }
     }
 }
@@ -92,6 +98,7 @@ impl Settings {
                 "map_outline" => settings.map_outline = yes(value).unwrap_or(settings.map_outline),
                 "return_without_restart" => settings.return_without_restart = yes(value).unwrap_or(settings.return_without_restart),
                 "save_ironman_before_load" => settings.save_ironman_before_load = yes(value).unwrap_or(settings.save_ironman_before_load),
+                "fastest_speed" => settings.fastest_speed = Pace::from_name(value).unwrap_or(settings.fastest_speed),
                 _ => {}
             }
         }
@@ -102,7 +109,7 @@ impl Settings {
         let yes_no = |on: bool| if on { "yes" } else { "no" };
         let (body, heading, map, console) = (&self.body_font, &self.heading_font, &self.map_font, &self.console_font);
         format!(
-            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nconsole_font=\"{}\"\nconsole_weight={}\nreturn_without_restart={}\nsave_ironman_before_load={}\n",
+            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nconsole_font=\"{}\"\nconsole_weight={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nfastest_speed=\"{}\"\n",
             body.family,
             body.weight,
             heading.family,
@@ -113,15 +120,17 @@ impl Settings {
             console.family,
             console.weight,
             yes_no(self.return_without_restart),
-            yes_no(self.save_ironman_before_load)
+            yes_no(self.save_ironman_before_load),
+            self.fastest_speed.name()
         )
     }
 
     /// Takes from `chosen` the settings that take effect when they are saved:
-    /// those for leaving a session.
+    /// those for leaving a session, and the pace at the fastest speed.
     fn take_immediate(&mut self, chosen: &Settings) {
         self.return_without_restart = chosen.return_without_restart;
         self.save_ironman_before_load = chosen.save_ironman_before_load;
+        self.fastest_speed = chosen.fastest_speed;
     }
 }
 
@@ -171,8 +180,8 @@ pub fn next() -> Settings {
     store().map(|s| s.next.clone()).unwrap_or_default()
 }
 
-/// Saves settings: those for leaving a session take effect now, the rest at
-/// the next start.
+/// Saves settings: those for leaving a session and the pace at the fastest
+/// speed take effect now, the rest at the next start.
 pub fn save(settings: Settings) -> crate::Result<()> {
     let mut store = store().ok_or("settings not loaded")?;
     if let Some(dir) = store.path.parent() {
@@ -211,8 +220,12 @@ mod tests {
             map_outline: false,
             return_without_restart: false,
             save_ironman_before_load: false,
+            fastest_speed: Pace::Faster,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
+        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\n"));
+        assert_eq!(Settings::parse("fastest_speed=faster").fastest_speed, Pace::Faster);
+        assert_eq!(Settings::parse("fastest_speed=\"fastest\"").fastest_speed, Pace::Smooth);
         assert!(custom.render().contains("\nbody_weight=700\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nmap_outline=no\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nreturn_without_restart=no\n"));
@@ -233,16 +246,17 @@ mod tests {
     }
 
     #[test]
-    fn only_the_settings_for_leaving_a_session_take_effect_when_saved() {
+    fn the_settings_for_leaving_a_session_and_the_pace_take_effect_when_saved() {
         let mut current = Settings::default();
         let chosen = Settings {
             body_font: Face::regular("SimSun"),
             map_outline: false,
             return_without_restart: false,
             save_ironman_before_load: false,
+            fastest_speed: Pace::Faster,
             ..Settings::default()
         };
         current.take_immediate(&chosen);
-        assert_eq!(current, Settings { return_without_restart: false, save_ironman_before_load: false, ..Settings::default() });
+        assert_eq!(current, Settings { return_without_restart: false, save_ironman_before_load: false, fastest_speed: Pace::Faster, ..Settings::default() });
     }
 }

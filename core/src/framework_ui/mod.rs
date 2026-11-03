@@ -14,6 +14,7 @@ pub mod text;
 pub mod widgets;
 
 use crate::settings::{self, Settings};
+use crate::speed::{self, Pace};
 use crate::unicode::system_font::{self, Face, SystemFonts};
 use crate::{lang, loc};
 use std::collections::HashMap;
@@ -114,6 +115,9 @@ fn corner(screen: (f32, f32), measure: &dyn Measure) -> Vec<(Rect, String, Opens
         .collect()
 }
 
+/// The choice bar's options for the pace at the fastest speed, in order.
+const PACES: [Pace; 2] = [Pace::Smooth, Pace::Faster];
+
 impl FrameworkUi {
     fn new() -> crate::Result<Self> {
         let font = text::UiFont::new(&settings::current().body_font)?;
@@ -179,6 +183,14 @@ impl FrameworkUi {
             Widget::Toggle { id: "return", label: words("EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART"), on: next.return_without_restart },
             Widget::Toggle { id: "ironman_save", label: words("EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD"), on: next.save_ironman_before_load },
             Widget::Label(words("EU4HARMONY_SETTINGS_UNDO")),
+            Widget::Heading(words("EU4HARMONY_SETTINGS_GAME_SPEED")),
+            Widget::Explained { label: words("EU4HARMONY_SETTINGS_FASTEST_SPEED"), info: words("EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO") },
+            Widget::Choice {
+                id: "pace",
+                options: vec![words("EU4HARMONY_SETTINGS_PACE_SMOOTH"), words("EU4HARMONY_SETTINGS_PACE_FASTER")],
+                selected: PACES.iter().position(|&p| p == next.fastest_speed).unwrap_or(0),
+            },
+            Widget::Gap,
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
             Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
         ];
@@ -226,11 +238,13 @@ impl FrameworkUi {
                 map_outline: w.is_on("outline").unwrap_or(next.map_outline),
                 return_without_restart: w.is_on("return").unwrap_or(next.return_without_restart),
                 save_ironman_before_load: w.is_on("ironman_save").unwrap_or(next.save_ironman_before_load),
+                fastest_speed: w.selected("pace").and_then(|i| PACES.get(i).copied()).unwrap_or(next.fastest_speed),
             };
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),
                 Err(e) => log!("settings not saved: {e}"),
             }
+            speed::set_pace(settings::current().fastest_speed);
         }
         self.settings = None;
         self.system_fonts = None;

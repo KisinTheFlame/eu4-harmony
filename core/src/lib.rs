@@ -340,6 +340,7 @@ pub(crate) fn deferred_init() {
     let language = lang::decide(&user_dir);
     let chosen = settings::load(&user_dir);
     log!("settings: {chosen:?}");
+    speed::set_pace(chosen.fastest_speed);
     tell_missing_fonts(&chosen);
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
     report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
