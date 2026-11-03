@@ -66,6 +66,15 @@ pub enum Widget {
     },
 }
 
+/// A list down a window's left side: one row per item, one of them chosen,
+/// which a click chooses. The window's body is beside it.
+pub struct Side {
+    pub id: &'static str,
+    pub items: Vec<String>,
+    pub selected: usize,
+    pub width: f32,
+}
+
 /// What the player did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -88,6 +97,7 @@ const LINE: f32 = TEXT_SIZE + 6.0;
 pub struct Window {
     pub title: String,
     pub body: Vec<Widget>,
+    pub side: Option<Side>,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -109,7 +119,13 @@ enum Slot {
 
 impl Window {
     pub fn new(title: impl Into<String>, body: Vec<Widget>, width: f32) -> Self {
-        Self { title: title.into(), body, x: 0.0, y: 0.0, width, open: None, scroll: 0, screen_h: f32::MAX, drag: None, mouse: (-1.0, -1.0) }
+        Self { title: title.into(), body, side: None, x: 0.0, y: 0.0, width, open: None, scroll: 0, screen_h: f32::MAX, drag: None, mouse: (-1.0, -1.0) }
+    }
+
+    /// The window with a list down its left side.
+    pub fn with_side(mut self, side: Side) -> Self {
+        self.side = Some(side);
+        self
     }
 
     /// Puts the window in the middle of a screen.
@@ -146,8 +162,20 @@ impl Window {
         }
     }
 
+    /// How wide the body is: the window's inside, less the side list.
     fn inner(&self) -> f32 {
-        self.width - 2.0 * PAD
+        self.width - 2.0 * PAD - self.side.as_ref().map_or(0.0, |s| s.width + PAD)
+    }
+
+    /// Where the body begins, right of the side list.
+    fn left(&self) -> f32 {
+        self.x + PAD + self.side.as_ref().map_or(0.0, |s| s.width + PAD)
+    }
+
+    /// The side list's rows.
+    fn side_rows(&self) -> Vec<Rect> {
+        let Some(side) = &self.side else { return Vec::new() };
+        (0..side.items.len()).map(|n| Rect { x: self.x + PAD, y: self.y + TITLE + PAD + n as f32 * ROW, w: side.width, h: ROW }).collect()
     }
 
     /// How wide a toggle's label may be, left of its switch.
@@ -168,17 +196,17 @@ impl Window {
                 Widget::Label(text) => {
                     let lines = measure.wrap(text, TEXT_SIZE, self.inner());
                     let h = lines.len().max(1) as f32 * LINE;
-                    slots.push(Slot::Lines(lines, Rect { x: self.x + PAD, y, w: self.inner(), h }));
+                    slots.push(Slot::Lines(lines, Rect { x: self.left(), y, w: self.inner(), h }));
                     y += h + 4.0;
                 }
                 Widget::Button { .. } | Widget::Dropdown { .. } => {
-                    slots.push(Slot::Control(i, Rect { x: self.x + PAD, y, w: self.inner(), h: ROW }));
+                    slots.push(Slot::Control(i, Rect { x: self.left(), y, w: self.inner(), h: ROW }));
                     y += ROW + 8.0;
                 }
                 Widget::Toggle { label, .. } => {
                     let lines = measure.wrap(label, TEXT_SIZE, self.toggle_text());
                     let h = (lines.len().max(1) as f32 * LINE).max(ROW);
-                    slots.push(Slot::Control(i, Rect { x: self.x + PAD, y, w: self.inner(), h }));
+                    slots.push(Slot::Control(i, Rect { x: self.left(), y, w: self.inner(), h }));
                     y += h + 8.0;
                 }
             }
@@ -187,10 +215,11 @@ impl Window {
     }
 
     pub fn height(&self, measure: &dyn Measure) -> f32 {
-        let bottom = self.layout(measure).last().map_or(self.y + TITLE, |s| match s {
+        let body = self.layout(measure).last().map_or(self.y + TITLE, |s| match s {
             Slot::Lines(_, r) | Slot::Control(_, r) => r.y + r.h,
         });
-        bottom - self.y + PAD
+        let side = self.side_rows().last().map_or(self.y + TITLE, |r| r.y + r.h);
+        body.max(side) - self.y + PAD
     }
 
     pub fn bounds(&self, measure: &dyn Measure) -> Rect {
@@ -271,6 +300,11 @@ impl Window {
             self.drag = Some((x - self.x, y - self.y));
             return None;
         }
+        if let Some(n) = self.side_rows().iter().position(|r| r.contains(x, y)) {
+            let side = self.side.as_mut().expect("it has rows");
+            side.selected = n;
+            return Some(Action::Chose(side.id, n));
+        }
         for slot in self.layout(measure) {
             if let Slot::Control(i, r) = slot {
                 if r.contains(x, y) {
@@ -305,6 +339,18 @@ impl Window {
             Command::Fill { rect: Rect { h: TITLE, ..bounds }, color: TITLE_BAR },
             Command::Text { x: bounds.x + PAD, y: bounds.y + (TITLE - TEXT_SIZE) / 2.0 - 2.0, text: self.title.clone(), size: TEXT_SIZE, color: TEXT },
         ];
+        if let Some(side) = &self.side {
+            let rows = self.side_rows();
+            let top = self.y + TITLE + PAD;
+            out.push(Command::Fill { rect: Rect { x: self.x + PAD, y: top, w: side.width, h: bounds.y + bounds.h - PAD - top }, color: LIST });
+            for (n, (row, item)) in rows.iter().zip(&side.items).enumerate() {
+                if hover(row) || n == side.selected {
+                    out.push(Command::Fill { rect: *row, color: if hover(row) { HOVER } else { CONTROL } });
+                }
+                let text = elide(measure, item, side.width - 16.0);
+                out.push(Command::Text { x: row.x + 8.0, y: row.y + (ROW - TEXT_SIZE) / 2.0 - 2.0, text, size: TEXT_SIZE, color: TEXT });
+            }
+        }
         let close = self.close_box();
         out.push(Command::Fill { rect: close, color: if hover(&close) { HOVER } else { CONTROL } });
         out.push(Command::Text { x: close.x + 6.0, y: close.y + 1.0, text: "×".into(), size: TEXT_SIZE, color: TEXT });
@@ -362,6 +408,22 @@ impl Window {
         }
         out
     }
+}
+
+/// `text` cut to fit `width`, with an ellipsis where it was cut.
+fn elide(measure: &dyn Measure, text: &str, width: f32) -> String {
+    if measure.width(text, TEXT_SIZE) <= width {
+        return text.to_string();
+    }
+    let mut chars: Vec<char> = text.chars().collect();
+    while !chars.is_empty() {
+        chars.pop();
+        let cut = format!("{}…", chars.iter().collect::<String>());
+        if measure.width(&cut, TEXT_SIZE) <= width {
+            return cut;
+        }
+    }
+    "…".into()
 }
 
 #[cfg(test)]
@@ -507,6 +569,29 @@ mod tests {
             })
             .fold(0.0, f32::max);
         assert!(widest <= 200.0 - 2.0 * PAD - SWITCH_W - PAD);
+    }
+
+    #[test]
+    fn a_side_list_chooses_and_the_body_stands_beside_it() {
+        let side = Side { id: "mods", items: vec!["First".into(), "Second".into(), "x".repeat(40)], selected: 0, width: 100.0 };
+        let mut w = Window::new("Mods", vec![Widget::Label("About the first".into())], 400.0).with_side(side);
+        w.center(&Mono, 1000.0, 800.0);
+        let (lx, _) = spot(&w, "About");
+        assert!(lx >= w.x + PAD + 100.0 + PAD, "the body begins right of the list");
+        let (x, y) = spot(&w, "Second");
+        assert_eq!(w.mouse_down(&Mono, x, y), Some(Action::Chose("mods", 1)));
+        assert_eq!(w.side.as_ref().map(|s| s.selected), Some(1));
+        // A name too long for the list is cut with an ellipsis.
+        let cut = w.draw(&Mono).into_iter().find_map(|c| match c {
+            Command::Text { text, .. } if text.starts_with("xx") => Some(text),
+            _ => None,
+        });
+        assert!(cut.as_deref().is_some_and(|t| t.ends_with('…') && Mono.width(t, TEXT_SIZE) <= 100.0 - 16.0), "{cut:?}");
+        // The window is as tall as the longer of the two.
+        let rows = Window::new("Mods", vec![], 400.0)
+            .with_side(Side { id: "mods", items: (0..10).map(|n| n.to_string()).collect(), selected: 0, width: 100.0 })
+            .height(&Mono);
+        assert!(rows >= TITLE + PAD + 10.0 * ROW);
     }
 
     #[test]

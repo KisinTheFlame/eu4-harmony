@@ -325,7 +325,20 @@ pub(crate) fn deferred_init() {
     for note in &loc_notes {
         log!("localisation: {note}");
     }
-    let outcomes = lua::load(&mods, &logs, &user_dir.join("eu4-harmony").join("data"));
+    let data_dir = user_dir.join("eu4-harmony").join("data");
+    let outcomes = lua::load(&mods, &logs, &data_dir);
+    framework_ui::mods_window::set(
+        mods.iter()
+            .map(|m| framework_ui::mods_window::Card {
+                id: m.manifest.id.clone(),
+                name: if m.descriptor.name.is_empty() { m.manifest.id.clone() } else { m.descriptor.name.clone() },
+                version: m.descriptor.version.clone(),
+                description: m.manifest.description.clone(),
+                permissions: m.manifest.permissions.clone(),
+                data_folder: data_dir.join(&m.manifest.id).display().to_string(),
+            })
+            .collect(),
+    );
     saves::keep_for(lua::mod_ids());
     let indices = lua::extension_indices(&mods);
     let included = |i: usize| outcomes[i].included;
