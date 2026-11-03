@@ -23,13 +23,21 @@
 //!   it makes the main menu only at startup: a sprite type shown sprites
 //!   still count, which the main menu, made again, would unload with the
 //!   game's graphics, stays loaded.
+//! - What the game's heap keeps of the sessions it let go: free pages, which
+//!   the blocks a session leaves among them keep committed. The first frame
+//!   after a world reset, of the main menu or of the session it began, has
+//!   the heaps give them back.
+//! - What the game's AI changes on several worker threads at once without a
+//!   lock, in vanilla too: a country's coalition, which the AI of the
+//!   countries in it leaves in parallel. Leaving and joining a coalition
+//!   take turns.
 use crate::{
     hooks::HookFrame,
     memory::Memory,
     objects::{
         campaign::{
             achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
-            message_window, modifier_set, modifiers, outliner, religions, world,
+            message_window, modifiers, outliner, religions, world,
         },
         gui::{classes as gui_classes, sprite_type, window as gui_window},
         list,
@@ -37,7 +45,7 @@ use crate::{
     points::{Function, Point},
 };
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
 };
 
@@ -84,6 +92,13 @@ const AI_KING_DELETE: usize = 0x148260;
 /// makes them again, and the framework as the map manager goes.
 const LET_MAP_MODES_GO: usize = 0x81de20;
 const LET_OUTLINER_GO: usize = 0x81dc30;
+
+/// `(country, …, other)`: a country's AI weighs leaving the coalition
+/// against `other` (a tag) and the coalitions its members are in, and takes
+/// countries off them; on worker threads. `(country)`: a country joins the
+/// coalition against the country it targets, on the main thread.
+const COALITION_LEAVE: usize = 0x3b0220;
+const COALITION_JOIN: usize = 0x3e3940;
 
 /// `(modifiers)`: the destructor of a country's modifiers; `(modifiers,
 /// other)`: their copy from another's.
@@ -452,7 +467,7 @@ extern "C" fn modifiers_copied(frame: *mut HookFrame) {
 #[cfg(feature = "trace")]
 fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
     let listed = (|| {
-        let added = modifiers + modifiers::OWN + modifier_set::ADDED;
+        let added = modifiers + modifiers::OWN + crate::objects::campaign::modifier_set::ADDED;
         let (begin, end) = (m.ptr(added)?, m.ptr(added + 8)?);
         let mut sets = Vec::new();
         if end > begin {
@@ -470,6 +485,49 @@ fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
             }
         }
         Err(e) => log!("repair: the modifiers' own set's list was not read: {e}"),
+    }
+}
+
+/// The turns leaving and joining a coalition take: a lock, and the thread
+/// that holds it and how many times, so that it may take its turn again.
+struct Turns {
+    lock: std::cell::UnsafeCell<windows_sys::Win32::System::Threading::SRWLOCK>,
+    holder: std::sync::atomic::AtomicU32,
+    depth: std::cell::Cell<u32>,
+}
+// The lock is the SRW lock's; `depth` is touched only by its holder.
+unsafe impl Sync for Turns {}
+
+static COALITION_TURNS: Turns = Turns {
+    lock: std::cell::UnsafeCell::new(windows_sys::Win32::System::Threading::SRWLOCK_INIT),
+    holder: std::sync::atomic::AtomicU32::new(0),
+    depth: std::cell::Cell::new(0),
+};
+
+/// A country's coalition is about to change: wait for the turn. Several
+/// countries' AI take countries off the same coalition at once, on worker
+/// threads, and its list is not made for it.
+extern "C" fn coalition_changing(_frame: *mut HookFrame) {
+    let turns = &COALITION_TURNS;
+    let me = crate::thread_id();
+    if turns.holder.load(Ordering::Acquire) != me {
+        unsafe { windows_sys::Win32::System::Threading::AcquireSRWLockExclusive(turns.lock.get()) };
+        turns.holder.store(me, Ordering::Release);
+    }
+    turns.depth.set(turns.depth.get() + 1);
+}
+
+/// The change is made, or the function faulted: the turn is over.
+extern "C" fn coalition_changed(_frame: *mut HookFrame) {
+    let turns = &COALITION_TURNS;
+    if turns.holder.load(Ordering::Acquire) != crate::thread_id() {
+        return;
+    }
+    let depth = turns.depth.get() - 1;
+    turns.depth.set(depth);
+    if depth == 0 {
+        turns.holder.store(0, Ordering::Release);
+        unsafe { windows_sys::Win32::System::Threading::ReleaseSRWLockExclusive(turns.lock.get()) };
     }
 }
 
@@ -533,9 +591,53 @@ unsafe extern "C" fn sprite_type_unloading(kind: usize) {
 /// any session.
 static DEFINED_RELIGIONS: Mutex<Option<(usize, usize)>> = Mutex::new(None);
 
+/// A world reset was made, and no frame has run since: the heaps have free
+/// pages to give back.
+static PAGES_TO_GIVE_BACK: AtomicBool = AtomicBool::new(false);
+
+/// The first frame after a world reset: the heaps give back the free pages
+/// the sessions they held leave, which they would keep committed. A heap
+/// keeps a page while a block on it lives, and what a session leaves is
+/// strewn among what it let go.
+fn give_back_pages() {
+    if !PAGES_TO_GIVE_BACK.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    #[repr(C)]
+    struct Optimize {
+        version: u32,
+        flags: u32,
+    }
+    let started = std::time::Instant::now();
+    let before = crate::heap::private_bytes();
+    let optimize = Optimize { version: 1, flags: 0 };
+    let ok = unsafe {
+        windows_sys::Win32::System::Memory::HeapSetInformation(
+            std::ptr::null_mut(),
+            windows_sys::Win32::System::Memory::HeapOptimizeResources,
+            &optimize as *const Optimize as *const _,
+            std::mem::size_of::<Optimize>(),
+        )
+    };
+    if ok == 0 {
+        log!("repair: the heaps did not give back their free pages: {}", std::io::Error::last_os_error());
+        return;
+    }
+    let after = crate::heap::private_bytes();
+    log!("repair: the heaps gave back {:.0} MB of free pages in {} ms", before.saturating_sub(after) as f64 / (1024.0 * 1024.0), started.elapsed().as_millis());
+}
+
+/// A session's frame ran: the first after a world reset gives back free
+/// pages ([`give_back_pages`]).
+pub fn session_frame() {
+    give_back_pages();
+}
+
 /// The main menu showed: the first time, the Empire's religions as the
-/// definitions give them are kept, for [`as_a_new_start`].
+/// definitions give them are kept, for [`as_a_new_start`]; the first frame
+/// after a world reset gives back free pages ([`give_back_pages`]).
 pub fn main_menu_shown(m: &Memory) {
+    give_back_pages();
     let mut defined = DEFINED_RELIGIONS.lock().unwrap_or_else(|e| e.into_inner());
     if defined.is_some() {
         return;
@@ -608,6 +710,7 @@ pub fn after_history(m: &Memory) {
 /// new start has it ([`as_a_new_start`]). A load sets it again from its save.
 extern "C" fn world_reset(frame: *mut HookFrame) {
     crate::guarded("world reset", || {
+        PAGES_TO_GIVE_BACK.store(true, Ordering::Relaxed);
         let m = crate::hooked_memory();
         let world = unsafe { (*frame).args[0] };
         match as_a_new_start(&m, world, true) {
@@ -741,6 +844,26 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(DELETE, "e9 2b 45 02 00", "operator delete"),
+        // Leaving and joining a coalition change its list; the AI leaves on
+        // worker threads.
+        Point::observe(
+            COALITION_LEAVE,
+            "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55 53 56 57 41 54 41 55 41 56 41 57",
+            "AI leaving a coalition",
+            4,
+            Some(coalition_changing),
+            Some(coalition_changed),
+        ),
+        Point::keep(0x3b0c33usize, "48 8b 8b 28 19 00 00", "coalition taken off by the AI").uses(&[country::COALITION]),
+        Point::observe(
+            COALITION_JOIN,
+            "48 89 5c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 20 48 8b e9",
+            "joining a coalition",
+            1,
+            Some(coalition_changing),
+            Some(coalition_changed),
+        ),
+        Point::keep(0x3e3c31usize, "49 8b 81 28 19 00 00", "coalition joined").uses(&[country::COALITION]),
         Point::observe(
             COUNTRY_DESTRUCTOR,
             "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 ec 20 48 8b d9",
