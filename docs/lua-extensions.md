@@ -26,7 +26,7 @@ Status: decided (2026-11-03); L1 to L5b built. Terms are in [GLOSSARY.md](../GLO
     on_army_ordered = function(game, army) end,    -- something other than an extension changed an own army's route
     on_army_defeated = function(game, army) end,   -- an own army lost a battle
     on_map_lost = function(game) end,              -- another extension took over the map coloring
-    on_save = function(game) return state end,     -- the game is writing a save; see Extension save data
+    save_data = function(game) return state end,   -- the framework asks for this mod's save data
   }
   ```
 
@@ -56,7 +56,7 @@ end
 - `spawn(fn)` starts `fn` as a task of its own and returns as soon as `fn` first waits, or ends: two requests sent at once, or one left to finish after the handler that sent it has returned. A spawned task cannot yet be waited for or cancelled.
 - The time limit applies to each stretch a task runs, not to the time it waits.
 - A session's waiting tasks are dropped when it ends, by a return to the main menu, an in-game load or a new game, and when the game closes: they are never taken up again, and the log says how many were dropped.
-- `on_save` and the top of `main.lua` cannot wait: a function that waits raises an error there.
+- `save_data` and the top of `main.lua` cannot wait: a function that waits raises an error there.
 - The type definitions and `wiki` mark every function that waits. Later capabilities may wait too (for a number of game days, say) in the same way.
 
 ### Results and errors
@@ -110,11 +110,11 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 
 ### Extension save data
 
-- `on_save(game)` is called whenever the game writes its world, the ironman exit save included, and what it returns is this extension's save data in that save ([ADR 0028](adr/0028-save-data-is-what-on-save-returns.md)). Returning `nil` keeps nothing.
+- `save_data(game)` is called whenever the game writes its world, the ironman exit save included, and what it returns is this extension's save data in that save; it is also called before an extension reload, and the new code's `on_session` gets what it returned ([ADR 0036](adr/0036-save-data-is-asked-for-by-save-data.md), [extension-reload.md](extension-reload.md)). Returning `nil` keeps nothing. Until api_version 0.3 it was `on_save` ([ADR 0028](adr/0028-save-data-is-what-on-save-returns.md)).
 - When a session begins from a save, `on_session(game, saved)` gets back what that save holds for the extension, or `nil`.
 - The data is any value JSON can hold: a table whose keys are all strings is an object, a sequence is an array, integers stay 64-bit. A function, a userdata, a table with mixed keys or a cycle fails: that save holds no data for the extension, the error is logged and raises a notice as other errors do. At most 16 MiB of JSON.
 - Where and how it is written into the save does not change ([ADR 0020](adr/0020-extension-save-data-in-the-save.md)); a save written by a native extension is read by its Lua rewrite when the data's shape is the same.
-- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `on_save` like any other.
+- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `save_data` like any other.
 
 ### The capability catalogue
 
@@ -139,7 +139,7 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 
 ```toml
 id = "template-mod"
-api_version = "0.2"
+api_version = "0.3"
 description = "TEMPLATE_MOD_DESCRIPTION"   # a key in the mod's localisation
 permissions = { clock = true, files = true, network = ["api.example.com", "192.168.1.10:8080"] }
 ```
@@ -220,7 +220,7 @@ Reviewed 2026-11-03. In Lua a capability is `game.<group>.<name>(...)`, in remot
 
 ### L2 Lua host
 
-Lua 5.4 in the core; a Lua state per extension with the sandbox; `main.lua` and its handlers, run as tasks, with `spawn`, including `on_save` and `on_session`'s save data; the `game` adapter over the catalogue; results and errors, the log's deduplication and the notice; the time limit and its watcher; `log`, `json` and `mod_files`; `manifest.toml` and the layout by convention, with the startup report. Native extensions removed: `abi/`, `sdk/`, `ext.rs`, loading DLLs.
+Lua 5.4 in the core; a Lua state per extension with the sandbox; `main.lua` and its handlers, run as tasks, with `spawn`, including `on_save` (now `save_data`) and `on_session`'s save data; the `game` adapter over the catalogue; results and errors, the log's deduplication and the notice; the time limit and its watcher; `log`, `json` and `mod_files`; `manifest.toml` and the layout by convention, with the startup report. Native extensions removed: `abi/`, `sdk/`, `ext.rs`, loading DLLs.
 
 ### L3 Sensitive capabilities
 

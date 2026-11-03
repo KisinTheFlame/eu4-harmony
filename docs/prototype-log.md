@@ -1162,6 +1162,19 @@ L6's fourth point: regional combat in Lua, France from 1444.11.11, war on Englan
 - **Not met**: no stretch over 5 ms.
 - **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
 
+## 2026-11-04 Extension reload (tested by me)
+
+[extension-reload.md](extension-reload.md) R1 to R3: regional combat at api_version 0.3 with `save_data`, France from 1444.11.11, war on England in December, the Paris army's task on; the mod's files changed by a script for each step and put back with git afterwards. Two runs of `eu4.exe`, started directly.
+
+- **Startup**: "Regional Combat (EU4 Harmony) (id regional-combat, api 0.3): extension lua/main.lua loaded".
+- **In a session**: the title text changed in both localisation files and a log line added to `on_session`; `eu4-harmony reload` printed "reloaded regional-combat; on_session got what save_data gave"; the mod's log had the new title ("区域战斗 v2") and "saved tasks 1", then "session 1: restored 1 task(s)", and the task went on deciding.
+- **Code that does not compile**: printed "the new code did not load, and the old goes on: syntax error: main.lua:328: '}' expected ... (rejected)", exit code 1; over the next 120 days the old code attacked, moved to 4112 and 174 and returned to 183, each move accepted.
+- **--watch**: three edits in a row (the new title, a syntax error, the code as committed) gave two reloads, each carrying the task, and one "not reloaded" line with the syntax error between them.
+- **After a stop**: `on_frame` made to loop; the framework stopped the extension after three stretches past the time limit; reloading the committed code ran it again. The first run's build said "on_session got what save_data gave" though nothing was carried, as a stopped extension's `save_data` is not asked; the second run's says "on_session got nil: the old code was stopped (...), so its save_data was not asked".
+- **In the main menu**: after `menu.return`, the reload printed "no session is going on, so on_session comes with the next".
+- **Found, not of the reload**: after an in-process return, `menu.start` began a game the framework did not take for a new session: no "session N started" in the core log, `on_session` not called, the session number still 1. The same without a reload in between. The new game's first session after startup was announced; one after a return was not. Fixed the same night ([the next section](#2026-11-04-a-new-game-after-an-in-process-return-is-a-session-tested-by-me)).
+- **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
+
 ## 2026-11-04 A new game after an in-process return is a session (tested by me)
 
 The build of `claude/session-after-return`, which begins a session at each world reset with the history (an in-process return, the single player setup left). Regional combat as the extension to watch, its manifest set to api_version 0.2 for the run (as master provides) and put back after; `eu4.exe` started directly.

@@ -35,7 +35,7 @@ use std::fmt;
 /// The version of the capability catalogue (ADR 0026), which `describe`
 /// answers: it changes when a capability that exists changes what it means
 /// or how it is shaped, not when one is added.
-pub const API_VERSION: &str = "0.2";
+pub const API_VERSION: &str = "0.3";
 
 /// The named pipe the game serves remote control on (ADR 0016), one JSON
 /// request per line in and one response per line out.
@@ -279,6 +279,8 @@ groups! {
     Menu(menu::MenuRequest, MenuAnswer),
     /// The player's diplomatic actions.
     Diplomacy(diplomacy::DiplomacyRequest, DiplomacyAnswer),
+    /// The mods' extensions: reloading one in the running game.
+    Extension(extensions::ExtensionRequest, ExtensionAnswer),
 }
 
 pub mod binary;

@@ -1,4 +1,10 @@
+---
+status: superseded by ADR-0036
+---
+
 # Extension save data is what `on_save` returns
+
+Superseded: the function is `save_data`, and it is also asked before a reload (ADR 0036).
 
 Whenever the game writes its world, the ironman exit save included, the framework calls each extension's `on_save` handler, and what it returns is that extension's save data in that save; when a session begins from a save, `on_session` gets it back. Native extensions instead set their data with `set_save_data` whenever it changed, and the framework wrote the last value set; an extension had to remember to call it after every change, and a name for a store call is not how a mod thinks of keeping its state. Where and how the data is written into the save does not change (ADR 0020), so a save written with a native extension is read by its Lua rewrite when the data's shape is the same.
 

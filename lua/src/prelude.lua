@@ -17,7 +17,7 @@ local yield, running = coroutine.yield, coroutine.running
 local function can_wait(name, level)
   local current = task()
   if current == nil or running() ~= current then
-    error(name .. " waits for its answer, which it cannot do here: in on_save, at the top of main.lua, or in a coroutine of the mod's own", level + 1)
+    error(name .. " waits for its answer, which it cannot do here: in save_data, at the top of main.lua, or in a coroutine of the mod's own", level + 1)
   end
 end
 
