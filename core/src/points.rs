@@ -1,5 +1,5 @@
-//! Dependency points (GLOSSARY): the places in the game image the framework
-//! relies on. Each is declared once, with the bytes it must hold and what the
+//! Dependency points (GLOSSARY): the places in the game's code the framework
+//! relies on, in `eu4.exe` or in another module that comes with the game. Each is declared once, with the bytes it must hold and what the
 //! framework does there, and that one declaration drives checking, hooking and
 //! undoing (ADR 0012). [`install`] applies every point or none, and
 //! [`Memory::at`] gives the address of only what a point checks.
@@ -18,12 +18,32 @@ use windows_sys::Win32::System::{
     Threading::GetCurrentProcess,
 };
 
+/// A module other than `eu4.exe` that comes with the game and that a
+/// dependency point is in. Its bytes are checked as `eu4.exe`'s are, so a
+/// game whose module differs does not start (ADR 0012).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Module {
+    /// Paradox's account, social and telemetry client.
+    Pops,
+}
+
+impl Module {
+    pub const fn file(self) -> &'static str {
+        match self {
+            Module::Pops => "pops_api.dll",
+        }
+    }
+}
+
 /// Where a dependency point is.
 #[derive(Clone, Copy, Debug)]
 pub enum Place {
+    /// An RVA into `eu4.exe`.
     Rva(usize),
     /// A function `eu4.exe` exports by name.
     Export(&'static CStr),
+    /// An RVA into another module.
+    In(Module, usize),
 }
 
 impl From<usize> for Place {
@@ -233,8 +253,12 @@ fn spaced(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
 }
 
-/// Finds a function exported by name.
-type Exports<'a> = &'a dyn Fn(&CStr) -> Result<usize>;
+/// Finds what a place names outside `eu4.exe`'s RVAs: a function it exports
+/// by name, and where another module is loaded.
+struct Lookup<'a> {
+    export: &'a dyn Fn(&CStr) -> Result<usize>,
+    module: &'a dyn Fn(Module) -> Result<usize>,
+}
 
 /// `eu4.exe`'s own exports, in the running game.
 fn game_export(name: &CStr) -> Result<usize> {
@@ -244,10 +268,21 @@ fn game_export(name: &CStr) -> Result<usize> {
         .ok_or_else(|| format!("eu4.exe does not export {}", name.to_string_lossy()))
 }
 
-fn resolve(m: Memory, place: Place, exports: Exports) -> Result<usize> {
+/// Where another module is loaded, in the running game.
+fn game_module(module: Module) -> Result<usize> {
+    let name: Vec<u16> = module.file().encode_utf16().chain([0]).collect();
+    let base = unsafe { GetModuleHandleW(name.as_ptr()) } as usize;
+    if base == 0 {
+        return Err(format!("{} is not loaded", module.file()));
+    }
+    Ok(base)
+}
+
+fn resolve(m: Memory, place: Place, lookup: &Lookup) -> Result<usize> {
     match place {
         Place::Rva(rva) => Ok(m.base + rva),
-        Place::Export(name) => exports(name),
+        Place::Export(name) => (lookup.export)(name),
+        Place::In(module, rva) => Ok((lookup.module)(module)? + rva),
     }
 }
 
@@ -255,6 +290,7 @@ fn describe(point: &Point) -> String {
     match point.place {
         Place::Rva(rva) => format!("{} at {rva:#x}", point.what),
         Place::Export(name) => format!("{} ({})", point.what, name.to_string_lossy()),
+        Place::In(module, rva) => format!("{} in {} at {rva:#x}", point.what, module.file()),
     }
 }
 
@@ -292,6 +328,9 @@ fn malformed(point: &Point) -> Vec<String> {
             problems.push(format!("{}: fewer than {HOOK_LEN} bytes to hook", describe(point)));
         }
     }
+    if let (Place::In(..), Action::Jump { .. }) = (point.place, &point.action) {
+        problems.push(format!("{}: a jump stub continues in eu4.exe only", describe(point)));
+    }
     problems
 }
 
@@ -313,7 +352,7 @@ fn disjoint(points: &[Point], addresses: &[usize]) -> Result<()> {
 }
 
 /// Resolves every point and compares its bytes, reporting every mismatch.
-fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
+fn check(m: Memory, points: &[Point], lookup: &Lookup) -> Result<Vec<usize>> {
     let mut addresses = Vec::with_capacity(points.len());
     let mut problems = Vec::new();
     for point in points {
@@ -326,7 +365,7 @@ fn check(m: Memory, points: &[Point], exports: Exports) -> Result<Vec<usize>> {
             Some(function) => ((m.base + function) as u64).to_le_bytes().to_vec(),
             None => hex(point.bytes)?,
         };
-        let found = resolve(m, point.place, exports).and_then(|at| m.bytes(at, expected.len()).map(|found| (at, found)));
+        let found = resolve(m, point.place, lookup).and_then(|at| m.bytes(at, expected.len()).map(|found| (at, found)));
         match (found, point.method) {
             (Ok((at, found)), _) if found == expected => addresses.push(at),
             (Ok((_, found)), Some(function)) => {
@@ -419,7 +458,7 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
 /// Checks every point, then hooks and writes all of them and enables the
 /// hooks. If anything fails, nothing stays changed and the error says why.
 pub fn install(m: Memory, points: &[Point]) -> Result<Installed> {
-    let addresses = check(m, points, &game_export)?;
+    let addresses = check(m, points, &Lookup { export: &game_export, module: &game_module })?;
     let mut undo = Undo::default();
     match apply(m, points, &addresses, &mut undo) {
         Ok(()) => Ok(Installed { checked: points.len(), hooks: undo.hooks.len(), writes: undo.writes.len() }),
@@ -572,6 +611,8 @@ mod tests {
             .map(|(i, p)| match p.place {
                 Place::Rva(rva) => rva,
                 Place::Export(_) => 0x1_0000_0000 + 0x1000 * i,
+                // Another module lies far from the image and from exports.
+                Place::In(_, rva) => 0x10_0000_0000 + rva,
             })
             .collect();
         disjoint(&points, &addresses).unwrap();
@@ -587,7 +628,7 @@ mod tests {
             .filter(|p| p.method.is_none())
             .filter_map(|p| match p.place {
                 Place::Rva(rva) => Some((rva, rva + p.bytes.split_whitespace().count())),
-                Place::Export(_) => None,
+                Place::Export(_) | Place::In(..) => None,
             })
             .collect();
         let mut loose = Vec::new();
@@ -658,11 +699,22 @@ mod tests {
     }
 
     #[test]
+    fn a_point_in_another_module_is_checked_there() {
+        let image = code("90 90 90 90 90", PAGE_READWRITE);
+        let other = code("b8 01 00 00 00", PAGE_READWRITE);
+        let lookup = Lookup { export: &|_| Err("no exports".into()), module: &|_| Ok(other.base) };
+        let there = check(image, &[Point::keep(Place::In(Module::Pops, 0), "b8 01 00 00 00", "there")], &lookup).unwrap();
+        assert_eq!(there, [other.base]);
+        let err = check(image, &[Point::keep(Place::In(Module::Pops, 0), "90 90 90 90 90", "here")], &lookup).unwrap_err();
+        assert!(err.contains("here in pops_api.dll at 0x0"), "{err}");
+    }
+
+    #[test]
     fn a_method_is_checked_by_its_function_address() {
         let m = code(ADDER, PAGE_EXECUTE_READWRITE);
         // A vtable at RVA 0x100 whose method at 8 is the function at RVA 3.
         m.write(m.base + 0x108, &((m.base + 3) as u64).to_le_bytes()).unwrap();
-        let lookup = |_: &CStr| -> Result<usize> { Err("no exports".into()) };
+        let lookup = Lookup { export: &|_| Err("no exports".into()), module: &|_| Err("no modules".into()) };
         assert_eq!(check(m, &[Point::method(0x100, 8, 3, "method")], &lookup).unwrap(), [m.base + 0x108]);
         let err = check(m, &[Point::method(0x100, 8, 5, "method")], &lookup).unwrap_err();
         assert!(err.contains("method at 0x108: expected the function at 0x5, found 0x3"), "{err}");
@@ -681,6 +733,27 @@ mod tests {
         for (problem, what) in problems.iter().zip(["not hex", "run together", "short replacement", "too short to hook"]) {
             assert!(problem.starts_with(what), "{problem}");
         }
+    }
+
+    /// Maps a module from disk the way the loader lays it out, without running
+    /// it, and returns where.
+    fn map_module(path: &std::path::Path) -> usize {
+        let image = crate::analysis::map_file(&std::fs::read(path).unwrap()).leak();
+        crate::analysis::relocate(image, image.as_ptr() as u64);
+        image.as_ptr() as usize
+    }
+
+    /// The game's files, mapped: `eu4.exe` and the other modules points are
+    /// in. Calls `with` with the image and what to look places up with.
+    fn with_game(with: impl FnOnce(Memory, &Lookup)) {
+        let dir = std::path::PathBuf::from(std::env::var("EU4_GAME_DIR").expect("set EU4_GAME_DIR"));
+        let (m, exports) = map_game(&dir.join("eu4.exe"));
+        let pops = map_module(&dir.join(Module::Pops.file()));
+        let export = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.base + rva).ok_or_else(|| format!("no export {name:?}"));
+        let module = |module: Module| match module {
+            Module::Pops => Ok(pops),
+        };
+        with(m, &Lookup { export: &export, module: &module });
     }
 
     /// Maps `eu4.exe` from disk the way the loader lays it out, without running
@@ -707,13 +780,12 @@ mod tests {
     #[test]
     #[ignore]
     fn every_point_matches_the_installed_game() {
-        let dir = std::path::PathBuf::from(std::env::var("EU4_GAME_DIR").expect("set EU4_GAME_DIR"));
-        let (m, exports) = map_game(&dir.join("eu4.exe"));
-        assert_eq!(crate::baseline::recognize(&m).unwrap(), "1.37.5");
-        let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.base + rva).ok_or_else(|| format!("no export {name:?}"));
-        let points = crate::points();
-        let addresses = check(m, &points, &lookup).unwrap();
-        assert_eq!(addresses.len(), points.len());
+        with_game(|m, lookup| {
+            assert_eq!(crate::baseline::recognize(&m).unwrap(), "1.37.5");
+            let points = crate::points();
+            let addresses = check(m, &points, lookup).unwrap();
+            assert_eq!(addresses.len(), points.len());
+        });
     }
 
     /// Every observe point forwards at least as many arguments as its function
@@ -721,15 +793,15 @@ mod tests {
     #[test]
     #[ignore]
     fn observers_forward_every_argument_their_function_reads() {
-        let dir = std::path::PathBuf::from(std::env::var("EU4_GAME_DIR").expect("set EU4_GAME_DIR"));
-        let (m, exports) = map_game(&dir.join("eu4.exe"));
-        let lookup = |name: &CStr| exports.get(name.to_str().unwrap()).map(|&rva| m.base + rva).ok_or_else(|| format!("no export {name:?}"));
+        let mut found = None;
+        with_game(|m, lookup| found = Some((m, check(m, &crate::points(), lookup).unwrap())));
+        let (m, addresses) = found.unwrap();
         let points = crate::points();
-        let addresses = check(m, &points, &lookup).unwrap();
         let image = unsafe { crate::analysis::loaded(m.base) };
         let mut short = Vec::new();
         for (point, &at) in points.iter().zip(&addresses) {
-            let Action::Observe { argc, .. } = point.action else { continue };
+            let (Place::Rva(_) | Place::Export(_), Action::Observe { argc, .. }) = (point.place, &point.action) else { continue };
+            let argc = *argc;
             let rva = at - m.base;
             // Exports (PhysFS) live outside the game's code; their arity is
             // the library's documented one.
