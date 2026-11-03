@@ -264,7 +264,7 @@ fn every_capability_runs_at_a_game_frame() {
                 Box::new(|v: &Value| v["result"]["private"].as_u64() > Some(0) && v["result"]["generations"] == json!([])),
             ),
             (
-                Request::Memory(MemoryRequest::Leftovers { sites: None }),
+                Request::Memory(MemoryRequest::Leftovers { sites: None, holders: Some(true) }),
                 Box::new(|v: &Value| v["result"]["sites"] == json!([]) && v["result"]["bytes"] == 0),
             ),
             (Request::Memory(MemoryRequest::Generation {}), Box::new(|v: &Value| v["result"].as_u64() > Some(0))),

@@ -32,7 +32,7 @@ Only in a developer build with the heap census do these capabilities exist; a pl
   - the framework's own heap;
   - the handles;
   - the census's live blocks and bytes by generation.
-- `memory.leftovers` gives the leftovers by site, largest first. For each site:
+- `memory.leftovers` gives the leftovers by site, largest first, and with `holders` what still points at them (M2, below). For each site:
   - the function the site is in;
   - the blocks and bytes each generation left there;
   - the bytes a generation leaves there, on average over the last three;
@@ -62,13 +62,16 @@ After every round the run asks `memory` and `memory.leftovers`, and prints one l
 
 ### Who still points at a leftover (M2)
 
-At the main menu after a world reset, the census looks for what points at each leftover. It reads every live block it counts, the game's writable data and the threads' stacks, and takes any eight bytes that hold the start of a leftover as a pointer to it. Each leftover site then gets:
+`memory.leftovers` with `holders` looks for what points at the leftovers of the sites it gives. With every shard of the census locked, so that none of the blocks it counts is let go meanwhile, it reads the game's writable data and every live block it counts. It takes any eight bytes that hold an address in a leftover's first 64 bytes as a pointer to it; an object's bases and a large buffer's alignment lie there. A block pointing at itself does not count. Each leftover is counted once, by the best that points at it:
 
-- **held by the game's data at an RVA**: a registry or a cache the game keeps;
-- **held by blocks of another site**: its owner, which is itself followed up to what holds it;
-- **held by nothing**: a block nothing can reach, where something forgot to let it go.
+- **by data**: the game's writable data points at it, a registry or a cache the game keeps;
+- **by blocks**: a live block that is not a leftover given points at it, its owner;
+- **by leftovers**: only leftovers given point at it, such as the next one in a list nothing else reaches;
+- **by nothing**: nothing points at it, memory something forgot to let go.
 
-This stops the game for as long as the reading takes, seconds at the main menu.
+Each site also gets the five that point at its leftovers most: an RVA of the data, or a block's site with its function. An owner's site is in the same answer when it is a leftover site too. The threads' stacks, other modules' memory and Direct3D's are not read: at the main menu no stack holds a session's leftover for long.
+
+The game's threads wait at their next allocation while the reading lasts, seconds at the main menu; a leak run asks for holders after its last round only.
 
 ### The call paths of chosen sites (M3)
 
@@ -97,7 +100,7 @@ The `memory` group; generations that remote control ends; sites counted above th
 
 ### M2 Who still points at a leftover
 
-The scan, and what holds each leftover site in `memory.leftovers` and the report.
+`holders` in `memory.leftovers`, the scan, and the report's table of what holds each leftover site.
 
 ### M3 The call paths of chosen sites
 
