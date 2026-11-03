@@ -66,6 +66,20 @@ _Avoid_: using it for the hooking done at startup
 A build of the framework with development tools built in, such as the call trace or the command log, for trying things in the game; it says so at the top of its startup report. Players get only the player build, which has none of them and no hidden switches.
 _Avoid_: trace build, debug build (a build without optimizations), test build
 
+**Heap census**:
+A development tool that counts every live block of the game's heap by its site, the code that allocated it, and its generation, so that what the game keeps of its sessions can be found (docs/leak-finding.md).
+_Avoid_: memory profiler, allocation tracker
+
+**Generation**:
+The heap census's span of time: one ends at every world reset, and when remote control asks for one to end.
+
+**Leftover**:
+A block of the game's heap still live two generations after its own: it outlived two resets of the world it was made in.
+_Avoid_: leak (for one block; a leak is what a site's leftovers add up to, session after session)
+
+**Leak run**:
+Rounds of sessions that `tools/leak-run.ps1` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
+
 **Startup**:
 What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
 _Avoid_: installation
