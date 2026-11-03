@@ -66,6 +66,7 @@ Mod 的扩展是 Lua 5.4 脚本，由框架在各自的沙箱里运行（[ADR 00
 ```powershell
 eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、manifest.toml、lua\main.lua、一个按钮、中英文字、编辑器的类型定义、一个 AGENTS.md
 cd my-mod
+eu4-harmony check                         # 像框架那样读一遍清单、Lua 文件、文字和文件位置
 eu4-harmony test                          # 用假游戏运行它的 eu4-harmony\tests\*.lua
 eu4-harmony link                          # 在用户文件夹的 mod\ 下注册，然后在启动器里勾选
 eu4-harmony reload --watch                # 游戏运行时：Lua 和文字一改动，就在游戏里就地重载
