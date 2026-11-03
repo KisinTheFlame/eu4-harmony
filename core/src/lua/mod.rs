@@ -25,15 +25,36 @@ use std::{
     fs::{File, OpenOptions},
     io::Write as _,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock, RwLock,
+    },
     time::{Duration, Instant},
 };
 
-static EXTENSIONS: OnceLock<Vec<Arc<Extension>>> = OnceLock::new();
+/// The extensions loaded, by number; an extension reload replaces one in its
+/// place.
+static EXTENSIONS: RwLock<Vec<Arc<Extension>>> = RwLock::new(Vec::new());
 
-fn extensions() -> &'static [Arc<Extension>] {
-    EXTENSIONS.get().map_or(&[], Vec::as_slice)
+/// What each extension was opened from, by number, and the host they share,
+/// for an extension reload to open it again.
+static OPENED: Mutex<Vec<Opened>> = Mutex::new(Vec::new());
+static HOST: OnceLock<Arc<dyn Host>> = OnceLock::new();
+
+struct Opened {
+    id: String,
+    name: String,
+    dir: PathBuf,
+    permissions: eu4_harmony_manifest::Permissions,
+    data: PathBuf,
 }
+
+fn extensions() -> Vec<Arc<Extension>> {
+    EXTENSIONS.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Whether a session is going on, for an extension reload.
+static IN_SESSION: AtomicBool = AtomicBool::new(false);
 
 /// The id of the mod whose extension has this index.
 pub fn mod_id(index: usize) -> Option<String> {
@@ -170,7 +191,8 @@ pub struct LoadOutcome {
 /// on the game thread. Logs go to `log_dir`; `data_dir` holds the data
 /// folders.
 pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<LoadOutcome> {
-    let host: Arc<dyn Host> = Arc::new(Live { logs: log_dir.to_path_buf(), open: Mutex::new(HashMap::new()) });
+    let host: Arc<dyn Host> = HOST.get_or_init(|| Arc::new(Live { logs: log_dir.to_path_buf(), open: Mutex::new(HashMap::new()) })).clone();
+    let mut opened = Vec::new();
     let supported = crate::memory().is_some();
     let mut loaded = Vec::new();
     let mut outcomes = Vec::new();
@@ -202,6 +224,13 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
         match result {
             Ok(extension) => {
                 log!("extension {:?} loaded", m.manifest.id);
+                opened.push(Opened {
+                    id: m.manifest.id.clone(),
+                    name: m.descriptor.name.clone(),
+                    dir: m.dir.clone(),
+                    permissions: m.manifest.permissions.clone(),
+                    data: data_dir.join(&m.manifest.id),
+                });
                 outcomes.push(LoadOutcome { included: true, status: format!("extension {entry} loaded") });
                 loaded.push(extension);
             }
@@ -215,8 +244,79 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
             }
         }
     }
-    let _ = EXTENSIONS.set(loaded);
+    *EXTENSIONS.write().unwrap_or_else(|e| e.into_inner()) = loaded;
+    *OPENED.lock().unwrap_or_else(|e| e.into_inner()) = opened;
     outcomes
+}
+
+/// What an extension reload came to.
+#[derive(Debug)]
+pub struct Reloaded {
+    /// A session was going on, so the new code's `on_session` ran.
+    pub session: bool,
+    /// Why the old code's save data did not reach it, when it did not.
+    pub lost: Option<String>,
+}
+
+/// Reloads the extension of the mod `id` from its files, in place
+/// (docs/extension-reload.md): the new code is opened first, and only when
+/// it loads is the old one asked for its save data and replaced. On the
+/// main thread, between frames.
+pub fn reload(_: Caller, id: String) -> game::GResult<Reloaded> {
+    if crate::thread_id() != crate::main_thread() {
+        return Err(game::Fail { status: game::Status::WrongContext, message: "called off the game's main thread".into() });
+    }
+    reload_now(&id)
+}
+
+fn reload_now(id: &str) -> game::GResult<Reloaded> {
+    let refuse = |status, message: String| Err(game::Fail { status, message });
+    let Some(host) = HOST.get().cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
+    let (index, name, dir, permissions, data) = {
+        let opened = OPENED.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((i, o)) = opened.iter().enumerate().find(|(_, o)| o.id == id) else {
+            return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded"));
+        };
+        (i, o.name.clone(), o.dir.clone(), o.permissions.clone(), o.data.clone())
+    };
+    let harmony = dir.join("eu4-harmony");
+    let manifest_file = harmony.join(eu4_harmony_manifest::FILE);
+    let manifest = std::fs::read_to_string(&manifest_file).map_err(|e| e.to_string()).and_then(|t| eu4_harmony_manifest::Manifest::parse(&t));
+    let rejected = |message: String| game::Fail { status: game::Status::Rejected, message };
+    let manifest = manifest.map_err(|e| rejected(format!("{}: {e}", manifest_file.display())))?;
+    if manifest.id != id {
+        return Err(rejected(format!("the manifest's id is now {:?}; a changed id takes a restart of the game", manifest.id)));
+    }
+    if manifest.permissions != permissions {
+        return Err(rejected("the manifest's permissions changed; the player saw them as they were, and they change only with a restart of the game".into()));
+    }
+    if !manifest.built_for(eu4_harmony_remote::API_VERSION) {
+        return Err(rejected(format!("written for api_version {}, this EU4 Harmony provides {}", manifest.api_version, eu4_harmony_remote::API_VERSION)));
+    }
+    let opening = Mod { id, name: &name, harmony: harmony.clone(), permissions: &permissions, data: Some(data) };
+    let new = eu4_harmony_lua::open(index, &opening, host).map_err(|e| rejected(format!("the new code did not load, and the old goes on: {e}")))?;
+    let Some(old) = extensions().get(index).cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
+    let session = IN_SESSION.load(Ordering::Relaxed);
+    let (saved, lost) = match session.then(|| old.save_data()).flatten() {
+        Some(Ok(saved)) => (saved, None),
+        Some(Err(e)) => (None, Some(format!("save_data failed: {e}"))),
+        None => (None, None),
+    };
+    old.session_over();
+    ui::forget_extension(index);
+    if let Some(m) = crate::memory() {
+        map::release(m, index);
+    }
+    EXTENSIONS.write().unwrap_or_else(|e| e.into_inner())[index] = new.clone();
+    for problem in crate::loc::reload_mod(id, &harmony) {
+        log!("extension {id:?} reloaded: localisation/{problem}");
+    }
+    log!("extension {id:?} reloaded{}", lost.as_ref().map(|l| format!("; its state was not carried: {l}")).unwrap_or_default());
+    if session {
+        new.handle("on_session", &[Arg::Json(saved.unwrap_or(serde_json::Value::Null))]);
+    }
+    refresh_report(true);
+    Ok(Reloaded { session, lost })
 }
 
 /// What the player is told about an extension that was not loaded. A
@@ -237,7 +337,7 @@ fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
 /// taken over, its buttons clicked), then the frame.
 pub fn frame(state: &game::Frame) {
     let all = extensions();
-    for e in all {
+    for e in &all {
         e.poll();
     }
     for heard in state.heard() {
@@ -245,12 +345,13 @@ pub fn frame(state: &game::Frame) {
             game::Heard::Session(session) => {
                 let loaded = saves::take_loaded();
                 log!("session {session} started (from a loaded save: {})", loaded.is_some());
-                for e in all {
+                IN_SESSION.store(true, Ordering::Relaxed);
+                for e in &all {
                     e.take_session_times();
                 }
                 *SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Clocks::now());
                 saves::replace_all(loaded.unwrap_or_default());
-                for e in all {
+                for e in &all {
                     let saved = saves::get(e.id()).unwrap_or(serde_json::Value::Null);
                     e.handle("on_session", &[Arg::Json(saved)]);
                 }
@@ -276,7 +377,7 @@ pub fn frame(state: &game::Frame) {
             e.handle("on_button", &[Arg::Text(click.name.clone()), how]);
         }
     }
-    for e in all {
+    for e in &all {
         e.handle("on_frame", &[]);
     }
     refresh_report(false);
@@ -287,6 +388,7 @@ pub fn frame(state: &game::Frame) {
 /// main thread, before anything of it is saved or taken down.
 pub fn session_ended(reason: u32) {
     log!("session ending (reason {reason})");
+    IN_SESSION.store(false, Ordering::Relaxed);
     crate::remote::session_ended(reason);
     let word = match reason {
         SESSION_ENDED_LOAD => "load",
@@ -385,4 +487,96 @@ fn refresh_report(now: bool) {
 /// it was stopped.
 pub fn timing_lines() -> Vec<String> {
     extensions().iter().map(|e| e.timing()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A host that only keeps the extensions' log lines.
+    #[derive(Default)]
+    struct Quiet(Mutex<Vec<String>>);
+
+    struct Never;
+    impl Pending<fetch::Answer> for Never {
+        fn poll(&mut self) -> Option<fetch::Answer> {
+            None
+        }
+    }
+
+    impl Host for Quiet {
+        fn run(&self, _: usize, _: Request) -> Called {
+            Called::Done(Err(Error::new(Code::NotInGame, "no game in a test")))
+        }
+        fn set_element(&self, _: usize, _: &str, _: Element) -> Result<(), String> {
+            Ok(())
+        }
+        fn paint(&self, _: usize, _: &[(u32, [u8; 4])]) -> Result<(), Error> {
+            Ok(())
+        }
+        fn release_map(&self, _: usize) -> Result<(), Error> {
+            Ok(())
+        }
+        fn text(&self, _: &str, _: &str) -> Option<String> {
+            None
+        }
+        fn language(&self) -> String {
+            "english".into()
+        }
+        fn fetch(&self, _: fetch::Request) -> Box<dyn Pending<fetch::Answer>> {
+            Box::new(Never)
+        }
+        fn log(&self, _: &str, line: &str) {
+            self.0.lock().unwrap().push(line.to_string());
+        }
+        fn session(&self) -> u64 {
+            1
+        }
+        fn first_error(&self, _: &Extension, _: &str, _: &str) {}
+        fn stopped(&self, _: &Extension, _: &str) {}
+    }
+
+    #[test]
+    fn a_reload_carries_the_save_data_and_leaves_failed_code_out() {
+        let dir = std::env::temp_dir().join(format!("eu4h-reload-{}", std::process::id()));
+        let harmony = dir.join("eu4-harmony");
+        std::fs::create_dir_all(harmony.join("lua")).unwrap();
+        let write = |file: &str, text: &str| std::fs::write(harmony.join(file), text).unwrap();
+        let manifest = format!("id = \"reloaded\"\napi_version = \"{}\"", eu4_harmony_remote::API_VERSION);
+        write("manifest.toml", &manifest);
+        write("lua/main.lua", "return { save_data = function(game) return { count = 41 } end }");
+        // No other test loads extensions, so the host is this test's.
+        let host = Arc::new(Quiet::default());
+        assert!(HOST.set(host.clone()).is_ok());
+        let permissions = eu4_harmony_manifest::Permissions::default();
+        let m = Mod { id: "reloaded", name: "Reloaded", harmony: harmony.clone(), permissions: &permissions, data: Some(dir.join("data")) };
+        let first = eu4_harmony_lua::open(0, &m, host.clone()).unwrap();
+        *EXTENSIONS.write().unwrap() = vec![first.clone()];
+        *OPENED.lock().unwrap() =
+            vec![Opened { id: "reloaded".into(), name: "Reloaded".into(), dir: dir.clone(), permissions: permissions.clone(), data: dir.join("data") }];
+        IN_SESSION.store(true, Ordering::Relaxed);
+
+        write("lua/main.lua", "return { on_session = function(game, saved) log('v2 got ' .. tostring(saved and saved.count)) end }");
+        let r = reload_now("reloaded").unwrap();
+        assert!(r.session && r.lost.is_none());
+        let second = extensions()[0].clone();
+        assert!(!Arc::ptr_eq(&first, &second));
+
+        // New code that does not compile, or a changed manifest: the old goes on.
+        write("lua/main.lua", "return {");
+        let refused = reload_now("reloaded").unwrap_err();
+        assert_eq!(refused.status, game::Status::Rejected);
+        assert!(refused.message.contains("the new code did not load, and the old goes on"), "{}", refused.message);
+        write("lua/main.lua", "return {}");
+        write("manifest.toml", &format!("{manifest}\npermissions = {{ clock = true }}"));
+        assert!(reload_now("reloaded").unwrap_err().message.contains("permissions changed"));
+        assert!(Arc::ptr_eq(&extensions()[0], &second));
+        assert_eq!(reload_now("other").unwrap_err().status, game::Status::NotFound);
+
+        assert!(host.0.lock().unwrap().iter().any(|l| l == "v2 got 41"), "{:?}", host.0.lock().unwrap());
+        IN_SESSION.store(false, Ordering::Relaxed);
+        *EXTENSIONS.write().unwrap() = Vec::new();
+        *OPENED.lock().unwrap() = Vec::new();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

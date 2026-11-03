@@ -279,6 +279,8 @@ groups! {
     Menu(menu::MenuRequest, MenuAnswer),
     /// The player's diplomatic actions.
     Diplomacy(diplomacy::DiplomacyRequest, DiplomacyAnswer),
+    /// The mods' extensions: reloading one in the running game.
+    Extension(extensions::ExtensionRequest, ExtensionAnswer),
 }
 
 pub mod binary;
