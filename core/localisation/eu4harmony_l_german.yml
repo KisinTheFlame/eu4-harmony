@@ -25,6 +25,8 @@ l_german:
  EU4HARMONY_SETTINGS_MAP_FONT:0 "Schriftart für die Karte"
  EU4HARMONY_SETTINGS_MAP_WEIGHT:0 "Schriftstärke für die Karte"
  EU4HARMONY_SETTINGS_MAP_OUTLINE:0 "Umriss der Namen auf der Karte"
+ EU4HARMONY_SETTINGS_CONSOLE_FONT:0 "Schriftart für die Konsole"
+ EU4HARMONY_SETTINGS_CONSOLE_WEIGHT:0 "Schriftstärke für die Konsole"
  EU4HARMONY_SETTINGS_RESTART:0 "Schriftänderungen werden beim nächsten Spielstart wirksam."
  EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART:0 "Ohne Neustart des Spiels ins Hauptmenü zurückkehren"
  EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD:0 "Im Ironman-Modus das Spiel speichern, bevor ein anderer Spielstand geladen wird"
