@@ -130,7 +130,11 @@ _Avoid_: order (what the player gives, which the game makes into a command), act
 
 **Map position**:
 A point on the game's map, in pixels of the province map (`map/provinces.bmp`): x from its left edge, y from its bottom edge, as `map/positions.txt` writes them. The camera looks at a map position.
-_Avoid_: coordinates on their own; screen position (a pixel of the game's window)
+_Avoid_: coordinates on their own; screen position (a pixel of the frame the game draws)
+
+**Screen position**:
+A pixel of the frame the game draws, as `screenshot` takes it: x from its left edge, y from its top edge. Input is given at screen positions.
+_Avoid_: coordinates on their own; map position (a point on the game's map)
 
 **Question**:
 One of the game's own events that waits for the player's answer, shown in an event window with the options the player may choose. Answering it is choosing one of those options; one left unanswered for a few months is answered by the game itself.
@@ -183,6 +187,10 @@ _Avoid_: bot, agent
 **Transport**:
 How requests and responses travel between remote clients and remote control, such as the named pipe carrying JSON lines.
 _Avoid_: protocol adapter, channel, connection
+
+**Input**:
+Mouse and keyboard input a remote client gives the game as the player's own: clicks, the wheel, keys and typed text at screen positions. The game takes it as it takes the player's.
+_Avoid_: simulated, synthetic or fake input; SendInput (that is how a program outside the game sends input to whatever is in front)
 
 **Event**:
 Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.
