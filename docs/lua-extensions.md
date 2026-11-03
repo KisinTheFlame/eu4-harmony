@@ -1,6 +1,6 @@
 # Lua extensions plan
 
-Status: decided (2026-11-03), not built. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns), [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
+Status: decided (2026-11-03); L1 to L3 built. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns), [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
 
 ## Goal and scope
 
@@ -78,12 +78,12 @@ end
 
 - A Lua state holds Lua's `string`, `table`, `math`, `utf8` and `coroutine` libraries, and the base library without `dofile`, `loadfile` or loading bytecode: `load` takes text only.
 - `require` loads a module from the mod's own `eu4-harmony/lua/` only, by its dotted name (`require("range.bfs")` is `eu4-harmony/lua/range/bfs.lua`).
-- There is no `io`, `debug` or `package.loadlib`, and `os` holds `os.clock` only; `os.time` and `os.date` are there when the manifest declares `clock`.
+- There is no `io`, `debug` or `package.loadlib`, and `os` holds `os.clock`, and `os.time` and `os.date`, which work when the manifest declares `clock`.
 - Nothing reaches the process, the operating system, environment variables, other mods or native code; there is no capability for them, declared or not.
 
 ### Sensitive capabilities
 
-A sensitive capability reaches beyond the game. An extension can use one only when its manifest declares it; using one it did not declare raises an error. The player sees what each mod declares in the mods window and cannot refuse it in this version; the manifest calls these declarations `permissions`, which the player is to confirm in a later version ([ADR 0025](adr/0025-sensitive-capabilities-are-declared.md)).
+A sensitive capability reaches beyond the game. An extension can use one only when its manifest declares it; using one it did not declare raises an error that says what to add to the manifest. Its functions are there either way, so a mod reads the same with or without the declaration. The player sees what each mod declares in the mods window and cannot refuse it in this version; the manifest calls these declarations `permissions`, which the player is to confirm in a later version ([ADR 0025](adr/0025-sensitive-capabilities-are-declared.md)).
 
 - **`clock`**: the real date and time, `os.time` and `os.date`.
 - **`files`**: the extension's data folder, `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\data\<id>\`, made the first time the extension writes to it, kept across mod updates and never cleaned up by the framework:
@@ -91,17 +91,22 @@ A sensitive capability reaches beyond the game. An extension can use one only wh
   ```lua
   files.write("cache/routes.json", text)   -- written whole or not at all: a temporary file renamed
   local text, err = files.read("cache/routes.json")
-  local names = files.list("cache")
-  files.remove("cache/routes.json")
+  local names = files.list("cache")        -- sorted, a folder's name ending in /; files.list() for the data folder
+  files.remove("cache/routes.json")        -- a file, or a folder once it is empty
   ```
+
+  - `write` makes the folders a path needs. `list` of a folder not made yet is empty.
+  - A file that is not there is `nil, err` with `code` `not_found`; one that cannot be read, written or removed otherwise, `failed`.
 
 - **`network`**: HTTP and HTTPS requests to the hosts the manifest lists, by name or address and with a port where it is not the default, with `http.fetch(url, options)`, named and shaped after JavaScript's `fetch`. It waits (see Tasks) and returns `response, err`:
   - `options`: `method` (`"GET"` when left out), `headers` (a table), `body` (a string), `timeout` (seconds, 30 when left out, at most 300).
-  - `response`: `{ status = 200, headers = {...}, body = "..." }`. A status other than 2xx is a response, not a failure, as with `fetch`.
-  - `err`, only when no response came: `code` `timeout`, or `network` (no connection, a broken one, a name that does not resolve).
-  - A host the manifest does not list, a malformed URL or a `timeout` out of range raises an error.
+  - `response`: `{ status = 200, headers = {...}, body = "..." }`, the headers' names in lowercase, one given more than once joined with `, `. A status other than 2xx is a response, not a failure, as with `fetch`.
+  - `err`, only when no response came: `code` `timeout`; `network` (no connection, a broken one, a name that does not resolve, a certificate not trusted); or `too_large`, a body over 16 MiB.
+  - Redirects are not followed, so a request never reaches a host the manifest does not list: a 3xx is a response like any other.
+  - Requests use the system's proxy settings and, through Windows' own TLS, its certificates.
+  - A host the manifest does not list, a malformed URL, an option it does not have or a `timeout` out of range raises an error. So does a host in the manifest that is not a name or an address with `:port`: the mod is not loaded.
 
-Reading the mod's own files needs no declaration: `mod_files.read("data/units.json")` reads `eu4-harmony/data/units.json` from the mod's folder; nothing writes there. Paths for `files` and `mod_files` are relative, separated by `/`, without `..`, a drive or a leading `/`.
+Reading the mod's own files needs no declaration: `mod_files.read("data/units.json")` reads `eu4-harmony/data/units.json` from the mod's folder; nothing writes there. Paths for `files` and `mod_files` are relative, separated by `/`, without `..`, a drive or a leading `/`, and each part a name Windows can give a file (not `nul` or `con`, no `?` or `*`, not ending in a dot or a space).
 
 ### Extension save data
 

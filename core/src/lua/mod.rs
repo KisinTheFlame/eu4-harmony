@@ -10,7 +10,10 @@
 //! (`crate::remote::run_for`), so both sides of the catalogue share one
 //! implementation (ADR 0026). An error ends the call and is logged, and the
 //! extension is called again (ADR 0027); three stretches in a row stopped by
-//! the time limit ([`watch`]) stop it.
+//! the time limit ([`watch`]) stop it. The sensitive capabilities
+//! (ADR 0025) are [`files`] and [`fetch`], with the clock in the sandbox.
+mod fetch;
+mod files;
 mod sandbox;
 pub mod values;
 mod watch;
@@ -57,6 +60,8 @@ pub(crate) struct Extension {
     game: Table,
     /// The sentinel a capability that waits returns, to its Lua wrapper.
     wait: LuaValue,
+    /// What its tasks are to wait for, shared with its sandbox's `http`.
+    waits: Arc<Mutex<Waits>>,
     state: Mutex<State>,
     log: Mutex<Option<File>>,
 }
@@ -76,22 +81,47 @@ struct State {
     told: Option<u64>,
     /// Tasks waiting for an answer.
     tasks: Vec<Task>,
-    /// Capabilities waiting for their answer, by number, until their task
-    /// takes them.
-    waits: HashMap<u64, Box<dyn Wait>>,
-    next_wait: u64,
 }
 
-/// A task that waits for a capability's answer.
+/// What tasks are to wait for, by number, until their task takes it as it
+/// gives up its turn.
+#[derive(Default)]
+pub(crate) struct Waits {
+    by_number: HashMap<u64, Waiting>,
+    next: u64,
+}
+
+impl Waits {
+    /// Keeps `wait`: the wait sentinel and its number, which the running
+    /// task gives up its turn with.
+    fn keep(waits: &Mutex<Waits>, sentinel: &LuaValue, wait: Waiting) -> MultiValue {
+        let mut waits = waits.lock().unwrap_or_else(|e| e.into_inner());
+        waits.next += 1;
+        let number = waits.next;
+        waits.by_number.insert(number, wait);
+        MultiValue::from_iter([sentinel.clone(), LuaValue::Integer(number as i64)])
+    }
+}
+
+/// A task that waits.
 struct Task {
     thread: Thread,
-    wait: Box<dyn Wait>,
+    wait: Waiting,
     /// For the log: the handler it came from.
     from: String,
 }
 
+/// What a task waits for: a capability's answer, or a response from the
+/// network.
+pub(crate) enum Waiting {
+    Capability(Box<dyn Wait>),
+    Fetch(fetch::Pending),
+}
+
 static EXTENSIONS: OnceLock<Vec<Arc<Extension>>> = OnceLock::new();
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
+/// The folder that holds every extension's data folder.
+static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 thread_local! {
     /// The extension running on this thread, and the task it runs, if any.
@@ -129,9 +159,11 @@ pub struct LoadOutcome {
 }
 
 /// Loads every enabled mod's extension, in playset order. Once, at startup,
-/// on the game thread.
-pub fn load(mods: &[DiscoveredMod], log_dir: &Path) -> Vec<LoadOutcome> {
+/// on the game thread. Logs go to `log_dir`; `data_dir` holds the data
+/// folders.
+pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<LoadOutcome> {
     let _ = LOG_DIR.set(log_dir.to_path_buf());
+    let _ = DATA_DIR.set(data_dir.to_path_buf());
     let supported = crate::memory().is_some();
     let mut loaded = Vec::new();
     let mut outcomes = Vec::new();
@@ -189,7 +221,9 @@ fn open(index: usize, m: &DiscoveredMod) -> Result<Extension, String> {
         }
     }
     let lua_dir = m.dir.join("eu4-harmony").join("lua");
-    let opened = sandbox::open(index, &m.manifest.id, &m.dir.join("eu4-harmony"), &m.manifest.permissions).map_err(|e| e.to_string())?;
+    let data = DATA_DIR.get().map(|d| d.join(&m.manifest.id));
+    let waits = Arc::new(Mutex::new(Waits::default()));
+    let opened = sandbox::open(index, &m.manifest.id, &m.dir.join("eu4-harmony"), data, &m.manifest.permissions, waits.clone()).map_err(|e| e.to_string())?;
     let main = lua_dir.join("main.lua");
     let source = std::fs::read_to_string(&main).map_err(|e| format!("cannot read {}: {e}", main.display()))?;
     // main.lua runs as a plain call: it cannot wait, and the time limit
@@ -210,6 +244,7 @@ fn open(index: usize, m: &DiscoveredMod) -> Result<Extension, String> {
         handlers,
         game: opened.game,
         wait: opened.wait,
+        waits,
         state: Mutex::new(State::default()),
         log: Mutex::new(None),
     })
@@ -275,13 +310,29 @@ pub(crate) fn call(lua: &Lua, index: usize, name: &str, args: MultiValue) -> mlu
         remote::Outcome::Done(response) => answer(lua, name, response),
         remote::Outcome::Later(wait) => {
             let extension = &extensions()[index];
-            let mut state = extension.state();
-            state.next_wait += 1;
-            let number = state.next_wait;
-            state.waits.insert(number, wait);
-            Ok(MultiValue::from_iter([extension.wait.clone(), LuaValue::Integer(number as i64)]))
+            Ok(Waits::keep(&extension.waits, &extension.wait, Waiting::Capability(wait)))
         }
     }
+}
+
+/// Sends `http.fetch`'s request for the extension `index`, whose manifest
+/// lists `hosts`: the wait sentinel and the number its task waits on, kept
+/// in `waits`. A request the manifest does not allow, or written wrongly, is
+/// an error.
+pub(crate) fn fetch(index: usize, hosts: &[String], waits: &Mutex<Waits>, sentinel: &LuaValue, url: &str, options: Option<Table>) -> mlua::Result<MultiValue> {
+    let refuse = |e: String| mlua::Error::runtime(format!("http.fetch: {e}"));
+    if hosts.is_empty() {
+        return Err(sandbox::undeclared("http.fetch", "network", "network = [\"api.example.com\"]"));
+    }
+    let target = fetch::target(url).map_err(refuse)?;
+    if !fetch::listed(&target, hosts) {
+        return Err(refuse(format!("{url} goes to a host the manifest's network permission does not list ({})", hosts.join(", "))));
+    }
+    let request = fetch::request(options).map_err(refuse)?;
+    if CURRENT.with(Cell::get) != Some(index) {
+        return Err(refuse("a request is sent only from a handler or a task".into()));
+    }
+    Ok(Waits::keep(waits, sentinel, Waiting::Fetch(fetch::start(target, request))))
 }
 
 /// A capability's response as Lua values: the result (`true` for one with
@@ -327,6 +378,10 @@ enum Stretch {
 impl Extension {
     fn caller(&self) -> Caller {
         Caller::Extension(self.index)
+    }
+
+    fn waits(&self) -> std::sync::MutexGuard<'_, Waits> {
+        self.waits.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Runs one stretch of `thread` with `args`, as the running task.
@@ -404,13 +459,10 @@ impl Extension {
         match outcome {
             Stretch::Done => {}
             Stretch::Waits(number) => {
-                let mut state = self.state();
-                match state.waits.remove(&number) {
-                    Some(wait) => state.tasks.push(Task { thread, wait, from: from.to_string() }),
-                    None => {
-                        drop(state);
-                        self.error(from, "waited for an answer nobody asked for");
-                    }
+                let wait = self.waits().by_number.remove(&number);
+                match wait {
+                    Some(wait) => self.state().tasks.push(Task { thread, wait, from: from.to_string() }),
+                    None => self.error(from, "waited for an answer nobody asked for"),
                 }
             }
             Stretch::Failed(message) => self.error(from, &message),
@@ -428,11 +480,15 @@ impl Extension {
             if self.state().stopped.is_some() {
                 break;
             }
-            match remote::poll_for(self.caller(), task.wait.as_mut()) {
+            let came = match &mut task.wait {
+                Waiting::Capability(wait) => remote::poll_for(self.caller(), wait.as_mut()).map(|response| answer(&self.lua, &task.from, response)),
+                Waiting::Fetch(pending) => pending.poll().map(|response| fetch::answer(&self.lua, response)),
+            };
+            match came {
                 None => still.push(task),
-                Some(response) => {
+                Some(answer) => {
                     // An answer that cannot be read is the task's error.
-                    let outcome = match answer(&self.lua, &task.from, response) {
+                    let outcome = match answer {
                         Ok(values) => self.stretch(&task.thread, values),
                         Err(e) => Stretch::Failed(e.to_string()),
                     };
@@ -482,8 +538,8 @@ impl Extension {
             }
             state.stopped = Some(reason.to_string());
             state.tasks.clear();
-            state.waits.clear();
         }
+        self.waits().by_number.clear();
         log!("extension {:?} stopped: {reason}", self.id);
         self.write_log(&format!("stopped: {reason}"));
         ui::hide_extension(self.index);
@@ -500,7 +556,7 @@ impl Extension {
             let mut state = self.state();
             let dropped = state.tasks.len();
             state.tasks.clear();
-            state.waits.clear();
+            self.waits().by_number.clear();
             let counted: Vec<(String, u32)> = state.errors.drain().filter(|(_, n)| *n > WRITTEN).collect();
             (dropped, counted)
         };

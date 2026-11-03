@@ -16,6 +16,8 @@ cc = "=1.6.0"
 iced-x86 = { version = "=1.21.0", default-features = false }
 toml = "=0.9.8"
 mlua = { version = "=0.11.6", features = ["lua54", "vendored", "serialize"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls", "system-proxy"] }
+tokio = { version = "=1.54.1", default-features = false, features = ["rt"] }
 
 # Where the code is right as it is, #[expect(..., reason = "...")] says why
 # (AGENTS.md): an #[allow] is refused, as is an #[expect] with no reason.
