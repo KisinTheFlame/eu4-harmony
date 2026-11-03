@@ -58,18 +58,30 @@ windows = { workspace = true, features = [
 # Reading the game's code (src/analysis.rs, the disasm example). Tests use it
 # too, through the dev-dependency below.
 iced-x86 = { workspace = true, features = ["decoder", "std", "instr_info", "intel"], optional = true }
+# A developer build's options, in dev.toml (src/dev.rs).
+toml = { workspace = true, optional = true }
 
 [build-dependencies]
 cc = { workspace = true }
 
 [dev-dependencies]
 iced-x86 = { workspace = true, features = ["decoder", "std", "instr_info"] }
+toml = { workspace = true }
 
 [features]
 analysis = ["dep:iced-x86"]
-# Logs calls of the game functions EU4HARMONY_TRACE names (src/trace.rs). For
-# finding things out only: a player's build never has it.
-trace = ["analysis"]
+# The development tools, for finding things out in the game; each is on when
+# built in, with its options in dev.toml (src/dev.rs). A player's build has
+# none of them, and `dev` has them all.
+dev = ["dev-call-trace", "dev-heap-census", "dev-command-log", "dev-test-switches"]
+# Logs calls of the game functions dev.toml names (src/trace.rs).
+dev-call-trace = ["analysis", "dep:toml"]
+# Counts the game's live heap blocks by call site (src/census.rs).
+dev-heap-census = ["dep:toml"]
+# Logs the commands the game executes, in their written form (src/command_log.rs).
+dev-command-log = ["dep:toml"]
+# Makes startup fail, or shows test notices, as dev.toml says.
+dev-test-switches = ["dep:toml"]
 
 [[example]]
 name = "disasm"

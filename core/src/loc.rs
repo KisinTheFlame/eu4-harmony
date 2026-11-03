@@ -23,6 +23,16 @@ static FRAMEWORK: LazyLock<Catalog> = LazyLock::new(|| {
     ] {
         catalog.add(format::parse(source).expect("the framework's localisation parses"));
     }
+    #[cfg(feature = "dev-test-switches")]
+    for source in [
+        include_str!("../localisation/dev/eu4harmony_dev_l_english.yml"),
+        include_str!("../localisation/dev/eu4harmony_dev_l_french.yml"),
+        include_str!("../localisation/dev/eu4harmony_dev_l_german.yml"),
+        include_str!("../localisation/dev/eu4harmony_dev_l_spanish.yml"),
+        include_str!("../localisation/dev/eu4harmony_dev_l_simp_chinese.yml"),
+    ] {
+        catalog.add(format::parse(source).expect("the developer build's localisation parses"));
+    }
     catalog
 });
 

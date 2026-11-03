@@ -75,7 +75,7 @@ Decided 2026-11-03: left as they are in this version. Each is the game's own: a 
   - smaller sites, about forty in all, and buffers of vectors and strings the census cannot follow;
   - windows of the session's interface, about 75 a return, 0.2 MB, counted at the main menu once the interface is gone (the census at the world reset counts the interface still in use with them): the two plain structs the map manager's destructor leaves, which crash the game when the framework lets them go, and windows whose holders never go, among them the building interface's (`macrobuildinterface.gui`), the government reforms' choosers (`countryreformview.gui`), the papacy's, the ledger's and the tutorial's hints.
 - **Already let go by the framework** ([research/main-menu.md](research/main-menu.md)): the countries' arrays, the mercenary companies' leaders, the rebel factions, the agents the countries' AI started (about 2.2 MB a session, the largest part before), the session's interface, the message windows' popups, the map modes' window and the outliner's entries (each also at every interface rebuild), and the sets of modifiers a country's modifiers copy (in play too, 0.6 to 1 MB each from two sites a session).
-- **To take them up later**: the census (the `trace` feature, `EU4HARMONY_CENSUS` set) counts what each world reset's generation leaves by call site; research/main-menu.md lists the sites and how far each was followed.
+- **To take them up later**: the heap census (a developer build's `dev-heap-census`) counts what each world reset's generation leaves by call site; research/main-menu.md lists the sites and how far each was followed.
 
 ## Parts
 

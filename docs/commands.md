@@ -1,6 +1,6 @@
 # Commands plan
 
-Status: being designed (2026-11-03). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decision and its reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
+Status: decided (2026-11-03); C0 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Command, Developer build). The decision and its reasons are in [ADR 0032](adr/0032-commands-through-one-internal-layer-in-their-written-form.md). What the game does with commands, and what was tried in the game before this plan, is in [research/commands.md](research/commands.md) and [prototype-log.md](prototype-log.md).
 
 ## Goal and scope
 
@@ -62,7 +62,7 @@ pub fn listen(heard: fn(&Heard));
 
 ### C0 Developer builds
 
-Its own pull request, before the rest. The features, `dev.toml` and its example, the developer build's first lines and options in the startup report, the test switches moved, `release.ps1` building the player build, CI, and AGENTS.md's and tools/README.md's commands and notes. The call trace, the census and the command log as they are now, under their new features and reading their options from `dev.toml`; no environment variable is left.
+Its own pull request, before the rest. The features, `dev.toml` and its example, the developer build's first lines and options in the startup report, the test switches moved, `release.ps1` building the player build, CI, and AGENTS.md's and tools/README.md's commands and notes. The call trace, the census and the command log as they were, under their new features and reading their options from `dev.toml`, the command log without reading back and posting; no environment variable is left.
 
 ### C1 The command layer
 

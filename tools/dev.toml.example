@@ -1,0 +1,29 @@
+# The options of a developer build's tools (core/src/dev.rs). Copy this file
+# to dev.toml at the top of the repository; dev-install.ps1 puts it in the
+# game folder's eu4-harmony\ next to the core. A section left out takes the
+# defaults shown here, and a tool not built in leaves its section unused.
+
+# Logs calls of game functions: the arguments, the text they point to, the
+# call site, the return value.
+[call-trace]
+# RVAs in hex; RVA:N gives the number of arguments, for a leaf function the
+# exception directory has no entry for. None by default.
+functions = []
+# How many of each function's first calls are logged.
+calls = 20
+
+# Counts the game's live heap blocks by call site, and logs at every world
+# reset those the earlier sessions left. No options.
+[heap-census]
+
+# Logs every command the game executes, in its written form.
+[command-log]
+# The types to log, by the game's names, such as "buildunit"; every type when
+# empty.
+types = []
+
+[test-switches]
+# Startup fails, so that the failure can be tried on a supported game.
+fail-startup = false
+# Two test notices are shown, so that the notice window can be tried.
+test-notice = false

@@ -5,7 +5,7 @@ Tools for trying things in a running game, finding dependency points and looking
 | Tool | Use |
 | --- | --- |
 | `player-files.ps1` | Lists the player's files: the built files that go into the game folder (`version.dll`; the core and `eu4-harmony.exe` in `eu4-harmony\`), and where; the two tools below read it |
-| `dev-install.ps1` | Installs them from the release build into the game directory (`-Uninstall` removes them) |
+| `dev-install.ps1` | Installs them into the game directory as last built, a player build or a developer build, with the repository's `dev.toml` (`-Uninstall` removes them) |
 | `release.ps1` | Packs them for players: `target\eu4-harmony\` and `target\eu4-harmony.zip`, whose contents go into the game's root folder |
 | `game-dir.ps1` | Prints the game folder: `EU4_GAME_DIR`, or else the Steam library that has the game; the other tools' default `-GameDir` |
 | `player-state.ps1` | Backs up the player's files a run of the game may change (`-Backup <new folder>`: the saves, the framework's folder and every file at the top of the user folder), and afterwards puts them back (`-Restore <folder>`): lists what the run changed, restores and compares every file, removes the run's crash folders (`-KeepCrashes` keeps them) and the backup (`-Keep` keeps it) |
@@ -14,7 +14,10 @@ Tools for trying things in a running game, finding dependency points and looking
 | `perf-run.ps1` | Measures one run of the game for [docs/performance.md](../docs/performance.md): launch to main menu, memory, CPU paused and at speed 5, game days per run; its clicks fit a 3840×2160 screen at the game's default interface scale, and it needs reference images taken on the machine once, so read its notes before the first run |
 | `crash-dump.py` | Runs debugger commands on a crash dump with Windows' own dbgeng.dll, with no debugger to install; needs 64-bit Python 3.8 or later |
 | `core/examples/disasm.rs` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments |
-| `trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value; and, with `EU4HARMONY_CENSUS` set, counts the game's live heap blocks by call site and logs at every world reset those the earlier sessions left (`core/src/census.rs`); and, with `EU4HARMONY_COMMANDS` set (`all`, or type names such as `buildunit,move_order`), logs every command the game executes in its written form, with `EU4HARMONY_COMMANDS_READ` set reads each back from its text and compares the two, with `EU4HARMONY_COMMANDS_TEXTS` naming a file reads back each of its lines once, and with `EU4HARMONY_COMMANDS_POST` naming a file reads, checks and posts each of its lines once (`core/src/command_log.rs`) |
+| `dev-call-trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value (`core/src/trace.rs`; [below](#call-tracing)) |
+| `dev-heap-census` feature | Counts the game's live heap blocks by call site and logs at every world reset those the earlier sessions left (`core/src/census.rs`) |
+| `dev-command-log` feature | Logs every command the game executes, or those of the types named, in its written form (`core/src/command_log.rs`) |
+| `dev-test-switches` feature | Makes startup fail, or shows two test notices, to try the failure and the notice window on a supported game |
 
 To ask the running game things through remote control, such as the session or the player's armies, use the command line tool: `eu4-harmony game session get`, and `eu4-harmony wiki` for the rest. `eu4-harmony game screenshot --out shot.png` saves the frame as the game draws it, framework UI included, wherever its window is; `screenshot.ps1` captures what the screen shows.
 
@@ -41,12 +44,21 @@ Arguments (numbers are hex, with or without `0x`; addresses are all RVAs):
 
 The same analysis also runs the offline check: `EU4_GAME_DIR=<install dir> cargo test --release -p eu4-harmony-core -- --ignored` checks the bytes of every dependency point, and checks that every observe point forwards no fewer arguments than its function actually reads.
 
+## Developer builds
+
+Each development tool is a feature of the core, and `dev` turns them all on:
+
+```
+cargo build --release --features eu4-harmony-core/dev
+cargo build --release --features eu4-harmony-core/dev-command-log,eu4-harmony-core/dev-call-trace
+```
+
+A tool built in is on; nothing else turns it on. The heap census observes every allocation of the game's, which slows it down: build only the tools a run needs. The build goes where the player build goes, `target\x86_64-pc-windows-msvc\release`, and `dev-install.ps1` installs whichever was built last; the first line of the framework log and of the startup report says "developer build" and names the tools, and the report lists their options as they took effect. `release.ps1` builds the player build itself before packing it.
+
+The tools' options are in `dev.toml` at the top of the repository, which is not checked in; `dev-install.ps1` copies it into the game folder's `eu4-harmony\`, where the core reads it at startup. [dev.toml.example](dev.toml.example) shows every section with its defaults; a section left out takes them, and a file the core cannot read, or an option it does not know, fails startup.
+
 ## Call tracing
 
-```
-cargo build --release --features eu4-harmony-core/trace
-```
+In `dev.toml`'s `[call-trace]`, `functions` lists the RVAs of the functions to trace, for example `["0x15988e0", "0x159c600"]`. The first 20 calls to each function (`calls` changes this) go into the framework log: the value of each argument, with the text when an argument points to text (a C string or a `std::string`, decoded as game text), the call site, and the return value.
 
-Once that build is installed, before starting the game set `EU4HARMONY_TRACE` to the RVAs of the functions to trace, separated by commas, for example `0x15988e0,0x159c600`. The first 20 calls to each function (`EU4HARMONY_TRACE_CALLS` changes this) go into the framework log: the value of each argument, with the text when an argument points to text (a C string or a `std::string`, decoded as game text), the call site, and the return value.
-
-The number of arguments is counted from the function's code. For a leaf function with no entry in the exception directory, write `RVA:N` and give the count yourself; give too few and the function reads garbage, and the game may crash. The `trace` feature is for development only; players' builds do not contain this code.
+The number of arguments is counted from the function's code. For a leaf function with no entry in the exception directory, write `"RVA:N"` and give the count yourself; give too few and the function reads garbage, and the game may crash.

@@ -1,11 +1,11 @@
 //! Counts the game's live heap blocks by where they were allocated and when,
-//! for finding what keeps the game's memory growing (the `trace` feature: a
-//! player's build has none of this). Set `EU4HARMONY_CENSUS` before the game
-//! starts: the C runtime's allocation functions in `eu4.exe` are observed,
-//! and each live block is kept with its call site and its generation, the
-//! number of world resets before it was allocated. At every world reset the
-//! blocks still live from two generations before are logged by call site:
-//! they outlived two resets of the world they were made in.
+//! for finding what keeps the game's memory growing (the `dev-heap-census`
+//! feature: a player's build has none of this). The C runtime's allocation
+//! functions in `eu4.exe` are observed, and each live block is kept with its
+//! call site and its generation, the number of world resets before it was
+//! allocated. At every world reset the blocks still live from two generations
+//! before are logged by call site: they outlived two resets of the world they
+//! were made in.
 //!
 //! A block `operator new` allocates is counted at the call of `operator new`.
 //! Blocks allocated before the framework started are not counted, nor are
@@ -97,15 +97,7 @@ extern "C" fn new_after(frame: *mut HookFrame) {
     }
 }
 
-/// Whether the census runs: `EU4HARMONY_CENSUS` is set.
-pub fn on() -> bool {
-    std::env::var_os("EU4HARMONY_CENSUS").is_some()
-}
-
 pub fn points(m: &crate::memory::Memory) -> Vec<Point> {
-    if !on() {
-        return Vec::new();
-    }
     BASE.store(m.at(0), Ordering::Relaxed);
     log!("census: counting the C runtime's heap blocks by call site");
     vec![
@@ -122,9 +114,6 @@ const MB: f64 = 1024.0 * 1024.0;
 /// A world reset: the generation ends, and the blocks of the generation two
 /// before that are still live are logged, by call site.
 pub fn world_reset() {
-    if !on() {
-        return;
-    }
     let now = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
     let base = BASE.load(Ordering::Relaxed);
     let mut generations: BTreeMap<u32, (usize, usize)> = BTreeMap::new();
