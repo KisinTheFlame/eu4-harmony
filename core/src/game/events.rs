@@ -86,6 +86,13 @@ pub fn load_begin() {
     boundary(Boundary::rotate);
 }
 
+/// The world was put back as a new start has it, with its history (an
+/// in-process return, the single player setup left): the next game begun on
+/// it is a new session, though the game reads nothing for it.
+pub fn world_reset() {
+    boundary(Boundary::rotate);
+}
+
 fn fog_mode(m: &Memory, ctx: &Ctx) -> Result<u8> {
     m.u8(ctx.world + world::FOG)
 }
@@ -364,6 +371,17 @@ mod tests {
 
     fn path(ids: &[u32], nodes: &[usize]) -> orders::Path {
         orders::Path { ids: ids.into(), nodes: nodes.into() }
+    }
+
+    #[test]
+    fn a_world_reset_begins_a_session_as_a_load_does() {
+        // Other tests may count sessions too: only that this one counts.
+        let before = session();
+        world_reset();
+        assert!(session() > before);
+        let after_reset = session();
+        load_begin();
+        assert!(session() > after_reset);
     }
 
     #[test]

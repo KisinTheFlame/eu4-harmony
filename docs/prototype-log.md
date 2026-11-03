@@ -1162,6 +1162,16 @@ L6's fourth point: regional combat in Lua, France from 1444.11.11, war on Englan
 - **Not met**: no stretch over 5 ms.
 - **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
 
+## 2026-11-04 A new game after an in-process return is a session (tested by me)
+
+The build of `claude/session-after-return`, which begins a session at each world reset with the history (an in-process return, the single player setup left). Regional combat as the extension to watch, its manifest set to api_version 0.2 for the run (as master provides) and put back after; `eu4.exe` started directly.
+
+- **Before**: in the runs of the same night ([Extension reload](#2026-11-04-extension-reload-tested-by-me)), France, `menu.return`, then `menu.start FRA` began a game the framework took for the old session: no "session N started", no `on_session`, the number still 1.
+- **After**: France (session 1), a return, Castile (3), France from that session (5), `menu.load autosave` from it (7, "from a loaded save: true"), France (9), a return, France again (10), France from that session (11). Each logged "session N started", each ended with the session's timing line, and regional combat's `on_session` ran each time ("session N: restored 0 task(s)").
+- **The numbers**: a session begun by a load, or with another world or player, is counted twice (by the load or the world reset, and by the frame that finds the world or player changed), so the numbers rise by 2 there and by 1 for France after France. They only ever rise, which is what extensions and remote clients rely on.
+- **Not verified in the game**: leaving the single player setup by its back button, then starting a game.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
