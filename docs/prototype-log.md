@@ -1260,6 +1260,18 @@ M1b of [leak-finding.md](leak-finding.md): the developer build with the memory a
 - **Not tried**: the player build itself, which has no `memory`; a run longer than ten rounds.
 - **Cleanup**: the game was closed by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The run's report was deleted.
 
+## 2026-11-04 Where the slow stretches went (tested by me)
+
+L6's cost: the 5 to 13 ms stretches of 2026-11-03 ("Regional combat's cost") spent their time in calls that read a few fields (`session.get`, `army.selected`) or in no call at all, also before a task was on. A build of master (8bca0f2) with a measurement not committed: for each extension's `on_frame` call, the wall time, the main thread's CPU cycles (`QueryThreadCycleTime`), the time in the allocator and the time waiting on the framework's three locks (the game state, the interface, the session boundary); a line for each call over 5 ms and for every 2000th. Regional combat at api_version 0.3, France from 1444.11.11, `eu4.exe` started directly; the army selected and the task turned on with `input.click`.
+
+- **The calls measured**: an ordinary `on_frame` took 0.06 to 0.08 ms and 0.22 to 0.32 million cycles, about 3.8 GHz, so on the processor all the time; about 216 allocations, 0.01 ms in all, and 13 lock waits, under 0.001 ms.
+- **Without the task**, 120 days: 42,465 stretches, the longest 0.683 ms, none over 5 ms.
+- **With the task**, war on England in December, the task on (center 183, radius 5), 120 days: 30,578 stretches, 2,608 ms; mean 0.085 ms, median 0.065 ms, p95 0.086 ms, p99 0.424 ms, the longest 6.367 ms; 0.84% of the session's 311.9 s, 1.37% of the main thread's 190.0 s of CPU, 0.60% of the game's 435.5 s.
+- **The one over 5 ms**: the frame the task was turned on, 6.42 ms and 24.0 million cycles (6.2 ms at 3.84 GHz): on the processor the whole time, its range worked out for the first time and its first decision made; 40,098 allocations, 1.9 ms of it in the allocator; 0.02 ms waiting on locks.
+- **So**: none of the stalls of the day before came again in 73,000 stretches, so none was measured. The framework's work, its allocator and its locks show nothing that could take milliseconds; what is left is the main thread being off the processor, most likely to other work on the machine (that day other checkouts' builds and tests ran beside the game; at 3 a.m. none did). That is not verified.
+- **Not verified**: what the stalls of the day before were; that load on the machine brings them back.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it. The measurement is not in the code.
+
 ## 2026-11-04 Who let the leftovers' owners go (tested by me)
 
 M3 of [leak-finding.md](leak-finding.md): the developer build with the census (`--features eu4-harmony-core/dev-heap-census`). One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `tools/leak-run.ps1 -Rounds 7 -Watch 4 -WatchAfter 3`, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
