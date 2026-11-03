@@ -45,18 +45,20 @@ pub fn window(cards: &[Card], words: Words, mod_text: ModText) -> Window {
     let Some(first) = cards.first() else {
         return Window::new(title, vec![Widget::Label(words("EU4HARMONY_MODS_NONE", &[]))], WIDTH - LIST);
     };
-    let side = Side { id: "mods", items: cards.iter().map(|c| c.name.clone()).collect(), selected: 0, width: LIST };
+    let side = Side::new("mods", cards.iter().map(|c| c.name.clone()).collect(), LIST);
     Window::new(title, details(first, words, mod_text), WIDTH).with_side(side)
 }
 
 /// What the window says of `card`.
 pub fn details(card: &Card, words: Words, mod_text: ModText) -> Vec<Widget> {
-    let mut body = vec![Widget::Label(card.name.clone())];
+    let mut body = vec![Widget::Heading(card.name.clone())];
     if let Some(version) = &card.version {
         body.push(Widget::Label(words("EU4HARMONY_MODS_VERSION", &[("VERSION", version)])));
     }
     let description = card.description.as_deref().and_then(|key| mod_text(&card.id, key));
+    body.push(Widget::Gap);
     body.push(Widget::Label(description.unwrap_or_else(|| words("EU4HARMONY_MODS_NO_DESCRIPTION", &[]))));
+    body.push(Widget::Gap);
     let p = &card.permissions;
     let mut can = Vec::new();
     if p.clock {
@@ -72,7 +74,8 @@ pub fn details(card: &Card, words: Words, mod_text: ModText) -> Vec<Widget> {
         body.push(Widget::Label(words("EU4HARMONY_MODS_NOTHING_BEYOND", &[])));
     } else {
         body.push(Widget::Label(words("EU4HARMONY_MODS_BEYOND", &[])));
-        body.extend(can.into_iter().map(Widget::Label));
+        body.extend(can.into_iter().map(Widget::Item));
+        body.push(Widget::Gap);
         body.push(Widget::Label(words("EU4HARMONY_MODS_DECLARED", &[])));
     }
     body
@@ -87,10 +90,14 @@ mod tests {
         args.iter().fold(key.to_string(), |text, (name, value)| format!("{text} {name}={value}"))
     }
 
+    /// The body as text: a heading marked `#`, an item `-`, a gap `|`.
     fn labels(body: &[Widget]) -> Vec<String> {
         body.iter()
             .map(|w| match w {
                 Widget::Label(text) => text.clone(),
+                Widget::Heading(text) => format!("# {text}"),
+                Widget::Item(text) => format!("- {text}"),
+                Widget::Gap => "|".into(),
                 _ => "?".into(),
             })
             .collect()
@@ -114,20 +121,23 @@ mod tests {
         assert_eq!(
             labels(&details(&card("a", permissions), &words, &mod_text)),
             [
-                "Mod a",
+                "# Mod a",
                 "EU4HARMONY_MODS_VERSION VERSION=1.2",
+                "|",
                 "Fights for you.",
+                "|",
                 "EU4HARMONY_MODS_BEYOND",
-                "EU4HARMONY_MODS_CLOCK",
-                r"EU4HARMONY_MODS_FILES FOLDER=C:\u\eu4-harmony\data\a",
-                "EU4HARMONY_MODS_NETWORK HOSTS=api.example.com, 192.168.1.10:8080",
+                "- EU4HARMONY_MODS_CLOCK",
+                r"- EU4HARMONY_MODS_FILES FOLDER=C:\u\eu4-harmony\data\a",
+                "- EU4HARMONY_MODS_NETWORK HOSTS=api.example.com, 192.168.1.10:8080",
+                "|",
                 "EU4HARMONY_MODS_DECLARED",
             ]
         );
         // No description in its localisation, no version, nothing declared.
         let mut bare = card("b", Permissions::default());
         bare.version = None;
-        assert_eq!(labels(&details(&bare, &words, &mod_text)), ["Mod b", "EU4HARMONY_MODS_NO_DESCRIPTION", "EU4HARMONY_MODS_NOTHING_BEYOND"]);
+        assert_eq!(labels(&details(&bare, &words, &mod_text)), ["# Mod b", "|", "EU4HARMONY_MODS_NO_DESCRIPTION", "|", "EU4HARMONY_MODS_NOTHING_BEYOND"]);
     }
 
     #[test]
@@ -136,7 +146,7 @@ mod tests {
         let w = window(&[card("a", Permissions::default()), card("b", Permissions::default())], &words, &none);
         let side = w.side.as_ref().unwrap();
         assert_eq!((side.items.clone(), side.selected), (vec!["Mod a".to_string(), "Mod b".to_string()], 0));
-        assert_eq!(labels(&w.body)[0], "Mod a");
+        assert_eq!(labels(&w.body)[0], "# Mod a");
         let empty = window(&[], &words, &none);
         assert!(empty.side.is_none());
         assert_eq!(labels(&empty.body), ["EU4HARMONY_MODS_NONE"]);

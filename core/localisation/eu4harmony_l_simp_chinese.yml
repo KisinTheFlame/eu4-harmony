@@ -39,9 +39,9 @@ l_simp_chinese:
  EU4HARMONY_MODS_VERSION:0 "版本 $VERSION$"
  EU4HARMONY_MODS_NO_DESCRIPTION:0 "这个 Mod 没有介绍。"
  EU4HARMONY_MODS_BEYOND:0 "在游戏之外，这个 Mod 可以："
- EU4HARMONY_MODS_CLOCK:0 "• 读取现实中的日期和时间"
- EU4HARMONY_MODS_FILES:0 "• 在 $FOLDER$ 里保存自己的文件"
- EU4HARMONY_MODS_NETWORK:0 "• 通过互联网与 $HOSTS$ 收发数据"
+ EU4HARMONY_MODS_CLOCK:0 "读取现实中的日期和时间"
+ EU4HARMONY_MODS_FILES:0 "在 $FOLDER$ 里保存自己的文件"
+ EU4HARMONY_MODS_NETWORK:0 "通过互联网与 $HOSTS$ 收发数据"
  EU4HARMONY_MODS_DECLARED:0 "以上由 Mod 自己声明：说明它能做什么，不代表它实际做了什么。"
  EU4HARMONY_MODS_NOTHING_BEYOND:0 "这个 Mod 不做游戏之外的事。"
  # 游戏在代码里按英文顺序写的日期，在这个语言里的写法；没有这几条的语言保持游戏原样。
