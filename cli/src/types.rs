@@ -7,12 +7,14 @@
 //! They go in the mod's `.eu4-harmony/types/`, with a `.luarc.json` beside
 //! the mod's folders that points the editor at them; `package` leaves both
 //! out, as it does every name that starts with a dot.
-use eu4_harmony_remote::{capabilities, lua, prose, Capability, Kind, API_VERSION};
+use eu4_harmony_remote::{capabilities, lua, prose, result_shape, shape::Shape, Capability, Kind, API_VERSION};
 use std::{fmt::Write as _, path::Path};
 
 /// How `err` is returned: not as `eu4.Err|nil`, which would have the editor
 /// ask for a nil check after testing the result instead of `err`, though
-/// `err` is there exactly when the result is not.
+/// `err` is there exactly when the result is not. The result that comes with
+/// it is not written `|nil` either, for the same reason (LuaLS, 2026-11-03):
+/// `if err then return end` leaves it unchecked.
 const ERR: &str = "eu4.Err err why it failed: nil when it did not";
 
 /// Where the definitions go in a mod, and the editor's settings.
@@ -102,6 +104,7 @@ pub fn definitions() -> String {
         "---@meta\n-- EU4 Harmony, capability catalogue {API_VERSION}: what a mod's Lua has.\n-- Written by eu4-harmony types; it writes them again for its version. Do not edit.\n\n{CLASSES}\n"
     );
     handlers(&mut out);
+    results(&mut out);
     game(&mut out);
     globals(&mut out);
     out
@@ -154,8 +157,80 @@ fn capability(out: &mut String, table: &str, c: &Capability) {
         let _ = writeln!(out, "---@param options? {{ {} }}", optional.join(", "));
         names.push("options".into());
     }
-    let _ = writeln!(out, "---@return any result {}, or nil when it failed\n---@return {ERR}", prose(c.result));
+    let result = result_shape(&c.name()).map_or("any".to_string(), |shape| shape_type(&shape));
+    let _ = writeln!(out, "---@return {result} result {}; nil when it failed\n---@return {ERR}", prose(c.result));
     let _ = writeln!(out, "function {table}.{}({}) end\n", c.action, names.join(", "));
+}
+
+/// The type a value of `shape` has in Lua, an object's by its class.
+fn shape_type(shape: &Shape) -> String {
+    let grouped = |inner: &Shape| {
+        let t = shape_type(inner);
+        if t.contains('|') {
+            format!("({t})")
+        } else {
+            t
+        }
+    };
+    match shape {
+        Shape::Integer => "integer".into(),
+        Shape::Number => "number".into(),
+        Shape::Boolean => "boolean".into(),
+        Shape::Text => "string".into(),
+        Shape::Words(words) => words.iter().map(|w| format!("\"{w}\"")).collect::<Vec<_>>().join("|"),
+        Shape::Optional(inner) => format!("{}|nil", shape_type(inner)),
+        Shape::List(inner) => format!("{}[]", grouped(inner)),
+        Shape::Map(inner) => format!("table<string, {}>", shape_type(inner)),
+        Shape::Object { class, .. } => format!("eu4.{class}"),
+        Shape::Either(shapes) => shapes.iter().map(shape_type).collect::<Vec<_>>().join("|"),
+        Shape::Date => "eu4.Date".into(),
+        Shape::Nothing => "true".into(),
+        Shape::Any => "any".into(),
+    }
+}
+
+/// Every class `shape` names, with the classes inside it, once each, in
+/// the order met.
+fn classes(shape: &Shape, found: &mut Vec<Shape>) {
+    match shape {
+        Shape::Object { class, fields, .. } => {
+            if !found.iter().any(|f| matches!(f, Shape::Object { class: c, .. } if c == class)) {
+                found.push(shape.clone());
+                for field in fields {
+                    classes(&field.shape, found);
+                }
+            }
+        }
+        Shape::Optional(inner) | Shape::List(inner) | Shape::Map(inner) => classes(inner, found),
+        Shape::Either(shapes) => shapes.iter().for_each(|s| classes(s, found)),
+        _ => {}
+    }
+}
+
+/// The classes of the capabilities' results.
+fn results(out: &mut String) {
+    let mut found = Vec::new();
+    for c in game_capabilities() {
+        if let Some(shape) = result_shape(&c.name()) {
+            classes(&shape, &mut found);
+        }
+    }
+    for class in found {
+        let Shape::Object { class, about, fields } = class else { continue };
+        if !about.is_empty() {
+            let _ = writeln!(out, "--- {about}");
+        }
+        let _ = writeln!(out, "---@class eu4.{class}");
+        for field in fields {
+            let left_out = if field.may_be_left_out || matches!(field.shape, Shape::Optional(_)) { "?" } else { "" };
+            let shape = match &field.shape {
+                Shape::Optional(inner) => inner.as_ref(),
+                other => other,
+            };
+            let _ = writeln!(out, "---@field {}{left_out} {} {}", field.name, shape_type(shape), field.about);
+        }
+        out.push('\n');
+    }
 }
 
 /// A function of the sandbox, as `lua` describes it.
@@ -178,8 +253,14 @@ fn function(out: &mut String, name: &str, f: &lua::Function) {
             let _ = writeln!(out, "---@return {ERR}");
             continue;
         }
-        let ty = if r.optional { format!("{}|nil", r.ty) } else { r.ty.to_string() };
-        let _ = writeln!(out, "---@return {ty} {} {}", r.name, r.about);
+        // A result that comes with err is nil exactly when err is not.
+        let with_err = f.returns.iter().any(|r| r.ty == "eu4.Err");
+        let (ty, nil) = match (r.optional, with_err) {
+            (true, true) => (r.ty.to_string(), "; nil when it failed"),
+            (true, false) => (format!("{}|nil", r.ty), ""),
+            (false, _) => (r.ty.to_string(), ""),
+        };
+        let _ = writeln!(out, "---@return {ty} {} {}{nil}", r.name, r.about);
     }
     let _ = writeln!(out, "function {name}({}) end\n", names.join(", "));
 }
@@ -242,6 +323,42 @@ mod tests {
         assert!(!text.contains("eu4.Err|nil"));
         // An element takes nil, as text.get may answer.
         assert!(text.contains("---@field tooltip string|nil"));
+    }
+
+    #[test]
+    fn a_result_has_its_class_and_its_fields() {
+        let text = definitions();
+        let army = text
+            .split(
+                "
+
+",
+            )
+            .find(|block| {
+                block.contains(
+                    "---@class eu4.Army
+",
+                )
+            })
+            .unwrap();
+        for field in ["---@field id integer", "---@field kind \"army\"|\"navy\"", "---@field province? integer", "---@field route integer[]"] {
+            assert!(army.contains(field), "{field} in {army}");
+        }
+        let get = text
+            .split(
+                "
+
+",
+            )
+            .find(|block| block.contains("function eu4_game_army.get("))
+            .unwrap();
+        assert!(get.contains("---@return eu4.Army result"), "{get}");
+        // Every class a result names is written.
+        for class in text.match_indices("eu4.").map(|(i, _)| text[i + 4..].split(|c: char| !c.is_ascii_alphanumeric()).next().unwrap()) {
+            assert!(text.contains(&format!("---@class eu4.{class}")) || class == "game", "eu4.{class} is named but not written");
+        }
+        // A result with err is nil only when err is not.
+        assert!(!text.contains("|nil result") && !text.contains("string|nil text"));
     }
 
     #[test]

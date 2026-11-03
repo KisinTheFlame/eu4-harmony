@@ -213,8 +213,18 @@ name = "eu4-harmony-remote"
 version = "0.1.0"
 dependencies = [
  "eu4-harmony-checks",
+ "eu4-harmony-remote-derive",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "eu4-harmony-remote-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

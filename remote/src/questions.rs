@@ -26,7 +26,7 @@ group! {
 }
 
 /// A question: one of the game's events waiting for the player's answer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Question {
     /// Names the question while it waits; a later question of the same event
     /// has another.
@@ -42,7 +42,7 @@ pub struct Question {
 }
 
 /// An option of a question.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct QuestionOption {
     /// What question.answer takes; options the player may not choose are
     /// left out, so the numbers may skip.

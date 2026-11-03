@@ -41,7 +41,7 @@ group! {
 
 /// A kind of regiment or ship, as the game sorts unit types: what a recruit
 /// order names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum UnitKind {
     Infantry,
@@ -55,7 +55,7 @@ pub enum UnitKind {
 
 /// Whether the player can recruit one regiment or ship of a kind in a
 /// province now.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Recruit {
     pub kind: UnitKind,
     /// The key of the unit type the player recruits of this kind, such as

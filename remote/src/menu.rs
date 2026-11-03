@@ -77,7 +77,7 @@ impl MenuRequest {
 }
 
 /// Where the game is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum Place {
     /// The main menu shows, on any of its pages, and no game is being
@@ -94,7 +94,7 @@ pub enum Place {
 }
 
 /// Which process answers, and where the game is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Menu {
     /// When the game process answering started, in milliseconds since 1970:
     /// a different number once the game has started again.
@@ -103,7 +103,7 @@ pub struct Menu {
 }
 
 /// A save in the save games folder.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Save {
     /// The file's name without `.eu4`, which menu.load takes.
     pub name: String,

@@ -34,7 +34,7 @@ group! {
 }
 
 /// A proposal waiting for the player's answer.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Offer {
     /// Names the offer while it waits.
     pub id: u32,
