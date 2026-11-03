@@ -519,7 +519,7 @@ mod tests {
     fn tests_drive_waiting_tasks_and_requests_and_report_what_fails() {
         let dir = temp("tests-drive");
         let root = create_mod(&dir, "driven", "Driven").unwrap();
-        write(&root.join("eu4-harmony/manifest.toml"), "id = \"driven\"\napi_version = \"0.2\"\npermissions = { network = [\"api.example.com\"] }\n").unwrap();
+        write(&root.join("eu4-harmony/manifest.toml"), "id = \"driven\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }\n").unwrap();
         write(
             &root.join("eu4-harmony/lua/main.lua"),
             r#"
@@ -538,7 +538,7 @@ mod tests {
                 game.map.paint({ [151] = 0xFF0000 })
                 log("day " .. tostring(date) .. " " .. tostring(select(2, game.country.get("FRA")).code))
               end,
-              on_save = function(game) return { kept = true } end,
+              save_data = function(game) return { kept = true } end,
             }
             "#,
         )

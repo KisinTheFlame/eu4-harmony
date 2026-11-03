@@ -129,7 +129,7 @@ mod tests {
             dir: dir.clone(),
             manifest: crate::mods::Manifest::parse(
                 "id = \"t\"
-api_version = \"0.2\"",
+api_version = \"0.3\"",
             )
             .unwrap(),
             layout: Default::default(),

@@ -357,12 +357,12 @@ pub const SESSION_ENDED_LOAD: u32 = 1;
 /// For a new game started from the session.
 pub const SESSION_ENDED_NEW_GAME: u32 = 2;
 
-/// Every extension's save data, from its `on_save` (ADR 0028), as the game
-/// writes its world, on the main thread. One whose `on_save` fails or
+/// Every extension's save data, from its `save_data` (ADR 0034), as the game
+/// writes its world, on the main thread. One whose `save_data` fails or
 /// returns what JSON cannot hold has none in this save.
 pub fn save_data() {
     for e in extensions() {
-        match e.on_save() {
+        match e.save_data() {
             None => {}
             Some(Ok(data)) => saves::set(e.id(), data),
             Some(Err(_)) => saves::set(e.id(), None),

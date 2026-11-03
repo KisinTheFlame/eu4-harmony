@@ -69,7 +69,7 @@ events, as the game raises them:
   mod:frame()          mod:button(name, { right, shift, ctrl })
   mod:army_ordered(army)   mod:army_defeated(army)   mod:map_lost()
   mod:poll()           takes up waiting tasks whose answer came; frame does it too
-  mod:save()           calls on_save: its data, or nil and why it failed
+  mod:save()           calls save_data: its data, or nil and why it failed
 
 what the mod did:
   mod:log()            its log lines; mod:errors() those of errors
