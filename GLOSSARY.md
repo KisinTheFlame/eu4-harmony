@@ -206,6 +206,10 @@ _Avoid_: element (that means a button, text box and so on in the game's `.gui`)
 A widget that is either on or off, switched by a click.
 _Avoid_: checkbox, switch, radio button (a different widget: one choice among several)
 
+**Side list**:
+A list down a window's left side in the framework UI, one item of which is chosen with a click; the rest of the window shows the chosen one.
+_Avoid_: sidebar, tabs, master-detail
+
 **Notice window**:
 The window in the framework UI that shows notices to the player. To the player it is a window, but it is not a window in the game's sense. When the framework fails to start, a Windows message box is used instead.
 _Avoid_: dialog; message box (that is the Windows message box used when startup fails)
