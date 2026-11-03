@@ -46,7 +46,8 @@ impl Default for CallTrace {
     }
 }
 
-/// The census has no options: it counts at every world reset.
+/// The census has no options: a generation ends at every world reset and
+/// when remote control asks.
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HeapCensus {}
@@ -92,7 +93,7 @@ impl Options {
             });
         }
         if built("heap-census") {
-            lines.push("heap census: at every world reset".to_string());
+            lines.push("heap census: a generation ends at every world reset and at memory.generation".to_string());
         }
         if built("command-log") {
             let types = &self.command_log.types;

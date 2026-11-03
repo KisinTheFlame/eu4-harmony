@@ -563,6 +563,8 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
         Request::Menu(r) => menu::run(r, game),
         Request::Diplomacy(r) => diplomacy::run(r, game, now),
+        #[cfg(feature = "dev-heap-census")]
+        Request::Memory(r) => done(Ok(Answer::Memory(crate::census::answer(r)))),
     }
 }
 

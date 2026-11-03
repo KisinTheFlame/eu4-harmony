@@ -48,7 +48,8 @@ fn every_capability_runs_at_a_game_frame() {
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
-    let cases: Vec<(Request, Check)> = vec![
+    #[cfg_attr(not(feature = "dev-heap-census"), expect(unused_mut, reason = "only the heap census adds cases"))]
+    let mut cases: Vec<(Request, Check)> = vec![
         (Request::Session(SessionRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})))),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
         (Request::Time(TimeRequest::SetSpeed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
@@ -224,6 +225,20 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(Value::is_null)),
         (Request::Menu(MenuRequest::Return {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "ending"})))),
     ];
+    // A developer build's census, which counts nothing here.
+    #[cfg(feature = "dev-heap-census")]
+    {
+        use eu4_harmony_remote::memory::MemoryRequest;
+        cases.push((
+            Request::Memory(MemoryRequest::Get {}),
+            Box::new(|v: &Value| v["result"]["private"].as_u64() > Some(0) && v["result"]["generations"] == json!([])),
+        ));
+        cases.push((
+            Request::Memory(MemoryRequest::Leftovers { sites: None }),
+            Box::new(|v: &Value| v["result"]["sites"] == json!([]) && v["result"]["bytes"] == 0),
+        ));
+        cases.push((Request::Memory(MemoryRequest::Generation {}), Box::new(|v: &Value| v["result"].as_u64() > Some(0))));
+    }
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();
     let all: BTreeSet<String> = capabilities().iter().map(|c| c.name()).collect();

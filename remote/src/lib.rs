@@ -287,6 +287,10 @@ groups! {
     Menu(menu::MenuRequest, MenuAnswer),
     /// The player's diplomatic actions.
     Diplomacy(diplomacy::DiplomacyRequest, DiplomacyAnswer),
+    #[cfg(feature = "dev-memory")]
+    /// What the game holds in memory, and what the heap census found: a
+    /// developer build's (docs/leak-finding.md).
+    Memory(memory::MemoryRequest, MemoryAnswer),
 }
 
 pub mod binary;

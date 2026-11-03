@@ -14,5 +14,10 @@ eu4-harmony-remote-derive = { path = "derive" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[features]
+# The memory group, which a developer build with the heap census answers
+# (src/memory.rs).
+dev-memory = []
+
 [lints]
 workspace = true

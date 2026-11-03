@@ -15,7 +15,7 @@ Tools for trying things in a running game, finding dependency points and looking
 | `crash-dump.py` | Runs debugger commands on a crash dump with Windows' own dbgeng.dll, with no debugger to install; needs 64-bit Python 3.8 or later |
 | `core/examples/disasm.rs` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments |
 | `dev-call-trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value (`core/src/trace.rs`; [below](#call-tracing)) |
-| `dev-heap-census` feature | Counts the game's live heap blocks by call site and logs at every world reset those the earlier sessions left (`core/src/census.rs`) |
+| `dev-heap-census` feature | Counts the game's live heap blocks by site and generation, logs at every world reset those the earlier sessions left, and answers remote control's `memory` group: `eu4-harmony game memory`, `memory.leftovers`, `memory.generation` (`core/src/census.rs`, [docs/leak-finding.md](../docs/leak-finding.md)) |
 | `dev-command-log` feature | Logs every command the game executes, or those of the types named, in its written form, as the command layer hears them (`core/src/command_log.rs`, `core/src/game/commands.rs`) |
 | `dev-test-switches` feature | Makes startup fail, shows two test notices, or posts commands written in the game's form through the command layer at the first frame of every game, to try the failure, the notice window and the game's commands on a supported game |
 
