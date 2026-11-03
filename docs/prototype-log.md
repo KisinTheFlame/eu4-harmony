@@ -1093,7 +1093,7 @@ This branch's uncommitted change for part C0 of [commands.md](commands.md): the 
 
 ## 2026-11-03 Commands C1 to C3 (tested by me)
 
-The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0033), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
+The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0035), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
 
 - **Startup**: 756 dependency points matched for ff49db0, 758 for the change after it; 132 hooks, 10 writes.
 - **The test commands, at the first frame of each game**: the recruit in Paris and the alliance with Scotland were carried out (France's manpower 11,798 → 10,798); the recruit in London was refused by its check (`Check`); `province=abc` (read as -1), `provinec`, `nosuchcommand` and the missing brace were refused unread, each with its reason.
