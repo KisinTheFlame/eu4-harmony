@@ -43,7 +43,7 @@ The question was whether the framework can post any of the game's commands from 
 
 ## When the update runs the queue
 
-Read from the code on 2026-11-03, for the layer to run a command at once (ADR 0033); not yet checked in the running game.
+Read from the code on 2026-11-03, for the layer to execute a command at once (ADR 0033).
 
 - **The local handler's queue.** Its post (`+0x30`, `0x1580370`) puts the command it read back into a concurrent queue at the handler's `+0x118` (`0x1580ff0`). Its `+0x38`, `0x15801c0(handler, 0)`, takes each command out of that queue, clones it (`+0x60`, with the ID copied), puts the clone at the end of the list at `+0xc8` and destroys the one taken; its `+0x48` (`0x8b0e0`) answers that list, which the execution `0x14ca870` takes, and its `+0x88` (`0x1574f30`) the one at `+0x98`.
 - **`CSession::Update`** `0x14ca360` reads the session's state, a u32 at `+0x48` (`0x14ca572`):
@@ -51,8 +51,8 @@ Read from the code on 2026-11-03, for the layer to run a command at once (ADR 00
   - in state 13 it calls the handler's `+0x38` only; in 3, 7 and 16 it runs nothing;
   - in any other state it calls the handler's `+0x38`, and, in state 6 alone and under the same two conditions, first handles `+0x840` when it is set (clears it, tells the session's listeners with 3, calls `0x14cd8b0`), then runs the queue (`0x14ca651`–`0x14ca6b7`).
 - The update refuses to run on another thread than the main one ("CSession::Update called from other than main thread").
-- The day is posted in the map manager's frame ([time.md](time.md)), so at the framework's safe point after that frame a day posted then is still queued: running the queue there runs it.
-- **Not known**: which state a single player game is in while it is played; what `+0x840`'s step does.
+- The day is posted in the map manager's frame ([time.md](time.md)), so at the framework's safe point after that frame a day posted then is still queued: running the queue there runs it. Tested: a build that ran the queue at its safe point hung the game at speed 5, at the first command it posted while time ran. The main thread's stack showed why: the day the queue held ran there, past its budget it ran a whole application frame ([architecture.md](architecture.md), frames inside a day), whose Present came back into the framework's safe point, which waited on a lock its outer call held.
+- **Not known**: which state a single player game is in while it is played (it is one the update executes commands in: every command the layer executed was taken); what `+0x840`'s step does.
 
 ## Kinds of command
 
@@ -66,9 +66,9 @@ From the vtables' slots (a slot that is not the base's answer, `0x8f450`, is the
 ## What this means for the framework
 
 - **Posting a command from its written form** needs: a memory stream over the framework's text, a text tokenizer over it (the base `0x170d1d0(tokenizer, stream, flag)`, vtable `0x1dbf958`, as the local handler makes the binary one), a reader (`0x17096f0`), the factory, the command's read, its check, and the post. Each of these is used by the game for every command, so the path is the one the game takes; what is new is only that the text was not written by the game. Tried in the game: see below.
-- **Running a command at once**, as ADR 0033 has the layer do, needs what the update does to run the queue (above): the session's state and its two flags read, `+0x814` set around the run in the states that set it, the handler's `+0x38`, and `0x14ca870`. Its steps are the update's own, so the command is checked again, logged, counted in the session's lists and destroyed as at the next frame.
+- **Executing a command at once**, as ADR 0033 has the layer do, needs what the execution `0x14ca870` does for one command that passed its check (above, steps 1 to 4, from `0x14caed8`): before and after in modes 4, 6 and 7, the session's `+0x7d4` and the flag `0x1fd10c4` set around it, and the function object (vtable `0x1d8c8b0`, the command at `+8`, its own address at `+0x38`) run through `0x14d4e70` and destroyed with its `+0x20`. The stamp is the post's (`0x14ca318`): the sender from the session's `+0x8c`, the tick from its `+0x68`, at most `0x7fff`. Whether the session would execute commands now is the update's test (above). Not done: the session's ID, its lists and the hand-off `0x157b1a0`, which writes the command once more in binary and logs it.
 - **Hearing commands** needs one observe point, on `0x14cea10`; writing the command out as text (its `+0x08` with a text writer) gives its fields by name. Tried in the game: see below.
-- **Not yet known**, to settle before a design: what the reader's string vector and name (`r8`, `r9` of `0x17096f0`) hold, which reading back did without (below); whether `+0x4a` and the session's mode `+0x50` matter in single player; and why three classes run without their sender and stamp (below).
+- **Not yet known**, to settle before a design: what the reader's string vector and name (`r8`, `r9` of `0x17096f0`) hold, which reading back did without (below); and whether `+0x4a` and the session's mode `+0x50` matter in single player. Why three classes ran without their sender and stamp is below (the layer's run).
 
 ## Tried in the game: the command log
 
@@ -118,3 +118,12 @@ With `EU4HARMONY_COMMANDS_POST` naming a file, the log read each of its lines in
 - **The check judges the command for the country it names, not for the player.** A recruit for England, posted from France's game, passed and was carried out at England's cost: nothing on the way compares the country with who posted it, as the static reading above found. Whatever offers posting from text decides itself which countries a caller may command.
 - The posted commands ran with `sender=-1 tickstamp=65535`, as these classes' did in the earlier runs.
 - **Not tried**: the post `0x14ca210`; posting outside a command's execute (the framework's safe point, where its recruit posts); a class that is not `buildunit` or a diplomatic action; a command a later check drops (the session's check at execution, which the framework's recruit has seen drop orders); a save loaded, ironman, multiplayer.
+
+## Tried in the game: the layer executing commands at once
+
+Two processes of the developer build on 2026-11-03, each a new game as France at 1444.11.11 ([prototype-log.md](../prototype-log.md)), the layer executing each command alone as above:
+
+- **Every kind the layer writes ran as written** and was heard as the game's own are: `buildunit`, `diplomaticactioncommand`, `move_order={ unit={ id=127 type=54 } province={ 184 } location=183 clear=yes cancel_autofleet=yes ... }`, `cancel_movement={ ... unit={ id=127 type=54 } cancel_autofleet=yes reason=1 }`, `increase_game_speed` and `decrease_game_speed`. Each came back from its write as given, so the written forms read from the code ([army-orders.md](army-orders.md), [time.md](time.md)) are right.
+- **Sender and stamp.** Executed so, a `buildunit` and a `diplomaticactioncommand` ran with `sender=1` and the session's tick, as the other classes do. So the defaults they ran with when posted come from the local handler's read-back, not from the post: in a build that posted them, a call trace of `buildunit`'s key read `0x26dba0` showed it called in the binary read-back with the base keys too (`tickstamp` `0xc7`, `istargetasynchronous` `0xcc`, `identity` `0xdb`, `sender` `0x240`), each answered, and the copy that ran still held `sender=-1 tickstamp=65535`: the class's own key read takes the base keys and does not keep them, and so does the game's own `buildunit`, every one of which runs so. The identity of a command the layer executes is 0, as it never has one of the session's.
+- **At once**: each capability's call took 0.0 to 1.3 ms in the game (24 ms for the first recruit of a process); the state it changed read back changed at the next request (an army's route, France's manpower and treasury, the speed).
+- **Not tried**: a session state the update executes no commands in; a command whose own check refuses it only when executed; a save loaded, ironman, multiplayer.

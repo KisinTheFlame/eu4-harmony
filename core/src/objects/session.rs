@@ -9,17 +9,20 @@ pub const CLASS: usize = 0x1d8c900;
 /// [`map_manager::SESSION`]): `[[map manager + 0x330] + 0x370]`.
 pub const OF_MAP_MANAGER: usize = 0x811aa0;
 
-/// Its fields, as its update `0x14ca360` reads them.
+/// Its fields, as its update `0x14ca360`, its post `0x14ca2d0` and its
+/// execution `0x14ca870` read them.
 pub mod fields {
     /// Its state, u32: the update runs its queued commands in
     /// [`super::RUNS_QUEUE`]'s states and in [`super::RUNNING`].
     pub const STATE: usize = 0x48;
-    /// Its command handler, whose `+0x30` takes a command posted.
-    pub const HANDLER: usize = 0x58;
+    /// Its mode, u32: commands' steps before and after they execute are
+    /// called in modes 4, 6 and 7.
+    pub const MODE: usize = 0x50;
+    /// The tick (i32) and the sender (i32) its post stamps a command with.
+    pub const TICK: usize = 0x68;
+    pub const SENDER: usize = 0x8c;
     /// Set while a command executes.
     pub const EXECUTING: usize = 0x7d4;
-    /// Set while the update runs the queue in [`super::RUNS_QUEUE`]'s states.
-    pub const UPDATING: usize = 0x814;
     /// Set when the update has to start the session's next stage first, in
     /// [`super::RUNNING`].
     pub const STARTING: usize = 0x840;
@@ -27,9 +30,9 @@ pub mod fields {
     pub const HELD: usize = 0x841;
 }
 
-/// The states in which the update runs the queued commands, one bit each,
-/// with [`fields::UPDATING`] set; and the one state in which it runs them
-/// otherwise, once [`fields::STARTING`] is clear.
+/// The states in which the update runs the queued commands, one bit each;
+/// and the one state in which it runs them otherwise, once
+/// [`fields::STARTING`] is clear.
 pub const RUNS_QUEUE: u32 = 0xc014;
 pub const RUNNING: u32 = 6;
 

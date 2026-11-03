@@ -211,19 +211,13 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
 }
 
 const IS_PAUSED: usize = 0x7e01b0;
-/// Posts a command to the game's session: (session, command); whether it
-/// took it ([`post`]).
-const POST: usize = 0x14ca2d0;
 
 pub const MAX_PROVINCES: usize = 50_000;
 pub const MAX_UNITS: usize = 100_000;
 
 /// Game functions the game-state capabilities call or observe.
 pub fn points() -> Vec<Point> {
-    let mut points = vec![
-        Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query"),
-        Point::keep(POST, "48 89 5c 24 08 57 48 83 ec 20 48 83 79 58 00 48", "command post"),
-    ];
+    let mut points = vec![Point::keep(IS_PAUSED, "40 53 48 83 ec 20 80 79 48 00 48 8b d9 74 0e", "pause query")];
     points.extend(commands::points());
     points.extend(world::points());
     points.extend(orders::points());
@@ -363,15 +357,6 @@ pub fn command_session(m: &Memory, ctx: &Ctx) -> GResult<usize> {
         return Err("the map manager has no session".to_string().into());
     }
     Ok(session)
-}
-
-/// Posts a command to the game's session ([`command_session`]), as the
-/// player's buttons do; whether the session took it, after which it is the
-/// game's. A single player game's session takes it at any time; one that is
-/// not a client takes it only while the map manager's frame runs
-/// (docs/research/recruiting.md).
-pub fn post(m: &Memory, session: usize, command: usize) -> GResult<bool> {
-    Ok(m.call(m.at(POST), &[session, command])? as u8 != 0)
 }
 
 /// Bounded element count of a `[begin, end)` vector of `stride`-byte items.
