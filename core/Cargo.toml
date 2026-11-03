@@ -75,12 +75,15 @@ analysis = ["dep:iced-x86"]
 # The development tools, for finding things out in the game; each is on when
 # built in, with its options in dev.toml (src/dev.rs). A player's build has
 # none of them, and `dev` has them all.
-dev = ["dev-call-trace", "dev-heap-census", "dev-command-log", "dev-test-switches"]
+dev = ["dev-call-trace", "dev-memory", "dev-heap-census", "dev-command-log", "dev-test-switches"]
 # Logs calls of the game functions dev.toml names (src/trace.rs).
 dev-call-trace = ["analysis", "dep:toml"]
+# Answers remote control's memory: what the process holds, by where it
+# lies, at no cost between two asks (src/memory_account.rs).
+dev-memory = ["dep:toml", "eu4-harmony-remote/dev-memory"]
 # Counts the game's live heap blocks by call site, and answers remote
-# control's memory group (src/census.rs).
-dev-heap-census = ["dep:toml", "eu4-harmony-remote/dev-memory"]
+# control's memory.leftovers and memory.generation (src/census.rs).
+dev-heap-census = ["dev-memory"]
 # Logs the commands the game executes, in their written form (src/command_log.rs).
 dev-command-log = ["dep:toml"]
 # Makes startup fail, or shows test notices, as dev.toml says.

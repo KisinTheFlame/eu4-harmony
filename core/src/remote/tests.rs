@@ -53,7 +53,7 @@ fn every_capability_runs_at_a_game_frame() {
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
-    #[cfg_attr(not(feature = "dev-heap-census"), expect(unused_mut, reason = "only the heap census adds cases"))]
+    #[cfg_attr(not(feature = "dev-memory"), expect(unused_mut, reason = "only the memory account adds cases"))]
     let mut cases: Vec<(Request, Check)> = vec![
         (Request::Session(SessionRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})))),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
@@ -253,23 +253,34 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Input(InputRequest::KeyDown { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Input(InputRequest::KeyUp { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
     ];
-    // A developer build's census, which counts nothing here; first, ahead of
-    // the input, which waits for frames of its own.
-    #[cfg(feature = "dev-heap-census")]
+    // A developer build's memory account, and its census, which counts
+    // nothing here; first, ahead of the input, which waits for frames of its
+    // own.
+    #[cfg(feature = "dev-memory")]
     {
+        let census = cfg!(feature = "dev-heap-census");
         use eu4_harmony_remote::memory::MemoryRequest;
-        let census: Vec<(Request, Check)> = vec![
+        let memory: Vec<(Request, Check)> = vec![
             (
                 Request::Memory(MemoryRequest::Get {}),
-                Box::new(|v: &Value| v["result"]["private"].as_u64() > Some(0) && v["result"]["generations"] == json!([])),
+                Box::new(move |v: &Value| {
+                    let r = &v["result"];
+                    r["private"].as_u64() > Some(0)
+                        && r["generations"] == json!([])
+                        && r["census"] == census
+                        && r["heaps"].as_array().is_some_and(|h| !h.is_empty())
+                }),
             ),
             (
                 Request::Memory(MemoryRequest::Leftovers { sites: None, holders: Some(true) }),
-                Box::new(|v: &Value| v["result"]["sites"] == json!([]) && v["result"]["bytes"] == 0),
+                Box::new(move |v: &Value| if census { v["result"]["sites"] == json!([]) && v["result"]["bytes"] == 0 } else { error("unavailable")(v) }),
             ),
-            (Request::Memory(MemoryRequest::Generation {}), Box::new(|v: &Value| v["result"].as_u64() > Some(0))),
+            (
+                Request::Memory(MemoryRequest::Generation {}),
+                Box::new(move |v: &Value| if census { v["result"].as_u64() > Some(0) } else { error("unavailable")(v) }),
+            ),
         ];
-        cases.splice(0..0, census);
+        cases.splice(0..0, memory);
     }
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();

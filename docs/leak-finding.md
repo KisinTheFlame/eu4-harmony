@@ -1,11 +1,11 @@
 # Leak finding plan
 
-Status: decided (2026-11-04); M1 and M2 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-04); M1, M1b and M2 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
 - **Goal**: a developer build that finds where the game's memory goes as sessions are left and begun, and why it stays, with as little looking by hand as can be: which code allocated what stays, what still points at it, and where blocks of its kind are let go when they are. And that tells whether a repair is safe: whether anything touches what it let go.
-- **In scope**: the heap census, which is the `dev-heap-census` feature, and what it answers through remote control; a leak run, a tool script that plays sessions through remote control and writes a report; the quarantine for repairs.
+- **In scope**: the memory account, which is the `dev-memory` feature, and splits what the process holds by where it lies; the heap census, which is the `dev-heap-census` feature, and what it answers through remote control; a leak run, a tool script that plays sessions through remote control and writes a report; the quarantine for repairs.
 - **Out of scope**:
   - repairing anything automatically: the report says where to look, and a person works the repair out from the game's code;
   - tracking regressions: a leak run gives numbers to compare, and nothing fails on them;
@@ -13,6 +13,16 @@ Status: decided (2026-11-04); M1 and M2 built and tried in the game the same day
   - handles, which are counted and not followed.
 
 ## Behavior
+
+### The memory account
+
+The memory account reads what Windows keeps of the process and its heaps when remote control asks, and nothing between two asks, so a run can measure without the census, which slows the game and holds hundreds of megabytes of its own. It splits the private bytes into:
+
+- the game's heap, what the game holds there: the game's C runtime allocates from the process's default heap, which the framework shares, so this is what that heap has allocated less the framework's heap;
+- the other heaps, what they hold;
+- the heaps' free pages: what they committed and do not use;
+- what lies outside the heaps: Direct3D's, the driver's, other whole pages;
+- the framework's heap.
 
 ### The census
 
@@ -24,14 +34,13 @@ The census counts every live block of the game's C runtime heap: the code that a
 
 ### What remote control answers
 
-Only in a developer build with the heap census do these capabilities exist; a player's build has neither the capabilities nor their descriptions.
+Only in a developer build with the memory account do these capabilities exist; a player's build has neither the capabilities nor their descriptions. Without the census, `memory.leftovers` and `memory.generation` answer `unavailable`.
 
 - `memory` gives what the process holds now:
   - private bytes, and how much of them the heaps have allocated and committed;
-  - what lies outside the heaps (Direct3D, the driver);
-  - the framework's own heap;
+  - the memory account's parts, and each heap, with which is the game's and which the default;
   - the handles;
-  - the census's live blocks and bytes by generation.
+  - whether the census is built in, and its live blocks and bytes by generation.
 - `memory.leftovers` gives the leftovers by site, largest first, and with `holders` what still points at them (M2, below). For each site:
   - the function the site is in;
   - the blocks and bytes each generation left there;
@@ -45,7 +54,7 @@ Only in a developer build with the heap census do these capabilities exist; a pl
 
 ### A leak run
 
-`tools/leak-run.ps1` plays rounds on a developer build installed with the heap census. A round is:
+`tools/leak-run.ps1` plays rounds on a developer build installed with the memory account, and with the census if it is built in. A round is:
 
 1. load a save from the main menu, and let time run;
 2. load another save from the game, and let time run;
@@ -55,10 +64,11 @@ Only in a developer build with the heap census do these capabilities exist; a pl
 
 The saves are chosen with `-Saves`, or else the two newest that `menu.saves` lists. The country of the new game is chosen with `-Country`, FRA by default.
 
-After every round the run asks `memory` and `memory.leftovers`, and prints one line: private bytes, the heaps, the framework's heap, the handles. At the end it writes `report.json`, with every answer, and `report.md`, with:
+After every round the run asks `memory`, and with the census `memory.leftovers`, and prints one line: private bytes, the memory account's parts, the handles. At the end it writes `report.json`, with every answer, and `report.md`, with:
 
 - a table of the rounds;
-- the leftover sites ordered by what each leaves per generation, with their trend, function and the places that let their blocks go.
+- where each round's growth went, part by part, on average from the end of the first round to the end of the last (the first round loads what stays for good), and each heap's growth;
+- with the census, the leftover sites ordered by what each leaves per generation, with their trend, function and the places that let their blocks go, and what holds them.
 
 ### Who still points at a leftover (M2)
 
@@ -97,6 +107,10 @@ With the `dev-quarantine` feature, the blocks a repair lets go, and the blocks t
 ### M1 The census answers through remote control
 
 The `memory` group; generations that remote control ends; sites counted above the generic allocation; where each site's blocks are let go; the leftovers with their function, trend and average; `tools/leak-run.ps1` and its report.
+
+### M1b The memory account
+
+The `dev-memory` feature, `memory` without the census, and the leak run's split of each round's growth.
 
 ### M2 Who still points at a leftover
 
