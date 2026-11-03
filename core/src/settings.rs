@@ -16,6 +16,8 @@ pub struct Settings {
     pub heading_font: Face,
     /// The system font and weight for names on the map.
     pub map_font: Face,
+    /// The system font and weight for the game console (GLOSSARY).
+    pub console_font: Face,
     /// Whether system glyphs on the map get the outline the map font's own
     /// glyphs have.
     pub map_outline: bool,
@@ -32,12 +34,17 @@ pub struct Settings {
 /// language.
 pub const DEFAULT_FONT: &str = "Microsoft YaHei";
 
+/// The game console's font when none is chosen: monospaced, as consoles are;
+/// Chinese in it falls back to [`DEFAULT_FONT`].
+pub const DEFAULT_CONSOLE_FONT: &str = "Consolas";
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             body_font: Face::regular(DEFAULT_FONT),
             heading_font: Face::regular(DEFAULT_FONT),
             map_font: Face::regular("KaiTi"),
+            console_font: Face::regular(DEFAULT_CONSOLE_FONT),
             map_outline: true,
             return_without_restart: true,
             save_ironman_before_load: true,
@@ -46,12 +53,18 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Every font chosen: for body text, headings, the map and the game
+    /// console.
+    pub fn fonts(&self) -> [&Face; 4] {
+        [&self.body_font, &self.heading_font, &self.map_font, &self.console_font]
+    }
+
     /// The font families chosen that `installed` does not have, each once;
     /// text that asks for one is drawn with [`DEFAULT_FONT`] instead, and the
     /// player is told once (ADR 0012).
     pub fn missing_fonts(&self, installed: impl Fn(&str) -> bool) -> Vec<&str> {
         let mut missing: Vec<&str> = Vec::new();
-        for face in [&self.body_font, &self.heading_font, &self.map_font] {
+        for face in self.fonts() {
             if !installed(&face.family) && !missing.contains(&face.family.as_str()) {
                 missing.push(&face.family);
             }
@@ -71,9 +84,11 @@ impl Settings {
                 "body_font" if !value.is_empty() => settings.body_font.family = value.to_string(),
                 "heading_font" if !value.is_empty() => settings.heading_font.family = value.to_string(),
                 "map_font" if !value.is_empty() => settings.map_font.family = value.to_string(),
+                "console_font" if !value.is_empty() => settings.console_font.family = value.to_string(),
                 "body_weight" => settings.body_font.weight = weight(value).unwrap_or(settings.body_font.weight),
                 "heading_weight" => settings.heading_font.weight = weight(value).unwrap_or(settings.heading_font.weight),
                 "map_weight" => settings.map_font.weight = weight(value).unwrap_or(settings.map_font.weight),
+                "console_weight" => settings.console_font.weight = weight(value).unwrap_or(settings.console_font.weight),
                 "map_outline" => settings.map_outline = yes(value).unwrap_or(settings.map_outline),
                 "return_without_restart" => settings.return_without_restart = yes(value).unwrap_or(settings.return_without_restart),
                 "save_ironman_before_load" => settings.save_ironman_before_load = yes(value).unwrap_or(settings.save_ironman_before_load),
@@ -85,9 +100,9 @@ impl Settings {
 
     pub fn render(&self) -> String {
         let yes_no = |on: bool| if on { "yes" } else { "no" };
-        let (body, heading, map) = (&self.body_font, &self.heading_font, &self.map_font);
+        let (body, heading, map, console) = (&self.body_font, &self.heading_font, &self.map_font, &self.console_font);
         format!(
-            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nreturn_without_restart={}\nsave_ironman_before_load={}\n",
+            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nconsole_font=\"{}\"\nconsole_weight={}\nreturn_without_restart={}\nsave_ironman_before_load={}\n",
             body.family,
             body.weight,
             heading.family,
@@ -95,6 +110,8 @@ impl Settings {
             map.family,
             map.weight,
             yes_no(self.map_outline),
+            console.family,
+            console.weight,
             yes_no(self.return_without_restart),
             yes_no(self.save_ironman_before_load)
         )
@@ -173,9 +190,14 @@ mod tests {
 
     #[test]
     fn a_chosen_font_not_installed_is_missing() {
-        let chosen =
-            Settings { body_font: Face::new("Gone", 700), heading_font: Face::regular("Also gone"), map_font: Face::regular("Gone"), ..Settings::default() };
-        assert_eq!(chosen.missing_fonts(|f| !f.contains("one")), ["Gone", "Also gone"]);
+        let chosen = Settings {
+            body_font: Face::new("Gone", 700),
+            heading_font: Face::regular("Also gone"),
+            map_font: Face::regular("Gone"),
+            console_font: Face::regular("Console gone"),
+            ..Settings::default()
+        };
+        assert_eq!(chosen.missing_fonts(|f| !f.contains("one")), ["Gone", "Also gone", "Console gone"]);
         assert!(Settings::default().missing_fonts(|_| true).is_empty());
     }
 
@@ -185,6 +207,7 @@ mod tests {
             body_font: Face::new("SimSun", 700),
             heading_font: Face::new("Microsoft YaHei", 700),
             map_font: Face::new("KaiTi", 290),
+            console_font: Face::new("Cascadia Mono", 600),
             map_outline: false,
             return_without_restart: false,
             save_ironman_before_load: false,
@@ -192,7 +215,10 @@ mod tests {
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().contains("\nbody_weight=700\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
-        assert!(custom.render().contains("\nmap_outline=no\nreturn_without_restart=no\nsave_ironman_before_load=no\n"));
+        assert!(custom.render().contains("\nmap_outline=no\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nreturn_without_restart=no\n"));
+        // A file from before the game console had a font of its own.
+        assert_eq!(Settings::parse("map_outline=no\n").console_font, Face::regular("Consolas"));
+        assert_eq!(Settings::parse("console_weight=700\n").console_font, Face::new("Consolas", 700));
         // A file from before headings had a font of their own, and from when
         // text could keep the fonts' own glyphs.
         let partial = Settings::parse("# comment\ntext_appearance=\"bitmap\"\nbody_font=\"DengXian\"\nmap_outline=maybe\nmap_weight=1000\nunknown=1\n");

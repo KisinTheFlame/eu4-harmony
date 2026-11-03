@@ -43,8 +43,9 @@ struct FrameworkUi {
     mods: Option<Window>,
     /// The system fonts the settings window offers.
     system_fonts: Option<SystemFonts>,
-    /// Families offered in the settings window, by English name.
-    families: Vec<String>,
+    /// Families offered in the settings window, by English name, by their
+    /// drop-down list.
+    families: HashMap<&'static str, Vec<String>>,
     /// Weights offered in the settings window, by their drop-down list.
     weights: HashMap<&'static str, Vec<u16>>,
 }
@@ -126,7 +127,7 @@ impl FrameworkUi {
             settings: None,
             mods: None,
             system_fonts: None,
-            families: Vec::new(),
+            families: HashMap::new(),
             weights: HashMap::new(),
         })
     }
@@ -134,33 +135,46 @@ impl FrameworkUi {
     fn open_settings(&mut self) {
         let next = settings::next();
         let fonts = SystemFonts::new().ok();
-        let offered = fonts.as_ref().map(|f| f.families_with('中' as u32, lang::player() == eu4_harmony_loc::Language::SimpChinese)).unwrap_or_default();
-        let mut families: Vec<String> = offered.iter().map(|(en, _)| en.clone()).collect();
-        let mut shown: Vec<String> = offered.into_iter().map(|(_, s)| s).collect();
-        for chosen in [&next.body_font.family, &next.heading_font.family, &next.map_font.family] {
-            if !families.contains(chosen) {
-                families.push(chosen.clone());
-                shown.push(chosen.clone());
+        let chinese = lang::player() == eu4_harmony_loc::Language::SimpChinese;
+        // The installed families that have `scalar`, by English name and as
+        // shown, and those chosen that are not installed.
+        let offered = |scalar: char, chosen: &[&String]| {
+            let offered = fonts.as_ref().map(|f| f.families_with(scalar as u32, chinese)).unwrap_or_default();
+            let (mut families, mut shown): (Vec<String>, Vec<String>) = offered.into_iter().unzip();
+            for &chosen in chosen {
+                if !families.contains(chosen) {
+                    families.push(chosen.clone());
+                    shown.push(chosen.clone());
+                }
             }
-        }
-        let index = |family: &String| families.iter().position(|f| f == family).unwrap_or(0);
+            (families, shown)
+        };
+        let (families, shown) = offered('中', &[&next.body_font.family, &next.heading_font.family, &next.map_font.family]);
+        // The game console's font may lack Chinese, which other fonts draw.
+        let (console_families, console_shown) = offered('A', &[&next.console_font.family]);
+        let index = |families: &[String], family: &String| families.iter().position(|f| f == family).unwrap_or(0);
         let (body_weights, body_names, body_weight) = weight_options(fonts.as_ref(), &next.body_font);
         let (heading_weights, heading_names, heading_weight) = weight_options(fonts.as_ref(), &next.heading_font);
         let (map_weights, map_names, map_weight) = weight_options(fonts.as_ref(), &next.map_font);
+        let (console_weights, console_names, console_weight) = weight_options(fonts.as_ref(), &next.console_font);
         let body = vec![
             Widget::Label(words("EU4HARMONY_SETTINGS_BODY_FONT")),
-            Widget::Dropdown { id: "body", options: shown.clone(), selected: index(&next.body_font.family) },
+            Widget::Dropdown { id: "body", options: shown.clone(), selected: index(&families, &next.body_font.family) },
             Widget::Label(words("EU4HARMONY_SETTINGS_BODY_WEIGHT")),
             Widget::Dropdown { id: "body_weight", options: body_names, selected: body_weight },
             Widget::Label(words("EU4HARMONY_SETTINGS_HEADING_FONT")),
-            Widget::Dropdown { id: "heading", options: shown.clone(), selected: index(&next.heading_font.family) },
+            Widget::Dropdown { id: "heading", options: shown.clone(), selected: index(&families, &next.heading_font.family) },
             Widget::Label(words("EU4HARMONY_SETTINGS_HEADING_WEIGHT")),
             Widget::Dropdown { id: "heading_weight", options: heading_names, selected: heading_weight },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_FONT")),
-            Widget::Dropdown { id: "map", options: shown, selected: index(&next.map_font.family) },
+            Widget::Dropdown { id: "map", options: shown, selected: index(&families, &next.map_font.family) },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_WEIGHT")),
             Widget::Dropdown { id: "map_weight", options: map_names, selected: map_weight },
             Widget::Toggle { id: "outline", label: words("EU4HARMONY_SETTINGS_MAP_OUTLINE"), on: next.map_outline },
+            Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_FONT")),
+            Widget::Dropdown { id: "console", options: console_shown, selected: index(&console_families, &next.console_font.family) },
+            Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_WEIGHT")),
+            Widget::Dropdown { id: "console_weight", options: console_names, selected: console_weight },
             Widget::Label(words("EU4HARMONY_SETTINGS_RESTART")),
             Widget::Toggle { id: "return", label: words("EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART"), on: next.return_without_restart },
             Widget::Toggle { id: "ironman_save", label: words("EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD"), on: next.save_ironman_before_load },
@@ -170,8 +184,13 @@ impl FrameworkUi {
         ];
         let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), body, 420.0);
         window.center(&self.font, self.screen.0, self.screen.1);
-        self.families = families;
-        self.weights = HashMap::from([("body_weight", body_weights), ("heading_weight", heading_weights), ("map_weight", map_weights)]);
+        self.families = HashMap::from([("body", families.clone()), ("heading", families.clone()), ("map", families), ("console", console_families)]);
+        self.weights = HashMap::from([
+            ("body_weight", body_weights),
+            ("heading_weight", heading_weights),
+            ("map_weight", map_weights),
+            ("console_weight", console_weights),
+        ]);
         self.system_fonts = fonts;
         self.settings = Some(window);
         MODAL.store(true, Ordering::Relaxed);
@@ -184,9 +203,10 @@ impl FrameworkUi {
         let weight_id = match id {
             "body" => "body_weight",
             "heading" => "heading_weight",
+            "console" => "console_weight",
             _ => "map_weight",
         };
-        let (Some(family), Some(window)) = (self.families.get(index), self.settings.as_mut()) else { return };
+        let (Some(family), Some(window)) = (self.families.get(id).and_then(|f| f.get(index)), self.settings.as_mut()) else { return };
         let chosen = window.selected(weight_id).and_then(|i| self.weights.get(weight_id)?.get(i).copied()).unwrap_or(system_font::REGULAR);
         let (weights, names, selected) = weight_options(self.system_fonts.as_ref(), &Face::new(family.clone(), chosen));
         window.set_options(weight_id, names, selected);
@@ -196,12 +216,13 @@ impl FrameworkUi {
     fn close_settings(&mut self, save: bool) {
         if let (true, Some(w)) = (save, &self.settings) {
             let next = settings::next();
-            let family = |id| w.selected(id).and_then(|i| self.families.get(i)).cloned();
+            let family = |id| w.selected(id).and_then(|i| self.families.get(id)?.get(i)).cloned();
             let weight = |id: &str| w.selected(id).and_then(|i| self.weights.get(id)?.get(i).copied());
             let chosen = Settings {
                 body_font: Face::new(family("body").unwrap_or(next.body_font.family), weight("body_weight").unwrap_or(next.body_font.weight)),
                 heading_font: Face::new(family("heading").unwrap_or(next.heading_font.family), weight("heading_weight").unwrap_or(next.heading_font.weight)),
                 map_font: Face::new(family("map").unwrap_or(next.map_font.family), weight("map_weight").unwrap_or(next.map_font.weight)),
+                console_font: Face::new(family("console").unwrap_or(next.console_font.family), weight("console_weight").unwrap_or(next.console_font.weight)),
                 map_outline: w.is_on("outline").unwrap_or(next.map_outline),
                 return_without_restart: w.is_on("return").unwrap_or(next.return_without_restart),
                 save_ironman_before_load: w.is_on("ironman_save").unwrap_or(next.save_ironman_before_load),
@@ -272,7 +293,7 @@ impl FrameworkUi {
         }
         if let Some(w) = self.settings.as_mut() {
             match Self::modal_event(w, &self.font, event) {
-                Some(Action::Chose(id @ ("body" | "heading" | "map"), index)) => self.family_chosen(id, index),
+                Some(Action::Chose(id @ ("body" | "heading" | "map" | "console"), index)) => self.family_chosen(id, index),
                 Some(Action::Pressed("save")) => self.close_settings(true),
                 Some(Action::Pressed(_)) | Some(Action::Closed) => self.close_settings(false),
                 _ => {}
