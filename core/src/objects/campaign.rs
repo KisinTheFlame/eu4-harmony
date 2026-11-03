@@ -140,6 +140,9 @@ pub mod achievements {
     pub const WHEN_NOT: usize = 0x88;
     pub const COMPLETED: usize = 0x50;
     pub const LISTS: [usize; 3] = [WHEN_POSSIBLE, WHEN_NOT, COMPLETED];
+    /// Whether the game checksum (GLOSSARY) is vanilla's (u8), as startup
+    /// took it.
+    pub const VANILLA_GAME_CHECKSUM: usize = 0x2;
 }
 
 /// What the game's in-game load (`game::menu::leave`) is asked to load, a
