@@ -146,7 +146,9 @@ dependencies = [
 name = "eu4-harmony-cli"
 version = "0.1.0"
 dependencies = [
+ "eu4-harmony-checks",
  "eu4-harmony-loc",
+ "eu4-harmony-lua",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
  "mlua",

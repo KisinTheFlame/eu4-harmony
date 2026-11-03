@@ -5,10 +5,12 @@
 //! in `eu4-harmony/` its extension in `lua/`, interface fragments in `ui/`,
 //! texts in `localisation/` and its own files in `data/` (ADR 0029); game
 //! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
+mod fake;
 mod game;
 mod pipe;
 mod skills;
 mod templates;
+mod test;
 mod types;
 mod wiki;
 
@@ -33,6 +35,9 @@ usage:
       Registers the mod folder with the Paradox launcher (enable it in a playset),
       in the user dir the game folder's userdir.txt names, as the game finds it;
       the game folder is --game-dir, EU4_GAME_DIR or the one this tool is in.
+  eu4-harmony test [<mod dir>]
+      Runs the mod's eu4-harmony/tests/*.lua against a fake game, with the
+      game's Lua host and sandbox; eu4-harmony skills testing says how.
   eu4-harmony types [<mod dir>]
       Writes the editor's type definitions for this tool's catalogue again,
       in .eu4-harmony/types/, and a .luarc.json pointing at them where the
@@ -95,6 +100,7 @@ fn main() {
         Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
         Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
         Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
+        Some("test") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_test(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
@@ -197,6 +203,7 @@ fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
         ("AGENTS.md", templates::AGENTS),
         ("eu4-harmony/manifest.toml", templates::MANIFEST),
         ("eu4-harmony/lua/main.lua", templates::MAIN_LUA),
+        ("eu4-harmony/tests/main_test.lua", templates::MAIN_TEST),
         ("eu4-harmony/ui/single_unitpanel/buttons/button.gui", templates::BUTTON_GUI),
         (english.as_str(), templates::LOC_ENGLISH),
         (chinese.as_str(), templates::LOC_SIMP_CHINESE),
@@ -217,6 +224,22 @@ fn cmd_new(args: &Args) -> Result<()> {
     let root = create_mod(&parent, id, args.value("name").unwrap_or(id))?;
     println!("created {}", root.display());
     println!("next: cd {id} && eu4-harmony link, then enable the mod in the Paradox launcher");
+    Ok(())
+}
+
+// ---------- test ----------
+
+fn cmd_test(args: &Args) -> Result<()> {
+    let root = mod_root(&start_dir(args)?)?;
+    let manifest = read_manifest(&root)?;
+    let descriptor = fs::read_to_string(root.join("descriptor.mod")).map_err(|e| e.to_string())?;
+    let name =
+        descriptor.lines().find_map(|l| descriptor_entry(l).filter(|(k, _)| *k == "name").map(|(_, v)| v.to_string())).unwrap_or_else(|| manifest.id.clone());
+    let outcome = test::run(&root, manifest, name)?;
+    print!("{}", outcome.report);
+    if outcome.failed > 0 {
+        std::process::exit(1);
+    }
     Ok(())
 }
 
@@ -458,6 +481,7 @@ mod tests {
             "AGENTS.md",
             "eu4-harmony/manifest.toml",
             "eu4-harmony/lua/main.lua",
+            "eu4-harmony/tests/main_test.lua",
             "eu4-harmony/ui/single_unitpanel/buttons/button.gui",
             english,
             "eu4-harmony/localisation/my_mod_l_simp_chinese.yml",
@@ -477,6 +501,85 @@ mod tests {
         assert!(texts.text(eu4_harmony_loc::Language::SimpChinese, "MY_MOD_DESCRIPTION").is_some());
         assert!(create_mod(&dir, "my-mod", "My Mod").is_err());
         assert!(create_mod(&dir, "Bad", "x").is_err());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_new_mod_s_own_tests_pass() {
+        let dir = temp("tests-new");
+        let root = create_mod(&dir, "tested", "Tested").unwrap();
+        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Tested".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (3, 0), "{}", outcome.report);
+        assert!(!outcome.report.contains("note:"), "{}", outcome.report);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn tests_drive_waiting_tasks_and_requests_and_report_what_fails() {
+        let dir = temp("tests-drive");
+        let root = create_mod(&dir, "driven", "Driven").unwrap();
+        write(&root.join("eu4-harmony/manifest.toml"), "id = \"driven\"\napi_version = \"0.2\"\npermissions = { network = [\"api.example.com\"] }\n").unwrap();
+        write(
+            &root.join("eu4-harmony/lua/main.lua"),
+            r#"
+            return {
+              on_session = function(game)
+                spawn(function()
+                  local answer, err = game.diplomacy.propose_alliance("POR")
+                  log("alliance " .. (answer and answer.answer or err.code))
+                end)
+                spawn(function()
+                  local r, err = http.fetch("https://api.example.com/score", { method = "POST", body = "1" })
+                  log("score " .. (r and r.status or err.code))
+                end)
+              end,
+              on_day = function(game, date)
+                game.map.paint({ [151] = 0xFF0000 })
+                log("day " .. tostring(date) .. " " .. tostring(select(2, game.country.get("FRA")).code))
+              end,
+              on_save = function(game) return { kept = true } end,
+            }
+            "#,
+        )
+        .unwrap();
+        write(
+            &root.join("eu4-harmony/tests/main_test.lua"),
+            r#"
+            test("a proposal and a request wait for their answers", function()
+              local mod = open()
+              mod:later("diplomacy.propose_alliance")
+              mod:session()
+              assert(mod:waiting() == 2)
+              assert(mod:requests()[1].url == "https://api.example.com:443/score" and mod:requests()[1].method == "POST")
+              mod:reply("diplomacy.propose_alliance", { answer = "accepted" })
+              mod:respond(1, { status = 201 })
+              mod:poll()
+              local log = mod:log()
+              assert(mod:waiting() == 0 and log[1] == "alliance accepted" and log[2] == "score 201", table.concat(log, "; "))
+              assert(mod:calls("diplomacy.propose_alliance")[1].country == "POR")
+            end)
+            test("a day paints the map, and an unanswered capability says so", function()
+              local mod = open()
+              mod:day("1444.11.12")
+              assert(mod:map()[151].r == 255 and mod:map()[151].g == 0)
+              assert(mod:log()[1] == "day 1444.11.12 not_ready", mod:log()[1])
+              local data = mod:save()
+              assert(data.kept == true)
+            end)
+            test("a failing test is reported", function()
+              assert(1 == 2, "one is not two")
+            end)
+            "#,
+        )
+        .unwrap();
+        write(&root.join("eu4-harmony/tests/broken_test.lua"), "test(").unwrap();
+        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Driven".into()).unwrap();
+        let report = &outcome.report;
+        assert_eq!((outcome.passed, outcome.failed), (2, 2), "{report}");
+        assert!(report.contains("ok      a proposal and a request wait"), "{report}");
+        assert!(report.contains("note: country.get had no answer"), "{report}");
+        assert!(report.contains("FAILED  a failing test is reported") && report.contains("one is not two"), "{report}");
+        assert!(report.contains("eu4-harmony/tests/broken_test.lua\n  FAILED  (the file)"), "{report}");
         let _ = fs::remove_dir_all(dir);
     }
 
