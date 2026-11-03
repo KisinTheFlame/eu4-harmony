@@ -601,10 +601,15 @@ mod tests {
         assert!(loose.is_empty(), "{loose:#?}");
     }
 
-    /// The framework's own observers leave slots over, for tracing.
+    /// The framework's own observers, and the heap census's in a developer
+    /// build with it, leave slots over, for tracing.
     #[test]
     fn the_observers_leave_slots_over() {
-        let observers = crate::points().iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
+        #[cfg_attr(not(feature = "dev-heap-census"), expect(unused_mut, reason = "only the heap census adds observers"))]
+        let mut points = crate::points();
+        #[cfg(feature = "dev-heap-census")]
+        points.extend(crate::census::points(&crate::memory::Memory { base: 0 }));
+        let observers = points.iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
         assert!(observers < hooks::observer_slots(), "{observers} observers for {} slots", hooks::observer_slots());
     }
 

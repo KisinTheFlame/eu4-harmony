@@ -98,7 +98,7 @@ extern "C" fn new_after(frame: *mut HookFrame) {
 }
 
 pub fn points(m: &crate::memory::Memory) -> Vec<Point> {
-    BASE.store(m.at(0), Ordering::Relaxed);
+    BASE.store(m.base, Ordering::Relaxed);
     log!("census: counting the C runtime's heap blocks by call site");
     vec![
         Point::observe(MALLOC, "40 53 48 83 ec 20 48 8b d9 48 83 f9 e0", "census malloc", 1, None, Some(malloc_after)),
