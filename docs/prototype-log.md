@@ -1162,6 +1162,17 @@ L6's fourth point: regional combat in Lua, France from 1444.11.11, war on Englan
 - **Not met**: no stretch over 5 ms.
 - **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
 
+## 2026-11-04 The heap census through remote control, and a leak run (tested by me)
+
+M1 of [leak-finding.md](leak-finding.md): the developer build with the heap census (`--features eu4-harmony-core/dev-heap-census`) answering `memory`, `memory.leftovers` and `memory.generation`, and `tools/leak-run.ps1`. Four processes under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `eu4.exe` started directly by the script, the playset as installed; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **The first start failed**: "census new at 0x1a332d4: observer slots exhausted". The framework's 44 observers and the census's 5 came to 49, one more than the 48 slots, so a developer build with the census did not start since the command layer's observers came in; the slots are 64 now, and the test that the observers leave slots over counts the census's.
+- **Four rounds, twice**: every answer right, no crash, each round 37 to 40 s; generation 1 at the main menu, three world resets a round (13 after four). Private bytes 4,300 MB at startup and 4,609 MB after four rounds in the first run, 4,388 and 4,610 MB in the second; about 535 to 542 MB of it the framework's heap, which is the census's own count of about six million blocks. Handles 1,034 to 1,060.
+- **The leftovers**, after four rounds: 5.66 million blocks, 1,207 MB, nearly all of generation 0 (what the game loaded at startup). The sites that leave the most per generation, `steady`: `0x1529f85` in `0x1529d20`, 488 KB a generation, 33,796 blocks, none of its blocks ever let go; `0x15a2658 < 0x152a00a`, the same number of blocks, its buffers; `0x155c294` (199 KB, let go elsewhere at `0x1546536`), `0x156acc9` (166 KB, at `0x15bd3d6`), `0x10b59fe` (100 KB, at `0x10b5696`). The history's sites in `0x2976f0` came out `sometimes`: only the generations that read history leave there. These match what the census in the log found by hand on 2026-11-03.
+- **A mistake the run showed**: the first run listed one place that let blocks go five times, once for each shard of the census that had counted some; the counts are added up across shards since, and the second run gave each place once.
+- **Not tried**: `memory.generation` inside a long game; the player build, which has no memory group (the build and its tests and clippy pass); a run of more than four rounds.
+- **Cleanup**: the game was closed by the script, or by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The runs' reports and a scratch folder the script made were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
