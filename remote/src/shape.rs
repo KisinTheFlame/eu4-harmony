@@ -210,7 +210,7 @@ impl Shaped for crate::Binary {
 impl Shaped for crate::Capability {
     fn shape() -> Shape {
         let field = |name, shape| Field { name, about: "", shape, may_be_left_out: false };
-        let kinds = vec!["country", "province", "army", "date", "integer", "boolean", "text", "unit_kind", "allies"];
+        let kinds = vec!["country", "province", "army", "date", "integer", "boolean", "text", "unit_kind", "allies", "provinces"];
         let parameter = Shape::Object {
             class: "Parameter",
             about: "",

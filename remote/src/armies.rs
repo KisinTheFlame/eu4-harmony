@@ -40,6 +40,19 @@ group! {
         /// The neighboring province it would go to.
         to: ProvinceId,
     } -> bool, "whether it may";
+    /// Where an army of the player's may get to from a province in at most
+    /// a number of steps, each one it may take now as army.can_step says:
+    /// military access and terrain, and straits open to it; forts are not
+    /// considered. One call in place of a can_step for each pair of
+    /// neighbors.
+    game Range "range" {
+        /// The player's land army.
+        army: ArmyId,
+        /// The province the steps are counted from.
+        province: ProvinceId,
+        /// The most steps.
+        steps: u32,
+    } -> Vec<Reach>, "the provinces it may get to, the one counted from first, then by steps and number: province, steps, and next, the provinces of the range it may step to from there";
     /// Whether an army of the player's may attack an army the player sees,
     /// wherever that is.
     game CanAttack "can_attack" {
@@ -122,4 +135,14 @@ pub struct Army {
     pub route: Vec<ProvinceId>,
     /// Who set its route; none without one.
     pub route_by: Option<RouteBy>,
+}
+
+/// A province an army may get to within army.range's steps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Reach {
+    pub province: ProvinceId,
+    /// The fewest steps to it.
+    pub steps: u32,
+    /// The provinces of the range the army may step to from it.
+    pub next: Vec<ProvinceId>,
 }

@@ -21,7 +21,7 @@ steps:
 
 a world, which answers session.get, country.get and hostile, province.get,
 list and neighbors, and army.get, list, at, selected, route_to, can_step,
-can_attack, move and stop:
+range, can_attack, move and stop:
 
   mod:world{
     player = "CAS", date = "1444.11.11", hostile = { { "CAS", "GRA" } },

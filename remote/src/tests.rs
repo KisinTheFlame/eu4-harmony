@@ -206,7 +206,7 @@ fn descriptions_in_json() {
 
 #[test]
 fn kinds_from_text() {
-    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text, Kind::UnitKind];
+    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text, Kind::UnitKind, Kind::Provinces];
     for kind in all {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
     }
@@ -216,7 +216,11 @@ fn kinds_from_text() {
     assert_eq!(Kind::Integer.json("18446744073709551615"), Some(json!(u64::MAX)));
     assert_eq!(Kind::Boolean.json("false"), Some(json!(false)));
     assert_eq!(Kind::UnitKind.json("heavy_ship"), Some(json!("heavy_ship")));
+    assert_eq!(sample(Kind::Provinces), json!([151, 152]));
+    assert_eq!(Kind::Provinces.json("1, 2"), Some(json!([1, 2])));
     for (kind, bad) in [
+        (Kind::Provinces, "151,Paris"),
+        (Kind::Provinces, ""),
         (Kind::Province, "Paris"),
         (Kind::Province, "1.5"),
         (Kind::Integer, "0x10"),

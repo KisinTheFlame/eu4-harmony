@@ -348,6 +348,9 @@ pub enum Kind {
     /// `["DUL", "CND"]`, which a command line writes `DUL,CND` (see
     /// [`diplomacy::CallAllies`]).
     Allies,
+    /// Province numbers, such as `[151, 152]`, which a command line writes
+    /// `151,152` (see [`ProvinceList`]).
+    Provinces,
 }
 
 impl Kind {
@@ -363,6 +366,7 @@ impl Kind {
             Self::Text => "text",
             Self::UnitKind => "unit_kind",
             Self::Allies => "allies",
+            Self::Provinces => "provinces",
         }
     }
 
@@ -378,6 +382,7 @@ impl Kind {
             Self::Text => "text",
             Self::UnitKind => "infantry",
             Self::Allies => "DUL,CND",
+            Self::Provinces => "151,152",
         }
     }
 
@@ -392,6 +397,7 @@ impl Kind {
             Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
             Self::UnitKind => serde_json::from_value::<recruiting::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
             Self::Allies => diplomacy::CallAllies::parse(text).ok().and_then(|allies| serde_json::to_value(allies).ok()),
+            Self::Provinces => text.split(',').map(|word| word.trim().parse::<u32>().ok().map(Value::from)).collect::<Option<Vec<_>>>().map(Value::Array),
         }
     }
 }
@@ -423,6 +429,7 @@ arg_kind! {
     String => Text,
     recruiting::UnitKind => UnitKind,
     diplomacy::CallAllies => Allies,
+    ProvinceList => Provinces,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
@@ -548,6 +555,11 @@ impl<'de> Deserialize<'de> for CountryTag {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ProvinceId(pub u32);
+
+/// Province numbers, as an argument: a list, `[151, 152]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProvinceList(pub Vec<ProvinceId>);
 
 /// An army or a fleet, by its 64-bit ID, which survives saving and loading;
 /// in JSON a decimal string.

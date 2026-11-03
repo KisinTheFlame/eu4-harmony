@@ -268,6 +268,16 @@ impl armies::Layer for Fake {
         Ok(self.route.clone())
     }
 
+    fn land_neighbors(&mut self, province: u32) -> GResult<Vec<game::provinces::Neighbor>> {
+        self.call(format!("land neighbors {province}"));
+        // 149 and 151 next to each other, 316 across a strait from 149.
+        Ok(match province {
+            149 => vec![game::provinces::Neighbor { to: 151, strait: false }, game::provinces::Neighbor { to: 316, strait: true }],
+            151 => vec![game::provinces::Neighbor { to: 149, strait: false }],
+            _ => Vec::new(),
+        })
+    }
+
     fn can_step(&mut self, id: u64, from: u32, to: u32) -> GResult<bool> {
         self.call(format!("can step {id} {from} {to}"));
         Ok(to == 151)
