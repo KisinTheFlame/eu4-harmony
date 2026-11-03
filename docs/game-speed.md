@@ -60,11 +60,12 @@ S1, S2 and S3 change nothing the player sees but how long things take, so they h
 
 ### Saves written in the background (S3)
 
-- The game writes a save's contents into memory as it does now, on the main thread. Compressing them into the zip and writing the file move to a thread of the framework's, with the framework's own deflate, by the game's steps: a `.tmp` first, then moved onto the `.eu4`.
+- While a local save runs, the game stores its zip's entries instead of deflating them (a zip any reader reads) and writes, checks and moves its file by its own steps, as before. The file it leaves is a whole save, only larger.
+- A thread of the framework's then deflates the file's stored entries, reads them back, and moves the result into the file's place, unless the file changed meanwhile.
 - Every local save goes so: autosaves, the player's saves, ironman saves. Cloud saves keep the game's own path, untouched.
 - The file holds what the game would have put in it, entry by entry; its compressed bytes, and so its size, differ from what the game would have written. The game, vanilla too, and other tools read it as before; the save's own checksum is of its contents and stays right.
-- A load, a return to the main menu, the game's exit and the next save each wait until the file is written.
-- A file the framework cannot write (the disk full, the file held by another program) leaves the save before it as it was, since the `.tmp` is not moved onto it; the framework says so in the notice window ("The save X could not be written: why") and in its log.
+- The next local save, a load and a restart wait until the thread is done. The game's exit does not: a file the thread had not finished stays stored.
+- A file the thread cannot compress (the disk full, the file held by another program) stays as the game wrote it, stored and whole; the log says why. Since no save is lost, there is no notice (changed from the plan's first form, which compressed before anything was written).
 
 ### No frames inside a day (S4)
 
@@ -89,7 +90,7 @@ Each part sits behind an interface no larger than what its callers need; what it
   - its points: the POPS timeout (`Action::Write`, at startup) and the interval of frames inside a day (`Action::Keep` with its address recorded, and the instruction that reads it checked);
   - `speed::set_pace(Pace)`, called at startup and when the settings window closes, which writes the fastest speed's factor (the game's 0.05, or so large that no frame comes inside a day). The other speeds' factors are never written, so "Faster time" acts at speed 5 alone.
 - **Line breaks** (`unicode::breaks`). The interface stays `after` and `last_at_or_before`. Inside: the last text's breaks as now, for the questions a layout loop asks character by character; behind them a table of texts seen before, by their whole bytes, least recently used first out past a byte limit; behind that ICU, through a line breaker of `icu`'s opened once. The table is a type of its own with unit tests; a test over the localisation compares what the module answers with ICU asked anew.
-- **Saves in the background** (`saves::background`). Two entries: `write(save)`, which takes a save's entries (name and contents) and the paths of its `.tmp` and its `.eu4`, and returns at once; and `wait()`, which returns once every save handed over is on disk. One thread of the framework's compresses each save into a zip with `miniz_oxide`'s deflate (a pure Rust library, MIT, pinned as the workspace pins its dependencies; a pure function, `zip::write(entries) -> Vec<u8>`, tested by reading its output back with the framework's own reader, `game::menu::save_file`), writes the `.tmp` and moves it. Where the game hands its streams to its zip, and where it loads, returns, exits and saves next, are dependency points of `saves`, which call `write` and `wait`; the cloud save's path has none.
+- **Saves in the background** (`saves::background`). Its interface is `wait()`, which the loader's and the restart's observers call, and its points: observers on the two local saves (which wait, then mark a save under way), on the game's zip entry (whose method they make "stored" while one is), and on the game's file move (which notes each file the save moved into place). One thread of the framework's compresses each such file with `miniz_oxide`'s deflate (a pure Rust library, MIT, pinned as the workspace pins its dependencies) through a pure function, `compact(zip) -> Option<zip>`, tested by reading its output back with the framework's own reader, `game::menu::save_file`. The cloud save's path has no point.
 - **The settings window** (`framework_ui`, `settings`). Two widgets, `Widget::Choice { id, options, selected }`, which draws the choice bar and slides its highlight, and `Widget::Info(text)`, the info mark, which a row puts after its label. `Settings` gains `fastest_speed: Pace`, written as `fastest_speed="smooth"` or `"faster"`, taken up when saved as the two leaving-session settings are.
 
 ## Parts
@@ -115,7 +116,7 @@ The table and the iterator opened once, in `core/src/unicode/breaks.rs` and `cor
 
 ### S3 Saves written in the background
 
-Research first: where the game hands its streams to the zip (`0x5ce5f0`, `0x153b9a0`, `0x153c350`), how it writes the `.tmp` and moves it (`0x1715bb0`), and where it decides between the local and the cloud save ([research/saves.md](research/saves.md)). Expected: about 40% of each compressed save's time on the main thread, up to 4% of the main thread late in a game with half-yearly autosaves, and a shorter pause at each. Tried in the game: an autosave, a save of the player's and an ironman save written in the background each load in vanilla and with the framework; a cloud save still reaches Steam's cloud and loads back; a load, a return and the exit right after a save wait for it.
+Built: the game's zip entry, `0x153b9a0(zip, name, data, method, level)`, writes method 0 as stored (reading the data in chunks, with its CRC); the save asks for 8 at level 3 (zlib 1.2.3's fast setting, so a faster deflate on the main thread would gain little). The file move `0x1715bb0(from, to)` takes C strings in the folder the game writes to ([research/saves.md](research/saves.md)). Expected: about 40% of each compressed save's time on the main thread, up to 4% of the main thread late in a game with half-yearly autosaves, and a shorter pause at each. Tried in the game: an autosave, a save of the player's and an ironman save written in the background each load in vanilla and with the framework; a cloud save still reaches Steam's cloud and loads back; a load, a return and the exit right after a save wait for it.
 
 ### S4 No frames inside a day
 

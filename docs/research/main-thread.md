@@ -94,7 +94,7 @@ Multiplayer needs every machine to compute the same day from the same commands, 
 
 - Which line of `settings.txt`, if any, sets the frames' interval (`[0x242bde8]+0x284`).
 - What makes a day draw a different number of random numbers from one run to the next.
-- What the "rest of the frames" is in 1624 (22.9%): `0xdf5860`, `0x10a6d00`, `0x6ea380`, `0x128cd30` and the framework's frames between them were the largest, none of them named.
+- What the "rest of the frames" is in 1624 (22.9%): `0xdf5860`, `0x10a6d00`, `0x6ea380`, `0x128cd30` and the framework's frames between them were the largest. By the strings they load, read since: `0xdf5860` updates the top bar's alerts (`ALERT_DISASTER_ENTRY`, `ALERT_REINFORCING_UNITS_DELAYED` and the rest; 9,297 instructions), `0x128cd30` the outliner (`outliner_standard_entry`), and `0x1321880`, under `0x10a6d00`, the map's markers (`capital_indicator`, `fort_15th` to `fort_18th`, `port_blockade`).
 - What in the drawing costs the most: the GUI (`0x14dd010`, `0x14dd540`) and the map (`0x10a59a0`) were each a third of it at speed 5.
 - Whether POPS's client is on for a player who is not signed in, and what it is connected to.
 - The profile of a vanilla game: these runs had the framework installed, whose observers and line breaking are part of the samples.
