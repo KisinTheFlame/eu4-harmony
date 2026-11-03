@@ -1,10 +1,10 @@
 //! Logs calls of game functions, for finding out what the game passes them
-//! (the `trace` feature: a player's build has none of this). Set
-//! `EU4HARMONY_TRACE` to the functions' RVAs, comma-separated, before the game
-//! starts, say `0x15988e0,0x159c600`. Each function's first calls (20, or
-//! `EU4HARMONY_TRACE_CALLS`) are logged: the arguments, the text any of them
-//! points at (a C string or a `std::string`, in the game's text encoding),
-//! where the call came from, and the result.
+//! (the `dev-call-trace` feature: a player's build has none of this). The
+//! functions are the RVAs `functions` in dev.toml's `[call-trace]` lists, say
+//! `["0x15988e0", "0x159c600"]`. Each function's first calls (`calls`, 20 by
+//! default) are logged: the arguments, the text any of them points at (a C
+//! string or a `std::string`, in the game's text encoding), where the call
+//! came from, and the result.
 //!
 //! A traced function is observed, and an observer forwards exactly the
 //! arguments its point declares: a function that reads more finds garbage.
@@ -107,17 +107,19 @@ extern "C" fn after(frame: *mut HookFrame) {
     })
 }
 
-/// Observe points for the functions `EU4HARMONY_TRACE` names; none when it is
-/// not set. A function whose argument count cannot be told is left out, as
+/// Observe points for the functions dev.toml names. A function whose argument count cannot be told is left out, as
 /// are those past the `room` observer slots the framework leaves.
 pub fn points(m: &Memory, room: usize) -> Vec<Point> {
-    let Ok(spec) = std::env::var("EU4HARMONY_TRACE") else { return Vec::new() };
-    let limit = std::env::var("EU4HARMONY_TRACE_CALLS").ok().and_then(|n| n.parse().ok()).unwrap_or(20);
+    let options = &crate::dev::options().call_trace;
+    if options.functions.is_empty() {
+        return Vec::new();
+    }
+    let limit = options.calls;
     LIMIT.get_or_init(|| limit);
     let image = unsafe { analysis::loaded(m.base) };
     let hex = |s: &str| usize::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok();
     let mut traced = Vec::new();
-    for item in spec.split(',').filter(|s| !s.trim().is_empty()) {
+    for item in &options.functions {
         let (rva, argc) = match item.split_once(':') {
             Some((rva, n)) => (hex(rva), n.trim().parse::<u32>().ok()),
             None => (hex(item), None),

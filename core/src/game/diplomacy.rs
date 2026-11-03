@@ -4,15 +4,19 @@
 //! The framework makes the game's own diplomatic action, from the player to
 //! the other country, and asks it the checks the diplomacy panel and the
 //! window that sends it ask; a refusal comes back with the game's reasons.
-//! Then it has the action make the command that carries it and posts the
-//! command to the game's session, as the window does. The game carries the
-//! command out at its next frame, with its own checks, costs, AI answers and
-//! multiplayer rules: an AI country answers a proposal there, and its answer
-//! comes back as a command of its own, carried out at a frame after. Each
+//! Then it has the action make the command that carries it, as the window
+//! does, and posts the command in its written form through the command layer
+//! ([`super::commands`]), which asks the command's own check too and has the
+//! game carry it out at once (ADR 0033), with its own checks and costs: an AI
+//! country answers a proposal there, and its answer comes back as a command
+//! of its own, carried out at the game's next frame. Each
 //! action sent is a [`Ticket`]; [`answer`] says what came of it, from the
 //! commands the game carried out, which an observer of the game's own
 //! function sees.
-use super::{command_session, context, context_any, countries, country, events, fail, game, post, Caller, Ctx, GResult, Status, Tag};
+use super::{
+    commands::{self, Refused},
+    context, context_any, countries, country, events, fail, game, Caller, Ctx, GResult, Status, Tag,
+};
 use crate::{
     game_string,
     hooks::HookFrame,
@@ -393,24 +397,26 @@ impl Drop for Made<'_> {
 }
 
 /// Sends the action at `at`, which the game lets the player send
-/// ([`verdict`]): posts its command to the session as the diplomacy window
-/// does, and keeps it for [`answer`], with the allies it calls.
+/// ([`verdict`]): has it make its command, as the diplomacy window does,
+/// posts the command's written form through the command layer, and keeps
+/// the action for [`answer`], with the allies it calls.
 fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag>) -> GResult<Ticket> {
-    // The session before the command: once the command is made, only a call
-    // into the game can fail before it is posted or destroyed. The session
-    // owns the command once it took it; until then, it is the framework's to
-    // free.
-    let session = command_session(m, ctx)?;
     let mut command = 0usize;
     m.call(m.vslot(at, action::MAKE_COMMAND)?, &[at, &mut command as *mut usize as usize])?;
     if command == 0 || m.ptr(command)? != m.at(classes::ACTION_COMMAND) {
         return Err("the diplomatic action made no command".to_string().into());
     }
+    // The command is made only to be written; the layer posts the one it
+    // reads from the text.
+    let text = commands::text(m, command);
+    m.call(m.at(COMMAND_DESTROY), &[command, FREE])?;
     let after = ledger(|l| l.carried_count);
-    let taken = post(m, session, command)?;
-    if !taken {
-        m.call(m.at(COMMAND_DESTROY), &[command, FREE])?;
-        return fail(Status::Rejected, "the game takes no orders from the player now");
+    match commands::post(&text?) {
+        Ok(()) => {}
+        Err(Refused::Check) => return fail(Status::Rejected, "the game does not allow it, and gives no reason"),
+        Err(Refused::NotTaken) => return fail(Status::Rejected, "the game takes no orders from the player now"),
+        Err(Refused::Unread(how)) => return fail(Status::Internal, format!("the game read the diplomatic action's command otherwise: {how}")),
+        Err(Refused::Game(fail)) => return Err(fail),
     }
     // As the window, so that the panel lets no second one go the same day.
     let record = match kind {

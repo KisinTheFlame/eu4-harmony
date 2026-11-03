@@ -62,6 +62,10 @@ _Avoid_: virtual files, framework mod, assets
 The one-off step of copying the framework's files into the game folder; uninstalling is deleting them.
 _Avoid_: using it for the hooking done at startup
 
+**Developer build**:
+A build of the framework with development tools built in, such as the call trace or the command log, for trying things in the game; it says so at the top of its startup report. Players get only the player build, which has none of them and no hidden switches.
+_Avoid_: trace build, debug build (a build without optimizations), test build
+
 **Startup**:
 What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
 _Avoid_: installation
@@ -113,8 +117,16 @@ An extension's own data kept with a particular save, written into the save file 
 _Avoid_: sidecar, companion file, store
 
 **Game console**:
-The game's own console, where commands such as `cash` are typed. The framework offers running a command in it as a capability. Its window draws in a framework font, in a system font and weight of its own.
+The game's own console, where console commands such as `cash` are typed. The framework offers running a console command in it as a capability. Its window draws in a framework font, in a system font and weight of its own.
 _Avoid_: console on its own
+
+**Console command**:
+What is typed into the game console, such as `cash 100`. Not a command: the game console changes the game itself.
+_Avoid_: cheat, command on its own
+
+**Command**:
+One of the game's own instructions that changes the game, such as recruiting a regiment, proposing an alliance or choosing an event's option, which the game checks and carries out. The player's orders, the AI's choices and the game's own daily update all reach the game as commands. Each is of a type, named by the game, and has a written form that says everything it carries.
+_Avoid_: order (what the player gives, which the game makes into a command), action, console command
 
 **Map position**:
 A point on the game's map, in pixels of the province map (`map/provinces.bmp`): x from its left edge, y from its bottom edge, as `map/positions.txt` writes them. The camera looks at a map position.

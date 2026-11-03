@@ -10,7 +10,6 @@ l_french:
  EU4HARMONY_NOT_LOADED:0 "Le mod « $MOD$ » n'a pas été chargé :\n$DETAIL$"
  EU4HARMONY_STOPPED:0 "L'extension du mod « $MOD$ » a été arrêtée : $DETAIL$"
  EU4HARMONY_ERRORS:0 "L'extension du mod « $MOD$ » a rencontré une erreur. Elle continue de fonctionner ; son journal donne les détails."
- EU4HARMONY_TEST_NOTICE:0 "Notification de test $NUMBER$ d'EU4 Harmony. Fermez-la avec le bouton dans son coin."
  EU4HARMONY_FONT_MISSING:0 "La police « $FONT$ » choisie dans les paramètres d'EU4 Harmony n'est pas installée ; $DEFAULT$ est utilisée à la place. Choisissez une autre police dans les paramètres."
  EU4HARMONY_IRONMAN_SAVE_FAILED:0 "La partie Ironman n'a pas pu être sauvegardée, elle n'a donc pas été quittée. Vérifiez le dossier des sauvegardes, l'espace disque ou la connexion au cloud, puis réessayez."
  EU4HARMONY_CONFIRM_LOAD_IRONMAN:0 "Charger la sauvegarde $NAME$ ? La partie Ironman en cours sera d'abord sauvegardée."

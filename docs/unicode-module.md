@@ -99,5 +99,5 @@ M0 does not change how the game behaves, so the checklist is a retest of what al
 4. **Regional combat**: the region button and the radius box work as before, with Chinese showing as it did; once on, it decides daily and issues move and stop orders; map coloring is correct when the radius changes.
 5. **Saves**: after an autosave, a data file is written under `eu4-harmony/saves/`; load that save and regional-combat restores its earlier state.
 6. **Rebuild**: go back to the main menu and into a game again; the army panel's buttons and the notice window both appear again.
-7. **Startup failure**: set `EU4HARMONY_FAIL_STARTUP=1` on the command line and run `eu4.exe` directly. A message box saying "EU4 Harmony could not start" should pop up; `report.txt` says `startup FAILED`; the game runs as usual, but none of the mods' buttons appear.
+7. **Startup failure**: in a developer build with `dev-test-switches`, turn `fail-startup` on in `dev.toml`'s `[test-switches]` (tools/README.md) and run `eu4.exe`. A message box saying "EU4 Harmony could not start" should pop up; `report.txt` says `startup FAILED`; the game runs as usual, but none of the mods' buttons appear.
 8. **Four languages**: set the game language to English, French, German and Spanish in turn; the main interface looks as in vanilla.
