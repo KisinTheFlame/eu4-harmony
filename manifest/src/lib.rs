@@ -45,7 +45,11 @@ pub struct Permissions {
 
 impl Manifest {
     pub fn parse(text: &str) -> Result<Self, String> {
-        toml::from_str(text).map_err(|e| e.to_string())
+        let manifest: Self = toml::from_str(text).map_err(|e| e.to_string())?;
+        for entry in &manifest.permissions.network {
+            host(entry).map_err(|e| format!("permissions.network: {e}"))?;
+        }
+        Ok(manifest)
     }
 
     /// Whether the mod was written for the catalogue version `provided`: in
@@ -53,6 +57,41 @@ impl Manifest {
     pub fn built_for(&self, provided: &str) -> bool {
         self.api_version == provided
     }
+}
+
+/// A host as `network` lists it and a URL names it: a name or an address
+/// (an IPv6 one in brackets), lowercased, and its port where one is given.
+pub fn host(text: &str) -> Result<(String, Option<u16>), String> {
+    let wrong = || format!("{text:?} is not a host name or address, with :port where it is not the default");
+    let (name, port) = match text.strip_prefix('[') {
+        Some(rest) => {
+            let (address, after) = rest.split_once(']').ok_or_else(wrong)?;
+            let ok = !address.is_empty() && address.chars().all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.');
+            if !ok {
+                return Err(wrong());
+            }
+            match after {
+                "" => (format!("[{address}]"), None),
+                _ => (format!("[{address}]"), Some(after.strip_prefix(':').ok_or_else(wrong)?)),
+            }
+        }
+        None => match text.split_once(':') {
+            Some((name, port)) => (name.to_string(), Some(port)),
+            None => (text.to_string(), None),
+        },
+    };
+    let named = !name.starts_with('[');
+    if named && (name.is_empty() || name.starts_with(['.', '-']) || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')) {
+        return Err(wrong());
+    }
+    let port = match port {
+        None => None,
+        Some(p) => match p.parse::<u16>() {
+            Ok(n) if n > 0 && p.chars().all(|c| c.is_ascii_digit()) => Some(n),
+            _ => return Err(wrong()),
+        },
+    };
+    Ok((name.to_ascii_lowercase(), port))
 }
 
 /// An interface fragment, found where the layout puts it.
@@ -211,6 +250,24 @@ mod tests {
         assert!(Manifest::parse("id = \"m\"\napi_version = \"0.2\"\nextension = \"x.dll\"").is_err());
         assert!(Manifest::parse("id = \"m\"\napi_version = \"0.2\"\npermissions = { clocks = true }").is_err());
         assert!(Manifest::parse("id = \"m\"").is_err());
+        assert!(Manifest::parse(
+            "id = \"m\"
+api_version = \"0.2\"
+permissions = { network = [\"https://x.com\"] }"
+        )
+        .unwrap_err()
+        .contains("permissions.network"));
+    }
+
+    #[test]
+    fn a_host_is_a_name_or_an_address_with_a_port_where_one_is_given() {
+        assert_eq!(host("API.Example.com").unwrap(), ("api.example.com".to_string(), None));
+        assert_eq!(host("192.168.1.10:8080").unwrap(), ("192.168.1.10".to_string(), Some(8080)));
+        assert_eq!(host("[::1]:3000").unwrap(), ("[::1]".to_string(), Some(3000)));
+        assert_eq!(host("[::1]").unwrap(), ("[::1]".to_string(), None));
+        for bad in ["", "x.com:", "x.com:0", "x.com:65536", "x.com:+80", "a b", "user@x.com", "https://x.com", "x.com/", "[::1", "[::1]x", "-x.com", "[]"] {
+            assert!(host(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
