@@ -109,7 +109,8 @@ fn run_file(opened: &Arc<Opened>, file: &Path, outcome: &mut Outcome) {
 struct Notes(Vec<String>, Vec<String>);
 
 /// The tests' own Lua state: Lua's string, table, math and utf8, with
-/// `test`, `open` and `print`.
+/// `test`, `open`, `print`, and `require` for helper modules in
+/// `eu4-harmony/tests/`.
 fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
     let lua = Lua::new_with(StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8, LuaOptions::default()).map_err(|e| e.to_string())?;
     let setup = || -> mlua::Result<()> {
@@ -124,6 +125,26 @@ fn harness(opened: &Arc<Opened>) -> Result<Lua, String> {
         )?;
         let at = opened.clone();
         globals.set("open", lua.create_function(move |lua, ()| open(lua, &at).map_err(mlua::Error::runtime))?)?;
+        let tests = opened.root.join("eu4-harmony").join(TESTS);
+        globals.set("__modules", lua.create_table()?)?;
+        globals.set(
+            "require",
+            lua.create_function(move |lua, name: String| {
+                let modules: Table = lua.globals().get("__modules")?;
+                if let Ok(module @ (LuaValue::Table(_) | LuaValue::Function(_) | LuaValue::Boolean(_))) = modules.get::<LuaValue>(name.as_str()) {
+                    return Ok(module);
+                }
+                if name.is_empty() || !name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')) {
+                    return Err(mlua::Error::runtime(format!("require {name:?}: a module is named by words between dots")));
+                }
+                let file = tests.join(format!("{}.lua", name.replace('.', "/")));
+                let source = std::fs::read_to_string(&file).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {}: {e}", file.display())))?;
+                let module = lua.load(source).set_name(format!("@{}.lua", name.replace('.', "/"))).set_mode(mlua::ChunkMode::Text).call::<LuaValue>(())?;
+                let module = if module.is_nil() { LuaValue::Boolean(true) } else { module };
+                modules.set(name.as_str(), module.clone())?;
+                Ok(module)
+            })?,
+        )?;
         globals.set(
             "print",
             lua.create_function(|lua, args: Variadic<LuaValue>| {
@@ -275,6 +296,11 @@ impl UserData for TestMod {
                 other => return Err(mlua::Error::runtime(format!("a request fails with timeout, network or too_large, not {other}"))),
             };
             respond(this, n, Err(failure))
+        });
+        methods.add_method("world", |lua, this, world: LuaValue| {
+            let world = crate::world::World::new(json(&world)?).map_err(|e| mlua::Error::runtime(format!("{}{e}", here(lua))))?;
+            this.fake.store().world = Some(world);
+            Ok(())
         });
         methods.add_method("language", |_, this, name: String| {
             let language = eu4_harmony_loc::Language::from_id(&name).ok_or_else(|| mlua::Error::runtime(format!("no language {name}")))?;

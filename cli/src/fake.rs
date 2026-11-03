@@ -62,6 +62,9 @@ pub struct Store {
     /// Answers the test's functions gave that are not their capability's
     /// shape, which fail the test.
     pub misshapen: Vec<String>,
+    /// The world the test described, which answers what no answer of the
+    /// test's does.
+    pub world: Option<crate::world::World>,
 }
 
 /// Whether `answer` (JSON in Lua's form) is the shape of `capability`'s
@@ -126,6 +129,9 @@ impl Host for Fake {
         let mut store = self.store();
         store.calls.push(json.clone());
         let answered = match store.answers.get(&name) {
+            None if store.world.is_some() && crate::world::ANSWERS.contains(&name.as_str()) => {
+                store.world.as_mut().and_then(|w| w.answer(&name, &json)).unwrap_or(Ok(Value::Null))
+            }
             None => {
                 store.unanswered.push(name.clone());
                 Err(Error::new(Code::NotReady, format!("the fake game has no answer for {name}; give one with mod:answer(\"{name}\", ...)")))

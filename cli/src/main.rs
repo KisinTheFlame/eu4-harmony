@@ -13,6 +13,7 @@ mod templates;
 mod test;
 mod types;
 mod wiki;
+mod world;
 
 use std::{
     collections::HashMap,
@@ -612,6 +613,69 @@ end)
         assert_eq!((outcome.passed, outcome.failed), (1, 2), "{report}");
         assert!(report.contains("main_test.lua:3: army.get's answer: regiment is no field of eu4.Army"), "{report}");
         assert!(report.contains("army.get's answer: province: an integer, not a string"), "{report}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_world_shared_by_require_answers_and_takes_orders() {
+        let dir = temp("tests-world");
+        let root = create_mod(&dir, "worldly", "Worldly").unwrap();
+        write(
+            &root.join("eu4-harmony/lua/main.lua"),
+            r#"
+            return {
+              on_button = function(game)
+                local army = game.army.get(game.army.selected())
+                local route = game.army.route_to(army.id, 220)
+                log("route " .. table.concat(route, ","))
+                game.army.move(army.id, 220)
+                log("to " .. game.province.get(220).name .. ", " .. tostring(game.country.hostile("CAS", "GRA")))
+              end,
+            }
+            "#,
+        )
+        .unwrap();
+        write(
+            &root.join("eu4-harmony/tests/helpers/spain.lua"),
+            r#"
+            return {
+              player = "CAS", hostile = { { "CAS", "GRA" } },
+              provinces = {
+                { id = 217, name = "Madrid", owner = "CAS", neighbors = { 219 } },
+                { id = 219, name = "Toledo", owner = "CAS", neighbors = { 220 } },
+                { id = 220, name = "Valencia", owner = "ARA" },
+              },
+              armies = { { id = 1, owner = "CAS", province = 217, regiments = 10 } },
+              selected = 1,
+            }
+            "#,
+        )
+        .unwrap();
+        write(
+            &root.join("eu4-harmony/tests/main_test.lua"),
+            r#"
+            local spain = require("helpers.spain")
+            test("the world routes, names and takes the order", function()
+              local mod = open()
+              mod:world(spain)
+              mod:button("button")
+              local log = mod:log()
+              assert(log[1] == "route 219,220" and log[2] == "to Valencia, true", table.concat(log, "; "))
+              assert(mod:calls("army.move")[1].province == 220)
+            end)
+            test("a test's own answer goes before the world's", function()
+              local mod = open()
+              mod:world(spain)
+              mod:answer("province.get", { name = "Elsewhere" })
+              mod:button("button")
+              assert(mod:log()[2] == "to Elsewhere, true", mod:log()[2])
+            end)
+            "#,
+        )
+        .unwrap();
+        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Worldly".into()).unwrap();
+        assert_eq!((outcome.passed, outcome.failed), (2, 0), "{}", outcome.report);
+        assert!(!outcome.report.contains("note:"), "{}", outcome.report);
         let _ = fs::remove_dir_all(dir);
     }
 
