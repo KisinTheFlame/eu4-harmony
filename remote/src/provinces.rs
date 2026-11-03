@@ -1,14 +1,18 @@
 //! Provinces: every province, a province's neighbors, and one province's
 //! snapshot.
-use crate::{CountryTag, ProvinceId};
+use crate::{CountryTag, ProvinceId, ProvinceList};
 use serde::{Deserialize, Serialize};
 
 group! {
     /// Provinces and their neighbors.
     "province": ProvinceRequest, ProvinceAnswer;
 
-    /// Every province.
-    game List "list" {} -> Vec<Province>, "every province, by number: id, kind (land, sea, lake or wasteland), visible (to the player, not under fog of war), owner and controller (null when none)";
+    /// Every province, or those named.
+    game List "list" {
+        /// Only these provinces, in their order; a number that names none is
+        /// left out. Every province when it is left out.
+        provinces: Option<ProvinceList>,
+    } -> Vec<Province>, "the provinces, by number: id, kind (land, sea, lake or wasteland), visible (to the player, not under fog of war), owner and controller (null when none)";
     /// The provinces an army can go to from a province over land, possibly
     /// across a strait; none for a province an army cannot stand on.
     game Neighbors "neighbors" {

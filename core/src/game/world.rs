@@ -19,6 +19,10 @@ const CAN_ENTER: usize = 0x1a2280;
 const MILITARY_TAG: usize = 0x1a8d20;
 const STRAIT_BLOCKED: usize = 0x96f650;
 const CAN_ATTACK: usize = 0xd54a60;
+/// The game's lookup of an object by its ID (the type, u32, then the number).
+const FIND_ID: usize = 0x14cf730;
+/// Where the unit constructor registers the unit's ID.
+const REGISTER_UNIT: usize = 0xd3b0f8;
 /// What the idle task answers: no task kind, and false.
 const NO_KIND: usize = 0x8f480;
 const NO: usize = 0x8f450;
@@ -30,6 +34,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(MILITARY_TAG, "48 89 5c 24 08 57 48 83 ec 20 48 8b da 48 8b f9", "army military tag"),
         Point::keep(STRAIT_BLOCKED, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48", "strait blockade query"),
         Point::keep(CAN_ATTACK, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "attack permission query"),
+        Point::keep(FIND_ID, "44 8b 09 41 81 f9 68 12 00 00 76 5c 4c 8b 05 15", "object lookup by ID"),
+        Point::keep(REGISTER_UNIT, "48 8d 54 24 48 48 8d 4f 10 e8 8a 40 79 00", "unit registered by its ID").uses(&[unit::ID_HOLDER]),
         Point::keep(NO_KIND, "33 c0 c3", "no task kind"),
         Point::keep(NO, "32 c0 c3", "false"),
         Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER, "army access method"),
@@ -217,25 +223,14 @@ impl Geography {
     }
 
     pub fn provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool) -> GResult<Vec<Province>> {
-        let nodes = self.nodes(m, ctx)?.to_vec();
-        let mut out = Vec::with_capacity(nodes.len());
-        for n in &nodes {
-            if n.id == 0 {
-                out.push(Province::default());
-                continue;
-            }
-            let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(n.address + at)?)).filter(|t| t.valid())) };
-            out.push(Province {
-                id: n.id,
-                land: n.land,
-                lake: n.lake,
-                impassable: n.impassable,
-                visible: visibility_current && !hidden(m, n.address)?,
-                owner: tag_at(province::OWNER)?,
-                controller: tag_at(province::CONTROLLER)?,
-            });
-        }
-        Ok(out)
+        self.nodes(m, ctx)?.iter().map(|n| if n.id == 0 { Ok(Province::default()) } else { province_now(m, n, visibility_current) }).collect()
+    }
+
+    /// The provinces numbered in `ids` that there are, in their order; only
+    /// those are read.
+    pub fn named_provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool, ids: &[u32]) -> GResult<Vec<Province>> {
+        let nodes = self.nodes(m, ctx)?;
+        ids.iter().filter_map(|id| nodes.get(*id as usize).filter(|n| n.id != 0)).map(|n| province_now(m, n, visibility_current)).collect()
     }
 
     /// Every province armies can stand on, as (number, address).
@@ -285,6 +280,20 @@ impl Geography {
     }
 }
 
+/// A province's owner, controller and fog now, with its cached map data.
+fn province_now(m: &Memory, n: &Node, visibility_current: bool) -> GResult<Province> {
+    let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(n.address + at)?)).filter(|t| t.valid())) };
+    Ok(Province {
+        id: n.id,
+        land: n.land,
+        lake: n.lake,
+        impassable: n.impassable,
+        visible: visibility_current && !hidden(m, n.address)?,
+        owner: tag_at(province::OWNER)?,
+        controller: tag_at(province::CONTROLLER)?,
+    })
+}
+
 /// Fog of war hides this province.
 pub fn hidden(m: &Memory, province: usize) -> GResult<bool> {
     let fogged = m.u8(province + province::FOGGED)? & province::FOGGED_BIT != 0;
@@ -324,6 +333,22 @@ pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
     Ok(m.call(m.at(CAN_ATTACK), &[army, target])? as u8 != 0)
 }
 
+/// The army or fleet the game has under `id`, found by the game's own
+/// lookup; none when there is no unit with it.
+pub fn unit_by_id(m: &Memory, id: u64) -> GResult<Option<usize>> {
+    let key = id;
+    let holder = m.call(m.at(FIND_ID), &[&key as *const u64 as usize])?;
+    if holder == 0 {
+        return Ok(None);
+    }
+    let unit = holder - unit::ID_HOLDER;
+    let vt = m.ptr(unit)?;
+    if (vt != m.at(classes::ARMY) && vt != m.at(classes::FLEET)) || m.u64(unit + unit::ID)? != id {
+        return Ok(None);
+    }
+    Ok(Some(unit))
+}
+
 /// Every own army and fleet: (id, address, land).
 pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
     let head = m.ptr(ctx.country + country_fields::UNITS)?;
@@ -355,10 +380,12 @@ pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
 
 /// Address of an own land army.
 pub fn own_land_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
-    match own_roster(m, ctx)?.into_iter().find(|(i, _, _)| *i == id) {
-        Some((_, address, true)) => Ok(address),
-        Some(_) => Err(eu4_harmony_checks::armies::not_land().into()),
-        None => Err(eu4_harmony_checks::armies::not_own(id).into()),
+    match unit_by_id(m, id)? {
+        Some(unit) if m.u64(unit + unit::OWNER)? == ctx.player.0 => match m.ptr(unit)? == m.at(classes::ARMY) {
+            true => Ok(unit),
+            false => Err(eu4_harmony_checks::armies::not_land().into()),
+        },
+        _ => Err(eu4_harmony_checks::armies::not_own(id).into()),
     }
 }
 

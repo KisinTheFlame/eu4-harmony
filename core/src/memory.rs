@@ -1,13 +1,12 @@
-//! Fault-tolerant access to game memory: reads go through ReadProcessMemory on
-//! our own process, and calls into game code go through the C++ SEH boundary.
+//! Fault-tolerant access to game memory: reads and calls into game code go
+//! through the C++ SEH boundary, which turns a fault into an error (ADR 0032);
+//! writes go through WriteProcessMemory on our own process.
 use crate::Result;
-use windows_sys::Win32::System::{
-    Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
-    Threading::GetCurrentProcess,
-};
+use windows_sys::Win32::System::{Diagnostics::Debug::WriteProcessMemory, Threading::GetCurrentProcess};
 
 extern "C" {
     fn eu4h_native_call(target: usize, args: *const usize, count: u32, result: *mut usize) -> u32;
+    fn eu4h_read(source: *const u8, target: *mut u8, count: usize) -> u32;
 }
 
 /// The game image, by its load address.
@@ -37,10 +36,9 @@ impl Memory {
         if addr == 0 || out.is_empty() || addr.checked_add(out.len()).is_none() {
             return Err(format!("invalid read {addr:#x}+{}", out.len()));
         }
-        let mut read = 0;
-        let ok = unsafe { ReadProcessMemory(GetCurrentProcess(), addr as _, out.as_mut_ptr() as _, out.len(), &mut read) };
-        if ok == 0 || read != out.len() {
-            return Err(format!("unreadable memory {addr:#x}+{}", out.len()));
+        let code = unsafe { eu4h_read(addr as *const u8, out.as_mut_ptr(), out.len()) };
+        if code != 0 {
+            return Err(format!("unreadable memory {addr:#x}+{}: {code:#x}", out.len()));
         }
         Ok(())
     }
@@ -112,6 +110,9 @@ mod tests {
         assert_eq!(m.u64(&value as *const _ as usize).unwrap(), value);
         assert!(m.u8(0).is_err());
         assert!(m.bytes(usize::MAX, 2).is_err());
+        // A kernel address faults in user mode: the read fails, the test runs on.
+        let err = m.u64(0xffff_8000_0000_0000).unwrap_err();
+        assert!(err.contains("c0000005"), "{err}");
     }
 
     #[test]

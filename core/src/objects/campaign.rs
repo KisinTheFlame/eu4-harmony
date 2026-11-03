@@ -404,6 +404,9 @@ pub mod map {
 
 /// An army or a fleet.
 pub mod unit {
+    /// What the game's ID lookup answers for it: the unit is registered
+    /// under its ID from here (docs/research/armies.md, "Identity").
+    pub const ID_HOLDER: usize = 0x10;
     /// Its ID, u64, kept in saves.
     pub const ID: usize = 0x20;
     /// Its regiments: a vector (begin, end) of pointers.

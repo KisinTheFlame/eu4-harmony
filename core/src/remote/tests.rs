@@ -72,12 +72,16 @@ fn every_capability_runs_at_a_game_frame() {
         ),
         (Request::Country(CountryRequest::Get { country: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),
         (
-            Request::Province(ProvinceRequest::List {}),
+            Request::Province(ProvinceRequest::List { provinces: None }),
             Box::new(move |v: &Value| *v == ok(json!([province_json(149, "TUR", "TUR"), province_json(151, "BYZ", "TUR")]))),
         ),
         (
             Request::Province(ProvinceRequest::Neighbors { province: province(149) }),
             Box::new(|v: &Value| *v == ok(json!([{"province": 151, "strait": false}, {"province": 316, "strait": true}]))),
+        ),
+        (
+            Request::Province(ProvinceRequest::List { provinces: Some(eu4_harmony_remote::ProvinceList(vec![province(151), province(1), province(149)])) }),
+            Box::new(move |v: &Value| *v == ok(json!([province_json(151, "BYZ", "TUR"), province_json(149, "TUR", "TUR")]))),
         ),
         (Request::Province(ProvinceRequest::Get { province: province(151) }), Box::new(|v: &Value| v["result"]["name"] == "君士坦丁堡")),
         (Request::Province(ProvinceRequest::Get { province: province(1) }), Box::new(error("not_found"))),

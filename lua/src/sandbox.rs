@@ -227,7 +227,11 @@ pub fn main_state(lua: &Lua) -> *const c_void {
 
 /// The capabilities extensions have, each named by its group and action.
 fn extension_capabilities() -> impl Iterator<Item = Capability> {
-    capabilities().into_iter().filter(|c| c.extensions && !c.action.is_empty() && c.group != "text")
+    capabilities().into_iter().filter(for_extensions)
+}
+
+fn for_extensions(c: &Capability) -> bool {
+    c.extensions && !c.action.is_empty() && c.group != "text"
 }
 
 /// `nil, err` for a failure, as capabilities answer one.
@@ -337,8 +341,8 @@ fn paint(lua: &Lua, at: &Calling, colors: Table) -> mlua::Result<MultiValue> {
 
 /// A capability's request as JSON, from its Lua arguments: the required
 /// ones in order, then the optional ones in a table.
-pub fn request(name: &str, args: MultiValue) -> Result<Value, String> {
-    let Some(capability) = extension_capabilities().find(|c| c.name() == name) else {
+pub fn request(name: &str, args: MultiValue) -> Result<Map<String, Value>, String> {
+    let Some(capability) = eu4_harmony_remote::capability(name).filter(|c| for_extensions(c)) else {
         return Err("no such capability for extensions".into());
     };
     let required: Vec<_> = capability.args.iter().filter(|a| !a.optional).collect();
@@ -372,7 +376,7 @@ pub fn request(name: &str, args: MultiValue) -> Result<Value, String> {
             fields.insert(arg.name.into(), arg_json(arg.kind, &value).map_err(|e| format!("{key}: {e}"))?);
         }
     }
-    Ok(Value::Object(fields))
+    Ok(fields)
 }
 
 /// One argument as JSON, as its kind is written there.
@@ -408,6 +412,13 @@ fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
             }
             _ => Err(wrong()),
         },
+        Kind::Provinces => match value {
+            LuaValue::Table(t) => {
+                let ids = t.clone().sequence_values::<i64>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
+                Ok(Value::Array(ids.into_iter().map(|i| Value::Number(Number::from(i))).collect()))
+            }
+            _ => Err(wrong()),
+        },
     }
 }
 
@@ -430,6 +441,7 @@ mod tests {
     fn a_request_takes_required_arguments_in_order_and_options_in_a_table() {
         let lua = Lua::new();
         let args = |code: &str| lua.load(code).eval::<MultiValue>().unwrap();
+        let request = |name: &str, args: MultiValue| request(name, args).map(Value::Object);
         assert_eq!(
             request("army.move", args("return 545460846646, 151")).unwrap(),
             serde_json::json!({"capability": "army.move", "army": "545460846646", "province": 151})
