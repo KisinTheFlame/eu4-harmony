@@ -27,6 +27,10 @@
 //!   the blocks a session leaves among them keep committed. The first frame
 //!   after a world reset, of the main menu or of the session it began, has
 //!   the heaps give them back.
+//! - What the textures' transparency masks keep, in vanilla too: a texture
+//!   ID's mask keeps the buffer of the largest texture the ID was ever
+//!   lent to, and IDs pass from texture to texture as they load again. The
+//!   buffer is let go before a texture smaller than it is written to it.
 //! - What the game's AI changes on several worker threads at once without a
 //!   lock, in vanilla too: a country's coalition, which the AI of the
 //!   countries in it leaves in parallel. Leaving and joining a coalition
@@ -39,7 +43,7 @@ use crate::{
             achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
             message_window, modifiers, outliner, religions, world,
         },
-        gui::{classes as gui_classes, sprite_type, window as gui_window},
+        gui::{classes as gui_classes, sprite_type, transparency_mask, window as gui_window},
         list,
     },
     points::{Function, Point},
@@ -93,6 +97,14 @@ const AI_KING_DELETE: usize = 0x148260;
 const LET_MAP_MODES_GO: usize = 0x81de20;
 const LET_OUTLINER_GO: usize = 0x81dc30;
 
+/// `(bits, count)`: a `std::vector<bool>`'s resize; and where the texture
+/// loader resizes a transparency mask to its texture's pixels, the return
+/// address of that call. `(words)`: the destructor of a vector of u32, which
+/// frees its buffer and leaves it empty.
+const BIT_VECTOR_RESIZE: usize = 0x6e05c0;
+const MASK_RESIZED: usize = 0x16c302d;
+const WORDS_DESTRUCTOR: usize = 0x943e0;
+
 /// `(country, …, other)`: a country's AI weighs leaving the coalition
 /// against `other` (a tag) and the coalitions its members are in, and takes
 /// countries off them; on worker threads. `(country)`: a country joins the
@@ -112,6 +124,8 @@ const MODIFIER_SET_DELETE: usize = 0x1b2290;
 static LEADERS: AtomicUsize = AtomicUsize::new(0);
 static FACTIONS: AtomicUsize = AtomicUsize::new(0);
 static AGENTS: AtomicUsize = AtomicUsize::new(0);
+/// The bytes of transparency masks let go since the last world reset.
+static MASK_BYTES: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
@@ -488,6 +502,38 @@ fn check_listed(m: &Memory, modifiers: usize, lost: &[usize]) {
     }
 }
 
+/// A vector of bits is resized: when it is a transparency mask the texture
+/// loader is about to write a texture to, and its buffer holds more than the
+/// texture needs, the buffer is let go first, so that the resize makes one
+/// as large as the texture. The loader writes every bit the texture has, so
+/// nothing of the old mask is needed.
+extern "C" fn mask_resizing(frame: *mut HookFrame) {
+    crate::guarded("transparency mask resize", || {
+        let m = crate::hooked_memory();
+        let h = unsafe { &*frame };
+        if h.return_address != m.at(MASK_RESIZED) {
+            return;
+        }
+        let (mask, bits) = (h.args[0], h.args[1]);
+        let let_go = (|| {
+            let (begin, capacity) = (m.ptr(mask + transparency_mask::WORDS)?, m.ptr(mask + transparency_mask::CAPACITY)?);
+            let needed = bits.div_ceil(32) * 4;
+            if begin == 0 || capacity <= begin + needed {
+                return Ok(0);
+            }
+            m.call(m.at(WORDS_DESTRUCTOR), &[mask + transparency_mask::WORDS])?;
+            m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
+            crate::Result::Ok(capacity - begin)
+        })();
+        match let_go {
+            Ok(bytes) => {
+                MASK_BYTES.fetch_add(bytes, Ordering::Relaxed);
+            }
+            Err(e) => log!("repair: a transparency mask was not let go: {e}"),
+        }
+    });
+}
+
 /// The turns leaving and joining a coalition take: a lock, and the thread
 /// that holds it and how many times, so that it may take its turn again.
 struct Turns {
@@ -719,13 +765,14 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go",
             LEADERS.swap(0, Ordering::Relaxed),
             FACTIONS.swap(0, Ordering::Relaxed),
             AGENTS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS_WAITED.swap(0, Ordering::Relaxed),
-            MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed)
+            MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed),
+            MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
         );
         #[cfg(feature = "trace")]
         crate::census::world_reset();
@@ -844,6 +891,14 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(DELETE, "e9 2b 45 02 00", "operator delete"),
+        // The texture loader resizes the transparency mask of the texture's
+        // ID to its pixels, then writes every bit.
+        Point::observe(BIT_VECTOR_RESIZE, "48 89 5c 24 10 57 48 83 ec 50 4c 8b 41 18 48 8b da 48 8b f9", "vector of bits resize", 2, Some(mask_resizing), None)
+            .uses(&[transparency_mask::BITS]),
+        Point::keep(0x16c3025usize, "49 8b cf e8 93 d5 01 ff 4d 8b 6e 18", "transparency mask resized for a texture"),
+        Point::keep(0x16c3079usize, "49 8b 0f 8b c2 48 c1 e8 05 4c 8d 14 81", "transparency mask's bits written"),
+        Point::keep(WORDS_DESTRUCTOR, "40 53 48 83 ec 20 48 8b d9 48 8b 09 48 85 c9 74 3e 48 8b 53 10 48 2b d1", "vector of u32 destructor")
+            .uses(&[transparency_mask::CAPACITY]),
         // Leaving and joining a coalition change its list; the AI leaves on
         // worker threads.
         Point::observe(

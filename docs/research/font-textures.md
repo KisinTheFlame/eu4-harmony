@@ -16,6 +16,12 @@ Baseline 1.37.5 (`9ad3efe1…`). All addresses are RVAs. What is marked [V] come
 - **The texture wrapper (0x28 bytes, allocated with the game's allocator)**[V]: `+0x00` is the `IDirect3DTexture9*`, `+0x08` the sRGB sampling flag, `+0x0c` the usage (0 or 0x200 = DYNAMIC).
 - **The renderer's function table**: 0x1fd10f8–0x1fd1378, 81 slots in all. The static values in `.data` are the DX9 functions; 0x16c1480 writes every slot again, the same DX9 values but for `-opengl`, only when the command line names a renderer [V] ([architecture.md](architecture.md)).
 
+## Transparency masks
+
+- **The masks**: the texture manager's `+0x48` is an array of 0x20-byte `std::vector<bool>`s, by texture ID (data `+0x50`, capacity `+0x58`, count `+0x5c`): each a vector of u32 words (begin, end, capacity) and its length in bits at `+0x18`. When 0x16c2980 loads a texture that is checked for transparency, it grows the array to the ID the renderer gave (`[0x1fd1320]`, the ID at its frame's `+0x170`), resizes that ID's mask to the texture's width × height (`0x6e05c0`, the vector's resize, at 0x16c3028), and writes every bit, set where the pixel's alpha is not 0, cleared where it is (0x16c3079).
+- **What they keep** (2026-11-03, counted at each world reset, [prototype-log.md](../prototype-log.md), "Textures' transparency masks"): the resize keeps its buffer when it shrinks, and the renderer lends an ID to texture after texture as interfaces load and unload: in rounds of a load, an in-game load, a return, a new game and a return, the array held 4,947 to 4,991 IDs, 620 to 670 of them with a mask, whose buffers held 6.2 MB after the first session and 11.6 MB after ten world resets, while their textures needed 1.5 to 2.1 MB. The buffers came from the vectors' generic allocation (`0x950b0`, census site `0x950ce`).
+- **The repair**: as the texture loader resizes a mask whose buffer holds more than its texture needs, the buffer is let go first (`0x943e0`, the u32 vector's destructor, then 0 bits), and the resize makes one of the texture's size.
+
 ## How a font page loads
 
 - `0x15953c0` loads the page texture first, then calls the `.fnt` parser 0x1595570 [V].
