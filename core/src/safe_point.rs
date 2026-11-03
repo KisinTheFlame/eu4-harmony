@@ -101,6 +101,7 @@ pub fn game_frame() {
     match game::begin_frame(&m) {
         Ok(frame) => {
             unplayable().read();
+            repairs::session_frame();
             #[cfg(feature = "dev-test-switches")]
             if frame.new_session {
                 game::commands::post_test_commands();

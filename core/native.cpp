@@ -1,5 +1,7 @@
 // SEH boundary between the Rust core and game code.
 //
+// eu4h_read copies game memory inside the process and turns a fault into an
+// error code, so reading through a bad pointer fails instead of crashing.
 // eu4h_native_call invokes a game (or extension) function with integer/pointer
 // arguments and turns a structured exception into an error code instead of a
 // crash. eu4h_observer_thunk returns per-slot detours that run Rust "before"
@@ -12,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 
 using Word = uintptr_t;
@@ -93,6 +96,19 @@ extern "C" unsigned eu4h_native_call(Word target, const Word* args, unsigned cou
 #undef CASE
         return 0;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return GetExceptionCode();
+    }
+}
+// Only the faults a read can meet are handled; anything else is not ours.
+static int read_fault(unsigned code) {
+    return code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_IN_PAGE_ERROR || code == STATUS_GUARD_PAGE_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                                                                        : EXCEPTION_CONTINUE_SEARCH;
+}
+extern "C" unsigned eu4h_read(const void* source, void* target, size_t count) {
+    __try {
+        std::memcpy(target, source, count);
+        return 0;
+    } __except (read_fault(GetExceptionCode())) {
         return GetExceptionCode();
     }
 }

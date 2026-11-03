@@ -9,31 +9,37 @@ use eu4_harmony_remote::{
 
 layer! {
     fn provinces() -> Vec<game::provinces::Province> = game::provinces::provinces;
+    fn named_provinces(ids: Vec<u32>) -> Vec<game::provinces::Province> = game::provinces::named;
     fn neighbors(province: u32) -> Vec<game::provinces::Neighbor> = game::provinces::neighbors;
     fn province(province: u32) -> layer::Snapshot = layer::province;
 }
 
 pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result<ProvinceAnswer, Error> {
     match request {
-        // The layer's list starts with a placeholder for number 0.
-        ProvinceRequest::List {} => Ok(ProvinceAnswer::List(
-            game.provinces()?
-                .iter()
-                .filter(|p| p.id != 0)
-                .map(|p| Province {
-                    id: ProvinceId(p.id),
-                    kind: match (p.land, p.lake, p.impassable) {
-                        (_, true, _) => ProvinceKind::Lake,
-                        (true, _, true) => ProvinceKind::Wasteland,
-                        (true, _, false) => ProvinceKind::Land,
-                        (false, _, _) => ProvinceKind::Sea,
-                    },
-                    visible: p.visible,
-                    owner: p.owner.map(tag),
-                    controller: p.controller.map(tag),
-                })
-                .collect(),
-        )),
+        // The layer's whole list starts with a placeholder for number 0.
+        ProvinceRequest::List { provinces } => {
+            let chosen: Vec<game::provinces::Province> = match provinces {
+                None => game.provinces()?.into_iter().filter(|p| p.id != 0).collect(),
+                Some(list) => game.named_provinces(list.0.iter().map(|id| id.0).collect())?,
+            };
+            Ok(ProvinceAnswer::List(
+                chosen
+                    .into_iter()
+                    .map(|p| Province {
+                        id: ProvinceId(p.id),
+                        kind: match (p.land, p.lake, p.impassable) {
+                            (_, true, _) => ProvinceKind::Lake,
+                            (true, _, true) => ProvinceKind::Wasteland,
+                            (true, _, false) => ProvinceKind::Land,
+                            (false, _, _) => ProvinceKind::Sea,
+                        },
+                        visible: p.visible,
+                        owner: p.owner.map(tag),
+                        controller: p.controller.map(tag),
+                    })
+                    .collect(),
+            ))
+        }
         ProvinceRequest::Neighbors { province } => {
             Ok(ProvinceAnswer::Neighbors(game.neighbors(province.0)?.iter().map(|n| Neighbor { province: ProvinceId(n.to), strait: n.strait }).collect()))
         }

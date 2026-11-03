@@ -206,7 +206,7 @@ fn descriptions_in_json() {
 
 #[test]
 fn kinds_from_text() {
-    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text, Kind::UnitKind];
+    let all = [Kind::Country, Kind::Province, Kind::Army, Kind::Date, Kind::Integer, Kind::Boolean, Kind::Text, Kind::UnitKind, Kind::Provinces];
     for kind in all {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
     }
@@ -216,7 +216,11 @@ fn kinds_from_text() {
     assert_eq!(Kind::Integer.json("18446744073709551615"), Some(json!(u64::MAX)));
     assert_eq!(Kind::Boolean.json("false"), Some(json!(false)));
     assert_eq!(Kind::UnitKind.json("heavy_ship"), Some(json!("heavy_ship")));
+    assert_eq!(sample(Kind::Provinces), json!([151, 152]));
+    assert_eq!(Kind::Provinces.json("1, 2"), Some(json!([1, 2])));
     for (kind, bad) in [
+        (Kind::Provinces, "151,Paris"),
+        (Kind::Provinces, ""),
         (Kind::Province, "Paris"),
         (Kind::Province, "1.5"),
         (Kind::Integer, "0x10"),
@@ -258,5 +262,24 @@ fn binaries_in_json() {
         json!({"media_type": "image/png", "base64": "not base64"}),
     ] {
         assert_eq!(Binary::from_json(&other), None, "{other}");
+    }
+}
+
+/// Every event extensions hear has its handler, and every permission a
+/// function needs is one the manifest may declare.
+#[test]
+fn the_lua_descriptions_agree_with_the_events_and_permissions() {
+    for (event, _) in events::EVENTS {
+        assert!(lua::HANDLERS.iter().any(|h| h.name == format!("on_{event}")), "no handler for {event}");
+    }
+    for f in lua::FUNCTIONS {
+        if let Some(p) = f.permission {
+            assert!(lua::PERMISSIONS.iter().any(|q| q.name == p), "{} needs {p}, which is no permission", f.name);
+        }
+        let top = f.name.split('.').next().unwrap();
+        assert!(lua::GLOBALS.contains(&top) || top == "os" || top == "game", "{} is under no global", f.name);
+    }
+    for p in lua::PERMISSIONS {
+        assert!(lua::FUNCTIONS.iter().any(|f| f.permission == Some(p.name)), "nothing needs {}", p.name);
     }
 }

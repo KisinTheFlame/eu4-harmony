@@ -1,7 +1,7 @@
 //! `eu4-harmony wiki`: the reference, made from the framework's own
 //! descriptions (`eu4_harmony_remote`), never written by hand (ADR 0026).
 //! Topics nest: `wiki`, `wiki army`, `wiki army move`.
-use eu4_harmony_remote::{capabilities, events::EVENTS, groups, prose, Capability, Code, Group, API_VERSION};
+use eu4_harmony_remote::{capabilities, events::EVENTS, groups, lua, prose, Capability, Code, Group, API_VERSION};
 use std::fmt::Write as _;
 
 /// The page for `topics`, or why there is none.
@@ -10,6 +10,8 @@ pub fn page(topics: &[String]) -> Result<String, String> {
     match words.as_slice() {
         [] => Ok(index()),
         ["remote"] => Ok(remote()),
+        ["lua"] => Ok(lua_page()),
+        ["manifest"] => Ok(manifest_page()),
         ["errors"] => Ok(errors()),
         ["events"] => Ok(events()),
         [group] => match groups().into_iter().find(|g| g.name == *group) {
@@ -34,6 +36,8 @@ eu4-harmony wiki: the reference for capability catalogue {API_VERSION}
 usage: eu4-harmony wiki [<topic>...]
 
 topics:
+  lua       what a mod's Lua has: handlers, globals, the sandbox
+  manifest  eu4-harmony/manifest.toml, and the permissions it declares
   remote    how a remote client plays a game, and the command line's exit codes
   errors    the codes a failed capability answers
   events    what extensions hear and remote control numbers, and reading them
@@ -114,6 +118,68 @@ fn first_sentence(about: &str) -> String {
         Some(end) => text[..=end].to_string(),
         None => text,
     }
+}
+
+/// What a mod's Lua has besides the capabilities.
+fn lua_page() -> String {
+    let mut text = String::from(
+        "\
+lua: what a mod's Lua has
+
+main.lua runs once, at startup, and returns a table of handlers, one for
+each event the mod hears. Each handler call runs as a task, which may wait
+for an answer (a function marked \"waits\") while the game goes on; game, the
+same table every time, reaches the capabilities as game.<group>.<name>(...)
+(eu4-harmony wiki <group>) only while a handler or a task runs. A
+capability or function that fails as the game or the system may make it
+fail returns nil, err; one called wrongly raises an error, which ends the
+handler's call, is logged, and the mod is called again with the next event.
+
+handlers (each gets game first):
+",
+    );
+    for h in lua::HANDLERS {
+        let args: Vec<&str> = std::iter::once("game").chain(h.args.iter().map(|a| a.name)).collect();
+        let returns = h.returns.map_or(String::new(), |r| format!(" -> {}", r.name));
+        let _ = writeln!(text, "  {}({}){returns}\n      {}", h.name, args.join(", "), h.about);
+        for a in h.args.iter().chain(h.returns.iter()) {
+            let _ = writeln!(text, "      {}: {}", a.name, a.about);
+        }
+    }
+    let _ = writeln!(text, "\nglobals:");
+    for f in lua::FUNCTIONS {
+        let args: Vec<String> = f.args.iter().map(|a| if a.optional { format!("[{}]", a.name) } else { a.name.to_string() }).collect();
+        let returns: Vec<&str> = f.returns.iter().map(|r| r.name).collect();
+        let returns = if returns.is_empty() { String::new() } else { format!(" -> {}", returns.join(", ")) };
+        let mut marks = Vec::new();
+        if f.waits {
+            marks.push("waits".to_string());
+        }
+        if let Some(p) = f.permission {
+            marks.push(format!("needs {p}"));
+        }
+        let marks = if marks.is_empty() { String::new() } else { format!("  ({})", marks.join("; ")) };
+        let _ = writeln!(text, "  {}({}){returns}{marks}\n      {}", f.name, args.join(", "), f.about);
+    }
+    let _ = write!(text, "\ninterface elements:\n  {}\n\nthe sandbox:\n  {}\n", lua::ELEMENTS, lua::SANDBOX);
+    text
+}
+
+/// The manifest's fields and the permissions it may declare.
+fn manifest_page() -> String {
+    let mut text = String::from("manifest: eu4-harmony/manifest.toml, what cannot be told from where the mod's files are\n\nfields:\n");
+    for f in lua::MANIFEST {
+        let required = if f.required { "required" } else { "optional" };
+        let _ = writeln!(text, "  {} ({required})\n      {}\n      {}", f.name, f.about, f.example);
+    }
+    let _ = writeln!(
+        text,
+        "\npermissions: the sensitive capabilities a mod may use beyond the game. Using one\nthe manifest does not declare raises an error; the player sees each in the mods window.\n"
+    );
+    for p in lua::PERMISSIONS {
+        let _ = writeln!(text, "  {}: {}\n      gives {}; declared as {}", p.name, p.about, p.gives, p.declared);
+    }
+    text
 }
 
 fn remote() -> String {
@@ -207,6 +273,17 @@ mod tests {
         assert_eq!(lua_call(&get), "game.session.get()");
         let language = capabilities().into_iter().find(|c| c.name() == "text.language").unwrap();
         assert_eq!(lua_call(&language), "text.language()");
+    }
+
+    #[test]
+    fn the_lua_and_manifest_topics_name_every_handler_global_field_and_permission() {
+        let lua_page = page(&words("lua")).unwrap();
+        assert!(lua::HANDLERS.iter().all(|h| lua_page.contains(&format!("  {}(game", h.name))), "{lua_page}");
+        assert!(lua::FUNCTIONS.iter().all(|f| lua_page.contains(&format!("  {}(", f.name))), "{lua_page}");
+        assert!(lua_page.contains("http.fetch(url, [options]) -> response, err  (waits; needs network)"), "{lua_page}");
+        let manifest = page(&words("manifest")).unwrap();
+        assert!(lua::MANIFEST.iter().all(|f| manifest.contains(&format!("  {} (", f.name))), "{manifest}");
+        assert!(lua::PERMISSIONS.iter().all(|p| manifest.contains(&format!("  {}: ", p.name))), "{manifest}");
     }
 
     #[test]

@@ -159,12 +159,16 @@ pub fn can_attack_seen(_: Caller, id: u64, target: u64) -> GResult<bool> {
         return Err(checks::visibility_not_current().into());
     }
     let army = world::own_land_army(m, &ctx, id)?;
-    for (_, address) in with_state(|s| s.geography.land_provinces(m, &ctx))? {
-        if let Some((_, unit)) = world::province_armies(m, &ctx, address)?.into_iter().find(|(a, _)| a.id == target) {
-            return Ok(unit != army && world::can_attack(m, army, unit)?);
-        }
+    // Found by the game's lookup, and seen as army.at sees it: a land army in
+    // a province not under fog.
+    let Some(other) = world::unit_by_id(m, target)? else {
+        return Err(checks::not_seen(target).into());
+    };
+    let at = m.ptr(other + unit::LOCATION)?;
+    if at == 0 || !world::province_armies(m, &ctx, at)?.iter().any(|(a, _)| a.id == target) {
+        return Err(checks::not_seen(target).into());
     }
-    Err(checks::not_seen(target).into())
+    Ok(other != army && world::can_attack(m, army, other)?)
 }
 
 /// Whether an own land army may go from a province to a neighboring one

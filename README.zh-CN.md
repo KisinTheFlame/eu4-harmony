@@ -48,7 +48,7 @@ cd "<游戏目录>\eu4-harmony"
 | --- | --- |
 | 主菜单 | `menu`（游戏在哪里）、`menu.saves`、`menu.load`、`menu.start`、`menu.return` |
 | 会话与时间 | `session.get`、`time.get`、`time.pause`、`time.resume`、`time.set_speed`、`time.advance`（让若干天过去并等待，带回途中的事件） |
-| 国家与省份 | `country.get`（国库、人力、稳定度、威望、君主点数、战争、盟友、附属国与宗主国及附属类型、宿敌）、`country.hostile`、`province.list`、`province.get`（名字、所有者、发展度、地形、要塞、建筑）、`province.neighbors` |
+| 国家与省份 | `country.get`（国库、人力、稳定度、威望、君主点数、战争、盟友、附属国与宗主国及附属类型、宿敌）、`country.hostile`、`province.list`（全部省份，或指定的那些）、`province.get`（名字、所有者、发展度、地形、要塞、建筑）、`province.neighbors` |
 | 军队 | `army.list`、`army.get`（带剩余路线和不能接受命令的原因）、`army.at`、`army.route_to`、`army.can_step`、`army.can_attack`、`army.move`、`army.stop`、`army.selected` |
 | 招募 | `recruit.options`（一个省份能招募什么、为什么不能）、`recruit.order`（招募某一类的一个团或一艘船） |
 | 事件与提议 | `question.list`、`question.answer`（等待玩家回答的游戏事件）；`offer.list`、`offer.accept`、`offer.decline`（其他国家的提议） |
@@ -64,8 +64,9 @@ cd "<游戏目录>\eu4-harmony"
 Mod 的扩展是 Lua 5.4 脚本，由框架在各自的沙箱里运行（[ADR 0024](docs/adr/0024-extensions-are-lua-in-a-sandbox.md)）：什么都不用装，也不用编译。命令行工具是游戏 `eu4-harmony\` 文件夹里的 `eu4-harmony.exe`（在本仓库的构建里是 `target\x86_64-pc-windows-msvc\release\`）：
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、manifest.toml、lua\main.lua、一个按钮、中英文字
+eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、manifest.toml、lua\main.lua、一个按钮、中英文字、编辑器的类型定义、一个 AGENTS.md
 cd my-mod
+eu4-harmony test                          # 用假游戏运行它的 eu4-harmony\tests\*.lua
 eu4-harmony link                          # 在用户文件夹的 mod\ 下注册，然后在启动器里勾选
 eu4-harmony package                       # 所有 Lua 和本地化文件都能读通后，生成一个干净的上传文件夹 ..\my-mod-package
 ```
@@ -74,7 +75,11 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 
 `permissions` 声明扩展在游戏之外能做什么：读取现实时间（`clock = true`）、在自己的数据文件夹里读写文件（`files = true`）、向列出的主机发 HTTP 请求（`network = ["api.example.com"]`）；用了没声明的就会报错（[ADR 0025](docs/adr/0025-sensitive-capabilities-are-declared.md)）。玩家在主菜单角落"EU4 Harmony Mod"按钮打开的 Mod 窗口里，能看到每个 Mod 的名称、版本、介绍和它声明的这些能力。
 
-`main.lua` 返回一张事件函数表，每类事件一个（`on_session`、`on_day`、`on_button`、`on_frame`、`on_save` 等）。每个函数都拿到 `game`，所有能力都按组从它调用，例如 `game.army.move(army, province)`；被拒绝时返回 `nil, err`。事件函数可以等一个能力的答复（比如别国对提议的答复），写起来像 `await`。`eu4-harmony wiki` 列出全部能力和它们的 Lua 写法；`eu4-harmony game` 则通过远程控制（见上文）向运行中的游戏问同样的东西。最小的示例就是 `eu4-harmony new` 生成的 Mod；事件函数、出错、时间限制和扩展存档数据的设计见 [docs/lua-extensions.md](docs/lua-extensions.md)。
+`main.lua` 返回一张事件函数表，每类事件一个（`on_session`、`on_day`、`on_button`、`on_frame`、`on_save` 等）。每个函数都拿到 `game`，所有能力都按组从它调用，例如 `game.army.move(army, province)`；被拒绝时返回 `nil, err`。事件函数可以等一个能力的答复（比如别国对提议的答复），写起来像 `await`。`eu4-harmony wiki` 列出全部能力和它们的 Lua 写法，`eu4-harmony wiki lua` 列出事件函数和全局函数，`eu4-harmony wiki manifest` 列出清单的字段和权限；`eu4-harmony game` 则通过远程控制（见上文）向运行中的游戏问同样的东西。最小的示例就是 `eu4-harmony new` 生成的 Mod；事件函数、出错、时间限制和扩展存档数据的设计见 [docs/lua-extensions.md](docs/lua-extensions.md)。
+
+`eu4-harmony skills` 是制作 Mod 的指南，写给 coding agent，人也能读：每类工作的步骤，以及怎样算做完（先看 `eu4-harmony skills mod`，再看 `tasks`、`state`、`ui`、`localisation`、`testing`、`game`）。`eu4-harmony new` 生成的 `AGENTS.md` 会让 agent 去读这些指南。
+
+装了 Lua 语言服务器（LuaLS）的编辑器能补全 `game`、各项能力和返回值的字段、事件函数和全局函数，并标出拼错的能力或传错的参数：`eu4-harmony new` 会把类型定义写进 Mod 的 `.eu4-harmony\types\`，并附一个 `.luarc.json`；换了新版工具后用 `eu4-harmony types` 重写一遍。`eu4-harmony package` 不会打包这两样。
 
 文字放在 `eu4-harmony/localisation/<名字>_l_<语言>.yml`，格式同游戏的本地化文件，但内容是普通 UTF-8，每种语言一个文件（`english`、`french`、`german`、`spanish`、`simp_chinese`）。界面片段直接用这些键，扩展用 `text.get("KEY")` 取文字；框架按玩家语言显示，见 [ADR 0009](docs/adr/0009-localisation-in-the-player-language.md)。
 
@@ -83,7 +88,8 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 | 目录 | 内容 |
 | --- | --- |
 | `proxy/` | `version.dll` 代理：转发 version.dll，只在 `eu4.exe` 里加载核心 |
-| `core/` | 框架核心：依赖点与启动、框架读取的游戏对象布局（`core/src/objects/`）、`.gui` 拼接、运行扩展的 Lua 宿主（`core/src/lua/`）、能力，每组一个文件（`core/src/game/`）、远程控制的引擎（`core/src/remote/`）、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
+| `core/` | 框架核心：依赖点与启动、框架读取的游戏对象布局（`core/src/objects/`）、`.gui` 拼接、在真实游戏这个宿主上加载扩展并调用它的事件函数（`core/src/lua/`）、能力，每组一个文件（`core/src/game/`）、远程控制的引擎（`core/src/remote/`）、界面绑定、扩展存档数据、玩家语言、框架设置、框架界面（`core/src/framework_ui/`）、Unicode 模块（`core/src/unicode/`）；`core/localisation/` 是框架自己的文字 |
+| `lua/` | Lua 宿主：扩展的沙箱、事件函数和任务、出错和时间限制；宿主在核心里是运行中的游戏，在命令行工具里是假游戏 |
 | `loc/` | 本地化文件的格式、语言列表和查找，核心和命令行工具共用 |
 | `manifest/` | 模组的 `eu4-harmony/manifest.toml`、目录约定下其他文件的位置，以及描述文件的各行，核心和命令行工具共用 |
 | `remote/` | 能力目录：远程控制的请求与响应、它们的 JSON 形式和每项能力的说明（含扩展是否也有），核心和命令行工具共用 |

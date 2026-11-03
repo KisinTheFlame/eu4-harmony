@@ -146,7 +146,9 @@ dependencies = [
 name = "eu4-harmony-cli"
 version = "0.1.0"
 dependencies = [
+ "eu4-harmony-checks",
  "eu4-harmony-loc",
+ "eu4-harmony-lua",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
  "mlua",
@@ -162,10 +164,10 @@ dependencies = [
  "cc",
  "eu4-harmony-checks",
  "eu4-harmony-loc",
+ "eu4-harmony-lua",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
  "iced-x86",
- "mlua",
  "reqwest",
  "serde",
  "serde_json",
@@ -178,6 +180,18 @@ dependencies = [
 [[package]]
 name = "eu4-harmony-loc"
 version = "0.1.0"
+
+[[package]]
+name = "eu4-harmony-lua"
+version = "0.1.0"
+dependencies = [
+ "eu4-harmony-checks",
+ "eu4-harmony-loc",
+ "eu4-harmony-manifest",
+ "eu4-harmony-remote",
+ "mlua",
+ "serde_json",
+]
 
 [[package]]
 name = "eu4-harmony-manifest"
@@ -200,8 +214,18 @@ name = "eu4-harmony-remote"
 version = "0.1.0"
 dependencies = [
  "eu4-harmony-checks",
+ "eu4-harmony-remote-derive",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "eu4-harmony-remote-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

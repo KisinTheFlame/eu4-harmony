@@ -8,12 +8,7 @@
 use super::{
     files,
     values::{self, date_text},
-    Waits,
-};
-use crate::{
-    game::{interface, map_coloring, Caller},
-    lang,
-    mods::Permissions,
+    Element, Host, Mod, Waits,
 };
 use eu4_harmony_remote::{capabilities, Capability, Kind};
 use mlua::{Function, Lua, LuaOptions, MultiValue, StdLib, Table, Value as LuaValue, Variadic};
@@ -37,10 +32,29 @@ pub struct Opened {
 /// The registry's name for the modules `require` has loaded.
 const LOADED: &str = "eu4harmony.loaded";
 
-/// The state of the extension `index` of the mod `id`, whose files are in
-/// `harmony` (its `eu4-harmony/` folder) and whose data folder is `data`;
-/// what its tasks wait for is kept in `waits`.
-pub fn open(index: usize, id: &str, harmony: &Path, data: Option<PathBuf>, permissions: &Permissions, waits: Arc<Mutex<Waits>>) -> mlua::Result<Opened> {
+/// What a new extension's state is made for.
+pub struct Opening<'a> {
+    pub index: usize,
+    pub serial: u64,
+    pub m: &'a Mod<'a>,
+    pub host: Arc<dyn Host>,
+    /// What its tasks wait for.
+    pub waits: Arc<Mutex<Waits>>,
+}
+
+/// What a function the sandbox gives the extension reaches it by.
+pub struct Calling {
+    pub index: usize,
+    pub serial: u64,
+    pub host: Arc<dyn Host>,
+    pub waits: Arc<Mutex<Waits>>,
+    /// The sentinel a function that waits returns to its wrapper.
+    pub wait: LuaValue,
+}
+
+/// The state of a new extension, as `at` says.
+pub fn open(at: &Opening) -> mlua::Result<Opened> {
+    let (index, serial, id, harmony, permissions) = (at.index, at.serial, at.m.id, at.m.harmony.as_path(), at.m.permissions);
     let libs = StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE | StdLib::OS;
     let lua = Lua::new_with(libs, LuaOptions::default())?;
     let globals = lua.globals();
@@ -59,11 +73,11 @@ pub fn open(index: usize, id: &str, harmony: &Path, data: Option<PathBuf>, permi
     globals.set("os", os)?;
 
     // log and print: the extension's own log.
-    let mod_id = id.to_string();
+    let (mod_id, host) = (id.to_string(), at.host.clone());
     let log = lua.create_function(move |lua, args: Variadic<LuaValue>| {
         let tostring: Function = lua.globals().get("tostring")?;
         let words = args.iter().map(|a| tostring.call::<String>(a.clone())).collect::<mlua::Result<Vec<_>>>()?;
-        super::extension_log(index, &mod_id, &words.join(" "));
+        host.log(&mod_id, &words.join(" "));
         Ok(())
     })?;
     globals.set("print", log.clone())?;
@@ -103,11 +117,11 @@ pub fn open(index: usize, id: &str, harmony: &Path, data: Option<PathBuf>, permi
 
     // text: the mod's localisation in the player language.
     let text = lua.create_table()?;
-    let mod_id = id.to_string();
+    let (mod_id, host) = (id.to_string(), at.host.clone());
     text.set(
         "get",
         lua.create_function(move |lua, (key, values): (String, Option<Table>)| {
-            let Some(raw) = crate::loc::mod_text(&mod_id, &key) else {
+            let Some(raw) = host.text(&mod_id, &key) else {
                 return failure(lua, "not_found", &eu4_harmony_checks::texts::not_found(&key).message);
             };
             let mut args = Vec::new();
@@ -122,7 +136,8 @@ pub fn open(index: usize, id: &str, harmony: &Path, data: Option<PathBuf>, permi
             Ok(MultiValue::from_iter([LuaValue::String(lua.create_string(eu4_harmony_loc::fill(&raw, &args))?)]))
         })?,
     )?;
-    text.set("language", lua.create_function(|_, ()| Ok(lang::player().id()))?)?;
+    let host = at.host.clone();
+    text.set("language", lua.create_function(move |_, ()| Ok(host.language()))?)?;
     globals.set("text", text)?;
 
     // require: the mod's own modules, by dotted name.
@@ -150,11 +165,11 @@ pub fn open(index: usize, id: &str, harmony: &Path, data: Option<PathBuf>, permi
     // spawn: a task of its own (ADR 0030).
     globals.set(
         "spawn",
-        lua.create_function(move |_, function: Function| {
-            if super::CURRENT.with(std::cell::Cell::get) != Some(index) {
+        lua.create_function(move |lua, function: Function| {
+            if !super::running(serial) {
                 return Err(mlua::Error::runtime("spawn: a task is started only from a handler, not at the top of main.lua"));
             }
-            match super::extension(index) {
+            match super::extension_of(lua) {
                 Some(e) => e.spawn(function),
                 None => Err(mlua::Error::runtime("spawn: the extension is not loaded")),
             }
@@ -162,29 +177,40 @@ pub fn open(index: usize, id: &str, harmony: &Path, data: Option<PathBuf>, permi
     )?;
 
     // files: the extension's data folder.
-    globals.set("files", files::table(&lua, data, permissions.files)?)?;
+    globals.set("files", files::table(&lua, at.m.data.clone(), permissions.files)?)?;
 
-    // The sentinel a function that waits returns to its wrapper.
+    // What the functions that reach the host share, with the sentinel a
+    // function that waits returns to its wrapper.
     let wait = LuaValue::Table(lua.create_table()?);
+    let calling = Arc::new(Calling { index, serial, host: at.host.clone(), waits: at.waits.clone(), wait: wait.clone() });
 
     // http.fetch, which the prelude wraps: it waits.
-    let hosts = permissions.network.clone();
-    let sentinel = wait.clone();
-    let fetch = lua.create_function(move |_, (url, options): (String, Option<Table>)| super::fetch(index, &hosts, &waits, &sentinel, &url, options))?;
+    let (hosts, at_fetch) = (permissions.network.clone(), calling.clone());
+    let fetch = lua.create_function(move |_, (url, options): (String, Option<Table>)| super::fetch(&at_fetch, &hosts, &url, options))?;
 
     // game, built by the prelude around the host's functions.
-    let call = lua.create_function(move |lua, (name, args): (String, MultiValue)| super::call(lua, index, &name, args))?;
+    let at_call = calling.clone();
+    let call = lua.create_function(move |lua, (name, args): (String, MultiValue)| super::call(lua, &at_call, &name, args))?;
     let task = lua.create_function(|_, ()| Ok(super::current_task()))?;
     let names = lua.create_sequence_from(extension_capabilities().map(|c| c.name()))?;
-    let set_element = lua.create_function(move |_, (element, property, value): (String, String, LuaValue)| set_element(index, &element, &property, value))?;
+    let at_element = calling.clone();
+    let set_element =
+        lua.create_function(move |_, (element, property, value): (String, String, LuaValue)| set_element(&at_element, &element, &property, value))?;
     let game: Table = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((call, wait.clone(), task, names, set_element, fetch))?;
     let map = lua.create_table()?;
-    map.set("paint", lua.create_function(move |lua, colors: Table| paint(lua, index, colors))?)?;
+    let at_paint = calling.clone();
+    map.set("paint", lua.create_function(move |lua, colors: Table| paint(lua, &at_paint, colors))?)?;
+    let at_release = calling;
     map.set(
         "release",
-        lua.create_function(move |lua, ()| match map_coloring::clear(Caller::Extension(index)) {
-            Ok(()) => Ok(MultiValue::from_iter([LuaValue::Boolean(true)])),
-            Err(e) => failure(lua, status(e.status), &e.message),
+        lua.create_function(move |lua, ()| {
+            if !super::running(at_release.serial) {
+                return Err(mlua::Error::runtime("game.map.release: the game is reached only from a handler, not at the top of main.lua"));
+            }
+            match at_release.host.release_map(at_release.index) {
+                Ok(()) => Ok(MultiValue::from_iter([LuaValue::Boolean(true)])),
+                Err(e) => failure(lua, e.code.name(), &e.message),
+            }
         })?,
     )?;
     game.set("map", map)?;
@@ -201,7 +227,11 @@ pub fn main_state(lua: &Lua) -> *const c_void {
 
 /// The capabilities extensions have, each named by its group and action.
 fn extension_capabilities() -> impl Iterator<Item = Capability> {
-    capabilities().into_iter().filter(|c| c.extensions && !c.action.is_empty() && c.group != "text")
+    capabilities().into_iter().filter(for_extensions)
+}
+
+fn for_extensions(c: &Capability) -> bool {
+    c.extensions && !c.action.is_empty() && c.group != "text"
 }
 
 /// `nil, err` for a failure, as capabilities answer one.
@@ -210,19 +240,6 @@ pub(super) fn failure(lua: &Lua, code: &str, message: &str) -> mlua::Result<Mult
     err.set("code", code)?;
     err.set("message", message)?;
     Ok(MultiValue::from_iter([LuaValue::Nil, LuaValue::Table(err)]))
-}
-
-fn status(status: crate::game::Status) -> &'static str {
-    use crate::game::Status;
-    match status {
-        Status::NotInGame => "not_in_game",
-        Status::NotReady => "not_ready",
-        Status::NotFound => "not_found",
-        Status::Rejected => "rejected",
-        Status::InvalidArgument => "invalid_argument",
-        Status::Unavailable => "unavailable",
-        Status::WrongContext | Status::Internal => "internal",
-    }
 }
 
 /// The error for a sensitive capability `what` used though the manifest
@@ -268,11 +285,10 @@ fn module_file(modules: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 /// `game.ui.<element>.<property> = value`.
-fn set_element(index: usize, element: &str, property: &str, value: LuaValue) -> mlua::Result<()> {
-    if super::CURRENT.with(std::cell::Cell::get) != Some(index) {
+fn set_element(at: &Calling, element: &str, property: &str, value: LuaValue) -> mlua::Result<()> {
+    if !super::running(at.serial) {
         return Err(mlua::Error::runtime(format!("game.ui.{element}: the game is reached only from a handler, not at the top of main.lua")));
     }
-    let caller = Caller::Extension(index);
     let text = |v: &LuaValue| match v {
         LuaValue::String(s) => Ok(s.to_str()?.to_string()),
         LuaValue::Nil => Ok(String::new()),
@@ -282,18 +298,18 @@ fn set_element(index: usize, element: &str, property: &str, value: LuaValue) -> 
         LuaValue::Boolean(b) => Ok(*b),
         other => Err(mlua::Error::runtime(format!("game.ui.{element}.{property} takes true or false, not a {}", other.type_name()))),
     };
-    let result = match property {
-        "visible" => interface::set_visible(caller, element, flag(&value)?),
-        "enabled" => interface::set_enabled(caller, element, flag(&value)?),
-        "text" => interface::set_text(caller, element, &text(&value)?),
-        "tooltip" => interface::set_tooltip(caller, element, &text(&value)?),
+    let value = match property {
+        "visible" => Element::Visible(flag(&value)?),
+        "enabled" => Element::Enabled(flag(&value)?),
+        "text" => Element::Text(text(&value)?),
+        "tooltip" => Element::Tooltip(text(&value)?),
         other => return Err(mlua::Error::runtime(format!("game.ui.{element}.{other}: an element has visible, enabled, text and tooltip"))),
     };
-    result.map_err(|e| mlua::Error::runtime(format!("game.ui.{element}.{property}: {}", e.message)))
+    at.host.set_element(at.index, element, value).map_err(|e| mlua::Error::runtime(format!("game.ui.{element}.{property}: {e}")))
 }
 
 /// `game.map.paint({ [province] = 0xRRGGBB or { r, g, b, a } })`.
-fn paint(lua: &Lua, index: usize, colors: Table) -> mlua::Result<MultiValue> {
+fn paint(lua: &Lua, at: &Calling, colors: Table) -> mlua::Result<MultiValue> {
     let mut list = Vec::new();
     for pair in colors.pairs::<i64, LuaValue>() {
         let (province, color) = pair?;
@@ -312,21 +328,21 @@ fn paint(lua: &Lua, index: usize, colors: Table) -> mlua::Result<MultiValue> {
             other => return Err(mlua::Error::runtime(format!("game.map.paint: a color is 0xRRGGBB or {{ r, g, b, a }}, not a {}", other.type_name()))),
         };
         let province = u32::try_from(province).map_err(|_| mlua::Error::runtime(format!("game.map.paint: {province} is no province")))?;
-        list.push(map_coloring::MapColor { province, rgba });
+        list.push((province, rgba));
     }
-    if super::CURRENT.with(std::cell::Cell::get) != Some(index) {
+    if !super::running(at.serial) {
         return Err(mlua::Error::runtime("game.map.paint: the game is reached only from a handler, not at the top of main.lua"));
     }
-    match map_coloring::paint(Caller::Extension(index), &list) {
+    match at.host.paint(at.index, &list) {
         Ok(()) => Ok(MultiValue::from_iter([LuaValue::Boolean(true)])),
-        Err(e) => failure(lua, status(e.status), &e.message),
+        Err(e) => failure(lua, e.code.name(), &e.message),
     }
 }
 
 /// A capability's request as JSON, from its Lua arguments: the required
 /// ones in order, then the optional ones in a table.
-pub fn request(name: &str, args: MultiValue) -> Result<Value, String> {
-    let Some(capability) = extension_capabilities().find(|c| c.name() == name) else {
+pub fn request(name: &str, args: MultiValue) -> Result<Map<String, Value>, String> {
+    let Some(capability) = eu4_harmony_remote::capability(name).filter(|c| for_extensions(c)) else {
         return Err("no such capability for extensions".into());
     };
     let required: Vec<_> = capability.args.iter().filter(|a| !a.optional).collect();
@@ -360,7 +376,7 @@ pub fn request(name: &str, args: MultiValue) -> Result<Value, String> {
             fields.insert(arg.name.into(), arg_json(arg.kind, &value).map_err(|e| format!("{key}: {e}"))?);
         }
     }
-    Ok(Value::Object(fields))
+    Ok(fields)
 }
 
 /// One argument as JSON, as its kind is written there.
@@ -396,6 +412,13 @@ fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
             }
             _ => Err(wrong()),
         },
+        Kind::Provinces => match value {
+            LuaValue::Table(t) => {
+                let ids = t.clone().sequence_values::<i64>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
+                Ok(Value::Array(ids.into_iter().map(|i| Value::Number(Number::from(i))).collect()))
+            }
+            _ => Err(wrong()),
+        },
     }
 }
 
@@ -418,6 +441,7 @@ mod tests {
     fn a_request_takes_required_arguments_in_order_and_options_in_a_table() {
         let lua = Lua::new();
         let args = |code: &str| lua.load(code).eval::<MultiValue>().unwrap();
+        let request = |name: &str, args: MultiValue| request(name, args).map(Value::Object);
         assert_eq!(
             request("army.move", args("return 545460846646, 151")).unwrap(),
             serde_json::json!({"capability": "army.move", "army": "545460846646", "province": 151})

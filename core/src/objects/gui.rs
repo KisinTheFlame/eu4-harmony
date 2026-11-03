@@ -169,6 +169,18 @@ pub mod text_box {
     pub const TEXT: usize = 0x170;
 }
 
+/// A texture's transparency mask, which the texture handler keeps by the
+/// texture's ID for telling where a sprite can be clicked: a
+/// `std::vector<bool>`, its words a vector of u32 (begin, end, capacity) and
+/// its length in bits. The texture loader (`0x16c2980`) resizes the mask of
+/// the ID it is given to the texture's pixels and writes every bit; a
+/// resize keeps the buffer it has when it shrinks.
+pub mod transparency_mask {
+    pub const WORDS: usize = 0;
+    pub const CAPACITY: usize = 0x10;
+    pub const BITS: usize = 0x18;
+}
+
 /// A sprite type: one of the sprites the `.gfx` files define, made at
 /// startup and kept by the process (`spritetype.cpp`, constructor
 /// `0x156ba70`), as one of the game's graphics.

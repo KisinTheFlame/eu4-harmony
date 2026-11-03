@@ -24,7 +24,7 @@ group! {
 }
 
 /// A country at one moment.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Country {
     pub tag: CountryTag,
     /// Ducats, to the thousandth.
@@ -46,7 +46,7 @@ pub struct Country {
 }
 
 /// Monarch points of each kind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Power {
     pub adm: i32,
     pub dip: i32,
@@ -54,7 +54,7 @@ pub struct Power {
 }
 
 /// A war going on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct War {
     /// Its name, as the game shows it.
     pub name: String,
@@ -65,7 +65,7 @@ pub struct War {
 }
 
 /// What another country is to this one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Relation {
     pub kind: RelationKind,
     pub country: CountryTag,
@@ -77,7 +77,7 @@ pub struct Relation {
     pub subject_type: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationKind {
     /// They are allied.

@@ -25,6 +25,9 @@
 //! Every capability is declared once, in its group's file: the request, the
 //! answer and the description [`capabilities`] lists come from that one
 //! declaration, so a client can be built from the descriptions alone.
+// derive(Shaped) names the crate by its own name, here too.
+extern crate self as eu4_harmony_remote;
+
 use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::fmt;
@@ -134,6 +137,11 @@ macro_rules! group {
             }
         }
 
+        /// The shape of each capability's result, by its full name.
+        pub fn result_shapes() -> ::std::vec::Vec<(::std::string::String, $crate::shape::Shape)> {
+            ::std::vec![ $( ($crate::full_name($group, $action), <$Result as $crate::shape::Shaped>::shape()), )* ]
+        }
+
         /// The group's capabilities, described.
         pub const CAPABILITIES: &[$crate::Capability] = &[
             $(
@@ -215,6 +223,12 @@ macro_rules! groups {
             [$( $module::CAPABILITIES ),*].concat()
         }
 
+        /// The shape of the result of the capability named `name`, as Lua
+        /// has it.
+        pub fn result_shape(name: &str) -> Option<shape::Shape> {
+            [$( $module::result_shapes() ),*].concat().into_iter().find(|(n, _)| *n == name).map(|(_, s)| s)
+        }
+
         /// Every group, by name and what it is about.
         pub fn groups() -> Vec<Group> {
             vec![$( Group { name: $module::GROUP, about: $module::ABOUT } ),*]
@@ -269,6 +283,8 @@ groups! {
 
 pub mod binary;
 pub use binary::Binary;
+pub mod lua;
+pub mod shape;
 
 fn full_name(group: &str, action: &str) -> String {
     if action.is_empty() {
@@ -296,18 +312,28 @@ impl Serialize for Request {
 
 impl<'de> Deserialize<'de> for Request {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let mut fields = Map::deserialize(deserializer)?;
-        let name = match fields.get("capability") {
-            Some(Value::String(name)) => name.clone(),
-            Some(_) => return Err(de::Error::custom("the capability is not a text")),
-            None => return Err(de::Error::custom("no capability named")),
-        };
-        let Some(known) = capabilities().into_iter().find(|c| c.name() == name) else {
-            return Err(de::Error::custom(format!("no capability {name}")));
+        Self::from_fields(Map::deserialize(deserializer)?)
+    }
+}
+
+impl Request {
+    /// The request the JSON object `fields` writes, its capability by its
+    /// full name in `capability`.
+    fn from_fields<E: de::Error>(mut fields: Map<String, Value>) -> Result<Self, E> {
+        let known = match fields.get("capability") {
+            Some(Value::String(name)) => capability(name).ok_or_else(|| E::custom(format!("no capability {name}")))?,
+            Some(_) => return Err(E::custom("the capability is not a text")),
+            None => return Err(E::custom("no capability named")),
         };
         fields.insert("capability".into(), Value::String(known.action.into()));
         Self::from_group(known.group, fields)
     }
+}
+
+/// The capability named `name` (such as `army.move`), from an index made once.
+pub fn capability(name: &str) -> Option<&'static Capability> {
+    static INDEX: std::sync::OnceLock<std::collections::HashMap<String, Capability>> = std::sync::OnceLock::new();
+    INDEX.get_or_init(|| capabilities().into_iter().map(|c| (c.name(), c)).collect()).get(name)
 }
 
 /// What kind of value an argument is, which says how to write it in JSON.
@@ -332,6 +358,9 @@ pub enum Kind {
     /// `["DUL", "CND"]`, which a command line writes `DUL,CND` (see
     /// [`diplomacy::CallAllies`]).
     Allies,
+    /// Province numbers, such as `[151, 152]`, which a command line writes
+    /// `151,152` (see [`ProvinceList`]).
+    Provinces,
 }
 
 impl Kind {
@@ -347,6 +376,7 @@ impl Kind {
             Self::Text => "text",
             Self::UnitKind => "unit_kind",
             Self::Allies => "allies",
+            Self::Provinces => "provinces",
         }
     }
 
@@ -362,6 +392,7 @@ impl Kind {
             Self::Text => "text",
             Self::UnitKind => "infantry",
             Self::Allies => "DUL,CND",
+            Self::Provinces => "151,152",
         }
     }
 
@@ -376,6 +407,7 @@ impl Kind {
             Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
             Self::UnitKind => serde_json::from_value::<recruiting::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
             Self::Allies => diplomacy::CallAllies::parse(text).ok().and_then(|allies| serde_json::to_value(allies).ok()),
+            Self::Provinces => text.split(',').map(|word| word.trim().parse::<u32>().ok().map(Value::from)).collect::<Option<Vec<_>>>().map(Value::Array),
         }
     }
 }
@@ -407,6 +439,7 @@ arg_kind! {
     String => Text,
     recruiting::UnitKind => UnitKind,
     diplomacy::CallAllies => Allies,
+    ProvinceList => Provinces,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
@@ -532,6 +565,11 @@ impl<'de> Deserialize<'de> for CountryTag {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ProvinceId(pub u32);
+
+/// Province numbers, as an argument: a list, `[151, 152]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProvinceList(pub Vec<ProvinceId>);
 
 /// An army or a fleet, by its 64-bit ID, which survives saving and loading;
 /// in JSON a decimal string.
@@ -687,6 +725,12 @@ pub type Response = Result<Answer, Error>;
 /// [`Code::BadRequest`] error.
 pub fn request_from_json(text: &str) -> Result<Request, Error> {
     serde_json::from_str(text).map_err(|e| Error::new(Code::BadRequest, e.to_string()))
+}
+
+/// The request a JSON object already read writes, as [`request_from_json`]
+/// takes it from text.
+pub fn request_from_fields(fields: Map<String, Value>) -> Result<Request, Error> {
+    Request::from_fields(fields).map_err(|e: serde_json::Error| Error::new(Code::BadRequest, e.to_string()))
 }
 
 /// The JSON form of a response: `{"ok": true, "result": ...}` or

@@ -11,7 +11,7 @@ group! {
     game Get "get" {} -> Session, "the session: number (which grows when another game is loaded or started, and starts again in a new process), player, the player's country, and date";
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Session {
     /// Increases whenever another game is loaded or started; numbered from 1
     /// again in a new process (menu's).

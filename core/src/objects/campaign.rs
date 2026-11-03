@@ -175,6 +175,10 @@ pub mod country {
     /// that has none, and that the country's destructor never frees
     /// (docs/research/main-menu.md).
     pub const ENTRY_BYTES: usize = 0x10a0;
+    /// The countries in a coalition against it: a list of 0x20-byte nodes
+    /// (a member's tag, the previous node, the next, a byte marking it to
+    /// leave), which the interface shows as the coalition's members.
+    pub const COALITION: usize = 0x1928;
     /// The rebel factions in it, which it owns: a vector (begin, end) of
     /// pointers. The country's clear (`0x2e1a30`) lets the vector go
     /// without destroying them (docs/research/main-menu.md).
@@ -398,6 +402,9 @@ pub mod map {
 
 /// An army or a fleet.
 pub mod unit {
+    /// What the game's ID lookup answers for it: the unit is registered
+    /// under its ID from here (docs/research/armies.md, "Identity").
+    pub const ID_HOLDER: usize = 0x10;
     /// Its ID, u64, kept in saves.
     pub const ID: usize = 0x20;
     /// Its regiments: a vector (begin, end) of pointers.

@@ -190,6 +190,11 @@ impl provinces::Layer for Fake {
         Ok(vec![Default::default(), province(149, tur(), tur()), province(151, byz(), tur())])
     }
 
+    fn named_provinces(&mut self, ids: Vec<u32>) -> GResult<Vec<game::provinces::Province>> {
+        let all = self.provinces()?;
+        Ok(ids.iter().filter_map(|id| all.iter().find(|p| p.id == *id && *id != 0).copied()).collect())
+    }
+
     fn neighbors(&mut self, province: u32) -> GResult<Vec<game::provinces::Neighbor>> {
         self.call(format!("neighbors {province}"));
         Ok(vec![game::provinces::Neighbor { to: 151, strait: false }, game::provinces::Neighbor { to: 316, strait: true }])

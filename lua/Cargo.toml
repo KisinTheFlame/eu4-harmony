@@ -1,0 +1,20 @@
+[package]
+name = "eu4-harmony-lua"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "EU4 Harmony's Lua host: an extension's sandbox, handlers and tasks, errors and time limit, over a host that is the running game in the core and a fake game in the command line tool"
+
+[lib]
+name = "eu4_harmony_lua"
+
+[dependencies]
+eu4-harmony-checks = { path = "../checks" }
+eu4-harmony-loc = { path = "../loc" }
+eu4-harmony-manifest = { path = "../manifest" }
+eu4-harmony-remote = { path = "../remote" }
+mlua = { workspace = true, features = ["send"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
