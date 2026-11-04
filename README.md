@@ -20,6 +20,18 @@ Logs and the startup report (`report.txt`) are in `Documents\Paradox Interactive
 
 Returning to the main menu does not start the game again: the main menu is back in a few seconds instead of about 45 ([ADR 0022](docs/adr/0022-return-to-the-main-menu-in-process.md)). An ironman game can be left by loading another save from the game's menu too; the current game is saved first ([ADR 0023](docs/adr/0023-in-game-load-in-ironman.md)). Both are framework settings, in the settings window the "EU4 Harmony settings" button opens in the main menu's corner: with "Return to the main menu without restarting the game" off, the game starts again as in vanilla; with "In ironman, save the game before loading another save" off, loading the same save again undoes what was played since it was written. The game keeps some memory of every game left so, about 15 MB a return, until it is closed ([known leaks](docs/sessions.md#known-leaks)); after many returns, starting the game again gives it back.
 
+## A faster game
+
+The framework makes the game faster without changing what it computes: the same rules, data and AI, the same days ([ADR 0038](docs/adr/0038-making-the-game-faster-leaves-what-it-computes-as-it-is.md), [docs/game-speed.md](docs/game-speed.md)). Always on:
+
+- Paradox's online client no longer sleeps on the main thread while it waits for its connections.
+- The framework keeps the line breaks of the texts it draws instead of working them out again every frame.
+- A local save (an autosave, a save of the player's, an ironman save) is written by the game without being compressed, and the framework compresses the file in the background afterwards. The file is a whole save at every moment; if the game is closed before the framework is done, that save stays uncompressed, only larger. Cloud saves are written by the game as before. Loading a save the framework compressed without the framework has not been tried yet.
+
+In a game of 1618, these made the paused game draw 84 frames a second instead of 63, and days pass about a tenth faster at the fastest speed ([docs/performance.md](docs/performance.md)).
+
+One choice is the player's, under "Game speed" in the settings window: "At the fastest speed", "Smooth map (as in the game)" or "Faster time". At the fastest speed the game draws frames during a day that takes long, so the map keeps moving; with "Faster time" it draws none, and late in a game days pass about another tenth faster, but the map is redrawn less often, looks choppier and answers clicks a little later. It takes effect when the settings window is closed, and only at the fastest speed.
+
 ## Remote control (players and AIs)
 
 Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera, screenshots, and the player's own mouse and keyboard where nothing else reaches. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md), [ADR 0017](docs/adr/0017-remote-control-is-always-on.md)).
