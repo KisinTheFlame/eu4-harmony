@@ -1,5 +1,5 @@
-//! Screenshots, for remote control only (ADR 0015): the frame the player
-//! sees, the framework UI included, as a PNG.
+//! Screenshots, for remote control only (ADR remote-control-uses-capabilities):
+//! the frame the player sees, the framework UI included, as a PNG.
 //!
 //! A screenshot takes the next frame the main thread presents after it is
 //! asked for, or, while another one's frame is being read back, the first

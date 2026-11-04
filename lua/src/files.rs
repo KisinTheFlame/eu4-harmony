@@ -1,7 +1,8 @@
-//! `files`, the `files` sensitive capability (ADR 0025): the extension's
-//! data folder, `eu4-harmony\data\<id>\` in the user directory, made the
-//! first time the extension writes to it, kept across mod updates and never
-//! cleaned up by the framework.
+//! `files`, the `files` sensitive capability
+//! (ADR sensitive-capabilities-are-declared): the extension's data folder,
+//! `eu4-harmony\data\<id>\` in the user directory, made the first time the
+//! extension writes to it, kept across mod updates and never cleaned up by the
+//! framework.
 use super::sandbox::{failure, undeclared, within};
 use mlua::{Lua, MultiValue, Table, Value as LuaValue};
 use std::{

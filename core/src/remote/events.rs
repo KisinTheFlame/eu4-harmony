@@ -1,7 +1,7 @@
-//! The events remote control keeps (ADR 0016): what extensions hear at a
-//! game's safe frame, numbered from 1 as they come, the latest [`KEPT`] of
-//! them. A remote client reads those after the last number it saw, and may
-//! wait for the next.
+//! The events remote control keeps (ADR remote-control-engine-and-transports):
+//! what extensions hear at a game's safe frame, numbered from 1 as they come,
+//! the latest [`KEPT`] of them. A remote client reads those after the last
+//! number it saw, and may wait for the next.
 use super::{process, Outcome, Poll, Wait};
 use eu4_harmony_remote::{
     events::{Event, Events, EventsAnswer, EventsRequest, Numbered},

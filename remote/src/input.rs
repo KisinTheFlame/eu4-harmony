@@ -1,5 +1,6 @@
 //! Input: mouse and keyboard input at screen positions, as the player gives
-//! it with a real mouse and keyboard (ADR 0037). Remote control only.
+//! it with a real mouse and keyboard
+//! (ADR remote-clients-give-the-players-input). Remote control only.
 //!
 //! A screen position is `x`, `y` in pixels of the frame the game draws, from
 //! its top left corner, as `screenshot` takes it; with `scale`, a position

@@ -1,6 +1,6 @@
 //! Offers: what other countries proposed to the player, waiting for an
-//! answer. Accepting or declining is the player's answer (ADR 0015), given in
-//! the offer's dialog.
+//! answer. Accepting or declining is the player's answer
+//! (ADR remote-control-uses-capabilities), given in the offer's dialog.
 use super::tag;
 use crate::game::{self};
 use eu4_harmony_remote::{

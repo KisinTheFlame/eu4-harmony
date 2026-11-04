@@ -2,7 +2,8 @@
 //! each `char` line and drops any id above 0xFF; a jump at that check stores
 //! those glyphs in the glyph table instead, so that a mod's font that carries
 //! Chinese still draws it when the framework cannot give the font system
-//! glyphs (`fill`), which otherwise replace them (ADR 0021).
+//! glyphs (`fill`), which otherwise replace them
+//! (ADR game-text-in-system-fonts).
 //!
 //! In the loader (function at 0x15953c0), a `char` line's fields are parsed
 //! into: id `edi`, x `r14d`, y `r15d`, width `r12d`, height `esi`, x offset

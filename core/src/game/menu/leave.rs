@@ -9,7 +9,7 @@
 //! Extensions hear the session end; then, when the settings ask for it, the
 //! ironman exit save is written, and the load goes on only once that save
 //! was; the world reset inside the game's load never writes one of its own,
-//! which the game would write whatever came of it (ADR 0023,
+//! which the game would write whatever came of it (ADR in-game-load-in-ironman,
 //! docs/research/main-menu.md).
 //!
 //! In ironman the game's load button is turned on, and its tooltip no
@@ -21,12 +21,12 @@
 //! writes the ironman exit save and asks for the game's restart. The
 //! framework takes the session's end and the ironman exit save there, and,
 //! with "return without restarting" on, answers the restart with an
-//! in-process return (ADR 0022): the session is taken down as the in-game
-//! load takes it down, its interface, then its world reset, here with the
-//! game's history; then a new main menu, made as startup makes it after its
-//! own reset, takes the application over by its idler switch, which lets the
-//! map manager go. The single player setup's back button, which restarts the
-//! game too, goes back the same way.
+//! in-process return (ADR return-to-the-main-menu-in-process): the session is
+//! taken down as the in-game load takes it down, its interface, then its world
+//! reset, here with the game's history; then a new main menu, made as startup
+//! makes it after its own reset, takes the application over by its idler
+//! switch, which lets the map manager go. The single player setup's back
+//! button, which restarts the game too, goes back the same way.
 //!
 //! What the game's world reset and the map manager's destructor leave of a
 //! session, the framework's repairs put right (`crate::repairs`).

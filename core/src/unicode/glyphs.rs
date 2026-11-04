@@ -16,9 +16,9 @@
 //! made, so a glyph in it stays where it is as long as a font holds the set.
 //! Glyphs added to a font after that (drawn from a system font) are its own.
 //!
-//! Temporary glyphs (ADR 0010) take code points from U+F0000 up for as long as
-//! one draw call runs, so text shaped as a whole can travel through the game's
-//! per-character code as ordinary characters.
+//! Temporary glyphs (ADR built-in-unicode-module) take code points from U+F0000
+//! up for as long as one draw call runs, so text shaped as a whole can travel
+//! through the game's per-character code as ordinary characters.
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};

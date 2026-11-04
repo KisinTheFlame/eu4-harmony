@@ -1,5 +1,6 @@
-//! The main menu, remote control only (ADR 0015): where the game is, the
-//! saves, loading one, starting a new game and returning to the main menu.
+//! The main menu, remote control only (ADR remote-control-uses-capabilities):
+//! where the game is, the saves, loading one, starting a new game and returning
+//! to the main menu.
 //!
 //! Returning to the main menu starts `eu4.exe` again: the process that was
 //! asked answers, then ends, and a new one takes the pipe over a few seconds

@@ -920,7 +920,8 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
 }
 
 /// The session's interface the map manager's destructor leaves, as an
-/// in-process return takes the session down (ADR 0022).
+/// in-process return takes the session down
+/// (ADR return-to-the-main-menu-in-process).
 pub struct SessionInterface {
     manager: usize,
     /// Those of the session's windows open as popups, the end-of-game

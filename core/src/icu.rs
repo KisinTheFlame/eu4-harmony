@@ -1,7 +1,7 @@
 //! The ICU that ships with Windows (`icu.dll`, Windows 10 1903 and later;
-//! ADR 0010): where user-perceived characters begin and where a line may break,
-//! over UTF-8 text. Loaded at startup; a system without it cannot run the
-//! framework.
+//! ADR built-in-unicode-module): where user-perceived characters begin and
+//! where a line may break, over UTF-8 text. Loaded at startup; a system without
+//! it cannot run the framework.
 use crate::Result;
 use std::ffi::{c_char, c_void};
 use std::sync::OnceLock;

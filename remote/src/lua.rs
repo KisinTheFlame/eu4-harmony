@@ -1,8 +1,9 @@
-//! What a Lua extension has besides the capabilities (ADR 0024): its
-//! handlers, the sandbox's globals, its manifest and the sensitive
-//! capabilities that manifest may declare (ADR 0025). Described once here,
-//! for `eu4-harmony wiki`, the editor's type definitions and the core's
-//! test that the sandbox holds every global described and no other.
+//! What a Lua extension has besides the capabilities
+//! (ADR extensions-are-lua-in-a-sandbox): its handlers, the sandbox's globals,
+//! its manifest and the sensitive capabilities that manifest may declare
+//! (ADR sensitive-capabilities-are-declared). Described once here, for
+//! `eu4-harmony wiki`, the editor's type definitions and the core's test that
+//! the sandbox holds every global described and no other.
 //!
 //! A type is written as the editor's type definitions write it (LuaLS):
 //! `string`, `integer`, `eu4.Date`, `eu4.Err`, `string[]`.
@@ -25,7 +26,8 @@ pub struct Function {
     pub args: &'static [Value],
     pub returns: &'static [Value],
     pub about: &'static str,
-    /// It waits (ADR 0030): it is called only in a task.
+    /// It waits (ADR handlers-run-as-tasks-that-can-wait): it is called only in
+    /// a task.
     pub waits: bool,
     /// The sensitive capability it needs declared, if any.
     pub permission: Option<&'static str>,
@@ -61,7 +63,7 @@ pub struct Field {
     pub about: &'static str,
 }
 
-/// A sensitive capability (ADR 0025).
+/// A sensitive capability (ADR sensitive-capabilities-are-declared).
 #[derive(Clone, Copy, Debug)]
 pub struct Permission {
     pub name: &'static str,

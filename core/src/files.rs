@@ -1,10 +1,10 @@
-//! The framework's own files (ADR 0031): files the game reads as it reads its
-//! own and the mods', such as the definition and the font files of each
-//! framework font. They are made in memory at startup, packed as a zip
-//! archive, and mounted into the game's file system, PhysFS, as the game
-//! initializes it, after every place already there. Their names are the
-//! framework's own, under `eu4harmony` names no game or mod file has, so they
-//! add files and never stand in for one.
+//! The framework's own files (ADR framework-files-in-the-game-file-system):
+//! files the game reads as it reads its own and the mods', such as the
+//! definition and the font files of each framework font. They are made in
+//! memory at startup, packed as a zip archive, and mounted into the game's file
+//! system, PhysFS, as the game initializes it, after every place already there.
+//! Their names are the framework's own, under `eu4harmony` names no game or mod
+//! file has, so they add files and never stand in for one.
 use crate::points::{Function, Point};
 use std::ffi::{c_char, c_void};
 

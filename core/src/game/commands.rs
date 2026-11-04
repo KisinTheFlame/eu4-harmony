@@ -1,9 +1,10 @@
-//! The command layer (ADR 0034, ADR 0035, docs/commands.md): posts one of the
-//! game's commands from its written form, through the game's own reader,
-//! check and post, as the local handler reads back every command it posts,
-//! and has the game execute it at once, as the session's update executes a
-//! command at the next frame; and hears every command the game executes, in
-//! the same form (docs/research/commands.md). Its vocabulary, the commands' type names and
+//! The command layer (ADR one-command-layer-in-written-form,
+//! ADR commands-run-at-once, docs/commands.md): posts one of the game's
+//! commands from its written form, through the game's own reader, check and
+//! post, as the local handler reads back every command it posts, and has the
+//! game execute it at once, as the session's update executes a command at the
+//! next frame; and hears every command the game executes, in the same form
+//! (docs/research/commands.md). Its vocabulary, the commands' type names and
 //! keys, is the game's and stays in the core: capabilities write their
 //! command's text and post it here.
 //!
@@ -262,10 +263,10 @@ impl From<Refused> for Fail {
 
 /// Has the game execute the command `text` writes, such as
 /// `buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }`,
-/// at once (ADR 0035), for whichever country the text names: as the session's
-/// update executes a command the game's interface posted, but now and alone.
-/// When this returns, the game has carried it out. A key left out takes the
-/// game's default. Only on the main thread, at a safe point.
+/// at once (ADR commands-run-at-once), for whichever country the text names: as
+/// the session's update executes a command the game's interface posted, but now
+/// and alone. When this returns, the game has carried it out. A key left out
+/// takes the game's default. Only on the main thread, at a safe point.
 pub fn post(text: &str) -> Result<(), Refused> {
     post_with(text, |execute| execute())
 }

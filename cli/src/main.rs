@@ -3,8 +3,9 @@
 //!
 //! A mod is a folder with `descriptor.mod` and `eu4-harmony/manifest.toml`;
 //! in `eu4-harmony/` its extension in `lua/`, interface fragments in `ui/`,
-//! texts in `localisation/` and its own files in `data/` (ADR 0029); game
-//! resources (`interface/`, `gfx/`, ...) sit next to them as in any Paradox mod.
+//! texts in `localisation/` and its own files in `data/`
+//! (ADR manifest-in-toml-layout-by-convention); game resources (`interface/`,
+//! `gfx/`, ...) sit next to them as in any Paradox mod.
 mod check;
 mod fake;
 mod game;

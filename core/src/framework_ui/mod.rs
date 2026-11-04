@@ -1,7 +1,7 @@
-//! The framework UI (GLOSSARY, ADR 0013): windows the framework draws itself
-//! on top of the game's picture, with widgets of its own: the notice window,
-//! the settings window and the mods window, and in the main menu the corner
-//! buttons that open those two.
+//! The framework UI (GLOSSARY, ADR framework-draws-its-own-ui): windows the
+//! framework draws itself on top of the game's picture, with widgets of its
+//! own: the notice window, the settings window and the mods window, and in the
+//! main menu the corner buttons that open those two.
 //!
 //! [`frame`] runs once a frame on the main thread, just before the game
 //! presents (`hook`); the window procedure ([`input`]) hands it the

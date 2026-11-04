@@ -1,11 +1,12 @@
-//! Remote control's engine (ADR 0016). Transports hand it typed requests from
-//! any thread ([`submit`]); it runs them at the safe points
-//! (`crate::safe_point`) on the game's main thread, through the capability
-//! layer as the player (ADR 0015), within a time budget per frame, and hands
-//! the responses back. A request that waits, such as one for the next event,
-//! is answered at a later safe point. The engine keeps the latest events
-//! extensions hear, numbered, and writes every request to the framework log
-//! (ADR 0017). It knows nothing of connections or JSON.
+//! Remote control's engine (ADR remote-control-engine-and-transports).
+//! Transports hand it typed requests from any thread ([`submit`]); it runs them
+//! at the safe points (`crate::safe_point`) on the game's main thread, through
+//! the capability layer as the player (ADR remote-control-uses-capabilities),
+//! within a time budget per frame, and hands the responses back. A request that
+//! waits, such as one for the next event, is answered at a later safe point.
+//! The engine keeps the latest events extensions hear, numbered, and writes
+//! every request to the framework log (ADR remote-control-is-always-on). It
+//! knows nothing of connections or JSON.
 //!
 //! A request that needs a game belongs to the session it was sent in: one
 //! still queued when that session ends (a save loads, another game starts)
@@ -119,7 +120,8 @@ impl<
 }
 
 /// The capability layer itself, called as its caller: remote control, or an
-/// extension through the Lua host, which runs the same groups (ADR 0026).
+/// extension through the Lua host, which runs the same groups
+/// (ADR one-capability-catalogue).
 pub struct Live(pub game::Caller);
 
 impl From<game::Fail> for Error {

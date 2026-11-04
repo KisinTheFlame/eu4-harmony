@@ -1,8 +1,9 @@
 //! Dependency points (GLOSSARY): the places in the game image the framework
 //! relies on. Each is declared once, with the bytes it must hold and what the
 //! framework does there, and that one declaration drives checking, hooking and
-//! undoing (ADR 0012). [`install`] applies every point or none, and
-//! [`Memory::at`] gives the address of only what a point checks.
+//! undoing (ADR framework-succeeds-or-fails-as-a-whole). [`install`] applies
+//! every point or none, and [`Memory::at`] gives the address of only what a
+//! point checks.
 use crate::{
     hooks::{self, Callback},
     memory::Memory,

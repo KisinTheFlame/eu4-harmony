@@ -1,7 +1,7 @@
-//! Achievement rules (ADR 0038): the framework settings that let the game give
-//! achievements outside ironman and with a game checksum (GLOSSARY) that is
-//! not vanilla's. Every other rule stays the game's own. How the game decides
-//! is in docs/research/achievements.md.
+//! Achievement rules (ADR achievement-rules-can-be-relaxed): the framework
+//! settings that let the game give achievements outside ironman and with a game
+//! checksum (GLOSSARY) that is not vanilla's. Every other rule stays the game's
+//! own. How the game decides is in docs/research/achievements.md.
 //!
 //! - Outside ironman: the game's check is always asked to ignore ironman, as
 //!   the single player setup already asks it, and that setup's text about

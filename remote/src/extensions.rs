@@ -1,5 +1,6 @@
-//! The mods' extensions, remote control only (ADR 0015): reloading one in
-//! the running game (docs/extension-reload.md).
+//! The mods' extensions, remote control only
+//! (ADR remote-control-uses-capabilities): reloading one in the running game
+//! (docs/extension-reload.md).
 use serde::{Deserialize, Serialize};
 
 group! {
