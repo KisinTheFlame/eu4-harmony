@@ -366,8 +366,12 @@ pub fn frame(state: &game::Frame) {
             game::Heard::Change(events::Change::Ordered(id)) => all.iter().for_each(|e| e.handle("on_army_ordered", &[Arg::Integer(id as i64)])),
             game::Heard::Change(events::Change::Defeated(id)) => all.iter().for_each(|e| e.handle("on_army_defeated", &[Arg::Integer(id as i64)])),
             game::Heard::Day(date) => all.iter().for_each(|e| e.handle("on_day", &[Arg::Date(eu4_harmony_checks::Date(date))])),
+            game::Heard::Month(date) => all.iter().for_each(|e| e.handle("on_month", &[Arg::Date(eu4_harmony_checks::Date(date))])),
+            game::Heard::Year(date) => all.iter().for_each(|e| e.handle("on_year", &[Arg::Date(eu4_harmony_checks::Date(date))])),
         }
     }
+    let listened = eu4_harmony_remote::events::EVENTS.iter().map(|(kind, _)| *kind).filter(|kind| all.iter().any(|e| e.has_handler(&format!("on_{kind}"))));
+    game::events::extensions_listen(listened.collect());
     for lost in map::take_lost() {
         if let Some(e) = all.get(lost) {
             e.handle("on_map_lost", &[]);

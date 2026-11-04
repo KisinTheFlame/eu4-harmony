@@ -140,7 +140,11 @@ _Avoid_: tick
 
 **Snapshot**:
 All of a game object's fields at one moment, fetched by an extension in one go.
-_Avoid_: view, reference
+_Avoid_: view (that is how much of the game a remote client reads), reference
+
+**Content key**:
+The name the game's or a mod's script files give a thing the player builds, takes or chooses, such as the building `marketplace` or the subject type `vassal`. Capabilities name such things by it, so what a mod adds is named as the game's own is.
+_Avoid_: ID, script name, token (that is the game's numbering of names)
 
 **Extension save data**:
 An extension's own data kept with a particular save, written into the save file itself. It is kept only for the extensions loaded when the save is loaded.
@@ -221,6 +225,14 @@ _Avoid_: API, server, RPC, console (that is the game console)
 **Remote client**:
 A program outside the game process that uses remote control, such as `eu4-harmony game` or an AI driving it.
 _Avoid_: bot, agent
+
+**Player's view**:
+How much of the game remote control reads unless the player gives it the full view: the map as fog of war leaves it, and of other countries what the player's interface shows them.
+_Avoid_: fog mode, fair mode
+
+**Full view**:
+Everything the game keeps, which extensions always read, and remote control too when the player's framework setting gives it.
+_Avoid_: omniscient, god mode, cheat mode
 
 **Transport**:
 How requests and responses travel between remote clients and remote control, such as the named pipe carrying JSON lines.

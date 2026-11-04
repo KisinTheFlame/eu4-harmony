@@ -397,6 +397,11 @@ impl Extension {
         }
     }
 
+    /// Whether it has the handler `name` and is not stopped.
+    pub fn has_handler(&self, name: &str) -> bool {
+        self.state().stopped.is_none() && matches!(self.handlers.get::<LuaValue>(name), Ok(LuaValue::Function(_)))
+    }
+
     /// Runs the handler `name` as a new task, with `args` after `game`. A
     /// handler the extension does not have, or a stopped extension, is not
     /// called.

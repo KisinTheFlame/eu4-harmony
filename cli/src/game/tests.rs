@@ -52,7 +52,7 @@ fn arguments_by_name_or_in_order() {
     ] {
         assert_eq!(ask(text).request, moved, "{text}");
     }
-    let read = |since, wait_ms| Request::Events(EventsRequest::Read { since, wait_ms, process: None });
+    let read = |since, wait_ms| Request::Events(EventsRequest::Read { since, wait_ms, process: None, kinds: None, countries: None });
     assert_eq!(ask("events").request, read(None, None));
     assert_eq!(ask("events 3").request, read(Some(3), None));
     assert_eq!(ask("events --since 3 --wait-ms 500").request, read(Some(3), Some(500)));
@@ -170,7 +170,7 @@ fn after_a_double_dash_every_word_is_a_value() {
     let a = ask("--compact army move --timeout 2 -- 4294967377 151");
     assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) }));
     assert_eq!((a.compact, a.timeout), (true, Some(Duration::from_secs(2))));
-    assert_eq!(ask("events -- 3").request, Request::Events(EventsRequest::Read { since: Some(3), wait_ms: None, process: None }));
+    assert_eq!(ask("events -- 3").request, Request::Events(EventsRequest::Read { since: Some(3), wait_ms: None, process: None, kinds: None, countries: None }));
     assert!(wrong("session.get -- --compact").contains("session.get takes no arguments"));
     assert!(wrong("events -- --help").contains("--since is a integer, such as 3; \"--help\" is not one"));
     assert!(wrong("-- session.get").contains("name the capability before --"));
