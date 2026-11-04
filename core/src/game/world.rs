@@ -4,7 +4,7 @@ use super::{
     armies::Army,
     country, fail,
     provinces::{Neighbor, Province},
-    span, special_countries, Ctx, GResult, Status, Tag, MAX_PROVINCES, MAX_UNITS,
+    span, special_countries, Ctx, GResult, Status, Tag, View, MAX_PROVINCES, MAX_UNITS,
 };
 use crate::{
     memory::Memory,
@@ -445,7 +445,8 @@ pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<Army
 }
 
 /// Land armies in a visible province, as (record, address).
-pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<(Army, usize)>> {
+pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize, view: View) -> GResult<Vec<(Army, usize)>> {
+    let hidden = |m, province| Ok::<_, super::Fail>(view == View::Player && hidden(m, province)?);
     if hidden(m, province)? {
         return Ok(Vec::new());
     }

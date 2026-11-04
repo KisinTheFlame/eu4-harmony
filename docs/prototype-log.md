@@ -1506,13 +1506,42 @@ G1 to G4 of [game-testing.md](game-testing.md), with `cargo xtask game` from thi
 - **Not tried**: a holder whose lease ran out taken over; a checkout still on `game-lock.ps1` beside one on the commands; a `NOT RESTORED` line from the game folder's files; `start --sound`; `kept\` removed after seven days; two sessions in two checkouts at once.
 - **Cleanup**: every claim was released with every file put back. The test claims' folders and the results of `perf-run` and `leak-run` were deleted; the queue is empty.
 
+## 2026-11-05 Player actions A0: the view, months and years, decisions (tested by me)
+
+A0 of [player-actions.md](player-actions.md), a player build of this branch, within a claim, started hidden; the player's playset, a 3840x2160 window. A new game as France at 1444.11.11, played to 1445.1.10 through remote control, then the main menu, then a new game as France again.
+
+- **`decision.list`** listed 6 decisions for France, none major, none takeable, each with its failing conditions in the player language as the decisions view's tooltip writes them: "国家火器军团" with "军事科技至少6" and "拥有至少20.0% 陆军职业化"; "贞德的命运" with its nested conditions, each header (`所有属于法兰西地区的省份:`, `以下条件至少满足一个:`) a line of its own and the indent gone. Not compared with the decisions view on screen.
+- **Events**: `events --kinds week` was refused (`invalid_argument`, "no event is called week"). After a read of `--kinds month,year`, 60 days at speed 5 gave `month` at 1444.12.1 and at 1445.1.1, then `year` at 1445.1.1, numbered among the days; read with `--kinds day --countries ENG`, the days passed the countries asked for, as events naming none do.
+- **The player's view**: with the setting off, `army.at` gave no army for London (236, England's, `visible` false) or Stockholm (1, Sweden's), and one for France's own 183.
+- **The full view**: the settings window showed "远程控制" with the toggle "远程控制可以看到全部" off and its explanation; turned on and saved, the settings file had `remote_full_view=yes`, and in a new game `army.at 236` gave England's army of 14 regiments while London stayed `visible` false.
+- **Not tried**: an extension's `on_month` and `on_year` and `army.at` (only remote control was used); an event kind worked out only after a remote read asked for it (the read came before the days); a decision the player can take; the decisions view on screen.
+- **Cleanup**: the release put the player's files back (every file as the backup had it) and the game folder's framework files; the screenshots were deleted.
+
+## 2026-11-05 Sessions told from one module (tested by me)
+
+The player build of the branch that moved what begins and ends a session into `core/src/sessions.rs`, the capability catalogue's groups into `core/src/catalogue/` and each repair into a file of its own. One process, within a claim, started hidden; the player's playset, with the regional-combat extension loaded (Lua). Driven by `eu4-harmony game`.
+
+- **Startup**: 814 dependency points matched; 147 hooks, 12 writes; the extension loaded.
+- **A new game**: `menu.start FRA` answered session 1; `time.advance 5` stopped at the game's question, which `question.answer` answered; `time.advance 5` then gave five `day` events. `army.list` read the armies.
+- **An in-game load**: `menu.load H-Test` answered session 3. The events said `session_ended` with `load`, then `session` 3; the log said `session 1 ending (load)` before `session 3 started (from a loaded save: true)`, with the extension's session times between.
+- **A return**: `menu.return` answered at the main menu; `session_ended` with `return`; the process number stayed, an in-process return.
+- **A new game after it**: `menu.start CAS` answered session 5, and its days came.
+- **The extension**: heard `on_session` for sessions 1, 3 and 5 (its own log), with no error and no refusal; its handlers took under 0.5% of each session.
+- **Then, in a second claim** (two processes, the same build):
+  - **Extension reload**: in `Castilla-5`, an ironman game loaded from the main menu, `eu4-harmony reload` in the regional-combat mod answered "on_session got what save_data gave": the reload saw the session going on.
+  - **A failing ironman exit save**: with `Castilla-5.eu4` held open by another process, `menu.return` was refused twice ("the ironman exit save faulted"), the session staying and the notice shown; once the file was free, the third wrote the save and returned in process. The log said `session 2 ending (return)` once, at the first try, and the events had one `session_ended`: the later tries were not told again.
+  - **The single player setup's back button**, clicked with `input`: back to the main menu in the same process ("the single player setup was left; the world reset with the history"); `menu.start FRA` after it answered a new session, 5.
+  - **A restart**: with `return_without_restart=no` in the framework settings and the game started again, `menu.return` answered `ending`; the old process logged `session 1 ending (return)`, "the game starts eu4.exe again" and remote control answering every request `not_ready` from then on; a new process answered `main_menu` on the pipe. The new process was not hidden: the game's restart builds its command line again without `-harmony_hidden`, so it showed on the desktop until it was stopped, about a minute and a half. That is the hidden start's, not this branch's.
+- **Not tried**: a frame of a game that cannot be played (observing).
+- **Cleanup**: each `release` put back every file the run changed (the framework's logs and settings, `pdx_login_cache.txt`, `settings.txt`, `shortcuts.txt`, the saves the loads and the ironman exit save touched) and compared each equal, and put back the game folder's framework files. The game did not crash.
+
 ## 2026-11-05 The settings window's pages (tested by me)
 
 The settings window with its settings on four pages chosen in a side list, the player build of this branch installed within a claim and started hidden. The player's playset in Chinese, 3840x2160 at interface scale 2.
 
 - **The pages**: the side list showed 字体, 读档与返回, 成就, 游戏速度, 字体 chosen. 字体 held the four fonts with their weights, 地图文字包边 and the restart line; 读档与返回 its two toggles and the undo line; 成就 its two toggles and their line; 游戏速度 最快速度时 with its info mark and the choice bar. On every page the window kept its size, the fonts page's, and 保存 and 取消 stood in the same place at its bottom.
 - **A change on another page**: on 读档与返回, 铁人模式下读档前先保存当前游戏 was turned off; then 字体 was chosen and 保存 pressed. The framework's `settings.txt` got `save_ironman_before_load=no`, and the window opened again showed the toggle off. Escape closed it.
-- **Not seen in the running game**: the other languages' page names; a drop-down list opened on a page and the page changed while it is open (the list closes with the click, as for any click); the mods window, whose side list code changed with this (its unit tests pass).
+- **Not seen in the running game**: the fifth page, 远程控制, which master gave the window after this run (its toggle and explanation as the run before this showed them under a heading); the other languages' page names; a drop-down list opened on a page and the page changed while it is open (the list closes with the click, as for any click); the mods window, whose side list code changed with this (its unit tests pass).
 - **Cleanup**: the release put back the player's files, the framework's `settings.txt` among them, and the game folder's framework files; the screenshots were deleted.
 ## How the implementation differs from the final design
 

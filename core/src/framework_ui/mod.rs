@@ -208,6 +208,10 @@ impl FrameworkUi {
                 selected: PACES.iter().position(|&p| p == next.fastest_speed).unwrap_or(0),
             },
         ];
+        let remote_page = vec![
+            Widget::Toggle { id: "remote_full_view", label: words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW"), on: next.remote_full_view },
+            Widget::Label(words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO")),
+        ];
         let footer = vec![
             Widget::Gap,
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
@@ -218,11 +222,12 @@ impl FrameworkUi {
             "EU4HARMONY_SETTINGS_PAGE_SESSIONS",
             "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
             "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
+            "EU4HARMONY_SETTINGS_PAGE_REMOTE_CONTROL",
         ];
         let side = Side::new("pages", pages.iter().map(|key| words(key)).collect(), SETTINGS_LIST);
         let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH)
             .with_side(side)
-            .with_pages(vec![fonts_page, sessions_page, achievements_page, speed_page])
+            .with_pages(vec![fonts_page, sessions_page, achievements_page, speed_page, remote_page])
             .with_footer(footer);
         window.center(&self.font, self.screen.0, self.screen.1);
         self.families = HashMap::from([("body", families.clone()), ("heading", families.clone()), ("map", families), ("console", console_families)]);
@@ -270,6 +275,7 @@ impl FrameworkUi {
                 achievements_outside_ironman: w.is_on("outside_ironman").unwrap_or(next.achievements_outside_ironman),
                 achievements_with_changed_checksum: w.is_on("changed_checksum").unwrap_or(next.achievements_with_changed_checksum),
                 fastest_speed: w.selected("pace").and_then(|i| PACES.get(i).copied()).unwrap_or(next.fastest_speed),
+                remote_full_view: w.is_on("remote_full_view").unwrap_or(next.remote_full_view),
             };
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),

@@ -140,7 +140,11 @@ _Avoid_: tick
 
 **Snapshot**:
 All of a game object's fields at one moment, fetched by an extension in one go.
-_Avoid_: view, reference
+_Avoid_: view (that is how much of the game a remote client reads), reference
+
+**Content key**:
+The name the game's or a mod's script files give a thing the player builds, takes or chooses, such as the building `marketplace` or the subject type `vassal`. Capabilities name such things by it, so what a mod adds is named as the game's own is.
+_Avoid_: ID, script name, token (that is the game's numbering of names)
 
 **Extension save data**:
 An extension's own data kept with a particular save, written into the save file itself. It is kept only for the extensions loaded when the save is loaded.
@@ -222,6 +226,14 @@ _Avoid_: API, server, RPC, console (that is the game console)
 A program outside the game process that uses remote control, such as `eu4-harmony game` or an AI driving it.
 _Avoid_: bot, agent
 
+**Player's view**:
+How much of the game remote control reads unless the player gives it the full view: the map as fog of war leaves it, and of other countries what the player's interface shows them.
+_Avoid_: fog mode, fair mode
+
+**Full view**:
+Everything the game keeps, which extensions always read, and remote control too when the player's framework setting gives it.
+_Avoid_: omniscient, god mode, cheat mode
+
 **Transport**:
 How requests and responses travel between remote clients and remote control, such as the named pipe carrying JSON lines.
 _Avoid_: protocol adapter, channel, connection
@@ -285,7 +297,7 @@ The window in the framework UI that shows notices to the player. To the player i
 _Avoid_: dialog; message box (that is the Windows message box used when startup fails)
 
 **Settings window**:
-The window in the framework UI where the player changes framework settings, opened from the framework button in the main menu's corner. Its settings are on pages, one for each thing they concern (fonts, loading and returning, achievements, game speed), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
+The window in the framework UI where the player changes framework settings, opened from the framework button in the main menu's corner. Its settings are on pages, one for each thing they concern (fonts, loading and returning, achievements, game speed, remote control), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
 _Avoid_: options menu (that is the game's own settings)
 
 **Mods window**:

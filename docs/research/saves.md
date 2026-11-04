@@ -4,7 +4,7 @@ Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples
 
 ## The save file
 
-- A save is a zip of three entries, `meta`, `gamestate` and `ai` (and `rnw.zip` in a random new world), or one plain file holding all three. Either way its content is text (`EU4txt`) or binary (`EU4bin`); ironman saves are binary. `core/src/game/menu/save_file.rs` reads the header of both.
+- A save is a zip of three entries, `meta`, `gamestate` and `ai` (and `rnw.zip` in a random new world), or one plain file holding all three. Either way its content is text (`EU4txt`) or binary (`EU4bin`); ironman saves are binary. `core/src/saves/file.rs` reads the header of both.
 - **Text**: `key=value` lines, blocks in `{ }`, tabs for depth; quoted strings escape `\` and `"`.
 - **Binary**: a stream of u16 token ids. A key the game knows is its id; `0x0001` is `=`, `0x0003` `{`, `0x0004` `}`; `0x000c` is followed by an i32, `0x000f` by a u16 length and that many bytes (a string), `0x0017` likewise (a string the game made an id for while running).
 - An extra entry in the zip is ignored: the loader asks for its entries by name (`0x5cd120` → `0x153bce0`, which checks each one's CRC32).
