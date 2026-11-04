@@ -56,6 +56,19 @@ Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1
 - "Faster time" was 16% faster there, more than the 10% of 1620. Earlier runs of the same save, resumed only every 2 s, came out the other way round, which was not explained; they are left out.
 - The thread compressed each ironman save of 55 MB to 6.1 MB in 1.5 s; the game without the framework wrote the same game at 7.75 MB.
 
+## A save's stop (2026-11-05)
+
+[game-speed.md](game-speed.md)'s S8 on its branch: Austria-37_4-1 (an ironman save of 1724, the player's playset), the same machine, loaded three times with `menu.load`, which saves it as it is loaded and as it is left; the stop is the framework's log line from the start of the local save to its end, five saves each way, in one developer build with the test switches, `game-writes-saves` on for "before" ([prototype-log.md](prototype-log.md)).
+
+| | The game's code | The framework's |
+| --- | --- | --- |
+| A local ironman save of 55 MB stops the game, ms | 986, 1116, 1233, 1256, 1362 | 308, 431, 437, 438, 447 |
+| Of that, the provinces and the countries (eight threads), ms | | 80 to 125 |
+| Of that, the zip's three entries, ms | about 250 | 45 |
+
+- What is left of the 310 ms save: the game state's other sections 66 ms, its save checksum 44, the zip 45, its bytes into the file 25, the file's checks and move 41 ([research/saves.md](research/saves.md), "Where a save's zip goes").
+- The pool of seven threads waits from startup and costs nothing between saves; while a save is written, the runs' buffers hold the two loops' bytes once more, about 60 MB in that save.
+
 ## Setups
 
 Two playsets:

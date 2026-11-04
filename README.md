@@ -37,7 +37,7 @@ return {
 
 - Chinese and every other script drawn in the game, in system fonts of your choice.
 - Back to the main menu in a few seconds instead of a restart of about 45.
-- A faster game that computes the same game: 84 frames a second instead of 63 in a paused game of 1618, and days about a tenth faster at the fastest speed ([measurements](docs/performance.md)).
+- A faster game that computes the same game: 84 frames a second instead of 63 in a paused game of 1618, and days about a tenth faster at the fastest speed; an ironman save of 1724 stops the game for about 0.4 s instead of 1.2 ([measurements](docs/performance.md)).
 - Optional: achievements outside ironman and with mods that change the checksum.
 - On a game build it does not know, the framework stays out of the game as a whole and a message box says why, instead of misbehaving.
 
