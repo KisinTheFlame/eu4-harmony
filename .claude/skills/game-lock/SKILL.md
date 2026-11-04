@@ -1,13 +1,13 @@
 ---
 name: game-lock
-description: Claim the game before using it, and release it after; the claim backs up the player's files and the release restores them. Use before installing into the game folder (dev-install.ps1), backing up or restoring player files, starting eu4.exe, or sending the running game input, screenshots or remote-control commands.
+description: Claim the game before using it, and release it after; the claim backs up the player's files and the release restores them. Use before installing into the game folder (cargo xtask install), backing up or restoring player files, starting eu4.exe, or sending the running game input, screenshots or remote-control commands.
 ---
 
 # Claiming the game
 
-Every session on this machine, whatever its checkout, shares one game: its folder, eu4.exe, the player's files and its window. One holder has the game at a time. `game-lock.ps1` in this skill's folder keeps the claim; call it with `&` from PowerShell, from your own checkout.
+Every session on this machine, whatever its checkout, shares one game: its folder, eu4.exe, the player's files and its window. One holder has the game at a time. `game-lock.ps1` in this skill's folder keeps the claim, one record for the whole machine; call it with `&` from PowerShell, your own checkout's copy.
 
-The claim is also the backup AGENTS.md asks for: `-Claim` runs `eu4-harmony backup` and `-Release` runs `eu4-harmony restore`, the main checkout's, built there by cargo as needed (or its `tools\player-state.ps1`, while it still has that script). Running a backup yourself only adds a second backup to restore.
+The claim is also the backup AGENTS.md asks for: `-Claim` runs `eu4-harmony backup` and `-Release` runs `eu4-harmony restore`, your checkout's, built by cargo as needed. Running a backup yourself only adds a second backup to restore.
 
 ## Steps
 

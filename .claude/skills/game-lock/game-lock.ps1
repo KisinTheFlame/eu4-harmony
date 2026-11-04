@@ -8,8 +8,7 @@ game-lock.json, shared by every checkout. A named mutex guards each read and
 write of it.
 
 -Claim takes the game for -Owner (by default the leaf name of the checkout's
-folder) and backs up the player's files with eu4-harmony backup (or
-tools\player-state.ps1, while the main checkout still has it), unless
+folder) and backs up the player's files with eu4-harmony backup, unless
 -NoBackup (for a player who wants their own play kept). If the game is held, it
 says by whom and exits with 2; -Wait polls until the game is free instead. A
 claim holder that has not renewed for its lease (-Lease minutes, 30 by
@@ -44,26 +43,17 @@ $ErrorActionPreference = 'Stop'
 $Base = Join-Path $env:LOCALAPPDATA 'eu4-harmony-dev'
 $LockFile = Join-Path $Base 'game-lock.json'
 $Backups = Join-Path $Base 'backups'
-# The main checkout, three folders up from .claude\skills\game-lock.
-$Main = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+# The checkout this skill is in, three folders up from .claude\skills\game-lock.
+$Checkout = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 New-Item -ItemType Directory -Force $Base | Out-Null
 
-# Backs up the player's files into $dir, or restores them from it: with the
-# main checkout's command line tool (eu4-harmony backup and restore), built
-# there by cargo as needed, or with its tools\player-state.ps1 while it still
-# has the script. Stops on a failure, a restore's NOT RESTORED included.
+# Backs up the player's files into $dir, or restores them from it, with this
+# checkout's command line tool (eu4-harmony backup and restore), built by
+# cargo as needed. Stops on a failure, a restore's NOT RESTORED included.
 function PlayerState([ValidateSet('backup', 'restore')][string]$what, [string]$dir, [switch]$keepCrashes) {
-    $script = Join-Path $Main 'tools\player-state.ps1'
-    if (Test-Path $script) {
-        $splat = @{}
-        if ($what -eq 'backup') { $splat.Backup = $dir } else { $splat.Restore = $dir }
-        if ($keepCrashes) { $splat.KeepCrashes = $true }
-        & $script @splat
-        return
-    }
     $words = @($what, $dir)
     if ($keepCrashes) { $words += '--keep-crashes' }
-    & cargo run --release --quiet --manifest-path (Join-Path $Main 'Cargo.toml') -p eu4-harmony-cli -- @words
+    & cargo run --release --quiet --manifest-path (Join-Path $Checkout 'Cargo.toml') -p eu4-harmony-cli -- @words
     if ($LASTEXITCODE -ne 0) { throw "eu4-harmony $what $dir failed" }
 }
 
