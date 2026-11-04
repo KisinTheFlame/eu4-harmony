@@ -381,6 +381,17 @@ mod tests {
     }
 
     #[test]
+    fn the_default_for_latin_headings_is_a_weight_segoe_ui_has() {
+        let Ok(fonts) = crate::unicode::system_font::SystemFonts::new() else { return };
+        if !fonts.has_family("Segoe UI") {
+            eprintln!("Segoe UI is not installed; skipped");
+            return;
+        }
+        let heading = default_face(Language::French, Role::Heading, |f| fonts.has_family(f));
+        assert_eq!(fonts.drawn(&heading), Some(heading));
+    }
+
+    #[test]
     fn round_trips_and_keeps_defaults_for_the_rest() {
         let custom = Settings {
             language: Some(Language::BrazPor),

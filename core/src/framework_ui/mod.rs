@@ -157,8 +157,14 @@ impl FrameworkUi {
         let next = settings::next();
         let fonts = SystemFonts::new().ok();
         let language = next.language();
-        let faces: HashMap<Role, Face> =
-            Role::ALL.into_iter().map(|role| (role, next.face(role, |f| fonts.as_ref().is_some_and(|fonts| fonts.has_family(f))))).collect();
+        // Each role's face as the window shows it: in the weight that draws it.
+        let faces: HashMap<Role, Face> = Role::ALL
+            .into_iter()
+            .map(|role| {
+                let face = next.face(role, |f| fonts.as_ref().is_some_and(|fonts| fonts.has_family(f)));
+                (role, fonts.as_ref().and_then(|fonts| fonts.drawn(&face)).unwrap_or(face))
+            })
+            .collect();
         // The installed families that draw `text`, by English name and as
         // shown in the language, and those shown that do not.
         let offered = |text: &str, roles: &[Role]| {
