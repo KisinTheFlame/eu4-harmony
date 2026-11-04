@@ -1,7 +1,9 @@
 //! What a game function writes (the `dev-write-watch` feature: a player's
 //! build has none of this). dev.toml's `[write-watch]` names a function by
 //! its RVA; during its first `calls` calls on the main thread, the process's
-//! other threads are suspended, and every page of the process heap that
+//! other threads are suspended, but for the threads that write a save's
+//! countries and provinces with the main thread (`saves::parallel`), whose
+//! writes are recorded too, and every page of the process heap that
 //! holds a block, and every writable page of `eu4.exe`, is read-only. Each
 //! write to one stops at an exception handler, which records the
 //! instruction, the calls it was in and what it wrote to, makes the page
@@ -147,7 +149,10 @@ fn open_threads(a: &Arena) -> usize {
     let mut entry = THREADENTRY32 { dwSize: std::mem::size_of::<THREADENTRY32>() as u32, ..Default::default() };
     let mut more = unsafe { Thread32First(snapshot, &mut entry) } != 0;
     while more && n < HELD {
-        if entry.th32OwnerProcessID == process && entry.th32ThreadID != me {
+        // The threads that write a save's countries and provinces with the
+        // main thread go on, and their writes are watched too.
+        let writes_saves = crate::saves::parallel::threads().contains(&entry.th32ThreadID);
+        if entry.th32OwnerProcessID == process && entry.th32ThreadID != me && !writes_saves {
             let h = unsafe { OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, 0, entry.th32ThreadID) };
             if !h.is_null() {
                 unsafe { *a.held.add(n) = h };

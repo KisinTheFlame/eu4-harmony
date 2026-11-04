@@ -79,6 +79,10 @@ pub struct TestSwitches {
     /// The game crashes at the first frame of a game, so that what follows a
     /// crash can be tried.
     pub crash: bool,
+    /// Every save's countries and provinces are written by the game's own
+    /// loops as well as on several threads, the two compared in the log, and
+    /// the game's bytes kept, so that the threads can be checked.
+    pub compare_saves: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
@@ -135,10 +139,11 @@ impl Options {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
+                on(switches.compare_saves),
                 switches.post.len()
             ));
         }
@@ -216,11 +221,11 @@ mod tests {
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ncompare-saves = true\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
-        assert!(options.test_switches.fail_startup && options.test_switches.test_notice);
+        assert!(options.test_switches.fail_startup && options.test_switches.test_notice && options.test_switches.compare_saves);
         assert_eq!(options.test_switches.post, ["a={ }"]);
         assert_eq!(options.write_watch, WriteWatch { function: "0x74ff30".into(), calls: 3 });
     }

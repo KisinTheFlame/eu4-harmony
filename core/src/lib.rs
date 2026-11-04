@@ -135,6 +135,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(framework_ui::hook::points());
     all.extend(speed::points());
     all.extend(saves::background::points());
+    all.extend(saves::parallel::points());
     all.extend(hidden::points());
     all
 }
@@ -367,6 +368,7 @@ pub(crate) fn deferred_init() {
     log!("settings: {chosen:?}");
     speed::set_pace(chosen.fastest_speed);
     saves::background::set_folder(&user_dir);
+    saves::parallel::start();
     tell_missing_fonts(&chosen);
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
     report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));

@@ -8,6 +8,7 @@
 //! The save loader is observed as well, which tells the rest of the core when
 //! a save is being read and whether it was.
 pub mod background;
+pub mod parallel;
 
 use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
 use eu4_harmony_remote::binary as base64;
@@ -250,6 +251,14 @@ impl GameToken {
     fn new(kind: u32, text: &str) -> Self {
         let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
         token.text[..text.len()].copy_from_slice(text.as_bytes());
+        token
+    }
+
+    /// A token of text the game keeps, its NUL included.
+    fn from_bytes(kind: u32, text: &[u8]) -> Self {
+        let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
+        let len = text.len().min(TOKEN_TEXT_LEN);
+        token.text[..len].copy_from_slice(&text[..len]);
         token
     }
 }
