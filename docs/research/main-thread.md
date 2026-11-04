@@ -70,6 +70,26 @@ The half-yearly autosave runs in the in-game frame (`0x8137c0` → `0x5cbb00` �
 - 40% in `0x153b9a0` → `0x153c790` → `0x181e890`, which lies among the third-party code (_inferred_: zlib's deflate compressing the zip; that save is an ironman save, compressed although `compress_autosave=no`);
 - the rest waiting for a thread it joins (`tbb::internal::tbb_thread_v3::join` from `0x5cde60`).
 
+## Drawing
+
+From the profiles of 2026-11-04 (Austria-1, 1618 to 1620, with S1 and S2 built: 3,000 samples at speed 5, 1,000 paused), as shares of all the samples. Drawing (`0x8183b0`) was 21.0% at speed 5 and 37.6% paused.
+
+| | Speed 5 | Paused |
+| --- | --- | --- |
+| The map, `0x10a59a0` | 10.9% | 16.4% |
+| of it, the map's views, `0x10a55c0` | 4.4% | 11.2% |
+| of it, the views' second part, `0x14dcde0` | 4.8% | 3.0% |
+| The GUI, `0x14dd010` | 7.3% | 10.9% |
+| Present, `0x14ddc40` (through the framework's observer) | 1.3% | 7.7% |
+| `0x10a51e0` (under it `0x12dab90`, unnamed) | 1.4% | 2.1% |
+
+- **The map draws up to three views a frame.** `0x10a59a0` updates its fades, then `0x10a55c0` draws the views in turn, each into its own target: the first always, the second when `0x8023b0` says so, the third when two flags of its third argument (`+0x778`, `+0x679`) are set; what the second and third are (_inferred_: a reflection or shadow view) was not looked at. Each view goes through `0x1540c70`, then `0x14dcde0`, `0x13f9520` and `0x14dcd30` with the view's index.
+- **Most of the map's time is in issuing draws.** Paused, 4.8% of the samples were in `0x16d4f00`, the game's `DrawIndexedPrimitive` (the device's method `+0x290`), nearly all inside `d3d9.dll`: the driver's work on the CPU, per draw call, not the game's. The GPU's work does not show on the main thread except as Present's wait.
+- **The GUI already leaves out what is clipped away.** `0x14dd350` draws a list of the GUI's objects; an object clipped (its flag at `+0x130`) whose rectangle (`+0x128`) comes out empty against the screen is skipped, the others are drawn by their method `+0x58`, with a scissor rectangle when clipped. Under it, `0x15f3f20` → `0x15988e0` and `0x15bd540` → `0x156cab0` → `0x156bfb0` were the largest (unnamed).
+- **Present paused is the wait for the display**: at 84 frames a second, vsync at 144 Hz, the frame waits there for the GPU (_inferred_).
+
+So the main thread's drawing is the game's draw calls, about as many as the frame has objects: what would draw the same frame for less is fewer draw calls (batching, or caching what did not change), a change to the renderer, not a skip of work nobody sees. At speed 5 with "Faster time", most frames drawn are gone anyway (S4).
+
 ## Other costs found
 
 - **The parallel stages' wait.** `0x179e90`, the engine's run-and-wait for a stage's parts ([architecture.md](architecture.md), "Parallel work"), had 3.8 to 5.1% of the samples as their own, nearly all under the AI's stage `0x77d8a0`: the main thread waiting, or spinning, while the workers finish.
@@ -95,6 +115,6 @@ Multiplayer needs every machine to compute the same day from the same commands, 
 - Which line of `settings.txt`, if any, sets the frames' interval (`[0x242bde8]+0x284`).
 - What makes a day draw a different number of random numbers from one run to the next.
 - What the "rest of the frames" is in 1624 (22.9%): `0xdf5860`, `0x10a6d00`, `0x6ea380`, `0x128cd30` and the framework's frames between them were the largest. By the strings they load, read since: `0xdf5860` updates the top bar's alerts (`ALERT_DISASTER_ENTRY`, `ALERT_REINFORCING_UNITS_DELAYED` and the rest; 9,297 instructions), `0x128cd30` the outliner (`outliner_standard_entry`), and `0x1321880`, under `0x10a6d00`, the map's markers (`capital_indicator`, `fort_15th` to `fort_18th`, `port_blockade`).
-- What in the drawing costs the most: the GUI (`0x14dd010`, `0x14dd540`) and the map (`0x10a59a0`) were each a third of it at speed 5.
+- What the map's second and third views are, and whether a player's graphics settings turn them off.
 - Whether POPS's client is on for a player who is not signed in, and what it is connected to.
 - The profile of a vanilla game: these runs had the framework installed, whose observers and line breaking are part of the samples.

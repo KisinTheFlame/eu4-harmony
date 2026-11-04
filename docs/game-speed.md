@@ -1,6 +1,6 @@
 # Game speed plan
 
-Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 and S7 are to be built in one pull request; S5 and S6 are set aside. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR 0038](adr/0038-making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
+Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR 0038](adr/0038-making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
 
 ## Goal and scope
 
@@ -144,6 +144,8 @@ Set aside with S5, which it needs. A faster allocator changes where blocks lie, 
 ### S7 Cheaper drawing
 
 Research with the sampler and the call trace: the GUI (`0x14dd010`, `0x14dd540`) and the map (`0x10a59a0`) were each about a third of the drawing, and the rest of the in-game frame (`0xdf5860`, `0x10a6d00`, `0x6ea380`, `0x128cd30`) unnamed. Then changes that draw the same frame for less, such as skipping what is hidden, each checked by screenshots of the same scenes before and after.
+
+Researched, nothing built ([research/main-thread.md](research/main-thread.md), "Drawing"): the main thread's drawing is mostly the game's draw calls, inside `d3d9.dll`, up to three map views a frame and the GUI's objects; the GUI already leaves out what is clipped away. No work was found that draws nothing the player sees, so no change is shown to leave the frame as it is; fewer draw calls would be a change to the renderer, a plan of its own.
 
 ## Order
 
