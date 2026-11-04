@@ -192,6 +192,14 @@ _Avoid_: switching saves, reload
 The save the game writes of an ironman session as it is left, from which that ironman game goes on. Leaving without it goes back to the last save.
 _Avoid_: autosave (the game's periodic save), checkpoint
 
+**Game checksum**:
+The checksum of the game's content files that the main menu shows. A mod that changes those files changes it; vanilla gives no achievements while it is not vanilla's.
+_Avoid_: checksum on its own, data checksum
+
+**Save checksum**:
+The checksum at the end of a save, over what comes before it. A save whose save checksum does not match counts as modified, and vanilla gives no achievements in a game that loaded one.
+_Avoid_: checksum on its own
+
 ### Remote control
 
 **Remote control**:

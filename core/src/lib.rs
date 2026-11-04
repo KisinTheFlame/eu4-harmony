@@ -11,6 +11,7 @@ pub type Result<T> = std::result::Result<T, String>;
 pub mod log;
 #[macro_use]
 pub mod stub;
+pub mod achievements;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
 pub mod baseline;
@@ -123,6 +124,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(map::points());
     all.extend(saves::points());
     all.extend(repairs::points());
+    all.extend(achievements::points());
     all.extend(unicode::points());
     all.extend(wording::points());
     all.extend(framework_ui::hook::points());
