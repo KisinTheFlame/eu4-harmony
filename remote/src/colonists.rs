@@ -24,7 +24,8 @@ group! {
         province: ProvinceId,
     } -> (), "null once the colonist is on its way";
     /// Recalls the player's colonist from a province, as the province view's
-    /// button does once one works there.
+    /// button does once one works there. The game takes it back at its next
+    /// day: until then `colonist.options` still reads it working there.
     game Recall "recall" {
         /// The province.
         province: ProvinceId,

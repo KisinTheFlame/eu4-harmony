@@ -54,7 +54,7 @@ pub struct TradeCompanyOptions {
     /// Removing it from its trade company.
     pub remove: Choice,
     /// The trade company investments of the province's area, in the game's
-    /// order.
+    /// order, while the province is in a trade company; empty otherwise.
     pub investments: Vec<Investment>,
 }
 

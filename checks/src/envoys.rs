@@ -19,6 +19,17 @@ pub fn none_there(kind: &str) -> Refusal {
     Refusal::new(Status::Rejected, format!("the player has no {kind} there"))
 }
 
+/// The refusal of recalling an envoy of a `kind` ("merchant") that is
+/// still on its way.
+pub fn on_its_way(kind: &str) -> Refusal {
+    Refusal::new(Status::Rejected, format!("the player's {kind} is still on its way there"))
+}
+
+/// The refusal of changing a center of trade in a province that has none.
+pub fn no_center_of_trade() -> Refusal {
+    Refusal::new(Status::Rejected, "the province has no center of trade")
+}
+
 /// The refusal of raising the automatic missionaries when the game already
 /// sends all of the player's `missionaries`.
 pub fn all_automatic(missionaries: u32) -> Refusal {

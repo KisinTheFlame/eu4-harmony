@@ -63,23 +63,23 @@ pub fn count(m: &Memory, country: usize, kind: Kind) -> GResult<(u32, u32)> {
     Ok((envoys.len() as u32, free_ones))
 }
 
-/// The lines of game text that mark a rule that does not hold (`£no`), as
-/// plain Unicode, for a check that writes the rules that hold as well; every
-/// line when none is marked.
+/// The reasons in game text that lists the rules that hold as well: the
+/// lines not marked as holding (`£yes`), as plain Unicode, without a heading
+/// (a line ending in a colon) under which nothing fails (`£no`).
 pub fn failing(text: &[u8]) -> Vec<String> {
     const NO: &[u8] = b"\xa3no";
     const YES: &[u8] = b"\xa3yes";
-    let marked = text.windows(NO.len()).any(|w| w == NO);
+    let has = |line: &[u8], mark: &[u8]| line.windows(mark.len()).any(|w| w == mark);
+    let all: Vec<&[u8]> = text.split(|&b| b == b'\n').collect();
     let mut kept = Vec::new();
-    for line in text.split(|&b| b == b'\n') {
-        if marked && !line.windows(NO.len()).any(|w| w == NO) {
+    for (i, line) in all.iter().enumerate() {
+        let heading = game_text::plain(line).trim_end().ends_with([':', '\u{ff1a}']);
+        if has(line, YES) || heading && !all[i + 1..].iter().any(|l| has(l, NO)) {
             continue;
         }
         let mut line = line.to_vec();
-        for mark in [NO, YES] {
-            while let Some(at) = line.windows(mark.len()).position(|w| w == mark) {
-                line.drain(at..at + mark.len());
-            }
+        while let Some(at) = line.windows(NO.len()).position(|w| w == NO) {
+            line.drain(at..at + NO.len());
         }
         kept.extend_from_slice(&line);
         kept.push(b'\n');
@@ -122,5 +122,7 @@ mod tests {
         let text = b"\xa3yes Has a free merchant\n\xa3no In range\n";
         assert_eq!(super::failing(text), ["In range"]);
         assert_eq!(super::failing(b"Not discovered\n"), ["Not discovered"]);
+        let held = b"Requirements:\n\xa3yes Fewer than one mess\nCannot afford 1000\n";
+        assert_eq!(super::failing(held), ["Cannot afford 1000"]);
     }
 }

@@ -602,7 +602,7 @@ impl merchants::Layer for Fake {
         Ok(Merchants {
             merchants: 2,
             free: 1,
-            placed: vec![Placed { node: "constantinople".into(), name: "君士坦丁堡".into(), mission: Mission::Collect, steer_to: None }],
+            placed: vec![Placed { node: "constantinople".into(), name: "君士坦丁堡".into(), mission: Mission::Collect, arriving: false, steer_to: None }],
         })
     }
 
@@ -615,6 +615,7 @@ impl merchants::Layer for Fake {
             node: node.into(),
             name: "君士坦丁堡".into(),
             mission: Some(Mission::Collect),
+            arriving: false,
             collect: a8_choice(false, "已经在收集"),
             steer: a8_choice(false, "本国首都所在的贸易节点"),
             recall: a8_choice(true, ""),

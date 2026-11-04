@@ -49,12 +49,15 @@ const MAY_SEND: usize = 0x3532c0;
 /// Whether the country's merchant may steer there, and why not: `(node, tag,
 /// reasons) -> bool`.
 const MAY_STEER: usize = 0xb5b290;
-/// An envoy's ID, i32, and its mission; a mission's destination province.
+/// An envoy's ID, i32, and its mission; a mission's trade node, and its
+/// phase, i32, [`RETURNING`] once the merchant is recalled.
 const ENVOY_ID: usize = 0x44;
 const MISSION: usize = 0x10;
-const DESTINATION: usize = 0x38;
-/// A province's trade node.
-const TRADE_NODE: usize = 0xe8;
+const MISSION_NODE: usize = 0x80;
+const PHASE: usize = 0x98;
+const RETURNING: i32 = 2;
+/// A merchant's mission's kind, u8: 0 collect, 1 steer.
+const MISSION_KIND: usize = 0x9c;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -79,8 +82,10 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_STEER, "48 89 5c 24 08 55 48 8b ec 48 81 ec 80 00 00 00", "may steer"),
         Point::keep(0x274834usize, "44 39 52 44", "merchant's ID").uses(&[ENVOY_ID]),
         Point::keep(0x2748d4usize, "49 8b 51 10", "merchant's mission").uses(&[MISSION]),
-        Point::keep(0x2748ddusize, "48 8b 42 38", "mission's destination").uses(&[DESTINATION]),
-        Point::keep(0x274196usize, "49 8b b3 e8 00 00 00", "province's trade node").uses(&[TRADE_NODE]),
+        Point::keep(0x274257usize, "88 81 9c 00 00 00", "merchant's mission kind").uses(&[MISSION_KIND]),
+        // A recall sends the mission home: its node, and the phase it sets.
+        Point::keep(0x25ba8eusize, "48 8b 81 80 00 00 00", "mission's trade node").uses(&[MISSION_NODE]),
+        Point::keep(0x25baf7usize, "c7 83 98 00 00 00 02 00 00 00", "mission returning").uses(&[PHASE]),
     ]
 }
 
@@ -130,18 +135,49 @@ fn downstream(m: &Memory, definition: usize) -> GResult<Vec<usize>> {
     (0..super::span(begin, end, LINK_SIZE, MOST)?).map(|i| Ok(m.ptr(begin + i * LINK_SIZE + LINK_TO)?)).collect()
 }
 
-/// What the player's merchant in the node does, and where it steers to.
-fn mission(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<(Mission, Option<usize>)>> {
+/// The player's merchant in the node, or on its way there: what it does,
+/// whether it is still on its way, and where it steers to.
+#[derive(Clone, Copy)]
+struct Present {
+    mission: Mission,
+    arriving: bool,
+    steers_to: Option<usize>,
+}
+
+/// The player's merchant whose mission is in the node, not recalled, and
+/// the mission.
+fn sent(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<(usize, usize)>> {
+    for envoy in envoys::all(m, ctx.country, Kind::Merchant)? {
+        let mission = m.ptr(envoy + MISSION)?;
+        if mission != 0 && m.ptr(mission + MISSION_NODE)? == node.address && m.i32(mission + PHASE)? != RETURNING {
+            return Ok(Some((envoy, mission)));
+        }
+    }
+    Ok(None)
+}
+
+fn present(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<Present>> {
     let entry = entry(m, ctx, node)?;
-    if m.u8(entry + PRESENT)? == 0 {
-        return Ok(None);
-    }
-    if m.call(m.at(COLLECTS), &[node.address, ctx.player.0 as usize])? as u8 != 0 {
-        return Ok(Some((Mission::Collect, None)));
-    }
-    let along = m.i32(entry + STEERS_ALONG)?;
-    let to = usize::try_from(along).ok().and_then(|i| downstream(m, node.definition).ok()?.get(i).copied());
-    Ok(Some((Mission::Steer, to)))
+    let arrived = m.u8(entry + PRESENT)? != 0;
+    let mission = match sent(m, ctx, node)? {
+        Some((_, mission)) => {
+            if m.u8(mission + MISSION_KIND)? == 0 {
+                Mission::Collect
+            } else {
+                Mission::Steer
+            }
+        }
+        None if !arrived => return Ok(None),
+        None if m.call(m.at(COLLECTS), &[node.address, ctx.player.0 as usize])? as u8 != 0 => Mission::Collect,
+        None => Mission::Steer,
+    };
+    let steers_to = if arrived && mission == Mission::Steer {
+        let along = m.i32(entry + STEERS_ALONG)?;
+        usize::try_from(along).ok().and_then(|i| downstream(m, node.definition).ok()?.get(i).copied())
+    } else {
+        None
+    };
+    Ok(Some(Present { mission, arriving: !arrived, steers_to }))
 }
 
 /// The player's merchants, and where the placed ones are.
@@ -151,9 +187,9 @@ pub fn list(_: Caller) -> GResult<Merchants> {
     let (merchants, free) = envoys::count(m, ctx.country, Kind::Merchant)?;
     let mut placed = Vec::new();
     for node in nodes(m, &ctx)? {
-        if let Some((mission, to)) = mission(m, &ctx, &node)? {
-            let steer_to = to.map(|d| game_string::read(m, d + KEY).map(|k| game_text::to_utf8(&k))).transpose()?;
-            placed.push(Placed { name: name(m, node.definition)?, node: node.key, mission, steer_to });
+        if let Some(p) = present(m, &ctx, &node)? {
+            let steer_to = p.steers_to.map(|d| game_string::read(m, d + KEY).map(|k| game_text::to_utf8(&k))).transpose()?;
+            placed.push(Placed { name: name(m, node.definition)?, node: node.key, mission: p.mission, arriving: p.arriving, steer_to });
         }
     }
     Ok(Merchants { merchants, free, placed })
@@ -173,25 +209,34 @@ fn refused(m: &Memory, key: &str) -> GResult<Choice> {
 fn read(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<MerchantOptions> {
     let entry = entry(m, ctx, node)?;
     let home = m.u8(entry + HOME)? != 0;
-    let now = mission(m, ctx, node)?;
-    let (collect, steer) = match now {
+    let now = present(m, ctx, node)?;
+    let (collect, steer) = match now.map(|p| p.mission) {
         // The merchant there changes its mission.
-        Some((Mission::Collect, _)) => {
+        Some(Mission::Collect) => {
             (refused(m, "TRADE_MERCHANT_ALREADY_COLLECTING")?, if home { refused(m, "TRADE_TRANSIT_NODE_CAPITAL")? } else { Choice::can(Vec::new()) })
         }
-        Some((Mission::Steer, _)) => (Choice::can(Vec::new()), refused(m, "TRADE_MERCHANT_ALREADY_TRANSFERRING")?),
+        Some(Mission::Steer) => (Choice::can(Vec::new()), refused(m, "TRADE_MERCHANT_ALREADY_TRANSFERRING")?),
         None => {
             let location = with_province(m, ctx, m.i32(node.definition + LOCATION)?)?;
             let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_SEND), &[ctx.country, location, out, 0, 1, 0]))?;
             let cost = vec![Amount::new(Resource::Merchant, 1.0)];
-            let send = if may as u8 != 0 { Choice::can(cost.clone()) } else { Choice::cannot(envoys::failing(&text), cost.clone()) };
+            let send = if may as u8 == 0 {
+                Choice::cannot(envoys::failing(&text), cost.clone())
+            } else if merchant(m, ctx, node)?.is_none() {
+                // The check lets a merchant on its way count; the button
+                // sends a free one.
+                Choice::cannot(vec![envoys::localized(m, "TRADER_FREE_ENVOY")?], cost.clone())
+            } else {
+                Choice::can(cost.clone())
+            };
             let steer = if home && send.can { Choice::cannot(vec![envoys::localized(m, "TRADE_TRANSIT_NODE_CAPITAL")?], cost) } else { send.clone() };
             (send, steer)
         }
     };
-    let recall = if now.is_some() { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
+    // The recall command takes only a merchant that arrived.
+    let recall = if now.is_some_and(|p| !p.arriving) { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
     let (may_steer, text) = game_string::written(m, |out| m.call(m.at(MAY_STEER), &[node.address, ctx.player.0 as usize, out]))?;
-    let steering_to = now.and_then(|(_, to)| to);
+    let steering_to = now.and_then(|p| p.steers_to);
     let steer_to = downstream(m, node.definition)?
         .into_iter()
         .map(|d| {
@@ -199,7 +244,16 @@ fn read(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<MerchantOptions> {
             Ok(Downstream { node: game_text::to_utf8(&game_string::read(m, d + KEY)?), name: name(m, d)?, current: steering_to == Some(d), choice })
         })
         .collect::<GResult<_>>()?;
-    Ok(MerchantOptions { node: node.key.clone(), name: name(m, node.definition)?, mission: now.map(|(mission, _)| mission), collect, steer, recall, steer_to })
+    Ok(MerchantOptions {
+        node: node.key.clone(),
+        name: name(m, node.definition)?,
+        mission: now.map(|p| p.mission),
+        arriving: now.is_some_and(|p| p.arriving),
+        collect,
+        steer,
+        recall,
+        steer_to,
+    })
 }
 
 fn with_province(m: &Memory, ctx: &Ctx, id: i32) -> GResult<usize> {
@@ -210,17 +264,10 @@ fn with_province(m: &Memory, ctx: &Ctx, id: i32) -> GResult<usize> {
 /// The merchant the trade view sends for a mission in the node: the one the
 /// player has there, whose mission then changes, or else a free one.
 fn merchant(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<i32>> {
-    let merchants = envoys::all(m, ctx.country, Kind::Merchant)?;
-    for &envoy in &merchants {
-        let mission = m.ptr(envoy + MISSION)?;
-        if mission != 0 {
-            let destination = m.ptr(mission + DESTINATION)?;
-            if destination != 0 && m.ptr(destination + TRADE_NODE)? == node.address {
-                return Ok(Some(m.i32(envoy + ENVOY_ID)?));
-            }
-        }
+    if let Some((envoy, _)) = sent(m, ctx, node)? {
+        return Ok(Some(m.i32(envoy + ENVOY_ID)?));
     }
-    for &envoy in &merchants {
+    for envoy in envoys::all(m, ctx.country, Kind::Merchant)? {
         if envoys::free(m, envoy)? {
             return Ok(Some(m.i32(envoy + ENVOY_ID)?));
         }
@@ -268,8 +315,10 @@ pub fn recall(_: Caller, key: &str) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
     let node = node(m, &ctx, key)?;
-    if mission(m, &ctx, &node)?.is_none() {
-        return Err(eu4_harmony_checks::envoys::none_there("merchant").into());
+    match present(m, &ctx, &node)? {
+        None => return Err(eu4_harmony_checks::envoys::none_there("merchant").into()),
+        Some(p) if p.arriving => return Err(eu4_harmony_checks::envoys::on_its_way("merchant").into()),
+        Some(_) => {}
     }
     let text = format!("cancel_merchant={{ node={} country={} }}", m.i32(node.definition + LOCATION)?, quoted(ctx.player));
     envoys::post(&text, "the recall merchant command")

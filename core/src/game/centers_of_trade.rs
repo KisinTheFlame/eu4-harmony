@@ -104,7 +104,7 @@ pub fn change(_: Caller, id: u32, up: bool) -> GResult<()> {
     let (options, level) = read(m, &ctx, province(m, &ctx, id)?, id)?;
     let choice = if up { &options.upgrade } else { &options.downgrade };
     if level == 0 {
-        return Err(eu4_harmony_checks::envoys::none_there("center of trade").into());
+        return Err(eu4_harmony_checks::envoys::no_center_of_trade().into());
     }
     if !choice.can {
         let what = if up { "upgrade the center of trade" } else { "downgrade the center of trade" };

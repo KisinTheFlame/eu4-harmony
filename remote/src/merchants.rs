@@ -11,7 +11,7 @@ group! {
 
     /// The player's merchants, how many are free, and where the others are:
     /// each node the player has a merchant in, with what it does there.
-    game List "list" {} -> Merchants, "merchants: the player's; free: those not sent; placed: node, name, mission (collect or steer), steer_to (the node it steers to, or null)";
+    game List "list" {} -> Merchants, "merchants: the player's; free: those not sent; placed: node, name, mission (collect or steer), arriving (on its way), steer_to (the node it steers to, or null)";
     /// What the trade view offers the player in a trade node now: sending a
     /// merchant there to collect, or to steer trade (changing the mission of
     /// the one there), recalling the player's merchant, and, for a merchant
@@ -20,7 +20,7 @@ group! {
     game Options "options" {
         /// The trade node's content key, such as `english_channel`.
         node: String,
-    } -> Box<MerchantOptions>, "node, name; mission: what the player's merchant there does, or null; collect, steer and recall, each can, reasons, cost; steer_to: node, name, current, can, reasons, cost for each node downstream";
+    } -> Box<MerchantOptions>, "node, name; mission: what the player's merchant there does, or null; arriving: it is on its way; collect, steer and recall, each can, reasons, cost; steer_to: node, name, current, can, reasons, cost for each node downstream";
     /// Sends a merchant to a trade node to collect trade there, as the trade
     /// view's button does, or has the player's merchant there collect
     /// instead of steering. Refused with the game's reasons when the game
@@ -38,7 +38,7 @@ group! {
         node: String,
     } -> (), "null once the merchant is on its way, or steers";
     /// Recalls the player's merchant from a trade node, as the trade view's
-    /// button does.
+    /// button does, once it is there.
     game Recall "recall" {
         /// The trade node's content key.
         node: String,
@@ -84,7 +84,10 @@ pub struct Placed {
     /// Its name, in the player language.
     pub name: String,
     pub mission: Mission,
-    /// The node downstream it steers trade to; null when it collects.
+    /// It is still on its way there.
+    pub arriving: bool,
+    /// The node downstream it steers trade to; null when it collects or is
+    /// on its way.
     pub steer_to: Option<String>,
 }
 
@@ -98,6 +101,8 @@ pub struct MerchantOptions {
     /// What the player's merchant there does; null when the player has none
     /// there.
     pub mission: Option<Mission>,
+    /// The player's merchant is still on its way there.
+    pub arriving: bool,
     /// Sending a merchant to collect, or having the one there collect.
     pub collect: Choice,
     /// Sending a merchant to steer, or having the one there steer.

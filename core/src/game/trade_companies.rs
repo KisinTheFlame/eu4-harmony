@@ -19,12 +19,11 @@ const MAY_REMOVE: usize = 0x3ba830;
 /// The province's flags, and the one of a province in a trade company.
 const FLAGS: usize = 0x958;
 const IN_TRADE_COMPANY: u8 = 0x04;
-/// The province's trade company region, or null.
-const REGION: usize = 0x8a8;
-/// The investments' database, a pointer, and its vector of investments in
-/// index order.
+/// The investments' database, a pointer, and its investments in index
+/// order: an array of pointers and their count, i32.
 const DATABASE: usize = 0x242be40;
 const INVESTMENTS: usize = 0x88;
+const INVESTMENT_COUNT: usize = 0x94;
 /// An investment's index and key.
 const INDEX: usize = 0x10;
 const KEY: usize = 0x20;
@@ -35,6 +34,9 @@ const MAY_INVEST: usize = 0xb40520;
 /// What the investment costs the country: `(investment, out i32*, tag,
 /// area or null, text or null) -> out`, thousandths of ducats.
 const COST: usize = 0xb3f580;
+/// The investment's name for the country, as the panel writes it:
+/// `(investment, out, tag)`, constructing `out`.
+const NAME: usize = 0xb3ddc0;
 /// The province's area, in its map data.
 const AREA: usize = 0x40;
 /// The most investments read.
@@ -46,10 +48,11 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_REMOVE, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 40 49 8b f8", "may remove from a trade company"),
         // The add check's rule that the province is not in one already.
         Point::keep(0x3ba482usize, "f6 87 58 09 00 00 04", "in a trade company").uses(&[FLAGS]),
-        // The trigger is_in_trade_company_region reads the region.
-        Point::keep(0xccf82eusize, "4a 8b 84 02 a8 08 00 00", "trade company region").uses(&[REGION]),
+        Point::keep(NAME, "48 89 5c 24 08 48 89 54 24 10 55 56 57 48 8d ac 24 80 fc ff ff", "investment's name"),
         // The database's maker keeps it in the global.
         Point::keep(0xb4286fusize, "48 8b 05 ca 95 8e 01", "investments database").uses(&[DATABASE]),
+        // The possible investments' tooltip walks them.
+        Point::keep(0xb40b2busize, "49 8b be 88 00 00 00 49 63 86 94 00 00 00", "investments").uses(&[INVESTMENTS, INVESTMENT_COUNT]),
         // The investment dialog takes its index for the command.
         Point::keep(0x1343cdeusize, "41 8b 7d 10", "investment index").uses(&[INDEX]),
         // Its name is localised from the key.
@@ -93,7 +96,9 @@ fn read(m: &Memory, ctx: &Ctx, province: usize, id: u32) -> GResult<TradeCompany
     } else {
         Choice::cannot(Vec::new(), Vec::new())
     };
-    let investments = if m.ptr(province + REGION)? == 0 { Vec::new() } else { investments(m, ctx, province)? };
+    // The province view offers the investments in a province of a trade
+    // company.
+    let investments = if in_trade_company { investments(m, ctx, province)? } else { Vec::new() };
     Ok(TradeCompanyOptions { province: ProvinceId(id), in_trade_company, add, remove, investments })
 }
 
@@ -103,8 +108,11 @@ fn database(m: &Memory) -> GResult<Vec<(usize, String)>> {
     if database == 0 {
         return Ok(Vec::new());
     }
-    let (begin, end) = (m.ptr(database + INVESTMENTS)?, m.ptr(database + INVESTMENTS + 8)?);
-    (0..super::span(begin, end, 8, MOST)?)
+    let (begin, count) = (m.ptr(database + INVESTMENTS)?, m.i32(database + INVESTMENT_COUNT)?);
+    if begin == 0 || !(0..=MOST as i32).contains(&count) {
+        return Ok(Vec::new());
+    }
+    (0..count as usize)
         .map(|i| {
             let at = m.ptr(begin + i * 8)?;
             Ok((at, game_text::to_utf8(&game_string::read(m, at + KEY)?)))
@@ -123,9 +131,9 @@ fn investments(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Investment
             let mut cost = 0i32;
             m.call(m.at(COST), &[at, &mut cost as *mut i32 as usize, ctx.player.0 as usize, area, 0])?;
             let cost = vec![Amount::new(Resource::Ducats, super::thousandths(cost))];
-            let choice = if may as u8 != 0 { Choice::can(cost) } else { Choice::cannot(envoys::lines(&text), cost) };
-            let name = std::ffi::CString::new(key.clone()).map_err(|e| e.to_string())?;
-            let name = game_text::plain(&game_string::localized(m, name.as_ptr() as usize)?);
+            let choice = if may as u8 != 0 { Choice::can(cost) } else { Choice::cannot(envoys::failing(&text), cost) };
+            let (_, name) = game_string::written(m, |out| m.call(m.at(NAME), &[at, out, ctx.player.0 as usize]))?;
+            let name = game_text::plain(&name);
             Ok(Investment { investment: key, name, made: made != 0, choice })
         })
         .collect()
