@@ -6,7 +6,7 @@ use super::{
     power::{self, ADVANCE_TECH},
     Caller, GResult, Tag,
 };
-use crate::{memory::Memory, points::Point};
+use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
     technology::Technology,
@@ -95,17 +95,32 @@ fn category(m: &Memory, country: usize, kind: PowerKind) -> GResult<Category> {
 
 /// Whether `player` can research the next level of `category` now, as the
 /// view's button says: at the last level it cannot, and with too few points
-/// the reason is the tooltip's line of when it will have them.
+/// the reasons are the tooltip's lines saying so and when it will have them.
 fn choice(m: &Memory, player: Tag, country: usize, date: i32, category: &Category) -> GResult<Choice> {
     if category.level >= category.last {
         return Ok(Choice::cannot(Vec::new(), Vec::new()));
     }
     let cost = power::cost(m, player, ADVANCE_TECH, category.kind, category.index)?;
     let price = vec![Amount::new(category.kind.resource(), cost as f64)];
-    if cost <= power::points_of(m, country, category.kind)? {
+    let have = power::points_of(m, country, category.kind)?;
+    if cost <= have {
         return Ok(Choice::can(price));
     }
-    Ok(Choice::cannot(when(m, country, date, cost, category.kind)?, price))
+    let kind = crate::unicode::game_text::to_utf8(&game_string::localized(m, power_name(category.kind).as_ptr() as usize)?);
+    let values = [(c"TYPE", kind), (c"POWER_COST", power::whole(cost)), (c"POWER_AVAILABLE", power::whole(have))];
+    let mut reasons = power::tooltip(m, c"CV_RESEARCH_TECH_NOPOWER", &values)?;
+    reasons.extend(when(m, country, date, cost, category.kind)?);
+    Ok(Choice::cannot(reasons, price))
+}
+
+/// The localisation key of a kind of power's name, as the technology view
+/// writes it in its tooltip (`0xa491f0`).
+fn power_name(kind: PowerKind) -> &'static std::ffi::CStr {
+    match kind {
+        PowerKind::Adm => c"MON_ADM_LONG",
+        PowerKind::Dip => c"MON_DIP_LONG",
+        PowerKind::Mil => c"MON_MIL_LONG",
+    }
 }
 
 /// The technology view's line of when the country will have `cost` points
