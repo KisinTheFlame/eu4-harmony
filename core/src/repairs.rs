@@ -183,6 +183,29 @@ static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
 static TEXT_BOX_ANIMATIONS: AtomicUsize = AtomicUsize::new(0);
 
+/// While it lives, `repair` lets the game's memory go on this thread: a
+/// developer build's quarantine keeps what is freed then, while it is on
+/// (docs/leak-finding.md, M4). What the game frees later, as the GUI's sweep
+/// frees a window a repair killed, is not kept.
+struct LettingGo;
+
+impl LettingGo {
+    fn new(repair: &'static str) -> Self {
+        #[cfg(feature = "dev-heap-census")]
+        crate::census::quarantine::begin(repair);
+        #[cfg(not(feature = "dev-heap-census"))]
+        let _ = repair;
+        Self
+    }
+}
+
+impl Drop for LettingGo {
+    fn drop(&mut self) {
+        #[cfg(feature = "dev-heap-census")]
+        crate::census::quarantine::end();
+    }
+}
+
 /// The agents of the AI whose top agent is being deleted, by that agent:
 /// they are deleted once it is gone.
 static AGENTS_LEFT: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
@@ -197,6 +220,7 @@ extern "C" fn country_going(frame: *mut HookFrame) {
             let bytes = m.ptr(country + country::ENTRY_BYTES)?;
             if bytes != 0 {
                 m.write(country + country::ENTRY_BYTES, &0usize.to_le_bytes())?;
+                let _letting_go = LettingGo::new("country's array of bytes");
                 m.call(m.at(DELETE), &[bytes, 0])?;
             }
             crate::Result::Ok(())
@@ -222,6 +246,7 @@ extern "C" fn company_going(frame: *mut HookFrame) {
                 return Ok(());
             }
             m.write(company + mercenary_company::LEADER, &0usize.to_le_bytes())?;
+            let _letting_go = LettingGo::new("mercenary company's leader");
             m.call(m.vslot(leader, 0)?, &[leader, 1])?;
             LEADERS.fetch_add(1, Ordering::Relaxed);
             crate::Result::Ok(())
@@ -255,6 +280,7 @@ extern "C" fn world_clearing() {
                 let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
                 let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::Result<Vec<_>>>()?;
                 for faction in factions.into_iter().filter(|&f| f != 0) {
+                    let _letting_go = LettingGo::new("rebel faction");
                     m.call(m.vslot(faction, 0)?, &[faction, 1])?;
                     FACTIONS.fetch_add(1, Ordering::Relaxed);
                 }
@@ -318,6 +344,7 @@ extern "C" fn ai_king_gone(frame: *mut HookFrame) {
         };
         let m = crate::hooked_memory();
         for agent in agents {
+            let _letting_go = LettingGo::new("agent of a country's AI");
             match m.vslot(agent, 0).and_then(|delete| m.call(delete, &[agent, 1])) {
                 Ok(_) => {
                     AGENTS.fetch_add(1, Ordering::Relaxed);
@@ -387,8 +414,12 @@ extern "C" fn unit_view_going(frame: *mut HookFrame) {
 /// A text box's destructor begins: its animation, which its element deletes
 /// only from its animations, is put on them owned, as the text box puts it
 /// there when it plays; the element's destructor then deletes it with the
-/// others, the text box still whole, as it deletes a playing one.
+/// others, the text box still whole, as it deletes a playing one. The
+/// destructor lets it go, so a developer build's quarantine keeps what the
+/// whole destructor frees, until [`text_box_gone`].
 extern "C" fn text_box_going(frame: *mut HookFrame) {
+    #[cfg(feature = "dev-heap-census")]
+    crate::census::quarantine::begin("text box's animation");
     crate::guarded("text box destructor", || {
         let m = crate::hooked_memory();
         let boxed = unsafe { (*frame).args[0] };
@@ -404,6 +435,12 @@ extern "C" fn text_box_going(frame: *mut HookFrame) {
             log!("repair: a text box's animation was not handed to its element: {e}");
         }
     });
+}
+
+/// A text box's destructor is done, its animation deleted with it.
+#[cfg(feature = "dev-heap-census")]
+extern "C" fn text_box_gone(_: *mut HookFrame) {
+    crate::census::quarantine::end();
 }
 
 /// The outliner is being let go: its categories' entries, which the
@@ -427,6 +464,7 @@ extern "C" fn outliner_going(frame: *mut HookFrame) {
                     let entry = m.ptr(node + list::ITEM)?;
                     if entry != 0 {
                         m.write(node + list::ITEM, &0usize.to_le_bytes())?;
+                        let _letting_go = LettingGo::new("outliner's entry");
                         m.call(m.vslot(entry, 0)?, &[entry, 1])?;
                         deleted += 1;
                     }
@@ -472,6 +510,7 @@ fn delete_modifier_sets(m: &Memory, sets: Vec<usize>) {
             if m.ptr(set)? != m.at(classes::MODIFIER_SET) {
                 return Err(format!("{set:#x} is not a set of modifiers"));
             }
+            let _letting_go = LettingGo::new("set of modifiers");
             m.call(m.vslot(set, 0)?, &[set, 1])
         })();
         match deleted {
@@ -620,6 +659,7 @@ extern "C" fn mask_resizing(frame: *mut HookFrame) {
             if begin == 0 || capacity <= begin + needed {
                 return Ok(0);
             }
+            let _letting_go = LettingGo::new("transparency mask");
             m.call(m.at(WORDS_DESTRUCTOR), &[mask + transparency_mask::WORDS])?;
             m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
             crate::Result::Ok(capacity - begin)
@@ -985,6 +1025,7 @@ impl SessionInterface {
                 let popup = m.ptr(window + message_window::POPUP)?;
                 if popup != 0 && !popups.contains(&popup) {
                     m.write(window + message_window::POPUP, &0usize.to_le_bytes())?;
+                    let _letting_go = LettingGo::new("message window's popup");
                     m.call(m.vslot(popup, 0)?, &[popup, 1])?;
                 }
             }
@@ -1031,6 +1072,7 @@ extern "C" fn map_manager_going(frame: *mut HookFrame) {
 /// it never lets go is let go first, the last made first, as the game lets
 /// its windows go.
 fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> {
+    let _letting_go = LettingGo::new("session's interface");
     let mut gone = 0;
     let mut take = |field: usize| -> crate::Result<usize> {
         let object = m.ptr(manager + field)?;
@@ -1225,8 +1267,18 @@ pub fn points() -> Vec<Point> {
         // A text box's destructor, which leaves its animation, and ends in
         // the element's; that deletes the animations the element owns, and
         // the text box makes its own with it.
-        Point::observe(TEXT_BOX_DESTRUCTOR, "40 53 48 83 ec 20 48 8b d9 48 8d 05 10 52 86 00 48 89 01", "text box destructor", 1, Some(text_box_going), None)
-            .uses(&[gui_classes::TEXT_BOX]),
+        Point::observe(
+            TEXT_BOX_DESTRUCTOR,
+            "40 53 48 83 ec 20 48 8b d9 48 8d 05 10 52 86 00 48 89 01",
+            "text box destructor",
+            1,
+            Some(text_box_going),
+            #[cfg(feature = "dev-heap-census")]
+            Some(text_box_gone),
+            #[cfg(not(feature = "dev-heap-census"))]
+            None,
+        )
+        .uses(&[gui_classes::TEXT_BOX]),
         Point::keep(0x152ab58usize, "48 8b cb 48 83 c4 20 5b e9 1b 7b 02 00", "text box destructor ends in the element's"),
         Point::keep(OWN_ANIMATION, "48 85 d2 0f 84 a9 00 00 00 53 48 83 ec 30 4c 8b 81 90 00 00 00", "own an animation").uses(&[element::ANIMATIONS]),
         Point::keep(0x1552a22usize, "49 8b 92 98 00 00 00 48 89 5c 24 20 c6 44 24 28 01", "animation put on owned"),

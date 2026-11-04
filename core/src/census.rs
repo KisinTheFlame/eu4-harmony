@@ -19,7 +19,9 @@
 //! blocks of other modules' heaps and allocators.
 use crate::hooks::HookFrame;
 use crate::points::Point;
-use eu4_harmony_remote::memory::{Freed, Generation, Holder, Holders, Leftovers, Lost, MemoryAnswer, MemoryRequest, Site, Trend, Watching};
+use eu4_harmony_remote::memory::{
+    Freed, Generation, Holder, Holders, Kept, Leftovers, Lost, MemoryAnswer, MemoryRequest, Quarantine, Site, Trend, Watching, Written,
+};
 use eu4_harmony_remote::{Code, Error};
 use holders::{Held, Scan, Source, Target};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -28,6 +30,7 @@ use std::sync::Mutex;
 
 mod holders;
 mod pointers;
+pub mod quarantine;
 mod watch;
 
 /// `(size)`, `(count, size)`, `(block, size)`, `(block)`: the C runtime's
@@ -160,13 +163,26 @@ extern "C" fn realloc_after(frame: *mut HookFrame) {
     }
 }
 
+/// A block is let go: off the census; read first while sites are watched;
+/// and kept instead of freed while a repair lets it go with the quarantine
+/// on, `free` then given null.
 extern "C" fn free_before(frame: *mut HookFrame) {
-    let h = unsafe { &*frame };
+    let h = unsafe { &mut *frame };
     let (block, by) = (h.args[0], h.return_address);
     if let Some(gone) = remove(block, Some(by)) {
         let m = crate::memory::Memory { base: BASE.load(Ordering::Relaxed) };
         watch::letting_go(block, gone.size, gone.site, rva(by), |offset, out| m.read_into(block + offset, out).is_ok());
+        if let Some(repair) = quarantine::releasing() {
+            if quarantine::keep(block, gone.size, gone.site, repair, gone.generation, free_now) {
+                h.args[0] = 0;
+            }
+        }
     }
+}
+
+/// Frees a block of the game's heap, as `free` does, past the census.
+fn free_now(block: usize) {
+    unsafe { windows_sys::Win32::System::Memory::HeapFree(crate::memory_account::game_heap() as _, 0, block as _) };
 }
 
 extern "C" fn new_after(frame: *mut HookFrame) {
@@ -535,7 +551,58 @@ pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
             log!("census: generation {now} begins, as remote control asked");
             MemoryAnswer::Generation(now)
         }
+        MemoryRequest::Quarantine { on } => {
+            let now = || GENERATION.load(Ordering::Relaxed);
+            let report = match on {
+                Some(true) => {
+                    quarantine::start(now);
+                    log!("census: the quarantine keeps what the repairs let go");
+                    quarantine::report()
+                }
+                Some(false) => {
+                    let report = quarantine::stop(now(), free_now);
+                    log!(
+                        "census: the quarantine is off; it freed {} blocks, {:.1} MB, and found {} written to",
+                        report.blocks,
+                        report.bytes as f64 / MB,
+                        report.written.len()
+                    );
+                    report
+                }
+                None => quarantine::report(),
+            };
+            MemoryAnswer::Quarantine(quarantined(report))
+        }
     })
+}
+
+/// The quarantine's report as remote control gives it.
+fn quarantined(report: quarantine::Report) -> Quarantine {
+    Quarantine {
+        on: report.on,
+        blocks: report.blocks,
+        bytes: report.bytes,
+        freed: report.freed,
+        checks: report.checks,
+        repairs: report.repairs.into_iter().map(|(repair, blocks, bytes)| Kept { repair: repair.to_string(), blocks, bytes }).collect(),
+        written: report
+            .written
+            .into_iter()
+            .map(|w| {
+                let (site, function) = named(w.site);
+                Written {
+                    repair: w.repair.to_string(),
+                    site,
+                    function,
+                    size: w.size as u64,
+                    offset: w.offset as u64,
+                    bytes: w.bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" "),
+                    generation: w.generation,
+                    found: w.found,
+                }
+            })
+            .collect(),
+    }
 }
 
 const MB: f64 = 1024.0 * 1024.0;
