@@ -8,6 +8,7 @@
 //! The save loader is observed as well, which tells the rest of the core when
 //! a save is being read and whether it was.
 pub mod background;
+pub mod file;
 
 use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
 use eu4_harmony_remote::binary as base64;
