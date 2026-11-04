@@ -56,7 +56,7 @@ panel_acts! {
     CorruptOfficials InfiltrateAdministration AgitateForLiberty CancelTradePowerTransfer SteerTrade StopSteeringTrade Embargo LiftEmbargo
     AskToBeTributary Guarantee CancelGuarantee Warn AskMilitaryAccess CancelMilitaryAccess OfferMilitaryAccess RevokeMilitaryAccess
     AskFleetBasing CancelFleetBasing OfferFleetBasing RevokeFleetBasing ShareKnowledge StopSharingKnowledge AskForKnowledgeSharing
-    ImperialRelations ImperialRealmWar SellShips ShareMaps TakeOnDebt Influence Insult AbandonClaims StopWarSubsidies RecallCondottieri
+    ImperialRelations ImperialRealmWar SellShips ShareMaps TakeOnDebt Influence Insult ClaimThrone StopWarSubsidies RecallCondottieri
 }
 
 pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer + ?Sized), now: Instant) -> Ran {

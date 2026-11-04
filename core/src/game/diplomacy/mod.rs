@@ -299,21 +299,35 @@ pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
 }
 
 /// Makes `rival` one of the player's rivals, with the game's `add_rival`
-/// command, as the diplomacy view's rivals list posts it; its check refuses
-/// what the list would not offer, with no reason ([`Status::Rejected`]).
+/// command, as the diplomacy view's rivals list posts it: refused
+/// ([`Status::Rejected`]) with the game's reasons when the game does not let
+/// the player rival that country, and with none when the player has as many
+/// rivals as the game allows.
 pub fn add_rival(_: Caller, rival: Tag) -> GResult<()> {
-    rival_command("add_rival", rival)
+    rival_command("add_rival", CAN_RIVAL, rival)
 }
 
-/// Drops `rival`, with the game's `remove_rival` command.
+/// Drops `rival`, with the game's `remove_rival` command; refused with the
+/// game's reasons when it does not let the player.
 pub fn remove_rival(_: Caller, rival: Tag) -> GResult<()> {
-    rival_command("remove_rival", rival)
+    rival_command("remove_rival", CAN_DROP_RIVAL, rival)
 }
 
-fn rival_command(kind: &str, rival: Tag) -> GResult<()> {
+/// Whether a country may rival another, and drop it as a rival: (country,
+/// other's tag, reasons), the reasons appended to a `std::string` or null; the
+/// rivals list asks them, and so do the commands' checks.
+const CAN_RIVAL: usize = 0x3d2760;
+const CAN_DROP_RIVAL: usize = 0x3d2970;
+
+fn rival_command(kind: &str, check: usize, rival: Tag) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
     other(m, &ctx, rival)?;
+    let args = |reasons: usize| [ctx.country, rival.0 as usize, reasons];
+    if m.call(m.at(check), &args(0))? as u8 == 0 {
+        let said = game_string::written(m, |s| m.call(m.at(check), &args(s)))?.1;
+        return fail(Status::Rejected, refusal(&reasons_said(&said)));
+    }
     commands::post(&format!("{kind}={{ country=\"{}\" rival=\"{}\" }}", letters(ctx.player), letters(rival))).map_err(Into::into)
 }
 
@@ -509,7 +523,7 @@ fn text_lines(text: &[u8]) -> Vec<String> {
 fn said(text: &[u8]) -> (Vec<String>, Vec<String>) {
     let (mut reasons, mut description) = (Vec::new(), Vec::new());
     for line in game_text::plain(text).lines().map(str::trim).filter(|l| !l.is_empty()) {
-        match line.strip_prefix("- ") {
+        match line.strip_prefix("- ").or_else(|| line.strip_prefix('－')) {
             Some(reason) => reasons.push(reason.trim().to_string()),
             None => description.push(line.to_string()),
         }
@@ -1112,6 +1126,13 @@ pub fn points() -> Vec<Point> {
         method(WAR_GOALS, 0, WAR_GOAL_LIST_DESTROY, "war goal list destructor"),
         Point::keep(WAR_GOAL_LIST_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 bc 14 00 00", "war goal list destructor"),
     ];
+    points.extend([
+        Point::keep(CAN_RIVAL, "48 89 5c 24 08 48 89 54 24 10 55 56 57 48 83 ec 70 49 8b e8", "whether a country may rival another"),
+        Point::keep(CAN_DROP_RIVAL, "48 89 5c 24 18 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41", "whether a country may drop a rival"),
+        // The commands' checks ask them, with no reasons.
+        Point::keep(0x2ab7b1usize, "48 8b 51 58 45 33 c0 49 8b c9 e8 a0 6f 12 00", "rival command check"),
+        Point::keep(0x2ad425usize, "45 33 c0 49 8b 51 58 e8 3f 55 12 00", "rival dropped command check"),
+    ]);
     points.extend(acts::points());
     points.extend(panel::points());
     points

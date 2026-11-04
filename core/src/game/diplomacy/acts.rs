@@ -130,7 +130,7 @@ acts! {
     TradeFavorsToBreakAlliance 0x3bcb 1 "trade_favors_to_break_alliance" 0x22c50a8 "break_alliance_favor";
     TradeFavorsToReduceRelations 0x3bcd 1 "trade_favors_to_reduce_relations" 0x22c54b8 "reduce_relations_favor";
     Insult 0x2947 1 "insult" 0x20956e8 "insultaction";
-    AbandonClaims 0x2949 1 "abandon_claims" 0x2095af8 "claimaction";
+    ClaimThrone 0x2949 1 "claim_throne" 0x2095af8 "claimaction";
     OfferLoan 0x2a24 1 "offer_loan" 0x20b15c8 "offerloan";
     SubsidizeWar 0x2a25 1 "subsidize_war" 0x20b17d0 "warsubsidy";
     StopWarSubsidies 0x2a25 0 "stop_war_subsidies" 0x20b17d0 "warsubsidy";

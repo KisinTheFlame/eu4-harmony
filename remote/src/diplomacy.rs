@@ -758,9 +758,10 @@ group! {
         /// The other country.
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
-    /// Abandons the player's claims on a country. As the diplomacy panel's button `claimaction` sends it
+    /// Claims a country's throne, where a royal marriage and the same dynasty
+    /// allow it. As the diplomacy panel's button `claimaction` sends it
     /// (`diplomacy.options` says whether the player can).
-    game AbandonClaims "abandon_claims" {
+    game ClaimThrone "claim_throne" {
         /// The other country.
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
