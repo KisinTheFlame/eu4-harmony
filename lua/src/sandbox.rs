@@ -413,6 +413,13 @@ fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
             }
             _ => Err(wrong()),
         },
+        Kind::Countries | Kind::Words => match value {
+            LuaValue::Table(t) => {
+                let words = t.clone().sequence_values::<String>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
+                Ok(Value::Array(words.into_iter().map(Value::String).collect()))
+            }
+            _ => Err(wrong()),
+        },
         Kind::Provinces => match value {
             LuaValue::Table(t) => {
                 let ids = t.clone().sequence_values::<i64>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;

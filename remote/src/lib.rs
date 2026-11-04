@@ -308,6 +308,7 @@ groups! {
 }
 
 pub mod binary;
+pub mod choices;
 pub use binary::Binary;
 pub mod lua;
 pub mod shape;
@@ -396,6 +397,12 @@ pub enum Kind {
     /// A key, or keys pressed together joined with `+`, such as `"ctrl+s"`
     /// (see [`input::Keys`]).
     Keys,
+    /// Country tags, such as `["FRA", "ENG"]`, which a command line writes
+    /// `FRA,ENG` (see [`CountryList`]).
+    Countries,
+    /// Words, such as content keys or the names of events, `["day",
+    /// "month"]`, which a command line writes `day,month` (see [`Words`]).
+    Words,
 }
 
 impl Kind {
@@ -415,6 +422,8 @@ impl Kind {
             Self::Button => "button",
             Self::Direction => "direction",
             Self::Keys => "keys",
+            Self::Countries => "countries",
+            Self::Words => "words",
         }
     }
 
@@ -434,6 +443,8 @@ impl Kind {
             Self::Button => "left",
             Self::Direction => "up",
             Self::Keys => "ctrl+s",
+            Self::Countries => "FRA,ENG",
+            Self::Words => "day,month",
         }
     }
 
@@ -452,6 +463,16 @@ impl Kind {
             Self::Button => serde_json::from_value::<input::Button>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
             Self::Direction => serde_json::from_value::<input::Direction>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
             Self::Keys => input::Keys::parse(text).ok().map(|keys| Value::String(keys.to_string())),
+            Self::Countries => text
+                .split(',')
+                .map(|word| CountryTag::parse(word.trim()).map(|tag| Value::String(tag.to_string())))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::Array),
+            Self::Words => text
+                .split(',')
+                .map(|word| Some(word.trim()).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::Array),
         }
     }
 }
@@ -487,6 +508,8 @@ arg_kind! {
     input::Button => Button,
     input::Direction => Direction,
     input::Keys => Keys,
+    CountryList => Countries,
+    Words => Words,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
@@ -617,6 +640,17 @@ pub struct ProvinceId(pub u32);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ProvinceList(pub Vec<ProvinceId>);
+
+/// Countries, as an argument: a list of tags, `["FRA", "ENG"]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CountryList(pub Vec<CountryTag>);
+
+/// Words, as an argument: a list of texts, such as content keys or the
+/// names of events, `["day", "month"]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Words(pub Vec<String>);
 
 /// An army or a fleet, by its 64-bit ID, which survives saving and loading;
 /// in JSON a decimal string.
