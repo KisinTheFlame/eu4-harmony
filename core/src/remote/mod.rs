@@ -386,17 +386,26 @@ pub fn submit(request: Request) -> Reply {
 /// What extensions hear at a game's safe frame, in the order they hear it, as
 /// events.
 fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
-    use eu4_harmony_remote::{events::Event, ArmyId, Date};
+    use eu4_harmony_remote::{events::Event, ArmyId, Date, ProvinceId};
     use game::{events::Change, Heard};
-    let event = |heard| match heard {
-        Heard::Session(session) => Event::Session { session },
-        Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
-        Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
-        Heard::Day(date) => Event::Day { date: Date(date) },
-        Heard::Month(date) => Event::Month { date: Date(date) },
-        Heard::Year(date) => Event::Year { date: Date(date) },
+    let event = |heard| {
+        Some(match heard {
+            Heard::Session(session) => Event::Session { session },
+            Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
+            Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
+            Heard::Change(Change::BuildingFinished { province, building, country }) => match game::buildings::key_of(building) {
+                Ok(building) => Event::BuildingFinished { province: ProvinceId(province), building, country: catalogue::tag(country) },
+                Err(e) => {
+                    log!("building finished: {}", e.message);
+                    return None;
+                }
+            },
+            Heard::Day(date) => Event::Day { date: Date(date) },
+            Heard::Month(date) => Event::Month { date: Date(date) },
+            Heard::Year(date) => Event::Year { date: Date(date) },
+        })
     };
-    frame.heard().into_iter().map(event).collect()
+    frame.heard().into_iter().filter_map(event).collect()
 }
 
 /// The session is being left, for `end`, as extensions hear it.

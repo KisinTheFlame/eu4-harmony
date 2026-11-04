@@ -15,7 +15,9 @@
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
 //! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
 //! defeat.md, time.md, fog-of-war.md).
+pub mod administration;
 pub mod armies;
+pub mod buildings;
 pub mod camera;
 pub mod commands;
 pub mod conditions;
@@ -292,6 +294,8 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(administration::points());
+    points.extend(buildings::points());
     points
 }
 
