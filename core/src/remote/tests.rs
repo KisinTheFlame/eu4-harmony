@@ -3,11 +3,11 @@
 use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
-    desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, input::Button, input::Direction,
-    input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, questions::QuestionRequest,
-    recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest,
-    time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, decisions::DecisionRequest,
+    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
+    input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
+    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
+    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -233,6 +233,12 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Desktop(DesktopRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"hidden": true, "hidden_start": true, "sound": false})))),
         (Request::Desktop(DesktopRequest::Show {}), Box::new(|v: &Value| v["result"]["hidden"] == false)),
         (Request::Desktop(DesktopRequest::Hide {}), Box::new(|v: &Value| v["result"]["hidden"] == true)),
+        (
+            Request::Decision(DecisionRequest::List {}),
+            Box::new(|v: &Value| {
+                v["result"][1] == json!({"decision": "move_capital", "name": "迁都", "major": false, "can": false, "reasons": ["拥有君士坦丁堡"], "cost": []})
+            }),
+        ),
         // The cursor first: a request after an input waits for the game to
         // have it (input::tests).
         (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),

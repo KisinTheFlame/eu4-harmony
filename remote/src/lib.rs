@@ -305,6 +305,8 @@ groups! {
     Input(input::InputRequest, InputAnswer),
     /// The game on the player's desktop: a hidden start, showing and hiding it.
     Desktop(desktop::DesktopRequest, DesktopAnswer),
+    /// The decisions the player can see in the decisions view.
+    Decision(decisions::DecisionRequest, DecisionAnswer),
 }
 
 pub mod binary;

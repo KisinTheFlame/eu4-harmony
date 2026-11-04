@@ -18,8 +18,10 @@
 pub mod armies;
 pub mod camera;
 pub mod commands;
+pub mod conditions;
 pub mod console;
 pub mod countries;
+pub mod decisions;
 pub mod diplomacy;
 pub mod events;
 pub mod input;
@@ -288,6 +290,8 @@ pub fn points() -> Vec<Point> {
     points.extend(menu::points());
     points.extend(diplomacy::points());
     points.extend(input::points());
+    points.extend(conditions::points());
+    points.extend(decisions::points());
     points
 }
 
