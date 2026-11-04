@@ -5,7 +5,7 @@ Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-
 ## Goal and scope
 
 - **Goal**: the repository's development tools are Rust, built, formatted, tested and linted with the rest of the workspace, instead of PowerShell and Python scripts that nothing checks. What needs the repository becomes a command of `cargo xtask`, a program of the workspace that only development machines run; what is useful without it, to mod authors too, becomes a command of the command line tool, `eu4-harmony`.
-- **In scope**: every script under `tools/` (`game-dir.ps1`, `player-files.ps1`, `dev-install.ps1`, `release.ps1`, `player-state.ps1`, `perf-run.ps1`, `leak-run.ps1`, `crash-dump.py`); entry points for the disassembler and the offline checks that find the game themselves; the game-lock skill, which calls `player-state.ps1`, switched to the command that replaces it.
+- **In scope**: every script under `tools/` (`game-dir.ps1`, `player-files.ps1`, `dev-install.ps1`, `release.ps1`, `player-state.ps1`, `perf-run.ps1`, `leak-run.ps1`, `profile.py`, `crash-dump.py`); entry points for the disassembler and the offline checks that find the game themselves; the game-lock skill, which calls `player-state.ps1`, switched to the command that replaces it.
 - **Out of scope**: the core's development tools (`dev-call-trace`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`) and `dev.toml`, which run inside the game and stay features of the core; CI; a third program for development, which would only be needed on a machine without the repository.
 
 ## Where each goes
@@ -19,6 +19,7 @@ Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-
 | `player-state.ps1` | `eu4-harmony backup <new dir>`, `eu4-harmony restore <dir>` | a mod author's test run rewrites saves as ours do, and the backup needs nothing of the repository |
 | `perf-run.ps1` | `cargo xtask perf-run` | a measurement for [performance.md](performance.md); it also measures vanilla, so it clicks and reads the screen itself, at fixed places of a 3840x2160 screen |
 | `leak-run.ps1` | `cargo xtask leak-run` | it needs a developer build with the memory account, and writes for [leak-finding.md](leak-finding.md) |
+| `profile.py` | `cargo xtask profile` | it samples the game for [game-speed.md](game-speed.md), and names the framework's frames by the core's exports |
 | `crash-dump.py` | `cargo xtask crash-dump` | the core's own frames need the symbols of the build in `target\` |
 | `cargo run … --example disasm` | `cargo xtask disasm ARG...` | the same example, with the game found |
 | `EU4_GAME_DIR=… cargo test … -- --ignored` | `cargo xtask offline-check` | the same tests, with the game found |
@@ -70,7 +71,7 @@ The crate and its alias; the game folder lookup in the manifest crate, with `eu4
 
 ### X3 Measuring
 
-`perf-run` and `leak-run`. Tried: one run of each, with numbers of the same order as in performance.md and leak-finding.md, and the references taken before still recognized.
+`perf-run`, `leak-run` and `profile`. Tried: one run of each, with numbers of the same order as in performance.md and leak-finding.md, and the references taken before still recognized.
 
 ### X4 Crash dumps
 

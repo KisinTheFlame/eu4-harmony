@@ -19,6 +19,8 @@ eu4-harmony-remote = { path = "../remote" }
 # http.fetch (src/lua/http.rs): the system's proxy and, through SChannel, its
 # certificates; one tokio thread sends every request.
 reqwest = { workspace = true }
+# Compressing saves in the background (src/saves/background.rs).
+miniz_oxide = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

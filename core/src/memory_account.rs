@@ -27,7 +27,7 @@ pub fn points(m: &crate::memory::Memory) -> Vec<Point> {
 }
 
 /// The game's C runtime's heap, once the game has made it; 0 before.
-fn game_heap() -> usize {
+pub fn game_heap() -> usize {
     let base = BASE.load(Ordering::Relaxed);
     if base == 0 {
         return 0;

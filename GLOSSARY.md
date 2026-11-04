@@ -84,6 +84,10 @@ _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, sessi
 **Leak run**:
 Rounds of sessions that `cargo xtask leak-run` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
 
+**Quarantine**:
+A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/leak-finding.md).
+_Avoid_: guard, sandbox
+
 **Startup**:
 What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
 _Avoid_: installation
@@ -121,6 +125,10 @@ _Avoid_: privilege, dangerous capability
 **Permission**:
 A sensitive capability as a mod's manifest declares it. In this version the player sees a mod's permissions in the mods window; confirming them is to come.
 _Avoid_: grant, right, access
+
+**Frame inside a day**:
+A whole frame the game draws while a day is still being worked out, once the day has taken longer than an interval since the last one: 50 ms at the fastest speed. It executes no commands and draws no random numbers.
+_Avoid_: inserted frame, nested frame
 
 **Safe point**:
 A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.
@@ -251,6 +259,14 @@ _Avoid_: element (that means a button, text box and so on in the game's `.gui`)
 **Toggle**:
 A widget that is either on or off, switched by a click.
 _Avoid_: checkbox, switch, radio button (a different widget: one choice among several)
+
+**Choice bar**:
+A widget of a few named options side by side in one bar; the chosen one sits under a highlight, which slides to another when it is clicked.
+_Avoid_: slider (that sets a number on a scale), radio buttons, segmented control
+
+**Info mark**:
+A small i in a circle after a label in the framework UI; while the pointer is on it, a short explanation shows beside it.
+_Avoid_: help icon, tooltip on its own (any text that shows under the pointer)
 
 **Side list**:
 A list down a window's left side in the framework UI, one item of which is chosen with a click; the rest of the window shows the chosen one.

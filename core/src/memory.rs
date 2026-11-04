@@ -3,7 +3,11 @@
 //! (ADR game-memory-is-read-in-process-under-seh); writes go through
 //! WriteProcessMemory on our own process.
 use crate::Result;
-use windows_sys::Win32::System::{Diagnostics::Debug::WriteProcessMemory, Threading::GetCurrentProcess};
+use windows_sys::Win32::System::{
+    Diagnostics::Debug::WriteProcessMemory,
+    Memory::{VirtualProtect, PAGE_READWRITE},
+    Threading::GetCurrentProcess,
+};
 
 extern "C" {
     fn eu4h_native_call(target: usize, args: *const usize, count: u32, result: *mut usize) -> u32;
@@ -78,6 +82,19 @@ impl Memory {
         }
         Ok(())
     }
+    /// [`Self::write`] into the image's read-only data, which is made
+    /// writable for the write and read-only again after.
+    pub fn write_read_only(&self, addr: usize, bytes: &[u8]) -> Result<()> {
+        let mut old = 0;
+        if unsafe { VirtualProtect(addr as _, bytes.len(), PAGE_READWRITE, &mut old) } == 0 {
+            return Err(format!("cannot make {addr:#x}+{} writable", bytes.len()));
+        }
+        let written = self.write(addr, bytes);
+        let mut ignored = 0;
+        unsafe { VirtualProtect(addr as _, bytes.len(), old, &mut ignored) };
+        written
+    }
+
     pub fn ptr(&self, addr: usize) -> Result<usize> {
         Ok(self.u64(addr)? as usize)
     }

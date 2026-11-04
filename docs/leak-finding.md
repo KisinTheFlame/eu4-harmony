@@ -1,6 +1,6 @@
 # Leak finding plan
 
-Status: decided (2026-11-04); M1, M1b, M2 and M3 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-04); M1 to M4 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
@@ -96,7 +96,16 @@ Both this and M2 take a word for a pointer by one rule, in one module (`core/src
 
 ### The quarantine (M4)
 
-With the `dev-quarantine` feature, the blocks a repair lets go, and the blocks that frees in turn, are kept instead of freed and filled with a pattern. Every two seconds they are compared, and the first write to each is logged with the repair that let it go. `memory` adds what the quarantine holds and what was written to. A leak run with `-Quarantine` ends by saying, for each repair, whether anything was written to what it let go.
+A repair lets go memory the game forgot; if the game, or anything else, still uses it, the heap gives the block to another allocation and the two write over each other, and the game fails much later somewhere else, or not at all while its data goes wrong. A run that does not crash says little: the sets of modifiers' first repair corrupted the heap at the sixteenth of twenty rounds.
+
+With the census built in, `memory.quarantine` turns the quarantine on and off at run time, off by default, as `memory.watch` does watching: a separate feature would be on in every developer build (`dev` builds them all in), and the quarantine keeps memory a leak run measures. While it is on:
+
+- every block freed on a thread where a repair is letting memory go is kept instead of freed: the census's `free` hook gives `free` null instead (an observer's "before" may change the arguments). A repair marks where it lets memory go (`LettingGo` in `core/src/repairs.rs`, or from a destructor's start to its end where the game deletes what the repair handed over, as for the text boxes' animations), so the blocks that freeing frees in turn are kept too. What the game frees later, a window a repair killed and the GUI's sweep frees, is not;
+- each block kept is filled with `0xdd`. A read of it then gives those bytes, and a call through them faults at once, in the code that read it, with a crash dump that names it;
+- every two seconds, on a thread of its own, every block kept is compared with the pattern, and the first write to each is kept: the repair, the block's site and size, the first byte changed and the bytes from it, and the generations it was kept in and found in;
+- past 512 MB the oldest blocks are freed again, and turning it off frees all of them.
+
+A leak run with `--quarantine` turns it on from the start and reports, by repair, what it kept and every block written to; a run the game does not finish still reports what was found until then, and in which round it stopped. What the quarantine keeps counts in the game's heap, so such a run measures no growth: it is for trying a repair, not for measuring it.
 
 ## How it fits together
 
@@ -130,4 +139,4 @@ The `dev-memory` feature, `memory` without the census, and the leak run's split 
 
 ### M4 The quarantine
 
-The `dev-quarantine` feature, the repairs saying what they let go, and the leak run's verdict.
+`memory.quarantine`, the repairs saying where they let memory go, and the leak run's `--quarantine`.

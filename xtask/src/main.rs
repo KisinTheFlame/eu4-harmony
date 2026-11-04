@@ -8,6 +8,7 @@ mod files;
 mod game;
 mod leak_run;
 mod perf_run;
+mod profile;
 mod screen;
 
 use std::{
@@ -57,14 +58,26 @@ usage:
       with that screen showing: --reference and --intro-reference.
   cargo xtask leak-run --out <dir> [<save> <save>] [--rounds 10] [--country FRA]
                        [--days 30] [--sites 40] [--watch <n>] [--watch-after 3]
-                       [--keep-game] [--game-dir <dir>]
+                       [--quarantine] [--keep-game] [--game-dir <dir>]
   cargo xtask leak-run --out <dir> --from-report
       Plays rounds of sessions on a developer build with the memory account,
       or the heap census, through remote control, and writes report.json and
       report.md into <dir>: what each round kept and where the game's memory
       goes (docs/leak-finding.md). The saves are named as menu.saves lists
       them, the two newest by default. --from-report writes report.md again
-      from the report.json there, with no game.
+      from the report.json there, with no game. With the census and
+      --quarantine, what the framework's repairs let go is kept instead of
+      freed, and the report says what it kept and every block written to
+      after a repair let it go; a run with it measures no growth.
+  cargo xtask profile <out> [--seconds 60] [--hz 50]
+  cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
+      Samples the running game's main thread, its call stack at a steady
+      rate with Windows' own dbghelp.dll, and writes where its time went into
+      <out>.txt, and its stacks into <out>.folded for flame graph tools:
+      inside days, in frames inside days and between days, by part and by
+      function. Each sample slows the game, about 7% at 50 a second, so
+      measure shares at 50. --tree prints a .folded file's stacks as a call
+      tree, or the tree below one frame.
   cargo xtask crash-dump <dump> <log> [--symbols <dir>] <command>...
       Runs debugger commands on a crash dump with Windows' own dbgeng.dll,
       writing their output to <log>, such as !analyze -v, .ecxr, kn 30, r,
@@ -171,9 +184,10 @@ fn main() {
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks"),
         Some("perf-run") => Args::parse(rest, &["reference", "intro-reference", "menu-only"], &["out", "name", "game-dir"]).and_then(|a| perf_run::run(&a)),
         Some("leak-run") => {
-            Args::parse(rest, &["keep-game", "from-report"], &["out", "rounds", "country", "days", "sites", "watch", "watch-after", "game-dir"])
+            Args::parse(rest, &["keep-game", "from-report", "quarantine"], &["out", "rounds", "country", "days", "sites", "watch", "watch-after", "game-dir"])
                 .and_then(|a| leak_run::run(&a))
         }
+        Some("profile") => Args::parse(rest, &["tree"], &["seconds", "hz", "root", "depth", "min"]).and_then(|a| profile::run(&a)),
         // Debugger commands are words of their own, which may start with --.
         Some("crash-dump") => crash_dump::run(rest),
         None | Some("-h" | "--help" | "help") => {

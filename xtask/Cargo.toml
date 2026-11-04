@@ -19,6 +19,9 @@ windows = { workspace = true, features = [
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    # dbghelp, for walking the main thread's stack.
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_ProcessStatus",
     "Win32_System_SystemInformation",

@@ -1,6 +1,6 @@
 /target/
 *.pdb
-# A developer build's options, which dev-install.ps1 copies into the game folder.
+# A developer build's options, which cargo xtask install copies into the game folder.
 /dev.toml
 # Skills kept on one machine for its own sessions.
 /.claude/skills/

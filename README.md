@@ -24,6 +24,18 @@ Returning to the main menu does not start the game again: the main menu is back 
 
 Two more framework settings, both off unless the player turns them on, let the game give achievements where vanilla does not ([ADR achievement-rules-can-be-relaxed](docs/adr/achievement-rules-can-be-relaxed.md)): "Achievements outside ironman", in a game that is not ironman, with saves loaded again and the game console used; and "Achievements with a changed game checksum", with mods that change the game checksum the main menu shows. Every other rule for achievements stays the game's own, and a change takes effect with the next game started or loaded.
 
+## A faster game
+
+The framework makes the game faster without changing what it computes: the same rules, data and AI, the same days ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](docs/adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md), [docs/game-speed.md](docs/game-speed.md)). Always on:
+
+- Paradox's online client no longer sleeps on the main thread while it waits for its connections.
+- The framework keeps the line breaks of the texts it draws instead of working them out again every frame.
+- A local save (an autosave, a save of the player's, an ironman save) is written by the game without being compressed, and the framework compresses the file in the background afterwards. The file is a whole save at every moment; if the game is closed before the framework is done, that save stays uncompressed, only larger. Cloud saves are written by the game as before. Loading a save the framework compressed without the framework has not been tried yet.
+
+In a game of 1618, these made the paused game draw 84 frames a second instead of 63, and days pass about a tenth faster at the fastest speed ([docs/performance.md](docs/performance.md)).
+
+One choice is the player's, under "Game speed" in the settings window: "At the fastest speed", "Smooth map (as in the game)" or "Faster time". At the fastest speed the game draws frames during a day that takes long, so the map keeps moving; with "Faster time" it draws none, and late in a game days pass about another tenth faster, but the map is redrawn less often, looks choppier and answers clicks a little later. It takes effect when the settings window is closed, and only at the fastest speed.
+
 ## Remote control (players and AIs)
 
 Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera, screenshots, and the player's own mouse and keyboard where nothing else reaches. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR remote-control-uses-capabilities](docs/adr/remote-control-uses-capabilities.md), [ADR remote-control-is-always-on](docs/adr/remote-control-is-always-on.md)).

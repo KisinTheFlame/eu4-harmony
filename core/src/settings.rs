@@ -2,8 +2,9 @@
 //! kept in `eu4-harmony/settings.txt` under the user directory and written the
 //! way the game writes its own `settings.txt`. They are read once at startup.
 //! A change made in the settings window to how a session is left, or to the
-//! achievement rules, takes effect when it is saved; a change to the fonts, at
-//! the next start.
+//! pace at the fastest speed or the achievement rules, takes effect when it is
+//! saved; a change to the fonts, at the next start.
+use crate::speed::Pace;
 use crate::unicode::system_font::Face;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -35,6 +36,9 @@ pub struct Settings {
     /// Whether achievements can be earned with a game checksum (GLOSSARY)
     /// that is not vanilla's (ADR achievement-rules-can-be-relaxed).
     pub achievements_with_changed_checksum: bool,
+    /// Whether the game draws frames inside a day at the fastest speed
+    /// (docs/game-speed.md, S4).
+    pub fastest_speed: Pace,
 }
 
 /// The system font family text falls back to, and the framework UI draws
@@ -58,6 +62,7 @@ impl Default for Settings {
             save_ironman_before_load: true,
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
+            fastest_speed: Pace::Smooth,
         }
     }
 }
@@ -106,6 +111,7 @@ impl Settings {
                 "achievements_with_changed_checksum" => {
                     settings.achievements_with_changed_checksum = yes(value).unwrap_or(settings.achievements_with_changed_checksum)
                 }
+                "fastest_speed" => settings.fastest_speed = Pace::from_name(value).unwrap_or(settings.fastest_speed),
                 _ => {}
             }
         }
@@ -116,7 +122,7 @@ impl Settings {
         let yes_no = |on: bool| if on { "yes" } else { "no" };
         let (body, heading, map, console) = (&self.body_font, &self.heading_font, &self.map_font, &self.console_font);
         format!(
-            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nconsole_font=\"{}\"\nconsole_weight={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\n",
+            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nconsole_font=\"{}\"\nconsole_weight={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\nfastest_speed=\"{}\"\n",
             body.family,
             body.weight,
             heading.family,
@@ -129,17 +135,20 @@ impl Settings {
             yes_no(self.return_without_restart),
             yes_no(self.save_ironman_before_load),
             yes_no(self.achievements_outside_ironman),
-            yes_no(self.achievements_with_changed_checksum)
+            yes_no(self.achievements_with_changed_checksum),
+            self.fastest_speed.name()
         )
     }
 
     /// Takes from `chosen` the settings that take effect when they are saved:
-    /// those for leaving a session, and the achievement rules.
+    /// those for leaving a session, the achievement rules, and the pace at the
+    /// fastest speed.
     fn take_immediate(&mut self, chosen: &Settings) {
         self.return_without_restart = chosen.return_without_restart;
         self.save_ironman_before_load = chosen.save_ironman_before_load;
         self.achievements_outside_ironman = chosen.achievements_outside_ironman;
         self.achievements_with_changed_checksum = chosen.achievements_with_changed_checksum;
+        self.fastest_speed = chosen.fastest_speed;
     }
 }
 
@@ -190,8 +199,8 @@ pub fn next() -> Settings {
     store().map(|s| s.next.clone()).unwrap_or_default()
 }
 
-/// Saves settings: those for leaving a session and the achievement rules take
-/// effect now, the rest at the next start.
+/// Saves settings: those for leaving a session, the achievement rules and the
+/// pace at the fastest speed take effect now, the rest at the next start.
 pub fn save(settings: Settings) -> crate::Result<()> {
     let mut store = store().ok_or("settings not loaded")?;
     if let Some(dir) = store.path.parent() {
@@ -233,8 +242,12 @@ mod tests {
             save_ironman_before_load: false,
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
+            fastest_speed: Pace::Faster,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
+        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\n"));
+        assert_eq!(Settings::parse("fastest_speed=faster").fastest_speed, Pace::Faster);
+        assert_eq!(Settings::parse("fastest_speed=\"fastest\"").fastest_speed, Pace::Smooth);
         assert!(custom.render().contains("\nbody_weight=700\n"));
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
         assert!(custom.render().contains("\nmap_outline=no\nconsole_font=\"Cascadia Mono\"\nconsole_weight=600\nreturn_without_restart=no\n"));
@@ -258,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_settings_for_leaving_a_session_and_achievements_take_effect_when_saved() {
+    fn the_settings_for_leaving_a_session_achievements_and_the_pace_take_effect_when_saved() {
         let mut current = Settings::default();
         let chosen = Settings {
             body_font: Face::regular("SimSun"),
@@ -267,6 +280,7 @@ mod tests {
             save_ironman_before_load: false,
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
+            fastest_speed: Pace::Faster,
             ..Settings::default()
         };
         current.take_immediate(&chosen);
@@ -275,6 +289,7 @@ mod tests {
             save_ironman_before_load: false,
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
+            fastest_speed: Pace::Faster,
             ..Settings::default()
         };
         assert_eq!(current, immediate);

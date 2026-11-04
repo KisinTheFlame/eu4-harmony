@@ -32,6 +32,15 @@
 //! at (`memory.watch`); the report then says, for each, which owners were
 //! let go while they last pointed at its leftovers, and the code that let
 //! them go. Watching slows every letting go of a block.
+//!
+//! With the census and `--quarantine`, the quarantine is on from the start
+//! (`memory.quarantine`): what the framework's repairs let go is kept instead
+//! of freed and filled with a pattern, and compared every two seconds. The
+//! report says what it kept by repair, and every block written to after a
+//! repair let it go. A read of such a block can end the game at once; the
+//! report then says in which round, and what was found until then. The
+//! memory it keeps counts in the game's heap, so a run with it measures no
+//! growth.
 use crate::{game, Args, Result};
 use serde_json::{json, Value};
 use std::{
@@ -90,54 +99,85 @@ fn play(args: &Args) -> Result<Value> {
     let start = game.ask(&["memory"])?;
     let census = truthy(&start["census"]);
     println!("startup: {}; the census {} built in", line(&start), if census { "is" } else { "is not" });
+    let quarantine = args.flag("quarantine");
+    if quarantine {
+        if !census {
+            return Err("--quarantine needs the census built in".into());
+        }
+        game.ask(&["memory.quarantine", "--on", "true"])?;
+    }
     let full = days.to_string();
     let third = (days / 3).max(1).to_string();
     let mut played: Vec<Value> = Vec::new();
-    for i in 1..=rounds {
-        let began = Instant::now();
-        game.ask(&["menu.load", &saves[0]])?;
-        game.advance(&full)?;
-        game.ask(&["menu.load", &saves[1]])?;
-        game.advance(&third)?;
-        game.ask(&["menu.return"])?;
-        game.main_menu()?;
-        game.ask(&["menu.start", &country])?;
-        game.advance(&third)?;
-        game.ask(&["menu.return"])?;
-        game.main_menu()?;
-        std::thread::sleep(Duration::from_secs(5));
-        let memory = game.ask(&["memory"])?;
-        let mut leftovers = Value::Null;
-        if census {
-            let mut asked = vec!["memory.leftovers", "--sites", &sites];
-            if i == rounds {
-                asked.extend(["--holders", "true"]);
+    let mut kept = Value::Null;
+    // A round that fails, the game gone among others, ends the run with what
+    // the rounds before found.
+    let mut play_rounds = || -> Result<()> {
+        for i in 1..=rounds {
+            let began = Instant::now();
+            game.ask(&["menu.load", &saves[0]])?;
+            game.advance(&full)?;
+            game.ask(&["menu.load", &saves[1]])?;
+            game.advance(&third)?;
+            game.ask(&["menu.return"])?;
+            game.main_menu()?;
+            game.ask(&["menu.start", &country])?;
+            game.advance(&third)?;
+            game.ask(&["menu.return"])?;
+            game.main_menu()?;
+            std::thread::sleep(Duration::from_secs(5));
+            let memory = game.ask(&["memory"])?;
+            let mut leftovers = Value::Null;
+            if census {
+                let mut asked = vec!["memory.leftovers", "--sites", &sites];
+                if i == rounds {
+                    asked.extend(["--holders", "true"]);
+                }
+                leftovers = game.ask(&asked)?;
             }
-            leftovers = game.ask(&asked)?;
-        }
-        let mut watching = Value::Null;
-        if census && watch > 0 && i == watch_after && i < rounds {
-            let held = game.ask(&["memory.leftovers", "--sites", &sites, "--holders", "true"])?;
-            let lost: Vec<String> = list(&held["sites"])
-                .iter()
-                .filter(|s| {
-                    s["trend"] == "steady" && (number(&s["holders"]["by_nothing"]) + number(&s["holders"]["by_leftovers"])) * 2.0 >= number(&s["blocks"])
-                })
-                .take(watch as usize)
-                .map(|s| text(&s["site"]))
-                .collect();
-            if !lost.is_empty() {
-                watching = game.ask(&["memory.watch", "--sites", &lost.join(",")])?;
-                let watched: Vec<String> = list(&watching["sites"]).iter().map(text).collect();
-                println!("watching from round {i}: {} ({} live blocks)", watched.join(", "), text(&watching["blocks"]));
+            let mut watching = Value::Null;
+            if census && watch > 0 && i == watch_after && i < rounds {
+                let held = game.ask(&["memory.leftovers", "--sites", &sites, "--holders", "true"])?;
+                let lost: Vec<String> = list(&held["sites"])
+                    .iter()
+                    .filter(|s| {
+                        s["trend"] == "steady" && (number(&s["holders"]["by_nothing"]) + number(&s["holders"]["by_leftovers"])) * 2.0 >= number(&s["blocks"])
+                    })
+                    .take(watch as usize)
+                    .map(|s| text(&s["site"]))
+                    .collect();
+                if !lost.is_empty() {
+                    watching = game.ask(&["memory.watch", "--sites", &lost.join(",")])?;
+                    let watched: Vec<String> = list(&watching["sites"]).iter().map(text).collect();
+                    println!("watching from round {i}: {} ({} live blocks)", watched.join(", "), text(&watching["blocks"]));
+                }
             }
+            let quarantined = if quarantine { game.ask(&["memory.quarantine"])? } else { Value::Null };
+            let seconds = began.elapsed().as_secs();
+            let grew = played.last().map_or(String::new(), |last| format!(" ({} MB)", signed(change_mb(&memory["private"], &last["memory"]["private"]), 1)));
+            let held = if quarantined.is_null() {
+                String::new()
+            } else {
+                format!(
+                    "; quarantine {} blocks, {} MB, {} written to",
+                    text(&quarantined["blocks"]),
+                    mb(&quarantined["bytes"]),
+                    list(&quarantined["written"]).len()
+                )
+            };
+            println!("round {i} ({seconds} s){grew}: {}{held}", line(&memory));
+            played.push(json!({ "round": i, "seconds": seconds, "memory": memory, "leftovers": leftovers, "watching": watching, "quarantine": quarantined }));
         }
-        let seconds = began.elapsed().as_secs();
-        let grew = played.last().map_or(String::new(), |last| format!(" ({} MB)", signed(change_mb(&memory["private"], &last["memory"]["private"]), 1)));
-        println!("round {i} ({seconds} s){grew}: {}", line(&memory));
-        played.push(json!({ "round": i, "seconds": seconds, "memory": memory, "leftovers": leftovers, "watching": watching }));
+        if quarantine {
+            kept = game.ask(&["memory.quarantine", "--on", "false"])?;
+        }
+        Ok(())
+    };
+    let failed = play_rounds().err().map(|e| format!("round {}: {e}", played.len() + 1));
+    if let Some(failed) = &failed {
+        println!("stopped in {failed}");
     }
-    Ok(json!({ "saves": saves, "country": country, "days": days, "startup": start, "rounds": played }))
+    Ok(json!({ "saves": saves, "country": country, "days": days, "startup": start, "rounds": played, "failed": failed, "quarantine": kept }))
 }
 
 /// The installed command line tool, which asks the game.
@@ -210,9 +250,14 @@ fn markdown(report: &Value, date: &str) -> String {
         String::new(),
         format!("Saves {}, new games as {}, {} days; {} rounds.", saves.join(" and "), text(&report["country"]), text(&report["days"]), played.len()),
         String::new(),
+    ];
+    if let Some(failed) = report["failed"].as_str() {
+        md.extend([format!("**The run stopped** in {failed}"), String::new()]);
+    }
+    md.extend([
         "| Round | Seconds | Private MB | Change | Game heap MB | Free in heaps MB | Outside heaps MB | Framework MB | Handles |".into(),
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |".into(),
-    ];
+    ]);
     let mut before = start["private"].clone();
     for r in &played {
         let m = &r["memory"];
@@ -367,6 +412,55 @@ fn markdown(report: &Value, date: &str) -> String {
                     }
                     md.push(format!("| {} | {} | unrecorded | | {} |", text(&s["site"]), text(&h["by_nothing"]), text(&h["unrecorded"])));
                 }
+            }
+        }
+    }
+
+    // What the quarantine said last: as it was turned off, or after the last
+    // round played when the run stopped.
+    let kept = if report["quarantine"].is_null() { played.last().map_or(Value::Null, |r| r["quarantine"].clone()) } else { report["quarantine"].clone() };
+    if !kept.is_null() {
+        md.extend([
+            String::new(),
+            "## What the quarantine kept".into(),
+            String::new(),
+            format!(
+                "What the framework's repairs let go, kept instead of freed and filled with a pattern; compared {} times. {} blocks were freed again to keep it under its most.",
+                text(&kept["checks"]),
+                text(&kept["freed"])
+            ),
+            String::new(),
+            "| Repair | Blocks | MB |".into(),
+            "| --- | --- | --- |".into(),
+        ]);
+        for r in list(&kept["repairs"]) {
+            md.push(format!("| {} | {} | {} |", text(&r["repair"]), text(&r["blocks"]), mb(&r["bytes"])));
+        }
+        let written = list(&kept["written"]);
+        if written.is_empty() {
+            md.extend([String::new(), "Nothing was written to after a repair let it go.".into()]);
+        } else {
+            md.extend([
+                String::new(),
+                "### Written to after a repair let it go".into(),
+                String::new(),
+                "The first write to each block, as found; the generations are the census's.".into(),
+                String::new(),
+                "| Repair | Site in function | Size | Offset | Bytes from it | Kept at | Found at |".into(),
+                "| --- | --- | --- | --- | --- | --- | --- |".into(),
+            ]);
+            for w in written {
+                md.push(format!(
+                    "| {} | {} in {} | {} | {} | {} | {} | {} |",
+                    text(&w["repair"]),
+                    text(&w["site"]),
+                    text(&w["function"]),
+                    text(&w["size"]),
+                    text(&w["offset"]),
+                    text(&w["bytes"]),
+                    text(&w["generation"]),
+                    text(&w["found"])
+                ));
             }
         }
     }
@@ -532,5 +626,20 @@ mod tests {
             md.contains("Watched from round 2 on.") && md.contains("| 0x10 | 1 | 0x60 in 0x70 | 0x80 in 0x90 | 1 |\n| 0x10 | 1 | unrecorded | | 0 |"),
             "{md}"
         );
+    }
+
+    #[test]
+    fn markdown_says_where_a_run_stopped_and_what_the_quarantine_kept() {
+        let memory = json!({ "private": 1048576, "game_heap": 0, "free_in_heaps": 0, "outside_heaps": 0, "framework_heap": 0, "handles": 1, "heaps": [] });
+        let quarantine = json!({ "checks": 7, "freed": 0, "repairs": [{ "repair": "text box", "blocks": 3, "bytes": 2097152 }], "written": [] });
+        let mut report = json!({ "saves": ["a", "b"], "country": "FRA", "days": 30, "startup": memory, "failed": "round 2: the game is gone",
+                                 "rounds": [{ "round": 1, "seconds": 60, "memory": memory, "quarantine": quarantine }], "quarantine": null });
+        let md = markdown(&report, "now");
+        assert!(md.contains("**The run stopped** in round 2: the game is gone\n\n| Round |"));
+        assert!(md.contains("compared 7 times.") && md.contains("| text box | 3 | 2.0 |") && md.contains("Nothing was written to"));
+        report["quarantine"] = json!({ "checks": 9, "freed": 1, "repairs": [], "written": [{ "repair": "text box", "site": "0x1", "function": "0x2", "size": 64,
+                                       "offset": 8, "bytes": "00ff", "generation": 3, "found": 4 }] });
+        let md = markdown(&report, "now");
+        assert!(md.contains("compared 9 times.") && md.contains("| text box | 0x1 in 0x2 | 64 | 8 | 00ff | 3 | 4 |"));
     }
 }
