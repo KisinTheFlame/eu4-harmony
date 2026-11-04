@@ -46,6 +46,16 @@ Measured from the framework's log, Chinese playset, to the main menu:
 - Two more pairs of the paces, later the same run, came out at 11.0 and 6.4 days a second, both paces alike; the machine was busy with other work then (a sample took 2.2 ms against 1.4), and they are left out.
 - The autosave's main thread time, from the shares: about a sixth less. The thread then compressed 61 MB in 1.6 to 2.0 s, to 7.1 to 7.2 MB, smaller than the game's 8.8 MB.
 
+Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1, an ironman save of 1724, the same machine and playset, the game resumed within 0.3 s whenever a message paused it ([prototype-log.md](prototype-log.md)):
+
+| | The game's pace | "Faster time" |
+| --- | --- | --- |
+| Paused, 1724: frames a second | 44.6, 49.7 | |
+| Speed 5, 1730 to 1803, eight blocks of 60 s each way: days a second (frames a second) | 16.5 (20.0 to 24.2) | 19.1 (16.9 to 21.6) |
+
+- "Faster time" was 16% faster there, more than the 10% of 1620. Earlier runs of the same save, resumed only every 2 s, came out the other way round, which was not explained; they are left out.
+- The thread compressed each ironman save of 55 MB to 6.1 MB in 1.5 s; the game without the framework wrote the same game at 7.75 MB.
+
 ## Setups
 
 Two playsets:

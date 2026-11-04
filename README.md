@@ -30,7 +30,7 @@ The framework makes the game faster without changing what it computes: the same 
 
 - Paradox's online client no longer sleeps on the main thread while it waits for its connections.
 - The framework keeps the line breaks of the texts it draws instead of working them out again every frame.
-- A local save (an autosave, a save of the player's, an ironman save) is written by the game without being compressed, and the framework compresses the file in the background afterwards. The file is a whole save at every moment; if the game is closed before the framework is done, that save stays uncompressed, only larger. Cloud saves are written by the game as before. Loading a save the framework compressed without the framework has not been tried yet.
+- A local save (an autosave, a save of the player's, an ironman save) is written by the game without being compressed, and the framework compresses the file in the background afterwards. The file is a whole save at every moment; if the game is closed before the framework is done, that save stays uncompressed, only larger. Cloud saves are written by the game as before. The game without the framework loads a save the framework compressed.
 
 In a game of 1618, these made the paused game draw 84 frames a second instead of 63, and days pass about a tenth faster at the fastest speed ([docs/performance.md](docs/performance.md)).
 
