@@ -74,8 +74,13 @@ cd "<游戏目录>\eu4-harmony"
 | 镜头与截图 | `camera.get`、`camera.look_at`（省份或地图位置）、`camera.zoom`；`screenshot`（玩家看到的画面，PNG） |
 | 输入 | `input.click`、`input.move`、`input.drag`、`input.scroll`、`input.key`、`input.type`（任意 Unicode 文字）、`input.mouse_down`、`input.mouse_up`、`input.key_down`、`input.key_up`、`input.get`：在画面上的位置做玩家的鼠标键盘操作，用于还没有专门能力的地方；游戏在前台或被其他窗口挡住都能用（[ADR remote-clients-give-the-players-input](docs/adr/remote-clients-give-the-players-input.md)） |
 | 事件流与说明 | `events`（编号的事件：会话开始或结束、新的一天、军队被下令或被击败）、`describe`（运行中的游戏给出的能力目录版本和全部能力）、`text.language` |
+| 桌面 | `desktop.get`、`desktop.show`、`desktop.hide`：隐藏启动的游戏现在是否隐藏，以及把它显示到桌面上、再隐藏起来（见下文） |
 
 完整的列表，连同每个参数和结果，见 `eu4-harmony wiki`（不需要游戏运行）：`eu4-harmony wiki army` 看一组，`eu4-harmony wiki army move` 看单个能力，`eu4-harmony wiki errors` 看每种错误的含义；`eu4-harmony game describe` 则向运行中的游戏询问。每项能力在游戏里如何工作，见 [docs/remote-control.md](docs/remote-control.md)。
+
+### 隐藏启动
+
+`eu4-harmony start --hidden` 启动游戏，桌面上不出现它的任何东西，供远程客户端使用，玩家照常用别的程序：没有窗口，任务栏上没有，不动焦点和鼠标，也没有声音（加 `--sound` 才有）。游戏照常按设置的尺寸绘制每一帧，所以 `screenshot` 和 `input` 和窗口显示时一样能用；命令在主菜单出现后返回，游戏提前结束时说明原因。框架的消息框改写进框架日志；崩溃后游戏照常写崩溃文件，但不启动它的崩溃报告程序。同样的效果是游戏的启动参数 `-harmony_hidden`（和 `-harmony_sound`），可以写进 Steam 的启动选项。`eu4-harmony game desktop show` 把游戏显示出来，不抢焦点；`desktop hide` 再把它隐藏（[docs/hidden-start.md](docs/hidden-start.md)）。
 
 ## 写一个 Mod（开发者）
 
