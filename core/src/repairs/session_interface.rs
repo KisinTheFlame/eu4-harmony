@@ -1,0 +1,152 @@
+//! What of the session's interface the game never lets go, which vanilla
+//! never meets, as it restarts instead: the popups its message windows
+//! hold, let go before an in-process return takes the interface down, and
+//! what the map manager's destructor leaves, let go as it goes.
+use super::{LettingGo, DELETE};
+use crate::{
+    hooks::HookFrame,
+    memory::Memory,
+    objects::{
+        campaign::{map_manager as manager_fields, message_window},
+        list,
+    },
+    points::Point,
+};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// `(map manager)`: the map manager's destructor, which its deleting
+/// destructor (its vtable's first slot) calls as the application's idler
+/// switch lets it go.
+const MAP_MANAGER_DESTRUCTOR: usize = 0x80b570;
+/// `(message icon holder)`: empties it of its icons.
+const EMPTY_MESSAGE_ICONS: usize = 0xdffca0;
+
+/// The session's interface the map manager's destructor leaves, as an
+/// in-process return takes the session down
+/// (ADR return-to-the-main-menu-in-process).
+pub struct SessionInterface {
+    manager: usize,
+    /// Those of the session's windows open as popups, the end-of-game
+    /// summary the player left from say, which the world reset lets go.
+    popups: Vec<usize>,
+}
+
+/// The map manager an in-process return lets go at the idler switch.
+static LEAVING: AtomicUsize = AtomicUsize::new(0);
+
+impl SessionInterface {
+    /// Before an in-process return takes the session's interface down. A
+    /// message window holds the popup it was made with and never lets it go,
+    /// nor does anything else: the popup, its window and the sprites it
+    /// shows, which keep counting as shown, would stay for the process. So
+    /// the popups of the message windows that are not closed, which the
+    /// in-game load marks as closed, go first, unless open, which go with
+    /// the other popups.
+    pub fn before_reset(m: &Memory, manager: usize) -> crate::Result<Self> {
+        let popups = crate::game::questions::items(m, manager + manager_fields::POPUPS).map_err(|e| e.message)?;
+        let mut node = m.ptr(manager + manager_fields::MESSAGE_WINDOWS + list::HEAD)?;
+        while node != 0 {
+            let window = m.ptr(node + list::ITEM)?;
+            if window != 0 && m.u8(node + list::REMOVED)? == 0 && m.u8(window + message_window::CLOSING)? == 0 {
+                let popup = m.ptr(window + message_window::POPUP)?;
+                if popup != 0 && !popups.contains(&popup) {
+                    m.write(window + message_window::POPUP, &0usize.to_le_bytes())?;
+                    let _letting_go = LettingGo::new("message window's popup");
+                    m.call(m.vslot(popup, 0)?, &[popup, 1])?;
+                }
+            }
+            node = m.ptr(node + list::NEXT)?;
+        }
+        Ok(Self { manager, popups })
+    }
+
+    /// After that reset: the interface is let go as the map manager goes
+    /// ([`let_session_interface_go`]), but for the popups the reset let go.
+    pub fn let_go_with_map_manager(self, m: &Memory) -> crate::Result<()> {
+        for field in manager_fields::SESSION_WINDOWS {
+            if self.popups.contains(&m.ptr(self.manager + field)?) {
+                log!("repair: the reset let the popup at {field:#x} go");
+                m.write(self.manager + field, &0usize.to_le_bytes())?;
+            }
+        }
+        LEAVING.store(self.manager, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+/// The map manager's destructor begins: after an in-process return, what
+/// it never lets go of the session's interface goes first
+/// ([`let_session_interface_go`]). Not before: until the idler switch has
+/// switched the map manager out, it uses that interface.
+extern "C" fn map_manager_going(frame: *mut HookFrame) {
+    crate::guarded("map manager destructor", || {
+        let manager = unsafe { (*frame).args[0] };
+        if LEAVING.compare_exchange(manager, 0, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+            return;
+        }
+        let m = crate::hooked_memory();
+        match let_session_interface_go(&m, manager) {
+            Ok(gone) => log!("repair: {gone} parts of the session's interface the map manager leaves were let go"),
+            Err(e) => log!("repair: the session's interface was not let go: {e}"),
+        }
+    });
+}
+
+/// The map manager lets some of the session's interface go as it goes, and
+/// the rest stays in the game's GUI, drawn, updated and under the mouse in
+/// the main menu, its buttons calling into the map manager that went: what
+/// it never lets go is let go first, the last made first, as the game lets
+/// its windows go.
+fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> {
+    let _letting_go = LettingGo::new("session's interface");
+    let mut gone = 0;
+    let mut take = |field: usize| -> crate::Result<usize> {
+        let object = m.ptr(manager + field)?;
+        if object != 0 {
+            m.write(manager + field, &0usize.to_le_bytes())?;
+            gone += 1;
+        }
+        Ok(object)
+    };
+    let icons = take(manager_fields::MESSAGE_ICON_HOLDER)?;
+    if icons != 0 {
+        m.call(m.at(EMPTY_MESSAGE_ICONS), &[icons])?;
+        m.call(m.at(DELETE), &[icons, manager_fields::MESSAGE_ICON_HOLDER_SIZE])?;
+    }
+    for field in manager_fields::SESSION_WINDOWS.iter().rev() {
+        let window = take(*field)?;
+        if window != 0 {
+            m.call(m.vslot(window, 0)?, &[window, 1])?;
+        }
+    }
+    for (field, let_go) in manager_fields::SESSION_OBJECTS.iter().rev() {
+        let object = take(*field)?;
+        if object != 0 {
+            m.call(m.at(*let_go), &[object])?;
+        }
+    }
+    // Its minimap, which its destructor leaves too.
+    let minimap = take(manager_fields::MINIMAP)?;
+    if minimap != 0 {
+        m.call(m.vslot(minimap, 0)?, &[minimap, 1])?;
+    }
+    Ok(gone)
+}
+
+pub(super) fn points() -> Vec<Point> {
+    vec![
+        Point::observe(
+            MAP_MANAGER_DESTRUCTOR,
+            "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 ec 40 48 8b d9",
+            "map manager destructor",
+            1,
+            Some(map_manager_going),
+            None,
+        ),
+        // Its deleting destructor, which the idler switch calls.
+        Point::keep(0x80b42fusize, "e8 3c 01 00 00 f6 c3 01 74 0d ba c8 5b 00 00", "map manager deleting destructor"),
+        Point::keep(EMPTY_MESSAGE_ICONS, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b f1 48 8d 59 40", "empty message icons"),
+        // The rebuild empties the message icons, then makes a holder of this size.
+        Point::keep(0x81d542usize, "e8 59 27 5e 00 b9 00 70 00 00", "message icon holder size"),
+    ]
+}
