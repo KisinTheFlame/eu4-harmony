@@ -1,6 +1,6 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, and
 //! one read of a country (docs/research/countries.md).
-use super::{context, country, fail, game, span, world, Caller, Ctx, GResult, Status, Tag};
+use super::{context, country, game, span, world, Caller, Ctx, GResult, Tag};
 use crate::{
     game_string,
     memory::Memory,
@@ -10,13 +10,13 @@ use crate::{
 use std::collections::BTreeSet;
 
 /// The country whose tag is these three letters (for example `CAS`);
-/// [`Status::NotFound`] when there is none.
+/// [`super::Status::NotFound`] when there is none.
 pub fn find(_: Caller, letters: [u8; 3]) -> GResult<Tag> {
     let m = game()?;
     let ctx = context(m)?;
     match world::countries(m, &ctx)?.into_iter().find(|t| t.letters() == letters) {
         Some(tag) => Ok(tag),
-        None => fail(Status::NotFound, format!("no country {}", String::from_utf8_lossy(&letters))),
+        None => Err(eu4_harmony_checks::countries::not_found(&String::from_utf8_lossy(&letters)).into()),
     }
 }
 

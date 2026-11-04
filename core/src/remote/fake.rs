@@ -112,7 +112,7 @@ impl countries::Layer for Fake {
             b"TUR" => Ok(tur()),
             b"BYZ" => Ok(byz()),
             b"WAL" => Ok(wal()),
-            _ => fail(Status::NotFound, format!("no country {tag}")),
+            _ => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
         }
     }
 

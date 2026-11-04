@@ -774,7 +774,7 @@ fn find(m: &Memory, letters: [u8; 3]) -> GResult<Tag> {
             return Ok(tag);
         }
     }
-    fail(Status::NotFound, format!("no country {}", String::from_utf8_lossy(&letters)))
+    Err(eu4_harmony_checks::countries::not_found(&String::from_utf8_lossy(&letters)).into())
 }
 
 /// What came of a return to the main menu so far.
