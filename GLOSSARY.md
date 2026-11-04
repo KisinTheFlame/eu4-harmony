@@ -70,6 +70,10 @@ _Avoid_: using it for the hooking done at startup
 A build of the framework with development tools built in, such as the call trace or the command log, for trying things in the game; it says so at the top of its startup report. Players get only the player build, which has none of them and no hidden switches.
 _Avoid_: trace build, debug build (a build without optimizations), test build
 
+**Claim**:
+The hold one holder has on the game of this computer, its folder, its process and the player's files, while it tries something in the game; one holder at a time, from claiming the game to releasing it, which puts back everything the run changed.
+_Avoid_: lock, reservation
+
 **Heap census**:
 A development tool that counts every live block of the game's heap by its site, the code that allocated it, and its generation, so that what the game keeps of its sessions can be found (docs/leak-finding.md).
 _Avoid_: memory profiler, allocation tracker
