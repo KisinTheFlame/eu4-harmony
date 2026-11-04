@@ -72,7 +72,7 @@ pub fn memory() -> Memory {
 /// when it is built in, and without it only `memory`.
 pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
     #[cfg(feature = "dev-heap-census")]
-    return Ok(crate::census::answer(request));
+    return crate::census::answer(request);
     #[cfg(not(feature = "dev-heap-census"))]
     match request {
         MemoryRequest::Get {} => Ok(MemoryAnswer::Get(memory())),
