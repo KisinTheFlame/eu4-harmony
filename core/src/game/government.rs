@@ -177,9 +177,10 @@ fn written_select(country: Tag, reform: &str) -> String {
     format!("select_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" }} }}", content::letters(country))
 }
 
-/// Changing a reached tier's reform, paying its progress.
-fn written_change(country: Tag, reform: &str, tier: usize) -> String {
-    format!("change_to_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" dummy={tier} dummy=no }} }}", content::letters(country))
+/// Changing a reached tier's reform, paying its progress: the place in the
+/// reform stack of the reform it replaces.
+fn written_change(country: Tag, reform: &str, place: usize) -> String {
+    format!("change_to_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" dummy={place} dummy=no }} }}", content::letters(country))
 }
 
 /// Raising the rank by one, with the prestige the button gives.
@@ -203,7 +204,10 @@ pub fn adopt_reform(_: Caller, key: String) -> GResult<()> {
         if !choice.can {
             return content::refused(&choice.reasons, "adopting this reform");
         }
-        let text = if reached { written_change(ctx.player, &key, tier) } else { written_select(ctx.player, &key) };
+        let text = match adopted.iter().position(|r| reforms.contains(r)) {
+            Some(place) => written_change(ctx.player, &key, place),
+            None => written_select(ctx.player, &key),
+        };
         return content::post(&text, "adopting this reform");
     }
     Err(checks::not_found("government reform", &key).into())
