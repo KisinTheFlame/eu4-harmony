@@ -2,8 +2,6 @@
 *.pdb
 # A developer build's options, which cargo xtask install copies into the game folder.
 /dev.toml
-# Skills kept on one machine for its own sessions.
-/.claude/skills/
 # Worktrees and local settings of the sessions working in this checkout.
 /.claude/worktrees/
 /.claude/settings.local.json

@@ -52,6 +52,7 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 
 ## Testing in the game
 
+- One game serves every checkout on the machine. Claim it before you use it, and release it after, with [.claude/skills/game-lock](.claude/skills/game-lock/SKILL.md): its claim makes the backup below, and its release the restore.
 - The game rewrites a save it loads and rotates its autosaves, rewrites its settings files when it applies its settings, and rewrites its login cache. Before a run that may load or write a save, back up the player's files with `eu4-harmony backup <new folder>`, a folder outside the game and user folders; afterwards `eu4-harmony restore <that folder>` lists what the run changed, puts every file back, compares each with the backup, and removes the run's crash folders and the backup.
 - Leave nothing behind: scratch files, and what `restore` reports it could not put back.
 - Record the result in [docs/prototype-log.md](docs/prototype-log.md).
