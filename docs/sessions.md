@@ -63,6 +63,8 @@ pub fn go(caller: Caller, to: Destination) -> GResult<Expected>;
 
 Inside, a pure function lays out the steps from where the game is, where it is going and the two settings (the checks, the ironman exit save, taking the session down, the world reset, the load or the start), with unit tests of its own; an executor carries them out against the game and answers.
 
+What those steps and the safe points see of a session, its first game frame, its end with the reason, a save beginning to be read, a world reset, the game's restart, goes to one module of the core, `sessions` (`core/src/sessions.rs`). It keeps whether a session is going on, where the safe point is and whether a save is being read, in a state machine with tests of its own, and tells each thing to the parts that keep something of a session in one order: remote control keeps the end as an event before extensions hear it, and a session ends once, before the next begins.
+
 ## Known leaks
 
 Decided 2026-11-03: left as they are in this version. Each is the game's own: a restart hides it, and the game's own in-game load leaves its share in vanilla too. Measured 2026-11-02 with the GUI root's elements, the process's private bytes and the heap census ([prototype-log.md](prototype-log.md), "A sprite type unloaded while shown, and the stability runs"). A leak run ([leak-finding.md](leak-finding.md)) lists what is left now, site by site:
