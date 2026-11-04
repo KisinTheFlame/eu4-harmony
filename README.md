@@ -4,85 +4,20 @@
 
 English | [简体中文](README.zh-CN.md)
 
-**A framework that runs inside Europa Universalis IV and makes the game better from within.** EU4 Harmony draws Chinese and every other script, returns to the main menu without restarting the game, makes the game faster without changing what it computes, repairs bugs of the game's own, lets programs and AIs play the game, and lets mods carry Lua scripts.
+**Europa Universalis IV, made better from within.** Chinese everywhere, no restarts, a faster game, fewer bugs, and mods that can do far more.
 
 > [!NOTE]
-> EU4 Harmony is in early development. It supports **EU4 1.37.5 on Windows, single player only**, and has no published release yet: [build it from source](#building-from-source). The extension interface may still change between versions.
+> Early development: EU4 1.37.5 on Windows, single player only. No release yet; [build it from source](#building-from-source).
 
-## What it does
+## Why EU4 Harmony
 
-### Text in every script
-
-- All of the game's text is drawn in system fonts, so Chinese, Japanese, Korean and every other script show without a font mod.
-- Body text, headings, names on the map and the game console each take a font and weight of their own, chosen in the settings.
-- Names you type can be in any script.
-
-[docs/unicode-module.md](docs/unicode-module.md)
-
-### Leaving a game without a restart
-
-- Returning to the main menu takes a few seconds instead of a restart of about 45.
-- An ironman game can load another save from the game's menu; the current game is saved first, or, with that setting off, loading the same save again undoes what was played since.
-
-[docs/sessions.md](docs/sessions.md)
-
-### A faster game, the same game
-
-The same rules, data and AI, the same days, only computed faster:
-
-- Paradox's online client no longer sleeps on the main thread while it waits for its connections.
-- The line breaks of the text the framework draws are kept instead of worked out again every frame.
-- Local saves are written uncompressed and compressed in the background, so a save holds up the game for less time. The game without the framework still loads them.
-- Optionally, the fastest speed stops drawing frames in the middle of a long day, for days that pass faster still.
-
-In a game of 1618: 84 frames a second instead of 63 while paused, and days about a tenth faster at the fastest speed ([docs/performance.md](docs/performance.md), [docs/game-speed.md](docs/game-speed.md)).
-
-### Repairs to the game's own bugs
-
-Bugs that are in vanilla too, put right where the game goes wrong:
-
-- **Heir names:** a new heir took the first name of the list about half the time (Zhanji, for Ming), and that name's sex with it. Names are now drawn by their weights.
-- **Coalitions:** the AI of several countries left the same coalition at once on the game's worker threads, with no lock, which could corrupt the game's memory. Leaving and joining now take turns.
-- **Achievements after a load:** a save loaded from the game's menu never matched its checksum, and turned achievements off for the rest of the game. It now matches as it should.
-- **Memory:** what the game never gives back at a world reset (countries' data, mercenary leaders, rebel factions, AI agents), as modifiers change, as the interface is rebuilt (the map modes' window, the bar of the units selected, the outliner's entries), with text boxes' animations and textures' transparency masks, and the heap's free pages the leftovers keep.
-
-[docs/sessions.md](docs/sessions.md#known-leaks) says what the game still keeps.
-
-### Achievements on your terms
-
-Two settings, both off by default, let the game give achievements outside ironman and with mods that change the game checksum. Every other rule stays the game's own.
-
-### Mods in Lua
-
-- Extensions in Lua 5.4, run in a sandbox of their own: nothing to install, nothing to compile.
-- Capabilities for countries, provinces, armies, recruiting, diplomacy, events, time, the camera and the game console, and buttons in the vanilla interface.
-- Extension save data kept in the save; texts in every game language, shown in the player's.
-- Permissions: an extension may reach the real time, files or the network only when its manifest declares it, and players see what each mod declares.
-- A command line tool that creates a mod, checks it, runs its tests against a fake game, reloads it in the running game as you edit, and packs it for upload.
-- Completion and type checking in any editor with the Lua language server, and guides written for coding agents.
-
-[Writing a mod](#writing-a-mod) below.
-
-### Remote control and AI play
-
-- A program outside the game plays it through the same capabilities, as the player would: from the main menu into a game and back, time, events, armies, recruiting, diplomacy, the console, the camera and screenshots.
-- Where no capability reaches, it can use the player's mouse and keyboard, with the game in front or behind other windows.
-- The game can start hidden, with nothing on the desktop, for an AI to play while you go on working.
-- Open only to the Windows user playing, only on this computer, and never beyond what the player could do.
-
-[Remote control](#remote-control) below.
-
-### Safe by design
-
-- Every place in the game the framework relies on is checked against the bytes it expects at startup. On a game build it does not know, the framework stays out of the game as a whole and a message box says why, instead of misbehaving.
-- An error in a mod's script ends that one call, not the mod or the game; a script stuck in a loop is stopped after a time limit.
-
-### Research and tooling
-
-- [docs/research/](docs/research/): what is known about the game's code (armies, diplomacy, saves, the main thread, the interface, text and more), worked out from the game itself.
-- A heap census and leak runs that find what the game's memory keeps of each game left ([docs/leak-finding.md](docs/leak-finding.md)).
-- Measuring what the framework costs the game against vanilla ([docs/performance.md](docs/performance.md)).
-- Offline checks of every dependency point against `eu4.exe`, and a claim that lets several checkouts take turns at the one game, with the player's files backed up and put back ([docs/dev-tools.md](docs/dev-tools.md), [docs/game-testing.md](docs/game-testing.md)).
+- **Every language, everywhere.** Chinese and every other script show in the whole game, in fonts you choose. No font mod needed.
+- **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
+- **A faster game, the same game.** Smoother and about a tenth faster at top speed, with nothing about the game itself changed.
+- **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions no longer risk a crash, and loading a save no longer costs you achievements.
+- **Achievements your way.** Optionally earn them outside ironman, or with mods.
+- **Mods that do more.** Mods can read the game, give orders and add buttons, with a few lines of Lua.
+- **Let an AI play.** A program can play the game for you, even hidden in the background.
 
 ## Installing (players)
 
