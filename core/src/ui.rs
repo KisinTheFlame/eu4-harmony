@@ -603,17 +603,17 @@ pub fn hide_extension(extension: usize) {
 /// The own land army shown in the open single-army panel.
 pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
     let (panel, root) = with_ui(|ui| ui.bindings.iter().find(|b| b.host == Host::ArmyPanel).map(|b| (b.holder, b.root)))
-        .ok_or_else(|| game::Fail { status: Status::NotFound, message: "army panel not open".into() })?;
+        .ok_or_else(|| game::Fail::from(eu4_harmony_checks::armies::panel_not_open()))?;
     let ours = m.ptr(panel)? == m.at(classes::ARMY_PANEL) && m.ptr(panel + army_panel::WINDOW)? == root;
     if !ours || m.ptr(root)? != m.at(classes::WINDOW) || m.ptr(root + window::GUI)? != m.at(classes::WINDOW_GUI) {
         return Err("army panel changed".to_string().into());
     }
     if m.u8(root + window::OPEN)? != 1 {
-        return fail(Status::NotFound, "army panel not open");
+        return Err(eu4_harmony_checks::armies::panel_not_open().into());
     }
     let army = m.ptr(panel + army_panel::ARMY)?;
     if army == 0 || m.ptr(army)? != m.at(campaign::classes::ARMY) || m.u64(army + unit::OWNER)? != ctx.player.0 {
-        return fail(Status::NotFound, "no own land army selected");
+        return Err(eu4_harmony_checks::armies::none_selected().into());
     }
     Ok(m.u64(army + unit::ID)?)
 }

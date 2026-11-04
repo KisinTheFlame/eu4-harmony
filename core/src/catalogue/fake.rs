@@ -21,7 +21,7 @@ pub const PLENTY: Duration = Duration::from_secs(10);
 pub fn quiet(_: &str) {}
 
 /// What came back for a reply, in JSON; null when nothing came yet.
-pub fn answer(reply: &super::Reply) -> Value {
+pub fn answer(reply: &crate::remote::Reply) -> Value {
     reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
 }
 
@@ -113,7 +113,7 @@ impl countries::Layer for Fake {
             b"TUR" => Ok(tur()),
             b"BYZ" => Ok(byz()),
             b"WAL" => Ok(wal()),
-            _ => fail(Status::NotFound, format!("no country {tag}")),
+            _ => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
         }
     }
 

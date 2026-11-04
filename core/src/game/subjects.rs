@@ -527,7 +527,7 @@ fn letters(tag: Tag) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::fake::game_tag;
+    use crate::catalogue::fake::game_tag;
 
     #[test]
     fn the_command_names_both_countries_and_the_interaction_s_number() {
