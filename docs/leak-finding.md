@@ -55,7 +55,7 @@ Only in a developer build with the memory account do these capabilities exist; a
 
 ### A leak run
 
-`tools/leak-run.ps1` plays rounds on a developer build installed with the memory account, and with the census if it is built in. A round is:
+`cargo xtask leak-run` plays rounds on a developer build installed with the memory account, and with the census if it is built in. A round is:
 
 1. load a save from the main menu, and let time run;
 2. load another save from the game, and let time run;
@@ -105,7 +105,7 @@ With the census built in, `memory.quarantine` turns the quarantine on and off at
 - every two seconds, on a thread of its own, every block kept is compared with the pattern, and the first write to each is kept: the repair, the block's site and size, the first byte changed and the bytes from it, and the generations it was kept in and found in;
 - past 512 MB the oldest blocks are freed again, and turning it off frees all of them.
 
-A leak run with `-Quarantine` turns it on from the start and reports, by repair, what it kept and every block written to; a run the game does not finish still reports what was found until then, and in which round it stopped. What the quarantine keeps counts in the game's heap, so such a run measures no growth: it is for trying a repair, not for measuring it.
+A leak run with `--quarantine` turns it on from the start and reports, by repair, what it kept and every block written to; a run the game does not finish still reports what was found until then, and in which round it stopped. What the quarantine keeps counts in the game's heap, so such a run measures no growth: it is for trying a repair, not for measuring it.
 
 ### What keeps the free pages committed (M5)
 
@@ -119,7 +119,7 @@ The walk holds the heap, and so the game, for seconds, and must not allocate fro
 - `remote` declares the `memory` group behind its `dev-memory` feature, which the core's `dev-memory` turns on, and `dev-heap-census` with it. A workspace build of the developer build gives the command line tool the same group.
 - `core/src/memory_account.rs` answers `memory` from Windows' figures, and hands the group to the census when it is built in.
 - `core/src/census.rs` keeps the blocks and answers the group. Building the answer from the census's figures (the leftovers by generation, the trend, the average) is a function of its own, tested without a game. Its modules, each tested without a game: `pointers` (the rule for a pointer), `holders` (M2's scan) and `watch` (M3's owners).
-- `tools/leak-run.ps1` uses only remote control, as `perf-run.ps1` does.
+- `cargo xtask leak-run` (`xtask/src/leak_run.rs`) uses only remote control, as `perf-run` does.
 
 ## Parts
 
@@ -146,7 +146,7 @@ The `dev-memory` feature, `memory` without the census, and the leak run's split 
 
 ### M4 The quarantine
 
-`memory.quarantine`, the repairs saying where they let memory go, and the leak run's `-Quarantine`.
+`memory.quarantine`, the repairs saying where they let memory go, and the leak run's `--quarantine`.
 
 ### M5 What keeps the free pages committed
 

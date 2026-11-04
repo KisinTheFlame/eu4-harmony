@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["checks", "cli", "core", "loc", "lua", "manifest", "proxy", "remote", "remote/derive"]
+members = ["checks", "cli", "core", "loc", "lua", "manifest", "proxy", "remote", "remote/derive", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 cc = "=1.6.0"
 iced-x86 = { version = "=1.21.0", default-features = false }
+miniz_oxide = "=0.8.9"
 toml = "=0.9.8"
 mlua = { version = "=0.11.6", features = ["lua54", "vendored", "serialize"] }
 reqwest = { version = "=0.13.5", default-features = false, features = ["native-tls", "system-proxy"] }

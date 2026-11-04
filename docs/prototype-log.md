@@ -1229,6 +1229,58 @@ I1 to I3 of [input.md](input.md): remote control's input, through `eu4-harmony g
 - **Not tried**: the game minimized; a modal framework window holding input back; the middle button, `mouse_down` and `mouse_up`, the wheel's left and right, alt and win; an input dropped because the frame changed size; `tools/perf-run.ps1` sending its own input, vanilla or with the framework.
 - **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
 
+## 2026-11-04 Where the main thread's time goes (tested by me)
+
+S0 of [game-speed.md](game-speed.md): `tools/profile.py`, sampling the main thread from outside the process, in the running game; the findings are in [research/main-thread.md](research/main-thread.md). The player build that was in the game folder (built 2026-11-04 01:31), not replaced; the player's playset, 3840x2160, `eu4.exe` started directly, three times; the game claimed with the game-lock skill, which backed up the player's files. Every request went through `eu4-harmony game`; questions were answered with their first option and offers declined by a script as they came.
+
+- **Austria-1** (an ironman save of 1618.9.2, the player Spain), speed 5: 60 s at 200 samples a second, the main thread suspended 30% of the time, 8.1 days a second; then 120 s at 50 a second from 1624.7, suspended 7%, 9.8 days a second. The shares of the second run, and the samples of the first under the autosave, are the note's.
+- **阿尔达比勒1462_08_30** (a normal save), paused 20 s and at speed 5 for 60 s at 50 a second: 16.8 days a second.
+- **The game does not repeat itself**: that save loaded again for each run, the same days let pass with `time.advance`, every province and the 20 largest countries read after. 0 and 1 days: the same twice. 10 days: 13 provinces and at least 6 countries different; with `-threads=1` (the game started again with it), 3 and 8. 120 days, five runs (two with the sampler at 250 a second): 24 to 32 provinces and all 20 countries different between any two; 0, 0, 0, 1 and 2 questions. The draw count after the first day, in eight loads at speeds 1 and 5: 8,664 to 8,763 draws.
+- **POPS** was read in `pops_api.dll` with Ghidra, not changed or tried.
+- **A mistake**: after the game was released, a run of the sampler meant to show its message without a game found the game another session had claimed running (`memory-leak-fixes-ca4945`, a leak run) and sampled it for 60 s at 50 a second, suspending its main thread about 3% of the time; it reads only, so the run's memory was not touched, its timings in that minute were.
+- **Not verified**: a vanilla profile, without the framework; frame rates; what any of the changes the plan proposes would gain.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files (the ironman save and its backup, the autosaves, `settings.txt` and the login cache among them) and found every file as the backup had it. The samples and scripts stayed in the session's scratch folder.
+
+## 2026-11-04 Frames inside a day, looked at by the owner (tested by me)
+
+S4 of [game-speed.md](game-speed.md), before anything was built: the interval of frames inside a day (`[0x245b070]` times 0.05 s at speed 5) written into the running game by a script of the run's own (`WriteProcessMemory`, not kept), while the owner watched. The player build another session had installed in the game folder (built 2026-11-04 02:30), not replaced; the player's playset, 3840x2160, vsync at 144 Hz; `eu4.exe` started directly; the game claimed with the game-lock skill, which backed up the player's files. Austria-1 (an ironman save of 1618.9.2) at speed 5, questions answered with their first option and offers declined by a script; frames counted at the application's `+0x320`, days at the date, 32 s each, no sampler.
+
+| Interval | Years | Frames a second | Days a second |
+| --- | --- | --- | --- |
+| 1.0 (the game's, 50 ms) | 1618 to 1620 | 18.2 | 12.5 |
+| 2.0 | 1620 to 1621 | 15.0 | 12.6 |
+| 4.0 | 1621 to 1623 | 15.3 | 14.6 |
+| none inside a day (1000) | 1623 to 1624 | 13.6 | 13.4 |
+| 1.0 | 1624 to 1626 | 19.0 | 13.1 |
+| none inside a day | 1626 to 1627 | 14.4 | 14.3 |
+
+- Days grow slower as the game goes on, and an autosave falls in some runs, so only the last two, side by side, compare: 9% more days a second, 5 frames a second fewer. Paused, 63 frames a second.
+- **The owner's decision**: two choices, the game's pace and no frames inside a day, with a tooltip; recorded in game-speed.md.
+- **Not verified**: a game after 1700, where days are slower and the gain larger; input lag measured rather than seen.
+- **Cleanup**: the interval was put back to 1.0 and the game closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
+
+## 2026-11-04 Game speed S1 to S4 (tested by me)
+
+The branch of [game-speed.md](game-speed.md) with S1 to S4, a player build installed with `dev-install.ps1` over the framework files another session had left in the game folder, which were copied aside and put back after. The player's playset, 3840x2160, `eu4.exe` started directly, three times; the game claimed with the game-lock skill, which backed up the player's files.
+
+- **Startup**: 776 dependency points matched, the point in `pops_api.dll` among them (the module is loaded when the core starts). The first start logged "speed: the pace at the fastest speed stays the game's: unwritable memory": the factors are in read-only data. Fixed (the page is made writable for the write); then "speed: at the fastest speed, smooth".
+- **S3, first form, and a save destroyed**: loading Austria-1 from the main menu, the game wrote the ironman save again at once, as it does, and the zip's stored method, which the framework had asked for, wrote 61 MB of zeros with a CRC of them; the thread then compressed them to 69 KB, and the framework's reader refused the file ("not a save the game wrote"). The game was ended at once; the file was put back from the claim's backup and compared equal. The cause is in [research/saves.md](research/saves.md); since then the save deflates at level 0, and the thread checks each entry's header before compressing, which a test shows refuses a file of zeros.
+- **S3 since**: the same load wrote 61 MB at level 0, which the thread compressed to 7.1 MB in 1.7 s (`gamestate`, `meta` and `ai` each beginning `EU4bin`); the return to the main menu wrote it again (7.2 MB), and `menu.load` of that file played it, from 1620.4.30. A save of the player's (the save window, with "compress" ticked, a normal game) was written at level 0 and compressed from 43 MB to 4.5 MB; Python's `zipfile` found it whole, the game loaded it, and the game's checksum check answered for it as for the save it was made from. Two autosaves at speed 5 were compressed the same way. The test save was deleted.
+- **S4**: the settings window showed the group 游戏速度 with 最快速度时, its info mark and the choice bar (screenshot); the info mark's text showed while the pointer was on it; a click on 时间更快 slid the highlight there, and saving wrote `fastest_speed="faster"` and set speed 5's factor to 1,000,000 at once (read from the game's memory). The numbers are in [performance.md](performance.md).
+- **S1 and S2**: in a profile at speed 5 neither `pops_api.dll` nor `icu.dll` had samples left; paused, 84 frames a second against 63 that morning.
+- **Not verified**: a cloud save (it would write a file into the player's Steam cloud: not done without asking); loading a save the framework compressed in vanilla, without the framework (the game's own reader read them, with the framework installed); the game's exit right after a save; frames inside a day being none at speed 5 counted against the days, beyond the frame rates; a game after 1700.
+- **Cleanup**: the game was closed by ending its process; the framework files that were in the game folder were put back. Releasing the game restored the player's files (the ironman save and its backup, the framework's settings among them) and found every file as the backup had it.
+
+## 2026-11-04 Game speed: a cloud save (tested by me, with the owner's leave)
+
+The same branch and install as the run before, the player's playset, a new game as Portugal (`menu.start`), driven through remote control's input and screenshots; the game claimed with the game-lock skill.
+
+- **Steam**: started as `eu4.exe` alone, the game had no cloud: the save window's 云 tab did not open. Started again with `SteamAppId` and `SteamGameId` set to 236850 in its environment, as Steam starts it, the tab opened, with Steam's quota (954 MB, 948 MB free).
+- **The save**: the save window's 云 tab, the name `eu4harmony_cloud_test`. Steam's folder for the game's cloud (`userdata\<account>\236850\remote\save games`) had the file at once, 3.3 MB, and Steam's index of it (`remotecache.vdf`) listed it to be uploaded. Its three entries were deflated as the game deflates them (`gamestate` 33.7 MB to 3.3 MB, each beginning `EU4bin`, `zipfile` found it whole), and the framework's log had no line of the save thread: the local saves' points left it alone.
+- **Loading it back**: the load window's 云 tab listed it with the cloud's mark of a synchronized file (and 944 MB free); loading it played it (session 3, "from a loaded save"), the framework's data of the save's extension read too.
+- **Upload**: after the game's own exit (its menu, 退出游戏), Steam's index gave the file a remote time and the synchronized state, as it has for the player's older cloud saves.
+- **Not verified**: the file on another machine. The test save is still in the player's Steam cloud, for the player to delete (the in-game load window, or Steam).
+- **Cleanup**: the framework files that were in the game folder were put back and compared equal. Releasing the game restored the player's files and found every file as the backup had it.
 ## 2026-11-04 What still points at the leftovers (tested by me)
 
 M2 of [leak-finding.md](leak-finding.md): `memory.leftovers` with `holders`, which `tools/leak-run.ps1` asks after its last round. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. The developer build with the heap census, `eu4.exe` started by the script, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days, four rounds.
@@ -1339,6 +1391,53 @@ M4 of [leak-finding.md](leak-finding.md): the developer build with the census (`
 - **What was written to**: nothing, in 258 comparisons, the last as it was turned off; and no call went through a block kept, which would have faulted on the pattern. Turning it off freed every block kept in 181 ms, and the game went on.
 - **Not verified**: a write found in the running game, which only the unit test makes; reads of a block kept that do not fault, which the pattern does not show; what the GUI's sweep frees of the windows the repairs kill (the map modes' window, the bar of the units selected), which is not kept.
 - **Cleanup**: the game was closed by the script. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The run's report was deleted.
+
+## 2026-11-04 Development commands (tested by me)
+
+The commands of [dev-commands.md](dev-commands.md), which replace the scripts of `tools/`, each tried once in one claim of the game, which backed up and restored the player's files; the framework files in the game folder copied aside first. With `EU4_GAME_DIR` unset throughout.
+
+- **`cargo xtask game-dir`** printed the game folder from the Steam library, `E:\SteamLibrary\…`, and every command below found the game the same way.
+- **`cargo xtask install`**: installed the last build and the repository's `dev.toml`; with a `version.dll` not ours in the game folder it moved that one to `eu4-harmony\backup\`, and `--uninstall` put it back; a `dev.toml` installed before was removed when the repository had none.
+- **`cargo xtask release`** built only the player's packages and wrote `target\eu4-harmony\` and the zip; the zip's files were the folder's, byte for byte.
+- **`cargo xtask disasm`** and **`offline-check`**: a function, `bytes:` and `args:` read as before; the offline checks passed.
+- **`eu4-harmony backup`** wrote a backup in the layout of `player-state.ps1`, and refused a folder that exists and a running game. **`eu4-harmony restore`** of a backup the old script had made listed what the run changed (the saves the leak run rewrote and added, the settings, the login cache, the framework's logs), put every file back and found it as the backup had it; of its own backup, taken later, it found no change and removed the backup.
+- **`cargo xtask leak-run`** on a developer build with `dev-memory`: two rounds of 6 days, 46 s each, every answer right; the report's tables as the script wrote them. `--from-report` wrote report.md again from report.json with no game.
+- **`cargo xtask crash-dump`** on a minidump of the running game: `lmvm eu4_harmony_core` and `kn 8` in 1 s, the core's frames named from this checkout's release build (`Observer<19,0,1>::call+0x87`).
+- **`cargo xtask perf-run`** on the player build: `--reference` with the main menu showing, then `--name menu --menu-only`: the main menu recognized after 44 s, its memory and CPU written to `menu.json`.
+- **Not verified**: a whole `perf-run`, with a new game as Ming, and its `--intro-reference`; `crash-dump` on the dump of a crash; `leak-run` with the heap census, `--watch` and `--quarantine`; `cargo xtask profile`, ported from `tools/profile.py` after these runs, never run in the game, only its parts and tie order by unit tests; the game-lock skill running `eu4-harmony backup` and `restore`, which it does once the main checkout no longer has `tools/player-state.ps1` (this run's claim and release went through the script).
+- **Cleanup**: the game was closed by ending its process. The framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files and found every file as the backup had it. The runs' reports, the dump and the release's output were deleted.
+
+## 2026-11-04 Game speed late in a game, the exit after a save, and a compressed save in vanilla (tested by me)
+
+The build of master at `c6bda5f` (the game speed plan's S1 to S4), installed with `tools/dev-install.ps1` over the framework files another session had there, which were copied aside first. Austria-37_4-1, an ironman save of the Holy Roman Empire, 1724.5.13 when loaded; the player's playset; 3840x2160. Frames counted at the application's frame count and days at the date; speed 5's factor set with `WriteProcessMemory` (the game's 0.05 against the 1e6 "Faster time" writes), while a script kept the game at speed 5, resumed it and answered its questions.
+
+**Paused**, in 1724: 44.6 and 49.7 frames a second over 20 s each.
+
+**Speed 5, "Faster time" against the game's pace.** Counted are the runs in which the script resumed the game every 0.3 s, so a message that paused the game cost little, in the order smooth, faster, faster, smooth, 60 s each, four times, 1730 to 1803:
+
+| | Days a second, each | Mean | Frames a second |
+| --- | --- | --- | --- |
+| The game's pace | 17.7, 19.5, 18.1, 15.1, 16.9, 15.0, 16.4, 13.1 | 16.5 | 20.0 to 24.2 |
+| "Faster time" | 20.7, 21.4, 19.4, 18.8, 18.9, 20.0, 16.7, 17.0 | 19.1 | 16.9 to 21.6 |
+
+- In each group of four, "Faster time" was ahead of both its neighbors: 16% faster in all.
+- Before those, with the game resumed only every 2 s, three pairs each way round (30 s each, 1724 to 1730) came out the other way: the game's pace 19.3 to 24.2 days a second, "Faster time" 15.8 to 17.8. Why was not found. One pair under the sampler (45 s each, 50 a second) gave 15.4 for the game's pace and 19.7 for "Faster time".
+- The main thread's samples in that pair: the ironman autosave 13 to 20% (the game saved every few seconds of play), frames inside a day 16% of the game's pace and none with "Faster time".
+- The game piled up its messages: by 1803 more than a hundred waited, each a window of its own.
+
+**The exit right after a save.**
+
+- **Returning to the main menu with a restart** (the framework setting `return_without_restart=no`, `menu.return`): the game wrote the ironman save at 18:01:48.3; the restart's observer waited 1.5 s for the thread ("waited 1.5s for the background compression"), and the process ended at 18:01:50.2. The file: 6,076,089 bytes, every entry deflated, Python's `zipfile` testing it whole.
+- **The process ended 0.5 s after an ironman autosave**, while the thread compressed it: the save stayed as the game wrote it, 55,280,102 bytes, deflated at level 0, whole; no `.eu4harmony-tmp` beside it.
+- **Not tried**: the game's own exit (its menu's exit button): the input capability's clicks on the in-game menu did not reach its buttons in this run, the game's hover tip staying on one province, which was not looked into. Nor an end of the process in the moment the thread writes its temporary file, which would leave `<save>.eu4harmony-tmp` beside the whole save.
+
+**A compressed save in vanilla.**
+
+- The framework removed with `tools/dev-install.ps1 -Uninstall` (no `version.dll`, no `eu4-harmony` folder in the game folder). A copy of the 1803 save the thread had compressed (6,077,219 bytes, its entries deflated at level 6) put in `save games` as `eu4harmony_vanilla_test.eu4`.
+- `eu4.exe -continue eu4harmony_vanilla_test.eu4` (research/main-menu.md, "Startup"): the continue box showed the save, a window with two buttons opened (its text unreadable, the Chinese language mod's text needing the framework), Enter posted to the game's window answered it, and the game loaded 1803.3.1 as the Holy Roman Empire, its treasury, manpower and the map as in the framework's game. Unpaused, 1803.3.4 to 1804.2.3 in 15 s. The game's ironman save then wrote it again, 7,752,332 bytes.
+- `-continuelastsave` with `continue_game.json` naming the save, and `-continue=<file>`, stayed at the main menu; `-continue` alone crashed at startup ("Could not open file: save games/"), the crash being the argument's.
+
+**Cleanup**: the game closed by ending its process. The framework files put back and compared equal to the copies (SHA-256). Releasing the game restored the player's files, removed the test saves, the save the vanilla game added and the crash folder, and found every file as the backup had it.
 
 ## 2026-11-04 What keeps the heap's free pages committed (tested by me)
 

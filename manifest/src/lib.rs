@@ -198,6 +198,45 @@ pub fn named_user_dir(game_dir: &Path) -> Option<PathBuf> {
     Some(if path.is_absolute() { path } else { game_dir.join(path) })
 }
 
+/// The game folder Steam installed the game in: under Steam's own folder or
+/// one of the libraries its `steamapps\libraryfolders.vdf` lists, the first
+/// that holds `eu4.exe`.
+pub fn steam_game_dir() -> Option<PathBuf> {
+    let steam = steam_path()?;
+    let mut libraries = vec![steam.clone()];
+    if let Ok(text) = std::fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")) {
+        libraries.extend(library_paths(&text));
+    }
+    libraries.into_iter().map(|l| l.join("steamapps").join("common").join("Europa Universalis IV")).find(|game| game.join("eu4.exe").is_file())
+}
+
+/// The `"path"` values of a `libraryfolders.vdf`, with its doubled
+/// backslashes made single.
+fn library_paths(vdf: &str) -> Vec<PathBuf> {
+    vdf.lines()
+        .filter_map(|line| {
+            let value = line.trim().strip_prefix("\"path\"")?.trim().strip_prefix('"')?.strip_suffix('"')?;
+            Some(PathBuf::from(value.replace("\\\\", "\\")))
+        })
+        .collect()
+}
+
+/// Steam's folder, `SteamPath` under `HKCU\Software\Valve\Steam`.
+fn steam_path() -> Option<PathBuf> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let key: Vec<u16> = "Software\\Valve\\Steam\0".encode_utf16().collect();
+    let name: Vec<u16> = "SteamPath\0".encode_utf16().collect();
+    let mut buffer = vec![0u16; 1024];
+    let mut size = (buffer.len() * 2) as u32;
+    let status =
+        unsafe { RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buffer.as_mut_ptr().cast(), &mut size) };
+    if status != 0 {
+        return None;
+    }
+    let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+    Some(PathBuf::from(String::from_utf16_lossy(&buffer[..len])))
+}
+
 /// The Windows user's Documents folder.
 fn documents() -> Result<PathBuf, String> {
     use windows_sys::Win32::{
@@ -232,6 +271,12 @@ mod tests {
             }
         }
         let _ = std::fs::remove_dir_all(game);
+    }
+
+    #[test]
+    fn library_paths_reads_every_path_with_single_backslashes() {
+        let vdf = "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"C:\\\\Program Files (x86)\\\\Steam\"\n\t}\n\t\"1\"\n\t{\n\t\t\"path\"\t\t\"E:\\\\SteamLibrary\"\n\t}\n}\n";
+        assert_eq!(library_paths(vdf), [PathBuf::from(r"C:\Program Files (x86)\Steam"), PathBuf::from(r"E:\SteamLibrary")]);
     }
 
     #[test]

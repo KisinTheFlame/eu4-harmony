@@ -8,7 +8,7 @@
 
 ## 安装框架（玩家）
 
-框架以一个文件夹（或它的 zip）提供，里面是 `version.dll` 和 `eu4-harmony\` 文件夹，后者装着核心（`eu4_harmony_core.dll`）和命令行工具（`eu4-harmony.exe`）；`tools\release.ps1` 从 release 构建生成这两者。把 `version.dll` 和 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `version.dll` 时，先把它移进 `eu4-harmony\backup\`，框架不会加载它。框架自己负责显示中文和其他文字（[ADR built-in-unicode-module](docs/adr/built-in-unicode-module.md)）。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。为框架早先版本做的、扩展是 DLL 的 Mod 不再加载，它们的扩展需要用 Lua 重写。
+框架以一个文件夹（或它的 zip）提供，里面是 `version.dll` 和 `eu4-harmony\` 文件夹，后者装着核心（`eu4_harmony_core.dll`）和命令行工具（`eu4-harmony.exe`）；`cargo xtask release` 从 release 构建生成这两者。把 `version.dll` 和 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `version.dll` 时，先把它移进 `eu4-harmony\backup\`，框架不会加载它。框架自己负责显示中文和其他文字（[ADR built-in-unicode-module](docs/adr/built-in-unicode-module.md)）。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。为框架早先版本做的、扩展是 DLL 的 Mod 不再加载，它们的扩展需要用 Lua 重写。
 
 卸载：删掉根目录的 `version.dll`；有备份的 `version.dll` 时，把它从 `eu4-harmony\backup\` 移回根目录；最后删掉 `eu4-harmony\`。
 
@@ -23,6 +23,18 @@
 ## 成就
 
 另有两个框架设置可以让游戏在原版不给成就的情况下给成就，默认都关闭，需要玩家自己打开（[ADR achievement-rules-can-be-relaxed](docs/adr/achievement-rules-can-be-relaxed.md)）："非铁人游戏也可获得成就"，在非铁人局里也能拿成就，读档重来、用控制台都不影响；"游戏校验码与原版不同时也可获得成就"，开着会改变主菜单上游戏校验码的 mod 也能拿成就。成就的其他规则仍按原版，修改在下一次开新局或读档时生效。
+
+## 更快的游戏
+
+框架让游戏跑得更快，但不改变游戏算出的结果：规则、数据、AI 都一样，过的日子也一样（[ADR making-the-game-faster-leaves-what-it-computes-as-it-is](docs/adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)，[docs/game-speed.md](docs/game-speed.md)）。以下几项始终开启：
+
+- Paradox 的在线客户端等待连接时，不再在主线程上睡眠。
+- 框架会记住它所绘制文字的断行结果，不再每帧重新计算。
+- 本地存档（自动存档、玩家自己的存档、铁人存档）由游戏先不压缩地写出，框架随后在后台压缩这个文件。文件任何时刻都是完整的存档；如果框架还没压缩完游戏就关了，这个文件就保持未压缩，只是更大。云存档仍由游戏照原样写出。不装框架的游戏也能读取框架压缩过的存档。
+
+在一局 1618 年的游戏里，暂停时的帧率从每秒 63 帧升到 84 帧，最快速度下的日子快了约一成（[docs/performance.md](docs/performance.md)）。
+
+有一项由玩家选择，在设置窗口的"游戏速度"里："最快速度时"，可选"画面流畅（原版）"或"时间更快"。最快速度下，如果一天要算很久，游戏会在这一天中途插画几帧，让地图保持动起来；选"时间更快"就不插这些帧，游戏后期日子还能再快约一成，但地图刷新变少，会显得一顿一顿，点击的反应也慢一点。关闭设置窗口时生效，只在最快速度下起作用。
 
 ## 远程控制（玩家与 AI）
 
@@ -102,8 +114,8 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 | `manifest/` | 模组的 `eu4-harmony/manifest.toml`、目录约定下其他文件的位置，以及描述文件的各行，核心和命令行工具共用 |
 | `remote/` | 能力目录：远程控制的请求与响应、它们的 JSON 形式和每项能力的说明（含扩展是否也有），核心和命令行工具共用 |
 | `checks/` | 框架自己对能力调用做的检查，以及每种拒绝的状态和措辞，核心和 `remote/` 共用；以及游戏的历法 |
-| `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组 |
-| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有测试运行前后备份与还原玩家文件、测量框架开销、反汇编、崩溃转储和调用追踪的工具，见 [tools/README.md](tools/README.md) |
+| `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组。它的 `backup` 和 `restore` 在会载入存档的测试运行前后备份、还原玩家文件 |
+| `xtask/` | 仓库自己的开发命令，用 `cargo xtask` 运行：`install` 把构建好的代理、核心和命令行工具装进游戏目录（`--uninstall` 卸载），`release` 把它们打包给玩家，另有测量框架开销、反汇编、离线检查和崩溃转储；它们和核心的开发特性一起见 [docs/dev-tools.md](docs/dev-tools.md) |
 | `docs/` | 方案、ADR、调研、实测记录和[框架对游戏性能的影响](docs/performance.md) |
 
 代码、注释和文档都用英文。本文件是 [README.md](README.md) 的中文译本，其余文档只有英文版。在本仓库工作的约定（对人和编程代理都适用）见 [AGENTS.md](AGENTS.md)。

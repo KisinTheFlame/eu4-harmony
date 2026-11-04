@@ -6,6 +6,7 @@
 //! texts in `localisation/` and its own files in `data/`
 //! (ADR manifest-in-toml-layout-by-convention); game resources (`interface/`,
 //! `gfx/`, ...) sit next to them as in any Paradox mod.
+mod backup;
 mod check;
 mod fake;
 mod game;
@@ -38,7 +39,8 @@ usage:
   eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>] [--game-dir <game dir>]
       Registers the mod folder with the Paradox launcher (enable it in a playset),
       in the user dir the game folder's userdir.txt names, as the game finds it;
-      the game folder is --game-dir, EU4_GAME_DIR or the one this tool is in.
+      the game folder is --game-dir, EU4_GAME_DIR, the one this tool is in or
+      the Steam library that holds the game.
   eu4-harmony test [<mod dir>]
       Runs the mod's eu4-harmony/tests/*.lua against a fake game, with the
       game's Lua host and sandbox; eu4-harmony skills testing says how.
@@ -58,6 +60,17 @@ usage:
       nothing. Lists each problem, and fails when there is one.
   eu4-harmony package [<mod dir>] [--out <dir>]
       Writes a clean folder for upload, once eu4-harmony check passes.
+  eu4-harmony backup <new dir> [--user-dir <EU4 user dir>] [--game-dir <game dir>]
+      Backs up the player's files a run of the game may change, before a
+      test that loads a save: save games\\, the framework's eu4-harmony\\ and
+      every file at the top of the user dir (the settings, the login cache,
+      the playset), into <new dir>, a folder outside the game and user dirs.
+  eu4-harmony restore <dir> [--keep] [--keep-crashes] [--user-dir <EU4 user dir>] [--game-dir <game dir>]
+      After the run: lists what it changed, puts every file back as the
+      backup has it and compares each, removes the crash folders it left
+      (--keep-crashes keeps them) and the backup (--keep keeps it). A file it
+      could not put back is a NOT RESTORED line, and the backup stays.
+      Both refuse while the game runs.
   eu4-harmony game <capability> [--<argument> <value>]...
       Sends the running game one request through remote control and prints
       the answer as JSON; eu4-harmony game -h describes the command line.
@@ -116,6 +129,8 @@ fn main() {
         Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
         Some("test") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_test(&a)),
         Some("reload") => Args::parse(&raw[1..], &["watch"]).and_then(|a| cmd_reload(&a)),
+        Some("backup") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_backup(&a)),
+        Some("restore") => Args::parse(&raw[1..], &["keep", "keep-crashes"]).and_then(|a| cmd_restore(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
@@ -282,10 +297,11 @@ fn cmd_types(args: &Args) -> Result<()> {
 // ---------- link ----------
 
 /// The game folder: `--game-dir`, else `EU4_GAME_DIR`, else the one this
-/// tool is installed in (`<game>\eu4-harmony\eu4-harmony.exe`).
+/// tool is installed in (`<game>\eu4-harmony\eu4-harmony.exe`), else the
+/// Steam library that holds the game.
 fn game_dir(args: &Args) -> Option<PathBuf> {
     let named = args.value("game-dir").map(PathBuf::from).or_else(|| std::env::var_os("EU4_GAME_DIR").map(PathBuf::from));
-    named.or_else(|| std::env::current_exe().ok().and_then(|exe| installed_in(&exe)))
+    named.or_else(|| std::env::current_exe().ok().and_then(|exe| installed_in(&exe))).or_else(eu4_harmony_manifest::steam_game_dir)
 }
 
 /// The game folder holding the tool at `exe`, when it is installed there.
@@ -306,16 +322,35 @@ fn link_mod(root: &Path, user_dir: &Path) -> Result<PathBuf> {
     Ok(file)
 }
 
+/// `--user-dir`, else the user dir of the game folder.
+fn user_dir(args: &Args) -> Result<PathBuf> {
+    match args.value("user-dir") {
+        Some(d) => Ok(PathBuf::from(d)),
+        None => eu4_harmony_manifest::user_dir(game_dir(args).as_deref()),
+    }
+}
+
 fn cmd_link(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
-    let user_dir = match args.value("user-dir") {
-        Some(d) => PathBuf::from(d),
-        None => eu4_harmony_manifest::user_dir(game_dir(args).as_deref())?,
-    };
-    let file = link_mod(&root, &user_dir)?;
+    let file = link_mod(&root, &user_dir(args)?)?;
     println!("wrote {}", file.display());
     println!("enable the mod in a Paradox launcher playset to use it");
     Ok(())
+}
+
+// ---------- backup, restore ----------
+
+fn cmd_backup(args: &Args) -> Result<()> {
+    let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony backup <new dir>".into()) };
+    backup::game_not_running()?;
+    backup::backup(&backup::user_folder(&user_dir(args)?)?, Path::new(dir))
+}
+
+fn cmd_restore(args: &Args) -> Result<()> {
+    let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony restore <dir>".into()) };
+    backup::game_not_running()?;
+    let (keep, keep_crashes) = (args.options.contains_key("keep"), args.options.contains_key("keep-crashes"));
+    backup::restore(&backup::user_folder(&user_dir(args)?)?, Path::new(dir), keep, keep_crashes)
 }
 
 // ---------- package ----------

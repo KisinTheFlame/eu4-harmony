@@ -11,11 +11,12 @@ These rules hold for everyone who changes this repository, people and coding age
 
 ## Where things are written down
 
-- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its parts and what each delivers. [docs/sessions.md](docs/sessions.md): leaving a session without a restart, its plan and parts. [docs/lua-extensions.md](docs/lua-extensions.md): extensions in Lua instead of native DLLs, its plan and parts. [docs/leak-finding.md](docs/leak-finding.md): finding what the game's memory keeps of its sessions, its plan and parts. [docs/extension-reload.md](docs/extension-reload.md): reloading an extension in the running game, its plan and parts. [docs/commands.md](docs/commands.md): capabilities that change the game reaching it as commands, and developer builds, its plan and parts. [docs/input.md](docs/input.md): remote clients giving the game mouse and keyboard input, its plan and parts.
+- [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its parts and what each delivers. [docs/sessions.md](docs/sessions.md): leaving a session without a restart, its plan and parts. [docs/lua-extensions.md](docs/lua-extensions.md): extensions in Lua instead of native DLLs, its plan and parts. [docs/leak-finding.md](docs/leak-finding.md): finding what the game's memory keeps of its sessions, its plan and parts. [docs/extension-reload.md](docs/extension-reload.md): reloading an extension in the running game, its plan and parts. [docs/commands.md](docs/commands.md): capabilities that change the game reaching it as commands, and developer builds, its plan and parts. [docs/input.md](docs/input.md): remote clients giving the game mouse and keyboard input, its plan and parts. [docs/game-speed.md](docs/game-speed.md): making the game faster without changing the game it plays, its plan and parts. [docs/dev-commands.md](docs/dev-commands.md): the development tools as commands of `cargo xtask` and the command line tool instead of scripts, its plan and parts.
 - [docs/adr/](docs/adr/): decisions that are hard to reverse, one file each, named by a short slug of the decision (`commands-run-at-once.md`) and without a number, so that branches written side by side do not take the same one. An ADR is referred to by its slug, as `ADR commands-run-at-once`, and keeps it once merged. A changed decision gets a new ADR that supersedes the old one, which stays.
 - [docs/research/](docs/research/): what is known about the game's code, with addresses as RVAs into the 1.37.5 baseline.
 - [docs/prototype-log.md](docs/prototype-log.md): what was tested in the running game and what came out, one dated section per run. Say what was not verified as plainly as what was.
-- [docs/performance.md](docs/performance.md): what the framework costs the game, as measured with `tools/perf-run.ps1`.
+- [docs/performance.md](docs/performance.md): what the framework costs the game, as measured with `cargo xtask perf-run`.
+- [docs/dev-tools.md](docs/dev-tools.md): the development tools, what each is for and how to use it.
 
 ## Building and checking
 
@@ -27,19 +28,21 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --features eu4-harmony-core/dev -- -D warnings
 ```
 
-The second clippy is the developer build's: the development tools, each a feature of the core (`dev-call-trace`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`; `dev` has them all), are on when built in, with their options in `dev.toml` ([tools/README.md](tools/README.md)). A player's build has none of them.
+The second clippy is the developer build's: the development tools, each a feature of the core (`dev-call-trace`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`; `dev` has them all), are on when built in, with their options in `dev.toml` ([docs/dev-tools.md](docs/dev-tools.md)). A player's build has none of them.
 
 Clippy's warnings are fixed, not allowed. Where the code is right as it is, `#[expect(clippy::…, reason = "…")]` at that place says why.
 
 With the game installed, the offline checks compare every dependency point's bytes with the game's `eu4.exe`, and check that each observer forwards at least the arguments its function reads:
 
-```bash
-EU4_GAME_DIR=<install dir> cargo test --release -p eu4-harmony-core -- --ignored
+```powershell
+cargo xtask offline-check
 ```
+
+It finds the game through `EU4_GAME_DIR` or Steam, as every development command does.
 
 The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, which rustup picks up. CI (`.github/workflows/ci.yml`) checks the formatting and runs the build, the tests and clippy on Windows for every pull request and every merge into master, and builds the developer build and runs clippy on it; the offline checks need the game and are run by hand.
 
-`tools/dev-install.ps1` installs the built proxy, core and command line tool into the game folder, where a player puts them (`-Uninstall` removes them); like the other tools it finds the game through `EU4_GAME_DIR` or Steam. `tools/release.ps1` builds the player build and packs the same files for players. The other development tools are described in [tools/README.md](tools/README.md).
+`cargo xtask install` installs the built proxy, core and command line tool into the game folder, where a player puts them (`--uninstall` removes them). `cargo xtask release` builds the player build and packs the same files for players. `cargo xtask` is the repository's own program (`xtask/`), for what needs the repository; `cargo xtask --help` lists its commands, and [docs/dev-tools.md](docs/dev-tools.md) describes them with the other development tools.
 
 ## Design rules
 
@@ -49,8 +52,8 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 
 ## Testing in the game
 
-- The game rewrites a save it loads and rotates its autosaves, rewrites its settings files when it applies its settings, and rewrites its login cache. Before a run that may load or write a save, back up the player's files with `tools/player-state.ps1 -Backup <new folder>`, a folder outside the game and user folders; afterwards `tools/player-state.ps1 -Restore <that folder>` lists what the run changed, puts every file back, compares each with the backup, and removes the run's crash folders and the backup.
-- Leave nothing behind: scratch files, and what `-Restore` reports it could not put back.
+- The game rewrites a save it loads and rotates its autosaves, rewrites its settings files when it applies its settings, and rewrites its login cache. Before a run that may load or write a save, back up the player's files with `eu4-harmony backup <new folder>`, a folder outside the game and user folders; afterwards `eu4-harmony restore <that folder>` lists what the run changed, puts every file back, compares each with the backup, and removes the run's crash folders and the backup.
+- Leave nothing behind: scratch files, and what `restore` reports it could not put back.
 - Record the result in [docs/prototype-log.md](docs/prototype-log.md).
 
 ## Commits

@@ -2,7 +2,7 @@
 //! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
 //! `dev-command-log`, `dev-test-switches`), and their options. A tool built in is on; its
 //! options are in `eu4-harmony\dev.toml` in the game folder, one section a
-//! tool, and a section left out takes its defaults (`tools/dev.toml.example`
+//! tool, and a section left out takes its defaults (`core/dev.toml.example`
 //! shows them all). A player's build has none of this.
 use serde::Deserialize;
 use std::path::Path;
@@ -204,6 +204,6 @@ mod tests {
 
     #[test]
     fn the_example_is_read() {
-        Options::parse(include_str!("../../tools/dev.toml.example")).unwrap();
+        Options::parse(include_str!("../dev.toml.example")).unwrap();
     }
 }

@@ -74,39 +74,49 @@ pub fn load() -> Result<&'static Icu> {
 }
 
 impl Icu {
-    /// Runs a break iterator of `kind` over `text`, giving each boundary after
-    /// the start and its rule status.
-    fn boundaries(&self, kind: i32, text: &str, mut each: impl FnMut(usize, i32)) -> Result<()> {
+    /// Opens a break iterator of `kind`, with no text yet.
+    fn open(&self, kind: i32) -> Result<*mut c_void> {
+        let mut status = 0;
+        let breaks = unsafe { (self.open_breaks)(kind, std::ptr::null(), std::ptr::null(), 0, &mut status) };
+        if status > 0 || breaks.is_null() {
+            return Err(format!("ubrk_open failed: {status}"));
+        }
+        Ok(breaks)
+    }
+
+    /// Gives the iterator `breaks` the text, and each boundary after its
+    /// start with its rule status. The iterator keeps no hold on the text
+    /// once this returns, and may be given another.
+    fn walk(&self, breaks: *mut c_void, text: &str, mut each: impl FnMut(usize, i32)) -> Result<()> {
         let mut status = 0;
         let utext = unsafe { (self.open_utf8)(std::ptr::null_mut(), text.as_ptr() as *const c_char, text.len() as i64, &mut status) };
         if status > 0 || utext.is_null() {
             return Err(format!("utext_openUTF8 failed: {status}"));
         }
-        let breaks = unsafe { (self.open_breaks)(kind, std::ptr::null(), std::ptr::null(), 0, &mut status) };
-        let result = if status > 0 || breaks.is_null() {
-            Err(format!("ubrk_open failed: {status}"))
+        unsafe { (self.set_text)(breaks, utext, &mut status) };
+        let result = if status > 0 {
+            Err(format!("ubrk_setUText failed: {status}"))
         } else {
-            unsafe { (self.set_text)(breaks, utext, &mut status) };
-            if status > 0 {
-                Err(format!("ubrk_setUText failed: {status}"))
-            } else {
-                unsafe { (self.first)(breaks) };
-                loop {
-                    let at = unsafe { (self.next)(breaks) };
-                    if at == DONE {
-                        break;
-                    }
-                    each(at as usize, unsafe { (self.rule_status)(breaks) });
+            unsafe { (self.first)(breaks) };
+            loop {
+                let at = unsafe { (self.next)(breaks) };
+                if at == DONE {
+                    break;
                 }
-                Ok(())
+                each(at as usize, unsafe { (self.rule_status)(breaks) });
             }
+            Ok(())
         };
-        unsafe {
-            if !breaks.is_null() {
-                (self.close_breaks)(breaks);
-            }
-            (self.close_text)(utext);
-        }
+        unsafe { (self.close_text)(utext) };
+        result
+    }
+
+    /// Runs a break iterator of `kind` over `text`, giving each boundary after
+    /// the start and its rule status.
+    fn boundaries(&self, kind: i32, text: &str, each: impl FnMut(usize, i32)) -> Result<()> {
+        let breaks = self.open(kind)?;
+        let result = self.walk(breaks, text, each);
+        unsafe { (self.close_breaks)(breaks) };
         result
     }
 
@@ -128,6 +138,34 @@ impl Icu {
         self.boundaries(LINE, text, |offset, status| breaks.push(LineBreak { offset, forced: status >= LINE_HARD }))?;
         Ok(breaks)
     }
+
+    /// A line break iterator to give one text after another: opening one
+    /// reads ICU's rules, which costs more than the breaks of a short text.
+    pub fn line_breaker(&'static self) -> Result<LineBreaker> {
+        Ok(LineBreaker { icu: self, breaks: self.open(LINE)? })
+    }
+}
+
+/// An open line break iterator ([`Icu::line_breaker`]). ICU's iterators are
+/// not for two threads at once, so it is not `Send`.
+pub struct LineBreaker {
+    icu: &'static Icu,
+    breaks: *mut c_void,
+}
+
+impl LineBreaker {
+    /// What [`Icu::line_breaks`] gives for `text`.
+    pub fn line_breaks(&mut self, text: &str) -> Result<Vec<LineBreak>> {
+        let mut breaks = Vec::new();
+        self.icu.walk(self.breaks, text, |offset, status| breaks.push(LineBreak { offset, forced: status >= LINE_HARD }))?;
+        Ok(breaks)
+    }
+}
+
+impl Drop for LineBreaker {
+    fn drop(&mut self) {
+        unsafe { (self.icu.close_breaks)(self.breaks) };
+    }
 }
 
 #[cfg(test)]
@@ -148,6 +186,15 @@ mod tests {
         let offsets: Vec<usize> = icu.line_breaks("中文，测试").unwrap().iter().map(|b| b.offset).collect();
         // 中|文，|测|试: never between 文 and ，.
         assert_eq!(offsets, [3, 9, 12, 15]);
+    }
+
+    #[test]
+    fn a_line_breaker_gives_each_text_what_a_new_iterator_gives() {
+        let icu = load().unwrap();
+        let mut breaker = icu.line_breaker().unwrap();
+        for text in ["中文，测试", "ab cd\nef", "", "a\u{20bb7}e\u{301} 中", "中文，测试"] {
+            assert_eq!(breaker.line_breaks(text).unwrap(), icu.line_breaks(text).unwrap(), "{text:?}");
+        }
     }
 
     #[test]

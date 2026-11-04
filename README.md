@@ -8,7 +8,7 @@ Supported game: vanilla 1.37.5, and patched builds of it with the same layout. S
 
 ## Installing the framework (players)
 
-The framework comes as a folder, or a zip of it, holding `version.dll` and an `eu4-harmony\` folder with the core (`eu4_harmony_core.dll`) and the command line tool (`eu4-harmony.exe`); `tools\release.ps1` makes both from a release build. Put `version.dll` and the `eu4-harmony\` folder into the game's root folder. If the root folder already has a `version.dll`, move it into `eu4-harmony\backup\` first; the framework does not load it. The framework draws Chinese and every other script itself ([ADR built-in-unicode-module](docs/adr/built-in-unicode-module.md)). Then start the game from the Paradox launcher as usual and enable mods built on the framework in your playset. Mods whose extension is a DLL, made for earlier versions of the framework, are no longer loaded: their extensions have to be rewritten in Lua.
+The framework comes as a folder, or a zip of it, holding `version.dll` and an `eu4-harmony\` folder with the core (`eu4_harmony_core.dll`) and the command line tool (`eu4-harmony.exe`); `cargo xtask release` makes both from a release build. Put `version.dll` and the `eu4-harmony\` folder into the game's root folder. If the root folder already has a `version.dll`, move it into `eu4-harmony\backup\` first; the framework does not load it. The framework draws Chinese and every other script itself ([ADR built-in-unicode-module](docs/adr/built-in-unicode-module.md)). Then start the game from the Paradox launcher as usual and enable mods built on the framework in your playset. Mods whose extension is a DLL, made for earlier versions of the framework, are no longer loaded: their extensions have to be rewritten in Lua.
 
 To uninstall, delete `version.dll` from the root folder, move the backed-up `version.dll`, if there is one, from `eu4-harmony\backup\` back into the root folder, and then delete `eu4-harmony\`.
 
@@ -23,6 +23,18 @@ Returning to the main menu does not start the game again: the main menu is back 
 ## Achievements
 
 Two more framework settings, both off unless the player turns them on, let the game give achievements where vanilla does not ([ADR achievement-rules-can-be-relaxed](docs/adr/achievement-rules-can-be-relaxed.md)): "Achievements outside ironman", in a game that is not ironman, with saves loaded again and the game console used; and "Achievements with a changed game checksum", with mods that change the game checksum the main menu shows. Every other rule for achievements stays the game's own, and a change takes effect with the next game started or loaded.
+
+## A faster game
+
+The framework makes the game faster without changing what it computes: the same rules, data and AI, the same days ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](docs/adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md), [docs/game-speed.md](docs/game-speed.md)). Always on:
+
+- Paradox's online client no longer sleeps on the main thread while it waits for its connections.
+- The framework keeps the line breaks of the texts it draws instead of working them out again every frame.
+- A local save (an autosave, a save of the player's, an ironman save) is written by the game without being compressed, and the framework compresses the file in the background afterwards. The file is a whole save at every moment; if the game is closed before the framework is done, that save stays uncompressed, only larger. Cloud saves are written by the game as before. The game without the framework loads a save the framework compressed.
+
+In a game of 1618, these made the paused game draw 84 frames a second instead of 63, and days pass about a tenth faster at the fastest speed ([docs/performance.md](docs/performance.md)).
+
+One choice is the player's, under "Game speed" in the settings window: "At the fastest speed", "Smooth map (as in the game)" or "Faster time". At the fastest speed the game draws frames during a day that takes long, so the map keeps moving; with "Faster time" it draws none, and late in a game days pass about another tenth faster, but the map is redrawn less often, looks choppier and answers clicks a little later. It takes effect when the settings window is closed, and only at the fastest speed.
 
 ## Remote control (players and AIs)
 
@@ -102,8 +114,8 @@ Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of
 | `manifest/` | A mod's `eu4-harmony/manifest.toml`, where the layout puts its other files, and the lines of its descriptor, shared by the core and the command line tool |
 | `remote/` | The capability catalogue: remote control's requests and responses, their JSON form and a description of every capability, saying which extensions have too, shared by the core and the command line tool |
 | `checks/` | The checks the framework makes of a capability's call itself, with the status and words of each refusal, shared by the core and `remote/`; and the game's calendar |
-| `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes |
-| `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus tools for backing up the player's files around a test run, measuring what the framework costs, disassembly, crash dumps and call tracing, see [tools/README.md](tools/README.md) |
+| `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes. Its `backup` and `restore` keep the player's files safe around a test run that loads a save |
+| `xtask/` | The repository's development commands, run as `cargo xtask`: `install` puts the built proxy, core and command line tool into the game folder (`--uninstall` removes them), `release` packs them for players, plus measuring what the framework costs, disassembly, the offline checks and crash dumps; with the core's development features they are described in [docs/dev-tools.md](docs/dev-tools.md) |
 | `docs/` | The design, ADRs, research, in-game test records and [what the framework costs the game](docs/performance.md) |
 
 Code, comments and documentation are in English. [README.zh-CN.md](README.zh-CN.md) is a Chinese translation of this file; the rest of the documentation is English only. Rules for working in this repository, for people and coding agents alike, are in [AGENTS.md](AGENTS.md).
