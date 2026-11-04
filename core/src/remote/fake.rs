@@ -2,7 +2,7 @@
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
     armies, camera, console, countries, decisions, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session,
-    texts, time,
+    subjects, texts, time,
 };
 use crate::game::{
     self, fail,
@@ -453,6 +453,31 @@ impl desktop::Layer for Fake {
 }
 
 /// One decision the player can take, and one they cannot.
+/// Wallachia is the Ottomans' subject: scutage the player can take, and
+/// sending officers, which goes on.
+impl subjects::Layer for Fake {
+    fn interactions(&mut self, subject: Tag) -> GResult<Vec<eu4_harmony_remote::subjects::Interaction>> {
+        use eu4_harmony_remote::{choices::Choice, subjects::Interaction};
+        self.call(format!("interactions {:x}", subject.0));
+        if subject != wal() {
+            return fail(Status::Rejected, "not a subject of the player's");
+        }
+        Ok(vec![
+            Interaction { interaction: "scutage".into(), name: "Demand Scutage".into(), active: false, choice: Choice::can(Vec::new()) },
+            Interaction { interaction: "send_officers".into(), name: "Send Officers".into(), active: true, choice: Choice::can(Vec::new()) },
+        ])
+    }
+
+    fn interact(&mut self, subject: Tag, interaction: &str, third_party: Option<Tag>) -> GResult<()> {
+        self.call(format!("interact {:x} {interaction} {:?}", subject.0, third_party.map(|t| t.0)));
+        if subject == wal() && interaction == "scutage" {
+            Ok(())
+        } else {
+            fail(Status::Rejected, "not a subject of the player's")
+        }
+    }
+}
+
 impl decisions::Layer for Fake {
     fn decisions(&mut self) -> GResult<Vec<eu4_harmony_remote::decisions::Decision>> {
         use eu4_harmony_remote::{choices::Choice, decisions::Decision};
@@ -772,6 +797,21 @@ We have a truce with them.",
             What::Act(Act::Warn) if country == byz() => Ok(game::diplomacy::Ticket(4)),
             _ => fail(Status::Rejected, "Is not the Papal Controller."),
         }
+    }
+
+    /// Byzantium can be rivalled; no other country.
+    fn add_rival(&mut self, rival: Tag) -> GResult<()> {
+        self.call(format!("add rival {:x}", rival.0));
+        if rival == byz() {
+            Ok(())
+        } else {
+            fail(Status::Rejected, "the game's command refuses it, and gives no reason")
+        }
+    }
+
+    fn remove_rival(&mut self, rival: Tag) -> GResult<()> {
+        self.call(format!("remove rival {:x}", rival.0));
+        fail(Status::Rejected, "the game's command refuses it, and gives no reason")
     }
 
     fn answer(&mut self, ticket: game::diplomacy::Ticket) -> GResult<game::diplomacy::Answer> {

@@ -7,7 +7,7 @@ use eu4_harmony_remote::{
     describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
     input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
     questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, Kind, ProvinceId,
+    subjects::SubjectRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, Kind, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -53,7 +53,6 @@ fn every_capability_runs_at_a_game_frame() {
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
-    #[cfg_attr(not(feature = "dev-memory"), expect(unused_mut, reason = "only the memory account adds cases"))]
     let mut cases: Vec<(Request, Check)> = vec![
         (Request::Session(SessionRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})))),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
@@ -325,6 +324,11 @@ fn every_capability_runs_at_a_game_frame() {
         let request = eu4_harmony_remote::request_from_json(&Value::Object(request).to_string()).unwrap();
         panel.push((request, Box::new(error("rejected"))));
     }
+    panel.push((Request::Subject(SubjectRequest::Options { subject: CountryTag(*b"WAL") }), Box::new(|v: &Value| v["result"][1]["active"] == true)));
+    panel.push((
+        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None }),
+        Box::new(|v: &Value| *v == ok(Value::Null)),
+    ));
     cases.splice(0..0, panel);
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();

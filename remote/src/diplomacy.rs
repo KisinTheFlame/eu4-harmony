@@ -101,6 +101,21 @@ group! {
         /// The other country.
         country: CountryTag,
     } -> Options, "country, actions: each action (its capability, or scripted_action), key, name, can, reasons, cost, description and, where the panel shows it, acceptance";
+    /// Makes a country one of the player's rivals, as the rivals list of the
+    /// diplomacy view does. `rejected` when the game's command refuses it
+    /// (not a valid rival, or the player has as many as the game allows); the
+    /// game gives no reason.
+    game AddRival "add_rival" {
+        /// The country to rival.
+        country: CountryTag,
+    } -> (), "nothing: the country is a rival";
+    /// Drops a rival, as the rivals list of the diplomacy view does.
+    /// `rejected` when the game's command refuses it, such as for a country
+    /// that is not a rival; the game gives no reason.
+    game RemoveRival "remove_rival" {
+        /// The rival to drop.
+        country: CountryTag,
+    } -> (), "nothing: the country is no rival any more";
     /// Sends one of the scripted diplomatic actions the panel offers
     /// (`common/new_diplomatic_actions`), by its content key, as
     /// `diplomacy.options` lists it under `scripted_action`.

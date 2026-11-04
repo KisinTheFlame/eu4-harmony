@@ -310,6 +310,31 @@ pub fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GR
     Ok(())
 }
 
+/// Has the game read the command `text` writes, as [`post`] reads it, and
+/// gives it to `look` unexecuted, then destroys it: for a capability that
+/// asks a command's checks before it posts it, or without posting it.
+/// [`Refused::Unread`] for a text the game does not read as written;
+/// [`Refused::Check`] is never answered.
+pub fn with_command<T>(written: &str, look: impl FnOnce(&Memory, usize) -> GResult<T>) -> Result<T, Refused> {
+    let given = Written::parse(written).map_err(Refused::Unread)?;
+    let m = game()?;
+    let Some(command) = read(m, &game_text::from_str(written))? else {
+        return Err(Refused::Unread(format!("the game has no command {:?}", given.kind)));
+    };
+    let looked = match Written::parse(&text(m, command)?).map(|again| given.came_back(&again)) {
+        Ok(Ok(())) => look(m, command).map_err(Refused::Game),
+        Ok(Err(how)) | Err(how) => Err(Refused::Unread(how)),
+    };
+    m.call(m.vslot(command, DESTROY)?, &[command, FREE])?;
+    looked
+}
+
+/// Whether the command `text` writes passes its own check now, as the
+/// session's update asks it before it executes the command.
+pub fn allowed(text: &str) -> Result<bool, Refused> {
+    with_command(text, |m, command| Ok(m.call(m.vslot(command, CHECK)?, &[command])? as u8 != 0))
+}
+
 /// Whether the session's update would execute commands now: in a state in
 /// which it runs its queue, with no command executing and none held back.
 fn executes(m: &Memory, session: usize) -> GResult<bool> {

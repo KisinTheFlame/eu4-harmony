@@ -26,6 +26,8 @@ layer! {
     fn options(country: Tag) -> Vec<layer::Offered> = layer::options;
     fn act(country: Tag, what: &What, details: &Details) -> Ticket = layer::act;
     fn answer(ticket: Ticket) -> Answer = layer::answer;
+    fn add_rival(rival: Tag) -> () = layer::add_rival;
+    fn remove_rival(rival: Tag) -> () = layer::remove_rival;
 }
 
 /// The panel's act a capability sends, the country it sends it to, and the
@@ -87,6 +89,20 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
                 let other = game.country(country)?;
                 let actions = game.options(other)?.into_iter().map(offered).collect();
                 Ok(Answered::Diplomacy(DiplomacyAnswer::Options(Options { country, actions })))
+            })())
+        }
+        DiplomacyRequest::AddRival { country } => {
+            return Ran::Done((|| {
+                let rival = game.country(country)?;
+                game.add_rival(rival)?;
+                Ok(Answered::Diplomacy(DiplomacyAnswer::AddRival(())))
+            })())
+        }
+        DiplomacyRequest::RemoveRival { country } => {
+            return Ran::Done((|| {
+                let rival = game.country(country)?;
+                game.remove_rival(rival)?;
+                Ok(Answered::Diplomacy(DiplomacyAnswer::RemoveRival(())))
             })())
         }
         DiplomacyRequest::ScriptedAction { country, action } => (|| {

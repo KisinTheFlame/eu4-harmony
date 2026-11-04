@@ -35,6 +35,7 @@ pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod subjects;
 pub mod texts;
 pub mod time;
 pub mod world;
@@ -289,6 +290,7 @@ pub fn points() -> Vec<Point> {
     points.extend(questions::points());
     points.extend(menu::points());
     points.extend(diplomacy::points());
+    points.extend(subjects::points());
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());

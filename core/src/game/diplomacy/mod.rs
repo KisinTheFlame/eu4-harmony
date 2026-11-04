@@ -298,6 +298,25 @@ pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
     send(m, &ctx, made.at(), ally, Vec::new())
 }
 
+/// Makes `rival` one of the player's rivals, with the game's `add_rival`
+/// command, as the diplomacy view's rivals list posts it; its check refuses
+/// what the list would not offer, with no reason ([`Status::Rejected`]).
+pub fn add_rival(_: Caller, rival: Tag) -> GResult<()> {
+    rival_command("add_rival", rival)
+}
+
+/// Drops `rival`, with the game's `remove_rival` command.
+pub fn remove_rival(_: Caller, rival: Tag) -> GResult<()> {
+    rival_command("remove_rival", rival)
+}
+
+fn rival_command(kind: &str, rival: Tag) -> GResult<()> {
+    let m = game()?;
+    let ctx = context(m)?;
+    other(m, &ctx, rival)?;
+    commands::post(&format!("{kind}={{ country=\"{}\" rival=\"{}\" }}", letters(ctx.player), letters(rival))).map_err(Into::into)
+}
+
 /// What came of an action sent. [`Status::NotFound`] for a ticket that is
 /// no longer kept; [`Status::NotInGame`] once the game it was sent in has
 /// ended; [`Status::Rejected`] for a declaration of war the game carried
@@ -496,6 +515,17 @@ fn said(text: &[u8]) -> (Vec<String>, Vec<String>) {
         }
     }
     (reasons, description)
+}
+
+/// The reasons a check of the game's wrote, one a line: its bulleted lines,
+/// or, when it bullets none, every line.
+pub(super) fn reasons_said(text: &[u8]) -> Vec<String> {
+    let (reasons, rest) = said(text);
+    if reasons.is_empty() {
+        rest
+    } else {
+        reasons
+    }
 }
 
 /// The refusal's message: the reasons the checks gave.

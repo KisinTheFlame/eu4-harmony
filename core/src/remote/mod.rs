@@ -59,6 +59,7 @@ pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod subjects;
 #[cfg(test)]
 mod tests;
 pub mod texts;
@@ -99,6 +100,7 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + subjects::Layer
 {
 }
 impl<
@@ -120,6 +122,7 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + subjects::Layer
             + ?Sized,
     > Game for T
 {
@@ -602,6 +605,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Subject(r) => done(subjects::run(r, game).map(Answer::Subject)),
     }
 }
 
