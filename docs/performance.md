@@ -80,7 +80,7 @@ A training job that kept the processor about 80% busy and held 14 GB of the grap
 
 ## Method
 
-`cargo xtask perf-run` ([xtask/src/perf_run.rs](../xtask/src/perf_run.rs)) runs the game the same way each time:
+The runs below were made with `tools/perf-run.ps1`, which measured vanilla too and so drove the game by the screen. It ran the game the same way each time:
 
 1. Starts `eu4.exe` and times the launch until the main menu is on screen (a region of the menu's logo, compared every 0.25 s).
 2. 20 s later reads the process's working set and private bytes.
@@ -89,6 +89,8 @@ A training job that kept the processor about 80% busy and held 14 GB of the grap
 5. Sets speed 5, runs the game for 120 s, pauses, and reads the CPU, memory and date.
 
 CPU is given in cores: the process's CPU seconds per second of wall time (the machine has 16 hardware threads). Memory is what Windows reports for the process; graphics memory was not measured. Each setup was measured two or three times, going through the setups and then back again, with menu-only runs for idle CPU at the main menu (Chinese playset). Game days are counted in the game's calendar, which has no leap years.
+
+`cargo xtask perf-run` ([xtask/src/perf_run.rs](../xtask/src/perf_run.rs)) measures the framework's game only ([game-testing.md](game-testing.md)): within the claim it starts the game hidden and times the start to the main menu, reads memory 20 s later, starts a new game as Ming with `menu.start` and times it, measures CPU over 30 s paused, then 120 s at speed 5 through `time.set_speed`, `time.resume` and `time.pause`, and reads the dates with `time.get`. Its start is timed from the start command, not from a menu logo on screen, so its menu seconds are not those of the runs below.
 
 ## Results
 

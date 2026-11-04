@@ -7,8 +7,9 @@
 //! (`eu4-harmony-core/dev-heap-census`) the report adds the leftovers by site
 //! and what holds them, but the census slows the game and holds hundreds of
 //! megabytes of its own. And the game claimed and its player's files backed
-//! up: the run loads saves and starts games, which autosave. It starts
-//! eu4.exe unless it runs, and plays its rounds through remote control. Each
+//! up: the run loads saves and starts games, which autosave. Within the
+//! claim, it starts the game hidden unless it runs (`cargo xtask game
+//! start`), and plays its rounds through remote control. Each
 //! round:
 //! 1. loads the first save from the main menu, and lets the days run;
 //! 2. loads the second save from that game, and lets a third of them run;
@@ -42,7 +43,7 @@
 //! report then says in which round, and what was found until then. The
 //! memory it keeps counts in the game's heap, so a run with it measures no
 //! growth.
-use crate::{game, Args, Result};
+use crate::{claim, game, Args, Result};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -77,14 +78,10 @@ fn play(args: &Args) -> Result<Value> {
     let sites = args.number("sites", 40)?.to_string();
     let watch = args.number("watch", 0)?;
     let watch_after = args.number("watch-after", 3)?;
-    let game_dir = args.game_dir()?;
-    let cli = game_dir.join("eu4-harmony").join("eu4-harmony.exe");
-    if !cli.is_file() {
-        return Err(format!("no command line tool at {}: install the developer build with cargo xtask install", cli.display()));
-    }
-    let game = Game { cli };
+    claim::needs_claim(args)?;
+    let game = Game(game::Client::installed(&args.game_dir()?)?);
     if !game::running() {
-        game::start(&game_dir)?;
+        claim::start_game(args, false)?;
     }
     game.main_menu()?;
     game.ask(&["memory"]).map_err(|e| format!("the game has no memory group: install a developer build with the memory account ({e})"))?;
@@ -183,29 +180,15 @@ fn play(args: &Args) -> Result<Value> {
 }
 
 /// The installed command line tool, which asks the game.
-struct Game {
-    cli: PathBuf,
-}
+struct Game(game::Client);
 
 impl Game {
-    /// The answer, or what the game said instead.
     fn ask(&self, words: &[&str]) -> Result<Value> {
-        self.ask_within(words, 600)
+        self.0.ask(words)
     }
 
     fn ask_within(&self, words: &[&str], timeout: u32) -> Result<Value> {
-        let output = std::process::Command::new(&self.cli)
-            .arg("game")
-            .args(words)
-            .args(["--compact", "--timeout", &timeout.to_string()])
-            .output()
-            .map_err(|e| format!("cannot run {}: {e}", self.cli.display()))?;
-        let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-        let text = text.trim();
-        if !output.status.success() {
-            return Err(format!("game {}: {text}", words.join(" ")));
-        }
-        serde_json::from_str(text).map_err(|e| format!("game {}: {e}: {text}", words.join(" ")))
+        self.0.ask_within(words, timeout)
     }
 
     fn advance(&self, days: &str) -> Result<()> {

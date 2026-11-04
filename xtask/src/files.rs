@@ -37,6 +37,8 @@ pub fn install(args: &Args) -> Result<()> {
     if !root.join("eu4.exe").is_file() {
         return Err(format!("no eu4.exe in {}", root.display()));
     }
+    // The claim puts the game folder back as it was (docs/game-testing.md).
+    crate::claim::needs_claim(args)?;
     game::not_running()?;
 
     if args.flag("uninstall") {
