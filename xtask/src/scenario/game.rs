@@ -8,7 +8,7 @@ use eu4_harmony_client::pipe::{self, Failure};
 use eu4_harmony_remote::{
     menu::{Menu, MenuRequest, Place},
     time::{Advanced, TimeRequest},
-    GroupRequest,
+    Error, GroupRequest,
 };
 use serde::de::DeserializeOwned;
 use std::{
@@ -71,21 +71,30 @@ impl Game {
     /// Asks `request` and reads its answer, within `step`; the game is
     /// started first if the scenario has not had it yet.
     pub fn ask_within<T: DeserializeOwned>(&mut self, request: &impl GroupRequest, step: Duration) -> Played<T> {
+        let name = request.full_name();
+        match self.exchange(request, step)? {
+            Ok(answer) => answer.map_err(|refused| Stop::Failed(format!("{name}: {refused}"))),
+            Err(failure) => Err(self.why(&name, &failure, step)),
+        }
+    }
+
+    /// Sends `request` and reads its answer, or why none came.
+    fn exchange<T: DeserializeOwned>(&mut self, request: &impl GroupRequest, step: Duration) -> Played<Result<Result<T, Error>, Failure>> {
         self.not_taken()?;
         self.started()?;
-        let name = request.full_name();
         let deadline = Instant::now() + step;
         let mut client = match self.client.take() {
             Some(client) => client,
-            None => pipe::connect(pipe::NAME, pipe::GAME, deadline).map_err(|f| self.why(&name, &f, step))?,
+            None => match pipe::connect(pipe::NAME, pipe::GAME, deadline) {
+                Ok(client) => client,
+                Err(failure) => return Ok(Err(failure)),
+            },
         };
-        match client.ask_for(request, Some(deadline)) {
-            Ok(answer) => {
-                self.client = Some(client);
-                answer.map_err(|refused| Stop::Failed(format!("{name}: {refused}")))
-            }
-            Err(failure) => Err(self.why(&name, &failure, step)),
+        let answer = client.ask_for(request, Some(deadline));
+        if answer.is_ok() {
+            self.client = Some(client);
         }
+        Ok(answer)
     }
 
     /// Lets `days` days run at speed 5.
@@ -95,7 +104,16 @@ impl Game {
 
     /// Returns to the main menu, and waits for it.
     pub fn return_to_menu(&mut self) -> Played<()> {
-        let _: Menu = self.ask(&MenuRequest::Return {})?;
+        let name = MenuRequest::Return {}.full_name();
+        match self.exchange::<Menu>(&MenuRequest::Return {}, STEP)? {
+            Ok(Ok(_)) => {}
+            Ok(Err(refused)) => return Err(Stop::Failed(format!("{name}: {refused}"))),
+            // A return that starts the game again ends this process, and the
+            // pipe may break before its answer comes: with a game still
+            // running, that is the return.
+            Err(Failure::Broken) if !self.gone() => {}
+            Err(failure) => return Err(self.why(&name, &failure, STEP)),
+        }
         self.main_menu()
     }
 
@@ -210,10 +228,14 @@ impl Game {
         if self.taken.load(Ordering::SeqCst) {
             return Stop::Taken;
         }
-        if self.gone() {
-            return Stop::Crashed(format!("the game ended while answering {name}"));
-        }
+        let ended = format!("the game ended while answering {name}");
         match failure {
+            // Only a return to the main menu ends the process on purpose,
+            // and `return_to_menu` takes that itself. An ended process may
+            // stay in the process list for a while, so its list is no
+            // sign here.
+            Failure::Broken => Stop::Crashed(ended),
+            _ if self.gone() => Stop::Crashed(ended),
             Failure::TimedOut | Failure::NotOpen => Stop::Hung(format!("{name} had no answer in {} s", step.as_secs())),
             other => Stop::Failed(format!("{name}: {other}")),
         }
