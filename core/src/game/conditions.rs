@@ -77,7 +77,7 @@ pub fn failing(m: &Memory, trigger: usize, country: Tag, province: u32) -> GResu
 
 /// Game text's condition lines as plain Unicode: the mark of whether each
 /// holds (an icon, `£yes ` or `£no `), the indent and color codes left out.
-fn lines(text: &[u8]) -> Vec<String> {
+pub fn lines(text: &[u8]) -> Vec<String> {
     let unmarked = strip(&strip(text, b"\xa3yes "), b"\xa3no ");
     game_text::plain(&unmarked).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
