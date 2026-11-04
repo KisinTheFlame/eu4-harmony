@@ -28,8 +28,10 @@ pub mod input;
 pub mod interface;
 pub mod map_coloring;
 pub mod menu;
+pub mod occupation;
 pub mod offers;
 pub mod orders;
+pub mod peace;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
@@ -292,6 +294,8 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(peace::points());
+    points.extend(occupation::points());
     points
 }
 

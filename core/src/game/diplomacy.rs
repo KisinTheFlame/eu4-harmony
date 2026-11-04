@@ -21,13 +21,17 @@ use crate::{
     hooks::HookFrame,
     memory::Memory,
     objects::{
-        diplomacy::{action, casus_belli, classes, command, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world},
+        campaign::country as country_fields,
+        diplomacy::{
+            action, casus_belli, classes, command, factor, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world,
+        },
         gui,
     },
     points::Point,
     unicode::game_text,
 };
-use eu4_harmony_checks::diplomacy as checks;
+use eu4_harmony_checks::{diplomacy as checks, peace as checks_peace};
+use eu4_harmony_remote::choices;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -59,6 +63,24 @@ const FREE: usize = 1;
 const ALLIANCE_DESCRIPTION: usize = 0x1c83dc0;
 const PEACE_DESCRIPTION: usize = 0x1c8abc0;
 const WAR_DESCRIPTION: usize = 0x1c83498;
+const CALL_DESCRIPTION: usize = 0x1c863f8;
+
+/// Whether the diplomacy panel offers an action of a type, and the action
+/// it makes for its entry: (country, type token, other's tag, the country's
+/// relation record to the other, whether shown to the player, scripted
+/// action), and (country, type token, other's tag, whether shown to the
+/// player, scripted action), the action made on the game's heap.
+const PANEL_OFFERS: usize = 0x35a8f0;
+const PANEL_MAKES: usize = 0x35a880;
+/// The type token of a call to arms.
+const CALL_TOKEN: usize = 0x294d;
+/// Whether the AI would accept an action, its base's method at `+0xb8`:
+/// (action, factors), filling the `std::vector` of [`factor`]s given; and
+/// that vector's destructor, (vector).
+const ACCEPTS: usize = 0x4ea1e0;
+const FACTORS_FREE: usize = 0x4183f0;
+/// The most factors the game is believed to give.
+const MOST_FACTORS: usize = 1_000;
 
 /// What the declare war window gathers about a declaration of war: (action,
 /// out [`sides`], 1 as the window passes it).
@@ -89,6 +111,7 @@ pub enum Action {
     DeclareWar,
     OfferPeace,
     ProposeAlliance,
+    CallToArms,
 }
 
 impl Action {
@@ -98,6 +121,7 @@ impl Action {
             Self::DeclareWar => classes::DECLARE_WAR,
             Self::OfferPeace => classes::PEACE,
             Self::ProposeAlliance => classes::ALLIANCE,
+            Self::CallToArms => classes::CALL,
         }
     }
 
@@ -107,6 +131,7 @@ impl Action {
             Self::DeclareWar => WAR_DESCRIPTION,
             Self::OfferPeace => PEACE_DESCRIPTION,
             Self::ProposeAlliance => ALLIANCE_DESCRIPTION,
+            Self::CallToArms => CALL_DESCRIPTION,
         }
     }
 
@@ -300,6 +325,94 @@ pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
     send(m, &ctx, made.at(), Action::ProposeAlliance, ally, Vec::new())
 }
 
+/// Calls `ally` to arms in the player's wars, as the diplomacy panel's call
+/// to arms button and the window it opens send the call, with no land
+/// promised. [`Status::Rejected`] when the panel offers no call to arms to
+/// it, or the game does not let the player send it, with its reasons.
+pub fn call_to_arms(_: Caller, ally: Tag) -> GResult<Ticket> {
+    let m = game()?;
+    let ctx = context(m)?;
+    other(m, &ctx, ally)?;
+    let Some(call) = Panel::make(m, &ctx, CALL_TOKEN, ally)? else {
+        return Err(checks_peace::no_call_to_arms(letters(ally)).into());
+    };
+    verdict(m, call.at, Action::CallToArms)?;
+    send(m, &ctx, call.at, Action::CallToArms, ally, Vec::new())
+}
+
+/// Whether the player can call `ally` to arms now, why not, and whether it
+/// would accept, as the diplomacy panel's call to arms entry and its window
+/// tell the player; None when the panel offers no call to arms to it. For
+/// the diplomacy panel's read of what its buttons offer.
+pub fn call_to_arms_option(_: Caller, ally: Tag) -> GResult<Option<(choices::Choice, choices::Acceptance)>> {
+    let m = game()?;
+    let ctx = context(m)?;
+    other(m, &ctx, ally)?;
+    let Some(call) = Panel::make(m, &ctx, CALL_TOKEN, ally)? else { return Ok(None) };
+    let choice = match refusals(m, call.at, Action::CallToArms)? {
+        None => choices::Choice::can(Vec::new()),
+        Some(reasons) => choices::Choice::cannot(reasons, Vec::new()),
+    };
+    Ok(Some((choice, acceptance(m, call.at)?)))
+}
+
+/// An action the diplomacy panel made for one of its entries, on the game's
+/// heap; destroyed and freed when dropped.
+struct Panel<'a> {
+    m: &'a Memory,
+    at: usize,
+}
+
+impl<'a> Panel<'a> {
+    /// The action of type `token` the diplomacy panel makes for the player
+    /// towards `other`, when the panel offers it.
+    fn make(m: &'a Memory, ctx: &Ctx, token: usize, other: Tag) -> GResult<Option<Self>> {
+        let relation = m.ptr(ctx.country + country_fields::RELATIONS)? + other.index() as usize * country_fields::RELATION_SIZE;
+        let shown = 1;
+        if m.call(m.at(PANEL_OFFERS), &[ctx.country, token, other.0 as usize, relation, shown, 0])? as u8 == 0 {
+            return Ok(None);
+        }
+        let at = m.call(m.at(PANEL_MAKES), &[ctx.country, token, other.0 as usize, shown, 0])?;
+        if at == 0 {
+            return Err("the diplomacy panel made no action".to_string().into());
+        }
+        Ok(Some(Self { m, at }))
+    }
+}
+
+impl Drop for Panel<'_> {
+    fn drop(&mut self) {
+        if let Err(e) = self.m.vslot(self.at, action::DESTROY).and_then(|d| self.m.call(d, &[self.at, FREE])) {
+            log!("diplomacy: destroying an action: {e}");
+        }
+    }
+}
+
+/// Whether the other country would accept the action at `at`, as the
+/// window that sends it shows: the verdict, the sum, and each factor, with
+/// its text as the window's tooltip writes it.
+pub(super) fn acceptance(m: &Memory, at: usize) -> GResult<choices::Acceptance> {
+    let mut factors = [0usize; 3];
+    let factors_at = factors.as_mut_ptr() as usize;
+    let accepts = m.call(m.at(ACCEPTS), &[at, factors_at]);
+    let factors = unsafe { std::ptr::read_volatile(&factors) };
+    let read = accepts.map_err(super::Fail::from).and_then(|accepts| {
+        let size = factors[1].wrapping_sub(factors[0]);
+        if factors[1] < factors[0] || size % factor::SIZE != 0 || size / factor::SIZE > MOST_FACTORS {
+            return Err("the factors are out of bounds".to_string().into());
+        }
+        let mut read = Vec::new();
+        for item in (factors[0]..factors[1]).step_by(factor::SIZE) {
+            let text = game_text::plain(&game_string::read(m, item + factor::TEXT)?).trim().to_string();
+            read.push(choices::Factor { text, value: m.i32(item + factor::VALUE)? as f64 });
+        }
+        Ok((accepts as u8 != 0, read))
+    });
+    m.call(m.at(FACTORS_FREE), &[factors_at])?;
+    let (accepts, factors) = read?;
+    Ok(choices::Acceptance { accepts, total: factors.iter().map(|f| f.value).sum(), factors })
+}
+
 /// What came of an action sent. [`Status::NotFound`] for a ticket that is
 /// no longer kept; [`Status::NotInGame`] once the game it was sent in has
 /// ended; [`Status::Rejected`] for a declaration of war the game carried
@@ -345,7 +458,7 @@ fn war_with(caller: Caller, ctx: &Ctx, enemy: Tag) -> GResult<Option<String>> {
 }
 
 /// A country of the game's other than the player's.
-fn other(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<()> {
+pub(super) fn other(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<()> {
     country(m, ctx, tag)?;
     if tag.index() == ctx.player.index() {
         return Err(checks::own_country().into());
@@ -353,7 +466,7 @@ fn other(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<()> {
     Ok(())
 }
 
-fn letters(tag: Tag) -> String {
+pub(super) fn letters(tag: Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
 }
 
@@ -361,19 +474,19 @@ fn letters(tag: Tag) -> String {
 
 /// An action the framework makes in its own memory, which the game's code
 /// fills in and copies; destroyed, without freeing, once sent.
-struct Made<'a> {
+pub(super) struct Made<'a> {
     m: &'a Memory,
     object: Vec<u64>,
     /// Its constructor ran, so its destructor must.
-    built: bool,
+    pub(super) built: bool,
 }
 
 impl<'a> Made<'a> {
-    fn new(m: &'a Memory, size: usize) -> Self {
+    pub(super) fn new(m: &'a Memory, size: usize) -> Self {
         Self { m, object: vec![0; size.div_ceil(8)], built: false }
     }
 
-    fn at(&self) -> usize {
+    pub(super) fn at(&self) -> usize {
         self.object.as_ptr() as usize
     }
 
@@ -399,7 +512,7 @@ impl Drop for Made<'_> {
 /// ([`verdict`]): has it make its command, as the diplomacy window does,
 /// posts the command's written form through the command layer, and keeps
 /// the action for [`answer`], with the allies it calls.
-fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag>) -> GResult<Ticket> {
+pub(super) fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag>) -> GResult<Ticket> {
     let mut command = 0usize;
     m.call(m.vslot(at, action::MAKE_COMMAND)?, &[at, &mut command as *mut usize as usize])?;
     if command == 0 || m.ptr(command)? != m.at(classes::ACTION_COMMAND) {
@@ -421,7 +534,7 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag
     let record = match kind {
         Action::ProposeAlliance => Some((world::ALLIANCE_OFFER_FROM, world::ALLIANCE_OFFER_DATE)),
         Action::OfferPeace => Some((world::PEACE_OFFER_FROM, world::PEACE_OFFER_DATE)),
-        Action::DeclareWar => None,
+        Action::DeclareWar | Action::CallToArms => None,
     };
     if let Some((from, date)) = record {
         m.write(ctx.world + from, &ctx.player.0.to_le_bytes())?;
@@ -433,11 +546,22 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, kind: Action, to: Tag, called: Vec<Tag
 /// Asks the action the checks the diplomacy panel and the window ask before
 /// the player can send it; [`Status::Rejected`] with the game's reasons when
 /// either says no.
-fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
+pub(super) fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
+    match refusals(m, at, kind)? {
+        None => Ok(()),
+        Some(reasons) if reasons.is_empty() => fail(Status::Rejected, "the game does not allow it, and gives no reason"),
+        Some(reasons) => fail(Status::Rejected, reasons.join("\n")),
+    }
+}
+
+/// The checks [`verdict`] asks: None when both let the player send it, and
+/// otherwise the reasons they give, each once, without the description;
+/// empty when they give none.
+pub(super) fn refusals(m: &Memory, at: usize, kind: Action) -> GResult<Option<Vec<String>>> {
     let ask = |slot: usize| -> GResult<bool> { Ok(m.call(m.vslot(at, slot)?, &[at, 0, 0])? as u8 != 0) };
     let checks = [(action::OFFERED, ask(action::OFFERED)?), (action::ALLOWED, ask(action::ALLOWED)?)];
     if checks.iter().all(|&(_, allowed)| allowed) {
-        return Ok(());
+        return Ok(None);
     }
     let mut said = Vec::new();
     for (slot, allowed) in checks {
@@ -446,7 +570,7 @@ fn verdict(m: &Memory, at: usize, kind: Action) -> GResult<()> {
         }
     }
     let description = text_lines(&game_string::localized(m, m.at(kind.description()))?);
-    fail(Status::Rejected, refusal(said, &description))
+    Ok(Some(unique(said, &description)))
 }
 
 /// What a check appends to a `std::string`.
@@ -456,24 +580,20 @@ fn reasons(m: &Memory, at: usize, slot: usize) -> GResult<Vec<u8>> {
 }
 
 /// Game text's lines as plain Unicode, a reason's bullet left out.
-fn text_lines(text: &[u8]) -> Vec<String> {
+pub(super) fn text_lines(text: &[u8]) -> Vec<String> {
     game_text::plain(text).lines().map(|l| l.trim()).map(|l| l.strip_prefix("- ").unwrap_or(l).trim()).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
 
-/// The refusal's message: the reasons the checks gave, each once, without
-/// the action's description, which they append after them.
-fn refusal(said: Vec<String>, description: &[String]) -> String {
+/// The reasons the checks gave, each once, without the action's
+/// description, which they append after them.
+fn unique(said: Vec<String>, description: &[String]) -> Vec<String> {
     let mut reasons: Vec<String> = Vec::new();
     for line in said {
         if !description.contains(&line) && !reasons.contains(&line) {
             reasons.push(line);
         }
     }
-    if reasons.is_empty() {
-        "the game does not allow it, and gives no reason".into()
-    } else {
-        reasons.join("\n")
-    }
+    reasons
 }
 
 // ---------- calls to arms ----------
@@ -975,7 +1095,9 @@ extern "C" fn carry_out_before(frame: *mut HookFrame) {
         let found = (|| -> crate::Result<Option<(Action, Tag, i32)>> {
             let a = m.ptr(command + command::ACTION)?;
             let class = m.ptr(a)?;
-            let Some(kind) = [Action::DeclareWar, Action::OfferPeace, Action::ProposeAlliance].into_iter().find(|k| m.at(k.class()) == class) else {
+            let Some(kind) =
+                [Action::DeclareWar, Action::OfferPeace, Action::ProposeAlliance, Action::CallToArms].into_iter().find(|k| m.at(k.class()) == class)
+            else {
                 return Ok(None);
             };
             let Ok(ctx) = context_any(m) else { return Ok(None) };
@@ -1050,6 +1172,24 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_CALL, "48 89 5c 24 18 48 89 54 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57", "ally check"),
         Point::keep(0xee0d44usize, "48 8d 15 95 e8 e3 00", "ally check allied to enemy").uses(&[ALLIED_TO_ENEMY]),
         Point::keep(TAGS_GROW, "48 89 5c 24 18 56 57 41 56 48 83 ec 20 48 8b 41 08 48 8b da 48 8b 11", "tags grown"),
+        // Calls to arms: the diplomacy panel's actions, the call's checks,
+        // command and destructor, and the description its check appends.
+        Point::keep(PANEL_OFFERS, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 70 49 8b f1 49", "diplomacy panel offers"),
+        Point::keep(PANEL_MAKES, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 48 83 ec 20 8b c2 48 8b", "diplomacy panel makes"),
+        method(CALL, action::MAKE_COMMAND, 0x4e9930, "call to arms command"),
+        method(CALL, action::ALLOWED, 0x5426d0, "call to arms check"),
+        Point::keep(0x5426d0usize, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 41 56 41 57", "call to arms check"),
+        method(CALL, action::OFFERED, 0x4e9b10, "call to arms panel check"),
+        Point::keep(0x4e9b10usize, "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 81 ec 90 00 00", "call to arms panel check"),
+        method(CALL, action::DESTROY, 0x506670, "call to arms destructor"),
+        Point::keep(0x506670usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 8b da 48 83 c1 58 e8", "call to arms destructor"),
+        Point::keep(0x542831usize, "48 8d 15 c0 3b 74 01", "call to arms description").uses(&[CALL_DESCRIPTION]),
+        // Whether the AI accepts an action, with its factors, which every
+        // kind inherits, and the factors' destructor.
+        method(PEACE, action::ACCEPTS, ACCEPTS, "peace offer acceptance"),
+        method(CALL, action::ACCEPTS, ACCEPTS, "call to arms acceptance"),
+        Point::keep(ACCEPTS, "48 89 5c 24 08 48 89 74 24 18 57 48 83 ec 20 48 85 d2 48 8b da 48 8b f9", "diplomatic action acceptance"),
+        Point::keep(FACTORS_FREE, "48 89 5c 24 10 57 48 83 ec 20 48 8b 19 48 8b f9 48 85 db 74 7f 48 89 74", "factors freed"),
         // The war goals and their list.
         Point::keep(WAR_GOAL_LIST, "48 89 5c 24 10 4c 89 4c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 50", "war goals offered"),
         method(WAR_GOALS, 0, WAR_GOAL_LIST_DESTROY, "war goal list destructor"),
@@ -1178,8 +1318,8 @@ mod tests {
         let panel = "\u{a7}R- Cannot ally with a rival.\u{a7}!\n";
         let description = text_lines(&game_text::from_str("If a country accepts our Alliance offer it may come to our assistance during wars."));
         let said: Vec<String> = text_lines(&game_text::from_str(panel)).into_iter().chain(text_lines(&game_text::from_str(alliance))).collect();
-        assert_eq!(refusal(said, &description), "Cannot ally with a rival.\nYou have no diplomats to send.");
-        assert_eq!(refusal(description.clone(), &description), "the game does not allow it, and gives no reason");
+        assert_eq!(unique(said, &description), ["Cannot ally with a rival.", "You have no diplomats to send."]);
+        assert!(unique(description.clone(), &description).is_empty());
         // Icons as their names, as everywhere in game text read plain.
         assert_eq!(text_lines(&game_text::from_str("\u{a7}R- \u{a3}icon_dip\u{a3} too low\u{a7}!")), ["dip too low"]);
     }

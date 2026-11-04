@@ -18,6 +18,8 @@ pub mod classes {
     pub const ALLIANCE: usize = 0x1c80720;
     pub const DECLARE_WAR: usize = 0x1c80d90;
     pub const PEACE: usize = 0x1c7b840;
+    /// A call to arms, as the diplomacy panel makes one.
+    pub const CALL: usize = 0x1c800b0;
     /// The command that carries a diplomatic action to the session.
     pub const ACTION_COMMAND: usize = 0x1c814b0;
     /// The list of war goals the game offers for a declaration of war: it
@@ -69,6 +71,9 @@ pub mod action {
     /// it lets the player open that window.
     pub const DESTROY: usize = 0;
     pub const MAKE_COMMAND: usize = 0x40;
+    /// Whether the other country's AI would accept it, (action, factors),
+    /// the factors a `std::vector` it fills (`super::factor`).
+    pub const ACCEPTS: usize = 0xb8;
     pub const ALLOWED: usize = 0x88;
     pub const OFFERED: usize = 0x90;
     /// The sizes of the kinds the framework makes.
@@ -144,9 +149,68 @@ pub mod war_goals {
 }
 
 /// A peace treaty, which a peace offer holds; one with no terms is a white
-/// peace.
+/// peace. As made (`0x975d40`) it holds every term the peace view offers,
+/// none of them chosen.
 pub mod treaty {
     pub const SIZE: usize = 0x1c0;
+    /// Every term it holds, chosen or not: a `std::vector` of pointers to
+    /// [`super::term`]s (start, end).
+    pub const TERMS: usize = 0x88;
+}
+
+/// A term of a peace treaty (a "peace option", its type's key `po_…`): one
+/// class per kind, each answering its kind's type token.
+pub mod term {
+    /// Whether the player chose it, u8.
+    pub const CHOSEN: usize = 0x20;
+    /// The other country it names (a tag) in the kinds that name one; the
+    /// amount of `po_gold` (i32, thousandths of a ducat); the colonial
+    /// region of `po_concede_colonial_region`, and the scripted type of a
+    /// scripted one (pointers).
+    pub const TAKER: usize = 0x30;
+    pub const GOLD: usize = 0x30;
+    pub const REGION: usize = 0x30;
+    pub const SCRIPTED: usize = 0x30;
+    /// The province it is about, a pointer to the province, in the kinds
+    /// about one.
+    pub const PROVINCE: usize = 0x38;
+    /// Its methods, by vtable offset: (term, out) its kind and more, a
+    /// pointer to an i32 kind first; (term) its type token; (term, out
+    /// `std::string`, treaty) its name as the peace view lists it; (term,
+    /// treaty, 1) its war score cost, whole points.
+    pub const KIND: usize = 0x78;
+    pub const TOKEN: usize = 0xa0;
+    pub const NAME: usize = 0x100;
+    pub const COST: usize = 0x128;
+    /// Kinds, the game's order of terms: gold, a province, a colonial
+    /// region, a scripted peace treaty.
+    pub const KIND_GOLD: i32 = 0;
+    pub const KIND_REGION: i32 = 27;
+    pub const KIND_SCRIPTED: i32 = 39;
+    /// The kinds that name another country at [`TAKER`], and among them
+    /// those about a province at [`PROVINCE`].
+    pub const WITH_TAKER: [i32; 14] = [1, 2, 3, 4, 5, 6, 14, 15, 19, 20, 28, 30, 31, 37];
+    pub const WITH_PROVINCE: [i32; 3] = [3, 4, 5];
+}
+
+/// A colonial region, as a term names it: its key, a `std::string` at
+/// [`KEY`] of the object at [`OBJECT`].
+pub mod region {
+    pub const OBJECT: usize = 0x10;
+    pub const KEY: usize = 0x138;
+}
+
+/// A scripted peace treaty's type: its key, a `std::string`.
+pub mod scripted {
+    pub const KEY: usize = 0x10;
+}
+
+/// One factor for or against a proposal, as the AI's answer gives it: its
+/// value (i32) and its text, a `std::string`.
+pub mod factor {
+    pub const VALUE: usize = 0;
+    pub const TEXT: usize = 8;
+    pub const SIZE: usize = 0x30;
 }
 
 /// The world's record of the player's last alliance offer and last peace
@@ -379,6 +443,33 @@ pub fn points() -> Vec<Point> {
             STATE,
             UNANSWERED as usize,
         ]),
+        // A peace treaty's terms, as the game writes the treaty: each term
+        // its type token, then, when chosen, its place among its kind's.
+        Point::keep(0x98179busize, "49 8b 86 90 00 00 00 49 2b 86 88 00 00 00", "treaty terms").uses(&[treaty::TERMS, treaty::TERMS + 8]),
+        Point::keep(0x9817d0usize, "48 8b 07 ff 90 a0 00 00 00", "term token").uses(&[term::TOKEN]),
+        Point::keep(0x9817efusize, "80 7f 20 00", "term chosen").uses(&[term::CHOSEN]),
+        Point::keep(0x9817f9usize, "48 8b 07 48 8d 54 24 20 48 8b cf ff 50 78", "term kind").uses(&[term::KIND]),
+        // The terms' writers: the other country, gold, the province and its
+        // number, the colonial region's key, a scripted treaty's key.
+        Point::keep(0x99e632usize, "48 83 c3 30", "term other country").uses(&[term::TAKER]),
+        Point::keep(0x9b4455usize, "8b 5b 30", "term gold").uses(&[term::GOLD]),
+        Point::keep(0x99e80ausize, "48 8b 47 38", "term province").uses(&[term::PROVINCE]),
+        Point::keep(0x99e813usize, "44 8b 40 20", "term province number").uses(&[super::campaign::province::ID]),
+        Point::keep(0x9c9e35usize, "48 8b 43 30 ba 4e 2a 00 00 48 8b cf 48 8b 58 10", "term colonial region").uses(&[term::REGION, region::OBJECT]),
+        Point::keep(0x9c9e45usize, "48 81 c3 38 01 00 00", "colonial region key").uses(&[region::KEY]),
+        Point::keep(0xac9befusize, "48 8b 59 30", "term scripted").uses(&[term::SCRIPTED]),
+        Point::keep(0xac9c01usize, "48 83 c3 10", "scripted treaty key").uses(&[scripted::KEY]),
+        // The peace view's entry: the term's name with the treaty, and its
+        // cost, whole points of war score.
+        Point::keep(0x1313222usize, "48 8b 4f 60 48 8b 01 4d 8b c5 48 8d 55 07 ff 90 00 01 00 00", "term name").uses(&[term::NAME]),
+        Point::keep(0x13132a4usize, "48 8b 4f 60 48 8b 01 41 b0 01 49 8b d5 ff 90 28 01 00 00", "term cost").uses(&[term::COST]),
+        // The AI's factors, as the window's tooltip reads them, and as their
+        // vector's destructor frees them.
+        Point::keep(0x4e8f80usize, "8b c3 49 8b 34 c4 8b 0e", "factor value").uses(&[factor::VALUE]),
+        Point::keep(0x4e8fd8usize, "48 8d 56 08", "factor text").uses(&[factor::TEXT]),
+        Point::keep(0x418413usize, "48 8d 4b 08 e8 44 d2 c7 ff 48 83 c3 30", "factor size").uses(&[factor::TEXT, factor::SIZE]),
+        // The call to arms' constructor sets its class.
+        Point::keep(0x53e06fusize, "48 8d 05 3a 20 74 01 48 89 01", "call to arms").uses(&[classes::CALL]),
         Point::keep(0x1066b16usize, "48 8b 81 38 02 00 00 48 8b d9 48 8d 4c 24 30 8b 50 28 89 54 24 30 ba 02 00 00 00 e8 fa 14 46 00", "offer's action made")
             .uses(&[offer_window::ACTION, MADE, offer_window::ANSWER_MONTHS]),
     ]

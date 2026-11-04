@@ -23,6 +23,7 @@ layer! {
     fn declare_war(enemy: Tag, choice: &Choice, calls: &Calls) -> Declaration = layer::declare_war;
     fn offer_peace(enemy: Tag) -> Ticket = layer::offer_peace;
     fn propose_alliance(ally: Tag) -> Ticket = layer::propose_alliance;
+    fn call_to_arms(ally: Tag) -> Ticket = layer::call_to_arms;
     fn answer(ticket: Ticket) -> Answer = layer::answer;
 }
 
@@ -41,21 +42,35 @@ pub fn run(request: DiplomacyRequest, game: &mut (impl Layer + countries::Layer 
             let calls = calls(call_allies.unwrap_or_default(), game)?;
             let declared = game.declare_war(enemy, &choice, &calls)?;
             let passed_over = declared.passed_over.into_iter().map(|p| PassedOver { country: tag(p.country), reasons: p.reasons }).collect();
-            Ok((declared.ticket, DiplomacyAnswer::DeclareWar as Answers, Some((declared.called.into_iter().map(tag).collect(), passed_over))))
+            Ok((
+                declared.ticket,
+                (|o| Answered::Diplomacy(DiplomacyAnswer::DeclareWar(o))) as Answers,
+                Some((declared.called.into_iter().map(tag).collect(), passed_over)),
+            ))
         })(),
         DiplomacyRequest::OfferPeace { country } => (|| {
             let enemy = game.country(country)?;
-            Ok((game.offer_peace(enemy)?, DiplomacyAnswer::OfferPeace as Answers, None))
+            Ok((game.offer_peace(enemy)?, (|o| Answered::Diplomacy(DiplomacyAnswer::OfferPeace(o))) as Answers, None))
         })(),
         DiplomacyRequest::ProposeAlliance { country } => (|| {
             let ally = game.country(country)?;
-            Ok((game.propose_alliance(ally)?, DiplomacyAnswer::ProposeAlliance as Answers, None))
+            Ok((game.propose_alliance(ally)?, (|o| Answered::Diplomacy(DiplomacyAnswer::ProposeAlliance(o))) as Answers, None))
+        })(),
+        DiplomacyRequest::CallToArms { country } => (|| {
+            let ally = game.country(country)?;
+            Ok((game.call_to_arms(ally)?, (|o| Answered::Diplomacy(DiplomacyAnswer::CallToArms(o))) as Answers, None))
         })(),
     };
     match sent {
         Ok((ticket, answers, called)) => Ran::Later(Box::new(Waiting { ticket, answers, called, until: now + WAITED })),
         Err(e) => Ran::Done(Err(e)),
     }
+}
+
+/// Waits for what comes of a proposal sent with `ticket`, as the
+/// diplomatic actions do, answering it through `answers`.
+pub fn waiting(ticket: Ticket, answers: Answers, now: Instant) -> Ran {
+    Ran::Later(Box::new(Waiting { ticket, answers, called: None, until: now + WAITED }))
 }
 
 /// The allies a declaration calls, the countries named found in the game.
@@ -78,7 +93,7 @@ fn war_goal(g: &layer::WarGoal) -> WarGoal {
 }
 
 /// The answer of the capability that sent the action, around what came of it.
-type Answers = fn(Outcome) -> DiplomacyAnswer;
+pub type Answers = fn(Outcome) -> Answered;
 
 /// An action sent, waiting for what comes of it.
 struct Waiting {
@@ -100,7 +115,7 @@ impl Waiting {
             None => (None, None),
         };
         let outcome = Outcome { answer, war, called, passed_over };
-        Ok(Answered::Diplomacy((self.answers)(outcome)))
+        Ok((self.answers)(outcome))
     }
 }
 
@@ -221,6 +236,18 @@ mod tests {
     }
 
     #[test]
+    fn a_call_to_arms_is_answered_with_the_ally_s_answer() {
+        let engine = Engine::new(quiet);
+        let mut game = Fake::default();
+        game.answers.push_back(Ok(Answer::Accepted));
+        let reply = engine.submit(Request::Diplomacy(DiplomacyRequest::CallToArms { country: CountryTag(*b"WAL") }));
+        engine.run(&mut game, &Place::Game, Duration::from_secs(10));
+        engine.run(&mut game, &Place::Game, Duration::from_secs(10));
+        assert_eq!(answer(&reply), json!({"ok": true, "result": {"answer": "accepted"}}));
+        assert_eq!(game.calls, ["country WAL", "call to arms 100012c004c4157", "answer 4"]);
+    }
+
+    #[test]
     fn a_refusal_comes_at_once_with_the_game_s_reasons() {
         let engine = Engine::new(quiet);
         let mut game = Fake::default();
@@ -264,7 +291,8 @@ mod tests {
         let mut game = Fake::default();
         let buffer = events::Buffer::new();
         let now = Instant::now();
-        let mut waiting = Waiting { ticket: Ticket(3), answers: DiplomacyAnswer::ProposeAlliance, called: None, until: now + WAITED };
+        let mut waiting =
+            Waiting { ticket: Ticket(3), answers: |o| Answered::Diplomacy(DiplomacyAnswer::ProposeAlliance(o)), called: None, until: now + WAITED };
         let (in_game, outside) = (Place::Game, Place::Outside(None));
         let mut poll = |place, now| waiting.poll(&mut super::super::Poll::new(&buffer, now, place, &mut game));
         assert_eq!(poll(&in_game, now), None);

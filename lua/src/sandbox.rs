@@ -427,6 +427,10 @@ fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
             }
             _ => Err(wrong()),
         },
+        Kind::Terms => match value {
+            LuaValue::Table(_) => values::to_json(value),
+            _ => Err(wrong()),
+        },
     }
 }
 

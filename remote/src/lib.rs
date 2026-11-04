@@ -307,6 +307,12 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The peace view: terms demanded of a country the player is at war
+    /// with, or offered to it.
+    Peace(peace::PeaceRequest, PeaceAnswer),
+    /// The transfer occupation window: handing a province the player
+    /// occupies over to an ally.
+    Occupation(occupation::OccupationRequest, OccupationAnswer),
 }
 
 pub mod binary;
@@ -405,6 +411,10 @@ pub enum Kind {
     /// Words, such as content keys or the names of events, `["day",
     /// "month"]`, which a command line writes `day,month` (see [`Words`]).
     Words,
+    /// Peace treaty terms, a list of objects such as
+    /// `[{"term":"demand_provinces","province":236}]`, which a command line
+    /// writes as that JSON text (see [`peace::Terms`]).
+    Terms,
 }
 
 impl Kind {
@@ -426,6 +436,7 @@ impl Kind {
             Self::Keys => "keys",
             Self::Countries => "countries",
             Self::Words => "words",
+            Self::Terms => "terms",
         }
     }
 
@@ -447,6 +458,7 @@ impl Kind {
             Self::Keys => "ctrl+s",
             Self::Countries => "FRA,ENG",
             Self::Words => "day,month",
+            Self::Terms => r#"[{"term":"humiliate"}]"#,
         }
     }
 
@@ -475,6 +487,7 @@ impl Kind {
                 .map(|word| Some(word.trim()).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())))
                 .collect::<Option<Vec<_>>>()
                 .map(Value::Array),
+            Self::Terms => peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok()),
         }
     }
 }
@@ -512,6 +525,7 @@ arg_kind! {
     input::Keys => Keys,
     CountryList => Countries,
     Words => Words,
+    peace::Terms => Terms,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {

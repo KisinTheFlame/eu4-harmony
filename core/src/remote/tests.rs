@@ -3,11 +3,36 @@
 use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, decisions::DecisionRequest,
-    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
-    input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
-    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    armies::ArmyRequest,
+    camera::CameraRequest,
+    capabilities,
+    console::ConsoleRequest,
+    countries::CountryRequest,
+    decisions::DecisionRequest,
+    describe::DescribeRequest,
+    desktop::DesktopRequest,
+    diplomacy::DiplomacyRequest,
+    events::Event,
+    events::EventsRequest,
+    extensions::ExtensionRequest,
+    input::Button,
+    input::Direction,
+    input::InputRequest,
+    input::Keys,
+    menu::MenuRequest,
+    occupation::OccupationRequest,
+    offers::OfferRequest,
+    peace::{PeaceRequest, Terms},
+    provinces::ProvinceRequest,
+    questions::QuestionRequest,
+    recruiting::RecruitRequest,
+    recruiting::UnitKind,
+    response_json,
+    screenshot::ScreenshotRequest,
+    session::SessionRequest,
+    texts::TextRequest,
+    time::TimeRequest,
+    ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -207,6 +232,19 @@ fn every_capability_runs_at_a_game_frame() {
         ),
         (Request::Diplomacy(DiplomacyRequest::OfferPeace { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
         (Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
+        (Request::Diplomacy(DiplomacyRequest::CallToArms { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
+        (Request::Peace(PeaceRequest::Terms { country: CountryTag(*b"WAL"), offer: None }), Box::new(error("rejected"))),
+        (Request::Peace(PeaceRequest::Evaluate { country: CountryTag(*b"QQQ"), terms: Terms(Vec::new()), offer: None }), Box::new(error("not_found"))),
+        (Request::Peace(PeaceRequest::Demand { country: CountryTag(*b"QQQ"), terms: Terms(Vec::new()) }), Box::new(error("not_found"))),
+        (Request::Peace(PeaceRequest::Offer { country: CountryTag(*b"QQQ"), terms: Terms(Vec::new()) }), Box::new(error("not_found"))),
+        (
+            Request::Occupation(OccupationRequest::Options { province: ProvinceId(151) }),
+            Box::new(|v: &Value| *v == ok(json!({"can": true, "reasons": [], "cost": [], "allies": ["WAL"]}))),
+        ),
+        (
+            Request::Occupation(OccupationRequest::Transfer { province: ProvinceId(151), country: CountryTag(*b"WAL") }),
+            Box::new(|v: &Value| *v == ok(json!({"controller": "WAL"}))),
+        ),
         (
             Request::Describe(DescribeRequest::All {}),
             Box::new(|v: &Value| {

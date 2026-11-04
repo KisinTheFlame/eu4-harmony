@@ -53,7 +53,9 @@ pub mod extensions;
 pub(crate) mod fake;
 pub mod input;
 pub mod menu;
+pub mod occupation;
 pub mod offers;
+pub mod peace;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
@@ -99,6 +101,8 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + peace::Layer
+    + occupation::Layer
 {
 }
 impl<
@@ -120,6 +124,8 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + peace::Layer
+            + occupation::Layer
             + ?Sized,
     > Game for T
 {
@@ -602,6 +608,8 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Peace(r) => peace::run(r, game, now),
+        Request::Occupation(r) => done(occupation::run(r, game).map(Answer::Occupation)),
     }
 }
 
