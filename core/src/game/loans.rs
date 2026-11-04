@@ -13,11 +13,13 @@ use eu4_harmony_remote::{
 /// thousandths of ducats.
 const LOANS: usize = 0xde8;
 const TREASURY: usize = 0xbb0;
-/// A loan's ID (an i32 and its type, an i32), the lender's tag (not valid
+/// A loan's ID (its type, an i32, then the number, an i32, as every ID of
+/// the game's is kept), the lender's tag (not valid
 /// for a bank's or an estate's), its interest in thousandths of a
 /// percentage point, its whole ducats, when it is due, and whether an estate
 /// lent it.
-const ID: usize = 0x10;
+const ID_TYPE: usize = 0x10;
+const ID: usize = 0x14;
 const LENDER: usize = 0x20;
 const INTEREST: usize = 0x28;
 const AMOUNT: usize = 0x2c;
@@ -116,7 +118,7 @@ pub fn repay(_: Caller, id: u32) -> GResult<()> {
     if !choice.can {
         return Err(eu4_harmony_checks::choices::not_allowed("repay the loan", &choice.reasons).into());
     }
-    power::post(&written(ctx.player.letters(), id, m.u32(loan + ID + 4)?), "repay the loan")
+    power::post(&written(ctx.player.letters(), id, m.u32(loan + ID_TYPE)?), "repay the loan")
 }
 
 fn find(m: &Memory, country: usize, id: u32) -> GResult<Option<usize>> {
