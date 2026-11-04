@@ -1,6 +1,7 @@
 //! Fault-tolerant access to game memory: reads and calls into game code go
-//! through the C++ SEH boundary, which turns a fault into an error (ADR 0032);
-//! writes go through WriteProcessMemory on our own process.
+//! through the C++ SEH boundary, which turns a fault into an error
+//! (ADR game-memory-is-read-in-process-under-seh); writes go through
+//! WriteProcessMemory on our own process.
 use crate::Result;
 use windows_sys::Win32::System::{
     Diagnostics::Debug::WriteProcessMemory,
@@ -23,7 +24,8 @@ impl Memory {
     /// Absolute address of an RVA in the game image that a dependency point
     /// checks. Asking for one that none checks is a framework bug: it ends the
     /// game at its first use, on any build, instead of reading or calling
-    /// whatever another build holds there (ADR 0012). The code that declares
+    /// whatever another build holds there
+    /// (ADR framework-succeeds-or-fails-as-a-whole). The code that declares
     /// points adds the base itself.
     pub fn at(&self, rva: usize) -> usize {
         assert!(crate::points::checks(rva), "the framework used {rva:#x}, which no dependency point checks");
@@ -36,7 +38,7 @@ impl Memory {
         Ok(out)
     }
 
-    fn read_into(&self, addr: usize, out: &mut [u8]) -> Result<()> {
+    pub fn read_into(&self, addr: usize, out: &mut [u8]) -> Result<()> {
         if addr == 0 || out.is_empty() || addr.checked_add(out.len()).is_none() {
             return Err(format!("invalid read {addr:#x}+{}", out.len()));
         }

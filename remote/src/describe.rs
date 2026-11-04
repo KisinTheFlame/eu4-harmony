@@ -14,8 +14,8 @@ group! {
 /// The catalogue, as remote control has it.
 #[derive(Clone, Debug, PartialEq, Serialize, crate::shape::Shaped)]
 pub struct Description {
-    /// The catalogue's version (ADR 0026): it changes when a capability
-    /// that exists changes what it means or how it is shaped.
+    /// The catalogue's version (ADR one-capability-catalogue): it changes when
+    /// a capability that exists changes what it means or how it is shaped.
     pub api_version: &'static str,
     pub capabilities: Vec<Capability>,
 }

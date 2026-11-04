@@ -1,7 +1,7 @@
-//! The vanilla windows spliced elements may go in (ADR 0006), one row each. A
-//! mod's fragment names its window by `into`: [`crate::splice`] finds the
-//! file to splice from the row, and [`crate::ui`] binds the elements through
-//! the row's [`Host`].
+//! The vanilla windows spliced elements may go in (ADR inject-ui-at-runtime),
+//! one row each. A mod's fragment names its window by `into`: [`crate::splice`]
+//! finds the file to splice from the row, and [`crate::ui`] binds the elements
+//! through the row's [`Host`].
 //!
 //! Supporting another window takes, besides its row:
 //!

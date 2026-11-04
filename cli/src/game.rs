@@ -1,6 +1,6 @@
-//! `eu4-harmony game`: a remote client on the command line (ADR 0016). Each
-//! call sends the running game one request through remote control's pipe and
-//! prints the answer as JSON.
+//! `eu4-harmony game`: a remote client on the command line
+//! (ADR remote-control-engine-and-transports). Each call sends the running game
+//! one request through remote control's pipe and prints the answer as JSON.
 //!
 //! The command line knows the capabilities only from their descriptions in
 //! the shared crate (`eu4_harmony_remote::capabilities`): a capability's

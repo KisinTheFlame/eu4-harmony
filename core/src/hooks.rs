@@ -31,7 +31,8 @@ pub fn observer_slots() -> usize {
 }
 
 /// Arguments and result of an observed call; `fault` is 1 when the original
-/// left through an exception, in which case `result` is meaningless.
+/// left through an exception, in which case `result` is meaningless. The
+/// original is called with `args` as the "before" callback leaves them.
 #[repr(C)]
 pub struct HookFrame {
     pub args: [usize; 12],

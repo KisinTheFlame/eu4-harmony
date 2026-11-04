@@ -19,10 +19,19 @@
 //! blocks of other modules' heaps and allocators.
 use crate::hooks::HookFrame;
 use crate::points::Point;
-use eu4_harmony_remote::memory::{Freed, Generation, Leftovers, Memory, MemoryAnswer, MemoryRequest, Site, Trend};
-use std::collections::{BTreeMap, HashMap};
+use eu4_harmony_remote::memory::{
+    Freed, Generation, Holder, Holders, Kept, Leftovers, Lost, MemoryAnswer, MemoryRequest, Quarantine, Site, Trend, Watching, Written,
+};
+use eu4_harmony_remote::{Code, Error};
+use holders::{Held, Scan, Source, Target};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
+
+mod holders;
+mod pointers;
+pub mod quarantine;
+mod watch;
 
 /// `(size)`, `(count, size)`, `(block, size)`, `(block)`: the C runtime's
 /// allocation functions, on its heap.
@@ -80,20 +89,32 @@ fn add(block: usize, site: SiteKey, size: usize) {
     if block != 0 {
         let generation = GENERATION.load(Ordering::Relaxed);
         shard(block).get_or_insert_with(Shard::default).blocks.insert(block, Block { site, size, generation });
+        if watch::watches(site) {
+            watch::added(block, size, site);
+        }
     }
 }
 
-/// Takes a block off the census; `by`, the address the code that let it go
-/// returns to, when it was let go rather than moved.
-fn remove(block: usize, by: Option<usize>) {
+/// Takes a block off the census, and answers what it was; `by`, the
+/// address the code that let it go returns to, when it was let go rather
+/// than moved.
+fn remove(block: usize, by: Option<usize>) -> Option<Block> {
     if block == 0 {
-        return;
+        return None;
     }
-    let mut shard = shard(block);
-    let Some(shard) = shard.as_mut() else { return };
-    if let (Some(gone), Some(by)) = (shard.blocks.remove(&block), by) {
-        *shard.freed.entry((gone.site, rva(by))).or_default() += 1;
+    let gone = {
+        let mut shard = shard(block);
+        let shard = shard.as_mut()?;
+        let gone = shard.blocks.remove(&block)?;
+        if let Some(by) = by {
+            *shard.freed.entry((gone.site, rva(by))).or_default() += 1;
+        }
+        gone
+    };
+    if watch::watches(gone.site) {
+        watch::removed(block);
     }
+    Some(gone)
 }
 
 /// Whether `site` is inside `operator new`, which counts its own blocks.
@@ -137,14 +158,31 @@ extern "C" fn calloc_after(frame: *mut HookFrame) {
 extern "C" fn realloc_after(frame: *mut HookFrame) {
     let h = unsafe { &*frame };
     if h.fault == 0 && h.result != 0 {
-        remove(h.args[0], None);
+        let _ = remove(h.args[0], None);
         add(h.result, rva(h.return_address) as SiteKey, h.args[1]);
     }
 }
 
+/// A block is let go: off the census; read first while sites are watched;
+/// and kept instead of freed while a repair lets it go with the quarantine
+/// on, `free` then given null.
 extern "C" fn free_before(frame: *mut HookFrame) {
-    let h = unsafe { &*frame };
-    remove(h.args[0], Some(h.return_address));
+    let h = unsafe { &mut *frame };
+    let (block, by) = (h.args[0], h.return_address);
+    if let Some(gone) = remove(block, Some(by)) {
+        let m = crate::memory::Memory { base: BASE.load(Ordering::Relaxed) };
+        watch::letting_go(block, gone.size, gone.site, rva(by), |offset, out| m.read_into(block + offset, out).is_ok());
+        if let Some(repair) = quarantine::releasing() {
+            if quarantine::keep(block, gone.size, gone.site, repair, gone.generation, free_now) {
+                h.args[0] = 0;
+            }
+        }
+    }
+}
+
+/// Frees a block of the game's heap, as `free` does, past the census.
+fn free_now(block: usize) {
+    unsafe { windows_sys::Win32::System::Memory::HeapFree(crate::memory_account::game_heap() as _, 0, block as _) };
 }
 
 extern "C" fn new_after(frame: *mut HookFrame) {
@@ -261,22 +299,22 @@ fn function_of(rva: u32) -> Option<u32> {
 
 /// A site as remote control writes it: its RVA, or for a block of the
 /// generic allocation `"0xA < 0xB"`, the call above it and the one above
-/// that; and the function of the first.
+/// that (`0x0` when the stack has none); and the function of the first.
 fn named(site: SiteKey) -> (String, Option<String>) {
     if site & ABOVE == 0 {
         let rva = site as u32;
         return (hex(rva), function_of(rva).map(hex));
     }
     let (first, second) = (((site >> 32) & 0x7fff_ffff) as u32, site as u32);
-    let text = if second == 0 { hex(first) } else { format!("{} < {}", hex(first), hex(second)) };
+    let text = format!("{} < {}", hex(first), hex(second));
     (text, function_of(first).map(hex))
 }
 
 /// The leftovers, by site, from the census's counts: the `sites` that leave
 /// the most per generation first, with what each generation left there and
-/// where the site's blocks were let go. `name` writes a site and its
-/// function.
-fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey) -> (String, Option<String>)) -> Leftovers {
+/// where the site's blocks were let go; and the sites given, in the same
+/// order. `name` writes a site and its function.
+fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey) -> (String, Option<String>)) -> (Leftovers, Vec<SiteKey>) {
     let mut all: Vec<(SiteKey, Vec<Generation>, Trend, u64)> = counts
         .sites
         .iter()
@@ -292,9 +330,10 @@ fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey
         (n + ln, b + lb)
     });
     all.sort_by_key(|(site, left, _, per_generation)| (std::cmp::Reverse(*per_generation), std::cmp::Reverse(total(left).1), *site));
+    all.truncate(sites);
+    let keys = all.iter().map(|(site, ..)| *site).collect();
     let sites = all
         .into_iter()
-        .take(sites)
         .map(|(site, generations, trend, per_generation)| {
             let (site_text, function) = name(site);
             let mut freed: Vec<(u32, u64)> = counts.freed.get(&site).map(|by| by.iter().map(|(by, n)| (*by, *n)).collect()).unwrap_or_default();
@@ -308,44 +347,261 @@ fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey
                 })
                 .collect();
             let (blocks, bytes) = total(&generations);
-            Site { site: site_text, function, trend, per_generation, blocks, bytes, generations, freed_at }
+            Site { site: site_text, function, trend, per_generation, blocks, bytes, generations, freed_at, holders: None }
         })
         .collect();
-    Leftovers { generation: now, blocks, bytes, sites }
+    (Leftovers { generation: now, blocks, bytes, sites }, keys)
 }
 
-/// What the process holds now, and the census's live blocks by generation.
-fn memory() -> Memory {
-    let counts = counts(false);
-    let (allocated, committed) = crate::heap::heaps();
-    let private = crate::heap::private_bytes();
-    let mut handles = 0u32;
-    unsafe { windows_sys::Win32::System::Threading::GetProcessHandleCount(windows_sys::Win32::System::Threading::GetCurrentProcess(), &mut handles) };
-    Memory {
-        private: private as u64,
-        heaps_allocated: allocated as u64,
-        heaps_committed: committed as u64,
-        outside_heaps: private.saturating_sub(committed) as u64,
-        framework_heap: crate::heap::live() as u64,
-        handles,
-        generation: GENERATION.load(Ordering::Relaxed),
-        generations: counts.generations.iter().map(|(g, (blocks, bytes))| Generation { generation: *g, blocks: *blocks, bytes: *bytes }).collect(),
+/// How many leftovers each last owner, by its site and the RVA of the code
+/// that let it go, pointed at.
+type Owners = HashMap<(SiteKey, u32), u64>;
+
+/// The game's writable sections, by RVA and size, from its headers.
+fn writable_sections(m: &crate::memory::Memory) -> Vec<(u32, usize)> {
+    const WRITE: u32 = 0x8000_0000;
+    let read = || -> crate::Result<Vec<(u32, usize)>> {
+        let nt = m.base + m.u32(m.base + 0x3c)? as usize;
+        let count = m.u16(nt + 6)? as usize;
+        let first = nt + 24 + m.u16(nt + 20)? as usize;
+        let mut sections = Vec::new();
+        for i in 0..count {
+            let header = first + i * 40;
+            let (size, rva, flags) = (m.u32(header + 8)? as usize, m.u32(header + 12)?, m.u32(header + 36)?);
+            if flags & WRITE != 0 {
+                sections.push((rva, size));
+            }
+        }
+        Ok(sections)
+    };
+    read().unwrap_or_default()
+}
+
+/// Reads `size` bytes from `start` into the scan, a megabyte at a time;
+/// what cannot be read is passed over.
+fn scan_range(m: &crate::memory::Memory, scan: &mut Scan, buffer: &mut [u8], source: Source, start: usize, size: usize) {
+    let mut offset = 0;
+    while offset + 8 <= size {
+        let n = (size - offset).min(buffer.len()) & !7;
+        if m.read_into(start + offset, &mut buffer[..n]).is_ok() {
+            scan.read(source, offset, &buffer[..n]);
+        }
+        offset += n;
     }
 }
 
-/// Answers remote control's memory group.
-pub fn answer(request: MemoryRequest) -> MemoryAnswer {
-    match request {
-        MemoryRequest::Get {} => MemoryAnswer::Get(memory()),
-        MemoryRequest::Leftovers { sites } => {
+/// What still points at the leftovers of `sites` when the generation is
+/// `now`: the game's writable data and every live block the census counts
+/// are read, with every shard of the census locked, so that none of those
+/// blocks is let go meanwhile; the game's threads wait at their next
+/// allocation until the reading is done.
+fn holders_of(now: u32, sites: &[SiteKey]) -> HashMap<SiteKey, Holders> {
+    let Some(last) = now.checked_sub(2) else { return HashMap::new() };
+    let began = std::time::Instant::now();
+    let m = crate::memory::Memory { base: BASE.load(Ordering::Relaxed) };
+    let wanted: HashSet<SiteKey> = sites.iter().copied().collect();
+    let shards: Vec<_> = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner())).collect();
+    let live = || shards.iter().filter_map(|s| s.as_ref()).flat_map(|s| s.blocks.iter());
+    let targets: Vec<Target> = live()
+        .filter(|(_, b)| b.generation <= last && wanted.contains(&b.site))
+        .map(|(start, b)| Target { start: *start, size: b.size, site: b.site })
+        .collect();
+    let looked_for = targets.len();
+    let mut scan = Scan::new(targets);
+    let mut buffer = vec![0u8; 1 << 20];
+    let mut read = 0usize;
+    for (rva, size) in writable_sections(&m) {
+        scan_range(&m, &mut scan, &mut buffer, Source::Data { rva }, m.base + rva as usize, size);
+        read += size;
+    }
+    for (start, block) in live() {
+        scan_range(&m, &mut scan, &mut buffer, Source::Block { start: *start, site: block.site }, *start, block.size);
+        read += block.size;
+    }
+    drop(shards);
+    log!(
+        "census: looked for what points at {looked_for} leftovers of {} sites in {:.0} MB, in {} ms",
+        sites.len(),
+        read as f64 / MB,
+        began.elapsed().as_millis()
+    );
+    // For the watched sites' leftovers nothing points at, the last owners
+    // let go while they pointed at them.
+    let mut lost: HashMap<SiteKey, (Owners, u64)> = HashMap::new();
+    for target in scan.unheld().filter(|t| watch::watches(t.site)) {
+        let (owners, unrecorded) = lost.entry(target.site).or_default();
+        match watch::last_owner(target.start) {
+            Some(owner) => *owners.entry(owner).or_default() += 1,
+            None => *unrecorded += 1,
+        }
+    }
+    scan.found()
+        .into_iter()
+        .map(|(site, (held, references))| {
+            let count = |h: Held| held.get(&h).copied().unwrap_or(0);
+            let mut top: Vec<(holders::Holder, u64)> = references.into_iter().collect();
+            top.sort_by_key(|(holder, n)| (std::cmp::Reverse(*n), *holder));
+            let top = top
+                .into_iter()
+                .take(5)
+                .map(|(holder, references)| match holder {
+                    holders::Holder::Data(rva) => Holder { kind: "data".into(), at: hex(rva), function: None, references },
+                    holders::Holder::Site(site) => {
+                        let (at, function) = named(site);
+                        Holder { kind: "block".into(), at, function, references }
+                    }
+                })
+                .collect();
+            let (owners, unrecorded) = lost.remove(&site).unwrap_or_default();
+            let mut owners: Vec<((SiteKey, u32), u64)> = owners.into_iter().collect();
+            owners.sort_by_key(|(owner, n)| (std::cmp::Reverse(*n), *owner));
+            let lost_with = owners
+                .into_iter()
+                .take(5)
+                .map(|((owner, by), blocks)| {
+                    let (owner, owner_function) = named(owner);
+                    let (let_go_at, let_go_function) = named(by as SiteKey);
+                    Lost { owner, owner_function, let_go_at, let_go_function, blocks }
+                })
+                .collect();
+            let holders = Holders {
+                by_data: count(Held::Data),
+                by_blocks: count(Held::Blocks),
+                by_leftovers: count(Held::Leftovers),
+                by_nothing: count(Held::Nothing),
+                top,
+                watched: watch::watches(site),
+                lost_with,
+                unrecorded,
+            };
+            (site, holders)
+        })
+        .collect()
+}
+
+/// A site as [`named`] writes it, `0xA` or `0xA < 0xB`.
+fn parse_site(text: &str) -> Option<SiteKey> {
+    let rva = |t: &str| u32::from_str_radix(t.trim().trim_start_matches("0x"), 16).ok();
+    match text.split_once('<') {
+        Some((first, second)) => Some(ABOVE | ((rva(first)? as u64) << 32) | rva(second)? as u64),
+        None => rva(text).map(|r| r as SiteKey),
+    }
+}
+
+/// The generation now, and the census's live blocks by generation.
+pub fn generations() -> (u32, Vec<Generation>) {
+    let counts = counts(false);
+    let generations = counts.generations.iter().map(|(g, (blocks, bytes))| Generation { generation: *g, blocks: *blocks, bytes: *bytes }).collect();
+    (GENERATION.load(Ordering::Relaxed), generations)
+}
+
+/// Answers remote control's memory group, memory with the memory account's
+/// figures.
+pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
+    Ok(match request {
+        MemoryRequest::Get {} => {
+            let mut memory = crate::memory_account::memory();
+            (memory.generation, memory.generations) = generations();
+            MemoryAnswer::Get(memory)
+        }
+        MemoryRequest::Leftovers { sites, holders } => {
             let now = GENERATION.load(Ordering::Relaxed);
-            MemoryAnswer::Leftovers(leftovers_from(now, &counts(true), sites.unwrap_or(40) as usize, named))
+            let (mut leftovers, keys) = leftovers_from(now, &counts(true), sites.unwrap_or(40) as usize, named);
+            if holders == Some(true) {
+                let mut found = holders_of(now, &keys);
+                for (site, key) in leftovers.sites.iter_mut().zip(&keys) {
+                    site.holders = Some(found.remove(key).unwrap_or(Holders {
+                        by_data: 0,
+                        by_blocks: 0,
+                        by_leftovers: 0,
+                        by_nothing: 0,
+                        top: Vec::new(),
+                        watched: watch::watches(*key),
+                        lost_with: Vec::new(),
+                        unrecorded: 0,
+                    }));
+                }
+            }
+            MemoryAnswer::Leftovers(leftovers)
+        }
+        MemoryRequest::Watch { sites } => {
+            let words: Vec<&str> = sites.split(',').filter(|w| !w.trim().is_empty()).collect();
+            let keys: Vec<SiteKey> = words.iter().filter_map(|w| parse_site(w)).collect();
+            if keys.len() < words.len() || keys.len() > watch::MOST {
+                return Err(Error::new(
+                    Code::InvalidArgument,
+                    format!("{sites:?} is not at most {} sites, such as \"0x1529f85,0x15a2658 < 0x152a00a\"", watch::MOST),
+                ));
+            }
+            let mut live = Vec::new();
+            for shard in &BLOCKS {
+                let shard = shard.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(shard) = shard.as_ref() {
+                    live.extend(shard.blocks.iter().filter(|(_, b)| keys.contains(&b.site)).map(|(start, b)| (*start, b.size, b.site)));
+                }
+            }
+            let blocks = live.len() as u64;
+            watch::start(&keys, live.into_iter());
+            let sites: Vec<String> = watch::sites().into_iter().map(|site| named(site).0).collect();
+            log!("census: watching {} with {blocks} live blocks", if sites.is_empty() { "no site".to_string() } else { sites.join(", ") });
+            MemoryAnswer::Watch(Watching { sites, blocks })
         }
         MemoryRequest::Generation {} => {
             let now = end_generation();
             log!("census: generation {now} begins, as remote control asked");
             MemoryAnswer::Generation(now)
         }
+        MemoryRequest::Quarantine { on } => {
+            let now = || GENERATION.load(Ordering::Relaxed);
+            let report = match on {
+                Some(true) => {
+                    quarantine::start(now);
+                    log!("census: the quarantine keeps what the repairs let go");
+                    quarantine::report()
+                }
+                Some(false) => {
+                    let report = quarantine::stop(now(), free_now);
+                    log!(
+                        "census: the quarantine is off; it freed {} blocks, {:.1} MB, and found {} written to",
+                        report.blocks,
+                        report.bytes as f64 / MB,
+                        report.written.len()
+                    );
+                    report
+                }
+                None => quarantine::report(),
+            };
+            MemoryAnswer::Quarantine(quarantined(report))
+        }
+    })
+}
+
+/// The quarantine's report as remote control gives it.
+fn quarantined(report: quarantine::Report) -> Quarantine {
+    Quarantine {
+        on: report.on,
+        blocks: report.blocks,
+        bytes: report.bytes,
+        freed: report.freed,
+        checks: report.checks,
+        repairs: report.repairs.into_iter().map(|(repair, blocks, bytes)| Kept { repair: repair.to_string(), blocks, bytes }).collect(),
+        written: report
+            .written
+            .into_iter()
+            .map(|w| {
+                let (site, function) = named(w.site);
+                Written {
+                    repair: w.repair.to_string(),
+                    site,
+                    function,
+                    size: w.size as u64,
+                    offset: w.offset as u64,
+                    bytes: w.bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" "),
+                    generation: w.generation,
+                    found: w.found,
+                }
+            })
+            .collect(),
     }
 }
 
@@ -400,6 +656,15 @@ mod tests {
     }
 
     #[test]
+    fn a_site_is_read_as_it_is_written() {
+        for site in [0x1529f85, ABOVE | (0x15a2658 << 32) | 0x152a00a, ABOVE | (0x40 << 32)] {
+            assert_eq!(parse_site(&named(site).0), Some(site));
+        }
+        assert_eq!(parse_site(" 0x1529f85 "), Some(0x1529f85));
+        assert_eq!(parse_site("nothing"), None);
+    }
+
+    #[test]
     fn the_sites_that_leave_most_per_generation_come_first() {
         let mut counts = Counts::default();
         counts.sites.insert(0x10, live(&[(0, 1 << 30)]));
@@ -408,7 +673,8 @@ mod tests {
         counts.sites.insert(ABOVE | (0x40 << 32) | 0x41, live(&[(4, 7)]));
         counts.freed.insert(0x30, HashMap::from([(0x90, 2), (0x91, 9)]));
         let name = |site: SiteKey| (format!("{site:#x}"), None);
-        let leftovers = leftovers_from(5, &counts, 2, name);
+        let (leftovers, keys) = leftovers_from(5, &counts, 2, name);
+        assert_eq!(keys, [0x30, 0x20]);
         assert_eq!(leftovers.sites.iter().map(|s| s.site.as_str()).collect::<Vec<_>>(), ["0x30", "0x20"]);
         assert_eq!(leftovers.sites[0].per_generation, 50);
         assert_eq!(leftovers.sites[0].bytes, 150);

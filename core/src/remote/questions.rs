@@ -1,5 +1,6 @@
 //! Questions: the game's events waiting for the player's answer. Answering
-//! one is the player's choice (ADR 0015), made in its event window.
+//! one is the player's choice (ADR remote-control-uses-capabilities), made in
+//! its event window.
 use crate::game::{self};
 use eu4_harmony_remote::{
     questions::{Question, QuestionAnswer, QuestionOption, QuestionRequest},

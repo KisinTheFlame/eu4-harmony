@@ -1,12 +1,12 @@
 //! The capability layer: every capability extensions and remote clients use,
-//! implemented once (ADR 0015). Each capability is a function taking the
-//! [`Caller`] and returning the framework's own types; remote control
-//! (`crate::remote`) and the Lua host (`crate::lua`), which runs remote
-//! control's groups as the extension, only convert to and from them (ADR
-//! 0026). One file per group: [`session`], [`countries`], [`provinces`],
-//! [`armies`], [`interface`], [`map_coloring`], [`texts`], [`camera`],
-//! [`screenshot`], [`console`], [`time`], [`recruiting`], [`menu`] and
-//! [`diplomacy`]; the game's questions and offers waiting for the player's
+//! implemented once (ADR remote-control-uses-capabilities). Each capability is
+//! a function taking the [`Caller`] and returning the framework's own types;
+//! remote control (`crate::remote`) and the Lua host (`crate::lua`), which runs
+//! remote control's groups as the extension, only convert to and from them
+//! (ADR one-capability-catalogue). One file per group: [`session`],
+//! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
+//! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
+//! [`recruiting`], [`menu`] and [`diplomacy`]; the game's questions and offers waiting for the player's
 //! answer, [`questions`] and [`offers`].
 //!
 //! Under them, reading the campaign, finding routes and giving orders, ported
@@ -116,7 +116,7 @@ pub fn fail<T>(status: Status, message: impl Into<String>) -> GResult<T> {
 
 /// A fixed-point number of the game's, kept in thousandths (a treasury, a
 /// development), as the number it stands for: 9500 is 9.5. Extensions and
-/// remote clients get it so (ADR 0018).
+/// remote clients get it so (ADR snapshots-cross-the-abi-as-json).
 pub fn thousandths(value: i32) -> f64 {
     value as f64 / 1000.0
 }

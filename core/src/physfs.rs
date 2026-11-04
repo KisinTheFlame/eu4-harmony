@@ -143,6 +143,31 @@ fn splice_handle(handle: File, normalized: &str) -> Result<(usize, Option<Vec<u8
     Ok((len as usize, (spliced != text).then(|| spliced.into_bytes())))
 }
 
+/// Reads a file the game opened, `handle`, from its start, as the game would
+/// read it: `count` bytes, or all of them with None, handed to `chunk` a piece
+/// at a time. The file is left at the end of what was read.
+pub(crate) fn read_from_start(handle: usize, count: Option<u64>, mut chunk: impl FnMut(&[u8])) -> Result<()> {
+    let handle = handle as File;
+    if unsafe { seek_detour(handle, 0) } == 0 {
+        return Err("the file could not be rewound".into());
+    }
+    let mut left = count.unwrap_or(u64::MAX);
+    let mut buffer = vec![0u8; 0x40000];
+    while left > 0 {
+        let want = left.min(buffer.len() as u64);
+        let read = unsafe { read_bytes_detour(handle, buffer.as_mut_ptr().cast(), want) };
+        if read < 0 {
+            return Err("the file could not be read".into());
+        }
+        if read == 0 {
+            break;
+        }
+        chunk(&buffer[..read as usize]);
+        left -= read as u64;
+    }
+    Ok(())
+}
+
 unsafe extern "C" fn file_length_detour(handle: File) -> i64 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return s.data.len() as i64;

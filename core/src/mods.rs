@@ -3,7 +3,7 @@
 //! The launcher writes the active playset to `<user_dir>/dlc_load.json`; each
 //! entry names a `.mod` descriptor whose `path=` points at the mod directory.
 //! A mod is a Harmony mod when it has `eu4-harmony/manifest.toml`; where its
-//! other files are says the rest (ADR 0029).
+//! other files are says the rest (ADR manifest-in-toml-layout-by-convention).
 use crate::{notice::Message, Result};
 use serde::Deserialize;
 use std::{

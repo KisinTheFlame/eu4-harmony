@@ -1,7 +1,8 @@
-//! `http.fetch(url, options)`, the `network` sensitive capability (ADR 0025):
-//! an HTTP or HTTPS request to a host the manifest lists, which the host
-//! sends while the task that sent it waits (ADR 0030). Here: what the
-//! manifest allows, what the options ask for, and the answer as Lua gets it.
+//! `http.fetch(url, options)`, the `network` sensitive capability
+//! (ADR sensitive-capabilities-are-declared): an HTTP or HTTPS request to a
+//! host the manifest lists, which the host sends while the task that sent it
+//! waits (ADR handlers-run-as-tasks-that-can-wait). Here: what the manifest
+//! allows, what the options ask for, and the answer as Lua gets it.
 //!
 //! The host follows no redirect, so a request never reaches a host the
 //! manifest does not list: a 3xx is a response like any other.

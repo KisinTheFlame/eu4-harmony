@@ -1,7 +1,7 @@
-//! The framework UI (GLOSSARY, ADR 0013): windows the framework draws itself
-//! on top of the game's picture, with widgets of its own: the notice window,
-//! the settings window and the mods window, and in the main menu the corner
-//! buttons that open those two.
+//! The framework UI (GLOSSARY, ADR framework-draws-its-own-ui): windows the
+//! framework draws itself on top of the game's picture, with widgets of its
+//! own: the notice window, the settings window and the mods window, and in the
+//! main menu the corner buttons that open those two.
 //!
 //! [`frame`] runs once a frame on the main thread, just before the game
 //! presents (`hook`); the window procedure ([`input`]) hands it the
@@ -183,6 +183,13 @@ impl FrameworkUi {
             Widget::Toggle { id: "return", label: words("EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART"), on: next.return_without_restart },
             Widget::Toggle { id: "ironman_save", label: words("EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD"), on: next.save_ironman_before_load },
             Widget::Label(words("EU4HARMONY_SETTINGS_UNDO")),
+            Widget::Toggle { id: "outside_ironman", label: words("EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN"), on: next.achievements_outside_ironman },
+            Widget::Toggle {
+                id: "changed_checksum",
+                label: words("EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM"),
+                on: next.achievements_with_changed_checksum,
+            },
+            Widget::Label(words("EU4HARMONY_SETTINGS_ACHIEVEMENTS")),
             Widget::Heading(words("EU4HARMONY_SETTINGS_GAME_SPEED")),
             Widget::Explained { label: words("EU4HARMONY_SETTINGS_FASTEST_SPEED"), info: words("EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO") },
             Widget::Choice {
@@ -238,6 +245,8 @@ impl FrameworkUi {
                 map_outline: w.is_on("outline").unwrap_or(next.map_outline),
                 return_without_restart: w.is_on("return").unwrap_or(next.return_without_restart),
                 save_ironman_before_load: w.is_on("ironman_save").unwrap_or(next.save_ironman_before_load),
+                achievements_outside_ironman: w.is_on("outside_ironman").unwrap_or(next.achievements_outside_ironman),
+                achievements_with_changed_checksum: w.is_on("changed_checksum").unwrap_or(next.achievements_with_changed_checksum),
                 fastest_speed: w.selected("pace").and_then(|i| PACES.get(i).copied()).unwrap_or(next.fastest_speed),
             };
             match settings::save(chosen.clone()) {

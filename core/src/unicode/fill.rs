@@ -1,13 +1,14 @@
-//! Glyphs from system fonts in the game's font pages (ADR 0021): every
-//! character the game draws. A font draws from one page texture, which the
-//! game reads from the page's wrapper at every draw, so the framework gives a
-//! page a new texture of its own, where every character is drawn from the
-//! system font and the font's own glyphs are replaced. Glyph positions and the
-//! page's size are baked into the game's caches, so the page is sized once,
-//! when it loads, and a glyph is drawn into it before its first use: the
-//! font's Windows-1252 characters as it loads, the rest the first time they
-//! are needed (docs/research/font-textures.md). The font's own page is read
-//! only for how its `H` looks: the color of its ink and its outline.
+//! Glyphs from system fonts in the game's font pages
+//! (ADR game-text-in-system-fonts): every character the game draws. A font
+//! draws from one page texture, which the game reads from the page's wrapper at
+//! every draw, so the framework gives a page a new texture of its own, where
+//! every character is drawn from the system font and the font's own glyphs are
+//! replaced. Glyph positions and the page's size are baked into the game's
+//! caches, so the page is sized once, when it loads, and a glyph is drawn into
+//! it before its first use: the font's Windows-1252 characters as it loads, the
+//! rest the first time they are needed (docs/research/font-textures.md). The
+//! font's own page is read only for how its `H` looks: the color of its ink and
+//! its outline.
 //!
 //! The game stretches a font's glyphs by the interface scale, with a linear
 //! filter, so an interface font's glyphs are drawn that many times larger and

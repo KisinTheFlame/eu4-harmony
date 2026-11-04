@@ -59,7 +59,7 @@ The program that runs inside the game process, finds and loads extensions, and g
 _Avoid_: Harmony on its own where players or other projects see the name (other projects share it; there it is EU4 Harmony or `eu4-harmony`), loader, engine
 
 **Framework files**:
-Files of the framework's own that the game reads as it reads its own and the mods', such as the framework fonts' files. The framework makes them in memory and mounts them into the game's file system; they are never on disk (ADR 0031).
+Files of the framework's own that the game reads as it reads its own and the mods', such as the framework fonts' files. The framework makes them in memory and mounts them into the game's file system; they are never on disk (ADR framework-files-in-the-game-file-system).
 _Avoid_: virtual files, framework mod, assets
 
 **Installation**:
@@ -83,6 +83,10 @@ _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, sessi
 
 **Leak run**:
 Rounds of sessions that `tools/leak-run.ps1` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
+
+**Quarantine**:
+A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/leak-finding.md).
+_Avoid_: guard, sandbox
 
 **Startup**:
 What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
@@ -195,6 +199,14 @@ _Avoid_: switching saves, reload
 **Ironman exit save**:
 The save the game writes of an ironman session as it is left, from which that ironman game goes on. Leaving without it goes back to the last save.
 _Avoid_: autosave (the game's periodic save), checkpoint
+
+**Game checksum**:
+The checksum of the game's content files that the main menu shows. A mod that changes those files changes it; vanilla gives no achievements while it is not vanilla's.
+_Avoid_: checksum on its own, data checksum
+
+**Save checksum**:
+The checksum at the end of a save, over what comes before it. A save whose save checksum does not match counts as modified, and vanilla gives no achievements in a game that loaded one.
+_Avoid_: checksum on its own
 
 ### Remote control
 

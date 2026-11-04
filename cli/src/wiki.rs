@@ -1,6 +1,7 @@
 //! `eu4-harmony wiki`: the reference, made from the framework's own
-//! descriptions (`eu4_harmony_remote`), never written by hand (ADR 0026).
-//! Topics nest: `wiki`, `wiki army`, `wiki army move`.
+//! descriptions (`eu4_harmony_remote`), never written by hand
+//! (ADR one-capability-catalogue). Topics nest: `wiki`, `wiki army`, `wiki army
+//! move`.
 use eu4_harmony_remote::{capabilities, events::EVENTS, groups, lua, prose, Capability, Code, Group, API_VERSION};
 use std::fmt::Write as _;
 

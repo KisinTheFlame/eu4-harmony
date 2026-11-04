@@ -1,8 +1,9 @@
 //! Mouse and keyboard for the framework UI. The game reads input through its
 //! window procedure; the framework puts its own in front of it, and keeps a
-//! message from the game when the framework UI takes it (ADR 0013): every
-//! input message while a modal window is open, the input method's text
-//! included, and mouse messages over the framework UI otherwise.
+//! message from the game when the framework UI takes it
+//! (ADR framework-draws-its-own-ui): every input message while a modal window
+//! is open, the input method's text included, and mouse messages over the
+//! framework UI otherwise.
 //!
 //! Remote control's input (`crate::game::input`) comes through here too, as
 //! the messages Windows would send ([`inject`]); a message Windows sends

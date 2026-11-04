@@ -20,6 +20,10 @@
 //!   every interface rebuild in vanilla too: the map modes' window and the
 //!   bar of the units selected, which it never kills, and the outliner's
 //!   entries, which it never deletes.
+//! - What a text box leaves as it goes, wherever the game lets one go:
+//!   its animation, which its element deletes only while it is on the
+//!   element's animations, and the text box takes off them while it does
+//!   not play. It is put back on them, owned, as the text box goes.
 //! - What the game unloads while it is shown, which vanilla never meets, as
 //!   it makes the main menu only at startup: a sprite type shown sprites
 //!   still count, which the main menu, made again, would unload with the
@@ -36,6 +40,16 @@
 //!   lock, in vanilla too: a country's coalition, which the AI of the
 //!   countries in it leaves in parallel. Leaving and joining a coalition
 //!   take turns.
+//! - What the game's pick of a name from a list weighed for both sexes
+//!   overflows, in vanilla too: the random number, which it multiplies by
+//!   1000 before taking it modulo the list's weight, so that about half the
+//!   draws come out negative and pick the list's first name. The number is
+//!   taken modulo the weight as it is.
+//! - What the save checksum (GLOSSARY) of a save loaded in a session reads,
+//!   in vanilla too: the in-game load reads the save from disk, and a file's
+//!   stream sums its bytes otherwise than the memory stream the save was
+//!   written from, so such a save never matched and turned achievements off.
+//!   The file is summed as the save was.
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -44,7 +58,7 @@ use crate::{
             achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
             message_window, modifiers, outliner, religions, unit_view, world,
         },
-        gui::{classes as gui_classes, sprite_type, transparency_mask, window as gui_window},
+        gui::{classes as gui_classes, element, sprite_type, text_box, transparency_mask, window as gui_window},
         list,
     },
     points::{Function, Point},
@@ -56,6 +70,17 @@ use std::sync::{
 
 /// `(block, size)`: the game's `operator delete`.
 const DELETE: usize = 0x17394f0;
+/// In the save checksum (`0x14e3390(out, stream, cut, salt, salt length)`),
+/// the stream's sum of its bytes: `call r12`, the stream in `rbx`, how many
+/// bytes in `edx` (-1 for all of them).
+const SAVE_CHECKSUM_SUM: usize = 0x14e33f9;
+const SAVE_CHECKSUM_SUM_DONE: usize = 0x14e3403;
+/// A file's stream (vtable [`FILE_STREAM`]): its sum of its bytes, its
+/// method at `+0x98`, and where it keeps the file.
+const FILE_STREAM: usize = 0x1dbfa98;
+const FILE_STREAM_SUM: usize = 0x1710c00;
+const FILE_STREAM_SUM_METHOD: usize = 0x98;
+const FILE_STREAM_FILE: usize = 0x38;
 /// `(country)`: a country's destructor, which every world reset runs for
 /// every country, as the country tags are set up again.
 const COUNTRY_DESTRUCTOR: usize = 0x2cbf20;
@@ -108,6 +133,14 @@ const TAKE_WINDOW_OFF: usize = 0x6ecc80;
 /// go: off the map manager's windows, then killed.
 const SELECTION_BAR_MADE_AGAIN: usize = 0x1471540;
 
+/// `(text box)`: a text box's destructor, which its deleting destructor
+/// (`0x152aab0`) and its subclass's (`0x15f2d20`) call first; it ends in the
+/// element's (`0x1552680`), which deletes the animations the element owns
+/// by their first slots. `(element, animation)`: puts an animation on an
+/// element's animations, owned by it, or marks it owned there.
+const TEXT_BOX_DESTRUCTOR: usize = 0x152aaf0;
+const OWN_ANIMATION: usize = 0x15529e0;
+
 /// `(bits, count)`: a `std::vector<bool>`'s resize; and where the texture
 /// loader resizes a transparency mask to its texture's pixels, the return
 /// address of that call. `(words)`: the destructor of a vector of u32, which
@@ -122,6 +155,14 @@ const WORDS_DESTRUCTOR: usize = 0x943e0;
 /// coalition against the country it targets, on the main thread.
 const COALITION_LEAVE: usize = 0x3b0220;
 const COALITION_JOIN: usize = 0x3e3940;
+
+/// Where the pick of a name from a list (`0xda9880`), weighing its male and
+/// female names each by a factor, turns its random number (`esi`, 0 to
+/// 2^31 - 1) into fixed point, `imul eax, esi, 1000`, before it takes it
+/// modulo the list's weight in fixed point. A new heir is named by it from
+/// the country's ruler names (`0xa55cf0`), unless its sex is already set;
+/// the female names weigh by the country's female heir chance.
+const NAME_DRAW: usize = 0xda9981;
 
 /// `(modifiers)`: the destructor of a country's modifiers; `(modifiers,
 /// other)`: their copy from another's.
@@ -140,6 +181,30 @@ static MASK_BYTES: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
+static TEXT_BOX_ANIMATIONS: AtomicUsize = AtomicUsize::new(0);
+
+/// While it lives, `repair` lets the game's memory go on this thread: a
+/// developer build's quarantine keeps what is freed then, while it is on
+/// (docs/leak-finding.md, M4). What the game frees later, as the GUI's sweep
+/// frees a window a repair killed, is not kept.
+struct LettingGo;
+
+impl LettingGo {
+    fn new(repair: &'static str) -> Self {
+        #[cfg(feature = "dev-heap-census")]
+        crate::census::quarantine::begin(repair);
+        #[cfg(not(feature = "dev-heap-census"))]
+        let _ = repair;
+        Self
+    }
+}
+
+impl Drop for LettingGo {
+    fn drop(&mut self) {
+        #[cfg(feature = "dev-heap-census")]
+        crate::census::quarantine::end();
+    }
+}
 
 /// The agents of the AI whose top agent is being deleted, by that agent:
 /// they are deleted once it is gone.
@@ -155,6 +220,7 @@ extern "C" fn country_going(frame: *mut HookFrame) {
             let bytes = m.ptr(country + country::ENTRY_BYTES)?;
             if bytes != 0 {
                 m.write(country + country::ENTRY_BYTES, &0usize.to_le_bytes())?;
+                let _letting_go = LettingGo::new("country's array of bytes");
                 m.call(m.at(DELETE), &[bytes, 0])?;
             }
             crate::Result::Ok(())
@@ -180,6 +246,7 @@ extern "C" fn company_going(frame: *mut HookFrame) {
                 return Ok(());
             }
             m.write(company + mercenary_company::LEADER, &0usize.to_le_bytes())?;
+            let _letting_go = LettingGo::new("mercenary company's leader");
             m.call(m.vslot(leader, 0)?, &[leader, 1])?;
             LEADERS.fetch_add(1, Ordering::Relaxed);
             crate::Result::Ok(())
@@ -213,6 +280,7 @@ extern "C" fn world_clearing() {
                 let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
                 let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::Result<Vec<_>>>()?;
                 for faction in factions.into_iter().filter(|&f| f != 0) {
+                    let _letting_go = LettingGo::new("rebel faction");
                     m.call(m.vslot(faction, 0)?, &[faction, 1])?;
                     FACTIONS.fetch_add(1, Ordering::Relaxed);
                 }
@@ -276,6 +344,7 @@ extern "C" fn ai_king_gone(frame: *mut HookFrame) {
         };
         let m = crate::hooked_memory();
         for agent in agents {
+            let _letting_go = LettingGo::new("agent of a country's AI");
             match m.vslot(agent, 0).and_then(|delete| m.call(delete, &[agent, 1])) {
                 Ok(_) => {
                     AGENTS.fetch_add(1, Ordering::Relaxed);
@@ -342,6 +411,38 @@ extern "C" fn unit_view_going(frame: *mut HookFrame) {
     });
 }
 
+/// A text box's destructor begins: its animation, which its element deletes
+/// only from its animations, is put on them owned, as the text box puts it
+/// there when it plays; the element's destructor then deletes it with the
+/// others, the text box still whole, as it deletes a playing one. The
+/// destructor lets it go, so a developer build's quarantine keeps what the
+/// whole destructor frees, until [`text_box_gone`].
+extern "C" fn text_box_going(frame: *mut HookFrame) {
+    #[cfg(feature = "dev-heap-census")]
+    crate::census::quarantine::begin("text box's animation");
+    crate::guarded("text box destructor", || {
+        let m = crate::hooked_memory();
+        let boxed = unsafe { (*frame).args[0] };
+        let owned = (|| {
+            let animation = m.ptr(boxed + text_box::ANIMATION)?;
+            if animation != 0 {
+                m.call(m.at(OWN_ANIMATION), &[boxed, animation])?;
+                TEXT_BOX_ANIMATIONS.fetch_add(1, Ordering::Relaxed);
+            }
+            crate::Result::Ok(())
+        })();
+        if let Err(e) = owned {
+            log!("repair: a text box's animation was not handed to its element: {e}");
+        }
+    });
+}
+
+/// A text box's destructor is done, its animation deleted with it.
+#[cfg(feature = "dev-heap-census")]
+extern "C" fn text_box_gone(_: *mut HookFrame) {
+    crate::census::quarantine::end();
+}
+
 /// The outliner is being let go: its categories' entries, which the
 /// function letting it go leaves (its headers with their windows among
 /// them), are deleted first as its refresh deletes them: what shows them is
@@ -363,6 +464,7 @@ extern "C" fn outliner_going(frame: *mut HookFrame) {
                     let entry = m.ptr(node + list::ITEM)?;
                     if entry != 0 {
                         m.write(node + list::ITEM, &0usize.to_le_bytes())?;
+                        let _letting_go = LettingGo::new("outliner's entry");
                         m.call(m.vslot(entry, 0)?, &[entry, 1])?;
                         deleted += 1;
                     }
@@ -408,6 +510,7 @@ fn delete_modifier_sets(m: &Memory, sets: Vec<usize>) {
             if m.ptr(set)? != m.at(classes::MODIFIER_SET) {
                 return Err(format!("{set:#x} is not a set of modifiers"));
             }
+            let _letting_go = LettingGo::new("set of modifiers");
             m.call(m.vslot(set, 0)?, &[set, 1])
         })();
         match deleted {
@@ -556,6 +659,7 @@ extern "C" fn mask_resizing(frame: *mut HookFrame) {
             if begin == 0 || capacity <= begin + needed {
                 return Ok(0);
             }
+            let _letting_go = LettingGo::new("transparency mask");
             m.call(m.at(WORDS_DESTRUCTOR), &[mask + transparency_mask::WORDS])?;
             m.write(mask + transparency_mask::BITS, &0usize.to_le_bytes())?;
             crate::Result::Ok(capacity - begin)
@@ -610,6 +714,82 @@ extern "C" fn coalition_changed(_frame: *mut HookFrame) {
         turns.holder.store(0, Ordering::Release);
         unsafe { windows_sys::Win32::System::Threading::ReleaseSRWLockExclusive(turns.lock.get()) };
     }
+}
+
+/// The game's file stream's sum, for the stub to tell a file's stream by.
+static FILE_STREAM_SUM_AT: AtomicUsize = AtomicUsize::new(0);
+
+/// The sum of bytes the save checksum is taken of, as a memory stream sums
+/// them (`0x171f3f0`): a 16-bit sum and a 16-bit sum of sums, each shifted
+/// right by 16 when it passes 0xffff. A file's stream (`0x170f9b0`) takes
+/// 0xffff off instead.
+#[derive(Default)]
+struct SaveSum {
+    a: u32,
+    b: u32,
+}
+
+impl SaveSum {
+    fn add(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.a += u32::from(byte);
+            if self.a > 0xffff {
+                self.a >>= 16;
+            }
+            self.b += self.a;
+            if self.b > 0xffff {
+                self.b >>= 16;
+            }
+        }
+    }
+
+    fn value(&self) -> u32 {
+        self.a << 16 | self.b
+    }
+}
+
+/// A file's stream's sum of `count` of its bytes (-1 for all), as the memory
+/// stream the save was written from summed them; the game's own sum when
+/// the file cannot be read.
+unsafe extern "C" fn file_stream_sum(stream: usize, count: i32) -> u32 {
+    crate::guarded("save checksum of a file", || {
+        let m = crate::hooked_memory();
+        let mut sum = SaveSum::default();
+        let read = m
+            .ptr(stream + FILE_STREAM_FILE)
+            .and_then(|holder| m.ptr(holder))
+            .and_then(|file| crate::physfs::read_from_start(file, u64::try_from(count).ok(), |bytes| sum.add(bytes)));
+        match read {
+            Ok(()) => sum.value(),
+            Err(e) => {
+                log!("repairs: the save checksum of a file is summed by the game, which never matches the save's: {e}");
+                m.call(FILE_STREAM_SUM_AT.load(Ordering::Relaxed), &[stream, count as u32 as usize]).map_or(0, |v| v as u32)
+            }
+        }
+    })
+}
+
+crate::resume!(SAVE_CHECKSUM_SUM_RESUME: SAVE_CHECKSUM_SUM_NEXT = SAVE_CHECKSUM_SUM_DONE);
+
+/// Replaces the save checksum's sum of the stream's bytes: a file's stream
+/// is summed by [`file_stream_sum`], any other by its own method.
+#[unsafe(naked)]
+extern "C" fn save_checksum_sum_stub() {
+    std::arch::naked_asm!(
+        "mov rcx, rbx",
+        "cmp r12, qword ptr [rip + {file_sum}]",
+        "jne 2f",
+        crate::call_rust!(call sum, "mov eax, dword ptr [rsp + 0x48]"),
+        "jmp 3f",
+        "2:",
+        "call r12",
+        "3:",
+        "mov byte ptr [rbp - 0x38], 0",
+        "jmp qword ptr [rip + {next}]",
+        file_sum = sym FILE_STREAM_SUM_AT,
+        sum = sym file_stream_sum,
+        next = sym SAVE_CHECKSUM_SUM_NEXT,
+    );
 }
 
 crate::resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);
@@ -800,12 +980,13 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go",
             LEADERS.swap(0, Ordering::Relaxed),
             FACTIONS.swap(0, Ordering::Relaxed),
             AGENTS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS_WAITED.swap(0, Ordering::Relaxed),
+            TEXT_BOX_ANIMATIONS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed),
             MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
         );
@@ -815,7 +996,8 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
 }
 
 /// The session's interface the map manager's destructor leaves, as an
-/// in-process return takes the session down (ADR 0022).
+/// in-process return takes the session down
+/// (ADR return-to-the-main-menu-in-process).
 pub struct SessionInterface {
     manager: usize,
     /// Those of the session's windows open as popups, the end-of-game
@@ -843,6 +1025,7 @@ impl SessionInterface {
                 let popup = m.ptr(window + message_window::POPUP)?;
                 if popup != 0 && !popups.contains(&popup) {
                     m.write(window + message_window::POPUP, &0usize.to_le_bytes())?;
+                    let _letting_go = LettingGo::new("message window's popup");
                     m.call(m.vslot(popup, 0)?, &[popup, 1])?;
                 }
             }
@@ -889,6 +1072,7 @@ extern "C" fn map_manager_going(frame: *mut HookFrame) {
 /// it never lets go is let go first, the last made first, as the game lets
 /// its windows go.
 fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> {
+    let _letting_go = LettingGo::new("session's interface");
     let mut gone = 0;
     let mut take = |field: usize| -> crate::Result<usize> {
         let object = m.ptr(manager + field)?;
@@ -926,6 +1110,20 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(DELETE, "e9 2b 45 02 00", "operator delete"),
+        // The save checksum calls the stream's sum, its method at +0x98; a
+        // file's stream sums its file, which it keeps at +0x38, from a holder.
+        Point::keep(0x14e33d5usize, "4c 8b a0 98 00 00 00", "save checksum stream sum method").uses(&[FILE_STREAM_SUM_METHOD]),
+        Point::jump(
+            SAVE_CHECKSUM_SUM,
+            "48 8b cb 41 ff d4 c6 45 c8 00",
+            "save checksum stream sum",
+            save_checksum_sum_stub as *const () as usize,
+            &SAVE_CHECKSUM_SUM_RESUME,
+        ),
+        Point::keep(SAVE_CHECKSUM_SUM_DONE, "45 33 e4 4c 89 64 24 70", "save checksum after the sum"),
+        Point::method(FILE_STREAM, FILE_STREAM_SUM_METHOD, FILE_STREAM_SUM, "file stream sum method"),
+        Point::keep(FILE_STREAM_SUM, "48 8b 49 38 e9 a7 ed ff ff", "file stream sum").uses(&[FILE_STREAM_FILE]).recorded(&FILE_STREAM_SUM_AT),
+        Point::keep(0x170f9e0usize, "48 8b 09 e8 d8 74 2e 00", "file stream sum's file"),
         // The texture loader resizes the transparency mask of the texture's
         // ID to its pixels, then writes every bit.
         Point::observe(BIT_VECTOR_RESIZE, "48 89 5c 24 10 57 48 83 ec 50 4c 8b 41 18 48 8b da 48 8b f9", "vector of bits resize", 2, Some(mask_resizing), None)
@@ -954,6 +1152,12 @@ pub fn points() -> Vec<Point> {
             Some(coalition_changed),
         ),
         Point::keep(0x3e3c31usize, "49 8b 81 28 19 00 00", "coalition joined").uses(&[country::COALITION]),
+        // The random number goes into the division as it is (`mov eax,
+        // esi`); the remainder of it by the weight is where the walk down the
+        // names begins, each name's weight taken off until it goes below 0.
+        Point::write(NAME_DRAW, "69 c6 e8 03 00 00", "name pick's draw in fixed point", "8b c6 0f 1f 40 00"),
+        Point::keep(0xda9995usize, "41 03 c9 99 4d 8b 4a 18 f7 f9 8b ca", "name pick's draw modulo the weight"),
+        Point::keep(0xda99dcusize, "2b ca 78 06", "name pick's walk down the names"),
         Point::observe(
             COUNTRY_DESTRUCTOR,
             "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 ec 20 48 8b d9",
@@ -1060,6 +1264,32 @@ pub fn points() -> Vec<Point> {
             "selection bar let go",
         )
         .uses(&[gui_window::KILL]),
+        // A text box's destructor, which leaves its animation, and ends in
+        // the element's; that deletes the animations the element owns, and
+        // the text box makes its own with it.
+        Point::observe(
+            TEXT_BOX_DESTRUCTOR,
+            "40 53 48 83 ec 20 48 8b d9 48 8d 05 10 52 86 00 48 89 01",
+            "text box destructor",
+            1,
+            Some(text_box_going),
+            #[cfg(feature = "dev-heap-census")]
+            Some(text_box_gone),
+            #[cfg(not(feature = "dev-heap-census"))]
+            None,
+        )
+        .uses(&[gui_classes::TEXT_BOX]),
+        Point::keep(0x152ab58usize, "48 8b cb 48 83 c4 20 5b e9 1b 7b 02 00", "text box destructor ends in the element's"),
+        Point::keep(OWN_ANIMATION, "48 85 d2 0f 84 a9 00 00 00 53 48 83 ec 30 4c 8b 81 90 00 00 00", "own an animation").uses(&[element::ANIMATIONS]),
+        Point::keep(0x1552a22usize, "49 8b 92 98 00 00 00 48 89 5c 24 20 c6 44 24 28 01", "animation put on owned"),
+        Point::keep(0x155269ausize, "48 8d b9 90 00 00 00", "element destructor's animations").uses(&[element::ANIMATIONS]),
+        Point::keep(
+            0x15526c0usize,
+            "48 8b 17 80 7c 13 08 00 74 16 48 8b 0c 13 48 85 c9 74 0d 48 8b 01 ba 01 00 00 00 ff 10",
+            "element deletes its owned animations",
+        )
+        .uses(&[element::ANIMATION_OWNED]),
+        Point::keep(0x152a036usize, "48 89 9e 10 02 00 00", "text box's animation made").uses(&[text_box::ANIMATION]),
         // A sprite type unloaded with its group of graphics, which the main
         // menu's interface rebuild does for the game's (group 3); a sprite
         // shown loads its lazily loaded type only when none showed it.
@@ -1080,4 +1310,24 @@ pub fn points() -> Vec<Point> {
             sprite_type::TEXTURE,
         ]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_save_is_summed_as_a_memory_stream_sums_it_in_any_pieces() {
+        let bytes = [&[0xff; 300][..], b"checksum="].concat();
+        let mut whole = SaveSum::default();
+        whole.add(&bytes);
+        // Past 0xffff a memory stream shifts right by 16, where a file's
+        // stream would give 0x2e6541f9.
+        assert_eq!(whole.value(), 0x2d67b397);
+        let mut pieces = SaveSum::default();
+        for piece in bytes.chunks(7) {
+            pieces.add(piece);
+        }
+        assert_eq!(pieces.value(), whole.value());
+    }
 }

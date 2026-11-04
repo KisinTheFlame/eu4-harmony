@@ -1,7 +1,8 @@
 //! Glyphs from system fonts (GLOSSARY), drawn with DirectWrite into 8-bit
 //! coverage bitmaps, anti-aliased across and down: for every character the
-//! game draws (ADR 0021). Anti-aliased across only, as DirectWrite's natural
-//! mode draws, the slanting strokes of Chinese characters show steps.
+//! game draws (ADR game-text-in-system-fonts). Anti-aliased across only, as
+//! DirectWrite's natural mode draws, the slanting strokes of Chinese characters
+//! show steps.
 //!
 //! A character goes to the first of the chosen family and the fallback
 //! families that has it, in the chosen weight when that family has it, else

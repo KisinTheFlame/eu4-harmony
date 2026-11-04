@@ -1,7 +1,8 @@
-//! Remote control's transport (ADR 0016): the named pipe
-//! `\\.\pipe\eu4-harmony`, open to the Windows user running the game and
-//! nobody else (ADR 0017), with one JSON request per line in and one JSON
-//! response per line out (`request_from_json`, `response_json`).
+//! Remote control's transport (ADR remote-control-engine-and-transports): the
+//! named pipe `\\.\pipe\eu4-harmony`, open to the Windows user running the game
+//! and nobody else (ADR remote-control-is-always-on), with one JSON request per
+//! line in and one JSON response per line out (`request_from_json`,
+//! `response_json`).
 //!
 //! Every remote client has a pipe instance and a thread of its own, so
 //! several are served at once. A client's requests are handled one after

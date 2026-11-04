@@ -1,10 +1,11 @@
-//! An extension's Lua state: the sandbox (ADR 0024) and what the host puts
-//! in it. Lua's own string, table, math, utf8 and coroutine libraries, the
-//! base library without loading files or bytecode, `os.clock`; the
-//! framework's globals `log`, `json`, `mod_files`, `text` and `spawn`, and
-//! `require` for the mod's own modules; the sensitive capabilities
-//! (ADR 0025) `os.time` and `os.date`, `files` and `http`, which raise an
-//! error where the manifest does not declare them; and `game`.
+//! An extension's Lua state: the sandbox (ADR extensions-are-lua-in-a-sandbox)
+//! and what the host puts in it. Lua's own string, table, math, utf8 and
+//! coroutine libraries, the base library without loading files or bytecode,
+//! `os.clock`; the framework's globals `log`, `json`, `mod_files`, `text` and
+//! `spawn`, and `require` for the mod's own modules; the sensitive capabilities
+//! (ADR sensitive-capabilities-are-declared) `os.time` and `os.date`, `files`
+//! and `http`, which raise an error where the manifest does not declare them;
+//! and `game`.
 use super::{
     files,
     values::{self, date_text},
@@ -162,7 +163,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
         })?,
     )?;
 
-    // spawn: a task of its own (ADR 0030).
+    // spawn: a task of its own (ADR handlers-run-as-tasks-that-can-wait).
     globals.set(
         "spawn",
         lua.create_function(move |lua, function: Function| {

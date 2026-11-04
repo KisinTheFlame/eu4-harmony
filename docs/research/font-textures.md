@@ -119,7 +119,7 @@ Read 2026-11-02, from the code and from the device in the running game (the proj
 
 ## Adding glyphs to a page (`unicode/fill.rs`)
 
-- **What the framework does** (since 2026-11-02, [ADR 0021](../adr/0021-game-text-in-system-fonts.md)): every font gets a new page, empty, A8R8G8B8 and square, sized to its line, where every character is drawn from a system font; the font's own page is read only for its `H`. Before, by default, a font's own page was grown by 1024 rows for the characters it lacked; what was found about that is kept below.
+- **What the framework does** (since 2026-11-02, [ADR game-text-in-system-fonts](../adr/game-text-in-system-fonts.md)): every font gets a new page, empty, A8R8G8B8 and square, sized to its line, where every character is drawn from a system font; the font's own page is read only for its `H`. Before, by default, a font's own page was grown by 1024 rows for the characters it lacked; what was found about that is kept below.
 - **Format numbers**[V]: 0x16f9850 maps the engine's format numbers to Direct3D's: 1 and 2 are DXT1, 3 and 4 DXT3, 5 and 6 DXT5, 0xb and 0xc A8R8G8B8; for the rest, see the function's jump table.
 - **Compressed pages** (tested): the Chinese language mod's six pages are all single-level DXT5. A grown page was a new texture in video memory (`D3DPOOL_DEFAULT`, no usage flags), also DXT5 and 1024 rows taller, with the original blocks copied into it unchanged; new glyphs were encoded as 4×4 blocks, and a glyph with its one-pixel gap filled whole blocks, so every position in the atlas also fell on whole blocks.
   - All four edges of a rectangle locked or copied in a compressed texture must lie on whole blocks, otherwise the call returns `D3DERR_INVALIDCALL`.

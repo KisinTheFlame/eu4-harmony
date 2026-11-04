@@ -1,10 +1,10 @@
-//! `version.dll` proxy (ADR 0011). The Windows loader maps this DLL into the
-//! game process because `eu4.exe` imports VERSION.dll and the game directory
-//! is searched before System32. Every export is forwarded to the System32
-//! version.dll; on process attach the EU4 Harmony core is loaded and
+//! `version.dll` proxy (ADR version-proxy-injection). The Windows loader maps
+//! this DLL into the game process because `eu4.exe` imports VERSION.dll and the
+//! game directory is searched before System32. Every export is forwarded to the
+//! System32 version.dll; on process attach the EU4 Harmony core is loaded and
 //! bootstrapped. A `version.dll` that was in the game root before is kept as a
-//! backup in `eu4-harmony/` and never loaded, so only the framework changes
-//! the game's text code.
+//! backup in `eu4-harmony/` and never loaded, so only the framework changes the
+//! game's text code.
 //!
 //! DllMain runs under the loader lock, so it only loads the core and calls its
 //! bootstrap export; all further initialization is deferred by the core itself.

@@ -1,4 +1,5 @@
-//! What makes the game faster without changing what it computes (ADR 0038,
+//! What makes the game faster without changing what it computes (ADR
+//! making-the-game-faster-leaves-what-it-computes-as-it-is,
 //! docs/game-speed.md), where it has no other home.
 //!
 //! - **POPS without sleeping.** Paradox's client (`pops_api.dll`) is served

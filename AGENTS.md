@@ -12,7 +12,7 @@ These rules hold for everyone who changes this repository, people and coding age
 ## Where things are written down
 
 - [docs/v1.md](docs/v1.md): the design of the first version. [docs/unicode-module.md](docs/unicode-module.md): the Unicode module's plan, milestones and progress. [docs/remote-control.md](docs/remote-control.md): remote control's plan, its parts and what each delivers. [docs/sessions.md](docs/sessions.md): leaving a session without a restart, its plan and parts. [docs/lua-extensions.md](docs/lua-extensions.md): extensions in Lua instead of native DLLs, its plan and parts. [docs/leak-finding.md](docs/leak-finding.md): finding what the game's memory keeps of its sessions, its plan and parts. [docs/extension-reload.md](docs/extension-reload.md): reloading an extension in the running game, its plan and parts. [docs/commands.md](docs/commands.md): capabilities that change the game reaching it as commands, and developer builds, its plan and parts. [docs/input.md](docs/input.md): remote clients giving the game mouse and keyboard input, its plan and parts. [docs/game-speed.md](docs/game-speed.md): making the game faster without changing the game it plays, its plan and parts.
-- [docs/adr/](docs/adr/): decisions that are hard to reverse. A new decision gets the next number; a changed decision gets a new ADR that supersedes the old one, which stays.
+- [docs/adr/](docs/adr/): decisions that are hard to reverse, one file each, named by a short slug of the decision (`commands-run-at-once.md`) and without a number, so that branches written side by side do not take the same one. An ADR is referred to by its slug, as `ADR commands-run-at-once`, and keeps it once merged. A changed decision gets a new ADR that supersedes the old one, which stays.
 - [docs/research/](docs/research/): what is known about the game's code, with addresses as RVAs into the 1.37.5 baseline.
 - [docs/prototype-log.md](docs/prototype-log.md): what was tested in the running game and what came out, one dated section per run. Say what was not verified as plainly as what was.
 - [docs/performance.md](docs/performance.md): what the framework costs the game, as measured with `tools/perf-run.ps1`.
@@ -43,8 +43,8 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 
 ## Design rules
 
-- Design capabilities for any mod. The regional combat port lives in its own repository and must not shape the framework's interface ([ADR 0004](docs/adr/0004-ports-live-outside-framework-repo.md), [ADR 0005](docs/adr/0005-extensions-use-capabilities-only.md)).
-- Every place in the game the framework relies on is a dependency point, with the bytes expected there: a game function, a hook site, a field offset (checked against an instruction that uses it). A different game build then fails at startup instead of misbehaving, and startup succeeds or fails as a whole ([ADR 0012](docs/adr/0012-framework-succeeds-or-fails-as-a-whole.md)).
+- Design capabilities for any mod. The regional combat port lives in its own repository and must not shape the framework's interface ([ADR ports-live-outside-framework-repo](docs/adr/ports-live-outside-framework-repo.md), [ADR extensions-use-capabilities-only](docs/adr/extensions-use-capabilities-only.md)).
+- Every place in the game the framework relies on is a dependency point, with the bytes expected there: a game function, a hook site, a field offset (checked against an instruction that uses it). A different game build then fails at startup instead of misbehaving, and startup succeeds or fails as a whole ([ADR framework-succeeds-or-fails-as-a-whole](docs/adr/framework-succeeds-or-fails-as-a-whole.md)).
 - Work things out from the game itself. Do not copy code from other EU4 patches or plugins, and do not name them in this repository.
 
 ## Testing in the game

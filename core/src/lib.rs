@@ -1,16 +1,17 @@
 //! EU4 Harmony core. Loaded by the `version.dll` proxy during process start;
 //! `eu4_harmony_bootstrap` runs under the loader lock, so it only checks the
-//! executable and installs every dependency point, all or none (ADR 0012).
-//! Everything that needs the game's own setup (its file system, the user
-//! directory) waits for the game's first `PHYSFS_init`, on the game thread.
-//! When startup fails nothing is hooked; a thread of its own writes the report
-//! and tells the player.
+//! executable and installs every dependency point, all or none
+//! (ADR framework-succeeds-or-fails-as-a-whole). Everything that needs the
+//! game's own setup (its file system, the user directory) waits for the game's
+//! first `PHYSFS_init`, on the game thread. When startup fails nothing is
+//! hooked; a thread of its own writes the report and tells the player.
 pub type Result<T> = std::result::Result<T, String>;
 
 #[macro_use]
 pub mod log;
 #[macro_use]
 pub mod stub;
+pub mod achievements;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
 pub mod baseline;
@@ -33,6 +34,8 @@ pub mod loc;
 pub mod lua;
 pub mod map;
 pub mod memory;
+#[cfg(feature = "dev-memory")]
+mod memory_account;
 pub mod mods;
 pub mod notice;
 pub mod objects;
@@ -92,7 +95,7 @@ pub(crate) fn hooked_memory() -> memory::Memory {
 
 /// Runs framework code. A panic there is a framework bug, not something to
 /// carry on from: it is logged, the player is told, and the game ends
-/// (ADR 0012).
+/// (ADR framework-succeeds-or-fails-as-a-whole).
 pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(value) => value,
@@ -103,7 +106,8 @@ pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
     }
 }
 
-/// Ends the game after an unexpected error in framework code (ADR 0012).
+/// Ends the game after an unexpected error in framework code
+/// (ADR framework-succeeds-or-fails-as-a-whole).
 pub(crate) fn fatal(detail: &str) -> ! {
     log!("fatal error, ending the game: {detail}");
     notice::tell_and_wait(&notice::Message::new("EU4HARMONY_FATAL").arg("DETAIL", detail));
@@ -122,6 +126,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(map::points());
     all.extend(saves::points());
     all.extend(repairs::points());
+    all.extend(achievements::points());
     all.extend(unicode::points());
     all.extend(wording::points());
     all.extend(framework_ui::hook::points());
@@ -139,8 +144,10 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(not(any(feature = "dev-heap-census", feature = "dev-call-trace")), expect(unused_mut, reason = "only the development tools add points"))]
+    #[cfg_attr(not(any(feature = "dev-memory", feature = "dev-call-trace")), expect(unused_mut, reason = "only the development tools add points"))]
     let mut all = points();
+    #[cfg(feature = "dev-memory")]
+    all.extend(memory_account::points(&m));
     #[cfg(feature = "dev-heap-census")]
     all.extend(census::points(&m));
     #[cfg(feature = "dev-call-trace")]
@@ -243,8 +250,9 @@ fn fail_startup(reason: String) {
 }
 
 /// A font chosen in the settings that is no longer installed: the default
-/// draws instead, and the player is told once (ADR 0012). A weight its font
-/// no longer has draws in the one below it, which only the log tells.
+/// draws instead, and the player is told once
+/// (ADR framework-succeeds-or-fails-as-a-whole). A weight its font no longer
+/// has draws in the one below it, which only the log tells.
 fn tell_missing_fonts(chosen: &settings::Settings) {
     let Ok(fonts) = unicode::system_font::SystemFonts::new() else { return };
     for font in chosen.missing_fonts(|family| fonts.has_family(family)) {
@@ -346,7 +354,7 @@ pub(crate) fn deferred_init() {
     tell_missing_fonts(&chosen);
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
     report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
-    // Remote control is always on (ADR 0017).
+    // Remote control is always on (ADR remote-control-is-always-on).
     pipe::start();
     let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
     // Texts first: an extension may read its own at the top of main.lua.

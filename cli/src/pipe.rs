@@ -1,6 +1,7 @@
-//! The remote client's side of remote control's named pipe (ADR 0016): opens
-//! the pipe, makes sure the game run by this Windows user serves it, writes
-//! one request line and reads the answer line.
+//! The remote client's side of remote control's named pipe
+//! (ADR remote-control-engine-and-transports): opens the pipe, makes sure the
+//! game run by this Windows user serves it, writes one request line and reads
+//! the answer line.
 //!
 //! Any process may make a pipe of the game's name before the game does, and
 //! would then receive the requests. So the client opens the pipe at the

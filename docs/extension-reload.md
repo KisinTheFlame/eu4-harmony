@@ -25,10 +25,10 @@ Status: decided (2026-11-04); R1 to R3 built and tried in the game the same day 
 
 ### What the old code left
 
-- Its waiting tasks are dropped, as at the end of a session (ADR 0030).
+- Its waiting tasks are dropped, as at the end of a session (ADR handlers-run-as-tasks-that-can-wait).
 - Its map coloring is released.
 - The values it set on its interface elements are forgotten; the new code sets them again, usually in its first frame. An element it never sets keeps the last look the old code gave it.
-- An extension the framework stopped (ADR 0027) runs again after a reload. Its old code is not run again, `save_data` included, so `on_session` gets nil, and the answer says why.
+- An extension the framework stopped (ADR an-error-does-not-stop-an-extension) runs again after a reload. Its old code is not run again, `save_data` included, so `on_session` gets nil, and the answer says why.
 
 ### When the new code fails
 
@@ -38,11 +38,11 @@ Nothing changes: when the new `main.lua` does not compile or fails as it runs, o
 
 - `eu4-harmony reload`, run in a mod's folder (or given one), reloads that mod's extension in the running game, through remote control, and prints what came of it.
 - `eu4-harmony reload --watch` does so whenever a file under the mod's `eu4-harmony/lua/` or `eu4-harmony/localisation/` changes, until it is stopped.
-- Remote control has it as `extension.reload`, in the main menu and in a session, for remote clients only (ADR 0015).
+- Remote control has it as `extension.reload`, in the main menu and in a session, for remote clients only (ADR remote-control-uses-capabilities).
 
 ## Parts
 
-- **R1**: `on_save` becomes `save_data` (ADR 0036), `api_version` 0.3; the type definitions, the guides, `wiki`, the tests and regional combat follow.
+- **R1**: `on_save` becomes `save_data` (ADR save-data-is-asked-for-by-save-data), `api_version` 0.3; the type definitions, the guides, `wiki`, the tests and regional combat follow.
 - **R2**: the core reloads one extension in place, keeping its number, so what belongs to it (its interface elements, its map coloring, the orders it gave) stays its own; `extension.reload` in the catalogue.
 - **R3**: `eu4-harmony reload` and `--watch`.
 - **Acceptance**, in the game with regional combat: a changed text shows in the tooltip; a changed decision rule takes effect with the task still on; a syntax error leaves the old code running and is printed; a reload in the main menu and one after a stop both work.

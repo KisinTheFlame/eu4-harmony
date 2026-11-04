@@ -7,10 +7,10 @@ Mirrors the player install instructions, with the files player-files.ps1
 lists: version.dll in the game root, the core and eu4-harmony.exe under
 eu4-harmony\. A foreign version.dll already in the root is moved to
 eu4-harmony\backup\version.dll; the proxy never
-loads it (ADR 0011), and uninstalling puts it back. The repository's
-dev.toml, a developer build's options, goes into eu4-harmony\ too; with none,
-one installed before is removed. Whichever build was built last is installed.
-The game folder is found by game-dir.ps1 unless -GameDir names it.
+loads it (ADR version-proxy-injection), and uninstalling puts it back. The
+repository's dev.toml, a developer build's options, goes into eu4-harmony\ too;
+with none, one installed before is removed. Whichever build was built last is
+installed. The game folder is found by game-dir.ps1 unless -GameDir names it.
 #>
 param(
     [string]$GameDir = (& (Join-Path $PSScriptRoot 'game-dir.ps1')),

@@ -1,9 +1,9 @@
-//! Extension save data (ADR 0020), kept in the save itself: the game's writer
-//! writes it as one more top-level entry of the game state, `eu4_harmony`,
-//! after the world's own entries, before the AI a plain save holds and before
-//! the checksum, and when a save is loaded the framework reads that entry
-//! before the world's handler of top-level entries sees it. How the game
-//! writes and reads saves is in docs/research/saves.md.
+//! Extension save data (ADR extension-save-data-in-the-save), kept in the save
+//! itself: the game's writer writes it as one more top-level entry of the game
+//! state, `eu4_harmony`, after the world's own entries, before the AI a plain
+//! save holds and before the checksum, and when a save is loaded the framework
+//! reads that entry before the world's handler of top-level entries sees it.
+//! How the game writes and reads saves is in docs/research/saves.md.
 //!
 //! The save loader is observed as well, which tells the rest of the core when
 //! a save is being read and whether it was.
@@ -257,8 +257,9 @@ impl GameToken {
 /// Writes the entry with the game's writer, after the world's game state and
 /// before the checksum is taken of it.
 fn write_entry(m: Memory, writer: usize) -> Result<()> {
-    // Each extension's data is what its save_data returns now (ADR 0036).
-    // Off the main thread the data its last save_data returned is written.
+    // Each extension's data is what its save_data returns now
+    // (ADR save-data-is-asked-for-by-save-data). Off the main thread the data
+    // its last save_data returned is written.
     if crate::thread_id() == crate::main_thread() {
         crate::lua::save_data();
     } else {

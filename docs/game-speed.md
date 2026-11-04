@@ -1,6 +1,6 @@
 # Game speed plan
 
-Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR 0038](adr/0038-making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
+Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
 
 ## Goal and scope
 
@@ -16,7 +16,7 @@ Status: decided (2026-11-04). S0, the sampler, is built and was used for the mea
 
 ## What "the same game" means
 
-[research/main-thread.md](research/main-thread.md) found that the game does not repeat itself: one save, the same days, the same answers, and two runs differ after 10 days. The random draws of a day vary from run to run, and not with the number of frames drawn. So "the same results as before" cannot be shown by running a game twice and comparing. What a change may do is said instead by where it acts ([ADR 0038](adr/0038-making-the-game-faster-leaves-what-it-computes-as-it-is.md)):
+[research/main-thread.md](research/main-thread.md) found that the game does not repeat itself: one save, the same days, the same answers, and two runs differ after 10 days. The random draws of a day vary from run to run, and not with the number of frames drawn. So "the same results as before" cannot be shown by running a game twice and comparing. What a change may do is said instead by where it acts ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)):
 
 | Kind | Where | What may change | How it is shown |
 | --- | --- | --- | --- |
@@ -51,7 +51,7 @@ S1, S2 and S3 change nothing the player sees but how long things take, so they h
 
 - Paradox's client (`pops_api.dll`, the account, social and telemetry services) is served twice a frame on the main thread with a timeout of 1 ms, and sleeps that long when it has no socket. With the framework it polls: it waits for nothing and sleeps never.
 - Paused, frames are a third shorter, so the game draws more of them, up to vsync's limit when vsync is on; nothing holds the rate below that.
-- `pops_api.dll` comes with the game, so its bytes are dependency points like those in `eu4.exe`: when they differ, the framework does not start (ADR 0012).
+- `pops_api.dll` comes with the game, so its bytes are dependency points like those in `eu4.exe`: when they differ, the framework does not start (ADR framework-succeeds-or-fails-as-a-whole).
 
 ### Line breaks kept (S2)
 

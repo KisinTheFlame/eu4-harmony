@@ -4,7 +4,8 @@
 //! An extension's order installs a route that stays its own until someone
 //! else changes it. A remote client's order is the player's: it takes the
 //! army back from the extension that was moving it, and extensions hear that
-//! the player gave the army an order, exactly once (ADR 0015).
+//! the player gave the army an order, exactly once
+//! (ADR remote-control-uses-capabilities).
 use super::{context, events, game, orders, with_state, world, Caller, GResult, Tag};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;

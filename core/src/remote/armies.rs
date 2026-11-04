@@ -1,6 +1,6 @@
 //! The player's armies and the armies they can see. A move or a stop from a
-//! remote client is the player's order (ADR 0015): the capability layer
-//! takes the army back from an extension moving it.
+//! remote client is the player's order (ADR remote-control-uses-capabilities):
+//! the capability layer takes the army back from an extension moving it.
 use super::tag;
 use crate::game::armies::{self as layer, RouteSource as Source};
 use eu4_harmony_remote::{

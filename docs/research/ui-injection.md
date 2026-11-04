@@ -6,7 +6,7 @@ Method: static analysis only; the game was not started and no process was attach
 
 ## Question
 
-ADR 0006 requires interface elements to be injected at run time, without mods overriding vanilla `.gui` files. Two things need answering here: whether elements can be added to a vanilla window at run time (the first host window is `single_unitpanel` in `interface/unitpanel_main.gui`), and which of three candidate mechanisms is the most feasible.
+ADR inject-ui-at-runtime requires interface elements to be injected at run time, without mods overriding vanilla `.gui` files. Two things need answering here: whether elements can be added to a vanilla window at run time (the first host window is `single_unitpanel` in `interface/unitpanel_main.gui`), and which of three candidate mechanisms is the most feasible.
 
 ## Conclusion
 

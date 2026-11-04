@@ -1,16 +1,18 @@
-//! The Lua host (ADR 0024): runs a mod's extension, its Lua scripts, in a
-//! Lua state of its own, in the sandbox, and calls its handlers.
+//! The Lua host (ADR extensions-are-lua-in-a-sandbox): runs a mod's extension,
+//! its Lua scripts, in a Lua state of its own, in the sandbox, and calls its
+//! handlers.
 //!
 //! An extension's `main.lua` runs once, when it is opened, and returns its
-//! handlers. Every handler call runs as a task (ADR 0030), which may wait for
-//! an answer and is taken up again by a later [`Extension::poll`]. `game`,
-//! the same table for every handler, reaches the capability catalogue
-//! through the [`Host`], which is the running game in the core and a fake
-//! game in the command line tool, so both run the same host. An error ends
-//! the call and is logged, and the extension is called again (ADR 0027);
-//! three stretches in a row stopped by the time limit ([`watch`]) stop it.
-//! The sensitive capabilities (ADR 0025) are `files` and `http.fetch`, with
-//! the clock in the sandbox.
+//! handlers. Every handler call runs as a task
+//! (ADR handlers-run-as-tasks-that-can-wait), which may wait for an answer and
+//! is taken up again by a later [`Extension::poll`]. `game`, the same table for
+//! every handler, reaches the capability catalogue through the [`Host`], which
+//! is the running game in the core and a fake game in the command line tool, so
+//! both run the same host. An error ends the call and is logged, and the
+//! extension is called again (ADR an-error-does-not-stop-an-extension); three
+//! stretches in a row stopped by the time limit ([`watch`]) stop it. The
+//! sensitive capabilities (ADR sensitive-capabilities-are-declared) are `files`
+//! and `http.fetch`, with the clock in the sandbox.
 pub mod fetch;
 mod files;
 mod sandbox;
@@ -559,11 +561,11 @@ impl Extension {
         }
     }
 
-    /// The extension's save data, from its `save_data` (ADR 0036), as a
-    /// plain call that cannot wait: `None` when it has no `save_data` or is
-    /// stopped; `Some(Ok(None))` when it keeps nothing; an error when
-    /// `save_data` fails or returns what JSON cannot hold, which is logged as
-    /// other errors.
+    /// The extension's save data, from its `save_data`
+    /// (ADR save-data-is-asked-for-by-save-data), as a plain call that cannot
+    /// wait: `None` when it has no `save_data` or is stopped; `Some(Ok(None))`
+    /// when it keeps nothing; an error when `save_data` fails or returns what
+    /// JSON cannot hold, which is logged as other errors.
     pub fn save_data(&self) -> Option<Result<Option<Value>, String>> {
         if self.state().stopped.is_some() {
             return None;

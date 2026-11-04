@@ -52,6 +52,10 @@ pub mod manager {
 pub mod element {
     /// Whether it shows, u8.
     pub const VISIBLE: usize = 0xc5;
+    /// Its animations, a vector of entries of 16 bytes: the animation, and
+    /// at [`ANIMATION_OWNED`] whether the element deletes it as it goes, u8.
+    pub const ANIMATIONS: usize = 0x90;
+    pub const ANIMATION_OWNED: usize = 8;
     /// Methods, by vtable offset: its name, as a `std::string*`.
     pub const NAME: usize = 0xa0;
     /// A button's: enable (with a u8), show, hide.
@@ -167,6 +171,9 @@ pub mod main_menu {
 pub mod text_box {
     /// Its text, a `std::string`.
     pub const TEXT: usize = 0x170;
+    /// Its animation, made with it and kept by it alone: on its element's
+    /// [`super::element::ANIMATIONS`] while it plays, off them while not.
+    pub const ANIMATION: usize = 0x210;
 }
 
 /// A texture's transparency mask, which the texture handler keeps by the

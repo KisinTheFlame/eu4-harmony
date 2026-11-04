@@ -1,8 +1,9 @@
 //! Dependency points (GLOSSARY): the places in the game's code the framework
 //! relies on, in `eu4.exe` or in another module that comes with the game. Each is declared once, with the bytes it must hold and what the
 //! framework does there, and that one declaration drives checking, hooking and
-//! undoing (ADR 0012). [`install`] applies every point or none, and
-//! [`Memory::at`] gives the address of only what a point checks.
+//! undoing (ADR framework-succeeds-or-fails-as-a-whole). [`install`] applies
+//! every point or none, and [`Memory::at`] gives the address of only what a
+//! point checks.
 use crate::{
     hooks::{self, Callback},
     memory::Memory,
@@ -20,7 +21,8 @@ use windows_sys::Win32::System::{
 
 /// A module other than `eu4.exe` that comes with the game and that a
 /// dependency point is in. Its bytes are checked as `eu4.exe`'s are, so a
-/// game whose module differs does not start (ADR 0012).
+/// game whose module differs does not start (ADR
+/// framework-succeeds-or-fails-as-a-whole).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Module {
     /// Paradox's account, social and telemetry client.

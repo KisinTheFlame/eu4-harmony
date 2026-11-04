@@ -6,8 +6,8 @@
 //! The game itself runs in the language of its settings: English, French,
 //! German or Spanish. Chinese players run it in English, with a Chinese
 //! localisation mod; the Unicode module draws the characters for anyone, so
-//! the Windows display language tells who reads Chinese (ADR 0010). Japanese
-//! and Korean are not offered.
+//! the Windows display language tells who reads Chinese
+//! (ADR built-in-unicode-module). Japanese and Korean are not offered.
 //!
 //! Decided once, at startup: the game reads its localisation files once, so
 //! the mod texts spliced into them (`loc`) could not follow a later change.
