@@ -7,7 +7,7 @@ use eu4_harmony_remote::{
     describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
     input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
     questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, Kind, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -303,6 +303,29 @@ fn every_capability_runs_at_a_game_frame() {
         ];
         cases.splice(0..0, memory);
     }
+    // The diplomacy panel's options, and each of its actions toward
+    // Wallachia, which the fake game refuses, every argument an example of
+    // its kind; ahead of the input, which waits for frames of its own.
+    let mut panel: Vec<(Request, Check)> = Vec::new();
+    panel.push((
+        Request::Diplomacy(DiplomacyRequest::Options { country: CountryTag(*b"BYZ") }),
+        Box::new(|v: &Value| v["result"]["actions"][0]["acceptance"]["accepts"] == false),
+    ));
+    let named: BTreeSet<String> = cases.iter().chain(&panel).map(|(r, _)| r.name()).collect();
+    for capability in capabilities().iter().filter(|c| c.group == "diplomacy" && !named.contains(&c.name())) {
+        let mut request = serde_json::Map::new();
+        request.insert("capability".into(), capability.name().into());
+        for arg in capability.args.iter().filter(|a| !a.optional) {
+            let example = match arg.kind {
+                Kind::Country => "WAL",
+                kind => kind.example(),
+            };
+            request.insert(arg.name.into(), arg.kind.json(example).unwrap());
+        }
+        let request = eu4_harmony_remote::request_from_json(&Value::Object(request).to_string()).unwrap();
+        panel.push((request, Box::new(error("rejected"))));
+    }
+    cases.splice(0..0, panel);
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();
     let all: BTreeSet<String> = capabilities().iter().map(|c| c.name()).collect();

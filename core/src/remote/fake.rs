@@ -724,6 +724,56 @@ We have a truce with them.",
         Ok(game::diplomacy::Ticket(3))
     }
 
+    /// Toward Byzantium, an alliance the Byzantines would not accept, a
+    /// warning the player can send, and a scripted action the player cannot.
+    fn options(&mut self, country: Tag) -> GResult<Vec<game::diplomacy::Offered>> {
+        use eu4_harmony_remote::choices::{Acceptance, Choice, Factor};
+        use game::diplomacy::{Act, Offered, What};
+        self.call(format!("options {:x}", country.0));
+        let acceptance = Acceptance {
+            accepts: false,
+            total: -12.0,
+            factors: vec![Factor { text: "Base reluctance".into(), value: -10.0 }, Factor { text: "Relations".into(), value: -2.0 }],
+        };
+        Ok(vec![
+            Offered {
+                what: Some(What::Act(Act::ProposeAlliance)),
+                key: "allianceaction".into(),
+                name: "Offer Alliance".into(),
+                choice: Choice::can(Vec::new()),
+                description: vec!["If a country accepts our Alliance offer it may come to our assistance during wars.".into()],
+                acceptance: Some(acceptance),
+            },
+            Offered {
+                what: Some(What::Act(Act::Warn)),
+                key: "warningaction".into(),
+                name: "Warn".into(),
+                choice: Choice::can(Vec::new()),
+                description: Vec::new(),
+                acceptance: None,
+            },
+            Offered {
+                what: Some(What::Scripted("sell_indulgence".into())),
+                key: "sell_indulgence".into(),
+                name: "Offer Indulgence".into(),
+                choice: Choice::cannot(vec!["Is not the Papal Controller.".into()], Vec::new()),
+                description: Vec::new(),
+                acceptance: None,
+            },
+        ])
+    }
+
+    /// Warning Byzantium is sent; anything else is refused with the game's
+    /// reason.
+    fn act(&mut self, country: Tag, what: &game::diplomacy::What, _: &game::diplomacy::Details) -> GResult<game::diplomacy::Ticket> {
+        use game::diplomacy::{Act, What};
+        self.call(format!("act {:x} {what:?}", country.0));
+        match what {
+            What::Act(Act::Warn) if country == byz() => Ok(game::diplomacy::Ticket(4)),
+            _ => fail(Status::Rejected, "Is not the Papal Controller."),
+        }
+    }
+
     fn answer(&mut self, ticket: game::diplomacy::Ticket) -> GResult<game::diplomacy::Answer> {
         self.call(format!("answer {}", ticket.0));
         self.answers.pop_front().unwrap_or(Ok(game::diplomacy::Answer::Pending))
