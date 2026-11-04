@@ -249,7 +249,7 @@ fn wars_of(m: &Memory, ctx: &Ctx, country: Tag) -> GResult<Vec<War>> {
 
 /// The tags of a war's attackers and defenders, not yet checked; None when
 /// `war` is no war or its sides cannot be read.
-fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
+pub(super) fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
     if war == 0 || m.ptr(war).ok()? != m.at(classes::WAR) {
         return None;
     }

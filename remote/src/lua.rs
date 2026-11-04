@@ -103,6 +103,37 @@ pub const HANDLERS: &[Handler] = &[
     },
     Handler { name: "on_army_defeated", args: &[value("army", "integer", "the army's ID")], returns: None, about: "One of the player's armies lost a battle." },
     Handler {
+        name: "on_war_declared",
+        args: &[
+            value("war", "string", "the war's name, as the game shows it"),
+            value("attacker", "string", "the attackers' leader, a tag"),
+            value("defender", "string", "the defenders' leader, a tag"),
+        ],
+        returns: None,
+        about: "A war began, between any two countries.",
+    },
+    Handler {
+        name: "on_peace_made",
+        args: &[
+            value("war", "string", "the war's name, as the game shows it"),
+            value("attackers", "string[]", "the attackers that left it, tags"),
+            value("defenders", "string[]", "the defenders that left it, tags"),
+            value("ended", "boolean", "whether the war is over"),
+        ],
+        returns: None,
+        about: "Countries left a war on a day: by a peace, the whole war's or a separate one, or by ceasing to be.",
+    },
+    Handler {
+        name: "on_province_owner_changed",
+        args: &[
+            value("province", "integer", "the province's number"),
+            optional("from", "string", "the old owner, a tag; nil for none"),
+            optional("to", "string", "the new owner, a tag; nil for none"),
+        ],
+        returns: None,
+        about: "A province changed owner.",
+    },
+    Handler {
         name: "on_button",
         args: &[value("name", "string", "the button's name in its interface fragment"), value("click", "eu4.Click", "{ right, shift, ctrl }")],
         returns: None,

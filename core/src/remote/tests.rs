@@ -608,6 +608,10 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         new_day: true,
         new_month: true,
         new_year: false,
+        wars: vec![
+            game::wars::Happened::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: fake::tur(), defender: fake::byz() },
+            game::wars::Happened::OwnerChanged { province: 151, from: Some(fake::byz()), to: None },
+        ],
     };
     let engine = Engine::new(remember);
     engine.record(happened(&frame));
@@ -619,11 +623,24 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
             {"number": 1, "event": "session", "session": 3},
             {"number": 2, "event": "army_ordered", "army": ARMY.to_string()},
             {"number": 3, "event": "army_defeated", "army": ARMY.to_string()},
-            {"number": 4, "event": "day", "date": "1444.11.11"},
-            {"number": 5, "event": "month", "date": "1444.11.11"},
+            {"number": 4, "event": "war_declared", "war": "Ottoman-Byzantine War", "attacker": "TUR", "defender": "BYZ"},
+            {"number": 5, "event": "province_owner_changed", "province": 151, "from": "BYZ", "to": null},
+            {"number": 6, "event": "day", "date": "1444.11.11"},
+            {"number": 7, "event": "month", "date": "1444.11.11"},
         ])
     );
-    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, ..frame };
+    // Only those naming a country asked for, and those naming none.
+    let read = engine.submit(Request::Events(EventsRequest::Read {
+        since: None,
+        wait_ms: None,
+        process: None,
+        kinds: None,
+        countries: Some(eu4_harmony_remote::CountryList(vec![CountryTag(*b"TUR")])),
+    }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    let numbers: Vec<u64> = answer(&read)["result"]["events"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
+    assert_eq!(numbers, [1, 2, 3, 4, 6, 7]);
+    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, wars: vec![], ..frame };
     assert!(happened(&quiet).is_empty());
 }
 

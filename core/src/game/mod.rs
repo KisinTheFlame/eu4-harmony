@@ -39,6 +39,7 @@ pub mod screenshot;
 pub mod session;
 pub mod texts;
 pub mod time;
+pub mod wars;
 pub mod world;
 
 use crate::{
@@ -169,6 +170,8 @@ struct State {
     orders: orders::Orders,
     session: u64,
     day: Option<i32>,
+    /// The wars and the provinces' owners of the day before.
+    wars: wars::Watch,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -196,14 +199,21 @@ pub struct Frame {
     pub new_month: bool,
     /// The new day is the first heard in a new year, and someone listens.
     pub new_year: bool,
+    /// At a new day, the wars declared, the peaces made and the provinces
+    /// that changed owner since the day before, of the kinds someone
+    /// listens to.
+    pub wars: Vec<wars::Happened>,
 }
 
 /// One thing that happened since the last safe frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Heard {
     /// A new session, with its number.
     Session(u64),
     Change(events::Change),
+    /// A war declared, a peace made or a province changing owner, seen at
+    /// a new day.
+    War(wars::Happened),
     /// A new day, with its date.
     Day(i32),
     /// The first day heard in a new month, with its date.
@@ -214,14 +224,15 @@ pub enum Heard {
 
 impl Frame {
     /// What happened, in the order extensions hear it and remote control
-    /// numbers it: a new session, the changes, a new day, its month, its
-    /// year.
+    /// numbers it: a new session, the changes, the wars', a new day, its
+    /// month, its year.
     pub fn heard(&self) -> Vec<Heard> {
         let session = self.new_session.then_some(Heard::Session(self.session));
         let day = self.new_day.then_some(Heard::Day(self.ctx.date));
         let month = self.new_month.then_some(Heard::Month(self.ctx.date));
         let year = self.new_year.then_some(Heard::Year(self.ctx.date));
-        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).chain(month).chain(year).collect()
+        let wars = self.wars.iter().cloned().map(Heard::War);
+        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(wars).chain(day).chain(month).chain(year).collect()
     }
 }
 
@@ -237,6 +248,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
             s.geography.clear();
             s.orders.clear();
             s.day = None;
+            s.wars.clear();
         }
         for change in &state.changes {
             if let events::Change::Ordered(army) = change {
@@ -252,6 +264,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     if new_session {
         crate::map::reset_session(m, &state.ctx);
     }
+    let wars = if new_day { watch_wars(m, &state.ctx) } else { Vec::new() };
     Ok(Frame {
         ctx: state.ctx,
         session: state.session,
@@ -261,6 +274,23 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
         new_day,
         new_month,
         new_year,
+        wars,
+    })
+}
+
+/// What the wars and the provinces' owners show happened since the day
+/// before, of the kinds someone listens to; nothing when they cannot be
+/// read, which the log says.
+fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
+    let war = events::listened("war_declared") || events::listened("peace_made");
+    let owners = events::listened("province_owner_changed");
+    let seen = with_state(|s| {
+        let owners = if owners { Some(s.geography.provinces(m, ctx, false)?.into_iter().map(|p| p.owner).collect()) } else { None };
+        s.wars.day(m, ctx, war, owners)
+    });
+    seen.unwrap_or_else(|e| {
+        log!("wars: {}", e.message);
+        Vec::new()
     })
 }
 
@@ -437,7 +467,7 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 
 #[cfg(test)]
 mod tests {
-    use super::{events::Change, turned, view_of, Caller, Ctx, Frame, Heard, Tag, View};
+    use super::{events::Change, turned, view_of, wars::Happened, Caller, Ctx, Frame, Heard, Tag, View};
 
     #[test]
     fn extensions_read_the_full_view_and_remote_control_the_players_unless_set() {
@@ -447,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_is_heard_session_first_and_day_last() {
+    fn a_frame_is_heard_session_first_then_the_changes_and_the_wars_and_day_last() {
         let ctx = Ctx { world: 0, date: 0x035D_7710, player: Tag(0), country: 0, countries: 0 };
         let frame = Frame {
             ctx,
@@ -458,6 +488,7 @@ mod tests {
             new_day: true,
             new_month: true,
             new_year: true,
+            wars: vec![Happened::OwnerChanged { province: 151, from: None, to: Some(Tag(1)) }],
         };
         assert_eq!(
             frame.heard(),
@@ -465,12 +496,13 @@ mod tests {
                 Heard::Session(3),
                 Heard::Change(Change::Ordered(7)),
                 Heard::Change(Change::Defeated(8)),
+                Heard::War(Happened::OwnerChanged { province: 151, from: None, to: Some(Tag(1)) }),
                 Heard::Day(0x035D_7710),
                 Heard::Month(0x035D_7710),
                 Heard::Year(0x035D_7710)
             ]
         );
-        let quiet = Frame { new_session: false, new_day: false, new_month: false, new_year: false, changes: Vec::new(), ..frame };
+        let quiet = Frame { new_session: false, new_day: false, new_month: false, new_year: false, changes: Vec::new(), wars: Vec::new(), ..frame };
         assert!(quiet.heard().is_empty());
     }
 

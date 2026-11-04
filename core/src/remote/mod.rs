@@ -640,12 +640,20 @@ pub fn submit(request: Request) -> Reply {
 /// What extensions hear at a game's safe frame, in the order they hear it, as
 /// events.
 fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
-    use eu4_harmony_remote::{events::Event, ArmyId, Date};
-    use game::{events::Change, Heard};
+    use eu4_harmony_remote::{events::Event, ArmyId, Date, ProvinceId};
+    use game::{events::Change, wars::Happened, Heard};
+    let tags = |ts: Vec<game::Tag>| ts.into_iter().map(tag).collect();
     let event = |heard| match heard {
         Heard::Session(session) => Event::Session { session },
         Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
         Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
+        Heard::War(Happened::WarDeclared { war, attacker, defender }) => Event::WarDeclared { war, attacker: tag(attacker), defender: tag(defender) },
+        Heard::War(Happened::PeaceMade { war, attackers, defenders, ended }) => {
+            Event::PeaceMade { war, attackers: tags(attackers), defenders: tags(defenders), ended }
+        }
+        Heard::War(Happened::OwnerChanged { province, from, to }) => {
+            Event::ProvinceOwnerChanged { province: ProvinceId(province), from: from.map(tag), to: to.map(tag) }
+        }
         Heard::Day(date) => Event::Day { date: Date(date) },
         Heard::Month(date) => Event::Month { date: Date(date) },
         Heard::Year(date) => Event::Year { date: Date(date) },
