@@ -365,6 +365,14 @@ pub fn frame(state: &game::Frame) {
             }
             game::Heard::Change(events::Change::Ordered(id)) => all.iter().for_each(|e| e.handle("on_army_ordered", &[Arg::Integer(id as i64)])),
             game::Heard::Change(events::Change::Defeated(id)) => all.iter().for_each(|e| e.handle("on_army_defeated", &[Arg::Integer(id as i64)])),
+            game::Heard::Change(events::Change::BuildingFinished { province, building, country }) => match game::buildings::key_of(building) {
+                Ok(key) => {
+                    let country = String::from_utf8_lossy(&country.letters()).into_owned();
+                    all.iter()
+                        .for_each(|e| e.handle("on_building_finished", &[Arg::Integer(province as i64), Arg::Text(key.clone()), Arg::Text(country.clone())]))
+                }
+                Err(e) => log!("building finished: {}", e.message),
+            },
             game::Heard::Day(date) => all.iter().for_each(|e| e.handle("on_day", &[Arg::Date(eu4_harmony_checks::Date(date))])),
             game::Heard::Month(date) => all.iter().for_each(|e| e.handle("on_month", &[Arg::Date(eu4_harmony_checks::Date(date))])),
             game::Heard::Year(date) => all.iter().for_each(|e| e.handle("on_year", &[Arg::Date(eu4_harmony_checks::Date(date))])),

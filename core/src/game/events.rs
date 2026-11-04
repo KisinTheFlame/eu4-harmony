@@ -38,6 +38,13 @@ const DEFEAT_B: usize = 0x22b5a0;
 pub enum Change {
     Ordered(u64),
     Defeated(u64),
+    /// A building was finished: the province, the building's index, the
+    /// province's owner.
+    BuildingFinished {
+        province: u32,
+        building: u32,
+        country: Tag,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
