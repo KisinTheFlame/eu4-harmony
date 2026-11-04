@@ -18,7 +18,8 @@
 //!
 //! The next local save, a load and a restart wait for the thread first, so it
 //! never puts an older file over one the game wrote since. The game's exit
-//! does not: a file it had not finished stays uncompressed. Cloud saves take
+//! does not: a file it had not finished stays uncompressed, and the temporary
+//! file it was writing, if any, is removed at the next start. Cloud saves take
 //! another path (`0x5c8ba0`) and keep the game's compression.
 use crate::hooks::HookFrame;
 use crate::points::Point;
@@ -54,6 +55,12 @@ const LEVEL: u8 = 6;
 const SAVE_ENTRIES: [&[u8]; 3] = [b"meta", b"gamestate", b"ai"];
 const HEADER: &[u8] = b"EU4";
 
+/// What the thread adds to a save's name for the file it writes before
+/// moving it into the save's place.
+const TMP_SUFFIX: &str = ".eu4harmony-tmp";
+/// Where the game keeps its saves, in the user folder.
+const SAVE_GAMES: &str = "save games";
+
 pub fn points() -> Vec<Point> {
     vec![
         Point::observe(LOCAL_SAVE, "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55", "local save", 1, Some(save_before), Some(save_after)),
@@ -71,9 +78,21 @@ static MOVED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// The folder the game writes to: the user folder.
 static FOLDER: OnceLock<PathBuf> = OnceLock::new();
 
-/// Where the game writes its files, once the user folder is known.
+/// Where the game writes its files, once the user folder is known; at
+/// startup, before any save.
 pub fn set_folder(user_dir: &Path) {
     let _ = FOLDER.set(user_dir.to_path_buf());
+    let removed = remove_leftovers(&user_dir.join(SAVE_GAMES));
+    if removed > 0 {
+        log!("saves: removed {removed} temporary file(s) left by a compression the process's end cut short");
+    }
+}
+
+/// Removes the temporary files in `dir` the thread was writing when the
+/// process ended (the save beside each stays as the game wrote it); how many.
+fn remove_leftovers(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    entries.flatten().filter(|e| e.file_name().to_string_lossy().ends_with(TMP_SUFFIX)).filter(|e| std::fs::remove_file(e.path()).is_ok()).count()
 }
 
 extern "C" fn save_before(_: *mut HookFrame) {
@@ -189,7 +208,7 @@ fn compact_file(path: &Path) -> Result<Option<(usize, usize)>> {
     let bytes = std::fs::read(path).map_err(error)?;
     let Some(packed) = compact(&bytes)? else { return Ok(None) };
     let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".eu4harmony-tmp");
+    tmp.push(TMP_SUFFIX);
     let tmp = PathBuf::from(tmp);
     let written = (|| {
         use std::io::Write;
@@ -472,5 +491,21 @@ mod tests {
         let left: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(left, ["autosave.eu4"]);
+    }
+
+    #[test]
+    fn only_the_threads_temporary_files_are_removed_at_startup() {
+        let dir = std::env::temp_dir().join(format!("eu4harmony-leftovers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["Austria.eu4", "Austria.eu4.eu4harmony-tmp", "Castilla.tmp", "autosave.eu4.eu4harmony-tmp"] {
+            std::fs::write(dir.join(name), b"PK").unwrap();
+        }
+        let removed = remove_leftovers(&dir);
+        let mut left: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        left.sort();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(left, ["Austria.eu4", "Castilla.tmp"]);
+        assert_eq!(remove_leftovers(&dir), 0);
     }
 }
