@@ -279,6 +279,11 @@ fn every_capability_runs_at_a_game_frame() {
                 Request::Memory(MemoryRequest::Generation {}),
                 Box::new(move |v: &Value| if census { v["result"].as_u64() > Some(0) } else { error("unavailable")(v) }),
             ),
+            // Not a site, so that nothing begins or stops being watched.
+            (
+                Request::Memory(MemoryRequest::Watch { sites: "0x10,nothing".into() }),
+                Box::new(move |v: &Value| error(if census { "invalid_argument" } else { "unavailable" })(v)),
+            ),
         ];
         cases.splice(0..0, memory);
     }

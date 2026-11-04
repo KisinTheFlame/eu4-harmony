@@ -26,6 +26,17 @@ group! {
         /// which stops the game for seconds; false when left out.
         holders: Option<bool>,
     } -> Leftovers, "generation, the generation now; blocks and bytes, every leftover; sites, by site: site and function (RVAs in eu4.exe), trend (steady, first or sometimes), per_generation (the bytes the last three generations left there, on average), blocks, bytes, generations (what each generation left there), freed_at (the places that let blocks of the site go, with how many), and with holders, holders (how many of its leftovers the game's data, other live blocks, only the leftovers given, or nothing points at, and what points at them most)";
+    /// Watches sites from now on: every block the game lets go is read
+    /// first, and for each live block of these sites the last block let go
+    /// while it pointed at it is kept, with the code that let it go; memory.leftovers
+    /// with holders then names, for the leftovers of these sites nothing
+    /// points at, the owners that were let go without them. It slows every
+    /// letting go of a block; no sites stop it.
+    remote_anywhere Watch "watch" {
+        /// The sites, as memory.leftovers writes them, separated by commas,
+        /// such as "0x1529f85,0x15a2658 < 0x152a00a"; at most 16.
+        sites: String,
+    } -> Watching, "sites, the sites watched; blocks, how many of their blocks were live as watching began";
     /// Ends the census's generation now, as a world reset ends one, for
     /// leftovers inside one long game.
     remote_anywhere Generation "generation" {} -> u32, "the generation that begins";
@@ -144,6 +155,38 @@ pub struct Holders {
     pub by_nothing: u64,
     /// What points at them most, with how many pointers; at most five.
     pub top: Vec<Holder>,
+    /// Whether the site is watched (memory.watch).
+    pub watched: bool,
+    /// For a watched site, of its leftovers nothing points at: the owners
+    /// let go while they last pointed at them, and the code that let them go,
+    /// the most first; at most five.
+    pub lost_with: Vec<Lost>,
+    /// For a watched site, its leftovers nothing points at with no owner
+    /// let go: the pointer was written over, or they were lost before
+    /// watching began.
+    pub unrecorded: u64,
+}
+
+/// Owners let go while they last pointed at a site's leftovers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Lost {
+    /// The owners' site, and the start of the function it is in.
+    pub owner: String,
+    pub owner_function: Option<String>,
+    /// The code that let them go, an RVA in hex, and the start of its
+    /// function: the destructor, or the code that deletes the owner.
+    pub let_go_at: String,
+    pub let_go_function: Option<String>,
+    /// How many of the leftovers they last pointed at.
+    pub blocks: u64,
+}
+
+/// What memory.watch began watching.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Watching {
+    pub sites: Vec<String>,
+    /// The live blocks of those sites as watching began.
+    pub blocks: u64,
 }
 
 /// One thing that points at a site's leftovers.

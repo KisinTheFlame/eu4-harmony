@@ -1,18 +1,11 @@
 //! Who still points at a leftover (docs/leak-finding.md, M2): the memory the
-//! census reads, word by word, and any eight bytes that hold an address in
-//! the first bytes of a leftover taken as a pointer to it. Reading is the
-//! census's to do; this module only takes what was read and tells, for each
-//! leftover, what pointed at it.
+//! census reads, word by word, each word that points into a leftover
+//! ([`super::pointers`]) taken as a pointer to it. Reading is the census's to
+//! do; this module only takes what was read and tells, for each leftover,
+//! what pointed at it.
+use super::pointers::Index;
 use super::SiteKey;
 use std::collections::HashMap;
-
-/// How far into a block a pointer may point and still be taken for the
-/// block's: an object's bases, and a large buffer's alignment, lie in its
-/// first bytes.
-const INTO: usize = 64;
-/// The bitmap of the pages that hold a leftover's first bytes, which most
-/// words are told apart by, is by pages of this many bits.
-const PAGE_BITS: u32 = 12;
 
 /// A leftover to look for.
 #[derive(Clone, Copy, Debug)]
@@ -51,20 +44,14 @@ pub enum Held {
     Data,
 }
 
-/// The first bytes of a leftover a pointer may point into.
-fn span(t: &Target) -> usize {
-    t.size.clamp(1, INTO)
-}
-
 /// By the site of the leftovers: how many are held best by each kind of
 /// holder, and the pointers each holder has to them.
 pub type Found = HashMap<SiteKey, (HashMap<Held, u64>, HashMap<Holder, u64>)>;
 
 pub struct Scan {
-    /// The leftovers, by their start.
     targets: Vec<Target>,
-    low: usize,
-    pages: Vec<u64>,
+    /// The leftovers, each with its index in `targets`.
+    index: Index<usize>,
     held: Vec<Held>,
     /// By the site of the leftovers pointed at: how many pointers each holder
     /// has to them.
@@ -72,51 +59,43 @@ pub struct Scan {
 }
 
 impl Scan {
-    pub fn new(mut targets: Vec<Target>) -> Self {
-        targets.sort_by_key(|t| t.start);
-        let low = targets.first().map_or(0, |t| t.start);
-        let high = targets.last().map_or(0, |t| t.start + INTO);
-        let mut pages = vec![0u64; ((high - low) >> PAGE_BITS) / 64 + 1];
-        for t in &targets {
-            for page in (t.start - low) >> PAGE_BITS..=(t.start + span(t) - 1 - low) >> PAGE_BITS {
-                pages[page / 64] |= 1 << (page % 64);
-            }
+    pub fn new(targets: Vec<Target>) -> Self {
+        let index = Index::new();
+        for (i, t) in targets.iter().enumerate() {
+            index.insert(t.start, t.size, i);
         }
         let held = vec![Held::Nothing; targets.len()];
-        Self { targets, low, pages, held, references: HashMap::new() }
-    }
-
-    /// The leftover an address points into, by its index.
-    fn target_at(&self, address: usize) -> Option<usize> {
-        let page = address.checked_sub(self.low)? >> PAGE_BITS;
-        if self.pages.get(page / 64)? & (1 << (page % 64)) == 0 {
-            return None;
-        }
-        let i = self.targets.partition_point(|t| t.start <= address).checked_sub(1)?;
-        let t = &self.targets[i];
-        (address < t.start + span(t)).then_some(i)
+        Self { targets, index, held, references: HashMap::new() }
     }
 
     /// Whether a block starting at `start` is a leftover looked for.
     pub fn is_target(&self, start: usize) -> bool {
-        self.targets.binary_search_by_key(&start, |t| t.start).is_ok()
+        self.index.get(start).is_some()
     }
 
     /// Takes in what was read at `offset` bytes into `source`: its words,
     /// eight bytes each from the start of `bytes`, which lies on an eight-byte
     /// boundary.
     pub fn read(&mut self, source: Source, offset: usize, bytes: &[u8]) {
-        for (i, word) in bytes.chunks_exact(8).enumerate() {
-            let address = u64::from_le_bytes(word.try_into().unwrap_or_default()) as usize;
-            let Some(t) = self.target_at(address) else { continue };
+        let candidates = self.index.candidates(bytes);
+        if candidates.is_empty() {
+            return;
+        }
+        let from_target = matches!(source, Source::Block { start, .. } if self.is_target(start));
+        for (at, pointed, t) in self.index.pointed(&candidates) {
             let (holder, held) = match source {
-                Source::Data { rva } => (Holder::Data(rva + (offset + i * 8) as u32), Held::Data),
-                Source::Block { start, .. } if start == self.targets[t].start => continue,
-                Source::Block { start, site } => (Holder::Site(site), if self.is_target(start) { Held::Leftovers } else { Held::Blocks }),
+                Source::Data { rva } => (Holder::Data(rva + (offset + at) as u32), Held::Data),
+                Source::Block { start, .. } if start == pointed => continue,
+                Source::Block { site, .. } => (Holder::Site(site), if from_target { Held::Leftovers } else { Held::Blocks }),
             };
             self.held[t] = self.held[t].max(held);
             *self.references.entry(self.targets[t].site).or_default().entry(holder).or_default() += 1;
         }
+    }
+
+    /// The leftovers nothing points at.
+    pub fn unheld(&self) -> impl Iterator<Item = &Target> {
+        self.targets.iter().zip(&self.held).filter(|(_, held)| **held == Held::Nothing).map(|(t, _)| t)
     }
 
     /// For each site: how many of its leftovers are held best by each kind

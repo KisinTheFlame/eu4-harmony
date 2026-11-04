@@ -19,13 +19,16 @@
 //! blocks of other modules' heaps and allocators.
 use crate::hooks::HookFrame;
 use crate::points::Point;
-use eu4_harmony_remote::memory::{Freed, Generation, Holder, Holders, Leftovers, MemoryAnswer, MemoryRequest, Site, Trend};
+use eu4_harmony_remote::memory::{Freed, Generation, Holder, Holders, Leftovers, Lost, MemoryAnswer, MemoryRequest, Site, Trend, Watching};
+use eu4_harmony_remote::{Code, Error};
 use holders::{Held, Scan, Source, Target};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 mod holders;
+mod pointers;
+mod watch;
 
 /// `(size)`, `(count, size)`, `(block, size)`, `(block)`: the C runtime's
 /// allocation functions, on its heap.
@@ -83,20 +86,32 @@ fn add(block: usize, site: SiteKey, size: usize) {
     if block != 0 {
         let generation = GENERATION.load(Ordering::Relaxed);
         shard(block).get_or_insert_with(Shard::default).blocks.insert(block, Block { site, size, generation });
+        if watch::watches(site) {
+            watch::added(block, size, site);
+        }
     }
 }
 
-/// Takes a block off the census; `by`, the address the code that let it go
-/// returns to, when it was let go rather than moved.
-fn remove(block: usize, by: Option<usize>) {
+/// Takes a block off the census, and answers what it was; `by`, the
+/// address the code that let it go returns to, when it was let go rather
+/// than moved.
+fn remove(block: usize, by: Option<usize>) -> Option<Block> {
     if block == 0 {
-        return;
+        return None;
     }
-    let mut shard = shard(block);
-    let Some(shard) = shard.as_mut() else { return };
-    if let (Some(gone), Some(by)) = (shard.blocks.remove(&block), by) {
-        *shard.freed.entry((gone.site, rva(by))).or_default() += 1;
+    let gone = {
+        let mut shard = shard(block);
+        let shard = shard.as_mut()?;
+        let gone = shard.blocks.remove(&block)?;
+        if let Some(by) = by {
+            *shard.freed.entry((gone.site, rva(by))).or_default() += 1;
+        }
+        gone
+    };
+    if watch::watches(gone.site) {
+        watch::removed(block);
     }
+    Some(gone)
 }
 
 /// Whether `site` is inside `operator new`, which counts its own blocks.
@@ -140,14 +155,18 @@ extern "C" fn calloc_after(frame: *mut HookFrame) {
 extern "C" fn realloc_after(frame: *mut HookFrame) {
     let h = unsafe { &*frame };
     if h.fault == 0 && h.result != 0 {
-        remove(h.args[0], None);
+        let _ = remove(h.args[0], None);
         add(h.result, rva(h.return_address) as SiteKey, h.args[1]);
     }
 }
 
 extern "C" fn free_before(frame: *mut HookFrame) {
     let h = unsafe { &*frame };
-    remove(h.args[0], Some(h.return_address));
+    let (block, by) = (h.args[0], h.return_address);
+    if let Some(gone) = remove(block, Some(by)) {
+        let m = crate::memory::Memory { base: BASE.load(Ordering::Relaxed) };
+        watch::letting_go(block, gone.size, gone.site, rva(by), |offset, out| m.read_into(block + offset, out).is_ok());
+    }
 }
 
 extern "C" fn new_after(frame: *mut HookFrame) {
@@ -264,14 +283,14 @@ fn function_of(rva: u32) -> Option<u32> {
 
 /// A site as remote control writes it: its RVA, or for a block of the
 /// generic allocation `"0xA < 0xB"`, the call above it and the one above
-/// that; and the function of the first.
+/// that (`0x0` when the stack has none); and the function of the first.
 fn named(site: SiteKey) -> (String, Option<String>) {
     if site & ABOVE == 0 {
         let rva = site as u32;
         return (hex(rva), function_of(rva).map(hex));
     }
     let (first, second) = (((site >> 32) & 0x7fff_ffff) as u32, site as u32);
-    let text = if second == 0 { hex(first) } else { format!("{} < {}", hex(first), hex(second)) };
+    let text = format!("{} < {}", hex(first), hex(second));
     (text, function_of(first).map(hex))
 }
 
@@ -317,6 +336,10 @@ fn leftovers_from(now: u32, counts: &Counts, sites: usize, name: impl Fn(SiteKey
         .collect();
     (Leftovers { generation: now, blocks, bytes, sites }, keys)
 }
+
+/// How many leftovers each last owner, by its site and the RVA of the code
+/// that let it go, pointed at.
+type Owners = HashMap<(SiteKey, u32), u64>;
 
 /// The game's writable sections, by RVA and size, from its headers.
 fn writable_sections(m: &crate::memory::Memory) -> Vec<(u32, usize)> {
@@ -386,6 +409,16 @@ fn holders_of(now: u32, sites: &[SiteKey]) -> HashMap<SiteKey, Holders> {
         read as f64 / MB,
         began.elapsed().as_millis()
     );
+    // For the watched sites' leftovers nothing points at, the last owners
+    // let go while they pointed at them.
+    let mut lost: HashMap<SiteKey, (Owners, u64)> = HashMap::new();
+    for target in scan.unheld().filter(|t| watch::watches(t.site)) {
+        let (owners, unrecorded) = lost.entry(target.site).or_default();
+        match watch::last_owner(target.start) {
+            Some(owner) => *owners.entry(owner).or_default() += 1,
+            None => *unrecorded += 1,
+        }
+    }
     scan.found()
         .into_iter()
         .map(|(site, (held, references))| {
@@ -403,16 +436,40 @@ fn holders_of(now: u32, sites: &[SiteKey]) -> HashMap<SiteKey, Holders> {
                     }
                 })
                 .collect();
+            let (owners, unrecorded) = lost.remove(&site).unwrap_or_default();
+            let mut owners: Vec<((SiteKey, u32), u64)> = owners.into_iter().collect();
+            owners.sort_by_key(|(owner, n)| (std::cmp::Reverse(*n), *owner));
+            let lost_with = owners
+                .into_iter()
+                .take(5)
+                .map(|((owner, by), blocks)| {
+                    let (owner, owner_function) = named(owner);
+                    let (let_go_at, let_go_function) = named(by as SiteKey);
+                    Lost { owner, owner_function, let_go_at, let_go_function, blocks }
+                })
+                .collect();
             let holders = Holders {
                 by_data: count(Held::Data),
                 by_blocks: count(Held::Blocks),
                 by_leftovers: count(Held::Leftovers),
                 by_nothing: count(Held::Nothing),
                 top,
+                watched: watch::watches(site),
+                lost_with,
+                unrecorded,
             };
             (site, holders)
         })
         .collect()
+}
+
+/// A site as [`named`] writes it, `0xA` or `0xA < 0xB`.
+fn parse_site(text: &str) -> Option<SiteKey> {
+    let rva = |t: &str| u32::from_str_radix(t.trim().trim_start_matches("0x"), 16).ok();
+    match text.split_once('<') {
+        Some((first, second)) => Some(ABOVE | ((rva(first)? as u64) << 32) | rva(second)? as u64),
+        None => rva(text).map(|r| r as SiteKey),
+    }
 }
 
 /// The generation now, and the census's live blocks by generation.
@@ -422,10 +479,10 @@ pub fn generations() -> (u32, Vec<Generation>) {
     (GENERATION.load(Ordering::Relaxed), generations)
 }
 
-/// Answers remote control's memory.leftovers and memory.generation; memory
-/// itself is the memory account's.
-pub fn answer(request: MemoryRequest) -> MemoryAnswer {
-    match request {
+/// Answers remote control's memory group, memory with the memory account's
+/// figures.
+pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
+    Ok(match request {
         MemoryRequest::Get {} => {
             let mut memory = crate::memory_account::memory();
             (memory.generation, memory.generations) = generations();
@@ -437,17 +494,48 @@ pub fn answer(request: MemoryRequest) -> MemoryAnswer {
             if holders == Some(true) {
                 let mut found = holders_of(now, &keys);
                 for (site, key) in leftovers.sites.iter_mut().zip(&keys) {
-                    site.holders = Some(found.remove(key).unwrap_or(Holders { by_data: 0, by_blocks: 0, by_leftovers: 0, by_nothing: 0, top: Vec::new() }));
+                    site.holders = Some(found.remove(key).unwrap_or(Holders {
+                        by_data: 0,
+                        by_blocks: 0,
+                        by_leftovers: 0,
+                        by_nothing: 0,
+                        top: Vec::new(),
+                        watched: watch::watches(*key),
+                        lost_with: Vec::new(),
+                        unrecorded: 0,
+                    }));
                 }
             }
             MemoryAnswer::Leftovers(leftovers)
+        }
+        MemoryRequest::Watch { sites } => {
+            let words: Vec<&str> = sites.split(',').filter(|w| !w.trim().is_empty()).collect();
+            let keys: Vec<SiteKey> = words.iter().filter_map(|w| parse_site(w)).collect();
+            if keys.len() < words.len() || keys.len() > watch::MOST {
+                return Err(Error::new(
+                    Code::InvalidArgument,
+                    format!("{sites:?} is not at most {} sites, such as \"0x1529f85,0x15a2658 < 0x152a00a\"", watch::MOST),
+                ));
+            }
+            let mut live = Vec::new();
+            for shard in &BLOCKS {
+                let shard = shard.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(shard) = shard.as_ref() {
+                    live.extend(shard.blocks.iter().filter(|(_, b)| keys.contains(&b.site)).map(|(start, b)| (*start, b.size, b.site)));
+                }
+            }
+            let blocks = live.len() as u64;
+            watch::start(&keys, live.into_iter());
+            let sites: Vec<String> = watch::sites().into_iter().map(|site| named(site).0).collect();
+            log!("census: watching {} with {blocks} live blocks", if sites.is_empty() { "no site".to_string() } else { sites.join(", ") });
+            MemoryAnswer::Watch(Watching { sites, blocks })
         }
         MemoryRequest::Generation {} => {
             let now = end_generation();
             log!("census: generation {now} begins, as remote control asked");
             MemoryAnswer::Generation(now)
         }
-    }
+    })
 }
 
 const MB: f64 = 1024.0 * 1024.0;
@@ -498,6 +586,15 @@ mod tests {
         assert!(leftovers_of(1, &live(&[(0, 900), (1, 10)])).0.is_empty());
         let (left, trend, per_generation) = leftovers_of(2, &live(&[(0, 900), (1, 10)]));
         assert_eq!((left.len(), trend, per_generation), (1, Trend::First, 0));
+    }
+
+    #[test]
+    fn a_site_is_read_as_it_is_written() {
+        for site in [0x1529f85, ABOVE | (0x15a2658 << 32) | 0x152a00a, ABOVE | (0x40 << 32)] {
+            assert_eq!(parse_site(&named(site).0), Some(site));
+        }
+        assert_eq!(parse_site(" 0x1529f85 "), Some(0x1529f85));
+        assert_eq!(parse_site("nothing"), None);
     }
 
     #[test]

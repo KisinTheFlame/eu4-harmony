@@ -28,6 +28,13 @@ leave the most per generation, and what holds them. The game is closed unless
 -KeepGame. -FromReport writes report.md again from the report.json in -Out,
 with no game.
 
+With the census and -Watch N, after round -WatchAfter (3 by default) it looks
+for what holds the leftovers, and watches the N steady sites that leave the
+most and whose leftovers nothing, or only other leftovers, mostly points at
+(memory.watch); the report then says, for each, which owners were let go
+while they last pointed at its leftovers, and the code that let them go.
+Watching slows every letting go of a block.
+
 .PARAMETER Saves
 The two saves, by the names menu.saves lists; the two newest by default.
 #>
@@ -40,7 +47,9 @@ param(
     [Parameter(Mandatory)][string]$Out,
     [string]$GameDir,
     [switch]$KeepGame,
-    [switch]$FromReport
+    [switch]$FromReport,
+    [int]$Watch = 0,
+    [int]$WatchAfter = 3
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -108,7 +117,16 @@ if ($FromReport) {
             if ($i -eq $Rounds) { $asked += '--holders', 'true' }
             $leftovers = Ask $asked
         }
-        $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers }
+        $watching = $null
+        if ($census -and $Watch -gt 0 -and $i -eq $WatchAfter -and $i -lt $Rounds) {
+            $held = Ask 'memory.leftovers', '--sites', "$Sites", '--holders', 'true'
+            $lost = @($held.sites | Where-Object { $_.trend -eq 'steady' -and ($_.holders.by_nothing + $_.holders.by_leftovers) * 2 -ge $_.blocks } | Select-Object -First $Watch)
+            if ($lost) {
+                $watching = Ask 'memory.watch', '--sites', (($lost | ForEach-Object site) -join ',')
+                "watching from round ${i}: $($watching.sites -join ', ') ($($watching.blocks) live blocks)"
+            }
+        }
+        $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers; watching = $watching }
         $played += $round
         $grew = if ($i -gt 1) { ' ({0:+0.0;-0.0;0.0} MB)' -f (($memory.private - $played[-2].memory.private) / 1MB) } else { '' }
         "round $i ($($round.seconds) s)${grew}: $(& $line $memory)"
@@ -178,6 +196,19 @@ if ($census -and $played) {
             $h = $s.holders
             $top = ($h.top | ForEach-Object { if ($_.kind -eq 'data') { "data $($_.at) ($($_.references))" } else { "$($_.at) in $($_.function) ($($_.references))" } }) -join '; '
             $md += "| $($s.site) | $($s.trend) | $($s.blocks) | $($h.by_data) | $($h.by_blocks) | $($h.by_leftovers) | $($h.by_nothing) | $top |"
+        }
+        $watched = @($last.sites | Where-Object { $_.holders.watched })
+        if ($watched) {
+            $since = ($played | Where-Object { $_.watching } | Select-Object -First 1).round
+            $md += '', '## Who let them go', '', "Watched from round $since on. For the leftovers of each watched site that nothing points at: the owners let go while they last pointed at them, and the code that let them go. Unrecorded: lost before watching began, or the pointer was written over.", ''
+            $md += '| Site | Nothing points at | Owner (site in function) | Let go at (in function) | Leftovers |', '| --- | --- | --- | --- | --- |'
+            foreach ($s in $watched) {
+                $h = $s.holders
+                foreach ($l in $h.lost_with) {
+                    $md += "| $($s.site) | $($h.by_nothing) | $($l.owner) in $($l.owner_function) | $($l.let_go_at) in $($l.let_go_function) | $($l.blocks) |"
+                }
+                $md += "| $($s.site) | $($h.by_nothing) | unrecorded | | $($h.unrecorded) |"
+            }
         }
     }
 }
