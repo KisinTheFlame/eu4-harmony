@@ -123,6 +123,12 @@ macro_rules! group {
             $( $Variant($Result), )*
         }
 
+        impl $crate::GroupRequest for $Request {
+            fn full_name(&self) -> ::std::string::String {
+                $crate::full_name(GROUP, self.action())
+            }
+        }
+
         impl $Request {
             /// The capability's own name in its group.
             pub fn action(&self) -> &'static str {
@@ -172,10 +178,12 @@ macro_rules! group {
 
 /// Declares the groups: [`Request`] and [`Answer`] with a variant for each,
 /// the JSON form of a request, and [`capabilities`]. A group with
-/// `#[cfg(...)]` before it exists only in builds that meet it.
+/// `#[cfg(...)]` before it is a capability only in builds that meet it; its
+/// module, the types of its requests and answers, is in every build, for the
+/// clients that ask it of a game that has it.
 macro_rules! groups {
     ($( $(#[cfg($cfg:meta)])? $(#[doc = $doc:literal])* $Group:ident($module:ident::$Request:ident, $Answer:ident), )*) => {
-        $( $(#[cfg($cfg)])? pub mod $module; )*
+        $( pub mod $module; )*
 
         /// A request to remote control: one capability and its arguments.
         #[derive(Clone, Debug, PartialEq)]
@@ -318,6 +326,26 @@ fn full_name(group: &str, action: &str) -> String {
     } else {
         format!("{group}.{action}")
     }
+}
+
+/// A request a client can send: [`Request`], or a request of one group, such
+/// as [`menu::MenuRequest`], which knows its capability's full name.
+pub trait GroupRequest: Serialize {
+    /// The capability's full name, such as `menu.load`.
+    fn full_name(&self) -> String;
+}
+
+impl GroupRequest for Request {
+    fn full_name(&self) -> String {
+        self.name()
+    }
+}
+
+/// The JSON form of a request, its capability by its full name.
+pub fn request_json<R: GroupRequest>(request: &R) -> Value {
+    let mut value = serde_json::to_value(request).expect("a request is JSON");
+    value["capability"] = Value::String(request.full_name());
+    value
 }
 
 impl Serialize for Request {

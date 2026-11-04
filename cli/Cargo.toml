@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 eu4-harmony-checks = { path = "../checks" }
+eu4-harmony-client = { path = "../client" }
 eu4-harmony-loc = { path = "../loc" }
 eu4-harmony-lua = { path = "../lua" }
 eu4-harmony-manifest = { path = "../manifest" }
@@ -29,6 +30,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The pipe tests' own server, standing in for the game.
+eu4-harmony-client = { path = "../client", features = ["testing"] }
 # The tests' own pipes: one closed to everybody.
 windows-sys = { workspace = true, features = ["Win32_Security_Authorization", "Win32_System_IO"] }
 

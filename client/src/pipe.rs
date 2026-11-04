@@ -13,6 +13,8 @@
 //! pipe breaks, and the new one opens the pipe a few seconds later
 //! (docs/remote-control.md, F3). So the client waits for the pipe to appear,
 //! and a pipe that breaks is an error at once, never a wait.
+use eu4_harmony_remote::{Error, GroupRequest};
+use serde::de::DeserializeOwned;
 use std::{
     fmt,
     fs::File,
@@ -213,6 +215,22 @@ impl Client {
         self.read_line(deadline)
     }
 
+    /// Asks `request`, a capability of any group, as [`Client::ask`] does,
+    /// and reads its result as `T`: the result, or the game's refusal. An
+    /// answer that is not a response, or a result that is not a `T`, is a
+    /// [`Failure::Io`].
+    pub fn ask_for<R: GroupRequest, T: DeserializeOwned>(&mut self, request: &R, deadline: Option<Instant>) -> Result<Result<T, Error>, Failure> {
+        let line = serde_json::to_string(&eu4_harmony_remote::request_json(request)).expect("a request is JSON");
+        let answer = self.ask(&line, deadline)?;
+        let unreadable = |why: String| Failure::Io(io::Error::new(io::ErrorKind::InvalidData, format!("the answer to {}: {why}", request.full_name())));
+        let mut response: serde_json::Value = serde_json::from_str(&answer).map_err(|e| unreadable(e.to_string()))?;
+        if response["ok"] == true {
+            serde_json::from_value(response["result"].take()).map(Ok).map_err(|e| unreadable(e.to_string()))
+        } else {
+            serde_json::from_value(response["error"].take()).map(Err).map_err(|e| unreadable(e.to_string()))
+        }
+    }
+
     /// The next line, without its line break. The pipe is looked at until
     /// bytes are there, so that the wait can end at the deadline.
     fn read_line(&mut self, deadline: Option<Instant>) -> Result<String, Failure> {
@@ -267,5 +285,5 @@ impl Line {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests;
+#[cfg(any(test, feature = "testing"))]
+pub mod tests;

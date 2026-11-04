@@ -6,13 +6,13 @@
 //! game-lock.json`, as the game-lock skill's script keeps it, the queue
 //! `game-queue.json` beside it; a named mutex, the script's, guards every
 //! read and write of both. Each claim has a folder of its own under
-//! `claims\`: `backup\` (the player's files, by `eu4-harmony backup`) and
+//! `claims\`: `backup\` (the player's files, as `eu4-harmony backup` keeps them) and
 //! `framework\` (the game folder's framework files and `dev.toml`, each as
 //! it was) while it is held, `kept\` (the framework's and the game's logs and
 //! the run's crash folders) after it is released.
 mod record;
 
-use crate::{cargo, game, repo, Args, Result};
+use crate::{game, repo, Args, Result};
 use record::{Asking, Found, Record, Waiting};
 use std::{
     fs,
@@ -65,7 +65,7 @@ fn stamps() -> (String, String) {
 
 /// `--owner`, else the leaf name of this checkout's folder, as the script
 /// names it; the player's claim is `player`'s.
-fn owner(args: &Args) -> String {
+pub fn owner(args: &Args) -> String {
     if args.flag("player") {
         return "player".into();
     }
@@ -138,11 +138,9 @@ fn remove_file(path: &Path) -> Result<()> {
     }
 }
 
-/// The checkout's own command line tool, built by cargo as needed.
-fn tool(words: &[&str], game_dir: &Path) -> Result<()> {
-    let mut cli = cargo();
-    cli.args(["run", "--release", "--quiet", "-p", "eu4-harmony-cli", "--"]).args(words).arg("--game-dir").arg(game_dir);
-    crate::run(cli, &format!("eu4-harmony {}", words.first().copied().unwrap_or_default()))
+/// The player's user folder, for the game in `game_dir`.
+fn user_folder(game_dir: &Path) -> Result<PathBuf> {
+    eu4_harmony_client::backup::user_folder(&eu4_harmony_manifest::user_dir(Some(game_dir))?)
 }
 
 /// The game holds a claim of `owner`'s; the record if so.
@@ -188,16 +186,34 @@ fn claim(args: &Args) -> Result<i32> {
         args.value("lease").map_or(Ok(LEASE_MINUTES), |v| v.parse().map_err(|_| format!("--lease {v}: minutes")))?
     };
     let purpose = args.value("purpose").unwrap_or(if asking.player { "playing" } else { "" }).to_string();
+    Ok(match claim_as(&asking, &purpose, lease, &args.game_dir()?)? {
+        Claimed::Busy => EXIT_BUSY,
+        Claimed::Now | Claimed::Already => 0,
+    })
+}
+
+/// What a claim came to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Claimed {
+    /// The game is held by this claim now.
+    Now,
+    /// This owner held it already.
+    Already,
+    /// Another holds it, and the claim did not wait.
+    Busy,
+}
+
+fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Result<Claimed> {
     let mut said = String::new();
     let (gone, took) = loop {
         let running = game::running();
         let found = locked(|s| {
-            let found = record::look(&asking, &mut s.held, &mut s.waiting, now(), running);
+            let found = record::look(asking, &mut s.held, &mut s.waiting, now(), running);
             if let Found::Free(_) = found {
                 let (since, _) = stamps();
                 s.held = Some(Record {
                     owner: asking.owner.clone(),
-                    purpose: purpose.clone(),
+                    purpose: purpose.to_string(),
                     checkout: repo().display().to_string(),
                     since,
                     renewed: now(),
@@ -213,11 +229,11 @@ fn claim(args: &Args) -> Result<i32> {
         match found {
             Found::Held => {
                 println!("already held: {}", held_by(&asking.owner)?.describe(now()));
-                return Ok(0);
+                return Ok(Claimed::Already);
             }
             Found::Busy(who) if !asking.wait => {
                 println!("busy: held by {who}");
-                return Ok(EXIT_BUSY);
+                return Ok(Claimed::Busy);
             }
             Found::Busy(who) => {
                 if who != said {
@@ -230,29 +246,28 @@ fn claim(args: &Args) -> Result<i32> {
             Found::Free(gone) => break (gone, false),
         }
     };
-    let game_dir = args.game_dir()?;
     if let Some(holder) = gone {
         if took {
             println!("the player takes the game from {}: ending the game and releasing its claim", holder.describe(now()));
             game::kill();
             wait_closed()?;
-            put_back(&holder, &game_dir, false)?;
+            put_back(&holder, game_dir, false)?;
             locked(|s| {
                 if s.held.as_ref().is_some_and(|h| h.owner == holder.owner) {
                     s.held = None;
                 }
             })?;
             // The game is free now, and the player first.
-            return claim(args);
+            return claim_as(asking, purpose, lease, game_dir);
         }
         println!("took over from {}", holder.describe(now()));
-        put_back(&holder, &game_dir, false)?;
+        put_back(&holder, game_dir, false)?;
     }
     if asking.player {
         println!("claimed for the player: {}", held_by(&asking.owner)?.describe(now()));
-        return Ok(0);
+        return Ok(Claimed::Now);
     }
-    match prepare(&asking.owner, &game_dir) {
+    match prepare(&asking.owner, game_dir) {
         Ok(folder) => {
             let held = locked(|s| {
                 let h = s.held.as_mut().filter(|h| h.owner == asking.owner)?;
@@ -264,7 +279,7 @@ fn claim(args: &Args) -> Result<i32> {
             .ok_or_else(|| format!("lost the claim while backing up; the backup is at {}", folder.display()))?;
             println!("claimed: {}", held.describe(now()));
             println!("the claim's folder: {}", folder.display());
-            Ok(0)
+            Ok(Claimed::Now)
         }
         Err(e) => {
             // No claim without its backup: the game is given back.
@@ -295,7 +310,8 @@ fn prepare(owner: &str, game_dir: &Path) -> Result<PathBuf> {
             fs::copy(&from, &to).map_err(|e| format!("cannot copy {}: {e}", from.display()))?;
         }
     }
-    tool(&["backup", &folder.join("backup").display().to_string()], game_dir)?;
+    eu4_harmony_client::game_not_running()?;
+    eu4_harmony_client::backup::backup(&user_folder(game_dir)?, &folder.join("backup"))?;
     Ok(folder)
 }
 
@@ -337,11 +353,8 @@ fn put_back(holder: &Record, game_dir: &Path, keep_crashes: bool) -> Result<bool
         crashed = keep(folder, &user, holder.backup.as_deref().map(Path::new));
     }
     if let Some(backup) = holder.backup.as_deref().filter(|b| Path::new(b).is_dir()) {
-        let mut words = vec!["restore", backup];
-        if keep_crashes {
-            words.push("--keep-crashes");
-        }
-        tool(&words, game_dir)?;
+        eu4_harmony_client::game_not_running()?;
+        eu4_harmony_client::backup::restore(&user_folder(game_dir)?, Path::new(backup), false, keep_crashes)?;
     }
     if let Some(folder) = &folder {
         let framework = folder.join("framework");
@@ -421,9 +434,13 @@ fn restore_framework(framework: &Path, game_dir: &Path) -> Vec<String> {
 }
 
 fn release(args: &Args) -> Result<()> {
-    let me = owner(args);
+    give_back(&owner(args), &args.game_dir()?, args.flag("keep-crashes"))
+}
+
+/// Releases `owner`'s claim, as `cargo xtask game release` does.
+pub fn give_back(owner: &str, game_dir: &Path, keep_crashes: bool) -> Result<()> {
+    let me = owner.to_string();
     let held = held_by(&me)?;
-    let game_dir = args.game_dir()?;
     if game::running() {
         if held.player {
             return Err("eu4.exe is running; close it first".into());
@@ -432,7 +449,7 @@ fn release(args: &Args) -> Result<()> {
         game::kill();
         wait_closed()?;
     }
-    let crashed = put_back(&held, &game_dir, args.flag("keep-crashes"))?;
+    let crashed = put_back(&held, game_dir, keep_crashes)?;
     locked(|s| {
         if s.held.as_ref().is_some_and(|h| h.owner == me) {
             s.held = None;
@@ -460,7 +477,12 @@ fn since_seconds(held: &Record) -> u64 {
 }
 
 fn renew(args: &Args) -> Result<()> {
-    let me = owner(args);
+    renew_as(&owner(args))
+}
+
+/// Starts `owner`'s lease again.
+pub fn renew_as(owner: &str) -> Result<()> {
+    let me = owner.to_string();
     let held = locked(|s| {
         let h = s.held.as_mut().filter(|h| h.owner == me)?;
         h.renewed = now();
@@ -574,22 +596,26 @@ fn status() -> Result<()> {
 /// Starts the game hidden, within this owner's claim, and waits for its main
 /// menu; a start that does not reach it ends the game. The seconds it took.
 pub fn start_game(args: &Args, sound: bool) -> Result<f64> {
-    needs_claim(args)?;
-    renew(args)?;
-    let game_dir = args.game_dir()?;
-    let timeout = args.value("timeout").unwrap_or("300").to_string();
-    let mut words = vec!["start", "--hidden", "--timeout", &timeout];
-    if sound {
-        words.push("--sound");
-    }
+    let wait = args
+        .value("timeout")
+        .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
+    start_game_as(&owner(args), &args.game_dir()?, sound, wait)
+}
+
+/// Starts the game hidden within `owner`'s claim, waiting up to `wait` for
+/// its main menu; a start that does not reach it ends the game.
+pub fn start_game_as(owner: &str, game_dir: &Path, sound: bool, wait: Duration) -> Result<f64> {
+    held_by(owner)?;
+    renew_as(owner)?;
+    let log = eu4_harmony_manifest::user_dir(Some(game_dir))?.join("eu4-harmony").join("logs").join("core.log");
     let began = std::time::Instant::now();
-    let started = tool(&words, &game_dir);
+    let started = eu4_harmony_client::start::start(game_dir, &log, true, sound, wait);
     if started.is_err() && game::running() {
         println!("ending the game, which did not reach its main menu");
         game::kill();
         wait_closed()?;
     }
-    started.map(|()| began.elapsed().as_secs_f64())
+    started.map(|_| began.elapsed().as_secs_f64())
 }
 
 fn start(args: &Args) -> Result<f64> {

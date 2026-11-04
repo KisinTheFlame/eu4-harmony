@@ -1,5 +1,5 @@
 use super::*;
-use crate::pipe::tests::{answer, pipe_name, serve_one, this_program};
+use eu4_harmony_client::pipe::tests::{answer, pipe_name, serve_one, this_program};
 use eu4_harmony_remote::{armies::ArmyRequest, events::EventsRequest, session::SessionRequest, ArmyId, ProvinceId};
 use serde_json::json;
 use std::io::Read as _;

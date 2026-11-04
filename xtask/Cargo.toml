@@ -6,7 +6,10 @@ publish.workspace = true
 description = "The repository's development commands, run as cargo xtask: installing and packing builds, measuring runs of the game, reading crash dumps"
 
 [dependencies]
+eu4-harmony-client = { path = "../client" }
 eu4-harmony-manifest = { path = "../manifest" }
+eu4-harmony-remote = { path = "../remote" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
