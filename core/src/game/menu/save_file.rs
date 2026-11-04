@@ -250,14 +250,59 @@ fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
 
 /// CRC-32 as zip files use it (ISO 3309, reflected).
 pub(crate) fn crc32(data: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &byte in data {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
+    !crc32_update(!0, data)
+}
+
+/// Eight tables of the CRC's remainders, the first of a byte, each next of a
+/// byte eight bits further: what lets [`crc32_update`] take eight bytes at a
+/// step.
+const CRC_TABLES: [[u32; 256]; 8] = {
+    let mut tables = [[0u32; 256]; 8];
+    let mut i = 0;
+    while i < 256 {
+        let mut crc = i as u32;
+        let mut bit = 0;
+        while bit < 8 {
             crc = (crc >> 1) ^ (0xedb8_8320 & (crc & 1).wrapping_neg());
+            bit += 1;
         }
+        tables[0][i] = crc;
+        i += 1;
     }
-    !crc
+    let mut t = 1;
+    while t < 8 {
+        let mut i = 0;
+        while i < 256 {
+            let before = tables[t - 1][i];
+            tables[t][i] = (before >> 8) ^ tables[0][(before & 0xff) as usize];
+            i += 1;
+        }
+        t += 1;
+    }
+    tables
+};
+
+/// The CRC's register after `data`, from the register `crc` (`!0` at the
+/// start; the CRC is the last register inverted).
+pub(crate) fn crc32_update(mut crc: u32, data: &[u8]) -> u32 {
+    let t = &CRC_TABLES;
+    let mut eights = data.chunks_exact(8);
+    for c in &mut eights {
+        let low = u32::from_le_bytes([c[0], c[1], c[2], c[3]]) ^ crc;
+        let high = u32::from_le_bytes([c[4], c[5], c[6], c[7]]);
+        crc = t[7][(low & 0xff) as usize]
+            ^ t[6][(low >> 8 & 0xff) as usize]
+            ^ t[5][(low >> 16 & 0xff) as usize]
+            ^ t[4][(low >> 24) as usize]
+            ^ t[3][(high & 0xff) as usize]
+            ^ t[2][(high >> 8 & 0xff) as usize]
+            ^ t[1][(high >> 16 & 0xff) as usize]
+            ^ t[0][(high >> 24) as usize];
+    }
+    for &byte in eights.remainder() {
+        crc = t[0][((crc ^ u32::from(byte)) & 0xff) as usize] ^ (crc >> 8);
+    }
+    crc
 }
 
 // ---------- inflate (RFC 1951) ----------
@@ -569,6 +614,27 @@ mod tests {
         let at = file.windows(6).position(|w| w == b"EU4txt").unwrap();
         file[at + 6] = b'X';
         assert!(zip_entry(&mut Cursor::new(&file), b"meta").unwrap_err().contains("CRC"));
+    }
+
+    #[test]
+    fn the_crc_eight_bytes_at_a_step_is_the_crc_a_bit_at_a_time() {
+        let bitwise = |data: &[u8]| {
+            let mut crc = !0u32;
+            for &byte in data {
+                crc ^= u32::from(byte);
+                for _ in 0..8 {
+                    crc = (crc >> 1) ^ (0xedb8_8320 & (crc & 1).wrapping_neg());
+                }
+            }
+            !crc
+        };
+        let data: Vec<u8> = (0u32..10_007).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        for len in [0, 1, 7, 8, 9, 63, 64, 65, 10_007] {
+            assert_eq!(crc32(&data[..len]), bitwise(&data[..len]), "{len} bytes");
+        }
+        // In pieces, carrying the register.
+        let (a, b) = data.split_at(1_001);
+        assert_eq!(!crc32_update(crc32_update(!0, a), b), crc32(&data));
     }
 
     #[test]
