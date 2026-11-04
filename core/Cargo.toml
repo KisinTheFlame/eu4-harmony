@@ -3,6 +3,7 @@ name = "eu4-harmony-core"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "EU4 Harmony core: discovers mods, splices their UI and runs their extensions"
 build = "build.rs"
 

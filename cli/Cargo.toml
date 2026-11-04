@@ -3,6 +3,7 @@ name = "eu4-harmony-cli"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "Create, register and package EU4 Harmony mods, and use the running game through remote control"
 
 [[bin]]

@@ -3,6 +3,7 @@ name = "eu4-harmony-manifest"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "The files that make a Paradox mod an EU4 Harmony mod: its manifest and descriptor"
 
 [lib]
