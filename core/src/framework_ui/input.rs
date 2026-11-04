@@ -92,10 +92,23 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
     CallWindowProcW(original, window, message, wparam, lparam)
 }
 
+/// The class of the game's window, SDL's.
+const GAME_CLASS: &str = "SDL_app";
+
+/// Whether `window` is of the game's class.
+unsafe fn of_game_class(window: HWND) -> bool {
+    let mut class = [0u16; 64];
+    let len = GetClassNameW(window, class.as_mut_ptr(), class.len() as i32);
+    len > 0 && String::from_utf16_lossy(&class[..len as usize]) == GAME_CLASS
+}
+
+/// The game's window: a window of this process without an owner, which is
+/// shown, or, in a hidden start, of the game's class.
 unsafe extern "system" fn find(window: HWND, found: LPARAM) -> BOOL {
     let mut process = 0;
     GetWindowThreadProcessId(window, &mut process);
-    if process == GetCurrentProcessId() && IsWindowVisible(window) != 0 && GetWindow(window, GW_OWNER).is_null() {
+    let seen = IsWindowVisible(window) != 0 || (crate::hidden::hidden_start() && of_game_class(window));
+    if process == GetCurrentProcessId() && seen && GetWindow(window, GW_OWNER).is_null() {
         *(found as *mut HWND) = window;
         return 0;
     }

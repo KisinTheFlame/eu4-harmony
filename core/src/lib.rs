@@ -26,6 +26,7 @@ pub mod framework_ui;
 pub mod game;
 pub mod game_string;
 pub mod heap;
+pub mod hidden;
 pub mod hooks;
 pub mod hosts;
 pub mod icu;
@@ -132,6 +133,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(framework_ui::hook::points());
     all.extend(speed::points());
     all.extend(saves::background::points());
+    all.extend(hidden::points());
     all
 }
 
@@ -176,6 +178,7 @@ fn bootstrap() -> Result<()> {
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
     log!("eu4-harmony core {}{} bootstrap in {}", env!("CARGO_PKG_VERSION"), build(), game_dir.display());
+    hidden::read_switches();
     let _ = GAME_DIR.set(game_dir);
     let m = memory::Memory { base: unsafe { GetModuleHandleW(std::ptr::null()) } as usize };
     let _ = MEMORY.set(m);
@@ -222,6 +225,8 @@ fn report_header(game_dir: Option<&std::path::Path>) {
 
 /// Startup failed and nothing was hooked: writes the log and report and tells
 /// the player, from a thread of its own since the loader lock is held here.
+/// A hidden start ends the game instead: without the framework it could be
+/// neither used nor hidden.
 fn fail_startup(reason: String) {
     let game_dir = GAME_DIR.get().cloned();
     std::thread::spawn(move || {
@@ -235,6 +240,10 @@ fn fail_startup(reason: String) {
         report_header(game_dir.as_deref());
         report::line(format!("startup FAILED; nothing was hooked and no extension runs:\n{reason}"));
         report::write();
+        if hidden::hidden_start() {
+            log!("startup failed in a hidden start, ending the game: {}", reason.replace('\n', "; "));
+            unsafe { TerminateProcess(GetCurrentProcess(), 3) };
+        }
         if let Some(dir) = &user_dir {
             lang::decide(dir);
         }
