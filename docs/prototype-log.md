@@ -1505,6 +1505,17 @@ G1 to G4 of [game-testing.md](game-testing.md), with `cargo xtask game` from thi
 - **`watch` and builds**: a build with a feature while `watch` ran failed, cargo unable to replace `xtask.exe`; with `watch` moving its file aside, the same build went through.
 - **Not tried**: a holder whose lease ran out taken over; a checkout still on `game-lock.ps1` beside one on the commands; a `NOT RESTORED` line from the game folder's files; `start --sound`; `kept\` removed after seven days; two sessions in two checkouts at once.
 - **Cleanup**: every claim was released with every file put back. The test claims' folders and the results of `perf-run` and `leak-run` were deleted; the queue is empty.
+## 2026-11-05 The player language and fonts by language (tested by me)
+
+L2 and L3 of [player-language.md](player-language.md), the player build of this branch, with the player's playset (a Chinese language mod, the game in English) in a borderless 3840x2160 window, hidden, on a Windows that displays Simplified Chinese. The framework settings named no language and chose the three FZ fonts for body text, headings and the map, as the player had.
+
+- **The first start**: the settings got `language="simp_chinese"`, the log said "the language is simp_chinese, as Windows displays it", and the report "language: simp_chinese (chosen in the framework settings); the game runs in english". The three FZ fonts were kept and drew; the console, never chosen, drew in Consolas and was not written into the file. The old `text_appearance` line was dropped, as before.
+- **The settings window**: 语言 简体中文 at the top; its list showed the twelve by what each calls itself. In FZPingXianYaSongS-R-GB, Русский, the ê of Português and the ü of Türkçe came out wide apart: the font has them as full-width GB2312 glyphs. In Segoe UI they were drawn as they should be.
+- **A change**: English chosen and saved wrote `language="english"` and kept the three chosen fonts. With their lines then taken out of the file, the next start drew body text in Segoe UI 400, headings in Segoe UI 600, the map in Georgia and the console in Consolas, and the settings window was in English with Segoe UI, its heading weight Semibold.
+- **Simplified Chinese's defaults**: the file set to `simp_chinese` with no fonts, the next start drew body text in FZPingXianYaSongS-R-GB, headings in FZYaSongS-B-GB and the map in FZShengShiKaiShuS-EB-GB.
+- **Not tried**: a Windows that displays another language, or none of the twelve; the other ten languages' defaults (Traditional Chinese, Japanese and Korean have their fonts on this machine, untested); a mod's file in a language not on the list; a font chosen in the settings window and saved; `eu4-harmony new` with a language from Windows (unit tests only).
+- **Cleanup**: releasing the game put back the player's files, the framework's `settings.txt` with its `text_appearance` line among them, and the game folder's framework files; the screenshots were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
