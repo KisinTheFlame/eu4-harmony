@@ -79,7 +79,7 @@ The province writer in saves, `0x9d6e60`(province, writer), writes each field un
 
 ## Province fields for the player-actions reads
 
-Read from `eu4.exe` on 2026-11-05 with `core/examples/disasm.rs` and scripts over the PE file (the token table, vtable and call-site scans); nothing here was tried in the running game. Each field names the instruction that confirms it, with its bytes where a dependency point would keep it. What was concluded from the shape of the code, not read off an instruction, is marked _inferred_. Fixed point means an i32 in thousandths, as development is.
+Read from `eu4.exe` on 2026-11-05 with `core/examples/disasm.rs` and scripts over the PE file (the token table, vtable and call-site scans); what A1 reads of it was tried in the game on 2026-11-05 ([prototype-log.md](../prototype-log.md)), and those fields are dependency points in `game::provinces`, the trade node's in `game::trade`. Each field names the instruction that confirms it, with its bytes where a dependency point would keep it. What was concluded from the shape of the code, not read off an instruction, is marked _inferred_. Fixed point means an i32 in thousandths, as development is.
 
 ### Keys of game objects
 
