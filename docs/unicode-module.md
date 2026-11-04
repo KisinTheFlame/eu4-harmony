@@ -91,7 +91,7 @@ The game blends text with what lies under it in the screen's sRGB values, not in
 
 ### M0 checklist
 
-M0 does not change how the game behaves, so the checklist is a retest of what already works. Install with `cargo build --release` and `tools/dev-install.ps1`, and enable regional-combat and a mod made by `eu4-harmony new` in the playset. Tested and passed on 2026-10-27; the results are in [prototype-log.md](prototype-log.md).
+M0 does not change how the game behaves, so the checklist is a retest of what already works. Install with `cargo build --release` and `cargo xtask install`, and enable regional-combat and a mod made by `eu4-harmony new` in the playset. Tested and passed on 2026-10-27; the results are in [prototype-log.md](prototype-log.md).
 
 1. **Startup report**: `report.txt` has the line `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes`.
 2. **Main menu**: the game reaches the main menu as usual, with no new errors in `error.log`.
@@ -99,5 +99,5 @@ M0 does not change how the game behaves, so the checklist is a retest of what al
 4. **Regional combat**: the region button and the radius box work as before, with Chinese showing as it did; once on, it decides daily and issues move and stop orders; map coloring is correct when the radius changes.
 5. **Saves**: after an autosave, a data file is written under `eu4-harmony/saves/`; load that save and regional-combat restores its earlier state.
 6. **Rebuild**: go back to the main menu and into a game again; the army panel's buttons and the notice window both appear again.
-7. **Startup failure**: in a developer build with `dev-test-switches`, turn `fail-startup` on in `dev.toml`'s `[test-switches]` (tools/README.md) and run `eu4.exe`. A message box saying "EU4 Harmony could not start" should pop up; `report.txt` says `startup FAILED`; the game runs as usual, but none of the mods' buttons appear.
+7. **Startup failure**: in a developer build with `dev-test-switches`, turn `fail-startup` on in `dev.toml`'s `[test-switches]` (docs/dev-tools.md) and run `eu4.exe`. A message box saying "EU4 Harmony could not start" should pop up; `report.txt` says `startup FAILED`; the game runs as usual, but none of the mods' buttons appear.
 8. **Four languages**: set the game language to English, French, German and Spanish in turn; the main interface looks as in vanilla.

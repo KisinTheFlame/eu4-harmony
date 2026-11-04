@@ -54,7 +54,7 @@ A training job that kept the processor about 80% busy and held 14 GB of the grap
 
 ## Method
 
-[`tools/perf-run.ps1`](../tools/perf-run.ps1) runs the game the same way each time:
+`cargo xtask perf-run` ([xtask/src/perf_run.rs](../xtask/src/perf_run.rs)) runs the game the same way each time:
 
 1. Starts `eu4.exe` and times the launch until the main menu is on screen (a region of the menu's logo, compared every 0.25 s).
 2. 20 s later reads the process's working set and private bytes.

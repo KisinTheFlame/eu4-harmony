@@ -33,11 +33,11 @@ A tool of developer builds, on the layer: it logs every command heard, or only t
 ### Developer builds
 
 - **Features**: one for each development tool, each named with `dev-`: `dev-call-trace`, `dev-heap-census`, `dev-command-log` and `dev-test-switches` (the switches that make startup fail and show a test notice); and `dev`, which turns them all on. `trace` goes; `analysis` stays, for the disassembly example and the offline checks only.
-- **On when built in**: a tool built in is on; no environment variable turns it on. The tools' options are in a developer settings file, `eu4-harmony\dev.toml` in the game folder next to the core, one section for each tool. `dev-install.ps1` copies it there from the repository's `dev.toml`, which is not checked in; `tools/dev.toml.example` shows every section and option. Where the folder is, the player-state backup and restore leave it alone.
+- **On when built in**: a tool built in is on; no environment variable turns it on. The tools' options are in a developer settings file, `eu4-harmony\dev.toml` in the game folder next to the core, one section for each tool. `cargo xtask install` copies it there from the repository's `dev.toml`, which is not checked in; `core/dev.toml.example` shows every section and option. Where the folder is, `eu4-harmony backup` and `restore` leave it alone.
 - **Defaults**: a section that is missing takes its defaults: the command log logs every type, the call trace traces nothing, the census counts at every world reset, the test switches are off.
 - **What a developer build says**: the first line of the startup report and of the framework log says "developer build" and lists the tools built in; the report lists each tool's options as they took effect.
 - **Test switches**: making startup fail and showing a test notice move out of player builds into `dev-test-switches`, turned on in `dev.toml`. The test notice's text leaves the player's localisation files. Player builds then hold no hidden switches. The steps in docs/unicode-module.md and the prototype log's notes that use them are changed to match.
-- **Packing**: `release.ps1` builds the player build itself before packing it, so what was built last does not matter. `dev-install.ps1` installs what was built last, as now.
+- **Packing**: `cargo xtask release` builds the player build itself before packing it, so what was built last does not matter. `cargo xtask install` installs what was built last, as now.
 - **CI**: the player build is built, tested and checked with clippy, as now; the developer build is built and checked with clippy with `dev`, so the tools keep building.
 
 ## How it fits together
