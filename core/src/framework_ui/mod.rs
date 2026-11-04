@@ -13,10 +13,11 @@ pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
-use crate::settings::{self, Settings};
+use crate::settings::{self, Role, Settings};
 use crate::speed::{self, Pace};
 use crate::unicode::system_font::{self, Face, SystemFonts};
 use crate::{lang, loc};
+use eu4_harmony_loc::Language;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
@@ -49,6 +50,20 @@ struct FrameworkUi {
     families: HashMap<&'static str, Vec<String>>,
     /// Weights offered in the settings window, by their drop-down list.
     weights: HashMap<&'static str, Vec<u16>>,
+    /// The face each role showed when the settings window opened: one not
+    /// chosen that the player leaves as it is goes on following the language.
+    shown_faces: HashMap<Role, Face>,
+}
+
+/// A font role's drop-down lists in the settings window: its family's and
+/// its weight's.
+fn ids(role: Role) -> (&'static str, &'static str) {
+    match role {
+        Role::Body => ("body", "body_weight"),
+        Role::Heading => ("heading", "heading_weight"),
+        Role::Map => ("map", "map_weight"),
+        Role::Console => ("console", "console_weight"),
+    }
 }
 
 /// The weights offered for `face`'s family, their names, and which of them
@@ -120,7 +135,8 @@ const PACES: [Pace; 2] = [Pace::Smooth, Pace::Faster];
 
 impl FrameworkUi {
     fn new() -> crate::Result<Self> {
-        let font = text::UiFont::new(&settings::current().body_font)?;
+        let face = SystemFonts::new().map(|fonts| settings::current().face(Role::Body, |f| fonts.has_family(f)))?;
+        let font = text::UiFont::new(&face)?;
         Ok(Self {
             font,
             backend: d3d9::Backend::default(),
@@ -133,50 +149,60 @@ impl FrameworkUi {
             system_fonts: None,
             families: HashMap::new(),
             weights: HashMap::new(),
+            shown_faces: HashMap::new(),
         })
     }
 
     fn open_settings(&mut self) {
         let next = settings::next();
         let fonts = SystemFonts::new().ok();
-        let chinese = lang::player() == eu4_harmony_loc::Language::SimpChinese;
-        // The installed families that have `scalar`, by English name and as
-        // shown, and those chosen that are not installed.
-        let offered = |scalar: char, chosen: &[&String]| {
-            let offered = fonts.as_ref().map(|f| f.families_with(scalar as u32, chinese)).unwrap_or_default();
+        let language = next.language();
+        let faces: HashMap<Role, Face> =
+            Role::ALL.into_iter().map(|role| (role, next.face(role, |f| fonts.as_ref().is_some_and(|fonts| fonts.has_family(f))))).collect();
+        // The installed families that draw `text`, by English name and as
+        // shown in the language, and those shown that do not.
+        let offered = |text: &str, roles: &[Role]| {
+            let offered = fonts.as_ref().map(|f| f.families_with(text, language)).unwrap_or_default();
             let (mut families, mut shown): (Vec<String>, Vec<String>) = offered.into_iter().unzip();
-            for &chosen in chosen {
-                if !families.contains(chosen) {
-                    families.push(chosen.clone());
-                    shown.push(chosen.clone());
+            for family in roles.iter().flat_map(|role| next.chosen(*role).into_iter().chain([&faces[role]])).map(|face| &face.family) {
+                if !families.contains(family) {
+                    families.push(family.clone());
+                    shown.push(family.clone());
                 }
             }
             (families, shown)
         };
-        let (families, shown) = offered('中', &[&next.body_font.family, &next.heading_font.family, &next.map_font.family]);
-        // The game console's font may lack Chinese, which other fonts draw.
-        let (console_families, console_shown) = offered('A', &[&next.console_font.family]);
-        let index = |families: &[String], family: &String| families.iter().position(|f| f == family).unwrap_or(0);
-        let (body_weights, body_names, body_weight) = weight_options(fonts.as_ref(), &next.body_font);
-        let (heading_weights, heading_names, heading_weight) = weight_options(fonts.as_ref(), &next.heading_font);
-        let (map_weights, map_names, map_weight) = weight_options(fonts.as_ref(), &next.map_font);
-        let (console_weights, console_names, console_weight) = weight_options(fonts.as_ref(), &next.console_font);
+        // Fonts that write the language's name; the game console's needs
+        // only Latin letters, as other fonts draw the rest.
+        let (families, shown) = offered(language.native_name(), &[Role::Body, Role::Heading, Role::Map]);
+        let (console_families, console_shown) = offered("A", &[Role::Console]);
+        let index = |families: &[String], role: Role| families.iter().position(|f| *f == faces[&role].family).unwrap_or(0);
+        let (body_weights, body_names, body_weight) = weight_options(fonts.as_ref(), &faces[&Role::Body]);
+        let (heading_weights, heading_names, heading_weight) = weight_options(fonts.as_ref(), &faces[&Role::Heading]);
+        let (map_weights, map_names, map_weight) = weight_options(fonts.as_ref(), &faces[&Role::Map]);
+        let (console_weights, console_names, console_weight) = weight_options(fonts.as_ref(), &faces[&Role::Console]);
         let body = vec![
+            Widget::Label(words("EU4HARMONY_SETTINGS_LANGUAGE")),
+            Widget::Dropdown {
+                id: "language",
+                options: Language::ALL.iter().map(|l| l.native_name().to_string()).collect(),
+                selected: Language::ALL.iter().position(|&l| l == language).unwrap_or(0),
+            },
             Widget::Label(words("EU4HARMONY_SETTINGS_BODY_FONT")),
-            Widget::Dropdown { id: "body", options: shown.clone(), selected: index(&families, &next.body_font.family) },
+            Widget::Dropdown { id: "body", options: shown.clone(), selected: index(&families, Role::Body) },
             Widget::Label(words("EU4HARMONY_SETTINGS_BODY_WEIGHT")),
             Widget::Dropdown { id: "body_weight", options: body_names, selected: body_weight },
             Widget::Label(words("EU4HARMONY_SETTINGS_HEADING_FONT")),
-            Widget::Dropdown { id: "heading", options: shown.clone(), selected: index(&families, &next.heading_font.family) },
+            Widget::Dropdown { id: "heading", options: shown.clone(), selected: index(&families, Role::Heading) },
             Widget::Label(words("EU4HARMONY_SETTINGS_HEADING_WEIGHT")),
             Widget::Dropdown { id: "heading_weight", options: heading_names, selected: heading_weight },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_FONT")),
-            Widget::Dropdown { id: "map", options: shown, selected: index(&families, &next.map_font.family) },
+            Widget::Dropdown { id: "map", options: shown, selected: index(&families, Role::Map) },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_WEIGHT")),
             Widget::Dropdown { id: "map_weight", options: map_names, selected: map_weight },
             Widget::Toggle { id: "outline", label: words("EU4HARMONY_SETTINGS_MAP_OUTLINE"), on: next.map_outline },
             Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_FONT")),
-            Widget::Dropdown { id: "console", options: console_shown, selected: index(&console_families, &next.console_font.family) },
+            Widget::Dropdown { id: "console", options: console_shown, selected: index(&console_families, Role::Console) },
             Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_WEIGHT")),
             Widget::Dropdown { id: "console_weight", options: console_names, selected: console_weight },
             Widget::Label(words("EU4HARMONY_SETTINGS_RESTART")),
@@ -211,6 +237,7 @@ impl FrameworkUi {
             ("console_weight", console_weights),
         ]);
         self.system_fonts = fonts;
+        self.shown_faces = faces;
         self.settings = Some(window);
         MODAL.store(true, Ordering::Relaxed);
     }
@@ -237,11 +264,24 @@ impl FrameworkUi {
             let next = settings::next();
             let family = |id| w.selected(id).and_then(|i| self.families.get(id)?.get(i)).cloned();
             let weight = |id: &str| w.selected(id).and_then(|i| self.weights.get(id)?.get(i).copied());
+            // A font left as it showed stays as it was: chosen, or following
+            // the language.
+            let font = |role: Role| {
+                let shown = self.shown_faces.get(&role)?;
+                let (family_id, weight_id) = ids(role);
+                let face = Face::new(family(family_id).unwrap_or(shown.family.clone()), weight(weight_id).unwrap_or(shown.weight));
+                if face == *shown {
+                    next.chosen(role).cloned()
+                } else {
+                    Some(face)
+                }
+            };
             let chosen = Settings {
-                body_font: Face::new(family("body").unwrap_or(next.body_font.family), weight("body_weight").unwrap_or(next.body_font.weight)),
-                heading_font: Face::new(family("heading").unwrap_or(next.heading_font.family), weight("heading_weight").unwrap_or(next.heading_font.weight)),
-                map_font: Face::new(family("map").unwrap_or(next.map_font.family), weight("map_weight").unwrap_or(next.map_font.weight)),
-                console_font: Face::new(family("console").unwrap_or(next.console_font.family), weight("console_weight").unwrap_or(next.console_font.weight)),
+                language: w.selected("language").and_then(|i| Language::ALL.get(i).copied()).or(next.language),
+                body_font: font(Role::Body),
+                heading_font: font(Role::Heading),
+                map_font: font(Role::Map),
+                console_font: font(Role::Console),
                 map_outline: w.is_on("outline").unwrap_or(next.map_outline),
                 return_without_restart: w.is_on("return").unwrap_or(next.return_without_restart),
                 save_ironman_before_load: w.is_on("ironman_save").unwrap_or(next.save_ironman_before_load),
@@ -257,6 +297,7 @@ impl FrameworkUi {
         }
         self.settings = None;
         self.system_fonts = None;
+        self.shown_faces.clear();
         MODAL.store(false, Ordering::Relaxed);
     }
 
