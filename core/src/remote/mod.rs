@@ -44,6 +44,7 @@ pub mod camera;
 pub mod console;
 pub mod countries;
 pub mod describe;
+pub mod desktop;
 pub mod diplomacy;
 pub mod events;
 pub mod extensions;
@@ -95,6 +96,7 @@ pub trait Game:
     + diplomacy::Layer
     + extensions::Layer
     + input::Layer
+    + desktop::Layer
 {
 }
 impl<
@@ -114,6 +116,7 @@ impl<
             + diplomacy::Layer
             + extensions::Layer
             + input::Layer
+            + desktop::Layer
             + ?Sized,
     > Game for T
 {
@@ -594,6 +597,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         #[cfg(feature = "dev-memory")]
         Request::Memory(r) => done(crate::memory_account::answer(r).map(Answer::Memory)),
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
+        Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
     }
 }
 

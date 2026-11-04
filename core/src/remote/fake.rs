@@ -1,7 +1,7 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, camera, console, countries, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time,
+    armies, camera, console, countries, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time,
 };
 use crate::game::{
     self, fail,
@@ -431,6 +431,23 @@ impl input::Layer for Fake {
     fn cursor(&mut self) -> GResult<game::input::Cursor> {
         self.call("cursor".into());
         Ok(game::input::Cursor { at: Some((10, 20)), ..Default::default() })
+    }
+}
+
+impl desktop::Layer for Fake {
+    fn desktop(&mut self) -> GResult<eu4_harmony_remote::desktop::Desktop> {
+        self.call("desktop".into());
+        Ok(eu4_harmony_remote::desktop::Desktop { hidden: true, hidden_start: true, sound: false })
+    }
+
+    fn show(&mut self) -> GResult<eu4_harmony_remote::desktop::Desktop> {
+        self.call("show".into());
+        Ok(eu4_harmony_remote::desktop::Desktop { hidden: false, hidden_start: true, sound: false })
+    }
+
+    fn hide(&mut self) -> GResult<eu4_harmony_remote::desktop::Desktop> {
+        self.call("hide".into());
+        Ok(eu4_harmony_remote::desktop::Desktop { hidden: true, hidden_start: true, sound: false })
     }
 }
 
