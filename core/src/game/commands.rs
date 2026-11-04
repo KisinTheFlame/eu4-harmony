@@ -454,7 +454,7 @@ extern "C" fn executing(frame: *mut HookFrame) {
         let Ok(command) = m.ptr(unsafe { (*frame).args[0] } + LAMBDA_COMMAND) else { return };
         let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
         let token = token as u32;
-        let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
+        let kind = token_name(&m, token).unwrap_or_else(|| format!("token {token}"));
         let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
         let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for listener in listeners {
@@ -463,8 +463,10 @@ extern "C" fn executing(frame: *mut HookFrame) {
     })
 }
 
-/// The name of type token `token`.
-fn type_name(m: &Memory, token: u32) -> Option<String> {
+/// The name of token `token`: a command's type, or the key of a culture, a
+/// religion, a trade good, an idea group or another object the game names by
+/// a token (docs/research/provinces.md, "Keys of game objects").
+pub fn token_name(m: &Memory, token: u32) -> Option<String> {
     if m.u8(m.at(TOKENS_READY)).ok()? == 0 || token as i32 > m.i32(m.at(TOKENS_LAST)).ok()? {
         return None;
     }

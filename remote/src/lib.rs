@@ -307,6 +307,8 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// Trade nodes, as the trade map mode and the trade node view show them.
+    Trade(trade::TradeRequest, TradeAnswer),
 }
 
 pub mod binary;

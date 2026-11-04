@@ -37,6 +37,7 @@ pub mod screenshot;
 pub mod session;
 pub mod texts;
 pub mod time;
+pub mod trade;
 pub mod world;
 
 use crate::{
@@ -283,6 +284,7 @@ pub fn points() -> Vec<Point> {
     points.extend(orders::points());
     points.extend(events::points());
     points.extend(camera::points());
+    points.extend(countries::points());
     points.extend(provinces::points());
     points.extend(console::points());
     points.extend(time::points());
@@ -292,6 +294,7 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(trade::points());
     points
 }
 

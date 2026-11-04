@@ -1,13 +1,20 @@
 //! Provinces: every province, a province's land neighbors, and one
-//! province's snapshot: its name, development, terrain, fort, buildings and
-//! what the player can recruit there (docs/research/provinces.md).
-use super::{context, events, game, span, with_state, Caller, Ctx, GResult, Tag};
+//! province's snapshot: its name, development, terrain, fort, buildings,
+//! autonomy, culture, religion, unrest, trade, state, cores and claims, what
+//! is being built or done there, and what the player can recruit there
+//! (docs/research/provinces.md).
+use super::{commands, context, events, game, span, thousandths, view, with_state, Caller, Ctx, GResult, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
-    objects::campaign::{building, classes, country, geometry, globals, map, province as field, terrain, unit_type},
+    objects::campaign::{building, classes, construction, country, geometry, globals, map, province as field, terrain, unit_type},
+    objects::list,
     points::Point,
     unicode::game_text,
+};
+use eu4_harmony_remote::{
+    provinces::{Construction, StateKind},
+    CountryTag, Date,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -116,7 +123,7 @@ pub struct Recruit {
 }
 
 /// All of one province at one moment.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Snapshot {
     pub id: u32,
     /// Its name as the game shows it, as Unicode (read from game text).
@@ -132,18 +139,45 @@ pub struct Snapshot {
     pub buildings: Vec<String>,
     /// One for each [`UnitKind`], in their order.
     pub recruit: Vec<Recruit>,
+    /// Local autonomy as the game shows it, thousandths of a percentage
+    /// point.
+    pub autonomy: i32,
+    /// The keys of its culture, religion and trade good.
+    pub culture: Option<String>,
+    pub religion: Option<String>,
+    pub trade_good: Option<String>,
+    /// Unrest as the game shows it, in thousandths; None in the player's
+    /// view of another country's province, as the constructions and the
+    /// missionary.
+    pub unrest: Option<i32>,
+    pub trade_node: Option<String>,
+    /// 0 for none.
+    pub center_of_trade: i32,
+    pub trade_company: bool,
+    /// None without an owner.
+    pub state: Option<StateKind>,
+    pub edict: Option<String>,
+    pub cores: Vec<CountryTag>,
+    pub claims: Vec<CountryTag>,
+    pub constructions: Option<Vec<Construction>>,
+    /// Thousandths of a percentage point; None when no missionary works
+    /// there.
+    pub missionary: Option<i32>,
+    /// Thousandths of a settler; None for no colony.
+    pub colony_size: Option<i32>,
 }
 
 /// A province's snapshot; [`Status::NotFound`] for a number that names no
-/// province.
-pub fn province(_: Caller, id: u32) -> GResult<Snapshot> {
+/// province. In the player's view a province another country owns leaves
+/// out its unrest, its constructions and its missionary.
+pub fn province(caller: Caller, id: u32) -> GResult<Snapshot> {
     let m = game()?;
     let ctx = context(m)?;
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
-    snapshot(m, &ctx, address)
+    snapshot(m, &ctx, address, view(caller))
 }
 
 /// The game's getters of a province's base tax, production and manpower, as
@@ -158,6 +192,10 @@ const CAN_RECRUIT: usize = 0x346570;
 /// What the recruit command checks after it: (province, unit type); ships
 /// need the province's port.
 const RECRUIT_PLACE: usize = 0xa1fe50;
+/// The game's local autonomy and unrest as it shows them: (unused, out,
+/// province), as the scope values "local_autonomy" and "unrest".
+const AUTONOMY: usize = 0x6de950;
+const UNREST: usize = 0x6de660;
 
 /// The most kinds of terrain or building believed.
 const MOST_KINDS: usize = 10_000;
@@ -193,17 +231,90 @@ pub fn points() -> Vec<Point> {
         Point::keep(CAN_RECRUIT, "44 89 4c 24 20 4c 89 44 24 18 48 89 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57", "recruit check"),
         // It reads the unit type's kind: regiments may go anywhere.
         Point::keep(RECRUIT_PLACE, "40 57 48 83 ec 20 44 8b 42 10 4c 8b c9 45 85 c0 0f 84 f2 00 00 00", "recruit place check").uses(&[unit_type::KIND]),
+        // Local autonomy as the game shows it: the stored value between its bounds.
+        Point::keep(
+            AUTONOMY,
+            "41 8b 80 28 04 00 00 89 02 41 8b 88 f0 2d 00 00 3b c1 0f 4f c8 89 0a 41 8b 80 f4 2d 00 00 3b c8 0f 4c c1 89 02 48 8b c2 c3",
+            "local autonomy getter",
+        ),
+        // Unrest as the game shows it, from the province's own base.
+        Point::keep(
+            UNREST,
+            "4c 89 4c 24 20 53 48 83 ec 20 41 8b 80 e4 2d 00 00 49 8b c8 4c 8d 44 24 48 89 44 24 48 48 8b da e8 9b 8c 32 00 48 8b c3 48 83 c4 20 5b c3",
+            "unrest getter",
+        ),
+        // The province's save writer.
+        Point::keep(0x9d782ausize, "49 8b 8f 40 04 00 00 48 8b 01 ff 50 40 84 c0 74 29 49 8b 87 40 04 00 00 8b 58 10", "province culture").uses(&[
+            field::CULTURE,
+            field::VALID,
+            field::CULTURE_TOKEN,
+        ]),
+        Point::keep(0x9d7864usize, "49 8b 8f 48 04 00 00 48 8b 01 ff 50 40 84 c0 74 2c 49 8b 87 48 04 00 00 8b 98 d0 00 00 00", "province religion").uses(&[
+            field::RELIGION,
+            field::VALID,
+            field::RELIGION_TOKEN,
+        ]),
+        Point::keep(0x9d7d15usize, "49 8b 87 58 04 00 00 8b 58 10", "province trade good").uses(&[field::TRADE_GOOD, field::TRADE_GOOD_TOKEN]),
+        Point::keep(0x9d758eusize, "49 8b 87 e8 00 00 00 48 8b 98 a8 00 00 00 48 83 c3 10", "province trade node").uses(&[
+            field::TRADE_NODE,
+            field::TRADE_NODE_DEFINITION,
+            field::TRADE_NODE_KEY,
+        ]),
+        Point::keep(0x9d8ea7usize, "49 8b 87 60 09 00 00 48 85 c0 74 15 48 8b 40 08 44 8b 40 14", "province center of trade").uses(&[
+            field::CENTER_OF_TRADE,
+            field::CENTER_OF_TRADE_DATA,
+            field::CENTER_OF_TRADE_LEVEL,
+        ]),
+        Point::keep(0x9d75c8usize, "41 f6 87 58 09 00 00 04", "province in a trade company").uses(&[field::HIDDEN, field::TRADE_COMPANY_BIT as usize]),
+        // is_city: the bit 4 of the byte.
+        Point::keep(0x9d7914usize, "41 0f b6 9f 58 09 00 00 c0 eb 04 80 e3 01", "province is a city").uses(&[field::HIDDEN]),
+        Point::keep(0x9d7962usize, "41 8b 9f f8 03 00 00", "province colony size").uses(&[field::COLONY_SIZE]),
+        Point::keep(0x9d7c64usize, "41 8b 9f 94 08 00 00", "province missionary progress").uses(&[field::MISSIONARY_PROGRESS]),
+        Point::keep(0x9d754eusize, "49 8d 97 90 04 00 00", "province cores").uses(&[field::CORES]),
+        // Whether a claim is permanent walks the claims.
+        Point::keep(
+            0xa07294usize,
+            "48 8b 81 c0 04 00 00 4c 8b c2 48 85 c0 74 23 4c 8b ca 49 c1 e9 20 66 0f 1f 44 00 00 48 8b 10 48 c1 ea 20 66 41 3b d1 74 10 48 8b 40 10",
+            "province claims",
+        )
+        .uses(&[field::CLAIMS, list::NEXT]),
+        // is_state, and has_state_edict through the state.
+        Point::keep(0xce2eb2usize, "48 83 bc 0a e0 02 00 00 00", "province state").uses(&[field::STATE]),
+        Point::keep(0xcf57f2usize, "48 8b 8c 0a e0 02 00 00 48 85 c9 74 c3 48 8b 49 28 48 85 c9 74 ba 48 8b 43 68 48 39 41 10", "province state edict")
+            .uses(&[field::STATE, field::STATE_EDICT, field::EDICT_DEFINITION]),
+        Point::keep(0xcf585eusize, "48 83 c2 10", "state edict key").uses(&[field::EDICT_KEY]),
+        // The writer walks the constructions, writing each under its kind.
+        Point::keep(
+            0x9d8a5busize,
+            "49 8b 9f d8 04 00 00 48 85 db 74 2f 66 0f 1f 84 00 00 00 00 00 48 8b 33 4c 8b 73 10 49 8b de 8b 56 08",
+            "province constructions",
+        )
+        .uses(&[field::CONSTRUCTIONS, list::NEXT, construction::KIND]),
+        Point::keep(0x24f9e8usize, "48 83 c1 20", "construction start").uses(&[construction::START]),
+        Point::keep(0xa1bc53usize, "48 8d 4e 24", "construction end").uses(&[construction::END]),
+        Point::keep(0x24fff0usize, "8b 41 30 89 02", "construction progress").uses(&[construction::PROGRESS]),
+        Point::keep(0xcd1db1usize, "48 8b 4f 40", "construction country").uses(&[construction::COUNTRY]),
+        Point::keep(0x25368dusize, "48 8b 87 80 00 00 00 8b 58 14", "building construction's building").uses(&[construction::MAKES, building::INDEX]),
+        Point::keep(0x9d9977usize, "48 8b 8b 80 00 00 00", "military construction's unit type").uses(&[construction::MAKES]),
     ]
 }
 
-fn snapshot(m: &Memory, ctx: &Ctx, address: usize) -> GResult<Snapshot> {
+fn snapshot(m: &Memory, ctx: &Ctx, address: usize, view: View) -> GResult<Snapshot> {
     let geometry = m.ptr(address + field::GEOMETRY)?;
     let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(address + at)?)).filter(|t| t.valid())) };
     let mothballed = m.u8(address + field::MOTHBALL)? == field::MOTHBALLED;
+    let owner = tag_at(field::OWNER)?;
+    // The province view shows another country's province without these.
+    let all = view == View::Full || owner.is_none_or(|o| o.index() == ctx.player.index());
+    let flags = m.u8(address + field::HIDDEN)?;
+    let (state, edict) = state_of(m, address, owner)?;
+    let constructions = constructions(m, ctx, address)?;
+    let missionary = constructions.iter().any(|c| c.kind == "missionary_construction");
+    let colony = m.i32(address + field::COLONY_SIZE)?;
     Ok(Snapshot {
         id: m.u32(address + field::ID)?,
         name: text_at(m, geometry + geometry::NAME)?,
-        owner: tag_at(field::OWNER)?,
+        owner,
         controller: tag_at(field::CONTROLLER)?,
         development: Development {
             tax: base(m, BASE_TAX, address)?,
@@ -214,7 +325,134 @@ fn snapshot(m: &Memory, ctx: &Ctx, address: usize) -> GResult<Snapshot> {
         fort: Fort { level: m.i32(address + if mothballed { field::FORT_LEVEL_MOTHBALLED } else { field::FORT_LEVEL })?, mothballed },
         buildings: buildings(m, address)?,
         recruit: recruit(m, ctx, address)?,
+        autonomy: shown(m, AUTONOMY, address)?,
+        culture: token_key(m, address, field::CULTURE, field::CULTURE_TOKEN, true)?,
+        religion: token_key(m, address, field::RELIGION, field::RELIGION_TOKEN, true)?,
+        trade_good: token_key(m, address, field::TRADE_GOOD, field::TRADE_GOOD_TOKEN, false)?,
+        unrest: if all { Some(shown(m, UNREST, address)?) } else { None },
+        trade_node: trade_node_of(m, address)?,
+        center_of_trade: center_of_trade(m, address)?,
+        trade_company: flags & field::TRADE_COMPANY_BIT != 0,
+        state,
+        edict,
+        cores: vector_tags(m, ctx, address + field::CORES)?,
+        claims: list_items(m, address + field::CLAIMS)?.into_iter().map(|tag| country_tag(m, ctx, Tag(tag as u64))).collect::<GResult<_>>()?,
+        constructions: if all { Some(constructions) } else { None },
+        missionary: if all && missionary { Some(m.i32(address + field::MISSIONARY_PROGRESS)?) } else { None },
+        colony_size: if colony > 0 && flags & field::CITY_BIT == 0 { Some(colony) } else { None },
     })
+}
+
+/// One of the province's scope values the game computes as it shows them:
+/// (unused, out, province), as [`base`].
+fn shown(m: &Memory, getter: usize, province: usize) -> GResult<i32> {
+    base(m, getter, province)
+}
+
+/// The key of the object at `province + at`, the name of its token at
+/// `token`; None for none, or, when `valid`, for one its validity method
+/// says is not.
+fn token_key(m: &Memory, province: usize, at: usize, token: usize, valid: bool) -> GResult<Option<String>> {
+    let object = m.ptr(province + at)?;
+    if object == 0 || (valid && m.call(m.vslot(object, field::VALID)?, &[object])? as u8 == 0) {
+        return Ok(None);
+    }
+    let token = m.u32(object + token)?;
+    Ok(Some(commands::token_name(m, token).ok_or_else(|| format!("token {token:#x} has no name"))?))
+}
+
+/// The key of the province's trade node.
+fn trade_node_of(m: &Memory, province: usize) -> GResult<Option<String>> {
+    let node = m.ptr(province + field::TRADE_NODE)?;
+    if node == 0 {
+        return Ok(None);
+    }
+    let definition = m.ptr(node + field::TRADE_NODE_DEFINITION)?;
+    if definition == 0 {
+        return Err("a trade node without its definition".to_string().into());
+    }
+    Ok(Some(text_at(m, definition + field::TRADE_NODE_KEY)?))
+}
+
+fn center_of_trade(m: &Memory, province: usize) -> GResult<i32> {
+    let center = m.ptr(province + field::CENTER_OF_TRADE)?;
+    if center == 0 {
+        return Ok(0);
+    }
+    Ok(m.i32(m.ptr(center + field::CENTER_OF_TRADE_DATA)? + field::CENTER_OF_TRADE_LEVEL)?)
+}
+
+/// Whether it is in its owner's state or a territory, and the state's
+/// edict.
+fn state_of(m: &Memory, province: usize, owner: Option<Tag>) -> GResult<(Option<StateKind>, Option<String>)> {
+    if owner.is_none() {
+        return Ok((None, None));
+    }
+    let state = m.ptr(province + field::STATE)?;
+    if state == 0 {
+        return Ok((Some(StateKind::Territory), None));
+    }
+    let edict = m.ptr(state + field::STATE_EDICT)?;
+    let key = if edict == 0 { None } else { Some(text_at(m, m.ptr(edict + field::EDICT_DEFINITION)? + field::EDICT_KEY)?) };
+    Ok((Some(StateKind::State), key))
+}
+
+/// The tags in a vector (begin, end) of tags at `vector`, each a country's.
+fn vector_tags(m: &Memory, ctx: &Ctx, vector: usize) -> GResult<Vec<CountryTag>> {
+    let begin = m.ptr(vector)?;
+    let count = span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
+    (0..count).map(|i| country_tag(m, ctx, Tag(m.u64(begin + i * 8)?))).collect()
+}
+
+/// The items of a [`list`] at `at`, in its order.
+fn list_items(m: &Memory, at: usize) -> GResult<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut node = m.ptr(at + list::HEAD)?;
+    while node != 0 {
+        if out.len() >= MOST_KINDS {
+            return Err("province list bound".to_string().into());
+        }
+        out.push(m.ptr(node + list::ITEM)?);
+        node = m.ptr(node + list::NEXT)?;
+    }
+    Ok(out)
+}
+
+/// A tag the game keeps, checked to be a country's.
+fn country_tag(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<CountryTag> {
+    super::country(m, ctx, tag)?;
+    Ok(CountryTag(tag.letters()))
+}
+
+/// The constructions in the province, each with its kind's key.
+fn constructions(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Construction>> {
+    let mut out = Vec::new();
+    for c in list_items(m, province + field::CONSTRUCTIONS)? {
+        let token = m.u32(c + construction::KIND)?;
+        let kind = commands::token_name(m, token).ok_or_else(|| format!("construction token {token:#x} has no name"))?;
+        let country = Tag(m.u64(c + construction::COUNTRY)?);
+        let makes = match kind.as_str() {
+            "building_construction" => Some(text_at(m, m.ptr(c + construction::MAKES)? + building::NAME)?),
+            "military_construction" => {
+                let made = m.ptr(c + construction::MAKES)?;
+                if made != 0 && m.ptr(made)? == m.at(classes::UNIT_TYPE) {
+                    Some(text_at(m, made + unit_type::NAME)?)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        out.push(Construction {
+            kind,
+            country: if country.valid() { Some(country_tag(m, ctx, country)?) } else { None },
+            progress: thousandths(m.i32(c + construction::PROGRESS)?),
+            start: Date(m.i32(c + construction::START)?),
+            end: Date(m.i32(c + construction::END)?),
+            makes,
+        });
+    }
+    Ok(out)
 }
 
 /// The game text of the `std::string` at `string`, as Unicode: a name or a

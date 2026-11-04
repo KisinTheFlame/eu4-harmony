@@ -43,7 +43,7 @@ pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result
         ProvinceRequest::Neighbors { province } => {
             Ok(ProvinceAnswer::Neighbors(game.neighbors(province.0)?.iter().map(|n| Neighbor { province: ProvinceId(n.to), strait: n.strait }).collect()))
         }
-        ProvinceRequest::Get { province } => Ok(ProvinceAnswer::Get(snapshot(game.province(province.0)?))),
+        ProvinceRequest::Get { province } => Ok(ProvinceAnswer::Get(Box::new(snapshot(game.province(province.0)?)))),
     }
 }
 
@@ -61,6 +61,21 @@ fn snapshot(s: layer::Snapshot) -> ProvinceSnapshot {
         terrain: s.terrain,
         fort: Fort { level: s.fort.level, mothballed: s.fort.mothballed },
         buildings: s.buildings,
+        autonomy: game::thousandths(s.autonomy),
+        culture: s.culture,
+        religion: s.religion,
+        trade_good: s.trade_good,
+        unrest: s.unrest.map(game::thousandths),
+        trade_node: s.trade_node,
+        center_of_trade: s.center_of_trade,
+        trade_company: s.trade_company,
+        state: s.state,
+        edict: s.edict,
+        cores: s.cores,
+        claims: s.claims,
+        constructions: s.constructions,
+        missionary: s.missionary.map(game::thousandths),
+        colony_size: s.colony_size.map(game::thousandths),
     }
 }
 

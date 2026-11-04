@@ -2,7 +2,7 @@
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
     armies, camera, console, countries, decisions, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session,
-    texts, time,
+    texts, time, trade,
 };
 use crate::game::{
     self, fail,
@@ -125,7 +125,8 @@ impl countries::Layer for Fake {
     /// The Ottomans at war with Byzantium, with Wallachia as their vassal;
     /// Byzantium with nothing; [`wallachia`].
     fn snapshot(&mut self, country: Tag) -> GResult<game::countries::Country> {
-        use game::countries::{Country, Relation, RelationKind, War};
+        use eu4_harmony_remote::countries::{GoverningCapacity, IdeaGroup, Loans, Rebels, Technology};
+        use game::countries::{Country, Own, Relation, RelationKind, War};
         self.call(format!("snapshot {:x}", country.0));
         let wal = wal();
         if country == byz() {
@@ -139,17 +140,46 @@ impl countries::Layer for Fake {
         }
         Ok(Country {
             tag: tur(),
-            treasury: 125_500,
+            treasury: Some(125_500),
             manpower: 22_600,
             max_manpower: 30_250,
             stability: 1_000,
             prestige: -12_345,
-            power: [50, 60, 70],
+            power: Some([50, 60, 70]),
             wars: vec![War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal], defenders: vec![byz()] }],
             relations: vec![
                 Relation { kind: RelationKind::Subject, country: wal, subject_type: Some("vassal".into()) },
                 Relation { kind: RelationKind::Rival, country: byz(), subject_type: None },
             ],
+            technology: Technology { adm: 3, dip: 3, mil: 4 },
+            ideas: vec![
+                IdeaGroup { group: "TUR_ideas".into(), ideas: 1, national: true },
+                IdeaGroup { group: "quality_ideas".into(), ideas: 2, national: false },
+            ],
+            own: Some(Own {
+                governing_capacity: GoverningCapacity { used: 512.5, max: 700.0 },
+                inflation: 2_500,
+                mercantilism: 10_000,
+                loans: Loans { count: 1, ducats: 120.0 },
+                rebels: vec![Rebels { kind: "nationalist_rebels".into(), name: "Albanian Nationalists".into(), progress: 12.5 }],
+            }),
+        })
+    }
+
+    /// The Ottomans' budget, one line of each table and a loan from the
+    /// bank; another country's as the player's view leaves it.
+    fn budget(&mut self, country: Tag) -> GResult<eu4_harmony_remote::countries::Budget> {
+        use eu4_harmony_remote::countries::{Budget, Entry, Loan};
+        self.call(format!("budget {:x}", country.0));
+        let entry = |category: &str, name: &str, ducats| Entry { category: category.into(), name: name.into(), ducats };
+        if country != tur() {
+            return Ok(Budget { country: CountryTag(country.letters()), income: None, expenses: None, loans: None });
+        }
+        Ok(Budget {
+            country: CountryTag(*b"TUR"),
+            income: Some(vec![entry("INCOMETAX", "税收", 4.25)]),
+            expenses: Some(vec![entry("EXPENSEAM", "陆军维护费", 3.5)]),
+            loans: Some(vec![Loan { lender: None, ducats: 120.0, interest: 4.0, due: eu4_harmony_remote::Date(0x035d_7710 + 5 * 8760) }]),
         })
     }
 }
@@ -164,12 +194,12 @@ pub fn wallachia() -> game::countries::Country {
     let relation = |kind, country, subject_type: Option<&str>| Relation { kind, country, subject_type: subject_type.map(Into::into) };
     Country {
         tag: wal(),
-        treasury: 31_250,
+        treasury: Some(31_250),
         manpower: 5_400,
         max_manpower: 8_250,
         stability: -1_000,
         prestige: 12_345,
-        power: [120, 95, 143],
+        power: Some([120, 95, 143]),
         wars: vec![
             War { name: "Ottoman Conquest of Constantinople".into(), attackers: vec![tur(), wal()], defenders: vec![byz()] },
             War { name: "Hungarian-Wallachian War".into(), attackers: vec![hun], defenders: vec![wal(), mol] },
@@ -180,6 +210,7 @@ pub fn wallachia() -> game::countries::Country {
             relation(RelationKind::Overlord, tur(), Some("vassal")),
             relation(RelationKind::Rival, hun, None),
         ],
+        ..Default::default()
     }
 }
 
@@ -219,6 +250,7 @@ impl provinces::Layer for Fake {
 /// Constantinople (151), Byzantine, as the Chinese language mod names it,
 /// with the Ottomans able to recruit nothing there.
 pub fn constantinople() -> game::provinces::Snapshot {
+    use eu4_harmony_remote::provinces::StateKind;
     use game::provinces::{Development, Fort, Recruit, Snapshot, UnitKind};
     let recruit = |kind, unit_type: Option<&str>, reasons: &[&str]| Recruit {
         kind,
@@ -244,6 +276,21 @@ pub fn constantinople() -> game::provinces::Snapshot {
             recruit(UnitKind::Galley, Some("galley"), &[]),
             recruit(UnitKind::Transport, Some("cog"), &[]),
         ],
+        autonomy: 25_000,
+        culture: Some("greek".into()),
+        religion: Some("orthodox".into()),
+        trade_good: Some("silk".into()),
+        unrest: None,
+        trade_node: Some("constantinople".into()),
+        center_of_trade: 3,
+        trade_company: false,
+        state: Some(StateKind::State),
+        edict: None,
+        cores: vec![CountryTag(*b"BYZ")],
+        claims: vec![CountryTag(*b"TUR")],
+        constructions: None,
+        missionary: None,
+        colony_size: None,
     }
 }
 
@@ -727,5 +774,40 @@ We have a truce with them.",
     fn answer(&mut self, ticket: game::diplomacy::Ticket) -> GResult<game::diplomacy::Answer> {
         self.call(format!("answer {}", ticket.0));
         self.answers.pop_front().unwrap_or(Ok(game::diplomacy::Answer::Pending))
+    }
+}
+
+/// Two nodes, Constantinople's flowing into Venice's, with the Ottomans
+/// steering toward Venice and Byzantium collecting at home.
+impl trade::Layer for Fake {
+    fn trade_nodes(&mut self) -> GResult<Vec<eu4_harmony_remote::trade::NodeValue>> {
+        use eu4_harmony_remote::trade::NodeValue;
+        self.call("trade nodes".into());
+        Ok(vec![
+            NodeValue { node: "constantinople".into(), name: "君士坦丁堡".into(), value: 12.5 },
+            NodeValue { node: "venice".into(), name: "威尼斯".into(), value: 20.0 },
+        ])
+    }
+
+    fn trade_node(&mut self, node: String) -> GResult<eu4_harmony_remote::trade::TradeNode> {
+        use eu4_harmony_remote::trade::{Flow, Merchant, MerchantAction, TradeNode, TradePower};
+        self.call(format!("trade node {node}"));
+        if node != "constantinople" {
+            return fail(Status::NotFound, format!("no trade node {node}"));
+        }
+        let power =
+            |country: &[u8; 3], power, share, collects, home, merchant| TradePower { country: CountryTag(*country), power, share, collects, home, merchant };
+        Ok(TradeNode {
+            node,
+            name: "君士坦丁堡".into(),
+            value: 12.5,
+            local_value: 8.0,
+            incoming: vec![Flow { node: "crimea".into(), ducats: 4.5 }],
+            outgoing: vec![Flow { node: "venice".into(), ducats: 3.0 }],
+            countries: vec![
+                power(b"TUR", 60.0, 60.0, false, false, Some(Merchant { action: MerchantAction::Steer, toward: Some("venice".into()) })),
+                power(b"BYZ", 40.0, 40.0, true, true, None),
+            ],
+        })
     }
 }

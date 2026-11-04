@@ -63,6 +63,7 @@ pub mod session;
 mod tests;
 pub mod texts;
 pub mod time;
+pub mod trade;
 
 use crate::game;
 use eu4_harmony_remote::{Answer, Code, CountryTag, Error, Request, Response};
@@ -99,6 +100,7 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + trade::Layer
 {
 }
 impl<
@@ -120,6 +122,7 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + trade::Layer
             + ?Sized,
     > Game for T
 {
@@ -602,6 +605,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Trade(r) => done(trade::run(r, game).map(Answer::Trade)),
     }
 }
 
