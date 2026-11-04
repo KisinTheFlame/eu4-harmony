@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::Mutex;
-use widgets::{Action, Command, Measure, Rect, Widget, Window};
+use widgets::{Action, Command, Measure, Rect, Side, Widget, Window};
 
 fn words(key: &str) -> String {
     loc::framework(lang::player(), key, &[])
@@ -130,6 +130,11 @@ fn corner(screen: (f32, f32), measure: &dyn Measure) -> Vec<(Rect, String, Opens
         .collect()
 }
 
+/// The settings window's width, and its side list's, which chooses among
+/// its pages.
+const SETTINGS_WIDTH: f32 = 600.0;
+const SETTINGS_LIST: f32 = 168.0;
+
 /// The choice bar's options for the pace at the fastest speed, in order.
 const PACES: [Pace; 2] = [Pace::Smooth, Pace::Faster];
 
@@ -187,7 +192,7 @@ impl FrameworkUi {
         let (heading_weights, heading_names, heading_weight) = weight_options(fonts.as_ref(), &faces[&Role::Heading]);
         let (map_weights, map_names, map_weight) = weight_options(fonts.as_ref(), &faces[&Role::Map]);
         let (console_weights, console_names, console_weight) = weight_options(fonts.as_ref(), &faces[&Role::Console]);
-        let body = vec![
+        let fonts_page = vec![
             Widget::Label(words("EU4HARMONY_SETTINGS_LANGUAGE")),
             Widget::Dropdown {
                 id: "language",
@@ -212,9 +217,13 @@ impl FrameworkUi {
             Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_WEIGHT")),
             Widget::Dropdown { id: "console_weight", options: console_names, selected: console_weight },
             Widget::Label(words("EU4HARMONY_SETTINGS_RESTART")),
+        ];
+        let sessions_page = vec![
             Widget::Toggle { id: "return", label: words("EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART"), on: next.return_without_restart },
             Widget::Toggle { id: "ironman_save", label: words("EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD"), on: next.save_ironman_before_load },
             Widget::Label(words("EU4HARMONY_SETTINGS_UNDO")),
+        ];
+        let achievements_page = vec![
             Widget::Toggle { id: "outside_ironman", label: words("EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN"), on: next.achievements_outside_ironman },
             Widget::Toggle {
                 id: "changed_checksum",
@@ -222,18 +231,36 @@ impl FrameworkUi {
                 on: next.achievements_with_changed_checksum,
             },
             Widget::Label(words("EU4HARMONY_SETTINGS_ACHIEVEMENTS")),
-            Widget::Heading(words("EU4HARMONY_SETTINGS_GAME_SPEED")),
+        ];
+        let speed_page = vec![
             Widget::Explained { label: words("EU4HARMONY_SETTINGS_FASTEST_SPEED"), info: words("EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO") },
             Widget::Choice {
                 id: "pace",
                 options: vec![words("EU4HARMONY_SETTINGS_PACE_SMOOTH"), words("EU4HARMONY_SETTINGS_PACE_FASTER")],
                 selected: PACES.iter().position(|&p| p == next.fastest_speed).unwrap_or(0),
             },
+        ];
+        let remote_page = vec![
+            Widget::Toggle { id: "remote_full_view", label: words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW"), on: next.remote_full_view },
+            Widget::Label(words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO")),
+        ];
+        let footer = vec![
             Widget::Gap,
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
             Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
         ];
-        let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), body, 420.0);
+        let pages = [
+            "EU4HARMONY_SETTINGS_PAGE_LANGUAGE_FONTS",
+            "EU4HARMONY_SETTINGS_PAGE_SESSIONS",
+            "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
+            "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
+            "EU4HARMONY_SETTINGS_PAGE_REMOTE_CONTROL",
+        ];
+        let side = Side::new("pages", pages.iter().map(|key| words(key)).collect(), SETTINGS_LIST);
+        let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH)
+            .with_side(side)
+            .with_pages(vec![fonts_page, sessions_page, achievements_page, speed_page, remote_page])
+            .with_footer(footer);
         window.center(&self.font, self.screen.0, self.screen.1);
         self.families = HashMap::from([("body", families.clone()), ("heading", families.clone()), ("map", families), ("console", console_families)]);
         self.weights = HashMap::from([
@@ -294,6 +321,7 @@ impl FrameworkUi {
                 achievements_outside_ironman: w.is_on("outside_ironman").unwrap_or(next.achievements_outside_ironman),
                 achievements_with_changed_checksum: w.is_on("changed_checksum").unwrap_or(next.achievements_with_changed_checksum),
                 fastest_speed: w.selected("pace").and_then(|i| PACES.get(i).copied()).unwrap_or(next.fastest_speed),
+                remote_full_view: w.is_on("remote_full_view").unwrap_or(next.remote_full_view),
             };
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),

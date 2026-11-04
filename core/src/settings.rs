@@ -47,6 +47,9 @@ pub struct Settings {
     /// Whether the game draws frames inside a day at the fastest speed
     /// (docs/game-speed.md, S4).
     pub fastest_speed: Pace,
+    /// Whether remote control reads the full view rather than the player's
+    /// view (GLOSSARY; ADR remote-control-reads-the-players-view).
+    pub remote_full_view: bool,
 }
 
 /// What a system font is chosen for.
@@ -124,6 +127,7 @@ impl Default for Settings {
             achievements_outside_ironman: false,
             achievements_with_changed_checksum: false,
             fastest_speed: Pace::Smooth,
+            remote_full_view: false,
         }
     }
 }
@@ -208,6 +212,7 @@ impl Settings {
                     settings.achievements_with_changed_checksum = yes(value).unwrap_or(settings.achievements_with_changed_checksum)
                 }
                 "fastest_speed" => settings.fastest_speed = Pace::from_name(value).unwrap_or(settings.fastest_speed),
+                "remote_full_view" => settings.remote_full_view = yes(value).unwrap_or(settings.remote_full_view),
                 _ => {}
             }
         }
@@ -234,26 +239,28 @@ impl Settings {
             }
         }
         out.push_str(&format!(
-            "map_outline={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\nfastest_speed=\"{}\"\n",
+            "map_outline={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\nfastest_speed=\"{}\"\nremote_full_view={}\n",
             yes_no(self.map_outline),
             yes_no(self.return_without_restart),
             yes_no(self.save_ironman_before_load),
             yes_no(self.achievements_outside_ironman),
             yes_no(self.achievements_with_changed_checksum),
-            self.fastest_speed.name()
+            self.fastest_speed.name(),
+            yes_no(self.remote_full_view)
         ));
         out
     }
 
     /// Takes from `chosen` the settings that take effect when they are saved:
-    /// those for leaving a session, the achievement rules, and the pace at the
-    /// fastest speed.
+    /// those for leaving a session, the achievement rules, the pace at the
+    /// fastest speed, and what remote control reads.
     fn take_immediate(&mut self, chosen: &Settings) {
         self.return_without_restart = chosen.return_without_restart;
         self.save_ironman_before_load = chosen.save_ironman_before_load;
         self.achievements_outside_ironman = chosen.achievements_outside_ironman;
         self.achievements_with_changed_checksum = chosen.achievements_with_changed_checksum;
         self.fastest_speed = chosen.fastest_speed;
+        self.remote_full_view = chosen.remote_full_view;
     }
 }
 
@@ -405,10 +412,11 @@ mod tests {
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
             fastest_speed: Pace::Faster,
+            remote_full_view: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
-        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\n"));
+        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\nremote_full_view=yes\n"));
         assert_eq!(Settings::parse("fastest_speed=faster").fastest_speed, Pace::Faster);
         assert_eq!(Settings::parse("fastest_speed=\"fastest\"").fastest_speed, Pace::Smooth);
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
@@ -440,6 +448,8 @@ mod tests {
         // Achievements follow vanilla's rules unless the file says otherwise.
         assert!(!Settings::parse("achievements_outside_ironman=maybe").achievements_outside_ironman);
         assert!(Settings::parse("achievements_with_changed_checksum=yes").achievements_with_changed_checksum);
+        // Remote control reads the player's view unless the file says otherwise.
+        assert!(!Settings::parse("remote_full_view=maybe").remote_full_view);
     }
 
     #[test]
@@ -454,6 +464,7 @@ mod tests {
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
             fastest_speed: Pace::Faster,
+            remote_full_view: true,
             ..Settings::default()
         };
         current.take_immediate(&chosen);
@@ -463,6 +474,7 @@ mod tests {
             achievements_outside_ironman: true,
             achievements_with_changed_checksum: true,
             fastest_speed: Pace::Faster,
+            remote_full_view: true,
             ..Settings::default()
         };
         assert_eq!(current, immediate);

@@ -1,7 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, camera, console, countries, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time,
+    armies, camera, console, countries, decisions, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session,
+    texts, time,
 };
 use crate::game::{
     self, fail,
@@ -20,7 +21,7 @@ pub const PLENTY: Duration = Duration::from_secs(10);
 pub fn quiet(_: &str) {}
 
 /// What came back for a reply, in JSON; null when nothing came yet.
-pub fn answer(reply: &super::Reply) -> Value {
+pub fn answer(reply: &crate::remote::Reply) -> Value {
     reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
 }
 
@@ -112,7 +113,7 @@ impl countries::Layer for Fake {
             b"TUR" => Ok(tur()),
             b"BYZ" => Ok(byz()),
             b"WAL" => Ok(wal()),
-            _ => fail(Status::NotFound, format!("no country {tag}")),
+            _ => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
         }
     }
 
@@ -448,6 +449,20 @@ impl desktop::Layer for Fake {
     fn hide(&mut self) -> GResult<eu4_harmony_remote::desktop::Desktop> {
         self.call("hide".into());
         Ok(eu4_harmony_remote::desktop::Desktop { hidden: true, hidden_start: true, sound: false })
+    }
+}
+
+/// One decision the player can take, and one they cannot.
+impl decisions::Layer for Fake {
+    fn decisions(&mut self) -> GResult<Vec<eu4_harmony_remote::decisions::Decision>> {
+        use eu4_harmony_remote::{choices::Choice, decisions::Decision};
+        self.call("decisions".into());
+        Ok(vec![
+            Decision { decision: "form_rum".into(), name: "组建罗姆".into(), major: true, choice: Choice::can(Vec::new()) },
+            Decision {
+                decision: "move_capital".into(), name: "迁都".into(), major: false, choice: Choice::cannot(vec!["拥有君士坦丁堡".into()], Vec::new())
+            },
+        ])
     }
 }
 

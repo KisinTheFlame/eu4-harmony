@@ -91,6 +91,7 @@ fn lua_type(kind: Kind) -> &'static str {
         Kind::Boolean => "boolean",
         Kind::Allies => "\"all\"|\"none\"|string[]",
         Kind::Provinces => "integer[]",
+        Kind::Countries | Kind::Words => "string[]",
     }
 }
 
