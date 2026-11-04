@@ -293,14 +293,14 @@ The window in the framework UI, opened from the main menu's corner, that lists t
 _Avoid_: mod list (that is a playset), mod manager (it manages nothing)
 
 **Framework settings**:
-The player's preferences for the framework, such as which fonts the Unicode module uses. Some take effect when they are saved, others, such as the fonts, at the next start.
+The player's preferences for the framework, such as the player language and which fonts the Unicode module uses. Some take effect when they are saved, others, such as the language and the fonts, at the next start.
 _Avoid_: configuration; game settings (the game's own `settings.txt`)
 
 ### Localisation
 
 **Player language**:
-The language the framework's and every mod's texts use in this session, decided once by the framework at startup.
-_Avoid_: game language (the language in the game's settings, which for Chinese players is usually English)
+The language the framework's and every mod's texts use in this session: one of twelve, chosen in the framework settings, the first time from the language Windows displays.
+_Avoid_: game language (the language in the game's settings, which for players of a language the game lacks is usually English)
 
 **Localisation file**:
 A file of texts in one language that a mod provides under `eu4-harmony/localisation/`. It keeps the game's format but holds plain UTF-8; the framework hands it to the game.
@@ -341,5 +341,5 @@ A font the framework defines among its framework files, for text of the game's t
 _Avoid_: custom font, own font, console font on its own
 
 **Legacy escape**:
-The escape byte sequences older Chinese language mods and saves use to stand for Chinese characters in the game's single-byte text.
+The escape byte sequences language mods for Chinese, Japanese and Korean, and the saves played with them, use to stand for a character in the game's single-byte text. The mods for each of these languages share one way of writing them.
 _Avoid_: double-byte encoding, mojibake

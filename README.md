@@ -29,13 +29,13 @@ return {
 
 - Extensions in Lua 5.4, run in a sandbox of their own: nothing to install, nothing to compile.
 - Capabilities for countries, provinces, armies, recruiting, diplomacy, events, time, the camera and the game console, and buttons and windows in the vanilla interface.
-- Extension save data kept in the save; texts in every game language, shown in the player's.
+- Extension save data kept in the save; texts in any of twelve languages, shown in the one the player chose.
 - A command line tool that creates a mod, checks it, runs its tests against a fake game, reloads it in the running game as you edit, and packs it for upload.
 - Completion and type checking in any editor with the Lua language server, and guides written for coding agents.
 
 **For players**
 
-- Chinese and every other script drawn in the game, in system fonts of your choice.
+- Every script drawn in the game, in system fonts made for your language or of your choice.
 - Back to the main menu in a few seconds instead of a restart of about 45.
 - A faster game that computes the same game: 84 frames a second instead of 63 in a paused game of 1618, and days about a tenth faster at the fastest speed ([measurements](docs/performance.md)).
 - Optional: achievements outside ironman and with mods that change the checksum.
@@ -67,21 +67,22 @@ Good to know:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Fonts | Microsoft YaHei; KaiTi on the map, Consolas in the console | The system fonts for body text, headings, the map and the console. |
+| Language | The language Windows displays, else English | The language of the framework's and mods' texts, out of twelve. |
+| Fonts | Made for the language: Segoe UI and Georgia on the map for Latin and Cyrillic, Microsoft YaHei and KaiTi for Simplified Chinese ([all](docs/player-language.md#fonts)); Consolas in the console | The system fonts for body text, headings, the map and the console. |
 | Return to the main menu without restarting the game | On | The main menu is back in seconds. The game keeps about 15 MB of memory each time, until it is closed ([why](docs/sessions.md#known-leaks)). |
 | In ironman, save the game before loading another save | On | Ironman games can load another save from the game's menu. Off, loading the same save again undoes what was played since. |
 | Achievements outside ironman | Off | Achievements in a game that is not ironman, even with saves loaded again and the console used. |
 | Achievements with a changed game checksum | Off | Achievements with mods that change the checksum the main menu shows. |
 | Game speed: at the fastest speed | Smooth map | "Faster time" draws no frames in the middle of a long day: late in a game, days pass about another tenth faster, but the map moves in jerks and answers clicks later. |
 
-A font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
+A language or font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
 
 ## Writing a mod
 
 The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder:
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, English and Chinese texts and editor types
+eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, texts in English and your language, and editor types
 cd my-mod
 eu4-harmony check                         # read everything as the framework will
 eu4-harmony test                          # run eu4-harmony\tests\*.lua against a fake game
