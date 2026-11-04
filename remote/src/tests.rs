@@ -78,7 +78,7 @@ fn a_request_is_one_flat_object() {
     assert_eq!(serde_json::to_value(&session).unwrap(), json!({"capability": "session.get"}));
 
     let events = request(json!({"capability": "events", "since": 5})).unwrap();
-    assert_eq!(events, Request::Events(events::EventsRequest::Read { since: Some(5), wait_ms: None, process: None }));
+    assert_eq!(events, Request::Events(events::EventsRequest::Read { since: Some(5), wait_ms: None, process: None, kinds: None, countries: None }));
     assert_eq!(serde_json::to_value(&events).unwrap(), json!({"capability": "events", "since": 5}));
 }
 
@@ -128,6 +128,8 @@ fn every_event_is_described() {
         Event::Session { session: 1 },
         Event::SessionEnded { reason: SessionEnd::Return },
         Event::Day { date },
+        Event::Month { date },
+        Event::Year { date },
         Event::ArmyOrdered { army: ArmyId(1) },
         Event::ArmyDefeated { army: ArmyId(1) },
     ];
@@ -138,6 +140,10 @@ fn every_event_is_described() {
     }
     let names: Vec<Value> = all.iter().map(|e| serde_json::to_value(e).unwrap()["event"].clone()).collect();
     assert_eq!(names, EVENTS.iter().map(|(name, _)| json!(name)).collect::<Vec<_>>());
+    // A kind, as a read's kinds name it, is the name JSON gives the event.
+    for event in &all {
+        assert_eq!(json!(event.kind()), serde_json::to_value(event).unwrap()["event"]);
+    }
 }
 
 #[test]

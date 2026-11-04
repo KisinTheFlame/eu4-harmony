@@ -325,7 +325,13 @@ fn an_advance_answers_before_the_process_ends() {
     let reply = ENGINE.submit(advance(30, None));
     ENGINE.run(&mut game, &Place::Game, PLENTY);
     next_day(&ENGINE, &mut game);
-    let events = ENGINE.submit(Request::Events(eu4_harmony_remote::events::EventsRequest::Read { since: Some(1), wait_ms: Some(60_000), process: None }));
+    let events = ENGINE.submit(Request::Events(eu4_harmony_remote::events::EventsRequest::Read {
+        since: Some(1),
+        wait_ms: Some(60_000),
+        process: None,
+        kinds: None,
+        countries: None,
+    }));
     ENGINE.run(&mut game, &Place::Game, PLENTY);
     let client = std::thread::spawn(move || reply.wait(PLENTY).map(|r| response_json(&r)));
     let reader = std::thread::spawn(move || events.wait(PLENTY).map(|r| response_json(&r)));

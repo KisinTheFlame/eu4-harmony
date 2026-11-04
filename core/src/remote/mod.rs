@@ -635,6 +635,8 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
         Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
         Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
         Heard::Day(date) => Event::Day { date: Date(date) },
+        Heard::Month(date) => Event::Month { date: Date(date) },
+        Heard::Year(date) => Event::Year { date: Date(date) },
     };
     frame.heard().into_iter().map(event).collect()
 }

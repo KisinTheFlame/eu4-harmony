@@ -1,6 +1,6 @@
 //! The events remote control keeps: the ones extensions hear, numbered, the
 //! latest [`KEPT`] of them.
-use crate::{ArmyId, Date};
+use crate::{ArmyId, CountryList, CountryTag, Date, Words};
 use serde::{Deserialize, Serialize};
 
 /// How many events are kept.
@@ -12,8 +12,9 @@ group! {
     /// The events remote control keeps.
     "events": EventsRequest, EventsAnswer;
 
-    /// The events numbered above `since`, oldest first. With `wait_ms`, when
-    /// there is none yet, the answer waits for the first one, up to that
+    /// The events numbered above `since`, oldest first, of the kinds asked
+    /// for and naming the countries asked for. With `wait_ms`, when there is
+    /// none yet, the answer waits for the first one, up to that
     /// long from when the game takes the request up. The game takes
     /// requests up and answers them only at its frames, and it has none at
     /// startup until the main menu shows, nor while a save loads: a request
@@ -30,6 +31,13 @@ group! {
         /// it is not the one answering, since is from before the game
         /// started again: every event kept is read, with missed.
         process: Option<u64>,
+        /// Only events of these kinds (`day`, `month`, …); every kind when
+        /// absent. A kind no extension listens to is worked out only once a
+        /// remote client has read it, or every kind, in this game process.
+        kinds: Option<Words>,
+        /// Only events that name one of these countries, and those that
+        /// name none (`day`); every event when absent.
+        countries: Option<CountryList>,
     } -> Events, "the process answering, the events, the number of the last one, and whether some after since are gone unread: dropped, or since is from before the game started again (another process, or beyond the last one)";
 }
 
@@ -52,7 +60,7 @@ pub struct Events {
 }
 
 /// An event and its number, which increases by one with each event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Numbered {
     pub number: u64,
     #[serde(flatten)]
@@ -76,12 +84,14 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("session", "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
     ("session_ended", "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save) or new_game"),
     ("day", "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
+    ("month", "the first day heard in a new month; date, which with the game running fast may be past the 1st"),
+    ("year", "the first day heard in a new year, after month; date"),
     ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
     ("army_defeated", "one of the player's armies lost a battle; army"),
 ];
 
 /// Something that happened in the game, as extensions hear it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// A session began: a save was loaded or a game started. Its number, as
@@ -93,9 +103,62 @@ pub enum Event {
     /// A new day, once visibility reflects it; with the game running fast,
     /// days in between may be left out.
     Day { date: Date },
+    /// The first day heard in a new month; with the game running fast it
+    /// may be past the 1st.
+    Month { date: Date },
+    /// The first day heard in a new year, after its month.
+    Year { date: Date },
     /// The player gave one of their armies an order, by hand or through
     /// remote control.
     ArmyOrdered { army: ArmyId },
     /// One of the player's armies lost a battle.
     ArmyDefeated { army: ArmyId },
+}
+
+impl Event {
+    /// Its kind, as `kinds` and [`EVENTS`] name it.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Session { .. } => "session",
+            Self::SessionEnded { .. } => "session_ended",
+            Self::Day { .. } => "day",
+            Self::Month { .. } => "month",
+            Self::Year { .. } => "year",
+            Self::ArmyOrdered { .. } => "army_ordered",
+            Self::ArmyDefeated { .. } => "army_defeated",
+        }
+    }
+
+    /// The countries it names; none for one about the game as a whole or
+    /// about the player's own armies.
+    pub fn countries(&self) -> Vec<CountryTag> {
+        Vec::new()
+    }
+}
+
+/// Which events a read asks for: those of `kinds`, and among them those that
+/// name one of `countries` or none.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Filter {
+    pub kinds: Option<Vec<String>>,
+    pub countries: Option<Vec<CountryTag>>,
+}
+
+impl Filter {
+    pub fn new(kinds: Option<Words>, countries: Option<CountryList>) -> Self {
+        Self { kinds: kinds.map(|k| k.0), countries: countries.map(|c| c.0) }
+    }
+
+    /// Whether `event` is one asked for.
+    pub fn takes(&self, event: &Event) -> bool {
+        let kind = self.kinds.as_ref().is_none_or(|kinds| kinds.iter().any(|k| k == event.kind()));
+        let named = event.countries();
+        let country = named.is_empty() || self.countries.as_ref().is_none_or(|countries| named.iter().any(|c| countries.contains(c)));
+        kind && country
+    }
+
+    /// A kind it names that is no event's.
+    pub fn unknown_kind(&self) -> Option<&str> {
+        self.kinds.as_ref()?.iter().find(|k| !EVENTS.iter().any(|(name, _)| name == k)).map(String::as_str)
+    }
 }
