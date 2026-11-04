@@ -217,7 +217,18 @@ if ($gone) {
 
 if (-not $NoBackup) {
     $dir = Join-Path $Backups "$Owner-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-    PlayerState backup $dir
+    try {
+        PlayerState backup $dir
+    } catch {
+        # No claim without its backup: give the game back. A partial backup is
+        # never restored; the status lists it.
+        Locked {
+            $held = ReadHeld
+            if ($held -and $held.owner -eq $Owner) { Remove-Item -LiteralPath $LockFile }
+        }
+        Write-Host "not claimed: the backup failed ($_); the game is free again"
+        exit 1
+    }
     # Recorded only once complete: a partial backup must never be restored.
     Locked {
         $held = ReadHeld

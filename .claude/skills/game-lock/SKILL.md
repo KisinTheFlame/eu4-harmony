@@ -15,6 +15,7 @@ The claim is also the backup AGENTS.md asks for: `-Claim` runs `eu4-harmony back
 2. **Claim**: `& <this skill's folder>\game-lock.ps1 -Claim -Purpose '<one line: what this run tests>'`.
    - Exit 0: you hold the game, with the player's files backed up. Start `game-lock.ps1 -Watch` as a background command at once: it is what wakes you before the lease runs out (step 3).
    - Exit 2: another holder has it (the output says who). Run the same command with `-Wait` as a background command, carry on with work that needs no game, and end the turn once that is done. The command exits when you hold the game; start `-Watch` then, as for exit 0.
+   - "not claimed: the backup failed …" (exit 1): the game is free again, with no claim of yours. Claim once more; failing the same way, show the user the error.
    - "took over from …": the previous holder let its lease run out; the claim restored that holder's backup first. Tell the user who it was. If that restore fails, the claim stops with an error yet holds the game: show the user the error and the backup `game-lock.ps1` (no switch) lists, and go on once they say how.
 3. **Use the game**: install, run, test, as AGENTS.md describes. The lease is 30 minutes; it starts again at every `-Claim` and `-Renew`, and keeps starting again while eu4.exe runs, so it counts only the time the game is closed. When `-Watch` exits with 3, the lease is 5 minutes from running out:
    - still using the game: `-Renew`, then start `-Watch` again;
