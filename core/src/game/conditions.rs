@@ -82,6 +82,30 @@ fn lines(text: &[u8]) -> Vec<String> {
     game_text::plain(&unmarked).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
 
+/// The lines of a text the game writes for why something is not allowed,
+/// such as a policy's or a privilege's check writes, as plain Unicode: its own
+/// lines, and the conditions it lists that do not hold. A condition that
+/// holds (marked `£yes `) is left out with the lines beneath it, which are
+/// indented deeper; the marks, indent and color codes are left out.
+pub fn refusal(text: &[u8]) -> Vec<String> {
+    let mut kept = Vec::new();
+    let mut skipping: Option<usize> = None;
+    for line in text.split(|&b| b == b'\n') {
+        let indent = line.iter().take_while(|&&b| b == b' ').count();
+        if skipping.is_some_and(|depth| indent > depth) {
+            continue;
+        }
+        skipping = None;
+        if line[indent..].starts_with(b"\xa3yes ") {
+            skipping = Some(indent);
+            continue;
+        }
+        kept.extend_from_slice(line);
+        kept.push(b'\n');
+    }
+    lines(&kept)
+}
+
 fn strip(text: &[u8], mark: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len());
     let mut rest = text;
@@ -106,5 +130,12 @@ mod tests {
         let text = game_text::from_str("£no Administrative technology is at least 5\n   £no §YFrance§! owns Paris\nAll of the following:\n   Is at peace\n");
         assert_eq!(lines(&text), ["Administrative technology is at least 5", "France owns Paris", "All of the following:", "Is at peace"]);
         assert!(lines(b"").is_empty());
+    }
+
+    #[test]
+    fn a_refusal_leaves_out_the_conditions_that_hold_with_their_lines() {
+        let text = game_text::from_str("Already has the policy\n£yes Is at peace\n£no All of the following:\n   Owns Paris\n£yes One of the following:\n   Owns Lyon\n   Owns Rome\n£no §YStability§! is at least 1\n");
+        assert_eq!(super::refusal(&text), ["Already has the policy", "All of the following:", "Owns Paris", "Stability is at least 1"]);
+        assert!(super::refusal(b"").is_empty());
     }
 }
