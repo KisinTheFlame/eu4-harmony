@@ -171,3 +171,7 @@ cargo xtask release        # 打出玩家包
 | `loc/`、`manifest/` | 本地化文件和 Mod 清单，核心和命令行工具共用 |
 | `cli/` | `eu4-harmony.exe`，以及 `new` 生成的模板 Mod |
 | `xtask/` | 仓库自己的开发命令（`cargo xtask`） |
+
+## 许可证
+
+[MIT](LICENSE)。它只涵盖本仓库自己的代码和文档，不涵盖游戏本身：Mod 能做什么，仍然以 Paradox 对 Mod 的条款为准。

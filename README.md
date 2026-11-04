@@ -169,3 +169,7 @@ Read [AGENTS.md](AGENTS.md) first: it has the rules for code, commits, checks an
 | `loc/`, `manifest/` | Localisation files and mod manifests, shared by the core and the tool |
 | `cli/` | `eu4-harmony.exe`, and the template mod `new` writes |
 | `xtask/` | The repository's development commands (`cargo xtask`) |
+
+## License
+
+[MIT](LICENSE). It covers this repository's own code and documents, not the game: what you may do with a mod is still up to Paradox's terms for mods.

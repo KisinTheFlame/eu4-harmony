@@ -3,6 +3,7 @@ name = "eu4-harmony-remote"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "EU4 Harmony remote control: the requests and responses, their JSON form and a description of every capability"
 
 [lib]
