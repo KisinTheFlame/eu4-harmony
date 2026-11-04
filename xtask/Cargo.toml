@@ -3,6 +3,7 @@ name = "xtask"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "The repository's development commands, run as cargo xtask: installing and packing builds, measuring runs of the game, reading crash dumps"
 
 [dependencies]
