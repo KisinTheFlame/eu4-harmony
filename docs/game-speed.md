@@ -98,13 +98,13 @@ Each part sits behind an interface no larger than what its callers need; what it
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and both clippy runs pass, and so do the offline checks against the game's files (`eu4.exe`, and `pops_api.dll` for S1);
-- the gain was measured with `tools/profile.py` and `tools/perf-run.ps1`, before and after, and recorded in [performance.md](performance.md), with no threshold to meet;
+- the gain was measured with `cargo xtask profile` and `cargo xtask perf-run`, before and after, and recorded in [performance.md](performance.md), with no threshold to meet;
 - what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md), and its research note says what the changed code writes;
 - a change players see is in README.md and README.zh-CN.md.
 
 ### S0 The sampler
 
-Built: [`tools/profile.py`](../tools/profile.py) samples the main thread's call stack from outside the process, with Windows' own dbghelp, at a steady rate, and writes a report of the shares and flame graph stacks ([tools/README.md](../tools/README.md)). It needs no developer build and measures vanilla too.
+Built: `cargo xtask profile` ([xtask/src/profile.rs](../xtask/src/profile.rs), first written as `tools/profile.py`) samples the main thread's call stack from outside the process, with Windows' own dbghelp, at a steady rate, and writes a report of the shares and flame graph stacks ([dev-tools.md](dev-tools.md)). It needs no developer build and measures vanilla too.
 
 ### S1 POPS without sleeping
 

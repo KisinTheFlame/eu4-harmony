@@ -1,5 +1,5 @@
 # The options of a developer build's tools (core/src/dev.rs). Copy this file
-# to dev.toml at the top of the repository; dev-install.ps1 puts it in the
+# to dev.toml at the top of the repository; cargo xtask install puts it in the
 # game folder's eu4-harmony\ next to the core. A section left out takes the
 # defaults shown here, and a tool not built in leaves its section unused.
 

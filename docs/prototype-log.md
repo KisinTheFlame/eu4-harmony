@@ -1392,6 +1392,21 @@ M4 of [leak-finding.md](leak-finding.md): the developer build with the census (`
 - **Not verified**: a write found in the running game, which only the unit test makes; reads of a block kept that do not fault, which the pattern does not show; what the GUI's sweep frees of the windows the repairs kill (the map modes' window, the bar of the units selected), which is not kept.
 - **Cleanup**: the game was closed by the script. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The run's report was deleted.
 
+## 2026-11-04 Development commands (tested by me)
+
+The commands of [dev-commands.md](dev-commands.md), which replace the scripts of `tools/`, each tried once in one claim of the game, which backed up and restored the player's files; the framework files in the game folder copied aside first. With `EU4_GAME_DIR` unset throughout.
+
+- **`cargo xtask game-dir`** printed the game folder from the Steam library, `E:\SteamLibrary\…`, and every command below found the game the same way.
+- **`cargo xtask install`**: installed the last build and the repository's `dev.toml`; with a `version.dll` not ours in the game folder it moved that one to `eu4-harmony\backup\`, and `--uninstall` put it back; a `dev.toml` installed before was removed when the repository had none.
+- **`cargo xtask release`** built only the player's packages and wrote `target\eu4-harmony\` and the zip; the zip's files were the folder's, byte for byte.
+- **`cargo xtask disasm`** and **`offline-check`**: a function, `bytes:` and `args:` read as before; the offline checks passed.
+- **`eu4-harmony backup`** wrote a backup in the layout of `player-state.ps1`, and refused a folder that exists and a running game. **`eu4-harmony restore`** of a backup the old script had made listed what the run changed (the saves the leak run rewrote and added, the settings, the login cache, the framework's logs), put every file back and found it as the backup had it; of its own backup, taken later, it found no change and removed the backup.
+- **`cargo xtask leak-run`** on a developer build with `dev-memory`: two rounds of 6 days, 46 s each, every answer right; the report's tables as the script wrote them. `--from-report` wrote report.md again from report.json with no game.
+- **`cargo xtask crash-dump`** on a minidump of the running game: `lmvm eu4_harmony_core` and `kn 8` in 1 s, the core's frames named from this checkout's release build (`Observer<19,0,1>::call+0x87`).
+- **`cargo xtask perf-run`** on the player build: `--reference` with the main menu showing, then `--name menu --menu-only`: the main menu recognized after 44 s, its memory and CPU written to `menu.json`.
+- **Not verified**: a whole `perf-run`, with a new game as Ming, and its `--intro-reference`; `crash-dump` on the dump of a crash; `leak-run` with the heap census, `--watch` and `--quarantine`; `cargo xtask profile`, ported from `tools/profile.py` after these runs, never run in the game, only its parts and tie order by unit tests; the game-lock skill running `eu4-harmony backup` and `restore`, which it does once the main checkout no longer has `tools/player-state.ps1` (this run's claim and release went through the script).
+- **Cleanup**: the game was closed by ending its process. The framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files and found every file as the backup had it. The runs' reports, the dump and the release's output were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

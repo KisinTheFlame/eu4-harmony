@@ -5,3 +5,7 @@ target = "x86_64-pc-windows-msvc"
 # Both DLLs are loaded into the game process; a static CRT keeps them free of
 # vcruntime/ucrt dependencies that would otherwise be resolved under the loader lock.
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[alias]
+# The repository's development commands (xtask/): cargo xtask --help lists them.
+xtask = "run --release --quiet --package xtask --"

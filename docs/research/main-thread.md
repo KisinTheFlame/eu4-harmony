@@ -1,6 +1,6 @@
 # Where the main thread's time goes (for making the game faster)
 
-Baseline 1.37.5. All addresses are RVAs, into `eu4.exe` unless another module is named. Measured on 2026-11-04 with [`tools/profile.py`](../../tools/profile.py), which samples the main thread's call stack from outside the process, in the running game with the framework installed (the player build that was in the game folder, built on 2026-11-04 at 01:31); the runs are in [prototype-log.md](../prototype-log.md). What is marked _inferred_ was concluded from the shape of the code or from where it lies ([architecture.md](architecture.md), "Where the code lies"), not read through. The frame, the day and the threads are described in [architecture.md](architecture.md); this note adds what they cost.
+Baseline 1.37.5. All addresses are RVAs, into `eu4.exe` unless another module is named. Measured on 2026-11-04 with `tools/profile.py`, now `cargo xtask profile` ([dev-tools.md](../dev-tools.md)), which samples the main thread's call stack from outside the process, in the running game with the framework installed (the player build that was in the game folder, built on 2026-11-04 at 01:31); the runs are in [prototype-log.md](../prototype-log.md). What is marked _inferred_ was concluded from the shape of the code or from where it lies ([architecture.md](architecture.md), "Where the code lies"), not read through. The frame, the day and the threads are described in [architecture.md](architecture.md); this note adds what they cost.
 
 ## Setup
 

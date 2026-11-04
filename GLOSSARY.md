@@ -82,7 +82,7 @@ A block of the game's heap still live two generations after its own: it outlived
 _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, session after session)
 
 **Leak run**:
-Rounds of sessions that `tools/leak-run.ps1` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
+Rounds of sessions that `cargo xtask leak-run` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
 
 **Quarantine**:
 A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/leak-finding.md).

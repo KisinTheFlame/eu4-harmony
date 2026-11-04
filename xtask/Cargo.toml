@@ -1,0 +1,35 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The repository's development commands, run as cargo xtask: installing and packing builds, measuring runs of the game, reading crash dumps"
+
+[dependencies]
+eu4-harmony-manifest = { path = "../manifest" }
+serde_json = { workspace = true }
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    # A PNG frame's options.
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_Debug_Extensions",
+] }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    # dbghelp, for walking the main thread's stack.
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[lints]
+workspace = true

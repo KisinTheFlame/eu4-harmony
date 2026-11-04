@@ -8,7 +8,7 @@
 
 ## 安装框架（玩家）
 
-框架以一个文件夹（或它的 zip）提供，里面是 `version.dll` 和 `eu4-harmony\` 文件夹，后者装着核心（`eu4_harmony_core.dll`）和命令行工具（`eu4-harmony.exe`）；`tools\release.ps1` 从 release 构建生成这两者。把 `version.dll` 和 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `version.dll` 时，先把它移进 `eu4-harmony\backup\`，框架不会加载它。框架自己负责显示中文和其他文字（[ADR built-in-unicode-module](docs/adr/built-in-unicode-module.md)）。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。为框架早先版本做的、扩展是 DLL 的 Mod 不再加载，它们的扩展需要用 Lua 重写。
+框架以一个文件夹（或它的 zip）提供，里面是 `version.dll` 和 `eu4-harmony\` 文件夹，后者装着核心（`eu4_harmony_core.dll`）和命令行工具（`eu4-harmony.exe`）；`cargo xtask release` 从 release 构建生成这两者。把 `version.dll` 和 `eu4-harmony\` 文件夹放进游戏根目录。根目录原本已有 `version.dll` 时，先把它移进 `eu4-harmony\backup\`，框架不会加载它。框架自己负责显示中文和其他文字（[ADR built-in-unicode-module](docs/adr/built-in-unicode-module.md)）。之后照常从 Paradox 启动器启动，在合集里启用基于框架的 Mod。为框架早先版本做的、扩展是 DLL 的 Mod 不再加载，它们的扩展需要用 Lua 重写。
 
 卸载：删掉根目录的 `version.dll`；有备份的 `version.dll` 时，把它从 `eu4-harmony\backup\` 移回根目录；最后删掉 `eu4-harmony\`。
 
@@ -114,8 +114,8 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 | `manifest/` | 模组的 `eu4-harmony/manifest.toml`、目录约定下其他文件的位置，以及描述文件的各行，核心和命令行工具共用 |
 | `remote/` | 能力目录：远程控制的请求与响应、它们的 JSON 形式和每项能力的说明（含扩展是否也有），核心和命令行工具共用 |
 | `checks/` | 框架自己对能力调用做的检查，以及每种拒绝的状态和措辞，核心和 `remote/` 共用；以及游戏的历法 |
-| `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组 |
-| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有测试运行前后备份与还原玩家文件、测量框架开销、反汇编、崩溃转储和调用追踪的工具，见 [tools/README.md](tools/README.md) |
+| `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组。它的 `backup` 和 `restore` 在会载入存档的测试运行前后备份、还原玩家文件 |
+| `xtask/` | 仓库自己的开发命令，用 `cargo xtask` 运行：`install` 把构建好的代理、核心和命令行工具装进游戏目录（`--uninstall` 卸载），`release` 把它们打包给玩家，另有测量框架开销、反汇编、离线检查和崩溃转储；它们和核心的开发特性一起见 [docs/dev-tools.md](docs/dev-tools.md) |
 | `docs/` | 方案、ADR、调研、实测记录和[框架对游戏性能的影响](docs/performance.md) |
 
 代码、注释和文档都用英文。本文件是 [README.md](README.md) 的中文译本，其余文档只有英文版。在本仓库工作的约定（对人和编程代理都适用）见 [AGENTS.md](AGENTS.md)。
