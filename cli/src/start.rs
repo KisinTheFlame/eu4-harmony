@@ -6,7 +6,6 @@ use crate::pipe;
 use crate::Result;
 use std::{
     path::Path,
-    process::Command,
     time::{Duration, Instant},
 };
 
@@ -27,10 +26,13 @@ pub fn switches(hidden: bool, sound: bool) -> Vec<&'static str> {
     words
 }
 
-/// The framework's proxy is in the game folder: without it nothing would
-/// keep a hidden start hidden.
-fn framework_installed(game_dir: &Path) -> bool {
-    game_dir.join("version.dll").is_file() && game_dir.join("eu4-harmony").join("eu4_harmony_core.dll").is_file()
+/// The framework in the game folder has the hidden start: its proxy is there
+/// and its core knows the switch. Without it nothing would keep the game
+/// hidden, and a core from before the hidden start passes the switch over.
+fn hidden_start_installed(game_dir: &Path) -> bool {
+    const SWITCH: &[u8] = b"-harmony_hidden";
+    let core = std::fs::read(game_dir.join("eu4-harmony").join("eu4_harmony_core.dll")).unwrap_or_default();
+    game_dir.join("version.dll").is_file() && core.windows(SWITCH.len()).any(|w| w == SWITCH)
 }
 
 /// Starts `eu4.exe` from `game_dir` and waits up to `wait` for its main
@@ -38,15 +40,17 @@ fn framework_installed(game_dir: &Path) -> bool {
 /// says why when the game ends first.
 pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, wait: Duration) -> Result<u32> {
     crate::backup::game_not_running()?;
-    if hidden && !framework_installed(game_dir) {
-        return Err(format!("EU4 Harmony is not installed in {}; a hidden start needs it", game_dir.display()));
+    if hidden && !hidden_start_installed(game_dir) {
+        return Err(format!(
+            "the framework in {} has no hidden start: install a build that has it (cargo xtask install), or start the game shown",
+            game_dir.display()
+        ));
     }
     let exe = game_dir.join("eu4.exe");
     let started = Instant::now();
     let since = std::time::SystemTime::now();
-    let mut game =
-        Command::new(&exe).args(switches(hidden, sound)).current_dir(game_dir).spawn().map_err(|e| format!("cannot start {}: {e}", exe.display()))?;
-    let id = game.id();
+    let game = Game::spawn(&exe, &switches(hidden, sound), game_dir)?;
+    let id = game.id;
     println!(
         "started eu4.exe (process {id}){}",
         if hidden {
@@ -60,9 +64,9 @@ pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, wait: Durat
         }
     );
     loop {
-        if let Some(status) = game.try_wait().map_err(|e| e.to_string())? {
+        if let Some(code) = game.exit_code() {
             let why = why_it_ended(log, since).unwrap_or_else(|| format!("the framework's log of this start ({}) says nothing of it", log.display()));
-            return Err(format!("the game ended ({status}) before its main menu: {why}"));
+            return Err(format!("the game ended (exit code {code}) before its main menu: {why}"));
         }
         if at_main_menu() {
             println!("at the main menu after {:.0} s", started.elapsed().as_secs_f64());
@@ -75,6 +79,50 @@ pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, wait: Durat
     }
 }
 
+/// The game's process, started with none of this command's handles: one
+/// that kept this command's output, a pipe, would keep whoever reads it
+/// waiting until the game ends, and every inheritable handle is passed on
+/// unless none is.
+struct Game {
+    process: windows_sys::Win32::Foundation::HANDLE,
+    id: u32,
+}
+
+impl Game {
+    fn spawn(exe: &Path, switches: &[&str], dir: &Path) -> Result<Self> {
+        use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
+        let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+        let mut line = wide(&std::iter::once(format!("\"{}\"", exe.display())).chain(switches.iter().map(|s| s.to_string())).collect::<Vec<_>>().join(" "));
+        let (exe_w, dir_w) = (wide(&exe.display().to_string()), wide(&dir.display().to_string()));
+        let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
+        startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+        let made = unsafe {
+            CreateProcessW(exe_w.as_ptr(), line.as_mut_ptr(), std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null(), dir_w.as_ptr(), &startup, &mut info)
+        };
+        if made == 0 {
+            return Err(format!("cannot start {}: {}", exe.display(), std::io::Error::last_os_error()));
+        }
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(info.hThread) };
+        Ok(Self { process: info.hProcess, id: info.dwProcessId })
+    }
+
+    /// Its exit code, once it has ended.
+    fn exit_code(&self) -> Option<u32> {
+        use windows_sys::Win32::{
+            Foundation::WAIT_OBJECT_0,
+            System::Threading::{GetExitCodeProcess, WaitForSingleObject},
+        };
+        let mut code = 0;
+        (unsafe { WaitForSingleObject(self.process, 0) } == WAIT_OBJECT_0 && unsafe { GetExitCodeProcess(self.process, &mut code) } != 0).then_some(code)
+    }
+}
+
+impl Drop for Game {
+    fn drop(&mut self) {
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.process) };
+    }
+}
 /// Whether remote control answers that the main menu is up.
 fn at_main_menu() -> bool {
     let deadline = Instant::now() + ASK_EVERY;
