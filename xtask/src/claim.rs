@@ -69,7 +69,12 @@ pub fn owner(args: &Args) -> String {
     if args.flag("player") {
         return "player".into();
     }
-    args.value("owner").map(String::from).unwrap_or_else(|| repo().file_name().map_or("checkout".into(), |n| n.to_string_lossy().into_owned()))
+    owner_of(args.value("owner"))
+}
+
+/// The owner `given`, else the leaf name of this checkout's folder.
+pub fn owner_of(given: Option<&str>) -> String {
+    given.map(String::from).unwrap_or_else(|| repo().file_name().map_or("checkout".into(), |n| n.to_string_lossy().into_owned()))
 }
 
 /// The record and the queue, under the mutex that guards them.
@@ -203,6 +208,12 @@ pub enum Claimed {
     Busy,
 }
 
+/// Claims the game for `owner` with the usual lease, waiting in the queue
+/// with `wait`, as `cargo xtask game claim` does.
+pub fn take(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Claimed> {
+    claim_as(&Asking { owner: owner.into(), player: false, now: false, wait }, purpose, LEASE_MINUTES, game_dir)
+}
+
 fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Result<Claimed> {
     let mut said = String::new();
     let (gone, took) = loop {
@@ -250,7 +261,7 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
         if took {
             println!("the player takes the game from {}: ending the game and releasing its claim", holder.describe(now()));
             game::kill();
-            wait_closed()?;
+            game::wait_closed()?;
             put_back(&holder, game_dir, false)?;
             locked(|s| {
                 if s.held.as_ref().is_some_and(|h| h.owner == holder.owner) {
@@ -328,17 +339,6 @@ fn forget_old(claims: &Path) {
             let _ = fs::remove_dir_all(&path);
         }
     }
-}
-
-/// Waits for `eu4.exe` to end, a minute at most.
-fn wait_closed() -> Result<()> {
-    for _ in 0..120 {
-        if !game::running() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    Err("eu4.exe did not end".into())
 }
 
 /// Puts back what a claim's run changed: copies the logs and the run's crash
@@ -447,7 +447,7 @@ pub fn give_back(owner: &str, game_dir: &Path, keep_crashes: bool) -> Result<()>
         }
         println!("ending the game");
         game::kill();
-        wait_closed()?;
+        game::wait_closed()?;
     }
     let crashed = put_back(&held, game_dir, keep_crashes)?;
     locked(|s| {
@@ -525,6 +525,34 @@ fn watch(args: &Args) -> Result<i32> {
         }
         std::thread::sleep(WATCH_EVERY);
     }
+}
+
+/// What one look at a claim found, as `watch` looks every few seconds.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Look {
+    /// Held, with this many seconds of the lease left.
+    Held(u64),
+    /// The player takes the game.
+    Taken,
+    /// The claim is not this owner's any more.
+    Gone,
+}
+
+/// One look at `owner`'s claim, keeping the lease going while the game runs.
+pub fn look(owner: &str) -> Result<Look> {
+    let running = game::running();
+    let held = locked(|s| {
+        let h = s.held.as_mut().filter(|h| h.owner == owner)?;
+        if running {
+            h.renewed = now();
+        }
+        Some(h.clone())
+    })?;
+    Ok(match held {
+        None => Look::Gone,
+        Some(h) if h.taken.is_some() => Look::Taken,
+        Some(h) => Look::Held(h.lease_ends().saturating_sub(now())),
+    })
 }
 
 /// Lets cargo build xtask again while `watch` runs, which is for the whole
@@ -613,7 +641,7 @@ pub fn start_game_as(owner: &str, game_dir: &Path, sound: bool, wait: Duration) 
     if started.is_err() && game::running() {
         println!("ending the game, which did not reach its main menu");
         game::kill();
-        wait_closed()?;
+        game::wait_closed()?;
     }
     started.map(|_| began.elapsed().as_secs_f64())
 }
@@ -625,7 +653,7 @@ fn start(args: &Args) -> Result<f64> {
 fn stop(args: &Args) -> Result<()> {
     needs_claim(args)?;
     game::kill();
-    wait_closed()?;
+    game::wait_closed()?;
     println!("the game is closed");
     Ok(())
 }

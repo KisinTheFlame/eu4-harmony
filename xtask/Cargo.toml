@@ -25,6 +25,8 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Kernel",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_ProcessStatus",
+    # Steam's process and user, before a start.
+    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }

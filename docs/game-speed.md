@@ -98,7 +98,7 @@ Each part sits behind an interface no larger than what its callers need; what it
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and both clippy runs pass, and so do the offline checks against the game's files (`eu4.exe`, and `pops_api.dll` for S1);
-- the gain was measured with `cargo xtask profile` and `cargo xtask perf-run`, before and after, and recorded in [performance.md](performance.md), with no threshold to meet;
+- the gain was measured with `cargo xtask profile` and `cargo xtask scenario perf`, before and after, and recorded in [performance.md](performance.md), with no threshold to meet;
 - what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md), and its research note says what the changed code writes;
 - a change players see is in README.md and README.zh-CN.md.
 

@@ -55,7 +55,7 @@ Only in a developer build with the memory account do these capabilities exist; a
 
 ### A leak run
 
-`cargo xtask leak-run` plays rounds on a developer build installed with the memory account, and with the census if it is built in. A round is:
+The scenarios `leak` and `growth` ([scenarios.md](scenarios.md)) play rounds, `leak` on the build with the heap census and `growth` on the build with the memory account only. A round is:
 
 1. load a save from the main menu, and let time run;
 2. load another save from the game, and let time run;
@@ -63,7 +63,7 @@ Only in a developer build with the memory account do these capabilities exist; a
 4. start a new game, and let time run;
 5. return to the main menu.
 
-The saves are chosen with `-Saves`, or else the two newest that `menu.saves` lists. The country of the new game is chosen with `-Country`, FRA by default.
+The saves and the country of the new game are the scenarios' parameters, named in their code: England-1 and 英格兰1444_11_11, and FRA; `--leak.first_save` and the like change them for a run.
 
 After every round the run asks `memory`, and with the census `memory.leftovers`, and prints one line: private bytes, the memory account's parts, the handles. At the end it writes `report.json`, with every answer, and `report.md`, with:
 
@@ -119,7 +119,7 @@ The walk holds the heap, and so the game, for seconds, and must not allocate fro
 - `remote` declares the `memory` group behind its `dev-memory` feature, which the core's `dev-memory` turns on, and `dev-heap-census` with it. A workspace build of the developer build gives the command line tool the same group.
 - `core/src/memory_account.rs` answers `memory` from Windows' figures, and hands the group to the census when it is built in.
 - `core/src/census.rs` keeps the blocks and answers the group. Building the answer from the census's figures (the leftovers by generation, the trend, the average) is a function of its own, tested without a game. Its modules, each tested without a game: `pointers` (the rule for a pointer), `holders` (M2's scan) and `watch` (M3's owners).
-- `cargo xtask leak-run` (`xtask/src/leak_run.rs`) uses only remote control, as `perf-run` does.
+- `leak` and `growth` (`xtask/src/scenario/leak.rs`) use only remote control, as every scenario does.
 
 ## Parts
 
