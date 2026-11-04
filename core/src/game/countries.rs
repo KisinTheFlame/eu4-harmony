@@ -259,7 +259,7 @@ fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::fake::game_tag;
+    use crate::catalogue::fake::game_tag;
 
     /// A war of the game's class with these sides; its name is empty.
     fn war_object(m: &Memory, attackers: &[Tag], defenders: &[Tag]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {

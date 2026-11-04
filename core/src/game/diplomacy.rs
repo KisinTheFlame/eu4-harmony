@@ -1060,7 +1060,7 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::fake::game_tag;
+    use crate::catalogue::fake::game_tag;
 
     /// The declare war window as a test sets it up: the allies it lists, in
     /// its order, whether each joins anyway and whether its check lets the

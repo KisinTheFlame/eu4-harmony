@@ -20,7 +20,7 @@ pub const PLENTY: Duration = Duration::from_secs(10);
 pub fn quiet(_: &str) {}
 
 /// What came back for a reply, in JSON; null when nothing came yet.
-pub fn answer(reply: &super::Reply) -> Value {
+pub fn answer(reply: &crate::remote::Reply) -> Value {
     reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
 }
 

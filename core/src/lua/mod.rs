@@ -3,20 +3,20 @@
 //! on the live host, the running game, and calls its handlers at safe points
 //! (`crate::safe_point`).
 //!
-//! The live host reaches the capability catalogue through remote control's
-//! groups, called as the extension (`crate::remote::run_for`), so both sides
-//! of the catalogue share one implementation (ADR one-capability-catalogue);
+//! The live host reaches the capability catalogue as the extension
+//! (`crate::catalogue::run_for`), as remote control's engine does as the
+//! player, so both share one implementation (ADR one-capability-catalogue);
 //! interface elements, the map, texts and the player language through the
 //! core's own modules; the network through [`http`]. Each extension's log is
 //! `eu4-harmony/logs/<id>.log`, the last start's kept beside it.
 mod http;
 
 use crate::{
+    catalogue::{self, Wait},
     game::{self, events, interface, map_coloring, Caller},
     map,
     mods::DiscoveredMod,
     notice::Message,
-    remote::{self, Wait},
     saves, ui,
 };
 use eu4_harmony_lua::{fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending};
@@ -87,7 +87,7 @@ struct Later(Caller, Box<dyn Wait>);
 
 impl Pending<Answered> for Later {
     fn poll(&mut self) -> Option<Answered> {
-        remote::poll_for(self.0, self.1.as_mut()).map(lua_form)
+        catalogue::poll_for(self.0, self.1.as_mut()).map(lua_form)
     }
 }
 
@@ -100,9 +100,9 @@ fn lua_form(response: Response) -> Answered {
 impl Host for Live {
     fn run(&self, extension: usize, request: Request) -> Called {
         let caller = Caller::Extension(extension);
-        match remote::run_for(caller, request) {
-            remote::Outcome::Done(response) => Called::Done(lua_form(response)),
-            remote::Outcome::Later(wait) => Called::Later(Box::new(Later(caller, wait))),
+        match catalogue::run_for(caller, request) {
+            catalogue::Outcome::Done(response) => Called::Done(lua_form(response)),
+            catalogue::Outcome::Later(wait) => Called::Later(Box::new(Later(caller, wait))),
         }
     }
 

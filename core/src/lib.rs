@@ -15,6 +15,7 @@ pub mod achievements;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
 pub mod baseline;
+pub mod catalogue;
 #[cfg(feature = "dev-heap-census")]
 pub mod census;
 #[cfg(feature = "dev-command-log")]

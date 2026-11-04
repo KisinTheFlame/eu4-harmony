@@ -1,7 +1,11 @@
 //! The engine driven with typed requests, a fake game behind the capability
 //! layer's traits.
-use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
+use crate::catalogue::{
+    dispatch,
+    fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY},
+    process, Outcome,
+};
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
     desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, input::Button, input::Direction,

@@ -1,6 +1,6 @@
 //! Input at screen positions. An input is answered once it is taken; the
 //! engine runs a request that comes after it once the game has had it
-//! ([`super::Engine::run`]).
+//! (`crate::remote::Engine::run`).
 use crate::game::{
     self,
     input::{Action, Taken},
@@ -94,9 +94,10 @@ pub fn run(request: InputRequest, game: &mut (impl Layer + ?Sized)) -> (Result<I
 mod tests {
     use super::super::{
         fake::{answer, ok, quiet, Fake, PLENTY},
-        Engine, Place,
+        Place,
     };
     use crate::game::input::Action;
+    use crate::remote::Engine;
     use eu4_harmony_remote::{input::Button, request_from_json, session::SessionRequest, Request};
     use serde_json::{json, Value};
 
