@@ -3,13 +3,13 @@
 //! `dev.toml`, its sources. None of them is among the player's files, which
 //! `release` packs; what is useful without the repository is a command of
 //! the command line tool, `cli/`.
+mod claim;
 mod crash_dump;
 mod files;
 mod game;
 mod leak_run;
 mod perf_run;
 mod profile;
-mod screen;
 
 use std::{
     collections::HashMap,
@@ -26,8 +26,27 @@ usage:
       Prints the game folder: EU4_GAME_DIR when it is set, or else the Steam
       library that holds Europa Universalis IV. Every command that needs the
       game takes it as its --game-dir by default.
-  cargo xtask install [--uninstall] [--game-dir <dir>]
-      Copies the player's files as last built, a player build or a developer
+  cargo xtask game claim --purpose <text> [--wait] [--owner <name>]
+  cargo xtask game claim --player [--now]
+  cargo xtask game start [--sound] [--timeout <seconds>]
+  cargo xtask game stop | release [--keep-crashes] | renew | watch [--warn 5] | status
+      The claim: one holder of this computer's game at a time
+      (docs/game-testing.md). claim backs up the player's files and copies
+      the game folder's framework files and dev.toml into the claim's folder,
+      which it prints; busy, it exits with 2, or with --wait joins the queue
+      and returns once it holds the game. start starts the game hidden and
+      waits for its main menu, ending a start that does not get there; stop
+      ends it. release ends the game, keeps the logs and the run's crash
+      folders in the claim's kept\\, puts back the player's files and the
+      game folder's, and frees the game. watch, run in the background by the
+      holder, exits with 3 when the lease (30 minutes, kept going while the
+      game runs) is near its end, with 4 when the player takes the game, and
+      with 0 when the claim is gone. The player's claim (--player) keeps
+      their files as they play and goes first in the queue; with --now it
+      takes the game from its holder after two minutes. The owner is this
+      checkout's folder's name unless --owner names another.
+  cargo xtask install [--uninstall] [--game-dir <dir>] [--owner <name>]
+      Within the claim, copies the player's files as last built, a player build or a developer
       build, into the game folder: version.dll in its root, the core and
       eu4-harmony.exe in eu4-harmony\\. A version.dll there that is not ours
       is moved to eu4-harmony\\backup\\ and never loaded; the repository's
@@ -47,20 +66,15 @@ usage:
       checks that each observer forwards at least the arguments its function
       reads: the core's ignored tests, with EU4_GAME_DIR set.
   cargo xtask perf-run --out <dir> --name <run> [--menu-only] [--game-dir <dir>]
-  cargo xtask perf-run --out <dir> --reference | --intro-reference
-      Measures one run of the game for docs/performance.md: launch to the
-      main menu, memory, and unless --menu-only a new game as Ming, CPU
-      paused and at speed 5, and the dates before and after. It measures
-      vanilla too, so it clicks and presses keys itself, at places of a
-      3840x2160 screen at the game's default interface scale: keep the game
-      in front and the machine otherwise idle. It recognizes the main menu
-      and the start-of-game introduction by images taken on the machine once,
-      with that screen showing: --reference and --intro-reference.
+      Within the claim, measures one run of the game for docs/performance.md:
+      start to the main menu, memory, and unless --menu-only a new game as
+      Ming, CPU paused and at speed 5, and the dates before and after. It
+      starts the game hidden and goes through remote control only.
   cargo xtask leak-run --out <dir> [<save> <save>] [--rounds 10] [--country FRA]
                        [--days 30] [--sites 40] [--watch <n>] [--watch-after 3]
                        [--quarantine] [--keep-game] [--game-dir <dir>]
   cargo xtask leak-run --out <dir> --from-report
-      Plays rounds of sessions on a developer build with the memory account,
+      Within the claim, plays rounds of sessions on a developer build with the memory account,
       or the heap census, through remote control, and writes report.json and
       report.md into <dir>: what each round kept and where the game's memory
       goes (docs/leak-finding.md). The saves are named as menu.saves lists
@@ -174,7 +188,11 @@ fn main() {
     let rest = raw.get(1..).unwrap_or_default();
     let result = match raw.first().map(String::as_str) {
         Some("game-dir") => game::dir().map(|dir| println!("{}", dir.display())),
-        Some("install") => Args::parse(rest, &["uninstall"], &["game-dir"]).and_then(|a| files::install(&a)),
+        Some("install") => Args::parse(rest, &["uninstall"], &["game-dir", "owner"]).and_then(|a| files::install(&a)),
+        Some("game") => match claim::run(rest) {
+            Ok(code) => std::process::exit(code),
+            Err(e) => Err(e),
+        },
         Some("release") => Args::parse(rest, &[], &["out"]).and_then(|a| files::release(&a)),
         Some("disasm") => with_game(
             &["run", "--release", "--quiet", "-p", "eu4-harmony-core", "--features", "analysis", "--example", "disasm", "--"],
@@ -182,11 +200,13 @@ fn main() {
             "the disassembler",
         ),
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks"),
-        Some("perf-run") => Args::parse(rest, &["reference", "intro-reference", "menu-only"], &["out", "name", "game-dir"]).and_then(|a| perf_run::run(&a)),
-        Some("leak-run") => {
-            Args::parse(rest, &["keep-game", "from-report", "quarantine"], &["out", "rounds", "country", "days", "sites", "watch", "watch-after", "game-dir"])
-                .and_then(|a| leak_run::run(&a))
-        }
+        Some("perf-run") => Args::parse(rest, &["menu-only"], &["out", "name", "game-dir", "owner", "timeout"]).and_then(|a| perf_run::run(&a)),
+        Some("leak-run") => Args::parse(
+            rest,
+            &["keep-game", "from-report", "quarantine"],
+            &["out", "rounds", "country", "days", "sites", "watch", "watch-after", "game-dir", "owner", "timeout"],
+        )
+        .and_then(|a| leak_run::run(&a)),
         Some("profile") => Args::parse(rest, &["tree"], &["seconds", "hz", "root", "depth", "min"]).and_then(|a| profile::run(&a)),
         // Debugger commands are words of their own, which may start with --.
         Some("crash-dump") => crash_dump::run(rest),

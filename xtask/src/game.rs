@@ -53,10 +53,41 @@ pub fn not_running() -> Result<()> {
     Ok(())
 }
 
-/// Starts `eu4.exe` from the game folder, as the player's shortcut does.
-pub fn start(game_dir: &Path) -> Result<()> {
-    let exe = game_dir.join("eu4.exe");
-    std::process::Command::new(&exe).current_dir(game_dir).spawn().map(drop).map_err(|e| format!("cannot start {}: {e}", exe.display()))
+/// The installed command line tool, which asks the game through remote
+/// control.
+pub struct Client {
+    cli: PathBuf,
+}
+
+impl Client {
+    /// The tool installed in the game folder `game_dir`.
+    pub fn installed(game_dir: &Path) -> Result<Self> {
+        let cli = game_dir.join("eu4-harmony").join("eu4-harmony.exe");
+        if !cli.is_file() {
+            return Err(format!("no command line tool at {}: install a build with cargo xtask install", cli.display()));
+        }
+        Ok(Self { cli })
+    }
+
+    /// The answer, or what the game said instead.
+    pub fn ask(&self, words: &[&str]) -> Result<serde_json::Value> {
+        self.ask_within(words, 600)
+    }
+
+    pub fn ask_within(&self, words: &[&str], timeout: u32) -> Result<serde_json::Value> {
+        let output = std::process::Command::new(&self.cli)
+            .arg("game")
+            .args(words)
+            .args(["--compact", "--timeout", &timeout.to_string()])
+            .output()
+            .map_err(|e| format!("cannot run {}: {e}", self.cli.display()))?;
+        let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        let text = text.trim();
+        if !output.status.success() {
+            return Err(format!("game {}: {text}", words.join(" ")));
+        }
+        serde_json::from_str(text).map_err(|e| format!("game {}: {e}: {text}", words.join(" ")))
+    }
 }
 
 /// Ends every running `eu4.exe` at once.

@@ -1,138 +1,69 @@
 //! `cargo xtask perf-run`: measures one run of the game, for comparing
-//! setups (docs/performance.md).
+//! setups of the framework (docs/performance.md).
 //!
-//! It starts eu4.exe directly and records, into `<out>\<name>.json`:
-//! - the seconds from launch to the main menu, which it recognizes on screen;
+//! Within the claim, it starts the game hidden (`cargo xtask game start`)
+//! and records, into `<out>\<name>.json`:
+//! - the seconds from the start to the main menu;
 //! - memory 20 s later (working set and private bytes);
-//! - unless `--menu-only`: a new game as Ming from the 1444 East Asia
-//!   bookmark, the seconds it takes to load, CPU while paused for 30 s and
-//!   while running at speed 5 for 120 s (in cores: CPU seconds a second),
-//!   memory, and crops of the date before and after the run
-//!   (`<name>-date0.png`, `<name>-date1.png`).
+//! - unless `--menu-only`: a new game as Ming, the seconds `menu.start`
+//!   takes, CPU while paused for 30 s and while running at speed 5 for
+//!   120 s (in cores: CPU seconds a second), memory, and the dates before
+//!   and after the run.
 //!
 //! With `--menu-only` it records CPU at the idle main menu for 30 s instead.
-//! The game is then closed. Back up the player's files first: the run
-//! autosaves.
-//!
-//! Clicks are physical pixels of a 3840x2160 screen at the game's default
-//! interface scale. The run recognizes two screens by comparing a region with
-//! a reference taken on this machine, once: the main menu, with
-//! `--reference` while it shows, and the start-of-game introduction, with
-//! `--intro-reference` while it is open. It measures vanilla too, where no
-//! framework runs and remote control cannot click or press keys, so it sends
-//! the game its clicks and keys itself, as a mouse and keyboard would: keep
-//! the game window in front, and the machine otherwise idle, while it runs.
-use crate::{
-    game,
-    screen::{self, Area},
-    Args, Result,
-};
+//! The game is then closed. It goes through remote control only, so the
+//! installed build must be the framework's.
+use crate::{claim, game, Args, Result};
 use serde_json::{json, Value};
-use std::{path::Path, time::Instant};
-
-/// The "IV" of the logo, top left of the main menu: a texture, the same in
-/// every setup.
-const MENU_AREA: Area = (690, 60, 240, 200);
-/// The bottom left ornament of the start-of-game introduction window.
-const INTRO_AREA: Area = (1195, 1500, 100, 80);
-/// The date at the top right.
-const DATE_AREA: Area = (3380, 0, 460, 90);
+use std::{path::Path, time::Duration, time::Instant};
 
 pub fn run(args: &Args) -> Result<()> {
-    screen::physical_pixels();
-    let out = Path::new(args.value("out").ok_or("--out names the folder for results and references")?);
+    claim::needs_claim(args)?;
+    let out = Path::new(args.value("out").ok_or("--out names the folder for the results")?);
     std::fs::create_dir_all(out).map_err(|e| format!("cannot make {}: {e}", out.display()))?;
-    let menu_reference = out.join("menu-reference.bin");
-    let intro_reference = out.join("intro-corner.png");
-    if args.flag("reference") {
-        std::fs::write(&menu_reference, screen::sample_screen(MENU_AREA)?).map_err(|e| format!("cannot write {}: {e}", menu_reference.display()))?;
-        println!("saved {}", menu_reference.display());
-        return Ok(());
-    }
-    if args.flag("intro-reference") {
-        screen::save(INTRO_AREA, &intro_reference)?;
-        println!("saved {}", intro_reference.display());
-        return Ok(());
-    }
     let name = args.value("name").ok_or("--name names the run")?;
-    let menu = std::fs::read(&menu_reference).map_err(|e| format!("cannot read {} (take it with --reference): {e}", menu_reference.display()))?;
-    let game_dir = args.game_dir()?;
+    let remote = game::Client::installed(&args.game_dir()?)?;
+    game::not_running()?;
 
-    // A game closed a moment ago may take a few seconds to exit.
-    for _ in 0..30 {
-        if !game::running() {
-            break;
-        }
-        screen::pause(500);
-    }
-    if game::running() {
-        return Err("eu4 is running".into());
-    }
     let mut result = json!({ "name": name, "started": now() });
-    let launched = Instant::now();
-    game::start(&game_dir)?;
-    result["menu_seconds"] = rounded(wait_for(&menu, MENU_AREA, 300.0, launched)?, 1);
+    result["menu_seconds"] = rounded(claim::start_game(args, false)?, 1);
     let process = Process::find()?;
-    screen::pause(20_000);
+    pause(20);
     result["menu"] = process.sample()?.json();
     if args.flag("menu-only") {
         let a = process.sample()?;
-        screen::pause(30_000);
+        pause(30);
         let b = process.sample()?;
         result["menu_idle_cpu_share"] = rounded((b.cpu - a.cpu) / 30.0, 3);
         game::kill_process(process.id);
         return save(out, name, &result);
     }
 
-    let intro = screen::sample_file(&intro_reference).map_err(|e| format!("{e} (take it with --intro-reference)"))?;
-    // Single player, the 1444 East Asia bookmark, Ming, Start, normal mode.
-    screen::click(1815, 2025);
-    screen::pause(15_000);
-    screen::click(120, 300);
-    screen::pause(5_000);
-    screen::click(2550, 1200);
-    screen::pause(3_000);
-    screen::click(3645, 2109);
-    screen::pause(3_000);
-    screen::click(2064, 1347);
-    result["start_seconds"] = rounded(wait_for(&intro, INTRO_AREA, 120.0, Instant::now())?, 1);
-    screen::pause(2_000);
-    screen::click(1920, 1587);
-    screen::pause(10_000);
+    let starting = Instant::now();
+    remote.ask(&["menu.start", "MNG"])?;
+    result["start_seconds"] = rounded(starting.elapsed().as_secs_f64(), 1);
+    pause(10);
     let a = process.sample()?;
-    screen::pause(30_000);
+    pause(30);
     let b = process.sample()?;
     result["paused"] = json!({ "cpu_share": rounded((b.cpu - a.cpu) / 30.0, 3), "ws": b.ws, "priv": b.private });
-    screen::save(DATE_AREA, &out.join(format!("{name}-date0.png")))?;
-    // The date panel's + button, four times: speed 5.
-    for _ in 0..4 {
-        screen::click(3725, 40);
-    }
+    result["date0"] = remote.ask(&["time.get"])?["date"].clone();
+    remote.ask(&["time.set_speed", "5"])?;
     let a = process.sample()?;
-    screen::space();
+    remote.ask(&["time.resume"])?;
     let running = Instant::now();
-    screen::pause(120_000);
-    screen::space();
+    pause(120);
+    remote.ask(&["time.pause"])?;
     let ran = running.elapsed().as_secs_f64();
     let b = process.sample()?;
     result["running"] = json!({ "seconds": rounded(ran, 1), "cpu_share": rounded((b.cpu - a.cpu) / ran, 3), "ws": b.ws, "priv": b.private, "peak": b.peak });
-    screen::pause(1_000);
-    screen::save(DATE_AREA, &out.join(format!("{name}-date1.png")))?;
+    result["date1"] = remote.ask(&["time.get"])?["date"].clone();
     game::kill_process(process.id);
     save(out, name, &result)
 }
 
-/// The seconds since `since` until the region looks like `reference`,
-/// looked at every quarter of a second, at most `limit` seconds.
-fn wait_for(reference: &[u8], area: Area, limit: f64, since: Instant) -> Result<f64> {
-    let clock = Instant::now();
-    while clock.elapsed().as_secs_f64() < limit {
-        screen::pause(250);
-        if screen::difference(reference, &screen::sample_screen(area)?) < 12.0 {
-            return Ok(since.elapsed().as_secs_f64());
-        }
-    }
-    Err(format!("not seen within {limit} s"))
+fn pause(seconds: u64) {
+    std::thread::sleep(Duration::from_secs(seconds));
 }
 
 fn save(out: &Path, name: &str, result: &Value) -> Result<()> {
@@ -148,7 +79,7 @@ fn rounded(value: f64, decimals: i32) -> Value {
     json!((value * scale).round() / scale)
 }
 
-/// The game's process: the `eu4.exe` with a visible window.
+/// The game's process.
 struct Process {
     id: u32,
     handle: windows_sys::Win32::Foundation::HANDLE,
@@ -172,7 +103,7 @@ impl Sample {
 impl Process {
     fn find() -> Result<Self> {
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ};
-        let id = game::processes().into_iter().find(|&id| has_window(id)).ok_or("the game has no window")?;
+        let id = *game::processes().first().ok_or("the game is not running")?;
         let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, id) };
         if handle.is_null() {
             return Err(format!("cannot open the game's process {id}"));
@@ -215,31 +146,6 @@ impl Drop for Process {
     fn drop(&mut self) {
         unsafe { windows_sys::Win32::Foundation::CloseHandle(self.handle) };
     }
-}
-
-/// Whether the process shows a top-level window.
-fn has_window(id: u32) -> bool {
-    use windows_sys::Win32::{
-        Foundation::{HWND, LPARAM},
-        UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible},
-    };
-    struct Search {
-        id: u32,
-        found: bool,
-    }
-    unsafe extern "system" fn each(window: HWND, search: LPARAM) -> i32 {
-        let search = &mut *(search as *mut Search);
-        let mut owner = 0;
-        GetWindowThreadProcessId(window, &mut owner);
-        if owner == search.id && IsWindowVisible(window) != 0 {
-            search.found = true;
-            return 0;
-        }
-        1
-    }
-    let mut search = Search { id, found: false };
-    unsafe { EnumWindows(Some(each), &mut search as *mut Search as LPARAM) };
-    search.found
 }
 
 /// The local date and time, as `yyyy-MM-dd HH:mm:ss`.
