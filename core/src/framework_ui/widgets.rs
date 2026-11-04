@@ -145,6 +145,12 @@ pub struct Window {
     pub title: String,
     pub body: Vec<Widget>,
     pub side: Option<Side>,
+    /// The pages the side list chooses among, when the window keeps them
+    /// itself: the page shown is the body, and its place here is empty.
+    pages: Vec<Vec<Widget>>,
+    /// What stands below the body on every page, such as the buttons that
+    /// save and cancel.
+    footer: Vec<Widget>,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -201,6 +207,8 @@ impl Window {
             title: title.into(),
             body,
             side: None,
+            pages: Vec::new(),
+            footer: Vec::new(),
             x: 0.0,
             y: 0.0,
             width,
@@ -219,6 +227,52 @@ impl Window {
         self
     }
 
+    /// The window with pages its side list chooses among, one per item, the
+    /// first shown. A page left keeps what the player chose on it.
+    pub fn with_pages(mut self, mut pages: Vec<Vec<Widget>>) -> Self {
+        debug_assert_eq!(self.side.as_ref().map(|s| s.items.len()), Some(pages.len()));
+        if let Some(first) = pages.first_mut() {
+            self.body = std::mem::take(first);
+        }
+        self.pages = pages;
+        self
+    }
+
+    /// The window with `footer` below its body, in the same place on every
+    /// page.
+    pub fn with_footer(mut self, footer: Vec<Widget>) -> Self {
+        self.footer = footer;
+        self
+    }
+
+    /// Shows page `to` in place of page `from`.
+    fn turn(&mut self, from: usize, to: usize) {
+        std::mem::swap(&mut self.body, &mut self.pages[from]);
+        std::mem::swap(&mut self.body, &mut self.pages[to]);
+        self.slide = None;
+    }
+
+    /// Every widget the window has: the body's, the other pages', the
+    /// footer's.
+    fn widgets(&self) -> impl Iterator<Item = &Widget> {
+        self.body.iter().chain(self.pages.iter().flatten()).chain(&self.footer)
+    }
+
+    /// The widget a slot stands for: the body's are numbered first, then the
+    /// footer's.
+    fn widget(&self, i: usize) -> &Widget {
+        self.body.get(i).unwrap_or_else(|| &self.footer[i - self.body.len()])
+    }
+
+    fn widget_mut(&mut self, i: usize) -> &mut Widget {
+        let n = self.body.len();
+        if i < n {
+            &mut self.body[i]
+        } else {
+            &mut self.footer[i - n]
+        }
+    }
+
     /// Puts the window in the middle of a screen.
     pub fn center(&mut self, measure: &dyn Measure, screen_w: f32, screen_h: f32) {
         self.screen_h = screen_h;
@@ -228,14 +282,14 @@ impl Window {
     }
 
     pub fn selected(&self, id: &str) -> Option<usize> {
-        self.body.iter().find_map(|w| match w {
+        self.widgets().find_map(|w| match w {
             Widget::Dropdown { id: i, selected, .. } | Widget::Choice { id: i, selected, .. } if *i == id => Some(*selected),
             _ => None,
         })
     }
 
     pub fn is_on(&self, id: &str) -> Option<bool> {
-        self.body.iter().find_map(|w| match w {
+        self.widgets().find_map(|w| match w {
             Widget::Toggle { id: i, on, .. } if *i == id => Some(*on),
             _ => None,
         })
@@ -243,7 +297,7 @@ impl Window {
 
     /// Gives the drop-down list `id` new options, with `selected` chosen.
     pub fn set_options(&mut self, id: &str, options: Vec<String>, selected: usize) {
-        for w in &mut self.body {
+        for w in self.body.iter_mut().chain(self.pages.iter_mut().flatten()).chain(&mut self.footer) {
             if let Widget::Dropdown { id: i, options: o, selected: s } = w {
                 if *i == id {
                     (*o, *s) = (options, selected);
@@ -313,9 +367,26 @@ impl Window {
     }
 
     fn layout(&self, measure: &dyn Measure) -> Vec<Slot> {
-        let mut y = self.y + TITLE + PAD;
+        let top = self.y + TITLE + PAD;
+        let mut slots = self.lay_out(measure, &self.body, 0, top);
+        if !self.footer.is_empty() {
+            let y = bottom(&slots, top).max(self.pages_bottom(measure)) + 8.0;
+            slots.extend(self.lay_out(measure, &self.footer, self.body.len(), y));
+        }
+        slots
+    }
+
+    /// Where the tallest of the pages not shown ends, or the body's top.
+    fn pages_bottom(&self, measure: &dyn Measure) -> f32 {
+        let top = self.y + TITLE + PAD;
+        self.pages.iter().map(|page| bottom(&self.lay_out(measure, page, 0, top), top)).fold(top, f32::max)
+    }
+
+    /// Lays `widgets` out from `y` down, numbering them from `first`.
+    fn lay_out(&self, measure: &dyn Measure, widgets: &[Widget], first: usize, mut y: f32) -> Vec<Slot> {
         let mut slots = Vec::new();
-        for (i, w) in self.body.iter().enumerate() {
+        for (n, w) in widgets.iter().enumerate() {
+            let i = first + n;
             match w {
                 Widget::Label(text) | Widget::Heading(text) | Widget::Item(text) => {
                     let style = match w {
@@ -323,7 +394,7 @@ impl Window {
                         Widget::Item(_) => Style::Item,
                         _ => Style::Body,
                     };
-                    if style == Style::Heading && i > 0 {
+                    if style == Style::Heading && n > 0 {
                         y += GAP;
                     }
                     let indent = if style == Style::Item { INDENT } else { 0.0 };
@@ -358,12 +429,10 @@ impl Window {
         slots
     }
 
+    /// How tall the window is: as tall as its tallest page, so that it keeps
+    /// its size from page to page.
     pub fn height(&self, measure: &dyn Measure) -> f32 {
-        let slots = self.layout(measure);
-        let ends = slots.iter().map(|s| match s {
-            Slot::Lines(_, r, _) | Slot::Control(_, r) | Slot::Mark(_, r) => r.y + r.h,
-        });
-        let body = ends.fold(self.y + TITLE, f32::max);
+        let body = bottom(&self.layout(measure), self.y + TITLE).max(self.pages_bottom(measure));
         let side = self.side_area().map_or(self.y + TITLE, |r| r.y + r.h);
         body.max(side) - self.y + PAD
     }
@@ -400,7 +469,7 @@ impl Window {
             return;
         };
         let Some(Slot::Control(_, control)) = self.layout(measure).into_iter().find(|s| matches!(s, Slot::Control(i, _) if *i == open)) else { return };
-        let Widget::Dropdown { options, .. } = &self.body[open] else { return };
+        let Widget::Dropdown { options, .. } = self.widget(open) else { return };
         let last = options.len().saturating_sub(self.rows(control, options.len()));
         self.scroll = (self.scroll as i64 - notches as i64).clamp(0, last as i64) as usize;
     }
@@ -413,7 +482,7 @@ impl Window {
     fn open_list(&self, measure: &dyn Measure) -> Option<(Rect, usize)> {
         let open = self.open?;
         self.layout(measure).into_iter().find_map(|s| match s {
-            Slot::Control(i, r) if i == open => match &self.body[i] {
+            Slot::Control(i, r) if i == open => match self.widget(i) {
                 Widget::Dropdown { options, .. } => Some((self.list_rect(r, options.len()), i)),
                 _ => None,
             },
@@ -439,7 +508,7 @@ impl Window {
             self.open = None;
             if list.contains(x, y) {
                 let index = self.scroll + ((y - list.y) / ROW) as usize;
-                if let Widget::Dropdown { id, selected, options } = &mut self.body[i] {
+                if let Widget::Dropdown { id, selected, options } = self.widget_mut(i) {
                     if index < options.len() {
                         *selected = index;
                         return Some(Action::Chose(id, index));
@@ -457,26 +526,29 @@ impl Window {
         }
         if let Some((index, _)) = self.side_rows().into_iter().find(|(_, r)| r.contains(x, y)) {
             let side = self.side.as_mut().expect("it has rows");
-            side.selected = index;
-            return Some(Action::Chose(side.id, index));
+            let (id, left) = (side.id, std::mem::replace(&mut side.selected, index));
+            if !self.pages.is_empty() && index != left {
+                self.turn(left, index);
+            }
+            return Some(Action::Chose(id, index));
         }
         for slot in self.layout(measure) {
             if let Slot::Control(i, r) = slot {
                 if r.contains(x, y) {
-                    if let Widget::Toggle { id, on, .. } = &mut self.body[i] {
+                    if let Widget::Toggle { id, on, .. } = self.widget_mut(i) {
                         *on = !*on;
                         return Some(Action::Switched(id, *on));
                     }
-                    if let Widget::Choice { id, options, selected } = &mut self.body[i] {
+                    if let Widget::Choice { id, options, selected } = self.widget_mut(i) {
                         let index = Self::segments(r, options.len()).iter().position(|s| s.contains(x, y))?;
                         if index == *selected {
                             return None;
                         }
-                        self.slide = Some((i, *selected, Instant::now()));
-                        *selected = index;
+                        let (id, left) = (*id, std::mem::replace(selected, index));
+                        self.slide = Some((i, left, Instant::now()));
                         return Some(Action::Chose(id, index));
                     }
-                    return match &self.body[i] {
+                    return match self.widget(i) {
                         Widget::Button { id, .. } => Some(Action::Pressed(id)),
                         Widget::Dropdown { options, selected, .. } => {
                             // The list opens with the chosen option in view.
@@ -546,8 +618,8 @@ impl Window {
                         out.push(Command::Text { x, y: r.y + n as f32 * style.line(), text: line, size: style.size(), color: TEXT });
                     }
                 }
-                Slot::Control(i, r) if matches!(self.body[i], Widget::Toggle { .. }) => {
-                    let Widget::Toggle { label, on, .. } = &self.body[i] else { continue };
+                Slot::Control(i, r) if matches!(self.widget(i), Widget::Toggle { .. }) => {
+                    let Widget::Toggle { label, on, .. } = self.widget(i) else { continue };
                     let lines = measure.wrap(label, TEXT_SIZE, self.toggle_text());
                     let top = r.y + ((r.h - lines.len().max(1) as f32 * LINE) / 2.0).round();
                     for (n, line) in lines.into_iter().enumerate() {
@@ -565,8 +637,8 @@ impl Window {
                     let knob_x = if *on { track.x + track.w - inset - KNOB } else { track.x + inset };
                     out.push(Command::Fill { rect: Rect { x: knob_x, y: track.y + inset, w: KNOB, h: KNOB }, color: TEXT });
                 }
-                Slot::Control(i, r) if matches!(self.body[i], Widget::Choice { .. }) => {
-                    let Widget::Choice { options, selected, .. } = &self.body[i] else { continue };
+                Slot::Control(i, r) if matches!(self.widget(i), Widget::Choice { .. }) => {
+                    let Widget::Choice { options, selected, .. } = self.widget(i) else { continue };
                     out.push(Command::Fill { rect: r, color: CONTROL });
                     let segments = Self::segments(r, options.len());
                     for (n, segment) in segments.iter().enumerate() {
@@ -587,7 +659,7 @@ impl Window {
                 }
                 Slot::Control(i, r) => {
                     out.push(Command::Fill { rect: r, color: if hover(&r) { HOVER } else { CONTROL } });
-                    let (label, centred) = match &self.body[i] {
+                    let (label, centred) = match self.widget(i) {
                         Widget::Button { label, .. } => (label.clone(), true),
                         Widget::Dropdown { options, selected, .. } => (format!("{}  ▾", options.get(*selected).map_or("", String::as_str)), false),
                         Widget::Label(_)
@@ -606,7 +678,7 @@ impl Window {
         if let Some((list, i)) = self.open_list(measure) {
             out.push(Command::Fill { rect: Rect { x: list.x - 1.0, y: list.y - 1.0, w: list.w + 2.0, h: list.h + 2.0 }, color: BORDER });
             out.push(Command::Fill { rect: list, color: LIST });
-            if let Widget::Dropdown { options, selected, .. } = &self.body[i] {
+            if let Widget::Dropdown { options, selected, .. } = self.widget(i) {
                 let rows = (list.h / ROW).round() as usize;
                 for (n, (index, option)) in options.iter().enumerate().skip(self.scroll).take(rows).enumerate() {
                     let row = Rect { x: list.x, y: list.y + n as f32 * ROW, w: list.w, h: ROW };
@@ -620,7 +692,7 @@ impl Window {
         // An info mark's text, over everything, while the pointer is on it.
         for slot in self.layout(measure) {
             let Slot::Mark(i, mark) = slot else { continue };
-            let Widget::Explained { info, .. } = &self.body[i] else { continue };
+            let Widget::Explained { info, .. } = self.widget(i) else { continue };
             if !hover(&mark) {
                 continue;
             }
@@ -634,6 +706,16 @@ impl Window {
         }
         out
     }
+}
+
+/// Where the lowest of `slots` ends, or `top` if none ends lower.
+fn bottom(slots: &[Slot], top: f32) -> f32 {
+    slots
+        .iter()
+        .map(|s| match s {
+            Slot::Lines(_, r, _) | Slot::Control(_, r) | Slot::Mark(_, r) => r.y + r.h,
+        })
+        .fold(top, f32::max)
 }
 
 /// `text` cut to fit `width`, with an ellipsis where it was cut.
@@ -907,6 +989,41 @@ mod tests {
         w.mouse_move(x, y);
         w.wheel(&Mono, -100);
         assert!(spot_of(&w, "M39").is_some() && spot_of(&w, "M0").is_none());
+    }
+
+    #[test]
+    fn a_side_list_turns_pages_that_keep_their_choices_while_the_window_keeps_its_size() {
+        let side = Side::new("pages", vec!["Looks".into(), "Speed".into()], 100.0);
+        let pages = vec![
+            vec![
+                Widget::Label("Typeface".into()),
+                Widget::Dropdown { id: "font", options: vec!["A".into(), "B".into()], selected: 0 },
+                Widget::Label("Restart".into()),
+            ],
+            vec![Widget::Toggle { id: "fast", label: "Fast".into(), on: false }],
+        ];
+        let footer = vec![Widget::Button { id: "save", label: "Save".into() }];
+        let mut w = Window::new("Settings", Vec::new(), 400.0).with_side(side).with_pages(pages).with_footer(footer);
+        w.center(&Mono, 1000.0, 800.0);
+        let (height, save) = (w.height(&Mono), spot(&w, "Save"));
+        assert!(shows(&w, "Typeface") && !shows(&w, "Fast"));
+        let (x, y) = spot(&w, "A");
+        assert_eq!(w.mouse_down(&Mono, x, y), None);
+        let (bx, by) = spot(&w, "B");
+        assert_eq!(w.mouse_down(&Mono, bx, by), Some(Action::Chose("font", 1)));
+        let (sx, sy) = spot(&w, "Speed");
+        assert_eq!(w.mouse_down(&Mono, sx, sy), Some(Action::Chose("pages", 1)));
+        assert!(shows(&w, "Fast") && !shows(&w, "Typeface"));
+        // The shorter page leaves the window as tall and the footer where it was.
+        assert_eq!((w.height(&Mono), spot(&w, "Save")), (height, save));
+        let (fx, fy) = spot(&w, "Fast");
+        assert_eq!(w.mouse_down(&Mono, fx, fy), Some(Action::Switched("fast", true)));
+        // What was chosen on a page not shown is still there to read.
+        assert_eq!((w.selected("font"), w.is_on("fast")), (Some(1), Some(true)));
+        let (lx, ly) = spot(&w, "Looks");
+        assert_eq!(w.mouse_down(&Mono, lx, ly), Some(Action::Chose("pages", 0)));
+        assert!(shows(&w, "B  ▾"));
+        assert_eq!(w.mouse_down(&Mono, save.0, save.1), Some(Action::Pressed("save")));
     }
 
     #[test]
