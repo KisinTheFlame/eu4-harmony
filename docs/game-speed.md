@@ -1,11 +1,11 @@
 # Game speed plan
 
-Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
+Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): planned, its research begun. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
 
 ## Goal and scope
 
 - **Goal**: the game runs faster, in days a second at the fastest speed and in frames when paused, while the game played stays the game: the same rules, the same data, the same AI, the same decisions taken by the same code. Nothing is made faster by doing less of the game's work.
-- **In scope**: work on the main thread that is not the day's simulation: Paradox's online client (S1), the framework's own line breaking (S2), compressing and writing saves (S3), frames inside a day at the fastest speed (S4) and drawing (S7).
+- **In scope**: work on the main thread that is not the day's simulation: Paradox's online client (S1), the framework's own line breaking (S2), compressing and writing saves (S3), writing a save's game state and its file (S8), frames inside a day at the fastest speed (S4) and drawing (S7).
 - **Out of scope**:
   - anything that changes what the game computes: defines, script, the AI's settings or how often it thinks, fewer monthly or yearly updates, lower precision, features turned off;
   - the day's own code (S6) and the bench it would need (S5), set aside by the owner;
@@ -67,6 +67,14 @@ S1, S2 and S3 change nothing the player sees but how long things take, so they h
 - The next local save, a load and a restart wait until the thread is done. The game's exit does not: a file the thread had not finished stays as the game wrote it, deflated at level 0, and the temporary file the thread was writing beside it, if any, is removed at the next start.
 - A file the thread cannot compress (the disk full, the file held by another program) stays as the game wrote it, stored and whole; the log says why. Since no save is lost, there is no notice (changed from the plan's first form, which compressed before anything was written).
 
+### A save's stall shorter (S8)
+
+The game stops while it saves: an ironman autosave from 1724 stopped it for about 0.9 s, every month at the fastest speed (research/main-thread.md, prototype-log.md). Of that, 69% was writing the game state into memory, the countries 35% and the provinces 24%, and 24% the zip.
+
+- Nothing changes but how long the stop lasts. The game's "Autosaving..." line shows as it does now (the owner, 2026-11-04: the save's notice stays as it is).
+- The countries and the provinces are written on several threads at once while the main thread waits; the world does not change meanwhile, and what is written is the same, byte for byte, as the game writes on one thread.
+- Then the main thread goes on, and a thread of the framework's makes the zip, writes the file and moves it into place, as S3's thread does now with a file the game wrote. The file reaches the disk about 2 s after the stop. The next save, a load, a restart and the game's exit wait for it. When the game ends otherwise in those seconds (a crash), the save before it is the one on the disk: an ironman game then goes on from its previous save.
+
 ### No frames inside a day (S4)
 
 - **The setting**: the settings window has a last group, "Game speed" (游戏速度), with one setting, "At the fastest speed" (最快速度时), followed by an info mark, set with a choice bar of two options:
@@ -122,6 +130,17 @@ Built: the game's zip entry, `0x153b9a0(zip, name, data, method, level)`, takes 
 
 The choice bar and the info mark in the framework UI; the setting in `core/src/settings.rs` and the settings window; a dependency point on the interval `[0x245b070]`, which the framework sets so large at speed 5 that no frame is drawn inside a day, and back to the game's value otherwise. Looked at with the owner in the game ([prototype-log.md](prototype-log.md)): 1624 to 1627, the game's pace drew 19 frames a second at 13.1 days a second, no frames inside a day 14 at 14.3, 9% faster; from 1730 to 1803, 19.1 days a second against 16.5, 16% faster ([performance.md](performance.md)). Tried in the game: "Smooth map" gives the game's interval; "Faster time" draws none inside a day at speed 5 (the application's frame count against the days) and the game's at speed 4; the pause key and clicks still work; an advance stops on its date; the info mark shows its text.
 
+### S8 A save's stall shorter
+
+Asked for by the owner, 2026-11-04, after S3: "a save's stop is very painful for a player"; the steps to go off the main thread as far as they can, and the game state written by several threads. Three steps, each its own change, in this order:
+
+1. **The countries and the provinces side by side.** What their writing writes was watched (research/saves.md, "What writing the game state writes"): the writer's state is its depth, its binary byte and its stream; besides the output, the only shared memory written is two static objects that hold the value being written (`0x15bf70` with ten copies inline, `0x2c59b0`). So:
+   - the two functions, and the ten copies' stores, are dependency points that on a framework thread use a static object of that thread's own (a copy of the game's, its vtable included), and on the main thread the game's, as now;
+   - at the start of the countries' loop (`0x75179a`'s) and the provinces' (`0x75170c`'s), the framework writes the list in runs, one a thread (the main thread one of them, up to 8), each with a writer of its own at the main writer's depth and binary byte, into a memory stream of its own that has the methods the writer calls (`+0x38`, `+0x48`, `+0x50`); then it writes each run's bytes into the main stream, in the list's order, with its `+0x50`, and the game goes on after the loop. The checksum, taken over the stream's bytes afterwards, is the same since the bytes are.
+   - Shown: a developer build's test switch writes every save both ways and compares the bytes; the write watch is run again on saves of other kinds (a 1444 start, a large empire late in a game, a game of another country), its threads in the loops, and finds no other shared write. Expected: the stop from about 0.9 s to about 0.5 s.
+2. **The file off the main thread.** Research first: what the local saves (`0x5c6500`, `0x5c7ac0`) do after the game state is in memory (the size check, the backup, the move, `continue_game.json`, the ironman save's other state) and which of it must stay on the main thread. Then the three entries' bytes go to S3's thread, which makes the zip at level 6 and does the rest; `0x5cbde0` answers as the game's save would. The game's exit gets an observer that waits. Expected: the zip's 24% and the file's time off the stop.
+3. **Faster parts of the writing**, only if the first two leave enough to gain: the memory stream's write (`0x171f290`, 14% of the writing) and the number formatting through the C runtime (13 to 15%), each replaced by code that writes the same bytes, checked as in step 1.
+
 ### S5 A bench that repeats
 
 Set aside by the owner, 2026-11-04, as too hard for now. What it would be:
@@ -149,4 +168,4 @@ Researched, nothing built ([research/main-thread.md](research/main-thread.md), "
 
 ## Order
 
-One pull request: S2 and S1 first (small, measured), then S4, S3, and S7 alongside.
+One pull request: S2 and S1 first (small, measured), then S4, S3, and S7 alongside. S8 later, a pull request a step.
