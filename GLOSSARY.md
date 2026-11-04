@@ -226,6 +226,10 @@ _Avoid_: protocol adapter, channel, connection
 Mouse and keyboard input a remote client gives the game as the player's own: clicks, the wheel, keys and typed text at screen positions. The game takes it as it takes the player's.
 _Avoid_: simulated, synthetic or fake input; SendInput (that is how a program outside the game sends input to whatever is in front)
 
+**Hidden start**:
+Starting the game for remote clients with its window never shown and, unless asked for, no sound, so that the player goes on using other programs undisturbed. The game draws and plays as when it is shown; remote control can show it and hide it again.
+_Avoid_: headless (that also means not drawing, or no graphics card), background mode, invisible mode
+
 **Event**:
 Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.
 _Avoid_: notification, message; game event, question (one of the game's own events, whose options the player chooses from)
