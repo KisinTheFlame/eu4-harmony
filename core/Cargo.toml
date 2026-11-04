@@ -40,7 +40,11 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Memory",
     "Win32_System_Environment",
     "Win32_System_Diagnostics_Debug",
+    # The process's threads, which the write watch holds (src/write_watch.rs).
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_IO",
+    # Exception records, for the write watch (src/write_watch.rs).
+    "Win32_System_Kernel",
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
     "Win32_System_Com",
@@ -79,7 +83,7 @@ analysis = ["dep:iced-x86"]
 # The development tools, for finding things out in the game; each is on when
 # built in, with its options in dev.toml (src/dev.rs). A player's build has
 # none of them, and `dev` has them all.
-dev = ["dev-call-trace", "dev-memory", "dev-heap-census", "dev-command-log", "dev-test-switches"]
+dev = ["dev-call-trace", "dev-memory", "dev-heap-census", "dev-command-log", "dev-test-switches", "dev-write-watch"]
 # Logs calls of the game functions dev.toml names (src/trace.rs).
 dev-call-trace = ["analysis", "dep:toml"]
 # Answers remote control's memory: what the process holds, by where it
@@ -92,6 +96,8 @@ dev-heap-census = ["dev-memory"]
 dev-command-log = ["dep:toml"]
 # Makes startup fail, or shows test notices, as dev.toml says.
 dev-test-switches = ["dep:toml"]
+# Logs what a game function writes to memory it did not make (src/write_watch.rs).
+dev-write-watch = ["analysis", "dep:toml"]
 
 [[example]]
 name = "disasm"

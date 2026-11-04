@@ -29,7 +29,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --features eu4-harmony-core/dev -- -D warnings
 ```
 
-The second clippy is the developer build's: the development tools, each a feature of the core (`dev-call-trace`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`; `dev` has them all), are on when built in, with their options in `dev.toml` ([docs/dev-tools.md](docs/dev-tools.md)). A player's build has none of them.
+The second clippy is the developer build's: the development tools, each a feature of the core (`dev-call-trace`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`, `dev-write-watch`; `dev` has them all), are on when built in, with their options in `dev.toml` ([docs/dev-tools.md](docs/dev-tools.md)). A player's build has none of them.
 
 Clippy's warnings are fixed, not allowed. Where the code is right as it is, `#[expect(clippy::…, reason = "…")]` at that place says why.
 

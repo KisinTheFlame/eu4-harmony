@@ -19,6 +19,7 @@ Tools for trying things in a running game, finding dependency points and looking
 | `dev-memory` feature | Answers remote control's `memory`: what the process holds, split into the game's heap, the other heaps, the heaps' free pages, what lies outside the heaps and the framework's heap, at no cost between two asks (`core/src/memory_account.rs`, [leak-finding.md](leak-finding.md)) |
 | `dev-heap-census` feature | Counts the game's live heap blocks by site and generation, logs at every world reset those the earlier sessions left, and answers remote control's `memory.leftovers`, `memory.watch`, `memory.generation`, `memory.quarantine` and `memory.pages`; builds the memory account in too (`core/src/census.rs`, [leak-finding.md](leak-finding.md)) |
 | `dev-command-log` feature | Logs every command the game executes, or those of the types named, in its written form, as the command layer hears them (`core/src/command_log.rs`, `core/src/game/commands.rs`) |
+| `dev-write-watch` feature | Logs what a game function writes to memory that was there before it was called: the heap's blocks and `eu4.exe`'s data, by the instruction and the calls it was in (`core/src/write_watch.rs`; [below](#write-watch)) |
 | `dev-test-switches` feature | Makes startup fail, shows two test notices, posts commands written in the game's form through the command layer at the first frame of every game, or crashes the game there, to try the failure, the notice window, the game's commands and what follows a crash on a supported game |
 
 To ask the running game things through remote control, such as the session or the player's armies, use the command line tool: `eu4-harmony game session get`, and `eu4-harmony wiki` for the rest. `eu4-harmony game screenshot --scale 50 --out shot.png` saves the frame as the game draws it, framework UI included, wherever its window is; `eu4-harmony game input click 800 450 --scale 50` clicks where that screenshot shows something, and `input key`, `input type`, `input scroll` and `input drag` give the game the rest of a player's mouse and keyboard, with the game in front or behind other windows ([input.md](input.md)).
@@ -62,3 +63,18 @@ The tools' options are in `dev.toml` at the top of the repository, which is not 
 In `dev.toml`'s `[call-trace]`, `functions` lists the RVAs of the functions to trace, for example `["0x15988e0", "0x159c600"]`. The first 20 calls to each function (`calls` changes this) go into the framework log: the value of each argument, with the text when an argument points to text (a C string or a `std::string`, decoded as game text), the call site, and the return value.
 
 The number of arguments is counted from the function's code. For a leaf function with no entry in the exception directory, write `"RVA:N"` and give the count yourself; give too few and the function reads garbage, and the game may crash.
+
+## Write watch
+
+In `dev.toml`'s `[write-watch]`, `function` is the RVA of a game function, for example `"0x74ff30"`, the world's write of itself into a save. During its first call on the main thread (`calls` changes how many), every other thread of the process is suspended, and every page of the process heap that holds a block and every writable page of `eu4.exe` is read-only. Each write to one of them stops at an exception handler, which records it and lets it through. When the call returns, the pages are as they were, the threads go on, and the framework log lists the writes, grouped by the instruction and the calls it was in, most first:
+
+```
+write watch #0: 40539 main static at 0x15bf95 to 0x2458c00 in 0x861c55 < 0xd2f434 < 0x29cde7 < …
+write watch #0: 4300 main block at 0x29cd99 to 0x50 bytes +0x40 in 0x2976ac < 0xd2f434 < 0x297568 < …
+```
+
+What a write went to is `static` (`eu4.exe`'s data, by its RVA), `block` (a heap block that was there when the call began: its size and the offset written), or `new` (the rest of the heap's pages: blocks made during the call, and the heap's own records). Writes to the stack and to memory outside the heap and the image are not seen.
+
+- Build it alone (`--features eu4-harmony-core/dev-write-watch`): the held threads may hold a lock the watched function then waits for, and the heap census takes one at every allocation.
+- The watched call runs many times slower: an ironman save of 55 MB from 1724 took about a minute and wrote 25.8 million times. Setting it up walks the heap, 0.6 s for 8 million blocks.
+- A function that waits for another thread never returns while watched.

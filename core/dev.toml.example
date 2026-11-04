@@ -40,3 +40,12 @@ crash = false
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.
 post = []
+
+# Logs what a game function writes to memory that was there before it was
+# called: the heap's blocks and eu4.exe's data, by the instruction and the
+# calls it was in. The game runs many times slower while it is watched.
+[write-watch]
+# An RVA in hex, such as "0x74ff30"; none by default.
+function = ""
+# How many of its first calls on the main thread are watched.
+calls = 1

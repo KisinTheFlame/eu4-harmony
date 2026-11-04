@@ -58,6 +58,8 @@ mod trace;
 pub mod ui;
 pub mod unicode;
 pub mod wording;
+#[cfg(feature = "dev-write-watch")]
+mod write_watch;
 
 use std::sync::{
     atomic::{AtomicU32, Ordering},
@@ -146,12 +148,17 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(not(any(feature = "dev-memory", feature = "dev-call-trace")), expect(unused_mut, reason = "only the development tools add points"))]
+    #[cfg_attr(
+        not(any(feature = "dev-memory", feature = "dev-call-trace", feature = "dev-write-watch")),
+        expect(unused_mut, reason = "only the development tools add points")
+    )]
     let mut all = points();
     #[cfg(feature = "dev-memory")]
     all.extend(memory_account::points(&m));
     #[cfg(feature = "dev-heap-census")]
     all.extend(census::points(&m));
+    #[cfg(feature = "dev-write-watch")]
+    all.extend(write_watch::points(&m));
     #[cfg(feature = "dev-call-trace")]
     {
         let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();

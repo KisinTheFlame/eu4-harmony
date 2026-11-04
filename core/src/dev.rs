@@ -1,6 +1,6 @@
 //! A developer build: which development tools are built in, each a feature of
 //! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
-//! `dev-command-log`, `dev-test-switches`), and their options. A tool built in is on; its
+//! `dev-command-log`, `dev-test-switches`, `dev-write-watch`), and their options. A tool built in is on; its
 //! options are in `eu4-harmony\dev.toml` in the game folder, one section a
 //! tool, and a section left out takes its defaults (`core/dev.toml.example`
 //! shows them all). A player's build has none of this.
@@ -10,12 +10,13 @@ use std::sync::OnceLock;
 
 /// The tools: each one's name, its section in dev.toml, and whether it is
 /// built in.
-const TOOLS: [(&str, &str, bool); 5] = [
+const TOOLS: [(&str, &str, bool); 6] = [
     ("call trace", "call-trace", cfg!(feature = "dev-call-trace")),
     ("memory account", "memory-account", cfg!(feature = "dev-memory")),
     ("heap census", "heap-census", cfg!(feature = "dev-heap-census")),
     ("command log", "command-log", cfg!(feature = "dev-command-log")),
     ("test switches", "test-switches", cfg!(feature = "dev-test-switches")),
+    ("write watch", "write-watch", cfg!(feature = "dev-write-watch")),
 ];
 
 /// What dev.toml says.
@@ -27,6 +28,7 @@ pub struct Options {
     pub heap_census: HeapCensus,
     pub command_log: CommandLog,
     pub test_switches: TestSwitches,
+    pub write_watch: WriteWatch,
     /// The sections dev.toml has, to tell those of tools not built in.
     #[serde(skip)]
     sections: Vec<String>,
@@ -83,6 +85,22 @@ pub struct TestSwitches {
     pub post: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct WriteWatch {
+    /// The function whose writes are watched, as an RVA in hex; none when
+    /// empty.
+    pub function: String,
+    /// How many of its first calls on the main thread are watched.
+    pub calls: usize,
+}
+
+impl Default for WriteWatch {
+    fn default() -> Self {
+        Self { function: String::new(), calls: 1 }
+    }
+}
+
 impl Options {
     pub fn parse(text: &str) -> crate::Result<Self> {
         let mut options: Options = toml::from_str(text).map_err(|e| e.to_string())?;
@@ -123,6 +141,13 @@ impl Options {
                 on(switches.crash),
                 switches.post.len()
             ));
+        }
+        if built("write-watch") {
+            let watch = &self.write_watch;
+            lines.push(match watch.function.is_empty() {
+                true => "write watch: no function".to_string(),
+                false => format!("write watch: {}, its first {} call(s) on the main thread", watch.function, watch.calls),
+            });
         }
         for (name, section, built) in TOOLS {
             if !built && self.sections.iter().any(|s| s == section) {
@@ -185,17 +210,19 @@ mod tests {
         assert_eq!(options.call_trace, CallTrace::default());
         assert_eq!(options.call_trace.calls, 20);
         assert_eq!(options.test_switches, TestSwitches::default());
+        assert_eq!(options.write_watch, WriteWatch { function: String::new(), calls: 1 });
         assert_eq!(Options::parse("").unwrap(), Options::default());
     }
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\npost = [\"a={ }\"]\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
         assert!(options.test_switches.fail_startup && options.test_switches.test_notice);
         assert_eq!(options.test_switches.post, ["a={ }"]);
+        assert_eq!(options.write_watch, WriteWatch { function: "0x74ff30".into(), calls: 3 });
     }
 
     #[test]
