@@ -14,8 +14,10 @@ steps:
 2. Register the mod: eu4-harmony link, from the mod's folder. Enable it in a
    Paradox launcher playset (or add mod/eu4-harmony-<id>.mod to
    enabled_mods in dlc_load.json). Done when the mod is in the playset.
-3. Start the game and wait for the main menu: eu4-harmony game menu answers
-   place main_menu.
+3. Start the game and wait for the main menu: eu4-harmony start, or
+   eu4-harmony start --hidden for a game with nothing of it on the desktop
+   and no sound (screenshot and input work as usual). Done when it prints
+   "at the main menu"; eu4-harmony game menu then answers place main_menu.
 4. Enter a game: eu4-harmony game menu start <country tag>, or
    menu.load <save> (menu.saves lists them). Let time run with
    eu4-harmony game time advance <days>; answer what stops it with
