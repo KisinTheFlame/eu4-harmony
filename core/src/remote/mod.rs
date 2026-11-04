@@ -12,10 +12,11 @@
 //! still queued when that session ends (a save loads, another game starts)
 //! is answered `session_changed` instead of acting on a campaign its client
 //! never saw. Every answer that numbers sessions or events says which
-//! process gave it ([`process`]): returning to the main menu starts the game
-//! again, and the numbers start again with it. The game's restart ends this
-//! process's engine ([`Engine::end`]), whoever asked for the return: from
-//! then on it answers at once.
+//! process gave it ([`process`]): a restart (GLOSSARY), a return to the main
+//! menu with the in-process return turned off, starts the game again, and
+//! the numbers start again with it; an in-process return keeps them. The
+//! restart ends this process's engine ([`Engine::end`]), whoever asked for
+//! the return: from then on it answers at once.
 //!
 //! One file per group of capabilities, as in the capability layer: each has
 //! the group's slice of the layer as a trait ([`Game`] is all of them), the
@@ -143,9 +144,9 @@ impl From<game::Fail> for Error {
 }
 
 /// The game process remote control answers for: when it started, in
-/// milliseconds since 1970. Returning to the main menu starts the game
-/// again, as a new process, in which sessions and events are numbered from
-/// 1 again; a client tells the two apart by this.
+/// milliseconds since 1970. A restart starts the game again, as a new
+/// process, in which sessions and events are numbered from 1 again; a
+/// client tells the two apart by this.
 pub fn process() -> u64 {
     static PROCESS: OnceLock<u64> = OnceLock::new();
     *PROCESS.get_or_init(|| started().unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)))
