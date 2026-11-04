@@ -20,7 +20,7 @@
 use crate::hooks::HookFrame;
 use crate::points::Point;
 use eu4_harmony_remote::memory::{
-    Freed, Generation, Holder, Holders, Kept, Leftovers, Lost, MemoryAnswer, MemoryRequest, Quarantine, Site, Trend, Watching, Written,
+    Freed, Generation, Holder, Holders, Kept, Leftovers, Lost, MemoryAnswer, MemoryRequest, Pages, Pinning, Quarantine, Site, Trend, Watching, Written,
 };
 use eu4_harmony_remote::{Code, Error};
 use holders::{Held, Scan, Source, Target};
@@ -29,6 +29,7 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 mod holders;
+mod pages;
 mod pointers;
 pub mod quarantine;
 mod watch;
@@ -573,6 +574,53 @@ pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
             };
             MemoryAnswer::Quarantine(quarantined(report))
         }
+        MemoryRequest::Pages { sites } => MemoryAnswer::Pages(pages_now(sites.unwrap_or(40) as usize)?),
+    })
+}
+
+/// What keeps the game's heap's pages committed now, by site.
+fn pages_now(sites: usize) -> Result<Pages, Error> {
+    let heap = crate::memory_account::game_heap();
+    if heap == 0 {
+        return Err(Error::new(Code::Unavailable, "the game has not made its heap yet"));
+    }
+    let began = std::time::Instant::now();
+    let census: usize = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |s| s.blocks.len())).sum();
+    let walk = pages::walk(heap, (census + crate::heap::blocks()) * 5 / 4 + (1 << 20));
+    let found = pages::pages(&walk);
+    let totals = pages::totals(&found);
+    let now = GENERATION.load(Ordering::Relaxed);
+    let site_of = |start: usize| shard(start).as_ref()?.blocks.get(&start).map(|b| (b.site, b.generation + 2 <= now));
+    let (by_site, by_leftovers) = pages::pinning(&found, &walk.busy, site_of);
+    let mut by_site: Vec<(Option<SiteKey>, pages::Pin)> = by_site.into_iter().collect();
+    by_site.sort_by(|a, b| b.1.pinned.total_cmp(&a.1.pinned));
+    let took_ms = began.elapsed().as_millis() as u64;
+    log!(
+        "census: the heap's {:.0} MB of committed pages: {:.0} MB used, {:.0} MB of pages no block is on, {:.0} MB free on the others ({:.0} MB of it kept by leftovers); walked in {took_ms} ms{}",
+        totals.committed as f64 / MB,
+        totals.used as f64 / MB,
+        totals.free_pages as f64 / MB,
+        totals.free_on_used_pages as f64 / MB,
+        by_leftovers / MB,
+        if walk.complete { "" } else { ", not to its end" }
+    );
+    Ok(Pages {
+        committed: totals.committed,
+        used: totals.used,
+        free_pages: totals.free_pages,
+        free_on_used_pages: totals.free_on_used_pages,
+        by_leftovers: by_leftovers as u64,
+        by_use: totals.by_use.to_vec(),
+        sites: by_site
+            .into_iter()
+            .take(sites)
+            .map(|(site, pin)| {
+                let (site, function) = site.map_or(("not counted".to_string(), None), named);
+                Pinning { site, function, blocks: pin.blocks, bytes: pin.bytes, pinned: pin.pinned as u64, leftovers: pin.leftovers }
+            })
+            .collect(),
+        complete: walk.complete,
+        took_ms,
     })
 }
 

@@ -145,7 +145,8 @@ if ($FromReport) {
             }
         }
         $quarantined = if ($Quarantine) { Ask 'memory.quarantine' } else { $null }
-        $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers; watching = $watching; quarantine = $quarantined }
+        $pages = if ($census -and $i -eq $Rounds) { Ask 'memory.pages', '--sites', "$Sites" } else { $null }
+        $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers; watching = $watching; quarantine = $quarantined; pages = $pages }
         $played += $round
         $grew = if ($i -gt 1) { ' ({0:+0.0;-0.0;0.0} MB)' -f (($memory.private - $played[-2].memory.private) / 1MB) } else { '' }
         $held = if ($quarantined) { "; quarantine $($quarantined.blocks) blocks, $(& $mb $quarantined.bytes) MB, $(@($quarantined.written).Count) written to" } else { '' }
@@ -241,6 +242,16 @@ if ($census -and $played) {
             }
         }
     }
+}
+$pages = if ($played) { $played[-1].pages } else { $null }
+if ($pages) {
+    $md += '', '## What keeps the free pages', '', "The game's heap after the last round, page by page: a page blocks are on stays committed however little of it they use. Walked in $($pages.took_ms) ms$(if (-not $pages.complete) { ', not to its end' })."
+    $md += '', '| Pages | MB |', '| --- | --- |'
+    $md += "| Committed | $(& $mb $pages.committed) |", "| Used by blocks | $(& $mb $pages.used) |", "| Pages no block is on | $(& $mb $pages.free_pages) |"
+    $md += "| Free on the pages blocks are on | $(& $mb $pages.free_on_used_pages) |", "| of it, kept by leftovers | $(& $mb $pages.by_leftovers) |"
+    $md += '', "The pages blocks are on, by how full: $((0..($pages.by_use.Count - 1) | ForEach-Object { "up to $($_ + 1)/8: $($pages.by_use[$_])" }) -join ', ').", ''
+    $md += '| Site | Function | Blocks | KB | Free KB it keeps | Leftovers |', '| --- | --- | --- | --- | --- | --- |'
+    foreach ($s in $pages.sites) { $md += "| $($s.site) | $($s.function) | $($s.blocks) | $('{0:N0}' -f ($s.bytes / 1KB)) | $('{0:N0}' -f ($s.pinned / 1KB)) | $($s.leftovers) |" }
 }
 if ($kept) {
     $md += '', '## What the quarantine kept', '', "What the framework's repairs let go, kept instead of freed and filled with a pattern; compared $($kept.checks) times. $($kept.freed) blocks were freed again to keep it under its most.", ''
