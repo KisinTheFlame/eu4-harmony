@@ -968,7 +968,7 @@ fn ledger<T>(f: impl FnOnce(&mut Ledger) -> T) -> T {
 extern "C" fn carry_out_before(frame: *mut HookFrame) {
     crate::guarded("diplomatic action", || {
         let Some(m) = crate::memory() else { return };
-        if crate::saves::load_in_progress() {
+        if crate::sessions::loading() {
             return;
         }
         let command = unsafe { (*frame).args[0] };

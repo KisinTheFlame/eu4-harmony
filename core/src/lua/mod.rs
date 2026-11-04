@@ -26,10 +26,7 @@ use std::{
     fs::{File, OpenOptions},
     io::Write as _,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock, RwLock,
-    },
+    sync::{Arc, Mutex, OnceLock, RwLock},
     time::{Duration, Instant},
 };
 
@@ -53,9 +50,6 @@ struct Opened {
 fn extensions() -> Vec<Arc<Extension>> {
     EXTENSIONS.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
-
-/// Whether a session is going on, for an extension reload.
-static IN_SESSION: AtomicBool = AtomicBool::new(false);
 
 /// The id of the mod whose extension has this index.
 pub fn mod_id(index: usize) -> Option<String> {
@@ -297,7 +291,7 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
     let opening = Mod { id, name: &name, harmony: harmony.clone(), permissions: &permissions, data: Some(data) };
     let new = eu4_harmony_lua::open(index, &opening, host).map_err(|e| rejected(format!("the new code did not load, and the old goes on: {e}")))?;
     let Some(old) = extensions().get(index).cloned() else { return refuse(game::Status::NotFound, format!("no extension of a mod {id:?} is loaded")) };
-    let session = IN_SESSION.load(Ordering::Relaxed);
+    let session = crate::sessions::going_on();
     // A stopped extension's code is not run again, save_data included.
     let (saved, lost) = match (session, old.stopped()) {
         (false, _) => (None, None),
@@ -351,7 +345,6 @@ pub fn frame(state: &game::Frame) {
             game::Heard::Session(session) => {
                 let loaded = saves::take_loaded();
                 log!("session {session} started (from a loaded save: {})", loaded.is_some());
-                IN_SESSION.store(true, Ordering::Relaxed);
                 for e in &all {
                     e.take_session_times();
                 }
@@ -389,20 +382,12 @@ pub fn frame(state: &game::Frame) {
     refresh_report(false);
 }
 
-/// The session is being left, for `reason` (`SESSION_ENDED_*`): every
+/// The session is being left, for `end` (`crate::sessions`): every
 /// extension hears it while the session's state is still the game's, on the
 /// main thread, before anything of it is saved or taken down.
-pub fn session_ended(reason: u32) {
-    log!("session ending (reason {reason})");
-    IN_SESSION.store(false, Ordering::Relaxed);
-    crate::remote::session_ended(reason);
-    let word = match reason {
-        SESSION_ENDED_LOAD => "load",
-        SESSION_ENDED_NEW_GAME => "new_game",
-        _ => "return",
-    };
+pub fn session_ended(end: crate::sessions::End) {
     for e in extensions() {
-        e.handle("on_session_ended", &[Arg::Text(word.into())]);
+        e.handle("on_session_ended", &[Arg::Text(end.word().into())]);
         e.session_over();
     }
     let Some(began) = SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
@@ -457,13 +442,6 @@ impl Clocks {
         Clocks { wall: Instant::now(), main, game }
     }
 }
-
-/// Why a session is left: for the main menu.
-pub const SESSION_ENDED_RETURN: u32 = 0;
-/// For a save loaded from the session.
-pub const SESSION_ENDED_LOAD: u32 = 1;
-/// For a new game started from the session.
-pub const SESSION_ENDED_NEW_GAME: u32 = 2;
 
 /// Every extension's save data, from its `save_data`
 /// (ADR save-data-is-asked-for-by-save-data), as the game writes its world, on
@@ -561,7 +539,7 @@ mod tests {
         *EXTENSIONS.write().unwrap() = vec![first.clone()];
         *OPENED.lock().unwrap() =
             vec![Opened { id: "reloaded".into(), name: "Reloaded".into(), dir: dir.clone(), permissions: permissions.clone(), data: dir.join("data") }];
-        IN_SESSION.store(true, Ordering::Relaxed);
+        crate::sessions::set_going_on(Some(1));
 
         write("lua/main.lua", "return { on_session = function(game, saved) log('v2 got ' .. tostring(saved and saved.count)) end }");
         let r = reload_now("reloaded").unwrap();
@@ -581,7 +559,7 @@ mod tests {
         assert_eq!(reload_now("other").unwrap_err().status, game::Status::NotFound);
 
         assert!(host.0.lock().unwrap().iter().any(|l| l == "v2 got 41"), "{:?}", host.0.lock().unwrap());
-        IN_SESSION.store(false, Ordering::Relaxed);
+        crate::sessions::set_going_on(None);
         *EXTENSIONS.write().unwrap() = Vec::new();
         *OPENED.lock().unwrap() = Vec::new();
         let _ = std::fs::remove_dir_all(&dir);

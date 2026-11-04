@@ -397,14 +397,14 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     frame.heard().into_iter().map(event).collect()
 }
 
-/// The session is being left, for `reason` (`crate::lua::SESSION_ENDED_*`), as
-/// extensions hear it.
-pub(crate) fn session_ended(reason: u32) {
+/// The session is being left, for `end`, as extensions hear it.
+pub(crate) fn session_ended(end: crate::sessions::End) {
+    use crate::sessions::End;
     use eu4_harmony_remote::events::{Event, SessionEnd};
-    let reason = match reason {
-        crate::lua::SESSION_ENDED_LOAD => SessionEnd::Load,
-        crate::lua::SESSION_ENDED_NEW_GAME => SessionEnd::NewGame,
-        _ => SessionEnd::Return,
+    let reason = match end {
+        End::Return => SessionEnd::Return,
+        End::Load => SessionEnd::Load,
+        End::NewGame => SessionEnd::NewGame,
     };
     ENGINE.record([Event::SessionEnded { reason }]);
 }

@@ -41,6 +41,7 @@ use crate::{
     },
     points::{Function, Point},
     repairs,
+    sessions::{self, End},
     unicode::game_text,
 };
 use std::sync::{
@@ -117,8 +118,9 @@ pub enum Destination {
 /// One step of leaving a session, in the order [`plan`] gives them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
-    /// Extensions hear that the session ended, and why (`crate::lua::SESSION_ENDED_*`).
-    Ended(u32),
+    /// The session ends, and everything that keeps something of it hears
+    /// why (`crate::sessions::ending`).
+    Ended(End),
     /// The ironman exit save; leaving goes no further when it was not written.
     ExitSave,
     /// The game's in-game load: it resets the world and reads the save.
@@ -149,9 +151,9 @@ impl Rules {
 /// cannot go there.
 pub fn plan(to: Destination, ironman: bool, rules: Rules) -> Result<Vec<Step>, &'static str> {
     let reason = match to {
-        Destination::MainMenu => crate::lua::SESSION_ENDED_RETURN,
-        Destination::Save => crate::lua::SESSION_ENDED_LOAD,
-        Destination::NewGame => crate::lua::SESSION_ENDED_NEW_GAME,
+        Destination::MainMenu => End::Return,
+        Destination::Save => End::Load,
+        Destination::NewGame => End::NewGame,
     };
     let last: &[Step] = match to {
         Destination::Save => &[Step::Load],
@@ -298,7 +300,7 @@ unsafe extern "C" fn in_game_load(request: usize) -> u32 {
         log!("leave: an in-game load, {}ironman: {steps:?}", if ironman { "" } else { "not " });
         for step in steps.unwrap_or_default() {
             match step {
-                Step::Ended(reason) => crate::lua::session_ended(reason),
+                Step::Ended(end) => sessions::ending(end),
                 Step::ExitSave => {
                     if let Err(why) = exit_save(&m) {
                         log!("leave: the load did not happen: {why}");
@@ -427,7 +429,7 @@ extern "C" fn returning() {
         let decided = plan(Destination::MainMenu, ironman(&m), rules).map_err(String::from).and_then(|steps| {
             for step in steps {
                 match step {
-                    Step::Ended(reason) => crate::lua::session_ended(reason),
+                    Step::Ended(end) => sessions::ending(end),
                     Step::ExitSave => exit_save(&m)?,
                     Step::Load | Step::Restart | Step::Return | Step::Start => {}
                 }
@@ -501,7 +503,7 @@ fn in_process_return(m: &Memory, app: usize) -> crate::Result<()> {
     let took = Took::begin();
     m.call(m.at(RESET), &[manager, 0])?;
     log!("leave: the world reset with the history, {}", took.end());
-    crate::game::events::world_reset();
+    sessions::world_reset();
     repairs::after_history(m);
     interface.let_go_with_map_manager(m)?;
     main_menu(m, app)
@@ -559,7 +561,7 @@ extern "C" fn setup_back(app: usize) -> bool {
         let took = Took::begin();
         let back = m.call(m.at(RESET_GAME), &[app, 0]).and_then(|_| {
             log!("leave: the single player setup was left; the world reset with the history, {}", took.end());
-            crate::game::events::world_reset();
+            sessions::world_reset();
             repairs::after_history(&m);
             main_menu(&m, app)
         });
@@ -680,7 +682,7 @@ mod tests {
 
     #[test]
     fn an_in_game_load_saves_an_ironman_session_first_unless_undoing() {
-        let ended = Step::Ended(crate::lua::SESSION_ENDED_LOAD);
+        let ended = Step::Ended(End::Load);
         assert_eq!(plan(Destination::Save, false, ALL), Ok(vec![ended, Step::Load]));
         assert_eq!(plan(Destination::Save, true, ALL), Ok(vec![ended, Step::ExitSave, Step::Load]));
         assert_eq!(plan(Destination::Save, true, UNDO), Ok(vec![ended, Step::Load]));
@@ -690,7 +692,7 @@ mod tests {
 
     #[test]
     fn returning_always_saves_an_ironman_session() {
-        let ended = Step::Ended(crate::lua::SESSION_ENDED_RETURN);
+        let ended = Step::Ended(End::Return);
         assert_eq!(plan(Destination::MainMenu, false, ALL), Ok(vec![ended, Step::Return]));
         assert_eq!(plan(Destination::MainMenu, true, UNDO), Ok(vec![ended, Step::ExitSave, Step::Return]));
         assert_eq!(plan(Destination::MainMenu, true, RESTART), Ok(vec![ended, Step::ExitSave, Step::Restart]));
@@ -698,7 +700,7 @@ mod tests {
 
     #[test]
     fn a_new_game_from_a_session_returns_first_and_needs_no_restart() {
-        let ended = Step::Ended(crate::lua::SESSION_ENDED_NEW_GAME);
+        let ended = Step::Ended(End::NewGame);
         assert_eq!(plan(Destination::NewGame, true, UNDO), Ok(vec![ended, Step::ExitSave, Step::Return, Step::Start]));
         assert_eq!(plan(Destination::NewGame, false, ALL), Ok(vec![ended, Step::Return, Step::Start]));
         assert!(plan(Destination::NewGame, false, RESTART).is_err());

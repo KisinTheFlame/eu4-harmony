@@ -5,8 +5,8 @@
 //! reads that entry before the world's handler of top-level entries sees it.
 //! How the game writes and reads saves is in docs/research/saves.md.
 //!
-//! The save loader is observed as well, which tells the rest of the core when
-//! a save is being read and whether it was.
+//! The save loader is observed as well, which tells the sessions
+//! (`crate::sessions`) when a save is being read and whether it was.
 pub mod background;
 pub mod file;
 
@@ -16,10 +16,7 @@ use serde_json::Value;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Mutex, OnceLock,
-    },
+    sync::{atomic::AtomicUsize, Mutex, OnceLock},
 };
 
 /// In the world's write of itself into a save (`0x74ff30(world, writer)`), the
@@ -79,12 +76,6 @@ const VERSION: &str = "1";
 /// The game's reader returns an empty string for one of 512 bytes or more.
 const CHUNK: usize = 500;
 
-static LOAD_DEPTH: AtomicUsize = AtomicUsize::new(0);
-/// The saves the game began to read since it started.
-static LOADS: AtomicUsize = AtomicUsize::new(0);
-/// The game read the last save it began to read into its world.
-static LAST_READ: AtomicBool = AtomicBool::new(false);
-
 /// The extensions loaded in this run, the only ones a save's data is kept for.
 static EXTENSIONS: OnceLock<BTreeSet<String>> = OnceLock::new();
 /// What the save being read held in its entry, once read.
@@ -93,21 +84,6 @@ static READ: Mutex<Option<Result<BTreeMap<String, Value>>>> = Mutex::new(None);
 static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
 /// Current data of every extension, written with every save.
 static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
-
-pub fn load_in_progress() -> bool {
-    LOAD_DEPTH.load(Ordering::SeqCst) != 0
-}
-
-/// How many saves the game began to read since it started.
-pub fn loads() -> usize {
-    LOADS.load(Ordering::SeqCst)
-}
-
-/// Whether the game read the last save it began to read: its loader said
-/// so, for the world it read into, outside a daily update.
-pub fn last_load_read() -> bool {
-    LAST_READ.load(Ordering::SeqCst)
-}
 
 /// Says which extensions loaded, once they have.
 pub fn keep_for(ids: impl IntoIterator<Item = String>) {
@@ -373,7 +349,7 @@ extern "C" fn take_entry(reader: usize) -> bool {
             Ok(false) => return false,
             Ok(true) => block_tokens(m, reader).and_then(|tokens| decode(&tokens)),
             // The game skips the entry, as one it does not know.
-            Err(e) if !load_in_progress() => {
+            Err(e) if !crate::sessions::loading() => {
                 log!("saves: {e}");
                 return false;
             }
@@ -382,7 +358,7 @@ extern "C" fn take_entry(reader: usize) -> bool {
                 return false;
             }
         };
-        if load_in_progress() {
+        if crate::sessions::loading() {
             *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
         } else {
             log!("saves: read a {KEY} entry outside a load, and left it");
@@ -434,13 +410,9 @@ fn world_state(m: &Memory) -> Result<(usize, u8)> {
 extern "C" fn load_before(frame: *mut HookFrame) {
     // A save compressed in the background is in its place before any is read.
     background::wait();
-    LOAD_DEPTH.fetch_add(1, Ordering::SeqCst);
-    LOADS.fetch_add(1, Ordering::SeqCst);
-    LAST_READ.store(false, Ordering::SeqCst);
     *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
     *READ.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    crate::game::events::load_begin();
-    crate::remote::campaign_changes();
+    crate::sessions::load_began();
     let h = unsafe { &*frame };
     LOADING.with(|l| l.borrow_mut().push(Load { world: h.args[2], success: h.args[1] }));
 }
@@ -449,7 +421,7 @@ extern "C" fn load_after(frame: *mut HookFrame) {
     struct Exit;
     impl Drop for Exit {
         fn drop(&mut self) {
-            let _ = LOAD_DEPTH.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+            crate::sessions::load_ended();
         }
     }
     let _exit = Exit;
@@ -463,7 +435,7 @@ extern "C" fn load_after(frame: *mut HookFrame) {
             let m = crate::hooked_memory();
             let (world, daily) = world_state(&m)?;
             let read = h.result == load.success && m.u8(load.success)? == 1 && world == load.world && daily == 0;
-            LAST_READ.store(read, Ordering::SeqCst);
+            crate::sessions::load_read(read);
             let data = READ.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_else(|| Ok(BTreeMap::new()));
             if read {
                 match &data {

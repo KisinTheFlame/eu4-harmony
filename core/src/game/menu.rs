@@ -35,10 +35,7 @@ use crate::{
 };
 use std::{
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU8, AtomicUsize, Ordering},
-        Mutex, OnceLock,
-    },
+    sync::{Mutex, OnceLock},
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
@@ -53,42 +50,7 @@ const CONTINUE: usize = 0x1120740;
 /// `(world, tag)`: makes the country the player's.
 const SET_PLAYER: usize = 0x763840;
 
-/// Where the safe point that runs remote control is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum At {
-    /// A game's frame (also while the player only observes).
-    Game,
-    /// The main menu's frame ran since the last frame was presented; the
-    /// main menu object.
-    MainMenu(usize),
-    /// Neither: a game being set up or loaded, or a frame that is not ready.
-    Elsewhere,
-}
-
-const ELSEWHERE: u8 = 0;
-const MAIN_MENU: u8 = 1;
-const GAME: u8 = 2;
-static AT: AtomicU8 = AtomicU8::new(ELSEWHERE);
-static FRONTEND: AtomicUsize = AtomicUsize::new(0);
-
-/// Says where the safe point that is about to run remote control is.
-pub(crate) fn set_at(at: At) {
-    let (kind, frontend) = match at {
-        At::Game => (GAME, 0),
-        At::MainMenu(frontend) => (MAIN_MENU, frontend),
-        At::Elsewhere => (ELSEWHERE, 0),
-    };
-    FRONTEND.store(frontend, Ordering::Relaxed);
-    AT.store(kind, Ordering::Relaxed);
-}
-
-fn at() -> At {
-    match AT.load(Ordering::Relaxed) {
-        GAME => At::Game,
-        MAIN_MENU => At::MainMenu(FRONTEND.load(Ordering::Relaxed)),
-        _ => At::Elsewhere,
-    }
-}
+use crate::sessions::{self, At};
 
 /// Where the game is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -238,7 +200,7 @@ fn loading_in_game() -> bool {
 /// Where the game is.
 pub fn place(_: Caller) -> GResult<Place> {
     let m = game()?;
-    Ok(match at() {
+    Ok(match sessions::at() {
         At::Game if loading_in_game() => Place::Starting,
         At::Game => Place::Game,
         At::MainMenu(frontend) if !starting(m, frontend) => Place::MainMenu,
@@ -253,7 +215,7 @@ pub fn place(_: Caller) -> GResult<Place> {
 /// is not open either.
 pub(crate) fn starting(m: &Memory, frontend: usize) -> bool {
     let asked = attempt(|a| matches!(a, Some(Attempt { stage: Stage::Asked, .. })));
-    asked || crate::saves::load_in_progress() || steps(m, frontend).map_or(true, |s| s.starting())
+    asked || sessions::loading() || steps(m, frontend).map_or(true, |s| s.starting())
 }
 
 /// What the main menu `frontend` shows of a game being started from it.
@@ -265,7 +227,7 @@ fn steps(m: &Memory, frontend: usize) -> Result<Steps> {
     let application = m.ptr(frontend + main_menu::APPLICATION)?;
     let world = m.ptr(m.at(globals::WORLD))?;
     Ok(Steps {
-        loads: crate::saves::loads(),
+        loads: sessions::loads(),
         page,
         started: page == main_menu::SETUP_PAGE && setup(m, frontend).and_then(|setup| m.u8(setup + setup::STARTED)).is_ok_and(|b| b != 0),
         accepted: m.u8(frontend + main_menu::LAUNCH_ACCEPTED)? != 0,
@@ -361,7 +323,7 @@ fn save_file(name: &str) -> GResult<String> {
 /// The main menu at this safe point, on its first page, with nothing being
 /// started from it.
 fn first_page(m: &Memory) -> GResult<usize> {
-    let At::MainMenu(frontend) = at() else {
+    let At::MainMenu(frontend) = sessions::at() else {
         return fail(Status::Unavailable, "only in the main menu");
     };
     if m.ptr(frontend)? != m.at(gui_classes::MAIN_MENU) {
@@ -382,7 +344,7 @@ fn first_page(m: &Memory) -> GResult<usize> {
 pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
     let m = game()?;
     // Where the game is first: a save is refused alike wherever it cannot be loaded.
-    let in_game = at() == At::Game;
+    let in_game = sessions::at() == At::Game;
     if in_game {
         if loading_in_game() {
             return fail(Status::Unavailable, "a save is already being loaded");
@@ -430,7 +392,7 @@ pub(crate) fn game_frame(m: &Memory) -> bool {
     }) else {
         return false;
     };
-    let loads = crate::saves::loads();
+    let loads = sessions::loads();
     let stage = match leave::load_in_game(m, &name) {
         Ok(()) => {
             log!("menu: loading {name} in the session's place started");
@@ -459,7 +421,7 @@ pub(crate) fn game_frame(m: &Memory) -> bool {
 /// player setup is entered, since the world has no history yet.
 pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
     let m = game()?;
-    if at() == At::Game {
+    if sessions::at() == At::Game {
         if let Err(why) = leave::plan(leave::Destination::NewGame, false, leave::Rules::now()) {
             return fail(Status::Unavailable, why);
         }
@@ -509,7 +471,7 @@ const UNREAD: &str = "the game could not read the save: it starts a game anyway,
 /// on and starts a game from what it read (seen in the game with a save
 /// whose game state was damaged).
 fn unread(loads: usize) -> bool {
-    crate::saves::loads() > loads && !crate::saves::load_in_progress() && !crate::saves::last_load_read()
+    sessions::loads() > loads && !sessions::loading() && !sessions::last_load_read()
 }
 
 /// At the end of the main menu's frame: runs the load or start asked for,
@@ -586,7 +548,7 @@ fn follow(m: &Memory, frontend: usize, action: &Action, seen: Steps, since: Inst
     let why = match steps(m, frontend) {
         // Not the main menu the framework knows: nothing is touched.
         Err(e) => e.to_string(),
-        Ok(now) => match judge(&seen, &now, crate::saves::load_in_progress(), since.elapsed()) {
+        Ok(now) => match judge(&seen, &now, sessions::loading(), since.elapsed()) {
             Judged::Step => return Stage::Taken { seen: now, since: Instant::now(), loads },
             Judged::Wait => return Stage::Taken { seen, since, loads },
             Judged::Open => {

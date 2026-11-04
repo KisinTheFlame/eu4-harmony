@@ -51,6 +51,7 @@ pub mod repairs;
 pub mod report;
 pub mod safe_point;
 pub mod saves;
+pub mod sessions;
 pub mod settings;
 pub mod speed;
 pub mod splice;
