@@ -227,6 +227,7 @@ fn kinds_from_text() {
         Kind::Keys,
         Kind::Countries,
         Kind::Words,
+        Kind::PowerKind,
     ];
     for kind in all {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
@@ -243,6 +244,7 @@ fn kinds_from_text() {
     assert_eq!(Kind::Words.json("day,month"), Some(json!(["day", "month"])));
     assert_eq!(Kind::Keys.json("Control+Return"), Some(json!("ctrl+enter")));
     assert_eq!(Kind::Button.json("right"), Some(json!("right")));
+    assert_eq!(Kind::PowerKind.json("dip"), Some(json!("dip")));
     for (kind, bad) in [
         (Kind::Provinces, "151,Paris"),
         (Kind::Provinces, ""),
@@ -258,6 +260,7 @@ fn kinds_from_text() {
         (Kind::Keys, "ctrl+banana"),
         (Kind::Button, "back"),
         (Kind::Direction, "sideways"),
+        (Kind::PowerKind, "ADM"),
     ] {
         assert_eq!(kind.json(bad), None, "{kind:?} {bad}");
     }

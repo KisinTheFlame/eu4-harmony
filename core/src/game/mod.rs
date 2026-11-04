@@ -23,18 +23,24 @@ pub mod console;
 pub mod countries;
 pub mod decisions;
 pub mod diplomacy;
+pub mod economy;
 pub mod events;
+pub mod focus;
 pub mod input;
 pub mod interface;
+pub mod loans;
 pub mod map_coloring;
 pub mod menu;
 pub mod offers;
 pub mod orders;
+pub mod power;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod stability;
+pub mod technology;
 pub mod texts;
 pub mod time;
 pub mod world;
@@ -292,6 +298,12 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(power::points());
+    points.extend(technology::points());
+    points.extend(focus::points());
+    points.extend(stability::points());
+    points.extend(economy::points());
+    points.extend(loans::points());
     points
 }
 
