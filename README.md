@@ -7,7 +7,7 @@ English | [简体中文](README.zh-CN.md)
 **Europa Universalis IV, made better from within.** Chinese everywhere, no restarts, a faster game, fewer bugs, and mods that can do far more.
 
 > [!NOTE]
-> Early development: EU4 1.37.5 on Windows, single player only. No release yet; [build it from source](#building-from-source).
+> Early development: EU4 1.37.5 on Windows, with every DLC, single player only. No release yet; [build it from source](#building-from-source).
 
 ## Why EU4 Harmony
 
@@ -45,6 +45,7 @@ Good to know:
 | In ironman, save the game before loading another save | On | Ironman games can load another save from the game's menu. Off, loading the same save again undoes what was played since. |
 | Achievements outside ironman | Off | Achievements in a game that is not ironman, even with saves loaded again and the console used. |
 | Achievements with a changed game checksum | Off | Achievements with mods that change the checksum the main menu shows. |
+| Remote control sees everything | Off | Off, programs using the game through remote control read what the player sees: the map under fog of war, and of other countries what their panels show. On, they read everything the game keeps, as mods' extensions always do ([why](docs/adr/remote-control-reads-the-players-view.md)). |
 | Game speed: at the fastest speed | Smooth map | "Faster time" draws no frames in the middle of a long day: late in a game, days pass about another tenth faster, but the map moves in jerks and answers clicks later. |
 
 A font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).

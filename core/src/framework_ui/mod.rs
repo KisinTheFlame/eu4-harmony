@@ -197,6 +197,9 @@ impl FrameworkUi {
                 options: vec![words("EU4HARMONY_SETTINGS_PACE_SMOOTH"), words("EU4HARMONY_SETTINGS_PACE_FASTER")],
                 selected: PACES.iter().position(|&p| p == next.fastest_speed).unwrap_or(0),
             },
+            Widget::Heading(words("EU4HARMONY_SETTINGS_REMOTE_CONTROL")),
+            Widget::Toggle { id: "remote_full_view", label: words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW"), on: next.remote_full_view },
+            Widget::Label(words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO")),
             Widget::Gap,
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
             Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
@@ -248,6 +251,7 @@ impl FrameworkUi {
                 achievements_outside_ironman: w.is_on("outside_ironman").unwrap_or(next.achievements_outside_ironman),
                 achievements_with_changed_checksum: w.is_on("changed_checksum").unwrap_or(next.achievements_with_changed_checksum),
                 fastest_speed: w.selected("pace").and_then(|i| PACES.get(i).copied()).unwrap_or(next.fastest_speed),
+                remote_full_view: w.is_on("remote_full_view").unwrap_or(next.remote_full_view),
             };
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),

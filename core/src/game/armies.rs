@@ -6,7 +6,7 @@
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
-use super::{context, events, game, orders, with_state, world, Caller, GResult, Tag};
+use super::{context, events, game, orders, with_state, world, Caller, GResult, Tag, View};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
 
@@ -98,16 +98,18 @@ pub fn own_armies(caller: Caller) -> GResult<Vec<Army>> {
     world::own_roster(m, &ctx)?.into_iter().map(|(id, address, _)| own(m, caller, address, id)).collect()
 }
 
-/// Land armies in a province the player can see; none under fog.
-/// [`Status::NotReady`] while visibility is not current.
-pub fn in_province(_: Caller, province: u32) -> GResult<Vec<Army>> {
+/// Land armies in a province: in the player's view those the player can see,
+/// none under fog, and [`Status::NotReady`] while visibility is not current;
+/// in the full view every one.
+pub fn in_province(caller: Caller, province: u32) -> GResult<Vec<Army>> {
     let m = game()?;
     let ctx = context(m)?;
-    if !events::visibility_current(m, &ctx) {
+    let view = super::view(caller);
+    if view == View::Player && !events::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    Ok(world::province_armies(m, &ctx, address)?.into_iter().map(|(a, _)| a).collect())
+    Ok(world::province_armies(m, &ctx, address, view)?.into_iter().map(|(a, _)| a).collect())
 }
 
 /// Provinces on the current route of an own land army, in order.
@@ -145,7 +147,7 @@ pub fn can_attack(_: Caller, id: u64, target: u64, province: u32) -> GResult<boo
     }
     let army = world::own_land_army(m, &ctx, id)?;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    let Some((_, unit)) = world::province_armies(m, &ctx, address)?.into_iter().find(|(a, _)| a.id == target) else {
+    let Some((_, unit)) = world::province_armies(m, &ctx, address, View::Player)?.into_iter().find(|(a, _)| a.id == target) else {
         return Err(checks::not_visible(target, province).into());
     };
     Ok(unit != army && world::can_attack(m, army, unit)?)
@@ -166,7 +168,7 @@ pub fn can_attack_seen(_: Caller, id: u64, target: u64) -> GResult<bool> {
         return Err(checks::not_seen(target).into());
     };
     let at = m.ptr(other + unit::LOCATION)?;
-    if at == 0 || !world::province_armies(m, &ctx, at)?.iter().any(|(a, _)| a.id == target) {
+    if at == 0 || !world::province_armies(m, &ctx, at, View::Player)?.iter().any(|(a, _)| a.id == target) {
         return Err(checks::not_seen(target).into());
     }
     Ok(other != army && world::can_attack(m, army, other)?)

@@ -43,6 +43,7 @@ pub mod armies;
 pub mod camera;
 pub mod console;
 pub mod countries;
+pub mod decisions;
 pub mod describe;
 pub mod desktop;
 pub mod diplomacy;
@@ -97,6 +98,7 @@ pub trait Game:
     + extensions::Layer
     + input::Layer
     + desktop::Layer
+    + decisions::Layer
 {
 }
 impl<
@@ -117,6 +119,7 @@ impl<
             + extensions::Layer
             + input::Layer
             + desktop::Layer
+            + decisions::Layer
             + ?Sized,
     > Game for T
 {
@@ -598,6 +601,7 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Memory(r) => done(crate::memory_account::answer(r).map(Answer::Memory)),
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
+        Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
     }
 }
 
@@ -635,6 +639,8 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
         Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
         Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
         Heard::Day(date) => Event::Day { date: Date(date) },
+        Heard::Month(date) => Event::Month { date: Date(date) },
+        Heard::Year(date) => Event::Year { date: Date(date) },
     };
     frame.heard().into_iter().map(event).collect()
 }
