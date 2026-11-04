@@ -156,6 +156,10 @@ pub mod treaty {
     /// Every term it holds, chosen or not: a `std::vector` of pointers to
     /// [`super::term`]s (start, end).
     pub const TERMS: usize = 0x88;
+    /// Its demand flag (u8), and what its chosen terms add up to, which a
+    /// term's [`super::term::APPLY`] adds to and takes from.
+    pub const DEMAND: usize = 0x20;
+    pub const EFFECTS: usize = 0xe8;
 }
 
 /// A term of a peace treaty (a "peace option", its type's key `po_…`): one
@@ -182,6 +186,9 @@ pub mod term {
     pub const TOKEN: usize = 0xa0;
     pub const NAME: usize = 0x100;
     pub const COST: usize = 0x128;
+    /// (term, the treaty's effects, its demand flag, 1 to take the term's
+    /// effect back or 0 to put it on).
+    pub const APPLY: usize = 0x118;
     /// Kinds, the game's order of terms: gold, a province, a colonial
     /// region, a scripted peace treaty.
     pub const KIND_GOLD: i32 = 0;

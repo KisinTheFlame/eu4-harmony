@@ -43,10 +43,9 @@ const TERM_ALLOWED: usize = 0x97a1c0;
 const TERM_CHOOSE: usize = 0x97a790;
 /// A treaty's war score cost, whole points: (treaty, 1).
 const TREATY_COST: usize = 0x979060;
-/// The gold a treaty asks, set: (treaty, &amount), in thousandths of a
-/// ducat; and the most gold war score buys: (treaty, out, &war score in
-/// thousandths of a point), as the peace view's gold buttons take them.
-const GOLD_SET: usize = 0x97b390;
+/// The most gold war score buys: (treaty, out, &war score in thousandths of
+/// a point), in thousandths of a ducat, as the peace view's gold buttons
+/// take it.
 const GOLD_FOR: usize = 0x97b530;
 /// What the peace view lets the gold reach: what all the war score buys,
 /// in thousandths; and its step, a tenth of a ducat.
@@ -193,8 +192,7 @@ fn composed<'a>(m: &'a Memory, ctx: &Ctx, enemy: Tag, terms: &[Term], offer: boo
             if !(0.0..=most as f64).contains(&wanted) {
                 return Err(checks::gold_out_of_range(amount, most as f64 / 1000.0).into());
             }
-            let wanted = wanted as i32;
-            m.call(m.at(GOLD_SET), &[treaty.at(), &wanted as *const i32 as usize])?;
+            set_gold(m, treaty.at(), at, wanted as i32)?;
         }
     }
     Ok(treaty)
@@ -217,6 +215,18 @@ fn described(asked: &Term) -> String {
     } else {
         format!("{} ({})", asked.term, about.join(", "))
     }
+}
+
+/// Sets the amount of the chosen gold term at `at`, as the peace view's
+/// gold buttons do (`GOLD_SET`): its effect on the treaty taken back, the
+/// amount changed, the effect put on again.
+fn set_gold(m: &Memory, treaty_at: usize, at: usize, amount: i32) -> GResult<()> {
+    let apply = m.vslot(at, term::APPLY)?;
+    let (effects, demand) = (treaty_at + treaty::EFFECTS, m.u8(treaty_at + treaty::DEMAND)? as usize);
+    m.call(apply, &[at, effects, demand, 1])?;
+    m.write(at + term::GOLD, &amount.to_le_bytes())?;
+    m.call(apply, &[at, effects, demand, 0])?;
+    Ok(())
 }
 
 /// The most gold the peace view lets the player set on `treaty`, in
@@ -375,7 +385,14 @@ pub fn points() -> Vec<Point> {
         Point::keep(TERM_ALLOWED, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8b ec 48 81 ec", "peace term check"),
         Point::keep(TERM_CHOOSE, "48 89 6c 24 18 48 89 74 24 20 48 89 54 24 10 57 48 83 ec 30 41 0f b6 e9", "peace term chosen"),
         Point::keep(TREATY_COST, "48 8b c4 53 48 83 ec 40 8b 99 f0 00 00 00 48 89 68 08 48 8b", "peace treaty cost"),
-        Point::keep(GOLD_SET, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 41 56 41 57 48 81 ec 50", "peace treaty gold"),
+        // Setting the gold: the chosen term's effect taken back, the amount
+        // written, the effect put on again.
+        Point::keep(0x97b417usize, "48 8b 07 41 b1 01 44 0f b6 46 20 48 8d 96 e8 00 00 00 48 8b cf ff 90 18 01 00 00", "peace treaty gold").uses(&[
+            treaty::DEMAND,
+            treaty::EFFECTS,
+            term::APPLY,
+        ]),
+        Point::keep(0x97b432usize, "41 8b 06 89 47 30", "peace treaty gold amount").uses(&[term::GOLD]),
         Point::keep(GOLD_FOR, "48 83 ec 08 45 8b 00 4c 8b ca 4c 8b d9 45 85 c0 79 0c 33 c9 49 8b c1 89", "peace treaty gold for war score"),
         // The peace view's gold buttons: at most what all the war score
         // buys, in steps of a tenth.
