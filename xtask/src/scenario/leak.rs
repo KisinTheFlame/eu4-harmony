@@ -89,9 +89,9 @@ impl Scenario for Leak {
 
     fn minutes(&self) -> u32 {
         if self.census {
-            90
+            25
         } else {
-            40
+            20
         }
     }
 
