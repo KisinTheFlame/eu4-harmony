@@ -229,7 +229,7 @@ fn errors() -> String {
 fn events() -> String {
     let mut text = String::from("events: what extensions hear (as on_<event> handlers) and remote control numbers\n\n");
     for (name, about) in EVENTS {
-        let _ = writeln!(text, "  {name:<16}{about}");
+        let _ = writeln!(text, "  {name:<20}{about}");
     }
     let _ = write!(text, "\nA remote client reads them with the capability below.\n\n{}", group_page(&group("events")));
     text

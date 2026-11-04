@@ -297,7 +297,7 @@ The window in the framework UI that shows notices to the player. To the player i
 _Avoid_: dialog; message box (that is the Windows message box used when startup fails)
 
 **Settings window**:
-The window in the framework UI where the player changes framework settings, opened from the framework button in the main menu's corner. Like the notice window, it is not a window in the game's sense.
+The window in the framework UI where the player changes framework settings, opened from the framework button in the main menu's corner. Its settings are on pages, one for each thing they concern (fonts, loading and returning, achievements, game speed, remote control), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
 _Avoid_: options menu (that is the game's own settings)
 
 **Mods window**:

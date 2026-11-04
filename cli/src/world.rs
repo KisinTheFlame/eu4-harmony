@@ -8,7 +8,14 @@
 //! that kind; an attack is on an army of a country hostile to the player.
 //! An order sets or clears the army's route, as this mod's; armies do not
 //! move as days pass.
-use eu4_harmony_remote::{Code, Error};
+//!
+//! What the world refuses, it refuses as the core does, through the same
+//! checks and in the same words (`eu4_harmony_checks`): an ID of no army of
+//! the player's, a fleet where a land army is asked for, an order to an army
+//! the game would not let the framework order, a target the player does not
+//! see. The game is never paused in the world.
+use eu4_harmony_checks::{armies as army_checks, countries as country_checks, provinces as province_checks};
+use eu4_harmony_remote::{armies::Blocked, Error};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -85,7 +92,7 @@ struct Army {
     #[serde(default)]
     regiments: u32,
     #[serde(default)]
-    blocked: Vec<String>,
+    blocked: Vec<Blocked>,
     #[serde(default)]
     route: Vec<u32>,
     #[serde(default)]
@@ -94,6 +101,24 @@ struct Army {
 
 fn army() -> String {
     "army".into()
+}
+
+impl Army {
+    /// What of its state stops an order, as the core reads it.
+    fn condition(&self) -> army_checks::Condition {
+        let is = |why| self.blocked.contains(&why);
+        army_checks::Condition {
+            in_battle: is(Blocked::InBattle),
+            sieging: is(Blocked::Sieging),
+            retreating: is(Blocked::Retreating),
+            exiled: is(Blocked::Exiled),
+            movement_locked: is(Blocked::MovementLocked),
+            attached: is(Blocked::Attached),
+            has_followers: is(Blocked::HasFollowers),
+            busy: is(Blocked::Busy),
+            regiments: self.regiments,
+        }
+    }
 }
 
 /// The capabilities the world answers.
@@ -114,10 +139,6 @@ pub const ANSWERS: &[&str] = &[
     "army.move",
     "army.stop",
 ];
-
-fn not_found(message: String) -> Error {
-    Error::new(Code::NotFound, message)
-}
 
 impl World {
     /// The world `json` describes (from the test's table), or why it is not
@@ -149,13 +170,43 @@ impl World {
     }
 
     fn province(&self, id: u32) -> Result<&Place, Error> {
-        self.provinces.iter().find(|p| p.id == id).ok_or_else(|| not_found(format!("no province {id} in the world")))
+        self.provinces.iter().find(|p| p.id == id).ok_or_else(|| province_checks::not_found(id).into())
     }
 
-    /// The player's army `id`.
+    /// The player's army or fleet `id`.
     fn own(&self, id: u64) -> Result<&Army, Error> {
         let player = self.player();
-        self.armies.iter().find(|a| a.id == id && a.owner == player).ok_or_else(|| not_found(format!("no army {id} of the player's")))
+        self.armies.iter().find(|a| a.id == id && a.owner == player).ok_or_else(|| army_checks::not_own(id).into())
+    }
+
+    /// The player's land army `id`.
+    fn own_land(&self, id: u64) -> Result<&Army, Error> {
+        let army = self.own(id)?;
+        if army.kind != "army" {
+            return Err(army_checks::not_land().into());
+        }
+        Ok(army)
+    }
+
+    /// The player's land army `id`, which the game lets the framework order.
+    fn orderable(&self, id: u64) -> Result<&Army, Error> {
+        let army = self.own_land(id)?;
+        army_checks::orderable(&army.condition())?;
+        Ok(army)
+    }
+
+    /// Whether the player sees the province: one the world does not have is
+    /// seen nowhere.
+    fn visible(&self, id: u32) -> bool {
+        self.province(id).is_ok_and(|p| p.visible)
+    }
+
+    /// A land army the player sees, in a province not under fog.
+    fn seen(&self, id: u64) -> Result<&Army, Error> {
+        self.armies
+            .iter()
+            .find(|a| a.id == id && a.kind == "army" && a.province.is_some_and(|p| self.visible(p)))
+            .ok_or_else(|| army_checks::not_seen(id).into())
     }
 
     fn country_known(&self, tag: &str) -> bool {
@@ -191,6 +242,11 @@ impl World {
             }
         }
         found.into_iter().collect()
+    }
+
+    /// The route an army would take to `to`, as `army.route_to` answers it.
+    fn route_from(&self, army: &Army, to: u32) -> Result<Vec<u32>, Error> {
+        army.province.and_then(|from| self.route(from, to)).ok_or_else(|| army_checks::no_route(to).into())
     }
 
     /// The shortest route over land from `from` to `to`, `to` last; none
@@ -259,7 +315,7 @@ impl World {
             "country.get" => {
                 let tag = text("country");
                 if !self.country_known(&tag) {
-                    return Some(Err(not_found(format!("no country {tag} in the world"))));
+                    return Some(Err(country_checks::not_found(&tag).into()));
                 }
                 let mut country = json!({
                     "tag": tag, "treasury": 0.0, "manpower": 0, "max_manpower": 0, "stability": 0.0, "prestige": 0.0,
@@ -274,7 +330,7 @@ impl World {
                 let (a, b) = (text("country"), text("other"));
                 let unknown = [&a, &b].into_iter().find(|t| !self.country_known(t)).cloned();
                 match unknown {
-                    Some(unknown) => Err(not_found(format!("no country {unknown} in the world"))),
+                    Some(unknown) => Err(country_checks::not_found(&unknown).into()),
                     None => Ok(json!(self.hostile(&a, &b))),
                 }
             }
@@ -304,37 +360,34 @@ impl World {
             }
             "army.at" => {
                 let id = province("province");
-                Ok(Value::Array(self.armies.iter().filter(|a| a.province == Some(id) && a.kind == "army").map(|a| self.army_json(a)).collect()))
+                // None under fog, as the game shows the player.
+                self.province(id).map(|p| {
+                    let seen = |a: &&Army| p.visible && a.province == Some(id) && a.kind == "army";
+                    Value::Array(self.armies.iter().filter(seen).map(|a| self.army_json(a)).collect())
+                })
             }
             "army.selected" => match self.selected {
-                Some(id) => self.own(id).map(|a| json!(a.id)),
-                None => Err(not_found("no own land army selected".into())),
+                Some(id) => self.own_land(id).map(|a| json!(a.id)).map_err(|_| army_checks::none_selected().into()),
+                None => Err(army_checks::panel_not_open().into()),
             },
             "army.route_to" => {
                 let to = province("province");
-                self.own(int("army")).and_then(|a| {
-                    let from = a.province.ok_or_else(|| not_found(format!("army {} stands nowhere", a.id)))?;
-                    self.route(from, to).map(|r| json!(r)).ok_or_else(|| not_found(format!("no route from {from} to {to}")))
-                })
+                self.own_land(int("army")).and_then(|a| self.route_from(a, to).map(|r| json!(r)))
             }
             "army.can_step" => {
                 let (from, to) = (province("from"), province("to"));
-                self.own(int("army")).map(|_| json!(self.passable(to) && self.neighbors(from).iter().any(|(n, _)| *n == to)))
+                self.own_land(int("army")).map(|_| json!(self.passable(to) && self.neighbors(from).iter().any(|(n, _)| *n == to)))
             }
             "army.can_attack" => {
                 let player = self.player();
-                self.own(int("army")).and_then(|_| {
-                    let target = int("target");
-                    let other = self.armies.iter().find(|a| a.id == target).ok_or_else(|| not_found(format!("no army {target} in the world")))?;
-                    Ok(json!(self.hostile(&player, &other.owner)))
+                self.own_land(int("army")).and_then(|own| {
+                    let other = self.seen(int("target"))?;
+                    Ok(json!(other.id != own.id && self.hostile(&player, &other.owner)))
                 })
             }
             "army.move" => {
                 let (id, to) = (int("army"), province("province"));
-                let route = self.own(id).and_then(|a| {
-                    let from = a.province.ok_or_else(|| not_found(format!("army {} stands nowhere", a.id)))?;
-                    self.route(from, to).ok_or_else(|| not_found(format!("no route from {from} to {to}")))
-                });
+                let route = self.orderable(id).and_then(|a| self.route_from(a, to));
                 route.map(|route| {
                     if let Some(a) = self.armies.iter_mut().find(|a| a.id == id) {
                         a.route_by = (!route.is_empty()).then(|| "this_mod".into());
@@ -345,7 +398,7 @@ impl World {
             }
             "army.stop" => {
                 let id = int("army");
-                self.own(id).map(|_| ()).map(|()| {
+                self.orderable(id).map(|_| ()).map(|()| {
                     if let Some(a) = self.armies.iter_mut().find(|a| a.id == id) {
                         a.route.clear();
                         a.route_by = None;
@@ -369,6 +422,7 @@ fn date(text: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eu4_harmony_remote::Code;
 
     /// Castile: Toledo between Madrid and Valencia, Seville off by a strait
     /// over a sea; Granada hostile.
@@ -435,6 +489,49 @@ mod tests {
         assert_eq!(ask(&mut w, "army.get", json!({"army": 2})).unwrap_err().code, Code::NotFound);
         assert_eq!(ask(&mut w, "country.hostile", json!({"country": "GRA", "other": "CAS"})).unwrap(), json!(true));
         assert_eq!(ask(&mut w, "country.get", json!({"country": "ZZZ"})).unwrap_err().code, Code::NotFound);
+    }
+
+    #[test]
+    fn the_world_refuses_as_the_core_does() {
+        let mut w = World::new(json!({
+            "player": "CAS",
+            "hostile": [["CAS", "GRA"]],
+            "provinces": [
+                {"id": 217, "owner": "CAS", "neighbors": [219]},
+                {"id": 219, "owner": "CAS", "neighbors": [300]},
+                {"id": 300, "owner": "GRA", "visible": false},
+                {"id": 1300, "kind": "sea", "neighbors": [217]},
+            ],
+            "armies": [
+                {"id": 1, "owner": "CAS", "province": 217, "regiments": 10},
+                {"id": 2, "owner": "GRA", "province": 219, "regiments": 6},
+                {"id": 3, "owner": "CAS", "kind": "navy", "province": 1300},
+                {"id": 4, "owner": "CAS", "province": 219, "regiments": 4, "blocked": ["sieging"]},
+                {"id": 5, "owner": "GRA", "province": 300, "regiments": 3},
+                {"id": 6, "owner": "CAS", "province": 217},
+            ],
+        }))
+        .unwrap();
+        let mut refused = |capability: &str, request: Value| {
+            let e = ask(&mut w, capability, request).unwrap_err();
+            (e.code, e.message)
+        };
+        let words = |refusal: eu4_harmony_checks::Refusal| {
+            let e = Error::from(refusal);
+            (e.code, e.message)
+        };
+        assert_eq!(refused("army.get", json!({"army": 2})), words(army_checks::not_own(2)));
+        assert_eq!(refused("country.get", json!({"country": "ZZZ"})), words(country_checks::not_found("ZZZ")));
+        assert_eq!(refused("province.get", json!({"province": 9})), words(province_checks::not_found(9)));
+        assert_eq!(refused("army.move", json!({"army": 3, "province": 217})), words(army_checks::not_land()));
+        assert_eq!(refused("army.move", json!({"army": 4, "province": 217})).1, "army is sieging");
+        assert_eq!(refused("army.stop", json!({"army": 6})).1, "army has no regiments");
+        assert_eq!(refused("army.route_to", json!({"army": 1, "province": 1300})), words(army_checks::no_route(1300)));
+        assert_eq!(refused("army.can_attack", json!({"army": 1, "target": 5})), words(army_checks::not_seen(5)));
+        assert_eq!(refused("army.selected", json!({})), words(army_checks::panel_not_open()));
+        // Under fog the player sees no army there.
+        assert_eq!(ask(&mut w, "army.at", json!({"province": 300})).unwrap(), json!([]));
+        assert_eq!(ask(&mut w, "army.can_attack", json!({"army": 1, "target": 2})).unwrap(), json!(true));
     }
 
     #[test]

@@ -463,8 +463,9 @@ extern "C" fn executing(frame: *mut HookFrame) {
     })
 }
 
-/// The name of type token `token`.
-fn type_name(m: &Memory, token: u32) -> Option<String> {
+/// The name of token `token`: a command's type, or the key of an object
+/// written by its token, such as a culture.
+pub fn type_name(m: &Memory, token: u32) -> Option<String> {
     if m.u8(m.at(TOKENS_READY)).ok()? == 0 || token as i32 > m.i32(m.at(TOKENS_LAST)).ok()? {
         return None;
     }

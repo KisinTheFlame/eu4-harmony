@@ -307,6 +307,8 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The buildings of the player's provinces.
+    Building(buildings::BuildingRequest, BuildingAnswer),
     /// The player's missionaries.
     Missionary(missionaries::MissionaryRequest, MissionaryAnswer),
     /// The player's colonists.
