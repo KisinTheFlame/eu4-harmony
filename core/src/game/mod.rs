@@ -44,6 +44,32 @@ use crate::{
 };
 use std::sync::Mutex;
 
+/// How much of the game a read gives (GLOSSARY: Player's view, Full view;
+/// ADR remote-control-reads-the-players-view).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum View {
+    /// What the player's interface shows: the map as fog of war leaves it,
+    /// and of other countries what their panels show.
+    Player,
+    /// Everything the game keeps.
+    Full,
+}
+
+/// The view `caller` reads: the full view for an extension; for remote
+/// control the player's view, unless the player's framework setting gives it
+/// the full view.
+pub fn view(caller: Caller) -> View {
+    view_of(caller, crate::settings::current().remote_full_view)
+}
+
+fn view_of(caller: Caller, remote_full_view: bool) -> View {
+    match caller {
+        Caller::Extension(_) => View::Full,
+        Caller::Remote if remote_full_view => View::Full,
+        Caller::Remote => View::Player,
+    }
+}
+
 /// Who calls a capability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Caller {
@@ -372,7 +398,14 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 
 #[cfg(test)]
 mod tests {
-    use super::{events::Change, Ctx, Frame, Heard, Tag};
+    use super::{events::Change, view_of, Caller, Ctx, Frame, Heard, Tag, View};
+
+    #[test]
+    fn extensions_read_the_full_view_and_remote_control_the_players_unless_set() {
+        assert_eq!(view_of(Caller::Extension(0), false), View::Full);
+        assert_eq!(view_of(Caller::Remote, false), View::Player);
+        assert_eq!(view_of(Caller::Remote, true), View::Full);
+    }
 
     #[test]
     fn a_frame_is_heard_session_first_and_day_last() {
