@@ -28,7 +28,7 @@ return {
 **For mod authors**
 
 - Extensions in Lua 5.4, run in a sandbox of their own: nothing to install, nothing to compile.
-- Capabilities for countries, provinces, armies, recruiting, diplomacy, decisions, events, time, the camera and the game console, and buttons and windows in the vanilla interface.
+- Capabilities for countries, provinces, armies, recruiting, diplomacy, decisions, technology, the national focus, stability, the treasury and loans, events, time, the camera and the game console, and buttons and windows in the vanilla interface.
 - Extension save data kept in the save; texts in every game language, shown in the player's.
 - A command line tool that creates a mod, checks it, runs its tests against a fake game, reloads it in the running game as you edit, and packs it for upload.
 - Completion and type checking in any editor with the Lua language server, and guides written for coding agents.
