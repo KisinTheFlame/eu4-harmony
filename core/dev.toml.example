@@ -33,6 +33,9 @@ types = []
 fail-startup = false
 # Two test notices are shown, so that the notice window can be tried.
 test-notice = false
+# The game crashes at the first frame of a game, so that what follows a crash
+# can be tried.
+crash = false
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.
