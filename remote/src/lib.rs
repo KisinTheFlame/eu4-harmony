@@ -307,6 +307,16 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The player's missionaries.
+    Missionary(missionaries::MissionaryRequest, MissionaryAnswer),
+    /// The player's colonists.
+    Colonist(colonists::ColonistRequest, ColonistAnswer),
+    /// The player's trade companies.
+    TradeCompany(trade_companies::TradeCompanyRequest, TradeCompanyAnswer),
+    /// Centers of trade in the player's provinces.
+    CenterOfTrade(centers_of_trade::CenterOfTradeRequest, CenterOfTradeAnswer),
+    /// The player's merchants.
+    Merchant(merchants::MerchantRequest, MerchantAnswer),
 }
 
 pub mod binary;

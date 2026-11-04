@@ -3,11 +3,12 @@
 use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, decisions::DecisionRequest,
-    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
-    input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
-    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, centers_of_trade::CenterOfTradeRequest, colonists::ColonistRequest, console::ConsoleRequest,
+    countries::CountryRequest, decisions::DecisionRequest, describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event,
+    events::EventsRequest, extensions::ExtensionRequest, input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest,
+    merchants::MerchantRequest, missionaries::MissionaryRequest, offers::OfferRequest, provinces::ProvinceRequest, questions::QuestionRequest,
+    recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest,
+    time::TimeRequest, trade_companies::TradeCompanyRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -239,6 +240,41 @@ fn every_capability_runs_at_a_game_frame() {
                 v["result"][1] == json!({"decision": "move_capital", "name": "迁都", "major": false, "can": false, "reasons": ["拥有君士坦丁堡"], "cost": []})
             }),
         ),
+        (
+            Request::Missionary(MissionaryRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"]["send"] == json!({"can": true, "reasons": [], "cost": []}) && v["result"]["recall"]["can"] == false),
+        ),
+        (Request::Missionary(MissionaryRequest::Send { province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Missionary(MissionaryRequest::Send { province: province(149) }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "该省份已经信仰我们的宗教"),
+        ),
+        (Request::Missionary(MissionaryRequest::Recall { province: province(1) }), Box::new(error("not_found"))),
+        (Request::Missionary(MissionaryRequest::Automatic {}), Box::new(|v: &Value| v["result"]["missionaries"] == 2 && v["result"]["automatic"] == 1)),
+        (Request::Missionary(MissionaryRequest::RaiseAutomatic {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Missionary(MissionaryRequest::LowerAutomatic {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Colonist(ColonistRequest::Send { province: province(149) }), Box::new(error("rejected"))),
+        (Request::TradeCompany(TradeCompanyRequest::Add { province: province(149) }), Box::new(error("rejected"))),
+        (Request::TradeCompany(TradeCompanyRequest::Remove { province: province(149) }), Box::new(error("rejected"))),
+        (Request::Merchant(MerchantRequest::Collect { node: "constantinople".into() }), Box::new(error("rejected"))),
+        (Request::Merchant(MerchantRequest::Steer { node: "constantinople".into() }), Box::new(error("rejected"))),
+        (
+            Request::Colonist(ColonistRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"]["send"]["reasons"] == json!(["没有可用的殖民者"])),
+        ),
+        (Request::Colonist(ColonistRequest::Recall { province: province(151) }), Box::new(error("rejected"))),
+        (Request::TradeCompany(TradeCompanyRequest::Options { province: province(149) }), Box::new(|v: &Value| v["result"]["investments"] == json!([]))),
+        (Request::TradeCompany(TradeCompanyRequest::Invest { province: province(149), investment: "nothing".into() }), Box::new(error("not_found"))),
+        (
+            Request::CenterOfTrade(CenterOfTradeRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"]["level"] == 1 && v["result"]["upgrade"]["cost"] == json!([{"resource": "ducats", "amount": 200.0}])),
+        ),
+        (Request::CenterOfTrade(CenterOfTradeRequest::Upgrade { province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::CenterOfTrade(CenterOfTradeRequest::Downgrade { province: province(151) }), Box::new(error("rejected"))),
+        (Request::Merchant(MerchantRequest::List {}), Box::new(|v: &Value| v["result"]["placed"][0]["mission"] == "collect")),
+        (Request::Merchant(MerchantRequest::Options { node: "nowhere".into() }), Box::new(error("not_found"))),
+        (Request::Merchant(MerchantRequest::Recall { node: "constantinople".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Merchant(MerchantRequest::SteerTo { node: "constantinople".into(), to: "ragusa".into() }), Box::new(error("not_found"))),
         // The cursor first: a request after an input waits for the game to
         // have it (input::tests).
         (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),

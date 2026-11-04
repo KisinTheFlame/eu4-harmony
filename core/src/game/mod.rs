@@ -17,17 +17,22 @@
 //! defeat.md, time.md, fog-of-war.md).
 pub mod armies;
 pub mod camera;
+pub mod centers_of_trade;
+pub mod colonists;
 pub mod commands;
 pub mod conditions;
 pub mod console;
 pub mod countries;
 pub mod decisions;
 pub mod diplomacy;
+pub mod envoys;
 pub mod events;
 pub mod input;
 pub mod interface;
 pub mod map_coloring;
 pub mod menu;
+pub mod merchants;
+pub mod missionaries;
 pub mod offers;
 pub mod orders;
 pub mod provinces;
@@ -37,6 +42,7 @@ pub mod screenshot;
 pub mod session;
 pub mod texts;
 pub mod time;
+pub mod trade_companies;
 pub mod world;
 
 use crate::{
@@ -292,6 +298,12 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(envoys::points());
+    points.extend(missionaries::points());
+    points.extend(colonists::points());
+    points.extend(trade_companies::points());
+    points.extend(centers_of_trade::points());
+    points.extend(merchants::points());
     points
 }
 

@@ -41,6 +41,8 @@ macro_rules! layer {
 
 pub mod armies;
 pub mod camera;
+pub mod centers_of_trade;
+pub mod colonists;
 pub mod console;
 pub mod countries;
 pub mod decisions;
@@ -53,6 +55,8 @@ pub mod extensions;
 pub(crate) mod fake;
 pub mod input;
 pub mod menu;
+pub mod merchants;
+pub mod missionaries;
 pub mod offers;
 pub mod provinces;
 pub mod questions;
@@ -63,6 +67,7 @@ pub mod session;
 mod tests;
 pub mod texts;
 pub mod time;
+pub mod trade_companies;
 
 use crate::game;
 use eu4_harmony_remote::{Answer, Code, CountryTag, Error, Request, Response};
@@ -99,6 +104,11 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + missionaries::Layer
+    + colonists::Layer
+    + trade_companies::Layer
+    + centers_of_trade::Layer
+    + merchants::Layer
 {
 }
 impl<
@@ -120,6 +130,11 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + missionaries::Layer
+            + colonists::Layer
+            + trade_companies::Layer
+            + centers_of_trade::Layer
+            + merchants::Layer
             + ?Sized,
     > Game for T
 {
@@ -602,6 +617,11 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Missionary(r) => done(missionaries::run(r, game).map(Answer::Missionary)),
+        Request::Colonist(r) => done(colonists::run(r, game).map(Answer::Colonist)),
+        Request::TradeCompany(r) => done(trade_companies::run(r, game).map(Answer::TradeCompany)),
+        Request::CenterOfTrade(r) => done(centers_of_trade::run(r, game).map(Answer::CenterOfTrade)),
+        Request::Merchant(r) => done(merchants::run(r, game).map(Answer::Merchant)),
     }
 }
 

@@ -1,8 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, camera, console, countries, decisions, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session,
-    texts, time,
+    armies, camera, centers_of_trade, colonists, console, countries, decisions, desktop, diplomacy, extensions, input, menu, merchants, missionaries, offers,
+    provinces, questions, recruiting, screenshot, session, texts, time, trade_companies,
 };
 use crate::game::{
     self, fail,
@@ -463,6 +463,178 @@ impl decisions::Layer for Fake {
                 decision: "move_capital".into(), name: "迁都".into(), major: false, choice: Choice::cannot(vec!["拥有君士坦丁堡".into()], Vec::new())
             },
         ])
+    }
+}
+
+/// A choice of part A8's, with the one reason when it cannot be made.
+fn a8_choice(can: bool, reason: &str) -> eu4_harmony_remote::choices::Choice {
+    use eu4_harmony_remote::choices::Choice;
+    if can {
+        Choice::can(Vec::new())
+    } else {
+        Choice::cannot(if reason.is_empty() { Vec::new() } else { vec![reason.into()] }, Vec::new())
+    }
+}
+
+/// Part A8 knows Edirne (149) and Constantinople (151) only.
+fn a8_province(province: u32) -> GResult<()> {
+    match province {
+        149 | 151 => Ok(()),
+        _ => Err(eu4_harmony_checks::provinces::not_found(province).into()),
+    }
+}
+
+/// The Ottomans may send a missionary to Constantinople, not to Edirne,
+/// whose religion is theirs; the game sends one of their two by itself.
+impl missionaries::Layer for Fake {
+    fn missionary_options(&mut self, province: u32) -> GResult<eu4_harmony_remote::missionaries::MissionaryOptions> {
+        a8_province(province)?;
+        Ok(eu4_harmony_remote::missionaries::MissionaryOptions {
+            province: eu4_harmony_remote::ProvinceId(province),
+            working: false,
+            progress: None,
+            send: a8_choice(province == 151, "该省份已经信仰我们的宗教"),
+            recall: a8_choice(false, ""),
+        })
+    }
+
+    fn send_missionary(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("send_missionary {province}"));
+        a8_province(province)?;
+        if province == 151 {
+            Ok(())
+        } else {
+            Err(eu4_harmony_checks::envoys::not_allowed("send a missionary there", &["该省份已经信仰我们的宗教".into()]).into())
+        }
+    }
+
+    fn recall_missionary(&mut self, province: u32) -> GResult<()> {
+        a8_province(province)?;
+        Err(eu4_harmony_checks::envoys::none_there("missionary").into())
+    }
+
+    fn automatic_missionaries(&mut self) -> GResult<eu4_harmony_remote::missionaries::AutomaticMissionaries> {
+        Ok(eu4_harmony_remote::missionaries::AutomaticMissionaries { missionaries: 2, automatic: 1, raise: a8_choice(true, ""), lower: a8_choice(true, "") })
+    }
+
+    fn set_automatic_missionaries(&mut self, raise: bool) -> GResult<()> {
+        self.call(format!("automatic_missionaries {raise}"));
+        Ok(())
+    }
+}
+
+/// The Ottomans have no colonist.
+impl colonists::Layer for Fake {
+    fn colonist_options(&mut self, province: u32) -> GResult<eu4_harmony_remote::colonists::ColonistOptions> {
+        a8_province(province)?;
+        Ok(eu4_harmony_remote::colonists::ColonistOptions {
+            province: eu4_harmony_remote::ProvinceId(province),
+            working: false,
+            size: None,
+            send: a8_choice(false, "没有可用的殖民者"),
+            recall: a8_choice(false, ""),
+        })
+    }
+
+    fn send_colonist(&mut self, province: u32) -> GResult<()> {
+        a8_province(province)?;
+        Err(eu4_harmony_checks::envoys::not_allowed("send a colonist there", &["没有可用的殖民者".into()]).into())
+    }
+
+    fn recall_colonist(&mut self, province: u32) -> GResult<()> {
+        a8_province(province)?;
+        Err(eu4_harmony_checks::envoys::none_there("colonist").into())
+    }
+}
+
+/// No province of the Ottomans' is in a trade company region.
+impl trade_companies::Layer for Fake {
+    fn trade_company_options(&mut self, province: u32) -> GResult<eu4_harmony_remote::trade_companies::TradeCompanyOptions> {
+        a8_province(province)?;
+        Ok(eu4_harmony_remote::trade_companies::TradeCompanyOptions {
+            province: eu4_harmony_remote::ProvinceId(province),
+            in_trade_company: false,
+            add: a8_choice(false, "不在贸易公司区域内"),
+            remove: a8_choice(false, ""),
+            investments: Vec::new(),
+        })
+    }
+
+    fn change_trade_company(&mut self, province: u32, _: bool) -> GResult<()> {
+        a8_province(province)?;
+        Err(eu4_harmony_checks::envoys::not_allowed("add the province to a trade company", &["不在贸易公司区域内".into()]).into())
+    }
+
+    fn invest_in_trade_company(&mut self, province: u32, investment: &str) -> GResult<()> {
+        a8_province(province)?;
+        Err(eu4_harmony_checks::envoys::unknown("trade company investment", investment).into())
+    }
+}
+
+/// Constantinople has a center of trade of level 1 the Ottomans can upgrade.
+impl centers_of_trade::Layer for Fake {
+    fn center_of_trade_options(&mut self, province: u32) -> GResult<eu4_harmony_remote::centers_of_trade::CenterOfTradeOptions> {
+        use eu4_harmony_remote::choices::{Amount, Choice, Resource};
+        a8_province(province)?;
+        Ok(eu4_harmony_remote::centers_of_trade::CenterOfTradeOptions {
+            province: eu4_harmony_remote::ProvinceId(province),
+            level: 1,
+            upgrade: Choice::can(vec![Amount::new(Resource::Ducats, 200.0)]),
+            downgrade: Choice::cannot(vec!["已经是最低等级".into()], vec![Amount::new(Resource::Prestige, 10.0)]),
+        })
+    }
+
+    fn change_center_of_trade(&mut self, province: u32, up: bool) -> GResult<()> {
+        self.call(format!("center_of_trade {province} {up}"));
+        a8_province(province)?;
+        if up {
+            Ok(())
+        } else {
+            Err(eu4_harmony_checks::envoys::not_allowed("downgrade the center of trade", &["已经是最低等级".into()]).into())
+        }
+    }
+}
+
+/// The Ottomans have two merchants, one collecting in Constantinople's node.
+impl merchants::Layer for Fake {
+    fn merchants(&mut self) -> GResult<eu4_harmony_remote::merchants::Merchants> {
+        use eu4_harmony_remote::merchants::{Merchants, Mission, Placed};
+        Ok(Merchants {
+            merchants: 2,
+            free: 1,
+            placed: vec![Placed { node: "constantinople".into(), name: "君士坦丁堡".into(), mission: Mission::Collect, steer_to: None }],
+        })
+    }
+
+    fn merchant_options(&mut self, node: &str) -> GResult<Box<eu4_harmony_remote::merchants::MerchantOptions>> {
+        use eu4_harmony_remote::merchants::{MerchantOptions, Mission};
+        if node != "constantinople" {
+            return Err(eu4_harmony_checks::envoys::unknown("trade node", node).into());
+        }
+        Ok(Box::new(MerchantOptions {
+            node: node.into(),
+            name: "君士坦丁堡".into(),
+            mission: Some(Mission::Collect),
+            collect: a8_choice(false, "已经在收集"),
+            steer: a8_choice(false, "本国首都所在的贸易节点"),
+            recall: a8_choice(true, ""),
+            steer_to: Vec::new(),
+        }))
+    }
+
+    fn send_merchant(&mut self, node: &str, _: eu4_harmony_remote::merchants::Mission) -> GResult<()> {
+        self.merchant_options(node)?;
+        Err(eu4_harmony_checks::envoys::not_allowed("send a merchant there", &["已经在收集".into()]).into())
+    }
+
+    fn recall_merchant(&mut self, node: &str) -> GResult<()> {
+        self.call(format!("recall_merchant {node}"));
+        self.merchant_options(node).map(|_| ())
+    }
+
+    fn steer_to(&mut self, node: &str, to: &str) -> GResult<()> {
+        self.merchant_options(node)?;
+        Err(eu4_harmony_checks::envoys::unknown("trade node downstream", to).into())
     }
 }
 
