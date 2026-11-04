@@ -84,6 +84,10 @@ _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, sessi
 **Leak run**:
 Rounds of sessions that `tools/leak-run.ps1` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
 
+**Quarantine**:
+A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/leak-finding.md).
+_Avoid_: guard, sandbox
+
 **Startup**:
 What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
 _Avoid_: installation

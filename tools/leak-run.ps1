@@ -35,6 +35,14 @@ most and whose leftovers nothing, or only other leftovers, mostly points at
 while they last pointed at its leftovers, and the code that let them go.
 Watching slows every letting go of a block.
 
+With the census and -Quarantine, the quarantine is on from the start
+(memory.quarantine): what the framework's repairs let go is kept instead of
+freed and filled with a pattern, and compared every two seconds. The report
+says what it kept by repair, and every block written to after a repair let it
+go. A read of such a block can end the game at once; the report then says in
+which round, and what was found until then. The memory it keeps counts in
+the game's heap, so a run with it measures no growth.
+
 .PARAMETER Saves
 The two saves, by the names menu.saves lists; the two newest by default.
 #>
@@ -49,7 +57,8 @@ param(
     [switch]$KeepGame,
     [switch]$FromReport,
     [int]$Watch = 0,
-    [int]$WatchAfter = 3
+    [int]$WatchAfter = 3,
+    [switch]$Quarantine
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -97,6 +106,15 @@ if ($FromReport) {
     $start = Ask 'memory'
     $census = [bool]$start.census
     "startup: $(& $line $start); the census $(if ($census) { 'is' } else { 'is not' }) built in"
+    if ($Quarantine) {
+        if (-not $census) { throw '-Quarantine needs the census built in' }
+        $null = Ask 'memory.quarantine', '--on', 'true'
+    }
+    $failed = $null
+    $kept = $null
+    # A round that fails, the game gone among others, ends the run with what
+    # the rounds before found.
+    try {
     for ($i = 1; $i -le $Rounds; $i++) {
         $began = Get-Date
         $null = Ask 'menu.load', $Saves[0]
@@ -126,19 +144,31 @@ if ($FromReport) {
                 "watching from round ${i}: $($watching.sites -join ', ') ($($watching.blocks) live blocks)"
             }
         }
-        $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers; watching = $watching }
+        $quarantined = if ($Quarantine) { Ask 'memory.quarantine' } else { $null }
+        $round = [ordered]@{ round = $i; seconds = [int]((Get-Date) - $began).TotalSeconds; memory = $memory; leftovers = $leftovers; watching = $watching; quarantine = $quarantined }
         $played += $round
         $grew = if ($i -gt 1) { ' ({0:+0.0;-0.0;0.0} MB)' -f (($memory.private - $played[-2].memory.private) / 1MB) } else { '' }
-        "round $i ($($round.seconds) s)${grew}: $(& $line $memory)"
+        $held = if ($quarantined) { "; quarantine $($quarantined.blocks) blocks, $(& $mb $quarantined.bytes) MB, $(@($quarantined.written).Count) written to" } else { '' }
+        "round $i ($($round.seconds) s)${grew}: $(& $line $memory)$held"
     }
-    $report = [ordered]@{ saves = $Saves; country = $Country; days = $Days; startup = $start; rounds = $played }
+    if ($Quarantine) { $kept = Ask 'memory.quarantine', '--on', 'false' }
+    } catch {
+        $failed = "round $($played.Count + 1): $_"
+        "stopped in $failed"
+    }
+    $report = [ordered]@{ saves = $Saves; country = $Country; days = $Days; startup = $start; rounds = $played; failed = $failed; quarantine = $kept }
     $report | ConvertTo-Json -Depth 12 | Set-Content -Encoding utf8 (Join-Path $Out 'report.json')
     if (-not $KeepGame) { Get-Process eu4 -ErrorAction SilentlyContinue | Stop-Process -Force }
 }
 $Saves = @($report.saves); $Country = $report.country; $Days = $report.days; $start = $report.startup; $played = @($report.rounds)
+# What the quarantine said last: as it was turned off, or after the last
+# round played when the run stopped.
+$kept = $report.quarantine
+if (-not $kept -and $played) { $kept = $played[-1].quarantine }
 $census = [bool]$start.census
 
 $md = @("# Leak run, $(Get-Date -Format 'yyyy-MM-dd HH:mm')", '', "Saves $($Saves -join ' and '), new games as $Country, $Days days; $($played.Count) rounds.", '')
+if ($report.failed) { $md += "**The run stopped** in $($report.failed)", '' }
 $md += '| Round | Seconds | Private MB | Change | Game heap MB | Free in heaps MB | Outside heaps MB | Framework MB | Handles |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- |'
 $before = $start.private
 foreach ($r in $played) {
@@ -210,6 +240,19 @@ if ($census -and $played) {
                 $md += "| $($s.site) | $($h.by_nothing) | unrecorded | | $($h.unrecorded) |"
             }
         }
+    }
+}
+if ($kept) {
+    $md += '', '## What the quarantine kept', '', "What the framework's repairs let go, kept instead of freed and filled with a pattern; compared $($kept.checks) times. $($kept.freed) blocks were freed again to keep it under its most.", ''
+    $md += '| Repair | Blocks | MB |', '| --- | --- | --- |'
+    foreach ($r in $kept.repairs) { $md += "| $($r.repair) | $($r.blocks) | $(& $mb $r.bytes) |" }
+    $written = @($kept.written)
+    if ($written) {
+        $md += '', '### Written to after a repair let it go', '', "The first write to each block, as found; the generations are the census's.", ''
+        $md += '| Repair | Site in function | Size | Offset | Bytes from it | Kept at | Found at |', '| --- | --- | --- | --- | --- | --- | --- |'
+        foreach ($w in $written) { $md += "| $($w.repair) | $($w.site) in $($w.function) | $($w.size) | $($w.offset) | $($w.bytes) | $($w.generation) | $($w.found) |" }
+    } else {
+        $md += '', 'Nothing was written to after a repair let it go.'
     }
 }
 $md | Set-Content -Encoding utf8 (Join-Path $Out 'report.md')

@@ -40,6 +40,61 @@ group! {
     /// Ends the census's generation now, as a world reset ends one, for
     /// leftovers inside one long game.
     remote_anywhere Generation "generation" {} -> u32, "the generation that begins";
+    /// The quarantine of what the framework's repairs let go: while it is
+    /// on, every block a repair lets go, and every block freed while it does,
+    /// is kept instead of freed and filled with a pattern; every two
+    /// seconds the blocks are compared with it, and the first write to each
+    /// is kept with the repair that let it go. Off by default; turning it
+    /// off frees what it kept.
+    remote_anywhere Quarantine "quarantine" {
+        /// Whether it is on from now; left out, it stays as it is.
+        on: Option<bool>,
+    } -> Quarantine, "on; blocks and bytes, what it keeps now; freed, the blocks it kept and freed again to stay under its most; checks, how many times it compared them; repairs, by repair, the blocks and bytes it kept; written, the blocks written to after a repair let them go: repair, site and function, size, offset (of the first byte changed), bytes (from it, in hex), generation (the census's, as it was kept) and found (as the write was found)";
+}
+
+/// The quarantine of what the framework's repairs let go.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Quarantine {
+    pub on: bool,
+    /// What it keeps now.
+    pub blocks: u64,
+    pub bytes: u64,
+    /// The blocks it kept and freed again, the oldest first, to keep no
+    /// more than its most.
+    pub freed: u64,
+    /// How many times it compared what it keeps with the pattern.
+    pub checks: u64,
+    /// By repair, what it kept since it was turned on, the most bytes first.
+    pub repairs: Vec<Kept>,
+    /// The blocks written to after a repair let them go, the first found
+    /// first; at most 100.
+    pub written: Vec<Written>,
+}
+
+/// What the quarantine kept of a repair.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Kept {
+    pub repair: String,
+    pub blocks: u64,
+    pub bytes: u64,
+}
+
+/// A block written to after a repair let it go.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Written {
+    pub repair: String,
+    /// The block's site, as memory.leftovers writes it, and its function.
+    pub site: String,
+    pub function: Option<String>,
+    pub size: u64,
+    /// The first byte that changed, and the bytes from it, at most 16, in
+    /// hex.
+    pub offset: u64,
+    pub bytes: String,
+    /// The census's generation as the block was kept, and as the write was
+    /// found.
+    pub generation: u32,
+    pub found: u32,
 }
 
 /// What the process holds now.
