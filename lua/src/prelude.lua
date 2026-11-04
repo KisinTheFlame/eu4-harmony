@@ -2,7 +2,8 @@
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
 local call, WAIT, task, names, set_element, fetch = ...
 
--- The sandbox (ADR 0024): code from text only, nothing that reads files.
+-- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
+-- nothing that reads files.
 local raw_load = load
 load = function(chunk, name, _, env)
   return raw_load(chunk, name, "t", env)
@@ -12,8 +13,8 @@ string.dump = nil
 
 local yield, running = coroutine.yield, coroutine.running
 
--- A function that waits (ADR 0030) is called only in a task: raises the
--- error at `level` otherwise.
+-- A function that waits (ADR handlers-run-as-tasks-that-can-wait) is called
+-- only in a task: raises the error at `level` otherwise.
 local function can_wait(name, level)
   local current = task()
   if current == nil or running() ~= current then

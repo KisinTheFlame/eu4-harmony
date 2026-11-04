@@ -59,7 +59,7 @@ The program that runs inside the game process, finds and loads extensions, and g
 _Avoid_: Harmony on its own where players or other projects see the name (other projects share it; there it is EU4 Harmony or `eu4-harmony`), loader, engine
 
 **Framework files**:
-Files of the framework's own that the game reads as it reads its own and the mods', such as the framework fonts' files. The framework makes them in memory and mounts them into the game's file system; they are never on disk (ADR 0031).
+Files of the framework's own that the game reads as it reads its own and the mods', such as the framework fonts' files. The framework makes them in memory and mounts them into the game's file system; they are never on disk (ADR framework-files-in-the-game-file-system).
 _Avoid_: virtual files, framework mod, assets
 
 **Installation**:

@@ -25,8 +25,9 @@ fn written(country: [u8; 3], province: u32, unit: &str) -> String {
 /// there now, with the game's reasons, one a line; [`Status::NotFound`] for a
 /// number that names no province. Done once the game has carried the order
 /// out, paying for it and putting it in the province's recruit queue: the
-/// command layer has the game execute it at once (ADR 0035), so orders given
-/// one after another are each checked against what the ones before left.
+/// command layer has the game execute it at once (ADR commands-run-at-once), so
+/// orders given one after another are each checked against what the ones before
+/// left.
 pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;

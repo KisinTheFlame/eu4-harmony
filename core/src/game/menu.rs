@@ -1,6 +1,6 @@
-//! The main menu, for remote control (ADR 0015): where the game is, the
-//! saves, loading one, starting a new game and returning to the main menu
-//! (docs/research/main-menu.md).
+//! The main menu, for remote control (ADR remote-control-uses-capabilities):
+//! where the game is, the saves, loading one, starting a new game and returning
+//! to the main menu (docs/research/main-menu.md).
 //!
 //! Each does what the game's own flows do, on the main thread:
 //!

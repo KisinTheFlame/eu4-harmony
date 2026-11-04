@@ -1,6 +1,7 @@
-//! The Unicode module (GLOSSARY, ADR 0010): the game keeps, draws and takes
-//! input of text as UTF-8. Its dependency points install with the rest of the
-//! framework, all or none (ADR 0012).
+//! The Unicode module (GLOSSARY, ADR built-in-unicode-module): the game keeps,
+//! draws and takes input of text as UTF-8. Its dependency points install with
+//! the rest of the framework, all or none
+//! (ADR framework-succeeds-or-fails-as-a-whole).
 pub mod atlas;
 pub mod breaks;
 pub mod buttons;

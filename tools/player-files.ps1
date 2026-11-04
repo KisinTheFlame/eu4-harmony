@@ -9,7 +9,8 @@ game folder. dev-install.ps1 installs them, release.ps1 packs them for
 players; the README's installing section names the same files.
 #>
 $PlayerFiles = @(
-    # The proxy, which loads the core into eu4.exe (ADR 0011).
+    # The proxy, which loads the core into eu4.exe
+    # (ADR version-proxy-injection).
     [pscustomobject]@{ Built = 'version.dll'; Installed = 'version.dll' }
     [pscustomobject]@{ Built = 'eu4_harmony_core.dll'; Installed = 'eu4-harmony\eu4_harmony_core.dll' }
     # The command line tool, for remote control (eu4-harmony game) and for

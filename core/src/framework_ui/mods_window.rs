@@ -1,8 +1,9 @@
 //! The mods window (GLOSSARY): opened from the main menu's corner, it lists
 //! the Harmony mods of this start in playset order and shows the one chosen:
 //! its name and version, its description in the player language, and the
-//! sensitive capabilities its manifest declares (ADR 0025), each in words a
-//! player understands. It shows; it decides nothing.
+//! sensitive capabilities its manifest declares
+//! (ADR sensitive-capabilities-are-declared), each in words a player
+//! understands. It shows; it decides nothing.
 use super::widgets::{Side, Widget, Window};
 use crate::mods::Permissions;
 use std::sync::OnceLock;

@@ -1,6 +1,6 @@
 # Saves: how the game writes and reads them (for `saves`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, 2026-11-01 and 2026-11-02, for extension save data in the save (ADR 0020). What was tried in the running game is in [prototype-log.md](../prototype-log.md). The save request, the writing of the file and the loader were first read while regional-combat was developed (2026-10-26) and checked again on 2026-11-03. The ironman exit save and the in-game load, which go through these, are in [main-menu.md](main-menu.md).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, 2026-11-01 and 2026-11-02, for extension save data in the save (ADR extension-save-data-in-the-save). What was tried in the running game is in [prototype-log.md](../prototype-log.md). The save request, the writing of the file and the loader were first read while regional-combat was developed (2026-10-26) and checked again on 2026-11-03. The ironman exit save and the in-game load, which go through these, are in [main-menu.md](main-menu.md).
 
 ## The save file
 
@@ -42,7 +42,7 @@ Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples
 - **An entry the handler has no case for** goes to `0x7552bb`: it asks the content registry (`0x7e2d40`, a lazily made global) for a script object named by the key (`0x8e9f0` with the key's text, read at `0x7552c3`); one found reads the value; otherwise `0x1709dd0` records an error ("Unexpected token", `savegamehelper.cpp:290`, one line in `error.log`) and skips the value. Either way the handler returns through `0x752d61`. A save with errors is still read (`0x14e4240` returns 1), but the fix-up after reading (`0x755c20`, the world's method at `+0x30`, which among other things gives a country an inconsistent tag at `+0x18f0` as `---`) is skipped. In a file without a checksum it is `0x17068b0`'s "Parsing Error … Unexpected token" (`persistent.cpp:88`) instead.
 - **Strings**: the binary tokenizer returns an empty string for one of 512 bytes or more; the text tokenizer, for a quoted string longer than 511 bytes, logs "Quoted string longer than max length (512)" and returns it empty; words are cut at 511 bytes.
 
-## What the framework does (ADR 0020)
+## What the framework does (ADR extension-save-data-in-the-save)
 
 - **Writing**: a jump at `0x751c87`, where the world has written its game state and the AI may follow. When some extension has data and the writer's depth is 0, it writes with the writer's own functions:
 

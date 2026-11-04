@@ -1,12 +1,13 @@
-//! The core's side of the Lua host (`eu4_harmony_lua`, ADR 0024): loads
-//! every mod's extension at startup on the live host, the running game, and
-//! calls its handlers at safe points (`crate::safe_point`).
+//! The core's side of the Lua host (`eu4_harmony_lua`,
+//! ADR extensions-are-lua-in-a-sandbox): loads every mod's extension at startup
+//! on the live host, the running game, and calls its handlers at safe points
+//! (`crate::safe_point`).
 //!
 //! The live host reaches the capability catalogue through remote control's
 //! groups, called as the extension (`crate::remote::run_for`), so both sides
-//! of the catalogue share one implementation (ADR 0026); interface elements,
-//! the map, texts and the player language through the core's own modules;
-//! the network through [`http`]. Each extension's log is
+//! of the catalogue share one implementation (ADR one-capability-catalogue);
+//! interface elements, the map, texts and the player language through the
+//! core's own modules; the network through [`http`]. Each extension's log is
 //! `eu4-harmony/logs/<id>.log`, the last start's kept beside it.
 mod http;
 
@@ -464,9 +465,10 @@ pub const SESSION_ENDED_LOAD: u32 = 1;
 /// For a new game started from the session.
 pub const SESSION_ENDED_NEW_GAME: u32 = 2;
 
-/// Every extension's save data, from its `save_data` (ADR 0036), as the game
-/// writes its world, on the main thread. One whose `save_data` fails or
-/// returns what JSON cannot hold has none in this save.
+/// Every extension's save data, from its `save_data`
+/// (ADR save-data-is-asked-for-by-save-data), as the game writes its world, on
+/// the main thread. One whose `save_data` fails or returns what JSON cannot
+/// hold has none in this save.
 pub fn save_data() {
     for e in extensions() {
         match e.save_data() {

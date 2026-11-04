@@ -1,4 +1,5 @@
-//! Extension save data, which every save carries whole (ADR 0020).
+//! Extension save data, which every save carries whole
+//! (ADR extension-save-data-in-the-save).
 use crate::{Checked, Refusal, Status};
 
 /// How much JSON one extension's data may be.

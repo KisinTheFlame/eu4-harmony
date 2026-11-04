@@ -23,15 +23,17 @@ pub struct Settings {
     /// glyphs have.
     pub map_outline: bool,
     /// Whether returning to the main menu is an in-process return (GLOSSARY)
-    /// rather than a restart (ADR 0022).
+    /// rather than a restart (ADR return-to-the-main-menu-in-process).
     pub return_without_restart: bool,
     /// Whether an in-game load in ironman writes the ironman exit save first;
-    /// without it, loading the same save again is an undo (ADR 0023).
+    /// without it, loading the same save again is an undo
+    /// (ADR in-game-load-in-ironman).
     pub save_ironman_before_load: bool,
-    /// Whether a game that is not ironman can earn achievements (ADR 0038).
+    /// Whether a game that is not ironman can earn achievements
+    /// (ADR achievement-rules-can-be-relaxed).
     pub achievements_outside_ironman: bool,
     /// Whether achievements can be earned with a game checksum (GLOSSARY)
-    /// that is not vanilla's (ADR 0038).
+    /// that is not vanilla's (ADR achievement-rules-can-be-relaxed).
     pub achievements_with_changed_checksum: bool,
 }
 
@@ -69,7 +71,7 @@ impl Settings {
 
     /// The font families chosen that `installed` does not have, each once;
     /// text that asks for one is drawn with [`DEFAULT_FONT`] instead, and the
-    /// player is told once (ADR 0012).
+    /// player is told once (ADR framework-succeeds-or-fails-as-a-whole).
     pub fn missing_fonts(&self, installed: impl Fn(&str) -> bool) -> Vec<&str> {
         let mut missing: Vec<&str> = Vec::new();
         for face in self.fonts() {

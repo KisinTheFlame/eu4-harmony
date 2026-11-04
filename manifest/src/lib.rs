@@ -1,8 +1,9 @@
 //! The files that make a Paradox mod an EU4 Harmony mod, as the core reads
 //! them at startup and the command line tool writes and checks them:
 //! `eu4-harmony/manifest.toml`, where the layout puts the rest of a mod's
-//! files (ADR 0029), the lines of a `.mod` descriptor, and the user
-//! directory whose `mod\` folder holds the descriptors.
+//! files (ADR manifest-in-toml-layout-by-convention), the lines of a `.mod`
+//! descriptor, and the user directory whose `mod\` folder holds the
+//! descriptors.
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -22,7 +23,8 @@ pub struct Manifest {
     /// A key in the mod's localisation, for the mods window.
     #[serde(default)]
     pub description: Option<String>,
-    /// The sensitive capabilities the extension declares (ADR 0025).
+    /// The sensitive capabilities the extension declares
+    /// (ADR sensitive-capabilities-are-declared).
     #[serde(default)]
     pub permissions: Permissions,
 }
@@ -53,7 +55,7 @@ impl Manifest {
     }
 
     /// Whether the mod was written for the catalogue version `provided`: in
-    /// 0.x only that version itself (ADR 0026).
+    /// 0.x only that version itself (ADR one-capability-catalogue).
     pub fn built_for(&self, provided: &str) -> bool {
         self.api_version == provided
     }
@@ -106,7 +108,8 @@ pub struct UiFragment {
     pub area: Option<String>,
 }
 
-/// A Harmony mod's files where the layout puts them (ADR 0029).
+/// A Harmony mod's files where the layout puts them
+/// (ADR manifest-in-toml-layout-by-convention).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Layout {
     /// The extension's entry, [`EXTENSION`], when the mod has one.

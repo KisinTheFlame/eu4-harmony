@@ -1,5 +1,6 @@
-//! Input, for remote control only (ADR 0037): mouse and keyboard input at
-//! screen positions, given to the game as the player's own.
+//! Input, for remote control only (ADR remote-clients-give-the-players-input):
+//! mouse and keyboard input at screen positions, given to the game as the
+//! player's own.
 //!
 //! An input taken ([`take`]) is checked and queued, and its frames planned
 //! ([`plan`]); at each frame the main thread presents ([`presenting`]), the

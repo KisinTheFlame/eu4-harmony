@@ -1,12 +1,12 @@
 # Sessions plan
 
-Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Of S5, against a new process a new game and a loaded save after a return are the same as in a new process but for what the game chooses at random; the odd moments (a window open, an autosave, observing, the end-of-game summary), a failing ironman exit save and the setting off were tried; returning by the game's own question and summary crashed the game until the session's interface the map manager leaves was let go. A return after time ran crashed the game until the return took the session's interface down as the in-game load does and let the message windows' popups go, and a sprite type that sprites still show was no longer unloaded with its group (research/main-menu.md). Then 20 rounds, the odd moments, ironman and the player's own buttons ran without a crash. What the game still leaves of each session is known and left as it is in this version ([Known leaks](#known-leaks)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Sessions). The decisions and their reasons are in [ADR 0022](adr/0022-return-to-the-main-menu-in-process.md) (returning to the main menu without a restart) and [ADR 0023](adr/0023-in-game-load-in-ironman.md) (an in-game load in ironman, and undo). What the game does is in [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Of S5, against a new process a new game and a loaded save after a return are the same as in a new process but for what the game chooses at random; the odd moments (a window open, an autosave, observing, the end-of-game summary), a failing ironman exit save and the setting off were tried; returning by the game's own question and summary crashed the game until the session's interface the map manager leaves was let go. A return after time ran crashed the game until the return took the session's interface down as the in-game load does and let the message windows' popups go, and a sprite type that sprites still show was no longer unloaded with its group (research/main-menu.md). Then 20 rounds, the odd moments, ironman and the player's own buttons ran without a crash. What the game still leaves of each session is known and left as it is in this version ([Known leaks](#known-leaks)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Sessions). The decisions and their reasons are in [ADR return-to-the-main-menu-in-process](adr/return-to-the-main-menu-in-process.md) (returning to the main menu without a restart) and [ADR in-game-load-in-ironman](adr/in-game-load-in-ironman.md) (an in-game load in ironman, and undo). What the game does is in [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
 - **Goal**: leaving a session, for the main menu or for another save, without restarting the game, for the player and for remote control alike.
 - **In scope**: the in-process return; the in-game load from remote control, in ironman too, and the player's in-game load in ironman; a new game started from a session by remote control; the "session ended" event for extensions; two framework settings and the toggle they are shown with; what the player sees meanwhile; the continue box after an in-process return.
-- **Out of scope**: extensions starting any of this (the main menu stays a capability of remote control only, ADR 0015); multiplayer; cloud saves.
+- **Out of scope**: extensions starting any of this (the main menu stays a capability of remote control only, ADR remote-control-uses-capabilities); multiplayer; cloud saves.
 
 ## Behavior
 
@@ -14,7 +14,7 @@ Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day 
 
 - With "return without restarting" on (the default), every return is an in-process return: the game's question, the end-of-game summary and `menu.return` alike. Off, the game restarts as vanilla does.
 - An ironman session is always left with its ironman exit save. When that save fails, the player stays in the session and is told so in a notice; `menu.return` is answered with the reason.
-- The session is taken down as the in-game load takes it down, its interface, then the world reset, here with the game's history, and the main menu is made after it, as at startup (ADR 0022). What the world reset and the map manager leave of the session is put back or let go by the framework.
+- The session is taken down as the in-game load takes it down, its interface, then the world reset, here with the game's history, and the main menu is made after it, as at startup (ADR return-to-the-main-menu-in-process). What the world reset and the map manager leave of the session is put back or let go by the framework.
 - The single player setup's back button, which restarts the game in vanilla, goes back to the main menu the same way.
 - The continue box offers the save the game wrote last, as after a restart.
 
@@ -33,7 +33,7 @@ Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day 
 
 - What can be found out before the world is touched is checked first, and leaves the session as it was: the save is not there, its header cannot be read or is of another version, it needs mods the playset lacks, the ironman exit save failed.
 - What only shows once the world has been reset, such as a game state that cannot be read, cannot go back: the game ends up in the main menu, and the request is answered `rejected` with the reason.
-- There is no fallback to a restart (ADR 0022).
+- There is no fallback to a restart (ADR return-to-the-main-menu-in-process).
 
 ### What remote control answers
 
@@ -42,7 +42,7 @@ Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day 
 
 ### Extensions
 
-A new event, "session ended", with its reason (a return to the main menu, an in-game load, a new game), comes before the next session begins; it is appended to the ABI (ADR 0014). It comes for the game's own in-game load outside ironman too. The ABI's and SDK's comments that call a session a "campaign" are reworded.
+A new event, "session ended", with its reason (a return to the main menu, an in-game load, a new game), comes before the next session begins; it is appended to the ABI (ADR abi-grows-by-appending). It comes for the game's own in-game load outside ironman too. The ABI's and SDK's comments that call a session a "campaign" are reworded.
 
 ### What the player sees
 

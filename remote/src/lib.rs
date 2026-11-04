@@ -1,5 +1,6 @@
-//! Remote control's requests and responses (ADR 0016), shared by the core,
-//! which answers them, and the command line tool, which sends them.
+//! Remote control's requests and responses
+//! (ADR remote-control-engine-and-transports), shared by the core, which
+//! answers them, and the command line tool, which sends them.
 //!
 //! A request names one capability and carries its arguments. In the core it
 //! is a [`Request`], one variant per group with one variant per capability
@@ -32,13 +33,14 @@ use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::fmt;
 
-/// The version of the capability catalogue (ADR 0026), which `describe`
-/// answers: it changes when a capability that exists changes what it means
-/// or how it is shaped, not when one is added.
+/// The version of the capability catalogue (ADR one-capability-catalogue),
+/// which `describe` answers: it changes when a capability that exists changes
+/// what it means or how it is shaped, not when one is added.
 pub const API_VERSION: &str = "0.3";
 
-/// The named pipe the game serves remote control on (ADR 0016), one JSON
-/// request per line in and one response per line out.
+/// The named pipe the game serves remote control on
+/// (ADR remote-control-engine-and-transports), one JSON request per line in and
+/// one response per line out.
 pub const PIPE: &str = r"\\.\pipe\eu4-harmony";
 
 /// Whether a capability runs only while a game is going on.
@@ -57,8 +59,8 @@ macro_rules! in_game {
     };
 }
 
-/// Whether extensions have a capability too, or only remote control (ADR
-/// 0015).
+/// Whether extensions have a capability too, or only remote control
+/// (ADR remote-control-uses-capabilities).
 macro_rules! for_extensions {
     (game) => {
         true

@@ -1,5 +1,5 @@
-//! The time limit (ADR 0027): a stretch of Lua that runs for more than
-//! [`LIMIT`] without waiting is stopped with an error.
+//! The time limit (ADR an-error-does-not-stop-an-extension): a stretch of Lua
+//! that runs for more than [`LIMIT`] without waiting is stopped with an error.
 //!
 //! A count hook set for the whole stretch would slow Lua 5.4 by 50 to 80%
 //! in tight loops, whatever its interval (measured 2026-11-03), so a thread

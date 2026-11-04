@@ -1,5 +1,6 @@
 //! Route queries, moving and stopping own land armies with the game's move
-//! command (ADR 0035), and the record of which extension set which route.
+//! command (ADR commands-run-at-once), and the record of which extension set
+//! which route.
 use super::{armies::RouteSource, commands, events::Change, fail, paused, span, world, Caller, Ctx, Fail, GResult, Status, MAX_UNITS};
 use crate::{
     memory::Memory,
