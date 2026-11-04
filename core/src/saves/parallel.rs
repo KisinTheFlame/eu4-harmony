@@ -405,6 +405,9 @@ extern "C" fn write_countries(world: usize, writer: usize) -> bool {
 /// Writes a loop's items on several threads into the writer's stream, and
 /// says whether it did; when it did not, the game's loop writes them.
 fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
+    if super::game_writes_saves() {
+        return false;
+    }
     let m = crate::hooked_memory();
     let start = Instant::now();
     let job = match Job::new(m, which, world, writer) {

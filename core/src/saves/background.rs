@@ -111,7 +111,7 @@ static ORIGINAL_DEFLATE: Function<Deflate> = Function::new();
 /// The game's deflate, but at the level a local save's entries get, which
 /// copies, the framework's copy into stored blocks.
 extern "C" fn deflate(zip: usize, data: usize, buffer: usize, size: usize, crc: *mut u32, level: i32) -> u32 {
-    if level != COPY_LEVEL as i32 {
+    if level != COPY_LEVEL as i32 || crate::saves::game_writes_saves() {
         return ORIGINAL_DEFLATE.get()(zip, data, buffer, size, crc, level);
     }
     crate::guarded("zip deflate", || match store(crate::hooked_memory(), zip, data, crc) {
@@ -173,6 +173,8 @@ fn stored_blocks(data: &[u8], last: bool, out: &mut Vec<u8>) {
 
 /// A local save is under way on the main thread.
 static SAVING: AtomicBool = AtomicBool::new(false);
+/// When the local save under way began.
+static BEGAN: Mutex<Option<Instant>> = Mutex::new(None);
 /// The files the save under way moved into place, by their paths in the
 /// folder the game writes to.
 static MOVED: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -201,6 +203,7 @@ extern "C" fn save_before(_: *mut HookFrame) {
         wait();
         MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
         SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
+        *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
     });
 }
 
@@ -208,6 +211,9 @@ extern "C" fn save_after(_: *mut HookFrame) {
     crate::guarded("local save", || {
         if !SAVING.swap(false, Ordering::SeqCst) {
             return;
+        }
+        if let Some(began) = BEGAN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
         }
         let moved = std::mem::take(&mut *MOVED.lock().unwrap_or_else(|e| e.into_inner()));
         let Some(folder) = FOLDER.get() else { return };
