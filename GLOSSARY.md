@@ -126,6 +126,10 @@ _Avoid_: privilege, dangerous capability
 A sensitive capability as a mod's manifest declares it. In this version the player sees a mod's permissions in the mods window; confirming them is to come.
 _Avoid_: grant, right, access
 
+**Frame inside a day**:
+A whole frame the game draws while a day is still being worked out, once the day has taken longer than an interval since the last one: 50 ms at the fastest speed. It executes no commands and draws no random numbers.
+_Avoid_: inserted frame, nested frame
+
 **Safe point**:
 A moment on the game's main thread when game state can be read and changed safely. The framework calls extensions only at safe points.
 _Avoid_: tick
@@ -255,6 +259,14 @@ _Avoid_: element (that means a button, text box and so on in the game's `.gui`)
 **Toggle**:
 A widget that is either on or off, switched by a click.
 _Avoid_: checkbox, switch, radio button (a different widget: one choice among several)
+
+**Choice bar**:
+A widget of a few named options side by side in one bar; the chosen one sits under a highlight, which slides to another when it is clicked.
+_Avoid_: slider (that sets a number on a scale), radio buttons, segmented control
+
+**Info mark**:
+A small i in a circle after a label in the framework UI; while the pointer is on it, a short explanation shows beside it.
+_Avoid_: help icon, tooltip on its own (any text that shows under the pointer)
 
 **Side list**:
 A list down a window's left side in the framework UI, one item of which is chosen with a click; the rest of the window shows the chosen one.

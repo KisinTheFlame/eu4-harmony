@@ -18,7 +18,7 @@
 //! which is inside the frame being presented; an in-game load runs at the
 //! next game frame, after the map manager's ([`game_frame`]).
 pub mod leave;
-mod save_file;
+pub(crate) mod save_file;
 
 use super::{fail, game, Caller, GResult, Status, Tag};
 use crate::{

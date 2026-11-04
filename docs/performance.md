@@ -30,6 +30,22 @@ Measured from the framework's log, Chinese playset, to the main menu:
 - **Bitmap fonts are gone** (2026-11-02, [ADR game-text-in-system-fonts](adr/game-text-in-system-fonts.md)): every font is drawn from system fonts, which the measurements above put level with bitmap fonts in memory and in the time to start.
 - The tables below are from before the changes. Game speed was not measured again.
 
+## The game speed plan (2026-11-04)
+
+[game-speed.md](game-speed.md)'s S1 to S4, built on the branch of that date: Austria-1 (an ironman save of 1618.9.2, the player's playset), 3840x2160, vsync at 144 Hz; frames counted at the application's frame count and days at the date, 30 to 32 s each, no sampler. Before is the same save the same morning with the framework of that time ([prototype-log.md](prototype-log.md)).
+
+| | Before | After |
+| --- | --- | --- |
+| Paused: frames a second | 63 | 83.8 |
+| Speed 5, the game's pace, 1618.9 to 1620.4: days a second (frames a second) | 12.5 (18.2) | 13.8 (19.3) |
+| Speed 5, 1620 to 1622: "Faster time" against the game's pace | | 15.3 (15.4) against 13.9 (19.2) |
+| ICU's line breaking at speed 5, share of the main thread | 6% (1624) | 0% |
+| POPS on the main thread at speed 5 | 5% (1624) | 0% |
+| An ironman autosave: compressing, share of the save's samples | 39% | 23% (copying at level 0) |
+
+- Two more pairs of the paces, later the same run, came out at 11.0 and 6.4 days a second, both paces alike; the machine was busy with other work then (a sample took 2.2 ms against 1.4), and they are left out.
+- The autosave's main thread time, from the shares: about a sixth less. The thread then compressed 61 MB in 1.6 to 2.0 s, to 7.1 to 7.2 MB, smaller than the game's 8.8 MB.
+
 ## Setups
 
 Two playsets:
@@ -154,7 +170,7 @@ The regional combat mod's extension was called once by the time of the report, f
 
 ## Not covered
 
-- Where the 2.5% at speed 5 goes.
+- Where the 2.5% at speed 5 goes. Since measured in part: the framework's line breaking was 1.8% of the main thread at speed 5 early in a game and 6% late ([research/main-thread.md](research/main-thread.md)), what the game itself spends its time on is there too, and making the game faster is planned in [game-speed.md](game-speed.md).
 - Frame rate and frame times: no tool for them was at hand.
 - Graphics memory.
 - Interface-heavy play (the ledger, long tooltips, many open windows), late game, and games longer than the six years each run covered.

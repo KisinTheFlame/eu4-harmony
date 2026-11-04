@@ -249,7 +249,7 @@ fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// CRC-32 as zip files use it (ISO 3309, reflected).
-fn crc32(data: &[u8]) -> u32 {
+pub(crate) fn crc32(data: &[u8]) -> u32 {
     let mut crc = !0u32;
     for &byte in data {
         crc ^= u32::from(byte);

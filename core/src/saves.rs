@@ -7,6 +7,8 @@
 //!
 //! The save loader is observed as well, which tells the rest of the core when
 //! a save is being read and whether it was.
+pub mod background;
+
 use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
 use eu4_harmony_remote::binary as base64;
 use serde_json::Value;
@@ -429,6 +431,8 @@ fn world_state(m: &Memory) -> Result<(usize, u8)> {
 }
 
 extern "C" fn load_before(frame: *mut HookFrame) {
+    // A save compressed in the background is in its place before any is read.
+    background::wait();
     LOAD_DEPTH.fetch_add(1, Ordering::SeqCst);
     LOADS.fetch_add(1, Ordering::SeqCst);
     LAST_READ.store(false, Ordering::SeqCst);
