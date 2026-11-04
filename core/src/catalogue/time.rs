@@ -114,7 +114,8 @@ fn start(game: &mut (impl Layer + ?Sized), events: &events::Buffer, days: u32, s
     let since = events.last();
     if game.questions_waiting()? > 0 {
         game.pause()?;
-        let advanced = Advanced { stopped: Stop::Question, reason: QUESTION.into(), date: Date(time.date), events: events.read(since, process()) };
+        let advanced =
+            Advanced { stopped: Stop::Question, reason: QUESTION.into(), date: Date(time.date), events: events.read(since, process(), &Default::default()) };
         return Ok(Started::Stopped(advanced));
     }
     if let Some(speed) = speed {
@@ -160,7 +161,8 @@ impl Advance {
             game.pause()?;
             let reached = *self.reached.get_or_insert(now);
             let until = self.until;
-            let heard = events.read(self.since, process()).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
+            let heard =
+                events.read(self.since, process(), &Default::default()).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
             return Ok((heard || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
         }
         if game.questions_waiting()? > 0 {
@@ -179,7 +181,12 @@ impl Advance {
 
     /// Where it stopped, and why.
     fn stopped(&self, stopped: Stop, reason: &str, events: &events::Buffer) -> Response {
-        Ok(Answer::Time(TimeAnswer::Advance(Advanced { stopped, reason: reason.into(), date: Date(self.date), events: events.read(self.since, process()) })))
+        Ok(Answer::Time(TimeAnswer::Advance(Advanced {
+            stopped,
+            reason: reason.into(),
+            date: Date(self.date),
+            events: events.read(self.since, process(), &Default::default()),
+        })))
     }
 
     /// Answers with `response`, whatever it is: the stop goes, so that it

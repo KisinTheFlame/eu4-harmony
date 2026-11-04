@@ -1,7 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, camera, console, countries, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time,
+    armies, camera, console, countries, decisions, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session,
+    texts, time,
 };
 use crate::game::{
     self, fail,
@@ -448,6 +449,20 @@ impl desktop::Layer for Fake {
     fn hide(&mut self) -> GResult<eu4_harmony_remote::desktop::Desktop> {
         self.call("hide".into());
         Ok(eu4_harmony_remote::desktop::Desktop { hidden: true, hidden_start: true, sound: false })
+    }
+}
+
+/// One decision the player can take, and one they cannot.
+impl decisions::Layer for Fake {
+    fn decisions(&mut self) -> GResult<Vec<eu4_harmony_remote::decisions::Decision>> {
+        use eu4_harmony_remote::{choices::Choice, decisions::Decision};
+        self.call("decisions".into());
+        Ok(vec![
+            Decision { decision: "form_rum".into(), name: "组建罗姆".into(), major: true, choice: Choice::can(Vec::new()) },
+            Decision {
+                decision: "move_capital".into(), name: "迁都".into(), major: false, choice: Choice::cannot(vec!["拥有君士坦丁堡".into()], Vec::new())
+            },
+        ])
     }
 }
 

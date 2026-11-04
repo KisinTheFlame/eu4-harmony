@@ -240,6 +240,42 @@ extern "C" fn route_after(frame: *mut HookFrame) {
     });
 }
 
+/// Which kinds of event (`remote/src/events.rs`'s `EVENTS`) someone listens
+/// to: those an extension has a handler for, and those a remote client has
+/// read in this process (every kind once one read them all). A kind nobody
+/// listens to is not worked out (docs/player-actions.md, "Events").
+#[derive(Default)]
+struct Listening {
+    extensions: BTreeSet<&'static str>,
+    remote: BTreeSet<String>,
+    remote_all: bool,
+}
+
+static LISTENING: Mutex<Option<Listening>> = Mutex::new(None);
+
+fn listening<T>(f: impl FnOnce(&mut Listening) -> T) -> T {
+    let mut guard = LISTENING.lock().unwrap_or_else(|e| e.into_inner());
+    f(guard.get_or_insert_with(Listening::default))
+}
+
+/// Whether anyone listens to events of `kind`.
+pub fn listened(kind: &str) -> bool {
+    listening(|l| l.remote_all || l.remote.contains(kind) || l.extensions.contains(kind))
+}
+
+/// The kinds the extensions have handlers for now.
+pub fn extensions_listen(kinds: BTreeSet<&'static str>) {
+    listening(|l| l.extensions = kinds);
+}
+
+/// A remote client read events of `kinds`, or of every kind.
+pub fn read_remotely(kinds: Option<&[String]>) {
+    listening(|l| match kinds {
+        Some(kinds) => l.remote.extend(kinds.iter().cloned()),
+        None => l.remote_all = true,
+    });
+}
+
 /// Whether a move or stop changed the army's route: its provinces or its
 /// nodes, which the game makes anew each time it sets a route, the same
 /// provinces too. A route that could not be read counts as changed.

@@ -93,6 +93,8 @@ pub const HANDLERS: &[Handler] = &[
         returns: None,
         about: "A new day, once visibility reflects it. With the game running fast, days in between may be left out.",
     },
+    Handler { name: "on_month", args: &[value("date", "eu4.Date", "the first day heard in the month")], returns: None, about: "A new month: the first day heard in it, after on_day. With the game running fast it may be past the 1st." },
+    Handler { name: "on_year", args: &[value("date", "eu4.Date", "the first day heard in the year")], returns: None, about: "A new year: the first day heard in it, after on_month." },
     Handler {
         name: "on_army_ordered",
         args: &[value("army", "integer", "the army's ID")],
