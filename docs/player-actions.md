@@ -111,3 +111,14 @@ Idea groups and ideas; policies; government reforms; raising the government's ra
 ### A8 Religion, colonies and trade
 
 Missionaries and the number of automatic missionaries; colonists; trade companies and their investments; centers of trade; merchants.
+
+Added (what was found is in [research/envoys.md](research/envoys.md), the run in [prototype-log.md](prototype-log.md)):
+
+- `missionary.options`, `missionary.send`, `missionary.recall` (the province view's missionary button, its cost a missionary and its upkeep a month), `missionary.automatic`, `missionary.raise_automatic`, `missionary.lower_automatic` (the religion view's automatic missionaries).
+- `colonist.options`, `colonist.send`, `colonist.recall` (the province view's colonize buttons; the cost a colonist).
+- `trade_company.options`, `trade_company.add`, `trade_company.remove`, `trade_company.invest` (the province view's trade company button, and the investments of the area of a province in a trade company, by content key, with their cost in ducats).
+- `center_of_trade.options`, `center_of_trade.upgrade`, `center_of_trade.downgrade` (the province view's center of trade button: ducats up, prestige down).
+- `merchant.list`, `merchant.options`, `merchant.collect`, `merchant.steer`, `merchant.recall`, `merchant.steer_to` (the trade view, nodes named by their content key; sending the merchant there again changes its mission).
+- Decisions: the reasons are the game's tooltip functions' lines, the lines that hold left out where a function writes them; where a panel decides on its own (a merchant already collecting, steering in the home node, no free merchant), the reason is the game's text for it. The actions with a confirm dialog (recalling a missionary, the trade company, investments, centers of trade) are carried out as confirmed. These reads are of the player's own things and are the same in both views.
+- Not done: trading policies of a node (`select_trading_policy`, found, its cooldown without reasons); the colonial upkeep a month in `colonist.options` (its function was not found); expelling minorities and settlement growth, the colonize button's other uses.
+- Not verified in the game: the panels on screen; a conversion or a colony finishing; a subject's center of trade; extensions calling these capabilities.
