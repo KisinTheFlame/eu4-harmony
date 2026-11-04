@@ -28,6 +28,7 @@ macro_rules! layer {
 }
 
 pub mod armies;
+pub mod buildings;
 pub mod camera;
 pub mod console;
 pub mod countries;
@@ -80,6 +81,7 @@ pub trait Game:
     + desktop::Layer
     + decisions::Layer
     + subjects::Layer
+    + buildings::Layer
 {
 }
 impl<
@@ -102,6 +104,7 @@ impl<
             + desktop::Layer
             + decisions::Layer
             + subjects::Layer
+            + buildings::Layer
             + ?Sized,
     > Game for T
 {
@@ -266,5 +269,6 @@ pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::B
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
         Request::Subject(r) => done(subjects::run(r, game).map(Answer::Subject)),
+        Request::Building(r) => done(buildings::run(r, game).map(Answer::Building)),
     }
 }

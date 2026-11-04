@@ -309,6 +309,8 @@ groups! {
     Decision(decisions::DecisionRequest, DecisionAnswer),
     /// The interactions with the player's subjects.
     Subject(subjects::SubjectRequest, SubjectAnswer),
+    /// The buildings of the player's provinces.
+    Building(buildings::BuildingRequest, BuildingAnswer),
 }
 
 pub mod binary;
