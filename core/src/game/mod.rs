@@ -22,6 +22,7 @@ pub mod console;
 pub mod countries;
 pub mod diplomacy;
 pub mod events;
+pub mod input;
 pub mod interface;
 pub mod map_coloring;
 pub mod menu;
@@ -229,6 +230,7 @@ pub fn points() -> Vec<Point> {
     points.extend(questions::points());
     points.extend(menu::points());
     points.extend(diplomacy::points());
+    points.extend(input::points());
     points
 }
 

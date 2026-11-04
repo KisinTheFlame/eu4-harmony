@@ -1,6 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
-use super::{armies, camera, console, countries, diplomacy, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time};
+use super::{
+    armies, camera, console, countries, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session, texts, time,
+};
 use crate::game::{
     self, fail,
     menu::{Expected, ExpectedProbe, Launch},
@@ -78,6 +80,10 @@ pub struct Fake {
     /// What each diplomatic action sent comes to, asked one after another;
     /// pending once they run out.
     pub answers: std::collections::VecDeque<GResult<game::diplomacy::Answer>>,
+    /// The inputs taken, in order.
+    pub inputs: Vec<game::input::Action>,
+    /// How many of them the game has had.
+    pub inputs_handled: u64,
 }
 
 impl Fake {
@@ -309,6 +315,16 @@ impl armies::Layer for Fake {
     }
 }
 
+impl extensions::Layer for Fake {
+    fn reload(&mut self, id: String) -> GResult<crate::lua::Reloaded> {
+        self.call(format!("reload {id}"));
+        match id.as_str() {
+            "regional-combat" => Ok(crate::lua::Reloaded { session: true, lost: None }),
+            _ => Err(game::Fail { status: game::Status::NotFound, message: format!("no extension of a mod {id:?} is loaded") }),
+        }
+    }
+}
+
 impl menu::Layer for Fake {
     fn place(&mut self) -> GResult<game::menu::Place> {
         self.call("place".into());
@@ -398,6 +414,23 @@ impl camera::Layer for Fake {
         let looking = view();
         eu4_harmony_checks::camera::height(height, (looking.min_height, looking.max_height))?;
         Ok(game::camera::Camera { height, ..view() })
+    }
+}
+
+impl input::Layer for Fake {
+    fn take(&mut self, action: game::input::Action, scale: u32) -> GResult<game::input::Taken> {
+        self.call(format!("input {action:?} at scale {scale}"));
+        self.inputs.push(action);
+        Ok(game::input::Taken(self.inputs.len() as u64))
+    }
+
+    fn handled(&mut self, taken: game::input::Taken) -> bool {
+        taken.0 <= self.inputs_handled
+    }
+
+    fn cursor(&mut self) -> GResult<game::input::Cursor> {
+        self.call("cursor".into());
+        Ok(game::input::Cursor { at: Some((10, 20)), ..Default::default() })
     }
 }
 

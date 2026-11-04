@@ -17,8 +17,9 @@
 //!   hold, let go before an in-process return takes the interface down, and
 //!   what the map manager's destructor leaves, let go as it goes.
 //! - What of its interface the game leaves as it lets a part of it go, at
-//!   every interface rebuild in vanilla too: the map modes' window, which it
-//!   never kills, and the outliner's entries, which it never deletes.
+//!   every interface rebuild in vanilla too: the map modes' window and the
+//!   bar of the units selected, which it never kills, and the outliner's
+//!   entries, which it never deletes.
 //! - What the game unloads while it is shown, which vanilla never meets, as
 //!   it makes the main menu only at startup: a sprite type shown sprites
 //!   still count, which the main menu, made again, would unload with the
@@ -35,6 +36,11 @@
 //!   lock, in vanilla too: a country's coalition, which the AI of the
 //!   countries in it leaves in parallel. Leaving and joining a coalition
 //!   take turns.
+//! - What the game's pick of a name from a list weighed for both sexes
+//!   overflows, in vanilla too: the random number, which it multiplies by
+//!   1000 before taking it modulo the list's weight, so that about half the
+//!   draws come out negative and pick the list's first name. The number is
+//!   taken modulo the weight as it is.
 //! - What the save checksum (GLOSSARY) of a save loaded in a session reads,
 //!   in vanilla too: the in-game load reads the save from disk, and a file's
 //!   stream sums its bytes otherwise than the memory stream the save was
@@ -46,7 +52,7 @@ use crate::{
     objects::{
         campaign::{
             achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
-            message_window, modifiers, outliner, religions, world,
+            message_window, modifiers, outliner, religions, unit_view, world,
         },
         gui::{classes as gui_classes, sprite_type, transparency_mask, window as gui_window},
         list,
@@ -113,6 +119,16 @@ const AI_KING_DELETE: usize = 0x148260;
 const LET_MAP_MODES_GO: usize = 0x81de20;
 const LET_OUTLINER_GO: usize = 0x81dc30;
 
+/// `(unit view, flags)`: the unit view's deleting destructor, its vtable's
+/// first slot, which the interface rebuild calls before it makes it again,
+/// and the framework as the map manager goes. `(map manager, window)`:
+/// takes a window off the map manager's windows.
+const UNIT_VIEW_DELETE: usize = 0x14719b0;
+const TAKE_WINDOW_OFF: usize = 0x6ecc80;
+/// Where the unit view, making its selection's bar again, lets the old one
+/// go: off the map manager's windows, then killed.
+const SELECTION_BAR_MADE_AGAIN: usize = 0x1471540;
+
 /// `(bits, count)`: a `std::vector<bool>`'s resize; and where the texture
 /// loader resizes a transparency mask to its texture's pixels, the return
 /// address of that call. `(words)`: the destructor of a vector of u32, which
@@ -127,6 +143,14 @@ const WORDS_DESTRUCTOR: usize = 0x943e0;
 /// coalition against the country it targets, on the main thread.
 const COALITION_LEAVE: usize = 0x3b0220;
 const COALITION_JOIN: usize = 0x3e3940;
+
+/// Where the pick of a name from a list (`0xda9880`), weighing its male and
+/// female names each by a factor, turns its random number (`esi`, 0 to
+/// 2^31 - 1) into fixed point, `imul eax, esi, 1000`, before it takes it
+/// modulo the list's weight in fixed point. A new heir is named by it from
+/// the country's ruler names (`0xa55cf0`), unless its sex is already set;
+/// the female names weigh by the country's female heir chance.
+const NAME_DRAW: usize = 0xda9981;
 
 /// `(modifiers)`: the destructor of a country's modifiers; `(modifiers,
 /// other)`: their copy from another's.
@@ -319,6 +343,30 @@ extern "C" fn map_modes_gone(_: *mut HookFrame) {
         let m = crate::hooked_memory();
         if let Err(e) = m.vslot(window, gui_window::KILL).and_then(|kill| m.call(kill, &[window])) {
             log!("repair: the map modes' window was not killed: {e}");
+        }
+    });
+}
+
+/// The unit view is being deleted: the bar of the units selected, which its
+/// destructor leaves, would stay in the GUI, shown in the next session when
+/// units were selected; it goes first, as the unit view lets it go when it
+/// makes it again: off the map manager's windows, then killed.
+extern "C" fn unit_view_going(frame: *mut HookFrame) {
+    crate::guarded("unit view delete", || {
+        let m = crate::hooked_memory();
+        let view = unsafe { (*frame).args[0] };
+        let killed = (|| {
+            let bar = m.ptr(view + unit_view::SELECTION_BAR)?;
+            if bar == 0 {
+                return Ok(());
+            }
+            m.write(view + unit_view::SELECTION_BAR, &0usize.to_le_bytes())?;
+            m.call(m.at(TAKE_WINDOW_OFF), &[m.ptr(view + unit_view::MAP_MANAGER)?, bar])?;
+            m.call(m.vslot(bar, gui_window::KILL)?, &[bar])?;
+            crate::Result::Ok(())
+        })();
+        if let Err(e) = killed {
+            log!("repair: the unit view's selection bar was not killed: {e}");
         }
     });
 }
@@ -1025,6 +1073,12 @@ pub fn points() -> Vec<Point> {
             Some(coalition_changed),
         ),
         Point::keep(0x3e3c31usize, "49 8b 81 28 19 00 00", "coalition joined").uses(&[country::COALITION]),
+        // The random number goes into the division as it is (`mov eax,
+        // esi`); the remainder of it by the weight is where the walk down the
+        // names begins, each name's weight taken off until it goes below 0.
+        Point::write(NAME_DRAW, "69 c6 e8 03 00 00", "name pick's draw in fixed point", "8b c6 0f 1f 40 00"),
+        Point::keep(0xda9995usize, "41 03 c9 99 4d 8b 4a 18 f7 f9 8b ca", "name pick's draw modulo the weight"),
+        Point::keep(0xda99dcusize, "2b ca 78 06", "name pick's walk down the names"),
         Point::observe(
             COUNTRY_DESTRUCTOR,
             "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 ec 20 48 8b d9",
@@ -1113,6 +1167,24 @@ pub fn points() -> Vec<Point> {
             Some(map_modes_gone),
         )
         .uses(&[map_modes::WINDOW]),
+        Point::observe(
+            UNIT_VIEW_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 48 8d 05 7f 5b 91 00 8b fa 48 89 01 48 8b d9",
+            "unit view deleting destructor",
+            2,
+            Some(unit_view_going),
+            None,
+        ),
+        Point::method(classes::UNIT_VIEW, 0, UNIT_VIEW_DELETE, "unit view deleting destructor method"),
+        // The rebuild deletes the unit view by its first slot.
+        Point::keep(0x81cdbcusize, "49 8b 8e a0 5b 00 00 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10", "unit view deleted by the rebuild"),
+        Point::keep(TAKE_WINDOW_OFF, "40 53 48 83 ec 20 48 8b d9 48 8b 89 90 00 00 00 48 85 c9", "take a window off the map manager's windows"),
+        Point::keep(
+            SELECTION_BAR_MADE_AGAIN,
+            "48 8b 91 a0 01 00 00 48 85 d2 74 18 48 8b cf e8 2c b7 27 ff 48 8b 8b a0 01 00 00 48 8b 01 ff 90 30 01 00 00",
+            "selection bar let go",
+        )
+        .uses(&[gui_window::KILL]),
         // A sprite type unloaded with its group of graphics, which the main
         // menu's interface rebuild does for the game's (group 3); a sprite
         // shown loads its lazily loaded type only when none showed it.

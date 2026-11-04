@@ -23,7 +23,7 @@ ends: for two requests at once, or a request that outlives the handler that
 sent it. A spawned task cannot be waited for or cancelled; keep its result
 in the mod's own state for later handlers to read.
 
-Where nothing waits: at the top of main.lua and in on_save (they raise an
+Where nothing waits: at the top of main.lua and in save_data (they raise an
 error), and in a coroutine of the mod's own (coroutine.wrap and the like).
 Wait in the handler or in a spawned task.
 

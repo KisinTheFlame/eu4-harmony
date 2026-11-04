@@ -581,6 +581,16 @@ pub fn set_tooltip(extension: usize, name: &str, text: Vec<u8>) -> GResult<()> {
     desired(extension, name, |d| d.tooltip = Some(text))
 }
 
+/// Forgets what a reloaded extension set on its elements: its new code sets
+/// them again.
+pub fn forget_extension(extension: usize) {
+    with_ui(|ui| {
+        for d in ui.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
+            d.desired = Desired::default();
+        }
+    });
+}
+
 /// Hides everything a stopped extension added.
 pub fn hide_extension(extension: usize) {
     with_ui(|ui| {

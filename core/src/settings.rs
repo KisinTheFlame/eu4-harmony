@@ -28,10 +28,10 @@ pub struct Settings {
     /// Whether an in-game load in ironman writes the ironman exit save first;
     /// without it, loading the same save again is an undo (ADR 0023).
     pub save_ironman_before_load: bool,
-    /// Whether a game that is not ironman can earn achievements (ADR 0034).
+    /// Whether a game that is not ironman can earn achievements (ADR 0038).
     pub achievements_outside_ironman: bool,
     /// Whether achievements can be earned with a game checksum (GLOSSARY)
-    /// that is not vanilla's (ADR 0034).
+    /// that is not vanilla's (ADR 0038).
     pub achievements_with_changed_checksum: bool,
 }
 

@@ -43,7 +43,7 @@ The question was whether the framework can post any of the game's commands from 
 
 ## When the update runs the queue
 
-Read from the code on 2026-11-03, for the layer to execute a command at once (ADR 0033).
+Read from the code on 2026-11-03, for the layer to execute a command at once (ADR 0035).
 
 - **The local handler's queue.** Its post (`+0x30`, `0x1580370`) puts the command it read back into a concurrent queue at the handler's `+0x118` (`0x1580ff0`). Its `+0x38`, `0x15801c0(handler, 0)`, takes each command out of that queue, clones it (`+0x60`, with the ID copied), puts the clone at the end of the list at `+0xc8` and destroys the one taken; its `+0x48` (`0x8b0e0`) answers that list, which the execution `0x14ca870` takes, and its `+0x88` (`0x1574f30`) the one at `+0x98`.
 - **`CSession::Update`** `0x14ca360` reads the session's state, a u32 at `+0x48` (`0x14ca572`):
@@ -66,7 +66,7 @@ From the vtables' slots (a slot that is not the base's answer, `0x8f450`, is the
 ## What this means for the framework
 
 - **Posting a command from its written form** needs: a memory stream over the framework's text, a text tokenizer over it (the base `0x170d1d0(tokenizer, stream, flag)`, vtable `0x1dbf958`, as the local handler makes the binary one), a reader (`0x17096f0`), the factory, the command's read, its check, and the post. Each of these is used by the game for every command, so the path is the one the game takes; what is new is only that the text was not written by the game. Tried in the game: see below.
-- **Executing a command at once**, as ADR 0033 has the layer do, needs what the execution `0x14ca870` does for one command that passed its check (above, steps 1 to 4, from `0x14caed8`): before and after in modes 4, 6 and 7, the session's `+0x7d4` and the flag `0x1fd10c4` set around it, and the function object (vtable `0x1d8c8b0`, the command at `+8`, its own address at `+0x38`) run through `0x14d4e70` and destroyed with its `+0x20`. The stamp is the post's (`0x14ca318`): the sender from the session's `+0x8c`, the tick from its `+0x68`, at most `0x7fff`. Whether the session would execute commands now is the update's test (above). Not done: the session's ID, its lists and the hand-off `0x157b1a0`, which writes the command once more in binary and logs it.
+- **Executing a command at once**, as ADR 0035 has the layer do, needs what the execution `0x14ca870` does for one command that passed its check (above, steps 1 to 4, from `0x14caed8`): before and after in modes 4, 6 and 7, the session's `+0x7d4` and the flag `0x1fd10c4` set around it, and the function object (vtable `0x1d8c8b0`, the command at `+8`, its own address at `+0x38`) run through `0x14d4e70` and destroyed with its `+0x20`. The stamp is the post's (`0x14ca318`): the sender from the session's `+0x8c`, the tick from its `+0x68`, at most `0x7fff`. Whether the session would execute commands now is the update's test (above). Not done: the session's ID, its lists and the hand-off `0x157b1a0`, which writes the command once more in binary and logs it.
 - **Hearing commands** needs one observe point, on `0x14cea10`; writing the command out as text (its `+0x08` with a text writer) gives its fields by name. Tried in the game: see below.
 - **Not yet known**, to settle before a design: what the reader's string vector and name (`r8`, `r9` of `0x17096f0`) hold, which reading back did without (below); and whether `+0x4a` and the session's mode `+0x50` matter in single player. Why three classes ran without their sender and stamp is below (the layer's run).
 

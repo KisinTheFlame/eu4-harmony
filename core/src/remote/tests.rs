@@ -4,9 +4,10 @@ use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
-    diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
-    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, input::Button, input::Direction, input::InputRequest,
+    input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, questions::QuestionRequest, recruiting::RecruitRequest,
+    recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag,
+    ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -26,6 +27,10 @@ fn log() -> Vec<String> {
 
 fn error(code: &str) -> impl Fn(&Value) -> bool + '_ {
     move |v: &Value| v["ok"] == false && v["error"]["code"] == code
+}
+
+fn keys(text: &str) -> Keys {
+    Keys::parse(text).unwrap()
 }
 
 fn army(id: u64) -> ArmyId {
@@ -48,7 +53,8 @@ fn every_capability_runs_at_a_game_frame() {
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
-    let cases: Vec<(Request, Check)> = vec![
+    #[cfg_attr(not(feature = "dev-memory"), expect(unused_mut, reason = "only the memory account adds cases"))]
+    let mut cases: Vec<(Request, Check)> = vec![
         (Request::Session(SessionRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})))),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
         (Request::Time(TimeRequest::SetSpeed { speed: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
@@ -223,7 +229,59 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }), Box::new(Value::is_null)),
         (Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }), Box::new(Value::is_null)),
         (Request::Menu(MenuRequest::Return {}), Box::new(|v: &Value| *v == ok(json!({"process": process(), "place": "ending"})))),
+        (Request::Extension(ExtensionRequest::Reload { id: "regional-combat".into() }), Box::new(|v: &Value| *v == ok(json!({"session": true, "lost": null})))),
+        // The cursor first: a request after an input waits for the game to
+        // have it (input::tests).
+        (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),
+        (
+            Request::Input(InputRequest::Click { x: 1, y: 2, button: None, count: None, modifiers: None, scale: None }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (Request::Input(InputRequest::Move { x: 1, y: 2, modifiers: None, scale: Some(50) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Input(InputRequest::Drag { from_x: 1, from_y: 2, to_x: 3, to_y: 4, button: Some(Button::Right), modifiers: None, scale: None }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (
+            Request::Input(InputRequest::Scroll { x: 1, y: 2, direction: Direction::Up, amount: Some(3), modifiers: None, scale: None }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (Request::Input(InputRequest::Key { keys: keys("f1"), repeat: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::Type { text: "中文".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::MouseDown { x: 1, y: 2, button: None, scale: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::MouseUp { x: 1, y: 2, button: None, scale: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::KeyDown { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Input(InputRequest::KeyUp { key: keys("shift") }), Box::new(|v: &Value| *v == ok(Value::Null))),
     ];
+    // A developer build's memory account, and its census, which counts
+    // nothing here; first, ahead of the input, which waits for frames of its
+    // own.
+    #[cfg(feature = "dev-memory")]
+    {
+        let census = cfg!(feature = "dev-heap-census");
+        use eu4_harmony_remote::memory::MemoryRequest;
+        let memory: Vec<(Request, Check)> = vec![
+            (
+                Request::Memory(MemoryRequest::Get {}),
+                Box::new(move |v: &Value| {
+                    let r = &v["result"];
+                    r["private"].as_u64() > Some(0)
+                        && r["generations"] == json!([])
+                        && r["census"] == census
+                        && r["heaps"].as_array().is_some_and(|h| !h.is_empty())
+                }),
+            ),
+            (
+                Request::Memory(MemoryRequest::Leftovers { sites: None, holders: Some(true) }),
+                Box::new(move |v: &Value| if census { v["result"]["sites"] == json!([]) && v["result"]["bytes"] == 0 } else { error("unavailable")(v) }),
+            ),
+            (
+                Request::Memory(MemoryRequest::Generation {}),
+                Box::new(move |v: &Value| if census { v["result"].as_u64() > Some(0) } else { error("unavailable")(v) }),
+            ),
+        ];
+        cases.splice(0..0, memory);
+    }
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();
     let all: BTreeSet<String> = capabilities().iter().map(|c| c.name()).collect();

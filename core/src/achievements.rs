@@ -1,4 +1,4 @@
-//! Achievement rules (ADR 0034): the framework settings that let the game give
+//! Achievement rules (ADR 0038): the framework settings that let the game give
 //! achievements outside ironman and with a game checksum (GLOSSARY) that is
 //! not vanilla's. Every other rule stays the game's own. How the game decides
 //! is in docs/research/achievements.md.

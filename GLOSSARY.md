@@ -18,6 +18,10 @@ _Avoid_: framework mod, extension mod
 A mod's Lua scripts, which the framework runs inside the game process in a Lua state of their own. A mod has at most one.
 _Avoid_: plugin, module, script mod, DLL mod
 
+**Extension reload**:
+Replacing an extension's code and texts with what its files now hold, in the running game, its state carried across through its save data. Only the extension changes; the session goes on.
+_Avoid_: reload alone (the game's own `reload` reads a `.gui` file again), hot swap, restart
+
 **Lua state**:
 The Lua interpreter the framework gives one extension. Extensions share nothing.
 _Avoid_: VM, interpreter on its own, sandbox
@@ -27,7 +31,7 @@ What an extension's Lua state can reach: Lua's own libraries for strings, tables
 _Avoid_: jail, safe mode
 
 **Handler**:
-A function an extension gives the framework for one event, which the framework calls at a safe point.
+A function an extension gives the framework for one event, which the framework calls at a safe point; and `save_data`, the framework's question for the extension's data.
 _Avoid_: callback, listener, hook
 
 **Task**:
@@ -65,6 +69,20 @@ _Avoid_: using it for the hooking done at startup
 **Developer build**:
 A build of the framework with development tools built in, such as the call trace or the command log, for trying things in the game; it says so at the top of its startup report. Players get only the player build, which has none of them and no hidden switches.
 _Avoid_: trace build, debug build (a build without optimizations), test build
+
+**Heap census**:
+A development tool that counts every live block of the game's heap by its site, the code that allocated it, and its generation, so that what the game keeps of its sessions can be found (docs/leak-finding.md).
+_Avoid_: memory profiler, allocation tracker
+
+**Generation**:
+The heap census's span of time: one ends at every world reset, and when remote control asks for one to end.
+
+**Leftover**:
+A block of the game's heap still live two generations after its own: it outlived two resets of the world it was made in.
+_Avoid_: leak (for one block; a leak is what a site's leftovers add up to, session after session)
+
+**Leak run**:
+Rounds of sessions that `tools/leak-run.ps1` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
 
 **Startup**:
 What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
@@ -130,7 +148,11 @@ _Avoid_: order (what the player gives, which the game makes into a command), act
 
 **Map position**:
 A point on the game's map, in pixels of the province map (`map/provinces.bmp`): x from its left edge, y from its bottom edge, as `map/positions.txt` writes them. The camera looks at a map position.
-_Avoid_: coordinates on their own; screen position (a pixel of the game's window)
+_Avoid_: coordinates on their own; screen position (a pixel of the frame the game draws)
+
+**Screen position**:
+A pixel of the frame the game draws, as `screenshot` takes it: x from its left edge, y from its top edge. Input is given at screen positions.
+_Avoid_: coordinates on their own; map position (a point on the game's map)
 
 **Question**:
 One of the game's own events that waits for the player's answer, shown in an event window with the options the player may choose. Answering it is choosing one of those options; one left unanswered for a few months is answered by the game itself.
@@ -191,6 +213,10 @@ _Avoid_: bot, agent
 **Transport**:
 How requests and responses travel between remote clients and remote control, such as the named pipe carrying JSON lines.
 _Avoid_: protocol adapter, channel, connection
+
+**Input**:
+Mouse and keyboard input a remote client gives the game as the player's own: clicks, the wheel, keys and typed text at screen positions. The game takes it as it takes the player's.
+_Avoid_: simulated, synthetic or fake input; SendInput (that is how a program outside the game sends input to whatever is in front)
 
 **Event**:
 Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.

@@ -22,11 +22,11 @@
 
 ## 成就
 
-另有两个框架设置可以让游戏在原版不给成就的情况下给成就，默认都关闭，需要玩家自己打开（[ADR 0034](docs/adr/0034-achievement-rules-can-be-relaxed.md)）："非铁人游戏也可获得成就"，在非铁人局里也能拿成就，读档重来、用控制台都不影响；"游戏校验码与原版不同时也可获得成就"，开着会改变主菜单上游戏校验码的 mod 也能拿成就。成就的其他规则仍按原版，修改在下一次开新局或读档时生效。
+另有两个框架设置可以让游戏在原版不给成就的情况下给成就，默认都关闭，需要玩家自己打开（[ADR 0038](docs/adr/0038-achievement-rules-can-be-relaxed.md)）："非铁人游戏也可获得成就"，在非铁人局里也能拿成就，读档重来、用控制台都不影响；"游戏校验码与原版不同时也可获得成就"，开着会改变主菜单上游戏校验码的 mod 也能拿成就。成就的其他规则仍按原版，修改在下一次开新局或读档时生效。
 
 ## 远程控制（玩家与 AI）
 
-远程控制让游戏进程之外的程序通过框架的能力使用游戏，就像玩家一样：从主菜单进入游戏再回来，读取游戏，让时间流逝，回答游戏的事件和其他国家的提议，调动军队，招募，外交，游戏控制台，镜头和截图。AI 靠它玩完整的一局，开发者靠它在命令行里试用框架。框架运行时它始终开启，只对正在玩的 Windows 用户开放、只限本机（一个命名管道），并且以玩家身份行事：玩家做不到的，它也做不到（[ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md)、[ADR 0017](docs/adr/0017-remote-control-is-always-on.md)）。
+远程控制让游戏进程之外的程序通过框架的能力使用游戏，就像玩家一样：从主菜单进入游戏再回来，读取游戏，让时间流逝，回答游戏的事件和其他国家的提议，调动军队，招募，外交，游戏控制台，镜头、截图，以及在没有其他能力可用的地方像玩家一样用鼠标和键盘。AI 靠它玩完整的一局，开发者靠它在命令行里试用框架。框架运行时它始终开启，只对正在玩的 Windows 用户开放、只限本机（一个命名管道），并且以玩家身份行事：玩家做不到的，它也做不到（[ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md)、[ADR 0017](docs/adr/0017-remote-control-is-always-on.md)）。
 
 客户端是游戏 `eu4-harmony\` 文件夹里的 `eu4-harmony.exe`。`eu4-harmony game <能力> [<参数>]` 向运行中的游戏发一个请求，以 JSON 打印回答；退出码为 0 表示游戏回答了，1 表示游戏回答了一个错误（`{"code": ..., "message": ...}`，拒绝时带着游戏自己的理由），2 表示命令行有误、什么也没发出，3 表示没有收到回答。参数可以带名字（`--province 167`），也可以按顺序直接写；能力名里的点可以写成空格：
 
@@ -43,6 +43,7 @@ cd "<游戏目录>\eu4-harmony"
 .\eu4-harmony game diplomacy war_goals ENG
 .\eu4-harmony game diplomacy declare_war ENG cb_core --province 167
 .\eu4-harmony game screenshot --scale 50 --out shot.png
+.\eu4-harmony game input click 960 540 --scale 50   # 点击那张截图上看到的位置
 .\eu4-harmony game menu return             # 回到主菜单，主菜单出现后回答
 ```
 
@@ -59,6 +60,7 @@ cd "<游戏目录>\eu4-harmony"
 | 外交 | `diplomacy.war_goals`、`diplomacy.declare_war`（召集盟友参战）、`diplomacy.offer_peace`（白和平）、`diplomacy.propose_alliance` |
 | 游戏控制台 | `console.run`（像玩家那样输入一条命令，带回它的输出） |
 | 镜头与截图 | `camera.get`、`camera.look_at`（省份或地图位置）、`camera.zoom`；`screenshot`（玩家看到的画面，PNG） |
+| 输入 | `input.click`、`input.move`、`input.drag`、`input.scroll`、`input.key`、`input.type`（任意 Unicode 文字）、`input.mouse_down`、`input.mouse_up`、`input.key_down`、`input.key_up`、`input.get`：在画面上的位置做玩家的鼠标键盘操作，用于还没有专门能力的地方；游戏在前台或被其他窗口挡住都能用（[ADR 0037](docs/adr/0037-remote-clients-give-the-players-input.md)） |
 | 事件流与说明 | `events`（编号的事件：会话开始或结束、新的一天、军队被下令或被击败）、`describe`（运行中的游戏给出的能力目录版本和全部能力）、`text.language` |
 
 完整的列表，连同每个参数和结果，见 `eu4-harmony wiki`（不需要游戏运行）：`eu4-harmony wiki army` 看一组，`eu4-harmony wiki army move` 看单个能力，`eu4-harmony wiki errors` 看每种错误的含义；`eu4-harmony game describe` 则向运行中的游戏询问。每项能力在游戏里如何工作，见 [docs/remote-control.md](docs/remote-control.md)。
@@ -70,8 +72,10 @@ Mod 的扩展是 Lua 5.4 脚本，由框架在各自的沙箱里运行（[ADR 00
 ```powershell
 eu4-harmony new my-mod --name "My Mod"   # 生成 Mod：descriptor.mod、manifest.toml、lua\main.lua、一个按钮、中英文字、编辑器的类型定义、一个 AGENTS.md
 cd my-mod
+eu4-harmony check                         # 像框架那样读一遍清单、Lua 文件、文字和文件位置
 eu4-harmony test                          # 用假游戏运行它的 eu4-harmony\tests\*.lua
 eu4-harmony link                          # 在用户文件夹的 mod\ 下注册，然后在启动器里勾选
+eu4-harmony reload --watch                # 游戏运行时：Lua 和文字一改动，就在游戏里就地重载
 eu4-harmony package                       # 所有 Lua 和本地化文件都能读通后，生成一个干净的上传文件夹 ..\my-mod-package
 ```
 
@@ -79,7 +83,7 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 
 `permissions` 声明扩展在游戏之外能做什么：读取现实时间（`clock = true`）、在自己的数据文件夹里读写文件（`files = true`）、向列出的主机发 HTTP 请求（`network = ["api.example.com"]`）；用了没声明的就会报错（[ADR 0025](docs/adr/0025-sensitive-capabilities-are-declared.md)）。玩家在主菜单角落"EU4 Harmony Mod"按钮打开的 Mod 窗口里，能看到每个 Mod 的名称、版本、介绍和它声明的这些能力。
 
-`main.lua` 返回一张事件函数表，每类事件一个（`on_session`、`on_day`、`on_button`、`on_frame`、`on_save` 等）。每个函数都拿到 `game`，所有能力都按组从它调用，例如 `game.army.move(army, province)`；被拒绝时返回 `nil, err`。事件函数可以等一个能力的答复（比如别国对提议的答复），写起来像 `await`。`eu4-harmony wiki` 列出全部能力和它们的 Lua 写法，`eu4-harmony wiki lua` 列出事件函数和全局函数，`eu4-harmony wiki manifest` 列出清单的字段和权限；`eu4-harmony game` 则通过远程控制（见上文）向运行中的游戏问同样的东西。最小的示例就是 `eu4-harmony new` 生成的 Mod；事件函数、出错、时间限制和扩展存档数据的设计见 [docs/lua-extensions.md](docs/lua-extensions.md)。
+`main.lua` 返回一张事件函数表，每类事件一个（`on_session`、`on_day`、`on_button`、`on_frame` 等，另有交出存档数据的 `save_data`）。每个函数都拿到 `game`，所有能力都按组从它调用，例如 `game.army.move(army, province)`；被拒绝时返回 `nil, err`。事件函数可以等一个能力的答复（比如别国对提议的答复），写起来像 `await`。`eu4-harmony wiki` 列出全部能力和它们的 Lua 写法，`eu4-harmony wiki lua` 列出事件函数和全局函数，`eu4-harmony wiki manifest` 列出清单的字段和权限；`eu4-harmony game` 则通过远程控制（见上文）向运行中的游戏问同样的东西。最小的示例就是 `eu4-harmony new` 生成的 Mod；事件函数、出错、时间限制和扩展存档数据的设计见 [docs/lua-extensions.md](docs/lua-extensions.md)。
 
 `eu4-harmony skills` 是制作 Mod 的指南，写给 coding agent，人也能读：每类工作的步骤，以及怎样算做完（先看 `eu4-harmony skills mod`，再看 `tasks`、`state`、`ui`、`localisation`、`testing`、`game`）。`eu4-harmony new` 生成的 `AGENTS.md` 会让 agent 去读这些指南。
 
@@ -99,7 +103,7 @@ Mod 自己的文件都在它的 `eu4-harmony\` 文件夹里，放在哪里就说
 | `remote/` | 能力目录：远程控制的请求与响应、它们的 JSON 形式和每项能力的说明（含扩展是否也有），核心和命令行工具共用 |
 | `checks/` | 框架自己对能力调用做的检查，以及每种拒绝的状态和措辞，核心和 `remote/` 共用；以及游戏的历法 |
 | `cli/` | `eu4-harmony.exe`；`cli/template/` 是 `new` 生成的模组 |
-| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有测试运行前后备份与还原玩家文件、输入、截图、反汇编、崩溃转储和调用追踪的工具，见 [tools/README.md](tools/README.md) |
+| `tools/` | 开发工具：`dev-install.ps1` 把构建好的代理、核心和命令行工具装进游戏目录（`-Uninstall` 卸载），`release.ps1` 把它们打包给玩家，另有测试运行前后备份与还原玩家文件、测量框架开销、反汇编、崩溃转储和调用追踪的工具，见 [tools/README.md](tools/README.md) |
 | `docs/` | 方案、ADR、调研、实测记录和[框架对游戏性能的影响](docs/performance.md) |
 
 代码、注释和文档都用英文。本文件是 [README.md](README.md) 的中文译本，其余文档只有英文版。在本仓库工作的约定（对人和编程代理都适用）见 [AGENTS.md](AGENTS.md)。

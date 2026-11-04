@@ -85,7 +85,7 @@ pub fn write(root: &Path) -> Result<Vec<String>, String> {
 /// The type a value of `kind` has in Lua.
 fn lua_type(kind: Kind) -> &'static str {
     match kind {
-        Kind::Country | Kind::Text | Kind::UnitKind => "string",
+        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys => "string",
         Kind::Province | Kind::Integer | Kind::Army => "integer",
         Kind::Date => "eu4.Date|string",
         Kind::Boolean => "boolean",
@@ -238,7 +238,7 @@ fn results(out: &mut String) {
 fn function(out: &mut String, name: &str, f: &lua::Function) {
     let _ = writeln!(out, "--- {}", f.about);
     if f.waits {
-        let _ = writeln!(out, "--- It waits: call it in a handler or a task, not at the top of main.lua or in on_save.");
+        let _ = writeln!(out, "--- It waits: call it in a handler or a task, not at the top of main.lua or in save_data.");
     }
     if let Some(permission) = f.permission.and_then(|p| lua::PERMISSIONS.iter().find(|q| q.name == p)) {
         let _ = writeln!(out, "--- Needs permissions = {{ {} }} in manifest.toml.", permission.declared);

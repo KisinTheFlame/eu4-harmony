@@ -34,6 +34,8 @@ pub mod loc;
 pub mod lua;
 pub mod map;
 pub mod memory;
+#[cfg(feature = "dev-memory")]
+mod memory_account;
 pub mod mods;
 pub mod notice;
 pub mod objects;
@@ -138,8 +140,10 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(not(any(feature = "dev-heap-census", feature = "dev-call-trace")), expect(unused_mut, reason = "only the development tools add points"))]
+    #[cfg_attr(not(any(feature = "dev-memory", feature = "dev-call-trace")), expect(unused_mut, reason = "only the development tools add points"))]
     let mut all = points();
+    #[cfg(feature = "dev-memory")]
+    all.extend(memory_account::points(&m));
     #[cfg(feature = "dev-heap-census")]
     all.extend(census::points(&m));
     #[cfg(feature = "dev-call-trace")]

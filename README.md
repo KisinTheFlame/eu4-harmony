@@ -22,11 +22,11 @@ Returning to the main menu does not start the game again: the main menu is back 
 
 ## Achievements
 
-Two more framework settings, both off unless the player turns them on, let the game give achievements where vanilla does not ([ADR 0034](docs/adr/0034-achievement-rules-can-be-relaxed.md)): "Achievements outside ironman", in a game that is not ironman, with saves loaded again and the game console used; and "Achievements with a changed game checksum", with mods that change the game checksum the main menu shows. Every other rule for achievements stays the game's own, and a change takes effect with the next game started or loaded.
+Two more framework settings, both off unless the player turns them on, let the game give achievements where vanilla does not ([ADR 0038](docs/adr/0038-achievement-rules-can-be-relaxed.md)): "Achievements outside ironman", in a game that is not ironman, with saves loaded again and the game console used; and "Achievements with a changed game checksum", with mods that change the game checksum the main menu shows. Every other rule for achievements stays the game's own, and a change takes effect with the next game started or loaded.
 
 ## Remote control (players and AIs)
 
-Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera and screenshots. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md), [ADR 0017](docs/adr/0017-remote-control-is-always-on.md)).
+Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera, screenshots, and the player's own mouse and keyboard where nothing else reaches. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR 0015](docs/adr/0015-remote-control-uses-capabilities.md), [ADR 0017](docs/adr/0017-remote-control-is-always-on.md)).
 
 The client is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder. `eu4-harmony game <capability> [<arguments>]` sends the running game one request and prints the answer as JSON; the exit code is 0 when the game answered, 1 when it answered with an error (`{"code": ..., "message": ...}`, the game's own reasons for a refusal), 2 when the command line is wrong and nothing was sent, and 3 when no answer came. Arguments may be named (`--province 167`) or given in their order, and a capability's dot may be a space:
 
@@ -43,6 +43,7 @@ cd "<game folder>\eu4-harmony"
 .\eu4-harmony game diplomacy war_goals ENG
 .\eu4-harmony game diplomacy declare_war ENG cb_core --province 167
 .\eu4-harmony game screenshot --scale 50 --out shot.png
+.\eu4-harmony game input click 960 540 --scale 50   # click where that screenshot shows something
 .\eu4-harmony game menu return             # back to the main menu, answered once it is up
 ```
 
@@ -59,6 +60,7 @@ The capabilities, by group:
 | Diplomacy | `diplomacy.war_goals`, `diplomacy.declare_war` (calling allies to arms), `diplomacy.offer_peace` (a white peace), `diplomacy.propose_alliance` |
 | Game console | `console.run` (a command, as the player types it, and what it printed) |
 | Camera and screenshots | `camera.get`, `camera.look_at` (a province or a map position), `camera.zoom`; `screenshot` (the frame as the player sees it, as a PNG) |
+| Input | `input.click`, `input.move`, `input.drag`, `input.scroll`, `input.key`, `input.type` (any Unicode), `input.mouse_down`, `input.mouse_up`, `input.key_down`, `input.key_up`, `input.get`: the player's mouse and keyboard at positions in the frame, for what has no capability of its own, with the game in front or behind other windows ([ADR 0037](docs/adr/0037-remote-clients-give-the-players-input.md)) |
 | Events and descriptions | `events` (numbered: a session begun or ended, a new day, an army ordered or defeated), `describe` (the catalogue's version and every capability, from the running game), `text.language` |
 
 The full list, with every argument and result, is `eu4-harmony wiki`, which works without the game: `eu4-harmony wiki army` for a group, `eu4-harmony wiki army move` for one capability, `eu4-harmony wiki errors` for what each error means; `eu4-harmony game describe` asks the running game. How each capability works in the game is in [docs/remote-control.md](docs/remote-control.md).
@@ -70,8 +72,10 @@ A mod's extension is Lua 5.4 scripts, run by the framework in a sandbox of their
 ```powershell
 eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifest.toml, lua\main.lua, a button, English and Chinese texts, the editor's type definitions, an AGENTS.md
 cd my-mod
+eu4-harmony check                         # read the manifest, the Lua files, the texts and where the files are, as the framework does
 eu4-harmony test                          # run its eu4-harmony\tests\*.lua against a fake game
 eu4-harmony link                          # register it under mod\ in the user folder, then tick it in the launcher
+eu4-harmony reload --watch                # with the game running: reload its Lua and texts in place whenever they change
 eu4-harmony package                       # once every Lua and localisation file reads, make a clean folder to upload, ..\my-mod-package
 ```
 
@@ -79,7 +83,7 @@ A mod's own files are in its `eu4-harmony\` folder, where they are says what the
 
 `permissions` declares what the extension may do beyond the game: the real time (`clock = true`), files in a data folder of its own (`files = true`) and HTTP requests to the hosts it lists (`network = ["api.example.com"]`); using one it did not declare raises an error ([ADR 0025](docs/adr/0025-sensitive-capabilities-are-declared.md)). Players see what each mod declares, with its name, version and description, in the mods window the "EU4 Harmony mods" button opens in the main menu's corner.
 
-`main.lua` returns a table of handlers, one per event (`on_session`, `on_day`, `on_button`, `on_frame`, `on_save` and the rest). Each gets `game`, through which every capability is called by its group, such as `game.army.move(army, province)`; a refusal returns `nil, err`, and a handler may wait for a capability's answer, such as another country's to a proposal, as with `await`. `eu4-harmony wiki` lists every capability with its Lua form, `eu4-harmony wiki lua` the handlers and globals, `eu4-harmony wiki manifest` the manifest's fields and permissions; `eu4-harmony game` asks the running game the same through remote control (above). The smallest example is the mod `eu4-harmony new` creates; the plan, with handlers, errors, the time limit and extension save data, is [docs/lua-extensions.md](docs/lua-extensions.md).
+`main.lua` returns a table of handlers, one per event (`on_session`, `on_day`, `on_button`, `on_frame` and the rest, and `save_data`, which gives the mod's save data). Each gets `game`, through which every capability is called by its group, such as `game.army.move(army, province)`; a refusal returns `nil, err`, and a handler may wait for a capability's answer, such as another country's to a proposal, as with `await`. `eu4-harmony wiki` lists every capability with its Lua form, `eu4-harmony wiki lua` the handlers and globals, `eu4-harmony wiki manifest` the manifest's fields and permissions; `eu4-harmony game` asks the running game the same through remote control (above). The smallest example is the mod `eu4-harmony new` creates; the plan, with handlers, errors, the time limit and extension save data, is [docs/lua-extensions.md](docs/lua-extensions.md).
 
 `eu4-harmony skills` holds guides for making a mod, written for a coding agent and readable by anyone: the steps of each kind of work and how to tell each is done (`eu4-harmony skills mod` first, then `tasks`, `state`, `ui`, `localisation`, `testing`, `game`). The `AGENTS.md` that `eu4-harmony new` writes points an agent at them.
 
@@ -99,7 +103,7 @@ Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of
 | `remote/` | The capability catalogue: remote control's requests and responses, their JSON form and a description of every capability, saying which extensions have too, shared by the core and the command line tool |
 | `checks/` | The checks the framework makes of a capability's call itself, with the status and words of each refusal, shared by the core and `remote/`; and the game's calendar |
 | `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes |
-| `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus tools for backing up the player's files around a test run, input, screenshots, disassembly, crash dumps and call tracing, see [tools/README.md](tools/README.md) |
+| `tools/` | Development tools: `dev-install.ps1` installs the built proxy, core and command line tool into the game folder (`-Uninstall` removes them), `release.ps1` packs them for players, plus tools for backing up the player's files around a test run, measuring what the framework costs, disassembly, crash dumps and call tracing, see [tools/README.md](tools/README.md) |
 | `docs/` | The design, ADRs, research, in-game test records and [what the framework costs the game](docs/performance.md) |
 
 Code, comments and documentation are in English. [README.zh-CN.md](README.zh-CN.md) is a Chinese translation of this file; the rest of the documentation is English only. Rules for working in this repository, for people and coding agents alike, are in [AGENTS.md](AGENTS.md).

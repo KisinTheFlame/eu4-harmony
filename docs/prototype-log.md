@@ -1093,7 +1093,7 @@ This branch's uncommitted change for part C0 of [commands.md](commands.md): the 
 
 ## 2026-11-03 Commands C1 to C3 (tested by me)
 
-The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0033), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
+The developer build of ff49db0 and of the change after it, which has the layer execute its command alone instead of running the session's queue (ADR 0035), with `dev.toml` tracing `0x26dba0` (60 calls), logging `buildunit`, `diplomaticactioncommand`, `move_order`, `cancel_movement` and the two speed commands, and posting seven test commands. Four processes, each a new game as France at 1444.11.11 started through remote control; the requests through `eu4-harmony game`.
 
 - **Startup**: 756 dependency points matched for ff49db0, 758 for the change after it; 132 hooks, 10 writes.
 - **The test commands, at the first frame of each game**: the recruit in Paris and the alliance with Scotland were carried out (France's manpower 11,798 → 10,798); the recruit in London was refused by its check (`Check`); `province=abc` (read as -1), `provinec`, `nosuchcommand` and the missing brace were refused unread, each with its reason.
@@ -1162,9 +1162,119 @@ L6's fourth point: regional combat in Lua, France from 1444.11.11, war on Englan
 - **Not met**: no stretch over 5 ms.
 - **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
 
+## 2026-11-04 Extension reload (tested by me)
+
+[extension-reload.md](extension-reload.md) R1 to R3: regional combat at api_version 0.3 with `save_data`, France from 1444.11.11, war on England in December, the Paris army's task on; the mod's files changed by a script for each step and put back with git afterwards. Two runs of `eu4.exe`, started directly.
+
+- **Startup**: "Regional Combat (EU4 Harmony) (id regional-combat, api 0.3): extension lua/main.lua loaded".
+- **In a session**: the title text changed in both localisation files and a log line added to `on_session`; `eu4-harmony reload` printed "reloaded regional-combat; on_session got what save_data gave"; the mod's log had the new title ("区域战斗 v2") and "saved tasks 1", then "session 1: restored 1 task(s)", and the task went on deciding.
+- **Code that does not compile**: printed "the new code did not load, and the old goes on: syntax error: main.lua:328: '}' expected ... (rejected)", exit code 1; over the next 120 days the old code attacked, moved to 4112 and 174 and returned to 183, each move accepted.
+- **--watch**: three edits in a row (the new title, a syntax error, the code as committed) gave two reloads, each carrying the task, and one "not reloaded" line with the syntax error between them.
+- **After a stop**: `on_frame` made to loop; the framework stopped the extension after three stretches past the time limit; reloading the committed code ran it again. The first run's build said "on_session got what save_data gave" though nothing was carried, as a stopped extension's `save_data` is not asked; the second run's says "on_session got nil: the old code was stopped (...), so its save_data was not asked".
+- **In the main menu**: after `menu.return`, the reload printed "no session is going on, so on_session comes with the next".
+- **Found, not of the reload**: after an in-process return, `menu.start` began a game the framework did not take for a new session: no "session N started" in the core log, `on_session` not called, the session number still 1. The same without a reload in between. The new game's first session after startup was announced; one after a return was not. Fixed the same night ([the next section](#2026-11-04-a-new-game-after-an-in-process-return-is-a-session-tested-by-me)).
+- **Cleanup**: each game was closed by ending its process. Releasing the game restored the player's files, the autosaves and the logs among them, and found every file as the backup had it.
+
+## 2026-11-04 A new game after an in-process return is a session (tested by me)
+
+The build of `claude/session-after-return`, which begins a session at each world reset with the history (an in-process return, the single player setup left). Regional combat as the extension to watch, its manifest set to api_version 0.2 for the run (as master provides) and put back after; `eu4.exe` started directly.
+
+- **Before**: in the runs of the same night ([Extension reload](#2026-11-04-extension-reload-tested-by-me)), France, `menu.return`, then `menu.start FRA` began a game the framework took for the old session: no "session N started", no `on_session`, the number still 1.
+- **After**: France (session 1), a return, Castile (3), France from that session (5), `menu.load autosave` from it (7, "from a loaded save: true"), France (9), a return, France again (10), France from that session (11). Each logged "session N started", each ended with the session's timing line, and regional combat's `on_session` ran each time ("session N: restored 0 task(s)").
+- **The numbers**: a session begun by a load, or with another world or player, is counted twice (by the load or the world reset, and by the frame that finds the world or player changed), so the numbers rise by 2 there and by 1 for France after France. They only ever rise, which is what extensions and remote clients rely on.
+- **Not verified in the game**: leaving the single player setup by its back button, then starting a game.
+
+## 2026-11-04 The bar of the units selected (tested by me)
+
+The repair that kills the unit view's selection bar as the view goes ([research/main-menu.md](research/main-menu.md), "The bar of the units selected"). A player build of this branch with the input branch (`claude/hungry-goldberg-462755`, for `eu4-harmony game input`) merged in for the run only; 769 dependency points matched. The player's playset, 3840x2160, `eu4.exe` started directly; the game claimed with the game-lock skill, which backed up the player's files; `dev-install.ps1` replaced the framework files in the game folder. Armies were selected by clicking their banners, by drawing a box round them, or from the outliner, at positions read off screenshots.
+
+- **Before**: the input run of the same night saw it twice: after `menu.start CAS` from a France session with the Paris army selected, the "1 陆军" bar stayed at the top left of the Castile session's map. Not run again without the repair.
+- **With the repair**, each next session and the main menu without any part of the army panel:
+  - `menu.start CAS` from France (session 1) with the Paris army selected ("1 陆军");
+  - `menu.return` from that Castile session with both its armies selected ("2 陆军");
+  - `menu.start FRA` from the main menu, the Paris army selected, `menu.load 英格兰1444_11_11` (session 7);
+  - the player's in-game load from the England session (8), through the game's menu, the load window and its question;
+  - the player's return from it by the game's question and the end-of-game summary, the Army of Scotland selected under the question ("1 陆军" shown with the summary);
+  - France from the main menu, both its armies selected ("2 陆军"), `menu.start CAS` (12); both Castile armies selected, `menu.load 英格兰1444_11_11` (14).
+- **What the game does itself**: opening its menu, by Esc or by the menu button by the minimap, deselects: with units selected Esc deselected them without opening the menu, and the menu button opened the menu with nothing selected after. The load window holds the map (clicks on it did nothing); the return's question does not, and units could be selected while it was open.
+- **The log**: no line of the repair's failing; the in-process returns let 13 to 14 parts of the session's interface go, as before.
+- **Not tried**: several units selected under the return's question (only one of the England armies could be reached from the outliner); a fleet selected; the in-game rebuild with units selected while the game stays in the same session; counting the GUI root's objects after each round.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it. The framework files of the test build stay in the game folder.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
+
+## 2026-11-04 The heap census through remote control, and a leak run (tested by me)
+
+M1 of [leak-finding.md](leak-finding.md): the developer build with the heap census (`--features eu4-harmony-core/dev-heap-census`) answering `memory`, `memory.leftovers` and `memory.generation`, and `tools/leak-run.ps1`. Four processes under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `eu4.exe` started directly by the script, the playset as installed; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **The first start failed**: "census new at 0x1a332d4: observer slots exhausted". The framework's 44 observers and the census's 5 came to 49, one more than the 48 slots, so a developer build with the census did not start since the command layer's observers came in; the slots are 64 now, and the test that the observers leave slots over counts the census's.
+- **Four rounds, twice**: every answer right, no crash, each round 37 to 40 s; generation 1 at the main menu, three world resets a round (13 after four). Private bytes 4,300 MB at startup and 4,609 MB after four rounds in the first run, 4,388 and 4,610 MB in the second; about 535 to 542 MB of it the framework's heap, which is the census's own count of about six million blocks. Handles 1,034 to 1,060.
+- **The leftovers**, after four rounds: 5.66 million blocks, 1,207 MB, nearly all of generation 0 (what the game loaded at startup). The sites that leave the most per generation, `steady`: `0x1529f85` in `0x1529d20`, 488 KB a generation, 33,796 blocks, none of its blocks ever let go; `0x15a2658 < 0x152a00a`, the same number of blocks, its buffers; `0x155c294` (199 KB, let go elsewhere at `0x1546536`), `0x156acc9` (166 KB, at `0x15bd3d6`), `0x10b59fe` (100 KB, at `0x10b5696`). The history's sites in `0x2976f0` came out `sometimes`: only the generations that read history leave there. These match what the census in the log found by hand on 2026-11-03.
+- **A mistake the run showed**: the first run listed one place that let blocks go five times, once for each shard of the census that had counted some; the counts are added up across shards since, and the second run gave each place once.
+- **Not tried**: `memory.generation` inside a long game; the player build, which has no memory group (the build and its tests and clippy pass); a run of more than four rounds.
+- **Cleanup**: the game was closed by the script, or by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The runs' reports and a scratch folder the script made were deleted.
+
+## 2026-11-04 Input (tested by me)
+
+I1 to I3 of [input.md](input.md): remote control's input, through `eu4-harmony game input`. Two runs of `eu4.exe`, started directly, player builds of this branch after the build, the tests, both clippy runs and the offline checks against `eu4.exe` passed (763 dependency points match); the second after the key names changed (below). The player's playset (the Chinese language mod and the regional combat mod, whose extension this framework did not load: its manifest asks for API 0.3), 3840x2160. The game was claimed with the game-lock skill, which backed up the player's files; the framework files in the game folder were replaced by `dev-install.ps1` without being copied aside first. Every position was read off a screenshot at 25 or 50 percent and given with `--scale`.
+
+- **The framework UI and the main menu, the game in front**: a click on the notice window's close button closed it; a click on 单人游戏 opened the single player setup.
+- **With another program in front** (the Claude app, brought forward with `SetForegroundWindow`; Notepad, started for it, did not get the foreground), from the setup to the end of the run: a click on France's shield selected France, and the cursor left over it showed the shield's tooltip; five notches of the wheel zoomed the map out; clicks started the game in normal mode. `input.get` answered the position given, the middle of the frame's pixels the screenshot's pixel stands for (428, 455 at 25 percent: 1714, 1822).
+- **Keys**: `space` resumed and paused the game; `plus`, as first named the `=` key, did nothing, and `shift+plus` raised the speed: the game's speed key is the character `+`. After the change, `plus` (shift and `equals`) and `numpad_plus` raised the speed from 1 to 2 to 3, and `numpad_minus` lowered it.
+- **The game console**: `grave` opened it; `input.type cash 100` and `enter` raised the treasury from 66.5 to 166.5 ("Gold changed by 100"); `中文ab` typed into it showed as typed, and one `backspace` left `中文a`: one character, where `tools/game-input.ps1`'s injected Backspace deleted more.
+- **A question and the armies**: a click on the event window's option answered it (`question.list` empty after); a click on the Paris army's banner opened its panel; a right click on a province east of it gave it the route 185 and the event `army_ordered`; a shift right click further east queued a second move (route 185, 4390); a drag from one corner to another selected the army in the box (the Flanders army at Narbonne).
+- **Held keys**: `key_down shift` showed in `input.get`'s `keys` until `key_up`; `key_down ctrl` followed by `menu.start CAS` from the session: at the new session nothing was held.
+- **The order of requests**: every request after an input ran once the frame that took it had run: `time.get` after `space` read the game resumed; `question.list` after the option's click read it answered.
+- **Seen, not of input's making**: `army.selected` answered "army panel not open" right after the click that opened it and again a request later, with the panel showing in the screenshots between. And after `menu.start CAS` from a session in which an army was selected, the army panel's top bar ("1 陆军") stayed on the map in the new session; reproduced in the second run. Neither was looked into.
+- **The player's mouse**: the log twice says the cursor was the player's again, in the minutes the player was using the computer beside the run; no move of the player's was made on purpose to try it.
+- **Not tried**: the game minimized; a modal framework window holding input back; the middle button, `mouse_down` and `mouse_up`, the wheel's left and right, alt and win; an input dropped because the frame changed size; `tools/perf-run.ps1` sending its own input, vanilla or with the framework.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it.
+
+## 2026-11-04 What still points at the leftovers (tested by me)
+
+M2 of [leak-finding.md](leak-finding.md): `memory.leftovers` with `holders`, which `tools/leak-run.ps1` asks after its last round. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. The developer build with the heap census, `eu4.exe` started by the script, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days, four rounds.
+
+- **The run**: every answer right, no crash, each round 37 to 39 s; private bytes 4,338 MB at startup, 4,604 MB after four rounds.
+- **The scan**, after the fourth round: 1,065,409 leftovers of the 40 sites looked for, 1,671 MB of the game's data and live blocks read, 1,549 ms with the census locked.
+- **What it found**:
+  - `0x1529f85` (in `0x1529d20`): 32,181 of its 33,790 leftovers are held by nothing, so they are lost: whatever made them never let them go and keeps no pointer to them. Its buffers, `0x15a2658 < 0x152a00a`, are held by those objects alone (33,790 pointers from `0x1529f85`). Together they leave about 600 KB a generation, the most of any site.
+  - The other interface sites (`0x155c294`, `0x10b59fe`, `0x10b6098`, `0x15e7654`, `0x15e8c62`, `0x15afb9a`): every leftover held by live blocks, most often of `0x14ec717 < 0x14e8904`. These are kept by a structure that is still alive, not forgotten.
+  - The history's sites in `0x2976f0` (`0x299db7`, `0x299e03`, `0x296fba` and others): nearly all held by nothing.
+  - No leftover site was held mostly by the game's data. `0x1917cf9` came closest, 20 of 153.
+- **Not tried**: a scan in a game, where the threads run; the threads' stacks, which are not read.
+- **Cleanup**: the game was closed by the script. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The run's report was deleted.
+
+## 2026-11-04 Where each round's growth goes (tested by me)
+
+M1b of [leak-finding.md](leak-finding.md): the developer build with the memory account alone (`--features eu4-harmony-core/dev-memory`), no census, so that the game ran as a player's build does but for what `memory` reads when asked. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. `tools/leak-run.ps1`, ten rounds, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **The run**: every answer right, no crash, each round 28 to 35 s (35 to 40 s with the census). Private bytes 3,850 MB at startup, 3,970 MB after the first round, 4,177 MB after the tenth; from round to round between -22 and +56 MB.
+- **The heaps**: seven, and only the process's default heap, which the game's C runtime and the framework share, holds more than half a megabyte: 1,855 MB allocated and 2,349 MB committed at the end. The framework's heap stayed at 1.6 to 1.8 MB.
+- **Where each round's growth goes**, the least-squares slope over rounds 2 to 10: 17.65 MB a round of private bytes. Of it:
+  - 9.21 MB is blocks the game's heap holds for the game, what the census counts;
+  - 7.29 MB is free pages that heap commits and does not use, after the framework had the heaps give back what they could at every main menu;
+  - 1.15 MB lies outside the heaps;
+  - nothing is in the other heaps or the framework's.
+
+  Handles grew 2.6 a round. From the end of round 1 instead of the slope, round 2's jump of the free pages (357 to 434 MB) made them 15.2 MB a round, which is why the report takes the slope.
+- **What it says**: leaks of the game's heap are about half of each round and the free pages most of the rest, so finding the leaks (the census) and the free pages (why the default heap keeps them) are both worth the work; Direct3D and the driver are not.
+- **Not tried**: the player build itself, which has no `memory`; a run longer than ten rounds.
+- **Cleanup**: the game was closed by ending its process. The three framework files in the game folder were put back and compared equal to the copies taken before. Releasing the game restored the player's files (the run's save rewritten, and its backup added, among them) and found every file as the backup had it. The run's report was deleted.
+
+## 2026-11-04 Where the slow stretches went (tested by me)
+
+L6's cost: the 5 to 13 ms stretches of 2026-11-03 ("Regional combat's cost") spent their time in calls that read a few fields (`session.get`, `army.selected`) or in no call at all, also before a task was on. A build of master (8bca0f2) with a measurement not committed: for each extension's `on_frame` call, the wall time, the main thread's CPU cycles (`QueryThreadCycleTime`), the time in the allocator and the time waiting on the framework's three locks (the game state, the interface, the session boundary); a line for each call over 5 ms and for every 2000th. Regional combat at api_version 0.3, France from 1444.11.11, `eu4.exe` started directly; the army selected and the task turned on with `input.click`.
+
+- **The calls measured**: an ordinary `on_frame` took 0.06 to 0.08 ms and 0.22 to 0.32 million cycles, about 3.8 GHz, so on the processor all the time; about 216 allocations, 0.01 ms in all, and 13 lock waits, under 0.001 ms.
+- **Without the task**, 120 days: 42,465 stretches, the longest 0.683 ms, none over 5 ms.
+- **With the task**, war on England in December, the task on (center 183, radius 5), 120 days: 30,578 stretches, 2,608 ms; mean 0.085 ms, median 0.065 ms, p95 0.086 ms, p99 0.424 ms, the longest 6.367 ms; 0.84% of the session's 311.9 s, 1.37% of the main thread's 190.0 s of CPU, 0.60% of the game's 435.5 s.
+- **The one over 5 ms**: the frame the task was turned on, 6.42 ms and 24.0 million cycles (6.2 ms at 3.84 GHz): on the processor the whole time, its range worked out for the first time and its first decision made; 40,098 allocations, 1.9 ms of it in the allocator; 0.02 ms waiting on locks.
+- **So**: none of the stalls of the day before came again in 73,000 stretches, so none was measured. The framework's work, its allocator and its locks show nothing that could take milliseconds; what is left is the main thread being off the processor, most likely to other work on the machine (that day other checkouts' builds and tests ran beside the game; at 3 a.m. none did). That is not verified.
+- **Not verified**: what the stalls of the day before were; that load on the machine brings them back.
+- **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files and found every file as the backup had it. The measurement is not in the code.
+
 ## 2026-11-04 Achievement rules, and the save checksum of an in-game load (tested by me)
 
-The achievement rules of ADR 0034, and why a save loaded in a session lost achievements. Runs of `eu4.exe` started directly, driven by `eu4-harmony game`: `menu.start CAS`, a normal game, run to the autosave of 1445.1.1 answering every question with its first option, then `menu.load autosave` and on to the autosave of 1445.7.1. Plain text autosaves (`compress_autosave=no`). The settings were written into `eu4-harmony/settings.txt` between runs. The Chinese playset, whose Chinese Language Supplementary Mod (`common`, `events` and others) and Graphical Map Improvements (`map`) change the game checksum; for the runs marked vanilla checksum both were taken out of `dlc_load.json`. Which salt a save's checksum was taken with was found by computing it from the file with the memory stream's sum (research/saves.md), with eight zero bytes and with `I_am_such_a_cheater`. The game was claimed with `game-lock`, which backed up and restored the player's files.
+The achievement rules of ADR 0038, and why a save loaded in a session lost achievements. Runs of `eu4.exe` started directly, driven by `eu4-harmony game`: `menu.start CAS`, a normal game, run to the autosave of 1445.1.1 answering every question with its first option, then `menu.load autosave` and on to the autosave of 1445.7.1. Plain text autosaves (`compress_autosave=no`). The settings were written into `eu4-harmony/settings.txt` between runs. The Chinese playset, whose Chinese Language Supplementary Mod (`common`, `events` and others) and Graphical Map Improvements (`map`) change the game checksum; for the runs marked vanilla checksum both were taken out of `dlc_load.json`. Which salt a save's checksum was taken with was found by computing it from the file with the memory stream's sum (research/saves.md), with eight zero bytes and with `I_am_such_a_cheater`. The game was claimed with `game-lock`, which backed up and restored the player's files.
 
 - **Both settings off, changed game checksum**: the log said the game checksum is not vanilla's, taken as not vanilla's; the save of 1445.1.1 had `achievement_ok=no`.
 - **Outside ironman on, changed game checksum**: the same log line; `achievement_ok=no`.

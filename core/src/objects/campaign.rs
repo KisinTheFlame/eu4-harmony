@@ -56,6 +56,8 @@ pub mod classes {
     pub const AI_KING: usize = 0x1c3e9e0;
     /// A set of modifiers, by value (see [`super::modifiers`]).
     pub const MODIFIER_SET: usize = 0x1c42ae0;
+    /// The panels of the units the player selected (see [`super::unit_view`]).
+    pub const UNIT_VIEW: usize = 0x1d87540;
 }
 
 /// A country tag, a u64: three letters, then at these bit positions the
@@ -548,6 +550,19 @@ pub mod map_modes {
     pub const WINDOW: usize = 8;
 }
 
+/// The panels of the units the player selected, at the map manager's
+/// `+0x5ba0`, of [`classes::UNIT_VIEW`], which the interface rebuild deletes
+/// and makes again.
+pub mod unit_view {
+    /// The map manager, among whose windows it puts its own.
+    pub const MAP_MANAGER: usize = 8;
+    /// The window of the selection's bar (`multi_unitpanel`: how many units
+    /// are selected, and the buttons to merge, reorganize and deselect them).
+    /// Made again, it is taken off the map manager's windows and killed;
+    /// the unit view's destructor never lets it go.
+    pub const SELECTION_BAR: usize = 0x200;
+}
+
 /// The outliner, at the map manager's `+0x1418`, which the game lets go
 /// with `0x81dc30`.
 pub mod outliner {
@@ -671,6 +686,14 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x81cd7busize, "49 89 b6 b0 11 00 00", "map manager window 0x11b0").uses(&[0x11b0]),
         Point::keep(0x81b7c0usize, "49 89 86 18 14 00 00", "map manager window 0x1418").uses(&[0x1418]),
         Point::keep(0x81c509usize, "49 89 86 48 24 00 00", "map manager window 0x2448").uses(&[0x2448]),
+        // The unit view makes its selection's bar again: the old one off the
+        // map manager's windows first.
+        Point::keep(
+            0x14756f4usize,
+            "48 8b d9 48 8b 79 08 40 32 f6 48 8b 91 00 02 00 00 48 85 d2 74 0f 0f b6 b2 f5 00 00 00 48 8b cf e8 67 75 27 ff",
+            "unit view selection bar",
+        )
+        .uses(&[unit_view::MAP_MANAGER, unit_view::SELECTION_BAR]),
         Point::keep(0x81d568usize, "49 89 86 00 14 00 00", "map manager message icon holder").uses(&[map_manager::MESSAGE_ICON_HOLDER]),
         Point::keep(0x814824usize, "49 8b 8d b8 04 00 00", "map manager message windows").uses(&[map_manager::MESSAGE_WINDOWS]),
         // A message window that is not closed has its popup closed as it

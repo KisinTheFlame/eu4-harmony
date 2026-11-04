@@ -1,6 +1,6 @@
 # Lua extensions plan
 
-Status: decided (2026-11-03); L1 to L5b built. Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns), [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
+Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 and 2026-11-04 ([prototype-log.md](prototype-log.md)), its cost target met but for the frame a task is turned on (L6, "Where it stands"). Reloading an extension in the running game came after it ([extension-reload.md](extension-reload.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR 0024](adr/0024-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR 0025](adr/0025-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR 0026](adr/0026-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR 0027](adr/0027-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR 0028](adr/0028-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns; superseded by [ADR 0036](adr/0036-save-data-is-asked-for-by-save-data.md), `save_data`), [ADR 0029](adr/0029-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR 0030](adr/0030-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
 
 ## Goal and scope
 
@@ -26,7 +26,7 @@ Status: decided (2026-11-03); L1 to L5b built. Terms are in [GLOSSARY.md](../GLO
     on_army_ordered = function(game, army) end,    -- something other than an extension changed an own army's route
     on_army_defeated = function(game, army) end,   -- an own army lost a battle
     on_map_lost = function(game) end,              -- another extension took over the map coloring
-    on_save = function(game) return state end,     -- the game is writing a save; see Extension save data
+    save_data = function(game) return state end,   -- the framework asks for this mod's save data
   }
   ```
 
@@ -56,7 +56,7 @@ end
 - `spawn(fn)` starts `fn` as a task of its own and returns as soon as `fn` first waits, or ends: two requests sent at once, or one left to finish after the handler that sent it has returned. A spawned task cannot yet be waited for or cancelled.
 - The time limit applies to each stretch a task runs, not to the time it waits.
 - A session's waiting tasks are dropped when it ends, by a return to the main menu, an in-game load or a new game, and when the game closes: they are never taken up again, and the log says how many were dropped.
-- `on_save` and the top of `main.lua` cannot wait: a function that waits raises an error there.
+- `save_data` and the top of `main.lua` cannot wait: a function that waits raises an error there.
 - The type definitions and `wiki` mark every function that waits. Later capabilities may wait too (for a number of game days, say) in the same way.
 
 ### Results and errors
@@ -110,11 +110,11 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 
 ### Extension save data
 
-- `on_save(game)` is called whenever the game writes its world, the ironman exit save included, and what it returns is this extension's save data in that save ([ADR 0028](adr/0028-save-data-is-what-on-save-returns.md)). Returning `nil` keeps nothing.
+- `save_data(game)` is called whenever the game writes its world, the ironman exit save included, and what it returns is this extension's save data in that save; it is also called before an extension reload, and the new code's `on_session` gets what it returned ([ADR 0036](adr/0036-save-data-is-asked-for-by-save-data.md), [extension-reload.md](extension-reload.md)). Returning `nil` keeps nothing. Until api_version 0.3 it was `on_save` ([ADR 0028](adr/0028-save-data-is-what-on-save-returns.md)).
 - When a session begins from a save, `on_session(game, saved)` gets back what that save holds for the extension, or `nil`.
 - The data is any value JSON can hold: a table whose keys are all strings is an object, a sequence is an array, integers stay 64-bit. A function, a userdata, a table with mixed keys or a cycle fails: that save holds no data for the extension, the error is logged and raises a notice as other errors do. At most 16 MiB of JSON.
 - Where and how it is written into the save does not change ([ADR 0020](adr/0020-extension-save-data-in-the-save.md)); a save written by a native extension is read by its Lua rewrite when the data's shape is the same.
-- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `on_save` like any other.
+- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `save_data` like any other.
 
 ### The capability catalogue
 
@@ -139,7 +139,7 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 
 ```toml
 id = "template-mod"
-api_version = "0.2"
+api_version = "0.3"
 description = "TEMPLATE_MOD_DESCRIPTION"   # a key in the mod's localisation
 permissions = { clock = true, files = true, network = ["api.example.com", "192.168.1.10:8080"] }
 ```
@@ -159,7 +159,8 @@ permissions = { clock = true, files = true, network = ["api.example.com", "192.1
 - `eu4-harmony new <id>`: a mod with `main.lua` (a button, as now), a test, localisation in English and Chinese, an `AGENTS.md` telling a coding agent to read `eu4-harmony skills`, and the editor's type definitions with a `.luarc.json`.
 - `eu4-harmony test [<mod dir>]`: runs the mod's `eu4-harmony/tests/*.lua` against a fake game, in the same Lua 5.4 and sandbox. The fake game is a data store, as the SDK's was: a test sets out snapshots, picks routes, raises events, answers `http.fetch` requests, takes waiting tasks up again, and reads back what was recorded (elements, coloring, commands, save data). It refuses what the core refuses, in its words, through `checks/`. In a test, `files` is a temporary folder and `mod_files` the mod's real folder.
 - `eu4-harmony link`: as now.
-- `eu4-harmony package`: a clean folder to upload; refuses when a Lua file does not compile or a localisation file has errors. The type definitions and `.luarc.json` are left out.
+- `eu4-harmony check`: reads the mod as the framework does, without the game: the manifest and its `api_version`, every Lua file compiling, every localisation file, and no file under `ui/` where the layout puts nothing; lists each problem and fails when there is one. It reads only what the framework reads, and guesses nothing from the mod's code.
+- `eu4-harmony package`: a clean folder to upload, once `check` passes. The type definitions and `.luarc.json` are left out.
 - `eu4-harmony types`: writes the editor's type definitions again, for the catalogue of this tool's version. They are LuaLS annotations of every capability, handler and global, so an editor completes them and marks a misspelled capability or a wrong argument.
 - `eu4-harmony wiki [<topic>...]`: the reference, made from the framework's own descriptions, never written by hand: the catalogue (each capability as a Lua call and as an `eu4-harmony game` command), handlers, error codes, manifest fields, sensitive capabilities, the sandbox's globals; and for remote clients, how a game goes and what each exit code means. Topics nest: `wiki`, `wiki army`, `wiki army move`. `eu4-harmony game help` goes; `eu4-harmony game` alone prints the command line's form and points to `wiki`.
 - `eu4-harmony skills [<topic>...]`: guides for a mod author's coding agent, written by hand in English and embedded in the tool, nesting as `wiki` does: making a mod, tasks and waiting (what may change while a task waits, and that a session's waiting tasks are dropped when it ends), writing tests, interface fragments, localisation, trying a mod in the game through remote control. They point into `wiki` instead of repeating it. CI runs the Lua examples in them with `eu4-harmony test`.
@@ -220,7 +221,7 @@ Reviewed 2026-11-03. In Lua a capability is `game.<group>.<name>(...)`, in remot
 
 ### L2 Lua host
 
-Lua 5.4 in the core; a Lua state per extension with the sandbox; `main.lua` and its handlers, run as tasks, with `spawn`, including `on_save` and `on_session`'s save data; the `game` adapter over the catalogue; results and errors, the log's deduplication and the notice; the time limit and its watcher; `log`, `json` and `mod_files`; `manifest.toml` and the layout by convention, with the startup report. Native extensions removed: `abi/`, `sdk/`, `ext.rs`, loading DLLs.
+Lua 5.4 in the core; a Lua state per extension with the sandbox; `main.lua` and its handlers, run as tasks, with `spawn`, including `on_save` (now `save_data`) and `on_session`'s save data; the `game` adapter over the catalogue; results and errors, the log's deduplication and the notice; the time limit and its watcher; `log`, `json` and `mod_files`; `manifest.toml` and the layout by convention, with the startup report. Native extensions removed: `abi/`, `sdk/`, `ext.rs`, loading DLLs.
 
 ### L3 Sensitive capabilities
 
@@ -238,7 +239,7 @@ Built in three pull requests: the reference (`wiki lua`, `wiki manifest` and `ty
 
 ### L5b Developer experience
 
-Reviewed 2026-11-03 against what the native extensions' Rust SDK gave mod authors: typed results and a fake game that held a small world. Built before L6, so the rewrite uses them; reloading an extension without restarting the game comes after L6, discussed first.
+Reviewed 2026-11-03 against what the native extensions' Rust SDK gave mod authors: typed results and a fake game that held a small world. Built before L6, so the rewrite uses them; reloading an extension without restarting the game came after L6 ([extension-reload.md](extension-reload.md)).
 
 1. **Result types**: every capability's result has its shape described in the catalogue, from the answer's own type, in Lua's form. The type definitions give each result a class (`eu4.Army` with `id`, `owner`, `kind`, `province`, `regiments`, `blocked`, `route`, `route_by`), so an editor completes a result's fields. In `eu4-harmony test`, an answer a test gives is held to the shape: a field the result does not have, or a value of the wrong type, is an error at the test's line; a field left out is allowed, so a test writes only what it is about.
 2. **A fake world**: `mod:world{ player, date, countries, hostile, provinces, armies, selected }` describes a small world once, and the fake game answers from it: `session.get`; `country.get` and `country.hostile`; `province.get`, `province.list` and `province.neighbors`; `army.get`, `army.list`, `army.at` and `army.selected`; `army.route_to` as the shortest route over passable land, `army.can_step` as a neighbor that can be passed, `army.can_attack` as a hostile country's army. `army.move` and `army.stop` are recorded and set or clear the army's route, `route_by` this mod; armies do not move as days pass. Recruiting, diplomacy, questions, offers, the camera and the console are answered one by one as before, and an answer given for a capability goes before the world's. A test file may `require` helper modules from `eu4-harmony/tests/`, so tests share a world.
@@ -249,6 +250,17 @@ The regional combat mod rewritten in Lua, in its own repository ([ADR 0004](adr/
 1. **The same mod**: the button, the radius settings, the range preview, the automatic decisions, and a task turned off by a hand-given order or a defeat, as the native extension does them.
 2. **Its saves**: a save written with the native extension, loaded with the Lua one, restores the tasks it held.
 3. **Its tests**: the decision core's C++ tests and the extension's Rust tests, as `eu4-harmony test` tests.
-4. **Its cost**: in a normal game, no stretch of a task over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the cause is measured first, and the framework makes the capabilities the mod calls cheaper; the mod's own logic, such as its range, stays in Lua, and native code is not the answer ([ADR 0033](adr/0033-capabilities-answer-facts-mods-hold-the-logic.md)). Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a capability call 30 to 60 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms.
+4. **Its cost**: in a normal game, no stretch of a task over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the cause is measured first, and the framework makes the capabilities the mod calls cheaper; the mod's own logic, such as its range, stays in Lua, and native code is not the answer ([ADR 0033](adr/0033-capabilities-answer-facts-mods-hold-the-logic.md)). Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms. A capability call, measured later the same day with the test host, cost 5.8 µs before it reached the game (the name looked up in the whole catalogue, the request written as JSON text and read back) and 1.4 µs once that was gone; the 30 to 60 ns first written here was not that path.
 
 Capabilities the rewrite finds missing are added to the catalogue as general capabilities ([ADR 0005](adr/0005-extensions-use-capabilities-only.md)).
+
+#### Where it stands
+
+The mod is rewritten in Lua (`lua/core.lua`, `lua/world.lua`, `lua/main.lua` in its repository), on the catalogue's atomic capabilities; the runs are in [prototype-log.md](prototype-log.md), 2026-11-03 "Regional combat in Lua" and "Regional combat's cost", and 2026-11-04 "Extension reload".
+
+1. **The same mod**: met. The button and its tooltip in both languages, the radius editor, the preview, the daily decisions (attacking, moving, returning, waiting while the army's orders are locked), a manual order turning the task off, and a loaded save restoring its tasks were seen in the game. A defeat turning the task off and the recovery of an occupied province were not seen in the game; the tests have them.
+2. **Its saves**: rests on the data's shape, not on a save. The Lua mod writes and reads the shape the native extension wrote, and a test holds it; no save written by the native extension was left to load.
+3. **Its tests**: met. The decision core's scenarios and the extension's tests are `eu4-harmony test` tests (`tests/core_test.lua`, `tests/mod_test.lua`), 50 in all.
+4. **Its cost**: met but for one stretch, the frame a task is turned on. Over 120 days with a task on (2026-11-04): 30,578 stretches, 2,608 ms; mean 0.085 ms, median 0.065 ms, p95 0.086 ms, p99 0.424 ms, 0.60% of the game's CPU time; one stretch over 5 ms, 6.4 ms, the frame the task was turned on, which works its range out for the first time (88 `province.neighbors`, 452 `army.can_step`, the preview) and decides. It was on the processor the whole time and made 40,098 allocations. The 5 to 13 ms stretches of the runs the day before, in calls that read a few fields or in no call, did not come again in 73,000 stretches with the time on the processor measured, so what they were is not verified; the framework's work, allocator and locks show nothing that could take milliseconds, which leaves the main thread off the processor, most likely to other work on the machine (prototype-log.md, 2026-11-04 "Where the slow stretches went").
+
+What getting there took, all in the framework: reading game memory in the process (ADR 0032), the game's own lookup of an army by its ID, a capability call from Lua without JSON text, `province.list` naming its provinces; a coarser capability for the mod's range was tried and taken back out (ADR 0033).

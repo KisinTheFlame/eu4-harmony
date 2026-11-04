@@ -28,5 +28,9 @@ steps:
 6. Leave nothing behind: close the game, put the copied files back, and
    remove the mod from the playset if it was there only for the test.
 
-After a change to Lua, start the game again: a mod is loaded once, at
-startup.
+After a change to the mod's Lua or texts, run eu4-harmony reload from its
+folder, or keep eu4-harmony reload --watch running: the running game takes
+the new code up in place, the session going on, and the mod's state comes
+through save_data to on_session as from a save. Done when it prints
+"reloaded"; when the new code does not load it prints why, and the old code
+goes on. A change to ui/ or to the manifest takes a restart of the game.

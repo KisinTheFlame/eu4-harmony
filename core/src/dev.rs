@@ -1,6 +1,6 @@
 //! A developer build: which development tools are built in, each a feature of
-//! its own (`dev-call-trace`, `dev-heap-census`, `dev-command-log`,
-//! `dev-test-switches`), and their options. A tool built in is on; its
+//! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
+//! `dev-command-log`, `dev-test-switches`), and their options. A tool built in is on; its
 //! options are in `eu4-harmony\dev.toml` in the game folder, one section a
 //! tool, and a section left out takes its defaults (`tools/dev.toml.example`
 //! shows them all). A player's build has none of this.
@@ -10,8 +10,9 @@ use std::sync::OnceLock;
 
 /// The tools: each one's name, its section in dev.toml, and whether it is
 /// built in.
-const TOOLS: [(&str, &str, bool); 4] = [
+const TOOLS: [(&str, &str, bool); 5] = [
     ("call trace", "call-trace", cfg!(feature = "dev-call-trace")),
+    ("memory account", "memory-account", cfg!(feature = "dev-memory")),
     ("heap census", "heap-census", cfg!(feature = "dev-heap-census")),
     ("command log", "command-log", cfg!(feature = "dev-command-log")),
     ("test switches", "test-switches", cfg!(feature = "dev-test-switches")),
@@ -22,6 +23,7 @@ const TOOLS: [(&str, &str, bool); 4] = [
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Options {
     pub call_trace: CallTrace,
+    pub memory_account: MemoryAccount,
     pub heap_census: HeapCensus,
     pub command_log: CommandLog,
     pub test_switches: TestSwitches,
@@ -46,7 +48,14 @@ impl Default for CallTrace {
     }
 }
 
-/// The census has no options: it counts at every world reset.
+/// The memory account has no options: it reads what the process holds
+/// when remote control asks.
+#[derive(Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryAccount {}
+
+/// The census has no options: a generation ends at every world reset and
+/// when remote control asks.
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HeapCensus {}
@@ -91,8 +100,11 @@ impl Options {
                 false => format!("call trace: {}; the first {calls} calls of each", functions.join(", ")),
             });
         }
+        if built("memory-account") {
+            lines.push("memory account: at memory, from remote control".to_string());
+        }
         if built("heap-census") {
-            lines.push("heap census: at every world reset".to_string());
+            lines.push("heap census: a generation ends at every world reset and at memory.generation".to_string());
         }
         if built("command-log") {
             let types = &self.command_log.types;
