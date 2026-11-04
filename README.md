@@ -1,126 +1,171 @@
 # EU4 Harmony
 
+[![CI](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/KisinTheFlame/eu4-harmony/actions/workflows/ci.yml)
+
 English | [简体中文](README.zh-CN.md)
 
-A framework for Europa Universalis IV mods that carry Lua scripts. The framework gets into the game process, reads game state, gives orders, adds elements to the vanilla interface and keeps data per save; a mod's extension reaches the game only through the capabilities the framework provides and never touches memory addresses. The design is in [docs/v1.md](docs/v1.md), the terms in [GLOSSARY.md](GLOSSARY.md), and the reasons behind decisions in [docs/adr/](docs/adr/).
+**Lua scripting for Europa Universalis IV mods.** EU4 Harmony runs inside the game and lets a mod carry an extension: Lua scripts that read the game, give orders as the player would, add buttons to the vanilla interface and keep data in the save. The extension never touches memory addresses; it calls capabilities such as `game.army.move(army, province)`, and the framework does the rest.
 
-Supported game: vanilla 1.37.5, and patched builds of it with the same layout. Single player only.
+```lua
+-- eu4-harmony/lua/main.lua: a button, declared in eu4-harmony/ui/, that shows in the
+-- army panel while one of your armies is selected
+return {
+  on_frame = function(game)
+    game.ui.button.visible = game.army.selected() ~= nil
+  end,
 
-## Installing the framework (players)
-
-The framework comes as a folder, or a zip of it, holding `version.dll` and an `eu4-harmony\` folder with the core (`eu4_harmony_core.dll`) and the command line tool (`eu4-harmony.exe`); `cargo xtask release` makes both from a release build. Put `version.dll` and the `eu4-harmony\` folder into the game's root folder. If the root folder already has a `version.dll`, move it into `eu4-harmony\backup\` first; the framework does not load it. The framework draws Chinese and every other script itself ([ADR built-in-unicode-module](docs/adr/built-in-unicode-module.md)). Then start the game from the Paradox launcher as usual and enable mods built on the framework in your playset. Mods whose extension is a DLL, made for earlier versions of the framework, are no longer loaded: their extensions have to be rewritten in Lua.
-
-To uninstall, delete `version.dll` from the root folder, move the backed-up `version.dll`, if there is one, from `eu4-harmony\backup\` back into the root folder, and then delete `eu4-harmony\`.
-
-In saves played with the framework, names the player typed or changed are UTF-8, and show as garbage once the framework is removed.
-
-Logs and the startup report (`report.txt`) are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`. Extension save data is written into the save itself; a save played with an extension that keeps data is not promised to load without the framework.
-
-## Leaving a game
-
-Returning to the main menu does not start the game again: the main menu is back in a few seconds instead of about 45 ([ADR return-to-the-main-menu-in-process](docs/adr/return-to-the-main-menu-in-process.md)). An ironman game can be left by loading another save from the game's menu too; the current game is saved first ([ADR in-game-load-in-ironman](docs/adr/in-game-load-in-ironman.md)). Both are framework settings, in the settings window the "EU4 Harmony settings" button opens in the main menu's corner: with "Return to the main menu without restarting the game" off, the game starts again as in vanilla; with "In ironman, save the game before loading another save" off, loading the same save again undoes what was played since it was written. The game keeps some memory of every game left so, about 15 MB a return, until it is closed ([known leaks](docs/sessions.md#known-leaks)); after many returns, starting the game again gives it back.
-
-## Achievements
-
-Two more framework settings, both off unless the player turns them on, let the game give achievements where vanilla does not ([ADR achievement-rules-can-be-relaxed](docs/adr/achievement-rules-can-be-relaxed.md)): "Achievements outside ironman", in a game that is not ironman, with saves loaded again and the game console used; and "Achievements with a changed game checksum", with mods that change the game checksum the main menu shows. Every other rule for achievements stays the game's own, and a change takes effect with the next game started or loaded.
-
-## A faster game
-
-The framework makes the game faster without changing what it computes: the same rules, data and AI, the same days ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](docs/adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md), [docs/game-speed.md](docs/game-speed.md)). Always on:
-
-- Paradox's online client no longer sleeps on the main thread while it waits for its connections.
-- The framework keeps the line breaks of the texts it draws instead of working them out again every frame.
-- A local save (an autosave, a save of the player's, an ironman save) is written by the game without being compressed, and the framework compresses the file in the background afterwards. The file is a whole save at every moment; if the game is closed before the framework is done, that save stays uncompressed, only larger. Cloud saves are written by the game as before. The game without the framework loads a save the framework compressed.
-
-In a game of 1618, these made the paused game draw 84 frames a second instead of 63, and days pass about a tenth faster at the fastest speed ([docs/performance.md](docs/performance.md)).
-
-One choice is the player's, under "Game speed" in the settings window: "At the fastest speed", "Smooth map (as in the game)" or "Faster time". At the fastest speed the game draws frames during a day that takes long, so the map keeps moving; with "Faster time" it draws none, and late in a game days pass about another tenth faster, but the map is redrawn less often, looks choppier and answers clicks a little later. It takes effect when the settings window is closed, and only at the fastest speed.
-
-## Remote control (players and AIs)
-
-Remote control lets a program outside the game use it through the framework's capabilities, as the player would: from the main menu into a game and back, reading the game, letting time pass, answering the game's events and other countries' offers, moving armies, recruiting, diplomacy, the game console, the camera, screenshots, and the player's own mouse and keyboard where nothing else reaches. It is how an AI plays a whole game, and how developers try the framework from the command line. It is on whenever the framework runs, open only to the Windows user playing and only on this computer (a named pipe), and it acts as the player: what the player could not do, it cannot either ([ADR remote-control-uses-capabilities](docs/adr/remote-control-uses-capabilities.md), [ADR remote-control-is-always-on](docs/adr/remote-control-is-always-on.md)).
-
-The client is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder. `eu4-harmony game <capability> [<arguments>]` sends the running game one request and prints the answer as JSON; the exit code is 0 when the game answered, 1 when it answered with an error (`{"code": ..., "message": ...}`, the game's own reasons for a refusal), 2 when the command line is wrong and nothing was sent, and 3 when no answer came. Arguments may be named (`--province 167`) or given in their order, and a capability's dot may be a space:
-
-```powershell
-cd "<game folder>\eu4-harmony"
-.\eu4-harmony wiki remote                 # how a game goes, and what each exit code means
-.\eu4-harmony game menu                    # where the game is: main_menu, starting or game
-.\eu4-harmony game menu start FRA          # a new game as France, answered once it is ready
-.\eu4-harmony game question list           # the game's events waiting for the player's answer
-.\eu4-harmony game question answer 2 0     # answer one with one of its options
-.\eu4-harmony game time advance 30         # let 30 days pass, then pause; stops early for a question
-.\eu4-harmony game army list               # the player's armies
-.\eu4-harmony game army move 545460846646 185
-.\eu4-harmony game diplomacy war_goals ENG
-.\eu4-harmony game diplomacy declare_war ENG cb_core --province 167
-.\eu4-harmony game screenshot --scale 50 --out shot.png
-.\eu4-harmony game input click 960 540 --scale 50   # click where that screenshot shows something
-.\eu4-harmony game menu return             # back to the main menu, answered once it is up
+  on_button = function(game)
+    log("army " .. tostring(game.army.selected()) .. " clicked")
+  end,
+}
 ```
 
-The capabilities, by group:
+> [!NOTE]
+> EU4 Harmony is in early development. It supports **EU4 1.37.5 on Windows, single player only**, and has no published release yet: [build it from source](#building-from-source). The extension interface may still change between versions.
 
-| Group | Capabilities |
-| --- | --- |
-| Main menu | `menu` (where the game is), `menu.saves`, `menu.load`, `menu.start`, `menu.return` |
-| Session and time | `session.get`, `time.get`, `time.pause`, `time.resume`, `time.set_speed`, `time.advance` (let days pass and wait, with the events on the way) |
-| Countries and provinces | `country.get` (treasury, manpower, stability, prestige, monarch points, wars, allies, subjects and overlord with the kind of subject, rivals), `country.hostile`, `province.list` (every province, or those named), `province.get` (name, owner, development, terrain, fort, buildings), `province.neighbors` |
-| Armies | `army.list`, `army.get` (with the route still to go and what stops it taking orders), `army.at`, `army.route_to`, `army.can_step`, `army.can_attack`, `army.move`, `army.stop`, `army.selected` |
-| Recruiting | `recruit.options` (what can be recruited in a province, and why not), `recruit.order` (a regiment or ship of a kind) |
-| Questions and offers | `question.list`, `question.answer` (the game's events waiting for the player's answer); `offer.list`, `offer.accept`, `offer.decline` (other countries' proposals) |
-| Diplomacy | `diplomacy.war_goals`, `diplomacy.declare_war` (calling allies to arms), `diplomacy.offer_peace` (a white peace), `diplomacy.propose_alliance` |
-| Game console | `console.run` (a command, as the player types it, and what it printed) |
-| Camera and screenshots | `camera.get`, `camera.look_at` (a province or a map position), `camera.zoom`; `screenshot` (the frame as the player sees it, as a PNG) |
-| Input | `input.click`, `input.move`, `input.drag`, `input.scroll`, `input.key`, `input.type` (any Unicode), `input.mouse_down`, `input.mouse_up`, `input.key_down`, `input.key_up`, `input.get`: the player's mouse and keyboard at positions in the frame, for what has no capability of its own, with the game in front or behind other windows ([ADR remote-clients-give-the-players-input](docs/adr/remote-clients-give-the-players-input.md)) |
-| Events and descriptions | `events` (numbered: a session begun or ended, a new day, an army ordered or defeated), `describe` (the catalogue's version and every capability, from the running game), `text.language` |
-| Desktop | `desktop.get`, `desktop.show`, `desktop.hide`: whether a game started hidden is hidden, and showing it on the desktop and hiding it again (below) |
+## Features
 
-The full list, with every argument and result, is `eu4-harmony wiki`, which works without the game: `eu4-harmony wiki army` for a group, `eu4-harmony wiki army move` for one capability, `eu4-harmony wiki errors` for what each error means; `eu4-harmony game describe` asks the running game. How each capability works in the game is in [docs/remote-control.md](docs/remote-control.md).
+**For mod authors**
 
-### Starting the game hidden
+- Extensions in Lua 5.4, run in a sandbox of their own: nothing to install, nothing to compile.
+- Capabilities for countries, provinces, armies, recruiting, diplomacy, events, time, the camera and the game console, and buttons and windows in the vanilla interface.
+- Extension save data kept in the save; texts in every game language, shown in the player's.
+- A command line tool that creates a mod, checks it, runs its tests against a fake game, reloads it in the running game as you edit, and packs it for upload.
+- Completion and type checking in any editor with the Lua language server, and guides written for coding agents.
 
-`eu4-harmony start --hidden` starts the game with nothing of it on the desktop, for a remote client, while the player goes on working in other programs: no window, nothing on the taskbar, the focus and the cursor left alone, and no sound unless `--sound`. The game draws every frame at the size of its settings, so `screenshot` and `input` work as with the window shown; the command returns once the main menu is up, and says why when the game ends first. A framework message box goes to the framework's log instead, and after a crash the game writes its crash files without starting its crash reporter. The same is the game's switch `-harmony_hidden` (and `-harmony_sound`), which may go into Steam's launch options. `eu4-harmony game desktop show` shows the game, without taking the focus, and `desktop hide` hides it again ([docs/hidden-start.md](docs/hidden-start.md)).
+**For players**
 
-## Writing a mod (developers)
+- Chinese and every other script drawn in the game, in system fonts of your choice.
+- Back to the main menu in a few seconds instead of a restart of about 45.
+- A faster game that computes the same game: 84 frames a second instead of 63 in a paused game of 1618, and days about a tenth faster at the fastest speed ([measurements](docs/performance.md)).
+- Optional: achievements outside ironman and with mods that change the checksum.
+- On a game build it does not know, the framework stays out of the game as a whole and a message box says why, instead of misbehaving.
 
-A mod's extension is Lua 5.4 scripts, run by the framework in a sandbox of their own ([ADR extensions-are-lua-in-a-sandbox](docs/adr/extensions-are-lua-in-a-sandbox.md)): nothing to install and nothing to build. The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder (or `target\x86_64-pc-windows-msvc\release\` in a build of this repository):
+**For tools and AIs**
+
+- Remote control: a program outside the game plays it through the same capabilities, from the main menu into a game and back, from the command line or as JSON over a local named pipe.
+- The game can be started hidden, with nothing on the desktop, for an AI to play while you go on working.
+
+## Installing (players)
+
+1. Get the player package: a folder holding `version.dll` and an `eu4-harmony\` folder. Until there is a release, build it with `cargo xtask release` ([Building from source](#building-from-source)).
+2. If the game's root folder already has a `version.dll`, move it into `eu4-harmony\backup\`; the framework does not load it.
+3. Copy `version.dll` and `eu4-harmony\` into the game's root folder, next to `eu4.exe`.
+4. Start the game from the Paradox launcher as usual, and enable EU4 Harmony mods in your playset.
+
+The main menu now has two buttons in its corner: **EU4 Harmony settings** and **EU4 Harmony mods**, where you see each mod's name, version and what it may do beyond the game (its permissions).
+
+**Uninstalling:** delete `version.dll` and `eu4-harmony\` from the root folder, and move back the `version.dll` you backed up, if any.
+
+Good to know:
+
+- Names you type in a game played with the framework are saved as UTF-8, and show as garbage once the framework is removed.
+- An extension that keeps data writes it into the save; such a save is not promised to load without the framework.
+- Logs and the startup report (`report.txt`) are in `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\`. Look there first when something goes wrong.
+
+### Settings
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Fonts | Microsoft YaHei; KaiTi on the map, Consolas in the console | The system fonts for body text, headings, the map and the console. |
+| Return to the main menu without restarting the game | On | The main menu is back in seconds. The game keeps about 15 MB of memory each time, until it is closed ([why](docs/sessions.md#known-leaks)). |
+| In ironman, save the game before loading another save | On | Ironman games can load another save from the game's menu. Off, loading the same save again undoes what was played since. |
+| Achievements outside ironman | Off | Achievements in a game that is not ironman, even with saves loaded again and the console used. |
+| Achievements with a changed game checksum | Off | Achievements with mods that change the checksum the main menu shows. |
+| Game speed: at the fastest speed | Smooth map | "Faster time" draws no frames in the middle of a long day: late in a game, days pass about another tenth faster, but the map moves in jerks and answers clicks later. |
+
+A font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
+
+## Writing a mod
+
+The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder:
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # create a mod: descriptor.mod, manifest.toml, lua\main.lua, a button, English and Chinese texts, the editor's type definitions, an AGENTS.md
+eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, English and Chinese texts and editor types
 cd my-mod
-eu4-harmony check                         # read the manifest, the Lua files, the texts and where the files are, as the framework does
-eu4-harmony test                          # run its eu4-harmony\tests\*.lua against a fake game
-eu4-harmony link                          # register it under mod\ in the user folder, then tick it in the launcher
-eu4-harmony reload --watch                # with the game running: reload its Lua and texts in place whenever they change
-eu4-harmony package                       # once every Lua and localisation file reads, make a clean folder to upload, ..\my-mod-package
+eu4-harmony check                         # read everything as the framework will
+eu4-harmony test                          # run eu4-harmony\tests\*.lua against a fake game
+eu4-harmony link                          # register it with the launcher, then enable it in your playset
+eu4-harmony reload --watch                # with the game running, reload the extension whenever a file changes
+eu4-harmony package                       # a clean folder ready to upload
 ```
 
-A mod's own files are in its `eu4-harmony\` folder, where they are says what they are ([ADR manifest-in-toml-layout-by-convention](docs/adr/manifest-in-toml-layout-by-convention.md)): `manifest.toml` (`id`, `api_version`, `description`, `permissions`), the extension in `lua\` with `main.lua` first, interface fragments in `ui\<window>\` (and `ui\<window>\buttons\` for the button area), texts in `localisation\`, and files the extension reads in `data\`.
+A mod is an ordinary Paradox mod with an `eu4-harmony\` folder, where a file's place says what it is:
 
-`permissions` declares what the extension may do beyond the game: the real time (`clock = true`), files in a data folder of its own (`files = true`) and HTTP requests to the hosts it lists (`network = ["api.example.com"]`); using one it did not declare raises an error ([ADR sensitive-capabilities-are-declared](docs/adr/sensitive-capabilities-are-declared.md)). Players see what each mod declares, with its name, version and description, in the mods window the "EU4 Harmony mods" button opens in the main menu's corner.
+```text
+my-mod/
+├── descriptor.mod
+└── eu4-harmony/
+    ├── manifest.toml          # id, api_version, description, permissions
+    ├── lua/main.lua           # the extension: a table of handlers
+    ├── ui/<window>/buttons/   # interface fragments spliced into vanilla windows
+    ├── localisation/          # texts, one UTF-8 file per language
+    ├── data/                  # files the extension reads
+    └── tests/                 # tests run by eu4-harmony test
+```
 
-`main.lua` returns a table of handlers, one per event (`on_session`, `on_day`, `on_button`, `on_frame` and the rest, and `save_data`, which gives the mod's save data). Each gets `game`, through which every capability is called by its group, such as `game.army.move(army, province)`; a refusal returns `nil, err`, and a handler may wait for a capability's answer, such as another country's to a proposal, as with `await`. `eu4-harmony wiki` lists every capability with its Lua form, `eu4-harmony wiki lua` the handlers and globals, `eu4-harmony wiki manifest` the manifest's fields and permissions; `eu4-harmony game` asks the running game the same through remote control (above). The smallest example is the mod `eu4-harmony new` creates; the plan, with handlers, errors, the time limit and extension save data, is [docs/lua-extensions.md](docs/lua-extensions.md).
+`main.lua` returns handlers for events such as `on_session`, `on_day`, `on_frame` and `on_button`. Each gets `game`, through which every capability is called; a refusal returns `nil, err` with the game's reason, and a handler can wait for an answer, such as another country's to a proposal. An extension that needs the real time, files or the network declares it under `permissions` in its manifest.
 
-`eu4-harmony skills` holds guides for making a mod, written for a coding agent and readable by anyone: the steps of each kind of work and how to tell each is done (`eu4-harmony skills mod` first, then `tasks`, `state`, `ui`, `localisation`, `testing`, `game`). The `AGENTS.md` that `eu4-harmony new` writes points an agent at them.
+Where to learn more:
 
-An editor with the Lua language server (LuaLS) completes `game`, the capabilities and their results' fields, the handlers and the globals, and marks a misspelled capability or a wrong argument: `eu4-harmony new` writes the type definitions into the mod's `.eu4-harmony\types\` with a `.luarc.json`, and `eu4-harmony types` writes them again for a newer tool. `eu4-harmony package` leaves both out.
+- `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.
+- `eu4-harmony skills mod`: step-by-step guides for each kind of work, written for coding agents and readable by anyone.
+- [docs/lua-extensions.md](docs/lua-extensions.md): how extensions work, with errors, the time limit and save data.
 
-Texts go in `eu4-harmony/localisation/<name>_l_<language>.yml`, in the format of the game's localisation files but as plain UTF-8, one file per language (`english`, `french`, `german`, `spanish`, `simp_chinese`). Interface fragments use the keys directly, and an extension gets a text with `text.get("KEY")`; the framework shows the player language, see [ADR localisation-in-the-player-language](docs/adr/localisation-in-the-player-language.md).
+## Remote control
 
-## Repository
+`eu4-harmony game <capability> [<arguments>]` sends the running game one request and prints the answer as JSON:
+
+```powershell
+eu4-harmony start --hidden                 # start the game with nothing on the desktop
+eu4-harmony game menu start FRA            # a new game as France
+eu4-harmony game time advance 30           # let 30 days pass; stops early for an event to answer
+eu4-harmony game question list             # the events waiting for the player
+eu4-harmony game army move 545460846646 185
+eu4-harmony game screenshot --out shot.png
+eu4-harmony game menu return               # back to the main menu
+```
+
+Remote control is open only to the Windows user playing, only on this computer, and can do only what the player could. Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/remote-control.md](docs/remote-control.md) and [docs/hidden-start.md](docs/hidden-start.md) have the design.
+
+## Documentation
+
+| | |
+| --- | --- |
+| [docs/v1.md](docs/v1.md) | The design of the first version |
+| [GLOSSARY.md](GLOSSARY.md) | The terms the project uses |
+| [docs/adr/](docs/adr/) | Decisions that are hard to reverse, and why they were made |
+| [docs/research/](docs/research/) | What is known about the game's code |
+| [docs/performance.md](docs/performance.md) | What the framework costs the game, measured |
+| [docs/prototype-log.md](docs/prototype-log.md) | What was tested in the running game, and what came out |
+| [docs/dev-tools.md](docs/dev-tools.md) | The development tools |
+
+Each larger piece of work has a plan of its own in [docs/](docs/), listed in [AGENTS.md](AGENTS.md).
+
+## Building from source
+
+You need Windows, [rustup](https://rustup.rs/) (it picks up the Rust version [rust-toolchain.toml](rust-toolchain.toml) names) and the Visual Studio C++ build tools. The game is needed only to run it and for the offline checks.
+
+```powershell
+cargo build --release
+cargo test --release
+cargo xtask install        # put the build into the game folder (--uninstall removes it)
+cargo xtask release        # pack the player package
+```
+
+The game is found through `EU4_GAME_DIR` or Steam. `cargo xtask --help` lists the other development commands.
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) first: it has the rules for code, commits, checks and testing in the game, for people and coding agents alike. Changes reach master through pull requests.
 
 | Folder | Contents |
 | --- | --- |
-| `proxy/` | The `version.dll` proxy: forwards version.dll and loads the core, only in `eu4.exe` |
-| `core/` | The framework core: dependency points and startup, where the game keeps what the framework reads (`core/src/objects/`), `.gui` splicing, loading extensions and calling their handlers on the live host (`core/src/lua/`), the capabilities, one file per group (`core/src/game/`), remote control's engine (`core/src/remote/`), interface bindings, extension save data, player language, framework settings, the framework UI (`core/src/framework_ui/`) and the Unicode module (`core/src/unicode/`); `core/localisation/` holds the framework's own texts |
-| `lua/` | The Lua host: an extension's sandbox, handlers and tasks, errors and time limit, over a host that is the running game in the core and a fake game in the command line tool |
-| `loc/` | The localisation file format, the languages and lookup, shared by the core and the command line tool |
-| `manifest/` | A mod's `eu4-harmony/manifest.toml`, where the layout puts its other files, and the lines of its descriptor, shared by the core and the command line tool |
-| `remote/` | The capability catalogue: remote control's requests and responses, their JSON form and a description of every capability, saying which extensions have too, shared by the core and the command line tool |
-| `checks/` | The checks the framework makes of a capability's call itself, with the status and words of each refusal, shared by the core and `remote/`; and the game's calendar |
-| `cli/` | `eu4-harmony.exe`; `cli/template/` is the mod `new` writes. Its `backup` and `restore` keep the player's files safe around a test run that loads a save |
-| `xtask/` | The repository's development commands, run as `cargo xtask`: `install` puts the built proxy, core and command line tool into the game folder (`--uninstall` removes them), `release` packs them for players, plus measuring what the framework costs, disassembly, the offline checks and crash dumps; with the core's development features they are described in [docs/dev-tools.md](docs/dev-tools.md) |
-| `docs/` | The design, ADRs, research, in-game test records and [what the framework costs the game](docs/performance.md) |
-
-Code, comments and documentation are in English. [README.zh-CN.md](README.zh-CN.md) is a Chinese translation of this file; the rest of the documentation is English only. Rules for working in this repository, for people and coding agents alike, are in [AGENTS.md](AGENTS.md).
+| `proxy/` | The `version.dll` that loads the core into `eu4.exe` |
+| `core/` | The framework: dependency points and startup, the capabilities, the Lua host on the live game, remote control, the framework UI and the Unicode module |
+| `lua/` | The Lua host shared by the game and the fake game: sandbox, handlers, tasks, time limit |
+| `remote/` | The capability catalogue: every capability's arguments, results and description |
+| `checks/` | The checks a capability's call goes through, and the game's calendar |
+| `loc/`, `manifest/` | Localisation files and mod manifests, shared by the core and the tool |
+| `cli/` | `eu4-harmony.exe`, and the template mod `new` writes |
+| `xtask/` | The repository's development commands (`cargo xtask`) |
