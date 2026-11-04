@@ -4,47 +4,20 @@
 
 English | [简体中文](README.zh-CN.md)
 
-**Lua scripting for Europa Universalis IV mods.** EU4 Harmony runs inside the game and lets a mod carry an extension: Lua scripts that read the game, give orders as the player would, add buttons to the vanilla interface and keep data in the save. The extension never touches memory addresses; it calls capabilities such as `game.army.move(army, province)`, and the framework does the rest.
-
-```lua
--- eu4-harmony/lua/main.lua: a button, declared in eu4-harmony/ui/, that shows in the
--- army panel while one of your armies is selected
-return {
-  on_frame = function(game)
-    game.ui.button.visible = game.army.selected() ~= nil
-  end,
-
-  on_button = function(game)
-    log("army " .. tostring(game.army.selected()) .. " clicked")
-  end,
-}
-```
+**Europa Universalis IV, made better from within.** Chinese everywhere, no restarts, a faster game, fewer bugs, and mods that can do far more.
 
 > [!NOTE]
-> EU4 Harmony is in early development. It supports **EU4 1.37.5 on Windows, with every DLC, single player only**, and has no published release yet: [build it from source](#building-from-source). The extension interface may still change between versions.
+> Early development: EU4 1.37.5 on Windows, with every DLC, single player only. No release yet; [build it from source](#building-from-source).
 
-## Features
+## Why EU4 Harmony
 
-**For mod authors**
-
-- Extensions in Lua 5.4, run in a sandbox of their own: nothing to install, nothing to compile.
-- Capabilities for countries, provinces, armies, recruiting, diplomacy, decisions, technology, the national focus, stability, the treasury and loans, events, time, the camera and the game console, and buttons and windows in the vanilla interface.
-- Extension save data kept in the save; texts in every game language, shown in the player's.
-- A command line tool that creates a mod, checks it, runs its tests against a fake game, reloads it in the running game as you edit, and packs it for upload.
-- Completion and type checking in any editor with the Lua language server, and guides written for coding agents.
-
-**For players**
-
-- Chinese and every other script drawn in the game, in system fonts of your choice.
-- Back to the main menu in a few seconds instead of a restart of about 45.
-- A faster game that computes the same game: 84 frames a second instead of 63 in a paused game of 1618, and days about a tenth faster at the fastest speed ([measurements](docs/performance.md)).
-- Optional: achievements outside ironman and with mods that change the checksum.
-- On a game build it does not know, the framework stays out of the game as a whole and a message box says why, instead of misbehaving.
-
-**For tools and AIs**
-
-- Remote control: a program outside the game plays it through the same capabilities, from the main menu into a game and back, from the command line or as JSON over a local named pipe.
-- The game can be started hidden, with nothing on the desktop, for an AI to play while you go on working.
+- **Every language, everywhere.** Chinese and every other script show in the whole game, in fonts you choose. No font mod needed.
+- **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
+- **A faster game, the same game.** Smoother and about a tenth faster at top speed, with nothing about the game itself changed.
+- **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions no longer risk a crash, and loading a save no longer costs you achievements.
+- **Achievements your way.** Optionally earn them outside ironman, or with mods.
+- **Mods that do more.** Mods can read the game, give orders and add buttons, with a few lines of Lua.
+- **Let an AI play.** A program can play the game for you, even hidden in the background.
 
 ## Installing (players)
 
@@ -78,6 +51,22 @@ Good to know:
 A font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
 
 ## Writing a mod
+
+A mod's extension reads the game and acts in it through capabilities, never through memory addresses:
+
+```lua
+-- eu4-harmony/lua/main.lua: a button, declared in eu4-harmony/ui/, that shows in the
+-- army panel while one of your armies is selected
+return {
+  on_frame = function(game)
+    game.ui.button.visible = game.army.selected() ~= nil
+  end,
+
+  on_button = function(game)
+    log("army " .. tostring(game.army.selected()) .. " clicked")
+  end,
+}
+```
 
 The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder:
 

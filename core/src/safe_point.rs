@@ -19,19 +19,14 @@
 //!
 //! A game's frame that cannot be read counts as one the player cannot play
 //! (observing, say) only once the game's frames have been so for
-//! [`UNPLAYABLE_AFTER`]; until then what needs a game waits, as at a frame
-//! that is not ready.
+//! `sessions::UNPLAYABLE_AFTER`; until then what needs a game waits, as at a
+//! frame that is not ready. What begins and ends a session, and where the
+//! safe point is, is told to the sessions (`crate::sessions`).
 use crate::{
-    game::{self, menu::At},
-    lua, remote, repairs,
+    game, lua, remote, repairs,
+    sessions::{self, At},
 };
-use std::{
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Mutex,
-    },
-    time::{Duration, Instant},
-};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Remote control ran at a game frame since the last frame was presented.
 static GAME_FRAME: AtomicBool = AtomicBool::new(false);
@@ -50,41 +45,6 @@ pub fn main_menu_frame(frontend: usize) {
     }
 }
 
-/// How long a game's frames must have failed to read, as no game the player
-/// can play, before they count as such. Observing lasts; but a game's first
-/// frames may fail for a moment as it settles (the player's country read
-/// before its tag matches, say), and a load or start waiting for its first
-/// frame must not be refused for one of those, nor an advance be ended.
-pub const UNPLAYABLE_AFTER: Duration = Duration::from_secs(1);
-
-/// Since when the game's frames have failed to read, and how many saves the
-/// game had begun to read then: another save loaded starts it again.
-#[derive(Default)]
-struct Unplayable {
-    since: Option<(Instant, usize)>,
-}
-
-impl Unplayable {
-    /// A frame failed to read at `now`, `loads` saves read: whether the
-    /// frames have failed for long enough to count as unplayable.
-    fn failed(&mut self, now: Instant, loads: usize) -> bool {
-        match self.since {
-            Some((since, then)) if then == loads => now.duration_since(since) >= UNPLAYABLE_AFTER,
-            _ => {
-                self.since = Some((now, loads));
-                false
-            }
-        }
-    }
-
-    /// A frame read: the player can play.
-    fn read(&mut self) {
-        self.since = None;
-    }
-}
-
-static UNPLAYABLE: Mutex<Unplayable> = Mutex::new(Unplayable { since: None });
-
 /// After the map manager's frame.
 pub fn game_frame() {
     let Some(m) = crate::memory().copied() else { return };
@@ -97,14 +57,10 @@ pub fn game_frame() {
         GAME_FRAME.store(true, Ordering::Relaxed);
         return;
     }
-    let unplayable = || UNPLAYABLE.lock().unwrap_or_else(|e| e.into_inner());
     match game::begin_frame(&m) {
         Ok(frame) => {
-            unplayable().read();
+            sessions::frame_read(&frame);
             repairs::session_frame();
-            if frame.new_session {
-                game::input::session_began();
-            }
             #[cfg(feature = "dev-test-switches")]
             if frame.new_session {
                 game::commands::post_test_commands();
@@ -115,7 +71,7 @@ pub fn game_frame() {
                 }
             }
             lua::frame(&frame);
-            game::menu::set_at(At::Game);
+            sessions::set_at(At::Game);
             remote::run_in_game(&frame);
         }
         // A frame the game is not ready in comes and goes: the frame's
@@ -123,8 +79,8 @@ pub fn game_frame() {
         Err(fail) if fail.status == game::Status::NotReady => return,
         // No game to play (observing, say), once it lasts.
         Err(fail) => {
-            game::menu::set_at(At::Game);
-            if unplayable().failed(Instant::now(), crate::saves::loads()) {
+            sessions::set_at(At::Game);
+            if sessions::frame_failed() {
                 remote::run_unplayable(fail);
             } else {
                 remote::run_outside(None);
@@ -141,29 +97,7 @@ pub fn presented() {
     if GAME_FRAME.swap(false, Ordering::Relaxed) {
         return;
     }
-    game::menu::set_at(if frontend != 0 { At::MainMenu(frontend) } else { At::Elsewhere });
+    sessions::set_at(if frontend != 0 { At::MainMenu(frontend) } else { At::Elsewhere });
     let open = frontend != 0 && !game::menu::starting(m, frontend);
     remote::run_outside(open.then(|| game::Fail { status: game::Status::NotInGame, message: "the main menu is open".into() }));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn frames_that_fail_count_as_unplayable_once_they_last() {
-        let start = Instant::now();
-        let mut u = Unplayable::default();
-        assert!(!u.failed(start, 3));
-        assert!(!u.failed(start + UNPLAYABLE_AFTER / 2, 3));
-        assert!(u.failed(start + UNPLAYABLE_AFTER, 3));
-        // A frame that reads starts it again.
-        u.read();
-        assert!(!u.failed(start + UNPLAYABLE_AFTER * 2, 3));
-        assert!(u.failed(start + UNPLAYABLE_AFTER * 3, 3));
-        // So does another save loaded.
-        assert!(!u.failed(start + UNPLAYABLE_AFTER * 4, 4));
-        assert!(!u.failed(start + UNPLAYABLE_AFTER * 4 + UNPLAYABLE_AFTER / 2, 4));
-        assert!(u.failed(start + UNPLAYABLE_AFTER * 5, 4));
-    }
 }

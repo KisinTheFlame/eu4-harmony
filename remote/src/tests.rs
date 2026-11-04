@@ -132,6 +132,7 @@ fn every_event_is_described() {
         Event::Year { date },
         Event::ArmyOrdered { army: ArmyId(1) },
         Event::ArmyDefeated { army: ArmyId(1) },
+        Event::BuildingFinished { province: ProvinceId(151), building: "marketplace".into(), country: CountryTag(*b"TUR") },
     ];
     // An event is flattened beside its own number: none of its fields may
     // be named so.

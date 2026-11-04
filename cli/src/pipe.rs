@@ -9,9 +9,10 @@
 //! as this user, and sends nothing until it has checked that process: run by
 //! this Windows user, from the game's executable.
 //!
-//! When the game returns to the main menu it starts again: the old process's
-//! pipe breaks, and the new one opens the pipe a few seconds later
-//! (docs/remote-control.md, F3). So the client waits for the pipe to appear,
+//! When the game restarts, as a return to the main menu with the in-process
+//! return turned off does, the old process's pipe breaks, and the new one
+//! opens the pipe a few seconds later (docs/remote-control.md, F3). So the
+//! client waits for the pipe to appear,
 //! and a pipe that breaks is an error at once, never a wait.
 use std::{
     fmt,

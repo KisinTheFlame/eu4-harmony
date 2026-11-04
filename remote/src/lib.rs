@@ -317,6 +317,8 @@ groups! {
     Economy(economy::EconomyRequest, EconomyAnswer),
     /// The player's loans, and repaying them.
     Loan(loans::LoanRequest, LoanAnswer),
+    /// The buildings of the player's provinces.
+    Building(buildings::BuildingRequest, BuildingAnswer),
 }
 
 pub mod binary;

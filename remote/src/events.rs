@@ -1,6 +1,6 @@
 //! The events remote control keeps: the ones extensions hear, numbered, the
 //! latest [`KEPT`] of them.
-use crate::{ArmyId, CountryList, CountryTag, Date, Words};
+use crate::{ArmyId, CountryList, CountryTag, Date, ProvinceId, Words};
 use serde::{Deserialize, Serialize};
 
 /// How many events are kept.
@@ -88,6 +88,7 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("year", "the first day heard in a new year, after month; date"),
     ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
     ("army_defeated", "one of the player's armies lost a battle; army"),
+    ("building_finished", "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
 ];
 
 /// Something that happened in the game, as extensions hear it.
@@ -113,6 +114,14 @@ pub enum Event {
     ArmyOrdered { army: ArmyId },
     /// One of the player's armies lost a battle.
     ArmyDefeated { army: ArmyId },
+    /// A building was finished in a province, any country's.
+    BuildingFinished {
+        province: ProvinceId,
+        /// Its content key.
+        building: String,
+        /// The province's owner.
+        country: CountryTag,
+    },
 }
 
 impl Event {
@@ -126,13 +135,17 @@ impl Event {
             Self::Year { .. } => "year",
             Self::ArmyOrdered { .. } => "army_ordered",
             Self::ArmyDefeated { .. } => "army_defeated",
+            Self::BuildingFinished { .. } => "building_finished",
         }
     }
 
     /// The countries it names; none for one about the game as a whole or
     /// about the player's own armies.
     pub fn countries(&self) -> Vec<CountryTag> {
-        Vec::new()
+        match self {
+            Self::BuildingFinished { country, .. } => vec![*country],
+            _ => Vec::new(),
+        }
     }
 }
 
