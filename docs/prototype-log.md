@@ -1505,6 +1505,19 @@ G1 to G4 of [game-testing.md](game-testing.md), with `cargo xtask game` from thi
 - **`watch` and builds**: a build with a feature while `watch` ran failed, cargo unable to replace `xtask.exe`; with `watch` moving its file aside, the same build went through.
 - **Not tried**: a holder whose lease ran out taken over; a checkout still on `game-lock.ps1` beside one on the commands; a `NOT RESTORED` line from the game folder's files; `start --sound`; `kept\` removed after seven days; two sessions in two checkouts at once.
 - **Cleanup**: every claim was released with every file put back. The test claims' folders and the results of `perf-run` and `leak-run` were deleted; the queue is empty.
+## 2026-11-05 Sessions told from one module (tested by me)
+
+The player build of the branch that moved what begins and ends a session into `core/src/sessions.rs`, the capability catalogue's groups into `core/src/catalogue/` and each repair into a file of its own. One process, within a claim, started hidden; the player's playset, with the regional-combat extension loaded (Lua). Driven by `eu4-harmony game`.
+
+- **Startup**: 814 dependency points matched; 147 hooks, 12 writes; the extension loaded.
+- **A new game**: `menu.start FRA` answered session 1; `time.advance 5` stopped at the game's question, which `question.answer` answered; `time.advance 5` then gave five `day` events. `army.list` read the armies.
+- **An in-game load**: `menu.load H-Test` answered session 3. The events said `session_ended` with `load`, then `session` 3; the log said `session 1 ending (load)` before `session 3 started (from a loaded save: true)`, with the extension's session times between.
+- **A return**: `menu.return` answered at the main menu; `session_ended` with `return`; the process number stayed, an in-process return.
+- **A new game after it**: `menu.start CAS` answered session 5, and its days came.
+- **The extension**: heard `on_session` for sessions 1, 3 and 5 (its own log), with no error and no refusal; its handlers took under 0.5% of each session.
+- **Not tried**: an ironman session, so neither a failing ironman exit save nor a second end of the same session; a restart (the setting off); the single player setup's back button; a frame of a game that cannot be played; extension reload.
+- **Cleanup**: `release` put back every file the run changed (the framework's logs, `pdx_login_cache.txt`, `settings.txt`, `shortcuts.txt`, the two saves the load touched) and compared each equal, and put back the game folder's framework files. The game did not crash.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
