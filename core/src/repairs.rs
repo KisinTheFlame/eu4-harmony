@@ -20,6 +20,10 @@
 //!   every interface rebuild in vanilla too: the map modes' window and the
 //!   bar of the units selected, which it never kills, and the outliner's
 //!   entries, which it never deletes.
+//! - What a text box leaves as it goes, wherever the game lets one go:
+//!   its animation, which its element deletes only while it is on the
+//!   element's animations, and the text box takes off them while it does
+//!   not play. It is put back on them, owned, as the text box goes.
 //! - What the game unloads while it is shown, which vanilla never meets, as
 //!   it makes the main menu only at startup: a sprite type shown sprites
 //!   still count, which the main menu, made again, would unload with the
@@ -49,7 +53,7 @@ use crate::{
             achievements, ai_king, classes, countries as country_list, country, globals, leader, map_manager as manager_fields, map_modes, mercenary_company,
             message_window, modifiers, outliner, religions, unit_view, world,
         },
-        gui::{classes as gui_classes, sprite_type, transparency_mask, window as gui_window},
+        gui::{classes as gui_classes, element, sprite_type, text_box, transparency_mask, window as gui_window},
         list,
     },
     points::{Function, Point},
@@ -113,6 +117,14 @@ const TAKE_WINDOW_OFF: usize = 0x6ecc80;
 /// go: off the map manager's windows, then killed.
 const SELECTION_BAR_MADE_AGAIN: usize = 0x1471540;
 
+/// `(text box)`: a text box's destructor, which its deleting destructor
+/// (`0x152aab0`) and its subclass's (`0x15f2d20`) call first; it ends in the
+/// element's (`0x1552680`), which deletes the animations the element owns
+/// by their first slots. `(element, animation)`: puts an animation on an
+/// element's animations, owned by it, or marks it owned there.
+const TEXT_BOX_DESTRUCTOR: usize = 0x152aaf0;
+const OWN_ANIMATION: usize = 0x15529e0;
+
 /// `(bits, count)`: a `std::vector<bool>`'s resize; and where the texture
 /// loader resizes a transparency mask to its texture's pixels, the return
 /// address of that call. `(words)`: the destructor of a vector of u32, which
@@ -153,6 +165,7 @@ static MASK_BYTES: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
+static TEXT_BOX_ANIMATIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// The agents of the AI whose top agent is being deleted, by that agent:
 /// they are deleted once it is gone.
@@ -351,6 +364,28 @@ extern "C" fn unit_view_going(frame: *mut HookFrame) {
         })();
         if let Err(e) = killed {
             log!("repair: the unit view's selection bar was not killed: {e}");
+        }
+    });
+}
+
+/// A text box's destructor begins: its animation, which its element deletes
+/// only from its animations, is put on them owned, as the text box puts it
+/// there when it plays; the element's destructor then deletes it with the
+/// others, the text box still whole, as it deletes a playing one.
+extern "C" fn text_box_going(frame: *mut HookFrame) {
+    crate::guarded("text box destructor", || {
+        let m = crate::hooked_memory();
+        let boxed = unsafe { (*frame).args[0] };
+        let owned = (|| {
+            let animation = m.ptr(boxed + text_box::ANIMATION)?;
+            if animation != 0 {
+                m.call(m.at(OWN_ANIMATION), &[boxed, animation])?;
+                TEXT_BOX_ANIMATIONS.fetch_add(1, Ordering::Relaxed);
+            }
+            crate::Result::Ok(())
+        })();
+        if let Err(e) = owned {
+            log!("repair: a text box's animation was not handed to its element: {e}");
         }
     });
 }
@@ -813,12 +848,13 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go",
             LEADERS.swap(0, Ordering::Relaxed),
             FACTIONS.swap(0, Ordering::Relaxed),
             AGENTS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS_WAITED.swap(0, Ordering::Relaxed),
+            TEXT_BOX_ANIMATIONS.swap(0, Ordering::Relaxed),
             MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed),
             MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
         );
@@ -1079,6 +1115,22 @@ pub fn points() -> Vec<Point> {
             "selection bar let go",
         )
         .uses(&[gui_window::KILL]),
+        // A text box's destructor, which leaves its animation, and ends in
+        // the element's; that deletes the animations the element owns, and
+        // the text box makes its own with it.
+        Point::observe(TEXT_BOX_DESTRUCTOR, "40 53 48 83 ec 20 48 8b d9 48 8d 05 10 52 86 00 48 89 01", "text box destructor", 1, Some(text_box_going), None)
+            .uses(&[gui_classes::TEXT_BOX]),
+        Point::keep(0x152ab58usize, "48 8b cb 48 83 c4 20 5b e9 1b 7b 02 00", "text box destructor ends in the element's"),
+        Point::keep(OWN_ANIMATION, "48 85 d2 0f 84 a9 00 00 00 53 48 83 ec 30 4c 8b 81 90 00 00 00", "own an animation").uses(&[element::ANIMATIONS]),
+        Point::keep(0x1552a22usize, "49 8b 92 98 00 00 00 48 89 5c 24 20 c6 44 24 28 01", "animation put on owned"),
+        Point::keep(0x155269ausize, "48 8d b9 90 00 00 00", "element destructor's animations").uses(&[element::ANIMATIONS]),
+        Point::keep(
+            0x15526c0usize,
+            "48 8b 17 80 7c 13 08 00 74 16 48 8b 0c 13 48 85 c9 74 0d 48 8b 01 ba 01 00 00 00 ff 10",
+            "element deletes its owned animations",
+        )
+        .uses(&[element::ANIMATION_OWNED]),
+        Point::keep(0x152a036usize, "48 89 9e 10 02 00 00", "text box's animation made").uses(&[text_box::ANIMATION]),
         // A sprite type unloaded with its group of graphics, which the main
         // menu's interface rebuild does for the game's (group 3); a sprite
         // shown loads its lazily loaded type only when none showed it.
