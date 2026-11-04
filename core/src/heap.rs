@@ -65,6 +65,11 @@ pub fn live() -> usize {
     LIVE.load(Ordering::Relaxed)
 }
 
+/// How many blocks the framework's heap holds now.
+pub fn blocks() -> usize {
+    BLOCKS.load(Ordering::Relaxed)
+}
+
 /// Bytes the whole process has committed for itself (private bytes).
 pub fn private_bytes() -> usize {
     let mut counters = PROCESS_MEMORY_COUNTERS_EX { cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32, ..unsafe { std::mem::zeroed() } };

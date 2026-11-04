@@ -1,6 +1,6 @@
 # Leak finding plan
 
-Status: decided (2026-11-04); M1 to M4 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
@@ -107,6 +107,13 @@ With the census built in, `memory.quarantine` turns the quarantine on and off at
 
 A leak run with `--quarantine` turns it on from the start and reports, by repair, what it kept and every block written to; a run the game does not finish still reports what was found until then, and in which round it stopped. What the quarantine keeps counts in the game's heap, so such a run measures no growth: it is for trying a repair, not for measuring it.
 
+### What keeps the free pages committed (M5)
+
+About half of what a round adds to the private bytes is free pages the game's heap keeps committed: the framework has the heaps give back the pages no block is on after every world reset, and a page any block is on stays, however little of it the block uses. Which blocks keep the most is not which leave the most bytes: a leak of a few small blocks spread over many pages keeps more than a large one.
+
+`memory.pages`, with the census built in, walks the game's heap page by page (`HeapWalk` under the heap's lock, which lists the low-fragmentation heap's small blocks one by one and not its free ones): each committed page, the bytes the busy blocks on it use, and so the pages no block is on and the free bytes of the others. A page's free bytes fall to the blocks on it alike, and through the census to their sites; the blocks the census does not count, the framework's own and the census's among them, are "not counted". It answers the totals, the pages in use by how full they are, the free bytes the leftovers keep, and the sites that keep the most.
+
+The walk holds the heap, and so the game, for seconds, and must not allocate from it: what it fills is allocated before. A leak run asks after its last round, with the census. What the census holds of its own is in the same heap and keeps pages too, so the figures are those of a game with the census; which sites keep the most is what they are for.
 ## How it fits together
 
 - `remote` declares the `memory` group behind its `dev-memory` feature, which the core's `dev-memory` turns on, and `dev-heap-census` with it. A workspace build of the developer build gives the command line tool the same group.
@@ -140,3 +147,7 @@ The `dev-memory` feature, `memory` without the census, and the leak run's split 
 ### M4 The quarantine
 
 `memory.quarantine`, the repairs saying where they let memory go, and the leak run's `--quarantine`.
+
+### M5 What keeps the free pages committed
+
+`memory.pages`, the walk of the game's heap and what its pages' free bytes fall to, and the leak run's table of it.

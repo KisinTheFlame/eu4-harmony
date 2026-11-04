@@ -289,6 +289,8 @@ fn every_capability_runs_at_a_game_frame() {
                 Request::Memory(MemoryRequest::Quarantine { on: None }),
                 Box::new(move |v: &Value| if census { v["result"]["on"] == false && v["result"]["blocks"] == 0 } else { error("unavailable")(v) }),
             ),
+            // No game here, and so no heap of its own to walk.
+            (Request::Memory(MemoryRequest::Pages { sites: None }), Box::new(error("unavailable"))),
         ];
         cases.splice(0..0, memory);
     }

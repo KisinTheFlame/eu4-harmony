@@ -50,6 +50,15 @@ group! {
         /// Whether it is on from now; left out, it stays as it is.
         on: Option<bool>,
     } -> Quarantine, "on; blocks and bytes, what it keeps now; freed, the blocks it kept and freed again to stay under its most; checks, how many times it compared them; repairs, by repair, the blocks and bytes it kept; written, the blocks written to after a repair let them go: repair, site and function, size, offset (of the first byte changed), bytes (from it, in hex), generation (the census's, as it was kept) and found (as the write was found)";
+    /// What keeps the game's heap's free pages committed: the heap walked
+    /// page by page, a page that holds blocks committed however little of it
+    /// they use, its free bytes shared out among them, and through the
+    /// census among their sites. It holds the heap, and so the game, for
+    /// seconds.
+    remote_anywhere Pages "pages" {
+        /// How many sites to give; 40 when left out.
+        sites: Option<u32>,
+    } -> Pages, "committed, the bytes of the heap's committed pages; used, what its busy blocks use of them; free_pages, the pages no block is on; free_on_used_pages, the free bytes of the others; by_leftovers, the part of those the census's leftovers keep; by_use, the pages in use by how full, in eighths; sites, by site, the most free bytes first: site and function (or \"not counted\" for blocks the census does not count, the framework's own among them), blocks, bytes, pinned (the free bytes that fall to them) and leftovers (how many of the blocks are); complete, false when the heap had more entries than were read; took_ms";
 }
 
 /// The quarantine of what the framework's repairs let go.
@@ -277,4 +286,43 @@ pub struct Freed {
     /// The start of the function it is in, an RVA in hex.
     pub function: Option<String>,
     pub blocks: u64,
+}
+
+/// What keeps the game's heap's free pages committed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Pages {
+    /// The bytes of the heap's committed pages.
+    pub committed: u64,
+    /// What its busy blocks use of them, their heap's overhead with them.
+    pub used: u64,
+    /// The bytes of the pages no block is on.
+    pub free_pages: u64,
+    /// The free bytes of the pages blocks are on, and of those what the
+    /// census's leftovers keep.
+    pub free_on_used_pages: u64,
+    pub by_leftovers: u64,
+    /// The pages blocks are on, by how full they are: up to an eighth, up
+    /// to two, and so on.
+    pub by_use: Vec<u64>,
+    /// By site, the most free bytes first.
+    pub sites: Vec<Pinning>,
+    /// False when the heap had more entries than were read.
+    pub complete: bool,
+    pub took_ms: u64,
+}
+
+/// What a site's blocks keep committed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Pinning {
+    /// As memory.leftovers writes it, or "not counted" for the blocks the
+    /// census does not count.
+    pub site: String,
+    pub function: Option<String>,
+    pub blocks: u64,
+    pub bytes: u64,
+    /// The free bytes of the pages its blocks are on that fall to them,
+    /// a page's shared out among its blocks alike.
+    pub pinned: u64,
+    /// How many of its blocks are leftovers.
+    pub leftovers: u64,
 }

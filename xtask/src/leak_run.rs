@@ -19,12 +19,13 @@
 //! After each round it asks `memory`, and with the census
 //! `memory.leftovers`, and prints a line; after the last, `memory.leftovers`
 //! looks for what still points at the leftovers too, which stops the game
-//! for seconds. At the end it writes `report.json`, every answer, and
+//! for seconds, and `memory.pages` walks the game's heap for what keeps its
+//! free pages committed, which holds the game for about two. At the end it writes `report.json`, every answer, and
 //! `report.md`: the rounds; where each round's growth went, part by part and
 //! heap by heap, as the least-squares slope over the rounds from the second
 //! on (the first loads what stays for good, and one round's figures jump
 //! about); and with the census the leftover sites that leave the most per
-//! generation, and what holds them.
+//! generation, what holds them, and what keeps the free pages.
 //!
 //! With the census and `--watch N`, after round `--watch-after` it looks for
 //! what holds the leftovers, and watches the N steady sites that leave the
@@ -153,6 +154,7 @@ fn play(args: &Args) -> Result<Value> {
                 }
             }
             let quarantined = if quarantine { game.ask(&["memory.quarantine"])? } else { Value::Null };
+            let pages = if census && i == rounds { game.ask(&["memory.pages", "--sites", &sites])? } else { Value::Null };
             let seconds = began.elapsed().as_secs();
             let grew = played.last().map_or(String::new(), |last| format!(" ({} MB)", signed(change_mb(&memory["private"], &last["memory"]["private"]), 1)));
             let held = if quarantined.is_null() {
@@ -166,7 +168,7 @@ fn play(args: &Args) -> Result<Value> {
                 )
             };
             println!("round {i} ({seconds} s){grew}: {}{held}", line(&memory));
-            played.push(json!({ "round": i, "seconds": seconds, "memory": memory, "leftovers": leftovers, "watching": watching, "quarantine": quarantined }));
+            played.push(json!({ "round": i, "seconds": seconds, "memory": memory, "leftovers": leftovers, "watching": watching, "quarantine": quarantined, "pages": pages }));
         }
         if quarantine {
             kept = game.ask(&["memory.quarantine", "--on", "false"])?;
@@ -416,6 +418,47 @@ fn markdown(report: &Value, date: &str) -> String {
         }
     }
 
+    let pages = played.last().map_or(Value::Null, |r| r["pages"].clone());
+    if !pages.is_null() {
+        md.extend([
+            String::new(),
+            "## What keeps the free pages".into(),
+            String::new(),
+            format!(
+                "The game's heap after the last round, page by page: a page blocks are on stays committed however little of it they use. Walked in {} ms{}.",
+                text(&pages["took_ms"]),
+                if truthy(&pages["complete"]) { "" } else { ", not to its end" }
+            ),
+            String::new(),
+            "| Pages | MB |".into(),
+            "| --- | --- |".into(),
+            format!("| Committed | {} |", mb(&pages["committed"])),
+            format!("| Used by blocks | {} |", mb(&pages["used"])),
+            format!("| Pages no block is on | {} |", mb(&pages["free_pages"])),
+            format!("| Free on the pages blocks are on | {} |", mb(&pages["free_on_used_pages"])),
+            format!("| of it, kept by leftovers | {} |", mb(&pages["by_leftovers"])),
+            String::new(),
+            format!(
+                "The pages blocks are on, by how full: {}.",
+                list(&pages["by_use"]).iter().enumerate().map(|(i, n)| format!("up to {}/8: {}", i + 1, text(n))).collect::<Vec<_>>().join(", ")
+            ),
+            String::new(),
+            "| Site | Function | Blocks | KB | Free KB it keeps | Leftovers |".into(),
+            "| --- | --- | --- | --- | --- | --- |".into(),
+        ]);
+        for s in list(&pages["sites"]) {
+            md.push(format!(
+                "| {} | {} | {} | {} | {} | {} |",
+                text(&s["site"]),
+                text(&s["function"]),
+                text(&s["blocks"]),
+                kb(&s["bytes"]),
+                kb(&s["pinned"]),
+                text(&s["leftovers"])
+            ));
+        }
+    }
+
     // What the quarantine said last: as it was turned off, or after the last
     // round played when the run stopped.
     let kept = if report["quarantine"].is_null() { played.last().map_or(Value::Null, |r| r["quarantine"].clone()) } else { report["quarantine"].clone() };
@@ -641,5 +684,24 @@ mod tests {
                                        "offset": 8, "bytes": "00ff", "generation": 3, "found": 4 }] });
         let md = markdown(&report, "now");
         assert!(md.contains("compared 9 times.") && md.contains("| text box | 0x1 in 0x2 | 64 | 8 | 00ff | 3 | 4 |"));
+    }
+
+    #[test]
+    fn markdown_says_what_keeps_the_free_pages() {
+        let mib = 1048576;
+        let memory = json!({ "private": mib, "game_heap": 0, "free_in_heaps": 0, "outside_heaps": 0, "framework_heap": 0, "handles": 1, "heaps": [] });
+        let pages = json!({ "committed": 3 * mib, "used": 2 * mib, "free_pages": mib / 2, "free_on_used_pages": mib, "by_leftovers": mib / 2,
+                            "by_use": [1, 0, 0, 0, 0, 0, 0, 2], "complete": false, "took_ms": 1900,
+                            "sites": [{ "site": "0x10", "function": "0x20", "blocks": 3, "bytes": 2048, "pinned": 6144.0, "leftovers": 2 }] });
+        let report = json!({ "saves": ["a", "b"], "country": "FRA", "days": 30, "startup": memory,
+                             "rounds": [{ "round": 1, "seconds": 60, "memory": memory, "pages": pages }] });
+        let md = markdown(&report, "now");
+        assert!(md.contains("Walked in 1900 ms, not to its end."), "{md}");
+        assert!(
+            md.contains("| Committed | 3.0 |") && md.contains("| Pages no block is on | 0.5 |") && md.contains("| of it, kept by leftovers | 0.5 |"),
+            "{md}"
+        );
+        assert!(md.contains("up to 1/8: 1, up to 2/8: 0") && md.contains("up to 8/8: 2."), "{md}");
+        assert!(md.contains("| 0x10 | 0x20 | 3 | 2 | 6 | 2 |"), "{md}");
     }
 }
