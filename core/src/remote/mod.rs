@@ -47,13 +47,19 @@ pub mod decisions;
 pub mod describe;
 pub mod desktop;
 pub mod diplomacy;
+pub mod estates;
 pub mod events;
 pub mod extensions;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod government;
+pub mod ideas;
 pub mod input;
 pub mod menu;
+pub mod missions;
 pub mod offers;
+pub mod parliament;
+pub mod policies;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
@@ -99,6 +105,12 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + ideas::Layer
+    + policies::Layer
+    + government::Layer
+    + estates::Layer
+    + parliament::Layer
+    + missions::Layer
 {
 }
 impl<
@@ -120,6 +132,12 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + ideas::Layer
+            + policies::Layer
+            + government::Layer
+            + estates::Layer
+            + parliament::Layer
+            + missions::Layer
             + ?Sized,
     > Game for T
 {
@@ -602,6 +620,12 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Idea(r) => done(ideas::run(r, game).map(Answer::Idea)),
+        Request::Policy(r) => done(policies::run(r, game).map(Answer::Policy)),
+        Request::Government(r) => done(government::run(r, game).map(Answer::Government)),
+        Request::Estate(r) => done(estates::run(r, game).map(Answer::Estate)),
+        Request::Parliament(r) => done(parliament::run(r, game).map(Answer::Parliament)),
+        Request::Mission(r) => done(missions::run(r, game).map(Answer::Mission)),
     }
 }
 

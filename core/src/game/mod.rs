@@ -20,16 +20,23 @@ pub mod camera;
 pub mod commands;
 pub mod conditions;
 pub mod console;
+pub mod content;
 pub mod countries;
 pub mod decisions;
 pub mod diplomacy;
+pub mod estates;
 pub mod events;
+pub mod government;
+pub mod ideas;
 pub mod input;
 pub mod interface;
 pub mod map_coloring;
 pub mod menu;
+pub mod missions;
 pub mod offers;
 pub mod orders;
+pub mod parliament;
+pub mod policies;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
@@ -292,6 +299,12 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(ideas::points());
+    points.extend(policies::points());
+    points.extend(government::points());
+    points.extend(estates::points());
+    points.extend(parliament::points());
+    points.extend(missions::points());
     points
 }
 

@@ -81,6 +81,8 @@ pub enum Resource {
     NavyTradition,
     /// Monthly upkeep in ducats, for as long as it lasts.
     MonthlyDucats,
+    /// Reform progress, which government reforms spend.
+    ReformProgress,
 }
 
 /// Whether another country would accept a proposal, as the game's interface

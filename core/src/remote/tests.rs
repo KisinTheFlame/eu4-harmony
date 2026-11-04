@@ -4,8 +4,9 @@ use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
 use eu4_harmony_remote::{
     armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, decisions::DecisionRequest,
-    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
-    input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
+    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, estates::EstateRequest, events::Event, events::EventsRequest,
+    extensions::ExtensionRequest, government::GovernmentRequest, ideas::IdeaRequest, input::Button, input::Direction, input::InputRequest, input::Keys,
+    menu::MenuRequest, missions::MissionRequest, offers::OfferRequest, parliament::ParliamentRequest, policies::PolicyRequest, provinces::ProvinceRequest,
     questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
     texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
@@ -239,6 +240,57 @@ fn every_capability_runs_at_a_game_frame() {
                 v["result"][1] == json!({"decision": "move_capital", "name": "迁都", "major": false, "can": false, "reasons": ["拥有君士坦丁堡"], "cost": []})
             }),
         ),
+        (Request::Decision(DecisionRequest::Take { decision: "form_rum".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Decision(DecisionRequest::Take { decision: "move_capital".into() }), Box::new(|v: &Value| v["error"]["message"] == "拥有君士坦丁堡")),
+        (
+            Request::Idea(IdeaRequest::List {}),
+            Box::new(|v: &Value| {
+                v["result"][0]
+                    == json!({"group": "defensive_ideas", "name": "防御理念", "category": "mil", "taken": true, "ideas": 2, "of": 7, "button": "buy",
+                        "next": "improved_manuever", "can": true, "reasons": [], "cost": [{"resource": "mil", "amount": 400.0}]})
+            }),
+        ),
+        (Request::Idea(IdeaRequest::TakeGroup { group: "unknown".into() }), Box::new(|v: &Value| v["error"]["code"] == "not_found")),
+        (Request::Idea(IdeaRequest::Buy { group: "defensive_ideas".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Idea(IdeaRequest::AbandonGroup { group: "no".into() }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Policy(PolicyRequest::List {}), Box::new(|v: &Value| v["result"][0]["policy"] == "the_combination_act" && v["result"][0]["can"] == true)),
+        (Request::Policy(PolicyRequest::Enable { policy: "the_combination_act".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Policy(PolicyRequest::Disable { policy: "no".into() }), Box::new(|v: &Value| v["error"]["message"] == "需要和平")),
+        (
+            Request::Government(GovernmentRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"]["rank"] == 2 && v["result"]["raise_rank"] == json!({"can": false, "reasons": ["需要至少 1000 发展度"], "cost": []})
+            }),
+        ),
+        (
+            Request::Government(GovernmentRequest::Reforms {}),
+            Box::new(|v: &Value| v["result"][0]["reforms"][1]["cost"] == json!([{"resource": "reform_progress", "amount": 50.0}])),
+        ),
+        (Request::Government(GovernmentRequest::AdoptReform { reform: "autocracy_reform".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Government(GovernmentRequest::RaiseRank {}), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (
+            Request::Estate(EstateRequest::List {}),
+            Box::new(|v: &Value| v["result"][0]["privileges"][0]["granted"] == true && v["result"][0]["loyalty"] == 56.864),
+        ),
+        (Request::Estate(EstateRequest::Interactions {}), Box::new(|v: &Value| v["result"][0]["reasons"] == json!(["冷却中"]))),
+        (
+            Request::Estate(EstateRequest::GrantPrivilege { estate: "estate_nobles".into(), privilege: "unknown".into() }),
+            Box::new(|v: &Value| v["error"]["code"] == "not_found"),
+        ),
+        (
+            Request::Estate(EstateRequest::RevokePrivilege { estate: "estate_nobles".into(), privilege: "estate_nobles_land_rights".into() }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (Request::Estate(EstateRequest::Interact { interaction: "seize_land".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Parliament(ParliamentRequest::Options {}),
+            Box::new(|v: &Value| *v == ok(json!({"parliament": false, "debating": null, "enacted": null, "issues": []}))),
+        ),
+        (Request::Parliament(ParliamentRequest::Debate { issue: "administrative_reform".into() }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Parliament(ParliamentRequest::AddSeat { province: ProvinceId(149) }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Parliament(ParliamentRequest::RemoveSeat { province: ProvinceId(149) }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Mission(MissionRequest::List {}), Box::new(|v: &Value| v["result"][0]["column"] == 0 && v["result"][0]["completed"] == false)),
+        (Request::Mission(MissionRequest::Complete { mission: "tur_conquer_constantinople".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
         // The cursor first: a request after an input waits for the game to
         // have it (input::tests).
         (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),

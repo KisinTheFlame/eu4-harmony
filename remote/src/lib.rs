@@ -307,6 +307,18 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The player's idea groups and ideas.
+    Idea(ideas::IdeaRequest, IdeaAnswer),
+    /// The player's policies.
+    Policy(policies::PolicyRequest, PolicyAnswer),
+    /// The player's government: its reforms and its rank.
+    Government(government::GovernmentRequest, GovernmentAnswer),
+    /// The player's estates.
+    Estate(estates::EstateRequest, EstateAnswer),
+    /// The player's parliament.
+    Parliament(parliament::ParliamentRequest, ParliamentAnswer),
+    /// The player's missions.
+    Mission(missions::MissionRequest, MissionAnswer),
 }
 
 pub mod binary;
