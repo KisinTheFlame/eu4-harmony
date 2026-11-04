@@ -7,7 +7,8 @@
 //! the game alike, and asks [`current`] what to show. When the framework UI
 //! cannot be drawn, the queue is flushed to Windows message boxes and later
 //! notices go straight there. A failed startup or a fatal error goes straight
-//! to a message box ([`tell_and_wait`]).
+//! to a message box ([`tell_and_wait`]). While the game is hidden
+//! (`crate::hidden`), no message box is shown: the log has every notice.
 //!
 //! A notice is a framework localisation key with its values; it is put into
 //! words, in the player language, when it is shown.
@@ -130,12 +131,18 @@ pub(crate) fn fall_back(reason: &str) {
 
 fn show(message: &Message, style: u32) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_OK, MB_SETFOREGROUND};
+    if crate::hidden::hidden() {
+        return;
+    }
     let text: Vec<u16> = message.words(lang::player()).encode_utf16().chain([0]).collect();
     let title: Vec<u16> = "EU4 Harmony\0".encode_utf16().collect();
     unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | MB_SETFOREGROUND | style) };
 }
 
 fn message_box(message: &Message) {
+    if crate::hidden::hidden() {
+        return;
+    }
     let message = Message { key: message.key, args: message.args.clone() };
     std::thread::spawn(move || show(&message, windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONWARNING));
 }

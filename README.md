@@ -74,8 +74,13 @@ The capabilities, by group:
 | Camera and screenshots | `camera.get`, `camera.look_at` (a province or a map position), `camera.zoom`; `screenshot` (the frame as the player sees it, as a PNG) |
 | Input | `input.click`, `input.move`, `input.drag`, `input.scroll`, `input.key`, `input.type` (any Unicode), `input.mouse_down`, `input.mouse_up`, `input.key_down`, `input.key_up`, `input.get`: the player's mouse and keyboard at positions in the frame, for what has no capability of its own, with the game in front or behind other windows ([ADR remote-clients-give-the-players-input](docs/adr/remote-clients-give-the-players-input.md)) |
 | Events and descriptions | `events` (numbered: a session begun or ended, a new day, an army ordered or defeated), `describe` (the catalogue's version and every capability, from the running game), `text.language` |
+| Desktop | `desktop.get`, `desktop.show`, `desktop.hide`: whether a game started hidden is hidden, and showing it on the desktop and hiding it again (below) |
 
 The full list, with every argument and result, is `eu4-harmony wiki`, which works without the game: `eu4-harmony wiki army` for a group, `eu4-harmony wiki army move` for one capability, `eu4-harmony wiki errors` for what each error means; `eu4-harmony game describe` asks the running game. How each capability works in the game is in [docs/remote-control.md](docs/remote-control.md).
+
+### Starting the game hidden
+
+`eu4-harmony start --hidden` starts the game with nothing of it on the desktop, for a remote client, while the player goes on working in other programs: no window, nothing on the taskbar, the focus and the cursor left alone, and no sound unless `--sound`. The game draws every frame at the size of its settings, so `screenshot` and `input` work as with the window shown; the command returns once the main menu is up, and says why when the game ends first. A framework message box goes to the framework's log instead, and after a crash the game writes its crash files without starting its crash reporter. The same is the game's switch `-harmony_hidden` (and `-harmony_sound`), which may go into Steam's launch options. `eu4-harmony game desktop show` shows the game, without taking the focus, and `desktop hide` hides it again ([docs/hidden-start.md](docs/hidden-start.md)).
 
 ## Writing a mod (developers)
 

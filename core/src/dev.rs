@@ -74,6 +74,9 @@ pub struct TestSwitches {
     pub fail_startup: bool,
     /// Two test notices are shown, so that the notice window can be tried.
     pub test_notice: bool,
+    /// The game crashes at the first frame of a game, so that what follows a
+    /// crash can be tried.
+    pub crash: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
@@ -114,9 +117,10 @@ impl Options {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
+                on(switches.crash),
                 switches.post.len()
             ));
         }

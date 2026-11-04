@@ -45,7 +45,15 @@ pub fn points() -> Vec<Point> {
 }
 
 unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: u8) -> *mut [i32; 2] {
-    match crate::guarded("virtual cursor", || state().cursor) {
+    let held = || {
+        // No player's mouse moves a hidden game's cursor: remote control
+        // holds it from the start.
+        if crate::hidden::hidden() && state().cursor.is_none() {
+            hold(None);
+        }
+        state().cursor
+    };
+    match crate::guarded("virtual cursor", held) {
         Some(at) => {
             *out = at;
             out
@@ -289,6 +297,17 @@ pub fn presenting(size: (u32, u32)) {
         s.cursor = Some(at);
         s.real_at = real_at;
     }
+}
+
+/// Remote control holds the cursor at `at`, in pixels of the window's client
+/// area; with none, where it holds it already, or else in the middle of the
+/// window, where it does not scroll the map. For a
+/// hidden game, whose cursor no player's mouse moves (`crate::hidden`).
+pub fn hold(at: Option<[i32; 2]>) {
+    let mut s = state();
+    let Some(at) = at.or(s.cursor).or_else(|| window::middle(s.frame)) else { return };
+    s.cursor = Some(at);
+    s.real_at = window::real_cursor();
 }
 
 /// A session begins: remote control lets go of everything it holds.

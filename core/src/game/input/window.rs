@@ -24,6 +24,13 @@ fn client() -> Option<(i32, i32)> {
     (unsafe { GetClientRect(window()?, &mut r) } != 0 && r.right > 0 && r.bottom > 0).then_some((r.right, r.bottom))
 }
 
+/// The middle of the client area, or of a frame `frame` pixels large before
+/// the window is known.
+pub fn middle(frame: Option<(u32, u32)>) -> Option<[i32; 2]> {
+    let (w, h) = client().or_else(|| frame.map(|(w, h)| (w as i32, h as i32)))?;
+    Some([w / 2, h / 2])
+}
+
 /// A position in the frame, `frame` pixels large, in the client area.
 fn to_client((x, y): Position, frame: (u32, u32)) -> [i32; 2] {
     match client() {

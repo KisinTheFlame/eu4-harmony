@@ -13,6 +13,7 @@ mod game;
 mod pipe;
 mod reload;
 mod skills;
+mod start;
 mod templates;
 mod test;
 mod types;
@@ -71,6 +72,13 @@ usage:
       (--keep-crashes keeps them) and the backup (--keep keeps it). A file it
       could not put back is a NOT RESTORED line, and the backup stays.
       Both refuse while the game runs.
+  eu4-harmony start [--hidden] [--sound] [--timeout <seconds>] [--game-dir <game dir>]
+      Starts the game from its folder and waits until its main menu is up
+      (300 seconds without --timeout), printing its process id; says why when
+      it ends first. With --hidden (the game's switch -harmony_hidden) nothing
+      of it reaches the desktop and it plays no sound, unless --sound
+      (-harmony_sound); eu4-harmony game desktop show shows it. Steam must be
+      running; a game already running is refused.
   eu4-harmony game <capability> [--<argument> <value>]...
       Sends the running game one request through remote control and prints
       the answer as JSON; eu4-harmony game -h describes the command line.
@@ -131,6 +139,7 @@ fn main() {
         Some("reload") => Args::parse(&raw[1..], &["watch"]).and_then(|a| cmd_reload(&a)),
         Some("backup") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_backup(&a)),
         Some("restore") => Args::parse(&raw[1..], &["keep", "keep-crashes"]).and_then(|a| cmd_restore(&a)),
+        Some("start") => Args::parse(&raw[1..], &["hidden", "sound"]).and_then(|a| cmd_start(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
@@ -351,6 +360,25 @@ fn cmd_restore(args: &Args) -> Result<()> {
     backup::game_not_running()?;
     let (keep, keep_crashes) = (args.options.contains_key("keep"), args.options.contains_key("keep-crashes"));
     backup::restore(&backup::user_folder(&user_dir(args)?)?, Path::new(dir), keep, keep_crashes)
+}
+
+// ---------- start ----------
+
+fn cmd_start(args: &Args) -> Result<()> {
+    if !args.positional.is_empty() {
+        return Err("usage: eu4-harmony start [--hidden] [--sound] [--timeout <seconds>]".into());
+    }
+    let game = game_dir(args).ok_or("no game folder: pass --game-dir or set EU4_GAME_DIR")?;
+    let (hidden, sound) = (args.options.contains_key("hidden"), args.options.contains_key("sound"));
+    if sound && !hidden {
+        return Err("--sound is for --hidden: a game started shown plays its sound anyway".into());
+    }
+    let wait = match args.value("timeout") {
+        Some(text) => std::time::Duration::from_secs(text.parse().map_err(|_| format!("--timeout {text}: not a number of seconds"))?),
+        None => start::WAIT,
+    };
+    let log = user_dir(args)?.join("eu4-harmony").join("logs").join("core.log");
+    start::start(&game, &log, hidden, sound, wait).map(drop)
 }
 
 // ---------- package ----------

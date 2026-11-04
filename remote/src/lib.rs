@@ -303,6 +303,8 @@ groups! {
     Memory(memory::MemoryRequest, MemoryAnswer),
     /// Mouse and keyboard input at screen positions, as the player gives it.
     Input(input::InputRequest, InputAnswer),
+    /// The game on the player's desktop: a hidden start, showing and hiding it.
+    Desktop(desktop::DesktopRequest, DesktopAnswer),
 }
 
 pub mod binary;
