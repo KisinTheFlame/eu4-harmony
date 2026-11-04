@@ -18,7 +18,7 @@
 //! of that thread's own; on the main thread they are the game's, as always.
 //! The runs' bytes then go into the game's stream in the list's order, and the
 //! game goes on after the loop: what the stream holds is what the game's loop
-//! would have written, and so is the checksum taken over it afterwards.
+//! would have written, and so is the save checksum taken over it afterwards.
 //!
 //! When anything is not as expected (another class of stream or writer, a
 //! fault in a run), nothing is written and the game's own loop runs.
@@ -410,8 +410,8 @@ fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
     }
     let m = crate::hooked_memory();
     let start = Instant::now();
-    let job = match Job::new(m, which, world, writer) {
-        Ok(Some(job)) => Arc::new(job),
+    let writing = match Writing::new(m, which, world, writer) {
+        Ok(Some(writing)) => Arc::new(writing),
         Ok(None) => return false,
         Err(e) => {
             log!("saves: the game writes the {} itself: {e}", which.name());
@@ -420,8 +420,8 @@ fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
     };
     let Some(pool) = pool() else { return false };
     let Ok(_one_at_a_time) = pool.running.try_lock() else { return false };
-    let threads = pool.run(&job);
-    let outputs = match job.outputs() {
+    let threads = pool.run(&writing);
+    let outputs = match writing.outputs() {
         Ok(outputs) => outputs,
         Err(e) => {
             log!("saves: the game writes the {} itself: {e}", which.name());
@@ -434,12 +434,12 @@ fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
     if crate::dev::options().test_switches.compare_saves {
         return compare::begin(m, which, writer, outputs);
     }
-    if let Err(e) = append(m, job.stream, &outputs) {
+    if let Err(e) = append(m, writing.stream, &outputs) {
         // Part of the bytes may be in the stream: the save is not what the
         // game would have written, so the game ends rather than keep it.
         crate::fatal(&format!("saves: writing the {} into the save: {e}", which.name()));
     }
-    log!("saves: wrote {} {} on {threads} threads, {bytes} bytes, in {:.1?}", job.items.len(), which.name(), start.elapsed());
+    log!("saves: wrote {} {} on {threads} threads, {bytes} bytes, in {:.1?}", writing.items.len(), which.name(), start.elapsed());
     true
 }
 
@@ -455,7 +455,7 @@ fn append(m: Memory, stream: usize, outputs: &[Vec<u8>]) -> Result<()> {
 }
 
 /// A loop to write: its items, cut into runs, and what each run needs.
-struct Job {
+struct Writing {
     m: Memory,
     which: Loop,
     /// The game's stream, which the runs' bytes go into.
@@ -481,7 +481,7 @@ struct Job {
     first_buffer: usize,
 }
 
-impl Job {
+impl Writing {
     /// The loop to write, or None when it is better left to the game.
     fn new(m: Memory, which: Loop, world: usize, writer: usize) -> Result<Option<Self>> {
         if m.ptr(writer)? != m.at(WRITER_VTABLE) {
@@ -701,10 +701,10 @@ struct Pool {
 }
 
 struct State {
-    job: Option<Arc<Job>>,
-    /// Counts the jobs handed out, which tells a thread a new one is there.
+    writing: Option<Arc<Writing>>,
+    /// Counts the loops handed out, which tells a thread a new one is there.
     round: u64,
-    /// The threads still writing the current job.
+    /// The threads still writing the current loop.
     busy: usize,
 }
 
@@ -717,7 +717,7 @@ fn pool() -> Option<&'static Pool> {
             let wanted = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MOST_THREADS) - 1;
             let pool = Pool {
                 threads: Vec::new(),
-                state: Mutex::new(State { job: None, round: 0, busy: 0 }),
+                state: Mutex::new(State { writing: None, round: 0, busy: 0 }),
                 start: Condvar::new(),
                 done: Condvar::new(),
                 running: Mutex::new(()),
@@ -771,16 +771,16 @@ fn worker() {
     HOLDERS.with(|h| h.set(holders.0.as_ptr() as usize));
     let mut seen = 0;
     loop {
-        let job = {
+        let writing = {
             let mut state = pool.state.lock().unwrap_or_else(|e| e.into_inner());
             while state.round == seen {
                 state = pool.start.wait(state).unwrap_or_else(|e| e.into_inner());
             }
             seen = state.round;
-            state.job.clone()
+            state.writing.clone()
         };
-        if let Some(job) = job {
-            crate::guarded("parallel save", || job.work(Some(holders)));
+        if let Some(writing) = writing {
+            crate::guarded("parallel save", || writing.work(Some(holders)));
         }
         let mut state = pool.state.lock().unwrap_or_else(|e| e.into_inner());
         state.busy -= 1;
@@ -789,30 +789,30 @@ fn worker() {
 }
 
 impl Pool {
-    /// Writes the job on every thread of the pool and this one; how many
+    /// Writes the loop on every thread of the pool and this one; how many
     /// threads wrote.
-    fn run(&self, job: &Arc<Job>) -> usize {
+    fn run(&self, writing: &Arc<Writing>) -> usize {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.job = Some(job.clone());
+            state.writing = Some(writing.clone());
             state.round += 1;
             state.busy = self.threads.len();
             self.start.notify_all();
         }
-        job.work(None);
+        writing.work(None);
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let deadline = Instant::now() + WAIT;
         while state.busy > 0 {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 self.broken.store(true, Ordering::SeqCst);
-                job.failed.store(true, Ordering::SeqCst);
-                log!("saves: a thread writing the {} did not finish in {WAIT:?}; saves are written by the game alone from now on", job.which.name());
+                writing.failed.store(true, Ordering::SeqCst);
+                log!("saves: a thread writing the {} did not finish in {WAIT:?}; saves are written by the game alone from now on", writing.which.name());
                 break;
             }
             state = self.done.wait_timeout(state, left).unwrap_or_else(|e| e.into_inner()).0;
         }
-        state.job = None;
+        state.writing = None;
         self.threads.len() + 1
     }
 }
