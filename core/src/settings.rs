@@ -1,8 +1,9 @@
 //! Framework settings (GLOSSARY): the player's choices for the framework,
 //! kept in `eu4-harmony/settings.txt` under the user directory and written the
 //! way the game writes its own `settings.txt`. They are read once at startup.
-//! A change made in the settings window to how a session is left takes effect
-//! when it is saved; a change to the fonts, at the next start.
+//! A change made in the settings window to how a session is left, or to the
+//! achievement rules, takes effect when it is saved; a change to the fonts, at
+//! the next start.
 use crate::unicode::system_font::Face;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -27,6 +28,11 @@ pub struct Settings {
     /// Whether an in-game load in ironman writes the ironman exit save first;
     /// without it, loading the same save again is an undo (ADR 0023).
     pub save_ironman_before_load: bool,
+    /// Whether a game that is not ironman can earn achievements (ADR 0038).
+    pub achievements_outside_ironman: bool,
+    /// Whether achievements can be earned with a game checksum (GLOSSARY)
+    /// that is not vanilla's (ADR 0038).
+    pub achievements_with_changed_checksum: bool,
 }
 
 /// The system font family text falls back to, and the framework UI draws
@@ -48,6 +54,8 @@ impl Default for Settings {
             map_outline: true,
             return_without_restart: true,
             save_ironman_before_load: true,
+            achievements_outside_ironman: false,
+            achievements_with_changed_checksum: false,
         }
     }
 }
@@ -92,6 +100,10 @@ impl Settings {
                 "map_outline" => settings.map_outline = yes(value).unwrap_or(settings.map_outline),
                 "return_without_restart" => settings.return_without_restart = yes(value).unwrap_or(settings.return_without_restart),
                 "save_ironman_before_load" => settings.save_ironman_before_load = yes(value).unwrap_or(settings.save_ironman_before_load),
+                "achievements_outside_ironman" => settings.achievements_outside_ironman = yes(value).unwrap_or(settings.achievements_outside_ironman),
+                "achievements_with_changed_checksum" => {
+                    settings.achievements_with_changed_checksum = yes(value).unwrap_or(settings.achievements_with_changed_checksum)
+                }
                 _ => {}
             }
         }
@@ -102,7 +114,7 @@ impl Settings {
         let yes_no = |on: bool| if on { "yes" } else { "no" };
         let (body, heading, map, console) = (&self.body_font, &self.heading_font, &self.map_font, &self.console_font);
         format!(
-            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nconsole_font=\"{}\"\nconsole_weight={}\nreturn_without_restart={}\nsave_ironman_before_load={}\n",
+            "body_font=\"{}\"\nbody_weight={}\nheading_font=\"{}\"\nheading_weight={}\nmap_font=\"{}\"\nmap_weight={}\nmap_outline={}\nconsole_font=\"{}\"\nconsole_weight={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\n",
             body.family,
             body.weight,
             heading.family,
@@ -113,15 +125,19 @@ impl Settings {
             console.family,
             console.weight,
             yes_no(self.return_without_restart),
-            yes_no(self.save_ironman_before_load)
+            yes_no(self.save_ironman_before_load),
+            yes_no(self.achievements_outside_ironman),
+            yes_no(self.achievements_with_changed_checksum)
         )
     }
 
     /// Takes from `chosen` the settings that take effect when they are saved:
-    /// those for leaving a session.
+    /// those for leaving a session, and the achievement rules.
     fn take_immediate(&mut self, chosen: &Settings) {
         self.return_without_restart = chosen.return_without_restart;
         self.save_ironman_before_load = chosen.save_ironman_before_load;
+        self.achievements_outside_ironman = chosen.achievements_outside_ironman;
+        self.achievements_with_changed_checksum = chosen.achievements_with_changed_checksum;
     }
 }
 
@@ -158,6 +174,7 @@ pub fn load(user_dir: &Path) -> Settings {
     let path = user_dir.join("eu4-harmony").join("settings.txt");
     let current = std::fs::read_to_string(&path).map(|t| Settings::parse(&t)).unwrap_or_default();
     let _ = STORE.set(Mutex::new(Store { path, current: current.clone(), next: current.clone() }));
+    crate::achievements::follow(&current);
     current
 }
 
@@ -171,8 +188,8 @@ pub fn next() -> Settings {
     store().map(|s| s.next.clone()).unwrap_or_default()
 }
 
-/// Saves settings: those for leaving a session take effect now, the rest at
-/// the next start.
+/// Saves settings: those for leaving a session and the achievement rules take
+/// effect now, the rest at the next start.
 pub fn save(settings: Settings) -> crate::Result<()> {
     let mut store = store().ok_or("settings not loaded")?;
     if let Some(dir) = store.path.parent() {
@@ -180,6 +197,7 @@ pub fn save(settings: Settings) -> crate::Result<()> {
     }
     std::fs::write(&store.path, settings.render()).map_err(|e| format!("{}: {e}", store.path.display()))?;
     store.current.take_immediate(&settings);
+    crate::achievements::follow(&store.current);
     store.next = settings;
     Ok(())
 }
@@ -211,6 +229,8 @@ mod tests {
             map_outline: false,
             return_without_restart: false,
             save_ironman_before_load: false,
+            achievements_outside_ironman: true,
+            achievements_with_changed_checksum: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().contains("\nbody_weight=700\n"));
@@ -230,19 +250,31 @@ mod tests {
         assert_eq!(Settings::parse(""), Settings::default());
         assert!(Settings::parse("return_without_restart=maybe").return_without_restart);
         assert!(!Settings::parse("save_ironman_before_load=\"no\"").save_ironman_before_load);
+        // Achievements follow vanilla's rules unless the file says otherwise.
+        assert!(!Settings::parse("achievements_outside_ironman=maybe").achievements_outside_ironman);
+        assert!(Settings::parse("achievements_with_changed_checksum=yes").achievements_with_changed_checksum);
     }
 
     #[test]
-    fn only_the_settings_for_leaving_a_session_take_effect_when_saved() {
+    fn only_the_settings_for_leaving_a_session_and_achievements_take_effect_when_saved() {
         let mut current = Settings::default();
         let chosen = Settings {
             body_font: Face::regular("SimSun"),
             map_outline: false,
             return_without_restart: false,
             save_ironman_before_load: false,
+            achievements_outside_ironman: true,
+            achievements_with_changed_checksum: true,
             ..Settings::default()
         };
         current.take_immediate(&chosen);
-        assert_eq!(current, Settings { return_without_restart: false, save_ironman_before_load: false, ..Settings::default() });
+        let immediate = Settings {
+            return_without_restart: false,
+            save_ironman_before_load: false,
+            achievements_outside_ironman: true,
+            achievements_with_changed_checksum: true,
+            ..Settings::default()
+        };
+        assert_eq!(current, immediate);
     }
 }
