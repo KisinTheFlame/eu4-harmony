@@ -98,7 +98,7 @@ extern "C" fn finished(frame: *mut HookFrame) {
             let province = m.u32(province + field::ID)?;
             Ok((index != 0 && owner.valid()).then_some(events::Change::BuildingFinished { province, building: index, country: owner }))
         };
-        match read() {
+        match super::event_costs::BUILDINGS.time(read) {
             Ok(Some(change)) => events::raise(change),
             Ok(None) => {}
             Err(e) => log!("buildings: {e}"),
