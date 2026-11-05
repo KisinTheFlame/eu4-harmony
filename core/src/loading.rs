@@ -3,19 +3,26 @@
 //!
 //! - `music`: what the game reads each music file whole for at startup, its
 //!   channels, rate and length, kept from one start to the next.
+//! - `lookups`: whether a file is in a folder of the game's or of the
+//!   workshop's, answered from the folder's listing instead of asking
+//!   Windows each time.
 use crate::points::Point;
 use std::path::Path;
 
+pub mod lookups;
 pub mod music;
 
 pub fn points() -> Vec<Point> {
-    music::points()
+    let mut points = music::points();
+    points.extend(lookups::points());
+    points
 }
 
 /// Where the game and the player's files are, once known; before the game
 /// reads its music.
 pub fn set_folders(game_dir: &Path, user_dir: &Path) {
     music::set_folder(user_dir);
+    lookups::set_roots(game_dir);
 }
 
 /// A developer build's test switch `game-loads`: the startup and loads are
