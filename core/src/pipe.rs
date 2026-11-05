@@ -15,10 +15,10 @@
 //! A client gives a request up by closing the pipe before the answer comes,
 //! even with requests it wrote after it still unread: the transport drops the
 //! request's reply, so the engine never runs it if it has not yet. The pipe
-//! lasts as long as the process. When the game ends, or
-//! returns to the main menu, which starts `eu4.exe` again
-//! (docs/research/safe-points.md), every client finds its pipe broken; the
-//! new process opens the pipe once the old one is gone. Returning, the
+//! lasts as long as the process. When the game ends, or restarts (GLOSSARY:
+//! a return to the main menu with the in-process return turned off), every
+//! client finds its pipe broken; the new process opens the pipe once the old
+//! one is gone. An in-process return keeps the pipe. Restarting, the
 //! engine first answers every request (`remote::Engine::end`), and the
 //! process waits, up to 2 s, until the transport has written every answer
 //! and its client has read it, however large.

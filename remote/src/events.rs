@@ -88,6 +88,7 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("year", "the first day heard in a new year, after month; date"),
     ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
     ("army_defeated", "one of the player's armies lost a battle; army"),
+    ("building_finished", "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
     (
         "battle",
         "a land or naval battle was decided: in the player's view one the player sees or takes part in, in the full view every one; province, naval, attackers, defenders (the countries on each side, the leading one first), winner (attackers or defenders), attacker_losses, defender_losses (men in a land battle, ships in a naval one)",
@@ -117,6 +118,14 @@ pub enum Event {
     ArmyOrdered { army: ArmyId },
     /// One of the player's armies lost a battle.
     ArmyDefeated { army: ArmyId },
+    /// A building was finished in a province, any country's.
+    BuildingFinished {
+        province: ProvinceId,
+        /// Its content key.
+        building: String,
+        /// The province's owner.
+        country: CountryTag,
+    },
     /// A land or naval battle was decided: in the player's view one the
     /// player sees or takes part in, in the full view every one.
     Battle {
@@ -152,6 +161,7 @@ impl Event {
             Self::Year { .. } => "year",
             Self::ArmyOrdered { .. } => "army_ordered",
             Self::ArmyDefeated { .. } => "army_defeated",
+            Self::BuildingFinished { .. } => "building_finished",
             Self::Battle { .. } => "battle",
         }
     }
@@ -160,6 +170,7 @@ impl Event {
     /// about the player's own armies.
     pub fn countries(&self) -> Vec<CountryTag> {
         match self {
+            Self::BuildingFinished { country, .. } => vec![*country],
             Self::Battle { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
             _ => Vec::new(),
         }

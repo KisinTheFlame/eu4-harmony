@@ -113,6 +113,16 @@ pub const HANDLERS: &[Handler] = &[
         about: "A land or naval battle was decided, anywhere in the world.",
     },
     Handler {
+        name: "on_building_finished",
+        args: &[
+            value("province", "integer", "the province's number"),
+            value("building", "string", "the building's content key"),
+            value("country", "string", "the province's owner, by its tag"),
+        ],
+        returns: None,
+        about: "A building was finished in a province, any country's. Worked out only while some mod has this handler or a remote client reads it.",
+    },
+    Handler {
         name: "on_button",
         args: &[value("name", "string", "the button's name in its interface fragment"), value("click", "eu4.Click", "{ right, shift, ctrl }")],
         returns: None,

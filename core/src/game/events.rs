@@ -53,6 +53,13 @@ const ENTRY_TAG: usize = 0x10;
 pub enum Change {
     Ordered(u64),
     Defeated(u64),
+    /// A building was finished: the province, the building's index, the
+    /// province's owner.
+    BuildingFinished {
+        province: u32,
+        building: u32,
+        country: Tag,
+    },
     /// A battle was decided.
     Battle(Battle),
 }
@@ -125,7 +132,8 @@ pub fn load_begin() {
 
 /// The world was put back as a new start has it, with its history (an
 /// in-process return, the single player setup left): the next game begun on
-/// it is a new session, though the game reads nothing for it.
+/// it is a new session, though the game reads nothing for it. Told by the
+/// sessions (`crate::sessions`), as is [`load_begin`].
 pub fn world_reset() {
     boundary(Boundary::rotate);
 }
@@ -243,7 +251,7 @@ extern "C" fn route_before(frame: *mut HookFrame) {
         let h = unsafe { &*frame };
         let watched = (|| {
             let m = crate::memory()?;
-            if orders::own_mutation_thread() == crate::thread_id() || crate::saves::load_in_progress() {
+            if orders::own_mutation_thread() == crate::thread_id() || crate::sessions::loading() {
                 return None;
             }
             let id = own_army_id(m, h.args[0])?;
@@ -323,7 +331,7 @@ fn route_changed(before: Option<&orders::Path>, after: Option<&orders::Path>) ->
 extern "C" fn defeat_before(frame: *mut HookFrame) {
     crate::guarded("battle defeat", || {
         let Some(m) = crate::memory() else { return };
-        if crate::saves::load_in_progress() {
+        if crate::sessions::loading() {
             return;
         }
         let a = unsafe { (*frame).args };
@@ -368,7 +376,7 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
 extern "C" fn results_before(frame: *mut HookFrame) {
     crate::guarded("battle results", || {
         let Some(m) = crate::memory() else { return };
-        if crate::saves::load_in_progress() || !listened("battle") {
+        if crate::sessions::loading() || !listened("battle") {
             return;
         }
         let (a, back) = unsafe { ((*frame).args, (*frame).return_address) };
@@ -461,7 +469,7 @@ pub struct FrameState {
 /// changes. Fails when the frame is not one: while a save loads, off the main
 /// thread, or when the campaign cannot be read.
 pub fn begin_frame(m: &Memory) -> GResult<FrameState> {
-    if crate::saves::load_in_progress() {
+    if crate::sessions::loading() {
         return fail(Status::NotReady, "a save is being loaded");
     }
     if crate::thread_id() != crate::main_thread() {

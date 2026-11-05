@@ -132,6 +132,7 @@ fn every_event_is_described() {
         Event::Year { date },
         Event::ArmyOrdered { army: ArmyId(1) },
         Event::ArmyDefeated { army: ArmyId(1) },
+        Event::BuildingFinished { province: ProvinceId(151), building: "marketplace".into(), country: CountryTag(*b"TUR") },
         Event::Battle {
             province: ProvinceId(151),
             naval: false,
@@ -143,7 +144,7 @@ fn every_event_is_described() {
         },
     ];
     // A battle names the countries on both sides, for a read's countries.
-    assert_eq!(all[7].countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
+    assert_eq!(all.iter().find(|e| e.kind() == "battle").unwrap().countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
     // An event is flattened beside its own number: none of its fields may
     // be named so.
     for event in &all {

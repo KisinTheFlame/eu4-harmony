@@ -1,10 +1,11 @@
 //! The time capabilities driven through the engine, a fake clock behind them.
 use super::*;
-use crate::remote::{
+use crate::catalogue::{
     events::KEPT,
     fake::{answer, ok, quiet, Fake, PLENTY},
-    process, Engine, Place, Reply,
+    process, Place,
 };
+use crate::remote::{Engine, Reply};
 use eu4_harmony_remote::{response_json, ArmyId, Request};
 use serde_json::{json, Value};
 
@@ -336,7 +337,7 @@ fn an_advance_answers_before_the_process_ends() {
     let client = std::thread::spawn(move || reply.wait(PLENTY).map(|r| response_json(&r)));
     let reader = std::thread::spawn(move || events.wait(PLENTY).map(|r| response_json(&r)));
     let started = Instant::now();
-    ENGINE.end(crate::remote::menu::ending(), PLENTY);
+    ENGINE.end(crate::catalogue::menu::ending(), PLENTY);
     // It returns once the clients are done with the answers, not when its
     // time is up.
     assert!(started.elapsed() < Duration::from_secs(5));

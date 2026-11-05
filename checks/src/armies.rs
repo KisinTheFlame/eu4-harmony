@@ -66,6 +66,17 @@ pub fn not_own(id: u64) -> Refusal {
     Refusal::new(Status::NotFound, format!("no own army {id}"))
 }
 
+/// The refusal of the army selected while no single-army panel is open.
+pub fn panel_not_open() -> Refusal {
+    Refusal::new(Status::NotFound, "army panel not open")
+}
+
+/// The refusal of the army selected when the open panel shows none of the
+/// player's land armies.
+pub fn none_selected() -> Refusal {
+    Refusal::new(Status::NotFound, "no own land army selected")
+}
+
 /// The refusal of what reads the armies the player sees while visibility
 /// does not reflect the date yet.
 pub fn visibility_not_current() -> Refusal {

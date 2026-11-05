@@ -56,10 +56,11 @@ impl Wait for Taking {
 mod tests {
     use super::super::{
         fake::{answer, quiet, Fake},
-        Engine, Place, Request,
+        Place, Request,
     };
     use super::*;
     use crate::game::{screenshot::Image, Fail, Status};
+    use crate::remote::Engine;
 
     use serde_json::{json, Value};
     use std::time::Duration;
