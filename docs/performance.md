@@ -105,6 +105,8 @@ CPU is given in cores: the process's CPU seconds per second of wall time (the ma
 
 The scenario `perf` ([xtask/src/scenario/perf.rs](../xtask/src/scenario/perf.rs), `cargo xtask scenario perf`, [scenarios.md](scenarios.md)) measures the framework's game only, on the player build: within the claim it starts the game hidden and times the start to the main menu, reads memory 20 s later, starts a new game as Ming with `menu.start` and times it, measures CPU over 30 s paused, then 120 s at speed 5 through `time.set_speed`, `time.resume` and `time.pause`, and reads the dates with `time.get`, from which come the game days a minute. Its start is timed from the start command, not from a menu logo on screen, so its menu seconds are not those of the runs below.
 
+The figures on this page come from `tools/perf-run.ps1` (since removed), from the framework's log and from `cargo xtask profile`; none yet from the scenario. Its first runs, on 2026-11-05 ([prototype-log.md](prototype-log.md), "Scenarios"), checked that it plays to its end: 47.2 s to the main menu, 9.7 s for `menu.start MNG`, 0.81 cores paused and 1.75 at speed 5, and 487 game days a minute, with 305.6 and 453.3 in two later runs, a spread larger than the framework's setups are likely to differ by. The next measurement of what the framework costs is taken with `cargo xtask scenario perf` and recorded here.
+
 ## Results
 
 Means, with the single runs in brackets where there were several.

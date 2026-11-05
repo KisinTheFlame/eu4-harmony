@@ -90,7 +90,8 @@ dev-call-trace = ["analysis", "dep:toml"]
 # lies, at no cost between two asks (src/memory_account.rs).
 dev-memory = ["dep:toml", "eu4-harmony-remote/dev-memory"]
 # Counts the game's live heap blocks by call site, and answers remote
-# control's memory.leftovers and memory.generation (src/census.rs).
+# control's memory.leftovers, memory.watch, memory.generation,
+# memory.quarantine and memory.pages (src/census.rs).
 dev-heap-census = ["dev-memory"]
 # Logs the commands the game executes, in their written form (src/command_log.rs).
 dev-command-log = ["dep:toml"]
