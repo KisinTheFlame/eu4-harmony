@@ -37,19 +37,46 @@ pub struct Neighbor {
 }
 
 /// Every province, indexed by ID; index 0 is a placeholder with nothing set.
-pub fn provinces(_: Caller) -> GResult<Vec<Province>> {
+/// In the player's view a province the player has not discovered has no
+/// owner or controller, as the map shows it.
+pub fn provinces(caller: Caller) -> GResult<Vec<Province>> {
     let m = game()?;
     let ctx = context(m)?;
     let visible = events::visibility_current(m, &ctx);
-    with_state(|s| s.geography.provinces(m, &ctx, visible))
+    let provinces = with_state(|s| s.geography.provinces(m, &ctx, visible))?;
+    discovered(m, &ctx, view(caller), provinces)
 }
 
-/// The provinces numbered in `ids` that there are, in their order.
-pub fn named(_: Caller, ids: Vec<u32>) -> GResult<Vec<Province>> {
+/// The provinces numbered in `ids` that there are, in their order, as
+/// [`provinces`] has them.
+pub fn named(caller: Caller, ids: Vec<u32>) -> GResult<Vec<Province>> {
     let m = game()?;
     let ctx = context(m)?;
     let visible = events::visibility_current(m, &ctx);
-    with_state(|s| s.geography.named_provinces(m, &ctx, visible, &ids))
+    let provinces = with_state(|s| s.geography.named_provinces(m, &ctx, visible, &ids))?;
+    discovered(m, &ctx, view(caller), provinces)
+}
+
+/// `provinces` with the owner and controller of those the player has not
+/// discovered left out, in the player's view.
+fn discovered(m: &Memory, ctx: &Ctx, view: View, mut provinces: Vec<Province>) -> GResult<Vec<Province>> {
+    if view == View::Full {
+        return Ok(provinces);
+    }
+    for p in provinces.iter_mut().filter(|p| p.id != 0) {
+        let address = with_state(|s| s.geography.province_address(m, ctx, p.id))?;
+        if super::world::undiscovered(m, ctx, address)? {
+            (p.owner, p.controller) = (None, None);
+        }
+    }
+    Ok(provinces)
+}
+
+/// Whether `view` sees what the province view shows only of the player's
+/// own provinces, in a province owned by `owner`: in the full view, of the
+/// player's own, and of one no country owns.
+pub fn sees_inside(view: View, ctx: &Ctx, owner: Option<Tag>) -> bool {
+    view == View::Full || owner.is_none_or(|o| o.index() == ctx.player.index())
 }
 
 /// The passable land provinces next to a province; none for a province an
@@ -169,7 +196,8 @@ pub struct Snapshot {
 
 /// A province's snapshot; [`Status::NotFound`] for a number that names no
 /// province. In the player's view a province another country owns leaves
-/// out its unrest, its constructions and its missionary.
+/// out its unrest, its constructions and its missionary, and one the player
+/// has not discovered is refused as terra incognita.
 pub fn province(caller: Caller, id: u32) -> GResult<Snapshot> {
     let m = game()?;
     let ctx = context(m)?;
@@ -177,7 +205,11 @@ pub fn province(caller: Caller, id: u32) -> GResult<Snapshot> {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
-    snapshot(m, &ctx, address, view(caller))
+    let view = view(caller);
+    if view == View::Player && super::world::undiscovered(m, &ctx, address)? {
+        return Err(eu4_harmony_checks::provinces::not_discovered(id).into());
+    }
+    snapshot(m, &ctx, address, view)
 }
 
 /// The game's getters of a province's base tax, production and manpower, as
@@ -306,7 +338,7 @@ fn snapshot(m: &Memory, ctx: &Ctx, address: usize, view: View) -> GResult<Snapsh
     let mothballed = m.u8(address + field::MOTHBALL)? == field::MOTHBALLED;
     let owner = tag_at(field::OWNER)?;
     // The province view shows another country's province without these.
-    let all = view == View::Full || owner.is_none_or(|o| o.index() == ctx.player.index());
+    let all = sees_inside(view, ctx, owner);
     let flags = m.u8(address + field::HIDDEN)?;
     let (state, edict) = state_of(m, address, owner)?;
     let constructions = constructions(m, ctx, address)?;

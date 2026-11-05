@@ -117,7 +117,12 @@ fn choice(m: &Memory, country: usize, player: Tag, government: usize, tier: usiz
         return Ok(Choice::can(cost));
     }
     let mut reasons = conditions::failing(m, reform + POTENTIAL, player, 0)?;
-    reasons.extend(conditions::failing(m, reform + TRIGGER, player, 0)?);
+    // A line the potential and the trigger share is written once.
+    for line in conditions::failing(m, reform + TRIGGER, player, 0)? {
+        if !reasons.contains(&line) {
+            reasons.push(line);
+        }
+    }
     let progress = m.i32(country + REFORM_PROGRESS)?;
     if progress < cost_thousandths(&cost) {
         reasons.push(format!("the reform progress is {}, and this costs {}", thousandths(progress), cost[0].amount));

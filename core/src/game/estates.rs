@@ -7,7 +7,7 @@ use crate::{memory::Memory, objects::campaign::country, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
     choices::Choice,
-    estates::{Estate, Interaction, Privilege},
+    estates::{Estate, EstateInteraction, Privilege},
 };
 
 /// The country's estates: a `std::vector` of 0xa8-byte entries, each with
@@ -197,14 +197,14 @@ fn interaction_choice(m: &Memory, country: usize, interaction: usize) -> GResult
 }
 
 /// The estates view's interactions over crown land.
-pub fn interactions_list(_: Caller) -> GResult<Vec<Interaction>> {
+pub fn interactions_list(_: Caller) -> GResult<Vec<EstateInteraction>> {
     let m = game()?;
     let ctx = context(m)?;
     interactions(m)?
         .into_iter()
         .map(|at| {
             let key = content::key(m, at + INTERACTION_KEY)?;
-            Ok(Interaction { name: content::name(m, &key)?, interaction: key, choice: interaction_choice(m, ctx.country, at)? })
+            Ok(EstateInteraction { name: content::name(m, &key)?, interaction: key, choice: interaction_choice(m, ctx.country, at)? })
         })
         .collect()
 }

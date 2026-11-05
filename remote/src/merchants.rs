@@ -53,6 +53,25 @@ group! {
         /// The node downstream to steer to.
         to: String,
     } -> (), "null once the merchant steers there";
+    /// The trading policies the trade view offers the player in a trade
+    /// node, by content key, such as `maximize_profit`: which one the
+    /// player follows there, and for each whether the player can choose it
+    /// now, why not (the game's reasons, the wait after the last choice
+    /// among them), and the cost.
+    game Policies "policies" {
+        /// The trade node's content key.
+        node: String,
+    } -> TradingPolicies, "node, name; current: the policy the player follows there, or null; policies: policy, name, current, can, reasons, cost";
+    /// Chooses the player's trading policy in a trade node, as the trade
+    /// view's policy button does once the player confirms. Refused with the
+    /// game's reasons when the game would not let the player now
+    /// (`merchant.policies` says so beforehand).
+    game SetPolicy "set_policy" {
+        /// The trade node's content key.
+        node: String,
+        /// The trading policy's content key.
+        policy: String,
+    } -> (), "null once the player follows the policy there";
 }
 
 /// What a merchant does in a trade node.
@@ -111,6 +130,34 @@ pub struct MerchantOptions {
     pub recall: Choice,
     /// The nodes downstream a merchant steering there can steer to.
     pub steer_to: Vec<Downstream>,
+}
+
+/// The trading policies of a trade node.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct TradingPolicies {
+    /// The node's content key.
+    pub node: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// The content key of the policy the player follows there; null when
+    /// the player follows none there.
+    pub current: Option<String>,
+    /// The policies the trade view offers, in the game's order.
+    pub policies: Vec<TradingPolicy>,
+}
+
+/// A trading policy the trade view offers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct TradingPolicy {
+    /// Its content key.
+    pub policy: String,
+    /// Its name, in the player language.
+    pub name: String,
+    /// The player follows it there now.
+    pub current: bool,
+    /// Whether the player can choose it now.
+    #[serde(flatten)]
+    pub choice: Choice,
 }
 
 /// A node downstream a steering merchant can steer trade to.

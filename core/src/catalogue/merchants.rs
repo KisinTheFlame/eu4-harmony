@@ -1,5 +1,5 @@
 //! Merchants: the trade view's merchant buttons.
-use eu4_harmony_remote::merchants::{MerchantAnswer, MerchantOptions, MerchantRequest, Merchants, Mission};
+use eu4_harmony_remote::merchants::{MerchantAnswer, MerchantOptions, MerchantRequest, Merchants, Mission, TradingPolicies};
 
 layer! {
     run MerchantRequest => MerchantAnswer;
@@ -13,4 +13,8 @@ layer! {
     Steer { node } => game.send_merchant(node.as_str(), Mission::Steer);
     Recall { node } => game.recall_merchant(node.as_str());
     SteerTo { node, to } => game.steer_to(node.as_str(), to.as_str());
+    fn trading_policies(node: &str) -> TradingPolicies = crate::game::merchants::policies;
+    fn set_trading_policy(node: &str, policy: &str) -> () = crate::game::merchants::set_policy;
+    Policies { node } => game.trading_policies(node.as_str());
+    SetPolicy { node, policy } => game.set_trading_policy(node.as_str(), policy.as_str());
 }

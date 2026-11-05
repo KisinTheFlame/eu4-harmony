@@ -399,7 +399,7 @@ pub(crate) fn session_ended(event: eu4_harmony_remote::events::Event) {
 
 /// At a game's safe frame: keeps what extensions just heard, then runs.
 pub(crate) fn run_in_game(frame: &game::Frame) {
-    ENGINE.record(happened(frame));
+    ENGINE.record(game::event_costs::REMOTE.time(|| happened(frame)));
     ENGINE.enter(frame.session);
     ENGINE.run(&mut Live(game::Caller::Remote), &Place::Game, BUDGET);
 }

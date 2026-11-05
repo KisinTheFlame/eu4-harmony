@@ -688,6 +688,11 @@ mod tests {
         let mut named = std::collections::BTreeSet::new();
         for line in text.lines().map(str::trim).filter(|l| !l.starts_with("//")) {
             let Some((_, rest)) = line.split_once("const ") else { continue };
+            // An array of them: each of its numbers.
+            if let Some((_, values)) = rest.split_once("] = [").filter(|(kind, _)| kind.contains(": [usize; ")) {
+                named.extend(values.trim_end_matches("];").split(',').filter_map(|v| hex(v.trim())).filter(|&v| v >= IMAGE));
+                continue;
+            }
             let Some((name, value)) = rest.split_once(": usize = ") else { continue };
             if let Some(value) = hex(value.trim_end_matches(';')) {
                 constants.insert(name.to_string(), value);
@@ -751,8 +756,8 @@ mod tests {
     #[test]
     fn addresses_are_read_from_constants_and_points() {
         let text = "const FIELD: usize = 0x28c0;\nconst F: usize = 0x93d750;\n// const OLD: usize = 0x200000;\n\
-                    const SITE: usize = 0x9a1f0;\nPoint::keep(SITE, \"c3\", \"x\");\nPoint::keep(\n    0xcd1db1usize, \"c3\", \"y\");\nPoint::keep(FIELD + 1, \"c3\", \"z\");";
-        assert_eq!(addresses_named(text), [0x28c1, 0x9a1f0, 0x93d750, 0xcd1db1].into());
+                    const SITE: usize = 0x9a1f0;\nconst BOTH: [usize; 2] = [0x300000, 0x300010];\nPoint::keep(SITE, \"c3\", \"x\");\nPoint::keep(\n    0xcd1db1usize, \"c3\", \"y\");\nPoint::keep(FIELD + 1, \"c3\", \"z\");";
+        assert_eq!(addresses_named(text), [0x28c1, 0x9a1f0, 0x93d750, 0xcd1db1, 0x300000, 0x300010].into());
     }
 
     #[test]

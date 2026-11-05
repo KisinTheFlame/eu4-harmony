@@ -12,7 +12,7 @@ group! {
     /// the next level now with the view's research button, at what cost in
     /// its kind of monarch power. When the player has too few points the
     /// reason is the view's own line of when the player will have them.
-    game Options "options" {} -> Vec<Technology>, "one for each of adm, dip, mil: technology, level, can, reasons, cost";
+    game Options "options" {} -> Vec<TechnologyOption>, "one for each of adm, dip, mil: technology, level, can, reasons, cost";
 
     /// Researches the next level of a technology, as the research button in
     /// the technology view does, paying its cost in monarch points. Refused
@@ -26,7 +26,7 @@ group! {
 
 /// One of the player's technologies, as the technology view shows it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Technology {
+pub struct TechnologyOption {
     /// Which: adm, dip or mil.
     pub technology: PowerKind,
     /// The level the player has.

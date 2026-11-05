@@ -165,9 +165,6 @@ const LOCALIZE_TWO: usize = 0x8edc0;
 
 // ---------- objects ----------
 
-/// A country's primary culture, a pointer to a culture as a province's
-/// ([`field::CULTURE`]).
-const PRIMARY_CULTURE: usize = 0x1228;
 /// A state's country tag; its edict and the edict's key are the province's
 /// ([`field::STATE`]).
 const STATE_TAG: usize = 0x1c;
@@ -201,7 +198,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(CULTURE_PRICE, "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55", "culture price"),
         // The province view's culture button converts to the primary
         // culture; the culture command writes a culture's token.
-        Point::keep(0x137b682usize, "48 8b 8f 28 12 00 00", "primary culture").uses(&[PRIMARY_CULTURE]),
+        Point::keep(0x137b682usize, "48 8b 8f 28 12 00 00", "primary culture").uses(&[country::PRIMARY_CULTURE]),
         // The province writer in saves writes its culture.
         Point::keep(0x2706eausize, "48 8b 47 58 ba 3a 28 00 00 48 8b ce 8b 58 10", "culture token").uses(&[field::CULTURE_TOKEN]),
         // The edict command's check asks the province's state, its execute
@@ -301,7 +298,7 @@ fn checked(m: &Memory, call: impl FnOnce(usize) -> crate::Result<usize>) -> GRes
 /// A tooltip's lines as plain text, without the bullets some begin with
 /// (the core button's `- `, the exploit button's `－`).
 pub fn reasons(text: &[u8]) -> Vec<String> {
-    conditions::lines(text).into_iter().map(|line| line.trim_start_matches(['-', '－', '•']).trim_start().to_string()).collect()
+    conditions::lines(text).into_iter().map(|line| super::unbulleted(&line).to_string()).collect()
 }
 
 /// The game's text for a localisation key with two values filled in, as
@@ -339,7 +336,7 @@ fn token_name(m: &Memory, token: u32) -> GResult<String> {
 
 /// The key of the player's primary culture.
 fn primary_culture(m: &Memory, ctx: &Ctx) -> GResult<(usize, String)> {
-    let culture = m.ptr(ctx.country + PRIMARY_CULTURE)?;
+    let culture = m.ptr(ctx.country + country::PRIMARY_CULTURE)?;
     if culture == 0 {
         return fail(Status::Rejected, "the player has no primary culture");
     }

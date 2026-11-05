@@ -10,7 +10,7 @@ use crate::{
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
-    ideas::IdeaGroup,
+    ideas::IdeaGroupOption,
 };
 
 /// The idea groups' database, made on first use by its getter: the groups
@@ -172,7 +172,7 @@ fn take_choice(m: &Memory, country: usize, player: Tag, group: &Group) -> GResul
 }
 
 /// The idea groups of the ideas view, those taken first.
-pub fn list(_: Caller) -> GResult<Vec<IdeaGroup>> {
+pub fn list(_: Caller) -> GResult<Vec<IdeaGroupOption>> {
     let m = game()?;
     let ctx = context(m)?;
     let taken = taken(m, ctx.country)?;
@@ -188,7 +188,7 @@ pub fn list(_: Caller) -> GResult<Vec<IdeaGroup>> {
                 (Some(_), Some(idea)) => (Some("buy"), buy_choice(m, ctx.country, ctx.player, g, idea)?),
                 (Some(_), None) => (None, Choice::cannot(Vec::new(), Vec::new())),
             };
-            Ok(IdeaGroup {
+            Ok(IdeaGroupOption {
                 group: g.key.clone(),
                 name: content::name(m, &g.key)?,
                 category: category(g.category).0.to_string(),

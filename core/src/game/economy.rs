@@ -57,7 +57,10 @@ pub fn points() -> Vec<Point> {
 }
 
 /// The ducats a bank loan of the country at `country` brings, as the view
-/// offers it.
+/// offers it and the loan command reckons them when it runs: the treasury
+/// gets them and the loan is of them. The estimated income behind it changes
+/// at once with what changes the income (developing a province, granting a
+/// privilege).
 fn loan_amount(m: &Memory, country: usize) -> GResult<i32> {
     let size = (m.u8(country + LOAN_SIZE)? as i32).saturating_mul(m.i32(country + ESTIMATED_LOAN)?);
     Ok(size.max(1000) / 1000)
@@ -71,7 +74,7 @@ fn take_loan(m: &Memory, ctx: &Ctx) -> GResult<EconomyOption> {
     let (may, why) = game_string::written(m, |out| m.call(m.at(MAY_TAKE_LOAN), &[ctx.country, out]))?;
     if may & 0xff == 0 {
         let mut reasons = power::tooltip(m, c"NO_MORE_BANKLOANS", &[])?;
-        reasons.extend(power::plain_lines(&why));
+        reasons.extend(super::reasons(&why));
         return option(Choice::cannot(reasons, Vec::new()));
     }
     if m.call(m.at(RUIN_BLOCKED), &[ctx.country])? & 0xff != 0 {

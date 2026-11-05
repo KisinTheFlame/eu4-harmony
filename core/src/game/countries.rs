@@ -379,23 +379,49 @@ fn loans_of(m: &Memory, ctx: &Ctx, c: usize) -> GResult<Vec<Loan>> {
     Ok(out)
 }
 
+/// The rebel faction of `kind` against the country, the first when there are
+/// more.
+pub(crate) fn rebel_faction(m: &Memory, c: usize, kind: &str) -> GResult<Option<usize>> {
+    for faction in factions(m, c)? {
+        if faction_kind(m, faction)? == kind {
+            return Ok(Some(faction));
+        }
+    }
+    Ok(None)
+}
+
 /// The rebel factions against the country.
 fn rebels_of(m: &Memory, c: usize) -> GResult<Vec<Rebels>> {
+    factions(m, c)?
+        .into_iter()
+        .map(|faction| {
+            Ok(Rebels {
+                kind: faction_kind(m, faction)?,
+                name: game_text::plain(&game_string::read(m, faction + rebel_faction::NAME)?),
+                progress: thousandths(m.i32(faction + rebel_faction::PROGRESS)?),
+            })
+        })
+        .collect()
+}
+
+/// The country's rebel factions' objects.
+fn factions(m: &Memory, c: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(c + fields::REBEL_FACTIONS)?;
     let count = span(begin, m.ptr(c + fields::REBEL_FACTIONS + 8)?, 8, MOST)?;
-    let mut out = Vec::with_capacity(count);
-    for i in 0..count {
-        let faction = m.ptr(begin + i * 8)?;
-        if faction == 0 || m.ptr(faction)? != m.at(classes::REBEL_FACTION) {
-            return Err("a rebel faction that is none".to_string().into());
-        }
-        out.push(Rebels {
-            kind: game_text::to_utf8(&game_string::read(m, m.ptr(faction + rebel_faction::TYPE)? + rebel_faction::TYPE_KEY)?),
-            name: game_text::plain(&game_string::read(m, faction + rebel_faction::NAME)?),
-            progress: thousandths(m.i32(faction + rebel_faction::PROGRESS)?),
-        });
-    }
-    Ok(out)
+    (0..count)
+        .map(|i| {
+            let faction = m.ptr(begin + i * 8)?;
+            if faction == 0 || m.ptr(faction)? != m.at(classes::REBEL_FACTION) {
+                return Err("a rebel faction that is none".to_string().into());
+            }
+            Ok(faction)
+        })
+        .collect()
+}
+
+/// A rebel faction's kind, its type's key.
+fn faction_kind(m: &Memory, faction: usize) -> GResult<String> {
+    Ok(game_text::to_utf8(&game_string::read(m, m.ptr(faction + rebel_faction::TYPE)? + rebel_faction::TYPE_KEY)?))
 }
 
 /// A country's budget as the economy view shows it: this month's income and

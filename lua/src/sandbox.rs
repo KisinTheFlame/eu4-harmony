@@ -380,9 +380,15 @@ pub fn request(name: &str, args: MultiValue) -> Result<Map<String, Value>, Strin
     Ok(fields)
 }
 
+/// `word` after "a", or "an" before a vowel.
+fn article(word: &str) -> String {
+    let an = word.starts_with(['a', 'e', 'i', 'o', 'u']);
+    format!("{} {word}", if an { "an" } else { "a" })
+}
+
 /// One argument as JSON, as its kind is written there.
 fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
-    let wrong = || format!("a {} such as {}, not a {}", kind.name(), kind.example(), value.type_name());
+    let wrong = || format!("{} such as {}, not {}", article(kind.name()), kind.example(), article(value.type_name()));
     let integer = |v: &LuaValue| match v {
         LuaValue::Integer(i) => Some(*i),
         LuaValue::Number(n) if n.fract() == 0.0 => Some(*n as i64),
@@ -474,6 +480,8 @@ mod tests {
         assert_eq!(request("camera.look_at", args("return { province = 151 }")).unwrap(), serde_json::json!({"capability": "camera.look_at", "province": 151}));
         assert!(request("army.move", args("return 1")).unwrap_err().contains("takes 2 (army, province)"));
         assert!(request("army.move", args("return 1, 'x'")).unwrap_err().contains("province: a province such as 151, not a string"));
+        assert!(request("loan.repay", args("return 'x'")).unwrap_err().contains("loan: an integer such as 3, not a string"));
+        assert!(request("building.build", args("return 1, 2")).unwrap_err().contains("building: a text such as text, not an integer"));
         assert!(request("camera.look_at", args("return { height = 3 }")).unwrap_err().contains("no option height"));
         assert!(request("menu.load", args("return 'x'")).unwrap_err().contains("no such capability for extensions"));
     }

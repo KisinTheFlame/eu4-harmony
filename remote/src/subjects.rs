@@ -4,7 +4,7 @@
 //! integrating a subject are the diplomacy panel's (`diplomacy.annex`,
 //! `diplomacy.integrate`).
 use crate::choices::Choice;
-use crate::CountryTag;
+use crate::{CountryTag, ProvinceId};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -18,7 +18,7 @@ group! {
     game Options "options" {
         /// The subject.
         subject: CountryTag,
-    } -> Vec<Interaction>, "the interactions: interaction (its key), name, active, can, reasons, cost";
+    } -> Vec<SubjectInteraction>, "the interactions: interaction (its key), name, active, can, reasons, cost";
     /// Carries out an interaction with a subject, or stops one going on, as
     /// the subjects view's button does. `rejected` when the game does not let
     /// the player, with its reasons; `invalid_argument` for an interaction
@@ -31,12 +31,17 @@ group! {
         interaction: String,
         /// The third country some interactions are about.
         third_party: Option<CountryTag>,
+        /// The province some interactions are about, as their window has the
+        /// player pick it: the one given (`grant_province`), claimed
+        /// (`grant_core_claim`), given back (`return_land`), fortified
+        /// (`fortify_march`) or taken (`seize_territory`).
+        province: Option<ProvinceId>,
     } -> (), "nothing: the game carried it out";
 }
 
 /// An interaction with a subject.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Interaction {
+pub struct SubjectInteraction {
     /// The game's key for it, such as `scutage` or `place_relative_on_throne`.
     pub interaction: String,
     /// Its name, as the view shows it, in the player language.

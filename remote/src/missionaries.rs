@@ -13,6 +13,8 @@ group! {
     /// province now: sending a missionary there, and recalling the one the
     /// player has there, each with whether the player can, why not, and the
     /// cost: a missionary, and the monthly upkeep in ducats while it works.
+    /// In the player's view another's missionary's progress in another
+    /// country's province is left out, as province.get leaves it out.
     game Options "options" {
         /// The province.
         province: ProvinceId,

@@ -104,6 +104,8 @@ pub struct Details {
     pub second: Option<u32>,
     pub army: Option<u64>,
     pub flag: Option<bool>,
+    /// A rebel faction of the other country's, by its kind.
+    pub rebels: Option<String>,
 }
 
 /// Sends `what` to `country`, as the panel's button and the window it opens
@@ -131,7 +133,7 @@ pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<T
         return fail(Status::Rejected, format!("{NOT_OFFERED} {name} toward {}", letters(country)));
     };
     if let What::Act(act) = what {
-        fill(m, &ctx, at, *act, details)?;
+        fill(m, &ctx, at, *act, country, details)?;
     }
     verdict(m, at)?;
     send(m, &ctx, at, country, Vec::new())
@@ -142,8 +144,8 @@ pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<T
 /// as that window does (docs/research/diplomacy.md, "The windows the panel
 /// opens"). Money is in thousandths of a ducat, but where a window keeps
 /// whole ducats; a province is its number, or where a window keeps it its
-/// object; a country its tag.
-fn fill(m: &Memory, ctx: &Ctx, at: usize, act: Act, details: &Details) -> GResult<()> {
+/// object; a country its tag; a rebel faction its object.
+fn fill(m: &Memory, ctx: &Ctx, at: usize, act: Act, other: Tag, details: &Details) -> GResult<()> {
     let need = |value: Option<u32>, what: &str| {
         value.ok_or_else(|| crate::game::Fail { status: Status::InvalidArgument, message: format!("{} needs {what}", act.name()) })
     };
@@ -199,6 +201,17 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, act: Act, details: &Details) -> GResul
         Act::OfferLoan => {
             i32_at(FIELDS, need(details.amount, "an amount")? as i64)?;
             i32_at(FIELDS + 4, LOAN_INTEREST)
+        }
+        Act::SupportRebels => {
+            let kind = details
+                .rebels
+                .as_deref()
+                .ok_or_else(|| crate::game::Fail { status: Status::InvalidArgument, message: "support_rebels needs a rebel faction".into() })?;
+            let at_country = crate::game::country(m, ctx, other)?;
+            let Some(faction) = crate::game::countries::rebel_faction(m, at_country, kind)? else {
+                return fail(Status::Rejected, format!("{} has no {kind} faction", letters(other)));
+            };
+            Ok(m.write(at + FIELDS, &(faction as u64).to_le_bytes())?)
         }
         Act::AppointCardinal => Ok(m.write(at + FIELDS, &[details.flag.unwrap_or(false) as u8])?),
         Act::TradeFavorsForTrust => {

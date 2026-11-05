@@ -44,13 +44,13 @@ const ID: usize = 0x4c;
 const WRITE_KEY: usize = 0x1709280;
 /// The token table: whether it is set up, its last index, and its names, one
 /// `std::string` each.
-const TOKENS_READY: usize = 0x2357b30;
-const TOKENS_LAST: usize = 0x2357b28;
-const TOKEN_NAMES: usize = 0x242b888;
+pub(crate) const TOKENS_READY: usize = 0x2357b30;
+pub(crate) const TOKENS_LAST: usize = 0x2357b28;
+pub(crate) const TOKEN_NAMES: usize = 0x242b888;
 /// The memory stream's and the writer's vtables, as the local handler's post
 /// makes them; the stream's `+0x18` sets its mode and whether it writes.
-const STREAM_VTABLE: usize = 0x1dc0358;
-const WRITER_VTABLE: usize = 0x1dbf7d8;
+pub(crate) const STREAM_VTABLE: usize = 0x1dc0358;
+pub(crate) const WRITER_VTABLE: usize = 0x1dbf7d8;
 const STREAM_MODE: usize = 0x171ed90;
 /// Reading, as the local handler's post reads back what it wrote: a text
 /// tokenizer (its base `(tokenizer, stream, owns)`, then its own vtable, whose

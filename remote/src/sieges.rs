@@ -11,7 +11,8 @@ group! {
     /// What the siege view offers for the siege in a province: the
     /// artillery barrage, the naval barrage and the assault, each with
     /// whether the player can, why not as the button's tooltip says, and
-    /// what it costs.
+    /// what it costs. In the player's view a province fog of war hides has
+    /// no siege.
     game Options "options" {
         /// The besieged province.
         province: ProvinceId,

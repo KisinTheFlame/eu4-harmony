@@ -3,7 +3,7 @@
 use super::tag;
 use crate::game::{self, buildings as layer};
 use eu4_harmony_remote::{
-    buildings::{BuildingAnswer, BuildingOption, BuildingOptions, BuildingRequest, Construction},
+    buildings::{BuildingAnswer, BuildingConstruction, BuildingOption, BuildingOptions, BuildingRequest},
     Date, Error, ProvinceId,
 };
 
@@ -21,7 +21,7 @@ fn options(game: &mut (impl Layer + ?Sized), province: ProvinceId) -> Result<Bui
     let (constructing, offers) = game.building_options(province.0)?;
     Ok(BuildingOptions {
         province,
-        constructing: constructing.map(|c| Construction {
+        constructing: constructing.map(|c| BuildingConstruction {
             building: c.building,
             progress: game::thousandths(c.progress),
             finished: Date(c.ends),

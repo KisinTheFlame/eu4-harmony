@@ -2,7 +2,7 @@
 //! barrage and the assault, each the game's spending of military points,
 //! posted as the view posts it, with the game's own answer of whether the
 //! player can and why not (docs/research/sieges.md).
-use super::{commands, context, game, power, with_state, Caller, Ctx, GResult};
+use super::{commands, context, game, power, with_state, Caller, Ctx, GResult, View};
 use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{
@@ -40,9 +40,13 @@ pub fn points() -> Vec<Point> {
 /// and the game's answer.
 const ACTIONS: [(&str, i32, usize); 3] = [("bombard", 37, MAY_BOMBARD), ("naval_bombard", 40, MAY_NAVAL_BOMBARD), ("assault", 9, MAY_ASSAULT)];
 
-/// The siege in a province, or the refusal.
-fn siege(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
+/// The siege in a province, or the refusal; in the player's view none in a
+/// province fog of war hides.
+fn siege(m: &Memory, ctx: &Ctx, id: u32, view: View) -> GResult<usize> {
     let address = with_state(|s| s.geography.province_address(m, ctx, id))?;
+    if view == View::Player && super::world::hidden(m, address)? {
+        return Err(checks::no_siege(id).into());
+    }
     match m.ptr(address + SIEGE)? {
         0 => Err(checks::no_siege(id).into()),
         siege => Ok(siege),
@@ -63,10 +67,10 @@ fn action(m: &Memory, ctx: &Ctx, siege: usize, province: u32, (name, category, m
 }
 
 /// What the siege view offers for the siege in a province.
-pub fn options(_: Caller, province: u32) -> GResult<Vec<SiegeAction>> {
+pub fn options(caller: Caller, province: u32) -> GResult<Vec<SiegeAction>> {
     let m = game()?;
     let ctx = context(m)?;
-    let siege = siege(m, &ctx, province)?;
+    let siege = siege(m, &ctx, province, super::view(caller))?;
     ACTIONS.into_iter().map(|a| action(m, &ctx, siege, province, a)).collect()
 }
 
@@ -74,7 +78,7 @@ pub fn options(_: Caller, province: u32) -> GResult<Vec<SiegeAction>> {
 fn press(name: &str, province: u32) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
-    let siege = siege(m, &ctx, province)?;
+    let siege = siege(m, &ctx, province, View::Player)?;
     let Some(entry) = ACTIONS.into_iter().find(|a| a.0 == name) else {
         return Err(format!("no siege action {name}").into());
     };

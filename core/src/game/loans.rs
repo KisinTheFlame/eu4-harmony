@@ -12,7 +12,7 @@ use crate::{
 };
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
-    loans::Loan,
+    loans::PlayerLoan,
     CountryTag, Date,
 };
 
@@ -67,7 +67,7 @@ fn price(m: &Memory, loan: usize) -> GResult<i64> {
     Ok(m.i32(loan + fields::AMOUNT)? as i64 * 1000 + fee as i64)
 }
 
-fn read(m: &Memory, country: usize, loan: usize) -> GResult<Loan> {
+fn read(m: &Memory, country: usize, loan: usize) -> GResult<PlayerLoan> {
     let lender = Tag(m.u64(loan + fields::LENDER)?);
     let price = price(m, loan)?;
     let cost = vec![Amount::new(Resource::Ducats, price as f64 / 1000.0)];
@@ -77,7 +77,7 @@ fn read(m: &Memory, country: usize, loan: usize) -> GResult<Loan> {
         let values = [(c"VAL", format!("{:.2}", price as f64 / 1000.0))];
         Choice::cannot(power::tooltip(m, c"CV_ECONOMY_LOAN_REPAY_CANT_AFFORD_DESC", &values)?, cost)
     };
-    Ok(Loan {
+    Ok(PlayerLoan {
         loan: m.u32(loan + ID)?,
         lender: lender.normal().then(|| CountryTag(lender.letters())),
         estate: m.u8(loan + ESTATE)? != 0,
@@ -89,7 +89,7 @@ fn read(m: &Memory, country: usize, loan: usize) -> GResult<Loan> {
 }
 
 /// The player's loans.
-pub fn list(_: Caller) -> GResult<Vec<Loan>> {
+pub fn list(_: Caller) -> GResult<Vec<PlayerLoan>> {
     let m = game()?;
     let ctx = context(m)?;
     loans_of(m, ctx.country)?.into_iter().map(|loan| read(m, ctx.country, loan)).collect()

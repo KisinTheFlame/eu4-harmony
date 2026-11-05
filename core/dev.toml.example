@@ -37,7 +37,24 @@ test-notice = false
 # The game crashes at the first frame of a game, so that what follows a crash
 # can be tried.
 crash = false
+# Every save's countries and provinces are written by the game's own loops as
+# well as on several threads, the two compared in the log, and the game's
+# bytes kept.
+compare-saves = false
+# Saves are written by the game's own code, as before S8: its loops, its
+# save checksum's sum, its zip's deflate and its update thread's sleep, so
+# that the two can be measured.
+game-writes-saves = false
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.
 post = []
+
+# Logs what a game function writes to memory that was there before it was
+# called: the heap's blocks and eu4.exe's data, by the instruction and the
+# calls it was in. The game runs many times slower while it is watched.
+[write-watch]
+# An RVA in hex, such as "0x74ff30"; none by default.
+function = ""
+# How many of its first calls on the main thread are watched.
+calls = 1

@@ -17,7 +17,7 @@ use crate::{
 };
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
-    technology::Technology,
+    technology::TechnologyOption,
 };
 
 /// The technology categories: `+0x18` and `+0x20` a vector of pointers.
@@ -93,11 +93,12 @@ fn category(m: &Memory, country: usize, kind: PowerKind) -> GResult<Category> {
 }
 
 /// Whether `player` can research the next level of `category` now, as the
-/// view's button says: at the last level it cannot, and with too few points
-/// the reasons are the tooltip's lines saying so and when it will have them.
+/// view's button says: at the last level it cannot, in the framework's words,
+/// as research refuses it; with too few points the reasons are the tooltip's
+/// lines saying so and when it will have them.
 fn choice(m: &Memory, player: Tag, country: usize, date: i32, category: &Category) -> GResult<Choice> {
     if category.level >= category.last {
-        return Ok(Choice::cannot(Vec::new(), Vec::new()));
+        return Ok(Choice::cannot(vec![eu4_harmony_checks::technology::last_level(key(category.kind)).message], Vec::new()));
     }
     let cost = power::cost(m, player, ADVANCE_TECH, category.kind, category.index)?;
     let price = vec![Amount::new(category.kind.resource(), cost as f64)];
@@ -136,7 +137,7 @@ fn when(m: &Memory, country: usize, date: i32, cost: i32, kind: PowerKind) -> GR
 }
 
 /// The player's technologies, administrative, diplomatic and military.
-pub fn options(_: Caller) -> GResult<Vec<Technology>> {
+pub fn options(_: Caller) -> GResult<Vec<TechnologyOption>> {
     let m = game()?;
     let ctx = context(m)?;
     let found = categories(m, ctx.country)?;
@@ -144,7 +145,7 @@ pub fn options(_: Caller) -> GResult<Vec<Technology>> {
         .into_iter()
         .map(|kind| {
             let category = found.iter().find(|c| c.kind == kind).ok_or_else(|| format!("no {kind:?} technology"))?;
-            Ok(Technology { technology: kind, level: category.level.max(0) as u32, choice: choice(m, ctx.player, ctx.country, ctx.date, category)? })
+            Ok(TechnologyOption { technology: kind, level: category.level.max(0) as u32, choice: choice(m, ctx.player, ctx.country, ctx.date, category)? })
         })
         .collect()
 }

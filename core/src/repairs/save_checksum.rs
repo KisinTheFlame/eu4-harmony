@@ -4,6 +4,7 @@
 //! written from, so such a save never matched and turned achievements off.
 //! The file is summed as the save was.
 use crate::points::Point;
+use crate::saves::sum::SaveSum;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// In the save checksum (`0x14e3390(out, stream, cut, salt, salt length)`),
@@ -20,35 +21,6 @@ const FILE_STREAM_FILE: usize = 0x38;
 
 /// The game's file stream's sum, for the stub to tell a file's stream by.
 static FILE_STREAM_SUM_AT: AtomicUsize = AtomicUsize::new(0);
-
-/// The sum of bytes the save checksum is taken of, as a memory stream sums
-/// them (`0x171f3f0`): a 16-bit sum and a 16-bit sum of sums, each shifted
-/// right by 16 when it passes 0xffff. A file's stream (`0x170f9b0`) takes
-/// 0xffff off instead.
-#[derive(Default)]
-struct SaveSum {
-    a: u32,
-    b: u32,
-}
-
-impl SaveSum {
-    fn add(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.a += u32::from(byte);
-            if self.a > 0xffff {
-                self.a >>= 16;
-            }
-            self.b += self.a;
-            if self.b > 0xffff {
-                self.b >>= 16;
-            }
-        }
-    }
-
-    fn value(&self) -> u32 {
-        self.a << 16 | self.b
-    }
-}
 
 /// A file's stream's sum of `count` of its bytes (-1 for all), as the memory
 /// stream the save was written from summed them; the game's own sum when

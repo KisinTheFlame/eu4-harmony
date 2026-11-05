@@ -1,8 +1,9 @@
 //! Trade: the trade nodes, and one node as the trade node view shows it
 //! (docs/research/trade.md). The view shows every country's trade power and
-//! merchants in any node, so the player's view and the full view read the
-//! same.
-use super::{context, game, span, thousandths, world, Caller, Ctx, GResult, Status, Tag};
+//! merchants in any node the player has discovered, so the player's view
+//! leaves out only the nodes none of whose provinces the player has
+//! discovered, which the trade map leaves out.
+use super::{context, game, span, thousandths, view, with_state, world, Caller, Ctx, GResult, Status, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
@@ -14,6 +15,7 @@ use eu4_harmony_remote::{
     trade::{Flow, Merchant, MerchantAction, NodeValue, TradeNode, TradePower},
     CountryTag,
 };
+use std::collections::BTreeSet;
 
 /// The world's trade nodes: inline, [`NODE_SIZE`] bytes each, at the
 /// pointer [`NODES`], their count (i32) at [`NODE_COUNT`]; a node's place is
@@ -42,7 +44,7 @@ const INCOMING_FROM: usize = 0x18;
 /// the definition it leads to at [`LINK_TO`].
 pub(super) const KEY: usize = province::TRADE_NODE_KEY;
 pub(super) const NAME: usize = 0x30;
-const INDEX: usize = 0xd8;
+pub(super) const INDEX: usize = 0xd8;
 pub(super) const LINKS: usize = 0x98;
 pub(super) const LINK_SIZE: usize = 0x78;
 pub(super) const LINK_TO: usize = 0x30;
@@ -140,12 +142,36 @@ fn key_of(m: &Memory, definition: usize) -> GResult<String> {
     text(m, definition + KEY)
 }
 
-/// Every trade node with its value.
-pub fn list(_: Caller) -> GResult<Vec<NodeValue>> {
+/// The definitions of the nodes `view` sees: every node in the full view; in
+/// the player's view those with a province the player has discovered.
+fn seen(m: &Memory, ctx: &Ctx, view: View) -> GResult<Option<BTreeSet<usize>>> {
+    if view == View::Full {
+        return Ok(None);
+    }
+    let mut seen = BTreeSet::new();
+    for address in with_state(|s| s.geography.addresses(m, ctx))? {
+        let node = m.ptr(address + province::TRADE_NODE)?;
+        if node != 0 && !world::undiscovered(m, ctx, address)? {
+            seen.insert(m.ptr(node + DEFINITION)?);
+        }
+    }
+    Ok(Some(seen))
+}
+
+/// Every trade node with its value; in the player's view those with a
+/// province the player has discovered.
+pub fn list(caller: Caller) -> GResult<Vec<NodeValue>> {
     let m = game()?;
     let ctx = context(m)?;
-    nodes(m, &ctx)?
-        .into_iter()
+    let seen = seen(m, &ctx, view(caller))?;
+    let mut out = Vec::new();
+    for node in nodes(m, &ctx)? {
+        let definition = m.ptr(node + DEFINITION)?;
+        if seen.as_ref().is_none_or(|s| s.contains(&definition)) {
+            out.push(node);
+        }
+    }
+    out.into_iter()
         .map(|node| {
             let definition = m.ptr(node + DEFINITION)?;
             Ok(NodeValue {
@@ -164,8 +190,9 @@ fn incoming(m: &Memory, node: usize) -> GResult<Vec<(usize, i32)>> {
     (0..count).map(|i| begin + i * INCOMING_SIZE).map(|item| Ok((m.ptr(item + INCOMING_FROM)?, m.i32(item + INCOMING_VALUE)?))).collect()
 }
 
-/// One trade node, by its key.
-pub fn node(_: Caller, key: String) -> GResult<TradeNode> {
+/// One trade node, by its key; in the player's view one none of whose
+/// provinces the player has discovered is refused.
+pub fn node(caller: Caller, key: String) -> GResult<TradeNode> {
     let m = game()?;
     let ctx = context(m)?;
     let all = nodes(m, &ctx)?;
@@ -179,6 +206,9 @@ pub fn node(_: Caller, key: String) -> GResult<TradeNode> {
         return super::fail(Status::NotFound, format!("no trade node {key}"));
     };
     let definition = m.ptr(node + DEFINITION)?;
+    if seen(m, &ctx, view(caller))?.is_some_and(|s| !s.contains(&definition)) {
+        return super::fail(Status::NotFound, format!("the player has not discovered trade node {key}"));
+    }
     let by_definition = |d: usize| -> GResult<usize> {
         let place = m.i32(d + INDEX)?;
         all.get((place as usize).wrapping_sub(1)).copied().filter(|_| place > 0).ok_or_else(|| format!("no trade node {place}").into())
