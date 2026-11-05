@@ -38,19 +38,7 @@
 
 ### 设置
 
-| 设置 | 默认 | 作用 |
-| --- | --- | --- |
-| 语言 | Windows 的显示语言，不在十二种之内就用英语 | 框架和 Mod 的文字用哪种语言，十二种可选。 |
-| 字体 | 按语言准备：拉丁和西里尔字母用 Segoe UI（标题用 Semibold），地图用 Georgia；简体中文装有方正的宋体和楷体时用它们，否则用微软雅黑，地图用楷体（[全部](docs/player-language.md#fonts)）；控制台用 Consolas | 正文、标题、地图和控制台用的系统字体。 |
-| 地图文字包边 | 开 | 地图上用系统字体画的名字，带上游戏地图字体自带的包边。 |
-| 返回主菜单时不重启游戏 | 开 | 几秒就回到主菜单。每次返回游戏会留下约 15 MB 内存，直到关闭游戏（[原因](docs/sessions.md#known-leaks)）。 |
-| 铁人模式下读档前先保存当前游戏 | 开 | 铁人局也能在游戏菜单里读取另一个存档。关掉后，重新读取同一个存档就能撤销此后的游玩。 |
-| 非铁人游戏也可获得成就 | 关 | 非铁人局里也能拿成就，读档重来、用控制台都不影响。 |
-| 游戏校验码与原版不同时也可获得成就 | 关 | 开着会改变主菜单上校验码的 Mod 也能拿成就。 |
-| 远程控制可以看到全部 | 关 | 关闭时，通过远程控制使用游戏的程序只能读到玩家看得到的内容：战争迷雾下的地图，以及其他国家面板上显示的信息。打开后能读到游戏知道的全部，和 Mod 的扩展一直以来一样（[原因](docs/adr/remote-control-reads-the-players-view.md)）。 |
-| 游戏速度：最快速度时 | 画面流畅 | 选"时间更快"后，一天要算很久时不在中途插画帧：游戏后期日子还能再快约一成，但地图会一顿一顿，点击反应也慢一些。 |
-
-语言、字体和包边的修改在下次启动时生效，成就规则在下一次开新局或读档时生效，其余保存后立即生效。成就的其他规则仍按原版。始终开启的那些加速，以及它们为什么不会改变游戏，见 [docs/game-speed.md](docs/game-speed.md)。
+**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、游戏速度，以及远程控制能看到什么；每一项在窗口里都有说明。细节见 [docs/player-language.md](docs/player-language.md)、[docs/sessions.md](docs/sessions.md)、[docs/game-speed.md](docs/game-speed.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/remote-control-reads-the-players-view.md)。
 
 ## 写一个 Mod
 
@@ -124,8 +112,6 @@ eu4-harmony game menu return               # 回到主菜单
 远程控制只对正在玩的 Windows 用户开放、只限本机，玩家做不到的它也做不到。没有能力覆盖的地方，它可以用玩家的鼠标和键盘。`eu4-harmony wiki remote` 讲一局怎么进行、每个退出码的含义；设计见 [docs/remote-control.md](docs/remote-control.md) 和 [docs/hidden-start.md](docs/hidden-start.md)。
 
 ## 文档
-
-除本文件外，文档都是英文。
 
 | | |
 | --- | --- |

@@ -38,19 +38,7 @@ Good to know:
 
 ### Settings
 
-| Setting | Default | What it does |
-| --- | --- | --- |
-| Language | The language Windows displays, else English | The language of the framework's and mods' texts, out of twelve. |
-| Fonts | Made for the language: Segoe UI (Semibold for headings) and Georgia on the map for Latin and Cyrillic; for Simplified Chinese the FZ Song and Kai fonts where installed, else Microsoft YaHei and KaiTi ([all](docs/player-language.md#fonts)); Consolas in the console | The system fonts for body text, headings, the map and the console. |
-| Outline around map names | On | Names drawn on the map in a system font get the outline the game's map font has. |
-| Return to the main menu without restarting the game | On | The main menu is back in seconds. The game keeps about 15 MB of memory each time, until it is closed ([why](docs/sessions.md#known-leaks)). |
-| In ironman, save the game before loading another save | On | Ironman games can load another save from the game's menu. Off, loading the same save again undoes what was played since. |
-| Achievements outside ironman | Off | Achievements in a game that is not ironman, even with saves loaded again and the console used. |
-| Achievements with a changed game checksum | Off | Achievements with mods that change the checksum the main menu shows. |
-| Remote control sees everything | Off | Off, programs using the game through remote control read what the player sees: the map under fog of war, and of other countries what their panels show. On, they read everything the game keeps, as mods' extensions always do ([why](docs/adr/remote-control-reads-the-players-view.md)). |
-| Game speed: at the fastest speed | Smooth map | "Faster time" draws no frames in the middle of a long day: late in a game, days pass about another tenth faster, but the map moves in jerks and answers clicks later. |
-
-A language, font or outline change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed and what remote control may see; each setting says there what it does. The details are in [docs/player-language.md](docs/player-language.md), [docs/sessions.md](docs/sessions.md), [docs/game-speed.md](docs/game-speed.md) and [ADR remote-control-reads-the-players-view](docs/adr/remote-control-reads-the-players-view.md).
 
 ## Writing a mod
 
