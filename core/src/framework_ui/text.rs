@@ -50,7 +50,7 @@ pub struct UiFont {
 impl UiFont {
     pub fn new(face: &Face) -> crate::Result<Self> {
         let fonts = SystemFonts::new()?;
-        let face = if fonts.has_family(&face.family) { face.clone() } else { Face::new(crate::settings::DEFAULT_FONT, face.weight) };
+        let face = if fonts.has_family(&face.family) { face.clone() } else { Face::new(crate::settings::LAST_RESORT, face.weight) };
         Ok(Self {
             fonts,
             face,

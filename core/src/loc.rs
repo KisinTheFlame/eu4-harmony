@@ -119,7 +119,8 @@ mod tests {
         // has them, and they may use only their own values.
         let template = |key: &str| crate::wording::TEMPLATES.iter().find(|(k, _)| *k == key).map(|(_, names)| *names);
         let required = |language| FRAMEWORK.keys_in(language).into_iter().filter(|k| template(k).is_none()).collect::<BTreeSet<_>>();
-        for language in Language::ALL {
+        // The languages the framework has texts in; the others show English's.
+        for language in Language::ALL.into_iter().filter(|l| !FRAMEWORK.keys_in(*l).is_empty()) {
             assert_eq!(required(language), required(Language::English), "{language:?}");
             for key in FRAMEWORK.keys_in(language).into_iter().filter(|k| k.starts_with("EU4HARMONY_DATE") || template(k).is_some()) {
                 let allowed = template(key).unwrap_or_else(|| panic!("{key} is not a wording template"));
@@ -133,6 +134,7 @@ mod tests {
             let text = framework(language, "EU4HARMONY_NOTICE_TITLE_MORE", &[("COUNT", "2")]);
             assert!(text.contains('2') && !text.contains("$COUNT$"), "{text}");
         }
+        assert_eq!(framework(Language::Russian, "EU4HARMONY_SETTINGS_SAVE", &[]), "Save");
         assert!(framework(Language::English, "EU4HARMONY_NOT_LOADED", &[("MOD", "X"), ("DETAIL", "d")]).contains("\"X\" was not loaded:\nd"));
     }
 

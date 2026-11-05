@@ -500,6 +500,9 @@ group! {
     game SupportRebels "support_rebels" {
         /// The other country.
         country: CountryTag,
+        /// The rebel faction to support, by its kind, as `country.get` lists
+        /// the country's rebels, such as `noble_rebels`.
+        rebels: String,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Steals a country's maps, with the spy network. As the diplomacy panel's button `stealmap` sends it
     /// (`diplomacy.options` says whether the player can).

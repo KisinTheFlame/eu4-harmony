@@ -1,5 +1,5 @@
 ---
-status: superseded in part by game-text-in-system-fonts
+status: superseded in part by game-text-in-system-fonts and player-language-in-the-settings
 ---
 
 # A built-in Unicode module takes charge of the game's text

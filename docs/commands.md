@@ -32,7 +32,7 @@ A tool of developer builds, on the layer: it logs every command heard, or only t
 
 ### Developer builds
 
-- **Features**: one for each development tool, each named with `dev-`: `dev-call-trace`, `dev-heap-census`, `dev-command-log` and `dev-test-switches` (the switches that make startup fail and show a test notice); and `dev`, which turns them all on. `trace` goes; `analysis` stays, for the disassembly example and the offline checks only.
+- **Features**: one for each development tool, each named with `dev-`: `dev-call-trace`, `dev-heap-census`, `dev-command-log` and `dev-test-switches` (the switches that make startup fail and show a test notice), and `dev-memory` (the memory account, which the census builds on), which came later with [leak-finding.md](leak-finding.md); and `dev`, which turns them all on. `trace` goes; `analysis` stays, for the disassembly example and the offline checks only.
 - **On when built in**: a tool built in is on; no environment variable turns it on. The tools' options are in a developer settings file, `eu4-harmony\dev.toml` in the game folder next to the core, one section for each tool. `cargo xtask install` copies it there from the repository's `dev.toml`, which is not checked in; `core/dev.toml.example` shows every section and option. Where the folder is, `eu4-harmony backup` and `restore` leave it alone.
 - **Defaults**: a section that is missing takes its defaults: the command log logs every type, the call trace traces nothing, the census counts at every world reset, the test switches are off.
 - **What a developer build says**: the first line of the startup report and of the framework log says "developer build" and lists the tools built in; the report lists each tool's options as they took effect.
@@ -63,7 +63,7 @@ pub fn listen(heard: fn(&Heard));
 
 ### C0 Developer builds
 
-Its own pull request, before the rest. The features, `dev.toml` and its example, the developer build's first lines and options in the startup report, the test switches moved, `release.ps1` building the player build, CI, and AGENTS.md's and tools/README.md's commands and notes. The call trace, the census and the command log as they were, under their new features and reading their options from `dev.toml`, the command log without reading back and posting; no environment variable is left.
+Its own pull request, before the rest. The features, `dev.toml` and its example, the developer build's first lines and options in the startup report, the test switches moved, `release.ps1` building the player build, CI, and AGENTS.md's and tools/README.md's commands and notes (the scripts are now commands of `cargo xtask`, [dev-commands.md](dev-commands.md)). The call trace, the census and the command log as they were, under their new features and reading their options from `dev.toml`, the command log without reading back and posting; no environment variable is left.
 
 ### C1 The command layer
 

@@ -51,6 +51,13 @@ Game text in the module: a character Windows-1252 has is stored as its single by
 - Line break opportunities have to be worked out character by character over this mixed text: if only the valid UTF-8 at the start is passed to ICU, there are no break points after the first 1252 byte, and everything after it becomes one "word" (what happened before the 2026-10-28 fix: short lines, full stops at the start of a line, pinyin cut apart).
 - The fonts of older Chinese language mods (such as the Chinese language mod's `zh-hans-*.fnt`) put these punctuation marks at their Unicode code points (`char id=8230` and so on), and the 1252 byte positions (0x85, 0x93, …) are empty; looking glyphs up by single byte alone cannot draw them.
 
+## Legacy escapes
+
+Language mods for Simplified and Traditional Chinese, Japanese and Korean write a character the game's single-byte text lacks as three bytes: a marker 0x10 to 0x13, then the low and the high byte of its UTF-16 code unit, a byte the game treats specially shifted out of the way (marker bit 0: the low byte raised by 0x0E; bit 1: the high byte lowered by 9). `unicode/legacy.rs` turns them back into the character.
+
+- The tools that write them first move U+0101 to U+09FF (Latin Extended, Greek, Cyrillic, Arabic, Devanagari and the like) up by 0xE000, to U+E101 to U+E9FF. The framework does not move them back, so such a character in a language mod's escaped text comes out as a private-use one. The framework's own texts and mods' UTF-8 never pass through the decoding (seen in the tools' source, 2026-11-05; not seen in a mod's files).
+- One edition of a Korean language mod, which runs without a native patch, may write its text another way; that has not been looked at.
+
 ## Open questions
 
 - Which texture each draw uses, and how glyphs on several pages are split into batches.

@@ -42,6 +42,18 @@ pub fn none_automatic() -> Refusal {
     Refusal::new(Status::Rejected, "the game sends none of the player's missionaries by itself")
 }
 
+/// The refusal of choosing the trading policy the player already follows in
+/// the node.
+pub fn policy_followed(policy: &str) -> Refusal {
+    Refusal::new(Status::Rejected, format!("the player already follows {policy} there"))
+}
+
+/// The refusal of expelling a minority from a province the colonize button
+/// does not list for it: not the player's, or with no minority to expel.
+pub fn no_minority(from: u32) -> Refusal {
+    Refusal::new(Status::Rejected, format!("the colonize button lists no minority to expel from province {from}"))
+}
+
 /// The refusal of a content key `key` that names no `kind` ("trade company
 /// investment", "trade node").
 pub fn unknown(kind: &str, key: &str) -> Refusal {
@@ -64,5 +76,7 @@ mod tests {
         assert_eq!(none_there("colonist").message, "the player has no colonist there");
         assert_eq!(all_automatic(3).message, "the game already sends all of the player's 3 missionaries by itself");
         assert_eq!(unknown("trade node", "nowhere").status, Status::NotFound);
+        assert_eq!(policy_followed("maximize_profit").message, "the player already follows maximize_profit there");
+        assert_eq!(no_minority(151).message, "the colonize button lists no minority to expel from province 151");
     }
 }

@@ -5,7 +5,7 @@ Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day,
 ## Goal and scope
 
 - **Goal**: a developer build that finds where the game's memory goes as sessions are left and begun, and why it stays, with as little looking by hand as can be: which code allocated what stays, what still points at it, and where blocks of its kind are let go when they are. And that tells whether a repair is safe: whether anything touches what it let go.
-- **In scope**: the memory account, which is the `dev-memory` feature, and splits what the process holds by where it lies; the heap census, which is the `dev-heap-census` feature, and what it answers through remote control; a leak run, a tool script that plays sessions through remote control and writes a report; the quarantine for repairs.
+- **In scope**: the memory account, which is the `dev-memory` feature, and splits what the process holds by where it lies; the heap census, which is the `dev-heap-census` feature, and what it answers through remote control; a leak run, which plays sessions through remote control and writes a report (a tool script first, now the scenarios `leak` and `growth`); the quarantine for repairs.
 - **Out of scope**:
   - repairing anything automatically: the report says where to look, and a person works the repair out from the game's code;
   - tracking regressions: a leak run gives numbers to compare, and nothing fails on them;
@@ -68,7 +68,7 @@ The saves and the country of the new game are the scenarios' parameters, named i
 After every round the run asks `memory`, and with the census `memory.leftovers`, and prints one line: private bytes, the memory account's parts, the handles. At the end it writes `report.json`, with every answer, and `report.md`, with:
 
 - a table of the rounds;
-- where each round's growth went, part by part, on average from the end of the first round to the end of the last (the first round loads what stays for good), and each heap's growth;
+- where each round's growth went, part by part, as the least-squares slope over the rounds from the second on (the first round loads what stays for good, and one round's figures jump about), and each heap's growth;
 - with the census, the leftover sites ordered by what each leaves per generation, with their trend, function and the places that let their blocks go, and what holds them.
 
 ### Who still points at a leftover (M2)
@@ -90,7 +90,7 @@ A leftover nothing points at was lost somewhere: most often its owner was let go
 
 An owner let go after its pointer was copied elsewhere, as a vector's buffer is when it grows, is kept too, and is the last owner until a later one; for a leftover nothing points at, the last owner let go is the one that lost it.
 
-A leak run with `-Watch N` watches, after round `-WatchAfter`, the N steady sites that leave the most and whose leftovers nothing (or only other leftovers) mostly points at, and adds a table of who let them go. Reading every block let go slows the game while sites are watched.
+A leak run with `--leak.watch N` watches, after round `--leak.watch_after`, the N steady sites that leave the most and whose leftovers nothing (or only other leftovers) mostly points at, and adds a table of who let them go. Reading every block let go slows the game while sites are watched.
 
 Both this and M2 take a word for a pointer by one rule, in one module (`core/src/census/pointers.rs`): eight bytes that hold an address in a block's first 64 bytes.
 
@@ -105,7 +105,7 @@ With the census built in, `memory.quarantine` turns the quarantine on and off at
 - every two seconds, on a thread of its own, every block kept is compared with the pattern, and the first write to each is kept: the repair, the block's site and size, the first byte changed and the bytes from it, and the generations it was kept in and found in;
 - past 512 MB the oldest blocks are freed again, and turning it off frees all of them.
 
-A leak run with `--quarantine` turns it on from the start and reports, by repair, what it kept and every block written to; a run the game does not finish still reports what was found until then, and in which round it stopped. What the quarantine keeps counts in the game's heap, so such a run measures no growth: it is for trying a repair, not for measuring it.
+A leak run with `--leak.quarantine true` turns it on from the start and reports, by repair, what it kept and every block written to; a run the game does not finish still reports what was found until then, and in which round it stopped. What the quarantine keeps counts in the game's heap, so such a run measures no growth: it is for trying a repair, not for measuring it.
 
 ### What keeps the free pages committed (M5)
 
@@ -138,7 +138,7 @@ The memory account's game heap is every block of the process's default heap but 
 
 ### M1 The census answers through remote control
 
-The `memory` group; generations that remote control ends; sites counted above the generic allocation; where each site's blocks are let go; the leftovers with their function, trend and average; `tools/leak-run.ps1` and its report.
+The `memory` group; generations that remote control ends; sites counted above the generic allocation; where each site's blocks are let go; the leftovers with their function, trend and average; `tools/leak-run.ps1` and its report (since replaced by the scenarios `leak` and `growth`).
 
 ### M1b The memory account
 
@@ -150,11 +150,11 @@ The `dev-memory` feature, `memory` without the census, and the leak run's split 
 
 ### M3 Who let a leftover's owner go
 
-`memory.watch`; the owners let go in `memory.leftovers` with `holders`; the leak run's `-Watch`; the rule for a pointer shared with M2.
+`memory.watch`; the owners let go in `memory.leftovers` with `holders`; the leak run's `-Watch` (now `--leak.watch`); the rule for a pointer shared with M2.
 
 ### M4 The quarantine
 
-`memory.quarantine`, the repairs saying where they let memory go, and the leak run's `--quarantine`.
+`memory.quarantine`, the repairs saying where they let memory go, and the leak run's `--quarantine` (now `--leak.quarantine`).
 
 ### M5 What keeps the free pages committed
 

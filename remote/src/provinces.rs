@@ -8,7 +8,9 @@ group! {
     /// Provinces and their neighbors.
     "province": ProvinceRequest, ProvinceAnswer;
 
-    /// Every province, or those named.
+    /// Every province, or those named. In the player's view a province the
+    /// player has not discovered has no owner or controller, as the map
+    /// shows terra incognita.
     game List "list" {
         /// Only these provinces, in their order; a number that names none is
         /// left out. Every province when it is left out.
@@ -26,7 +28,8 @@ group! {
     /// or territory and the state's edict, cores and claims, what is being
     /// built or done there, and the colony's size. In the player's view a
     /// province another country owns leaves out its unrest and what is
-    /// being done there, as the province view does. What the player can
+    /// being done there, as the province view does, and one the player has
+    /// not discovered is refused (not_found). What the player can
     /// recruit there is recruit.options'.
     game Get "get" {
         /// The province.

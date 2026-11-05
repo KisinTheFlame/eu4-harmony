@@ -96,10 +96,10 @@ fn every_capability_runs_at_a_game_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     let snapshot = json!({
-        "id": ARMY.to_string(), "owner": "TUR", "kind": "army", "province": 149, "regiments": 12, "blocked": [], "route": [], "route_by": null,
+        "id": ARMY.to_string(), "owner": "TUR", "kind": "army", "province": 149, "regiments": 12, "blocked": [], "route": [], "route_by": null, "aboard": null, "carrying": 0,
     });
     let fleet = json!({
-        "id": FLEET.to_string(), "owner": "TUR", "kind": "navy", "province": null, "regiments": 0, "blocked": [], "route": [], "route_by": null,
+        "id": FLEET.to_string(), "owner": "TUR", "kind": "navy", "province": null, "regiments": 0, "blocked": [], "route": [], "route_by": null, "aboard": null, "carrying": 0,
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
@@ -542,6 +542,31 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Merchant(MerchantRequest::Options { node: "nowhere".into() }), Box::new(error("not_found"))),
         (Request::Merchant(MerchantRequest::Recall { node: "constantinople".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Merchant(MerchantRequest::SteerTo { node: "constantinople".into(), to: "ragusa".into() }), Box::new(error("not_found"))),
+        (
+            Request::Merchant(MerchantRequest::Policies { node: "constantinople".into() }),
+            Box::new(|v: &Value| {
+                v["result"]["current"] == "maximize_profit"
+                    && v["result"]["policies"][1]["can"] == false
+                    && v["result"]["policies"][1]["policy"] == "hostile_trading"
+            }),
+        ),
+        (
+            Request::Merchant(MerchantRequest::SetPolicy { node: "constantinople".into(), policy: "hostile_trading".into() }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "你需要等到1445年1月1日才能在此贸易节点中选择新的贸易政策。"),
+        ),
+        (Request::Merchant(MerchantRequest::SetPolicy { node: "constantinople".into(), policy: "maximize_profit".into() }), Box::new(error("rejected"))),
+        (Request::Merchant(MerchantRequest::SetPolicy { node: "constantinople".into(), policy: "nothing".into() }), Box::new(error("not_found"))),
+        (
+            Request::Colonist(ColonistRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| {
+                v["result"]["expel_from"] == json!([])
+                    && v["result"]["growing"] == false
+                    && v["result"]["start_growth"]["reasons"] == json!(["没有可用的殖民者"])
+            }),
+        ),
+        (Request::Colonist(ColonistRequest::ExpelMinorities { province: province(151), from: province(149) }), Box::new(error("rejected"))),
+        (Request::Colonist(ColonistRequest::StartSettlementGrowth { province: province(151) }), Box::new(error("rejected"))),
+        (Request::Colonist(ColonistRequest::StopSettlementGrowth { province: province(151) }), Box::new(error("rejected"))),
         // The cursor first: a request after an input waits for the game to
         // have it (input::tests).
         (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),
@@ -631,7 +656,7 @@ fn every_capability_runs_at_a_game_frame() {
     }
     panel.push((Request::Subject(SubjectRequest::Options { subject: CountryTag(*b"WAL") }), Box::new(|v: &Value| v["result"][1]["active"] == true)));
     panel.push((
-        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None }),
+        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None, province: None }),
         Box::new(|v: &Value| *v == ok(Value::Null)),
     ));
     cases.splice(0..0, panel);

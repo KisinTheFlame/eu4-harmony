@@ -1,3 +1,7 @@
+---
+status: superseded in part by player-language-in-the-settings
+---
+
 # The game's text is drawn in system fonts
 
 Every font the game draws text with gets a new page whose glyphs are all drawn from system fonts, for every player and in every language: body text, headings and names on the map in the fonts and weights chosen in the framework settings (Microsoft YaHei, Microsoft YaHei and KaiTi by default). The fonts' own glyphs are replaced; a font's own page is read only for the color of its ink and the outline around its letters, which names on the map keep. There is no setting to keep the fonts' own glyphs. This supersedes the glyphs part of ADR built-in-unicode-module, where bitmap fonts came first by default, a character a bitmap font lacked was filled in from a system font, and the "Text appearance" setting could switch everything to system fonts.

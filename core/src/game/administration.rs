@@ -326,7 +326,7 @@ fn checked(m: &Memory, call: impl FnOnce(usize) -> crate::Result<usize>) -> GRes
 /// A tooltip's lines as plain text, without the bullets some begin with
 /// (the core button's `- `, the exploit button's `－`).
 pub fn reasons(text: &[u8]) -> Vec<String> {
-    conditions::lines(text).into_iter().map(|line| line.trim_start_matches(['-', '－', '•']).trim_start().to_string()).collect()
+    conditions::lines(text).into_iter().map(|line| super::unbulleted(&line).to_string()).collect()
 }
 
 /// The game's text for a localisation key with two values filled in, as

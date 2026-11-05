@@ -5,25 +5,25 @@ Status: final (2026-10-27). Terms are in [GLOSSARY.md](../GLOSSARY.md). The deci
 ## Goal and scope
 
 - **Goal**: the framework itself takes charge of text in the game and draws all of it in system fonts. Mods and extensions write only plain UTF-8.
-- **In scope**: display (interface and map); compatibility with legacy escapes (localisation, GUI and scripts, old saves); Chinese input; Chinese search in the diplomacy country list and the province search; complex text layout (last); framework UI (notice window, settings window).
-- **Out of scope**: the IME itself; drawing uncommitted pinyin in the edit box; undo, redo, Ctrl+A to select all; pinyin search and searching across simplified and traditional characters; Japanese, Korean; multiplayer; save compatibility in the other direction (playing such a save without the framework); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
+- **In scope**: display (interface and map); compatibility with legacy escapes (localisation, GUI and scripts, old saves); input in any script; search in any script in the diplomacy country list and the province search; complex text layout (last); framework UI (notice window, settings window).
+- **Out of scope**: the IME itself; drawing uncommitted text in the edit box; undo, redo, Ctrl+A to select all; multiplayer; save compatibility in the other direction (playing such a save without the framework); text capabilities for extensions; opening the framework UI to extensions; ordering names by the naming customs of a culture.
 - **Platform**: Windows 10 1903 or later (it relies on the system's `icu.dll`); the baseline is still 1.37.5.
 - **Implementation**: in Rust. A jump from the middle of a function goes to a stub written as a Rust naked function, placed next to the handler it calls. Every address used and the bytes expected there are first checked against eu4.exe or in the game, then recorded in [research/](research/).
 
 ## Framework settings
 
-Kept in `eu4-harmony/settings.txt` in the user directory, written the way the game writes its own `settings.txt`. They are changed in the settings window and take effect at the next start.
+Kept in `eu4-harmony/settings.txt` in the user directory, written the way the game writes its own `settings.txt`. They are changed in the settings window; the fonts below take effect at the next start. The same file keeps the framework's other settings, which their own plans describe: `language`, the player language ([player-language.md](player-language.md)), at the next start too; and, taking effect as soon as they are saved, `return_without_restart` and `save_ironman_before_load` ([sessions.md](sessions.md)), `achievements_outside_ironman` and `achievements_with_changed_checksum` ([ADR achievement-rules-can-be-relaxed](adr/achievement-rules-can-be-relaxed.md)), `fastest_speed` ([game-speed.md](game-speed.md)) and `remote_full_view` ([player-actions.md](player-actions.md)).
 
 | Setting (in the file) | Options | Default |
 |---|---|---|
-| Body text font (`body_font`) | System fonts installed on this machine that can show Chinese characters | Microsoft YaHei |
+| Body text font (`body_font`) | System fonts installed on this machine that can write the player language's name | The player language's ([player-language.md](player-language.md#fonts)) |
 | Body text font weight (`body_weight`) | The weights the body text font comes in, by the English names the font gives them; kept in the file as the weight's number | Regular (400) |
-| Heading font (`heading_font`) | Same as the body text font | Microsoft YaHei |
-| Heading font weight (`heading_weight`) | The weights the heading font comes in, as for the body text font | Regular (400) |
-| Map font (`map_font`) | Same as the body text font | KaiTi |
+| Heading font (`heading_font`) | Same as the body text font | The player language's |
+| Heading font weight (`heading_weight`) | The weights the heading font comes in, as for the body text font | The player language's: Semibold (600) in Segoe UI, Regular (400) for Chinese, Japanese and Korean |
+| Map font (`map_font`) | Same as the body text font | The player language's |
 | Map font weight (`map_weight`) | The weights the map font comes in, as for the body text font | Regular (400) |
 | Outline around map names (`map_outline`) | As the game's map font draws it (system glyphs on the map get the outline the map font's own glyphs have) / None | As the game's map font draws it |
-| Game console font (`console_font`) | System fonts installed on this machine that can show Latin letters, Chinese or not | Consolas |
+| Game console font (`console_font`) | System fonts installed on this machine that can show Latin letters | Consolas |
 | Game console font weight (`console_weight`) | The weights the game console font comes in, as for the body text font | Regular (400) |
 
 Which font draws which text follows the Chinese language mod, which draws body text in FZ PingXian YaSong, a face made for small sizes on screen, and headings in FZ Cu YaSong, a bold one. A heading font of the same family as the body text font in a heavier weight, such as Microsoft YaHei Bold, draws them the same way without a second family.
@@ -39,7 +39,7 @@ Which font draws which text follows the Chinese language mod, which draws body t
 
 Fonts that load the same page draw from one page in one font and weight, those of the first of them to load. The vanilla fonts and the mod's never share a page between body text and headings; when fonts of a mod do, the log says so.
 
-Characters none of the chosen fonts has are left to the system's font fallback, in the same weight: Chinese in the game console, when its font is Consolas, comes from Microsoft YaHei. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI uses the body text font and its weight too.
+Characters none of the chosen fonts has come from fallback families, the player language's own first, in the same weight: Chinese in the game console of a Simplified Chinese player, when its font is Consolas, comes from Microsoft YaHei. Only the weights a font's maker made are drawn, none simulated: where a font lacks the weight asked for (a fallback font, or a weight kept in the file that the font no longer has), the heaviest weight lighter than it draws, else the font's lightest. The framework UI uses the body text font and its weight too.
 
 The game blends text with what lies under it in the screen's sRGB values, not in light, so the edges of light text on dark ground come out too dark and the text looks thinner and greyer than its font, Song faces with their thin strokes most. Glyphs drawn from system fonts for light text, such as the white text of most windows and all of the framework UI's, are drawn with the alpha that gives over black what a blend in light would. Dark text, such as event descriptions and the ledger in black, keeps its coverage: blending in sRGB values makes it a little heavier, which Windows does to dark text too. A text's color is its page's ink tinted with its font's `color` in the `.gfx` files, and whether it is light goes by its luminance against middle grey. Fonts that load one page may draw in either, as `vic_18` in white and `vic_18_black` in black do, so the page holds a glyph in each tone. The Chinese language mod's own body text pages go further, light and dark alike: their partial pixels are raised well beyond that ([research](research/font-textures.md#a-fonts-color)).
 
@@ -87,17 +87,17 @@ The game blends text with what lies under it in the screen's sRGB values, not in
 - Logic that does not depend on the game (walking UTF-8, decoding legacy escapes, line breaking, editing by character, search matching, the atlas) gets unit tests.
 - Each milestone is tested in the game against a checklist, and the results go into [prototype-log.md](prototype-log.md).
 - For each milestone, the main interface is opened once in each of the four game languages, English, French, German and Spanish, to confirm it differs from vanilla in its fonts only.
-- All dependency points can be checked against an installed eu4.exe without starting the game: `EU4_GAME_DIR=<game dir> cargo test -p eu4-harmony-core -- --ignored`.
+- All dependency points can be checked against an installed eu4.exe without starting the game: `cargo xtask offline-check`, which finds the game through `EU4_GAME_DIR` or Steam.
 
 ### M0 checklist
 
 M0 does not change how the game behaves, so the checklist is a retest of what already works. Install with `cargo build --release` and `cargo xtask install`, and enable regional-combat and a mod made by `eu4-harmony new` in the playset. Tested and passed on 2026-10-27; the results are in [prototype-log.md](prototype-log.md).
 
-1. **Startup report**: `report.txt` has the line `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes`.
+1. **Startup report**: `report.txt` has the line `startup: baseline 1.37.5: 58 dependency points match; 34 hooks, 0 writes` (M0's counts; they have grown with every part since).
 2. **Main menu**: the game reaches the main menu as usual, with no new errors in `error.log`.
 3. **Army panel**: select an army and the button area appears; left and right clicks on the buttons both work (regional-combat's left click turns region mode on and off, and its right click opens the radius box; its log records the effects, not the clicks), and tooltips are fine.
 4. **Regional combat**: the region button and the radius box work as before, with Chinese showing as it did; once on, it decides daily and issues move and stop orders; map coloring is correct when the radius changes.
-5. **Saves**: after an autosave, a data file is written under `eu4-harmony/saves/`; load that save and regional-combat restores its earlier state.
+5. **Saves**: after an autosave, the save holds regional-combat's data (at M0, a data file under `eu4-harmony/saves/`, before [ADR extension-save-data-in-the-save](adr/extension-save-data-in-the-save.md)); load that save and regional-combat restores its earlier state.
 6. **Rebuild**: go back to the main menu and into a game again; the army panel's buttons and the notice window both appear again.
 7. **Startup failure**: in a developer build with `dev-test-switches`, turn `fail-startup` on in `dev.toml`'s `[test-switches]` (docs/dev-tools.md) and run `eu4.exe`. A message box saying "EU4 Harmony could not start" should pop up; `report.txt` says `startup FAILED`; the game runs as usual, but none of the mods' buttons appear.
 8. **Four languages**: set the game language to English, French, German and Spanish in turn; the main interface looks as in vanilla.

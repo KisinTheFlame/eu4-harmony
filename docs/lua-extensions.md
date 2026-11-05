@@ -5,8 +5,8 @@ Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 an
 ## Goal and scope
 
 - **Goal**: mods carry Lua scripts instead of native DLLs, for two reasons. A mod from the Steam Workshop can no longer do anything in the game process it likes: it reaches the game only through capabilities, and beyond the game only through the sensitive capabilities its manifest declares. And writing one takes no Rust toolchain, no Visual Studio build tools and no build: a mod is text files.
-- **In scope**: the Lua host in the core, with its sandbox, handlers and tasks, errors and time limit; the capability catalogue, shared by extensions and remote control, with remote control moved onto it; the sensitive capabilities `clock`, `files` and `network`; the manifest in TOML and the layout of a mod's files by convention; the mods window; the command line tool for mod authors (`new`, `test`, `link`, `package`, `types`, `wiki`, `skills`, `help`); removing native extensions (`abi/`, `sdk/`, loading DLLs, `build`); the regional combat mod rewritten in Lua, as the acceptance test.
-- **Out of scope**: hot reloading (a later version may add it); the player refusing a sensitive capability; extensions calling each other or sharing code; a shared library of Lua code that mods depend on; anything the first version design leaves out and this plan does not take up.
+- **In scope**: the Lua host in the core, with its sandbox, handlers and tasks, errors and time limit; the capability catalogue, shared by extensions and remote control, with remote control moved onto it; the sensitive capabilities `clock`, `files` and `network`; the manifest in TOML and the layout of a mod's files by convention; the mods window; the command line tool for mod authors (`new`, `test`, `link`, `check`, `package`, `types`, `wiki`, `skills`, `help`; `reload` came with [extension-reload.md](extension-reload.md)); removing native extensions (`abi/`, `sdk/`, loading DLLs, `build`); the regional combat mod rewritten in Lua, as the acceptance test.
+- **Out of scope**: hot reloading (since added: [extension-reload.md](extension-reload.md)); the player refusing a sensitive capability; extensions calling each other or sharing code; a shared library of Lua code that mods depend on; anything the first version design leaves out and this plan does not take up.
 
 ## Behavior
 
@@ -30,11 +30,12 @@ Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 an
   }
   ```
 
+- Handlers for events added since (`on_month`, `on_year`, `on_battle`, `on_war_declared`, `on_peace_made`, `on_province_owner_changed`, `on_building_finished`) are in `eu4-harmony wiki lua`, made from `remote/src/lua.rs`.
 - A handler left out is an event the extension does not hear.
 - `game` is passed to every handler, the same table each time. Game state and commands are reached only through it, by capability group: `game.army.get(id)`, `game.army.move(id, province)`, `game.province.get(id)`, `game.ui.button.visible = true`, `game.map.paint(colors)`. Its capabilities run only while the extension runs, in a handler or a task: at the top of `main.lua` they raise an error.
 - A capability takes its required arguments in order and its optional ones in a table last, as `eu4-harmony wiki` writes each one: `game.diplomacy.declare_war("ENG", "cb_core", { province = 167, call_allies = { "DUL" } })`. One with no result returns `true`.
 - `game.map.paint` takes `{ [province] = color }`, a color `0xRRGGBB` or `{ r, g, b, a }`; `game.map.release()` gives the map back. An element's `visible`, `enabled`, `text` and `tooltip` are set, never read.
-- What has nothing to do with the game's state is global and can be used at any time, at the top of `main.lua` too: `log(...)`, `json.encode` and `json.decode`, `mod_files`, `files`, `http`, `spawn`.
+- What has nothing to do with the game's state is global and can be used at any time, at the top of `main.lua` too: `log(...)` and `print(...)`, `json.encode` and `json.decode`, `mod_files`, `text`, `require` (the mod's own modules under `eu4-harmony/lua/`), `files`, `http`, `spawn`.
 - Game objects are the game's own identifiers, as in the first version: a province's number, a country's tag, an army's full 64-bit ID, which a Lua integer holds exactly.
 
 ### Tasks
@@ -156,14 +157,14 @@ permissions = { clock = true, files = true, network = ["api.example.com", "192.1
 
 ### The command line tool
 
-- `eu4-harmony new <id>`: a mod with `main.lua` (a button, as now), a test, localisation in English and Chinese, an `AGENTS.md` telling a coding agent to read `eu4-harmony skills`, and the editor's type definitions with a `.luarc.json`.
+- `eu4-harmony new <id>`: a mod with `main.lua` (a button, as now), a test, localisation in English and the language Windows displays (or those `--languages` names), an `AGENTS.md` telling a coding agent to read `eu4-harmony skills`, and the editor's type definitions with a `.luarc.json`.
 - `eu4-harmony test [<mod dir>]`: runs the mod's `eu4-harmony/tests/*.lua` against a fake game, in the same Lua 5.4 and sandbox. The fake game is a data store, as the SDK's was: a test sets out snapshots, picks routes, raises events, answers `http.fetch` requests, takes waiting tasks up again, and reads back what was recorded (elements, coloring, commands, save data). It refuses what the core refuses, in its words, through `checks/`. In a test, `files` is a temporary folder and `mod_files` the mod's real folder.
 - `eu4-harmony link`: as now.
 - `eu4-harmony check`: reads the mod as the framework does, without the game: the manifest and its `api_version`, every Lua file compiling, every localisation file, and no file under `ui/` where the layout puts nothing; lists each problem and fails when there is one. It reads only what the framework reads, and guesses nothing from the mod's code.
 - `eu4-harmony package`: a clean folder to upload, once `check` passes. The type definitions and `.luarc.json` are left out.
 - `eu4-harmony types`: writes the editor's type definitions again, for the catalogue of this tool's version. They are LuaLS annotations of every capability, handler and global, so an editor completes them and marks a misspelled capability or a wrong argument.
 - `eu4-harmony wiki [<topic>...]`: the reference, made from the framework's own descriptions, never written by hand: the catalogue (each capability as a Lua call and as an `eu4-harmony game` command), handlers, error codes, manifest fields, sensitive capabilities, the sandbox's globals; and for remote clients, how a game goes and what each exit code means. Topics nest: `wiki`, `wiki army`, `wiki army move`. `eu4-harmony game help` goes; `eu4-harmony game` alone prints the command line's form and points to `wiki`.
-- `eu4-harmony skills [<topic>...]`: guides for a mod author's coding agent, written by hand in English and embedded in the tool, nesting as `wiki` does: making a mod, tasks and waiting (what may change while a task waits, and that a session's waiting tasks are dropped when it ends), writing tests, interface fragments, localisation, trying a mod in the game through remote control. They point into `wiki` instead of repeating it. CI runs the Lua examples in them with `eu4-harmony test`.
+- `eu4-harmony skills [<topic>...]`: guides for a mod author's coding agent, written by hand in English and embedded in the tool, nesting as `wiki` does: making a mod, tasks and waiting (what may change while a task waits, and that a session's waiting tasks are dropped when it ends), writing tests, interface fragments, localisation, trying a mod in the game through remote control. They point into `wiki` instead of repeating it. Their Lua is fragments, so the worked example is what is run instead (L5).
 - `eu4-harmony help`: lists the commands, as now. `build` goes.
 
 ### Open questions
@@ -172,7 +173,7 @@ permissions = { clock = true, files = true, network = ["api.example.com", "192.1
 
 ## How it fits together
 
-The capability layer (`core/src/game/`) is the module everything rests on: it holds every capability once and hides the game behind it ([ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md)). Two adapters sit on its seam today: the C ABI for native extensions (`core/src/ext.rs`, `abi/`, `sdk/`) and remote control (`core/src/remote/`, `remote/`). The Lua host takes the C ABI's place; the catalogue says what both remaining adapters expose.
+The capability layer (`core/src/game/`) is the module everything rests on: it holds every capability once and hides the game behind it ([ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md)). Two adapters sit on its seam: the Lua host (`lua/`, `core/src/lua/`), which took the place of the C ABI for native extensions, and remote control (`core/src/remote/`, `remote/`); the catalogue says what both expose.
 
 ```text
  extension (Lua)           remote client
@@ -210,14 +211,14 @@ Reviewed 2026-11-03. In Lua a capability is `game.<group>.<name>(...)`, in remot
 - **`time`**: `get` (date, paused, speed), `pause`, `resume`, `set_speed`; `advance` for remote clients only.
 - **`country`**: `get`, `hostile`.
 - **`province`**: `list` (every province, or only those named), `get` (without what can be recruited there), `neighbors`.
-- **`army`**: `get` and `list` (with the route still to go, `kind` army or navy, `blocked`, the reasons it cannot take orders now, and `route_by`: `this_mod`, `other_mod`, `player_or_game` or none), `at` (the armies the player sees in a province), `route_to` (the game's route, or the reason there is none), `can_step` (whether the army may go from a province to a neighboring one now: access, terrain, straits), `can_attack` (an army it sees, wherever it is), `move`, `stop`, `selected`.
+- **`army`**: `get` and `list` (with the route still to go, `kind` army or navy, `blocked`, the reasons it cannot take orders now, `route_by`: `this_mod`, `other_mod`, `player_or_game` or none, `aboard`, the fleet an army is aboard, and `carrying`, a fleet's regiments aboard), `at` (the armies the player sees in a province), `route_to` (the game's route, or the reason there is none), `can_step` (whether the army may go from a province to a neighboring one now: access, terrain, straits), `can_attack` (an army it sees, wherever it is), `move`, `stop`, `selected`.
 - **`recruit`**: `options` (each kind, whether it can be recruited in a province now and why not), `order`.
 - **`question`**: `list`, `answer`. **`offer`**: `list`, `accept`, `decline`.
 - **`diplomacy`**: `war_goals`, `declare_war` (allies to call: `all`, `none` or a list of tags), `offer_peace`, `propose_alliance`.
 - **`console`**: `run`. **`camera`**: `get`, `look_at` (a province or a map position), `zoom`.
 - **Extensions only**: `game.ui.<element>` with `visible`, `enabled`, `text` and `tooltip`; `map.paint` and `map.release`; texts are the global `text.get` and `text.language` (remote control keeps `text.language`).
 - **Remote control only**: `menu`, `events`, `screenshot`, `time.advance`, `describe` (with `api_version`).
-- **Events**: the same names on both sides (`session`, `session_ended`, `day`, `army_ordered`, `army_defeated`); `frame`, `button`, `map_lost` and `save` are extensions' only.
+- **Events**: the same names on both sides (`session`, `session_ended`, `day`, `army_ordered`, `army_defeated`); `frame`, `button` and `map_lost` are extensions' only, as is `save_data`, the framework's question for an extension's data.
 
 ### L2 Lua host
 
@@ -241,7 +242,7 @@ Built in three pull requests: the reference (`wiki lua`, `wiki manifest` and `ty
 
 Reviewed 2026-11-03 against what the native extensions' Rust SDK gave mod authors: typed results and a fake game that held a small world. Built before L6, so the rewrite uses them; reloading an extension without restarting the game came after L6 ([extension-reload.md](extension-reload.md)).
 
-1. **Result types**: every capability's result has its shape described in the catalogue, from the answer's own type, in Lua's form. The type definitions give each result a class (`eu4.Army` with `id`, `owner`, `kind`, `province`, `regiments`, `blocked`, `route`, `route_by`), so an editor completes a result's fields. In `eu4-harmony test`, an answer a test gives is held to the shape: a field the result does not have, or a value of the wrong type, is an error at the test's line; a field left out is allowed, so a test writes only what it is about.
+1. **Result types**: every capability's result has its shape described in the catalogue, from the answer's own type, in Lua's form. The type definitions give each result a class (`eu4.Army` with `id`, `owner`, `kind`, `province`, `regiments`, `blocked`, `route`, `route_by`, `aboard`, `carrying`), so an editor completes a result's fields. In `eu4-harmony test`, an answer a test gives is held to the shape: a field the result does not have, or a value of the wrong type, is an error at the test's line; a field left out is allowed, so a test writes only what it is about.
 2. **A fake world**: `mod:world{ player, date, countries, hostile, provinces, armies, selected }` describes a small world once, and the fake game answers from it: `session.get`; `country.get` and `country.hostile`; `province.get`, `province.list` and `province.neighbors`; `army.get`, `army.list`, `army.at` and `army.selected`; `army.route_to` as the shortest route over passable land, `army.can_step` as a neighbor that can be passed, `army.can_attack` as a hostile country's army. `army.move` and `army.stop` are recorded and set or clear the army's route, `route_by` this mod; armies do not move as days pass. The world refuses through the same checks as the core, in the same words (`eu4_harmony_checks`). Recruiting, diplomacy, questions, offers, the camera and the console are answered one by one as before, and an answer given for a capability goes before the world's. A test file may `require` helper modules from `eu4-harmony/tests/`, so tests share a world.
 ### L6 Acceptance
 

@@ -6,13 +6,17 @@ group! {
     /// Trade nodes, as the trade map mode and the trade node view show them.
     "trade": TradeRequest, TradeAnswer;
 
-    /// Every trade node, with the value in it.
+    /// Every trade node, with the value in it. In the player's view only
+    /// the nodes with a province the player has discovered, as the trade
+    /// map shows them.
     game Nodes "nodes" {} -> Vec<NodeValue>, "the nodes: node (its key, such as sevilla), name, value (ducats)";
     /// One trade node as its view shows it: its value, the value its own
     /// provinces make, the value coming in and going out on each link, and
     /// the countries with trade power there, each with its share and its
     /// merchant. The trade node view shows every country's, so the player's
-    /// view leaves nothing out.
+    /// view leaves nothing out of a node the player has discovered, and
+    /// refuses one none of whose provinces the player has discovered
+    /// (not_found).
     game Node "node" {
         /// The node's key, such as `sevilla`.
         node: String,

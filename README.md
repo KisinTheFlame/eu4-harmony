@@ -11,7 +11,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Why EU4 Harmony
 
-- **Every language, everywhere.** Chinese and every other script show in the whole game, in fonts you choose. No font mod needed.
+- **Every language, everywhere.** Every script shows in the whole game, in fonts made for your language or ones you choose. No font mod needed.
 - **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
 - **A faster game, the same game.** Smoother and about a tenth faster at top speed, with nothing about the game itself changed.
 - **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions no longer risk a crash, and loading a save no longer costs you achievements.
@@ -38,17 +38,7 @@ Good to know:
 
 ### Settings
 
-| Setting | Default | What it does |
-| --- | --- | --- |
-| Fonts | Microsoft YaHei; KaiTi on the map, Consolas in the console | The system fonts for body text, headings, the map and the console. |
-| Return to the main menu without restarting the game | On | The main menu is back in seconds. The game keeps about 15 MB of memory each time, until it is closed ([why](docs/sessions.md#known-leaks)). |
-| In ironman, save the game before loading another save | On | Ironman games can load another save from the game's menu. Off, loading the same save again undoes what was played since. |
-| Achievements outside ironman | Off | Achievements in a game that is not ironman, even with saves loaded again and the console used. |
-| Achievements with a changed game checksum | Off | Achievements with mods that change the checksum the main menu shows. |
-| Remote control sees everything | Off | Off, programs using the game through remote control read what the player sees: the map under fog of war, and of other countries what their panels show. On, they read everything the game keeps, as mods' extensions always do ([why](docs/adr/remote-control-reads-the-players-view.md)). |
-| Game speed: at the fastest speed | Smooth map | "Faster time" draws no frames in the middle of a long day: late in a game, days pass about another tenth faster, but the map moves in jerks and answers clicks later. |
-
-A font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed and what remote control may see; each setting says there what it does. The details are in [docs/player-language.md](docs/player-language.md), [docs/sessions.md](docs/sessions.md), [docs/game-speed.md](docs/game-speed.md) and [ADR remote-control-reads-the-players-view](docs/adr/remote-control-reads-the-players-view.md).
 
 ## Writing a mod
 
@@ -71,12 +61,13 @@ return {
 The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder:
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, English and Chinese texts and editor types
+eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, texts in English and your language, and editor types
 cd my-mod
 eu4-harmony check                         # read everything as the framework will
 eu4-harmony test                          # run eu4-harmony\tests\*.lua against a fake game
 eu4-harmony link                          # register it with the launcher, then enable it in your playset
 eu4-harmony reload --watch                # with the game running, reload the extension whenever a file changes
+eu4-harmony types                         # write the editor types again, after the tool is updated
 eu4-harmony package                       # a clean folder ready to upload
 ```
 
@@ -85,6 +76,8 @@ A mod is an ordinary Paradox mod with an `eu4-harmony\` folder, where a file's p
 ```text
 my-mod/
 ├── descriptor.mod
+├── .eu4-harmony/types/        # editor types, written by eu4-harmony new and eu4-harmony types
+├── .luarc.json                # points the editor at them
 └── eu4-harmony/
     ├── manifest.toml          # id, api_version, description, permissions
     ├── lua/main.lua           # the extension: a table of handlers
@@ -99,7 +92,7 @@ my-mod/
 Where to learn more:
 
 - `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.
-- `eu4-harmony skills mod`: step-by-step guides for each kind of work, written for coding agents and readable by anyone.
+- `eu4-harmony skills`: step-by-step guides for each kind of work (`skills mod` for making a mod, `skills ui`, `skills testing`, …), written for coding agents and readable by anyone.
 - [docs/lua-extensions.md](docs/lua-extensions.md): how extensions work, with errors, the time limit and save data.
 
 ## Remote control
@@ -107,7 +100,7 @@ Where to learn more:
 `eu4-harmony game <capability> [<arguments>]` sends the running game one request and prints the answer as JSON:
 
 ```powershell
-eu4-harmony start --hidden                 # start the game with nothing on the desktop
+eu4-harmony start --hidden                 # start the game with nothing on the desktop; Steam must be running
 eu4-harmony game menu start FRA            # a new game as France
 eu4-harmony game time advance 30           # let 30 days pass; stops early for an event to answer
 eu4-harmony game question list             # the events waiting for the player
@@ -139,11 +132,19 @@ You need Windows, [rustup](https://rustup.rs/) (it picks up the Rust version [ru
 ```powershell
 cargo build --release
 cargo test --release
-cargo xtask install        # put the build into the game folder (--uninstall removes it)
 cargo xtask release        # pack the player package
 ```
 
-The game is found through `EU4_GAME_DIR` or Steam. `cargo xtask --help` lists the other development commands.
+The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim it first: the claim backs up the player's files, and its release puts them back ([docs/game-testing.md](docs/game-testing.md)).
+
+```powershell
+cargo xtask game claim --purpose "try my change"
+cargo xtask install        # put the build into the game folder (--uninstall removes it)
+cargo xtask game start     # start the game, hidden
+cargo xtask game release   # restore the player's files and give the game back
+```
+
+`cargo xtask --help` lists the other development commands.
 
 ## Contributing
 
@@ -156,6 +157,7 @@ Read [AGENTS.md](AGENTS.md) first: it has the rules for code, commits, checks an
 | `lua/` | The Lua host shared by the game and the fake game: sandbox, handlers, tasks, time limit |
 | `remote/` | The capability catalogue: every capability's arguments, results and description |
 | `checks/` | The checks a capability's call goes through, and the game's calendar |
+| `client/` | Reaching the running game from outside: remote control's pipe, starting the game, and backing up and restoring the player's files, shared by the tool and `cargo xtask` |
 | `loc/`, `manifest/` | Localisation files and mod manifests, shared by the core and the tool |
 | `cli/` | `eu4-harmony.exe`, and the template mod `new` writes |
 | `xtask/` | The repository's development commands (`cargo xtask`) |
