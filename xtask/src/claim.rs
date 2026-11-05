@@ -3,7 +3,8 @@
 //! (docs/game-testing.md).
 //!
 //! The record of who holds the game is `%LOCALAPPDATA%\eu4-harmony-dev\
-//! game-lock.json`, as the game-lock skill's script keeps it, the queue
+//! game-lock.json`, as the game-lock skill's script kept it and still keeps
+//! it in checkouts from before the claim's commands, the queue
 //! `game-queue.json` beside it; a named mutex, the script's, guards every
 //! read and write of both. Each claim has a folder of its own under
 //! `claims\`: `backup\` (the player's files, as `eu4-harmony backup` keeps them) and

@@ -5,8 +5,8 @@ Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](protot
 ## Goal and scope
 
 - **Goal**: every session on this computer that tries something in the game does it the same way, through one set of commands that hands the game to one holder at a time, fairly, starts it hidden, and puts back everything the run changed: the player's files, the framework files in the game folder and its `dev.toml`. The player, who plays on the same computer, gets the game first when they ask for it.
-- **In scope**: the claim, now `game-lock.ps1` in the game-lock skill, as commands of `cargo xtask game`; a queue of those waiting; the player's claim; the claim's own folder, with what a run leaves to look at; starting and stopping the game within a claim, always hidden; `cargo xtask install`, `perf-run` and `leak-run` on top of it; the skill, renamed game-test, rewritten for the commands.
-- **Out of scope**: more than one game at once ([research/headless.md](research/headless.md), "What it would take"); a playset of the run's own, since the playset is a player file the release puts back anyway; measuring vanilla, which `perf-run` no longer does: what matters is the framework's own game.
+- **In scope**: the claim, now `game-lock.ps1` in the game-lock skill, as commands of `cargo xtask game`; a queue of those waiting; the player's claim; the claim's own folder, with what a run leaves to look at; starting and stopping the game within a claim, always hidden; `cargo xtask install`, `perf-run` and `leak-run` on top of it (since replaced by the scenarios of `cargo xtask scenario`, [scenarios.md](scenarios.md)); the skill, renamed game-test, rewritten for the commands.
+- **Out of scope**: more than one game at once ([research/headless.md](research/headless.md), "What it would take"); a playset of the run's own, since the playset is a player file the release puts back anyway; measuring vanilla, which the perf run no longer does: what matters is the framework's own game.
 
 ## Behavior
 
@@ -14,21 +14,21 @@ Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](protot
 
 | Command | What it does |
 | --- | --- |
-| `cargo xtask game claim --purpose <text> [--wait]` | Claims the game: backs up the player's files and copies the framework files in the game folder, with `eu4-harmony\dev.toml` if there is one, into the claim's folder. Busy without `--wait`: says who holds it and exits with 2. With `--wait`: joins the queue and exits once it holds the game |
-| `cargo xtask game start [--sound]` | Starts the game hidden (`eu4-harmony start --hidden`), and waits for the main menu; a start that has not reached it in time ends the game and fails. Refused without the claim |
+| `cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>]` | Claims the game: backs up the player's files and copies the framework files in the game folder, with `eu4-harmony\dev.toml` if there is one, into the claim's folder. Busy without `--wait`: says who holds it and exits with 2. With `--wait`: joins the queue and exits once it holds the game. `--lease` sets the lease, 30 minutes without it |
+| `cargo xtask game start [--sound] [--timeout <seconds>]` | Starts the game hidden, as `eu4-harmony start --hidden` does and with the same `client/` library, and waits for the main menu, 300 seconds unless `--timeout` says otherwise; a start that has not reached it in time ends the game and fails. Refused without the claim |
 | `cargo xtask game stop` | Ends the game |
-| `cargo xtask game release` | Ends the game if it runs, copies what the run left into the claim's folder, puts back the player's files and the game folder's framework files and `dev.toml` and compares each, and frees the game; prints a summary |
+| `cargo xtask game release [--keep-crashes]` | Ends the game if it runs, copies what the run left into the claim's folder, puts back the player's files and the game folder's framework files and `dev.toml` and compares each, and frees the game; prints a summary |
 | `cargo xtask game renew` | Starts the lease again |
-| `cargo xtask game watch` | Run in the background by the holder: keeps the claim going, so that the game running keeps the lease going, and exits when the lease is near its end, when the player takes the game, or when the claim is gone |
+| `cargo xtask game watch [--warn <minutes>]` | Run in the background by the holder: keeps the claim going, so that the game running keeps the lease going, and exits when the lease is near its end (5 minutes before it, unless `--warn` says otherwise), when the player takes the game, or when the claim is gone |
 | `cargo xtask game status` | Who holds the game, for what and until when, what keeps its claim going, the queue, whether `eu4.exe` runs, and claim folders no claim refers to |
 
-`cargo xtask install` (and `--uninstall`) needs the claim too. The owner of a claim is the leaf name of the checkout's folder unless `--owner` names another, as now.
+`cargo xtask install` (and `--uninstall`) needs the claim too. The owner of a claim is the leaf name of the checkout's folder unless `--owner` names another, as now. Each command finds the game as every development command does, or takes `--game-dir`.
 
 ### One run
 
-1. `claim`: the player's files backed up into `backup\`, the game folder's `version.dll`, `eu4-harmony\eu4_harmony_core.dll`, `eu4-harmony\eu4-harmony.exe` and `eu4-harmony\dev.toml` (each as there or not there) into `framework\`. The record names the claim's folder and the process making it before the backup begins, and the claim is not one to use until the backup is done: `install` and `start` refuse it, others wait while that process backs up, and once it has ended with the backup not done, a claim of the same owner removes what it made and claims afresh, another claim takes over from it at once, and `release` says that nothing was put back, since nothing ran under it. A backup that fails gives the game back and removes what was made of the folder.
+1. `claim`: the player's files backed up into `backup\`, the game folder's `version.dll`, `eu4-harmony\eu4_harmony_core.dll`, `eu4-harmony\eu4-harmony.exe`, `eu4-harmony\dev.toml` and `eu4-harmony\backup\version.dll`, a foreign `version.dll` that `install` moved aside (each as there or not there), into `framework\`. The record names the claim's folder and the process making it before the backup begins, and the claim is not one to use until the backup is done: `install` and `start` refuse it, others wait while that process backs up, and once it has ended with the backup not done, a claim of the same owner removes what it made and claims afresh, another claim takes over from it at once, and `release` says that nothing was put back, since nothing ran under it. A backup that fails gives the game back and removes what was made of the folder.
 2. `install`, then `start`, as often as the run needs, with `stop` between.
-3. `release`: the game ended if it runs; the framework's logs, the game's logs and the run's crash folders copied into `kept\`; the player's files put back by `eu4-harmony restore`, the game folder's files put back from `framework\` (a file that was not there removed), each compared. A file not put back is a `NOT RESTORED` line, and the claim is kept, as for the player's files now. The summary says how long the claim was held, whether the game crashed, and where `kept\` is.
+3. `release`: the game ended if it runs; the framework's logs, the game's logs and the run's crash folders copied into `kept\`; the player's files put back as `eu4-harmony restore` puts them back, the game folder's files put back from `framework\` (a file that was not there removed), each compared. A file not put back is a `NOT RESTORED` line, and the claim is kept, as for the player's files now. The summary says how long the claim was held, whether the game crashed, and where `kept\` is.
 
 ### The claim's folder
 
@@ -37,7 +37,7 @@ Each claim has one, `%LOCALAPPDATA%\eu4-harmony-dev\claims\<owner>-<yyyyMMdd-HHm
 ### The queue
 
 - A `claim --wait` joins the queue in the order it asked; when the game is free, only the first in the queue gets it.
-- The waiting command says it is still waiting every 15 seconds; one that has not for a minute (its session was closed) leaves the queue, so it holds up no one.
+- The waiting command looks again every 5 seconds, and each look says in the queue that it is still waiting; one that has not for a minute (its session was closed) leaves the queue, so it holds up no one. It prints a line when it starts waiting and whenever the holder changes.
 - A `claim` without `--wait` does not join it: a game held, or with anyone in the queue, is busy.
 
 ### The player
@@ -88,7 +88,7 @@ The queue with its liveness; `claim --player`, first in the queue, and `--now`, 
 
 ### G4 The development commands on the claim
 
-`perf-run` without vanilla, through remote control; `perf-run` and `leak-run` started through the claim. Tried: one run of each.
+`perf-run` without vanilla, through remote control; `perf-run` and `leak-run` started through the claim. Tried: one run of each. Both commands were later replaced by the `perf`, `leak` and `growth` scenarios of `cargo xtask scenario`, which claim and start the game with the same functions ([scenarios.md](scenarios.md)).
 
 ### G5 The skill
 

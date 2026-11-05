@@ -47,7 +47,7 @@ Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the
 
 ### The development tools
 
-`tools/game-input.ps1` and `tools/screenshot.ps1` go. `tools/README.md` says to use `eu4-harmony game input …` and `eu4-harmony game screenshot`. `tools/perf-run.ps1` measures vanilla too, where no framework runs: it gets the few clicks and keys it sends, and the screen regions it compares and crops, from functions of its own. Earlier records in prototype-log.md keep naming the tools they used.
+`tools/game-input.ps1` and `tools/screenshot.ps1` went: input and screenshots are `eu4-harmony game input …` and `eu4-harmony game screenshot`. `tools/perf-run.ps1`, which measured vanilla too and so sent its own clicks and keys and compared its own screen regions, went later with the rest of `tools/` ([dev-commands.md](dev-commands.md)); what one run costs is now the scenario `perf` ([scenarios.md](scenarios.md)), on the player build only. Earlier records in prototype-log.md keep naming the tools they used.
 
 ## How it fits together
 

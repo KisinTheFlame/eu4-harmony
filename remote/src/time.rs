@@ -51,7 +51,7 @@ group! {
         /// How many days, from 1 to 36500.
         days: u32,
         /// The speed to run at, from 1 (slowest) to 5 (fastest); the game
-        /// stays at it after the advance, as after time.speed. Absent to
+        /// stays at it after the advance, as after time.set_speed. Absent to
         /// keep the game's.
         speed: Option<u32>,
     } -> Advanced, "why it stopped (date, paused, question, session or main_menu) and in words, the date then, and as events answers them (read from the last event before time ran): the process, the events on the way, the number of the last event, and whether some were missed";

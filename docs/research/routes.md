@@ -141,7 +141,7 @@ The callers:
 - **After a native fault in the query**, routes stay off for the rest of the process: what the fault left half done may lie outside the world, and nothing shows a load rebuilds it. **After a list it could not safely free**, which it leaves as it was among the world's armies, routes stay off until the world is replaced, by a load or a world reset (an in-process return); a change of country keeps the world, and them off.
 - **Whose route it is**: a route an extension installed is that extension's while the army's route is what is left of it: the provinces not yet reached, in the same nodes, and the army standing where that part begins. A remote client's move or stop is the player's order: it takes the army back from any extension and raises `army_ordered` once.
 
-Tested (F1, 2026-10-29): an extension's moves to 146, 151 and 316 and a stop of its own route were accepted, and the army marched. Tested (F2, F4, 2026-10-29): `army.find_route`, `army.move` and `army.stop` through remote control, the route read back as ordered, an `army_ordered` event for each, and refusals for an army with others attached and one in a battle. Tested (Z2, 2026-10-30): the player's route queries, moves and stops while the game is paused.
+Tested (F1, 2026-10-29): an extension's moves to 146, 151 and 316 and a stop of its own route were accepted, and the army marched. Tested (F2, F4, 2026-10-29): `army.route_to` (then `army.find_route`), `army.move` and `army.stop` through remote control, the route read back as ordered, an `army_ordered` event for each, and refusals for an army with others attached and one in a battle. Tested (Z2, 2026-10-30): the player's route queries, moves and stops while the game is paused.
 
 ## Seen in the running game on 2026-10-26
 

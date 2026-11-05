@@ -2,7 +2,7 @@
 
 Every handler call runs as a task, a Lua coroutine the framework owns, so that a function which has to wait, such as `http.fetch` for an answer from the network, simply gives up the task's turn: the game goes on, and the framework takes the task up again at a later safe point, where the handler carries on from the line after the call with `game` valid again. A handler that waits reads as sequential code, as with `await` in TypeScript, but with no keyword and no callback. `spawn(fn)` starts a task of its own without waiting for it. Nothing in the game thread ever blocks: the Lua host stays on the main thread, at safe points, as before.
 
-A session's waiting tasks are dropped when it ends, and all of them when the game closes: what they would go on with belongs to a world that is gone. `on_save`, which must return the save data at once, and the top of `main.lua`, which runs before there is a game, cannot wait.
+A session's waiting tasks are dropped when it ends, and all of them when the game closes: what they would go on with belongs to a world that is gone. `save_data` (`on_save` when this was decided, ADR save-data-is-asked-for-by-save-data), which must return the save data at once, and the top of `main.lua`, which runs before there is a game, cannot wait.
 
 ## Considered Options
 

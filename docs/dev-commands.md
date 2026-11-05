@@ -1,12 +1,12 @@
 # Development commands plan
 
-Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-log.md](prototype-log.md), "Development commands"). The tools are now described in [dev-tools.md](dev-tools.md).
+Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-log.md](prototype-log.md), "Development commands"); X3's `perf-run` and `leak-run` were replaced on 2026-11-05 by the `perf`, `leak` and `growth` scenarios of `cargo xtask scenario` ([scenarios.md](scenarios.md)). The tools are now described in [dev-tools.md](dev-tools.md).
 
 ## Goal and scope
 
 - **Goal**: the repository's development tools are Rust, built, formatted, tested and linted with the rest of the workspace, instead of PowerShell and Python scripts that nothing checks. What needs the repository becomes a command of `cargo xtask`, a program of the workspace that only development machines run; what is useful without it, to mod authors too, becomes a command of the command line tool, `eu4-harmony`.
 - **In scope**: every script under `tools/` (`game-dir.ps1`, `player-files.ps1`, `dev-install.ps1`, `release.ps1`, `player-state.ps1`, `perf-run.ps1`, `leak-run.ps1`, `profile.py`, `crash-dump.py`); entry points for the disassembler and the offline checks that find the game themselves; the game-lock skill, which calls `player-state.ps1`, switched to the command that replaces it.
-- **Out of scope**: the core's development tools (`dev-call-trace`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`) and `dev.toml`, which run inside the game and stay features of the core; CI; a third program for development, which would only be needed on a machine without the repository.
+- **Out of scope**: the core's development tools (`dev-call-trace`, `dev-memory`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`) and `dev.toml`, which run inside the game and stay features of the core; CI; a third program for development, which would only be needed on a machine without the repository.
 
 ## Where each goes
 
@@ -17,8 +17,8 @@ Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-
 | `dev-install.ps1` | `cargo xtask install [--uninstall]` | it installs the build last made in `target\`, with the repository's `dev.toml` |
 | `release.ps1` | `cargo xtask release [--out <dir>]` | it builds the player build; `eu4-harmony` could not, since it would build itself while it runs, and Windows keeps a running program's file from being written |
 | `player-state.ps1` | `eu4-harmony backup <new dir>`, `eu4-harmony restore <dir>` | a mod author's test run rewrites saves as ours do, and the backup needs nothing of the repository |
-| `perf-run.ps1` | `cargo xtask perf-run` | a measurement for [performance.md](performance.md); it also measures vanilla, so it clicks and reads the screen itself, at fixed places of a 3840x2160 screen |
-| `leak-run.ps1` | `cargo xtask leak-run` | it needs a developer build with the memory account, and writes for [leak-finding.md](leak-finding.md) |
+| `perf-run.ps1` | `cargo xtask perf-run`, now the `perf` scenario | a measurement for [performance.md](performance.md); it also measures vanilla, so it clicks and reads the screen itself, at fixed places of a 3840x2160 screen |
+| `leak-run.ps1` | `cargo xtask leak-run`, now the `leak` and `growth` scenarios | it needs a developer build with the memory account, and writes for [leak-finding.md](leak-finding.md) |
 | `profile.py` | `cargo xtask profile` | it samples the game for [game-speed.md](game-speed.md), and names the framework's frames by the core's exports |
 | `crash-dump.py` | `cargo xtask crash-dump` | the core's own frames need the symbols of the build in `target\` |
 | `cargo run … --example disasm` | `cargo xtask disasm ARG...` | the same example, with the game found |
@@ -34,7 +34,7 @@ Both programs find it the same way: the command's `--game-dir`; else `EU4_GAME_D
 
 - An alias in `.cargo/config.toml`, `xtask = "run --release --quiet --package xtask --"`, runs the crate `xtask/`. It is a member of the workspace, so `cargo build`, the tests and clippy cover it, CI included; it is not among the player's files and `release` never packs it.
 - `install` and `release` do what their scripts do, with the same messages: a foreign `version.dll` moved to `eu4-harmony\backup\` and put back on `--uninstall`; `dev.toml` installed, or one installed before removed; the package folder and its zip made anew. `release` builds only the packages of the player's files (`-p eu4-harmony-proxy -p eu4-harmony-core -p eu4-harmony-cli`), so it never rebuilds `xtask` while it runs, and writes the zip with Windows' own `tar`.
-- `perf-run` and `leak-run` take the scripts' parameters as options (`--out`, `--name`, `--reference`, `--intro-reference`, `--menu-only`; `--rounds`, `--country`, `--days`, `--sites`, `--watch`, `--watch-after`, `--keep-game`, `--from-report`, the two saves by name) and write the same files: the references a machine already took (`menu-reference.bin`, `intro-corner.png`) go on working, and so do reports read before.
+- `perf-run` and `leak-run` take the scripts' parameters as options (`--out`, `--name`, `--reference`, `--intro-reference`, `--menu-only`; `--rounds`, `--country`, `--days`, `--sites`, `--watch`, `--watch-after`, `--keep-game`, `--from-report`, the two saves by name) and write the same files: the references a machine already took (`menu-reference.bin`, `intro-corner.png`) go on working, and so do reports read before. The scenarios that replaced them take their parameters as `--<scenario>.<parameter>` instead ([scenarios.md](scenarios.md)), and the perf run no longer measures vanilla.
 - `crash-dump <dump> <log> [--symbols <dir>] <command>...` runs the commands with Windows' `dbgeng.dll`, with this checkout's release build and Microsoft's symbol server on the symbol path, as the script does.
 - `disasm` and `offline-check` run the existing example and ignored tests with `EU4_GAME_DIR` set to the game found.
 
@@ -72,7 +72,7 @@ The crate and its alias; the game folder lookup in the manifest crate, with `eu4
 
 ### X3 Measuring
 
-`perf-run`, `leak-run` and `profile`. Tried: one run of each, with numbers of the same order as in performance.md and leak-finding.md, and the references taken before still recognized.
+`perf-run`, `leak-run` and `profile`. Tried: one run of each, with numbers of the same order as in performance.md and leak-finding.md, and the references taken before still recognized. `perf-run` and `leak-run` are gone since, replaced by `cargo xtask scenario perf`, `leak` and `growth`; `profile` stays.
 
 ### X4 Crash dumps
 

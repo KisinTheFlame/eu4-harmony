@@ -1,12 +1,12 @@
 //! The claim's record and the queue, as data, and what a claim finds when it
 //! looks at them: the decisions, without the files, the mutex or the clock.
 //!
-//! The record is the JSON the game-lock skill's script keeps too (`owner`,
+//! The record is the JSON the game-lock skill's script kept too (`owner`,
 //! `purpose`, `checkout`, `since`, `renewed`, `leaseMinutes`, `backup`), so
-//! that a checkout still on the script and one on these commands never hold
-//! the game at once; the fields it does not know (`folder`, `player`,
-//! `taken`, `preparing`, `puttingBack`, `keeper`, `game`) it keeps as they
-//! are. xtask from before `preparing`, `puttingBack`, `keeper` and `game`
+//! that a checkout from before these commands, still on the script, and one
+//! on them never hold the game at once; the fields it does not know (`folder`,
+//! `player`, `taken`, `preparing`, `puttingBack`, `keeper`, `game`) it keeps as
+//! they are. xtask from before `preparing`, `puttingBack`, `keeper` and `game`
 //! drops them when it writes the record, as it does while it waits in the
 //! queue, so a record may lose them while it is held.
 use serde_json::{json, Value};

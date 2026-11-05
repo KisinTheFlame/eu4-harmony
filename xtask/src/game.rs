@@ -11,7 +11,9 @@ use windows_sys::Win32::{
 pub fn dir() -> Result<PathBuf> {
     match std::env::var_os("EU4_GAME_DIR").filter(|d| !d.is_empty()) {
         Some(dir) => Ok(PathBuf::from(dir)),
-        None => eu4_harmony_manifest::steam_game_dir().ok_or_else(|| "cannot find the game: pass --game-dir or set EU4_GAME_DIR".into()),
+        None => {
+            eu4_harmony_manifest::steam_game_dir().ok_or_else(|| "cannot find the game: set EU4_GAME_DIR, or pass --game-dir to a command that takes it".into())
+        }
     }
 }
 
