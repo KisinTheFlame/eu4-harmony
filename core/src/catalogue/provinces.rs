@@ -1,8 +1,12 @@
 //! Provinces, their neighbors, and one province's snapshot.
 use super::tag;
-use crate::game::{self, provinces as layer};
+use crate::game::{
+    self,
+    administration::{Action, Development as Kind},
+    provinces as layer,
+};
 use eu4_harmony_remote::{
-    provinces::{Development, Fort, Neighbor, Province, ProvinceAnswer, ProvinceKind, ProvinceRequest, ProvinceSnapshot},
+    provinces::{Development, Fort, Neighbor, Province, ProvinceAnswer, ProvinceKind, ProvinceOption, ProvinceRequest, ProvinceSnapshot},
     recruiting::UnitKind,
     Error, ProvinceId,
 };
@@ -12,6 +16,9 @@ layer! {
     fn named_provinces(ids: Vec<u32>) -> Vec<game::provinces::Province> = game::provinces::named;
     fn neighbors(province: u32) -> Vec<game::provinces::Neighbor> = game::provinces::neighbors;
     fn province(province: u32) -> layer::Snapshot = layer::province;
+    fn province_options(province: u32) -> Vec<ProvinceOption> = game::administration::options;
+    fn province_act(province: u32, action: Action) -> () = game::administration::act;
+    fn set_edict(province: u32, edict: String) -> () = game::administration::set_edict;
 }
 
 pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result<ProvinceAnswer, Error> {
@@ -43,7 +50,28 @@ pub fn run(request: ProvinceRequest, game: &mut (impl Layer + ?Sized)) -> Result
         ProvinceRequest::Neighbors { province } => {
             Ok(ProvinceAnswer::Neighbors(game.neighbors(province.0)?.iter().map(|n| Neighbor { province: ProvinceId(n.to), strait: n.strait }).collect()))
         }
-        ProvinceRequest::Get { province } => Ok(ProvinceAnswer::Get(snapshot(game.province(province.0)?))),
+        ProvinceRequest::Get { province } => Ok(ProvinceAnswer::Get(Box::new(snapshot(game.province(province.0)?)))),
+        ProvinceRequest::Options { province } => Ok(ProvinceAnswer::Options(game.province_options(province.0)?)),
+        ProvinceRequest::DevelopTax { province } => Ok(ProvinceAnswer::DevelopTax(game.province_act(province.0, Action::Develop(Kind::Tax))?)),
+        ProvinceRequest::DevelopProduction { province } => {
+            Ok(ProvinceAnswer::DevelopProduction(game.province_act(province.0, Action::Develop(Kind::Production))?))
+        }
+        ProvinceRequest::DevelopManpower { province } => Ok(ProvinceAnswer::DevelopManpower(game.province_act(province.0, Action::Develop(Kind::Manpower))?)),
+        ProvinceRequest::ExploitTax { province } => Ok(ProvinceAnswer::ExploitTax(game.province_act(province.0, Action::Exploit(Kind::Tax))?)),
+        ProvinceRequest::ExploitProduction { province } => {
+            Ok(ProvinceAnswer::ExploitProduction(game.province_act(province.0, Action::Exploit(Kind::Production))?))
+        }
+        ProvinceRequest::ExploitManpower { province } => Ok(ProvinceAnswer::ExploitManpower(game.province_act(province.0, Action::Exploit(Kind::Manpower))?)),
+        ProvinceRequest::RaiseAutonomy { province } => Ok(ProvinceAnswer::RaiseAutonomy(game.province_act(province.0, Action::RaiseAutonomy)?)),
+        ProvinceRequest::LowerAutonomy { province } => Ok(ProvinceAnswer::LowerAutonomy(game.province_act(province.0, Action::LowerAutonomy)?)),
+        ProvinceRequest::MakeState { province } => Ok(ProvinceAnswer::MakeState(game.province_act(province.0, Action::MakeState)?)),
+        ProvinceRequest::MakeTerritory { province } => Ok(ProvinceAnswer::MakeTerritory(game.province_act(province.0, Action::MakeTerritory)?)),
+        ProvinceRequest::SetEdict { province, edict } => Ok(ProvinceAnswer::SetEdict(game.set_edict(province.0, edict)?)),
+        ProvinceRequest::CancelEdict { province } => Ok(ProvinceAnswer::CancelEdict(game.province_act(province.0, Action::CancelEdict)?)),
+        ProvinceRequest::Core { province } => Ok(ProvinceAnswer::Core(game.province_act(province.0, Action::Core)?)),
+        ProvinceRequest::CancelCore { province } => Ok(ProvinceAnswer::CancelCore(game.province_act(province.0, Action::CancelCore)?)),
+        ProvinceRequest::ChangeCulture { province } => Ok(ProvinceAnswer::ChangeCulture(game.province_act(province.0, Action::ChangeCulture)?)),
+        ProvinceRequest::CancelCulture { province } => Ok(ProvinceAnswer::CancelCulture(game.province_act(province.0, Action::CancelCulture)?)),
     }
 }
 
@@ -61,6 +89,21 @@ fn snapshot(s: layer::Snapshot) -> ProvinceSnapshot {
         terrain: s.terrain,
         fort: Fort { level: s.fort.level, mothballed: s.fort.mothballed },
         buildings: s.buildings,
+        autonomy: game::thousandths(s.autonomy),
+        culture: s.culture,
+        religion: s.religion,
+        trade_good: s.trade_good,
+        unrest: s.unrest.map(game::thousandths),
+        trade_node: s.trade_node,
+        center_of_trade: s.center_of_trade,
+        trade_company: s.trade_company,
+        state: s.state,
+        edict: s.edict,
+        cores: s.cores,
+        claims: s.claims,
+        constructions: s.constructions,
+        missionary: s.missionary.map(game::thousandths),
+        colony_size: s.colony_size.map(game::thousandths),
     }
 }
 

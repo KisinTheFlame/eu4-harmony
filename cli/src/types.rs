@@ -85,13 +85,14 @@ pub fn write(root: &Path) -> Result<Vec<String>, String> {
 /// The type a value of `kind` has in Lua.
 fn lua_type(kind: Kind) -> &'static str {
     match kind {
-        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys => "string",
+        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys | Kind::PowerKind => "string",
         Kind::Province | Kind::Integer | Kind::Army => "integer",
         Kind::Date => "eu4.Date|string",
         Kind::Boolean => "boolean",
         Kind::Allies => "\"all\"|\"none\"|string[]",
-        Kind::Provinces => "integer[]",
+        Kind::Provinces | Kind::Armies => "integer[]",
         Kind::Countries | Kind::Words => "string[]",
+        Kind::Terms => "{ term: string, province: integer?, country: string?, region: string?, amount: number? }[]",
     }
 }
 
