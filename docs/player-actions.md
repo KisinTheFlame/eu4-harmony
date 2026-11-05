@@ -112,7 +112,7 @@ Built and tried in the game on 2026-11-05 ([prototype-log.md](prototype-log.md);
 - **The building panel**, a group of its own, `building`: `building.options` (each building the game has, to build where it does not stand and to destroy where it does, with its price in ducats and the game's reasons; what is being built, its progress, end and builder; cancelling it), `building.build`, `building.cancel` and `building.destroy`, a building by its content key.
 - **The event** `building_finished` (province, building, the province's owner), about every country, worked out only while someone listens; its Lua handler `on_building_finished`.
 - **Decided here**: exploiting, which asks the player to confirm, is carried out as a player who confirms; the culture button converts to the primary culture, so `change_culture` takes no culture; where the game's own check leaves out what its button asks (the culture button's points, a culture that is the primary one already), the framework asks it as the button does; the state and culture commands carry no country and act for the province's owner, so the framework refuses them for a province the player does not own, as it does destroying a building, which no check of the game's refuses. None of these reads differs between the player's view and the full view: they are the player's own buttons, which the player sees for any province.
-- **Not verified**: an extension's `on_building_finished`; cancelling another country's building, destroying under siege, and abandoning the capital's state, whose refusals come from the command's check without a reason; the edict's year after it is set is the game's own rule.
+- **Not verified**: cancelling another country's building, destroying under siege, and abandoning the capital's state, whose refusals come from the command's check without a reason; the edict's year after it is set is the game's own rule.
 
 ### A4 Armies and fleets
 
@@ -130,7 +130,7 @@ Added (tried in the game, [prototype-log.md](prototype-log.md), 2026-11-05; foun
 
 Decided here: the siege view's buttons are a group of their own (`siege`), as is the fort box (`fort`), each named after what the player does; a mission's target is the game's number for its trade node or sea region, and no read lists them yet; hiring takes the province, which the player picks; a leader is named by its number (`id`), which the game writes `{ id=N type=49 }`.
 
-Not verified in the game: boarding and landing by `army.move`, and armies moving aboard a fleet (no route was found to a sea zone with the player's fleet in it); an artillery barrage carried out; what a fleet mission does once taken; remote control hearing a battle the player only sees; the full view's every battle; an extension's `on_battle`; and the event's cost, not measured into performance.md.
+Not verified in the game: boarding and landing by `army.move`, and armies moving aboard a fleet (no route was found to a sea zone with the player's fleet in it); an artillery barrage carried out; what a fleet mission does once taken; remote control hearing a battle the player only sees; the full view's every battle; and the event's cost, not measured into performance.md.
 
 ### A5 War and peace
 
@@ -143,7 +143,7 @@ Added ([research/peace.md](research/peace.md), tried in the game: [prototype-log
 - **`diplomacy.call_to_arms`**: the diplomacy panel's call to arms in the player's wars, refused with the panel's reasons, answered with the ally's answer. Since A6 it is one of the diplomacy panel's acts (`game::diplomacy::act`), and `diplomacy.options` gives its `Choice` and `acceptance`, asked as the panel asks them.
 - **Events** `war_declared`, `peace_made` and `province_owner_changed`, about every country and naming the countries they concern, with `on_war_declared`, `on_peace_made` and `on_province_owner_changed`: the world's wars and the provinces' owners compared with the day before, at each new day, only while someone listens, so a peace, an annexation or the console are heard alike, at the new day after it. Their cost was not measured into [performance.md](performance.md).
 - **The player's view** leaves nothing out of these: the peace view and the transfer window show the player all they list, and the events are about every country, as the plan has them.
-- **Not verified**: an ally accepting a call to arms; scripted terms, colonial regions and the terms France was not offered in the run; a separate peace with an enemy's ally; extensions' calls and handlers; why demanded gold arrived short (300 asked, 228.7 paid); what the events cost the game.
+- **Not verified**: an ally accepting a call to arms; scripted terms, colonial regions and the terms France was not offered in the run; a separate peace with an enemy's ally; why demanded gold arrived short (300 asked, 228.7 paid); what the events cost the game.
 
 ### A6 Diplomacy and subjects
 
@@ -156,7 +156,7 @@ Added (research in [research/diplomacy.md](research/diplomacy.md#the-diplomacy-p
 - `diplomacy.add_rival` and `diplomacy.remove_rival`, the game's own commands, refused with the reasons the game's rivals check gives.
 - `subject.options <subject>` and `subject.interact`: the game's 41 subject interactions (by their keys, such as `scutage`), those the player's country may use and the subject's type allows, with whether each goes on (`active`; carrying it out again stops it), the reasons its conditions give, and the game's `subject` command.
 - Decided: the panel's actions are named by what the player does, not by the game's keys, which `options` gives too; an action whose window has the player choose something takes it as an argument and refuses `invalid_argument` without it; a window whose choice the framework does not set yet (`support_rebels`' faction, the maps' region, the ships sold, a federation's name) sends the action as the panel made it, and the game's check refuses it when it needs the choice.
-- Not verified in the game: most actions beyond those the run sent (each goes the same way), the acts with a window's choice beyond the gift, loan, sale and condottieri, annexing and integrating, the subject interactions that need a third country, an index or a name, and Lua extensions calling any of it.
+- Not verified in the game: most actions beyond those the run sent (each goes the same way), the acts with a window's choice beyond the gift, loan, sale and condottieri, annexing and integrating, the subject interactions that need a third country, an index or a name.
 
 ### A7 Government
 
@@ -189,4 +189,4 @@ Added (what was found is in [research/envoys.md](research/envoys.md), the run in
 - `merchant.list`, `merchant.options`, `merchant.collect`, `merchant.steer`, `merchant.recall`, `merchant.steer_to` (the trade view, nodes named by their content key; sending the merchant there again changes its mission).
 - Decisions: the reasons are the game's tooltip functions' lines, the lines that hold left out where a function writes them; where a panel decides on its own (a merchant already collecting, steering in the home node, no free merchant), the reason is the game's text for it. The actions with a confirm dialog (recalling a missionary, the trade company, investments, centers of trade) are carried out as confirmed. These reads are of the player's own things and are the same in both views.
 - Not done: trading policies of a node (`select_trading_policy`, found, its cooldown without reasons); the colonial upkeep a month in `colonist.options` (its function was not found); expelling minorities and settlement growth, the colonize button's other uses.
-- Not verified in the game: the panels on screen; a conversion or a colony finishing; a subject's center of trade; extensions calling these capabilities.
+- Not verified in the game: the panels on screen; a conversion or a colony finishing; a subject's center of trade.
