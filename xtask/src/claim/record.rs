@@ -5,7 +5,8 @@
 //! `purpose`, `checkout`, `since`, `renewed`, `leaseMinutes`, `backup`), so
 //! that a checkout still on the script and one on these commands never hold
 //! the game at once; the fields it does not know (`folder`, `player`,
-//! `taken`, `preparing`, `puttingBack`) it keeps as they are.
+//! `taken`, `preparing`, `puttingBack`, `keeper`, `game`) it keeps as they
+//! are.
 use serde_json::{json, Value};
 
 /// A process, by its id and when it started: a later process given the same
@@ -30,7 +31,10 @@ impl Process {
 /// What a look knows of the computer besides the record and the queue.
 pub struct Seen<'a> {
     pub now: u64,
+    /// An `eu4.exe` runs, or it cannot be told whether one does.
     pub game_running: bool,
+    /// The ids of the `eu4.exe` that run, as far as they can be told.
+    pub games: Vec<u32>,
     /// The process that looks.
     pub me: Process,
     /// Whether a process recorded runs still.
@@ -69,6 +73,13 @@ pub struct Record {
     /// The process putting back what the claim's run changed: while it
     /// runs, nothing else puts it back.
     pub putting_back: Option<Process>,
+    /// The process keeping the claim going: the scenario runner playing in
+    /// it, or its `watch`. While it runs, the game running keeps the lease
+    /// going.
+    pub keeper: Option<Process>,
+    /// The game started within the claim, followed to the process it starts
+    /// in its place.
+    pub game: Option<Process>,
 }
 
 impl Record {
@@ -87,6 +98,8 @@ impl Record {
             taken: value["taken"].as_u64(),
             preparing: Process::from_json(&value["preparing"]),
             putting_back: Process::from_json(&value["puttingBack"]),
+            keeper: Process::from_json(&value["keeper"]),
+            game: Process::from_json(&value["game"]),
         })
     }
 
@@ -104,6 +117,8 @@ impl Record {
             "taken": self.taken,
             "preparing": self.preparing.map(Process::to_json),
             "puttingBack": self.putting_back.map(Process::to_json),
+            "keeper": self.keeper.map(Process::to_json),
+            "game": self.game.map(Process::to_json),
         })
     }
 
@@ -112,9 +127,23 @@ impl Record {
         self.renewed + 60 * self.lease_minutes
     }
 
-    /// A holder that let its lease run out while the game was closed has gone.
-    pub fn stale(&self, now: u64, game_running: bool) -> bool {
-        !game_running && now > self.lease_ends()
+    /// A holder that let its lease run out has gone: with the game closed,
+    /// or with only the claim's own game running and nothing that keeps the
+    /// claim going, its runner or its `watch`, running any more. A game that
+    /// runs and is not the claim's, the player's, keeps the holder until it
+    /// closes.
+    pub fn stale(&self, seen: &Seen) -> bool {
+        seen.now > self.lease_ends() && (!seen.game_running || self.only_its_game_runs(seen) && !self.kept(seen))
+    }
+
+    /// Its keeper runs.
+    pub fn kept(&self, seen: &Seen) -> bool {
+        self.keeper.is_some_and(|k| (seen.alive)(&k))
+    }
+
+    /// Every `eu4.exe` that runs is the claim's game.
+    pub fn only_its_game_runs(&self, seen: &Seen) -> bool {
+        self.game.is_some_and(|g| (seen.alive)(&g) && !seen.games.is_empty() && seen.games.iter().all(|&id| id == g.id))
     }
 
     /// A claim of a session's whose backup is not done: its process made the
@@ -242,8 +271,9 @@ pub fn look(asking: &Asking, held: &mut Option<Record>, queue: &mut Vec<Waiting>
         queue.retain(|w| w.owner != asking.owner);
         return Found::Held;
     }
-    // Every look at a claim while the game runs starts its lease again.
-    if let Some(h) = held.as_mut().filter(|_| game_running) {
+    // Every look at a claim kept going while the game runs starts its lease
+    // again.
+    if let Some(h) = held.as_mut().filter(|h| game_running && h.kept(seen)) {
         h.renewed = now;
     }
     if asking.wait {
@@ -253,7 +283,7 @@ pub fn look(asking: &Asking, held: &mut Option<Record>, queue: &mut Vec<Waiting>
     let others_first = first.as_ref().is_some_and(|owner| *owner != asking.owner);
     match held.clone() {
         // A claim cut short while it was made has gone, whatever its lease.
-        Some(h) if !(h.stale(now, game_running) || h.unfinished() && h.preparing.is_some()) => {
+        Some(h) if !(h.stale(seen) || h.unfinished() && h.preparing.is_some()) => {
             if asking.player && asking.now && !h.player {
                 let h = held.as_mut().expect("held");
                 let taken = *h.taken.get_or_insert(now);
@@ -295,6 +325,28 @@ fn wait_in(queue: &mut Vec<Waiting>, asking: &Asking, now: u64) {
         None => queue.push(Waiting { owner: asking.owner.clone(), asked: now, seen: now, player: asking.player }),
     }
     tidy(queue, now);
+}
+
+/// The look of the process keeping `owner`'s claim going, its `watch` or
+/// the runner playing in it: it keeps the claim, unless another that runs
+/// does already; starts its lease again while the game runs; and takes the
+/// one `eu4.exe` that runs, as `started` finds it, for the claim's game when
+/// the claim has none that runs: the game it is starting, or the process the
+/// game started in its own place. The claim, if it is still `owner`'s.
+pub fn keep(owner: &str, held: &mut Option<Record>, seen: &Seen, started: impl Fn(u32) -> Option<Process>) -> Option<Record> {
+    let h = held.as_mut().filter(|h| h.owner == owner)?;
+    if !h.kept(seen) {
+        h.keeper = Some(seen.me);
+    }
+    if seen.game_running {
+        h.renewed = seen.now;
+    }
+    if let [id] = seen.games.as_slice() {
+        if !h.game.is_some_and(|g| (seen.alive)(&g)) {
+            h.game = started(*id).or(h.game);
+        }
+    }
+    Some(h.clone())
 }
 
 /// What a holder's release finds of its claim.
@@ -354,6 +406,8 @@ mod tests {
             taken: None,
             preparing: None,
             putting_back: None,
+            keeper: None,
+            game: None,
         }
     }
 
@@ -367,13 +421,21 @@ mod tests {
     const ME: Process = Process { id: 10, started: 1 };
     const HOLDER: Process = Process { id: 20, started: 2 };
     const DEAD: Process = Process { id: 30, started: 3 };
+    /// The claim's game, which runs.
+    const GAME: Process = Process { id: 40, started: 4 };
 
     fn alive(p: &Process) -> bool {
         *p != DEAD
     }
 
+    /// What the looking process sees; a game that runs is not a claim's.
     fn at(now: u64, game_running: bool) -> Seen<'static> {
-        Seen { now, game_running, me: ME, alive: &alive }
+        Seen { now, game_running, games: if game_running { vec![99] } else { Vec::new() }, me: ME, alive: &alive }
+    }
+
+    /// What it sees with these `eu4.exe` running.
+    fn with_games(now: u64, games: &[u32]) -> Seen<'static> {
+        Seen { games: games.to_vec(), ..at(now, !games.is_empty()) }
     }
 
     /// What `process` sees.
@@ -426,6 +488,45 @@ mod tests {
         assert!(matches!(release("a", &mut held, &by(HOLDER, 321, true)), Release::Mine(_)), "the same process may go on");
         put_back(&mut held, &mine, HOLDER, true);
         assert_eq!(look(&player(true), &mut held, &mut queue, &at(330, false)), Found::Free);
+    }
+
+    /// A claim whose runner or `watch` ended, cut short, keeps its lease no
+    /// longer while its game runs: once the lease runs out, the next claim
+    /// takes over, the claim's game ended. A game that is not the claim's,
+    /// as one the player started, keeps it until it closes.
+    #[test]
+    fn a_claim_left_with_its_game_running_goes_stale() {
+        let late = 100 + 30 * 60 + 1;
+        let left = || Some(Record { keeper: Some(DEAD), game: Some(GAME), ..record("a", 100) });
+        let mut queue = Vec::new();
+        let mut held = left();
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(200, &[GAME.id])), Found::Busy(_)));
+        assert_eq!(held.as_ref().unwrap().renewed, 100, "nothing keeps it going");
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id])), Found::Gone(h) if h.owner == "a"));
+        let mut held = left();
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id, 41])), Found::Busy(_)));
+        let mut held = Some(Record { keeper: None, ..left().unwrap() });
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id])), Found::Gone(_)), "a claim no runner or watch kept");
+        // One kept going is not.
+        let mut held = Some(Record { keeper: Some(HOLDER), ..left().unwrap() });
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id])), Found::Busy(_)));
+        assert_eq!(held.unwrap().renewed, late);
+    }
+
+    /// The runner's or the watch's look keeps the claim, unless another that
+    /// runs does, and follows its game to the process it started in its
+    /// place.
+    #[test]
+    fn its_keeper_keeps_the_claim_and_follows_its_game() {
+        let started = |id| Some(Process { id, started: 5 });
+        let mut held = Some(Record { keeper: Some(HOLDER), game: Some(GAME), ..record("a", 100) });
+        let kept = keep("a", &mut held, &with_games(200, &[GAME.id]), started).unwrap();
+        assert_eq!((kept.keeper, kept.game, kept.renewed), (Some(HOLDER), Some(GAME), 200));
+        held.as_mut().unwrap().keeper = Some(DEAD);
+        held.as_mut().unwrap().game = Some(DEAD);
+        let kept = keep("a", &mut held, &with_games(300, &[50]), started).unwrap();
+        assert_eq!((kept.keeper, kept.game), (Some(ME), Some(Process { id: 50, started: 5 })));
+        assert_eq!(keep("b", &mut held, &at(300, false), started), None);
     }
 
     /// A claim whose backup is not done is never held: its own owner, asking
@@ -528,8 +629,8 @@ mod tests {
     }
 
     #[test]
-    fn a_holder_gone_is_taken_over_and_a_running_game_keeps_its_lease() {
-        let mut held = Some(record("a", 100));
+    fn a_holder_gone_is_taken_over_and_a_running_game_keeps_a_kept_lease() {
+        let mut held = Some(Record { keeper: Some(HOLDER), ..record("a", 100) });
         let mut queue = Vec::new();
         let late = 100 + 30 * 60 + 1;
         assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &at(late, true)), Found::Busy(_)));

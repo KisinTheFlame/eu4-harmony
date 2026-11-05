@@ -19,8 +19,8 @@ Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](protot
 | `cargo xtask game stop` | Ends the game |
 | `cargo xtask game release` | Ends the game if it runs, copies what the run left into the claim's folder, puts back the player's files and the game folder's framework files and `dev.toml` and compares each, and frees the game; prints a summary |
 | `cargo xtask game renew` | Starts the lease again |
-| `cargo xtask game watch` | Run in the background by the holder: exits when the lease is near its end, when the player takes the game, or when the claim is gone |
-| `cargo xtask game status` | Who holds the game, for what and until when, the queue, whether `eu4.exe` runs, and claim folders no claim refers to |
+| `cargo xtask game watch` | Run in the background by the holder: keeps the claim going, so that the game running keeps the lease going, and exits when the lease is near its end, when the player takes the game, or when the claim is gone |
+| `cargo xtask game status` | Who holds the game, for what and until when, what keeps its claim going, the queue, whether `eu4.exe` runs, and claim folders no claim refers to |
 
 `cargo xtask install` (and `--uninstall`) needs the claim too. The owner of a claim is the leaf name of the checkout's folder unless `--owner` names another, as now.
 
@@ -50,7 +50,7 @@ Each claim has one, `%LOCALAPPDATA%\eu4-harmony-dev\claims\<owner>-<yyyyMMdd-HHm
 
 ### The lease
 
-As now: 30 minutes, starting again at every `claim` and `renew`, and kept going while `eu4.exe` runs, so that it counts only the time the game is closed. A holder whose lease ran out has gone: the first in the queue takes over, its files put back first; its record stays until they are, so a put back that fails keeps the game the gone holder's, to be put back again, rather than handing it on.
+30 minutes, starting again at every `claim`, `renew` and `start`, and kept going while `eu4.exe` runs as long as a process keeps the claim going: its `watch`, or the scenario runner playing in it. A holder idling with the game open keeps it then, the lease counting only the time the game is closed; one whose session or runner ended without releasing does not. The record names that process, the keeper, with when it started, so that a later process given the same id is not taken for it, and the game started within the claim, which the keeper follows to the process the game starts in its place. A holder whose lease ran out has gone: with the game closed, or with only the claim's own game running and no keeper running; a game that is not the claim's, as one the player started, keeps the holder until it closes. The first in the queue takes over, the claim's game ended and its files put back first; its record stays until they are, so a put back that fails keeps the game the gone holder's, to be put back again, rather than handing it on.
 
 ### Moving from the skill's script
 
