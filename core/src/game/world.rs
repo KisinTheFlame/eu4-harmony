@@ -242,6 +242,11 @@ impl Geography {
         ids.iter().filter_map(|id| nodes.get(*id as usize).filter(|n| n.id != 0)).map(|n| province_now(m, n, visibility_current)).collect()
     }
 
+    /// Every province's address, land, sea and lake.
+    pub fn addresses(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
+        Ok(self.nodes(m, ctx)?.iter().filter(|n| n.id != 0).map(|n| n.address).collect())
+    }
+
     /// Every province armies can stand on, as (number, address).
     pub fn land_provinces(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<(u32, usize)>> {
         Ok(self.nodes(m, ctx)?.iter().filter(|n| n.admissible()).map(|n| (n.id, n.address)).collect())
