@@ -226,6 +226,12 @@ pub mod country {
     pub const RELATIONS: usize = 0x1510;
     pub const RELATION_SIZE: usize = 0x48;
     pub const RELATION_OTHER: usize = 0x10;
+    /// In a record, the other's trust in it (u8, up to 100), and the favors
+    /// the other owes it (i32, thousandths).
+    pub const RELATION_TRUST: usize = 0x1e;
+    pub const RELATION_FAVORS: usize = 0x20;
+    /// Its capital, a pointer to the [`super::province`].
+    pub const CAPITAL: usize = 0x14b0;
     /// The countries it rivals: the first of a chain of nodes, each with the
     /// rival's tag at [`RIVAL_TAG`] and the next node at [`RIVAL_NEXT`].
     pub const RIVALS: usize = 0x2248;
@@ -976,6 +982,15 @@ pub fn points() -> Vec<Point> {
             .uses(&[COUNTRY_MANAGER, countries::LIST, country::POWER_DIP]),
         Point::keep(0xcb566dusize, "48 8b 05 5c 82 68 01 48 0f bf c9 48 8b 80 18 01 00 00 48 8b 34 c8 48 81 c6 68 02 00 00", "military points")
             .uses(&[COUNTRY_MANAGER, countries::LIST, country::POWER_MIL]),
+        // The trade favors for trust window's button: the record the other
+        // country keeps of the player, the trust and the favors in it.
+        Point::keep(0xeebc95usize, "49 8b 82 10 15 00 00 8b 4c d0 20 44 0f b6 4c d0 1e", "relation's trust and favors").uses(&[
+            country::RELATIONS,
+            country::RELATION_FAVORS,
+            country::RELATION_TRUST,
+        ]),
+        // The sell province window leaving out the capital.
+        Point::keep(0x13a3397usize, "48 8b 80 18 01 00 00 48 8b 0c d0 48 8b 03 48 39 81 b0 14 00 00", "country capital").uses(&[country::CAPITAL]),
         // Walking a country's allies, as the AI does.
         Point::keep(0x3a37a7usize, "48 8b bf b8 19 00 00 48 85 ff 0f 84 19 07 00 00 44 8b 45 d8 0f 1f 44 00 00 48 8b 0f 48 8b 7f 10", "country allies")
             .uses(&[country::ALLIES, list::ITEM, list::NEXT]),

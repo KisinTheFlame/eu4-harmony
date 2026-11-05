@@ -146,6 +146,9 @@ pub struct Extension {
     name: String,
     host: Arc<dyn Host>,
     lua: Lua,
+    /// Its main thread, a `lua_State*`, on which the error of a task the
+    /// host runs is written.
+    main: usize,
     handlers: Table,
     /// The `game` every handler gets.
     game: Table,
@@ -221,6 +224,13 @@ fn running(serial: u64) -> bool {
     CURRENT.with(Cell::get) == Some(serial)
 }
 
+/// Whether an extension runs on this thread now, so that what it called is
+/// running inside its call: an extension is not to be called again before
+/// that call is done.
+pub fn calling() -> bool {
+    CURRENT.with(Cell::get).is_some()
+}
+
 /// The task running now on this thread, for the Lua wrapper of a function
 /// that waits.
 fn current_task() -> Option<Thread> {
@@ -237,7 +247,7 @@ pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>
     let source = std::fs::read_to_string(&main).map_err(|e| format!("cannot read {}: {e}", main.display()))?;
     // main.lua runs as a plain call: it cannot wait, and the time limit
     // holds for it too.
-    watch::start(opened.main_state);
+    watch::start(opened.main_state, None);
     let ran = opened.lua.load(source).set_name("@main.lua").set_mode(mlua::ChunkMode::Text).eval::<LuaValue>();
     let stopped = watch::end();
     let handlers = match ran.map_err(|e| e.to_string())? {
@@ -252,6 +262,7 @@ pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>
         name: m.name.to_string(),
         host,
         lua: opened.lua,
+        main: opened.main_state as usize,
         handlers,
         game: opened.game,
         wait: opened.wait,
@@ -367,7 +378,9 @@ impl Extension {
     fn stretch(&self, thread: &Thread, args: MultiValue) -> Stretch {
         let previous = CURRENT.with(|c| c.replace(Some(self.serial)));
         let previous_task = TASK.with(|t| t.replace(Some(thread.clone())));
-        watch::start(thread.to_pointer());
+        // A task `spawn` runs has its error written on the task that spawned
+        // it, which is watched already.
+        watch::start(thread.to_pointer(), previous.is_none().then_some(self.main as *const std::ffi::c_void));
         let started = Instant::now();
         let result = thread.resume::<MultiValue>(args);
         let elapsed = started.elapsed();
@@ -502,9 +515,12 @@ impl Extension {
                 }
             }
         }
+        // Stopped on the way, it keeps no task: they would never run again.
         let mut state = self.state();
-        still.append(&mut state.tasks);
-        state.tasks = still;
+        if state.stopped.is_none() {
+            still.append(&mut state.tasks);
+            state.tasks = still;
+        }
     }
 
     /// An error in a handler: logged, the same one only counted after its
@@ -577,7 +593,7 @@ impl Extension {
         }
         let Ok(LuaValue::Function(save_data)) = self.handlers.get::<LuaValue>("save_data") else { return None };
         let previous = CURRENT.with(|c| c.replace(Some(self.serial)));
-        watch::start(sandbox::main_state(&self.lua));
+        watch::start(self.main as *const std::ffi::c_void, None);
         let started = Instant::now();
         let returned = save_data.call::<LuaValue>(self.game.clone());
         let elapsed = started.elapsed();

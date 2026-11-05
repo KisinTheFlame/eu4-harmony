@@ -16,14 +16,17 @@
 //!   hear it at that frame with the rest of what happened, in its order
 //!   (`game::Frame::heard`).
 //! - The session ended, while its state is still the game's: remote control
-//!   keeps it as an event, then every extension hears it (`crate::lua`). A
+//!   keeps it as an event, and its requests sent from then on belong to the
+//!   next session, then every extension hears it (`crate::lua`). A
 //!   session ends once: a second end of the same is not told, and a session
-//!   that begins while another is going on ends that one first.
+//!   that begins while another is going on ends that one first, for another
+//!   country when nothing was read or reset since (the game console's `tag`).
 //! - The campaign changes, as a save begins to be read: the capability
-//!   layer forgets the old one (`game::events`), and remote control's
-//!   requests sent from then on belong to the next session.
+//!   layer forgets the old one (`game::events`), routes turned off for the
+//!   old world come back (`game::orders`), and remote control's requests
+//!   sent from then on belong to the next session.
 //! - The world was reset, without a save: the capability layer forgets the
-//!   old session as at a load.
+//!   old session and routes come back, as at a load.
 //! - The game restarts: the saves compressed in the background are put in
 //!   their place, and remote control answers every request while it can.
 use crate::game;
@@ -41,6 +44,9 @@ pub enum End {
     Load,
     /// For a new game started from the session.
     NewGame,
+    /// The player's country changed, on the same world: the game console's
+    /// `tag`, say. The next session begins at once.
+    Country,
 }
 
 impl End {
@@ -50,6 +56,7 @@ impl End {
             End::Return => "return",
             End::Load => "load",
             End::NewGame => "new_game",
+            End::Country => "country",
         }
     }
 }
@@ -104,23 +111,30 @@ pub struct Lifecycle {
     /// Since when the game's frames have failed to read, and how many saves
     /// the game had begun to read then: another save loaded starts it again.
     failing: Option<(Instant, usize)>,
+    /// Whether a save was begun to be read or the world reset since the
+    /// session going on began.
+    replaced: bool,
 }
 
 impl Lifecycle {
     pub const fn new() -> Self {
-        Self { going_on: None, at: At::Elsewhere, reading: 0, loads: 0, last_read: false, failing: None }
+        Self { going_on: None, at: At::Elsewhere, reading: 0, loads: 0, last_read: false, failing: None, replaced: false }
     }
 
     /// A game's safe frame of `session` was read: a session begins when it
-    /// is a new one, ending the one going on, if any.
+    /// is a new one, ending the one going on, if any. That one was not left
+    /// by a way out, which would have ended it: with nothing read or reset
+    /// since it began, the player's country changed, and otherwise the
+    /// game's world was replaced as at a load.
     pub fn frame_read(&mut self, session: u64, new_session: bool) -> Vec<Happening> {
         self.failing = None;
         let mut happened = Vec::new();
         if new_session && self.going_on != Some(session) {
             if let Some(old) = self.going_on.take() {
-                happened.push(Happening::Ended(old, End::Load));
+                happened.push(Happening::Ended(old, if self.replaced { End::Load } else { End::Country }));
             }
             self.going_on = Some(session);
+            self.replaced = false;
             happened.push(Happening::Began(session));
         }
         happened
@@ -148,6 +162,7 @@ impl Lifecycle {
         self.reading += 1;
         self.loads += 1;
         self.last_read = false;
+        self.replaced = true;
         vec![Happening::CampaignChanges]
     }
 
@@ -162,6 +177,7 @@ impl Lifecycle {
     }
 
     pub fn world_reset(&mut self) -> Vec<Happening> {
+        self.replaced = true;
         vec![Happening::WorldReset]
     }
 
@@ -195,9 +211,13 @@ fn tell(happened: Vec<Happening>) {
             }
             Happening::CampaignChanges => {
                 game::events::load_begin();
+                game::orders::world_replaced();
                 crate::remote::campaign_changes();
             }
-            Happening::WorldReset => game::events::world_reset(),
+            Happening::WorldReset => {
+                game::events::world_reset();
+                game::orders::world_replaced();
+            }
             Happening::Restarting => {
                 crate::saves::background::wait();
                 crate::remote::restarting();
@@ -302,8 +322,9 @@ mod tests {
         assert_eq!(l.frame_read(1, true), vec![Began(1)]);
         assert_eq!(l.frame_read(1, false), vec![]);
         assert_eq!(l.ending(End::Return), vec![Ended(1, End::Return)]);
-        // Leaving again, as when an ironman exit save failed and the player
-        // tries once more: the session was told it ended already.
+        // Leaving again, as by a second way out within one frame: the
+        // session was told it ended already. (An ironman exit save that
+        // fails comes before the end, which is then not told at all.)
         assert_eq!(l.ending(End::Load), vec![]);
         assert_eq!(l.world_reset(), vec![WorldReset]);
         assert_eq!(l.frame_read(2, true), vec![Began(2)]);
@@ -313,7 +334,22 @@ mod tests {
     fn a_session_that_begins_while_another_goes_on_ends_that_one_first() {
         let mut l = Lifecycle::new();
         l.frame_read(4, true);
+        l.load_began();
+        l.load_ended();
         assert_eq!(l.frame_read(5, true), vec![Ended(4, End::Load), Began(5)]);
+        l.world_reset();
+        assert_eq!(l.frame_read(6, true), vec![Ended(5, End::Load), Began(6)]);
+    }
+
+    #[test]
+    fn a_session_that_begins_with_nothing_read_or_reset_ends_the_last_for_another_country() {
+        // The game console's tag: the same world, the player's country changed.
+        let mut l = Lifecycle::new();
+        l.load_began();
+        l.load_ended();
+        l.frame_read(4, true);
+        assert_eq!(l.frame_read(5, true), vec![Ended(4, End::Country), Began(5)]);
+        assert_eq!(End::Country.word(), "country");
     }
 
     #[test]

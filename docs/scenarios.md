@@ -35,9 +35,11 @@ It is handed the game at its main menu and plays it through remote control, aski
 1. **Steam**: the runner finds Steam running with a user logged in, or stops before anything else, saying to start it. It never starts Steam itself.
 2. **The claim**: it claims the game, waiting in the queue with `--wait`; if this checkout holds the game already, it plays within that claim and leaves it held at the end.
 3. **Each build** the scenarios named need, in turn: it builds it, installs it, starts the game hidden, and plays that build's scenarios one after another, each from the main menu.
-4. **The release**, of a claim it made itself; then it writes the report.
+4. **The report**, then **the release**, of a claim it made itself.
 
-While it plays, it keeps the lease going and notices the player taking the game. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
+Whatever ends the run, an error such as a report it cannot write, a scenario's panic, or Ctrl-C, the runner ends the game and releases a claim it made, the panic going on after. Ctrl-C ends the game, so that the step waiting on it ends, leaves the scenarios after it unplayed, and writes the report as far as it got; a second Ctrl-C ends the runner at once, leaving the claim, whose lease then runs out, since nothing keeps it going any more ([game-testing.md](game-testing.md), "The lease").
+
+While it plays, it keeps the claim going, and with it the lease, and notices the player taking the game. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
 
 ### How a scenario ends
 
@@ -49,6 +51,7 @@ While it plays, it keeps the lease going and notices the player taking the game.
 | Hung | A step took longer than its time: an answer, the main menu, the days to run | The report says which step; the game is ended and started again for the next one |
 | Unfinished | The player took the game | The scenarios left are not played; the runner does not release, since the player's claim does, and writes the report as far as it got |
 | Not played | Its build could not be built or installed, or the player had taken the game before it began | The report says why; the scenarios of the next build are played |
+| Unfinished | Ctrl-C | The game is ended and the scenarios left are not played; the runner writes the report as far as it got and releases a claim it made |
 
 ### The report
 

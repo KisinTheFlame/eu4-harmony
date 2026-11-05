@@ -86,6 +86,9 @@ pub struct Fake {
     pub inputs: Vec<game::input::Action>,
     /// How many of them the game has had.
     pub inputs_handled: u64,
+    /// What a console command does besides, inside the request that runs
+    /// it: one that loads a save ends the session there.
+    pub console_does: Option<Box<dyn FnMut() + Send>>,
 }
 
 impl Fake {
@@ -1401,6 +1404,9 @@ impl screenshot::Layer for Fake {
 impl console::Layer for Fake {
     fn console(&mut self, command: &str) -> GResult<String> {
         self.call(format!("console {command}"));
+        if let Some(does) = self.console_does.as_mut() {
+            does();
+        }
         match command {
             "cash 100" => Ok("Gold changed by 100".into()),
             _ => fail(Status::Rejected, "Unknown command"),

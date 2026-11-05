@@ -147,6 +147,9 @@ struct Queued {
     frames: VecDeque<Vec<Step>>,
     /// The frame's size when it was taken.
     frame: (u32, u32),
+    /// What the game had been handed as held before its first frame was,
+    /// once it was.
+    before: Option<Held>,
 }
 
 struct State {
@@ -170,17 +173,74 @@ struct State {
     real_at: Option<[i32; 2]>,
 }
 
-static STATE: Mutex<State> = Mutex::new(State {
-    frame: None,
-    presents: 0,
-    queue: VecDeque::new(),
-    planned: Held { buttons: Vec::new(), keys: Vec::new() },
-    held: Held { buttons: Vec::new(), keys: Vec::new() },
-    next: 0,
-    finished: None,
-    cursor: None,
-    real_at: None,
-});
+impl State {
+    const fn new() -> Self {
+        State {
+            frame: None,
+            presents: 0,
+            queue: VecDeque::new(),
+            planned: Held { buttons: Vec::new(), keys: Vec::new() },
+            held: Held { buttons: Vec::new(), keys: Vec::new() },
+            next: 0,
+            finished: None,
+            cursor: None,
+            real_at: None,
+        }
+    }
+
+    /// A frame `size` pixels large is about to be presented: the steps of
+    /// the input first in line to hand over now, each with what is held
+    /// before and after it.
+    ///
+    /// An input taken for a frame of another size is dropped, as its
+    /// positions no longer mean what they meant. What it was handed over
+    /// already and would have let go of later, a modifier or a button held
+    /// down, is let go of in its place, one frame each, as at a session's
+    /// beginning: else it would stay held, and its client was told it
+    /// was taken.
+    fn present(&mut self, size: (u32, u32)) -> Vec<(Step, Held, Held)> {
+        self.presents += 1;
+        self.frame = Some(size);
+        let Some(q) = self.queue.front_mut() else { return Vec::new() };
+        let number = q.number;
+        if q.frame != size && q.frame != ANY_FRAME {
+            let before = q.before.clone().unwrap_or_else(|| self.held.clone());
+            let left = Held {
+                buttons: self.held.buttons.iter().copied().filter(|b| !before.buttons.contains(b)).collect(),
+                keys: self.held.keys.iter().copied().filter(|k| !before.keys.contains(k)).collect(),
+            };
+            log!(
+                "input #{number}: dropped, the frame changed from {}x{} to {size:?} before it was handed over; letting go of {} it held",
+                q.frame.0,
+                q.frame.1,
+                left.buttons.len() + left.keys.len()
+            );
+            q.frames = left.release().into();
+            q.frame = ANY_FRAME;
+            // What it would have held is not held: plan again from what the game has.
+            self.planned = self.held.clone();
+            for step in self.queue.iter().flat_map(|q| q.frames.iter().flatten()) {
+                self.planned.apply(step);
+            }
+        }
+        let Some(q) = self.queue.front_mut() else { return Vec::new() };
+        q.before.get_or_insert_with(|| self.held.clone());
+        let steps = q.frames.pop_front().unwrap_or_default();
+        if q.frames.is_empty() {
+            self.queue.pop_front();
+            self.finished = Some((number, self.presents));
+        }
+        let mut given = Vec::new();
+        for step in steps {
+            let before = self.held.clone();
+            self.held.apply(&step);
+            given.push((step, before, self.held.clone()));
+        }
+        given
+    }
+}
+
+static STATE: Mutex<State> = Mutex::new(State::new());
 
 fn state() -> std::sync::MutexGuard<'static, State> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -229,7 +289,7 @@ pub fn take(caller: Caller, mut action: Action, scale: u32) -> GResult<Taken> {
     let frames: VecDeque<Vec<Step>> = plan::frames(&action, &s.planned).into();
     frames.iter().flatten().for_each(|step| s.planned.apply(step));
     s.next += 1;
-    s.queue.push_back(Queued { number: s.next, frames, frame });
+    s.queue.push_back(Queued { number: s.next, frames, frame, before: None });
     Ok(Taken(s.next))
 }
 
@@ -253,36 +313,10 @@ pub fn cursor(caller: Caller) -> GResult<Cursor> {
 /// Just before the main thread presents a frame `size` pixels large: hands
 /// the game the next frame's steps of the input first in line.
 pub fn presenting(size: (u32, u32)) {
-    let mut given = Vec::new();
-    let cursor = {
-        let mut guard = state();
-        let s = &mut *guard;
-        s.presents += 1;
-        s.frame = Some(size);
-        let Some(q) = s.queue.front_mut() else { return };
-        let number = q.number;
-        if q.frame != size && q.frame != ANY_FRAME {
-            log!("input #{number}: dropped, the frame changed from {}x{} to {size:?} before it was handed over", q.frame.0, q.frame.1);
-            s.queue.pop_front();
-            s.finished = Some((number, s.presents));
-            // What it would have held is not held: plan again from what the game has.
-            s.planned = s.held.clone();
-            for step in s.queue.iter().flat_map(|q| q.frames.iter().flatten()) {
-                s.planned.apply(step);
-            }
-            return;
-        }
-        let steps = q.frames.pop_front().unwrap_or_default();
-        if q.frames.is_empty() {
-            s.queue.pop_front();
-            s.finished = Some((number, s.presents));
-        }
-        for step in steps {
-            let before = s.held.clone();
-            s.held.apply(&step);
-            given.push((step, before, s.held.clone()));
-        }
-        s.cursor
+    let (given, cursor) = {
+        let mut s = state();
+        let given = s.present(size);
+        (given, s.cursor)
     };
     // Outside the lock: the window procedure the messages go through must not
     // find it held.
@@ -321,7 +355,7 @@ pub fn session_began() {
     s.next += 1;
     let number = s.next;
     log!("input: a session began; letting go of {} held", release.len());
-    s.queue.push_back(Queued { number, frames: release.into(), frame: ANY_FRAME });
+    s.queue.push_back(Queued { number, frames: release.into(), frame: ANY_FRAME, before: None });
 }
 
 /// A message Windows sends the game's window, not one input gave: whether
@@ -359,5 +393,34 @@ mod tests {
         assert_eq!(scale_up((1919, 1079), (3840, 2160), 50), (3839, 2159));
         assert_eq!(scale_up((100, 200), (3840, 2160), 100), (100, 200));
         assert_eq!(scale_up((0, 0), (1920, 1080), 1), (50, 49));
+    }
+
+    #[test]
+    fn an_input_dropped_for_another_frame_size_lets_go_of_what_it_held() {
+        let shift = Key::named("shift").unwrap();
+        let mut s = State::new();
+        let frame = (1920, 1080);
+        let drag = Action::Drag { from: (10, 10), to: (500, 10), button: Button::Left, modifiers: vec![shift] };
+        let frames: VecDeque<Vec<Step>> = plan::frames(&drag, &s.planned).into();
+        frames.iter().flatten().for_each(|step| s.planned.apply(step));
+        s.queue.push_back(Queued { number: 1, frames, frame, before: None });
+        // Shift down, the move to the start, the button down.
+        for _ in 0..3 {
+            s.present(frame);
+        }
+        assert_eq!(s.held, Held { buttons: vec![Button::Left], keys: vec![shift] });
+        // The window changes size: the rest of the drag goes, and what it
+        // held is let go of, a frame each.
+        let given: Vec<Step> = (0..2).flat_map(|_| s.present((1280, 720))).map(|(step, _, _)| step).collect();
+        assert_eq!(given, [Step::Button(Button::Left, false), Step::Key(shift, false)]);
+        assert_eq!(s.held, Held::default());
+        assert_eq!(s.planned, Held::default());
+        assert!(s.queue.is_empty());
+        assert_eq!(s.finished, Some((1, s.presents)));
+        // An input dropped before any of it was handed over gives nothing.
+        let click = Action::Click { at: (10, 10), button: Button::Left, count: 1, modifiers: vec![shift] };
+        s.queue.push_back(Queued { number: 2, frames: plan::frames(&click, &s.planned).into(), frame, before: None });
+        assert!(s.present((1280, 720)).is_empty());
+        assert!(s.queue.is_empty() && s.held == Held::default());
     }
 }

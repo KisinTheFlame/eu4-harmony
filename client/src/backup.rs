@@ -5,7 +5,8 @@
 //! applies them, and rewrites its login cache.
 //!
 //! A backup is a folder with `files\` (the copies, by their paths under the
-//! user folder), `items.txt` (what was backed up, one a line), `crashes.txt`
+//! user folder), `items.txt` (what was backed up, one a line), `copied.txt`
+//! (every file copied, by its path under the user folder), `crashes.txt`
 //! (the crash folders there were) and `user-folder.txt`.
 use crate::Result;
 use std::{
@@ -17,6 +18,9 @@ use std::{
 /// The folders a run may change, under the user folder; every file at its
 /// top is added to them.
 const FOLDERS: [&str; 2] = ["save games", "eu4-harmony"];
+/// Where a restore puts a copy, in the user folder, before the copy takes
+/// the place of what is there.
+const STAGE: &str = ".eu4-harmony-restoring";
 
 /// The user folder, absolute, which must be there.
 pub fn user_folder(user: &Path) -> Result<PathBuf> {
@@ -46,6 +50,11 @@ pub fn backup(user: &Path, dir: &Path) -> Result<()> {
         copy_tree(&from, &dir.join("files").join(item))?;
         println!("  {item}");
     }
+    let mut copied = Vec::new();
+    for item in &items {
+        copied.extend(files(&dir.join("files"), item)?.into_keys());
+    }
+    write_lines(&dir.join("copied.txt"), &copied)?;
     write_lines(&dir.join("items.txt"), &items)?;
     write_lines(&dir.join("crashes.txt"), &crashes(user)?)?;
     write_lines(&dir.join("user-folder.txt"), &[user.display().to_string()])?;
@@ -56,6 +65,10 @@ pub fn backup(user: &Path, dir: &Path) -> Result<()> {
 /// Lists what changed since the backup in `dir`, puts every file back as the
 /// backup has it, compares each, and removes the crash folders the run left
 /// unless `keep_crashes`, and the backup once all match unless `keep`.
+///
+/// Nothing the backup has no whole copy of is removed: a backup missing a
+/// file it copied is refused before anything changes, and each copy is made
+/// beside its target, and compared, before it takes the target's place.
 pub fn restore(user: &Path, dir: &Path, keep: bool, keep_crashes: bool) -> Result<()> {
     let dir = std::path::absolute(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let saved = dir.join("files");
@@ -68,9 +81,31 @@ pub fn restore(user: &Path, dir: &Path, keep: bool, keep_crashes: bool) -> Resul
 
     // What was backed up, and the files the run added at the top.
     let items: BTreeSet<String> = read_lines(&dir.join("items.txt"))?.into_iter().chain(top_files(user)?).collect();
-    let mut differ = 0;
+    // A backup made before `copied.txt` is taken as its copies are.
+    let copied: Option<BTreeSet<String>> = read_lines(&dir.join("copied.txt")).ok().map(|lines| lines.into_iter().collect());
+    let mut backed_up = BTreeMap::new();
     for item in &items {
         let before = files(&saved, item)?;
+        if let Some(copied) = &copied {
+            let under = format!("{item}\\");
+            let listed = copied.iter().filter(|p| *p == item || p.starts_with(&under)).count();
+            let missing = copied.iter().filter(|p| (*p == item || p.starts_with(&under)) && !before.contains_key(*p)).count();
+            if missing > 0 {
+                return Err(format!(
+                    "the backup's copy of {item} misses {missing} of its {listed} file(s): nothing is put back, and the backup stays at {}",
+                    dir.display()
+                ));
+            }
+        }
+        backed_up.insert(item.clone(), (saved.join(item).exists(), before));
+    }
+    // What a restore that did not end left there is a copy of what its
+    // backup has, which that backup keeps until every file matches.
+    let stage = user.join(STAGE);
+    remove_tree(&stage)?;
+
+    let mut differ = 0;
+    for (item, (had_copy, before)) in &backed_up {
         let now = files(user, item)?;
         for (path, file) in &now {
             match before.get(path) {
@@ -83,10 +118,17 @@ pub fn restore(user: &Path, dir: &Path, keep: bool, keep_crashes: bool) -> Resul
             println!("  deleted: {path}");
         }
         let target = user.join(item);
-        remove_tree(&target)?;
-        let copy = saved.join(item);
-        if copy.exists() {
-            copy_tree(&copy, &target)?;
+        if *had_copy {
+            let staged = stage.join(item);
+            if let Err(e) = copy_tree(&saved.join(item), &staged).and_then(|()| whole(&stage, item, before)) {
+                let _ = remove_tree(&stage);
+                return Err(format!("{e}; {} is left as it is, and the backup stays at {}", target.display(), dir.display()));
+            }
+            remove_tree(&target)?;
+            fs::rename(&staged, &target)
+                .map_err(|e| format!("cannot move {} to {}: {e}; the backup stays at {}", staged.display(), target.display(), dir.display()))?;
+        } else {
+            remove_tree(&target)?;
         }
         let after = files(user, item)?;
         for path in before.keys().chain(after.keys()).collect::<BTreeSet<_>>() {
@@ -97,6 +139,7 @@ pub fn restore(user: &Path, dir: &Path, keep: bool, keep_crashes: bool) -> Resul
             }
         }
     }
+    remove_tree(&stage)?;
 
     let known: BTreeSet<String> = read_lines(&dir.join("crashes.txt")).unwrap_or_default().into_iter().collect();
     for crash in crashes(user)?.into_iter().filter(|c| !known.contains(c)) {
@@ -118,6 +161,17 @@ pub fn restore(user: &Path, dir: &Path, keep: bool, keep_crashes: bool) -> Resul
     } else {
         fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
         println!("removed the backup {}", dir.display());
+    }
+    Ok(())
+}
+
+/// Refuses unless the copy of `item` under `stage` has every file of
+/// `before`, the backup's, and no other, each with the same bytes.
+fn whole(stage: &Path, item: &str, before: &BTreeMap<String, PathBuf>) -> Result<()> {
+    let staged = files(stage, item)?;
+    let alike = staged.len() == before.len() && before.iter().all(|(path, file)| staged.get(path).is_some_and(|copy| same(file, copy)));
+    if !alike {
+        return Err(format!("the backup's copy of {item} changed while it was copied"));
     }
     Ok(())
 }
@@ -266,6 +320,7 @@ mod tests {
         assert!(!user.join("crashes").join("new").exists() && user.join("crashes").join("old").exists());
         assert_eq!(fs::read_to_string(user.join("mod").join("x.mod")).unwrap(), "changed, not ours to restore");
         assert!(!dir.exists());
+        assert!(!user.join(STAGE).exists());
         let _ = fs::remove_dir_all(user);
         let _ = fs::remove_dir_all(backups);
     }
@@ -283,6 +338,50 @@ mod tests {
         fs::create_dir_all(&other).unwrap();
         assert!(restore(&other, &dir, false, false).unwrap_err().contains("pass --user-dir"));
         for d in [user, dir, other] {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+
+    /// A backup whose copy of what it backed up has gone, as when another
+    /// restore of it finished and removed it, puts nothing back and removes
+    /// nothing: the player's files stay as they are.
+    #[test]
+    fn restore_removes_nothing_the_backup_has_no_copy_of() {
+        let user = scratch("user3");
+        let dir = scratch("gone");
+        put(&user.join("settings.txt"), "volume=1");
+        put(&user.join("save games").join("a.eu4"), "a");
+        backup(&user, &dir).unwrap();
+        put(&user.join("save games").join("b.eu4"), "played since");
+        put(&user.join("settings.txt"), "volume=0");
+        fs::remove_dir_all(dir.join("files").join("save games")).unwrap();
+
+        assert!(restore(&user, &dir, false, false).unwrap_err().contains("save games"));
+        assert_eq!(fs::read_to_string(user.join("save games").join("a.eu4")).unwrap(), "a");
+        assert_eq!(fs::read_to_string(user.join("save games").join("b.eu4")).unwrap(), "played since");
+        assert_eq!(fs::read_to_string(user.join("settings.txt")).unwrap(), "volume=0", "nothing is put back from a backup missing a part");
+        assert!(dir.exists());
+        for d in [user, dir] {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+
+    /// A copy cut short, missing a file the backup copied, leaves its target
+    /// as it is.
+    #[test]
+    fn a_copy_cut_short_leaves_its_target() {
+        let user = scratch("user4");
+        let dir = scratch("cut-short");
+        put(&user.join("save games").join("a.eu4"), "a");
+        backup(&user, &dir).unwrap();
+        put(&user.join("save games").join("b.eu4"), "played since");
+        fs::remove_file(dir.join("files").join("save games").join("a.eu4")).unwrap();
+
+        assert!(restore(&user, &dir, false, false).is_err());
+        assert_eq!(fs::read_to_string(user.join("save games").join("b.eu4")).unwrap(), "played since");
+        assert_eq!(fs::read_to_string(user.join("save games").join("a.eu4")).unwrap(), "a");
+        assert!(!user.join(STAGE).exists(), "nothing of the restore is left in the user folder");
+        for d in [user, dir] {
             let _ = fs::remove_dir_all(d);
         }
     }

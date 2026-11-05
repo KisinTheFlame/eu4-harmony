@@ -414,10 +414,14 @@ group! {
     game TradeFavorsForTrust "trade_favors_for_trust" {
         /// The other country.
         country: CountryTag,
-        /// The favors to spend.
+        /// The favors to spend, a step of them at a time as the window spends
+        /// them (the action's description in `diplomacy.options` says how many
+        /// favors buy how much trust), no more than the country owes, and no
+        /// more steps than it takes to fill its trust.
         favors: u32,
-        /// The trust to gain.
-        trust: u32,
+        /// The trust they buy, a step of trust for each step of favors; worked
+        /// out when left out, and refused when it is not that.
+        trust: Option<u32>,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Spends favors a country owes to have it prepare for war beside the player. As the diplomacy panel's button `trade_favors_for_war_prep` sends it
     /// (`diplomacy.options` says whether the player can).
@@ -557,7 +561,8 @@ group! {
     game TransferTradePower "transfer_trade_power" {
         /// The other country.
         country: CountryTag,
-        /// The share of the country's trade power to transfer, in percent.
+        /// The share of the country's trade power to transfer, in percent, 1
+        /// to 100.
         percent: u32,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Stops the transfer of trade power from a country. As the diplomacy panel's button `transfer_trade_power` sends it
@@ -701,7 +706,8 @@ group! {
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Sells ships to a country. As the diplomacy panel's button `sell_ships_action` sends it
-    /// (`diplomacy.options` says whether the player can).
+    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
+    /// window has the player choose the ships and a price, which this does not choose.
     game SellShips "sell_ships" {
         /// The other country.
         country: CountryTag,
@@ -783,7 +789,8 @@ group! {
     game OfferLoan "offer_loan" {
         /// The other country.
         country: CountryTag,
-        /// How many ducats to lend.
+        /// How many ducats to lend, at least 1 and no more than the treasury,
+        /// as the loan window allows.
         amount: u32,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Gives a country war subsidies. As the diplomacy panel's button `warsubsidy` sends it
@@ -791,7 +798,8 @@ group! {
     game SubsidizeWar "subsidize_war" {
         /// The other country.
         country: CountryTag,
-        /// Ducats a month, at least 1.
+        /// Ducats a month, at least 1 and no more than the treasury, as the
+        /// subsidies window allows.
         amount: u32,
         /// How long, as the subsidies window counts it: 10 to 400, by 10; 10,
         /// as the window starts, when left out.
@@ -808,7 +816,8 @@ group! {
     game SellProvince "sell_province" {
         /// The other country.
         country: CountryTag,
-        /// The province to sell, one the player controls, not the capital.
+        /// The province to sell, one the player owns and controls, not the
+        /// capital.
         province: ProvinceId,
         /// The price, in ducats.
         price: u32,
@@ -818,7 +827,8 @@ group! {
     game TradeFavorsForCore "trade_favors_for_core" {
         /// The other country.
         country: CountryTag,
-        /// The province, a core of the player's that the country owns.
+        /// The province, a core of the player's that the country owns and
+        /// controls.
         province: ProvinceId,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Offers a country an army as condottieri. As the diplomacy panel's button `condottieri_action` sends it

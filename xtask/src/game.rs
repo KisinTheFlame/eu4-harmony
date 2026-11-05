@@ -3,10 +3,7 @@ use crate::Result;
 use std::path::PathBuf;
 use windows_sys::Win32::{
     Foundation::CloseHandle,
-    System::{
-        Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS},
-        Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE},
-    },
+    System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE},
 };
 
 /// The game folder: `EU4_GAME_DIR` when it is set, or else the Steam library
@@ -20,46 +17,30 @@ pub fn dir() -> Result<PathBuf> {
     }
 }
 
-/// The ids of every running `eu4.exe`.
+/// The ids of every running `eu4.exe`; none when the list of processes
+/// cannot be read, which [`running`] counts as a game that runs.
 pub fn processes() -> Vec<u32> {
-    let mut found = Vec::new();
-    unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snapshot.is_null() || snapshot as isize == -1 {
-            return found;
-        }
-        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-        let mut more = Process32FirstW(snapshot, &mut entry) != 0;
-        while more {
-            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
-            if String::from_utf16_lossy(&entry.szExeFile[..len]).eq_ignore_ascii_case("eu4.exe") {
-                found.push(entry.th32ProcessID);
-            }
-            more = Process32NextW(snapshot, &mut entry) != 0;
-        }
-        CloseHandle(snapshot);
-    }
-    found
+    eu4_harmony_client::game_processes().unwrap_or_default()
 }
 
+/// Whether an `eu4.exe` runs, as it counts for what this guards: when it
+/// cannot be told, it does.
 pub fn running() -> bool {
-    !processes().is_empty()
+    eu4_harmony_client::game_running().unwrap_or(true)
 }
 
-/// Refuses while the game runs.
+/// Refuses while the game runs, and when it cannot be told whether it runs.
 pub fn not_running() -> Result<()> {
-    if running() {
-        return Err("eu4.exe is running; close it first".into());
-    }
-    Ok(())
+    eu4_harmony_client::game_not_running()
 }
 
 /// Waits for `eu4.exe` to end, a minute at most.
 pub fn wait_closed() -> Result<()> {
     for _ in 0..120 {
-        if !running() {
-            return Ok(());
+        match eu4_harmony_client::game_running() {
+            Ok(false) => return Ok(()),
+            Ok(true) => {}
+            Err(e) => return Err(format!("cannot tell whether eu4.exe has ended: {e}")),
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }

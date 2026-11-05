@@ -19,7 +19,7 @@ Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 an
   ```lua
   return {
     on_session = function(game, saved) end,        -- a session began; saved is this extension's save data, or nil
-    on_session_ended = function(game, reason) end, -- the session is being left ("return", "load" or "new_game"); its state is still there to read
+    on_session_ended = function(game, reason) end, -- the session is being left ("return", "load", "new_game", or "country" when the player's country changed); its state is still there to read
     on_frame = function(game) end,                 -- every frame while a session runs, paused or not
     on_day = function(game, date) end,             -- a day finished advancing; date is a date table
     on_button = function(game, name, click) end,   -- a button of this mod was clicked; click is { right, shift, ctrl }
@@ -71,9 +71,10 @@ end
 ### The time limit
 
 - Each stretch a task runs is measured, as handler calls were in the first version: one over 5 ms is logged, and the startup report sums each extension's time.
-- A task that runs for more than 1 s without waiting is stopped with an error, as any other error.
+- A task that runs for more than 1 s without waiting is stopped with an error, as any other error. `pcall` does not let it go on: the error is raised again at each instruction it runs until its stretch has ended. A coroutine of the mod's own runs within the stretch that resumes it, and the limit holds for it as for the task.
 - After three stops in a row, the extension is stopped: it is not called again until the game is closed, its interface elements are hidden, and a notice says why.
 - A task is watched from another thread, which reaches into the Lua state only once the limit has passed, so a task within the limit pays nothing for it. Measured 2026-11-03: a count hook set for the whole run slows Lua 5.4 by 50 to 80% in tight loops, whatever its interval.
+- The limit is checked between Lua's instructions, so it cannot stop a call into one of Lua's own functions written in C while that call runs. A string pattern that backtracks without end in `string.find`, `string.match`, `string.gmatch` or `string.gsub` (`s:find(".-.-.-.-x")` on a 100 kB `s` ran on past 5 s in the Lua host, tried 2026-11-05) holds the game until it returns, so a mod writes patterns that cannot backtrack far over long strings. Bounding the matcher's work would take a matcher of the framework's own in place of Lua's, which is not worth its cost. Other long C calls, such as building a long string or sorting a large table, take time in proportion to their data, which the memory limit bounds.
 
 ### The sandbox
 
@@ -81,6 +82,7 @@ end
 - `require` loads a module from the mod's own `eu4-harmony/lua/` only, by its dotted name (`require("range.bfs")` is `eu4-harmony/lua/range/bfs.lua`).
 - There is no `io`, `debug` or `package.loadlib`, and `os` holds `os.clock`, and `os.time` and `os.date`, which work when the manifest declares `clock`.
 - Nothing reaches the process, the operating system, environment variables, other mods or native code; there is no capability for them, declared or not.
+- A Lua state holds at most 256 MiB, so that an extension cannot take the memory the game needs. An allocation past that fails with Lua's `not enough memory` error, as any other error: it ends the handler's call, and the next event calls the extension again, which has the memory back once what held it is gone.
 
 ### Sensitive capabilities
 
@@ -115,7 +117,7 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 - When a session begins from a save, `on_session(game, saved)` gets back what that save holds for the extension, or `nil`.
 - The data is any value JSON can hold: a table whose keys are all strings is an object, a sequence is an array, integers stay 64-bit. A function, a userdata, a table with mixed keys or a cycle fails: that save holds no data for the extension, the error is logged and raises a notice as other errors do. At most 16 MiB of JSON.
 - Where and how it is written into the save does not change ([ADR extension-save-data-in-the-save](adr/extension-save-data-in-the-save.md)); a save written by a native extension is read by its Lua rewrite when the data's shape is the same.
-- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `save_data` like any other.
+- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `save_data` like any other. A session that ends inside an extension's own call (its `console.run` loading a save) is heard once that call is done, at the start or end of a game's safe frame, as no extension is called inside another's call; the session's state is gone by then.
 
 ### The capability catalogue
 
