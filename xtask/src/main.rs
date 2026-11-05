@@ -24,8 +24,9 @@ usage:
   cargo xtask game-dir
       Prints the game folder: EU4_GAME_DIR when it is set, or else the Steam
       library that holds Europa Universalis IV. Every command that needs the
-      game takes it as its --game-dir by default.
-  cargo xtask game claim --purpose <text> [--wait] [--owner <name>]
+      game finds it so; game, install and scenario take --game-dir for
+      another.
+  cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>] [--owner <name>]
   cargo xtask game claim --player [--now]
   cargo xtask game start [--sound] [--timeout <seconds>]
   cargo xtask game stop | release [--keep-crashes] | renew | watch [--warn 5] | status
@@ -38,8 +39,9 @@ usage:
       ends it. release ends the game, keeps the logs and the run's crash
       folders in the claim's kept\\, puts back the player's files and the
       game folder's, and frees the game. watch, run in the background by the
-      holder, exits with 3 when the lease (30 minutes, kept going while the
-      game runs) is near its end, with 4 when the player takes the game, and
+      holder, exits with 3 when the lease (30 minutes unless --lease says
+      otherwise, kept going while the game runs) is --warn minutes from its
+      end, with 4 when the player takes the game, and
       with 0 when the claim is gone. The player's claim (--player) keeps
       their files as they play and goes first in the queue; with --now it
       takes the game from its holder after two minutes. The owner is this

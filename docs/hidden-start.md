@@ -77,4 +77,4 @@ The `hidden` module and its dependency points; the cursor held from the start; s
 
 ### H4 The start command (done)
 
-`eu4-harmony start [--hidden] [--sound] [--timeout <seconds>]` and its usage text. The development tools that start the game themselves (`cargo xtask perf-run`, `leak-run`) still start it shown; moving them onto the start command belongs to the test management that comes next.
+`eu4-harmony start [--hidden] [--sound] [--timeout <seconds>]` and its usage text. The development tools that started the game themselves then (`cargo xtask perf-run`, `leak-run`) still started it shown. That ended with the claim's commands ([game-testing.md](game-testing.md)): `cargo xtask game start` and the scenarios that replaced those tools ([scenarios.md](scenarios.md)) always start the game hidden, with the library under `eu4-harmony start`.
