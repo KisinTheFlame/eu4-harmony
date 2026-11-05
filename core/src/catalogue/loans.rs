@@ -1,11 +1,11 @@
 //! Loans: the player's loans, and repaying one.
 use eu4_harmony_remote::{
-    loans::{Loan, LoanAnswer, LoanRequest},
+    loans::{LoanAnswer, LoanRequest, PlayerLoan},
     Error,
 };
 
 layer! {
-    fn loans() -> Vec<Loan> = crate::game::loans::list;
+    fn loans() -> Vec<PlayerLoan> = crate::game::loans::list;
     fn repay_loan(loan: u32) -> () = crate::game::loans::repay;
 }
 

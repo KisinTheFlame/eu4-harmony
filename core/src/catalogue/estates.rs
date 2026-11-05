@@ -1,13 +1,13 @@
 //! Estates: the player's estates and the crown land's interactions, granting
 //! and revoking privileges, and the interactions.
 use eu4_harmony_remote::{
-    estates::{Estate, EstateAnswer, EstateRequest, Interaction},
+    estates::{Estate, EstateAnswer, EstateInteraction, EstateRequest},
     Error,
 };
 
 layer! {
     fn estates() -> Vec<Estate> = crate::game::estates::list;
-    fn estate_interactions() -> Vec<Interaction> = crate::game::estates::interactions_list;
+    fn estate_interactions() -> Vec<EstateInteraction> = crate::game::estates::interactions_list;
     fn grant_privilege(estate: String, privilege: String) -> () = crate::game::estates::grant_privilege;
     fn revoke_privilege(estate: String, privilege: String) -> () = crate::game::estates::revoke_privilege;
     fn estate_interact(interaction: String) -> () = crate::game::estates::interact;

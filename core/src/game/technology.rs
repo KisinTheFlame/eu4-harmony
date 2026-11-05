@@ -9,7 +9,7 @@ use super::{
 use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
-    technology::Technology,
+    technology::TechnologyOption,
 };
 
 /// A country's technology object; in it, the levels, an i32 vector indexed
@@ -138,7 +138,7 @@ fn when(m: &Memory, country: usize, date: i32, cost: i32, kind: PowerKind) -> GR
 }
 
 /// The player's technologies, administrative, diplomatic and military.
-pub fn options(_: Caller) -> GResult<Vec<Technology>> {
+pub fn options(_: Caller) -> GResult<Vec<TechnologyOption>> {
     let m = game()?;
     let ctx = context(m)?;
     let found = categories(m, ctx.country)?;
@@ -146,7 +146,7 @@ pub fn options(_: Caller) -> GResult<Vec<Technology>> {
         .into_iter()
         .map(|kind| {
             let category = found.iter().find(|c| c.kind == kind).ok_or_else(|| format!("no {kind:?} technology"))?;
-            Ok(Technology { technology: kind, level: category.level.max(0) as u32, choice: choice(m, ctx.player, ctx.country, ctx.date, category)? })
+            Ok(TechnologyOption { technology: kind, level: category.level.max(0) as u32, choice: choice(m, ctx.player, ctx.country, ctx.date, category)? })
         })
         .collect()
 }

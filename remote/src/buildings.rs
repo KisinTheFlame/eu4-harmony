@@ -47,7 +47,7 @@ group! {
 pub struct BuildingOptions {
     pub province: ProvinceId,
     /// The building being built there, by whoever builds it; null when none.
-    pub constructing: Option<Construction>,
+    pub constructing: Option<BuildingConstruction>,
     /// One for each building the game has: `build` where it does not stand,
     /// `destroy` where it does; and `cancel` while one is being built.
     pub options: Vec<BuildingOption>,
@@ -55,7 +55,7 @@ pub struct BuildingOptions {
 
 /// A building being built.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Construction {
+pub struct BuildingConstruction {
     /// Its content key.
     pub building: String,
     /// How far it is, from 0 to 1.

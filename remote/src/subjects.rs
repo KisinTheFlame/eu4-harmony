@@ -18,7 +18,7 @@ group! {
     game Options "options" {
         /// The subject.
         subject: CountryTag,
-    } -> Vec<Interaction>, "the interactions: interaction (its key), name, active, can, reasons, cost";
+    } -> Vec<SubjectInteraction>, "the interactions: interaction (its key), name, active, can, reasons, cost";
     /// Carries out an interaction with a subject, or stops one going on, as
     /// the subjects view's button does. `rejected` when the game does not let
     /// the player, with its reasons; `invalid_argument` for an interaction
@@ -41,7 +41,7 @@ group! {
 
 /// An interaction with a subject.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Interaction {
+pub struct SubjectInteraction {
     /// The game's key for it, such as `scutage` or `place_relative_on_throne`.
     pub interaction: String,
     /// Its name, as the view shows it, in the player language.
