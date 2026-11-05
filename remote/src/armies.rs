@@ -12,7 +12,7 @@ group! {
     game Get "get" {
         /// The army.
         army: ArmyId,
-    } -> Army, "the army: id, owner, kind (army or navy; of a navy id, owner, kind, province, regiments (its ships) and route are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order) and route_by (who set the route: this_mod, other_mod or player_or_game; null without one)";
+    } -> Army, "the army: id, owner, kind (army or navy; of a navy id, owner, kind, province, regiments (its ships) and route are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order), route_by (who set the route: this_mod, other_mod or player_or_game; null without one), aboard (the navy an army is aboard; null on land) and carrying (a navy's regiments aboard)";
     /// The player's armies and fleets.
     game List "list" {} -> Vec<Army>, "the armies and fleets, each as army.get answers it";
     /// The land armies in a province: every one for an extension and in the
@@ -211,4 +211,8 @@ pub struct Army {
     pub route: Vec<ProvinceId>,
     /// Who set its route; none without one.
     pub route_by: Option<RouteBy>,
+    /// The navy an army is aboard; none on land, and for a navy.
+    pub aboard: Option<ArmyId>,
+    /// A navy's regiments aboard; 0 for an army.
+    pub carrying: u32,
 }
