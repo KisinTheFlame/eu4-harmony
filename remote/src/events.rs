@@ -77,12 +77,15 @@ pub enum SessionEnd {
     Load,
     /// For a new game started from the session.
     NewGame,
+    /// The player's country changed (the game console's `tag`, say): the
+    /// next session, of the same game, begins at once.
+    Country,
 }
 
 /// Every event by its name, with what it carries and when it comes.
 pub const EVENTS: &[(&str, &str)] = &[
     ("session", "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
-    ("session_ended", "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save) or new_game"),
+    ("session_ended", "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save), new_game, or country (the player's country changed)"),
     ("day", "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
     ("month", "the first day heard in a new month; date, which with the game running fast may be past the 1st"),
     ("year", "the first day heard in a new year, after month; date"),

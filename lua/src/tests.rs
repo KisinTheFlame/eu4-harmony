@@ -15,6 +15,8 @@ struct TestHost {
     elements: Mutex<Vec<(String, Element)>>,
     requests: Mutex<Vec<(fetch::Request, Answered)>>,
     told: Mutex<Vec<String>>,
+    /// For each capability run, whether it ran inside an extension's call.
+    inside: Mutex<Vec<bool>>,
 }
 
 /// A request's answer, once a test gives it.
@@ -28,6 +30,7 @@ impl Pending<fetch::Answer> for Slot {
 
 impl Host for TestHost {
     fn run(&self, _: usize, _: Request) -> Called {
+        self.inside.lock().unwrap().push(calling());
         Called::Done(Err(Error::new(Code::NotInGame, "no game in a test")))
     }
     fn set_element(&self, _: usize, element: &str, value: Element) -> Result<(), String> {
@@ -347,6 +350,17 @@ fn a_capability_outside_a_game_answers_nil_and_why() {
     let answer = text(after(&e, "on_frame", "ANSWER"));
     assert!(answer == "nil not_in_game" || answer == "nil internal", "{answer}");
     assert!(text(e.lua.globals().get("WRONG").unwrap()).contains("province: a province such as 151, not a string"));
+}
+
+#[test]
+fn a_capability_runs_inside_its_extension_s_call() {
+    // The host is told so, as what the capability makes happen (a console
+    // command loading a save, say) must not call extensions again within.
+    let (e, host) = load_with("inside", "return { on_frame = function(game) game.session.get() end }", &[]).unwrap();
+    assert!(!calling());
+    e.handle("on_frame", &[]);
+    assert!(!calling());
+    assert_eq!(*host.inside.lock().unwrap(), [true]);
 }
 
 #[test]

@@ -83,7 +83,11 @@ pub const HANDLERS: &[Handler] = &[
     },
     Handler {
         name: "on_session_ended",
-        args: &[value("reason", "\"return\"|\"load\"|\"new_game\"", "why: for the main menu, for a save loaded, or for a new game")],
+        args: &[value(
+            "reason",
+            "\"return\"|\"load\"|\"new_game\"|\"country\"",
+            "why: for the main menu, for a save loaded, for a new game, or the player's country changed (the game console's tag, say)",
+        )],
         returns: None,
         about: "The session is being left, while its state is still there to read. Its waiting tasks are dropped after this.",
     },

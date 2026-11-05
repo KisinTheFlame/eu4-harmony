@@ -1,7 +1,8 @@
 //! Time: the clock, pausing, resuming and the speed, as the player would, and
 //! advancing time, which only remote control does. An advance answers at a
 //! later safe point: once the date is reached and the game paused there, or
-//! earlier, saying why; or, when the game starts `eu4.exe` again, just before
+//! earlier, saying why, among it once the main menu is up after an
+//! in-process return; or, when the game starts `eu4.exe` again, just before
 //! this process ends. Whatever it stops for before or at its date, it leaves
 //! the game paused by the player's own pause, the one `time.pause` sets, also
 //! when a window holds the game paused (an event window, when the game pauses
@@ -10,7 +11,7 @@
 //! closed. Not when another game was loaded, the game returns to the main
 //! menu, or the player can no longer play the game (observing, say), which
 //! leave the advance no game of its own to pause.
-use super::{events, process, Live, Outcome, Poll, Wait};
+use super::{events, process, Live, Outcome, Place, Poll, Wait};
 use crate::game::{self, time::Pause, GResult, Status};
 use eu4_harmony_remote::{
     events::Event,
@@ -210,6 +211,12 @@ impl Wait for Advance {
         // nothing pauses the game for the advance any more.
         if let Some(why) = at.unplayable() {
             let response = Err(Error::new(why.code, format!("the player can no longer play the game ({}); time runs on as the game runs it", why.message)));
+            return self.answer(response);
+        }
+        // The main menu is open: the game returned to it in this process,
+        // and no game frame comes until another game starts.
+        if let Place::Outside(Some(_)) = at.place {
+            let response = self.stopped(Stop::MainMenu, "the game returned to the main menu", at.events);
             return self.answer(response);
         }
         let (events, now) = (at.events, at.now);

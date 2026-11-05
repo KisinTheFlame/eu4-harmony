@@ -252,6 +252,26 @@ fn an_advance_answers_once_the_player_can_no_longer_play() {
 }
 
 #[test]
+fn an_advance_answers_once_the_game_returned_to_the_main_menu_in_process() {
+    let engine = Engine::new(quiet);
+    let mut game = Fake::default();
+    let reply = engine.submit(advance(30, None));
+    engine.run(&mut game, &Place::Game, PLENTY);
+    next_day(&engine, &mut game);
+    // The session is taken down, then the main menu is up, in this process:
+    // no game frame comes until another game starts.
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert!(answer(&reply).is_null());
+    engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
+    let got = answer(&reply);
+    assert_eq!(got["result"]["stopped"], "main_menu", "{got}");
+    assert_eq!(got["result"]["reason"], "the game returned to the main menu", "{got}");
+    assert_eq!(got["result"]["date"], date(1));
+    assert_eq!(got["result"]["events"][0]["date"], date(1));
+    assert!(game.clock.stops.lock().unwrap().is_empty(), "the stop is let go");
+}
+
+#[test]
 fn an_advance_given_up_is_called_off() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();

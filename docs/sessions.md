@@ -38,11 +38,11 @@ Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day 
 ### What remote control answers
 
 - `menu.load` and `menu.start` from a session are answered as from the main menu: once the new session's first frame has run, with its number, date and player; or `rejected` with the game's reason.
-- `menu.return` with "return without restarting" on is answered once the main menu is up, `place` `main_menu`, from the same process, with event numbers going on; off, at once with `place` `ending`, as now.
+- `menu.return` with "return without restarting" on is answered once the main menu is up, `place` `main_menu`, from the same process, with event numbers going on; off, at once with `place` `ending`, as now. Requests made before the map manager's frame acts on the first are the same return, and each is answered with it.
 
 ### Extensions
 
-A new event, "session ended", with its reason (a return to the main menu, an in-game load, a new game), comes before the next session begins; it is appended to the ABI (ADR abi-grows-by-appending). It comes for the game's own in-game load outside ironman too. The ABI's and SDK's comments that call a session a "campaign" are reworded.
+A new event, "session ended", with its reason (a return to the main menu, an in-game load, a new game; or another country, when the player's country changes on the same world, as by the game console's `tag`, which begins a session too), comes before the next session begins; it is appended to the ABI (ADR abi-grows-by-appending). It comes for the game's own in-game load outside ironman too. It comes once leaving is certain: after the ironman exit save, when there is one, so that a session whose exit save failed, which goes on, is not told it ended. The ABI's and SDK's comments that call a session a "campaign" are reworded.
 
 ### What the player sees
 
@@ -61,7 +61,7 @@ pub enum Destination { MainMenu, Save(String), NewGame([u8; 3]) }
 pub fn go(caller: Caller, to: Destination) -> GResult<Expected>;
 ```
 
-Inside, a pure function lays out the steps from where the game is, where it is going and the two settings (the checks, the ironman exit save, taking the session down, the world reset, the load or the start), with unit tests of its own; an executor carries them out against the game and answers.
+Inside, a pure function lays out the steps from where the game is, where it is going and the two settings (the checks, the ironman exit save, the session's end told, taking the session down, the world reset, the load or the start), with unit tests of its own; an executor carries them out against the game and answers.
 
 What those steps and the safe points see of a session, its first game frame, its end with the reason, a save beginning to be read, a world reset, the game's restart, goes to one module of the core, `sessions` (`core/src/sessions.rs`). It keeps whether a session is going on, where the safe point is and whether a save is being read, in a state machine with tests of its own, and tells each thing to the parts that keep something of a session in one order: remote control keeps the end as an event before extensions hear it, and a session ends once, before the next begins.
 
