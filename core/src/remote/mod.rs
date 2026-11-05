@@ -125,6 +125,11 @@ struct Running {
 pub struct Engine {
     queue: Mutex<Queue>,
     running: Mutex<Running>,
+    /// What happened since the events were last taken into [`Running`]:
+    /// kept apart, as it is kept also from inside a request the engine runs,
+    /// holding `running`, such as a console command that loads a save and so
+    /// ends the session.
+    recorded: Mutex<Vec<eu4_harmony_remote::events::Event>>,
     /// The responses given whose submitters still hold their replies, as a
     /// transport does until the response is written and read.
     delivering: Mutex<Vec<Arc<Slot>>>,
@@ -141,6 +146,7 @@ impl Engine {
         Self {
             queue: Mutex::new(Queue { requests: VecDeque::new(), ending: None }),
             running: Mutex::new(Running { waiting: Vec::new(), events: events::Buffer::new(), input: None }),
+            recorded: Mutex::new(Vec::new()),
             delivering: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
             session: AtomicU64::new(0),
@@ -185,10 +191,15 @@ impl Engine {
         self.session.store(0, Ordering::Relaxed);
     }
 
-    /// Keeps what happened, for remote clients to read.
+    /// Keeps what happened, for remote clients to read: numbered in order
+    /// as the engine next runs, so also from inside a request it runs.
     pub fn record(&self, happened: impl IntoIterator<Item = eu4_harmony_remote::events::Event>) {
-        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
-        for event in happened {
+        self.recorded.lock().unwrap_or_else(|e| e.into_inner()).extend(happened);
+    }
+
+    /// Numbers what was recorded since the last time, into the events kept.
+    fn take_recorded(&self, running: &mut Running) {
+        for event in std::mem::take(&mut *self.recorded.lock().unwrap_or_else(|e| e.into_inner())) {
             running.events.push(event);
         }
     }
@@ -207,6 +218,7 @@ impl Engine {
         self.delivering().retain(|slot| !slot.released());
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         let running = &mut *running;
+        self.take_recorded(running);
         self.poll(running, game, place, now);
         let mut queued = std::mem::take(&mut self.queue().requests);
         let mut kept = VecDeque::new();
@@ -255,6 +267,8 @@ impl Engine {
             }
             ran = true;
             self.start(running, game, q, now);
+            // What the request made happen, for the requests after it.
+            self.take_recorded(running);
         }
         let mut queue = self.queue();
         while let Some(q) = kept.pop_back() {
@@ -337,6 +351,7 @@ impl Engine {
         {
             let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
             let running = &mut *running;
+            self.take_recorded(running);
             for mut w in running.waiting.drain(..) {
                 if w.slot.released() {
                     continue;

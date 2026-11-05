@@ -1164,3 +1164,24 @@ fn events_say_which_process_numbered_them() {
     assert_eq!(other["result"]["missed"], true);
     assert_eq!(other["result"]["process"], process());
 }
+
+#[test]
+fn what_happens_inside_a_request_is_kept_as_events() {
+    // A console command that loads a save ends the session inside the
+    // request that runs it, and remote control keeps the end there.
+    use eu4_harmony_remote::events::SessionEnd;
+    static ENGINE: Engine = Engine::new(fake::quiet);
+    let (send, got) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let ended = || ENGINE.record([Event::SessionEnded { reason: SessionEnd::Load }]);
+        let mut game = Fake { console_does: Some(Box::new(ended)), ..Fake::default() };
+        let run = ENGINE.submit(Request::Console(ConsoleRequest::Run { command: "cash 100".into() }));
+        ENGINE.run(&mut game, &Place::Game, PLENTY);
+        let read = ENGINE.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: None, process: None, kinds: None, countries: None }));
+        ENGINE.run(&mut game, &Place::Game, PLENTY);
+        let _ = send.send((answer(&run), answer(&read)));
+    });
+    let (run, read) = got.recv_timeout(Duration::from_secs(10)).expect("the engine held itself up keeping an event from inside a request");
+    assert_eq!(run, ok(json!("Gold changed by 100")));
+    assert_eq!(read["result"]["events"], json!([{"number": 1, "event": "session_ended", "reason": "load"}]), "{read}");
+}
