@@ -26,15 +26,26 @@ const LOOK: Duration = Duration::from_millis(50);
 /// The message of the error a stopped stretch raises.
 pub const STOPPED: &str = "stopped: it ran for more than 1 s without waiting (the time limit)";
 
-/// A stretch running: the Lua thread it runs on, since when, and whether the
-/// hook is set on it. Or a coroutine of the mod's own it resumed, which runs
-/// within the stretch and since its start.
+/// A stretch running: the Lua thread it runs on, and the one its error is
+/// written on if that is another, since when, and whether the hook is set on
+/// them. Or a coroutine of the mod's own it resumed, which runs within the
+/// stretch and since its start.
 struct Running {
     thread: std::thread::ThreadId,
     state: usize,
+    also: Option<usize>,
     since: Instant,
     hooked: bool,
     coroutine: bool,
+}
+
+impl Running {
+    fn hook(&self, on: bool) {
+        hook(self.state, on);
+        if let Some(also) = self.also {
+            hook(also, on);
+        }
+    }
 }
 
 /// The stretches running and the coroutines they resumed, the innermost of
@@ -56,17 +67,27 @@ fn hook(state: usize, on: bool) {
     }
 }
 
-/// A stretch begins on the Lua thread `state` (a `lua_State*`). A thread
-/// Lua made while the hook was set has it too, from its maker; it is taken
-/// off.
-pub fn start(state: *const std::ffi::c_void) {
+/// A stretch begins on the Lua thread `state` (a `lua_State*`), its error to
+/// be written on `also`: mlua writes it as text on the thread that resumed
+/// the stretch, which runs the error's `__tostring`, if it has one, there. A
+/// thread Lua made while the hook was set has it too, from its maker; it is
+/// taken off.
+pub fn start(state: *const std::ffi::c_void, also: Option<*const std::ffi::c_void>) {
     static WATCHER: Once = Once::new();
     WATCHER.call_once(|| {
         let _ = std::thread::Builder::new().name("eu4-harmony lua watch".into()).spawn(watch);
     });
     let mut all = running();
-    hook(state as usize, false);
-    all.push(Running { thread: std::thread::current().id(), state: state as usize, since: Instant::now(), hooked: false, coroutine: false });
+    let r = Running {
+        thread: std::thread::current().id(),
+        state: state as usize,
+        also: also.map(|also| also as usize),
+        since: Instant::now(),
+        hooked: false,
+        coroutine: false,
+    };
+    r.hook(false);
+    all.push(r);
 }
 
 /// The stretch has ended; whether the time limit stopped it. The hook, if
@@ -80,7 +101,7 @@ pub fn end() -> bool {
     while let Some(at) = all.iter().rposition(|r| r.thread == here) {
         let r = all.remove(at);
         if r.hooked {
-            hook(r.state, false);
+            r.hook(false);
             stopped = true;
         }
         if !r.coroutine {
@@ -99,7 +120,7 @@ pub fn resume(state: *const std::ffi::c_void) {
     let Some(outer) = all.iter().rev().find(|r| r.thread == here) else { return };
     let (since, hooked) = (outer.since, outer.hooked);
     hook(state as usize, hooked);
-    all.push(Running { thread: here, state: state as usize, since, hooked, coroutine: true });
+    all.push(Running { thread: here, state: state as usize, also: None, since, hooked, coroutine: true });
 }
 
 /// The coroutine `state` resumed has given control back, by yielding,
@@ -122,7 +143,7 @@ fn watch() {
         for r in running().iter_mut() {
             if !r.hooked && r.since.elapsed() > LIMIT {
                 r.hooked = true;
-                hook(r.state, true);
+                r.hook(true);
             }
         }
     }

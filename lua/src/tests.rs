@@ -464,6 +464,18 @@ fn the_time_limit_holds_in_a_coroutine_of_the_mod_s_own() {
 }
 
 #[test]
+fn the_time_limit_holds_while_a_task_s_error_is_written() {
+    let e = load_one(
+        "tostring-forever",
+        "return { on_frame = function(game) error(setmetatable({}, { __tostring = function() while true do end end })) end }",
+        &[],
+    )
+    .unwrap();
+    assert!(returns_in_time(&e, "on_frame"));
+    assert!(errors(&e).iter().any(|k| k.contains(watch::STOPPED)), "{:?}", errors(&e));
+}
+
+#[test]
 fn coroutines_of_the_mod_s_own_yield_resume_and_fail_as_lua_s_do() {
     let e = load_one(
         "coroutine-lua",
