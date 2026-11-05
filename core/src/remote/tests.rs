@@ -900,7 +900,22 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         session: 3,
         new_session: true,
         visibility_current: true,
-        changes: vec![game::events::Change::Ordered(ARMY), game::events::Change::Defeated(ARMY)],
+        // A battle the player neither sees nor takes part in, which remote
+        // control, reading the player's view, does not hear.
+        changes: vec![
+            game::events::Change::Ordered(ARMY),
+            game::events::Change::Defeated(ARMY),
+            game::events::Change::Battle(game::events::Battle {
+                province: 151,
+                naval: false,
+                attackers: vec![fake::wal()],
+                defenders: vec![fake::byz()],
+                attacker_won: true,
+                attacker_losses: 100,
+                defender_losses: 900,
+                seen: false,
+            }),
+        ],
         new_day: true,
         new_month: true,
         new_year: false,

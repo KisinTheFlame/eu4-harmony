@@ -119,12 +119,11 @@ fn allies_to_call_are_read_and_written_back() {
     assert_eq!(serde_json::from_value::<CallAllies>(json!("none")).unwrap(), CallAllies::None);
 }
 
-/// The events described are those there are, by the names JSON gives them.
-#[test]
-fn every_event_is_described() {
-    use events::{Event, SessionEnd, EVENTS};
+/// One event of each kind, in the order [`events::EVENTS`] describes them.
+fn every_event() -> Vec<events::Event> {
+    use events::{Event, SessionEnd};
     let date = Date::from_ymd(1444, 11, 11).unwrap();
-    let all = [
+    vec![
         Event::Session { session: 1 },
         Event::SessionEnded { reason: SessionEnd::Return },
         Event::Day { date },
@@ -145,7 +144,14 @@ fn every_event_is_described() {
             attacker_losses: 1200,
             defender_losses: 3400,
         },
-    ];
+    ]
+}
+
+/// The events described are those there are, by the names JSON gives them.
+#[test]
+fn every_event_is_described() {
+    use events::EVENTS;
+    let all = every_event();
     // A battle names the countries on both sides, for a read's countries.
     assert_eq!(all.iter().find(|e| e.kind() == "battle").unwrap().countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
     // An event is flattened beside its own number: none of its fields may
@@ -159,6 +165,48 @@ fn every_event_is_described() {
     for event in &all {
         assert_eq!(json!(event.kind()), serde_json::to_value(event).unwrap()["event"]);
     }
+}
+
+/// Each event calls the handler of its kind, with the fields the handler
+/// names, as Lua has them; each handler but those of no event is an event's.
+#[test]
+fn every_event_calls_its_handler() {
+    use events::EVENTS;
+    let calls: Vec<_> = every_event().iter().map(|e| lua::handler_call(e).unwrap_or_else(|| panic!("{e:?} has no handler"))).collect();
+    let date = json!({"year": 1444, "month": 11, "day": 11});
+    assert_eq!(
+        calls.iter().map(|(name, args)| (*name, Value::Array(args.clone()))).collect::<Vec<_>>(),
+        [
+            ("on_session", json!([{"session": 1}])),
+            ("on_session_ended", json!(["return"])),
+            ("on_day", json!([date])),
+            ("on_month", json!([date])),
+            ("on_year", json!([date])),
+            ("on_army_ordered", json!([1])),
+            ("on_army_defeated", json!([1])),
+            ("on_war_declared", json!(["Ottoman-Byzantine War", "TUR", "BYZ"])),
+            ("on_peace_made", json!(["Ottoman-Byzantine War", [], ["BYZ"], false])),
+            ("on_province_owner_changed", json!([151, "BYZ", "TUR"])),
+            ("on_building_finished", json!([151, "marketplace", "TUR"])),
+            (
+                "on_battle",
+                json!([{"province": 151, "naval": false, "attackers": ["TUR"], "defenders": ["BYZ", "VEN"], "winner": "attackers", "attacker_losses": 1200, "defender_losses": 3400}])
+            ),
+        ]
+    );
+    // An argument that names none of its event's fields is the event as a
+    // table, or on_session's saved data, which the Lua host gives.
+    for event in every_event() {
+        let fields = serde_json::to_value(&event).unwrap();
+        let handler = lua::HANDLERS.iter().find(|h| h.name == format!("on_{}", event.kind())).unwrap();
+        for arg in handler.args {
+            let whole = handler.args.len() == 1 && arg.ty == "table";
+            assert!(fields.get(arg.name).is_some() || whole || handler.name == "on_session", "{}'s {} is none of {event:?}'s fields", handler.name, arg.name);
+        }
+    }
+    let of_events: Vec<String> = EVENTS.iter().map(|(kind, _)| format!("on_{kind}")).collect();
+    let others: Vec<&str> = lua::HANDLERS.iter().map(|h| h.name).filter(|name| !of_events.iter().any(|e| e == name)).collect();
+    assert_eq!(others, ["on_button", "on_map_lost", "on_frame", "save_data"]);
 }
 
 #[test]

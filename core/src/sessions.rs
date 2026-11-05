@@ -44,13 +44,15 @@ pub enum End {
 }
 
 impl End {
-    /// The word extensions hear it by.
-    pub fn word(self) -> &'static str {
-        match self {
-            End::Return => "return",
-            End::Load => "load",
-            End::NewGame => "new_game",
-        }
+    /// The event extensions and remote control hear it by.
+    pub fn event(self) -> eu4_harmony_remote::events::Event {
+        use eu4_harmony_remote::events::{Event, SessionEnd};
+        let reason = match self {
+            End::Return => SessionEnd::Return,
+            End::Load => SessionEnd::Load,
+            End::NewGame => SessionEnd::NewGame,
+        };
+        Event::SessionEnded { reason }
     }
 }
 
@@ -188,9 +190,10 @@ fn tell(happened: Vec<Happening>) {
         match happening {
             Happening::Began(_) => game::input::session_began(),
             Happening::Ended(session, end) => {
-                log!("session {session} ending ({})", end.word());
-                crate::remote::session_ended(end);
-                crate::lua::session_ended(end);
+                log!("session {session} ending ({end:?})");
+                let event = end.event();
+                crate::remote::session_ended(event.clone());
+                crate::lua::session_ended(&event);
             }
             Happening::CampaignChanges => {
                 game::events::load_begin();

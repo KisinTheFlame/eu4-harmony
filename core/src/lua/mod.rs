@@ -20,7 +20,7 @@ use crate::{
     saves, ui,
 };
 use eu4_harmony_lua::{fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending};
-use eu4_harmony_remote::{Code, Error, Request, Response};
+use eu4_harmony_remote::{events::Event, Code, Error, Request, Response};
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{File, OpenOptions},
@@ -331,20 +331,14 @@ fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
 
 // ---------- dispatch ----------
 
-/// The handler a war's event calls, and its arguments: tags as their
-/// letters, none as nil.
-fn war_handler(happened: game::wars::Happened) -> (&'static str, Vec<Arg>) {
-    use game::wars::Happened;
-    let tag = |t: game::Tag| String::from_utf8_lossy(&t.letters()).into_owned();
-    let tags = |ts: Vec<game::Tag>| Arg::Json(serde_json::Value::Array(ts.into_iter().map(|t| serde_json::Value::String(tag(t))).collect()));
-    let maybe = |t: Option<game::Tag>| Arg::Json(t.map_or(serde_json::Value::Null, |t| serde_json::Value::String(tag(t))));
-    match happened {
-        Happened::WarDeclared { war, attacker, defender } => ("on_war_declared", vec![Arg::Text(war), Arg::Text(tag(attacker)), Arg::Text(tag(defender))]),
-        Happened::PeaceMade { war, attackers, defenders, ended } => {
-            ("on_peace_made", vec![Arg::Text(war), tags(attackers), tags(defenders), Arg::Json(serde_json::Value::Bool(ended))])
-        }
-        Happened::OwnerChanged { province, from, to } => ("on_province_owner_changed", vec![Arg::Integer(province as i64), maybe(from), maybe(to)]),
-    }
+/// The handler `event` calls, and its arguments
+/// (`eu4_harmony_remote::lua::handler_call`).
+fn handler_call(event: &Event) -> Option<(&'static str, Vec<Arg>)> {
+    let Some((name, args)) = eu4_harmony_remote::lua::handler_call(event) else {
+        log!("no handler for the event {}", event.kind());
+        return None;
+    };
+    Some((name, args.into_iter().map(Arg::Json).collect()))
 }
 
 /// Dispatches a game's safe frame (`crate::safe_point`) to every extension:
@@ -357,8 +351,8 @@ pub fn frame(state: &game::Frame) {
         e.poll();
     }
     for heard in state.heard() {
-        match heard {
-            game::Heard::Session(session) => {
+        match heard.event {
+            Event::Session { session } => {
                 let loaded = saves::take_loaded();
                 log!("session {session} started (from a loaded save: {})", loaded.is_some());
                 for e in &all {
@@ -372,30 +366,12 @@ pub fn frame(state: &game::Frame) {
                 }
                 refresh_report(true);
             }
-            game::Heard::Change(events::Change::Ordered(id)) => all.iter().for_each(|e| e.handle("on_army_ordered", &[Arg::Integer(id as i64)])),
-            game::Heard::Change(events::Change::Defeated(id)) => all.iter().for_each(|e| e.handle("on_army_defeated", &[Arg::Integer(id as i64)])),
-            game::Heard::War(happened) => {
-                let (name, args) = war_handler(happened);
-                all.iter().for_each(|e| e.handle(name, &args));
-            }
-            game::Heard::Change(events::Change::BuildingFinished { province, building, country }) => match game::buildings::key_of(building) {
-                Ok(key) => {
-                    let country = String::from_utf8_lossy(&country.letters()).into_owned();
-                    all.iter()
-                        .for_each(|e| e.handle("on_building_finished", &[Arg::Integer(province as i64), Arg::Text(key.clone()), Arg::Text(country.clone())]))
+            // Extensions hear every event, the player's view or not.
+            event => {
+                if let Some((name, args)) = handler_call(&event) {
+                    all.iter().for_each(|e| e.handle(name, &args));
                 }
-                Err(e) => log!("building finished: {}", e.message),
-            },
-            game::Heard::Change(events::Change::Battle(battle)) => {
-                let mut table = serde_json::to_value(crate::remote::battle_event(&battle)).unwrap_or_default();
-                if let Some(fields) = table.as_object_mut() {
-                    fields.remove("event");
-                }
-                all.iter().for_each(|e| e.handle("on_battle", &[Arg::Json(table.clone())]))
             }
-            game::Heard::Day(date) => all.iter().for_each(|e| e.handle("on_day", &[Arg::Date(eu4_harmony_checks::Date(date))])),
-            game::Heard::Month(date) => all.iter().for_each(|e| e.handle("on_month", &[Arg::Date(eu4_harmony_checks::Date(date))])),
-            game::Heard::Year(date) => all.iter().for_each(|e| e.handle("on_year", &[Arg::Date(eu4_harmony_checks::Date(date))])),
         }
     }
     let listened = eu4_harmony_remote::events::EVENTS.iter().map(|(kind, _)| *kind).filter(|kind| all.iter().any(|e| e.has_handler(&format!("on_{kind}"))));
@@ -421,12 +397,15 @@ pub fn frame(state: &game::Frame) {
     refresh_report(false);
 }
 
-/// The session is being left, for `end` (`crate::sessions`): every
+/// The session is being left, as `event` tells (`crate::sessions`): every
 /// extension hears it while the session's state is still the game's, on the
 /// main thread, before anything of it is saved or taken down.
-pub fn session_ended(end: crate::sessions::End) {
+pub fn session_ended(event: &Event) {
+    let call = handler_call(event);
     for e in extensions() {
-        e.handle("on_session_ended", &[Arg::Text(end.word().into())]);
+        if let Some((name, args)) = &call {
+            e.handle(name, args);
+        }
         e.session_over();
     }
     let Some(began) = SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };

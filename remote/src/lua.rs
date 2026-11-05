@@ -174,6 +174,22 @@ pub const HANDLERS: &[Handler] = &[
     },
 ];
 
+/// The handler `event` calls, named for its kind (`on_day` for `day`), and
+/// its arguments in Lua's form (`eu4_harmony_checks::form`): the event's
+/// field each of the handler's arguments names, in their order; for an
+/// argument that names none, the whole event as a table (`on_battle`'s).
+/// `on_session`'s argument is the mod's saved data, which the Lua host gives
+/// itself. None for an event without a handler, which a test rules out.
+pub fn handler_call(event: &crate::events::Event) -> Option<(&'static str, Vec<serde_json::Value>)> {
+    let name = format!("on_{}", event.kind());
+    let handler = HANDLERS.iter().find(|h| h.name == name)?;
+    let mut table = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(event)).ok()?;
+    let fields = table.as_object_mut()?;
+    fields.remove("event");
+    let args = handler.args.iter().map(|arg| fields.get(arg.name).cloned().unwrap_or_else(|| serde_json::Value::Object(fields.clone()))).collect();
+    Some((handler.name, args))
+}
+
 pub const FUNCTIONS: &[Function] = &[
     Function {
         name: "log",
