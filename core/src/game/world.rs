@@ -528,6 +528,19 @@ pub fn hostile(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
     if specials.contains(&(a.index() as i32)) || specials.contains(&(b.index() as i32)) {
         return Ok(true);
     }
+    at_war(m, ctx, a, b)
+}
+
+/// In a war with each other: a special country, hostile to every country,
+/// is in none.
+pub fn at_war(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
+    if a == b {
+        return Ok(false);
+    }
+    let specials = special_countries(m)?;
+    if specials.contains(&(a.index() as i32)) || specials.contains(&(b.index() as i32)) {
+        return Ok(false);
+    }
     let c = country(m, ctx, a)?;
     country(m, ctx, b)?;
     let count = m.i32(c + country_fields::HOSTILE_COUNT)?;
