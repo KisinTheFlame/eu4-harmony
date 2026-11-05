@@ -1,6 +1,6 @@
 -- Run once in every extension's Lua state, before its main.lua, with what
 -- the Lua host gives it. It finishes the sandbox and builds `game`.
-local call, WAIT, task, names, set_element, fetch = ...
+local call, WAIT, task, names, set_element, fetch, resuming, resumed = ...
 
 -- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
 -- nothing that reads files.
@@ -12,6 +12,41 @@ dofile, loadfile = nil, nil
 string.dump = nil
 
 local yield, running = coroutine.yield, coroutine.running
+
+-- The time limit holds for a coroutine of the mod's own as for the task
+-- that resumes it, which the host is told of: Lua's hook reaches only the
+-- thread it is set on.
+local create, raw_resume, close, status = coroutine.create, coroutine.resume, coroutine.close, coroutine.status
+local function left(co, ...)
+  resumed(co)
+  return ...
+end
+local function resume(co, ...)
+  if type(co) ~= "thread" then
+    return raw_resume(co, ...)
+  end
+  resuming(co)
+  return left(co, raw_resume(co, ...))
+end
+coroutine.resume = resume
+
+-- coroutine.wrap as Lua's: the coroutine's error raised again where it was
+-- called, the coroutine closed.
+local function unwrapped(co, ok, ...)
+  if ok then
+    return ...
+  end
+  if status(co) == "dead" then
+    close(co)
+  end
+  error((...), 2)
+end
+coroutine.wrap = function(f)
+  local co = create(f)
+  return function(...)
+    return unwrapped(co, resume(co, ...))
+  end
+end
 
 -- A function that waits (ADR handlers-run-as-tasks-that-can-wait) is called
 -- only in a task: raises the error at `level` otherwise.

@@ -438,6 +438,62 @@ fn the_time_limit_is_not_caught_by_pcall() {
 }
 
 #[test]
+fn the_time_limit_holds_in_a_coroutine_of_the_mod_s_own() {
+    let e = load_one(
+        "coroutine-forever",
+        r#"
+        local spin = coroutine.create(function() coroutine.yield() while true do end end)
+        return {
+          on_wrap = function(game) coroutine.wrap(function() while true do end end)() end,
+          on_resume = function(game) coroutine.resume(spin) coroutine.resume(spin) end,
+          -- The error the coroutine ends with is caught, and the task goes on.
+          on_caught = function(game)
+            coroutine.resume(coroutine.create(function() while true do end end))
+            while true do end
+          end,
+        }
+        "#,
+        &[],
+    )
+    .unwrap();
+    for handler in ["on_wrap", "on_resume", "on_caught"] {
+        assert!(returns_in_time(&e, handler), "{handler}");
+        assert!(errors(&e).iter().any(|k| k.starts_with(handler) && k.contains(watch::STOPPED)), "{handler}: {:?}", errors(&e));
+    }
+    assert!(e.state().stopped.is_some());
+}
+
+#[test]
+fn coroutines_of_the_mod_s_own_yield_resume_and_fail_as_lua_s_do() {
+    let e = load_one(
+        "coroutine-lua",
+        r##"
+        return {
+          on_frame = function(game)
+            local co = coroutine.wrap(function(a) local b = coroutine.yield(a + 1) return b * 2 end)
+            local seen = { co(1), co(10) }
+            local c = coroutine.create(function(...) coroutine.yield(select("#", ...)) error({ code = 7 }) end)
+            seen[#seen + 1] = select(2, coroutine.resume(c, nil, nil))
+            local ok, err = coroutine.resume(c)
+            seen[#seen + 1] = tostring(ok) .. " " .. err.code .. " " .. coroutine.status(c)
+            seen[#seen + 1] = select(2, coroutine.resume(c))
+            seen[#seen + 1] = select(2, pcall(coroutine.wrap(function() error("boom") end)))
+            seen[#seen + 1] = select(2, pcall(coroutine.resume, 5))
+            SEEN = table.concat(seen, " | ")
+          end,
+        }
+        "##,
+        &[],
+    )
+    .unwrap();
+    let seen = text(after(&e, "on_frame", "SEEN"));
+    let parts: Vec<&str> = seen.split(" | ").collect();
+    assert_eq!(parts[..5], ["2", "20", "2", "false 7 dead", "cannot resume dead coroutine"], "{seen}");
+    assert!(parts[5].ends_with("boom") && parts[5].contains("main.lua"), "{seen}");
+    assert!(parts[6].contains("bad argument #1") && parts[6].contains("thread expected, got number"), "{seen}");
+}
+
+#[test]
 fn a_yield_of_the_mod_s_own_outside_its_coroutines_is_an_error() {
     let e = load_one("yield", "return { on_frame = function(game) coroutine.yield(1) end }", &[]).unwrap();
     e.handle("on_frame", &[]);

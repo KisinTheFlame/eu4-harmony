@@ -12,7 +12,7 @@ use super::{
     Element, Host, Mod, Waits,
 };
 use eu4_harmony_remote::{capabilities, Capability, Kind};
-use mlua::{Function, Lua, LuaOptions, MultiValue, StdLib, Table, Value as LuaValue, Variadic};
+use mlua::{Function, Lua, LuaOptions, MultiValue, StdLib, Table, Thread, Value as LuaValue, Variadic};
 use serde_json::{Map, Number, Value};
 use std::{
     ffi::c_void,
@@ -197,7 +197,17 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
     let at_element = calling.clone();
     let set_element =
         lua.create_function(move |_, (element, property, value): (String, String, LuaValue)| set_element(&at_element, &element, &property, value))?;
-    let game: Table = lua.load(include_str!("prelude.lua")).set_name("@prelude").call((call, wait.clone(), task, names, set_element, fetch))?;
+    // The coroutine of the mod's own that runs, for the time limit.
+    let resuming = lua.create_function(|_, co: Thread| {
+        super::watch::resume(co.to_pointer());
+        Ok(())
+    })?;
+    let resumed = lua.create_function(|_, co: Thread| {
+        super::watch::resumed(co.to_pointer());
+        Ok(())
+    })?;
+    let game: Table =
+        lua.load(include_str!("prelude.lua")).set_name("@prelude").call((call, wait.clone(), task, names, set_element, fetch, resuming, resumed))?;
     let map = lua.create_table()?;
     let at_paint = calling.clone();
     map.set("paint", lua.create_function(move |lua, colors: Table| paint(lua, &at_paint, colors))?)?;
