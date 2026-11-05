@@ -27,8 +27,8 @@ mod group {
     pub const CATEGORY: usize = 0x570;
     pub const INDEX: usize = 0x5b4;
 }
-/// An idea's key.
-const IDEA_KEY: usize = 0x10;
+/// An idea's key (an idea is of class `0x1cbaa30`).
+const IDEA_KEY: usize = 0x158;
 /// The country's idea groups taken: a `std::vector` of 16-byte items, the
 /// group and the count of its ideas bought; and a byte for each group, by
 /// its index, set when it is taken.
@@ -38,9 +38,11 @@ const TAKEN_COUNT: usize = 0x8;
 const TAKEN_FLAGS: usize = 0x10a0;
 /// `(country) -> bool`: whether the country has an idea group slot free.
 const SLOT_FREE: usize = 0x32e2d0;
-/// An idea group's vtable slot `(group, tag) -> bool`: whether the country
-/// may take it, its `trigger`.
-const ALLOWED: usize = 0x10;
+/// The country's monarch points, administrative, diplomatic and military.
+const POWER: usize = 0x260;
+/// `(group, tag) -> bool`, whether the country may take the group, its
+/// `trigger`: what every group's vtable holds at `+0x10`.
+const GROUP_ALLOWED: usize = 0x84f1c0;
 /// The power spending: its vtable, and the global its `+0x28` takes as the
 /// game's own callers make one; `(spending, tag, text, 0)`, the cost in whole
 /// monarch points; `(spending, tag) -> bool`, the spend command's check.
@@ -63,7 +65,7 @@ pub fn points() -> Vec<Point> {
         // slots the technology gives.
         Point::keep(SLOT_FREE, "48 8b 81 38 14 00 00 48 8b 91 40 14 00 00", "idea group slot free").uses(&[TAKEN]),
         // The take command's check: not free, allowed, not taken, a slot.
-        Point::keep(0x2a7e79usize, "48 8b 49 58 80 b9 68 05 00 00 00 75 55 48 8b 01 48 8b 53 50 ff 50 10", "take idea group check").uses(&[ALLOWED]),
+        Point::keep(0x2a7e79usize, "48 8b 49 58 80 b9 68 05 00 00 00 75 55 48 8b 01 48 8b 53 50 ff 50 10", "take idea group check"),
         Point::keep(0x2a7eb6usize, "48 63 90 b4 05 00 00 48 8b 81 a0 10 00 00", "idea group taken flag").uses(&[group::INDEX, TAKEN_FLAGS]),
         // Whether the country has an idea: the group's ideas by the count
         // bought.
@@ -72,7 +74,13 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x851489usize, "45 89 75 5c 4d 8b 45 50", "idea group trigger"),
         Point::keep(0x851580usize, "45 89 b5 d4 00 00 00 49 8d 9d c0 00 00 00", "idea group can buy").uses(&[group::CAN_BUY]),
         Point::keep(0x851cdfusize, "45 89 b5 70 05 00 00", "idea group category").uses(&[group::CATEGORY]),
+        // The group's constructor makes an idea and its key.
+        Point::keep(0x84e65cusize, "48 8d 8b 58 01 00 00", "idea key").uses(&[IDEA_KEY]),
+        Point::keep(GROUP_ALLOWED, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 55", "idea group allowed"),
         Point::keep(SPENDING_COST, "48 8b c4 48 89 58 10 4c 89 48 20 4c 89 40 18 48", "power spending cost"),
+        // The spend check compares the country's points of the skill with
+        // the cost.
+        Point::keep(0x94f2a2usize, "42 39 84 87 60 02 00 00", "monarch points").uses(&[POWER]),
         Point::keep(SPENDING_CHECK, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 81 ec 80 00 00 00", "power spending check"),
         // A spending the game makes on its stack: its vtable and stamp.
         Point::keep(0x94f3bfusize, "48 8d 05 ba 60 30 01 48 89 45 c8", "power spending vtable").uses(&[SPENDING_VTABLE]),
@@ -95,12 +103,17 @@ fn database(m: &Memory) -> GResult<usize> {
     }
 }
 
+/// The key of the database's placeholder group, which the ideas view does
+/// not show.
+const NONE: &str = "none";
+
 fn groups(m: &Memory) -> GResult<Vec<Group>> {
     content::vector(m, database(m)? + GROUPS)?
         .into_iter()
         .map(|at| {
             Ok(Group { at, key: content::key(m, at + group::KEY)?, category: m.u32(at + group::CATEGORY)?, ideas: content::vector(m, at + group::IDEAS)? })
         })
+        .filter(|g: &GResult<Group>| g.as_ref().map_or(true, |g| g.key != NONE))
         .collect()
 }
 
@@ -144,7 +157,7 @@ fn idea_index(m: &Memory, idea: usize) -> GResult<u32> {
 }
 
 /// Whether the player can buy `idea` of `group`, why not, and its cost.
-fn buy_choice(m: &Memory, player: Tag, group: &Group, idea: usize) -> GResult<Choice> {
+fn buy_choice(m: &Memory, country: usize, player: Tag, group: &Group, idea: usize) -> GResult<Choice> {
     let mut spending = spending(m, idea_index(m, idea)?, group.category)?;
     let at = spending.as_mut_ptr() as usize;
     let cost = m.call(m.at(SPENDING_COST), &[at, player.0 as usize, 0, 0])? as u32 as i32;
@@ -152,12 +165,17 @@ fn buy_choice(m: &Memory, player: Tag, group: &Group, idea: usize) -> GResult<Ch
     if m.call(m.at(SPENDING_CHECK), &[at, player.0 as usize])? & 0xff != 0 {
         return Ok(Choice::can(cost));
     }
-    Ok(Choice::cannot(conditions::failing(m, group.at + group::CAN_BUY, player, 0)?, cost))
+    let mut reasons = conditions::failing(m, group.at + group::CAN_BUY, player, 0)?;
+    let (kind, points, needed) = (category(group.category).0, m.i32(country + POWER + group.category as usize * 4)?, cost[0].amount);
+    if (points as f64) < needed {
+        reasons.push(format!("buying it takes {needed} {kind} points, and the player has {points}"));
+    }
+    Ok(Choice::cannot(reasons, cost))
 }
 
 /// Whether the player can take `group`, and why not.
 fn take_choice(m: &Memory, country: usize, player: Tag, group: &Group) -> GResult<Choice> {
-    let allowed = m.call(m.vslot(group.at, ALLOWED)?, &[group.at, player.0 as usize])? & 0xff != 0;
+    let allowed = m.call(m.at(GROUP_ALLOWED), &[group.at, player.0 as usize])? & 0xff != 0;
     let mut reasons = if allowed { Vec::new() } else { conditions::failing(m, group.at + group::TRIGGER, player, 0)? };
     if m.call(m.at(SLOT_FREE), &[country])? & 0xff == 0 {
         reasons.push("the player has no free idea group slot".to_string());
@@ -182,7 +200,7 @@ pub fn list(_: Caller) -> GResult<Vec<IdeaGroup>> {
             let next = bought.and_then(|n| g.ideas.get(n as usize).copied());
             let (button, choice) = match (bought, next) {
                 (None, _) => (Some("take_group"), take_choice(m, ctx.country, ctx.player, g)?),
-                (Some(_), Some(idea)) => (Some("buy"), buy_choice(m, ctx.player, g, idea)?),
+                (Some(_), Some(idea)) => (Some("buy"), buy_choice(m, ctx.country, ctx.player, g, idea)?),
                 (Some(_), None) => (None, Choice::cannot(Vec::new(), Vec::new())),
             };
             Ok(IdeaGroup {
@@ -245,7 +263,7 @@ pub fn buy(_: Caller, key: String) -> GResult<()> {
     let Some(&idea) = group.ideas.get(bought as usize) else {
         return Err(checks::not_now(format!("every idea of {key} is bought")).into());
     };
-    let choice = buy_choice(m, ctx.player, &group, idea)?;
+    let choice = buy_choice(m, ctx.country, ctx.player, &group, idea)?;
     if !choice.can {
         return content::refused(&choice.reasons, "buying this idea");
     }

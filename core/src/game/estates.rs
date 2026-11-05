@@ -83,6 +83,9 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x718308usize, "49 81 c5 c0 28 00 00 4c 89 ad 98 00 00 00 49 8b cd e8", "country modifiers").uses(&[MODIFIERS]),
         // The interaction command's check: the interaction by its index.
         Point::keep(0xc50acusize, "e8 7f 33 66 00 85 ff 78 3a 3b 78 6c 7d 35 48 69 d7 28 01 00 00 48 03 50 60", "crown land interactions"),
+        Point::keep(INFLUENCE, "48 89 5c 24 18 57 48 83 ec 20 48 8b da 48 8b f9", "estate influence getter"),
+        Point::keep(COUNTRY_MODIFIERS, "48 89 5c 24 10 48 89 7c 24 18 55 48 8d 6c 24 b0", "country modifiers getter"),
+        Point::keep(CROWN_LAND, "48 89 5c 24 18 48 89 74 24 20 57 48 83 ec 20 48", "crown land getter"),
         Point::keep(CAN_INTERACT, "48 89 5c 24 18 55 56 57 41 56 41 57", "crown land interaction check"),
     ]
 }

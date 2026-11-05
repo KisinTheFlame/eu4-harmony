@@ -65,6 +65,7 @@ pub fn points() -> Vec<Point> {
         // The reform stack's writer.
         Point::keep(0x7aba80usize, "4c 8b 61 30 48 8b 41 38", "reform stack").uses(&[STACK_FIRST, STACK_COUNT]),
         Point::keep(0x79ddc6usize, "48 83 c3 40 e8 b1 b4 f6", "government type key"),
+        Point::keep(SELECT_COST, "40 53 48 83 ec 20 41 8b c0 48 8b da 45 85 c0 79", "reform tier cost"),
         Point::keep(CAN_RAISE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20 55 41 54 41 55 41 56 41 57", "rank check"),
         Point::keep(0x316824usize, "45 8b be 60 28 00 00 41 ff c7", "government rank").uses(&[RANK]),
     ]
@@ -177,10 +178,10 @@ fn written_select(country: Tag, reform: &str) -> String {
     format!("select_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" }} }}", content::letters(country))
 }
 
-/// Changing a reached tier's reform, paying its progress: the place in the
-/// reform stack of the reform it replaces.
-fn written_change(country: Tag, reform: &str, place: usize) -> String {
-    format!("change_to_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" dummy={place} dummy=no }} }}", content::letters(country))
+/// Changing a reached tier's reform, paying its progress: the tier's index,
+/// whose reform it replaces.
+fn written_change(country: Tag, reform: &str, tier: usize) -> String {
+    format!("change_to_government_reform={{ members={{ dummy=\"{}\" dummy=\"{reform}\" dummy={tier} dummy=no }} }}", content::letters(country))
 }
 
 /// Raising the rank by one, with the prestige the button gives.
@@ -204,10 +205,7 @@ pub fn adopt_reform(_: Caller, key: String) -> GResult<()> {
         if !choice.can {
             return content::refused(&choice.reasons, "adopting this reform");
         }
-        let text = match adopted.iter().position(|r| reforms.contains(r)) {
-            Some(place) => written_change(ctx.player, &key, place),
-            None => written_select(ctx.player, &key),
-        };
+        let text = if reached { written_change(ctx.player, &key, tier) } else { written_select(ctx.player, &key) };
         return content::post(&text, "adopting this reform");
     }
     Err(checks::not_found("government reform", &key).into())
