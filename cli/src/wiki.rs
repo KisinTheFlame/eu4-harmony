@@ -46,8 +46,9 @@ topics:
 capability groups (eu4-harmony wiki <group>, then <group> <capability>):
 "
     );
+    let width = groups().iter().map(|g| g.name.len()).max().unwrap_or(0) + 2;
     for g in groups() {
-        let _ = writeln!(text, "  {:<12}{}", g.name, prose(g.about));
+        let _ = writeln!(text, "  {:<width$}{}", g.name, prose(g.about));
     }
     text
 }
