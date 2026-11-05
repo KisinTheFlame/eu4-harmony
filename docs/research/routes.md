@@ -77,7 +77,7 @@ Both checked. The framework's dependency points name the normal policy through t
 
 ### Sea zones and straits
 
-- **The normal policy can lead a land army onto the sea**: in the edge check at `0x96fc67` (checked), a neighbor that is not land (bit `0x08` of its map data's `+0x228` clear), with options `+0x00` and `+0x04` clear, goes to `0x9dd6a0`(neighbor, army, options `+0x0c`); if that finds something, the edge stays open. That `0x9dd6a0` looks for a fleet to carry the army is a guess, not checked. So a route the game chooses may hold sea zones. The framework passes it on as the game chose it.
+- **The normal policy can lead a land army onto the sea**: in the edge check at `0x96fc67` (checked), a neighbor that is not land (bit `0x08` of its map data's `+0x228` clear), with options `+0x00` and `+0x04` clear, goes to `0x9dd6a0`(neighbor, army, options `+0x0c`); if that finds something, the edge stays open. `0x9dd6a0`(sea zone, army, regiments) walks the sea zone's units (`+0x350`) and answers yes for the first fleet (the unit's method `+0x88`) that has no other context (`+0x98`) than the army's and that `0x90acf0`(fleet, army, regiments) lets take the army aboard: room for `regiments` beside those aboard, and for all the army's when it is negative, as the −1 every caller gives (docs/research/units.md, "Transport as the player does it"). So a route the game chooses may hold sea zones. The framework passes it on as the game chose it.
 - **A strait does not put its sea zone in the route**: the search takes the neighbor's province ID from the record's `+0x00` and outputs only provinces it went through; the sea zone at the record's `+0x08` is checked by the edge check but never output. So a route across a strait is all land. Tested (2026-10-30, "Regional combat's radius box, straits, defeat and ironman saves"): the game's route from Thessaly to Kocaeli was `[148,4705,4779,2296,317,316]`, across the Dardanelles. Options `+0x01` refuses straits altogether, so it is no way to keep a route off the sea.
 
 ### Not the fewest steps
@@ -151,5 +151,4 @@ Tested (F1, 2026-10-29): an extension's moves to 146, 151 and 316 and a stop of 
 ## Not known
 
 - The game's names for the options, for `reason` (only 0, 1, `0x18`, `0x35` and `0x36` were seen), for `leave_context`, for `+0x130`, `+0xa0`..`+0xb8` and the army methods `+0x88`, `+0x100` and `+0x118` beyond what is said here, and what writes `+0xf0` and `+0xf8`.
-- What `0x9dd6a0` finds on the way onto the sea.
 - The install called the framework's way, (army, list, 1, 0), was not compared with the rebel hunt's own calls in the running game, nor kept under watch over the following frames; the framework checks the route right after the call only. The stop (army, 0, 0) was tested only through the framework's orders above.

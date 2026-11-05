@@ -96,10 +96,10 @@ fn every_capability_runs_at_a_game_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     let snapshot = json!({
-        "id": ARMY.to_string(), "owner": "TUR", "kind": "army", "province": 149, "regiments": 12, "blocked": [], "route": [], "route_by": null,
+        "id": ARMY.to_string(), "owner": "TUR", "kind": "army", "province": 149, "regiments": 12, "blocked": [], "route": [], "route_by": null, "aboard": null, "carrying": 0,
     });
     let fleet = json!({
-        "id": FLEET.to_string(), "owner": "TUR", "kind": "navy", "province": null, "regiments": 0, "blocked": [], "route": [], "route_by": null,
+        "id": FLEET.to_string(), "owner": "TUR", "kind": "navy", "province": null, "regiments": 0, "blocked": [], "route": [], "route_by": null, "aboard": null, "carrying": 0,
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;

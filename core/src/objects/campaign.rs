@@ -570,6 +570,10 @@ pub mod unit {
     pub const PATH: usize = 0x100;
     /// Its task; [`super::globals::IDLE_TASK`] or null when idle.
     pub const TASK: usize = 0x1f8;
+    /// An army's fleet while it is aboard one, null on land; a fleet's
+    /// armies aboard, a [`super::list`] of them.
+    pub const FLEET: usize = 0x218;
+    pub const ABOARD: usize = 0x218;
     /// u8 each.
     pub const MOVEMENT_LOCKED: usize = 0x202;
     pub const RETREATING: [usize; 2] = [0x203, 0x204];

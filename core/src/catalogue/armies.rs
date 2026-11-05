@@ -93,5 +93,7 @@ fn snapshot(a: &layer::Army, route: Vec<ProvinceId>) -> Army {
             Source::Own => Some(RouteBy::ThisMod),
             Source::OtherExtension => Some(RouteBy::OtherMod),
         },
+        aboard: a.aboard.map(ArmyId),
+        carrying: a.carrying,
     }
 }

@@ -51,6 +51,10 @@ pub struct Army {
     /// Last province of the current route.
     pub destination: Option<u32>,
     pub route_source: RouteSource,
+    /// An army's fleet while it is aboard one.
+    pub aboard: Option<u64>,
+    /// A fleet's regiments aboard.
+    pub carrying: u32,
 }
 
 impl Army {
