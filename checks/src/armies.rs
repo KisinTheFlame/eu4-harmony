@@ -94,6 +94,18 @@ pub fn not_seen(target: u64) -> Refusal {
     Refusal::new(Status::NotFound, format!("the player sees no army {target}"))
 }
 
+/// The refusal of an army ordered onto a sea zone where the player has no
+/// fleet to board.
+pub fn no_fleet_to_board(sea: u32) -> Refusal {
+    Refusal::new(Status::Rejected, format!("the player has no fleet in {sea} to board"))
+}
+
+/// The refusal of an army ordered onto a sea zone where none of the player's
+/// fleets has room for all its regiments; `room` is the most one of them has.
+pub fn no_room_aboard(sea: u32, regiments: u32, room: u32) -> Refusal {
+    Refusal::new(Status::Rejected, format!("no fleet of the player's in {sea} has room for the army's {regiments} regiments: the most is {room}"))
+}
+
 /// The refusal of a goal the game finds no route to.
 pub fn no_route(goal: u32) -> Refusal {
     Refusal::new(Status::NotFound, format!("no route to {goal}"))

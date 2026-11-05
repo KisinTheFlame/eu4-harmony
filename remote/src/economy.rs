@@ -11,11 +11,13 @@ group! {
     /// What the buttons offer now: taking a bank loan, reducing inflation
     /// and raising mercantilism, each with whether the player can, why not
     /// as the button's tooltip says, and its cost; a loan's ducats are in
-    /// `gives`.
+    /// `gives`, which follow the income the game estimates: what changes the
+    /// income, such as developing a province, changes them at once.
     game Options "options" {} -> Vec<EconomyOption>, "one for each of take_loan, reduce_inflation, raise_mercantilism: action, can, reasons, cost, gives";
 
-    /// Takes a bank loan of the size the economy view offers, as its button
-    /// does. Refused with the game's reasons when the player cannot take one
+    /// Takes a bank loan of the size the economy view offers now, as its
+    /// button does: the ducats `economy.options` gives, when nothing changed
+    /// the income since. Refused with the game's reasons when the player cannot take one
     /// now; the loan is then in `loan.list`.
     game TakeLoan "take_loan" {} -> (), "null once the loan is taken";
 

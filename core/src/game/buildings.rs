@@ -98,7 +98,7 @@ extern "C" fn finished(frame: *mut HookFrame) {
             let province = m.u32(province + field::ID)?;
             Ok((index != 0 && owner.valid()).then_some(events::Change::BuildingFinished { province, building: index, country: owner }))
         };
-        match read() {
+        match super::event_costs::BUILDINGS.time(read) {
             Ok(Some(change)) => events::raise(change),
             Ok(None) => {}
             Err(e) => log!("buildings: {e}"),
@@ -208,14 +208,17 @@ fn can_build(m: &Memory, ctx: &Ctx, province: usize, building: usize) -> GResult
 }
 
 /// What the building panel offers the player in a province now, and what is
-/// being built there.
-pub fn options(_: Caller, id: u32) -> GResult<(Option<Constructing>, Vec<Offer>)> {
+/// being built there; in the player's view not in another country's
+/// province, as the province view does not show it.
+pub fn options(caller: Caller, id: u32) -> GResult<(Option<Constructing>, Vec<Offer>)> {
     let m = game()?;
     let ctx = context(m)?;
     let province = province_address(m, &ctx, id)?;
-    let owned = Tag(m.u64(province + field::OWNER)?) == ctx.player;
+    let owner = Some(Tag(m.u64(province + field::OWNER)?)).filter(|t| t.valid());
+    let owned = owner == Some(ctx.player);
+    let seen = super::provinces::sees_inside(super::view(caller), &ctx, owner);
     let mut offers = Vec::new();
-    let constructing = match construction(m, province)? {
+    let constructing = match construction(m, province)?.filter(|_| seen) {
         None => None,
         Some(construction) => {
             let building = m.ptr(construction + BUILDING)?;

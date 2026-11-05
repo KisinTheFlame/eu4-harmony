@@ -767,8 +767,8 @@ impl subjects::Layer for Fake {
         ])
     }
 
-    fn interact(&mut self, subject: Tag, interaction: &str, third_party: Option<Tag>) -> GResult<()> {
-        self.call(format!("interact {:x} {interaction} {:?}", subject.0, third_party.map(|t| t.0)));
+    fn interact(&mut self, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
+        self.call(format!("interact {:x} {interaction} {:?} {province:?}", subject.0, third_party.map(|t| t.0)));
         if subject == wal() && interaction == "scutage" {
             Ok(())
         } else {

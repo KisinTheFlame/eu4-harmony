@@ -96,10 +96,10 @@ fn every_capability_runs_at_a_game_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     let snapshot = json!({
-        "id": ARMY.to_string(), "owner": "TUR", "kind": "army", "province": 149, "regiments": 12, "blocked": [], "route": [], "route_by": null,
+        "id": ARMY.to_string(), "owner": "TUR", "kind": "army", "province": 149, "regiments": 12, "blocked": [], "route": [], "route_by": null, "aboard": null, "carrying": 0,
     });
     let fleet = json!({
-        "id": FLEET.to_string(), "owner": "TUR", "kind": "navy", "province": null, "regiments": 0, "blocked": [], "route": [], "route_by": null,
+        "id": FLEET.to_string(), "owner": "TUR", "kind": "navy", "province": null, "regiments": 0, "blocked": [], "route": [], "route_by": null, "aboard": null, "carrying": 0,
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
@@ -655,7 +655,7 @@ fn every_capability_runs_at_a_game_frame() {
     }
     panel.push((Request::Subject(SubjectRequest::Options { subject: CountryTag(*b"WAL") }), Box::new(|v: &Value| v["result"][1]["active"] == true)));
     panel.push((
-        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None }),
+        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None, province: None }),
         Box::new(|v: &Value| *v == ok(Value::Null)),
     ));
     cases.splice(0..0, panel);
