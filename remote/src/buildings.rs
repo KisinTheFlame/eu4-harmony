@@ -11,6 +11,8 @@ group! {
     /// each building the game has, building it, or destroying it where it
     /// stands, with whether the player can, the game's reasons why not and
     /// the cost; cancelling what is being built; and what is being built.
+    /// In the player's view what is being built in another country's
+    /// province is left out, as the province view does.
     game Options "options" {
         /// The province.
         province: ProvinceId,

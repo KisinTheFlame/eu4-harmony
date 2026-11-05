@@ -51,30 +51,32 @@ impl Watch {
         *self = Self::default();
     }
 
-    /// What happened since the day it last looked, comparing what the game
-    /// keeps now: the wars when `wars` (someone listens to war or peace),
-    /// the owners when `owners` is the provinces' owners by number.
-    pub fn day(&mut self, m: &Memory, ctx: &Ctx, wars: bool, owners: Option<Vec<Option<Tag>>>) -> GResult<Vec<Happened>> {
-        let mut happened = Vec::new();
-        if wars {
-            let now = wars_now(m, ctx)?;
-            if let Some(before) = &self.wars {
-                happened.extend(wars_diff(before, &now));
-            }
-            self.wars = Some(now);
-        } else {
-            self.wars = None;
-        }
-        match owners {
-            Some(now) => {
-                if let Some(before) = &self.owners {
-                    happened.extend(owners_diff(before, &now));
-                }
-                self.owners = Some(now);
-            }
-            None => self.owners = None,
-        }
+    /// The wars declared and the peaces made since the day it last looked,
+    /// comparing the wars the game keeps now: someone listens to war or
+    /// peace.
+    pub fn wars(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<Happened>> {
+        let now = wars_now(m, ctx)?;
+        let happened = self.wars.as_ref().map(|before| wars_diff(before, &now)).unwrap_or_default();
+        self.wars = Some(now);
         Ok(happened)
+    }
+
+    /// Nobody listens to war or peace: what was kept of the wars is dropped.
+    pub fn forget_wars(&mut self) {
+        self.wars = None;
+    }
+
+    /// The provinces that changed owner since the day it last looked, `now`
+    /// the provinces' owners by number: someone listens to them.
+    pub fn owners(&mut self, now: Vec<Option<Tag>>) -> Vec<Happened> {
+        let happened = self.owners.as_ref().map(|before| owners_diff(before, &now)).unwrap_or_default();
+        self.owners = Some(now);
+        happened
+    }
+
+    /// Nobody listens to the provinces' owners: what was kept is dropped.
+    pub fn forget_owners(&mut self) {
+        self.owners = None;
     }
 }
 

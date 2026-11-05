@@ -6,13 +6,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+#[derive(Default)]
 pub struct Cost {
     count: AtomicU64,
     nanos: AtomicU64,
 }
 
 impl Cost {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self { count: AtomicU64::new(0), nanos: AtomicU64::new(0) }
     }
 
@@ -32,6 +33,11 @@ impl Cost {
 
     fn get(&self) -> (u64, Duration) {
         (self.count.load(Ordering::Relaxed), Duration::from_nanos(self.nanos.load(Ordering::Relaxed)))
+    }
+
+    /// How often, and how long in all, and starts counting again.
+    pub fn take(&self) -> (u64, Duration) {
+        (self.count.swap(0, Ordering::Relaxed), Duration::from_nanos(self.nanos.swap(0, Ordering::Relaxed)))
     }
 }
 

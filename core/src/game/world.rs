@@ -226,11 +226,25 @@ impl Geography {
         self.nodes(m, ctx)?.iter().map(|n| if n.id == 0 { Ok(Province::default()) } else { province_now(m, n, visibility_current) }).collect()
     }
 
+    /// Every province's owner, by number; none for the placeholder 0 and a
+    /// province no country owns. Only the owner is read.
+    pub fn owners(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<Option<Tag>>> {
+        self.nodes(m, ctx)?
+            .iter()
+            .map(|n| if n.id == 0 { Ok(None) } else { Ok(Some(Tag(m.u64(n.address + province::OWNER)?)).filter(|t| t.valid())) })
+            .collect()
+    }
+
     /// The provinces numbered in `ids` that there are, in their order; only
     /// those are read.
     pub fn named_provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool, ids: &[u32]) -> GResult<Vec<Province>> {
         let nodes = self.nodes(m, ctx)?;
         ids.iter().filter_map(|id| nodes.get(*id as usize).filter(|n| n.id != 0)).map(|n| province_now(m, n, visibility_current)).collect()
+    }
+
+    /// Every province's address, land, sea and lake.
+    pub fn addresses(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
+        Ok(self.nodes(m, ctx)?.iter().filter(|n| n.id != 0).map(|n| n.address).collect())
     }
 
     /// Every province armies can stand on, as (number, address).
@@ -292,6 +306,16 @@ fn province_now(m: &Memory, n: &Node, visibility_current: bool) -> GResult<Provi
         owner: tag_at(province::OWNER)?,
         controller: tag_at(province::CONTROLLER)?,
     })
+}
+
+/// The player has not discovered this province: it is terra incognita.
+pub fn undiscovered(m: &Memory, ctx: &Ctx, province: usize) -> GResult<bool> {
+    if m.u8(province + province::FOGGED)? & province::UNDISCOVERED_BIT == 0 {
+        return Ok(false);
+    }
+    let index = ctx.player.index() as u16 as usize;
+    let word = m.u32(m.ptr(province + province::DISCOVERED_BY)? + index / 32 * 4)?;
+    Ok(word >> (index % 32) & 1 == 0)
 }
 
 /// Fog of war hides this province.
