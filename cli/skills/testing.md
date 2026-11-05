@@ -38,6 +38,10 @@ can_attack, move and stop:
 - Neighbors count both ways; a route is the shortest over land, across
   straits. An order sets or clears the army's route as this mod's; armies
   do not move as days pass.
+- The world refuses as the game does, in its words: an ID of no army of the
+  player's, a navy where an army is asked for, an order to an army with no
+  regiments or with anything in its blocked list, a target in a province
+  that is not visible. Give the armies you order regiments.
 - Put a world shared by several tests in eu4-harmony/tests/helpers/<name>.lua
   returning the table, and local spain = require("helpers.spain").
 

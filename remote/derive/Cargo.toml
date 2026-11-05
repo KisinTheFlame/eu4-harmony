@@ -3,6 +3,7 @@ name = "eu4-harmony-remote-derive"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "derive(Shaped): the shape of a capability's answer, read from its type and its serde attributes"
 
 [lib]

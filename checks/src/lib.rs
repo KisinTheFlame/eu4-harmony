@@ -12,6 +12,7 @@
 pub mod armies;
 pub mod camera;
 pub mod console;
+pub mod countries;
 mod date;
 pub mod diplomacy;
 pub mod form;

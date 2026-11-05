@@ -3,6 +3,7 @@ name = "eu4-harmony-checks"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "EU4 Harmony's own checks of capability calls and the words they refuse in, shared by the core and the fakes that stand in for it, and the game's calendar"
 
 [lib]

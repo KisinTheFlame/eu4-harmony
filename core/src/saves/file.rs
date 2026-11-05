@@ -3,7 +3,9 @@
 //! box knows them before the save is loaded (docs/research/main-menu.md).
 //!
 //! A save is plain text (`EU4txt`) or a zip file whose `meta` entry is
-//! deflated text or the game's binary form (`EU4bin`, ironman saves).
+//! deflated text or the game's binary form (`EU4bin`, ironman saves). Its
+//! CRC and inflate serve the saves compressed in the background too
+//! ([`super::background`]).
 use crate::Result;
 use std::{
     fs::File,
@@ -479,7 +481,7 @@ mod tests {
     /// The text the dynamic block test data holds, and the data.
     fn dynamic() -> (Vec<u8>, Vec<u8>) {
         let long: String = (0..300).map(|i| format!("province={i} owner=\"FRA\" development={}\n", i * 7 % 31)).collect();
-        (long.into_bytes(), bytes(include_str!("save_file/dynamic.hex").trim()))
+        (long.into_bytes(), bytes(include_str!("file/dynamic.hex").trim()))
     }
 
     /// What `f` makes of `data`, which must not panic.

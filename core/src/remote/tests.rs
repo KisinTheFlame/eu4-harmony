@@ -1,13 +1,17 @@
 //! The engine driven with typed requests, a fake game behind the capability
 //! layer's traits.
-use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
+use crate::catalogue::{
+    dispatch,
+    fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY},
+    process, Outcome,
+};
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, describe::DescribeRequest,
-    desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, input::Button, input::Direction,
-    input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, questions::QuestionRequest,
-    recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest,
-    time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, decisions::DecisionRequest,
+    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
+    input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
+    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
+    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -163,7 +167,7 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Offer(OfferRequest::Decline { offer: 3 }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Offer(OfferRequest::Decline { offer: 4 }), Box::new(error("not_found"))),
         (
-            Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }),
+            Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }),
             Box::new(|v: &Value| *v == ok(json!({"process": process(), "events": [], "last": 0, "missed": false}))),
         ),
         (
@@ -233,6 +237,12 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Desktop(DesktopRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"hidden": true, "hidden_start": true, "sound": false})))),
         (Request::Desktop(DesktopRequest::Show {}), Box::new(|v: &Value| v["result"]["hidden"] == false)),
         (Request::Desktop(DesktopRequest::Hide {}), Box::new(|v: &Value| v["result"]["hidden"] == true)),
+        (
+            Request::Decision(DecisionRequest::List {}),
+            Box::new(|v: &Value| {
+                v["result"][1] == json!({"decision": "move_capital", "name": "迁都", "major": false, "can": false, "reasons": ["拥有君士坦丁堡"], "cost": []})
+            }),
+        ),
         // The cursor first: a request after an input waits for the game to
         // have it (input::tests).
         (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),
@@ -486,7 +496,7 @@ fn a_request_given_up_before_it_runs_never_runs() {
 fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms), process: None });
+    let read = |wait_ms| Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(wait_ms), process: None, kinds: None, countries: None });
 
     let next = engine.submit(read(10_000));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
@@ -508,7 +518,7 @@ fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     // With something to read already, it answers at once; with nothing, when
     // its time is up, in the main menu too.
     let at_once = engine.submit(read(10_000));
-    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1), process: None }));
+    let short = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(1), process: None, kinds: None, countries: None }));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     assert_eq!(answer(&at_once)["result"]["last"], 1);
     std::thread::sleep(Duration::from_millis(5));
@@ -520,7 +530,7 @@ fn a_read_that_waits_is_answered_at_a_later_safe_point() {
     assert!(error("invalid_argument")(&answer(&too_long)));
 
     // A waiting read given up is dropped.
-    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000), process: None }));
+    let given_up = engine.submit(Request::Events(EventsRequest::Read { since: Some(1), wait_ms: Some(10_000), process: None, kinds: None, countries: None }));
     engine.run(&mut game, &Place::Game, PLENTY);
     drop(given_up);
     engine.run(&mut game, &Place::Game, PLENTY);
@@ -562,10 +572,12 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         visibility_current: true,
         changes: vec![game::events::Change::Ordered(ARMY), game::events::Change::Defeated(ARMY)],
         new_day: true,
+        new_month: true,
+        new_year: false,
     };
     let engine = Engine::new(remember);
     engine.record(happened(&frame));
-    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None }));
+    let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     assert_eq!(
         answer(&read)["result"]["events"],
@@ -574,9 +586,10 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
             {"number": 2, "event": "army_ordered", "army": ARMY.to_string()},
             {"number": 3, "event": "army_defeated", "army": ARMY.to_string()},
             {"number": 4, "event": "day", "date": "1444.11.11"},
+            {"number": 5, "event": "month", "date": "1444.11.11"},
         ])
     );
-    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, ..frame };
+    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, ..frame };
     assert!(happened(&quiet).is_empty());
 }
 
@@ -704,7 +717,7 @@ fn a_load_the_game_could_not_read_is_refused_though_a_game_comes() {
 fn returning_to_the_main_menu_is_answered_before_the_process_ends() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    let waiting = engine.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(10_000), process: None }));
+    let waiting = engine.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: Some(10_000), process: None, kinds: None, countries: None }));
     engine.run(&mut game, &Place::Game, PLENTY);
     let back = engine.submit(Request::Menu(MenuRequest::Return {}));
     let after = engine.submit(Request::Session(SessionRequest::Get {}));
@@ -790,7 +803,9 @@ fn a_request_sent_in_one_session_never_runs_in_the_next() {
 fn events_say_which_process_numbered_them() {
     let engine = Engine::new(remember);
     engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);
-    let read = |since, from| engine.submit(Request::Events(EventsRequest::Read { since: Some(since), wait_ms: Some(10_000), process: Some(from) }));
+    let read = |since, from| {
+        engine.submit(Request::Events(EventsRequest::Read { since: Some(since), wait_ms: Some(10_000), process: Some(from), kinds: None, countries: None }))
+    };
     let (here, other) = (read(1, process()), read(1, process() - 1));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     // From this process, the events after since; from another, every event

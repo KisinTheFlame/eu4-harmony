@@ -15,8 +15,10 @@ group! {
     } -> Army, "the army: id, owner, kind (army or navy; of a navy only id, owner and kind are read), province, regiments, blocked (what stops it taking orders now: in_battle, sieging, retreating, exiled, movement_locked, attached, has_followers, busy), route (the provinces still to go, in order) and route_by (who set the route: this_mod, other_mod or player_or_game; null without one)";
     /// The player's armies and fleets.
     game List "list" {} -> Vec<Army>, "the armies and fleets, each as army.get answers it";
-    /// The land armies the player sees in a province; none under fog of
-    /// war. Not ready while visibility has not caught up with the date.
+    /// The land armies in a province: every one for an extension and in the
+    /// full view; in the player's view only those the player sees, none
+    /// under fog of war, and not ready while visibility has not caught up
+    /// with the date.
     game At "at" {
         /// The province.
         province: ProvinceId,

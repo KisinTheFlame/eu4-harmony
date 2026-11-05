@@ -273,7 +273,7 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
 /// day, and a window that holds the game paused too (an event window, a
 /// message set to pause) does not let it run on once it closes.
 pub(super) fn day_passed(m: &Memory) {
-    if crate::saves::load_in_progress() {
+    if crate::sessions::loading() {
         return;
     }
     let Ok(ctx) = context_any(m) else { return };
@@ -321,15 +321,13 @@ fn pause_game(m: &Memory, ctx: &Ctx) -> GResult<()> {
     Ok(())
 }
 
-/// Before the game starts `eu4.exe` again, whoever asked for it: remote
-/// control answers every request, waiting, queued or sent from now on, while
-/// this process can still write the answers, and waits a while for its
-/// clients to read them (`remote::Engine::end`).
+/// Before the game starts `eu4.exe` again, whoever asked for it: the
+/// sessions are told (`crate::sessions::restarting`), so that remote control
+/// answers every request while this process can still write the answers.
 extern "C" fn restart_before(_: *mut HookFrame) {
     crate::guarded("restart", || {
         log!("the game starts eu4.exe again");
-        crate::saves::background::wait();
-        crate::remote::restarting();
+        crate::sessions::restarting();
     });
 }
 

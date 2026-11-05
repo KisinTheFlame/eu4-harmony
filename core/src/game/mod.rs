@@ -1,8 +1,8 @@
 //! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Each capability is
 //! a function taking the [`Caller`] and returning the framework's own types;
-//! remote control (`crate::remote`) and the Lua host (`crate::lua`), which runs
-//! remote control's groups as the extension, only convert to and from them
+//! the capability catalogue (`crate::catalogue`), which remote control and the
+//! Lua host both run their requests through, only converts to and from them
 //! (ADR one-capability-catalogue). One file per group: [`session`],
 //! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
 //! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
@@ -18,8 +18,10 @@
 pub mod armies;
 pub mod camera;
 pub mod commands;
+pub mod conditions;
 pub mod console;
 pub mod countries;
+pub mod decisions;
 pub mod diplomacy;
 pub mod events;
 pub mod input;
@@ -43,6 +45,32 @@ use crate::{
     points::Point,
 };
 use std::sync::Mutex;
+
+/// How much of the game a read gives (GLOSSARY: Player's view, Full view;
+/// ADR remote-control-reads-the-players-view).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum View {
+    /// What the player's interface shows: the map as fog of war leaves it,
+    /// and of other countries what their panels show.
+    Player,
+    /// Everything the game keeps.
+    Full,
+}
+
+/// The view `caller` reads: the full view for an extension; for remote
+/// control the player's view, unless the player's framework setting gives it
+/// the full view.
+pub fn view(caller: Caller) -> View {
+    view_of(caller, crate::settings::current().remote_full_view)
+}
+
+fn view_of(caller: Caller, remote_full_view: bool) -> View {
+    match caller {
+        Caller::Extension(_) => View::Full,
+        Caller::Remote if remote_full_view => View::Full,
+        Caller::Remote => View::Player,
+    }
+}
 
 /// Who calls a capability.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,6 +190,10 @@ pub struct Frame {
     /// The date differs from the last day announced in this session, and
     /// visibility reflects it.
     pub new_day: bool,
+    /// The new day is the first heard in a new month, and someone listens.
+    pub new_month: bool,
+    /// The new day is the first heard in a new year, and someone listens.
+    pub new_year: bool,
 }
 
 /// One thing that happened since the last safe frame.
@@ -172,15 +204,22 @@ pub enum Heard {
     Change(events::Change),
     /// A new day, with its date.
     Day(i32),
+    /// The first day heard in a new month, with its date.
+    Month(i32),
+    /// The first day heard in a new year, with its date.
+    Year(i32),
 }
 
 impl Frame {
     /// What happened, in the order extensions hear it and remote control
-    /// numbers it: a new session, the changes, a new day.
+    /// numbers it: a new session, the changes, a new day, its month, its
+    /// year.
     pub fn heard(&self) -> Vec<Heard> {
         let session = self.new_session.then_some(Heard::Session(self.session));
         let day = self.new_day.then_some(Heard::Day(self.ctx.date));
-        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).collect()
+        let month = self.new_month.then_some(Heard::Month(self.ctx.date));
+        let year = self.new_year.then_some(Heard::Year(self.ctx.date));
+        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).chain(month).chain(year).collect()
     }
 }
 
@@ -189,7 +228,7 @@ impl Frame {
 /// An army the player gave an order is no longer an extension's to move.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     let state = events::begin_frame(m)?;
-    let (new_session, new_day) = with_state(|s| {
+    let (new_session, new_day, previous) = with_state(|s| {
         let new_session = s.session != state.session;
         if new_session {
             s.session = state.session;
@@ -202,13 +241,33 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
                 s.orders.revoke(*army);
             }
         }
+        let previous = s.day;
         let new_day = state.visibility_current && s.day.replace(state.ctx.date) != Some(state.ctx.date);
-        (new_session, new_day)
+        (new_session, new_day, previous)
     });
+    let (new_month, new_year) = turned(previous.filter(|_| new_day), state.ctx.date);
+    let (new_month, new_year) = (new_month && events::listened("month"), new_year && events::listened("year"));
     if new_session {
         crate::map::reset_session(m, &state.ctx);
     }
-    Ok(Frame { ctx: state.ctx, session: state.session, new_session, visibility_current: state.visibility_current, changes: state.changes, new_day })
+    Ok(Frame {
+        ctx: state.ctx,
+        session: state.session,
+        new_session,
+        visibility_current: state.visibility_current,
+        changes: state.changes,
+        new_day,
+        new_month,
+        new_year,
+    })
+}
+
+/// Whether the day `now`, heard after the day `before`, is in a new month,
+/// and in a new year. The first day heard in a session is in neither.
+fn turned(before: Option<i32>, now: i32) -> (bool, bool) {
+    let Some(before) = before else { return (false, false) };
+    let ((y0, m0, _), (y1, m1, _)) = (eu4_harmony_checks::Date(before).ymd(), eu4_harmony_checks::Date(now).ymd());
+    ((y0, m0) != (y1, m1), y0 != y1)
 }
 
 const IS_PAUSED: usize = 0x7e01b0;
@@ -231,6 +290,8 @@ pub fn points() -> Vec<Point> {
     points.extend(menu::points());
     points.extend(diplomacy::points());
     points.extend(input::points());
+    points.extend(conditions::points());
+    points.extend(decisions::points());
     points
 }
 
@@ -372,16 +433,50 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 
 #[cfg(test)]
 mod tests {
-    use super::{events::Change, Ctx, Frame, Heard, Tag};
+    use super::{events::Change, turned, view_of, Caller, Ctx, Frame, Heard, Tag, View};
+
+    #[test]
+    fn extensions_read_the_full_view_and_remote_control_the_players_unless_set() {
+        assert_eq!(view_of(Caller::Extension(0), false), View::Full);
+        assert_eq!(view_of(Caller::Remote, false), View::Player);
+        assert_eq!(view_of(Caller::Remote, true), View::Full);
+    }
 
     #[test]
     fn a_frame_is_heard_session_first_and_day_last() {
         let ctx = Ctx { world: 0, date: 0x035D_7710, player: Tag(0), country: 0, countries: 0 };
-        let frame =
-            Frame { ctx, session: 3, new_session: true, visibility_current: true, changes: vec![Change::Ordered(7), Change::Defeated(8)], new_day: true };
-        assert_eq!(frame.heard(), [Heard::Session(3), Heard::Change(Change::Ordered(7)), Heard::Change(Change::Defeated(8)), Heard::Day(0x035D_7710)]);
-        let quiet = Frame { new_session: false, new_day: false, changes: Vec::new(), ..frame };
+        let frame = Frame {
+            ctx,
+            session: 3,
+            new_session: true,
+            visibility_current: true,
+            changes: vec![Change::Ordered(7), Change::Defeated(8)],
+            new_day: true,
+            new_month: true,
+            new_year: true,
+        };
+        assert_eq!(
+            frame.heard(),
+            [
+                Heard::Session(3),
+                Heard::Change(Change::Ordered(7)),
+                Heard::Change(Change::Defeated(8)),
+                Heard::Day(0x035D_7710),
+                Heard::Month(0x035D_7710),
+                Heard::Year(0x035D_7710)
+            ]
+        );
+        let quiet = Frame { new_session: false, new_day: false, new_month: false, new_year: false, changes: Vec::new(), ..frame };
         assert!(quiet.heard().is_empty());
+    }
+
+    #[test]
+    fn a_month_and_a_year_turn_with_the_first_day_heard_in_them() {
+        let day = |y, m, d| eu4_harmony_checks::Date::from_ymd(y, m, d).unwrap().0;
+        assert_eq!(turned(Some(day(1444, 11, 30)), day(1444, 12, 1)), (true, false));
+        assert_eq!(turned(Some(day(1444, 12, 30)), day(1445, 1, 2)), (true, true));
+        assert_eq!(turned(Some(day(1444, 11, 11)), day(1444, 11, 12)), (false, false));
+        assert_eq!(turned(None, day(1445, 1, 1)), (false, false));
     }
 
     #[test]

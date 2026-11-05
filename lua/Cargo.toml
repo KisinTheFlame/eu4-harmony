@@ -3,6 +3,7 @@ name = "eu4-harmony-lua"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 description = "EU4 Harmony's Lua host: an extension's sandbox, handlers and tasks, errors and time limit, over a host that is the running game in the core and a fake game in the command line tool"
 
 [lib]
