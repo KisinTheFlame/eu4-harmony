@@ -202,7 +202,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             let amount = at_least_one(need(details.amount, "an amount")?, "ducat")?;
             within_treasury(amount)?;
             let duration = details.second.unwrap_or(SUBSIDIES_DURATION);
-            if !(SUBSIDIES_DURATION..=SUBSIDIES_LONGEST).contains(&duration) || duration % SUBSIDIES_DURATION != 0 {
+            if !(SUBSIDIES_DURATION..=SUBSIDIES_LONGEST).contains(&duration) || !duration.is_multiple_of(SUBSIDIES_DURATION) {
                 return Err(invalid(format!(
                     "a duration of {duration}: the subsidies window goes from {SUBSIDIES_DURATION} to {SUBSIDIES_LONGEST}, by {SUBSIDIES_DURATION}"
                 )));
