@@ -1,5 +1,5 @@
 # Builds and tests everything that runs without the game. The checks
-# against eu4.exe (cargo test -- --ignored) need it installed and run by hand.
+# against eu4.exe (cargo xtask offline-check) need it installed and run by hand.
 name: CI
 
 on:
