@@ -210,6 +210,9 @@ fn user_folder(game_dir: &Path) -> Result<PathBuf> {
 pub fn held_by(owner: &str) -> Result<Record> {
     let held = locked(|s| s.held.clone())?;
     match held {
+        Some(h) if h.owner == owner && h.unfinished() => {
+            Err(format!("{owner}'s claim is not complete: its backup of the player's files is not done; cargo xtask game claim makes it again"))
+        }
         Some(h) if h.owner == owner && h.putting_back.is_some() => {
             Err(format!("{owner}'s claim is being released, or a release of it did not end: cargo xtask game release"))
         }
@@ -276,13 +279,19 @@ pub fn take(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<C
 }
 
 fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Result<Claimed> {
+    let claims = base()?.join("claims");
     let mut said = String::new();
+    let mut folder = PathBuf::new();
     loop {
         let running = game::running();
         let found = locked(|s| {
             let found = record::look(asking, &mut s.held, &mut s.waiting, &seen(running));
             if found == Found::Free {
-                let (since, _) = stamps();
+                let (since, stamp) = stamps();
+                folder = claims.join(format!("{}-{stamp}", asking.owner));
+                // The record names the claim's folder, and the process making
+                // it, before the backup: a claim cut short is known as one.
+                let session = !asking.player;
                 s.held = Some(Record {
                     owner: asking.owner.clone(),
                     purpose: purpose.to_string(),
@@ -291,9 +300,10 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
                     renewed: now(),
                     lease_minutes: lease,
                     backup: None,
-                    folder: None,
+                    folder: session.then(|| folder.display().to_string()),
                     player: asking.player,
                     taken: None,
+                    preparing: session.then(me),
                     putting_back: None,
                 });
             }
@@ -326,9 +336,15 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
                 return claim_as(asking, purpose, lease, game_dir);
             }
             Found::Gone(holder) => {
-                println!("{} has gone: putting back what its run changed", holder.describe(now()));
+                if holder.unfinished() {
+                    println!("{}: its claim was cut short before its backup was done", holder.describe(now()));
+                } else {
+                    println!("{} has gone: putting back what its run changed", holder.describe(now()));
+                }
                 put_back_for(&holder, || put_back(&holder, game_dir, false).map(drop))?;
-                println!("took over from {}", holder.describe(now()));
+                if holder.owner != asking.owner {
+                    println!("took over from {}", holder.describe(now()));
+                }
                 return claim_as(asking, purpose, lease, game_dir);
             }
             Found::Free => break,
@@ -338,12 +354,14 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
         println!("claimed for the player: {}", held_by(&asking.owner)?.describe(now()));
         return Ok(Claimed::Now);
     }
-    match prepare(&asking.owner, game_dir) {
-        Ok(folder) => {
+    let me = me();
+    let making = |h: &Record| h.owner == asking.owner && h.folder.as_deref() == Some(&*folder.display().to_string()) && h.preparing == Some(me);
+    match prepare(&claims, &folder, game_dir) {
+        Ok(()) => {
             let held = locked(|s| {
-                let h = s.held.as_mut().filter(|h| h.owner == asking.owner)?;
+                let h = s.held.as_mut().filter(|h| making(h))?;
                 h.backup = Some(folder.join("backup").display().to_string());
-                h.folder = Some(folder.display().to_string());
+                h.preparing = None;
                 h.renewed = now();
                 Some(h.clone())
             })?
@@ -353,12 +371,15 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
             Ok(Claimed::Now)
         }
         Err(e) => {
-            // No claim without its backup: the game is given back.
+            // No claim without its backup: the game is given back, and what
+            // was made of the claim's folder goes, a copy of files that
+            // nothing changed.
             locked(|s| {
-                if s.held.as_ref().is_some_and(|h| h.owner == asking.owner) {
+                if s.held.as_ref().is_some_and(making) {
                     s.held = None;
                 }
             })?;
+            let _ = fs::remove_dir_all(&folder);
             Err(format!("not claimed: {e}; the game is free again"))
         }
     }
@@ -376,11 +397,8 @@ fn put_back_for(holder: &Record, putting_back: impl FnOnce() -> Result<()>) -> R
 
 /// Makes the claim's folder, with the player's files and the game folder's
 /// framework files in it; removes the `kept\` of claims released long ago.
-fn prepare(owner: &str, game_dir: &Path) -> Result<PathBuf> {
-    let claims = base()?.join("claims");
-    forget_old(&claims);
-    let (_, stamp) = stamps();
-    let folder = claims.join(format!("{owner}-{stamp}"));
+fn prepare(claims: &Path, folder: &Path, game_dir: &Path) -> Result<()> {
+    forget_old(claims);
     let framework = folder.join("framework");
     fs::create_dir_all(&framework).map_err(|e| format!("cannot make {}: {e}", framework.display()))?;
     for file in FRAMEWORK_FILES {
@@ -392,8 +410,7 @@ fn prepare(owner: &str, game_dir: &Path) -> Result<PathBuf> {
         }
     }
     eu4_harmony_client::game_not_running()?;
-    eu4_harmony_client::backup::backup(&user_folder(game_dir)?, &folder.join("backup"))?;
-    Ok(folder)
+    eu4_harmony_client::backup::backup(&user_folder(game_dir)?, &folder.join("backup"))
 }
 
 /// Removes the claims' folders whose `kept\` is older than [`KEEP_DAYS`]
@@ -416,6 +433,15 @@ fn forget_old(claims: &Path) {
 /// framework files as `framework\` has them. Returns whether the run
 /// crashed. A file not put back fails it, and the claim's folder stays.
 fn put_back(holder: &Record, game_dir: &Path, keep_crashes: bool) -> Result<bool> {
+    if holder.unfinished() {
+        // Nothing ran under a claim whose backup was not done: what it made
+        // is part of a copy of files nothing changed, and goes.
+        if let Some(folder) = holder.folder.as_deref().map(Path::new).filter(|f| f.exists()) {
+            fs::remove_dir_all(folder).map_err(|e| format!("cannot remove {}: {e}", folder.display()))?;
+        }
+        println!("the claim's backup was not done, so nothing ran under it: nothing to put back");
+        return Ok(false);
+    }
     let folder = holder.folder.as_ref().map(PathBuf::from);
     let user = eu4_harmony_manifest::user_dir(Some(game_dir))?;
     let mut crashed = false;
@@ -527,6 +553,10 @@ pub fn give_back(owner: &str, game_dir: &Path, keep_crashes: bool) -> Result<()>
         crashed = put_back(&held, game_dir, keep_crashes)?;
         Ok(())
     })?;
+    if held.unfinished() {
+        println!("released: the claim was not complete, its backup not done, so nothing was put back; the game is free");
+        return Ok(());
+    }
     println!("released: the game is free");
     if !held.player {
         let minutes = (now().saturating_sub(since_seconds(&held))) / 60;

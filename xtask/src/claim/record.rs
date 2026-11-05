@@ -5,7 +5,7 @@
 //! `purpose`, `checkout`, `since`, `renewed`, `leaseMinutes`, `backup`), so
 //! that a checkout still on the script and one on these commands never hold
 //! the game at once; the fields it does not know (`folder`, `player`,
-//! `taken`, `puttingBack`) it keeps as they are.
+//! `taken`, `preparing`, `puttingBack`) it keeps as they are.
 use serde_json::{json, Value};
 
 /// A process, by its id and when it started: a later process given the same
@@ -62,6 +62,10 @@ pub struct Record {
     pub player: bool,
     /// When the player asked to take the game from this holder.
     pub taken: Option<u64>,
+    /// The process making the claim's backup. A claim whose backup is not
+    /// done is not one to use: it is made again, or released with nothing
+    /// to put back.
+    pub preparing: Option<Process>,
     /// The process putting back what the claim's run changed: while it
     /// runs, nothing else puts it back.
     pub putting_back: Option<Process>,
@@ -81,6 +85,7 @@ impl Record {
             folder: text("folder"),
             player: value["player"].as_bool().unwrap_or(false),
             taken: value["taken"].as_u64(),
+            preparing: Process::from_json(&value["preparing"]),
             putting_back: Process::from_json(&value["puttingBack"]),
         })
     }
@@ -97,6 +102,7 @@ impl Record {
             "folder": self.folder,
             "player": self.player,
             "taken": self.taken,
+            "preparing": self.preparing.map(Process::to_json),
             "puttingBack": self.putting_back.map(Process::to_json),
         })
     }
@@ -109,6 +115,18 @@ impl Record {
     /// A holder that let its lease run out while the game was closed has gone.
     pub fn stale(&self, now: u64, game_running: bool) -> bool {
         !game_running && now > self.lease_ends()
+    }
+
+    /// A claim of a session's whose backup is not done: its process made the
+    /// record and was backing up, or was cut short doing it. The player's
+    /// claim has no backup.
+    pub fn unfinished(&self) -> bool {
+        !self.player && self.backup.is_none()
+    }
+
+    /// Another process that runs makes this claim's backup.
+    fn made_by_another(&self, seen: &Seen) -> Option<Process> {
+        self.preparing.filter(|p| self.unfinished() && *p != seen.me && (seen.alive)(p))
     }
 
     /// The same claim as `other`: the same owner, from the same time, with
@@ -207,7 +225,19 @@ pub fn look(asking: &Asking, held: &mut Option<Record>, queue: &mut Vec<Waiting>
             return Found::Busy(format!("{}; process {} puts back what its run changed", h.describe(now), p.id));
         }
     }
+    if let Some((who, p)) = held.as_ref().and_then(|h| Some((h.owner.clone(), h.made_by_another(seen)?))) {
+        if asking.wait {
+            wait_in(queue, asking, now);
+        }
+        return Found::Busy(format!("{who}, whose claim is being made: process {} backs up the player's files", p.id));
+    }
     if let Some(h) = held.as_mut().filter(|h| h.owner == asking.owner) {
+        // Its own claim cut short while it was made: what it made goes, and
+        // it is made again.
+        if h.unfinished() {
+            h.putting_back = Some(seen.me);
+            return Found::Gone(h.clone());
+        }
         h.renewed = now;
         queue.retain(|w| w.owner != asking.owner);
         return Found::Held;
@@ -222,7 +252,8 @@ pub fn look(asking: &Asking, held: &mut Option<Record>, queue: &mut Vec<Waiting>
     let first = queue.first().map(|w| w.owner.clone());
     let others_first = first.as_ref().is_some_and(|owner| *owner != asking.owner);
     match held.clone() {
-        Some(h) if !h.stale(now, game_running) => {
+        // A claim cut short while it was made has gone, whatever its lease.
+        Some(h) if !(h.stale(now, game_running) || h.unfinished() && h.preparing.is_some()) => {
             if asking.player && asking.now && !h.player {
                 let h = held.as_mut().expect("held");
                 let taken = *h.taken.get_or_insert(now);
@@ -270,7 +301,7 @@ fn wait_in(queue: &mut Vec<Waiting>, asking: &Asking, now: u64) {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Release {
     /// The claim, marked as this process's to put back.
-    Mine(Record),
+    Mine(Box<Record>),
     /// Another process puts it back: the player's claim taking the game, or
     /// one that took over.
     Busy(String),
@@ -282,12 +313,15 @@ pub enum Release {
 /// another process that runs puts it back already.
 pub fn release(owner: &str, held: &mut Option<Record>, seen: &Seen) -> Release {
     let Some(h) = held.as_mut().filter(|h| h.owner == owner) else { return Release::NotHeld };
+    if let Some(p) = h.made_by_another(seen) {
+        return Release::Busy(format!("the claim is being made: process {} backs up the player's files; release once it is claimed", p.id));
+    }
     if let Some(p) = h.put_back_by_another(seen) {
         let whose = if h.taken.is_some() { "the player's claim, which takes the game," } else { "another claim" };
         return Release::Busy(format!("{whose} puts back what this claim's run changed (process {}), and frees the game", p.id));
     }
     h.putting_back = Some(seen.me);
-    Release::Mine(h.clone())
+    Release::Mine(Box::new(h.clone()))
 }
 
 /// Ends `of`, which `me` put back: its record goes once all was put back,
@@ -314,12 +348,19 @@ mod tests {
             since: String::new(),
             renewed,
             lease_minutes: 30,
-            backup: None,
+            backup: Some("backup".into()),
             folder: None,
             player: false,
             taken: None,
+            preparing: None,
             putting_back: None,
         }
+    }
+
+    /// `owner`'s claim, whose backup `process` makes, or made until it was
+    /// cut short.
+    fn unfinished(owner: &str, renewed: u64, process: Process) -> Record {
+        Record { backup: None, preparing: Some(process), ..record(owner, renewed) }
     }
 
     /// The process that looks in these tests, and two others.
@@ -385,6 +426,29 @@ mod tests {
         assert!(matches!(release("a", &mut held, &by(HOLDER, 321, true)), Release::Mine(_)), "the same process may go on");
         put_back(&mut held, &mine, HOLDER, true);
         assert_eq!(look(&player(true), &mut held, &mut queue, &at(330, false)), Found::Free);
+    }
+
+    /// A claim whose backup is not done is never held: its own owner, asking
+    /// again once it was cut short, makes it afresh, another takes over from
+    /// it at once, and while its process still backs up, everyone waits.
+    #[test]
+    fn a_claim_without_its_backup_is_not_held() {
+        let mut queue = Vec::new();
+        let mut held = Some(unfinished("a", 100, DEAD));
+        assert!(matches!(look(&asking("a", false), &mut held, &mut queue, &at(101, false)), Found::Gone(h) if h.owner == "a"));
+        assert_eq!(held.as_ref().unwrap().putting_back, Some(ME));
+        let mut held = Some(unfinished("a", 100, DEAD));
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &at(101, false)), Found::Gone(h) if h.owner == "a"), "gone at once");
+        let mut held = Some(unfinished("a", 100, HOLDER));
+        let late = 100 + 30 * 60 + 1;
+        assert!(matches!(look(&asking("a", false), &mut held, &mut queue, &at(late, false)), Found::Busy(why) if why.contains("being made")));
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &at(late, false)), Found::Busy(why) if why.contains("being made")));
+        assert!(matches!(release("a", &mut held, &at(late, false)), Release::Busy(why) if why.contains("being made")));
+        // Its own process finishing it is no other's.
+        assert_eq!(
+            release("a", &mut held, &by(HOLDER, late, false)),
+            Release::Mine(Box::new(Record { putting_back: Some(HOLDER), ..unfinished("a", 100, HOLDER) }))
+        );
     }
 
     /// A holder gone keeps its record until its claim is put back, so that a

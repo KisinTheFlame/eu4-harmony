@@ -26,7 +26,7 @@ Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](protot
 
 ### One run
 
-1. `claim`: the player's files backed up into `backup\`, the game folder's `version.dll`, `eu4-harmony\eu4_harmony_core.dll`, `eu4-harmony\eu4-harmony.exe` and `eu4-harmony\dev.toml` (each as there or not there) into `framework\`.
+1. `claim`: the player's files backed up into `backup\`, the game folder's `version.dll`, `eu4-harmony\eu4_harmony_core.dll`, `eu4-harmony\eu4-harmony.exe` and `eu4-harmony\dev.toml` (each as there or not there) into `framework\`. The record names the claim's folder and the process making it before the backup begins, and the claim is not one to use until the backup is done: `install` and `start` refuse it, others wait while that process backs up, and once it has ended with the backup not done, a claim of the same owner removes what it made and claims afresh, another claim takes over from it at once, and `release` says that nothing was put back, since nothing ran under it. A backup that fails gives the game back and removes what was made of the folder.
 2. `install`, then `start`, as often as the run needs, with `stop` between.
 3. `release`: the game ended if it runs; the framework's logs, the game's logs and the run's crash folders copied into `kept\`; the player's files put back by `eu4-harmony restore`, the game folder's files put back from `framework\` (a file that was not there removed), each compared. A file not put back is a `NOT RESTORED` line, and the claim is kept, as for the player's files now. The summary says how long the claim was held, whether the game crashed, and where `kept\` is.
 
