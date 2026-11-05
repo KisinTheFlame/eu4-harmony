@@ -186,6 +186,9 @@ impl Settings {
     /// Reads `key="value"` lines; anything unknown or malformed keeps its default.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
+        // Notepad can save the file with a byte order mark, which would
+        // otherwise be part of the first key.
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         // A weight may come before its font.
         let mut families: [Option<String>; 4] = Default::default();
         let mut weights: [Option<u16>; 4] = Default::default();
@@ -296,10 +299,38 @@ fn path(user_dir: &Path) -> PathBuf {
     user_dir.join("eu4-harmony").join("settings.txt")
 }
 
+/// What the settings file holds, as far as it can be read.
+enum Stored {
+    /// There is no file.
+    Missing,
+    /// The file's settings; `exact` is false when it is not UTF-8.
+    Read { settings: Settings, exact: bool },
+    /// The file is there, but could not be read.
+    Unreadable(String),
+}
+
+fn stored(path: &Path) -> Stored {
+    match std::fs::read(path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => Stored::Read { settings: Settings::parse(&text), exact: true },
+            // A file the player saved in the code page of Windows: the keys
+            // and most values are ASCII, so the rest of the settings are
+            // read past the bytes UTF-8 cannot; a font named in other
+            // characters is then not installed, and drawn in its default.
+            Err(e) => Stored::Read { settings: Settings::parse(&String::from_utf8_lossy(e.as_bytes())), exact: false },
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Stored::Missing,
+        Err(e) => Stored::Unreadable(format!("{}: {e}", path.display())),
+    }
+}
+
 /// Reads the settings in the user directory without keeping them, for a
-/// startup that failed.
+/// startup that failed: what can be read of them, else defaults.
 pub fn read(user_dir: &Path) -> Settings {
-    std::fs::read_to_string(path(user_dir)).map(|t| Settings::parse(&t)).unwrap_or_default()
+    match stored(&path(user_dir)) {
+        Stored::Read { settings, .. } => settings,
+        Stored::Missing | Stored::Unreadable(_) => Settings::default(),
+    }
 }
 
 /// Reads the settings for this session from the user directory. The first
@@ -307,16 +338,39 @@ pub fn read(user_dir: &Path) -> Settings {
 /// chosen and written to the file.
 pub fn load(user_dir: &Path) -> Settings {
     let path = path(user_dir);
-    let mut current = read(user_dir);
-    if current.language.is_none() {
-        current.language = Some(crate::lang::from_windows());
-        match write(&path, &current) {
-            Ok(()) => log!("settings: the language is {}, as Windows displays it", current.language().id()),
-            Err(e) => log!("settings: the language chosen from Windows was not written: {e}"),
-        }
-    }
+    let current = read_for_session(&path, crate::lang::from_windows);
     let _ = STORE.set(Mutex::new(Store { path, current: current.clone(), next: current.clone() }));
     crate::achievements::follow(&current);
+    current
+}
+
+/// The settings for a session from the file at `path`, with the language
+/// `windows` answers when they name none. The language is written only
+/// where writing loses nothing: to no file, or to one read as it was
+/// written. A file that could not be read, or was not UTF-8, is left as the
+/// player has it, which a write of what was read of it would not be.
+fn read_for_session(path: &Path, windows: impl FnOnce() -> Language) -> Settings {
+    let (mut current, kept) = match stored(path) {
+        Stored::Missing => (Settings::default(), None),
+        Stored::Read { settings, exact: true } => (settings, None),
+        Stored::Read { settings, exact: false } => (settings, Some(format!("{} is not UTF-8", path.display()))),
+        Stored::Unreadable(e) => {
+            log!("settings: not read, defaults this session: {e}");
+            (Settings::default(), Some(e))
+        }
+    };
+    if current.language.is_none() {
+        current.language = Some(windows());
+        let language = current.language().id();
+        let written = match kept {
+            None => write(path, &current),
+            Some(why) => Err(why),
+        };
+        match written {
+            Ok(()) => log!("settings: the language is {language}, as Windows displays it"),
+            Err(e) => log!("settings: the language is {language}, as Windows displays it, not written: {e}"),
+        }
+    }
     current
 }
 
@@ -450,6 +504,59 @@ mod tests {
         assert!(Settings::parse("achievements_with_changed_checksum=yes").achievements_with_changed_checksum);
         // Remote control reads the player's view unless the file says otherwise.
         assert!(!Settings::parse("remote_full_view=maybe").remote_full_view);
+    }
+
+    /// A directory of its own for a test, empty.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("eu4h-settings-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_line() {
+        let read = Settings::parse("\u{feff}language=\"english\"\nbody_font=\"Microsoft YaHei\"\nbody_weight=400\n");
+        assert_eq!(read.language, Some(Language::English));
+        assert_eq!(read.body_font, Some(Face::regular("Microsoft YaHei")));
+    }
+
+    #[test]
+    fn the_language_is_written_only_to_a_file_read_as_it_was_written() {
+        let dir = scratch("language");
+        let file = dir.join("settings.txt");
+        // No file: the language Windows displays is chosen and written.
+        let read = read_for_session(&file, || Language::German);
+        assert_eq!(read.language, Some(Language::German));
+        assert_eq!(Settings::parse(&std::fs::read_to_string(&file).unwrap()), read);
+        // A file without the language gets it, and keeps the rest.
+        std::fs::write(&file, "map_outline=no\n").unwrap();
+        let read = read_for_session(&file, || Language::French);
+        assert_eq!((read.language, read.map_outline), (Some(Language::French), false));
+        assert_eq!(Settings::parse(&std::fs::read_to_string(&file).unwrap()), read);
+        // A file saved with a byte order mark keeps its language and fonts.
+        let marked = "\u{feff}language=\"english\"\nbody_font=\"Microsoft YaHei\"\nbody_weight=400\n";
+        std::fs::write(&file, marked).unwrap();
+        let read = read_for_session(&file, || Language::German);
+        assert_eq!((read.language, read.body_font), (Some(Language::English), Some(Face::regular("Microsoft YaHei"))));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), marked);
+        // A file saved in the code page of Windows, not in UTF-8: what can be
+        // read of it is, and the file is left as the player saved it.
+        let ansi = b"map_outline=no\nbody_font=\"\xce\xa2\xc8\xed\xd1\xc5\xba\xda\"\n".to_vec();
+        std::fs::write(&file, &ansi).unwrap();
+        let read = read_for_session(&file, || Language::German);
+        assert_eq!((read.language, read.map_outline), (Some(Language::German), false));
+        assert_eq!(std::fs::read(&file).unwrap(), ansi);
+        // A file another program holds open: nothing is read, nothing written.
+        std::fs::write(&file, "map_outline=no\n").unwrap();
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let _held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).unwrap();
+            let read = read_for_session(&file, || Language::German);
+            assert_eq!(read, Settings { language: Some(Language::German), ..Settings::default() });
+        }
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "map_outline=no\n");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
