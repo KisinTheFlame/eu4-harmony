@@ -18,7 +18,8 @@ group! {
     /// The land armies in a province: every one for an extension and in the
     /// full view; in the player's view only those the player sees, none
     /// under fog of war, and not ready while visibility has not caught up
-    /// with the date.
+    /// with the date; of another country's army only whether it is in
+    /// battle, sieging or retreating among what blocks it.
     game At "at" {
         /// The province.
         province: ProvinceId,

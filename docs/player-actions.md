@@ -60,7 +60,7 @@ What each read leaves out in the player's view, read by read, as compared in the
 | `country.budget` | of another country: `income`, `expenses`, `loans` (null) |
 | `province.get` | of another's province: `unrest`, `constructions`, `missionary` (null); an undiscovered province is refused (`not_found`) |
 | `province.list` | of an undiscovered province: `owner`, `controller` (null); `visible` is false under fog of war |
-| `army.at` | the armies in a province fog of war hides (none listed) |
+| `army.at` | the armies in a province fog of war hides (none listed); of another country's army, what stops it taking orders beyond fighting, besieging and retreating (`blocked` gives no exiled, movement_locked, attached, has_followers or busy) |
 | `building.options` | in another's province: what is being built, and the offer to cancel it |
 | `missionary.options` | in another's province: the progress of a missionary not the player's |
 | `siege.options` | in a province fog of war hides: the siege (refused as no siege) |
@@ -70,7 +70,7 @@ What each read leaves out in the player's view, read by read, as compared in the
 | `army.get`, `army.list`, `army.options`, `army.route_to`, `army.can_step`, `army.can_attack`, `fort.list`, `merchant.list`, `mercenary.list`, `estate.list`, `estate.interactions`, `technology.options`, `idea.list`, `policy.list`, `government.options`, `government.reforms`, `parliament.options`, `mission.list`, `decision.list`, `focus.options`, `stability.options`, `economy.options`, `loan.list`, `leader.options`, `leader.list`, `offer.list`, `question.list`, `missionary.automatic` | nothing: they read only the player's own country, armies and panels |
 | events `building_finished`, `war_declared`, `peace_made`, `province_owner_changed`, `month`, `year` | nothing: they are about every country, as the plan has them |
 
-Not hidden yet: a country the player has not met (its `country.get`, `diplomacy.options` and the rest answer as for any other), and a flow in `trade.node` toward a node the player has not discovered, which names that node; `army.at` gives a foreign army the flags the unit view does not show (busy, attached, movement locked).
+Not hidden yet: a country the player has not met (its `country.get`, `diplomacy.options` and the rest answer as for any other), and a flow in `trade.node` toward a node the player has not discovered, which names that node.
 
 ### Events
 
