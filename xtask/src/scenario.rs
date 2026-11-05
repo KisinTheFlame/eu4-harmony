@@ -6,8 +6,9 @@
 //! the game unless this checkout holds it, builds and installs each build the
 //! scenarios named need, starts the game hidden, hands each scenario the game
 //! at its main menu, tells how it ended, keeps the lease going and notices
-//! the player taking the game, and releases the claim it made. Only cargo,
-//! for the builds, and the game run as programs of their own.
+//! the player taking the game, and releases the claim it made, whatever ends
+//! the run: an error, a panic or Ctrl-C. Only cargo, for the builds, and the
+//! game run as programs of their own.
 mod game;
 mod leak;
 mod perf;
@@ -231,38 +232,123 @@ pub fn run(raw: &[String]) -> Result<()> {
     let taken = Arc::new(AtomicBool::new(false));
     let done = Arc::new(AtomicBool::new(false));
     let looking = look_at_the_claim(owner.clone(), taken.clone(), done.clone());
+    let interrupts = Interrupts::catch();
+    let ended = given_back(
+        || play_all(&playing, &owner, &game_dir, &out, &taken),
+        || {
+            let was_taken = taken.load(Ordering::SeqCst);
+            if !was_taken {
+                crate::game::kill();
+                let _ = crate::game::wait_closed();
+            }
+            done.store(true, Ordering::SeqCst);
+            let _ = looking.join();
+            if was_taken {
+                println!("the player took the game: their claim ends it and puts back this run's files");
+                Ok(())
+            } else if held_before {
+                Ok(())
+            } else {
+                claim::give_back(&owner, &game_dir, false)
+            }
+        },
+    );
+    drop(interrupts);
+    ended
+}
 
+/// Runs `playing`, then `giving_back` whatever came of it: an error, which
+/// comes back with the giving back's own, or a panic, which goes on once the
+/// game is given back.
+fn given_back<T>(playing: impl FnOnce() -> Result<T>, giving_back: impl FnOnce() -> Result<()>) -> Result<T> {
+    let played = std::panic::catch_unwind(std::panic::AssertUnwindSafe(playing));
+    let given = giving_back();
+    match (played, given) {
+        (Err(panic), given) => {
+            if let Err(e) = given {
+                eprintln!("{e}");
+            }
+            std::panic::resume_unwind(panic)
+        }
+        (Ok(Err(e)), Err(not_given)) => Err(format!("{e}; giving the game back: {not_given}")),
+        (Ok(_), Err(not_given)) => Err(not_given),
+        (Ok(played), Ok(())) => played,
+    }
+}
+
+/// Set by Ctrl-C or Ctrl-Break while scenarios play: the scenario playing
+/// ends with the game, the others are not played, and the runner gives the
+/// game back.
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+/// The run was interrupted.
+pub fn interrupted() -> bool {
+    INTERRUPTED.load(Ordering::SeqCst)
+}
+
+/// Catches Ctrl-C and Ctrl-Break while it lives: the first sets
+/// [`INTERRUPTED`]; another ends the runner at once, as without it, leaving
+/// the claim to run out.
+struct Interrupts;
+
+impl Interrupts {
+    fn catch() -> Self {
+        unsafe { windows_sys::Win32::System::Console::SetConsoleCtrlHandler(Some(on_ctrl), 1) };
+        Self
+    }
+}
+
+impl Drop for Interrupts {
+    fn drop(&mut self) {
+        unsafe { windows_sys::Win32::System::Console::SetConsoleCtrlHandler(Some(on_ctrl), 0) };
+    }
+}
+
+/// Windows calls it, on a thread of its own, for a console's Ctrl-C or
+/// Ctrl-Break; it says whether it took the event.
+unsafe extern "system" fn on_ctrl(kind: u32) -> windows_sys::core::BOOL {
+    use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT};
+    if (kind == CTRL_C_EVENT || kind == CTRL_BREAK_EVENT) && !INTERRUPTED.swap(true, Ordering::SeqCst) {
+        println!("interrupted: ending the game and giving it back; again to end at once, leaving the claim");
+        return 1;
+    }
+    0
+}
+
+/// Plays each build's scenarios and writes the report; fails when one did
+/// not pass.
+fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Path, out: &Path, taken: &Arc<AtomicBool>) -> Result<()> {
+    let stopped = || {
+        if taken.load(Ordering::SeqCst) {
+            Some("the player took the game")
+        } else if interrupted() {
+            Some("the run was interrupted")
+        } else {
+            None
+        }
+    };
     let mut played = Vec::new();
-    for build in builds(&playing) {
+    for build in builds(playing) {
         let these: Vec<&(&dyn Scenario, Parameters)> = playing.iter().filter(|(s, _)| s.build() == build).collect();
-        let ready = if taken.load(Ordering::SeqCst) { Err("the player took the game".to_string()) } else { prepare(build, &game_dir) };
-        let mut game = Game::new(&owner, game_dir.clone(), taken.clone());
+        let ready = match stopped() {
+            Some(why) => Err(why.to_string()),
+            None => prepare(build, game_dir),
+        };
+        let mut game = Game::new(owner, game_dir.to_path_buf(), taken.clone());
         for (scenario, parameters) in these {
-            let entry = match &ready {
-                Err(e) => not_played(*scenario, parameters, e),
-                Ok(()) if taken.load(Ordering::SeqCst) => not_played(*scenario, parameters, "the player took the game"),
-                Ok(()) => play(*scenario, parameters, &mut game, &game_dir, &out),
+            let entry = match (&ready, stopped()) {
+                (Err(e), _) => not_played(*scenario, parameters, e),
+                (Ok(()), Some(why)) => not_played(*scenario, parameters, why),
+                (Ok(()), None) => play(*scenario, parameters, &mut game, game_dir, out),
             };
             played.push(entry);
         }
     }
-    let was_taken = taken.load(Ordering::SeqCst);
-    if !was_taken {
-        crate::game::kill();
-        let _ = crate::game::wait_closed();
-    }
-    done.store(true, Ordering::SeqCst);
-    let _ = looking.join();
 
     let report = json!({ "date": stamp().0, "owner": owner, "scenarios": played });
     write(&out.join("report.json"), &serde_json::to_string_pretty(&report).expect("JSON"))?;
     write(&out.join("report.md"), &markdown(&report))?;
     println!("report: {}", out.join("report.md").display());
-    if was_taken {
-        println!("the player took the game: their claim ends it and puts back this run's files");
-    } else if !held_before {
-        claim::give_back(&owner, &game_dir, false)?;
-    }
     let failed = played.iter().filter(|p| p["outcome"] != "passed").count();
     if failed > 0 {
         return Err(format!("{failed} of {} scenarios did not pass", played.len()));
@@ -301,11 +387,18 @@ fn prepare(build: Build, game_dir: &Path) -> Result<()> {
     files::install_built(game_dir)
 }
 
-/// Looks at the claim every few seconds until `done`: renews the lease, and
-/// sets `taken` once the player takes the game or the claim is gone.
+/// Looks at the claim every few seconds until `done`: keeps it going,
+/// renews the lease, and sets `taken` once the player takes the game or the
+/// claim is gone; ends the game once the run is interrupted, so that the
+/// step waiting on it ends.
 fn look_at_the_claim(owner: String, taken: Arc<AtomicBool>, done: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
+        let mut ended = false;
         while !done.load(Ordering::SeqCst) {
+            if interrupted() && !ended {
+                crate::game::kill();
+                ended = true;
+            }
             match claim::look(&owner) {
                 Ok(claim::Look::Held(left)) if left < RENEW_BELOW => {
                     let _ = claim::renew_as(&owner);
@@ -336,6 +429,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, game_
         Err(Stop::Crashed(why)) => ("crashed", Some(why.clone())),
         Err(Stop::Hung(why)) => ("hung", Some(why.clone())),
         Err(Stop::Taken) => ("unfinished", Some("the player took the game".into())),
+        Err(Stop::Interrupted) => ("unfinished", Some("the run was interrupted".into())),
     };
     let mut entry = entry(scenario, parameters, outcome, why.as_deref());
     entry["minutes"] = json!((began.elapsed().as_secs_f64() / 6.0).round() / 10.0);
@@ -523,5 +617,26 @@ mod tests {
             "{md}"
         );
         assert!(md.contains("Its dump was not read in time."), "{md}");
+    }
+
+    /// Whatever playing comes to, the game is given back: after an error,
+    /// which comes back with the giving back's own, and after a panic, which
+    /// goes on once the game is given back.
+    #[test]
+    fn the_game_is_given_back_whatever_playing_comes_to() {
+        let given = std::cell::Cell::new(0);
+        let give = || {
+            given.set(given.get() + 1);
+            Ok(())
+        };
+        assert_eq!(given_back(|| Ok(7), give), Ok(7));
+        assert_eq!(given_back(|| Err::<(), _>("cannot write report.json".to_string()), give), Err("cannot write report.json".into()));
+        assert_eq!(
+            given_back(|| Err::<(), _>("cannot write report.json".to_string()), || Err("1 file(s) not put back".into())),
+            Err("cannot write report.json; giving the game back: 1 file(s) not put back".into())
+        );
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| given_back(|| -> Result<()> { panic!("a scenario's bug") }, give)));
+        assert!(panicked.is_err());
+        assert_eq!(given.get(), 3);
     }
 }

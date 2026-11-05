@@ -42,6 +42,8 @@ pub enum Stop {
     Hung(String),
     /// The player took the game.
     Taken,
+    /// The run was interrupted, with Ctrl-C.
+    Interrupted,
 }
 
 /// A scenario's step: what it gave, or why the scenario ends.
@@ -208,6 +210,9 @@ impl Game {
         if self.taken.load(Ordering::SeqCst) {
             return Err(Stop::Taken);
         }
+        if super::interrupted() {
+            return Err(Stop::Interrupted);
+        }
         Ok(())
     }
 
@@ -225,8 +230,8 @@ impl Game {
 
     /// Why asking `name` failed.
     fn why(&self, name: &str, failure: &Failure, step: Duration) -> Stop {
-        if self.taken.load(Ordering::SeqCst) {
-            return Stop::Taken;
+        if let Err(stop) = self.not_taken() {
+            return stop;
         }
         let ended = format!("the game ended while answering {name}");
         match failure {
