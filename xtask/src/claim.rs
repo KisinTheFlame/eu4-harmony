@@ -13,7 +13,7 @@
 mod record;
 
 use crate::{game, repo, Args, Result};
-use record::{Asking, Found, Record, Waiting};
+use record::{Asking, Found, Process, Record, Release, Seen, Waiting};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -46,6 +46,64 @@ fn base() -> Result<PathBuf> {
 
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// The process `id` is now, with when it started; none when no process has
+/// that id.
+fn process(id: u32) -> Option<Process> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, FILETIME},
+        System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id);
+        if handle.is_null() {
+            return None;
+        }
+        let mut times: [FILETIME; 4] = std::mem::zeroed();
+        let [created, exited, kernel, user] = &mut times;
+        let read = GetProcessTimes(handle, created, exited, kernel, user) != 0;
+        CloseHandle(handle);
+        read.then(|| Process { id, started: (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime) })
+    }
+}
+
+/// This process.
+fn me() -> Process {
+    process(std::process::id()).unwrap_or(Process { id: std::process::id(), started: 0 })
+}
+
+/// Whether `p` runs still: a process has its id, started when it did, and
+/// has not ended. One that cannot be looked at for another reason than its
+/// being gone runs, as far as the claim goes, which waits for it then.
+fn alive(p: &Process) -> bool {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER, FILETIME},
+        System::Threading::{GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+    const STILL_ACTIVE: u32 = 259;
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, p.id);
+        if handle.is_null() {
+            return GetLastError() != ERROR_INVALID_PARAMETER;
+        }
+        let mut times: [FILETIME; 4] = std::mem::zeroed();
+        let [created, exited, kernel, user] = &mut times;
+        let mut code = 0;
+        let alive = if GetProcessTimes(handle, created, exited, kernel, user) == 0 || GetExitCodeProcess(handle, &mut code) == 0 {
+            true
+        } else {
+            let started = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+            started == p.started && code == STILL_ACTIVE
+        };
+        CloseHandle(handle);
+        alive
+    }
+}
+
+/// What this process sees now, for a look at the record.
+fn seen(game_running: bool) -> Seen<'static> {
+    Seen { now: now(), game_running, me: me(), alive: &alive }
 }
 
 /// The local date and time: `yyyy-MM-dd HH:mm`, and `yyyyMMdd-HHmmss` for a
@@ -152,6 +210,9 @@ fn user_folder(game_dir: &Path) -> Result<PathBuf> {
 pub fn held_by(owner: &str) -> Result<Record> {
     let held = locked(|s| s.held.clone())?;
     match held {
+        Some(h) if h.owner == owner && h.putting_back.is_some() => {
+            Err(format!("{owner}'s claim is being released, or a release of it did not end: cargo xtask game release"))
+        }
         Some(h) if h.owner == owner => Ok(h),
         Some(h) => Err(format!("{owner} does not hold the game: {}; cargo xtask game claim", h.describe(now()))),
         None => Err(format!("{owner} does not hold the game; cargo xtask game claim")),
@@ -216,11 +277,11 @@ pub fn take(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<C
 
 fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Result<Claimed> {
     let mut said = String::new();
-    let (gone, took) = loop {
+    loop {
         let running = game::running();
         let found = locked(|s| {
-            let found = record::look(asking, &mut s.held, &mut s.waiting, now(), running);
-            if let Found::Free(_) = found {
+            let found = record::look(asking, &mut s.held, &mut s.waiting, &seen(running));
+            if found == Found::Free {
                 let (since, _) = stamps();
                 s.held = Some(Record {
                     owner: asking.owner.clone(),
@@ -233,6 +294,7 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
                     folder: None,
                     player: asking.player,
                     taken: None,
+                    putting_back: None,
                 });
             }
             found
@@ -253,26 +315,24 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
                 }
                 std::thread::sleep(WAIT_EVERY);
             }
-            Found::Take(holder) => break (Some(holder), true),
-            Found::Free(gone) => break (gone, false),
+            Found::Take(holder) => {
+                println!("the player takes the game from {}: ending the game and releasing its claim", holder.describe(now()));
+                put_back_for(&holder, || {
+                    game::kill();
+                    game::wait_closed()?;
+                    put_back(&holder, game_dir, false).map(drop)
+                })?;
+                // The game is free now, and the player first.
+                return claim_as(asking, purpose, lease, game_dir);
+            }
+            Found::Gone(holder) => {
+                println!("{} has gone: putting back what its run changed", holder.describe(now()));
+                put_back_for(&holder, || put_back(&holder, game_dir, false).map(drop))?;
+                println!("took over from {}", holder.describe(now()));
+                return claim_as(asking, purpose, lease, game_dir);
+            }
+            Found::Free => break,
         }
-    };
-    if let Some(holder) = gone {
-        if took {
-            println!("the player takes the game from {}: ending the game and releasing its claim", holder.describe(now()));
-            game::kill();
-            game::wait_closed()?;
-            put_back(&holder, game_dir, false)?;
-            locked(|s| {
-                if s.held.as_ref().is_some_and(|h| h.owner == holder.owner) {
-                    s.held = None;
-                }
-            })?;
-            // The game is free now, and the player first.
-            return claim_as(asking, purpose, lease, game_dir);
-        }
-        println!("took over from {}", holder.describe(now()));
-        put_back(&holder, game_dir, false)?;
     }
     if asking.player {
         println!("claimed for the player: {}", held_by(&asking.owner)?.describe(now()));
@@ -302,6 +362,16 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
             Err(format!("not claimed: {e}; the game is free again"))
         }
     }
+}
+
+/// Puts back `holder`'s claim, which this process marked as its own to put
+/// back, with `putting_back`; frees the game once all is put back, and
+/// leaves the claim to be put back again otherwise.
+fn put_back_for(holder: &Record, putting_back: impl FnOnce() -> Result<()>) -> Result<()> {
+    let done = putting_back();
+    let me = me();
+    locked(|s| record::put_back(&mut s.held, holder, me, done.is_ok()))?;
+    done.map_err(|e| format!("{e}; {} still holds the game, its claim not put back", holder.owner))
 }
 
 /// Makes the claim's folder, with the player's files and the game folder's
@@ -439,21 +509,23 @@ fn release(args: &Args) -> Result<()> {
 
 /// Releases `owner`'s claim, as `cargo xtask game release` does.
 pub fn give_back(owner: &str, game_dir: &Path, keep_crashes: bool) -> Result<()> {
-    let me = owner.to_string();
-    let held = held_by(&me)?;
-    if game::running() {
-        if held.player {
-            return Err("eu4.exe is running; close it first".into());
+    let held = match locked(|s| record::release(owner, &mut s.held, &seen(game::running())))? {
+        Release::Mine(held) => held,
+        Release::Busy(why) => return Err(why),
+        Release::NotHeld => return Err(held_by(owner).err().unwrap_or_else(|| format!("{owner} does not hold the game"))),
+    };
+    let mut crashed = false;
+    put_back_for(&held, || {
+        if game::running() {
+            if held.player {
+                return Err("eu4.exe is running; close it first".into());
+            }
+            println!("ending the game");
+            game::kill();
+            game::wait_closed()?;
         }
-        println!("ending the game");
-        game::kill();
-        game::wait_closed()?;
-    }
-    let crashed = put_back(&held, game_dir, keep_crashes)?;
-    locked(|s| {
-        if s.held.as_ref().is_some_and(|h| h.owner == me) {
-            s.held = None;
-        }
+        crashed = put_back(&held, game_dir, keep_crashes)?;
+        Ok(())
     })?;
     println!("released: the game is free");
     if !held.player {
@@ -591,6 +663,10 @@ fn status() -> Result<()> {
             }
             if let Some(taken) = h.taken {
                 println!("  the player takes the game in {} s", (taken + record::TAKEN_GRACE_SECONDS).saturating_sub(now()));
+            }
+            if let Some(p) = h.putting_back {
+                let ended = if alive(&p) { "" } else { ", until it ended: the next release or claim puts it back" };
+                println!("  process {} puts back what its run changed{ended}", p.id);
             }
         }
         None => println!("free"),

@@ -45,11 +45,12 @@ Each claim has one, `%LOCALAPPDATA%\eu4-harmony-dev\claims\<owner>-<yyyyMMdd-HHm
 - `cargo xtask game claim --player` claims the game for the player: no backup and no copy of the game folder, since their play is to be kept, and a lease of ten hours. It goes first in the queue and waits for the holder to release.
 - `--now` takes the game from the holder: the holder's `watch` exits at once, saying the player took it, and the holder has two minutes to keep what it needs; then the game is ended, the holder's claim released for it (its files put back as by `release`, `kept\` included), and the game is the player's. The holder's run is unfinished.
 - `cargo xtask game release --player` ends the player's claim.
+- One process at a time puts a claim back: the holder's `release`, the player's claim taking the game, or a claim taking over from a holder gone marks the record as its own to put back first. A release of a claim the player's claim puts back is refused, saying so; a claim waits while another process puts back the holder's. A put back that fails leaves the record unmarked, still the holder's, to be put back again; one whose process ended is done again by the next release or claim. `release` on a claim being put back, or one whose put back did not end, is what redoes it; `install` and `start` refuse such a claim.
 - `eu4.exe` running with no claim is the player playing, as now: a claim waits for the game to close.
 
 ### The lease
 
-As now: 30 minutes, starting again at every `claim` and `renew`, and kept going while `eu4.exe` runs, so that it counts only the time the game is closed. A holder whose lease ran out has gone: the first in the queue takes over, its files put back first.
+As now: 30 minutes, starting again at every `claim` and `renew`, and kept going while `eu4.exe` runs, so that it counts only the time the game is closed. A holder whose lease ran out has gone: the first in the queue takes over, its files put back first; its record stays until they are, so a put back that fails keeps the game the gone holder's, to be put back again, rather than handing it on.
 
 ### Moving from the skill's script
 
