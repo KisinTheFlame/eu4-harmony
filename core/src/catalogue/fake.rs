@@ -1,8 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, buildings, camera, console, countries, decisions, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting,
-    screenshot, session, texts, time,
+    armies, buildings, camera, console, countries, decisions, desktop, diplomacy, economy, extensions, focus, input, loans, menu, offers, provinces, questions,
+    recruiting, screenshot, session, stability, technology, texts, time,
 };
 use crate::game::{
     self, fail,
@@ -534,6 +534,158 @@ impl decisions::Layer for Fake {
                 decision: "move_capital".into(), name: "迁都".into(), major: false, choice: Choice::cannot(vec!["拥有君士坦丁堡".into()], Vec::new())
             },
         ])
+    }
+}
+
+/// The Ottomans' technologies: administrative and diplomatic they can
+/// research, military they cannot afford.
+impl technology::Layer for Fake {
+    fn technologies(&mut self) -> GResult<Vec<eu4_harmony_remote::technology::Technology>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, PowerKind, Resource},
+            technology::Technology,
+        };
+        self.call("technologies".into());
+        let at = |technology, level, choice| Technology { technology, level, choice };
+        Ok(vec![
+            at(PowerKind::Adm, 3, Choice::can(vec![Amount::new(Resource::Adm, 600.0)])),
+            at(PowerKind::Dip, 3, Choice::can(vec![Amount::new(Resource::Dip, 600.0)])),
+            at(PowerKind::Mil, 3, Choice::cannot(vec![LATER_POINTS.into()], vec![Amount::new(Resource::Mil, 600.0)])),
+        ])
+    }
+
+    fn research(&mut self, technology: eu4_harmony_remote::choices::PowerKind) -> GResult<()> {
+        self.call(format!("research {}", game::technology::key(technology)));
+        match technology {
+            eu4_harmony_remote::choices::PowerKind::Mil => Err(eu4_harmony_checks::choices::not_allowed("research it", &[LATER_POINTS.into()]).into()),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// The technology view's line for the military technology the fake
+/// Ottomans cannot afford.
+const LATER_POINTS: &str = "我们预计在1446年5月1日拥有足够的点数。";
+/// The court view's line for a focus that cannot change yet.
+const FOCUS_LATER: &str = "你每5年才能更改一次国家重心。";
+
+/// The Ottomans' focus on the military, which cannot change yet.
+impl focus::Layer for Fake {
+    fn focus(&mut self) -> GResult<eu4_harmony_remote::focus::Focus> {
+        use eu4_harmony_remote::{
+            choices::{Choice, PowerKind},
+            focus::{Focus, FocusChoice},
+        };
+        self.call("focus".into());
+        let later = || Choice::cannot(vec![FOCUS_LATER.into()], Vec::new());
+        Ok(Focus {
+            focus: Some(PowerKind::Mil),
+            choose: vec![
+                FocusChoice { focus: PowerKind::Adm, choice: later() },
+                FocusChoice { focus: PowerKind::Dip, choice: later() },
+                FocusChoice { focus: PowerKind::Mil, choice: Choice::cannot(Vec::new(), Vec::new()) },
+            ],
+            cancel: later(),
+        })
+    }
+
+    fn choose_focus(&mut self, focus: eu4_harmony_remote::choices::PowerKind) -> GResult<()> {
+        self.call(format!("choose focus {}", game::technology::key(focus)));
+        if focus == eu4_harmony_remote::choices::PowerKind::Mil {
+            return Err(eu4_harmony_checks::focus::already("mil").into());
+        }
+        Err(eu4_harmony_checks::choices::not_allowed("change the national focus", &[FOCUS_LATER.into()]).into())
+    }
+
+    fn cancel_focus(&mut self) -> GResult<()> {
+        self.call("cancel focus".into());
+        Err(eu4_harmony_checks::choices::not_allowed("change the national focus", &[FOCUS_LATER.into()]).into())
+    }
+}
+
+/// Stability the Ottomans can raise.
+impl stability::Layer for Fake {
+    fn stability_options(&mut self) -> GResult<Vec<eu4_harmony_remote::stability::StabilityOption>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            stability::{StabilityAction, StabilityOption},
+        };
+        self.call("stability options".into());
+        Ok(vec![StabilityOption { action: StabilityAction::Raise, choice: Choice::can(vec![Amount::new(Resource::Adm, 100.0)]) }])
+    }
+
+    fn raise_stability(&mut self) -> GResult<()> {
+        self.call("raise stability".into());
+        Ok(())
+    }
+}
+
+/// The economy view's line for inflation too low to reduce.
+const NO_INFLATION: &str = "你目前的通货膨胀不够高。";
+
+/// A loan the Ottomans can take; no inflation to reduce.
+impl economy::Layer for Fake {
+    fn economy_options(&mut self) -> GResult<Vec<eu4_harmony_remote::economy::EconomyOption>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            economy::{EconomyAction, EconomyOption},
+        };
+        self.call("economy options".into());
+        Ok(vec![
+            EconomyOption { action: EconomyAction::TakeLoan, choice: Choice::can(Vec::new()), gives: vec![Amount::new(Resource::Ducats, 85.0)] },
+            EconomyOption {
+                action: EconomyAction::ReduceInflation,
+                choice: Choice::cannot(vec![NO_INFLATION.into()], vec![Amount::new(Resource::Adm, 75.0)]),
+                gives: Vec::new(),
+            },
+            EconomyOption { action: EconomyAction::RaiseMercantilism, choice: Choice::can(vec![Amount::new(Resource::Dip, 100.0)]), gives: Vec::new() },
+        ])
+    }
+
+    fn take_loan(&mut self) -> GResult<()> {
+        self.call("take loan".into());
+        Ok(())
+    }
+
+    fn reduce_inflation(&mut self) -> GResult<()> {
+        self.call("reduce inflation".into());
+        Err(eu4_harmony_checks::choices::not_allowed("reduce inflation", &[NO_INFLATION.into()]).into())
+    }
+
+    fn raise_mercantilism(&mut self) -> GResult<()> {
+        self.call("raise mercantilism".into());
+        Ok(())
+    }
+}
+
+/// One bank loan of the Ottomans', which they can repay.
+impl loans::Layer for Fake {
+    fn loans(&mut self) -> GResult<Vec<eu4_harmony_remote::loans::Loan>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            loans::Loan,
+            Date,
+        };
+        self.call("loans".into());
+        let expires = Date::from_ymd(1449, 11, 11).unwrap();
+        Ok(vec![Loan {
+            loan: 7,
+            lender: None,
+            estate: false,
+            amount: 85.0,
+            interest: 4.0,
+            expires,
+            repay: Choice::can(vec![Amount::new(Resource::Ducats, 101.5)]),
+        }])
+    }
+
+    fn repay_loan(&mut self, loan: u32) -> GResult<()> {
+        self.call(format!("repay loan {loan}"));
+        if loan == 7 {
+            Ok(())
+        } else {
+            Err(eu4_harmony_checks::loans::not_found(loan).into())
+        }
     }
 }
 

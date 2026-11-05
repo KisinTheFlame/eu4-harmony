@@ -12,17 +12,21 @@
 pub mod administration;
 pub mod armies;
 pub mod camera;
+pub mod choices;
 pub mod console;
 pub mod countries;
 mod date;
 pub mod diplomacy;
+pub mod focus;
 pub mod form;
 pub mod input;
+pub mod loans;
 pub mod offers;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
 pub mod save_data;
+pub mod technology;
 pub mod texts;
 pub mod time;
 

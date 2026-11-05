@@ -404,7 +404,9 @@ fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
             _ => Err(wrong()),
         },
         Kind::Date => date_text(value).map(Value::String).ok_or_else(wrong),
-        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys => string(value).map(Value::String).ok_or_else(wrong),
+        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys | Kind::PowerKind => {
+            string(value).map(Value::String).ok_or_else(wrong)
+        }
         Kind::Allies => match value {
             LuaValue::String(_) => string(value).map(Value::String).ok_or_else(wrong),
             LuaValue::Table(t) => {

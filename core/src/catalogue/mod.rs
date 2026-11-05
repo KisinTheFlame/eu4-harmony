@@ -36,11 +36,14 @@ pub mod decisions;
 pub mod describe;
 pub mod desktop;
 pub mod diplomacy;
+pub mod economy;
 pub mod events;
 pub mod extensions;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod focus;
 pub mod input;
+pub mod loans;
 pub mod menu;
 pub mod offers;
 pub mod provinces;
@@ -48,6 +51,8 @@ pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod stability;
+pub mod technology;
 pub mod texts;
 pub mod time;
 
@@ -80,6 +85,11 @@ pub trait Game:
     + desktop::Layer
     + decisions::Layer
     + buildings::Layer
+    + technology::Layer
+    + focus::Layer
+    + stability::Layer
+    + economy::Layer
+    + loans::Layer
 {
 }
 impl<
@@ -102,6 +112,11 @@ impl<
             + desktop::Layer
             + decisions::Layer
             + buildings::Layer
+            + technology::Layer
+            + focus::Layer
+            + stability::Layer
+            + economy::Layer
+            + loans::Layer
             + ?Sized,
     > Game for T
 {
@@ -266,5 +281,10 @@ pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::B
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
         Request::Building(r) => done(buildings::run(r, game).map(Answer::Building)),
+        Request::Technology(r) => done(technology::run(r, game).map(Answer::Technology)),
+        Request::Focus(r) => done(focus::run(r, game).map(Answer::Focus)),
+        Request::Stability(r) => done(stability::run(r, game).map(Answer::Stability)),
+        Request::Economy(r) => done(economy::run(r, game).map(Answer::Economy)),
+        Request::Loan(r) => done(loans::run(r, game).map(Answer::Loan)),
     }
 }

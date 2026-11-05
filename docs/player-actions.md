@@ -88,6 +88,16 @@ This session, before the rest: this plan, [adding-a-capability.md](adding-a-capa
 
 Researching technology; choosing and cancelling the national focus; raising stability; reducing inflation; raising mercantilism; taking and repaying loans. Each with its `Choice` in an `options` or `list` read.
 
+Built 2026-11-05 ([research/power-spending.md](research/power-spending.md); tried in the game, [prototype-log.md](prototype-log.md), "Player actions A2"):
+
+- `technology.options` (the three technologies, each level and its next level's `Choice`), `technology.research` (`adm`, `dip`, `mil`): the technology view's research button, the game's `spend_power_command`.
+- `focus.options` (the focus set, choosing each kind, cancelling), `focus.choose`, `focus.cancel`: the court view's focus buttons, `set_national_focus_command`. Choosing the focus set already is refused by the framework (in the game that button removes it, which is `focus.cancel`).
+- `stability.options`, `stability.raise`: the stability and expansion view's button.
+- `economy.options` (`take_loan` with the loan's ducats in `gives`, `reduce_inflation`, `raise_mercantilism`), `economy.take_loan`, `economy.reduce_inflation`, `economy.raise_mercantilism`: the economy view's buttons and the trade view's mercantilism button, in one group because they are the treasury's spending.
+- `loan.list` (each loan with its repay `Choice`, the price the amount and the interest left), `loan.repay`: the loan window, repaying as a player who confirms.
+- The argument kind `power_kind`; `game::power` builds the game's power spending for its cost and command, and writes tooltip lines with the game's localisation and values, for later parts' spending (developing, coring, culture) to use; the conditions of `common/scripted_functions` (`can_increase_stability`, `can_reduce_inflation`, and those A3 needs) give their failing lines.
+- Not verified: a refusal by too many bank loans (the limit was not reached), by the rule against ruining a nation, by `can_increase_stability` or `can_reduce_inflation` (empty in the unmodded game), by `may_not_reduce_inflation`, mercantilism at its most, a technology at its last level, a loan from another country or an estate, and remote control's player's view (every read here is the player's own country). The focus's text is the game's; a mod's own `tooltip` on a scripted function's condition is not shown.
+
 ### A3 Province administration
 
 Developing and exploiting development; raising and lowering autonomy; making a state or a territory; setting and cancelling state edicts; coring and cancelling a core; changing culture; building, cancelling and destroying buildings. The event of a building finished.

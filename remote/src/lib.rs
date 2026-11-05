@@ -307,6 +307,16 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The technology view: researching technology.
+    Technology(technology::TechnologyRequest, TechnologyAnswer),
+    /// The national focus, in the court view.
+    Focus(focus::FocusRequest, FocusAnswer),
+    /// The stability and expansion view: raising stability.
+    Stability(stability::StabilityRequest, StabilityAnswer),
+    /// The treasury's monarch-point spending and bank loans.
+    Economy(economy::EconomyRequest, EconomyAnswer),
+    /// The player's loans, and repaying them.
+    Loan(loans::LoanRequest, LoanAnswer),
     /// The buildings of the player's provinces.
     Building(buildings::BuildingRequest, BuildingAnswer),
 }
@@ -407,6 +417,9 @@ pub enum Kind {
     /// Words, such as content keys or the names of events, `["day",
     /// "month"]`, which a command line writes `day,month` (see [`Words`]).
     Words,
+    /// A kind of monarch power: `"adm"`, `"dip"` or `"mil"` (see
+    /// [`choices::PowerKind`]).
+    PowerKind,
 }
 
 impl Kind {
@@ -428,6 +441,7 @@ impl Kind {
             Self::Keys => "keys",
             Self::Countries => "countries",
             Self::Words => "words",
+            Self::PowerKind => "power_kind",
         }
     }
 
@@ -449,6 +463,7 @@ impl Kind {
             Self::Keys => "ctrl+s",
             Self::Countries => "FRA,ENG",
             Self::Words => "day,month",
+            Self::PowerKind => "adm",
         }
     }
 
@@ -477,6 +492,7 @@ impl Kind {
                 .map(|word| Some(word.trim()).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())))
                 .collect::<Option<Vec<_>>>()
                 .map(Value::Array),
+            Self::PowerKind => serde_json::from_value::<choices::PowerKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
         }
     }
 }
@@ -514,6 +530,7 @@ arg_kind! {
     input::Keys => Keys,
     CountryList => Countries,
     Words => Words,
+    choices::PowerKind => PowerKind,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {

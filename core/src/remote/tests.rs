@@ -7,11 +7,12 @@ use crate::catalogue::{
     process, Outcome,
 };
 use eu4_harmony_remote::{
-    armies::ArmyRequest, buildings::BuildingRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest,
-    decisions::DecisionRequest, describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest,
-    extensions::ExtensionRequest, input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest,
-    provinces::ProvinceRequest, questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest,
-    session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    armies::ArmyRequest, buildings::BuildingRequest, camera::CameraRequest, capabilities, choices::PowerKind, console::ConsoleRequest,
+    countries::CountryRequest, decisions::DecisionRequest, describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest,
+    economy::EconomyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, focus::FocusRequest, input::Button, input::Direction,
+    input::InputRequest, input::Keys, loans::LoanRequest, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, questions::QuestionRequest,
+    recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest, stability::StabilityRequest,
+    technology::TechnologyRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -243,6 +244,50 @@ fn every_capability_runs_at_a_game_frame() {
                 v["result"][1] == json!({"decision": "move_capital", "name": "迁都", "major": false, "can": false, "reasons": ["拥有君士坦丁堡"], "cost": []})
             }),
         ),
+        (
+            Request::Technology(TechnologyRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"][2]
+                    == json!({"technology": "mil", "level": 3, "can": false, "reasons": ["我们预计在1446年5月1日拥有足够的点数。"], "cost": [{"resource": "mil", "amount": 600.0}]})
+            }),
+        ),
+        (Request::Technology(TechnologyRequest::Research { technology: PowerKind::Adm }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Technology(TechnologyRequest::Research { technology: PowerKind::Mil }),
+            Box::new(|v: &Value| v["error"]["code"] == "rejected" && v["error"]["message"] == "我们预计在1446年5月1日拥有足够的点数。"),
+        ),
+        (
+            Request::Focus(FocusRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"]["focus"] == "mil"
+                    && v["result"]["choose"][0] == json!({"focus": "adm", "can": false, "reasons": ["你每5年才能更改一次国家重心。"], "cost": []})
+            }),
+        ),
+        (Request::Focus(FocusRequest::Choose { focus: PowerKind::Mil }), Box::new(|v: &Value| v["error"]["message"] == "the national focus is on mil already")),
+        (Request::Focus(FocusRequest::Cancel {}), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (
+            Request::Stability(StabilityRequest::Options {}),
+            Box::new(|v: &Value| *v == ok(json!([{"action": "raise", "can": true, "reasons": [], "cost": [{"resource": "adm", "amount": 100.0}]}]))),
+        ),
+        (Request::Stability(StabilityRequest::Raise {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Economy(EconomyRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"][0] == json!({"action": "take_loan", "can": true, "reasons": [], "cost": [], "gives": [{"resource": "ducats", "amount": 85.0}]})
+            }),
+        ),
+        (Request::Economy(EconomyRequest::TakeLoan {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Economy(EconomyRequest::ReduceInflation {}), Box::new(|v: &Value| v["error"]["message"] == "你目前的通货膨胀不够高。")),
+        (Request::Economy(EconomyRequest::RaiseMercantilism {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Loan(LoanRequest::List {}),
+            Box::new(|v: &Value| {
+                v["result"][0]
+                    == json!({"loan": 7, "lender": null, "estate": false, "amount": 85.0, "interest": 4.0, "expires": "1449.11.11", "can": true, "reasons": [], "cost": [{"resource": "ducats", "amount": 101.5}]})
+            }),
+        ),
+        (Request::Loan(LoanRequest::Repay { loan: 7 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Loan(LoanRequest::Repay { loan: 8 }), Box::new(|v: &Value| v["error"]["code"] == "not_found")),
         (
             Request::Province(ProvinceRequest::Options { province: ProvinceId(151) }),
             Box::new(|v: &Value| {
