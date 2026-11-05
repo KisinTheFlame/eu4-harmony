@@ -558,7 +558,8 @@ group! {
     game TransferTradePower "transfer_trade_power" {
         /// The other country.
         country: CountryTag,
-        /// The share of the country's trade power to transfer, in percent.
+        /// The share of the country's trade power to transfer, in percent, 1
+        /// to 100.
         percent: u32,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Stops the transfer of trade power from a country. As the diplomacy panel's button `transfer_trade_power` sends it
@@ -784,7 +785,8 @@ group! {
     game OfferLoan "offer_loan" {
         /// The other country.
         country: CountryTag,
-        /// How many ducats to lend.
+        /// How many ducats to lend, at least 1 and no more than the treasury,
+        /// as the loan window allows.
         amount: u32,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Gives a country war subsidies. As the diplomacy panel's button `warsubsidy` sends it
@@ -792,7 +794,8 @@ group! {
     game SubsidizeWar "subsidize_war" {
         /// The other country.
         country: CountryTag,
-        /// Ducats a month, at least 1.
+        /// Ducats a month, at least 1 and no more than the treasury, as the
+        /// subsidies window allows.
         amount: u32,
         /// How long, as the subsidies window counts it: 10 to 400, by 10; 10,
         /// as the window starts, when left out.
@@ -809,7 +812,8 @@ group! {
     game SellProvince "sell_province" {
         /// The other country.
         country: CountryTag,
-        /// The province to sell, one the player controls, not the capital.
+        /// The province to sell, one the player owns and controls, not the
+        /// capital.
         province: ProvinceId,
         /// The price, in ducats.
         price: u32,
@@ -819,7 +823,8 @@ group! {
     game TradeFavorsForCore "trade_favors_for_core" {
         /// The other country.
         country: CountryTag,
-        /// The province, a core of the player's that the country owns.
+        /// The province, a core of the player's that the country owns and
+        /// controls.
         province: ProvinceId,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Offers a country an army as condottieri. As the diplomacy panel's button `condottieri_action` sends it

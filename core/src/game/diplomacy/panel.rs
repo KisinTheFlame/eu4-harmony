@@ -46,12 +46,17 @@ const CONDOTTIERI_ARMY: usize = 0x48;
 /// interest.
 const SUBSIDIES_DURATION: u32 = 10;
 const LOAN_INTEREST: i64 = 1000;
+/// The longest war subsidies the window lets the player choose, and its
+/// step.
+const SUBSIDIES_LONGEST: u32 = 400;
 /// The favors the trade favors for trust window spends at each press of its
 /// button, and the trust they buy (i32 each, the defines it reads).
 const TRUST_STEP_FAVORS: usize = 0x233db7c;
 const TRUST_STEP_TRUST: usize = 0x233db80;
 /// The most trust a country has in another.
 const FULL_TRUST: i64 = 100;
+/// The most cores a province is read with.
+const MOST_CORES: usize = 1000;
 /// How many actions the framework's list has room for, inline: more than the
 /// panel's list maker can add, so that it never grows.
 const ROOM: usize = 512;
@@ -145,10 +150,11 @@ pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<T
 
 /// The window an act opens writes what the player chooses into the action's
 /// own fields, from `+0x40`, before it sends it; this writes `details` there
-/// as that window does (docs/research/diplomacy.md, "The windows the panel
-/// opens"). Money is in thousandths of a ducat, but where a window keeps
-/// whole ducats; a province is its number, or where a window keeps it its
-/// object; a country its tag.
+/// as that window does, refusing what the window would not let the player
+/// choose (docs/research/diplomacy.md, "The windows the panel opens"). Money
+/// is in thousandths of a ducat, but where a window keeps whole ducats; a
+/// province is its number, or where a window keeps it its object; a country
+/// its tag.
 fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &Details) -> GResult<()> {
     let invalid = |message: String| crate::game::Fail { status: Status::InvalidArgument, message };
     let need = |value: Option<u32>, what: &str| value.ok_or_else(|| invalid(format!("{} needs {what}", act.name())));
@@ -161,6 +167,16 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
         let id = need(details.province, "a province")?;
         Ok((id, with_state(|s| s.geography.province_address(m, ctx, id))?))
     };
+    let owner = |address: usize| -> GResult<Tag> { Ok(Tag(m.u64(address + province_fields::OWNER)?)) };
+    let controller = |address: usize| -> GResult<Tag> { Ok(Tag(m.u64(address + province_fields::CONTROLLER)?)) };
+    // The provinces these windows list are the other country's own.
+    let recipients = || -> GResult<(u32, usize)> {
+        let (id, address) = province()?;
+        if owner(address)? != recipient {
+            return Err(invalid(format!("province {id} is not {}'s, and {} chooses one of theirs", letters(recipient), act.name())));
+        }
+        Ok((id, address))
+    };
     let country = |what: &str| -> GResult<Tag> {
         let tag = details.country.ok_or_else(|| invalid(format!("{} needs {what}", act.name())))?;
         crate::game::country(m, ctx, tag)?;
@@ -172,31 +188,78 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
         }
         Ok(value)
     };
-    match act {
-        Act::SendGift => i32_at(FIELDS, need(details.amount, "an amount")? as i64 * 1000),
-        Act::SubsidizeWar => {
-            i32_at(FIELDS, need(details.amount, "an amount")? as i64 * 1000)?;
-            i32_at(FIELDS + 4, details.second.unwrap_or(SUBSIDIES_DURATION) as i64)
+    // The window's money slider goes up to the player's treasury.
+    let within_treasury = |ducats: u32| -> GResult<()> {
+        let treasury = m.i32(ctx.country + country_fields::TREASURY)? as i64 / 1000;
+        if ducats as i64 > treasury {
+            return Err(invalid(format!("{ducats} ducats is more than the treasury's {treasury}, as far as {}'s window goes", act.name())));
         }
-        Act::SellProvince | Act::CharterCompany => {
+        Ok(())
+    };
+    match act {
+        Act::SendGift => i32_at(FIELDS, at_least_one(need(details.amount, "an amount")?, "ducat")? as i64 * 1000),
+        Act::SubsidizeWar => {
+            let amount = at_least_one(need(details.amount, "an amount")?, "ducat")?;
+            within_treasury(amount)?;
+            let duration = details.second.unwrap_or(SUBSIDIES_DURATION);
+            if !(SUBSIDIES_DURATION..=SUBSIDIES_LONGEST).contains(&duration) || duration % SUBSIDIES_DURATION != 0 {
+                return Err(invalid(format!(
+                    "a duration of {duration}: the subsidies window goes from {SUBSIDIES_DURATION} to {SUBSIDIES_LONGEST}, by {SUBSIDIES_DURATION}"
+                )));
+            }
+            i32_at(FIELDS, amount as i64 * 1000)?;
+            i32_at(FIELDS + 4, duration as i64)
+        }
+        Act::SellProvince => {
+            let (id, address) = province()?;
+            if owner(address)? != ctx.player || controller(address)? != ctx.player {
+                return Err(invalid(format!("province {id} is not one the player owns and controls, which the sell province window lists")));
+            }
+            if m.ptr(ctx.country + country_fields::CAPITAL)? == address {
+                return Err(invalid(format!("province {id} is the player's capital, which the sell province window leaves out")));
+            }
+            i32_at(FIELDS, need(details.second, "a price")? as i64)?;
+            i32_at(FIELDS + 4, id as i64)
+        }
+        Act::CharterCompany => {
             let (id, _) = province()?;
             i32_at(FIELDS, need(details.second, "a price")? as i64)?;
             i32_at(FIELDS + 4, id as i64)
         }
-        Act::FabricateClaim | Act::ClaimStates => Ok(m.write(at + FIELDS, &(province()?.1 as u64).to_le_bytes())?),
-        Act::TransferTradePower => i32_at(FIELDS, need(details.amount, "a percent")? as i64 * 10),
+        Act::FabricateClaim | Act::ClaimStates => Ok(m.write(at + FIELDS, &(recipients()?.1 as u64).to_le_bytes())?),
+        Act::TransferTradePower => {
+            let percent = at_least_one(need(details.amount, "a percent")?, "percent")?;
+            if percent > 100 {
+                return Err(invalid(format!("{percent} percent: a country has no more than all its trade power to transfer")));
+            }
+            i32_at(FIELDS, percent as i64 * 10)
+        }
         Act::ThreatenWar => {
             let (id, address) = province()?;
             i32_at(FIELDS, id as i64)?;
-            tag_at(FIELDS + 4, Tag(m.u64(address + province_fields::OWNER)?))
+            tag_at(FIELDS + 4, owner(address)?)
         }
         Act::BreakAlliance | Act::TradeFavorsToBreakAlliance => tag_at(FIELDS, country("an ally")?),
         Act::TradeFavorsToReduceRelations => tag_at(FIELDS, country("a target")?),
         Act::EnforcePeace | Act::InterveneInWar => tag_at(FIELDS, country("an enemy")?),
+        // The window lists the provinces the other country owns and controls
+        // with a core of the player's, and sends the core's holder with one.
         Act::TradeFavorsForCore => {
-            let (id, address) = province()?;
+            let (id, address) = recipients()?;
+            if controller(address)? != recipient {
+                return Err(invalid(format!("province {id} is not controlled by {}, and the window lists only those it controls", letters(recipient))));
+            }
+            let cores = m.ptr(address + province_fields::CORES)?;
+            let count = crate::game::span(cores, m.ptr(address + province_fields::CORES + 8)?, 8, MOST_CORES)?;
+            let mut held = false;
+            for i in 0..count {
+                held |= Tag(m.u64(cores + i * 8)?) == ctx.player;
+            }
+            if !held {
+                return Err(invalid(format!("province {id} is no core of the player's")));
+            }
             i32_at(FIELDS, id as i64)?;
-            tag_at(FIELDS + 4, Tag(m.u64(address + province_fields::OWNER)?))
+            tag_at(FIELDS + 4, ctx.player)
         }
         Act::DemandUnlawfulTerritory => i32_at(FIELDS, province()?.0 as i64),
         Act::OfferCondottieri => {
@@ -207,7 +270,9 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             Ok(m.write(at + CONDOTTIERI_ARMY + 8, &id.to_le_bytes())?)
         }
         Act::OfferLoan => {
-            i32_at(FIELDS, need(details.amount, "an amount")? as i64)?;
+            let amount = at_least_one(need(details.amount, "an amount")?, "ducat")?;
+            within_treasury(amount)?;
+            i32_at(FIELDS, amount as i64)?;
             i32_at(FIELDS + 4, LOAN_INTEREST)
         }
         Act::AppointCardinal => Ok(m.write(at + FIELDS, &[details.flag.unwrap_or(false) as u8])?),
