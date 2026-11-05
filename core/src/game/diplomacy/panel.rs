@@ -307,6 +307,12 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             i32_at(FIELDS, favors * 1000)?;
             i32_at(FIELDS + 4, bought)
         }
+        // Their windows have the player choose what the framework cannot
+        // choose yet, and the game takes them up without it.
+        Act::SellShips | Act::ShareMaps | Act::StealMaps | Act::SupportRebels => fail(
+            Status::Unavailable,
+            format!("{} is not sent: its window has the player choose what the framework cannot choose yet, and the game would take it up without", act.name()),
+        ),
         _ => Ok(()),
     }
 }

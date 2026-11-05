@@ -500,13 +500,15 @@ group! {
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Supports rebels in a country, with the spy network. As the diplomacy panel's button `support_rebels` sends it
-    /// (`diplomacy.options` says whether the player can).
+    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
+    /// window has the player choose a rebel faction, which this does not choose.
     game SupportRebels "support_rebels" {
         /// The other country.
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Steals a country's maps, with the spy network. As the diplomacy panel's button `stealmap` sends it
-    /// (`diplomacy.options` says whether the player can).
+    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
+    /// window has the player choose a region, which this does not choose.
     game StealMaps "steal_maps" {
         /// The other country.
         country: CountryTag,
@@ -703,13 +705,15 @@ group! {
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Sells ships to a country. As the diplomacy panel's button `sell_ships_action` sends it
-    /// (`diplomacy.options` says whether the player can).
+    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
+    /// window has the player choose the ships and a price, which this does not choose.
     game SellShips "sell_ships" {
         /// The other country.
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Shares the player's maps with a country. As the diplomacy panel's button `sharemap` sends it
-    /// (`diplomacy.options` says whether the player can).
+    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
+    /// window has the player choose a region, which this does not choose.
     game ShareMaps "share_maps" {
         /// The other country.
         country: CountryTag,
