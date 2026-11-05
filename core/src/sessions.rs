@@ -22,10 +22,11 @@
 //!   that begins while another is going on ends that one first, for another
 //!   country when nothing was read or reset since (the game console's `tag`).
 //! - The campaign changes, as a save begins to be read: the capability
-//!   layer forgets the old one (`game::events`), and remote control's
-//!   requests sent from then on belong to the next session.
+//!   layer forgets the old one (`game::events`), routes turned off for the
+//!   old world come back (`game::orders`), and remote control's requests
+//!   sent from then on belong to the next session.
 //! - The world was reset, without a save: the capability layer forgets the
-//!   old session as at a load.
+//!   old session and routes come back, as at a load.
 //! - The game restarts: the saves compressed in the background are put in
 //!   their place, and remote control answers every request while it can.
 use crate::game;
@@ -209,9 +210,13 @@ fn tell(happened: Vec<Happening>) {
             }
             Happening::CampaignChanges => {
                 game::events::load_begin();
+                game::orders::world_replaced();
                 crate::remote::campaign_changes();
             }
-            Happening::WorldReset => game::events::world_reset(),
+            Happening::WorldReset => {
+                game::events::world_reset();
+                game::orders::world_replaced();
+            }
             Happening::Restarting => {
                 crate::saves::background::wait();
                 crate::remote::restarting();

@@ -12,7 +12,7 @@ use crate::{
 };
 use eu4_harmony_checks::armies as checks;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 pub const ROUTE_QUERY: usize = 0x96c520;
 const FREE_NODE: usize = 0x17394f0;
@@ -28,8 +28,42 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
-/// Set after a native exception or an unsafe cleanup; routes stay off for the session.
-static POISONED: AtomicBool = AtomicBool::new(false);
+/// Whether routes are off, and for how long ([`ROUTES_ON`], [`OFF_FOR_THE_WORLD`],
+/// [`OFF_FOR_THE_PROCESS`]): the longer of the two once both were set.
+static POISONED: AtomicU8 = AtomicU8::new(ROUTES_ON);
+const ROUTES_ON: u8 = 0;
+/// A route's cleanup was unsafe: the temporary route shared nodes with the
+/// army's own, or could not be read or freed, so it was left as it was. What
+/// that leaves lies in the armies of the world it was asked in, which a load
+/// or a world reset replaces: routes come back then
+/// ([`world_replaced`]), though not at a change of country, which keeps them.
+const OFF_FOR_THE_WORLD: u8 = 1;
+/// The game's route query faulted. What it left half done may lie wherever
+/// it reaches, the game's heap and caches outside the world among it, and
+/// nothing shows that a load rebuilds that: routes stay off until the game
+/// starts again.
+const OFF_FOR_THE_PROCESS: u8 = 2;
+
+fn poison(how_long: u8) {
+    POISONED.fetch_max(how_long, Ordering::AcqRel);
+}
+
+/// The game's world was replaced (a save began to be read, or the world was
+/// reset): routes off for the world they failed in come back.
+pub fn world_replaced() {
+    let _ = POISONED.compare_exchange(OFF_FOR_THE_WORLD, ROUTES_ON, Ordering::AcqRel, Ordering::Acquire);
+}
+
+/// Why routes are off, if they are.
+fn routes_off() -> Option<&'static str> {
+    match POISONED.load(Ordering::Acquire) {
+        ROUTES_ON => None,
+        OFF_FOR_THE_WORLD => {
+            Some("routes are off until another save is loaded or the game returns to the main menu: an earlier route could not be cleaned up safely")
+        }
+        _ => Some("routes are off until the game starts again: the game's route query faulted earlier"),
+    }
+}
 /// Thread currently mutating a route on behalf of an extension; the event hooks
 /// ignore route changes made while this is set.
 static OWN_MUTATION: AtomicU32 = AtomicU32::new(0);
@@ -232,8 +266,8 @@ impl Orders {
         caller: Caller,
         consume: impl FnOnce(&Path, usize) -> GResult<T>,
     ) -> GResult<Option<T>> {
-        if POISONED.load(Ordering::Acquire) {
-            return fail(Status::Unavailable, "routes disabled after an earlier native failure");
+        if let Some(why) = routes_off() {
+            return fail(Status::Unavailable, why);
         }
         let before = preflight(m, ctx, army, caller)?;
         let origin = m.ptr(army + unit::LOCATION)?;
@@ -252,7 +286,7 @@ impl Orders {
             let found = match queried {
                 Ok(v) => v as u8 != 0,
                 Err(e) => {
-                    POISONED.store(true, Ordering::Release);
+                    poison(OFF_FOR_THE_PROCESS);
                     return Err(format!("native route query failed: {e}").into());
                 }
             };
@@ -284,7 +318,7 @@ impl Orders {
             Ok(())
         })();
         if let Err(e) = cleaned {
-            POISONED.store(true, Ordering::Release);
+            poison(OFF_FOR_THE_WORLD);
             return Err(format!("unsafe route cleanup: {}", e.message).into());
         }
         result
@@ -422,6 +456,21 @@ fn order(text: &str) -> GResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routes_off_for_their_world_come_back_with_another_and_those_off_for_the_process_do_not() {
+        // No other test turns routes off.
+        assert_eq!(routes_off(), None);
+        poison(OFF_FOR_THE_WORLD);
+        assert!(routes_off().unwrap().contains("until another save is loaded"));
+        world_replaced();
+        assert_eq!(routes_off(), None);
+        poison(OFF_FOR_THE_PROCESS);
+        poison(OFF_FOR_THE_WORLD);
+        world_replaced();
+        assert!(routes_off().unwrap().contains("until the game starts again"));
+        POISONED.store(ROUTES_ON, Ordering::Release);
+    }
 
     fn path(ids: &[u32], nodes: &[usize]) -> Path {
         Path { ids: ids.into(), nodes: nodes.into() }
