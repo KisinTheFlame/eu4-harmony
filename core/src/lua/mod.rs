@@ -331,6 +331,22 @@ fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
 
 // ---------- dispatch ----------
 
+/// The handler a war's event calls, and its arguments: tags as their
+/// letters, none as nil.
+fn war_handler(happened: game::wars::Happened) -> (&'static str, Vec<Arg>) {
+    use game::wars::Happened;
+    let tag = |t: game::Tag| String::from_utf8_lossy(&t.letters()).into_owned();
+    let tags = |ts: Vec<game::Tag>| Arg::Json(serde_json::Value::Array(ts.into_iter().map(|t| serde_json::Value::String(tag(t))).collect()));
+    let maybe = |t: Option<game::Tag>| Arg::Json(t.map_or(serde_json::Value::Null, |t| serde_json::Value::String(tag(t))));
+    match happened {
+        Happened::WarDeclared { war, attacker, defender } => ("on_war_declared", vec![Arg::Text(war), Arg::Text(tag(attacker)), Arg::Text(tag(defender))]),
+        Happened::PeaceMade { war, attackers, defenders, ended } => {
+            ("on_peace_made", vec![Arg::Text(war), tags(attackers), tags(defenders), Arg::Json(serde_json::Value::Bool(ended))])
+        }
+        Happened::OwnerChanged { province, from, to } => ("on_province_owner_changed", vec![Arg::Integer(province as i64), maybe(from), maybe(to)]),
+    }
+}
+
 /// Dispatches a game's safe frame (`crate::safe_point`) to every extension:
 /// waiting tasks whose answer came, what happened in its order
 /// ([`game::Frame::heard`]), what concerns one extension (its map coloring
@@ -358,6 +374,10 @@ pub fn frame(state: &game::Frame) {
             }
             game::Heard::Change(events::Change::Ordered(id)) => all.iter().for_each(|e| e.handle("on_army_ordered", &[Arg::Integer(id as i64)])),
             game::Heard::Change(events::Change::Defeated(id)) => all.iter().for_each(|e| e.handle("on_army_defeated", &[Arg::Integer(id as i64)])),
+            game::Heard::War(happened) => {
+                let (name, args) = war_handler(happened);
+                all.iter().for_each(|e| e.handle(name, &args));
+            }
             game::Heard::Change(events::Change::BuildingFinished { province, building, country }) => match game::buildings::key_of(building) {
                 Ok(key) => {
                     let country = String::from_utf8_lossy(&country.letters()).into_owned();
@@ -366,6 +386,13 @@ pub fn frame(state: &game::Frame) {
                 }
                 Err(e) => log!("building finished: {}", e.message),
             },
+            game::Heard::Change(events::Change::Battle(battle)) => {
+                let mut table = serde_json::to_value(crate::remote::battle_event(&battle)).unwrap_or_default();
+                if let Some(fields) = table.as_object_mut() {
+                    fields.remove("event");
+                }
+                all.iter().for_each(|e| e.handle("on_battle", &[Arg::Json(table.clone())]))
+            }
             game::Heard::Day(date) => all.iter().for_each(|e| e.handle("on_day", &[Arg::Date(eu4_harmony_checks::Date(date))])),
             game::Heard::Month(date) => all.iter().for_each(|e| e.handle("on_month", &[Arg::Date(eu4_harmony_checks::Date(date))])),
             game::Heard::Year(date) => all.iter().for_each(|e| e.handle("on_year", &[Arg::Date(eu4_harmony_checks::Date(date))])),

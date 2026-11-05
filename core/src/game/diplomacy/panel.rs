@@ -52,6 +52,9 @@ const ROOM: usize = 512;
 /// The most factors read.
 const MOST_FACTORS: usize = 1000;
 
+/// How a refusal for an action the panel does not offer begins.
+pub(super) const NOT_OFFERED: &str = "the diplomacy panel does not offer";
+
 /// What the player does in the panel: one of its acts, or a scripted
 /// diplomatic action, by its content key.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,7 +128,7 @@ pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<T
             What::Act(act) => act.name().to_string(),
             What::Scripted(key) => format!("the scripted action {key}"),
         };
-        return fail(Status::Rejected, format!("the diplomacy panel does not offer {name} toward {}", letters(country)));
+        return fail(Status::Rejected, format!("{NOT_OFFERED} {name} toward {}", letters(country)));
     };
     if let What::Act(act) = what {
         fill(m, &ctx, at, *act, details)?;

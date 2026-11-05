@@ -101,17 +101,27 @@ group! {
         /// The other country.
         country: CountryTag,
     } -> Options, "country, actions: each action (its capability, or scripted_action), key, name, can, reasons, cost, description and, where the panel shows it, acceptance";
+    /// Calls an ally to arms in the wars the player is in, as the diplomacy
+    /// panel's call to arms button and the window it opens send the call,
+    /// with no land promised: the ally joins each of the player's wars the
+    /// game calls it into when it accepts. `rejected` when the diplomacy
+    /// panel offers no call to arms to that country, or the game does not
+    /// let the player send it, with its reasons.
+    game CallToArms "call_to_arms" {
+        /// The ally to call.
+        country: CountryTag,
+    } -> Outcome, "answer: accepted, declined or pending";
     /// Makes a country one of the player's rivals, as the rivals list of the
-    /// diplomacy view does. `rejected` when the game's command refuses it
-    /// (not a valid rival, or the player has as many as the game allows); the
-    /// game gives no reason.
+    /// diplomacy view does. `rejected` with the game's reasons when the game
+    /// does not let the player rival it, and with none when the player has as
+    /// many rivals as the game allows.
     game AddRival "add_rival" {
         /// The country to rival.
         country: CountryTag,
     } -> (), "nothing: the country is a rival";
     /// Drops a rival, as the rivals list of the diplomacy view does.
-    /// `rejected` when the game's command refuses it, such as for a country
-    /// that is not a rival; the game gives no reason.
+    /// `rejected` with the game's reasons when the game does not let the
+    /// player, such as within the years after rivalling it.
     game RemoveRival "remove_rival" {
         /// The rival to drop.
         country: CountryTag,

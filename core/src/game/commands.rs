@@ -329,10 +329,25 @@ pub fn with_command<T>(written: &str, look: impl FnOnce(&Memory, usize) -> GResu
     looked
 }
 
-/// Whether the command `text` writes passes its own check now, as the
-/// session's update asks it before it executes the command.
-pub fn allowed(text: &str) -> Result<bool, Refused> {
-    with_command(text, |m, command| Ok(m.call(m.vslot(command, CHECK)?, &[command])? as u8 != 0))
+/// Whether the command `text` writes would pass its own check now, as
+/// [`post`] asks it before executing it, without executing it: for a panel's
+/// read of what its buttons would do. Refused only when the game reads the
+/// text otherwise than it is written. Only on the main thread, at a safe
+/// point.
+pub fn passes(text: &str) -> Result<bool, Refused> {
+    let given = Written::parse(text).map_err(Refused::Unread)?;
+    let m = game()?;
+    context(m)?;
+    let Some(command) = read(m, &game_text::from_str(text))? else {
+        return Err(Refused::Unread(format!("the game has no command {:?}", given.kind)));
+    };
+    let refusal = refused(m, command, &given)?;
+    m.call(m.vslot(command, DESTROY)?, &[command, FREE])?;
+    match refusal {
+        None => Ok(true),
+        Some(Refused::Check) => Ok(false),
+        Some(refusal) => Err(refusal),
+    }
 }
 
 /// Whether the session's update would execute commands now: in a state in
@@ -543,18 +558,24 @@ fn written(m: &Memory, command: usize, token: u32) -> crate::Result<Vec<u8>> {
     // The game grew the vector through the stream.
     let bytes = unsafe { std::ptr::read_volatile(&bytes) };
     let result = result.and_then(|_| m.bytes(bytes[0], bytes[1] - bytes[0]));
-    if bytes[0] != 0 {
-        // As the game frees a vector's buffer: a large one is aligned, with
-        // the block it was cut from just before it.
-        let mut size = bytes[2] - bytes[0];
-        let mut block = bytes[0];
+    free_vector(m, bytes)?;
+    result
+}
+
+/// Frees the buffer of a `std::vector` the game grew, (start, end, end of
+/// capacity), as the game frees one: a large one is aligned, with the block
+/// it was cut from just before it. Its items are left as they are.
+pub(crate) fn free_vector(m: &Memory, vector: [usize; 3]) -> crate::Result<()> {
+    if vector[0] != 0 {
+        let mut size = vector[2] - vector[0];
+        let mut block = vector[0];
         if size >= 0x1000 {
             size += 0x27;
             block = m.ptr(block - 8)?;
         }
         m.call(m.at(DELETE), &[block, size])?;
     }
-    result
+    Ok(())
 }
 
 /// The command `text` (game text) holds, made by the game's factory and read

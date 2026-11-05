@@ -21,13 +21,16 @@ use crate::{
     hooks::HookFrame,
     memory::Memory,
     objects::{
-        diplomacy::{action, casus_belli, classes, command, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world},
+        diplomacy::{
+            action, casus_belli, classes, command, factor, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world,
+        },
         gui,
     },
     points::Point,
     unicode::game_text,
 };
-use eu4_harmony_checks::diplomacy as checks;
+use eu4_harmony_checks::{diplomacy as checks, peace as checks_peace};
+use eu4_harmony_remote::choices;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -73,6 +76,13 @@ const ALLIANCE_KIND: u32 = 0x293d;
 /// player's last alliance offer, when they start something: an alliance, an
 /// invitation into the empire, into a trade league, and asking to join one.
 const RECORDED_AS_ALLIANCE: [u32; 4] = [ALLIANCE_KIND, 0x3b85, 0x331d, 0x3320];
+/// Whether the AI would accept an action, its base's method at `+0xb8`:
+/// (action, factors), filling the `std::vector` of [`factor`]s given; and
+/// that vector's destructor, (vector).
+const ACCEPTS: usize = 0x4ea1e0;
+const FACTORS_FREE: usize = 0x4183f0;
+/// The most factors the game is believed to give.
+const MOST_FACTORS: usize = 1_000;
 
 /// What the declare war window gathers about a declaration of war: (action,
 /// out [`sides`], 1 as the window passes it).
@@ -331,6 +341,45 @@ fn rival_command(kind: &str, check: usize, rival: Tag) -> GResult<()> {
     commands::post(&format!("{kind}={{ country=\"{}\" rival=\"{}\" }}", letters(ctx.player), letters(rival))).map_err(Into::into)
 }
 
+/// Calls `ally` to arms in the player's wars, as the diplomacy panel's call
+/// to arms button and the window it opens send the call, with no land
+/// promised. [`Status::Rejected`] when the panel offers no call to arms to
+/// it, or the game does not let the player send it, with its reasons.
+pub fn call_to_arms(caller: Caller, ally: Tag) -> GResult<Ticket> {
+    act(caller, ally, &What::Act(Act::CallToArms), &Details::default()).map_err(|fail| {
+        if fail.status == Status::Rejected && fail.message.starts_with(panel::NOT_OFFERED) {
+            checks_peace::no_call_to_arms(letters(ally)).into()
+        } else {
+            fail
+        }
+    })
+}
+
+/// Whether the other country would accept the action at `at`, as the
+/// window that sends it shows (the peace view's, for a peace offer): the verdict, the sum, and each factor, with
+/// its text as the window's tooltip writes it.
+pub(super) fn acceptance(m: &Memory, at: usize) -> GResult<choices::Acceptance> {
+    let mut factors = [0usize; 3];
+    let factors_at = factors.as_mut_ptr() as usize;
+    let accepts = m.call(m.at(ACCEPTS), &[at, factors_at]);
+    let factors = unsafe { std::ptr::read_volatile(&factors) };
+    let read = accepts.map_err(super::Fail::from).and_then(|accepts| {
+        let size = factors[1].wrapping_sub(factors[0]);
+        if factors[1] < factors[0] || size % factor::SIZE != 0 || size / factor::SIZE > MOST_FACTORS {
+            return Err("the factors are out of bounds".to_string().into());
+        }
+        let mut read = Vec::new();
+        for item in (factors[0]..factors[1]).step_by(factor::SIZE) {
+            let text = game_text::plain(&game_string::read(m, item + factor::TEXT)?).trim().to_string();
+            read.push(choices::Factor { text, value: m.i32(item + factor::VALUE)? as f64 });
+        }
+        Ok((accepts as u8 != 0, read))
+    });
+    m.call(m.at(FACTORS_FREE), &[factors_at])?;
+    let (accepts, factors) = read?;
+    Ok(choices::Acceptance { accepts, total: factors.iter().map(|f| f.value).sum(), factors })
+}
+
 /// What came of an action sent. [`Status::NotFound`] for a ticket that is
 /// no longer kept; [`Status::NotInGame`] once the game it was sent in has
 /// ended; [`Status::Rejected`] for a declaration of war the game carried
@@ -377,7 +426,7 @@ fn war_with(caller: Caller, ctx: &Ctx, enemy: Tag) -> GResult<Option<String>> {
 }
 
 /// A country of the game's other than the player's.
-fn other(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<()> {
+pub(super) fn other(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<()> {
     country(m, ctx, tag)?;
     if tag.index() == ctx.player.index() {
         return Err(checks::own_country().into());
@@ -385,7 +434,7 @@ fn other(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<()> {
     Ok(())
 }
 
-fn letters(tag: Tag) -> String {
+pub(super) fn letters(tag: Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
 }
 
@@ -393,19 +442,19 @@ fn letters(tag: Tag) -> String {
 
 /// An action the framework makes in its own memory, which the game's code
 /// fills in and copies; destroyed, without freeing, once sent.
-struct Made<'a> {
+pub(super) struct Made<'a> {
     m: &'a Memory,
     object: Vec<u64>,
     /// Its constructor ran, so its destructor must.
-    built: bool,
+    pub(super) built: bool,
 }
 
 impl<'a> Made<'a> {
-    fn new(m: &'a Memory, size: usize) -> Self {
+    pub(super) fn new(m: &'a Memory, size: usize) -> Self {
         Self { m, object: vec![0; size.div_ceil(8)], built: false }
     }
 
-    fn at(&self) -> usize {
+    pub(super) fn at(&self) -> usize {
         self.object.as_ptr() as usize
     }
 
@@ -431,7 +480,7 @@ impl Drop for Made<'_> {
 /// ([`verdict`]): dates it and has it make its command, as the diplomacy
 /// window does, posts the command's written form through the command layer,
 /// and keeps the action for [`answer`], with the allies it calls.
-fn send(m: &Memory, ctx: &Ctx, at: usize, to: Tag, called: Vec<Tag>) -> GResult<Ticket> {
+pub(super) fn send(m: &Memory, ctx: &Ctx, at: usize, to: Tag, called: Vec<Tag>) -> GResult<Ticket> {
     let kind = Kind::of(m, at)?;
     let answers = m.call(m.vslot(at, action::NEEDS_ANSWER)?, &[at])? as u8 != 0;
     m.write(at + action::MADE, &ctx.date.to_le_bytes())?;
@@ -470,12 +519,19 @@ fn send(m: &Memory, ctx: &Ctx, at: usize, to: Tag, called: Vec<Tag>) -> GResult<
 /// Asks the action the checks the diplomacy panel and the window ask before
 /// the player can send it; [`Status::Rejected`] with the game's reasons when
 /// either says no.
-fn verdict(m: &Memory, at: usize) -> GResult<()> {
+pub(super) fn verdict(m: &Memory, at: usize) -> GResult<()> {
     let judged = judge(m, at)?;
     if judged.can {
         return Ok(());
     }
     fail(Status::Rejected, refusal(&judged.reasons))
+}
+
+/// The checks [`verdict`] asks: None when both let the player send it, and
+/// otherwise the reasons they give, each once; empty when they give none.
+pub(super) fn refusals(m: &Memory, at: usize) -> GResult<Option<Vec<String>>> {
+    let judged = judge(m, at)?;
+    Ok((!judged.can).then_some(judged.reasons))
 }
 
 /// What the checks the diplomacy panel and the window ask say of an action:
@@ -514,7 +570,7 @@ fn reasons(m: &Memory, at: usize, slot: usize) -> GResult<Vec<u8>> {
 }
 
 /// Game text's lines as plain Unicode, a reason's bullet left out.
-fn text_lines(text: &[u8]) -> Vec<String> {
+pub(super) fn text_lines(text: &[u8]) -> Vec<String> {
     game_text::plain(text).lines().map(|l| l.trim()).map(|l| l.strip_prefix("- ").unwrap_or(l).trim()).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
 
@@ -1121,6 +1177,20 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_CALL, "48 89 5c 24 18 48 89 54 24 10 48 89 4c 24 08 55 56 57 41 54 41 55 41 56 41 57", "ally check"),
         Point::keep(0xee0d44usize, "48 8d 15 95 e8 e3 00", "ally check allied to enemy").uses(&[ALLIED_TO_ENEMY]),
         Point::keep(TAGS_GROW, "48 89 5c 24 18 56 57 41 56 48 83 ec 20 48 8b 41 08 48 8b da 48 8b 11", "tags grown"),
+        // Calls to arms: the call's checks, command and destructor.
+        method(CALL, action::MAKE_COMMAND, 0x4e9930, "call to arms command"),
+        method(CALL, action::ALLOWED, 0x5426d0, "call to arms check"),
+        Point::keep(0x5426d0usize, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57 41 56 41 57", "call to arms check"),
+        method(CALL, action::OFFERED, 0x4e9b10, "call to arms panel check"),
+        Point::keep(0x4e9b10usize, "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 81 ec 90 00 00", "call to arms panel check"),
+        method(CALL, action::DESTROY, 0x506670, "call to arms destructor"),
+        Point::keep(0x506670usize, "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 8b da 48 83 c1 58 e8", "call to arms destructor"),
+        // Whether the AI accepts an action, with its factors, which every
+        // kind inherits, and the factors' destructor.
+        method(PEACE, action::ACCEPTS, ACCEPTS, "peace offer acceptance"),
+        method(CALL, action::ACCEPTS, ACCEPTS, "call to arms acceptance"),
+        Point::keep(ACCEPTS, "48 89 5c 24 08 48 89 74 24 18 57 48 83 ec 20 48 85 d2 48 8b da 48 8b f9", "diplomatic action acceptance"),
+        Point::keep(FACTORS_FREE, "48 89 5c 24 10 57 48 83 ec 20 48 8b 19 48 8b f9 48 85 db 74 7f 48 89 74", "factors freed"),
         // The war goals and their list.
         Point::keep(WAR_GOAL_LIST, "48 89 5c 24 10 4c 89 4c 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 ec 50", "war goals offered"),
         method(WAR_GOALS, 0, WAR_GOAL_LIST_DESTROY, "war goal list destructor"),

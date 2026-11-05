@@ -70,7 +70,7 @@ fn every_capability_is_described_and_can_be_called_from_its_description() {
 fn a_request_is_one_flat_object() {
     let wire = json!({"capability": "army.move", "army": "4294967377", "province": 151});
     let decoded = request(wire.clone()).unwrap();
-    assert_eq!(decoded, Request::Army(armies::ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) }));
+    assert_eq!(decoded, Request::Army(armies::ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151), transports: None }));
     assert_eq!(serde_json::to_value(&decoded).unwrap(), wire);
 
     let session = request(json!({"capability": "session.get"})).unwrap();
@@ -132,8 +132,22 @@ fn every_event_is_described() {
         Event::Year { date },
         Event::ArmyOrdered { army: ArmyId(1) },
         Event::ArmyDefeated { army: ArmyId(1) },
+        Event::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: CountryTag(*b"TUR"), defender: CountryTag(*b"BYZ") },
+        Event::PeaceMade { war: "Ottoman-Byzantine War".into(), attackers: vec![], defenders: vec![CountryTag(*b"BYZ")], ended: false },
+        Event::ProvinceOwnerChanged { province: ProvinceId(151), from: Some(CountryTag(*b"BYZ")), to: Some(CountryTag(*b"TUR")) },
         Event::BuildingFinished { province: ProvinceId(151), building: "marketplace".into(), country: CountryTag(*b"TUR") },
+        Event::Battle {
+            province: ProvinceId(151),
+            naval: false,
+            attackers: vec![CountryTag(*b"TUR")],
+            defenders: vec![CountryTag(*b"BYZ"), CountryTag(*b"VEN")],
+            winner: events::Winner::Attackers,
+            attacker_losses: 1200,
+            defender_losses: 3400,
+        },
     ];
+    // A battle names the countries on both sides, for a read's countries.
+    assert_eq!(all.iter().find(|e| e.kind() == "battle").unwrap().countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
     // An event is flattened beside its own number: none of its fields may
     // be named so.
     for event in &all {
@@ -228,6 +242,9 @@ fn kinds_from_text() {
         Kind::Keys,
         Kind::Countries,
         Kind::Words,
+        Kind::PowerKind,
+        Kind::Armies,
+        Kind::Terms,
     ];
     for kind in all {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
@@ -242,13 +259,18 @@ fn kinds_from_text() {
     assert_eq!(Kind::Provinces.json("1, 2"), Some(json!([1, 2])));
     assert_eq!(Kind::Countries.json("fra, ENG"), Some(json!(["FRA", "ENG"])));
     assert_eq!(Kind::Words.json("day,month"), Some(json!(["day", "month"])));
+    assert_eq!(Kind::Armies.json("12, 34"), Some(json!(["12", "34"])));
+    assert_eq!(Kind::Terms.json(r#"[{"term":"demand_provinces","province":236}]"#), Some(json!([{"term": "demand_provinces", "province": 236}])));
     assert_eq!(Kind::Keys.json("Control+Return"), Some(json!("ctrl+enter")));
     assert_eq!(Kind::Button.json("right"), Some(json!("right")));
+    assert_eq!(Kind::PowerKind.json("dip"), Some(json!("dip")));
     for (kind, bad) in [
         (Kind::Provinces, "151,Paris"),
         (Kind::Provinces, ""),
         (Kind::Countries, "FRA,France"),
         (Kind::Words, "day,,month"),
+        (Kind::Armies, "12,first"),
+        (Kind::Terms, "humiliate"),
         (Kind::Province, "Paris"),
         (Kind::Province, "1.5"),
         (Kind::Integer, "0x10"),
@@ -259,6 +281,7 @@ fn kinds_from_text() {
         (Kind::Keys, "ctrl+banana"),
         (Kind::Button, "back"),
         (Kind::Direction, "sideways"),
+        (Kind::PowerKind, "ADM"),
     ] {
         assert_eq!(kind.json(bad), None, "{kind:?} {bad}");
     }
