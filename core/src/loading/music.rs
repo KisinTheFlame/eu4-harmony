@@ -3,19 +3,24 @@
 //! For each music asset, `0x16a4930` adds the music and calls `0x16a9a40`
 //! with its sound: that opens the file, reads all of it into memory, opens it
 //! with Vorbis, keeps the channels, the rate, the length in samples and the
-//! duration in nanoseconds in the sound (`+0xd8`, `+0xdc`, `+0xc8`, `+0xd0`), and the caller
-//! lets the rest go. The DLC's music is 3 GB deflated in zips, which every
+//! duration in nanoseconds in the sound (`+0xd8`, `+0xdc`, `+0xc8`,
+//! `+0xd0`), and the caller lets the rest go: of the four, the songs' list
+//! reads the duration for the music player, and a song's play takes all four
+//! again. The DLC's music is 3 GB deflated in zips, which every
 //! start inflated whole for those four numbers (docs/research/loading.md).
 //!
-//! The framework keeps the four numbers of each file in the user folder, with
+//! The framework keeps the four numbers of each file in the user folder, by
 //! the place the game reads the file from (PhysFS's real directory, a zip or a
-//! folder) and that place's size and time; the next start fills them in from
-//! there while the place is as it was, and the game reads only what is new.
+//! folder) and the file's name, with what tells the file as it is: for an
+//! entry of a zip, its CRC-32 and sizes from the zip's directory at its end;
+//! for a file in a folder, its size and time. The next start fills the
+//! numbers in from there while the file is as it was, and the game reads only
+//! what is new or changed.
 use crate::points::Point;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
 /// In `0x16a4930`, after the music is added: `mov dl, 1; lea rcx, [rbx +
@@ -77,11 +82,19 @@ pub fn set_folder(user_dir: &Path) {
     let _ = FOLDER.set(user_dir.join("eu4-harmony"));
 }
 
-/// What the game kept of one file, and the place it read it from as it was.
+/// What tells a music file as it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Print {
+    /// An entry of a zip: its CRC-32 and its sizes, packed and not.
+    Entry { crc: u32, packed: u64, unpacked: u64 },
+    /// A file in a folder: its size and the time it was last written.
+    File { size: u64, time: u64 },
+}
+
+/// What the game kept of one file, and the file as it was.
 #[derive(Clone, Debug, PartialEq)]
 struct Kept {
-    place_size: u64,
-    place_time: u64,
+    print: Print,
     samples: u64,
     nanoseconds: u64,
     channels: u32,
@@ -99,18 +112,18 @@ extern "C" fn read_whole(sound: usize) -> usize {
         if super::game_loads() {
             return read();
         }
-        let Some((place, size, time)) = place_of(name) else { return read() };
+        let Some((place, print)) = place_of(name) else { return read() };
         let key = (place, name.to_string_lossy().into_owned());
         let mut all = KEPT_MUSIC.lock().unwrap_or_else(|e| e.into_inner());
         let kept = all.get_or_insert_with(load);
-        if let Some(k) = kept.get(&key).filter(|k| k.place_size == size && k.place_time == time).cloned() {
+        if let Some(k) = kept.get(&key).filter(|k| k.print == print).cloned() {
             if !super::checking() {
                 put(sound, &k);
                 return 0;
             }
             drop(all);
             let decoder = read();
-            let game = taken(sound, size, time);
+            let game = taken(sound, print);
             if game.as_ref() != Some(&k) {
                 log!("music: check-loading: {:?} kept as {k:?}, read as {game:?}", key.1);
             }
@@ -119,7 +132,7 @@ extern "C" fn read_whole(sound: usize) -> usize {
         drop(all);
         let decoder = read();
         if decoder != 0 {
-            if let Some(k) = taken(sound, size, time) {
+            if let Some(k) = taken(sound, print) {
                 let mut all = KEPT_MUSIC.lock().unwrap_or_else(|e| e.into_inner());
                 let kept = all.get_or_insert_with(HashMap::new);
                 kept.insert(key, k);
@@ -130,14 +143,51 @@ extern "C" fn read_whole(sound: usize) -> usize {
     })
 }
 
-/// Where the game reads the file from, and that place's size and time: a
-/// zip's for a file in one, the file's own in a folder.
-fn place_of(name: &CStr) -> Option<(String, u64, u64)> {
+/// Where the game reads the file from, and what tells the file as it is.
+fn place_of(name: &CStr) -> Option<(String, Print)> {
     let place = crate::physfs::real_dir(name.as_ptr())?;
     let path = Path::new(&place);
-    let meta = if path.is_dir() { std::fs::metadata(path.join(name.to_str().ok()?)) } else { std::fs::metadata(path) }.ok()?;
-    let time = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos() as u64;
-    Some((place, meta.len(), time))
+    let print = if path.is_dir() {
+        let meta = std::fs::metadata(path.join(name.to_str().ok()?)).ok()?;
+        let time = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos() as u64;
+        Print::File { size: meta.len(), time }
+    } else {
+        entry_print(&*directory(&place)?, name.to_bytes())?
+    };
+    Some((place, print))
+}
+
+/// The entry of that name, or of that name in another case when none has it
+/// as it is.
+fn entry_print(entries: &HashMap<Vec<u8>, Print>, name: &[u8]) -> Option<Print> {
+    entries.get(name).or_else(|| entries.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, p)| p)).copied()
+}
+
+/// Each zip's entries by their names, read from its directory once a process.
+type Directory = Arc<HashMap<Vec<u8>, Print>>;
+static DIRECTORIES: Mutex<Option<HashMap<String, Option<Directory>>>> = Mutex::new(None);
+/// A zip directory larger than this is not read.
+const MOST_DIRECTORY: usize = 64 << 20;
+
+fn directory(zip: &str) -> Option<Directory> {
+    let mut all = DIRECTORIES.lock().unwrap_or_else(|e| e.into_inner());
+    all.get_or_insert_with(HashMap::new)
+        .entry(zip.to_string())
+        .or_insert_with(|| {
+            let read = std::fs::File::open(zip).map_err(|e| e.to_string()).and_then(|mut f| crate::saves::file::zip_directory(&mut f, MOST_DIRECTORY));
+            match read {
+                Ok(entries) => Some(Arc::new(prints(entries))),
+                Err(e) => {
+                    log!("music: the directory of {zip} cannot be read: {e}");
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
+fn prints(entries: Vec<crate::saves::file::ZipEntry>) -> HashMap<Vec<u8>, Print> {
+    entries.into_iter().map(|e| (e.name, Print::Entry { crc: e.crc, packed: e.packed as u64, unpacked: e.unpacked as u64 })).collect()
 }
 
 fn put(sound: usize, k: &Kept) {
@@ -149,11 +199,10 @@ fn put(sound: usize, k: &Kept) {
     }
 }
 
-fn taken(sound: usize, place_size: u64, place_time: u64) -> Option<Kept> {
+fn taken(sound: usize, print: Print) -> Option<Kept> {
     let m = crate::hooked_memory();
     Some(Kept {
-        place_size,
-        place_time,
+        print,
         samples: m.u64(sound + SOUND_SAMPLES).ok()?,
         nanoseconds: m.u64(sound + SOUND_NANOSECONDS).ok()?,
         channels: m.u32(sound + SOUND_CHANNELS).ok()?,
@@ -176,12 +225,19 @@ fn save(kept: &HashMap<(String, String), Kept>) {
     }
 }
 
-/// One line a file: the place's size and time, the four numbers, the place
-/// and the name, apart by tabs.
+/// One line a file, apart by tabs: what tells the file (`entry` with its CRC
+/// and sizes, or `file` with its size and time), the four numbers, the place
+/// and the name.
 fn render(kept: &HashMap<(String, String), Kept>) -> String {
     let mut lines: Vec<String> = kept
         .iter()
-        .map(|((place, name), k)| format!("{}\t{}\t{}\t{}\t{}\t{}\t{place}\t{name}", k.place_size, k.place_time, k.samples, k.nanoseconds, k.channels, k.rate))
+        .map(|((place, name), k)| {
+            let print = match k.print {
+                Print::Entry { crc, packed, unpacked } => format!("entry\t{crc:08x}\t{packed}\t{unpacked}"),
+                Print::File { size, time } => format!("file\t{size}\t{time}\t-"),
+            };
+            format!("{print}\t{}\t{}\t{}\t{}\t{place}\t{name}", k.samples, k.nanoseconds, k.channels, k.rate)
+        })
         .collect();
     lines.sort();
     lines.join("\n") + "\n"
@@ -191,12 +247,16 @@ fn parse(text: &str) -> HashMap<(String, String), Kept> {
     text.lines()
         .filter_map(|line| {
             let f: Vec<&str> = line.split('\t').collect();
-            let [size, time, samples, nanoseconds, channels, rate, place, name] = f[..] else { return None };
+            let [kind, a, b, c, samples, nanoseconds, channels, rate, place, name] = f[..] else { return None };
+            let print = match kind {
+                "entry" => Print::Entry { crc: u32::from_str_radix(a, 16).ok()?, packed: b.parse().ok()?, unpacked: c.parse().ok()? },
+                "file" => Print::File { size: a.parse().ok()?, time: b.parse().ok()? },
+                _ => return None,
+            };
             Some((
                 (place.to_string(), name.to_string()),
                 Kept {
-                    place_size: size.parse().ok()?,
-                    place_time: time.parse().ok()?,
+                    print,
                     samples: samples.parse().ok()?,
                     nanoseconds: nanoseconds.parse().ok()?,
                     channels: channels.parse().ok()?,
@@ -215,17 +275,33 @@ mod tests {
     fn what_is_kept_reads_back_as_written() {
         let mut kept = HashMap::new();
         let k = Kept {
-            place_size: 795_376_489,
-            place_time: 1_700_000_000_123_456_789,
+            print: Print::Entry { crc: 0x0badcafe, packed: 34_279_611, unpacked: 34_679_865 },
             samples: 7_654_321,
             nanoseconds: 173_567_000_000,
             channels: 2,
             rate: 44_100,
         };
         kept.insert((r"E:\games\eu4\dlc\dlc125_lessons_japan\dlc125.zip".to_string(), "music/japan 1.ogg".to_string()), k.clone());
-        kept.insert(("E:\\x".to_string(), "music/b.ogg".to_string()), Kept { channels: 1, ..k });
+        kept.insert(
+            ("E:\\x".to_string(), "music/b.ogg".to_string()),
+            Kept { print: Print::File { size: 10, time: 1_700_000_000_123_456_789 }, channels: 1, ..k },
+        );
         assert_eq!(parse(&render(&kept)), kept);
-        // A line not of the form is left out, not the rest.
-        assert_eq!(parse(&format!("broken line\n{}", render(&kept))).len(), 2);
+        // A line not of the form, as one of an older form, is left out, not
+        // the rest.
+        let older = "10236285\t1730731614759244500\t11863488\t269013333333\t2\t44100\tE:/dlc014.zip\tmusic/pdxmascarol.ogg\n";
+        assert_eq!(parse(&format!("{older}broken line\n{}", render(&kept))).len(), 2);
+    }
+
+    #[test]
+    fn an_entry_is_told_by_its_name_in_any_case() {
+        let entry = |crc| crate::saves::file::ZipEntry { name: Vec::new(), method: 8, crc, packed: 5, unpacked: 9, local: 0 };
+        let entries = prints(vec![
+            crate::saves::file::ZipEntry { name: b"music/MainTheme.ogg".to_vec(), ..entry(1) },
+            crate::saves::file::ZipEntry { name: b"music/other.ogg".to_vec(), ..entry(2) },
+        ]);
+        assert_eq!(entry_print(&entries, b"music/MainTheme.ogg"), Some(Print::Entry { crc: 1, packed: 5, unpacked: 9 }));
+        assert_eq!(entry_print(&entries, b"music/maintheme.ogg"), Some(Print::Entry { crc: 1, packed: 5, unpacked: 9 }));
+        assert_eq!(entry_print(&entries, b"music/missing.ogg"), None);
     }
 }
