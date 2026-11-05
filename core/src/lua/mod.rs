@@ -423,7 +423,8 @@ pub fn frame(state: &game::Frame) {
 
 /// The session is being left, for `end` (`crate::sessions`): every
 /// extension hears it while the session's state is still the game's, on the
-/// main thread, before anything of it is saved or taken down.
+/// main thread, before anything of it is taken down: once leaving is
+/// certain, after the ironman exit save, when there is one, was written.
 pub fn session_ended(end: crate::sessions::End) {
     for e in extensions() {
         e.handle("on_session_ended", &[Arg::Text(end.word().into())]);

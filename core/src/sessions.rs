@@ -301,8 +301,9 @@ mod tests {
         assert_eq!(l.frame_read(1, true), vec![Began(1)]);
         assert_eq!(l.frame_read(1, false), vec![]);
         assert_eq!(l.ending(End::Return), vec![Ended(1, End::Return)]);
-        // Leaving again, as when an ironman exit save failed and the player
-        // tries once more: the session was told it ended already.
+        // Leaving again, as by a second way out within one frame: the
+        // session was told it ended already. (An ironman exit save that
+        // fails comes before the end, which is then not told at all.)
         assert_eq!(l.ending(End::Load), vec![]);
         assert_eq!(l.world_reset(), vec![WorldReset]);
         assert_eq!(l.frame_read(2, true), vec![Began(2)]);
