@@ -313,9 +313,13 @@ fn modules_of(process: HANDLE) -> Vec<Module> {
 /// The main thread's instruction pointer and return addresses, innermost
 /// first.
 fn walk(process: HANDLE, thread: HANDLE) -> Vec<u64> {
-    let mut context: CONTEXT = unsafe { std::mem::zeroed() };
+    // GetThreadContext fails on a context that is not 16-byte aligned.
+    #[repr(C, align(16))]
+    struct Aligned(CONTEXT);
+    let mut aligned = Aligned(unsafe { std::mem::zeroed() });
+    let context = &mut aligned.0;
     context.ContextFlags = CONTEXT_FULL_AMD64;
-    if unsafe { GetThreadContext(thread, &mut context) } == 0 {
+    if unsafe { GetThreadContext(thread, context) } == 0 {
         return Vec::new();
     }
     let mut frame: STACKFRAME64 = unsafe { std::mem::zeroed() };
@@ -331,7 +335,7 @@ fn walk(process: HANDLE, thread: HANDLE) -> Vec<u64> {
                 process,
                 thread,
                 &mut frame,
-                (&raw mut context).cast(),
+                (context as *mut CONTEXT).cast(),
                 None,
                 Some(SymFunctionTableAccess64),
                 Some(SymGetModuleBase64),
