@@ -263,6 +263,24 @@ extern "C" fn moved(frame: *mut HookFrame) {
     });
 }
 
+/// The game waits for the thread: a file another program holds is not tried
+/// again.
+static WAITED_FOR: AtomicBool = AtomicBool::new(false);
+
+struct Waited;
+
+impl Drop for Waited {
+    fn drop(&mut self) {
+        WAITED_FOR.store(false, Ordering::SeqCst);
+    }
+}
+
+/// How often and how far apart the thread tries to put its file in the
+/// save's place while another program holds the save open, as a program
+/// that copies each save it sees may: two seconds in all.
+const MOVE_TRIES: u32 = 10;
+const MOVE_AGAIN: Duration = Duration::from_millis(200);
+
 /// Files handed to the thread and not yet done.
 struct Pending {
     count: Mutex<usize>,
@@ -311,6 +329,8 @@ pub fn wait() {
     if *count == 0 {
         return;
     }
+    WAITED_FOR.store(true, Ordering::SeqCst);
+    let _waited = Waited;
     while *count > 0 {
         let (next, timeout) = PENDING.done.wait_timeout(count, Duration::from_secs(60)).unwrap_or_else(|e| e.into_inner());
         count = next;
@@ -338,11 +358,19 @@ fn compact_file(path: &Path) -> Result<Option<(usize, usize)>> {
         file.write_all(&packed).map_err(error)?;
         file.sync_all().map_err(error)?;
         drop(file);
-        let now = std::fs::metadata(path).map_err(error)?;
-        if now.len() != before.len() || now.modified().ok() != before.modified().ok() {
-            return Err("the file changed while it was compressed".to_string());
+        for tried in 1.. {
+            let now = std::fs::metadata(path).map_err(error)?;
+            if now.len() != before.len() || now.modified().ok() != before.modified().ok() {
+                return Err("the file changed while it was compressed".to_string());
+            }
+            match std::fs::rename(&tmp, path) {
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tried < MOVE_TRIES && !WAITED_FOR.load(Ordering::SeqCst) => {
+                    std::thread::sleep(MOVE_AGAIN)
+                }
+                done => return done.map_err(error),
+            }
         }
-        std::fs::rename(&tmp, path).map_err(error)
+        unreachable!()
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
