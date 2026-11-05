@@ -38,7 +38,7 @@ Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day 
 ### What remote control answers
 
 - `menu.load` and `menu.start` from a session are answered as from the main menu: once the new session's first frame has run, with its number, date and player; or `rejected` with the game's reason.
-- `menu.return` with "return without restarting" on is answered once the main menu is up, `place` `main_menu`, from the same process, with event numbers going on; off, at once with `place` `ending`, as now.
+- `menu.return` with "return without restarting" on is answered once the main menu is up, `place` `main_menu`, from the same process, with event numbers going on; off, at once with `place` `ending`, as now. Requests made before the map manager's frame acts on the first are the same return, and each is answered with it.
 
 ### Extensions
 

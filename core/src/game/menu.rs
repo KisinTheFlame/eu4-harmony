@@ -766,6 +766,29 @@ struct Returns {
     last: Option<(u64, std::result::Result<(), String>)>,
 }
 
+impl Returns {
+    /// Numbers a return remote control asks for. One asked for while another
+    /// waits for the map manager's frame to act on it is that same return,
+    /// and takes its number, so that both are answered.
+    fn ask(&mut self) -> u64 {
+        if self.last.as_ref().map_or(0, |(number, _)| *number) == self.asked {
+            self.asked += 1;
+        }
+        self.asked
+    }
+
+    /// The map manager's frame acted on a return, whoever asked for it.
+    fn acted_on(&mut self, outcome: std::result::Result<(), String>) {
+        self.last = Some((self.asked, outcome));
+    }
+
+    /// What came of the return `number`, once the map manager's frame acted
+    /// on it.
+    fn outcome(&self, number: u64) -> Option<std::result::Result<(), String>> {
+        self.last.as_ref().filter(|(n, _)| *n == number).map(|(_, outcome)| outcome.clone())
+    }
+}
+
 static RETURNS: Mutex<Returns> = Mutex::new(Returns { asked: 0, last: None });
 
 /// The map manager's frame acted on a return ([`leave`]): an in-process
@@ -779,16 +802,15 @@ pub(crate) fn return_done(outcome: std::result::Result<(), String>) {
             }
         });
     }
-    let mut returns = RETURNS.lock().unwrap_or_else(|e| e.into_inner());
-    returns.last = Some((returns.asked, outcome));
+    RETURNS.lock().unwrap_or_else(|e| e.into_inner()).acted_on(outcome);
 }
 
 /// What came of the return remote control asked for as `number`.
 pub fn returned(_: Caller, number: u64) -> Returned {
-    let outcome = RETURNS.lock().unwrap_or_else(|e| e.into_inner()).last.clone();
+    let outcome = RETURNS.lock().unwrap_or_else(|e| e.into_inner()).outcome(number);
     match outcome {
-        Some((n, Err(why))) if n == number => Returned::Failed(why),
-        Some((n, Ok(()))) if n == number && matches!(place(Caller::Remote), Ok(Place::MainMenu)) => Returned::Done,
+        Some(Err(why)) => Returned::Failed(why),
+        Some(Ok(())) if matches!(place(Caller::Remote), Ok(Place::MainMenu)) => Returned::Done,
         _ => Returned::Waiting,
     }
 }
@@ -807,7 +829,8 @@ fn ask_return(m: &Memory) -> GResult<()> {
 
 /// Returns to the main menu, as the game's own question does when the
 /// player confirms it. With "return without restarting" on it is an
-/// in-process return, whose number [`returned`] takes; otherwise the game's
+/// in-process return, whose number [`returned`] takes, the same for every
+/// request made before the map manager's frame acts on it; otherwise the game's
 /// next frame starts `eu4.exe` again (None). It needs the game's map
 /// manager, not a game with a player: it also works while the player only
 /// observes, say after their country was annexed.
@@ -818,9 +841,7 @@ pub fn return_to_main_menu(_: Caller) -> GResult<Option<u64>> {
     if !leave::Rules::now().return_without_restart {
         return Ok(None);
     }
-    let mut returns = RETURNS.lock().unwrap_or_else(|e| e.into_inner());
-    returns.asked += 1;
-    Ok(Some(returns.asked))
+    Ok(Some(RETURNS.lock().unwrap_or_else(|e| e.into_inner()).ask()))
 }
 
 /// The code the main menu capabilities rely on; the fields they use are in
@@ -846,8 +867,24 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{judge, missing_mods, save_file, save_name, Judged, Steps, QUIET};
+    use super::{judge, missing_mods, save_file, save_name, Judged, Returns, Steps, QUIET};
     use std::time::Duration;
+
+    #[test]
+    fn returns_asked_for_while_one_is_pending_are_answered_with_it() {
+        let mut returns = Returns { asked: 0, last: None };
+        let (first, second) = (returns.ask(), returns.ask());
+        assert_eq!(first, second);
+        assert_eq!(returns.outcome(first), None);
+        returns.acted_on(Err("the game could not write the ironman exit save".into()));
+        assert_eq!(returns.outcome(first), Some(Err("the game could not write the ironman exit save".into())));
+        // Once it was acted on, another is another return.
+        let third = returns.ask();
+        assert_ne!(third, first);
+        assert_eq!(returns.outcome(third), None);
+        returns.acted_on(Ok(()));
+        assert_eq!(returns.outcome(third), Some(Ok(())));
+    }
 
     #[test]
     fn a_save_misses_the_mods_it_was_made_with_that_the_playset_lacks() {
