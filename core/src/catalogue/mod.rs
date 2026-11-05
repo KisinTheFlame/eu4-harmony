@@ -11,7 +11,8 @@
 //! layer itself behind it ([`Live`]), and turns the group's requests into
 //! calls and the layer's types into the answers. Every [`Game`] is a
 //! [`Catalogue`]. The tests of a group that does more than call the layer put
-//! a fake game behind the traits ([`fake`]).
+//! a fake game behind the traits ([`fake`]); a capability a test does not
+//! script fails there.
 
 /// Declares a group's slice of the capability layer and its requests once:
 /// its `Layer` trait, [`Live`] calling each capability there as its caller,
@@ -77,8 +78,22 @@ macro_rules! layer {
     };
     (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $capability:path; })*) => {
         /// The group's slice of the capability layer.
+        #[cfg(not(test))]
         pub trait Layer {
             $( $(#[$doc])* fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret>; )*
+        }
+
+        /// The group's slice of the capability layer; in a test, what a fake
+        /// game does not script fails.
+        #[cfg(test)]
+        pub trait Layer {
+            $(
+                $(#[$doc])*
+                fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> {
+                    let _ = ($($arg,)*);
+                    Err($crate::catalogue::fake::unscripted(stringify!($name)))
+                }
+            )*
         }
 
         impl Layer for super::Live {
