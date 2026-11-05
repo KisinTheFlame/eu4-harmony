@@ -383,7 +383,7 @@ extern "C" fn results_before(frame: *mut HookFrame) {
         if back == m.at(UNIT_TAKEN_OUT) {
             return;
         }
-        match battle(m, a[0], a[1] & 255 == 0) {
+        match super::event_costs::BATTLES.time(|| battle(m, a[0], a[1] & 255 == 0)) {
             Ok(Some(battle)) => record(Change::Battle(battle)),
             Ok(None) => {}
             Err(e) => log!("events: battle: {e}"),

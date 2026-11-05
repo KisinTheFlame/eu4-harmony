@@ -566,10 +566,10 @@ impl mercenaries::Layer for Fake {
 
 /// Edirne's fort, open.
 impl forts::Layer for Fake {
-    fn forts(&mut self) -> GResult<Vec<eu4_harmony_remote::forts::Fort>> {
-        use eu4_harmony_remote::{choices::Choice, forts::Fort, ProvinceId};
+    fn forts(&mut self) -> GResult<Vec<eu4_harmony_remote::forts::PlayerFort>> {
+        use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
         self.call("forts".into());
-        Ok(vec![Fort { province: ProvinceId(149), level: 2, mothballed: false, choice: Choice::can(Vec::new()) }])
+        Ok(vec![PlayerFort { province: ProvinceId(149), level: 2, mothballed: false, choice: Choice::can(Vec::new()) }])
     }
 
     fn mothball_fort(&mut self, province: u32) -> GResult<()> {
@@ -755,20 +755,20 @@ impl desktop::Layer for Fake {
 /// Wallachia is the Ottomans' subject: scutage the player can take, and
 /// sending officers, which goes on.
 impl subjects::Layer for Fake {
-    fn interactions(&mut self, subject: Tag) -> GResult<Vec<eu4_harmony_remote::subjects::Interaction>> {
-        use eu4_harmony_remote::{choices::Choice, subjects::Interaction};
+    fn interactions(&mut self, subject: Tag) -> GResult<Vec<eu4_harmony_remote::subjects::SubjectInteraction>> {
+        use eu4_harmony_remote::{choices::Choice, subjects::SubjectInteraction};
         self.call(format!("interactions {:x}", subject.0));
         if subject != wal() {
             return fail(Status::Rejected, "not a subject of the player's");
         }
         Ok(vec![
-            Interaction { interaction: "scutage".into(), name: "Demand Scutage".into(), active: false, choice: Choice::can(Vec::new()) },
-            Interaction { interaction: "send_officers".into(), name: "Send Officers".into(), active: true, choice: Choice::can(Vec::new()) },
+            SubjectInteraction { interaction: "scutage".into(), name: "Demand Scutage".into(), active: false, choice: Choice::can(Vec::new()) },
+            SubjectInteraction { interaction: "send_officers".into(), name: "Send Officers".into(), active: true, choice: Choice::can(Vec::new()) },
         ])
     }
 
-    fn interact(&mut self, subject: Tag, interaction: &str, third_party: Option<Tag>) -> GResult<()> {
-        self.call(format!("interact {:x} {interaction} {:?}", subject.0, third_party.map(|t| t.0)));
+    fn interact(&mut self, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
+        self.call(format!("interact {:x} {interaction} {:?} {province:?}", subject.0, third_party.map(|t| t.0)));
         if subject == wal() && interaction == "scutage" {
             Ok(())
         } else {
@@ -811,14 +811,14 @@ fn government_action(key: &str, kind: &str) -> GResult<()> {
 
 /// One idea group taken with two ideas bought, one not taken.
 impl ideas::Layer for Fake {
-    fn idea_groups(&mut self) -> GResult<Vec<eu4_harmony_remote::ideas::IdeaGroup>> {
+    fn idea_groups(&mut self) -> GResult<Vec<eu4_harmony_remote::ideas::IdeaGroupOption>> {
         use eu4_harmony_remote::{
             choices::{Amount, Choice, Resource},
-            ideas::IdeaGroup,
+            ideas::IdeaGroupOption,
         };
         self.call("idea groups".into());
         Ok(vec![
-            IdeaGroup {
+            IdeaGroupOption {
                 group: "defensive_ideas".into(),
                 name: "防御理念".into(),
                 category: "mil".into(),
@@ -829,7 +829,7 @@ impl ideas::Layer for Fake {
                 next: Some("improved_manuever".into()),
                 choice: Choice::can(vec![Amount::new(Resource::Mil, 400.0)]),
             },
-            IdeaGroup {
+            IdeaGroupOption {
                 group: "aristocracy_ideas".into(),
                 name: "贵族理念".into(),
                 category: "mil".into(),
@@ -950,10 +950,12 @@ impl estates::Layer for Fake {
         }])
     }
 
-    fn estate_interactions(&mut self) -> GResult<Vec<eu4_harmony_remote::estates::Interaction>> {
-        use eu4_harmony_remote::{choices::Choice, estates::Interaction};
+    fn estate_interactions(&mut self) -> GResult<Vec<eu4_harmony_remote::estates::EstateInteraction>> {
+        use eu4_harmony_remote::{choices::Choice, estates::EstateInteraction};
         self.call("estate interactions".into());
-        Ok(vec![Interaction { interaction: "seize_land".into(), name: "没收土地".into(), choice: Choice::cannot(vec!["冷却中".into()], Vec::new()) }])
+        Ok(vec![EstateInteraction {
+            interaction: "seize_land".into(), name: "没收土地".into(), choice: Choice::cannot(vec!["冷却中".into()], Vec::new())
+        }])
     }
 
     fn grant_privilege(&mut self, estate: String, privilege: String) -> GResult<()> {
@@ -1017,13 +1019,13 @@ impl missions::Layer for Fake {
 /// The Ottomans' technologies: administrative and diplomatic they can
 /// research, military they cannot afford.
 impl technology::Layer for Fake {
-    fn technologies(&mut self) -> GResult<Vec<eu4_harmony_remote::technology::Technology>> {
+    fn technologies(&mut self) -> GResult<Vec<eu4_harmony_remote::technology::TechnologyOption>> {
         use eu4_harmony_remote::{
             choices::{Amount, Choice, PowerKind, Resource},
-            technology::Technology,
+            technology::TechnologyOption,
         };
         self.call("technologies".into());
-        let at = |technology, level, choice| Technology { technology, level, choice };
+        let at = |technology, level, choice| TechnologyOption { technology, level, choice };
         Ok(vec![
             at(PowerKind::Adm, 3, Choice::can(vec![Amount::new(Resource::Adm, 600.0)])),
             at(PowerKind::Dip, 3, Choice::can(vec![Amount::new(Resource::Dip, 600.0)])),
@@ -1137,15 +1139,15 @@ impl economy::Layer for Fake {
 
 /// One bank loan of the Ottomans', which they can repay.
 impl loans::Layer for Fake {
-    fn loans(&mut self) -> GResult<Vec<eu4_harmony_remote::loans::Loan>> {
+    fn loans(&mut self) -> GResult<Vec<eu4_harmony_remote::loans::PlayerLoan>> {
         use eu4_harmony_remote::{
             choices::{Amount, Choice, Resource},
-            loans::Loan,
+            loans::PlayerLoan,
             Date,
         };
         self.call("loans".into());
         let expires = Date::from_ymd(1449, 11, 11).unwrap();
-        Ok(vec![Loan {
+        Ok(vec![PlayerLoan {
             loan: 7,
             lender: None,
             estate: false,
@@ -1225,15 +1227,19 @@ impl missionaries::Layer for Fake {
 
 /// The Ottomans have no colonist.
 impl colonists::Layer for Fake {
-    fn colonist_options(&mut self, province: u32) -> GResult<eu4_harmony_remote::colonists::ColonistOptions> {
+    fn colonist_options(&mut self, province: u32) -> GResult<Box<eu4_harmony_remote::colonists::ColonistOptions>> {
         a8_province(province)?;
-        Ok(eu4_harmony_remote::colonists::ColonistOptions {
+        Ok(Box::new(eu4_harmony_remote::colonists::ColonistOptions {
             province: eu4_harmony_remote::ProvinceId(province),
             working: false,
             size: None,
             send: a8_choice(false, "没有可用的殖民者"),
             recall: a8_choice(false, ""),
-        })
+            expel_from: Vec::new(),
+            growing: false,
+            start_growth: a8_choice(false, "没有可用的殖民者"),
+            stop_growth: a8_choice(false, ""),
+        }))
     }
 
     fn send_colonist(&mut self, province: u32) -> GResult<()> {
@@ -1244,6 +1250,20 @@ impl colonists::Layer for Fake {
     fn recall_colonist(&mut self, province: u32) -> GResult<()> {
         a8_province(province)?;
         Err(eu4_harmony_checks::envoys::none_there("colonist").into())
+    }
+
+    fn expel_minorities(&mut self, province: u32, from: u32) -> GResult<()> {
+        a8_province(province)?;
+        Err(eu4_harmony_checks::envoys::no_minority(from).into())
+    }
+
+    fn change_settlement_growth(&mut self, province: u32, start: bool) -> GResult<()> {
+        a8_province(province)?;
+        if start {
+            Err(eu4_harmony_checks::envoys::not_allowed("promote settlement growth there", &["没有可用的殖民者".into()]).into())
+        } else {
+            Err(eu4_harmony_checks::envoys::none_there("colonist promoting settlement growth").into())
+        }
     }
 }
 
@@ -1295,7 +1315,9 @@ impl centers_of_trade::Layer for Fake {
     }
 }
 
-/// The Ottomans have two merchants, one collecting in Constantinople's node.
+/// The Ottomans have two merchants, one collecting in Constantinople's node,
+/// where they follow the first trading policy and may not choose the second
+/// for now.
 impl merchants::Layer for Fake {
     fn merchants(&mut self) -> GResult<eu4_harmony_remote::merchants::Merchants> {
         use eu4_harmony_remote::merchants::{Merchants, Mission, Placed};
@@ -1336,6 +1358,31 @@ impl merchants::Layer for Fake {
     fn steer_to(&mut self, node: &str, to: &str) -> GResult<()> {
         self.merchant_options(node)?;
         Err(eu4_harmony_checks::envoys::unknown("trade node downstream", to).into())
+    }
+
+    fn trading_policies(&mut self, node: &str) -> GResult<eu4_harmony_remote::merchants::TradingPolicies> {
+        use eu4_harmony_remote::merchants::{TradingPolicies, TradingPolicy};
+        self.merchant_options(node)?;
+        let policy =
+            |key: &str, name: &str, current, reason: &str| TradingPolicy { policy: key.into(), name: name.into(), current, choice: a8_choice(false, reason) };
+        Ok(TradingPolicies {
+            node: node.into(),
+            name: "君士坦丁堡".into(),
+            current: Some("maximize_profit".into()),
+            policies: vec![
+                policy("maximize_profit", "利润最大化", true, ""),
+                policy("hostile_trading", "敌对贸易", false, "你需要等到1445年1月1日才能在此贸易节点中选择新的贸易政策。"),
+            ],
+        })
+    }
+
+    fn set_trading_policy(&mut self, node: &str, policy: &str) -> GResult<()> {
+        let offered = self.trading_policies(node)?.policies.into_iter().find(|p| p.policy == policy);
+        match offered {
+            None => Err(eu4_harmony_checks::envoys::unknown("trading policy", policy).into()),
+            Some(p) if p.current => Err(eu4_harmony_checks::envoys::policy_followed(policy).into()),
+            Some(p) => Err(eu4_harmony_checks::envoys::not_allowed("choose that trading policy there", &p.choice.reasons).into()),
+        }
     }
 }
 

@@ -9,7 +9,7 @@ use crate::{
     points::Point,
 };
 use eu4_harmony_checks::military as checks;
-use eu4_harmony_remote::{choices::Choice, forts::Fort, ProvinceId};
+use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
 
 /// A country's provinces: an array of their IDs (i32), and its count.
 const OWNED: usize = 0x1338;
@@ -38,14 +38,14 @@ fn toggle_text(country: [u8; 3], province: u32) -> String {
     format!("mothball_fort={{ province={province} country=\"{}\" }}", String::from_utf8_lossy(&country))
 }
 
-fn read(m: &Memory, ctx: &Ctx, id: u32, address: usize) -> GResult<Fort> {
+fn read(m: &Memory, ctx: &Ctx, id: u32, address: usize) -> GResult<PlayerFort> {
     let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_MOTHBALL), &[ctx.player.0 as usize, id as usize, t]))?;
     let choice = if may as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::reasons(&text), Vec::new()) };
-    Ok(Fort { province: ProvinceId(id), level: m.i32(address + FORT_LEVEL)?, mothballed: m.u8(address + MOTHBALL)? == MOTHBALLED, choice })
+    Ok(PlayerFort { province: ProvinceId(id), level: m.i32(address + FORT_LEVEL)?, mothballed: m.u8(address + MOTHBALL)? == MOTHBALLED, choice })
 }
 
 /// The player's provinces with a fort.
-pub fn list(_: Caller) -> GResult<Vec<Fort>> {
+pub fn list(_: Caller) -> GResult<Vec<PlayerFort>> {
     let m = game()?;
     let ctx = context(m)?;
     let count = m.i32(ctx.country + OWNED_COUNT)?;

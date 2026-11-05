@@ -11,7 +11,7 @@ group! {
     /// estates, each with whether the player can repay it now: the cost is
     /// its amount and the interest left to pay, which the treasury must
     /// hold.
-    game List "list" {} -> Vec<Loan>, "the loans: loan (its ID), lender, estate, amount, interest, expires, can, reasons, cost";
+    game List "list" {} -> Vec<PlayerLoan>, "the loans: loan (its ID), lender, estate, amount, interest, expires, can, reasons, cost";
 
     /// Repays a loan, as its repay button in the loan window does once the
     /// player confirms the price, its amount and the interest left. Refused
@@ -25,7 +25,7 @@ group! {
 
 /// One of the player's loans.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Loan {
+pub struct PlayerLoan {
     /// Its ID, which `loan.repay` names it by.
     pub loan: u32,
     /// The country that lent it; null for a bank's or an estate's.

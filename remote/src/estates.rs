@@ -19,7 +19,7 @@ group! {
     /// The estates view's interactions over crown land, by content key, such
     /// as `seize_land` and `sale_of_titles`, each with whether the player can
     /// use it now and why not: its conditions that do not hold, its cooldown.
-    game Interactions "interactions" {} -> Vec<Interaction>, "the interactions: interaction (its content key), name, can, reasons, cost";
+    game Interactions "interactions" {} -> Vec<EstateInteraction>, "the interactions: interaction (its content key), name, can, reasons, cost";
 
     /// Grants an estate a privilege, as the privilege's button in the
     /// estates view does. `rejected` with the game's reasons when the game
@@ -87,7 +87,7 @@ pub struct Privilege {
 
 /// An interaction of the estates view over crown land.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Interaction {
+pub struct EstateInteraction {
     /// Its content key, which the game's or a mod's crown land files give
     /// it.
     pub interaction: String,

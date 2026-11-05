@@ -51,6 +51,10 @@ pub struct Army {
     /// Last province of the current route.
     pub destination: Option<u32>,
     pub route_source: RouteSource,
+    /// An army's fleet while it is aboard one.
+    pub aboard: Option<u64>,
+    /// A fleet's regiments aboard.
+    pub carrying: u32,
 }
 
 impl Army {
@@ -100,8 +104,9 @@ pub fn own_armies(caller: Caller) -> GResult<Vec<Army>> {
 }
 
 /// Land armies in a province: in the player's view those the player can see,
-/// none under fog, and [`Status::NotReady`] while visibility is not current;
-/// in the full view every one.
+/// none under fog, and [`Status::NotReady`] while visibility is not current,
+/// and of another country's only whether it fights, besieges or retreats,
+/// which the map shows; in the full view every one, as the game keeps it.
 pub fn in_province(caller: Caller, province: u32) -> GResult<Vec<Army>> {
     let m = game()?;
     let ctx = context(m)?;
@@ -110,7 +115,11 @@ pub fn in_province(caller: Caller, province: u32) -> GResult<Vec<Army>> {
         return Err(checks::visibility_not_current().into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    Ok(world::province_armies(m, &ctx, address, view)?.into_iter().map(|(a, _)| a).collect())
+    let shown = |a: Army| match view == View::Player && a.owner.index() != ctx.player.index() {
+        true => Army { exiled: false, movement_locked: false, attached: false, has_followers: false, busy: false, ..a },
+        false => a,
+    };
+    Ok(world::province_armies(m, &ctx, address, view)?.into_iter().map(|(a, _)| shown(a)).collect())
 }
 
 /// Provinces on the current route of an own army or fleet, in order.

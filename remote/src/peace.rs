@@ -30,7 +30,8 @@ group! {
     /// whether the player can add it to the treaty now and, when not, why,
     /// as the term's tooltip does, and its war score cost; `gold`, which the
     /// view sets with its buttons rather than lists, with the most ducats
-    /// the view lets the player ask (or give).
+    /// the view lets the player ask (or give), the whole that the receiving
+    /// side shares.
     game Terms "terms" {
         /// The country the player is at war with.
         country: CountryTag,
@@ -54,6 +55,10 @@ group! {
     } -> Evaluation, "can, reasons, cost (war_score), and acceptance: accepts, total, factors";
     /// Demands these terms of a country the player is at war with, as the
     /// peace view's demand tab sends them, and answers what it answered.
+    /// Gold demanded is paid in whole by the other country, and the game
+    /// shares it among the countries on the player's side of the war by
+    /// their participation in it, the player getting their share and what rounding leaves;
+    /// the peace view, as the term's `amount`, shows the whole.
     /// `rejected` when the view would not let the player add a term, or send
     /// the treaty, with the view's reasons; `invalid_argument` for a term
     /// the view does not offer.
@@ -95,7 +100,9 @@ pub struct Term {
     /// The colonial region it is about (`concede_colonial_region`), by key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
-    /// For `gold`, the ducats, to a tenth.
+    /// For `gold`, the ducats, to a tenth: what the other country pays, which
+    /// the countries of the receiving side share by their participation in
+    /// the war.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub amount: Option<f64>,
 }
