@@ -22,6 +22,7 @@ eu4-harmony-remote = { path = "../remote" }
 reqwest = { workspace = true }
 # Compressing saves in the background (src/saves/background.rs).
 miniz_oxide = { workspace = true }
+lewton = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

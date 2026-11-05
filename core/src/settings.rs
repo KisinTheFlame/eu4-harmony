@@ -1,9 +1,9 @@
 //! Framework settings (GLOSSARY): the player's choices for the framework,
 //! kept in `eu4-harmony/settings.txt` under the user directory and written the
 //! way the game writes its own `settings.txt`. They are read once at startup.
-//! A change made in the settings window to how a session is left, or to the
-//! pace at the fastest speed or the achievement rules, takes effect when it is
-//! saved; a change to the language or the fonts, at the next start.
+//! A change made in the settings window to how a session is left, to the
+//! pace at the fastest speed, the achievement rules or the music, takes effect
+//! when it is saved; a change to the language or the fonts, at the next start.
 //!
 //! A font the player has not chosen follows the player language: it is the
 //! first installed of the language's [`defaults`], and is not written to the
@@ -50,6 +50,12 @@ pub struct Settings {
     /// Whether remote control reads the full view rather than the player's
     /// view (GLOSSARY; ADR remote-control-reads-the-players-view).
     pub remote_full_view: bool,
+    /// Whether every track is brought to the same loudness (GLOSSARY:
+    /// Loudness normalization; docs/music-volume.md).
+    pub music_loudness: bool,
+    /// Whether quiet and loud passages of the music are brought closer
+    /// (GLOSSARY: Music leveling).
+    pub music_leveling: bool,
 }
 
 /// What a system font is chosen for.
@@ -128,6 +134,8 @@ impl Default for Settings {
             achievements_with_changed_checksum: false,
             fastest_speed: Pace::Smooth,
             remote_full_view: false,
+            music_loudness: true,
+            music_leveling: false,
         }
     }
 }
@@ -216,6 +224,8 @@ impl Settings {
                 }
                 "fastest_speed" => settings.fastest_speed = Pace::from_name(value).unwrap_or(settings.fastest_speed),
                 "remote_full_view" => settings.remote_full_view = yes(value).unwrap_or(settings.remote_full_view),
+                "music_loudness" => settings.music_loudness = yes(value).unwrap_or(settings.music_loudness),
+                "music_leveling" => settings.music_leveling = yes(value).unwrap_or(settings.music_leveling),
                 _ => {}
             }
         }
@@ -242,21 +252,23 @@ impl Settings {
             }
         }
         out.push_str(&format!(
-            "map_outline={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\nfastest_speed=\"{}\"\nremote_full_view={}\n",
+            "map_outline={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\nfastest_speed=\"{}\"\nremote_full_view={}\nmusic_loudness={}\nmusic_leveling={}\n",
             yes_no(self.map_outline),
             yes_no(self.return_without_restart),
             yes_no(self.save_ironman_before_load),
             yes_no(self.achievements_outside_ironman),
             yes_no(self.achievements_with_changed_checksum),
             self.fastest_speed.name(),
-            yes_no(self.remote_full_view)
+            yes_no(self.remote_full_view),
+            yes_no(self.music_loudness),
+            yes_no(self.music_leveling)
         ));
         out
     }
 
     /// Takes from `chosen` the settings that take effect when they are saved:
     /// those for leaving a session, the achievement rules, the pace at the
-    /// fastest speed, and what remote control reads.
+    /// fastest speed, what remote control reads, and the music's.
     fn take_immediate(&mut self, chosen: &Settings) {
         self.return_without_restart = chosen.return_without_restart;
         self.save_ironman_before_load = chosen.save_ironman_before_load;
@@ -264,6 +276,8 @@ impl Settings {
         self.achievements_with_changed_checksum = chosen.achievements_with_changed_checksum;
         self.fastest_speed = chosen.fastest_speed;
         self.remote_full_view = chosen.remote_full_view;
+        self.music_loudness = chosen.music_loudness;
+        self.music_leveling = chosen.music_leveling;
     }
 }
 
@@ -476,10 +490,12 @@ mod tests {
             achievements_with_changed_checksum: true,
             fastest_speed: Pace::Faster,
             remote_full_view: true,
+            music_loudness: false,
+            music_leveling: true,
         };
         assert_eq!(Settings::parse(&custom.render()), custom);
         assert!(custom.render().starts_with("language=\"braz_por\"\nbody_font=\"SimSun\"\nbody_weight=700\n"));
-        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\nremote_full_view=yes\n"));
+        assert!(custom.render().ends_with("\nfastest_speed=\"faster\"\nremote_full_view=yes\nmusic_loudness=no\nmusic_leveling=yes\n"));
         assert_eq!(Settings::parse("fastest_speed=faster").fastest_speed, Pace::Faster);
         assert_eq!(Settings::parse("fastest_speed=\"fastest\"").fastest_speed, Pace::Smooth);
         assert!(custom.render().contains("\nheading_font=\"Microsoft YaHei\"\nheading_weight=700\n"));
@@ -513,6 +529,9 @@ mod tests {
         assert!(Settings::parse("achievements_with_changed_checksum=yes").achievements_with_changed_checksum);
         // Remote control reads the player's view unless the file says otherwise.
         assert!(!Settings::parse("remote_full_view=maybe").remote_full_view);
+        // The music is brought to one loudness and not leveled unless the file says otherwise.
+        assert!(Settings::parse("music_loudness=maybe").music_loudness);
+        assert!(!Settings::parse("music_leveling=maybe").music_leveling);
     }
 
     /// A directory of its own for a test, empty.
@@ -592,7 +611,7 @@ mod tests {
     }
 
     #[test]
-    fn the_settings_for_leaving_a_session_achievements_and_the_pace_take_effect_when_saved() {
+    fn the_settings_for_leaving_a_session_achievements_the_pace_and_the_music_take_effect_when_saved() {
         let mut current = Settings::default();
         let chosen = Settings {
             language: Some(Language::German),
@@ -604,6 +623,8 @@ mod tests {
             achievements_with_changed_checksum: true,
             fastest_speed: Pace::Faster,
             remote_full_view: true,
+            music_loudness: false,
+            music_leveling: true,
             ..Settings::default()
         };
         current.take_immediate(&chosen);
@@ -614,6 +635,8 @@ mod tests {
             achievements_with_changed_checksum: true,
             fastest_speed: Pace::Faster,
             remote_full_view: true,
+            music_loudness: false,
+            music_leveling: true,
             ..Settings::default()
         };
         assert_eq!(current, immediate);

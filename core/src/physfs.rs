@@ -27,6 +27,7 @@ type SeekFn = unsafe extern "C" fn(File, u64) -> i32;
 type TellFn = unsafe extern "C" fn(File) -> i64;
 type EofFn = unsafe extern "C" fn(File) -> i32;
 type GetRealDirFn = unsafe extern "C" fn(*const c_char) -> *const c_char;
+type CloseFn = unsafe extern "C" fn(File) -> i32;
 
 static ORIG_INIT: Function<InitFn> = Function::new();
 static ORIG_OPEN_READ: Function<OpenReadFn> = Function::new();
@@ -36,6 +37,7 @@ static ORIG_SEEK: Function<SeekFn> = Function::new();
 static ORIG_TELL: Function<TellFn> = Function::new();
 static ORIG_EOF: Function<EofFn> = Function::new();
 static GET_REAL_DIR: Function<GetRealDirFn> = Function::new();
+static CLOSE: Function<CloseFn> = Function::new();
 
 struct Spliced {
     data: Vec<u8>,
@@ -177,6 +179,25 @@ pub(crate) fn read_from_start(handle: usize, count: Option<u64>, mut chunk: impl
     Ok(())
 }
 
+/// Reads the whole of a file in the game's file system, as the game sees it
+/// (a mod's file over the game's, a DLC's archive among them), without the
+/// framework's splicing. Any thread may call it.
+pub(crate) fn read(path: &str) -> Result<Vec<u8>> {
+    let name = std::ffi::CString::new(path).map_err(|_| format!("{path:?} holds a NUL"))?;
+    let file = unsafe { ORIG_OPEN_READ.get()(name.as_ptr()) };
+    if file.is_null() {
+        return Err(format!("{path} could not be opened"));
+    }
+    let length = unsafe { ORIG_FILE_LENGTH.get()(file) };
+    let mut data = vec![0u8; usize::try_from(length).unwrap_or(0)];
+    let read = unsafe { ORIG_READ_BYTES.get()(file, data.as_mut_ptr().cast(), data.len() as u64) };
+    unsafe { CLOSE.get()(file) };
+    if length < 0 || read != length {
+        return Err(format!("{path} could not be read"));
+    }
+    Ok(data)
+}
+
 unsafe extern "C" fn file_length_detour(handle: File) -> i64 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return s.data.len() as i64;
@@ -253,7 +274,7 @@ pub fn points() -> Vec<Point> {
         Point::replace(c"PHYSFS_seek", "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "PhysFS seek", seek_detour as SeekFn, &ORIG_SEEK),
         Point::replace(c"PHYSFS_tell", "40 53 48 83 ec 20 48 8b 01 48 8b d9 48 8b c8 ff", "PhysFS tell", tell_detour as TellFn, &ORIG_TELL),
         Point::replace(c"PHYSFS_eof", "40 57 48 83 ec 20 80 79 08 00 74 41 48 8b 41 28", "PhysFS end of file", eof_detour as EofFn, &ORIG_EOF),
-        Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), None),
+        Point::observe(c"PHYSFS_close", "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 48 8b 0d", "PhysFS close", 1, Some(close_before), None).recorded(CLOSE.slot()),
         Point::keep(c"PHYSFS_getRealDir", "48 83 ec 28 e8 37 38 00 00 48 85 c0 74 09 48 8b", "PhysFS real directory").recorded(GET_REAL_DIR.slot()),
     ]
 }
