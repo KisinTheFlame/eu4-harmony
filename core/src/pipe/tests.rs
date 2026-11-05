@@ -1,10 +1,11 @@
 //! Test clients on pipes of the tests' own, an engine behind each, run every
 //! millisecond by a fake game on a thread of its own.
 use super::*;
-use crate::remote::{
+use crate::catalogue::{
     fake::{Fake, ARMY},
-    Engine, Place,
+    Place,
 };
+use crate::remote::Engine;
 use eu4_harmony_remote::{events::Event, ArmyId};
 use serde_json::{json, Value};
 use std::{
@@ -373,12 +374,12 @@ fn the_process_ends_once_its_clients_have_read_their_answers_whole() {
     let mut advancing = test.connect();
     advancing.send("{\"capability\": \"time.advance\", \"days\": 30}\n");
     assert!(test.logged(r#"{"capability":"time.advance","days":30}: answers later"#), "{:#?}", test.log());
-    test.engine.record((0..crate::remote::events::KEPT as u64).map(|army| Event::ArmyOrdered { army: ArmyId(army) }));
+    test.engine.record((0..crate::catalogue::events::KEPT as u64).map(|army| Event::ArmyOrdered { army: ArmyId(army) }));
     let mut reading = test.connect();
     reading.send("{\"capability\": \"events\", \"since\": 0}\n");
     assert!(test.logged(r#"{"capability":"events","since":0}: ok"#), "{:#?}", test.log());
     let engine = test.engine;
-    let ending = std::thread::spawn(move || engine.end(crate::remote::menu::ending(), PLENTY));
+    let ending = std::thread::spawn(move || engine.end(crate::catalogue::menu::ending(), PLENTY));
     std::thread::sleep(Duration::from_millis(300));
     assert!(!ending.is_finished(), "the process waits while answers are unread");
     let whole = |client: &mut Client| {
@@ -388,12 +389,12 @@ fn the_process_ends_once_its_clients_have_read_their_answers_whole() {
         serde_json::from_str::<Value>(&line).unwrap()
     };
     let read = whole(&mut reading);
-    assert_eq!(read["result"]["events"].as_array().unwrap().len(), crate::remote::events::KEPT);
+    assert_eq!(read["result"]["events"].as_array().unwrap().len(), crate::catalogue::events::KEPT);
     std::thread::sleep(Duration::from_millis(100));
     assert!(!ending.is_finished(), "the process waits while answers are unread");
     let advanced = whole(&mut advancing);
     assert_eq!(advanced["result"]["stopped"], "main_menu");
-    assert_eq!(advanced["result"]["events"].as_array().unwrap().len(), crate::remote::events::KEPT);
+    assert_eq!(advanced["result"]["events"].as_array().unwrap().len(), crate::catalogue::events::KEPT);
     let until = Instant::now() + PLENTY;
     while !ending.is_finished() && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(5));

@@ -33,11 +33,55 @@ const VISIBILITY: usize = 0xa0b150;
 const DAILY: usize = 0x758430;
 const DEFEAT_A: usize = 0x22bea0;
 const DEFEAT_B: usize = 0x22b5a0;
+/// `(combat, winner index)`: a combat's results, which both settlements
+/// make once; its third caller takes one unit out of a combat, and its call
+/// returns to [`UNIT_TAKEN_OUT`].
+const RESULTS: usize = 0x239ff0;
+const UNIT_TAKEN_OUT: usize = 0x23b304;
+/// A combat's ID number (which the game logs; checked, not read), province, and its method that answers its kind (1
+/// land, 2 naval, 3 siege); a side's losses, countries (0x20-byte entries,
+/// the tag at `+0x10`).
+const COMBAT_NUMBER: usize = 0x14;
+const COMBAT_PROVINCE: usize = 0x30;
+const COMBAT_KIND: usize = 0x60;
+const SIDE_LOSSES: usize = 0x1c;
+const SIDE_COUNTRIES: usize = 0x100;
+const COUNTRY_ENTRY: usize = 0x20;
+const ENTRY_TAG: usize = 0x10;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
     Ordered(u64),
     Defeated(u64),
+    /// A building was finished: the province, the building's index, the
+    /// province's owner.
+    BuildingFinished {
+        province: u32,
+        building: u32,
+        country: Tag,
+    },
+    /// A battle was decided.
+    Battle(Battle),
+}
+
+/// A land or naval battle, as it was decided: read at the entry of its
+/// results, its losses taken and none of its units removed yet
+/// (docs/research/battles.md).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Battle {
+    pub province: u32,
+    pub naval: bool,
+    /// The countries on each side, the leading one first.
+    pub attackers: Vec<Tag>,
+    pub defenders: Vec<Tag>,
+    pub attacker_won: bool,
+    /// What each side lost: men in a land battle, ships in a naval one (the
+    /// game keeps them in thousandths).
+    pub attacker_losses: i32,
+    pub defender_losses: i32,
+    /// The player sees the province, or is on either side: the player's
+    /// view hears it.
+    pub seen: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,7 +132,8 @@ pub fn load_begin() {
 
 /// The world was put back as a new start has it, with its history (an
 /// in-process return, the single player setup left): the next game begun on
-/// it is a new session, though the game reads nothing for it.
+/// it is a new session, though the game reads nothing for it. Told by the
+/// sessions (`crate::sessions`), as is [`load_begin`].
 pub fn world_reset() {
     boundary(Boundary::rotate);
 }
@@ -206,7 +251,7 @@ extern "C" fn route_before(frame: *mut HookFrame) {
         let h = unsafe { &*frame };
         let watched = (|| {
             let m = crate::memory()?;
-            if orders::own_mutation_thread() == crate::thread_id() || crate::saves::load_in_progress() {
+            if orders::own_mutation_thread() == crate::thread_id() || crate::sessions::loading() {
                 return None;
             }
             let id = own_army_id(m, h.args[0])?;
@@ -286,7 +331,7 @@ fn route_changed(before: Option<&orders::Path>, after: Option<&orders::Path>) ->
 extern "C" fn defeat_before(frame: *mut HookFrame) {
     crate::guarded("battle defeat", || {
         let Some(m) = crate::memory() else { return };
-        if crate::saves::load_in_progress() {
+        if crate::sessions::loading() {
             return;
         }
         let a = unsafe { (*frame).args };
@@ -326,6 +371,56 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
     });
 }
 
+/// A combat's results: a land or naval battle decided, heard once, only
+/// while someone listens to battles.
+extern "C" fn results_before(frame: *mut HookFrame) {
+    crate::guarded("battle results", || {
+        let Some(m) = crate::memory() else { return };
+        if crate::sessions::loading() || !listened("battle") {
+            return;
+        }
+        let (a, back) = unsafe { ((*frame).args, (*frame).return_address) };
+        if back == m.at(UNIT_TAKEN_OUT) {
+            return;
+        }
+        match battle(m, a[0], a[1] & 255 == 0) {
+            Ok(Some(battle)) => record(Change::Battle(battle)),
+            Ok(None) => {}
+            Err(e) => log!("events: battle: {e}"),
+        }
+    });
+}
+
+/// The battle `combat`, its attacker the winner when `attacker_won`; None
+/// for a siege or a combat already settled.
+fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle>> {
+    let kind = m.call(m.vslot(combat, COMBAT_KIND)?, &[combat])? as u32;
+    if !(1..=2).contains(&kind) || m.u8(combat + battle::SETTLED)? != 0 {
+        return Ok(None);
+    }
+    let ctx = context_any(m).map_err(|e| e.message)?;
+    let province = m.ptr(combat + COMBAT_PROVINCE)?;
+    let countries = |side: usize| -> Result<Vec<Tag>> {
+        let (begin, end) = (m.ptr(side + SIDE_COUNTRIES)?, m.ptr(side + SIDE_COUNTRIES + 8)?);
+        let count = super::span(begin, end, COUNTRY_ENTRY, 64).map_err(|e| e.message)?;
+        (0..count).map(|i| Ok(Tag(m.u64(begin + i * COUNTRY_ENTRY + ENTRY_TAG)?))).collect()
+    };
+    let (attacker, defender) = (m.ptr(combat + battle::SIDES[0])?, m.ptr(combat + battle::SIDES[1])?);
+    let (attackers, defenders) = (countries(attacker)?, countries(defender)?);
+    let party = attackers.iter().chain(&defenders).any(|t| t.0 == ctx.player.0);
+    let seen = party || (province != 0 && !super::world::hidden(m, province).map_err(|e| e.message)?);
+    Ok(Some(Battle {
+        province: if province == 0 { 0 } else { m.u32(province + crate::objects::campaign::province::ID)? },
+        naval: kind == 2,
+        attackers,
+        defenders,
+        attacker_won,
+        attacker_losses: m.i32(attacker + SIDE_LOSSES)? / 1000,
+        defender_losses: m.i32(defender + SIDE_LOSSES)? / 1000,
+        seen,
+    }))
+}
+
 extern "C" fn manager_after(frame: *mut HookFrame) {
     crate::guarded("frame", || {
         if unsafe { (*frame).fault } == 0 {
@@ -344,6 +439,20 @@ pub fn points() -> Vec<Point> {
         Point::observe(orders::STOP, "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57", "army stop", 3, Some(route_before), Some(route_after)),
         Point::observe(DEFEAT_A, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57", "battle defeat", 4, Some(defeat_before), None),
         Point::observe(DEFEAT_B, "44 88 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "battle defeat", 4, Some(defeat_before), None),
+        Point::observe(
+            RESULTS,
+            "48 89 5c 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8b ec 48 81 ec 80 00 00 00",
+            "combat results",
+            2,
+            Some(results_before),
+            None,
+        ),
+        Point::keep(UNIT_TAKEN_OUT - 5, "e8 ec ec ff ff 48 c7 87 c0 00 00", "a unit taken out of a combat"),
+        Point::keep(0x22a449usize, "48 8b 47 30 ba 70 28 00 00 48 8b ce 8b 58 20", "combat province").uses(&[COMBAT_PROVINCE]),
+        Point::keep(0x23a043usize, "44 8b 4f 14", "combat number").uses(&[COMBAT_NUMBER]),
+        Point::keep(0x23a0abusize, "4c 8b 92 08 01 00 00 48 8b 92 00 01 00 00", "battle side countries").uses(&[SIDE_COUNTRIES]),
+        Point::keep(0x403246usize, "4d 8b 50 10 49 c1 ea 20", "battle side country tag").uses(&[ENTRY_TAG]),
+        Point::keep(0x22b82ausize, "41 01 5f 1c", "battle side losses").uses(&[SIDE_LOSSES]),
         Point::observe(MANAGER_FRAME, "48 8b c4 88 50 10 55 53 56 57 41 54 41 55 41 56", "map manager frame", 2, None, Some(manager_after)),
     ]
 }
@@ -360,7 +469,7 @@ pub struct FrameState {
 /// changes. Fails when the frame is not one: while a save loads, off the main
 /// thread, or when the campaign cannot be read.
 pub fn begin_frame(m: &Memory) -> GResult<FrameState> {
-    if crate::saves::load_in_progress() {
+    if crate::sessions::loading() {
         return fail(Status::NotReady, "a save is being loaded");
     }
     if crate::thread_id() != crate::main_thread() {

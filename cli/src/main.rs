@@ -6,14 +6,11 @@
 //! texts in `localisation/` and its own files in `data/`
 //! (ADR manifest-in-toml-layout-by-convention); game resources (`interface/`,
 //! `gfx/`, ...) sit next to them as in any Paradox mod.
-mod backup;
 mod check;
 mod fake;
 mod game;
-mod pipe;
 mod reload;
 mod skills;
-mod start;
 mod templates;
 mod test;
 mod types;
@@ -26,6 +23,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use eu4_harmony_client::{backup, pipe, start};
+
 type Result<T> = std::result::Result<T, String>;
 
 const USAGE: &str = "\
@@ -33,10 +32,12 @@ eu4-harmony: create, register and package EU4 Harmony mods, and use the
 running game through remote control
 
 usage:
-  eu4-harmony new <id> [--name <display name>] [--dir <parent dir>]
+  eu4-harmony new <id> [--name <display name>] [--dir <parent dir>] [--languages <list>]
       Creates the mod folder <id>/ with a Lua extension, one button, its
-      texts in English and Chinese, the editor's type definitions and an
-      AGENTS.md pointing a coding agent at eu4-harmony skills.
+      texts, the editor's type definitions and an AGENTS.md pointing a
+      coding agent at eu4-harmony skills. The texts are in English and in
+      the language Windows displays, or in English and --languages, as
+      french,simp_chinese.
   eu4-harmony link [<mod dir>] [--user-dir <EU4 user dir>] [--game-dir <game dir>]
       Registers the mod folder with the Paradox launcher (enable it in a playset),
       in the user dir the game folder's userdir.txt names, as the game finds it;
@@ -93,6 +94,7 @@ usage:
 <mod dir> defaults to the current folder or the mod folder containing it.
 ";
 
+use eu4_harmony_loc::Language;
 use eu4_harmony_manifest::{descriptor_entry, Manifest, LOCATION_KEYS};
 
 /// Positional arguments and `--key value` / `--flag` options.
@@ -234,7 +236,42 @@ fn write(path: &Path, text: &str) -> Result<()> {
 
 // ---------- new ----------
 
-fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
+/// The languages a new mod gets texts in: English, which every other falls
+/// back to, and those `chosen` (`--languages`, Paradox's names with commas
+/// between), else `windows`, the language Windows displays.
+fn new_languages(chosen: Option<&str>, windows: Option<Language>) -> Result<Vec<Language>> {
+    let mut languages = vec![Language::English];
+    let others = match chosen {
+        Some(list) => list
+            .split(',')
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(|id| Language::from_id(id).ok_or_else(|| format!("unknown language {id:?}: use one of {}", Language::ALL.map(Language::id).join(", "))))
+            .collect::<Result<Vec<_>>>()?,
+        None => windows.into_iter().collect(),
+    };
+    for language in others {
+        if !languages.contains(&language) {
+            languages.push(language);
+        }
+    }
+    Ok(languages)
+}
+
+/// A new mod's texts in `language`: the template's own in English and in
+/// Simplified Chinese, the English ones to translate in any other.
+fn template_texts(language: Language) -> String {
+    match language {
+        Language::English => templates::LOC_ENGLISH.to_string(),
+        Language::SimpChinese => templates::LOC_SIMP_CHINESE.to_string(),
+        other => {
+            let entries = templates::LOC_ENGLISH.split_once('\n').map_or("", |(_, rest)| rest);
+            format!("l_{}:\n # English, to translate into {}.\n{entries}", other.id(), other.native_name())
+        }
+    }
+}
+
+fn create_mod(parent: &Path, id: &str, name: &str, languages: &[Language]) -> Result<PathBuf> {
     if !valid_id(id) {
         return Err(format!("invalid id {id:?}: use lowercase letters, digits and '-', starting with a letter"));
     }
@@ -246,8 +283,6 @@ fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
         return Err(format!("{} already exists", root.display()));
     }
     let lib = id.replace('-', "_");
-    let english = format!("eu4-harmony/localisation/{lib}_l_english.yml");
-    let chinese = format!("eu4-harmony/localisation/{lib}_l_simp_chinese.yml");
     let files = [
         ("descriptor.mod", templates::DESCRIPTOR),
         ("AGENTS.md", templates::AGENTS),
@@ -255,11 +290,13 @@ fn create_mod(parent: &Path, id: &str, name: &str) -> Result<PathBuf> {
         ("eu4-harmony/lua/main.lua", templates::MAIN_LUA),
         ("eu4-harmony/tests/main_test.lua", templates::MAIN_TEST),
         ("eu4-harmony/ui/single_unitpanel/buttons/button.gui", templates::BUTTON_GUI),
-        (english.as_str(), templates::LOC_ENGLISH),
-        (chinese.as_str(), templates::LOC_SIMP_CHINESE),
     ];
     for (relative, template) in files {
         write(&root.join(relative), &templates::fill(template, id, name))?;
+    }
+    for &language in languages {
+        let relative = format!("eu4-harmony/localisation/{lib}_l_{}.yml", language.id());
+        write(&root.join(relative), &templates::fill(&template_texts(language), id, name))?;
     }
     types::write(&root)?;
     Ok(root)
@@ -271,8 +308,10 @@ fn cmd_new(args: &Args) -> Result<()> {
         Some(d) => PathBuf::from(d),
         None => std::env::current_dir().map_err(|e| e.to_string())?,
     };
-    let root = create_mod(&parent, id, args.value("name").unwrap_or(id))?;
-    println!("created {}", root.display());
+    let windows = Language::from_windows(unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() });
+    let languages = new_languages(args.value("languages"), windows)?;
+    let root = create_mod(&parent, id, args.value("name").unwrap_or(id), &languages)?;
+    println!("created {} with texts in {}", root.display(), languages.iter().map(|l| l.id()).collect::<Vec<_>>().join(", "));
     println!("next: cd {id} && eu4-harmony link, then enable the mod in the Paradox launcher");
     Ok(())
 }
@@ -351,13 +390,13 @@ fn cmd_link(args: &Args) -> Result<()> {
 
 fn cmd_backup(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony backup <new dir>".into()) };
-    backup::game_not_running()?;
+    eu4_harmony_client::game_not_running()?;
     backup::backup(&backup::user_folder(&user_dir(args)?)?, Path::new(dir))
 }
 
 fn cmd_restore(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony restore <dir>".into()) };
-    backup::game_not_running()?;
+    eu4_harmony_client::game_not_running()?;
     let (keep, keep_crashes) = (args.options.contains_key("keep"), args.options.contains_key("keep-crashes"));
     backup::restore(&backup::user_folder(&user_dir(args)?)?, Path::new(dir), keep, keep_crashes)
 }
@@ -528,10 +567,33 @@ mod tests {
         assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), (templates::ID, eu4_harmony_remote::API_VERSION));
     }
 
+    /// The languages most tests' mods have texts in.
+    const BOTH: &[Language] = &[Language::English, Language::SimpChinese];
+
+    #[test]
+    fn a_new_mod_has_english_and_the_language_chosen_or_windows_displays() {
+        assert_eq!(new_languages(None, Some(Language::German)).unwrap(), [Language::English, Language::German]);
+        assert_eq!(new_languages(None, Some(Language::English)).unwrap(), [Language::English]);
+        assert_eq!(new_languages(None, None).unwrap(), [Language::English]);
+        let chosen = new_languages(Some("french, simp_chinese,english"), Some(Language::German)).unwrap();
+        assert_eq!(chosen, [Language::English, Language::French, Language::SimpChinese]);
+        assert!(new_languages(Some("swedish"), None).unwrap_err().contains("unknown language \"swedish\""));
+        // A language without the template's own texts gets the English ones to translate.
+        let dir = temp("new-languages");
+        let root = create_mod(&dir, "worded", "Worded", &[Language::English, Language::Russian]).unwrap();
+        let localisation = root.join("eu4-harmony/localisation");
+        assert!(!localisation.join("worded_l_simp_chinese.yml").exists());
+        let (texts, problems) = eu4_harmony_loc::load_dir(&localisation);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(texts.raw_in(Language::Russian, "WORDED_DESCRIPTION"), texts.raw_in(Language::English, "WORDED_DESCRIPTION"));
+        assert_eq!(check::check(&root).problems, Vec::<String>::new());
+        let _ = fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn new_mod_has_every_file_filled_in() {
         let dir = temp("new");
-        let root = create_mod(&dir, "my-mod", "My Mod").unwrap();
+        let root = create_mod(&dir, "my-mod", "My Mod", BOTH).unwrap();
         let manifest = read_manifest(&root).unwrap();
         assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), ("my-mod", eu4_harmony_remote::API_VERSION));
         assert_eq!(manifest.description.as_deref(), Some("MY_MOD_DESCRIPTION"));
@@ -563,15 +625,15 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(texts.text(eu4_harmony_loc::Language::English, "MY_MOD_TOOLTIP").as_deref(), Some("§YMy Mod§!\nClick to write a line to the log."));
         assert!(texts.text(eu4_harmony_loc::Language::SimpChinese, "MY_MOD_DESCRIPTION").is_some());
-        assert!(create_mod(&dir, "my-mod", "My Mod").is_err());
-        assert!(create_mod(&dir, "Bad", "x").is_err());
+        assert!(create_mod(&dir, "my-mod", "My Mod", BOTH).is_err());
+        assert!(create_mod(&dir, "Bad", "x", BOTH).is_err());
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_new_mod_s_own_tests_pass() {
         let dir = temp("tests-new");
-        let root = create_mod(&dir, "tested", "Tested").unwrap();
+        let root = create_mod(&dir, "tested", "Tested", BOTH).unwrap();
         let outcome = test::run(&root, read_manifest(&root).unwrap(), "Tested".into()).unwrap();
         assert_eq!((outcome.passed, outcome.failed), (3, 0), "{}", outcome.report);
         assert!(!outcome.report.contains("note:"), "{}", outcome.report);
@@ -581,7 +643,7 @@ mod tests {
     #[test]
     fn tests_drive_waiting_tasks_and_requests_and_report_what_fails() {
         let dir = temp("tests-drive");
-        let root = create_mod(&dir, "driven", "Driven").unwrap();
+        let root = create_mod(&dir, "driven", "Driven", BOTH).unwrap();
         write(&root.join("eu4-harmony/manifest.toml"), "id = \"driven\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }\n").unwrap();
         write(
             &root.join("eu4-harmony/lua/main.lua"),
@@ -650,7 +712,7 @@ mod tests {
     #[test]
     fn an_answer_not_of_its_capability_s_shape_fails_the_test_at_its_line() {
         let dir = temp("tests-shape");
-        let root = create_mod(&dir, "shaped", "Shaped").unwrap();
+        let root = create_mod(&dir, "shaped", "Shaped", BOTH).unwrap();
         write(&root.join("eu4-harmony/lua/main.lua"), "return { on_frame = function(game) ARMY = game.army.get(1) end }").unwrap();
         write(
             &root.join("eu4-harmony/tests/main_test.lua"),
@@ -682,7 +744,7 @@ end)
     #[test]
     fn a_world_shared_by_require_answers_and_takes_orders() {
         let dir = temp("tests-world");
-        let root = create_mod(&dir, "worldly", "Worldly").unwrap();
+        let root = create_mod(&dir, "worldly", "Worldly", BOTH).unwrap();
         write(
             &root.join("eu4-harmony/lua/main.lua"),
             r#"
@@ -750,7 +812,7 @@ end)
     #[test]
     fn link_points_the_launcher_at_the_mod_folder() {
         let dir = temp("link");
-        let root = create_mod(&dir, "linked", "Linked").unwrap();
+        let root = create_mod(&dir, "linked", "Linked", BOTH).unwrap();
         let user = dir.join("user");
         fs::create_dir_all(&user).unwrap();
         let file = link_mod(&root, &user).unwrap();
@@ -774,7 +836,7 @@ end)
     #[test]
     fn package_keeps_only_what_players_need() {
         let dir = temp("package");
-        let root = create_mod(&dir, "pkg", "Pkg").unwrap();
+        let root = create_mod(&dir, "pkg", "Pkg", BOTH).unwrap();
         let out = dir.join("pkg-package");
         write(&root.join("eu4-harmony/lua/range/bfs.lua"), "return {}").unwrap();
         write(&root.join("eu4-harmony/data/units.json"), "{}").unwrap();

@@ -1,14 +1,64 @@
 //! The engine driven with typed requests, a fake game behind the capability
 //! layer's traits.
-use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
-use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, decisions::DecisionRequest,
-    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest,
-    input::Button, input::Direction, input::InputRequest, input::Keys, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest,
-    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+use crate::catalogue::{
+    dispatch,
+    fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY},
+    process, Outcome,
 };
+use eu4_harmony_remote::{
+    armies::ArmyRequest,
+    buildings::BuildingRequest,
+    camera::CameraRequest,
+    capabilities,
+    centers_of_trade::CenterOfTradeRequest,
+    choices::PowerKind,
+    colonists::ColonistRequest,
+    console::ConsoleRequest,
+    countries::CountryRequest,
+    decisions::DecisionRequest,
+    describe::DescribeRequest,
+    desktop::DesktopRequest,
+    diplomacy::DiplomacyRequest,
+    economy::EconomyRequest,
+    estates::EstateRequest,
+    events::Event,
+    events::EventsRequest,
+    extensions::ExtensionRequest,
+    focus::FocusRequest,
+    government::GovernmentRequest,
+    ideas::IdeaRequest,
+    input::Button,
+    input::Direction,
+    input::InputRequest,
+    input::Keys,
+    loans::LoanRequest,
+    menu::MenuRequest,
+    merchants::MerchantRequest,
+    missionaries::MissionaryRequest,
+    missions::MissionRequest,
+    occupation::OccupationRequest,
+    offers::OfferRequest,
+    parliament::ParliamentRequest,
+    peace::{PeaceRequest, Terms},
+    policies::PolicyRequest,
+    provinces::ProvinceRequest,
+    questions::QuestionRequest,
+    recruiting::RecruitRequest,
+    recruiting::UnitKind,
+    response_json,
+    screenshot::ScreenshotRequest,
+    session::SessionRequest,
+    stability::StabilityRequest,
+    subjects::SubjectRequest,
+    technology::TechnologyRequest,
+    texts::TextRequest,
+    time::TimeRequest,
+    trade::TradeRequest,
+    trade_companies::TradeCompanyRequest,
+    ArmyId, ArmyList, CountryTag, Kind, ProvinceId,
+};
+use eu4_harmony_remote::{forts::FortRequest, leaders::LeaderRequest, mercenaries::MercenaryRequest, sieges::SiegeRequest};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -53,7 +103,6 @@ fn every_capability_runs_at_a_game_frame() {
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
-    #[cfg_attr(not(feature = "dev-memory"), expect(unused_mut, reason = "only the memory account adds cases"))]
     let mut cases: Vec<(Request, Check)> = vec![
         (Request::Session(SessionRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})))),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
@@ -73,10 +122,40 @@ fn every_capability_runs_at_a_game_frame() {
                     "power": {"adm": 50, "dip": 60, "mil": 70},
                     "wars": [{"name": "Ottoman Conquest of Constantinople", "attackers": ["TUR", "WAL"], "defenders": ["BYZ"]}],
                     "relations": [{"kind": "subject", "country": "WAL", "subject_type": "vassal"}, {"kind": "rival", "country": "BYZ"}],
+                    "technology": {"adm": 3, "dip": 3, "mil": 4},
+                    "ideas": [{"group": "TUR_ideas", "ideas": 1, "national": true}, {"group": "quality_ideas", "ideas": 2, "national": false}],
+                    "governing_capacity": {"used": 512.5, "max": 700.0}, "inflation": 2.5, "mercantilism": 10.0,
+                    "loans": {"count": 1, "ducats": 120.0},
+                    "rebels": [{"kind": "nationalist_rebels", "name": "Albanian Nationalists", "progress": 12.5}],
                 }))
             }),
         ),
         (Request::Country(CountryRequest::Get { country: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),
+        (
+            Request::Country(CountryRequest::Budget { country: CountryTag(*b"TUR") }),
+            Box::new(|v: &Value| {
+                *v == ok(json!({
+                    "country": "TUR",
+                    "income": [{"category": "INCOMETAX", "name": "税收", "ducats": 4.25}],
+                    "expenses": [{"category": "EXPENSEAM", "name": "陆军维护费", "ducats": 3.5}],
+                    "loans": [{"lender": null, "ducats": 120.0, "interest": 4.0, "due": "1449.11.11"}],
+                }))
+            }),
+        ),
+        (
+            Request::Country(CountryRequest::Budget { country: CountryTag(*b"BYZ") }),
+            Box::new(|v: &Value| *v == ok(json!({"country": "BYZ", "income": null, "expenses": null, "loans": null}))),
+        ),
+        (Request::Trade(TradeRequest::Nodes {}), Box::new(|v: &Value| v["result"][1]["node"] == "venice")),
+        (
+            Request::Trade(TradeRequest::Node { node: "constantinople".into() }),
+            Box::new(|v: &Value| {
+                v["result"]["outgoing"] == json!([{"node": "venice", "ducats": 3.0}])
+                    && v["result"]["countries"][0]
+                        == json!({"country": "TUR", "power": 60.0, "share": 60.0, "collects": false, "home": false, "merchant": {"action": "steer", "toward": "venice"}})
+            }),
+        ),
+        (Request::Trade(TradeRequest::Node { node: "nowhere".into() }), Box::new(error("not_found"))),
         (
             Request::Province(ProvinceRequest::List { provinces: None }),
             Box::new(move |v: &Value| *v == ok(json!([province_json(149, "TUR", "TUR"), province_json(151, "BYZ", "TUR")]))),
@@ -122,15 +201,55 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Army(ArmyRequest::CanStep { army: army(ARMY), from: province(149), to: province(316) }), Box::new(|v: &Value| *v == ok(json!(false)))),
         (Request::Army(ArmyRequest::CanAttack { army: army(ARMY), target: army(ENEMY) }), Box::new(|v: &Value| *v == ok(json!(true)))),
         (Request::Army(ArmyRequest::RouteTo { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(json!([150, 151])))),
-        (Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Army(ArmyRequest::Get { army: army(ARMY) }), Box::new(|v: &Value| v["result"]["route"] == json!([150, 151]))),
         (
-            Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1) }),
+            Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1), transports: None }),
             Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "no route to 1"),
         ),
         (Request::Army(ArmyRequest::Stop { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Army(ArmyRequest::Get { army: army(ARMY) }), Box::new(|v: &Value| v["result"]["route"] == json!([]))),
         (Request::Army(ArmyRequest::Selected {}), Box::new(error("not_found"))),
+        (Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(236), transports: Some(true) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Army(ArmyRequest::Options { army: army(ARMY) }),
+            Box::new(|v: &Value| v["result"][1] == json!({"action": "merge", "can": false, "reasons": ["至少需要两支部队"], "cost": []})),
+        ),
+        (Request::Army(ArmyRequest::Split { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!((ARMY + 1).to_string())))),
+        (Request::Army(ArmyRequest::Merge { armies: ArmyList(vec![army(ARMY)]) }), Box::new(error("rejected"))),
+        (Request::Army(ArmyRequest::Disband { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Consolidate { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Drill { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::StopDrill { army: army(ARMY) }), Box::new(error("rejected"))),
+        (Request::Army(ArmyRequest::Mission { army: army(FLEET), mission: "blockade".into(), target: Some(47) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::StopMission { army: army(FLEET) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Leader(LeaderRequest::Options {}),
+            Box::new(|v: &Value| v["result"][0] == json!({"kind": "general", "can": true, "reasons": [], "cost": [{"resource": "mil", "amount": 50.0}]})),
+        ),
+        (Request::Leader(LeaderRequest::Recruit { kind: "general".into() }), Box::new(|v: &Value| v["result"]["name"] == "锡南")),
+        (Request::Leader(LeaderRequest::List {}), Box::new(|v: &Value| v["result"][0]["id"] == 7 && v["result"][0]["army"].is_null())),
+        (Request::Leader(LeaderRequest::Assign { leader: 7, army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Leader(LeaderRequest::Remove { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Leader(LeaderRequest::Dismiss { leader: 8 }), Box::new(error("not_found"))),
+        (Request::Mercenary(MercenaryRequest::List {}), Box::new(|v: &Value| v["result"][0]["company"] == "merc_black_army" && v["result"][0]["can"] == true)),
+        (
+            Request::Mercenary(MercenaryRequest::Hire { company: "merc_black_army".into(), province: province(149) }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (
+            Request::Fort(FortRequest::List {}),
+            Box::new(|v: &Value| v["result"][0] == json!({"province": 149, "level": 2, "mothballed": false, "can": true, "reasons": [], "cost": []})),
+        ),
+        (Request::Fort(FortRequest::Mothball { province: province(149) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Fort(FortRequest::Reopen { province: province(149) }), Box::new(error("rejected"))),
+        (
+            Request::Siege(SiegeRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"][1]["reasons"] == json!(["没有缺口，无法强攻要塞。"])),
+        ),
+        (Request::Siege(SiegeRequest::Bombard { province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Siege(SiegeRequest::NavalBombard { province: province(151) }), Box::new(error("rejected"))),
+        (Request::Siege(SiegeRequest::Assault { province: province(151) }), Box::new(error("rejected"))),
         (Request::Text(TextRequest::Language {}), Box::new(|v: &Value| *v == ok(json!("simp_chinese")))),
         (Request::Console(ConsoleRequest::Run { command: "cash 100".into() }), Box::new(|v: &Value| *v == ok(json!("Gold changed by 100")))),
         (
@@ -207,6 +326,19 @@ fn every_capability_runs_at_a_game_frame() {
         ),
         (Request::Diplomacy(DiplomacyRequest::OfferPeace { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
         (Request::Diplomacy(DiplomacyRequest::ProposeAlliance { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
+        (Request::Diplomacy(DiplomacyRequest::CallToArms { country: CountryTag(*b"QQQ") }), Box::new(error("not_found"))),
+        (Request::Peace(PeaceRequest::Terms { country: CountryTag(*b"WAL"), offer: None }), Box::new(error("rejected"))),
+        (Request::Peace(PeaceRequest::Evaluate { country: CountryTag(*b"QQQ"), terms: Terms(Vec::new()), offer: None }), Box::new(error("not_found"))),
+        (Request::Peace(PeaceRequest::Demand { country: CountryTag(*b"QQQ"), terms: Terms(Vec::new()) }), Box::new(error("not_found"))),
+        (Request::Peace(PeaceRequest::Offer { country: CountryTag(*b"QQQ"), terms: Terms(Vec::new()) }), Box::new(error("not_found"))),
+        (
+            Request::Occupation(OccupationRequest::Options { province: ProvinceId(151) }),
+            Box::new(|v: &Value| *v == ok(json!({"can": true, "reasons": [], "cost": [], "allies": ["WAL"]}))),
+        ),
+        (
+            Request::Occupation(OccupationRequest::Transfer { province: ProvinceId(151), country: CountryTag(*b"WAL") }),
+            Box::new(|v: &Value| *v == ok(json!({"controller": "WAL"}))),
+        ),
         (
             Request::Describe(DescribeRequest::All {}),
             Box::new(|v: &Value| {
@@ -239,6 +371,177 @@ fn every_capability_runs_at_a_game_frame() {
                 v["result"][1] == json!({"decision": "move_capital", "name": "迁都", "major": false, "can": false, "reasons": ["拥有君士坦丁堡"], "cost": []})
             }),
         ),
+        (Request::Decision(DecisionRequest::Take { decision: "form_rum".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Decision(DecisionRequest::Take { decision: "move_capital".into() }), Box::new(|v: &Value| v["error"]["message"] == "拥有君士坦丁堡")),
+        (
+            Request::Idea(IdeaRequest::List {}),
+            Box::new(|v: &Value| {
+                v["result"][0]
+                    == json!({"group": "defensive_ideas", "name": "防御理念", "category": "mil", "taken": true, "ideas": 2, "of": 7, "button": "buy",
+                        "next": "improved_manuever", "can": true, "reasons": [], "cost": [{"resource": "mil", "amount": 400.0}]})
+            }),
+        ),
+        (Request::Idea(IdeaRequest::TakeGroup { group: "unknown".into() }), Box::new(|v: &Value| v["error"]["code"] == "not_found")),
+        (Request::Idea(IdeaRequest::Buy { group: "defensive_ideas".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Idea(IdeaRequest::AbandonGroup { group: "no".into() }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Policy(PolicyRequest::List {}), Box::new(|v: &Value| v["result"][0]["policy"] == "the_combination_act" && v["result"][0]["can"] == true)),
+        (Request::Policy(PolicyRequest::Enable { policy: "the_combination_act".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Policy(PolicyRequest::Disable { policy: "no".into() }), Box::new(|v: &Value| v["error"]["message"] == "需要和平")),
+        (
+            Request::Government(GovernmentRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"]["rank"] == 2 && v["result"]["raise_rank"] == json!({"can": false, "reasons": ["需要至少 1000 发展度"], "cost": []})
+            }),
+        ),
+        (
+            Request::Government(GovernmentRequest::Reforms {}),
+            Box::new(|v: &Value| v["result"][0]["reforms"][1]["cost"] == json!([{"resource": "reform_progress", "amount": 50.0}])),
+        ),
+        (Request::Government(GovernmentRequest::AdoptReform { reform: "autocracy_reform".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Government(GovernmentRequest::RaiseRank {}), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (
+            Request::Estate(EstateRequest::List {}),
+            Box::new(|v: &Value| v["result"][0]["privileges"][0]["granted"] == true && v["result"][0]["loyalty"] == 56.864),
+        ),
+        (Request::Estate(EstateRequest::Interactions {}), Box::new(|v: &Value| v["result"][0]["reasons"] == json!(["冷却中"]))),
+        (
+            Request::Estate(EstateRequest::GrantPrivilege { estate: "estate_nobles".into(), privilege: "unknown".into() }),
+            Box::new(|v: &Value| v["error"]["code"] == "not_found"),
+        ),
+        (
+            Request::Estate(EstateRequest::RevokePrivilege { estate: "estate_nobles".into(), privilege: "estate_nobles_land_rights".into() }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (Request::Estate(EstateRequest::Interact { interaction: "seize_land".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Parliament(ParliamentRequest::Options {}),
+            Box::new(|v: &Value| *v == ok(json!({"parliament": false, "debating": null, "enacted": null, "issues": []}))),
+        ),
+        (Request::Parliament(ParliamentRequest::Debate { issue: "administrative_reform".into() }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Parliament(ParliamentRequest::AddSeat { province: ProvinceId(149) }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Parliament(ParliamentRequest::RemoveSeat { province: ProvinceId(149) }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (Request::Mission(MissionRequest::List {}), Box::new(|v: &Value| v["result"][0]["column"] == 0 && v["result"][0]["completed"] == false)),
+        (Request::Mission(MissionRequest::Complete { mission: "tur_conquer_constantinople".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Technology(TechnologyRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"][2]
+                    == json!({"technology": "mil", "level": 3, "can": false, "reasons": ["我们预计在1446年5月1日拥有足够的点数。"], "cost": [{"resource": "mil", "amount": 600.0}]})
+            }),
+        ),
+        (Request::Technology(TechnologyRequest::Research { technology: PowerKind::Adm }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Technology(TechnologyRequest::Research { technology: PowerKind::Mil }),
+            Box::new(|v: &Value| v["error"]["code"] == "rejected" && v["error"]["message"] == "我们预计在1446年5月1日拥有足够的点数。"),
+        ),
+        (
+            Request::Focus(FocusRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"]["focus"] == "mil"
+                    && v["result"]["choose"][0] == json!({"focus": "adm", "can": false, "reasons": ["你每5年才能更改一次国家重心。"], "cost": []})
+            }),
+        ),
+        (Request::Focus(FocusRequest::Choose { focus: PowerKind::Mil }), Box::new(|v: &Value| v["error"]["message"] == "the national focus is on mil already")),
+        (Request::Focus(FocusRequest::Cancel {}), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
+        (
+            Request::Stability(StabilityRequest::Options {}),
+            Box::new(|v: &Value| *v == ok(json!([{"action": "raise", "can": true, "reasons": [], "cost": [{"resource": "adm", "amount": 100.0}]}]))),
+        ),
+        (Request::Stability(StabilityRequest::Raise {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Economy(EconomyRequest::Options {}),
+            Box::new(|v: &Value| {
+                v["result"][0] == json!({"action": "take_loan", "can": true, "reasons": [], "cost": [], "gives": [{"resource": "ducats", "amount": 85.0}]})
+            }),
+        ),
+        (Request::Economy(EconomyRequest::TakeLoan {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Economy(EconomyRequest::ReduceInflation {}), Box::new(|v: &Value| v["error"]["message"] == "你目前的通货膨胀不够高。")),
+        (Request::Economy(EconomyRequest::RaiseMercantilism {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Loan(LoanRequest::List {}),
+            Box::new(|v: &Value| {
+                v["result"][0]
+                    == json!({"loan": 7, "lender": null, "estate": false, "amount": 85.0, "interest": 4.0, "expires": "1449.11.11", "can": true, "reasons": [], "cost": [{"resource": "ducats", "amount": 101.5}]})
+            }),
+        ),
+        (Request::Loan(LoanRequest::Repay { loan: 7 }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Loan(LoanRequest::Repay { loan: 8 }), Box::new(|v: &Value| v["error"]["code"] == "not_found")),
+        (
+            Request::Province(ProvinceRequest::Options { province: ProvinceId(151) }),
+            Box::new(|v: &Value| {
+                v["result"][0] == json!({"action": "develop_tax", "edict": null, "can": true, "reasons": [], "cost": [{"resource": "adm", "amount": 50.0}]})
+                    && v["result"][1]["edict"] == "edict_advancement_effort"
+                    && v["result"][2]["reasons"] == json!(["已经是核心省份"])
+            }),
+        ),
+        (Request::Province(ProvinceRequest::DevelopTax { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Province(ProvinceRequest::DevelopProduction { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Province(ProvinceRequest::DevelopManpower { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Province(ProvinceRequest::ExploitTax { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::ExploitProduction { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::ExploitManpower { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::RaiseAutonomy { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::LowerAutonomy { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::MakeState { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::MakeTerritory { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::SetEdict { province: ProvinceId(151), edict: "edict_x".into() }), Box::new(error("invalid_argument"))),
+        (Request::Province(ProvinceRequest::CancelEdict { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (
+            Request::Province(ProvinceRequest::Core { province: ProvinceId(151) }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "已经是核心省份"),
+        ),
+        (Request::Province(ProvinceRequest::CancelCore { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::ChangeCulture { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::CancelCulture { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (
+            Request::Building(BuildingRequest::Options { province: ProvinceId(151) }),
+            Box::new(|v: &Value| {
+                v["result"]["constructing"] == json!({"building": "marketplace", "progress": 0.25, "finished": "1444.11.11", "builder": "BYZ"})
+                    && v["result"]["options"][1] == json!({"action": "destroy", "building": "temple", "can": true, "reasons": [], "cost": []})
+                    && v["result"]["options"][2]["cost"] == json!([{"resource": "ducats", "amount": 50.0}])
+            }),
+        ),
+        (
+            Request::Building(BuildingRequest::Build { province: ProvinceId(151), building: "workshop".into() }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "建造中"),
+        ),
+        (Request::Building(BuildingRequest::Cancel { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Building(BuildingRequest::Destroy { province: ProvinceId(151), building: "temple".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Missionary(MissionaryRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"]["send"] == json!({"can": true, "reasons": [], "cost": []}) && v["result"]["recall"]["can"] == false),
+        ),
+        (Request::Missionary(MissionaryRequest::Send { province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Missionary(MissionaryRequest::Send { province: province(149) }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "该省份已经信仰我们的宗教"),
+        ),
+        (Request::Missionary(MissionaryRequest::Recall { province: province(1) }), Box::new(error("not_found"))),
+        (Request::Missionary(MissionaryRequest::Automatic {}), Box::new(|v: &Value| v["result"]["missionaries"] == 2 && v["result"]["automatic"] == 1)),
+        (Request::Missionary(MissionaryRequest::RaiseAutomatic {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Missionary(MissionaryRequest::LowerAutomatic {}), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Colonist(ColonistRequest::Send { province: province(149) }), Box::new(error("rejected"))),
+        (Request::TradeCompany(TradeCompanyRequest::Add { province: province(149) }), Box::new(error("rejected"))),
+        (Request::TradeCompany(TradeCompanyRequest::Remove { province: province(149) }), Box::new(error("rejected"))),
+        (Request::Merchant(MerchantRequest::Collect { node: "constantinople".into() }), Box::new(error("rejected"))),
+        (Request::Merchant(MerchantRequest::Steer { node: "constantinople".into() }), Box::new(error("rejected"))),
+        (
+            Request::Colonist(ColonistRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"]["send"]["reasons"] == json!(["没有可用的殖民者"])),
+        ),
+        (Request::Colonist(ColonistRequest::Recall { province: province(151) }), Box::new(error("rejected"))),
+        (Request::TradeCompany(TradeCompanyRequest::Options { province: province(149) }), Box::new(|v: &Value| v["result"]["investments"] == json!([]))),
+        (Request::TradeCompany(TradeCompanyRequest::Invest { province: province(149), investment: "nothing".into() }), Box::new(error("not_found"))),
+        (
+            Request::CenterOfTrade(CenterOfTradeRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"]["level"] == 1 && v["result"]["upgrade"]["cost"] == json!([{"resource": "ducats", "amount": 200.0}])),
+        ),
+        (Request::CenterOfTrade(CenterOfTradeRequest::Upgrade { province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::CenterOfTrade(CenterOfTradeRequest::Downgrade { province: province(151) }), Box::new(error("rejected"))),
+        (Request::Merchant(MerchantRequest::List {}), Box::new(|v: &Value| v["result"]["placed"][0]["mission"] == "collect")),
+        (Request::Merchant(MerchantRequest::Options { node: "nowhere".into() }), Box::new(error("not_found"))),
+        (Request::Merchant(MerchantRequest::Recall { node: "constantinople".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Merchant(MerchantRequest::SteerTo { node: "constantinople".into(), to: "ragusa".into() }), Box::new(error("not_found"))),
         // The cursor first: a request after an input waits for the game to
         // have it (input::tests).
         (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),
@@ -303,6 +606,34 @@ fn every_capability_runs_at_a_game_frame() {
         ];
         cases.splice(0..0, memory);
     }
+    // The diplomacy panel's options, and each of its actions toward
+    // Wallachia, which the fake game refuses, every argument an example of
+    // its kind; ahead of the input, which waits for frames of its own.
+    let mut panel: Vec<(Request, Check)> = Vec::new();
+    panel.push((
+        Request::Diplomacy(DiplomacyRequest::Options { country: CountryTag(*b"BYZ") }),
+        Box::new(|v: &Value| v["result"]["actions"][0]["acceptance"]["accepts"] == false),
+    ));
+    let named: BTreeSet<String> = cases.iter().chain(&panel).map(|(r, _)| r.name()).collect();
+    for capability in capabilities().iter().filter(|c| c.group == "diplomacy" && !named.contains(&c.name())) {
+        let mut request = serde_json::Map::new();
+        request.insert("capability".into(), capability.name().into());
+        for arg in capability.args.iter().filter(|a| !a.optional) {
+            let example = match arg.kind {
+                Kind::Country => "WAL",
+                kind => kind.example(),
+            };
+            request.insert(arg.name.into(), arg.kind.json(example).unwrap());
+        }
+        let request = eu4_harmony_remote::request_from_json(&Value::Object(request).to_string()).unwrap();
+        panel.push((request, Box::new(error("rejected"))));
+    }
+    panel.push((Request::Subject(SubjectRequest::Options { subject: CountryTag(*b"WAL") }), Box::new(|v: &Value| v["result"][1]["active"] == true)));
+    panel.push((
+        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None }),
+        Box::new(|v: &Value| *v == ok(Value::Null)),
+    ));
+    cases.splice(0..0, panel);
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();
     let all: BTreeSet<String> = capabilities().iter().map(|c| c.name()).collect();
@@ -362,6 +693,9 @@ fn a_province_snapshot_carries_its_name_s_characters_and_every_kind() {
         "development": {"tax": 10.0, "production": 9.5, "manpower": 6.0},
         "terrain": "farmlands", "fort": {"level": 2, "mothballed": false},
         "buildings": ["fort_15th", "marketplace"],
+        "autonomy": 25.0, "culture": "greek", "religion": "orthodox", "trade_good": "silk", "unrest": null,
+        "trade_node": "constantinople", "center_of_trade": 3, "trade_company": false, "state": "state", "edict": null,
+        "cores": ["BYZ"], "claims": ["TUR"], "constructions": null, "missionary": null, "colony_size": null,
     }));
     assert_eq!(answer(&reply), expected);
     // What can be recruited there is recruit.options', every kind in order.
@@ -412,7 +746,7 @@ fn a_recruit_order_from_json_reaches_the_layer_with_its_kind() {
 #[test]
 fn every_request_is_written_to_the_log() {
     let engine = Engine::new(remember);
-    let reply = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1) }));
+    let reply = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1), transports: None }));
     let fine = engine.submit(Request::Session(SessionRequest::Get {}));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     assert!(answer(&reply)["ok"] == false && answer(&fine)["ok"] == true);
@@ -450,7 +784,7 @@ fn outside_a_game_requests_that_need_one_wait_or_are_answered() {
 fn waiting_requests_keep_their_order_and_run_at_the_game_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    let moved = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }));
+    let moved = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None }));
     let stopped = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     let read = engine.submit(Request::Army(ArmyRequest::Get { army: army(ARMY) }));
@@ -479,7 +813,7 @@ fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
 fn a_request_given_up_before_it_runs_never_runs() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    drop(engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) })));
+    drop(engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None })));
     let kept = engine.submit(Request::Army(ArmyRequest::Get { army: army(ARMY) }));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(game.calls, [format!("army {ARMY}")]);
@@ -541,7 +875,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
             std::thread::spawn(move || {
                 let mut got = Vec::new();
                 for _ in 0..5 {
-                    let reply = ENGINE.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(200 + i) }));
+                    let reply = ENGINE.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(200 + i), transports: None }));
                     got.push(reply.wait(PLENTY).map(|r| response_json(&r)));
                 }
                 got
@@ -570,6 +904,10 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         new_day: true,
         new_month: true,
         new_year: false,
+        wars: vec![
+            game::wars::Happened::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: fake::tur(), defender: fake::byz() },
+            game::wars::Happened::OwnerChanged { province: 151, from: Some(fake::byz()), to: None },
+        ],
     };
     let engine = Engine::new(remember);
     engine.record(happened(&frame));
@@ -581,11 +919,24 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
             {"number": 1, "event": "session", "session": 3},
             {"number": 2, "event": "army_ordered", "army": ARMY.to_string()},
             {"number": 3, "event": "army_defeated", "army": ARMY.to_string()},
-            {"number": 4, "event": "day", "date": "1444.11.11"},
-            {"number": 5, "event": "month", "date": "1444.11.11"},
+            {"number": 4, "event": "war_declared", "war": "Ottoman-Byzantine War", "attacker": "TUR", "defender": "BYZ"},
+            {"number": 5, "event": "province_owner_changed", "province": 151, "from": "BYZ", "to": null},
+            {"number": 6, "event": "day", "date": "1444.11.11"},
+            {"number": 7, "event": "month", "date": "1444.11.11"},
         ])
     );
-    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, ..frame };
+    // Only those naming a country asked for, and those naming none.
+    let read = engine.submit(Request::Events(EventsRequest::Read {
+        since: None,
+        wait_ms: None,
+        process: None,
+        kinds: None,
+        countries: Some(eu4_harmony_remote::CountryList(vec![CountryTag(*b"TUR")])),
+    }));
+    engine.run(&mut Fake::default(), &Place::Game, PLENTY);
+    let numbers: Vec<u64> = answer(&read)["result"]["events"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
+    assert_eq!(numbers, [1, 2, 3, 4, 6, 7]);
+    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, wars: vec![], ..frame };
     assert!(happened(&quiet).is_empty());
 }
 
@@ -775,7 +1126,7 @@ fn a_request_sent_in_one_session_never_runs_in_the_next() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     engine.enter(2);
-    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }));
+    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None }));
     let reads = engine.submit(Request::Text(TextRequest::Language {}));
     // A save begins to load; what is sent while it loads is for the next.
     engine.leave();

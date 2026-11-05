@@ -55,7 +55,7 @@ Only in a developer build with the memory account do these capabilities exist; a
 
 ### A leak run
 
-`cargo xtask leak-run` plays rounds on a developer build installed with the memory account, and with the census if it is built in. A round is:
+The scenarios `leak` and `growth` ([scenarios.md](scenarios.md)) play rounds, `leak` on the build with the heap census and `growth` on the build with the memory account only. A round is:
 
 1. load a save from the main menu, and let time run;
 2. load another save from the game, and let time run;
@@ -63,7 +63,7 @@ Only in a developer build with the memory account do these capabilities exist; a
 4. start a new game, and let time run;
 5. return to the main menu.
 
-The saves are chosen with `-Saves`, or else the two newest that `menu.saves` lists. The country of the new game is chosen with `-Country`, FRA by default.
+The saves and the country of the new game are the scenarios' parameters, named in their code: England-1 and 英格兰1444_11_11, and FRA; `--leak.first_save` and the like change them for a run.
 
 After every round the run asks `memory`, and with the census `memory.leftovers`, and prints one line: private bytes, the memory account's parts, the handles. At the end it writes `report.json`, with every answer, and `report.md`, with:
 
@@ -100,7 +100,7 @@ A repair lets go memory the game forgot; if the game, or anything else, still us
 
 With the census built in, `memory.quarantine` turns the quarantine on and off at run time, off by default, as `memory.watch` does watching: a separate feature would be on in every developer build (`dev` builds them all in), and the quarantine keeps memory a leak run measures. While it is on:
 
-- every block freed on a thread where a repair is letting memory go is kept instead of freed: the census's `free` hook gives `free` null instead (an observer's "before" may change the arguments). A repair marks where it lets memory go (`LettingGo` in `core/src/repairs.rs`, or from a destructor's start to its end where the game deletes what the repair handed over, as for the text boxes' animations), so the blocks that freeing frees in turn are kept too. What the game frees later, a window a repair killed and the GUI's sweep frees, is not;
+- every block freed on a thread where a repair is letting memory go is kept instead of freed: the census's `free` hook gives `free` null instead (an observer's "before" may change the arguments). A repair marks where it lets memory go (`LettingGo` in `core/src/repairs/mod.rs`, or from a destructor's start to its end where the game deletes what the repair handed over, as for the text boxes' animations), so the blocks that freeing frees in turn are kept too. What the game frees later, a window a repair killed and the GUI's sweep frees, is not;
 - each block kept is filled with `0xdd`. A read of it then gives those bytes, and a call through them faults at once, in the code that read it, with a crash dump that names it;
 - every two seconds, on a thread of its own, every block kept is compared with the pattern, and the first write to each is kept: the repair, the block's site and size, the first byte changed and the bytes from it, and the generations it was kept in and found in;
 - past 512 MB the oldest blocks are freed again, and turning it off frees all of them.
@@ -119,7 +119,7 @@ The walk holds the heap, and so the game, for seconds, and must not allocate fro
 - `remote` declares the `memory` group behind its `dev-memory` feature, which the core's `dev-memory` turns on, and `dev-heap-census` with it. A workspace build of the developer build gives the command line tool the same group.
 - `core/src/memory_account.rs` answers `memory` from Windows' figures, and hands the group to the census when it is built in.
 - `core/src/census.rs` keeps the blocks and answers the group. Building the answer from the census's figures (the leftovers by generation, the trend, the average) is a function of its own, tested without a game. Its modules, each tested without a game: `pointers` (the rule for a pointer), `holders` (M2's scan) and `watch` (M3's owners).
-- `cargo xtask leak-run` (`xtask/src/leak_run.rs`) uses only remote control, as `perf-run` does.
+- `leak` and `growth` (`xtask/src/scenario/leak.rs`) use only remote control, as every scenario does.
 
 ## Parts
 

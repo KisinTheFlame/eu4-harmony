@@ -15,6 +15,7 @@ pub mod achievements;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
 pub mod baseline;
+pub mod catalogue;
 #[cfg(feature = "dev-heap-census")]
 pub mod census;
 #[cfg(feature = "dev-command-log")]
@@ -50,6 +51,7 @@ pub mod repairs;
 pub mod report;
 pub mod safe_point;
 pub mod saves;
+pub mod sessions;
 pub mod settings;
 pub mod speed;
 pub mod splice;
@@ -253,7 +255,7 @@ fn fail_startup(reason: String) {
             unsafe { TerminateProcess(GetCurrentProcess(), 3) };
         }
         if let Some(dir) = &user_dir {
-            lang::decide(dir);
+            lang::decide(dir, settings::read(dir).language);
         }
         // A changed game can fail every point; the report keeps the full list.
         const SHOWN: usize = 8;
@@ -266,17 +268,19 @@ fn fail_startup(reason: String) {
     });
 }
 
-/// A font chosen in the settings that is no longer installed: the default
-/// draws instead, and the player is told once
+/// A font chosen in the settings that is no longer installed: the player
+/// language's default draws instead, and the player is told once
 /// (ADR framework-succeeds-or-fails-as-a-whole). A weight its font no longer
 /// has draws in the one below it, which only the log tells.
 fn tell_missing_fonts(chosen: &settings::Settings) {
     let Ok(fonts) = unicode::system_font::SystemFonts::new() else { return };
-    for font in chosen.missing_fonts(|family| fonts.has_family(family)) {
-        log!("settings: the font {font:?} is not installed; {} draws instead", settings::DEFAULT_FONT);
-        notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", settings::DEFAULT_FONT));
+    let installed = |family: &str| fonts.has_family(family);
+    for (font, role) in chosen.missing_fonts(installed) {
+        let default = settings::default_face(chosen.language(), role, installed).family;
+        log!("settings: the font {font:?} is not installed; {default} draws instead");
+        notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
     }
-    for face in chosen.fonts() {
+    for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
             log!("settings: the font {:?} has no weight {}; {} draws instead", face.family, face.weight, drawn.weight);
         }
@@ -363,8 +367,8 @@ pub(crate) fn deferred_init() {
     report_header(Some(&game_dir));
     report::line(format!("user dir: {}", user_dir.display()));
     log!("user dir {}", user_dir.display());
-    let language = lang::decide(&user_dir);
     let chosen = settings::load(&user_dir);
+    let language = lang::decide(&user_dir, chosen.language);
     log!("settings: {chosen:?}");
     speed::set_pace(chosen.fastest_speed);
     saves::background::set_folder(&user_dir);

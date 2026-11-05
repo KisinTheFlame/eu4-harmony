@@ -47,6 +47,120 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29;
 - **What the framework sees**: an observer of `0x4e7c50` keeps, for each command whose action is one of the three kinds and made by the player, its kind, the country it is made to and its state. An action sent is answered by what is kept after it: the other country's answer (state 1 or 2) for a proposal; for a declaration, the declaration carried out (state 0) and a war with that country on the other side in the player's country snapshot.
 - **Tested**: the proposal was carried out at the frame after it was posted and the answer at the one after that, paused and running: remote requests answered 43 to 136 ms after they ran, the probe's alliance 3 frames after it was sent. Karaman declined an alliance; Dulkadir accepted one (and showed as an ally in `country.get`); Venice declined a white peace in the war, then accepted a separate one after the game console's `winwars` gave the player the war's score, and left it with its subject Naxos; Albania declined a white peace. The declaration on Albania for Kruje began "奥斯曼收复克鲁耶之战", with Albania, Venice and Naxos as defenders.
 
+## The diplomacy panel
+
+Read from `eu4.exe` on 2026-11-05 for part A6 of [player-actions.md](../player-actions.md).
+
+- **What the panel offers.** The panel's update (`0xf0bdc0`) makes a list of class `0x1d3a470` on its stack (`+8` the items, `+0x10` room, i32, `+0x14` count, i32, room for 100 inline from `+0x18`), has `0x35c230`(the player's country, the other country's tag, list) fill it, compares it with the actions it shows (type `+0x98`, name `+0xe8`, both countries, the offer byte `+0x38`), and rebuilds its entries (`diploactionentry`, `0xef1db0`) when they differ; it destroys each action of the list with its `+0` and flag 1 (`0xf0c105`).
+- **The list maker** `0x35c230` calls `0x35c150`(country, type, other, relation, offer, extra, list) for each type in a fixed order (below), with the offer byte 1 and, for the types that both start and end something, again with 0. `0x35c150` asks `0x35a8f0` whether the panel shows that action toward that country now, and if so makes it with `0x35a880`(country, type, other, offer, extra): the factory `0x35d210`(type, extra) makes an empty action of the type, `0x35a880` sets the maker and actor (`+0x10`, `+0x18`), the other country (`+0x20`) and the offer byte (`+0xe0`). Scripted actions come first: `0x5b6b80` answers the vector of `common/new_diplomatic_actions`, and each is made with type `0x3662` (`scriptable_diplomatic_action`, class `0x1ce1e28`, `0x48` bytes) holding the script at `+0x40`; its `+0xe8` answers the script's key (the `std::string` at script `+0x10`), so the framework names it by that content key.
+- **The types, in the panel's order**: `requestpeace`, `unconditional_surrender`, `declarewar`, `allianceaction` (start, end), `support_independence_action` (both), `callaction`, `form_coalition` (both), `enforce_peace`, `religious_unity_action`, `remove_electorate`, `grant_electorate`, `remove_freecity`, `grant_freecity`, `demand_unlawful_territory_action`, `call_crusade_action`, `excommunicate_action` (both), `invite_to_federation` (both), `request_to_join_federation` (both), `invite_to_trade_league` (both), `invite_to_hre`, `request_to_join_trade_league`, `improve_relation` (both), `annexationaction` (both), `integrationaction` (both), `designate_march` (both), `abandon_union`, `vassalaction` (both), `ask_for_march`, `tributary_state_action` (both), `royal_marriage` (both), `convert_tributary_to_vassal`, the six `trade_favors_for_*`, `support_heir` (both), `curry_favors` (both), `spy_network` (both), `counterespionage` (both), `fabricate_claim`, `claim_states`, `justify_trade_conflict`, `support_rebels`, `stealmap`, `slander_merchants`, `sabotage_recruitment`, `sow_discontent`, `sabotage_reputation`, `corrupt_officials`, `infiltrate_administration`, `agitate_for_liberty`, `transfer_trade_power` (both), `steer_trade` (both), `embargoaction` (both), `ask_for_tributary_state_action`, `guaranteeaction` (both), `warningaction`, `threaten_war`, `milaccess` (both), `offermilaccess` (both), `fleet_access` (both), `offer_fleet_access` (both), `knowledge_sharing` (both), `ask_knowledge_sharing`, `imperial_relations_action`, `imperial_realm_war_action`, `sell_ships_action`, `sharemap`, `giftaction`, `takeondebt`, `influence_nation`, `intervene_in_war`, `break_alliance`, `break_alliance_favor`, `reduce_relations_favor`, `insultaction`, `claimaction`, `offerloan`, `warsubsidy` (both), `sellprov`, `return_core_favor`, `condottieri_action` (both), `charter_company`, `appoint_cardinal`. Each key is the type's token in the game's token table at `0x1fd8660` (`0x208` bytes an entry: the token, then the key and a NUL), each entry a dependency point (`game::diplomacy::acts`).
+- **The button and its tooltip** (`0xef2c90`, `0xef21e0`): the button is enabled when `+0x90`(action, 0, 0) allows it; its tooltip is the same with a `std::string`. The button's text is the localisation of the name key `+0xe8` writes followed by `TITLE` (`ALLIANCE` → `ALLIANCETITLE` "Offer Alliance", `CANCELALIANCE` → "Dissolve this Alliance"); a scripted action's is its key and `_title`.
+- **Whether they would accept** (the entry's `ai_accept` icon and its tooltip): shown when the action needs an answer (`+0xd0`) and its type is not among the twelve of the table at `0x1c35460` (`sell_ships_action`, `sellprov`, `return_core_favor`, `form_coalition`, `enforce_peace`, `requestpeace`, `threaten_war`, `condottieri_action`, `break_alliance`, `break_alliance_favor`, `reduce_relations_favor`, `charter_company`). The verdict is `+0xb8`(action, breakdown), which calls `+0x120`(action, breakdown, keep) and accepts at a sum of at least 1; the tooltip writes `DIPLOMACYACTION_ACCEPT` or `DIPLOMACYACTION_NOACCEPT` and each factor (`0x4e8db0`). A call to arms is asked with its byte `+0x54` set; demanding unlawful territory is asked province by province (`[action+0x40]`), the panel accepting when one province would. An action whose `+0x120` is the base's (`0x4eb170`) answers a chance by the game's random generator, not the AI's weighing.
+- **The factors**: a `std::vector` of `0x30`-byte items: the value (i32, `+0`), the text (`std::string`, `+8`, localized as it is made by `0x1c3fa0`), and whether it counts for (`+0x28`). The panel uses the calling thread's list (`0xdf320`(`0x1fd1c38`, out) answers it), emptied with `0x5ae8a0` before and after; so does the framework. The alliance's weighing is `0x39d260`(the other country, the maker, breakdown, …).
+- **What the framework does**: `diplomacy.options` makes the list as the panel does, in a list of its own with room for 512 inline (so that the list maker never grows it), asks each action `+0x90` and `+0x88` without and with a string (the reasons are the lines the checks bullet, `- `; the rest is the description), the name, and the acceptance as the panel would show it, and destroys the actions. An action capability makes the list again, takes the action of its type and offer byte (or scripted key), writes what the window it opens has the player choose ([below](#the-windows-the-panel-opens)), asks the checks, and sends it as the default window does: `+0x28` set to the day, `+0x40` makes the command, which is written out and posted through the command layer; the world's record of the last alliance offer is written for a starting `allianceaction`, `invite_to_hre`, `invite_to_trade_league` and `request_to_join_trade_league`, as the window's agree (`0xedfa40`) writes it, and of the last peace offer for `requestpeace`.
+- **What came of it**: the observer of `0x4e7c50` keeps every action the player's country makes now, by type and offer byte (no longer by the three classes), and an action that needs no answer is `done` once carried out.
+
+## The windows the panel opens
+
+The panel's click (`0xf0acd0`) opens, by the action's type, the declare war window, the peace view, a window of the action's own, or else the default diplomacy window (`0xedef60`, "DefaultDiplomacyDialog"), a confirmation whose agree sends the action as made. These open the default window: `royal_marriage`, `improve_relation`, `designate_march`, `tributary_state_action`, `steer_trade`, and every type not listed below. Read from `eu4.exe` on 2026-11-05 by a static reading of each window; not compared with the windows on screen.
+
+### Common facts
+
+- The base action is 0x40 bytes; fields from +0x40 on are the kind's own.
+- Every kind here shares the base "make command" +0x40 = 0x4e9930: copies the action (+0xb0),
+  sets the copy's +0x2c to today ([[0x233fe78]+0x1dd0]), wraps it in a 0x58-byte command
+  (vtable 0x1c814b0, +8 = 0x165, +0x44 = 0x2934, +0x50 = the action copy).
+- Windows derived from the default dialog keep the action at window+0x1c0 (window+0x1b8 = the
+  diplomacy panel / parent). Their agree writes the fields, then tail-jumps to the default agree
+  0xedfa40 (sets +0x28 = today, +0x40 make, post through 0x14ca210).
+- FabricateClaimDialog and FabricateClaimOnStateDialog (base 0x1066320, not the default dialog)
+  keep the action at window+0x238, the chosen item at window+0x240, and their own send function
+  inlines the same command and posts it via 0x14ca210 to `[window+0x10]->vtbl[+0x80]()`.
+- Money: a 32-bit fixed point, 1000 = 1.0 ducat (treasury is the i32 at country+0xbb0; the AI
+  gift is 0x61a8 = 25000 = 25 ducats; the gift window multiplies the typed ducats by 0x3e8).
+  Offer loan is the exception: its amount is whole ducats (see below).
+- Tags: u64, country index = i16 at bits 32..47; the empty tag is "---" (bytes 2d 2d 2d 00, index 0).
+- Province ids index [[0x233fe78]+0x1ca8] + id*0x2e10; province+0x20 = id, +0x28 name holder,
+  +0x468 owner tag, +0x470 controller tag, +0x490..+0x498 cores (tags), +0x4c0 claims (linked list).
+  Country: [[0x233d8d0]+0x118][index]; country+0x20 = tag, +0x1338/+0x1344 owned provinces
+  (vector of i32 ids, i32 count), +0x1510 opinion/relation array (0x48 bytes per country).
+- The player's tag: [world+0x1e60] (or [world+0x1e68] when [world+0x1e66]==7 and [world+0x1e6f]!=0).
+- List widget: `window->[+8]->vtbl[+0x1a8]("…list")` gives the list; `list->vtbl[+0x68]()` gives
+  the selection (count at +0x10, first item `**sel`).
+
+### Table
+
+| kind (token) | class vtable, size | factory defaults past +0x40 | window (ctor / vtable / agree) | fields the window writes before sending | source of each value | send as made valid? |
+|---|---|---|---|---|---|---|
+| fabricate_claim (0x2af1) | 0x1c7dfd8, 0x48 | +0x40 = 0 | FabricateClaimDialog 0x1075260 / 0x1d54718 / send 0x1075840 (vt +0x50) | +0x40 u64 = **CProvince\*** (not an id) | window+0x240 = province of the selected "provincelist" entry (set in update 0x1075a50 at 0x1075c05) | No: check +0x80 (0x575ef0) bails when +0x40 == 0 |
+| sellprov (0x2a29) | 0x1c7e498, 0x48 | +0x40 = -1, +0x44 = -1 | SellProvDialog 0x13a2e10 / 0x1d7e418 / agree 0x13a38b0 | +0x40 i32 price in **whole ducats** (window+0x214; the window shows/uses it ×0x3e8), +0x44 i32 province id (window+0x210) | province: "provincelist" selection, entry+0x58 → +0x20; price: money_slider% × max price (0x13a39a0, from the province's development × a define); update 0x13a3ac0 also writes both into the action at 0x13a3de6 | No (-1 province) |
+| warsubsidy (0x2a25) | 0x1c7ed30, 0x48 | +0x40 = 0, +0x44 = 0 | WarSubsidyDialog 0x1499540 (only when +0x38 offer flag set; ending uses the default dialog) / 0x1d8a160 / agree 0x1499cc0 | +0x40 i32 monthly amount, fixed ×1000; +0x44 i32 duration | amount = window+0x2b0 = money_slider/100 × player's country+0xbb0 (as ducats) ×1000 + 0.5; duration = window+0x2b4: starts 10, inc 0x149a6d0 +10 (max 0x190 = 400, or straight to max with a modifier), dec 0x149a950 -10 (min 10); the label uses the key YEARS (unit not verified) | No: check +0x80 (0x548c50) requires +0x40 ≥ 100 (0.1) |
+| giftaction (0x2948) | 0x1c7f450, 0x48 | +0x40 = 0 | GiftDiplomacyDialog 0xeeb090 / 0x1d3b418 / agree 0xeeb2d0 | +0x40 i32 amount, fixed ×1000 = atoi("money_string" text) × 1000 | text starts "0" (countrydiplomacyview.gui); "inccash" 0xeeb330 adds 25 (100 with a modifier), "deccash" 0xeeb500 subtracts; clamped to treasury, rounded down to a multiple of 25 | No: can-agree 0xeeb680 needs 1000 ≤ +0x40 ≤ maker's treasury, then check +0x80 |
+| transfer_trade_power (0x2e09) | 0x1c7cea8, 0x48 | +0x40 = 0 (+0x44 u8 = 0) | TransferTradePowerDialog 0x13ffdd0 (offer only) / 0x1d82658 / agree 0x1400180 | +0x40 i32 share in thousandths (percent ×10; 1000 = 100%) | window+0x210 = integer percent from "trade_power_slider" mapped into [define 0x233fb6c, define 0x233fb48] (0x13ffd20); initial = 0x14003f0: largest percent the recipient accepts (binary search with vt +0x120) | Not established for 0; the window never sends 0 |
+| insultaction (0x2947) | 0x1c7f6b0, 0x48 | +0x40 = -1 | SendInsultDiplomacyDialog 0xee9160 / 0x1d3b0e8 / agree 0xee9660 | +0x40 i32 = scornful insult id ([window+0x348]+0x10) or -1 | "scornful" checkbox (0xee9690); the insult object from 0x85a360(0x8598e0(), maker tag, recipient tag, date+counter), rerolled by "scornful_random"/"scornful_back" | **Yes**: -1 = plain insult (checkbox off) |
+| threaten_war (0x3307) | 0x1c7ee60, 0x50 | +0x40 = -1, +0x44 = "---" | ProvDialog 0x10812f0 / 0x1d55708 / agree 0x1081680 | +0x40 i32 province id, +0x44 u64 tag of that province's country | "list" selection: entry+0xc8 = CProvince\* (→ +0x20 id), entry+0xc0 = CCountry\* (→ +0x20 tag) | No (-1) |
+| break_alliance (0x3375) | 0x1c3e2f8, 0x48 | +0x40 = "---" | ProvDialog 0x1082840 / 0x1d55670 / agree = default 0xedfa40 | +0x40 u64 tag of the ally to break off (written in update 0x1082fd0 at 0x108311d) | "list" selection: entry+0xc8 = CCountry\* → +0x20 tag | No ("---") |
+| break_alliance_favor (0x3bcb) | 0x1c3e438, 0x48 | +0x40 = "---" | same window as break_alliance (0x1082840) | same as break_alliance | same | No |
+| reduce_relations_favor (0x3bcd) | 0x1c7e828, 0x48 | +0x40 = "---" | ProvDialog 0x1082b40 / 0x1d55670 (same class) / agree 0xedfa40 | +0x40 u64 tag (via update 0x1082fd0) | "list" selection, entry+0xc8 → +0x20 tag | No |
+| support_rebels (0x2dde) | 0x1c7c248, 0x48 | +0x40 = 0 | edef60 + vtable 0x1d3b170 (built inline in f0acd0, offer only), list built by 0xeeddc0 / agree 0xeebc10 = jmp 0xedfa40 | +0x40 u64 = **rebel faction pointer**, written by the entry click 0xeef6e0 | window+0x250 vector of 0x60-byte items (item+0 = the faction's u64 id from faction+0x10); id → pointer by 0x14cf730 (hash 0x2340158); window+0x268 = selected index | No (null) |
+| condottieri_action (0x33b9) | 0x1c7b978, 0x68 | +0x40..+0x67 0, +0x64 = 1 | OfferCondottieriDiplomacyDialogue 0x1287be0 (offer only) / 0x1d6fdf8 / agree 0x1288740 | +0x40 i32 price, fixed ×1000; +0x48 {CArmy\*, u64 army id} (16 bytes) | price = window+0x220 from money_slider (0x1289050: slider×1000 rounded to a multiple of 100), lowered by 100 until the recipient accepts; army = window+0x218 id of the "armylist" selection (entry+0xc0 = CArmy\*, army+0x20 = id), pointer re-resolved by 0x14cf730 at agree | No (no army) |
+| trade_favors_for_trust (0x3bd3) | 0x1c80c60, 0x48 | +0x40 = 0, +0x44 = 0 | TradeFavorsForTrustDialog 0xeeb9c0 / 0x1d3b390 / agree 0xeebc10 = default | the inc/dec buttons write the action directly: +0x40 i32 favors spent, fixed ×1000; +0x44 i32 trust gained | "incfav" 0xeebc20 adds define 0x233db7c favors (×1000) and define 0x233db80 trust, capped by the favors owed (recipient's relation entry for the maker, country+0x1510[i*0x48]+0x20) and trust (+0x1e u8); "decfav" 0xeebd40 | No: can-agree 0xeebd90 needs +0x40 ≥ 1000 |
+| return_core_favor (0x3bcc) | 0x1c7e238, 0x50 | +0x40 = 0, +0x44 = "---" | ReturnCoreDialog 0x139fc40 / 0x1d7e0c0 / agree 0x13a0720 | +0x40 i32 province id (window+0x210), +0x44 u64 core holder's tag (window+0x238) | "provincelist" selection (update 0x13a0870): entry+0x58 → +0x20 province id, entry+0x80 = tag; listed: provinces owned and controlled by the window's country that carry a core of a country in the recipient's +0x1a18 list | No |
+| offerloan (0x2a24) | 0x1c7ea90, 0x50 | +0x40 = 0, +0x44 = 0, +0x48 = 12 | OfferLoanDialog 0x128a2d0 / 0x1d6ffa0 / agree 0x128aab0 | +0x40 i32 amount in **whole ducats** (window+0x3f0); +0x44 i32 interest (window+0x3f4, starts 0x3e8); +0x48 i32 months (window+0x3f8, starts 12) | amount = money_slider/100 × player's treasury/1000 (truncated); interest buttons 0x128ad30/0x128af60 step define 0x233f2c8 (×10 with a modifier), capped by 0x233f2ec; duration buttons 0x128b190/0x128b380 step 1 (12 with a modifier), capped by 0x233f2c0 | Not established (amount 0) |
+| enforce_peace (0x2dda) | 0x1c7de98, 0x48 | +0x40 = "---" | EnforcePeaceDiplomacyDialogue 0xeec7c0 / 0x1d3b1f8 / agree 0xeed4e0 | +0x40 u64 tag (window+0x288) | the "enemieslist"/"enemieslist2" entry clicked (enemies from a country's +0x1b88 list); click handler not traced | No |
+| intervene_in_war (0x343e) | 0x1cb3e28, 0x48 | +0x40 = "---" | InterveneDiplomacyDialogue 0xf16b80 / 0x1d3a488 / agree 0xeed4e0 (shared with enforce_peace) | +0x40 u64 tag (window+0x288) | list selection; not traced | No |
+| form_coalition (0x2de0) | 0x1c7c788, 0x40 | none (+0x34 = 2) | FormCoalitionDialog (inline in f0acd0, offer only) / 0x1d3b308 / agree 0xeebc10 = default | none | n/a | **Yes**: confirm only |
+| invite_to_federation (0x2f0f) | 0x1c7bf68, 0x60 | +0x40 = empty std::string | InviteToFederationDiplomacyDialog 0xef1600 / 0x1d3b9b0 / agree 0xef1950 | +0x40 std::string (MSVC, 0x20 bytes) = federation name, only when +0x38 offer flag set | "name_edit" text field | Not established (probably yes when the inviter already has a federation; the name is only used for a new one) |
+| demand_unlawful_territory_action (0x2e0b) | 0x1c7d518, 0x48 | +0x40 = -1 | DemandUnlawfulTerritoryDiplomacyDialogue 0xef0a90 / 0x1d3b4a0 / agree 0xef1550 | +0x40 i32 province id (window+0x250; update 0xef10f0 also writes the action at 0xef1257) | "provincelist" selection | No |
+| sharemap (0x3323), stealmap (0x33c8) | 0x1c7e368 / 0x1c7d108, 0x48 | +0x40 = -1 | ShareMapDialog 0x13a78f0 / 0x1d7e750 / agree 0x13a7f50 | +0x40 i32 region index (window+0x210; update 0x13a7fd0 writes the action at 0x13a81af) | "regionlist" selection | No |
+| sell_ships_action (0x3028) | 0x1c7e960, 0x58 | +0x40 = -1, +0x48..+0x57 0 | SellShipsDialog 0x13a59b0 / 0x1d7e538 / agree 0x1288740 (shared with condottieri) | +0x40 i32 price fixed ×1000 (window+0x220); +0x48 {pointer, u64 id} of the unit (window+0x218) | money_slider and the "provincelist" selection; not traced further | No |
+| claim_states (0x36b6) | 0x1c7b380, 0x48 | +0x40 = 0 | FabricateClaimOnStateDialog 0x10782f0 / 0x1d54858 / send 0x1078780 | +0x40 u64 CProvince\* (window+0x240) | update 0x1078940: the first province of the selected state (entry+0xc0 = state, its province ids at +0x88..+0x90) owned by entry+0xc8's tag and not yet claimed by entry+0xd0's tag; the states come from 0x5a7900(maker tag, recipient tag, &vector<8-byte item>) | No |
+| appoint_cardinal (0x39c1) | 0x1c7adc8, 0x48 | +0x40 = 0 | AppointCardinalDiplomacyDialog 0xeea410 / 0x1d3b060 / agree 0xeea7d0 | +0x40 u8 = "treasury" checkbox (pay from the treasury) | checkbox state (button +0x100 == 1) | Probably yes (0 = unchecked); not verified |
+| charter_company (0x3866) | 0x1c7b028, 0x48 | +0x40 = 0, +0x44 = -1 | "SellProvDialog"-named window 0x4713d0 / 0x1c65780 / agree 0x471b00 | +0x40 i32 price (window+0x214), +0x44 i32 province id (window+0x210), the sellprov layout | money slider / province list; not traced | No (-1) |
+
+### Lists that pick the valid choices
+
+- **fabricate_claim**: no separate function. The window walks the recipient's owned provinces
+  (recipient country+0x1338, count +0x1344) and keeps each CProvince\* for which
+  `0xa228a0(CProvince*, maker tag, 0, 1)` is true (the same call the check +0x80 makes at
+  0x576106). The kept provinces are sorted by name; each becomes a 0xc8-byte entry
+  "fabricateclaim_province_entry" (ctor 0x1074520(entry, CProvince\*, parent+0x58)).
+- **sellprov**: the player's own provinces (country+0x1338) whose controller (+0x470) is the
+  player, skipping the capital (country+0x14b0). Entries may be disabled when the "nation
+  ruining" rule FE_BLOCK_NATION_RUINING applies (0x3ed490 and the cores at province+0x490).
+  Entry ctor 0x470c10, 0xf8 bytes, entry+0x58 → province (+0x20 id).
+- **threaten_war**: `0x54cf40(ThreatenWarAction*, std::map*)`. It gets the candidate countries
+  through 0x54cd30(action, &vector<tag>), then for each one calls
+  0x54d000(action, map, country+0x1330). Map nodes: +0x20 CCountry\*, +0x28 CProvince\*; the
+  0xd0-byte entries come from 0x1080840(entry, country, province, parent+0x58).
+- **break_alliance(/_favor)**: the recipient's alliance list (recipient country+0x19b8, linked
+  nodes: +0 tag, +0x10 next) without the player. Entry ctor 0x1080cd0 (0xf0 bytes).
+- **reduce_relations_favor**: every country in [world+0x1d20] (count +0x1d2c, u64 tags) except
+  the player, kept when `0x5575b0(maker tag, recipient tag, candidate tag)` holds, sorted by
+  name. Entries are enabled per `0x557650(maker tag, candidate tag, &reason)`.
+- **support_rebels**: the recipient's rebel factions (recipient country+0xe68..+0xe70, pointers),
+  each judged by `0xaa75c0(faction, &result, maker tag, 0)`.
+- **return_core_favor**: see the table. The candidate core holders are the vector built from
+  the recipient's country+0x1a18 (0x1419c0 / 0x193860).
+- **claim_states**: `0x5a7900(maker tag, recipient tag, &vector)`, with entries from
+  0x1074cc0(entry, item, maker tag, recipient tag).
+
+### Confirmation prices stated by the windows
+
+- sellprov and charter_company: the price the player chooses, shown in "money_value".
+- condottieri: shows PRICE, MONTHS and UPFRONT_PRICE (OFFERCONDOTTIERI_OFFDESC).
+- gift, war subsidy, loan: the amount chosen. No other cost was seen stated in these windows.
+
+### Not established
+
+- The click handlers of the enforce_peace, intervene_in_war, sell_ships and charter_company lists
+  (only the agree side and the field offsets).
+- The unit of the war subsidy duration (the label uses the key YEARS; range 10..400, step 10).
+- Whether transfer_trade_power at 0, offerloan with amount 0, appoint_cardinal at 0, and
+  invite_to_federation with an empty name pass the checks. Not run in the game.
+- The exact rule behind 0xa228a0, 0x54d000, 0x5575b0 and 0x5a7900.
+
+
 ## Not established
 
 - `+0x80` of a declaration, the third vector its constructor clears, which `0x503e70` reads among others.

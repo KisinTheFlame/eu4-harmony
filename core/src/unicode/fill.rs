@@ -544,15 +544,16 @@ fn shown(ink: u32, color: u32, kind: Kind) -> u32 {
     channel(16) | channel(8) | channel(0)
 }
 
-/// The system font and weight the player chose for fonts of `kind`.
+/// The system font and weight fonts of `kind` draw in: the player's choice,
+/// else the player language's default.
 fn chosen_face(kind: Kind) -> Face {
-    let current = settings::current();
-    match kind {
-        Kind::Body => current.body_font,
-        Kind::Heading => current.heading_font,
-        Kind::Map => current.map_font,
-        Kind::Console => current.console_font,
-    }
+    let role = match kind {
+        Kind::Body => settings::Role::Body,
+        Kind::Heading => settings::Role::Heading,
+        Kind::Map => settings::Role::Map,
+        Kind::Console => settings::Role::Console,
+    };
+    settings::current().face(role, |family| SYSTEM.as_ref().is_some_and(|fonts| fonts.has_family(family)))
 }
 
 /// An empty page for `font`, which draws `kind`, in the ink and the outline

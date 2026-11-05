@@ -7,7 +7,10 @@ license.workspace = true
 description = "The repository's development commands, run as cargo xtask: installing and packing builds, measuring runs of the game, reading crash dumps"
 
 [dependencies]
+eu4-harmony-client = { path = "../client" }
 eu4-harmony-manifest = { path = "../manifest" }
+eu4-harmony-remote = { path = "../remote" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
@@ -23,6 +26,8 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Kernel",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_ProcessStatus",
+    # Steam's process and user, before a start.
+    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
 ] }

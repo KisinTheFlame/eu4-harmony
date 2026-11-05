@@ -28,7 +28,7 @@
 //! framework copies an entry's data into the zip's stored blocks itself, its
 //! CRC taken eight bytes at a step: the same entry, framed in blocks of its
 //! own.
-use crate::game::menu::save_file::crc32_update;
+use super::file::crc32_update;
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
 use crate::points::{Function, Point};
@@ -450,10 +450,10 @@ fn contents(e: &Entry) -> Result<Vec<u8>> {
     let name = String::from_utf8_lossy(&e.name);
     let data = match e.method {
         STORED => e.data.clone(),
-        DEFLATED => crate::game::menu::save_file::inflate(&e.data, e.unpacked as usize)?,
+        DEFLATED => super::file::inflate(&e.data, e.unpacked as usize)?,
         method => return Err(format!("{name}: zip method {method}")),
     };
-    if data.len() != e.unpacked as usize || crate::game::menu::save_file::crc32(&data) != e.crc {
+    if data.len() != e.unpacked as usize || super::file::crc32(&data) != e.crc {
         return Err(format!("{name} does not match its CRC"));
     }
     if SAVE_ENTRIES.contains(&e.name.as_slice()) && !data.starts_with(HEADER) {
@@ -492,7 +492,7 @@ fn compact(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::menu::save_file::crc32;
+    use crate::saves::file::crc32;
 
     fn stored(name: &str, data: &[u8]) -> Entry {
         Entry {
@@ -522,7 +522,7 @@ mod tests {
         assert_eq!(read.len(), 3);
         for ((name, data), e) in texts().iter().zip(&read) {
             assert_eq!((e.name.as_slice(), e.method, e.time, e.date, e.attributes), (name.as_bytes(), DEFLATED, 0x6a2b, 0x5b64, 0x20));
-            assert_eq!(&crate::game::menu::save_file::inflate(&e.data, data.len()).unwrap(), data);
+            assert_eq!(&crate::saves::file::inflate(&e.data, data.len()).unwrap(), data);
         }
     }
 
@@ -534,7 +534,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.eu4");
         std::fs::write(&path, &packed).unwrap();
-        let header = crate::game::menu::save_file::read(&path).unwrap();
+        let header = crate::saves::file::read(&path).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(header.date.is_some());
     }
@@ -565,7 +565,7 @@ mod tests {
             let (a, b) = data[..len].split_at(len / 2);
             stored_blocks(a, false, &mut out);
             stored_blocks(b, true, &mut out);
-            assert_eq!(crate::game::menu::save_file::inflate(&out, len).unwrap(), &data[..len], "{len} bytes");
+            assert_eq!(crate::saves::file::inflate(&out, len).unwrap(), &data[..len], "{len} bytes");
             let entry = Entry { method: DEFLATED, data: out, ..stored("gamestate", &data[..len]) };
             assert!(uncompressed(&entry));
         }

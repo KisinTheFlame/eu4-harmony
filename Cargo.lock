@@ -153,11 +153,22 @@ name = "eu4-harmony-cli"
 version = "0.1.0"
 dependencies = [
  "eu4-harmony-checks",
+ "eu4-harmony-client",
  "eu4-harmony-loc",
  "eu4-harmony-lua",
  "eu4-harmony-manifest",
  "eu4-harmony-remote",
  "mlua",
+ "serde",
+ "serde_json",
+ "windows-sys",
+]
+
+[[package]]
+name = "eu4-harmony-client"
+version = "0.1.0"
+dependencies = [
+ "eu4-harmony-remote",
  "serde",
  "serde_json",
  "windows-sys",
@@ -1557,7 +1568,10 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "eu4-harmony-client",
  "eu4-harmony-manifest",
+ "eu4-harmony-remote",
+ "serde",
  "serde_json",
  "windows",
  "windows-sys",

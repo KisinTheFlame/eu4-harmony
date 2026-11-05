@@ -24,6 +24,7 @@ pub fn points() -> Vec<Point> {
     vec![
         Point::keep(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query"),
         Point::keep(FREE_NODE, "e9 2b 45 02 00 cc cc cc cc cc cc cc cc cc cc cc", "route node free"),
+        Point::keep(TRANSPORTS, "48 8b c4 4c 89 40 18 48 89 50 10 53 55 56 57 41 54 41 55 41 56 41 57", "fleets that may carry an army"),
     ]
 }
 
@@ -91,13 +92,17 @@ struct OrderState {
 /// right-click on the map queries the route and submits it as these do,
 /// docs/research/army-orders.md).
 fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<OrderState> {
-    if m.ptr(army)? != m.at(classes::ARMY) {
+    let class = m.ptr(army)?;
+    if class != m.at(classes::ARMY) && class != m.at(classes::FLEET) {
         return Err(checks::not_land().into());
     }
     if waits_for_time(caller) && paused(m, ctx)? {
         return Err(checks::paused().into());
     }
-    checks::orderable(&world::army_record(m, &super::special_countries(m)?, army)?.condition())?;
+    // A fleet's own state is the game's move command's to check.
+    if class == m.at(classes::ARMY) {
+        checks::orderable(&world::army_record(m, &super::special_countries(m)?, army)?.condition())?;
+    }
     let origin_ptr = m.ptr(army + unit::LOCATION)?;
     let origin = m.u32(origin_ptr + province::ID)?;
     if origin == 0 {
@@ -340,6 +345,48 @@ impl Orders {
     }
 }
 
+/// `(country, std::vector*, army)`: the fleets of the country's that may
+/// carry the army, as the right click's automatic transport gathers them.
+pub const TRANSPORTS: usize = 0x342170;
+
+/// Has the player's fleets carry an own land army to `goal`, as the right
+/// click's automatic transport does once the player accepts its dialog: the
+/// fleets that may carry it, and the game's transport command for them.
+pub fn transport(m: &Memory, ctx: &Ctx, army: usize, id: u64, goal: u32) -> GResult<()> {
+    let mut vector = [0u64; 3];
+    let at = vector.as_mut_ptr() as usize;
+    let called = m.call(m.at(TRANSPORTS), &[ctx.country, at, army]);
+    let (begin, end, capacity) = (vector[0] as usize, vector[1] as usize, vector[2] as usize);
+    let fleets = (|| -> GResult<Vec<u64>> {
+        called?;
+        let count = span(begin, end, 8, MAX_UNITS)?;
+        let mut ids = Vec::new();
+        for i in 0..count {
+            let fleet = m.ptr(begin + i * 8)?;
+            if fleet != 0 && m.ptr(fleet)? == m.at(classes::FLEET) {
+                ids.push(m.u64(fleet + unit::ID)?);
+            }
+        }
+        Ok(ids)
+    })();
+    // The vector's buffer is the game's: freed as its own small blocks are.
+    if begin != 0 && capacity > begin && capacity - begin < 0x1000 {
+        m.call(m.at(FREE_NODE), &[begin, capacity - begin])?;
+    }
+    let fleets = fleets?;
+    if fleets.is_empty() {
+        return Err(checks::no_transports().into());
+    }
+    order(&transport_text(id, &fleets, goal))
+}
+
+/// The automatic transport command: the army, the fleets that carry it, and
+/// where to.
+fn transport_text(army: u64, fleets: &[u64], goal: u32) -> String {
+    let navies: Vec<String> = fleets.iter().map(|f| format!("navy={}", unit_text(*f))).collect();
+    format!("start_auto_fleet_transport={{ army={} {} province_id={goal} }}", unit_text(army), navies.join(" "))
+}
+
 /// The game's move command for the army with the ID `id`, in `origin`, to
 /// `goal`, as the player's right click on another province makes it: the
 /// army's route replaced, and its fleet's own orders cancelled
@@ -384,6 +431,10 @@ mod tests {
     fn an_order_names_the_army_by_its_number_and_type() {
         assert_eq!(move_text(12 << 32 | 54, 183, 185), "move_order={ unit={ id=12 type=54 } province={ 185 } location=183 clear=yes cancel_autofleet=yes }");
         assert_eq!(stop_text(12 << 32 | 54), "cancel_movement={ unit={ id=12 type=54 } cancel_autofleet=yes reason=1 }");
+        assert_eq!(
+            transport_text(12 << 32 | 54, &[20 << 32 | 54, 21 << 32 | 54], 236),
+            "start_auto_fleet_transport={ army={ id=12 type=54 } navy={ id=20 type=54 } navy={ id=21 type=54 } province_id=236 }"
+        );
     }
 
     #[test]

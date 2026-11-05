@@ -9,25 +9,38 @@
 //! the weight just below ([`weight_for`]). Weights are only those a family's
 //! maker made; none is simulated.
 use crate::Result;
+use eu4_harmony_loc::Language;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use windows::core::HSTRING;
 use windows::Win32::Graphics::DirectWrite::*;
 
-/// Tried after the chosen family, in order.
-const FALLBACK: &[&str] = &[
-    crate::settings::DEFAULT_FONT,
-    "SimSun",
-    "SimSun-ExtB",
-    "SimSun-ExtG",
-    "Microsoft JhengHei",
-    "Segoe UI",
-    "Segoe UI Symbol",
-    "Segoe UI Emoji",
-    "Nirmala UI",
-    "Malgun Gothic",
-    "Yu Gothic",
-];
+/// Families tried after the chosen one, in groups: Latin, Greek and Cyrillic
+/// letters; Simplified Chinese; Traditional Chinese; Japanese; Korean; the
+/// rest of Unicode.
+const LETTERS: &[&str] = &["Segoe UI"];
+const SIMPLIFIED: &[&str] = &["Microsoft YaHei", "SimSun", "SimSun-ExtB", "SimSun-ExtG"];
+const TRADITIONAL: &[&str] = &["Microsoft JhengHei", "MingLiU", "MingLiU-ExtB"];
+const JAPANESE: &[&str] = &["Yu Gothic", "Meiryo"];
+const KOREAN: &[&str] = &["Malgun Gothic"];
+const OTHERS: &[&str] = &["Segoe UI Symbol", "Segoe UI Emoji", "Nirmala UI"];
+
+/// The families tried after the chosen one for `language`, in order: its
+/// own group first, so that a character Chinese, Japanese and Korean share
+/// takes the shape its reader writes it in.
+fn fallback(language: Language) -> impl Iterator<Item = &'static str> {
+    let own = match language {
+        Language::SimpChinese => SIMPLIFIED,
+        Language::TradChinese => TRADITIONAL,
+        Language::Japanese => JAPANESE,
+        Language::Korean => KOREAN,
+        _ => LETTERS,
+    };
+    std::iter::once(own)
+        .chain([LETTERS, SIMPLIFIED, TRADITIONAL, JAPANESE, KOREAN, OTHERS].into_iter().filter(move |g| !std::ptr::eq(*g, own)))
+        .flatten()
+        .copied()
+}
 
 /// The weight a font's regular face has.
 pub const REGULAR: u16 = 400;
@@ -207,21 +220,19 @@ impl SystemFonts {
         weight_for(&have, face.weight).map(|i| Face::new(face.family.clone(), have[i]))
     }
 
-    /// Installed families that have `scalar`, as (English name, name in the
-    /// player's language), sorted by the latter.
-    pub fn families_with(&self, scalar: u32, chinese: bool) -> Vec<(String, String)> {
+    /// Installed families that have every character of `text`, as (English
+    /// name, name in `language`), sorted by the latter.
+    pub fn families_with(&self, text: &str, language: Language) -> Vec<(String, String)> {
         let mut out = Vec::new();
         unsafe {
             for i in 0..self.collection.GetFontFamilyCount() {
                 let Ok(family) = self.collection.GetFontFamily(i) else { continue };
                 let Ok(names) = family.GetFamilyNames() else { continue };
                 let Some(english) = localized(&names, "en-us") else { continue };
-                let has = family
-                    .GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL)
-                    .and_then(|f| f.HasCharacter(scalar))
-                    .is_ok_and(|h| h.as_bool());
+                let Ok(font) = family.GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL) else { continue };
+                let has = text.chars().all(|c| font.HasCharacter(c as u32).is_ok_and(|h| h.as_bool()));
                 if has && !english.starts_with('@') {
-                    let shown = if chinese { localized(&names, "zh-cn").unwrap_or_else(|| english.clone()) } else { english.clone() };
+                    let shown = localized(&names, language.locale()).unwrap_or_else(|| english.clone());
                     out.push((english, shown));
                 }
             }
@@ -232,11 +243,11 @@ impl SystemFonts {
     }
 
     /// The face that draws `scalar`: `face` when its family has it, else the
-    /// first fallback family that does, in the same weight.
+    /// first fallback family for the player language that does, in the same
+    /// weight.
     pub fn face_for(&self, face: &Face, scalar: u32) -> Option<Face> {
-        std::iter::once(face.family.as_str())
-            .chain(FALLBACK.iter().copied())
-            .map(|family| Face::new(family, face.weight))
+        std::iter::once(face.clone())
+            .chain(fallback(crate::lang::player()).map(|family| Face::new(family, face.weight)))
             .find(|f| self.font(f).is_some_and(|font| unsafe { font.HasCharacter(scalar).is_ok_and(|has| has.as_bool()) }))
     }
 
@@ -305,7 +316,7 @@ impl SystemFonts {
 /// draw Chinese then have nothing to draw with; it says so.
 #[cfg(test)]
 pub(crate) fn chinese_installed() -> bool {
-    let found = SystemFonts::new().is_ok_and(|fonts| !fonts.families_with('永' as u32, false).is_empty());
+    let found = SystemFonts::new().is_ok_and(|fonts| !fonts.families_with("永", Language::English).is_empty());
     if !found {
         eprintln!("no installed font draws Chinese; skipped");
     }
@@ -315,6 +326,22 @@ pub(crate) fn chinese_installed() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_player_language_falls_back_to_its_own_fonts_first() {
+        let order = |language| fallback(language).collect::<Vec<_>>();
+        assert_eq!(order(Language::English)[..2], ["Segoe UI", "Microsoft YaHei"]);
+        assert_eq!(order(Language::SimpChinese)[..2], ["Microsoft YaHei", "SimSun"]);
+        assert_eq!(order(Language::Japanese)[..2], ["Yu Gothic", "Meiryo"]);
+        assert_eq!(order(Language::Korean)[..2], ["Malgun Gothic", "Segoe UI"]);
+        // Every family once, whatever the language.
+        for language in Language::ALL {
+            let mut families = order(language);
+            families.sort();
+            families.dedup();
+            assert_eq!(families.len(), order(Language::English).len(), "{language:?}");
+        }
+    }
 
     #[test]
     fn draws_a_chinese_character_with_grey_edges() {

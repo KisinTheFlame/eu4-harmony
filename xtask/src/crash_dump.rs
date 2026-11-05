@@ -22,6 +22,12 @@ pub fn run(raw: &[String]) -> Result<()> {
     if commands.is_empty() {
         return Err(usage.into());
     }
+    read(dump, log, symbols, commands)
+}
+
+/// Runs `commands` on the crash dump `dump`, writing their output to `log`,
+/// with symbols cached in `symbols`.
+pub fn read(dump: &str, log: &str, symbols: &str, commands: &[String]) -> Result<()> {
     let text = |s: &str| CString::new(s).map_err(|_| format!("{s:?} holds a null character"));
     let path = format!(".sympath {};srv*{symbols}*https://msdl.microsoft.com/download/symbols", built().display());
     let (dump, log, path) = (text(dump)?, text(log)?, text(&path)?);

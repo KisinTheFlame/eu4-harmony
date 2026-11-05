@@ -1,8 +1,8 @@
 //! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Each capability is
 //! a function taking the [`Caller`] and returning the framework's own types;
-//! remote control (`crate::remote`) and the Lua host (`crate::lua`), which runs
-//! remote control's groups as the extension, only convert to and from them
+//! the capability catalogue (`crate::catalogue`), which remote control and the
+//! Lua host both run their requests through, only converts to and from them
 //! (ADR one-capability-catalogue). One file per group: [`session`],
 //! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
 //! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
@@ -15,28 +15,59 @@
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
 //! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
 //! defeat.md, time.md, fog-of-war.md).
+pub mod administration;
 pub mod armies;
+pub mod buildings;
 pub mod camera;
+pub mod centers_of_trade;
+pub mod colonists;
 pub mod commands;
 pub mod conditions;
 pub mod console;
+pub mod content;
 pub mod countries;
 pub mod decisions;
 pub mod diplomacy;
+pub mod economy;
+pub mod envoys;
+pub mod estates;
 pub mod events;
+pub mod focus;
+pub mod forts;
+pub mod government;
+pub mod ideas;
 pub mod input;
 pub mod interface;
+pub mod leaders;
+pub mod loans;
 pub mod map_coloring;
 pub mod menu;
+pub mod mercenaries;
+pub mod merchants;
+pub mod missionaries;
+pub mod missions;
+pub mod occupation;
 pub mod offers;
 pub mod orders;
+pub mod parliament;
+pub mod peace;
+pub mod policies;
+pub mod power;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod sieges;
+pub mod stability;
+pub mod subjects;
+pub mod technology;
 pub mod texts;
 pub mod time;
+pub mod trade;
+pub mod trade_companies;
+pub mod units;
+pub mod wars;
 pub mod world;
 
 use crate::{
@@ -167,6 +198,8 @@ struct State {
     orders: orders::Orders,
     session: u64,
     day: Option<i32>,
+    /// The wars and the provinces' owners of the day before.
+    wars: wars::Watch,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -194,14 +227,21 @@ pub struct Frame {
     pub new_month: bool,
     /// The new day is the first heard in a new year, and someone listens.
     pub new_year: bool,
+    /// At a new day, the wars declared, the peaces made and the provinces
+    /// that changed owner since the day before, of the kinds someone
+    /// listens to.
+    pub wars: Vec<wars::Happened>,
 }
 
 /// One thing that happened since the last safe frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Heard {
     /// A new session, with its number.
     Session(u64),
     Change(events::Change),
+    /// A war declared, a peace made or a province changing owner, seen at
+    /// a new day.
+    War(wars::Happened),
     /// A new day, with its date.
     Day(i32),
     /// The first day heard in a new month, with its date.
@@ -212,14 +252,15 @@ pub enum Heard {
 
 impl Frame {
     /// What happened, in the order extensions hear it and remote control
-    /// numbers it: a new session, the changes, a new day, its month, its
-    /// year.
+    /// numbers it: a new session, the changes, the wars', a new day, its
+    /// month, its year.
     pub fn heard(&self) -> Vec<Heard> {
         let session = self.new_session.then_some(Heard::Session(self.session));
         let day = self.new_day.then_some(Heard::Day(self.ctx.date));
         let month = self.new_month.then_some(Heard::Month(self.ctx.date));
         let year = self.new_year.then_some(Heard::Year(self.ctx.date));
-        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).chain(month).chain(year).collect()
+        let wars = self.wars.iter().cloned().map(Heard::War);
+        session.into_iter().chain(self.changes.iter().cloned().map(Heard::Change)).chain(wars).chain(day).chain(month).chain(year).collect()
     }
 }
 
@@ -235,6 +276,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
             s.geography.clear();
             s.orders.clear();
             s.day = None;
+            s.wars.clear();
         }
         for change in &state.changes {
             if let events::Change::Ordered(army) = change {
@@ -250,6 +292,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     if new_session {
         crate::map::reset_session(m, &state.ctx);
     }
+    let wars = if new_day { watch_wars(m, &state.ctx) } else { Vec::new() };
     Ok(Frame {
         ctx: state.ctx,
         session: state.session,
@@ -259,6 +302,23 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
         new_day,
         new_month,
         new_year,
+        wars,
+    })
+}
+
+/// What the wars and the provinces' owners show happened since the day
+/// before, of the kinds someone listens to; nothing when they cannot be
+/// read, which the log says.
+fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
+    let war = events::listened("war_declared") || events::listened("peace_made");
+    let owners = events::listened("province_owner_changed");
+    let seen = with_state(|s| {
+        let owners = if owners { Some(s.geography.provinces(m, ctx, false)?.into_iter().map(|p| p.owner).collect()) } else { None };
+        s.wars.day(m, ctx, war, owners)
+    });
+    seen.unwrap_or_else(|e| {
+        log!("wars: {}", e.message);
+        Vec::new()
     })
 }
 
@@ -283,16 +343,58 @@ pub fn points() -> Vec<Point> {
     points.extend(orders::points());
     points.extend(events::points());
     points.extend(camera::points());
+    points.extend(countries::points());
     points.extend(provinces::points());
     points.extend(console::points());
     points.extend(time::points());
     points.extend(questions::points());
     points.extend(menu::points());
     points.extend(diplomacy::points());
+    points.extend(subjects::points());
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(power::points());
+    points.extend(technology::points());
+    points.extend(focus::points());
+    points.extend(stability::points());
+    points.extend(economy::points());
+    points.extend(loans::points());
+    points.extend(peace::points());
+    points.extend(occupation::points());
+    points.extend(ideas::points());
+    points.extend(policies::points());
+    points.extend(government::points());
+    points.extend(estates::points());
+    points.extend(parliament::points());
+    points.extend(missions::points());
+    points.extend(administration::points());
+    points.extend(buildings::points());
+    points.extend(leaders::points());
+    points.extend(mercenaries::points());
+    points.extend(forts::points());
+    points.extend(sieges::points());
+    points.extend(units::points());
+    points.extend(envoys::points());
+    points.extend(missionaries::points());
+    points.extend(colonists::points());
+    points.extend(trade_companies::points());
+    points.extend(centers_of_trade::points());
+    points.extend(merchants::points());
+    points.extend(trade::points());
     points
+}
+
+/// A tooltip's reasons, as the game wrote them into a string: plain lines,
+/// without color codes, the bullet a line may start with, or empty lines
+/// (docs/player-actions.md, "Choices, reasons, costs").
+pub fn reasons(text: &[u8]) -> Vec<String> {
+    crate::unicode::game_text::plain(text)
+        .lines()
+        .map(|l| l.trim().trim_start_matches(['-', '•', '·']).trim())
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// How many window pixels a GUI unit takes, (across, down); None before the
@@ -433,7 +535,7 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 
 #[cfg(test)]
 mod tests {
-    use super::{events::Change, turned, view_of, Caller, Ctx, Frame, Heard, Tag, View};
+    use super::{events::Change, turned, view_of, wars::Happened, Caller, Ctx, Frame, Heard, Tag, View};
 
     #[test]
     fn extensions_read_the_full_view_and_remote_control_the_players_unless_set() {
@@ -443,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_is_heard_session_first_and_day_last() {
+    fn a_frame_is_heard_session_first_then_the_changes_and_the_wars_and_day_last() {
         let ctx = Ctx { world: 0, date: 0x035D_7710, player: Tag(0), country: 0, countries: 0 };
         let frame = Frame {
             ctx,
@@ -454,6 +556,7 @@ mod tests {
             new_day: true,
             new_month: true,
             new_year: true,
+            wars: vec![Happened::OwnerChanged { province: 151, from: None, to: Some(Tag(1)) }],
         };
         assert_eq!(
             frame.heard(),
@@ -461,12 +564,13 @@ mod tests {
                 Heard::Session(3),
                 Heard::Change(Change::Ordered(7)),
                 Heard::Change(Change::Defeated(8)),
+                Heard::War(Happened::OwnerChanged { province: 151, from: None, to: Some(Tag(1)) }),
                 Heard::Day(0x035D_7710),
                 Heard::Month(0x035D_7710),
                 Heard::Year(0x035D_7710)
             ]
         );
-        let quiet = Frame { new_session: false, new_day: false, new_month: false, new_year: false, changes: Vec::new(), ..frame };
+        let quiet = Frame { new_session: false, new_day: false, new_month: false, new_year: false, changes: Vec::new(), wars: Vec::new(), ..frame };
         assert!(quiet.heard().is_empty());
     }
 
