@@ -288,6 +288,7 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
 }
 
 extern "C" fn game_state_written(writer: usize) {
+    crate::guarded("parallel save", || parallel::join(writer));
     crate::guarded("save data writer", || {
         if let Err(e) = write_entry(crate::hooked_memory(), writer) {
             log!("saves: {e}");

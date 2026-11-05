@@ -20,8 +20,19 @@
 //! game goes on after the loop: what the stream holds is what the game's loop
 //! would have written, and so is the save checksum taken over it afterwards.
 //!
+//! The pool does not keep the game waiting: at the provinces' loop both
+//! loops are handed to it, and the game writes on past each loop, the rest of
+//! the game state, into its stream as always. Where the world has written its
+//! game state, before the save data's entry, the main thread takes the runs
+//! still left and waits for the pool, and the loops' bytes are put into the
+//! stream where each loop began, what the game wrote after it moved after
+//! them.
+//!
 //! When anything is not as expected (another class of stream or writer, a
 //! fault in a run), nothing is written and the game's own loop runs.
+//!
+//! The pool takes other work as well: the save checksum's sum
+//! (`super::sum`).
 use super::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
 use crate::memory::Memory;
 use crate::points::{Function, Point};
@@ -159,7 +170,7 @@ thread_local! {
 }
 
 #[repr(C, align(16))]
-struct Holders([u8; 2 * HOLDER_SIZE]);
+pub(super) struct Holders([u8; 2 * HOLDER_SIZE]);
 
 /// The game's object of `0x15bf70`, once asked for.
 static GAME_VALUE_OBJECT: AtomicUsize = AtomicUsize::new(0);
@@ -395,11 +406,11 @@ extern "C" fn countries_stub() {
 }
 
 extern "C" fn write_provinces(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || write_loop(Loop::Provinces, world, writer))
+    crate::guarded("parallel save", || begin(world, writer))
 }
 
 extern "C" fn write_countries(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || write_loop(Loop::Countries, world, writer))
+    crate::guarded("parallel save", || countries(world, writer))
 }
 
 /// Writes a loop's items on several threads into the writer's stream, and
@@ -419,8 +430,7 @@ fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
         }
     };
     let Some(pool) = pool() else { return false };
-    let Ok(_one_at_a_time) = pool.running.try_lock() else { return false };
-    let threads = pool.run(&writing);
+    let Some(threads) = pool.run(writing.clone()) else { return false };
     let outputs = match writing.outputs() {
         Ok(outputs) => outputs,
         Err(e) => {
@@ -430,10 +440,6 @@ fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
     };
     let bytes: usize = outputs.iter().map(Vec::len).sum();
     LAST_RUN[which as usize].store(outputs.iter().map(Vec::len).max().unwrap_or(0), Ordering::Relaxed);
-    #[cfg(feature = "dev-test-switches")]
-    if crate::dev::options().test_switches.compare_saves {
-        return compare::begin(m, which, writer, outputs);
-    }
     if let Err(e) = append(m, writing.stream, &outputs) {
         // Part of the bytes may be in the stream: the save is not what the
         // game would have written, so the game ends rather than keep it.
@@ -447,11 +453,241 @@ fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
 /// write. A stream that fills keeps what the game's loop would have left in
 /// it, the bytes being the same, and says so as the game's does.
 fn append(m: Memory, stream: usize, outputs: &[Vec<u8>]) -> Result<()> {
+    write_pieces(m, stream, &outputs.iter().map(Vec::as_slice).collect::<Vec<_>>())
+}
+
+fn write_pieces(m: Memory, stream: usize, pieces: &[&[u8]]) -> Result<()> {
     let write = m.vslot(stream, STREAM_WRITE_SLOT)?;
-    for out in outputs.iter().filter(|o| !o.is_empty()) {
-        m.call(write, &[stream, out.as_ptr() as usize, out.len()])?;
+    for piece in pieces.iter().filter(|p| !p.is_empty()) {
+        m.call(write, &[stream, piece.as_ptr() as usize, piece.len()])?;
     }
     Ok(())
+}
+
+// --- Writing beside the game ---
+
+/// The provinces and the countries of a save, in that order, written by the
+/// pool while the game writes on.
+struct Ahead {
+    writings: [Arc<Writing>; 2],
+}
+
+impl Task for Ahead {
+    fn work(&self, mut holders: Option<&mut Holders>) {
+        for writing in &self.writings {
+            writing.work(holders.as_deref_mut());
+        }
+    }
+
+    fn abandon(&self) {
+        self.writings.iter().for_each(|w| w.abandon());
+    }
+}
+
+/// A world write whose loops the pool writes.
+struct Pending {
+    pool: &'static Pool,
+    writer: usize,
+    ahead: Arc<Ahead>,
+    /// Where each loop's bytes go: where the stream stood when the loop
+    /// began, once it was reached and left to the pool.
+    at: [Option<u32>; 2],
+    /// With `compare-saves`, where the stream stood when the game's own loop
+    /// ended.
+    #[cfg(feature = "dev-test-switches")]
+    ended: [Option<u32>; 2],
+    began: Instant,
+}
+
+static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
+
+/// At the provinces' loop: both loops go to the pool, and the game writes on
+/// past the provinces; or the game writes them itself, as it says.
+fn begin(world: usize, writer: usize) -> bool {
+    if super::game_writes_saves() {
+        return false;
+    }
+    let began = Instant::now();
+    let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+    if pending.is_some() {
+        crate::fatal("saves: the provinces and countries the threads wrote for the last save never went into it");
+    }
+    let m = crate::hooked_memory();
+    let made = Writing::new(m, Loop::Provinces, world, writer).and_then(|p| Ok((p, Writing::new(m, Loop::Countries, world, writer)?)));
+    let writings = match made {
+        Ok((Some(provinces), Some(countries))) => [Arc::new(provinces), Arc::new(countries)],
+        Ok(_) => return false,
+        Err(e) => {
+            log!("saves: the game writes the provinces and countries itself: {e}");
+            return false;
+        }
+    };
+    let Some(pool) = pool() else { return false };
+    let at = match position(m, writings[0].stream) {
+        Ok(at) => at,
+        Err(e) => {
+            log!("saves: the game writes the provinces and countries itself: {e}");
+            return false;
+        }
+    };
+    let ahead = Arc::new(Ahead { writings });
+    if !pool.begin(ahead.clone()) {
+        return false;
+    }
+    *pending = Some(Pending {
+        pool,
+        writer,
+        ahead,
+        at: [Some(at), None],
+        #[cfg(feature = "dev-test-switches")]
+        ended: [None, None],
+        began,
+    });
+    !comparing()
+}
+
+/// At the countries' loop: the game writes on past it while the pool writes
+/// the countries, from the writer as it was at the provinces' loop.
+fn countries(world: usize, writer: usize) -> bool {
+    let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(p) = pending.as_mut() else {
+        drop(pending);
+        return write_loop(Loop::Countries, world, writer);
+    };
+    let m = crate::hooked_memory();
+    let countries = &p.ahead.writings[Loop::Countries as usize];
+    // Its vtable, depth, stream and form, as the runs start from.
+    let same = m.bytes(writer, WRITER_SIZE).is_ok_and(|now| now[..0xc] == countries.writer[..0xc] && now[0x10..0x1a] == countries.writer[0x10..0x1a]);
+    if p.writer != writer || !same {
+        log!("saves: the writer changed after the provinces; the game writes the countries itself");
+        return false;
+    }
+    match position(m, countries.stream) {
+        Ok(at) => p.at[Loop::Countries as usize] = Some(at),
+        Err(e) => {
+            log!("saves: the game writes the countries itself: {e}");
+            return false;
+        }
+    }
+    !comparing()
+}
+
+/// Where the world has written its game state: the main thread takes the
+/// runs left and waits for the pool, and each loop's bytes go into the stream
+/// where the loop began.
+pub(super) fn join(writer: usize) {
+    let Some(p) = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+    if p.writer != writer {
+        crate::fatal("saves: the world wrote its game state with another writer than its loops'");
+    }
+    let m = crate::hooked_memory();
+    let waited = Instant::now();
+    let threads = p.pool.finish(&*p.ahead);
+    let waited = waited.elapsed();
+    #[cfg(feature = "dev-test-switches")]
+    if comparing() {
+        compare::check(m, &p);
+        return;
+    }
+    let mut inserts = Vec::new();
+    for (writing, at) in p.ahead.writings.iter().zip(p.at) {
+        let Some(at) = at else { continue };
+        let outputs = writing.outputs().or_else(|e| {
+            log!("saves: {e}; the main thread writes the {} again", writing.which.name());
+            writing.write_run(0..writing.items.len()).map(|all| vec![all])
+        });
+        match outputs {
+            Ok(outputs) => {
+                LAST_RUN[writing.which as usize].store(outputs.iter().map(Vec::len).max().unwrap_or(0), Ordering::Relaxed);
+                inserts.push((at, outputs));
+            }
+            Err(e) => crate::fatal(&format!("saves: writing the {}: {e}", writing.which.name())),
+        }
+    }
+    let stream = p.ahead.writings[0].stream;
+    if let Err(e) = splice(m, stream, &inserts) {
+        // The stream holds part of the game state: the save is not what the
+        // game would have written, so the game ends rather than keep it.
+        crate::fatal(&format!("saves: putting the provinces and countries into the save: {e}"));
+    }
+    let bytes: usize = inserts.iter().flat_map(|(_, runs)| runs).map(Vec::len).sum();
+    log!(
+        "saves: wrote {} provinces and {} countries on {threads} threads beside the game's writing, {bytes} bytes; waited {waited:.1?} for them, {:.1?} after the provinces' loop",
+        p.ahead.writings[0].items.len(),
+        p.ahead.writings[1].items.len(),
+        p.began.elapsed()
+    );
+}
+
+/// Puts runs' bytes into the stream at the places given, in order, and after
+/// them what the stream held from each place on: the stream as if each
+/// loop's bytes had been written where it began.
+fn splice(m: Memory, stream: usize, inserts: &[(u32, Vec<Vec<u8>>)]) -> Result<()> {
+    let Some(&(first, _)) = inserts.first() else { return Ok(()) };
+    let end = position(m, stream)?;
+    if inserts.windows(2).any(|w| w[1].0 < w[0].0) || inserts.last().is_some_and(|(at, _)| *at > end) {
+        return Err("the places to put the loops' bytes are out of order".into());
+    }
+    let tail = read(m, stream, first, end)?;
+    let mut pieces: Vec<&[u8]> = Vec::new();
+    let mut from = first;
+    for (at, runs) in inserts {
+        pieces.push(&tail[(from - first) as usize..(at - first) as usize]);
+        pieces.extend(runs.iter().map(Vec::as_slice));
+        from = *at;
+    }
+    pieces.push(&tail[(from - first) as usize..]);
+    // The stream writes over what it holds from where it stands.
+    unsafe { *((stream + STREAM_AT) as *mut u32) = first };
+    write_pieces(m, stream, &pieces)?;
+    let expected = end as usize + inserts.iter().flat_map(|(_, runs)| runs).map(Vec::len).sum::<usize>();
+    match position(m, stream)? as usize {
+        at if at == expected => Ok(()),
+        at => Err(format!("the stream stands at {at}, not {expected}")),
+    }
+}
+
+/// Where a memory stream stands: how many bytes were written into it.
+fn position(m: Memory, stream: usize) -> Result<u32> {
+    m.u32(stream + STREAM_AT)
+}
+
+/// The bytes a memory stream holds from `from` to `to`: in its buffer up to
+/// its capacity, and past that in its growing part.
+fn read(m: Memory, stream: usize, from: u32, to: u32) -> Result<Vec<u8>> {
+    let (from, to) = (from as usize, to as usize);
+    let capacity = m.u32(stream + STREAM_CAPACITY)? as usize;
+    let mut out = Vec::with_capacity(to.saturating_sub(from));
+    let fixed = to.min(capacity);
+    if from < fixed {
+        let buffer = m.ptr(stream + STREAM_BUFFER)?;
+        if buffer == 0 || (m.u32(stream + STREAM_KEPT)? as usize) < fixed {
+            return Err("the stream's buffer does not hold what was written".into());
+        }
+        out.extend(m.bytes(buffer + from, fixed - from)?);
+    }
+    if to > capacity {
+        let growing = m.ptr(stream + STREAM_GROWING)?;
+        if growing == 0 {
+            return Err("the stream holds more than its buffer and has no growing part".into());
+        }
+        let (start, stop) = (from.max(capacity) - capacity, to - capacity);
+        let begin = m.ptr(growing)?;
+        if stop > m.ptr(growing + 8)? - begin {
+            return Err("the stream's growing part does not hold what was written".into());
+        }
+        out.extend(m.bytes(begin + start, stop - start)?);
+    }
+    Ok(out)
+}
+
+/// A developer build's test switch `compare-saves`: the game's own loops
+/// write as well, beside the pool, and their bytes stay in the save.
+fn comparing() -> bool {
+    #[cfg(feature = "dev-test-switches")]
+    return crate::dev::options().test_switches.compare_saves;
+    #[cfg(not(feature = "dev-test-switches"))]
+    false
 }
 
 /// A loop to write: its items, cut into runs, and what each run needs.
@@ -544,6 +780,10 @@ impl Writing {
             mxcsr: mxcsr(),
             first_buffer: if last == 0 { FIRST_BUFFER } else { last + last / 4 },
         }))
+    }
+
+    fn abandon(&self) {
+        self.failed.store(true, Ordering::SeqCst);
     }
 
     /// Writes runs until none is left; on the pool's threads with their own
@@ -688,39 +928,60 @@ fn set_mxcsr(value: u32) {
 
 // --- The pool ---
 
-struct Pool {
+/// What the pool's threads and the thread that hands it out do together,
+/// each taking parts of it until none is left.
+pub(super) trait Task: Send + Sync {
+    /// Takes parts until none is left: on a thread of the pool with its
+    /// copies of the two static objects, on the thread that handed the task
+    /// out without.
+    fn work(&self, holders: Option<&mut Holders>);
+    /// The pool gave up waiting for a thread: what the task made is not used.
+    fn abandon(&self);
+}
+
+impl Task for Writing {
+    fn work(&self, holders: Option<&mut Holders>) {
+        Writing::work(self, holders)
+    }
+
+    fn abandon(&self) {
+        Writing::abandon(self)
+    }
+}
+
+pub(super) struct Pool {
     /// Its threads' ids.
     threads: Vec<u32>,
     state: Mutex<State>,
     start: Condvar,
     done: Condvar,
-    /// Held while a loop is written: one at a time.
-    running: Mutex<()>,
+    /// Set from a task's handing out to its end: one at a time.
+    in_use: AtomicBool,
     /// A thread did not come back in time: the pool is not used again.
     broken: AtomicBool,
 }
 
 struct State {
-    writing: Option<Arc<Writing>>,
-    /// Counts the loops handed out, which tells a thread a new one is there.
+    task: Option<Arc<dyn Task>>,
+    /// Counts the tasks handed out, which tells a thread a new one is there.
     round: u64,
-    /// The threads still writing the current loop.
+    /// The threads still working on the current task.
     busy: usize,
 }
 
 static POOL: OnceLock<Option<Pool>> = OnceLock::new();
 
 /// The pool, made at startup; None when it has no thread or broke.
-fn pool() -> Option<&'static Pool> {
+pub(super) fn pool() -> Option<&'static Pool> {
     let pool = POOL
         .get_or_init(|| {
             let wanted = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MOST_THREADS) - 1;
             let pool = Pool {
                 threads: Vec::new(),
-                state: Mutex::new(State { writing: None, round: 0, busy: 0 }),
+                state: Mutex::new(State { task: None, round: 0, busy: 0 }),
                 start: Condvar::new(),
                 done: Condvar::new(),
-                running: Mutex::new(()),
+                in_use: AtomicBool::new(false),
                 broken: AtomicBool::new(false),
             };
             let ids = Arc::new(Mutex::new(Vec::new()));
@@ -771,16 +1032,16 @@ fn worker() {
     HOLDERS.with(|h| h.set(holders.0.as_ptr() as usize));
     let mut seen = 0;
     loop {
-        let writing = {
+        let task = {
             let mut state = pool.state.lock().unwrap_or_else(|e| e.into_inner());
             while state.round == seen {
                 state = pool.start.wait(state).unwrap_or_else(|e| e.into_inner());
             }
             seen = state.round;
-            state.writing.clone()
+            state.task.clone()
         };
-        if let Some(writing) = writing {
-            crate::guarded("parallel save", || writing.work(Some(holders)));
+        if let Some(task) = task {
+            crate::guarded("parallel save", || task.work(Some(holders)));
         }
         let mut state = pool.state.lock().unwrap_or_else(|e| e.into_inner());
         state.busy -= 1;
@@ -789,111 +1050,128 @@ fn worker() {
 }
 
 impl Pool {
-    /// Writes the loop on every thread of the pool and this one; how many
-    /// threads wrote.
-    fn run(&self, writing: &Arc<Writing>) -> usize {
-        {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.writing = Some(writing.clone());
-            state.round += 1;
-            state.busy = self.threads.len();
-            self.start.notify_all();
+    /// How many threads work on a task: the pool's and the one handing it
+    /// out.
+    pub(super) fn width(&self) -> usize {
+        self.threads.len() + 1
+    }
+
+    /// Hands the task to the pool's threads, unless one is being worked on.
+    pub(super) fn begin(&self, task: Arc<dyn Task>) -> bool {
+        if self.in_use.swap(true, Ordering::SeqCst) {
+            return false;
         }
-        writing.work(None);
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.task = Some(task);
+        state.round += 1;
+        state.busy = self.threads.len();
+        self.start.notify_all();
+        true
+    }
+
+    /// Works on the task handed out until no part is left, waits for the
+    /// pool's threads, and frees the pool; how many threads worked on it.
+    pub(super) fn finish(&self, task: &dyn Task) -> usize {
+        task.work(None);
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         let deadline = Instant::now() + WAIT;
         while state.busy > 0 {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 self.broken.store(true, Ordering::SeqCst);
-                writing.failed.store(true, Ordering::SeqCst);
-                log!("saves: a thread writing the {} did not finish in {WAIT:?}; saves are written by the game alone from now on", writing.which.name());
+                task.abandon();
+                log!("saves: a thread of the pool did not finish in {WAIT:?}; saves are written by the game alone from now on");
                 break;
             }
             state = self.done.wait_timeout(state, left).unwrap_or_else(|e| e.into_inner()).0;
         }
-        state.writing = None;
-        self.threads.len() + 1
+        state.task = None;
+        self.in_use.store(false, Ordering::SeqCst);
+        self.width()
+    }
+
+    /// The task worked on by every thread of the pool and this one, unless
+    /// the pool is in use; how many threads worked on it.
+    pub(super) fn run(&self, task: Arc<dyn Task>) -> Option<usize> {
+        self.begin(task.clone()).then(|| self.finish(&*task))
     }
 }
 
-/// A developer build's test switch `compare-saves`: the game's own loop runs
-/// as well, into a stream of the framework's, and what it wrote is compared
-/// with what the threads wrote; the game's bytes go into the save.
+/// `f` of each of `0..count`, taken in turn by the pool's threads and this
+/// one; None when there is no pool, it is in use, or a part was not done.
+/// What `f` reads must stay as it is until this returns: the parts are done
+/// by then.
+pub(super) fn each<T: Send + 'static>(count: usize, f: impl Fn(usize) -> T + Send + Sync + 'static) -> Option<Vec<T>> {
+    let task = Arc::new(Each { next: AtomicUsize::new(0), f: Box::new(f), out: (0..count).map(|_| Mutex::new(None)).collect() });
+    pool()?.run(task.clone())?;
+    task.out.iter().map(|o| o.lock().unwrap_or_else(|e| e.into_inner()).take()).collect()
+}
+
+struct Each<T> {
+    next: AtomicUsize,
+    f: Box<dyn Fn(usize) -> T + Send + Sync>,
+    out: Vec<Mutex<Option<T>>>,
+}
+
+impl<T: Send> Task for Each<T> {
+    fn work(&self, _: Option<&mut Holders>) {
+        loop {
+            let i = self.next.fetch_add(1, Ordering::SeqCst);
+            let Some(out) = self.out.get(i) else { return };
+            let value = (self.f)(i);
+            *out.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
+        }
+    }
+
+    fn abandon(&self) {}
+}
+
+/// A developer build's test switch `compare-saves`: the game's own loops
+/// write into the save as always, beside the pool, and where the world has
+/// written its game state the pool's bytes are compared with what each loop
+/// wrote.
 #[cfg(feature = "dev-test-switches")]
 mod compare {
     use super::*;
 
-    struct Pending {
-        which: Loop,
-        writer: usize,
-        stream: usize,
-        parallel: Vec<u8>,
-        capture: Box<Object<STREAM_SIZE>>,
-        buffer: Vec<u8>,
-    }
-
-    static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
-
-    /// Points the writer at a stream of the framework's and lets the game's
-    /// loop run.
-    pub(super) fn begin(m: Memory, which: Loop, writer: usize, outputs: Vec<Vec<u8>>) -> bool {
-        let parallel = outputs.concat();
-        let outcome = (|| {
-            let stream = m.ptr(writer + WRITER_STREAM)?;
-            let capacity = parallel.len() * 2 + (64 << 20);
-            let mut buffer: Vec<u8> = Vec::with_capacity(capacity);
-            let mut capture = Box::new(Object::<STREAM_SIZE>(m.bytes(stream, STREAM_SIZE)?.try_into().unwrap()));
-            capture.set(STREAM_GROWING, 0usize);
-            capture.set(STREAM_BUFFER, buffer.as_mut_ptr() as usize);
-            capture.set(STREAM_KEPT, 0u32);
-            capture.set(STREAM_AT, 0u32);
-            capture.set(STREAM_CAPACITY, capacity as u32);
-            capture.set(STREAM_FULL, 0u8);
-            capture.set(STREAM_OWNS_BUFFER, 0u8);
-            capture.set(STREAM_OWNS_GROWING, 0u8);
-            unsafe { *((writer + WRITER_STREAM) as *mut usize) = capture.address() };
-            Ok::<_, String>(Pending { which, writer, stream, parallel, capture, buffer })
-        })();
-        match outcome {
-            Ok(pending) => *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some(pending),
-            Err(e) => log!("saves: compare-saves: {e}"),
-        }
-        false
-    }
-
-    /// At the loop's end: the writer back on the save's stream, the two
-    /// compared, and the game's bytes written into the save.
-    pub(super) extern "C" fn end(writer: usize) {
+    /// Where the game's loop ends, `writer` in rsi: where the stream stands.
+    extern "C" fn end(writer: usize, which: usize) {
         crate::guarded("parallel save comparison", || {
-            let Some(mut p) = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
-            if p.writer != writer {
-                return;
-            }
-            unsafe { *((writer + WRITER_STREAM) as *mut usize) = p.stream };
-            let m = crate::hooked_memory();
-            let (full, at) = (p.capture.get::<u8>(STREAM_FULL), p.capture.get::<u32>(STREAM_AT) as usize);
-            let game = if full == 0 {
-                unsafe { p.buffer.set_len(at) };
-                std::mem::take(&mut p.buffer)
-            } else {
-                log!("saves: compare-saves: the {}' stream was full; the threads' bytes go into the save", p.which.name());
-                p.parallel.clone()
-            };
-            match game.iter().zip(&p.parallel).position(|(a, b)| a != b) {
-                None if game.len() == p.parallel.len() => log!("saves: compare-saves: the {} the same, {} bytes", p.which.name(), game.len()),
-                at => log!(
-                    "saves: compare-saves: the {} differ at byte {}, the game wrote {} bytes and the threads {}",
-                    p.which.name(),
-                    at.unwrap_or(game.len().min(p.parallel.len())),
-                    game.len(),
-                    p.parallel.len()
-                ),
-            }
-            if let Err(e) = append(m, p.stream, &[game]) {
-                crate::fatal(&format!("saves: compare-saves: writing the {} into the save: {e}", p.which.name()));
+            let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(p) = pending.as_mut().filter(|p| p.writer == writer && p.at[which].is_some()) else { return };
+            match position(crate::hooked_memory(), p.ahead.writings[which].stream) {
+                Ok(at) => p.ended[which] = Some(at),
+                Err(e) => log!("saves: compare-saves: {e}"),
             }
         });
+    }
+
+    /// The pool's bytes of each loop against the game's.
+    pub(super) fn check(m: Memory, p: &Pending) {
+        for (i, writing) in p.ahead.writings.iter().enumerate() {
+            let name = writing.which.name();
+            let (Some(at), Some(ended)) = (p.at[i], p.ended[i]) else {
+                log!("saves: compare-saves: the game's loop of the {name} was not seen");
+                continue;
+            };
+            let compared = (|| {
+                let game = read(m, writing.stream, at, ended)?;
+                let parallel = writing.outputs()?.concat();
+                Ok::<_, String>(match game.iter().zip(&parallel).position(|(a, b)| a != b) {
+                    None if game.len() == parallel.len() => format!("the {name} the same, {} bytes", game.len()),
+                    at => format!(
+                        "the {name} differ at byte {}, the game wrote {} bytes and the threads {}",
+                        at.unwrap_or(game.len().min(parallel.len())),
+                        game.len(),
+                        parallel.len()
+                    ),
+                })
+            })();
+            match compared {
+                Ok(line) => log!("saves: compare-saves: {line}"),
+                Err(e) => log!("saves: compare-saves: the {name}: {e}"),
+            }
+        }
     }
 
     crate::resume!(PROVINCES_END_RESUME: PROVINCES_END_AT = PROVINCES_END + 8);
@@ -904,7 +1182,7 @@ mod compare {
     #[unsafe(naked)]
     extern "C" fn provinces_end_stub() {
         std::arch::naked_asm!(
-            crate::call_rust!("mov rcx, rsi", call end),
+            crate::call_rust!("mov rcx, rsi", "xor edx, edx", call end),
             "mov rcx, rsi",
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
@@ -917,7 +1195,7 @@ mod compare {
     #[unsafe(naked)]
     extern "C" fn countries_end_stub() {
         std::arch::naked_asm!(
-            crate::call_rust!("mov rcx, rsi", call end),
+            crate::call_rust!("mov rcx, rsi", "mov edx, 1", call end),
             "mov rcx, rsi",
             "call qword ptr [rip + {close}]",
             "jmp qword ptr [rip + {next}]",
