@@ -45,7 +45,7 @@ l_english:
  EU4HARMONY_SETTINGS_PAGE_SOUND:0 "Sound"
  EU4HARMONY_SETTINGS_MUSIC_LOUDNESS:0 "Play every track equally loud"
  EU4HARMONY_SETTINGS_MUSIC_LEVELING:0 "Even out quiet and loud passages"
- EU4HARMONY_SETTINGS_SOUND_INFO:0 "The game's volume sliders go as the square of their position, so each step sounds about as large. Equally loud tracks: each track is measured as it plays and brought to the same loudness; one heard for the first time settles within a few seconds. Evening out passages raises quiet passages and lowers loud ones, so the music stays audible at a low volume, at the cost of some of its dynamics."
+ EU4HARMONY_SETTINGS_SOUND_INFO:0 "The game's volume sliders go as the square of their position, so each step sounds about as large. Equally loud tracks: as a track starts, its whole file is measured, and the track brought to the same loudness as every other within a second. Evening out passages raises quiet passages and lowers loud ones, so the music stays audible at a low volume, at the cost of some of its dynamics."
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN:0 "Achievements outside ironman"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM:0 "Achievements with a changed game checksum"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS:0 "Every other rule for achievements stays the game's own. Changes take effect with the next game started or loaded."

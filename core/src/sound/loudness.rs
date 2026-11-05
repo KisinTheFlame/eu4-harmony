@@ -1,5 +1,5 @@
-//! Loudness as ITU-R BS.1770 measures it and EBU R 128 gates it, for the
-//! game's sound: 44.1 kHz, two channels. The signal is K-weighted (a high
+//! Loudness as ITU-R BS.1770 measures it and EBU R 128 gates it, of two
+//! channels at any rate, the game's 44.1 kHz by default. The signal is K-weighted (a high
 //! shelf for the head, then a high-pass), its mean square taken over blocks
 //! of 400 ms that start every 100 ms, and a block's loudness is
 //! `-0.691 + 10 log10(L + R)` in LUFS. The integrated loudness leaves out
@@ -8,8 +8,6 @@
 
 /// The game's output rate, which it asks SDL for and lets no driver change.
 pub const RATE: f64 = 44100.0;
-/// Frames in the 100 ms step between blocks.
-const STEP: usize = 4410;
 /// Steps in a block (400 ms) and in the short-term window (3 s).
 const BLOCK_STEPS: usize = 4;
 const SHORT_TERM_STEPS: usize = 30;
@@ -79,6 +77,9 @@ pub fn lufs(mean_square: f64) -> f64 {
 /// Measures a stream of stereo frames as they come.
 #[derive(Clone, Debug)]
 pub struct Meter {
+    rate: f64,
+    /// Frames in the 100 ms step between blocks.
+    step: usize,
     stages: [Coefficients; 2],
     channels: [Channel; 2],
     /// The weighted squares summed so far in the current step, and its frames.
@@ -95,8 +96,17 @@ pub struct Meter {
 
 impl Default for Meter {
     fn default() -> Self {
+        Self::at(RATE)
+    }
+}
+
+impl Meter {
+    /// A meter for frames at `rate` a second.
+    pub fn at(rate: f64) -> Self {
         Self {
-            stages: k_weighting(RATE),
+            rate,
+            step: (rate / 10.0).round() as usize,
+            stages: k_weighting(rate),
             channels: [Channel { state: [[0.0; 2]; 2] }, Channel { state: [[0.0; 2]; 2] }],
             sum: 0.0,
             frames: 0,
@@ -106,22 +116,20 @@ impl Default for Meter {
             blocks: 0,
         }
     }
-}
 
-impl Meter {
     /// Adds one frame, its samples as fractions of full scale.
     pub fn add(&mut self, left: f64, right: f64) {
         let l = self.channels[0].filter(&self.stages, left);
         let r = self.channels[1].filter(&self.stages, right);
         self.sum += l * l + r * r;
         self.frames += 1;
-        if self.frames == STEP {
+        if self.frames == self.step {
             self.end_step();
         }
     }
 
     fn end_step(&mut self) {
-        self.steps.push_back(self.sum / STEP as f64);
+        self.steps.push_back(self.sum / self.step as f64);
         if self.steps.len() > SHORT_TERM_STEPS {
             self.steps.pop_front();
         }
@@ -141,7 +149,7 @@ impl Meter {
 
     /// The seconds of blocks measured, gated or not.
     pub fn seconds(&self) -> f64 {
-        self.blocks as f64 * STEP as f64 / RATE
+        self.blocks as f64 * self.step as f64 / self.rate
     }
 
     /// The integrated loudness of what was added, if any block was above the
@@ -203,6 +211,18 @@ mod tests {
         assert!(close(integrated, -23.0, 0.1), "{integrated}");
         assert!(close(meter.short_term().unwrap(), -23.0, 0.1));
         assert!(close(meter.seconds(), 19.7, 0.05), "{}", meter.seconds());
+    }
+
+    #[test]
+    fn a_tone_measures_the_same_at_48_khz() {
+        let mut meter = Meter::at(48000.0);
+        let a = amplitude(-23.0);
+        for i in 0..48000 * 10 {
+            let x = a * (2.0 * std::f64::consts::PI * 1000.0 * i as f64 / 48000.0).sin();
+            meter.add(x, x);
+        }
+        assert!(close(meter.integrated().unwrap(), -23.0, 0.1));
+        assert!(close(meter.seconds(), 9.7, 0.05), "{}", meter.seconds());
     }
 
     #[test]

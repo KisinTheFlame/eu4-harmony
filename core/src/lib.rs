@@ -377,7 +377,7 @@ pub(crate) fn deferred_init() {
     let language = lang::decide(&user_dir, chosen.language);
     log!("settings: {chosen:?}");
     speed::set_pace(chosen.fastest_speed);
-    sound::configure(&user_dir, &chosen);
+    sound::choose(&chosen);
     saves::background::set_folder(&user_dir);
     saves::parallel::start();
     tell_missing_fonts(&chosen);

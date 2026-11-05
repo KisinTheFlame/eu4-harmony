@@ -7,22 +7,23 @@
 //!   ambient volume where the map's ambient sound is worked out;
 //! - the music is mixed by the framework instead of SDL: at the game's gain,
 //!   as a fraction rather than in SDL's 128 steps, with the loudness
-//!   normalization and the music leveling (GLOSSARY) the player chose.
+//!   normalization and the music leveling (GLOSSARY) the player chose. As a
+//!   track starts, its whole file is read through the game's file system and
+//!   measured on a thread of its own; it plays as it is until that is done,
+//!   well within a second, and each file is measured once a game.
 //!
 //! The game mixes on SDL's audio thread (`0x16a6c20`), voice by voice, each
 //! through `SDL_MixAudioFormat`; a voice whose sound streams is music, whose
 //! gain is the voice's own volume times the master and music volumes.
-mod cache;
+mod analysis;
 pub mod loudness;
 pub mod music;
 
 use crate::points::{Function, Point};
-use cache::{Cache, Measured};
-use music::{Choices, Fingerprint, Track};
+use music::{Choices, Track};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 /// The gain of a volume slider at `percent`: the square of its position, so
 /// that each step sounds about as large a change (loudness goes about as the
@@ -70,6 +71,12 @@ const VOICE_MIXED: usize = 0x16a744a;
 const VOICE_MIXED_NEXT: usize = 0x16a744f;
 const STREAM_REST_MIXED: usize = 0x16a75df;
 const STREAM_REST_MIXED_NEXT: usize = 0x16a75e4;
+/// The path of a sound's file in the game's files, as text in the sound,
+/// which loading a sound puts in its message when the file cannot be loaded
+/// (`lea r8, [rdi+0x50]`); 128 bytes, up to the sound's volume at `+0xd0`.
+const PATH_GIVEN: usize = 0x16a9f6d;
+const PATH: usize = 0x50;
+const PATH_LENGTH: usize = 0x80;
 /// Where the mixer tells a streaming voice: its sound `[voice+8]`, whose
 /// kind `[sound+0xc]` is 1 for a stream.
 const VOICE_KIND: usize = 0x16a7452;
@@ -128,6 +135,7 @@ pub fn points() -> Vec<Point> {
         Point::jump(VOICE_MIXED, "e8 11 df 08 00", "voice mixed", voice_stub as *const () as usize, &VOICE_RESUME),
         Point::jump(STREAM_REST_MIXED, "e8 7c dd 08 00", "stream rest mixed", rest_stub as *const () as usize, &REST_RESUME),
         Point::keep(VOICE_KIND, "48 8b 43 08 83 78 0c 01", "voice kind").uses(&[SOUND, KIND]),
+        Point::keep(PATH_GIVEN, "4c 8d 47 50", "sound path").uses(&[PATH]),
         Point::keep(GAIN_FROM_VOICE, "f3 0f 10 73 40", "voice gain").uses(&[VOICE_VOLUME]),
         Point::keep(GAIN_FOR_STREAM, "f3 41 0f 59 f4", "stream gain"),
         Point::keep(SDL_MIX, "48 ff 25 49 ae 87 00", "SDL mix audio").recorded(ORIGINAL_MIX.slot()),
@@ -241,11 +249,15 @@ mix_stub!(rest_stub, REST_AT);
 static NORMALIZE: AtomicBool = AtomicBool::new(true);
 static LEVEL: AtomicBool = AtomicBool::new(false);
 
+/// The integrated loudness of a file's whole track: unset while it is
+/// analyzed, None when it could not be.
+type Analysis = Arc<OnceLock<Option<f64>>>;
+
 /// A track playing in one of the mixer's voices.
 struct Playing {
     sound: usize,
     track: Track,
-    fingerprint: Fingerprint,
+    analysis: Analysis,
     /// The mixer call it was last mixed in.
     last: u64,
 }
@@ -253,11 +265,8 @@ struct Playing {
 #[derive(Default)]
 struct State {
     playing: HashMap<usize, Playing>,
-    /// The fingerprint of each sound heard in this game, to know a track
-    /// again from its first frame.
-    fingerprints: HashMap<usize, u64>,
-    cache: Cache,
-    path: Option<PathBuf>,
+    /// Every file analyzed in this game, by its path in the game's files.
+    analyses: HashMap<String, Analysis>,
     calls: u64,
 }
 
@@ -273,50 +282,47 @@ fn mix_music(voice: usize, sound: usize, source: &[i16], device: &mut [i16], gai
     state.calls += 1;
     let calls = state.calls;
     state.playing.retain(|_, p| calls - p.last < STOPPED);
-    let playing = state.playing.entry(voice).or_insert_with(|| Playing { sound: 0, track: Track::default(), fingerprint: Fingerprint::default(), last: 0 });
-    if playing.sound != sound {
-        *playing = Playing { sound, track: Track::default(), fingerprint: Fingerprint::default(), last: calls };
-        if let Some(measured) = state.fingerprints.get(&sound).and_then(|f| state.cache.get(*f)) {
-            playing.track.know(measured.loudness, measured.seconds);
-        }
+    if state.playing.get(&voice).is_none_or(|p| p.sound != sound) {
+        let path = path_of(sound);
+        log!("music: {path} plays; the game's gain {gain:.4}");
+        let analysis = state.analyses.entry(path.clone()).or_insert_with(|| analyze(path)).clone();
+        state.playing.insert(voice, Playing { sound, track: Track::default(), analysis, last: calls });
     }
+    let Some(playing) = state.playing.get_mut(&voice) else { return };
     playing.last = calls;
-    if playing.fingerprint.done().is_none() {
-        if let Some(fingerprint) = playing.fingerprint.add(source) {
-            state.fingerprints.insert(sound, fingerprint);
-            match state.cache.get(fingerprint) {
-                Some(measured) => {
-                    playing.track.know(measured.loudness, measured.seconds);
-                    log!("music: track {fingerprint:016x} is known, {:.1} LUFS; the game's gain {gain:.4}", measured.loudness);
-                }
-                None => log!("music: track {fingerprint:016x} is heard for the first time; the game's gain {gain:.4}"),
-            }
+    if !playing.track.known() {
+        if let Some(Some(loudness)) = playing.analysis.get() {
+            playing.track.know(*loudness);
         }
     }
     playing.track.mix(source, device, gain, choices);
-    let (Some(fingerprint), Some((loudness, seconds))) = (playing.fingerprint.done(), playing.track.measured()) else { return };
-    if state.cache.offer(fingerprint, Measured { loudness, seconds }) {
-        log!("music: track {fingerprint:016x} measured {loudness:.1} LUFS over {seconds:.0} s");
-        if let Some(path) = state.path.clone() {
-            let cache = state.cache.clone();
-            // Off the audio thread, which must not wait for the disk.
-            std::thread::spawn(move || {
-                if let Err(e) = cache::write(&path, &cache) {
-                    log!("music: {} not written: {e}", path.display());
-                }
-            });
-        }
-    }
 }
 
-/// Reads what earlier games measured, at startup, and takes the player's choices.
-pub fn configure(user_dir: &Path, settings: &crate::settings::Settings) {
-    let path = cache::path(user_dir);
-    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-    state.cache = cache::read(&path);
-    state.path = Some(path);
-    drop(state);
-    choose(settings);
+/// The path of a sound's file in the game's files, as the sound keeps it.
+fn path_of(sound: usize) -> String {
+    let bytes = crate::hooked_memory().bytes(sound + PATH, PATH_LENGTH).unwrap_or_default();
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
+/// Reads and measures the whole of the file at `path` on a thread of its
+/// own, since the audio thread must wait neither for the disk nor for the
+/// decoding.
+fn analyze(path: String) -> Analysis {
+    let cell = Analysis::default();
+    let result = cell.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let loudness = crate::physfs::read(&path).map_err(|e| e.to_string()).and_then(|data| analysis::loudness(&data));
+        let took = started.elapsed().as_secs_f64();
+        match &loudness {
+            Ok(Some(loudness)) => log!("music: {path} is {loudness:.1} LUFS, analyzed in {took:.2} s"),
+            Ok(None) => log!("music: {path} is silent"),
+            Err(e) => log!("music: {path} was not analyzed, and plays as it is: {e}"),
+        }
+        let _ = result.set(loudness.ok().flatten());
+    });
+    cell
 }
 
 /// Takes the player's choices, at startup and when the settings are saved.

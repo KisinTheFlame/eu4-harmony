@@ -45,7 +45,7 @@ l_simp_chinese:
  EU4HARMONY_SETTINGS_PAGE_SOUND:0 "声音"
  EU4HARMONY_SETTINGS_MUSIC_LOUDNESS:0 "所有曲目一样响"
  EU4HARMONY_SETTINGS_MUSIC_LEVELING:0 "拉近轻响段落（动态压缩）"
- EU4HARMONY_SETTINGS_SOUND_INFO:0 "游戏设置里的音量滑块按位置的平方变化，每一格听起来变化差不多大。所有曲目一样响：每首曲子边播放边测量响度，并调到同一响度；第一次听到的曲子要几秒钟才调好。拉近轻响段落会抬高轻的段落、压低响的段落，音量调低时也听得清，但音乐的起伏会小一些。"
+ EU4HARMONY_SETTINGS_SOUND_INFO:0 "游戏设置里的音量滑块按位置的平方变化，每一格听起来变化差不多大。所有曲目一样响：每首曲子开始播放时先测量整首的响度，一秒内调到和其他曲子同样的响度。拉近轻响段落会抬高轻的段落、压低响的段落，音量调低时也听得清，但音乐的起伏会小一些。"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN:0 "非铁人游戏也可获得成就"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM:0 "游戏校验码与原版不同时也可获得成就"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS:0 "成就的其他规则仍按原版。修改在下一次开新局或读档时生效。"

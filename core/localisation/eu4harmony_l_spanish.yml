@@ -45,7 +45,7 @@ l_spanish:
  EU4HARMONY_SETTINGS_PAGE_SOUND:0 "Sonido"
  EU4HARMONY_SETTINGS_MUSIC_LOUDNESS:0 "Reproducir todas las pistas igual de fuerte"
  EU4HARMONY_SETTINGS_MUSIC_LEVELING:0 "Igualar pasajes suaves y fuertes"
- EU4HARMONY_SETTINGS_SOUND_INFO:0 "Los controles de volumen del juego siguen el cuadrado de su posición, para que cada paso se oiga más o menos igual. Pistas igual de fuertes: cada pista se mide mientras suena y se lleva a la misma sonoridad; una pista oída por primera vez se ajusta en unos segundos. Igualar los pasajes sube los suaves y baja los fuertes, para que la música se siga oyendo a bajo volumen, a costa de parte de su dinámica."
+ EU4HARMONY_SETTINGS_SOUND_INFO:0 "Los controles de volumen del juego siguen el cuadrado de su posición, para que cada paso se oiga más o menos igual. Pistas igual de fuertes: cuando empieza una pista, se mide su archivo entero y la pista se lleva en menos de un segundo a la misma sonoridad que las demás. Igualar los pasajes sube los suaves y baja los fuertes, para que la música se siga oyendo a bajo volumen, a costa de parte de su dinámica."
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN:0 "Logros fuera del modo Ironman"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM:0 "Logros con la suma de comprobación del juego cambiada"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS:0 "Las demás reglas de los logros siguen siendo las del juego. Los cambios se aplican a la próxima partida que se inicie o cargue."

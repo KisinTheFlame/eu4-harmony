@@ -1925,6 +1925,15 @@ This branch's player build, within a claim, started hidden; a new game as France
 - **Not verified**: anything heard; how a first hearing sounds as it is raised after its first minute; whether the limiter is heard on a track a short entry raised, now that one cannot be kept.
 - **Cleanup**: releasing the game put back the player's files, among them `settings.txt` and the autosaves the new game wrote, and removed `music-loudness.txt`; `dev.toml` was deleted.
 
+## 2026-11-05 Each track analyzed from its whole file as it starts (tested by me)
+
+The owner asked for each track's loudness to come from its whole file before it plays, in place of measuring as it plays and keeping that ([music-volume.md](music-volume.md)). A first developer build logged what a streaming voice's sound holds: the object at `[voice+8]` is the one the voice's method at vtable `+8` returns (vtable `0x1dac778`, method `0x9a170`), with the sound's name at `+0x10` ("maintheme"), its file's path in the game's files at `+0x50` ("music/maintheme.ogg"), its length in frames at `+0xd8` (11960945, the file's 271.2 s) and 44100 and 2 channels at `+0xe8`. Then the player build of the change, hidden without sound, the player's volumes, the main menu and a new game as France.
+
+- **The main theme**: "music/maintheme.ogg plays; the game's gain 0.0065", then "is -10.9 LUFS, analyzed in 0.56 s", ffmpeg's -10.9 for the file; the offline check decodes the same file in under half a second.
+- **DLC music**: in the game, `music/sight_of_the_black_sea.ogg` (in `dlc132.zip`) was -8.9 LUFS, analyzed in 0.49 s, and `music/austria_theme.ogg` (in `dlc140.zip`) -13.2, in 0.32 s; ffmpeg gives the files taken from those archives -8.9 and -13.2. Both were read through the game's file system, as the game reads them.
+- **Not verified**: anything heard; a mod's music; a file that cannot be decoded, which plays as it is (a unit test refuses what is not Ogg Vorbis); a track started again within the same game, which takes its measure from the first.
+- **Cleanup**: releasing the game put back the player's files, among them the autosaves the new game wrote, and the game folder's framework files; the files taken from the DLC archives were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

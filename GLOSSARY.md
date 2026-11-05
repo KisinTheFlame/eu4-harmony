@@ -347,7 +347,7 @@ How a volume slider of the game's settings becomes a gain. With the framework, t
 _Avoid_: volume scale
 
 **Loudness normalization**:
-Bringing every track of the music to the same integrated loudness, measured as the track plays and kept for the next time; a framework setting.
+Bringing every track of the music to the same integrated loudness, measured from the track's whole file as it starts; a framework setting.
 _Avoid_: volume normalization; compression (that is music leveling)
 
 **Music leveling**:
