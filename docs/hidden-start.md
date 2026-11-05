@@ -20,7 +20,7 @@ Status: H1 to H4 done (2026-11-04). Terms are in [GLOSSARY.md](../GLOSSARY.md) (
 
 ### What a hidden game does
 
-- **No window on the desktop.** The game's window is made hidden and is never shown, not even for a moment: no splash, nothing in the taskbar or Alt+Tab, and the focus stays with the program the player is in.
+- **No window on the desktop.** The game's window is made hidden, and where the game would show it, it is shown cloaked, as a tool window and without the focus: DWM draws nothing of it and lets no click on its place reach it, and it has no taskbar button and is not in Alt+Tab. Nothing of it is seen, not even for a moment: no splash, and the focus stays with the program the player is in. For the rest of Windows the window is shown, which matters: while it is not, NVIDIA's Direct3D 9 driver keeps blocks of the game's heap at most frames, 20 MB a minute and more ([prototype-log.md](prototype-log.md), "What grows outside the census, and the hidden window concealed").
 - **The size the player plays at.** The frame is the size the game's settings give it. With full screen in the settings the game made its window and its device windowed, at the settings' resolution, and the display was left alone (tried, below); should the window ever be made full screen, which would take the display, the hidden start ends the game instead.
 - **Drawing goes on.** Every frame is drawn and presented as with the window shown; the window is never minimized, which would slow the game to about ten frames a second.
 - **Windows' cursor and keys are the player's.** Remote control holds the game's cursor from the start, in the middle of the window, where it does not scroll the map, until the first input moves it; where the game would move Windows' cursor, it moves remote control's instead. What the player types and clicks in other programs never reaches the game.
@@ -39,7 +39,7 @@ Status: H1 to H4 done (2026-11-04). Terms are in [GLOSSARY.md](../GLOSSARY.md) (
 | --- | --- | --- |
 | `desktop.get` | | `hidden` (the window is hidden now), `hidden_start` (it started hidden), `sound` (it plays sound) |
 | `desktop.show` | | Shows the window of a game started hidden, as the player would have it, without taking the focus; from then on the player's mouse and keyboard reach it as usual |
-| `desktop.hide` | | Hides it again, remote control holding the cursor as at a hidden start |
+| `desktop.hide` | | Hides it again, cloaked as at a hidden start, remote control holding the cursor |
 
 Both `desktop.show` and `desktop.hide` are refused (`invalid_argument`) for a game not started hidden: such a game was started for the player to see, plays its sound, and may be full screen, which a hidden window cannot keep. They are remote control's only; extensions do not have them.
 
@@ -48,7 +48,7 @@ Both `desktop.show` and `desktop.hide` are refused (`invalid_argument`) for a ga
 One module of the core, `hidden`, reads the switches once as the framework starts (before the game's `main`), and answers whether the game was started hidden and whether it is hidden now. Its dependency points pass through unchanged in a start that is not hidden:
 
 - where the window is made (`0x14c40af`), its flags take `SDL_WINDOW_HIDDEN` in place of `SDL_WINDOW_SHOWN`, since SDL shows every window made without it;
-- Init's `ShowWindow` (`0x14c02ca`) is left out while hidden;
+- Init's `ShowWindow` (`0x14c02ca`) shows the window cloaked (`DWMWA_CLOAK`), as a tool window (`WS_EX_TOOLWINDOW`) and without the focus (`SW_SHOWNOACTIVATE`) while hidden; `desktop.hide` conceals it so again and `desktop.show` takes both off;
 - `main`'s store of `-suppresserrormessages` (`0x876b37`) stores it on for a hidden start;
 - the input device's move of Windows' cursor (`0x162e4d0`) moves remote control's held cursor instead while hidden;
 - after a crash, its minimizing of the window (`0x1654696`) is left out while hidden, and the start of the crash reporter (`0x164f950`) for a hidden start.

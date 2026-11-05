@@ -29,6 +29,8 @@ windows-sys = { workspace = true, features = [
     "Wdk_Storage_FileSystem",
     "Win32_Foundation",
     "Win32_Globalization",
+    # The hidden start's window, shown and cloaked.
+    "Win32_Graphics_Dwm",
     # Positions in the game's window and on the screen, for input.
     "Win32_Graphics_Gdi",
     "Win32_Security",
