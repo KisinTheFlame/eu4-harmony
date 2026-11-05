@@ -33,6 +33,7 @@ pub mod hooks;
 pub mod hosts;
 pub mod icu;
 pub mod lang;
+pub mod loading;
 pub mod loc;
 pub mod lua;
 pub mod map;
@@ -143,6 +144,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(saves::parallel::points());
     all.extend(saves::sum::points());
     all.extend(saves::update_thread::points());
+    all.extend(loading::points());
     all.extend(hidden::points());
     all.extend(sound::points());
     all
@@ -379,6 +381,7 @@ pub(crate) fn deferred_init() {
     speed::set_pace(chosen.fastest_speed);
     sound::choose(&chosen);
     saves::background::set_folder(&user_dir);
+    loading::set_folders(&game_dir, &user_dir);
     saves::parallel::start();
     tell_missing_fonts(&chosen);
     report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));

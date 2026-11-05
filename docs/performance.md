@@ -80,6 +80,19 @@ Then the game state's other sections written while the pool writes the loops, th
 - The main thread waited 40 to 80 ms for the pool where the world has written its game state; the pool's threads took 170 to 190 ms for both loops under that load.
 - A plain save of 1444 (34 MB) stopped the game for 149 ms.
 
+## The startup and a load (2026-11-05)
+
+[loading.md](loading.md)'s L1 to L3, one developer build with the test switches, `game-loads` on for the game's own startup and loads; the player's playset, every DLC, the files in the system's cache; other builds held the machine's processor at 67 to 94% ([prototype-log.md](prototype-log.md)).
+
+| | The game's | The framework's |
+| --- | --- | --- |
+| From the start to the main menu, s | 82, 82 | 68, 71 |
+| A load of an ironman save of 55 MB from the main menu: the save read and the world set up (`0x5cf740`), s | 6.2, 7.3 | 5.1, 4.7 |
+| The same load with what follows it (`0xd84b80`), s | 8.1, 8.7 | 6.7, 6.2 |
+
+- The first start after the framework is installed reads the music as the game does; the numbers above are of starts after it.
+- What is left is mostly the databases read on the LoadingThread, about 30 s of the startup on this machine ([research/loading.md](research/loading.md)).
+
 ## The events (2026-11-05)
 
 What the events of [player-actions.md](player-actions.md) cost the game: `building_finished`, `battle`, `war_declared`, `peace_made`, `province_owner_changed`, `month` and `year`. `cargo xtask scenario perf` on the player build of `claude/player-actions-fu-cost-view-4c4534`: a new game as Ming, 120 s at speed 5 from 1444.11.11, about 5.4 years; with `--perf.events` naming the seven kinds, a remote client reads events of those kinds before the game runs, so they are worked out from then on, and counts what was heard at the end. The framework counts the time each piece of that work takes and logs it when the session ends (`event costs:`, [`core/src/game/event_costs.rs`](../core/src/game/event_costs.rs)). The machine was the one under [Machine](#machine), busy with other sessions' builds.
