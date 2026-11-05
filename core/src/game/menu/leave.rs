@@ -30,6 +30,12 @@
 //!
 //! What the game's world reset and the map manager's destructor leave of a
 //! session, the framework's repairs put right (`crate::repairs`).
+//!
+//! The steps are taken here, as a whole, over [`Game`], what each does in
+//! the game: [`run_load`] at an in-game load, and a return across the two
+//! hooks it passes, [`run_return`] in the map manager's frame up to the
+//! restart, whose rest [`Returns`] keeps for [`run_restart`]. The hooks only
+//! hand over what they hold ([`InGame`]); the tests record the game instead.
 use crate::{
     game_string,
     hooks::HookFrame,
@@ -175,6 +181,131 @@ pub fn plan(to: Destination, ironman: bool, rules: Rules) -> Result<Vec<Step>, &
     Ok(steps)
 }
 
+/// What the steps of leaving a session do: the game's own in the game
+/// ([`InGame`]), recorded in the tests.
+trait Game {
+    /// Writes the ironman exit save, or says why it was not written.
+    fn exit_save(&mut self) -> Result<(), String>;
+    /// The session ends, for `end` (`crate::sessions::ending`).
+    fn end(&mut self, end: End);
+    /// The game's in-game load, and what it answered.
+    fn load(&mut self) -> u32;
+    /// The in-process return, or why it could not be made.
+    fn return_in_process(&mut self) -> Result<(), String>;
+    /// The game's restart, and what it answered.
+    fn restart(&mut self) -> usize;
+    /// The session stays: the map manager no longer returns.
+    fn stay(&mut self);
+    /// The player hears that the ironman exit save failed.
+    fn save_failed(&mut self);
+}
+
+/// Takes the steps of an in-game load: what the game's load answered, or why
+/// the framework stopped the load before it, which changed nothing.
+fn run_load(game: &mut impl Game, steps: Vec<Step>) -> Result<u32, String> {
+    for step in steps {
+        match step {
+            Step::ExitSave => game.exit_save().inspect_err(|_| game.save_failed())?,
+            Step::Ended(end) => game.end(end),
+            Step::Load => return Ok(game.load()),
+            Step::Restart | Step::Return | Step::Start => {}
+        }
+    }
+    // As the game's load answers when it read nothing.
+    Ok(1)
+}
+
+/// What a return to the main menu still has to take at the restart the map
+/// manager's frame asks for next: its steps from there, or why the session
+/// stays.
+type Rest = Result<Vec<Step>, String>;
+
+/// In the map manager's frame, as it returns: takes the steps up to the
+/// restart, and answers the rest.
+fn run_return(game: &mut impl Game, steps: Result<Vec<Step>, &'static str>) -> Rest {
+    let mut steps = steps.map_err(String::from)?;
+    let restart = steps.iter().position(|s| matches!(s, Step::Restart | Step::Return)).unwrap_or(steps.len());
+    for step in steps.drain(..restart) {
+        match step {
+            Step::ExitSave => game.exit_save()?,
+            Step::Ended(end) => game.end(end),
+            Step::Load | Step::Restart | Step::Return | Step::Start => {}
+        }
+    }
+    Ok(steps)
+}
+
+/// At the restart: takes the rest of the return the map manager's frame
+/// acted on, if it did. Answers what to give the game, and what came of the
+/// return unless the game restarts.
+fn run_restart(game: &mut impl Game, rest: Option<Rest>) -> (usize, Option<Result<(), String>>) {
+    match rest {
+        Some(Err(why)) => {
+            game.stay();
+            game.save_failed();
+            (0, Some(Err(why)))
+        }
+        // The map manager's flag stays set: the rest of its frame is skipped,
+        // and it goes at the application's switch. A start that follows is
+        // made at the new main menu's first frame (`super::main_menu_frame`).
+        Some(Ok(rest)) if rest.first() == Some(&Step::Return) && game.return_in_process().is_ok() => (0, Some(Ok(()))),
+        _ => (game.restart(), None),
+    }
+}
+
+/// The returns to the main menu remote control asks for, and the rest of the
+/// one the map manager's frame acted on, for the restart it asks for next.
+struct Returns {
+    /// How many remote control asked for.
+    asked: u64,
+    /// What came of the last one the map manager's frame acted on, whoever
+    /// asked for it: how many remote control had asked for by then, and its
+    /// outcome.
+    last: Option<(u64, Result<(), String>)>,
+    rest: Option<Rest>,
+}
+
+impl Returns {
+    /// Numbers a return remote control asks for. One asked for while another
+    /// waits for the map manager's frame to act on it is that same return,
+    /// and takes its number, so that both are answered.
+    fn ask(&mut self) -> u64 {
+        if self.last.as_ref().map_or(0, |(number, _)| *number) == self.asked {
+            self.asked += 1;
+        }
+        self.asked
+    }
+
+    /// The map manager's frame acted on a return, whoever asked for it.
+    fn acted_on(&mut self, outcome: Result<(), String>) {
+        self.last = Some((self.asked, outcome));
+    }
+
+    /// What came of the return `number`, once the map manager's frame acted
+    /// on it.
+    fn outcome(&self, number: u64) -> Option<Result<(), String>> {
+        self.last.as_ref().filter(|(n, _)| *n == number).map(|(_, outcome)| outcome.clone())
+    }
+}
+
+static RETURNS: Mutex<Returns> = Mutex::new(Returns { asked: 0, last: None, rest: None });
+
+fn returns<T>(f: impl FnOnce(&mut Returns) -> T) -> T {
+    f(&mut RETURNS.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Numbers a return to the main menu remote control asked for.
+pub(super) fn ask_return() -> u64 {
+    returns(Returns::ask)
+}
+
+/// What came of the return remote control asked for as `number`, once the
+/// map manager's frame acted on it: an in-process return was set off, or the
+/// session stays, and why.
+pub(super) fn return_outcome(number: u64) -> Option<Result<(), String>> {
+    returns(|r| r.outcome(number))
+}
+
 /// Whether the session is ironman.
 fn ironman(m: &Memory) -> bool {
     m.ptr(m.at(globals::WORLD)).and_then(|w| if w == 0 { Ok(0) } else { m.u8(w + world::IRONMAN) }).is_ok_and(|b| b != 0)
@@ -291,6 +422,73 @@ static ORIGINAL: Function<InGameLoad> = Function::new();
 static STOPPED: Mutex<Option<String>> = Mutex::new(None);
 static FAILED_SAVES: AtomicU64 = AtomicU64::new(0);
 
+/// The game's own steps of leaving a session, at the hook that takes them.
+struct InGame<'a> {
+    m: &'a Memory,
+    /// The in-game load's request, at the in-game load.
+    request: usize,
+    /// The application and the restart's argument, at the restart.
+    app: usize,
+    argument: usize,
+}
+
+impl Game for InGame<'_> {
+    fn exit_save(&mut self) -> Result<(), String> {
+        exit_save(self.m)
+    }
+
+    fn end(&mut self, end: End) {
+        sessions::ending(end);
+    }
+
+    fn load(&mut self) -> u32 {
+        let m = self.m;
+        QUIET_RESET.store(true, Ordering::Relaxed);
+        LOADING_IN_GAME.store(true, Ordering::Relaxed);
+        SETUP_SAVE_WAITED.store(false, Ordering::Relaxed);
+        let took = Took::begin();
+        let code = unsafe { ORIGINAL.get()(self.request) };
+        LOADING_IN_GAME.store(false, Ordering::Relaxed);
+        QUIET_RESET.store(false, Ordering::Relaxed);
+        log!("leave: the in-game load answered {:?}, {}; {}", Loaded::of(code), took.end(), crate::heap::split());
+        if SETUP_SAVE_WAITED.swap(false, Ordering::Relaxed) {
+            log!("leave: the save the game makes as it sets the loaded ironman session up, now that the load let its file go");
+            if let Err(e) = m.call(m.at(EXIT_SAVE), &[]) {
+                log!("leave: that save faulted: {e}");
+            }
+        }
+        code
+    }
+
+    fn return_in_process(&mut self) -> Result<(), String> {
+        match in_process_return(self.m, self.app) {
+            Ok(()) => {
+                log!("leave: the main menu takes over at the application's next switch; {}", crate::heap::split());
+                Ok(())
+            }
+            Err(why) => {
+                log!("leave: no in-process return ({why}); the game restarts");
+                Err(why)
+            }
+        }
+    }
+
+    fn restart(&mut self) -> usize {
+        unsafe { ORIGINAL_RESTART.get()(self.app, self.argument) }
+    }
+
+    fn stay(&mut self) {
+        if let Ok(manager) = map_manager(self.m) {
+            let _ = self.m.write(manager + manager_fields::RETURN, &[0]);
+        }
+    }
+
+    fn save_failed(&mut self) {
+        let n = FAILED_SAVES.fetch_add(1, Ordering::Relaxed);
+        crate::notice::post(&format!("ironman save failed:{n}"), Message::new("EU4HARMONY_IRONMAN_SAVE_FAILED"));
+    }
+}
+
 /// Every in-game load: the steps [`plan`] gives for it, around the game's own.
 unsafe extern "C" fn in_game_load(request: usize) -> u32 {
     let Some(m) = crate::memory().copied() else { return ORIGINAL.get()(request) };
@@ -299,39 +497,14 @@ unsafe extern "C" fn in_game_load(request: usize) -> u32 {
         let ironman = ironman(&m);
         let steps = plan(Destination::Save, ironman, Rules::now());
         log!("leave: an in-game load, {}ironman: {steps:?}", if ironman { "" } else { "not " });
-        for step in steps.unwrap_or_default() {
-            match step {
-                Step::Ended(end) => sessions::ending(end),
-                Step::ExitSave => {
-                    if let Err(why) = exit_save(&m) {
-                        log!("leave: the load did not happen: {why}");
-                        let n = FAILED_SAVES.fetch_add(1, Ordering::Relaxed);
-                        crate::notice::post(&format!("ironman save failed:{n}"), Message::new("EU4HARMONY_IRONMAN_SAVE_FAILED"));
-                        *STOPPED.lock().unwrap_or_else(|e| e.into_inner()) = Some(why);
-                        return 1;
-                    }
-                }
-                Step::Load => {
-                    QUIET_RESET.store(true, Ordering::Relaxed);
-                    LOADING_IN_GAME.store(true, Ordering::Relaxed);
-                    SETUP_SAVE_WAITED.store(false, Ordering::Relaxed);
-                    let took = Took::begin();
-                    let code = unsafe { ORIGINAL.get()(request) };
-                    LOADING_IN_GAME.store(false, Ordering::Relaxed);
-                    QUIET_RESET.store(false, Ordering::Relaxed);
-                    log!("leave: the in-game load answered {:?}, {}; {}", Loaded::of(code), took.end(), crate::heap::split());
-                    if SETUP_SAVE_WAITED.swap(false, Ordering::Relaxed) {
-                        log!("leave: the save the game makes as it sets the loaded ironman session up, now that the load let its file go");
-                        if let Err(e) = m.call(m.at(EXIT_SAVE), &[]) {
-                            log!("leave: that save faulted: {e}");
-                        }
-                    }
-                    return code;
-                }
-                Step::Restart | Step::Return | Step::Start => {}
+        match run_load(&mut InGame { m: &m, request, app: 0, argument: 0 }, steps.unwrap_or_default()) {
+            Ok(code) => code,
+            Err(why) => {
+                log!("leave: the load did not happen: {why}");
+                *STOPPED.lock().unwrap_or_else(|e| e.into_inner()) = Some(why);
+                1
             }
         }
-        1
     })
 }
 
@@ -415,11 +588,6 @@ pub fn load_in_game(m: &Memory, name: &str) -> Result<(), String> {
     }
 }
 
-/// What the map manager's frame decided as the session is left for the main
-/// menu, for the restart it asks for next ([`restart`]): whether the return
-/// is an in-process one, or why the session stays.
-static RETURNING: Mutex<Option<Result<bool, String>>> = Mutex::new(None);
-
 /// Where the return the map manager's frame acts on leaves the session for:
 /// a new game when remote control asked for one from it (`menu.start`),
 /// which starts at the new main menu's first frame; the main menu
@@ -442,18 +610,9 @@ extern "C" fn returning() {
         let m = crate::hooked_memory();
         let rules = Rules::now();
         let to = returning_to(super::new_game_asked(), rules);
-        let decided = plan(to, ironman(&m), rules).map_err(String::from).and_then(|steps| {
-            for step in steps {
-                match step {
-                    Step::Ended(end) => sessions::ending(end),
-                    Step::ExitSave => exit_save(&m)?,
-                    Step::Load | Step::Restart | Step::Return | Step::Start => {}
-                }
-            }
-            Ok(rules.return_without_restart)
-        });
-        log!("leave: returning to the main menu{}: {decided:?}", if to == Destination::NewGame { " for a new game" } else { "" });
-        *RETURNING.lock().unwrap_or_else(|e| e.into_inner()) = Some(decided);
+        let rest = run_return(&mut InGame { m: &m, request: 0, app: 0, argument: 0 }, plan(to, ironman(&m), rules));
+        log!("leave: returning to the main menu{}, then: {rest:?}", if to == Destination::NewGame { " for a new game" } else { "" });
+        returns(|r| r.rest = Some(rest));
     });
 }
 
@@ -468,39 +627,24 @@ extern "C" fn returning_stub() {
 type Restart = unsafe extern "C" fn(usize, usize) -> usize;
 static ORIGINAL_RESTART: Function<Restart> = Function::new();
 
-/// The return's restart: as [`returning`] decided, the game restarts, or
-/// returns in process, or stays in the session.
+/// The return's restart: with the rest [`returning`] left, the game
+/// restarts, or returns in process, or stays in the session.
 unsafe extern "C" fn restart(app: usize, argument: usize) -> usize {
-    let decided = RETURNING.lock().unwrap_or_else(|e| e.into_inner()).take();
+    let rest = returns(|r| r.rest.take());
     let Some(m) = crate::memory().copied() else { return ORIGINAL_RESTART.get()(app, argument) };
-    let stay = |m: &Memory| {
-        if let Ok(manager) = map_manager(m) {
-            let _ = m.write(manager + manager_fields::RETURN, &[0]);
-        }
-    };
-    crate::guarded("return to the main menu", || match decided {
-        // The flag stays set: the rest of the map manager's frame is skipped,
-        // and the map manager goes at the switch.
-        Some(Ok(true)) => match in_process_return(&m, app) {
-            Ok(()) => {
-                log!("leave: the main menu takes over at the application's next switch; {}", crate::heap::split());
-                super::return_done(Ok(()));
-                0
-            }
-            Err(why) => {
-                log!("leave: no in-process return ({why}); the game restarts");
-                unsafe { ORIGINAL_RESTART.get()(app, argument) }
-            }
-        },
-        Some(Err(why)) => {
+    crate::guarded("return to the main menu", || {
+        if let Some(Err(why)) = &rest {
             log!("leave: the session stays: {why}");
-            stay(&m);
-            let n = FAILED_SAVES.fetch_add(1, Ordering::Relaxed);
-            crate::notice::post(&format!("ironman save failed:{n}"), Message::new("EU4HARMONY_IRONMAN_SAVE_FAILED"));
-            super::return_done(Err(why));
-            0
         }
-        Some(Ok(false)) | None => unsafe { ORIGINAL_RESTART.get()(app, argument) },
+        let (answer, outcome) = run_restart(&mut InGame { m: &m, request: 0, app, argument }, rest);
+        if let Some(outcome) = outcome {
+            if let Err(why) = &outcome {
+                // A new game asked for from the session does not come either.
+                super::start_failed(why);
+            }
+            returns(|r| r.acted_on(outcome));
+        }
+        answer
     })
 }
 
@@ -727,6 +871,144 @@ mod tests {
         // Turned off since the start was asked for: the game restarts, and
         // the start is answered as the process ends.
         assert_eq!(returning_to(true, RESTART), Destination::MainMenu);
+    }
+
+    /// What the game was asked to do, in order.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Did {
+        ExitSave,
+        End(End),
+        Load,
+        ReturnInProcess,
+        Restart,
+        Stay,
+        SaveFailed,
+    }
+
+    /// The game, recorded: its ironman exit save and in-process return fail
+    /// when told to.
+    #[derive(Default)]
+    struct Recorded {
+        did: Vec<Did>,
+        save_fails: bool,
+        return_fails: bool,
+    }
+
+    impl Game for Recorded {
+        fn exit_save(&mut self) -> Result<(), String> {
+            self.did.push(Did::ExitSave);
+            if self.save_fails {
+                Err("no room on the disk".into())
+            } else {
+                Ok(())
+            }
+        }
+        fn end(&mut self, end: End) {
+            self.did.push(Did::End(end));
+        }
+        fn load(&mut self) -> u32 {
+            self.did.push(Did::Load);
+            0
+        }
+        fn return_in_process(&mut self) -> Result<(), String> {
+            self.did.push(Did::ReturnInProcess);
+            if self.return_fails {
+                Err("no memory for the main menu".into())
+            } else {
+                Ok(())
+            }
+        }
+        fn restart(&mut self) -> usize {
+            self.did.push(Did::Restart);
+            7
+        }
+        fn stay(&mut self) {
+            self.did.push(Did::Stay);
+        }
+        fn save_failed(&mut self) {
+            self.did.push(Did::SaveFailed);
+        }
+    }
+
+    /// A return to `to` as the map manager's frame and then its restart take it.
+    fn leave(game: &mut Recorded, to: Destination, ironman: bool, rules: Rules) -> (usize, Option<Result<(), String>>) {
+        let rest = run_return(game, plan(to, ironman, rules));
+        run_restart(game, Some(rest))
+    }
+
+    #[test]
+    fn an_ironman_in_game_load_is_saved_ended_and_loaded_in_that_order() {
+        let mut game = Recorded::default();
+        assert_eq!(run_load(&mut game, plan(Destination::Save, true, ALL).unwrap()), Ok(0));
+        assert_eq!(game.did, [Did::ExitSave, Did::End(End::Load), Did::Load]);
+    }
+
+    #[test]
+    fn an_in_game_load_whose_exit_save_fails_changes_nothing() {
+        let mut game = Recorded { save_fails: true, ..Recorded::default() };
+        assert!(run_load(&mut game, plan(Destination::Save, true, ALL).unwrap()).is_err());
+        assert_eq!(game.did, [Did::ExitSave, Did::SaveFailed]);
+    }
+
+    #[test]
+    fn a_return_without_restarting_is_made_in_process_and_answered() {
+        let mut game = Recorded::default();
+        assert_eq!(leave(&mut game, Destination::MainMenu, true, ALL), (0, Some(Ok(()))));
+        assert_eq!(game.did, [Did::ExitSave, Did::End(End::Return), Did::ReturnInProcess]);
+    }
+
+    #[test]
+    fn a_return_for_a_new_game_is_made_in_process_and_leaves_the_start_to_the_main_menu() {
+        let mut game = Recorded::default();
+        assert_eq!(leave(&mut game, Destination::NewGame, false, ALL), (0, Some(Ok(()))));
+        assert_eq!(game.did, [Did::End(End::NewGame), Did::ReturnInProcess]);
+    }
+
+    #[test]
+    fn a_return_with_restarting_restarts_the_game_unanswered() {
+        let mut game = Recorded::default();
+        assert_eq!(leave(&mut game, Destination::MainMenu, true, RESTART), (7, None));
+        assert_eq!(game.did, [Did::ExitSave, Did::End(End::Return), Did::Restart]);
+    }
+
+    #[test]
+    fn an_in_process_return_that_cannot_be_made_restarts_the_game() {
+        let mut game = Recorded { return_fails: true, ..Recorded::default() };
+        assert_eq!(leave(&mut game, Destination::MainMenu, false, ALL), (7, None));
+        assert_eq!(game.did, [Did::End(End::Return), Did::ReturnInProcess, Did::Restart]);
+    }
+
+    #[test]
+    fn a_return_whose_exit_save_fails_keeps_the_session_and_says_why() {
+        for to in [Destination::MainMenu, Destination::NewGame] {
+            let mut game = Recorded { save_fails: true, ..Recorded::default() };
+            assert_eq!(leave(&mut game, to, true, ALL), (0, Some(Err("no room on the disk".into()))));
+            // Never told it ended, as it goes on; the game does not restart.
+            assert_eq!(game.did, [Did::ExitSave, Did::Stay, Did::SaveFailed], "{to:?}");
+        }
+    }
+
+    #[test]
+    fn a_restart_no_return_asked_for_is_the_games_own() {
+        let mut game = Recorded::default();
+        assert_eq!(run_restart(&mut game, None), (7, None));
+        assert_eq!(game.did, [Did::Restart]);
+    }
+
+    #[test]
+    fn returns_asked_for_while_one_is_pending_are_answered_with_it() {
+        let mut returns = Returns { asked: 0, last: None, rest: None };
+        let (first, second) = (returns.ask(), returns.ask());
+        assert_eq!(first, second);
+        assert_eq!(returns.outcome(first), None);
+        returns.acted_on(Err("the game could not write the ironman exit save".into()));
+        assert_eq!(returns.outcome(first), Some(Err("the game could not write the ironman exit save".into())));
+        // Once it was acted on, another is another return.
+        let third = returns.ask();
+        assert_ne!(third, first);
+        assert_eq!(returns.outcome(third), None);
+        returns.acted_on(Ok(()));
+        assert_eq!(returns.outcome(third), Some(Ok(())));
     }
 
     #[test]
