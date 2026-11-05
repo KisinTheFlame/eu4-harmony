@@ -508,9 +508,12 @@ impl Extension {
                 }
             }
         }
+        // Stopped on the way, it keeps no task: they would never run again.
         let mut state = self.state();
-        still.append(&mut state.tasks);
-        state.tasks = still;
+        if state.stopped.is_none() {
+            still.append(&mut state.tasks);
+            state.tasks = still;
+        }
     }
 
     /// An error in a handler: logged, the same one only counted after its

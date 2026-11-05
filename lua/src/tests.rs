@@ -450,6 +450,33 @@ fn running_out_of_the_extension_s_memory_is_an_error() {
 }
 
 #[test]
+fn a_stopped_extension_keeps_no_waiting_tasks() {
+    let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
+    let main = r#"
+        return {
+          on_wait = function(game) http.fetch("https://api.example.com/never") end,
+          on_spin = function(game) http.fetch("https://api.example.com/spin") while true do end end,
+        }
+        "#;
+    let (e, host) = load_with("stopped-tasks", main, &[("eu4-harmony/manifest.toml", manifest)]).unwrap();
+    e.handle("on_wait", &[]);
+    for _ in 0..TIMEOUTS {
+        e.handle("on_spin", &[]);
+    }
+    assert_eq!(e.waiting(), 1 + TIMEOUTS as usize, "{:?}", errors(&e));
+    for (request, slot) in host.requests.lock().unwrap().iter() {
+        if request.target.url().ends_with("/spin") {
+            *slot.lock().unwrap() = Some(Ok(fetch::Response { status: 200, headers: vec![], body: vec![] }));
+        }
+    }
+    // The task still waiting is looked at before the ones whose answers
+    // came, which run past the time limit until the extension is stopped.
+    e.poll();
+    assert!(e.state().stopped.is_some());
+    assert_eq!(e.waiting(), 0);
+}
+
+#[test]
 fn the_time_limit_is_not_caught_by_pcall() {
     let e = load_one(
         "pcall-forever",
