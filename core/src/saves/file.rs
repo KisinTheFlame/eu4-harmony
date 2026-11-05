@@ -307,6 +307,55 @@ pub(crate) fn crc32_update(mut crc: u32, data: &[u8]) -> u32 {
     crc
 }
 
+/// The CRC of `a` followed by `b`, from the CRC of each and the length of
+/// `b`: `a`'s CRC moved past as many zero bytes, then `b`'s added.
+pub(crate) fn crc32_combine(a: u32, b: u32, b_len: usize) -> u32 {
+    // A zero bit more moves the register by one step of the polynomial: as a
+    // matrix over GF(2), `odd`. Its squares move it by 2, 4, 8... bits.
+    let mut odd = [0u32; 32];
+    odd[0] = 0xedb8_8320;
+    for (i, row) in odd.iter_mut().enumerate().skip(1) {
+        *row = 1 << (i - 1);
+    }
+    let mut even = gf2_square(&odd);
+    odd = gf2_square(&even);
+    let (mut a, mut len) = (a, b_len);
+    while len != 0 {
+        // A byte's zeros the first time, then twice as many each time.
+        even = gf2_square(&odd);
+        if len & 1 != 0 {
+            a = gf2_times(&even, a);
+        }
+        len >>= 1;
+        if len == 0 {
+            break;
+        }
+        odd = gf2_square(&even);
+        if len & 1 != 0 {
+            a = gf2_times(&odd, a);
+        }
+        len >>= 1;
+    }
+    a ^ b
+}
+
+fn gf2_times(matrix: &[u32; 32], mut vector: u32) -> u32 {
+    let mut sum = 0;
+    let mut row = 0;
+    while vector != 0 {
+        if vector & 1 != 0 {
+            sum ^= matrix[row];
+        }
+        vector >>= 1;
+        row += 1;
+    }
+    sum
+}
+
+fn gf2_square(matrix: &[u32; 32]) -> [u32; 32] {
+    std::array::from_fn(|i| gf2_times(matrix, matrix[i]))
+}
+
 // ---------- inflate (RFC 1951) ----------
 
 struct Bits<'a> {
@@ -637,6 +686,15 @@ mod tests {
         // In pieces, carrying the register.
         let (a, b) = data.split_at(1_001);
         assert_eq!(!crc32_update(crc32_update(!0, a), b), crc32(&data));
+    }
+
+    #[test]
+    fn two_crcs_combine_into_the_crc_of_both() {
+        let data: Vec<u8> = (0u32..70_001).map(|i| (i.wrapping_mul(2_654_435_761) >> 11) as u8).collect();
+        for at in [0, 1, 8, 1_000, 65_536, 70_000, 70_001] {
+            let (a, b) = data.split_at(at);
+            assert_eq!(crc32_combine(crc32(a), crc32(b), b.len()), crc32(&data), "split at {at}");
+        }
     }
 
     #[test]

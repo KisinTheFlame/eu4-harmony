@@ -25,10 +25,10 @@
 //! The game's deflate at level 0 still passes the data through zlib and takes
 //! its CRC a byte at a time, a quarter of an autosave's stop
 //! (docs/research/saves.md, "Where a save's zip goes"). So at level 0 the
-//! framework copies an entry's data into the zip's stored blocks itself, its
-//! CRC taken eight bytes at a step: the same entry, framed in blocks of its
-//! own.
-use super::file::crc32_update;
+//! framework copies an entry's data into the zip's stored blocks itself: the
+//! same entry, framed in blocks of its own, its CRC taken in parts by the
+//! threads that write the game state (`super::parallel`) and combined.
+use super::file::{crc32, crc32_combine};
 use crate::hooks::HookFrame;
 use crate::memory::Memory;
 use crate::points::{Function, Point};
@@ -131,25 +131,40 @@ fn store(m: Memory, zip: usize, data: usize, crc: *mut u32) -> Result<u32> {
     m.call(m.vslot(data, STREAM_SEEK)?, &[data, 0])?;
     let out = m.ptr(zip)?;
     let (read, write) = (m.vslot(data, STREAM_READ)?, m.vslot(out, STREAM_WRITE)?);
-    let mut register = unsafe { *crc };
-    let mut input = vec![0u8; STORED_BATCH];
+    let mut all = vec![0u8; size];
+    for batch in all.chunks_mut(STORED_BATCH) {
+        m.call(read, &[data, batch.as_mut_ptr() as usize, batch.len()])?;
+    }
+    // The register carried in, as the CRC of what came before.
+    unsafe { *crc = crc32_combine(!*crc, crc_on_threads(&all), size) };
     let mut output = Vec::with_capacity(STORED_BATCH + STORED_BATCH / STORED_BLOCK * 5 + 5);
-    let (mut left, mut written) = (size, 0usize);
-    loop {
-        let n = left.min(STORED_BATCH);
-        m.call(read, &[data, input.as_mut_ptr() as usize, n])?;
-        register = crc32_update(register, &input[..n]);
-        left -= n;
+    let mut written = 0usize;
+    let batches = all.chunks(STORED_BATCH).count().max(1);
+    for (i, batch) in all.chunks(STORED_BATCH).chain(all.is_empty().then_some(&[][..])).enumerate() {
         output.clear();
-        stored_blocks(&input[..n], left == 0, &mut output);
+        stored_blocks(batch, i + 1 == batches, &mut output);
         m.call(write, &[out, output.as_ptr() as usize, output.len()])?;
         written += output.len();
-        if left == 0 {
-            break;
-        }
     }
-    unsafe { *crc = !register };
     u32::try_from(written).map_err(|_| "an entry of 4 GB or more".to_string())
+}
+
+/// The CRC of `data`, its parts taken by the pool's threads and this one
+/// and combined.
+fn crc_on_threads(data: &[u8]) -> u32 {
+    const FEWEST: usize = 4 << 20;
+    const PARTS: usize = 32;
+    if data.len() < FEWEST {
+        return crc32(data);
+    }
+    let (at, len) = (data.as_ptr() as usize, data.len());
+    let part = move |i: usize| i * len / PARTS..(i + 1) * len / PARTS;
+    // `data` stays as it is until `each` returns.
+    let crcs = super::parallel::each(PARTS, move |i| crc32(unsafe { std::slice::from_raw_parts((at + part(i).start) as *const u8, part(i).len()) }));
+    match crcs {
+        Some(crcs) => crcs.iter().enumerate().fold(0, |all, (i, &c)| crc32_combine(all, c, part(i).len())),
+        None => crc32(data),
+    }
 }
 
 /// `data` as deflate's stored blocks, the last of them marked final when
