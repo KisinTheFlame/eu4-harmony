@@ -80,6 +80,16 @@ group! {
         /// The country to ally with.
         country: CountryTag,
     } -> Outcome, "answer: accepted, declined or pending";
+    /// Calls an ally to arms in the wars the player is in, as the diplomacy
+    /// panel's call to arms button and the window it opens send the call,
+    /// with no land promised: the ally joins each of the player's wars the
+    /// game calls it into when it accepts. `rejected` when the diplomacy
+    /// panel offers no call to arms to that country, or the game does not
+    /// let the player send it, with its reasons.
+    game CallToArms "call_to_arms" {
+        /// The ally to call.
+        country: CountryTag,
+    } -> Outcome, "answer: accepted, declined or pending";
 }
 
 /// A war goal the game offers for a declaration of war.

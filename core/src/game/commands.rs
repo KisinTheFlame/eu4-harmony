@@ -310,6 +310,27 @@ pub fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GR
     Ok(())
 }
 
+/// Whether the command `text` writes would pass its own check now, as
+/// [`post`] asks it before executing it, without executing it: for a panel's
+/// read of what its buttons would do. Refused only when the game reads the
+/// text otherwise than it is written. Only on the main thread, at a safe
+/// point.
+pub fn passes(text: &str) -> Result<bool, Refused> {
+    let given = Written::parse(text).map_err(Refused::Unread)?;
+    let m = game()?;
+    context(m)?;
+    let Some(command) = read(m, &game_text::from_str(text))? else {
+        return Err(Refused::Unread(format!("the game has no command {:?}", given.kind)));
+    };
+    let refusal = refused(m, command, &given)?;
+    m.call(m.vslot(command, DESTROY)?, &[command, FREE])?;
+    match refusal {
+        None => Ok(true),
+        Some(Refused::Check) => Ok(false),
+        Some(refusal) => Err(refusal),
+    }
+}
+
 /// Whether the session's update would execute commands now: in a state in
 /// which it runs its queue, with no command executing and none held back.
 fn executes(m: &Memory, session: usize) -> GResult<bool> {
@@ -454,7 +475,7 @@ extern "C" fn executing(frame: *mut HookFrame) {
         let Ok(command) = m.ptr(unsafe { (*frame).args[0] } + LAMBDA_COMMAND) else { return };
         let Ok(token) = m.vslot(command, TYPE).and_then(|f| m.call(f, &[command])) else { return };
         let token = token as u32;
-        let kind = token_name(&m, token).unwrap_or_else(|| format!("token {token}"));
+        let kind = type_name(&m, token).unwrap_or_else(|| format!("token {token}"));
         let heard = Heard { m, command, token, kind, id: m.u32(command + ID).unwrap_or(0), text: OnceCell::new() };
         let listeners = LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for listener in listeners {
@@ -463,10 +484,9 @@ extern "C" fn executing(frame: *mut HookFrame) {
     })
 }
 
-/// The name of token `token`: a command's type, or the key of a culture, a
-/// religion, a trade good, an idea group or another object the game names by
-/// a token (docs/research/provinces.md, "Keys of game objects").
-pub fn token_name(m: &Memory, token: u32) -> Option<String> {
+/// The name of token `token`: a command's type, or the key of an object
+/// written by its token, such as a culture.
+pub fn type_name(m: &Memory, token: u32) -> Option<String> {
     if m.u8(m.at(TOKENS_READY)).ok()? == 0 || token as i32 > m.i32(m.at(TOKENS_LAST)).ok()? {
         return None;
     }
@@ -519,18 +539,24 @@ fn written(m: &Memory, command: usize, token: u32) -> crate::Result<Vec<u8>> {
     // The game grew the vector through the stream.
     let bytes = unsafe { std::ptr::read_volatile(&bytes) };
     let result = result.and_then(|_| m.bytes(bytes[0], bytes[1] - bytes[0]));
-    if bytes[0] != 0 {
-        // As the game frees a vector's buffer: a large one is aligned, with
-        // the block it was cut from just before it.
-        let mut size = bytes[2] - bytes[0];
-        let mut block = bytes[0];
+    free_vector(m, bytes)?;
+    result
+}
+
+/// Frees the buffer of a `std::vector` the game grew, (start, end, end of
+/// capacity), as the game frees one: a large one is aligned, with the block
+/// it was cut from just before it. Its items are left as they are.
+pub(crate) fn free_vector(m: &Memory, vector: [usize; 3]) -> crate::Result<()> {
+    if vector[0] != 0 {
+        let mut size = vector[2] - vector[0];
+        let mut block = vector[0];
         if size >= 0x1000 {
             size += 0x27;
             block = m.ptr(block - 8)?;
         }
         m.call(m.at(DELETE), &[block, size])?;
     }
-    result
+    Ok(())
 }
 
 /// The command `text` (game text) holds, made by the game's factory and read

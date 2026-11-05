@@ -404,7 +404,9 @@ fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
             _ => Err(wrong()),
         },
         Kind::Date => date_text(value).map(Value::String).ok_or_else(wrong),
-        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys => string(value).map(Value::String).ok_or_else(wrong),
+        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys | Kind::PowerKind => {
+            string(value).map(Value::String).ok_or_else(wrong)
+        }
         Kind::Allies => match value {
             LuaValue::String(_) => string(value).map(Value::String).ok_or_else(wrong),
             LuaValue::Table(t) => {
@@ -420,11 +422,22 @@ fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
             }
             _ => Err(wrong()),
         },
+        Kind::Armies => match value {
+            LuaValue::Table(t) => {
+                let ids = t.clone().sequence_values::<LuaValue>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
+                ids.iter().map(|id| arg_json(Kind::Army, id).map_err(|_| wrong())).collect::<Result<Vec<_>, _>>().map(Value::Array)
+            }
+            _ => Err(wrong()),
+        },
         Kind::Provinces => match value {
             LuaValue::Table(t) => {
                 let ids = t.clone().sequence_values::<i64>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
                 Ok(Value::Array(ids.into_iter().map(|i| Value::Number(Number::from(i))).collect()))
             }
+            _ => Err(wrong()),
+        },
+        Kind::Terms => match value {
+            LuaValue::Table(_) => values::to_json(value),
             _ => Err(wrong()),
         },
     }

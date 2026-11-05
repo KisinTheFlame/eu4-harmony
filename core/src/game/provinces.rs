@@ -358,7 +358,7 @@ fn token_key(m: &Memory, province: usize, at: usize, token: usize, valid: bool) 
         return Ok(None);
     }
     let token = m.u32(object + token)?;
-    Ok(Some(commands::token_name(m, token).ok_or_else(|| format!("token {token:#x} has no name"))?))
+    Ok(Some(commands::type_name(m, token).ok_or_else(|| format!("token {token:#x} has no name"))?))
 }
 
 /// The key of the province's trade node.
@@ -429,7 +429,7 @@ fn constructions(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Construc
     let mut out = Vec::new();
     for c in list_items(m, province + field::CONSTRUCTIONS)? {
         let token = m.u32(c + construction::KIND)?;
-        let kind = commands::token_name(m, token).ok_or_else(|| format!("construction token {token:#x} has no name"))?;
+        let kind = commands::type_name(m, token).ok_or_else(|| format!("construction token {token:#x} has no name"))?;
         let country = Tag(m.u64(c + construction::COUNTRY)?);
         let makes = match kind.as_str() {
             "building_construction" => Some(text_at(m, m.ptr(c + construction::MAKES)? + building::NAME)?),

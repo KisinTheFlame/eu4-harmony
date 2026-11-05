@@ -1,6 +1,6 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/research/countries.md).
-use super::{commands, context, country, fail, game, span, thousandths, view, world, Caller, Ctx, GResult, Status, Tag, View};
+use super::{commands, context, country, game, span, thousandths, view, world, Caller, Ctx, GResult, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
@@ -18,13 +18,13 @@ use eu4_harmony_remote::{
 use std::collections::BTreeSet;
 
 /// The country whose tag is these three letters (for example `CAS`);
-/// [`Status::NotFound`] when there is none.
+/// [`super::Status::NotFound`] when there is none.
 pub fn find(_: Caller, letters: [u8; 3]) -> GResult<Tag> {
     let m = game()?;
     let ctx = context(m)?;
     match world::countries(m, &ctx)?.into_iter().find(|t| t.letters() == letters) {
         Some(tag) => Ok(tag),
-        None => fail(Status::NotFound, format!("no country {}", String::from_utf8_lossy(&letters))),
+        None => Err(eu4_harmony_checks::countries::not_found(&String::from_utf8_lossy(&letters)).into()),
     }
 }
 
@@ -341,7 +341,7 @@ fn ideas_of(m: &Memory, c: usize) -> GResult<Vec<IdeaGroup>> {
     for item in (0..count).map(|i| begin + i * fields::IDEA_GROUP_SIZE) {
         let group = m.ptr(item)?;
         let token = m.u32(group + idea_group::TOKEN)?;
-        let key = commands::token_name(m, token).ok_or_else(|| format!("idea group token {token:#x} has no name"))?;
+        let key = commands::type_name(m, token).ok_or_else(|| format!("idea group token {token:#x} has no name"))?;
         out.push(IdeaGroup { group: key, ideas: m.i32(item + fields::IDEA_GROUP_COUNT)?, national: m.u8(group + idea_group::FREE)? != 0 });
     }
     Ok(out)
@@ -547,7 +547,7 @@ fn wars_of(m: &Memory, ctx: &Ctx, country: Tag) -> GResult<Vec<War>> {
 
 /// The tags of a war's attackers and defenders, not yet checked; None when
 /// `war` is no war or its sides cannot be read.
-fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
+pub(super) fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
     if war == 0 || m.ptr(war).ok()? != m.at(classes::WAR) {
         return None;
     }
@@ -557,7 +557,7 @@ fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::fake::game_tag;
+    use crate::catalogue::fake::game_tag;
 
     /// A war of the game's class with these sides; its name is empty.
     fn war_object(m: &Memory, attackers: &[Tag], defenders: &[Tag]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {

@@ -51,6 +51,12 @@ pub fn paused() -> Refusal {
 }
 
 /// The refusal of a fleet where a capability takes a land army.
+/// The refusal of a transport when the player has no fleet that may carry
+/// the army.
+pub fn no_transports() -> Refusal {
+    Refusal::new(Status::Rejected, "the player has no fleet that may carry this army")
+}
+
 pub fn not_land() -> Refusal {
     Refusal::new(Status::InvalidArgument, "not a land army")
 }
@@ -58,6 +64,17 @@ pub fn not_land() -> Refusal {
 /// The refusal of an ID that is none of the player's armies and fleets.
 pub fn not_own(id: u64) -> Refusal {
     Refusal::new(Status::NotFound, format!("no own army {id}"))
+}
+
+/// The refusal of the army selected while no single-army panel is open.
+pub fn panel_not_open() -> Refusal {
+    Refusal::new(Status::NotFound, "army panel not open")
+}
+
+/// The refusal of the army selected when the open panel shows none of the
+/// player's land armies.
+pub fn none_selected() -> Refusal {
+    Refusal::new(Status::NotFound, "no own land army selected")
 }
 
 /// The refusal of what reads the armies the player sees while visibility

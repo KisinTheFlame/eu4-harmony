@@ -1,6 +1,7 @@
-//! Provinces: every province, a province's neighbors, and one province's
-//! snapshot.
-use crate::{CountryTag, Date, ProvinceId, ProvinceList};
+//! Provinces: every province, a province's neighbors, one province's
+//! snapshot, and what the player does in the province view: developing it,
+//! its autonomy, its state, its edict, coring it and changing its culture.
+use crate::{choices::Choice, CountryTag, Date, ProvinceId, ProvinceList};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -31,6 +32,123 @@ group! {
         /// The province.
         province: ProvinceId,
     } -> Box<ProvinceSnapshot>, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings, autonomy (percent), culture, religion and trade_good (their keys), unrest, trade_node (its key), center_of_trade (its level, 0 for none), trade_company, state (state or territory, null when it has no owner), edict (the state edict's key), cores, claims, constructions (each its kind, the game's key such as building_construction, the country, progress from 0 to 1, start and end dates, and the building or unit type it makes), missionary (a missionary's progress in percent, null when none works there) and colony_size (null for no colony); in the player's view unrest, constructions and missionary are null for a province another country owns";
+
+    /// What the province view's buttons offer the player in a province now:
+    /// each action this group has, with whether the player can, the game's
+    /// reasons why not, as the button's tooltip gives them, and its cost.
+    /// Setting a state edict is one entry for each edict. Its buildings are
+    /// building.options'.
+    game Options "options" {
+        /// The province.
+        province: ProvinceId,
+    } -> Vec<ProvinceOption>, "one for each action: action (the capability's own name, such as develop_tax), edict (the edict's content key, for set_edict), can, reasons, cost";
+    /// Raises the province's base tax by one, for administrative points, as
+    /// the province view's develop button does. Refused with the game's
+    /// reasons, one a line, as province.options gives them.
+    game DevelopTax "develop_tax" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Raises the province's base production by one, for diplomatic points.
+    game DevelopProduction "develop_production" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Raises the province's base manpower by one, for military points.
+    game DevelopManpower "develop_manpower" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Exploits the province's base tax for ducats, as the province view's
+    /// exploit button does once the player confirms: the province loses
+    /// development and the button waits for years.
+    game ExploitTax "exploit_tax" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Exploits the province's base production for sailors.
+    game ExploitProduction "exploit_production" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Exploits the province's base manpower for manpower.
+    game ExploitManpower "exploit_manpower" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Raises the province's local autonomy for a while, as the province
+    /// view's button does.
+    game RaiseAutonomy "raise_autonomy" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Lowers the province's local autonomy for a while, as the province
+    /// view's button does.
+    game LowerAutonomy "lower_autonomy" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Makes the province's area a state of the player's, as the province
+    /// view's button does.
+    game MakeState "make_state" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Makes the player's state in the province's area a territory again, as
+    /// the province view's button does.
+    game MakeTerritory "make_territory" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Sets an edict in the player's state the province is in, replacing the
+    /// one set there, as the state's edict picker does.
+    game SetEdict "set_edict" {
+        /// A province of the state.
+        province: ProvinceId,
+        /// The edict's content key, such as `edict_advancement_effort`.
+        edict: String,
+    } -> (), "null once done";
+    /// Cancels the edict set in the player's state the province is in.
+    game CancelEdict "cancel_edict" {
+        /// A province of the state.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Starts making the province a core of the player's, for administrative
+    /// points, as the province view's core button does.
+    game Core "core" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Stops the player making the province a core, as the province view's
+    /// cancel button does; the points spent are not given back.
+    game CancelCore "cancel_core" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Starts changing the province's culture to the player's primary
+    /// culture, for diplomatic points, as the province view's button does
+    /// once the player confirms.
+    game ChangeCulture "change_culture" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+    /// Stops changing the province's culture, as the province view's cancel
+    /// button does; the points spent are not given back.
+    game CancelCulture "cancel_culture" {
+        /// The province.
+        province: ProvinceId,
+    } -> (), "null once done";
+}
+
+/// One thing the province view offers the player in a province.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct ProvinceOption {
+    /// The capability of this group that does it, such as `develop_tax`.
+    pub action: String,
+    /// For `set_edict`, the edict's content key; null for the rest.
+    pub edict: Option<String>,
+    #[serde(flatten)]
+    pub choice: Choice,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]

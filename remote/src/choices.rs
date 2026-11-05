@@ -81,6 +81,34 @@ pub enum Resource {
     NavyTradition,
     /// Monthly upkeep in ducats, for as long as it lasts.
     MonthlyDucats,
+    /// Reform progress, which government reforms spend.
+    ReformProgress,
+}
+
+/// A kind of monarch power, as the game's panels name them: what a
+/// technology is researched with, what a national focus favors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, crate::shape::Shaped)]
+#[serde(rename_all = "snake_case")]
+pub enum PowerKind {
+    /// Administrative.
+    Adm,
+    /// Diplomatic.
+    Dip,
+    /// Military.
+    Mil,
+}
+
+impl PowerKind {
+    pub const ALL: [PowerKind; 3] = [Self::Adm, Self::Dip, Self::Mil];
+
+    /// The resource a cost in this kind of power is counted in.
+    pub fn resource(self) -> Resource {
+        match self {
+            Self::Adm => Resource::Adm,
+            Self::Dip => Resource::Dip,
+            Self::Mil => Resource::Mil,
+        }
+    }
 }
 
 /// Whether another country would accept a proposal, as the game's interface
