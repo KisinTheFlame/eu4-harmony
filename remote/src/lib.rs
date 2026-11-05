@@ -319,6 +319,8 @@ groups! {
     Parliament(parliament::ParliamentRequest, ParliamentAnswer),
     /// The player's missions.
     Mission(missions::MissionRequest, MissionAnswer),
+    /// The buildings of the player's provinces.
+    Building(buildings::BuildingRequest, BuildingAnswer),
 }
 
 pub mod binary;

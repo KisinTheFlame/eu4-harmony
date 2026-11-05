@@ -9,9 +9,11 @@
 //! One module per group of capabilities, as in the core's capability layer,
 //! and the game's calendar ([`Date`]), which the refusals, remote control's
 //! JSON and the core's own wording write dates in.
+pub mod administration;
 pub mod armies;
 pub mod camera;
 pub mod console;
+pub mod countries;
 mod date;
 pub mod diplomacy;
 pub mod form;

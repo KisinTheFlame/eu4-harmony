@@ -1,14 +1,18 @@
 //! The engine driven with typed requests, a fake game behind the capability
 //! layer's traits.
-use super::fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY};
 use super::*;
+use crate::catalogue::{
+    dispatch,
+    fake::{self, answer, ok, Fake, ARMY, ENEMY, FLEET, PLENTY},
+    process, Outcome,
+};
 use eu4_harmony_remote::{
-    armies::ArmyRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest, decisions::DecisionRequest,
-    describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, estates::EstateRequest, events::Event, events::EventsRequest,
-    extensions::ExtensionRequest, government::GovernmentRequest, ideas::IdeaRequest, input::Button, input::Direction, input::InputRequest, input::Keys,
-    menu::MenuRequest, missions::MissionRequest, offers::OfferRequest, parliament::ParliamentRequest, policies::PolicyRequest, provinces::ProvinceRequest,
-    questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest,
-    texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    armies::ArmyRequest, buildings::BuildingRequest, camera::CameraRequest, capabilities, console::ConsoleRequest, countries::CountryRequest,
+    decisions::DecisionRequest, describe::DescribeRequest, desktop::DesktopRequest, diplomacy::DiplomacyRequest, estates::EstateRequest, events::Event,
+    events::EventsRequest, extensions::ExtensionRequest, government::GovernmentRequest, ideas::IdeaRequest, input::Button, input::Direction,
+    input::InputRequest, input::Keys, menu::MenuRequest, missions::MissionRequest, offers::OfferRequest, parliament::ParliamentRequest,
+    policies::PolicyRequest, provinces::ProvinceRequest, questions::QuestionRequest, recruiting::RecruitRequest, recruiting::UnitKind, response_json,
+    screenshot::ScreenshotRequest, session::SessionRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
 };
 use serde_json::{json, Value};
 use std::cell::RefCell;
@@ -291,6 +295,47 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Parliament(ParliamentRequest::RemoveSeat { province: ProvinceId(149) }), Box::new(|v: &Value| v["error"]["code"] == "rejected")),
         (Request::Mission(MissionRequest::List {}), Box::new(|v: &Value| v["result"][0]["column"] == 0 && v["result"][0]["completed"] == false)),
         (Request::Mission(MissionRequest::Complete { mission: "tur_conquer_constantinople".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Province(ProvinceRequest::Options { province: ProvinceId(151) }),
+            Box::new(|v: &Value| {
+                v["result"][0] == json!({"action": "develop_tax", "edict": null, "can": true, "reasons": [], "cost": [{"resource": "adm", "amount": 50.0}]})
+                    && v["result"][1]["edict"] == "edict_advancement_effort"
+                    && v["result"][2]["reasons"] == json!(["已经是核心省份"])
+            }),
+        ),
+        (Request::Province(ProvinceRequest::DevelopTax { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Province(ProvinceRequest::DevelopProduction { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Province(ProvinceRequest::DevelopManpower { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Province(ProvinceRequest::ExploitTax { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::ExploitProduction { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::ExploitManpower { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::RaiseAutonomy { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::LowerAutonomy { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::MakeState { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::MakeTerritory { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::SetEdict { province: ProvinceId(151), edict: "edict_x".into() }), Box::new(error("invalid_argument"))),
+        (Request::Province(ProvinceRequest::CancelEdict { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (
+            Request::Province(ProvinceRequest::Core { province: ProvinceId(151) }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "已经是核心省份"),
+        ),
+        (Request::Province(ProvinceRequest::CancelCore { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::ChangeCulture { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (Request::Province(ProvinceRequest::CancelCulture { province: ProvinceId(151) }), Box::new(error("rejected"))),
+        (
+            Request::Building(BuildingRequest::Options { province: ProvinceId(151) }),
+            Box::new(|v: &Value| {
+                v["result"]["constructing"] == json!({"building": "marketplace", "progress": 0.25, "finished": "1444.11.11", "builder": "BYZ"})
+                    && v["result"]["options"][1] == json!({"action": "destroy", "building": "temple", "can": true, "reasons": [], "cost": []})
+                    && v["result"]["options"][2]["cost"] == json!([{"resource": "ducats", "amount": 50.0}])
+            }),
+        ),
+        (
+            Request::Building(BuildingRequest::Build { province: ProvinceId(151), building: "workshop".into() }),
+            Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "建造中"),
+        ),
+        (Request::Building(BuildingRequest::Cancel { province: ProvinceId(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Building(BuildingRequest::Destroy { province: ProvinceId(151), building: "temple".into() }), Box::new(|v: &Value| *v == ok(Value::Null))),
         // The cursor first: a request after an input waits for the game to
         // have it (input::tests).
         (Request::Input(InputRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"x": 10, "y": 20, "buttons": [], "keys": []})))),

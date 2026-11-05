@@ -84,7 +84,7 @@ Built (2026-11-04). The game reads Windows' own cursor while its window has the 
 
 `input.click`, `input.move`, `input.drag`, `input.scroll`, `input.mouse_down`, `input.mouse_up` and `input.get`, with `scale` and the order between input and the requests after it. Tried in the game, with the game behind another program: a button of the game's interface and of the framework UI clicked, an army selected with a click and ordered with a right click, a box drawn round armies, a tooltip shown, the map zoomed with the wheel, a slider dragged; a screenshot right after a click shows its frame.
 
-Built (2026-11-04), with I3: the capabilities in `remote/src/input.rs` (three argument kinds of their own: `button`, `direction`, `keys`), their checks in `checks/src/input.rs`, the engine's group in `core/src/remote/input.rs`. Tried as said, with another program in front but for the first two clicks; a drag selected the army in its box. Not tried: the middle button, `mouse_down` and `mouse_up`, the wheel's left and right, the game minimized, a modal window holding input back, an input dropped for a frame of another size.
+Built (2026-11-04), with I3: the capabilities in `remote/src/input.rs` (three argument kinds of their own: `button`, `direction`, `keys`), their checks in `checks/src/input.rs`, the catalogue's group in `core/src/catalogue/input.rs`. Tried as said, with another program in front but for the first two clicks; a drag selected the army in its box. Not tried: the middle button, `mouse_down` and `mouse_up`, the wheel's left and right, the game minimized, a modal window holding input back, an input dropped for a frame of another size.
 
 ### I3 Keyboard and text
 

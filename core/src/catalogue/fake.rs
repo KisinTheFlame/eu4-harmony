@@ -1,8 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, camera, console, countries, decisions, desktop, diplomacy, estates, extensions, government, ideas, input, menu, missions, offers, parliament,
-    policies, provinces, questions, recruiting, screenshot, session, texts, time,
+    armies, buildings, camera, console, countries, decisions, desktop, diplomacy, estates, extensions, government, ideas, input, menu, missions, offers,
+    parliament, policies, provinces, questions, recruiting, screenshot, session, texts, time,
 };
 use crate::game::{
     self, fail,
@@ -21,7 +21,7 @@ pub const PLENTY: Duration = Duration::from_secs(10);
 pub fn quiet(_: &str) {}
 
 /// What came back for a reply, in JSON; null when nothing came yet.
-pub fn answer(reply: &super::Reply) -> Value {
+pub fn answer(reply: &crate::remote::Reply) -> Value {
     reply.wait(Duration::ZERO).map_or(Value::Null, |r| response_json(&r))
 }
 
@@ -113,7 +113,7 @@ impl countries::Layer for Fake {
             b"TUR" => Ok(tur()),
             b"BYZ" => Ok(byz()),
             b"WAL" => Ok(wal()),
-            _ => fail(Status::NotFound, format!("no country {tag}")),
+            _ => Err(eu4_harmony_checks::countries::not_found(&tag.to_string()).into()),
         }
     }
 
@@ -213,6 +213,77 @@ impl provinces::Layer for Fake {
             return Err(eu4_harmony_checks::provinces::not_found(province).into());
         }
         Ok(constantinople())
+    }
+
+    /// In Constantinople the player can develop tax for 50 administrative
+    /// points and cannot core it; elsewhere nothing.
+    fn province_options(&mut self, province: u32) -> GResult<Vec<eu4_harmony_remote::provinces::ProvinceOption>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            provinces::ProvinceOption,
+        };
+        self.call(format!("province options {province}"));
+        if province != 151 {
+            return Err(eu4_harmony_checks::provinces::not_found(province).into());
+        }
+        Ok(vec![
+            ProvinceOption { action: "develop_tax".into(), edict: None, choice: Choice::can(vec![Amount::new(Resource::Adm, 50.0)]) },
+            ProvinceOption { action: "set_edict".into(), edict: Some("edict_advancement_effort".into()), choice: Choice::cannot(Vec::new(), Vec::new()) },
+            ProvinceOption {
+                action: "core".into(),
+                edict: None,
+                choice: Choice::cannot(vec!["已经是核心省份".into()], vec![Amount::new(Resource::Adm, 36.0)]),
+            },
+        ])
+    }
+
+    /// The player may only develop.
+    fn province_act(&mut self, province: u32, action: game::administration::Action) -> GResult<()> {
+        self.call(format!("province {} {province}", action.name()));
+        match action {
+            game::administration::Action::Develop(_) => Ok(()),
+            _ => Err(eu4_harmony_checks::administration::not_allowed("do it", &["已经是核心省份".into()]).into()),
+        }
+    }
+
+    fn set_edict(&mut self, province: u32, edict: String) -> GResult<()> {
+        self.call(format!("set edict {edict} {province}"));
+        Err(eu4_harmony_checks::administration::no_such_edict(&edict).into())
+    }
+}
+
+/// In Constantinople, a marketplace being built by the player, and a temple
+/// standing; nothing can be built.
+impl buildings::Layer for Fake {
+    fn building_options(&mut self, province: u32) -> GResult<(Option<game::buildings::Constructing>, Vec<game::buildings::Offer>)> {
+        use eu4_harmony_remote::choices::{Amount, Choice, Resource};
+        self.call(format!("building options {province}"));
+        let constructing = game::buildings::Constructing { building: "marketplace".into(), progress: 250, ends: 0x035D_7710, builder: byz() };
+        let offers = vec![
+            game::buildings::Offer { action: "cancel", building: "marketplace".into(), choice: Choice::can(Vec::new()) },
+            game::buildings::Offer { action: "destroy", building: "temple".into(), choice: Choice::can(Vec::new()) },
+            game::buildings::Offer {
+                action: "build",
+                building: "workshop".into(),
+                choice: Choice::cannot(vec!["建造中".into()], vec![Amount::new(Resource::Ducats, 50.0)]),
+            },
+        ];
+        Ok((Some(constructing), offers))
+    }
+
+    fn build(&mut self, province: u32, building: String) -> GResult<()> {
+        self.call(format!("build {building} {province}"));
+        Err(eu4_harmony_checks::administration::not_allowed("build it", &["建造中".into()]).into())
+    }
+
+    fn cancel_building(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("cancel building {province}"));
+        Ok(())
+    }
+
+    fn destroy_building(&mut self, province: u32, building: String) -> GResult<()> {
+        self.call(format!("destroy {building} {province}"));
+        Ok(())
     }
 }
 
