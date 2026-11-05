@@ -1,6 +1,6 @@
 # Player actions plan
 
-Status: decided (2026-11-05). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Content key, Player's view, Full view, Capability, Command). The decisions and their reasons are in [ADR remote-control-reads-the-players-view](adr/remote-control-reads-the-players-view.md), and build on [ADR one-capability-catalogue](adr/one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/one-command-layer-in-written-form.md) and [ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md). How a capability is added, layer by layer, is [adding-a-capability.md](adding-a-capability.md).
+Status: built (2026-11-05), every part; what each did not verify is in its section below and in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Content key, Player's view, Full view, Capability, Command). The decisions and their reasons are in [ADR remote-control-reads-the-players-view](adr/remote-control-reads-the-players-view.md), and build on [ADR one-capability-catalogue](adr/one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/one-command-layer-in-written-form.md) and [ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md). How a capability is added, layer by layer, is [adding-a-capability.md](adding-a-capability.md).
 
 ## Goal and scope
 
@@ -68,7 +68,7 @@ eu4-harmony game peace demand ENG --terms '…'
 
 ## Parts
 
-Each part after the foundations is built in a session of its own, in its own worktree and pull request, which merges master before it is merged; the parts may run side by side, the game shared through the claim (AGENTS.md, "Testing in the game").
+Each part after the foundations is built in a session of its own, in its own worktree and branch, merged into one integration branch that reaches master in one pull request; the parts may run side by side, the game shared through the claim (AGENTS.md, "Testing in the game").
 
 ### Every part is done when
 
