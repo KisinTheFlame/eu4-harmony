@@ -45,6 +45,13 @@ compare-saves = false
 # save checksum's sum, its zip's deflate and its update thread's sleep, so
 # that the two can be measured.
 game-writes-saves = false
+# What the framework answers at startup and in loads from what it keeps,
+# music's numbers and files missing from folders, is checked against the
+# game's own answer, which the game keeps, and a difference logged.
+check-loading = false
+# The startup and loads are the game's own, music read whole, every file asked
+# of Windows, every list walked, so that the two can be measured.
+game-loads = false
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.
