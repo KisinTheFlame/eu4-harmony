@@ -6,15 +6,19 @@
 //! - `lookups`: whether a file is in a folder of the game's or of the
 //!   workshop's, answered from the folder's listing instead of asking
 //!   Windows each time.
+//! - `children`: a save's dated nodes added to their parent without walking
+//!   its list for them first.
 use crate::points::Point;
 use std::path::Path;
 
+pub mod children;
 pub mod lookups;
 pub mod music;
 
 pub fn points() -> Vec<Point> {
     let mut points = music::points();
     points.extend(lookups::points());
+    points.extend(children::points());
     points
 }
 
@@ -23,6 +27,7 @@ pub fn points() -> Vec<Point> {
 pub fn set_folders(game_dir: &Path, user_dir: &Path) {
     music::set_folder(user_dir);
     lookups::set_roots(game_dir);
+    children::set_checking();
 }
 
 /// A developer build's test switch `game-loads`: the startup and loads are
