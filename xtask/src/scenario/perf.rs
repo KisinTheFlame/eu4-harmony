@@ -14,7 +14,8 @@
 //! game runs, so that they are worked out from then on, and the events heard
 //! while it ran are counted by kind. With `reads`, after the run it times
 //! `country.get` and `country.budget` of the countries that own provinces and
-//! `province.get` of every land province, one at a time, from the client.
+//! `province.get` of every owned land province, one at a time, from the
+//! client.
 //! Either way it returns to the main menu at the end, where the framework's
 //! log tells what working out the events cost the session
 //! (`event costs:`).
@@ -177,14 +178,16 @@ fn listen(kinds: &[String], since: Option<u64>) -> EventsRequest {
 }
 
 /// `country.get` and `country.budget` of every country that owns a
-/// province, and `province.get` of every land province, timed from the
+/// province, and `province.get` of every owned land province, timed from the
 /// client, one read at a time.
 fn reads(game: &mut Game) -> Played<Value> {
     let provinces: Vec<Province> = game.ask(&ProvinceRequest::List { provinces: None })?;
     let mut owners: Vec<CountryTag> = provinces.iter().filter_map(|p| p.owner).collect();
     owners.sort();
     owners.dedup();
-    let land: Vec<_> = provinces.iter().filter(|p| p.kind == ProvinceKind::Land).map(|p| p.id).collect();
+    // In the player's view a province the player has not discovered has no
+    // owner, and province.get refuses it.
+    let land: Vec<_> = provinces.iter().filter(|p| p.kind == ProvinceKind::Land && p.owner.is_some()).map(|p| p.id).collect();
     let started = Instant::now();
     for &country in &owners {
         let _: Box<Country> = game.ask(&CountryRequest::Get { country })?;
