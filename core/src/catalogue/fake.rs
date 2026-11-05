@@ -3,7 +3,7 @@
 use super::{
     armies, buildings, camera, centers_of_trade, colonists, console, countries, decisions, desktop, diplomacy, economy, estates, extensions, focus, forts,
     government, ideas, input, leaders, loans, menu, mercenaries, merchants, missionaries, missions, occupation, offers, parliament, peace, policies, provinces,
-    questions, recruiting, screenshot, session, sieges, stability, technology, texts, time, trade_companies,
+    questions, recruiting, screenshot, session, sieges, stability, subjects, technology, texts, time, trade_companies,
 };
 use crate::game::{
     self, fail,
@@ -705,6 +705,31 @@ impl desktop::Layer for Fake {
 }
 
 /// One decision the player can take, and one they cannot.
+/// Wallachia is the Ottomans' subject: scutage the player can take, and
+/// sending officers, which goes on.
+impl subjects::Layer for Fake {
+    fn interactions(&mut self, subject: Tag) -> GResult<Vec<eu4_harmony_remote::subjects::Interaction>> {
+        use eu4_harmony_remote::{choices::Choice, subjects::Interaction};
+        self.call(format!("interactions {:x}", subject.0));
+        if subject != wal() {
+            return fail(Status::Rejected, "not a subject of the player's");
+        }
+        Ok(vec![
+            Interaction { interaction: "scutage".into(), name: "Demand Scutage".into(), active: false, choice: Choice::can(Vec::new()) },
+            Interaction { interaction: "send_officers".into(), name: "Send Officers".into(), active: true, choice: Choice::can(Vec::new()) },
+        ])
+    }
+
+    fn interact(&mut self, subject: Tag, interaction: &str, third_party: Option<Tag>) -> GResult<()> {
+        self.call(format!("interact {:x} {interaction} {:?}", subject.0, third_party.map(|t| t.0)));
+        if subject == wal() && interaction == "scutage" {
+            Ok(())
+        } else {
+            fail(Status::Rejected, "not a subject of the player's")
+        }
+    }
+}
+
 impl decisions::Layer for Fake {
     fn decisions(&mut self) -> GResult<Vec<eu4_harmony_remote::decisions::Decision>> {
         use eu4_harmony_remote::{choices::Choice, decisions::Decision};
@@ -1523,6 +1548,71 @@ We have a truce with them.",
     fn propose_alliance(&mut self, ally: Tag) -> GResult<game::diplomacy::Ticket> {
         self.call(format!("propose alliance {:x}", ally.0));
         Ok(game::diplomacy::Ticket(3))
+    }
+
+    /// Toward Byzantium, an alliance the Byzantines would not accept, a
+    /// warning the player can send, and a scripted action the player cannot.
+    fn options(&mut self, country: Tag) -> GResult<Vec<game::diplomacy::Offered>> {
+        use eu4_harmony_remote::choices::{Acceptance, Choice, Factor};
+        use game::diplomacy::{Act, Offered, What};
+        self.call(format!("options {:x}", country.0));
+        let acceptance = Acceptance {
+            accepts: false,
+            total: -12.0,
+            factors: vec![Factor { text: "Base reluctance".into(), value: -10.0 }, Factor { text: "Relations".into(), value: -2.0 }],
+        };
+        Ok(vec![
+            Offered {
+                what: Some(What::Act(Act::ProposeAlliance)),
+                key: "allianceaction".into(),
+                name: "Offer Alliance".into(),
+                choice: Choice::can(Vec::new()),
+                description: vec!["If a country accepts our Alliance offer it may come to our assistance during wars.".into()],
+                acceptance: Some(acceptance),
+            },
+            Offered {
+                what: Some(What::Act(Act::Warn)),
+                key: "warningaction".into(),
+                name: "Warn".into(),
+                choice: Choice::can(Vec::new()),
+                description: Vec::new(),
+                acceptance: None,
+            },
+            Offered {
+                what: Some(What::Scripted("sell_indulgence".into())),
+                key: "sell_indulgence".into(),
+                name: "Offer Indulgence".into(),
+                choice: Choice::cannot(vec!["Is not the Papal Controller.".into()], Vec::new()),
+                description: Vec::new(),
+                acceptance: None,
+            },
+        ])
+    }
+
+    /// Warning Byzantium is sent; anything else is refused with the game's
+    /// reason.
+    fn act(&mut self, country: Tag, what: &game::diplomacy::What, _: &game::diplomacy::Details) -> GResult<game::diplomacy::Ticket> {
+        use game::diplomacy::{Act, What};
+        self.call(format!("act {:x} {what:?}", country.0));
+        match what {
+            What::Act(Act::Warn) if country == byz() => Ok(game::diplomacy::Ticket(4)),
+            _ => fail(Status::Rejected, "Is not the Papal Controller."),
+        }
+    }
+
+    /// Byzantium can be rivalled; no other country.
+    fn add_rival(&mut self, rival: Tag) -> GResult<()> {
+        self.call(format!("add rival {:x}", rival.0));
+        if rival == byz() {
+            Ok(())
+        } else {
+            fail(Status::Rejected, "the game's command refuses it, and gives no reason")
+        }
+    }
+
+    fn remove_rival(&mut self, rival: Tag) -> GResult<()> {
+        self.call(format!("remove rival {:x}", rival.0));
+        fail(Status::Rejected, "the game's command refuses it, and gives no reason")
     }
 
     fn call_to_arms(&mut self, ally: Tag) -> GResult<game::diplomacy::Ticket> {

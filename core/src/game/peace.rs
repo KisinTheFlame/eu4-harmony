@@ -11,7 +11,7 @@
 //! as the view's send button and its accept or decline icon show them.
 use super::{
     commands, context, country,
-    diplomacy::{self, Action, Made, Ticket},
+    diplomacy::{self, Made, Ticket},
     game, Caller, Ctx, GResult, Tag,
 };
 use crate::{
@@ -126,7 +126,7 @@ pub fn evaluate(_: Caller, enemy: Tag, terms: &[Term], offer: bool) -> GResult<E
     let treaty = composed(m, &ctx, enemy, terms, offer)?;
     let cost = vec![Amount::new(Resource::WarScore, m.call(m.at(TREATY_COST), &[treaty.at(), 1])? as i32 as f64)];
     let offered = Offer::new(m, &ctx, enemy, &treaty, offer)?;
-    let choice = match diplomacy::refusals(m, offered.at(), Action::OfferPeace)? {
+    let choice = match diplomacy::refusals(m, offered.at())? {
         None => Choice::can(cost),
         Some(reasons) => Choice::cannot(reasons, cost),
     };
@@ -148,8 +148,8 @@ fn send(enemy: Tag, terms: &[Term], offer: bool) -> GResult<Ticket> {
     let ctx = at_war(m, enemy)?;
     let treaty = composed(m, &ctx, enemy, terms, offer)?;
     let offered = Offer::new(m, &ctx, enemy, &treaty, offer)?;
-    diplomacy::verdict(m, offered.at(), Action::OfferPeace)?;
-    diplomacy::send(m, &ctx, offered.at(), Action::OfferPeace, enemy, Vec::new())
+    diplomacy::verdict(m, offered.at())?;
+    diplomacy::send(m, &ctx, offered.at(), enemy, Vec::new())
 }
 
 /// The game, with `enemy` a country the player is at war with.

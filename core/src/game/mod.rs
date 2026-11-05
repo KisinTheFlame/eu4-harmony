@@ -60,6 +60,7 @@ pub mod screenshot;
 pub mod session;
 pub mod sieges;
 pub mod stability;
+pub mod subjects;
 pub mod technology;
 pub mod texts;
 pub mod time;
@@ -347,6 +348,7 @@ pub fn points() -> Vec<Point> {
     points.extend(questions::points());
     points.extend(menu::points());
     points.extend(diplomacy::points());
+    points.extend(subjects::points());
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());

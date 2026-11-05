@@ -307,6 +307,8 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The interactions with the player's subjects.
+    Subject(subjects::SubjectRequest, SubjectAnswer),
     /// The technology view: researching technology.
     Technology(technology::TechnologyRequest, TechnologyAnswer),
     /// The national focus, in the court view.

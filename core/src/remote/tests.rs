@@ -50,11 +50,12 @@ use eu4_harmony_remote::{
     screenshot::ScreenshotRequest,
     session::SessionRequest,
     stability::StabilityRequest,
+    subjects::SubjectRequest,
     technology::TechnologyRequest,
     texts::TextRequest,
     time::TimeRequest,
     trade_companies::TradeCompanyRequest,
-    ArmyId, ArmyList, CountryTag, ProvinceId,
+    ArmyId, ArmyList, CountryTag, Kind, ProvinceId,
 };
 use eu4_harmony_remote::{forts::FortRequest, leaders::LeaderRequest, mercenaries::MercenaryRequest, sieges::SiegeRequest};
 use serde_json::{json, Value};
@@ -101,7 +102,6 @@ fn every_capability_runs_at_a_game_frame() {
     });
     let province_json = |id: u32, owner: &str, controller: &str| json!({"id": id, "kind": "land", "visible": true, "owner": owner, "controller": controller});
     type Check = Box<dyn Fn(&Value) -> bool>;
-    #[cfg_attr(not(feature = "dev-memory"), expect(unused_mut, reason = "only the memory account adds cases"))]
     let mut cases: Vec<(Request, Check)> = vec![
         (Request::Session(SessionRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})))),
         (Request::Time(TimeRequest::Get {}), Box::new(|v: &Value| *v == ok(json!({"date": "1444.11.11", "paused": true, "speed": 2})))),
@@ -575,6 +575,34 @@ fn every_capability_runs_at_a_game_frame() {
         ];
         cases.splice(0..0, memory);
     }
+    // The diplomacy panel's options, and each of its actions toward
+    // Wallachia, which the fake game refuses, every argument an example of
+    // its kind; ahead of the input, which waits for frames of its own.
+    let mut panel: Vec<(Request, Check)> = Vec::new();
+    panel.push((
+        Request::Diplomacy(DiplomacyRequest::Options { country: CountryTag(*b"BYZ") }),
+        Box::new(|v: &Value| v["result"]["actions"][0]["acceptance"]["accepts"] == false),
+    ));
+    let named: BTreeSet<String> = cases.iter().chain(&panel).map(|(r, _)| r.name()).collect();
+    for capability in capabilities().iter().filter(|c| c.group == "diplomacy" && !named.contains(&c.name())) {
+        let mut request = serde_json::Map::new();
+        request.insert("capability".into(), capability.name().into());
+        for arg in capability.args.iter().filter(|a| !a.optional) {
+            let example = match arg.kind {
+                Kind::Country => "WAL",
+                kind => kind.example(),
+            };
+            request.insert(arg.name.into(), arg.kind.json(example).unwrap());
+        }
+        let request = eu4_harmony_remote::request_from_json(&Value::Object(request).to_string()).unwrap();
+        panel.push((request, Box::new(error("rejected"))));
+    }
+    panel.push((Request::Subject(SubjectRequest::Options { subject: CountryTag(*b"WAL") }), Box::new(|v: &Value| v["result"][1]["active"] == true)));
+    panel.push((
+        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None }),
+        Box::new(|v: &Value| *v == ok(Value::Null)),
+    ));
+    cases.splice(0..0, panel);
     // Every capability is among them.
     let asked: BTreeSet<String> = cases.iter().map(|(r, _)| r.name()).collect();
     let all: BTreeSet<String> = capabilities().iter().map(|c| c.name()).collect();

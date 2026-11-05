@@ -68,6 +68,7 @@ pub mod screenshot;
 pub mod session;
 pub mod sieges;
 pub mod stability;
+pub mod subjects;
 pub mod technology;
 pub mod texts;
 pub mod time;
@@ -101,6 +102,7 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + subjects::Layer
     + buildings::Layer
     + technology::Layer
     + focus::Layer
@@ -145,6 +147,7 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + subjects::Layer
             + buildings::Layer
             + technology::Layer
             + focus::Layer
@@ -331,6 +334,7 @@ pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::B
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Subject(r) => done(subjects::run(r, game).map(Answer::Subject)),
         Request::Idea(r) => done(ideas::run(r, game).map(Answer::Idea)),
         Request::Policy(r) => done(policies::run(r, game).map(Answer::Policy)),
         Request::Government(r) => done(government::run(r, game).map(Answer::Government)),

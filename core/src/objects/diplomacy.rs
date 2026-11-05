@@ -25,6 +25,8 @@ pub mod classes {
     /// The list of war goals the game offers for a declaration of war: it
     /// owns them.
     pub const WAR_GOALS: usize = 0x1c3d1e0;
+    /// The diplomacy panel's list of actions (`super::action_list`).
+    pub const ACTION_LIST: usize = 0x1d3a470;
 }
 
 /// A diplomatic action, the base of every kind, whoever makes it: the player's
@@ -76,6 +78,16 @@ pub mod action {
     pub const ACCEPTS: usize = 0xb8;
     pub const ALLOWED: usize = 0x88;
     pub const OFFERED: usize = 0x90;
+    /// More of its methods: its type, the token of its key in saves (action),
+    /// u32; whether it needs the other country's answer (action), u8; its
+    /// name's localisation key, (action, out `std::string`) constructing it;
+    /// how much the other country's AI wants it, (action, breakdown, keep),
+    /// an i32 that is at least 1 when the AI accepts, each factor added to
+    /// the [`super::breakdown`] when `keep` is 1.
+    pub const KIND: usize = 0x98;
+    pub const NEEDS_ANSWER: usize = 0xd0;
+    pub const NAME: usize = 0xe8;
+    pub const ACCEPTANCE: usize = 0x120;
     /// The sizes of the kinds the framework makes.
     pub const ALLIANCE_SIZE: usize = 0x40;
     pub const DECLARE_WAR_SIZE: usize = 0x98;
@@ -93,6 +105,26 @@ pub mod action {
     /// are left alone.
     pub const CALLED: usize = 0x50;
     pub const PROMISED_LAND: usize = 0x68;
+}
+
+/// The diplomacy panel's list of the actions it offers toward a country, of
+/// class [`classes::ACTION_LIST`]: the actions (pointers it owns, each the
+/// panel destroys), how many it has room for and how many it holds (i32
+/// each), and room for some inline after them.
+pub mod action_list {
+    pub const ITEMS: usize = 8;
+    pub const CAPACITY: usize = 0x10;
+    pub const COUNT: usize = 0x14;
+    pub const INLINE: usize = 0x18;
+}
+
+/// The factors for and against an action, as the other country's AI weighs
+/// it: a `std::vector` of items, each its value (i32), its text (a
+/// `std::string`, localized), and whether it counts for (u8).
+pub mod breakdown {
+    pub const VALUE: usize = 0;
+    pub const TEXT: usize = 8;
+    pub const SIZE: usize = 0x30;
 }
 
 /// The command a diplomatic action's [`action::MAKE_COMMAND`] makes, of
@@ -437,6 +469,27 @@ pub fn points() -> Vec<Point> {
             war_entry::WINDOW,
             send_window::ACTION,
         ]),
+        // The diplomacy panel's list of actions, as the panel makes it on its
+        // stack (at rbp-0x30) with room for 100 inline (from rbp-0x18, its
+        // `INLINE`, the room at rbp-0x20, its `CAPACITY`), and as the
+        // panel's list maker adds
+        // an action: its count and room, then its items.
+        Point::keep(0xf0bf2eusize, "0f 57 c0 0f 11 45 d0 48 c7 45 e0 64 00 00 00 48 8d 05 2c e5 e2 00 48 89 45 d0 48 8d 45 e8 48 89 45 d8", "action list")
+            .uses(&[classes::ACTION_LIST]),
+        Point::keep(0x35c1aeusize, "44 8b 47 14 8b 5f 10", "action list count").uses(&[action_list::COUNT, action_list::CAPACITY]),
+        Point::keep(0x35c1f3usize, "48 8b 47 08", "action list items").uses(&[action_list::ITEMS]),
+        // The panel asks each action its type and its name, and destroys it
+        // with flag 1; its entries ask whether one needs an answer, and how
+        // much the AI wants it into a breakdown.
+        Point::keep(0xf0bfd1usize, "48 8b 06 48 8b ce ff 90 98 00 00 00", "action type").uses(&[KIND]),
+        Point::keep(0xf0bff3usize, "48 8b 06 48 8d 55 a8 48 8b ce ff 90 e8 00 00 00", "action name").uses(&[NAME]),
+        Point::keep(0xf0c0fdusize, "48 8b 01 ba 01 00 00 00 ff 10", "action destroyed").uses(&[DESTROY]),
+        Point::keep(0xef323dusize, "48 8b 03 48 8b cb ff 90 d0 00 00 00", "action needs an answer").uses(&[NEEDS_ANSWER]),
+        Point::keep(0xef2a43usize, "48 8b 06 45 33 c0 48 8b d7 48 8b ce ff 90 20 01 00 00 83 f8 01 7d", "action acceptance").uses(&[ACCEPTANCE]),
+        // A factor: its value, then its text; the tooltip walks them.
+        Point::keep(0x1c3fafusize, "44 89 01", "breakdown value").uses(&[breakdown::VALUE]),
+        Point::keep(0x1c3fc6usize, "0f 10 02 0f 11 41 08", "breakdown text").uses(&[breakdown::TEXT]),
+        Point::keep(0xef2bf0usize, "48 8d 4b 08 e8 67 2a 1a ff 48 83 c3 30", "breakdown items").uses(&[breakdown::TEXT, breakdown::SIZE]),
         // An action made to the player: it gets its id as it reaches the
         // player; the alliance offer's window shows both countries; the
         // offer's window asks whether the action is still unanswered, and
