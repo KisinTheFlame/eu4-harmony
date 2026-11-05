@@ -26,7 +26,8 @@
 //!   old world come back (`game::orders`), and remote control's requests
 //!   sent from then on belong to the next session.
 //! - The world was reset, without a save: the capability layer forgets the
-//!   old session and routes come back, as at a load.
+//!   old session and routes come back, as at a load, and what the game's
+//!   history leaves of the old session is put right (`crate::repairs`).
 //! - The game restarts: the saves compressed in the background are put in
 //!   their place, and remote control answers every request while it can.
 use crate::game;
@@ -266,9 +267,12 @@ pub fn load_ended() {
 
 /// The world was put back as a new start has it, with its history (an
 /// in-process return, the single player setup left): the next game begun on
-/// it is a new session, though the game reads nothing for it.
-pub fn world_reset() {
+/// it is a new session, though the game reads nothing for it. What the
+/// history leaves of the old session is put right with it
+/// (`repairs::after_history`), so that no reset is told without it.
+pub fn world_reset(m: &crate::memory::Memory) {
     tell(lifecycle(Lifecycle::world_reset));
+    crate::repairs::after_history(m);
 }
 
 /// Before the game starts `eu4.exe` again, whoever asked for it.
