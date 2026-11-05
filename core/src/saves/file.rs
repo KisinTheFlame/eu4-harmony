@@ -202,9 +202,21 @@ fn read_at(file: &mut (impl Read + Seek), at: u64, len: usize) -> Result<Vec<u8>
     Ok(out)
 }
 
-/// The entry `name` of the zip file `file`, found through its central
-/// directory, stored or deflated, and checked against its CRC.
-fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
+/// An entry of a zip file, as its central directory has it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ZipEntry {
+    pub(crate) name: Vec<u8>,
+    pub(crate) method: u16,
+    pub(crate) crc: u32,
+    pub(crate) packed: usize,
+    pub(crate) unpacked: usize,
+    /// Where its local header is.
+    pub(crate) local: u64,
+}
+
+/// The entries of the zip file `file`, from its central directory, when
+/// that is no larger than `most` bytes.
+pub(crate) fn zip_directory(file: &mut (impl Read + Seek), most: usize) -> Result<Vec<ZipEntry>> {
     let size = file.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
     let tail_len = size.min(66_000) as usize;
     let tail = read_at(file, size - tail_len as u64, tail_len)?;
@@ -212,42 +224,53 @@ fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
     // The end record is 22 bytes, its comment's length last.
     u16_at(&tail, end + 20)?;
     let (entries, directory_len, directory_at) = (u16_at(&tail, end + 10)?, u32_at(&tail, end + 12)?, u32_at(&tail, end + 16)?);
-    if directory_len > MOST || directory_at as u64 + directory_len as u64 > size {
+    if directory_len > most || directory_at as u64 + directory_len as u64 > size {
         return Err("zip directory out of bounds".into());
     }
     let directory = read_at(file, directory_at as u64, directory_len)?;
+    let mut out = Vec::with_capacity(entries);
     let mut at = 0;
     for _ in 0..entries {
         if u32_at(&directory, at)? != 0x0201_4b50 {
             return Err("bad zip directory entry".into());
         }
-        let (method, crc, packed, unpacked) =
-            (u16_at(&directory, at + 10)?, u32_at(&directory, at + 16)?, u32_at(&directory, at + 20)?, u32_at(&directory, at + 24)?);
-        let (name_len, extra_len, comment_len, local) =
-            (u16_at(&directory, at + 28)?, u16_at(&directory, at + 30)?, u16_at(&directory, at + 32)?, u32_at(&directory, at + 42)?);
-        if directory.get(at + 46..at + 46 + name_len) == Some(name) {
-            if packed > MOST || unpacked > MOST {
-                return Err("zip entry too large".into());
-            }
-            let header = read_at(file, local as u64, 30)?;
-            let data_at = local as u64 + 30 + u16_at(&header, 26)? as u64 + u16_at(&header, 28)? as u64;
-            let data = read_at(file, data_at, packed)?;
-            let out = match method {
-                0 => data,
-                8 => inflate(&data, MOST)?,
-                _ => return Err(format!("zip method {method}")),
-            };
-            return if out.len() != unpacked {
-                Err("zip entry of the wrong size".into())
-            } else if crc32(&out) as usize != crc {
-                Err("zip entry damaged: its CRC does not match".into())
-            } else {
-                Ok(out)
-            };
-        }
+        let (name_len, extra_len, comment_len) = (u16_at(&directory, at + 28)?, u16_at(&directory, at + 30)?, u16_at(&directory, at + 32)?);
+        out.push(ZipEntry {
+            name: directory.get(at + 46..at + 46 + name_len).ok_or("zip record cut short")?.to_vec(),
+            method: u16_at(&directory, at + 10)? as u16,
+            crc: u32_at(&directory, at + 16)? as u32,
+            packed: u32_at(&directory, at + 20)?,
+            unpacked: u32_at(&directory, at + 24)?,
+            local: u32_at(&directory, at + 42)? as u64,
+        });
         at += 46 + name_len + extra_len + comment_len;
     }
-    Err(format!("no {} in the zip file", String::from_utf8_lossy(name)))
+    Ok(out)
+}
+
+/// The entry `name` of the zip file `file`, found through its central
+/// directory, stored or deflated, and checked against its CRC.
+fn zip_entry(file: &mut (impl Read + Seek), name: &[u8]) -> Result<Vec<u8>> {
+    let entry =
+        zip_directory(file, MOST)?.into_iter().find(|e| e.name == name).ok_or_else(|| format!("no {} in the zip file", String::from_utf8_lossy(name)))?;
+    if entry.packed > MOST || entry.unpacked > MOST {
+        return Err("zip entry too large".into());
+    }
+    let header = read_at(file, entry.local, 30)?;
+    let data_at = entry.local + 30 + u16_at(&header, 26)? as u64 + u16_at(&header, 28)? as u64;
+    let data = read_at(file, data_at, entry.packed)?;
+    let out = match entry.method {
+        0 => data,
+        8 => inflate(&data, MOST)?,
+        method => return Err(format!("zip method {method}")),
+    };
+    if out.len() != entry.unpacked {
+        Err("zip entry of the wrong size".into())
+    } else if crc32(&out) != entry.crc {
+        Err("zip entry damaged: its CRC does not match".into())
+    } else {
+        Ok(out)
+    }
 }
 
 /// CRC-32 as zip files use it (ISO 3309, reflected).

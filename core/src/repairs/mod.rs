@@ -5,6 +5,8 @@
 //! - [`reset_leaks`]: what a world reset leaks.
 //! - [`modifiers`]: what a country's modifiers leak as they go or are made
 //!   again.
+//! - [`monarchs`]: what a country's history leaks of its monarchs, heirs and
+//!   queens.
 //! - [`new_start`]: what a world reset leaves of a session.
 //! - [`session_interface`]: what of the session's interface the game never
 //!   lets go.
@@ -26,6 +28,7 @@ mod coalitions;
 mod interface_parts;
 mod masks;
 mod modifiers;
+mod monarchs;
 mod names;
 mod new_start;
 mod pages;
@@ -67,16 +70,21 @@ impl Drop for LettingGo {
     }
 }
 
-/// A session's frame ran: the first after a world reset gives back free
-/// pages ([`pages::give_back_pages`]).
+/// A session's frame ran: the first after a world reset lets go the persons
+/// the histories left ([`monarchs::let_go`]) and gives back free pages
+/// ([`pages::give_back_pages`]).
 pub fn session_frame() {
+    monarchs::let_go(&crate::hooked_memory());
     pages::give_back_pages();
 }
 
 /// The main menu showed: the first time, the Empire's religions as the
 /// definitions give them are kept ([`new_start`]); the first frame after a
-/// world reset gives back free pages ([`pages::give_back_pages`]).
+/// world reset lets go the persons the histories left
+/// ([`monarchs::let_go`]) and gives back free pages
+/// ([`pages::give_back_pages`]).
 pub fn main_menu_shown(m: &Memory) {
+    monarchs::let_go(m);
     pages::give_back_pages();
     new_start::main_menu_shown(m);
 }
@@ -86,6 +94,7 @@ pub fn main_menu_shown(m: &Memory) {
 extern "C" fn world_reset(frame: *mut HookFrame) {
     crate::guarded("world reset", || {
         pages::PAGES_TO_GIVE_BACK.store(true, Ordering::Relaxed);
+        monarchs::world_reset();
         let m = crate::hooked_memory();
         let world = unsafe { (*frame).args[0] };
         match new_start::as_a_new_start(&m, world, true) {
@@ -94,7 +103,7 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go; {} monarchs, heirs and queens the histories left were deleted, {} kept as the game still had them",
             reset_leaks::LEADERS.swap(0, Ordering::Relaxed),
             reset_leaks::FACTIONS.swap(0, Ordering::Relaxed),
             reset_leaks::AGENTS.swap(0, Ordering::Relaxed),
@@ -102,7 +111,9 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             modifiers::MODIFIER_SETS_WAITED.swap(0, Ordering::Relaxed),
             text_boxes::TEXT_BOX_ANIMATIONS.swap(0, Ordering::Relaxed),
             modifiers::MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed),
-            masks::MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
+            masks::MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0),
+            monarchs::PERSONS.swap(0, Ordering::Relaxed),
+            monarchs::PERSONS_KEPT.swap(0, Ordering::Relaxed)
         );
         #[cfg(feature = "dev-heap-census")]
         crate::census::world_reset();
@@ -125,6 +136,7 @@ pub fn points() -> Vec<Point> {
         names::points,
         reset_leaks::points,
         modifiers::points,
+        monarchs::points,
         session_interface::points,
         interface_parts::points,
         text_boxes::points,

@@ -61,6 +61,15 @@ pub fn set_plan(plan: Plan) {
     state().plan = Some(plan);
 }
 
+/// The archive or folder PhysFS reads `path` from, as it names it.
+pub(crate) fn real_dir(path: *const c_char) -> Option<String> {
+    if GET_REAL_DIR.address() == 0 {
+        return None;
+    }
+    let dir = unsafe { GET_REAL_DIR.get()(path) };
+    (!dir.is_null()).then(|| c_str(dir))
+}
+
 fn c_str(p: *const c_char) -> String {
     if p.is_null() {
         return "<null>".into();

@@ -21,7 +21,7 @@ const MILITARY_TAG: usize = 0x1a8d20;
 const STRAIT_BLOCKED: usize = 0x96f650;
 const CAN_ATTACK: usize = 0xd54a60;
 /// The game's lookup of an object by its ID (the type, u32, then the number).
-const FIND_ID: usize = 0x14cf730;
+pub(crate) const FIND_ID: usize = 0x14cf730;
 /// Where the unit constructor registers the unit's ID.
 const REGISTER_UNIT: usize = 0xd3b0f8;
 /// What the idle task answers: no task kind, and false.
