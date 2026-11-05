@@ -192,6 +192,12 @@ fn ask(action: Action) {
     });
 }
 
+/// Whether remote control asked for a new game from the session, which the
+/// return the map manager's frame acts on next leaves the session for.
+fn new_game_asked() -> bool {
+    attempt(|a| matches!(a, Some(Attempt { action: Action::Start(_), stage: Stage::Asked, .. })))
+}
+
 /// Whether a load remote control asked for from a session has not run yet.
 fn loading_in_game() -> bool {
     attempt(|a| matches!(a, Some(Attempt { action: Action::LoadInGame(_), stage: Stage::Asked, .. })))
@@ -416,7 +422,8 @@ pub(crate) fn game_frame(m: &Memory) -> bool {
 /// country with no land at the start date, which the single player setup
 /// does not offer: started so, the game is left to the player to observe.
 /// From a session, the session is left as a return to the main menu leaves
-/// it, and the game starts at the new main menu's first frame; the land is
+/// it, ending for the new game (`new_game`), and the game starts at the new
+/// main menu's first frame; the land is
 /// not looked at then, nor after an in-process return before the single
 /// player setup is entered, since the world has no history yet.
 pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {

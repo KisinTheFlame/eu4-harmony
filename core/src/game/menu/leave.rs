@@ -424,6 +424,20 @@ pub fn load_in_game(m: &Memory, name: &str) -> Result<(), String> {
 /// is an in-process one, or why the session stays.
 static RETURNING: Mutex<Option<Result<bool, String>>> = Mutex::new(None);
 
+/// Where the return the map manager's frame acts on leaves the session for:
+/// a new game when remote control asked for one from it (`menu.start`),
+/// which starts at the new main menu's first frame; the main menu
+/// otherwise. A new game needs the in-process return: with it turned off
+/// since the start was asked for, the game restarts, and the start is
+/// answered as the process ends.
+fn returning_to(new_game_asked: bool, rules: Rules) -> Destination {
+    if new_game_asked && rules.return_without_restart {
+        Destination::NewGame
+    } else {
+        Destination::MainMenu
+    }
+}
+
 /// In the map manager's frame, where it writes the ironman exit save as it
 /// returns to the main menu: the steps up to the restart it asks for next.
 extern "C" fn returning() {
@@ -431,7 +445,8 @@ extern "C" fn returning() {
         crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
         let m = crate::hooked_memory();
         let rules = Rules::now();
-        let decided = plan(Destination::MainMenu, ironman(&m), rules).map_err(String::from).and_then(|steps| {
+        let to = returning_to(super::new_game_asked(), rules);
+        let decided = plan(to, ironman(&m), rules).map_err(String::from).and_then(|steps| {
             for step in steps {
                 match step {
                     Step::Ended(end) => sessions::ending(end),
@@ -441,7 +456,7 @@ extern "C" fn returning() {
             }
             Ok(rules.return_without_restart)
         });
-        log!("leave: returning to the main menu: {decided:?}");
+        log!("leave: returning to the main menu{}: {decided:?}", if to == Destination::NewGame { " for a new game" } else { "" });
         *RETURNING.lock().unwrap_or_else(|e| e.into_inner()) = Some(decided);
     });
 }
@@ -709,6 +724,16 @@ mod tests {
         assert_eq!(plan(Destination::NewGame, true, UNDO), Ok(vec![Step::ExitSave, ended, Step::Return, Step::Start]));
         assert_eq!(plan(Destination::NewGame, false, ALL), Ok(vec![ended, Step::Return, Step::Start]));
         assert!(plan(Destination::NewGame, false, RESTART).is_err());
+    }
+
+    #[test]
+    fn a_return_for_a_new_game_ends_the_session_for_the_new_game() {
+        assert_eq!(returning_to(true, ALL), Destination::NewGame);
+        assert_eq!(plan(returning_to(true, ALL), false, ALL), Ok(vec![Step::Ended(End::NewGame), Step::Return, Step::Start]));
+        assert_eq!(returning_to(false, ALL), Destination::MainMenu);
+        // Turned off since the start was asked for: the game restarts, and
+        // the start is answered as the process ends.
+        assert_eq!(returning_to(true, RESTART), Destination::MainMenu);
     }
 
     #[test]
