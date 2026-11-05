@@ -329,7 +329,7 @@ The window in the framework UI that shows notices to the player. To the player i
 _Avoid_: dialog; message box (that is the Windows message box used when the notice window cannot be)
 
 **Settings window**:
-The window in the framework UI where the player changes framework settings, opened from the EU4 Harmony settings button in the main menu's corner. Its settings are on pages, one for each thing they concern (language and fonts, loading and returning, achievements, game speed, remote control), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
+The window in the framework UI where the player changes framework settings, opened from the EU4 Harmony settings button in the main menu's corner. Its settings are on pages, one for each thing they concern (language and fonts, loading and returning, achievements, game speed, remote control, sound), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
 _Avoid_: options menu (that is the game's own settings)
 
 **Mods window**:
@@ -339,6 +339,20 @@ _Avoid_: mod list (that is a playset), mod manager (it manages nothing)
 **Framework settings**:
 The player's preferences for the framework, such as the player language and which fonts the Unicode module uses. Some take effect when they are saved, others, such as the language and the fonts, at the next start.
 _Avoid_: configuration; game settings (the game's own `settings.txt`)
+
+### Sound
+
+**Volume curve**:
+How a volume slider of the game's settings becomes a gain. With the framework, it goes evenly in decibels, from -40 dB at 1 to full volume at 100; vanilla's goes evenly in amplitude.
+_Avoid_: volume scale
+
+**Loudness normalization**:
+Bringing every track of the music to the same integrated loudness, measured as the track plays and kept for the next time; a framework setting.
+_Avoid_: volume normalization; compression (that is music leveling)
+
+**Music leveling**:
+Bringing quiet and loud passages of the music closer to the target loudness as they play; a framework setting, off unless the player turns it on.
+_Avoid_: compression (which also names how saves are written)
 
 ### Localisation
 
