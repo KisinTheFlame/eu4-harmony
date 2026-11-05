@@ -20,7 +20,8 @@
 use crate::hooks::HookFrame;
 use crate::points::Point;
 use eu4_harmony_remote::memory::{
-    Freed, Generation, Holder, Holders, Kept, Leftovers, Lost, MemoryAnswer, MemoryRequest, Pages, Pinning, Quarantine, Site, Trend, Watching, Written,
+    Freed, Generation, Holder, Holders, Kept, Leftovers, Lost, MemoryAnswer, MemoryRequest, Pages, Pinning, Quarantine, Site, Trend, Uncounted, Watching,
+    Written,
 };
 use eu4_harmony_remote::{Code, Error};
 use holders::{Held, Scan, Source, Target};
@@ -32,6 +33,7 @@ mod holders;
 mod pages;
 mod pointers;
 pub mod quarantine;
+mod uncounted;
 mod watch;
 
 /// `(size)`, `(count, size)`, `(block, size)`, `(block)`: the C runtime's
@@ -575,6 +577,7 @@ pub fn answer(request: MemoryRequest) -> Result<MemoryAnswer, Error> {
             MemoryAnswer::Quarantine(quarantined(report))
         }
         MemoryRequest::Pages { sites } => MemoryAnswer::Pages(pages_now(sites.unwrap_or(40) as usize)?),
+        MemoryRequest::Uncounted { sizes, samples } => MemoryAnswer::Uncounted(uncounted_now(sizes.unwrap_or(20) as usize, samples.unwrap_or(3) as usize)?),
     })
 }
 
@@ -622,6 +625,30 @@ fn pages_now(sites: usize) -> Result<Pages, Error> {
         complete: walk.complete,
         took_ms,
     })
+}
+
+/// The game's heap's blocks the census does not count, against the last
+/// ask.
+fn uncounted_now(sizes: usize, samples: usize) -> Result<Uncounted, Error> {
+    let heap = crate::memory_account::game_heap();
+    if heap == 0 {
+        return Err(Error::new(Code::Unavailable, "the game has not made its heap yet"));
+    }
+    let began = std::time::Instant::now();
+    let census: usize = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |s| s.blocks.len())).sum();
+    let walk = pages::walk(heap, (census + crate::heap::blocks()) * 5 / 4 + (1 << 20));
+    let counted = |start: usize| shard(start).as_ref().is_some_and(|s| s.blocks.contains_key(&start));
+    let mut found = uncounted::uncounted(&walk, counted, sizes, samples);
+    found.took_ms = began.elapsed().as_millis() as u64;
+    log!(
+        "census: {} blocks, {:.1} MB, of the game's heap not counted; {} blocks, {:.1} MB, made since the last ask; walked in {} ms",
+        found.blocks,
+        found.bytes as f64 / MB,
+        found.made_blocks,
+        found.made_bytes as f64 / MB,
+        found.took_ms
+    );
+    Ok(found)
 }
 
 /// The quarantine's report as remote control gives it.
