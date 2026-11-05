@@ -77,7 +77,7 @@ fn take_loan(m: &Memory, ctx: &Ctx) -> GResult<EconomyOption> {
     let (may, why) = game_string::written(m, |out| m.call(m.at(MAY_TAKE_LOAN), &[ctx.country, out]))?;
     if may & 0xff == 0 {
         let mut reasons = power::tooltip(m, c"NO_MORE_BANKLOANS", &[])?;
-        reasons.extend(power::plain_lines(&why));
+        reasons.extend(super::reasons(&why));
         return option(Choice::cannot(reasons, Vec::new()));
     }
     if m.call(m.at(RUIN_BLOCKED), &[ctx.country])? & 0xff != 0 {

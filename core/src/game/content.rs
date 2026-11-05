@@ -52,7 +52,7 @@ pub fn bounded(count: i32) -> GResult<usize> {
 /// the bullet some checks start a line with.
 pub fn checked(m: &Memory, check: impl FnOnce(usize) -> GResult<usize>) -> GResult<(bool, Vec<String>)> {
     let (allowed, text) = game_string::written(m, check)?;
-    let reasons = super::conditions::refusal(&text).into_iter().map(|l| l.trim_start_matches(['-', '－', '•']).trim_start().to_string());
+    let reasons = super::conditions::refusal(&text).into_iter().map(|l| super::unbulleted(&l).to_string());
     Ok((allowed & 0xff != 0, reasons.filter(|l| !l.is_empty()).collect()))
 }
 
