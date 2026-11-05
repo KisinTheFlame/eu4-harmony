@@ -50,14 +50,20 @@ pub enum End {
 }
 
 impl End {
-    /// The word extensions hear it by.
-    pub fn word(self) -> &'static str {
+    /// What remote control and extensions are told the session ended for.
+    pub fn reason(self) -> eu4_harmony_remote::events::SessionEnd {
+        use eu4_harmony_remote::events::SessionEnd;
         match self {
-            End::Return => "return",
-            End::Load => "load",
-            End::NewGame => "new_game",
-            End::Country => "country",
+            End::Return => SessionEnd::Return,
+            End::Load => SessionEnd::Load,
+            End::NewGame => SessionEnd::NewGame,
+            End::Country => SessionEnd::Country,
         }
+    }
+
+    /// The event extensions and remote control hear it by.
+    pub fn event(self) -> eu4_harmony_remote::events::Event {
+        eu4_harmony_remote::events::Event::SessionEnded { reason: self.reason() }
     }
 }
 
@@ -204,7 +210,7 @@ fn tell(happened: Vec<Happening>) {
         match happening {
             Happening::Began(_) => game::input::session_began(),
             Happening::Ended(session, end) => {
-                log!("session {session} ending ({})", end.word());
+                log!("session {session} ending ({end:?})");
                 game::event_costs::log_session();
                 crate::remote::session_ended(end);
                 crate::lua::session_ended(end);
@@ -349,7 +355,7 @@ mod tests {
         l.load_ended();
         l.frame_read(4, true);
         assert_eq!(l.frame_read(5, true), vec![Ended(4, End::Country), Began(5)]);
-        assert_eq!(End::Country.word(), "country");
+        assert_eq!(serde_json::to_value(End::Country.reason()).unwrap(), "country");
     }
 
     #[test]

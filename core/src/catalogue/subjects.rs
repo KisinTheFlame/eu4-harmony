@@ -3,25 +3,33 @@ use super::countries;
 use crate::game::{subjects as layer, Tag};
 use eu4_harmony_remote::{
     subjects::{SubjectAnswer, SubjectInteraction, SubjectRequest},
-    Error,
+    CountryTag, Error,
 };
 
 layer! {
+    run SubjectRequest => SubjectAnswer + countries::Layer;
     fn interactions(subject: Tag) -> Vec<SubjectInteraction> = layer::options;
     fn interact(subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> () = layer::interact;
+    Options { subject } => options(game, subject);
+    Interact { subject, interaction, third_party, province } => use_interaction(game, subject, &interaction, third_party, province.map(|p| p.0));
 }
 
-pub fn run(request: SubjectRequest, game: &mut (impl Layer + countries::Layer + ?Sized)) -> Result<SubjectAnswer, Error> {
-    Ok(match request {
-        SubjectRequest::Options { subject } => {
-            let subject = game.country(subject)?;
-            SubjectAnswer::Options(game.interactions(subject)?)
-        }
-        SubjectRequest::Interact { subject, interaction, third_party, province } => {
-            let subject = game.country(subject)?;
-            let third_party = third_party.map(|t| game.country(t)).transpose()?;
-            game.interact(subject, &interaction, third_party, province.map(|p| p.0))?;
-            SubjectAnswer::Interact(())
-        }
-    })
+/// The interactions with the subject, as its subject view offers them.
+fn options(game: &mut (impl Layer + countries::Layer + ?Sized), subject: CountryTag) -> Result<Vec<SubjectInteraction>, Error> {
+    let subject = game.country(subject)?;
+    Ok(game.interactions(subject)?)
+}
+
+/// Uses one of the interactions with the subject, on a third country or a
+/// province when it takes one.
+fn use_interaction(
+    game: &mut (impl Layer + countries::Layer + ?Sized),
+    subject: CountryTag,
+    interaction: &str,
+    third_party: Option<CountryTag>,
+    province: Option<u32>,
+) -> Result<(), Error> {
+    let subject = game.country(subject)?;
+    let third_party = third_party.map(|t| game.country(t)).transpose()?;
+    Ok(game.interact(subject, interaction, third_party, province)?)
 }

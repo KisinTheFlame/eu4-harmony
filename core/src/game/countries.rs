@@ -1,6 +1,6 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/research/countries.md).
-use super::{commands, context, country, game, span, thousandths, view, world, Caller, Ctx, GResult, Tag, View};
+use super::{commands, context, country, game, modifiers, span, thousandths, view, world, Caller, Ctx, GResult, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
@@ -132,10 +132,6 @@ pub struct Relation {
 /// The most tags a list of a country's, or wars, are believed to hold.
 const MOST: usize = 4096;
 
-/// The game's getter of a country's modifiers' values: (modifiers), the
-/// country's own at [`fields::MODIFIERS`]; the values are at its answer's
-/// `+8`.
-const MODIFIER_VALUES: usize = 0x93d750;
 /// The maximum governing capacity: (country, out, modifier values, text).
 const MAX_GOVERNING_CAPACITY: usize = 0x3f2e10;
 
@@ -145,15 +141,11 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x37f39ausize, "8b 0d 58 0c fc 01 eb 16 8b 40 04 e9 43 ff ff ff 8b 0d 4c 0c fc 01 eb 06 8b 0d 48 0c fc 01", "technology kinds' categories")
             .uses(&[technology::ADM, technology::DIP, technology::MIL]),
         // A country's diplomatic technology level, checked against the levels' count.
-        Point::keep(0x3c6143usize, "48 8b 87 40 24 00 00 4c 8b 80 28 01 00 00 48 8b 88 30 01 00 00 49 2b c8 48 c1 f9 02", "country technology levels")
-            .uses(&[fields::TECHNOLOGY, technology::LEVELS]),
-        // Whether a country may take another idea group: the national ideas take no slot.
-        Point::keep(
-            0x32e2d0usize,
-            "48 8b 81 38 14 00 00 48 8b 91 40 14 00 00 48 2b d0 48 c1 fa 04 85 d2 7e 0e 48 8b 00 80 b8 68 05 00 00 00",
-            "country idea groups",
-        )
-        .uses(&[fields::IDEA_GROUPS, fields::IDEA_GROUPS + 8, idea_group::FREE]),
+        Point::keep(0x3c6143usize, "48 8b 87 40 24 00 00 4c 8b 80 28 01 00 00 48 8b 88 30 01 00 00 49 2b c8 48 c1 f9 02", "country technology levels").uses(&[
+            fields::TECHNOLOGY,
+            technology::LEVELS,
+            technology::LEVELS + 8,
+        ]),
         Point::keep(0xcf470usize, "8b 41 08 c3", "idea group's ideas taken").uses(&[fields::IDEA_GROUP_COUNT]),
         Point::keep(0x43f280usize, "8b 81 6c 05 00 00 c3", "idea group's token").uses(&[idea_group::TOKEN]),
         // Governing capacity used, as a share of its maximum.
@@ -164,7 +156,6 @@ pub fn points() -> Vec<Point> {
             "governing capacity share",
         )
         .uses(&[fields::USED_GOVERNING_CAPACITY, fields::MODIFIERS]),
-        Point::keep(MODIFIER_VALUES, "48 89 5c 24 10 48 89 7c 24 18 55 48 8d 6c 24 b0 48 81 ec 50 01 00 00", "country modifier values"),
         Point::keep(MAX_GOVERNING_CAPACITY, "40 55 53 56 57 41 54 41 56 41 57 48 8d 6c 24 d9 48 81 ec b0 00 00 00", "maximum governing capacity"),
         // The country's save writer.
         Point::keep(0x2df1e1usize, "41 39 87 d4 0b 00 00", "country inflation").uses(&[fields::INFLATION]),
@@ -361,13 +352,10 @@ fn own_of(m: &Memory, ctx: &Ctx, c: usize) -> GResult<Own> {
 /// Governing capacity used and its maximum, as the game's own share of them
 /// reads them.
 fn governing_capacity(m: &Memory, c: usize) -> GResult<GoverningCapacity> {
-    let values = m.call(m.at(MODIFIER_VALUES), &[c + fields::MODIFIERS])?;
-    if values == 0 {
-        return Err("no modifier values".to_string().into());
-    }
+    let values = modifiers::values(m, c)?;
     let mut max = 0i32;
     let out = &mut max as *mut i32 as usize;
-    if m.call(m.at(MAX_GOVERNING_CAPACITY), &[c, out, values + 8, 0])? != out {
+    if m.call(m.at(MAX_GOVERNING_CAPACITY), &[c, out, values, 0])? != out {
         return Err("governing capacity getter returned an unexpected pointer".to_string().into());
     }
     Ok(GoverningCapacity { used: thousandths(m.i32(c + fields::USED_GOVERNING_CAPACITY)?), max: thousandths(max) })

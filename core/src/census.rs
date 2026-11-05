@@ -17,6 +17,7 @@
 //! by jumps alone, so `free` returns to the code that deleted the block.
 //! Blocks allocated before the framework started are not counted, nor are
 //! blocks of other modules' heaps and allocators.
+use crate::game_heap;
 use crate::hooks::HookFrame;
 use crate::points::Point;
 use eu4_harmony_remote::memory::{
@@ -43,8 +44,7 @@ const MALLOC: usize = 0x1a6837c;
 const CALLOC: usize = 0x1a6989c;
 const REALLOC: usize = 0x1a6dd98;
 const FREE: usize = 0x1a6833c;
-/// `(size)`: `operator new`, which calls [`MALLOC`]; and its end.
-const NEW: usize = 0x1a332d4;
+/// The end of `operator new` ([`game_heap::NEW`]), which calls [`MALLOC`].
 const NEW_END: usize = 0x1a33310;
 /// Where `operator new` returns in the game's generic allocation of a buffer
 /// (`0x950b0`) for a large buffer, and, as the generic allocation jumps to it
@@ -124,7 +124,7 @@ fn remove(block: usize, by: Option<usize>) -> Option<Block> {
 /// Whether `site` is inside `operator new`, which counts its own blocks.
 fn in_new(site: usize) -> bool {
     let base = BASE.load(Ordering::Relaxed);
-    (base + NEW..base + NEW_END).contains(&site)
+    (base + game_heap::NEW..base + NEW_END).contains(&site)
 }
 
 /// The site of a block `operator new` returned to `site`: the site itself,
@@ -229,7 +229,7 @@ pub fn points(m: &crate::memory::Memory) -> Vec<Point> {
         Point::observe(CALLOC, "40 53 48 83 ec 20 4c 8b c2 48 8b d9", "census calloc", 2, None, Some(calloc_after)),
         Point::observe(REALLOC, "48 89 5c 24 08 57 48 83 ec 20 48 8b da 48 8b f9", "census realloc", 2, Some(realloc_before), Some(realloc_after)),
         Point::observe(FREE, "48 85 c9 74 37 53 48 83 ec 20", "census free", 1, Some(free_before), None),
-        Point::observe(NEW, "40 53 48 83 ec 20 48 8b d9 eb 0f", "census new", 1, None, Some(new_after)),
+        Point::observe(game_heap::NEW, "40 53 48 83 ec 20 48 8b d9 eb 0f", "census new", 1, None, Some(new_after)),
         Point::keep(0x950c9usize, "e8 06 e2 99 01 48 8b c8", "the generic allocation calls operator new"),
         Point::keep(0x9519cusize, "e8 0f ff ff ff 4c 8b c6", "a string's buffer from the generic allocation"),
     ]

@@ -3,7 +3,7 @@
 //! game's own commands, and the event of a building finished
 //! (docs/research/province-view.md).
 use super::{
-    administration::{CONSTRUCTIONS, CONSTRUCTION_KIND, MOST_CONSTRUCTIONS, NODE_NEXT},
+    administration::MOST_CONSTRUCTIONS,
     commands::{self, Refused},
     context, context_any, events, fail, game, thousandths, with_state, Caller, Ctx, GResult, Status, Tag,
 };
@@ -11,7 +11,10 @@ use crate::{
     game_string,
     hooks::HookFrame,
     memory::Memory,
-    objects::campaign::{building as fields, country, province as field},
+    objects::{
+        campaign::{building as fields, construction, country, province as field},
+        list,
+    },
     points::Point,
     unicode::game_text,
 };
@@ -31,14 +34,10 @@ const PRICE: usize = 0x32a420;
 /// Whether a country may cancel the building being built: (province,
 /// building, tag, reasons).
 const CAN_CANCEL: usize = 0xa1b540;
-/// A building construction's kind, and its fields: the building, its
-/// builder's tag, its progress (fixed point, 0 to 1), the day it ends, and
-/// its province.
+/// A building construction's kind, and its fields besides a
+/// [`construction`]'s: its builder's tag and its province.
 const BUILDING_CONSTRUCTION: u32 = 0x28c7;
-const BUILDING: usize = 0x80;
 const BUILDER: usize = 0x88;
-const PROGRESS: usize = 0x30;
-const ENDS: usize = 0x24;
 const PROVINCE: usize = 0x38;
 /// The building construction's class, and its method that finishes it,
 /// `(construction)`: the building is put in the province.
@@ -56,13 +55,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(PRICE, "48 89 5c 24 18 56 57 41 56 48 83 ec 20 49 8b f1 4c 8b f2 4c", "building price"),
         Point::keep(CAN_CANCEL, "48 89 5c 24 08 48 89 6c 24 18 48 89 74 24 20 57 48 83 ec 60", "cancel building check"),
         // The cancel check reads the construction's building and builder.
-        Point::keep(0xa1b576usize, "48 8b 80 80 00 00 00", "construction building").uses(&[BUILDING]),
+        Point::keep(0xa1b576usize, "48 8b 80 80 00 00 00", "construction building").uses(&[construction::MAKES]),
         Point::keep(0xa1b663usize, "48 8b 81 88 00 00 00", "construction builder").uses(&[BUILDER]),
-        // The construction_progress trigger reads its country; its progress
-        // method answers its progress; the busy check its end.
-        Point::keep(0xcd1db1usize, "48 8b 4f 40", "construction country"),
-        Point::keep(0x24fff0usize, "8b 41 30 89 02 48 8b c2", "construction progress").uses(&[PROGRESS]),
-        Point::keep(0xa1bc53usize, "48 8d 4e 24", "construction end").uses(&[ENDS]),
         // The building construction's constructor sets its class.
         Point::keep(0x253358usize, "48 8d 05 39 81 9f 01 48 89 01", "building construction class").uses(&[CONSTRUCTION_CLASS]),
         Point::method(CONSTRUCTION_CLASS, 0xb8, 0x24fff0, "construction progress method"),
@@ -70,7 +64,7 @@ pub fn points() -> Vec<Point> {
         Point::method(CONSTRUCTION_CLASS, 0x48, FINISH, "building construction finish"),
         Point::observe(FINISH, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24", "building finished", 1, Some(finished), None),
         Point::keep(0x25382fusize, "48 8b 41 38", "construction province").uses(&[PROVINCE]),
-        Point::keep(0x253854usize, "48 8b 91 80 00 00 00", "finished building").uses(&[BUILDING]),
+        Point::keep(0x253854usize, "48 8b 91 80 00 00 00", "finished building").uses(&[construction::MAKES]),
         // The command types.
         Point::method(0x1c4e490, 0x40, 0x2694b0, "build command check"),
         Point::method(0x1c4db60, 0x40, 0x271c30, "cancel building command check"),
@@ -92,7 +86,7 @@ extern "C" fn finished(frame: *mut HookFrame) {
                 return Ok(None);
             }
             let province = m.ptr(construction + PROVINCE)?;
-            let building = m.ptr(construction + BUILDING)?;
+            let building = m.ptr(construction + construction::MAKES)?;
             let owner = Tag(m.u64(province + field::OWNER)?);
             let index = m.u32(building + fields::INDEX)?;
             let province = m.u32(province + field::ID)?;
@@ -156,16 +150,16 @@ fn stands(m: &Memory, province: usize, index: u32) -> GResult<bool> {
 
 /// The building being built in the province: the construction.
 fn construction(m: &Memory, province: usize) -> GResult<Option<usize>> {
-    let mut node = m.ptr(province + CONSTRUCTIONS)?;
+    let mut node = m.ptr(province + field::CONSTRUCTIONS)?;
     for _ in 0..MOST_CONSTRUCTIONS {
         if node == 0 {
             return Ok(None);
         }
         let construction = m.ptr(node)?;
-        if m.u32(construction + CONSTRUCTION_KIND)? == BUILDING_CONSTRUCTION {
+        if m.u32(construction + construction::KIND)? == BUILDING_CONSTRUCTION {
             return Ok(Some(construction));
         }
-        node = m.ptr(node + NODE_NEXT)?;
+        node = m.ptr(node + list::NEXT)?;
     }
     Err("a province's constructions do not end".to_string().into())
 }
@@ -221,14 +215,19 @@ pub fn options(caller: Caller, id: u32) -> GResult<(Option<Constructing>, Vec<Of
     let constructing = match construction(m, province)?.filter(|_| seen) {
         None => None,
         Some(construction) => {
-            let building = m.ptr(construction + BUILDING)?;
+            let building = m.ptr(construction + construction::MAKES)?;
             let builder = Tag(m.u64(construction + BUILDER)?);
             let (may, text) =
                 game_string::written(m, |out| m.call(m.at(CAN_CANCEL), &[province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
             let choice = if may as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::administration::reasons(&text), Vec::new()) };
             let key = key(m, building)?;
             offers.push(Offer { action: "cancel", building: key.clone(), choice });
-            Some(Constructing { building: key, progress: m.i32(construction + PROGRESS)?, ends: m.i32(construction + ENDS)?, builder })
+            Some(Constructing {
+                building: key,
+                progress: m.i32(construction + construction::PROGRESS)?,
+                ends: m.i32(construction + construction::END)?,
+                builder,
+            })
         }
     };
     for (index, &building) in database(m)?.iter().enumerate().skip(1) {
@@ -291,7 +290,7 @@ pub fn cancel(_: Caller, id: u32) -> GResult<()> {
     let Some(construction) = construction(m, province)? else {
         return Err(refuse::not_doing("building in", id).into());
     };
-    let building = m.ptr(construction + BUILDING)?;
+    let building = m.ptr(construction + construction::MAKES)?;
     let (may, text) = game_string::written(m, |out| m.call(m.at(CAN_CANCEL), &[province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
     if may as u8 == 0 {
         return Err(refuse::not_allowed("cancel it", &super::administration::reasons(&text)).into());

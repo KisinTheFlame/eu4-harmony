@@ -1,22 +1,19 @@
 //! The game being played.
-use super::tag;
+use super::{tag, Convert};
 use crate::game::{self};
 use eu4_harmony_remote::{
     session::{Session, SessionAnswer, SessionRequest},
-    Date, Error,
+    Date,
 };
 
 layer! {
-    fn session() -> game::session::Session = game::session::session;
-}
-
-pub fn run(request: SessionRequest, game: &mut (impl Layer + ?Sized)) -> Result<SessionAnswer, Error> {
-    match request {
-        SessionRequest::Get {} => Ok(SessionAnswer::Get(answer(game.session()?))),
-    }
+    run SessionRequest => SessionAnswer;
+    Get => fn session() -> game::session::Session = game::session::session;
 }
 
 /// The session as remote clients read it.
-pub fn answer(s: game::session::Session) -> Session {
-    Session { number: s.session, player: tag(s.player), date: Date(s.date) }
+impl Convert<Session> for game::session::Session {
+    fn convert(self) -> Session {
+        Session { number: self.session, player: tag(self.player), date: Date(self.date) }
+    }
 }

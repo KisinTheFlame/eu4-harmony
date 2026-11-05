@@ -5,15 +5,15 @@ use super::{commands, context, game, with_state, Caller, Ctx, GResult};
 use crate::{
     game_string,
     memory::Memory,
-    objects::campaign::province::{FORT_LEVEL, MOTHBALL, MOTHBALLED},
+    objects::campaign::{
+        country,
+        province::{FORT_LEVEL, MOTHBALL, MOTHBALLED},
+    },
     points::Point,
 };
 use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
 
-/// A country's provinces: an array of their IDs (i32), and its count.
-const OWNED: usize = 0x1338;
-const OWNED_COUNT: usize = 0x1344;
 /// A province's byte that says it has a fort.
 const HAS_FORT: usize = 0x2dd8;
 /// `(tag by value, province ID, text or null)`: whether the country may
@@ -26,7 +26,7 @@ pub fn points() -> Vec<Point> {
     vec![
         // The military view's "mothball all" walks the country's provinces
         // and asks each whether it has a fort.
-        Point::keep(0x5dbc48usize, "49 8b bd 38 13 00 00 49 63 85 44 13 00 00", "country provinces").uses(&[OWNED, OWNED_COUNT]),
+        Point::keep(0x5dbc48usize, "49 8b bd 38 13 00 00 49 63 85 44 13 00 00", "country provinces").uses(&[country::OWNED, country::OWNED_COUNT]),
         Point::keep(0x5dbc71usize, "80 bb d8 2d 00 00 00", "province has a fort").uses(&[HAS_FORT]),
         Point::keep(MAY_MOTHBALL, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 40 49 8b d8 41 b0 01", "may mothball a fort"),
     ]
@@ -48,11 +48,11 @@ fn read(m: &Memory, ctx: &Ctx, id: u32, address: usize) -> GResult<PlayerFort> {
 pub fn list(_: Caller) -> GResult<Vec<PlayerFort>> {
     let m = game()?;
     let ctx = context(m)?;
-    let count = m.i32(ctx.country + OWNED_COUNT)?;
+    let count = m.i32(ctx.country + country::OWNED_COUNT)?;
     if !(0..MOST).contains(&count) {
         return Err(format!("{count} provinces").into());
     }
-    let ids = m.ptr(ctx.country + OWNED)?;
+    let ids = m.ptr(ctx.country + country::OWNED)?;
     let mut out = Vec::new();
     for i in 0..count as usize {
         let id = m.u32(ids + i * 4)?;

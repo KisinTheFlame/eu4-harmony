@@ -28,7 +28,7 @@ use eu4_harmony_checks::peace as checks;
 use eu4_harmony_remote::choices::{Acceptance, Amount, Choice, Resource};
 
 /// The peace offer's constructor: (action, from, to, demand, treaty, date),
-/// the treaty copied.
+/// the treaty copied, so it holds one of its own.
 const PEACE_NEW: usize = 0x598af0;
 /// A peace treaty's constructor and destructor: (treaty, actor, other,
 /// demand), every term the peace view offers in it and none chosen;
@@ -244,7 +244,7 @@ fn allowed(m: &Memory, treaty: usize, at: usize) -> GResult<(bool, Vec<String>)>
     let mut list = [0usize; 3];
     let list_at = list.as_mut_ptr() as usize;
     let (can, text) = game_string::written(m, |s| m.call(m.at(TERM_ALLOWED), &[treaty, at, list_at, 0, s]))?;
-    commands::free_vector(m, unsafe { std::ptr::read_volatile(&list) })?;
+    crate::game_heap::free_vector(m, unsafe { std::ptr::read_volatile(&list) })?;
     Ok((can as u8 != 0, if can as u8 != 0 { Vec::new() } else { diplomacy::text_lines(&text) }))
 }
 
@@ -314,7 +314,7 @@ fn term_key(name: &str) -> String {
 }
 
 /// A peace treaty the framework made; destroyed when dropped.
-struct Treaty<'a> {
+pub(super) struct Treaty<'a> {
     m: &'a Memory,
     object: Vec<u64>,
     /// Its constructor ran, so its destructor must.
@@ -324,7 +324,7 @@ struct Treaty<'a> {
 impl<'a> Treaty<'a> {
     /// As the peace view makes it: on the demand tab, the player's demand of
     /// `enemy`; on the offer tab, `enemy` taking from the player.
-    fn new(m: &'a Memory, ctx: &Ctx, enemy: Tag, offer: bool) -> GResult<Self> {
+    pub(super) fn new(m: &'a Memory, ctx: &Ctx, enemy: Tag, offer: bool) -> GResult<Self> {
         let mut treaty = Self { m, object: vec![0; treaty::SIZE / 8], built: false };
         let (actor, other, demand) = if offer { (enemy, ctx.player, 0) } else { (ctx.player, enemy, 1) };
         m.call(m.at(TREATY_NEW), &[treaty.at(), actor.0 as usize, other.0 as usize, demand])?;
@@ -361,10 +361,10 @@ impl Drop for Treaty<'_> {
 /// A peace offer of the player's to `enemy` holding a copy of a treaty, as
 /// the peace view makes one for its send button: its demand flag the view's
 /// tab.
-struct Offer<'a>(Made<'a>);
+pub(super) struct Offer<'a>(Made<'a>);
 
 impl<'a> Offer<'a> {
-    fn new(m: &'a Memory, ctx: &Ctx, enemy: Tag, treaty: &Treaty, offer: bool) -> GResult<Self> {
+    pub(super) fn new(m: &'a Memory, ctx: &Ctx, enemy: Tag, treaty: &Treaty, offer: bool) -> GResult<Self> {
         let mut made = Made::new(m, action::PEACE_SIZE);
         let demand = usize::from(!offer);
         m.call(m.at(PEACE_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, demand, treaty.at(), ctx.date as u32 as usize])?;
@@ -372,16 +372,18 @@ impl<'a> Offer<'a> {
         Ok(Self(made))
     }
 
-    fn at(&self) -> usize {
+    pub(super) fn at(&self) -> usize {
         self.0.at()
     }
 }
 
 /// The functions peace calls; the treaty's and the terms' fields are in
-/// `objects::diplomacy`, and the peace offer's constructor and the treaty's
-/// with diplomacy's points.
+/// `objects::diplomacy`.
 pub fn points() -> Vec<Point> {
     vec![
+        Point::keep(PEACE_NEW, "48 89 4c 24 08 53 48 83 ec 20 48 8b d9", "peace offer constructor"),
+        Point::keep(TREATY_NEW, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48 89 4c 24 08 57 41 56 41 57 48 83 ec 20", "peace treaty constructor"),
+        Point::keep(TREATY_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 48 8d 05 e7 16 2e 01", "peace treaty destructor"),
         Point::keep(TERM_ALLOWED, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8b ec 48 81 ec", "peace term check"),
         Point::keep(TERM_CHOOSE, "48 89 6c 24 18 48 89 74 24 20 48 89 54 24 10 57 48 83 ec 30 41 0f b6 e9", "peace term chosen"),
         Point::keep(TREATY_COST, "48 8b c4 53 48 83 ec 40 8b 99 f0 00 00 00 48 89 68 08 48 8b", "peace treaty cost"),

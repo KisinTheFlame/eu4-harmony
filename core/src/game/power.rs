@@ -1,7 +1,8 @@
 //! Monarch points spent as the game's panels spend them: the power spending
 //! the game builds for a button, its cost as the panel shows it, and the
-//! command the button posts (docs/research/power-spending.md). Shared by the
-//! groups whose buttons spend points: technology, stability, the economy.
+//! command the button posts (docs/research/power-spending.md). Every group
+//! whose buttons spend points builds its spendings here: technology,
+//! stability, the economy, ideas, sieges, developing and coring.
 //! Also what the panels' tooltips are written with: the game's localisation
 //! with values, and the conditions of `common/scripted_functions` that allow
 //! some of these buttons.
@@ -9,7 +10,7 @@ use super::{
     commands::{self, Refused},
     conditions, fail, GResult, Status, Tag,
 };
-use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use crate::{game_string, memory::Memory, objects::campaign::country, points::Point, unicode::game_text};
 use eu4_harmony_remote::choices::PowerKind;
 use std::ffi::CStr;
 
@@ -19,8 +20,10 @@ const SPENDING_CLASS: usize = 0x1c55480;
 /// every one of the game's objects of this kind starts with, the kind of
 /// spending, the kind of monarch power, a first and a second value (−1 for
 /// none), the object it is about (none here), the ID of none from
-/// [`NO_ID`], and whether it may leave the points below zero.
+/// [`NO_ID`], and whether it may leave the points below zero. The framework
+/// keeps one in a few bytes more, as its callers did before.
 const SPENDING: usize = 0x38;
+const ROOM: usize = SPENDING + 8;
 const OBJECT_MARK: u32 = 0x165;
 const KIND: usize = 0x10;
 const SKILL: usize = 0x14;
@@ -31,14 +34,18 @@ const ABOUT_ID: usize = 0x28;
 const NO_ID: usize = 0x233fea8;
 /// A spending's cost in whole monarch points: `(spending, tag, text, 0)`.
 const COST: usize = 0x9526d0;
+/// Whether the spend_power command's check lets the country spend it:
+/// `(spending, tag)`.
+const CHECK: usize = 0x94f250;
+/// The game's constructor of a spending about a province, `(spending, kind,
+/// province, power)`, which reads the province's ID as its first value. A
+/// spending needs no destructor: its vtable's slot `+0x28` is `ret`.
+const ABOUT_PROVINCE: usize = 0x94ee80;
 /// The kinds of spending this part uses (`0x94e1d0` names them).
 pub const ADVANCE_TECH: i32 = 1;
 pub const BOOST_STABILITY: i32 = 2;
 pub const REDUCE_INFLATION: i32 = 15;
 pub const PROMOTE_MERCANTILISM: i32 = 26;
-
-/// A country's monarch points, three i32, administrative first.
-const POWER: usize = 0x260;
 
 /// `common/scripted_functions`, the game's object that holds them (made on
 /// first use by its getters; null before), and the place in it of each this
@@ -53,18 +60,20 @@ const POTENTIAL: usize = 0x30;
 const ALLOW: usize = 0xa8;
 /// The most conditions one function is believed to hold.
 const MOST: usize = 1000;
-/// A date as the game's texts write it: `(&date, out string)`.
-const DATE_TEXT: usize = 0x6e5b40;
 
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(COST, "48 8b c4 48 89 58 10 4c 89 48 20 4c 89 40 18 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57", "power spending cost"),
+        Point::keep(CHECK, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 81 ec 80 00 00 00", "power spending check"),
+        // It sets the mark, the class, and the province's ID.
+        Point::keep(ABOUT_PROVINCE, "c7 41 08 65 01 00 00 48 8d 05 f2 65 30 01 48 89", "power spending about a province").uses(&[SPENDING_CLASS]),
+        Point::keep(0x955a0usize, "c2 00 00", "power spending destructor"),
         // The cost switches on the spending's kind.
         Point::keep(0x952711usize, "48 63 49 10 83 f9 29", "power spending cost's kinds").uses(&[KIND]),
         // The check of the spend_power command compares the cost with the
         // country's points of the spending's kind.
         Point::keep(0x94f28cusize, "4c 63 46 14 48 8b 15 39 e6 9e 01 48 8b 8a 18 01 00 00 49 8b 3c 0e 42 39 84 87 60 02 00 00", "power spending's points")
-            .uses(&[SKILL, POWER]),
+            .uses(&[SKILL, country::POWER]),
         // The economy view builds a spending as the framework does: its
         // class, the mark, the ID of none.
         Point::keep(
@@ -88,18 +97,19 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xacd1d1usize, "48 8b 98 b0 00 00 00 48 63 80 bc 00 00 00", "scripted function's allow"),
         Point::keep(0x3829c1usize, "48 8b 05 10 94 0a 02 48 8b 88 c8 00 00 00", "can_increase_stability").uses(&[FUNCTIONS, CAN_INCREASE_STABILITY]),
         Point::keep(0x38d689usize, "48 8b 05 48 e7 09 02 48 8b 48 78", "can_reduce_inflation").uses(&[FUNCTIONS, CAN_REDUCE_INFLATION]),
-        Point::keep(DATE_TEXT, "48 89 5c 24 18 48 89 74 24 20 48 89 54 24 10 55 57 41 56 48 8d 6c 24 b9", "date text"),
     ]
 }
 
 /// A power spending as the game's buttons build one, in the framework's
 /// memory: the game reads only its fields.
-#[repr(C)]
-struct Spending([u8; SPENDING]);
+#[repr(C, align(16))]
+pub struct Spending([u8; ROOM]);
 
 impl Spending {
-    fn new(m: &Memory, kind: i32, skill: PowerKind, data: i32) -> GResult<Self> {
-        let mut bytes = [0u8; SPENDING];
+    /// A spending of `kind` in `skill` points, `data` its first value, as
+    /// the game's buttons build one.
+    pub fn new(m: &Memory, kind: i32, skill: PowerKind, data: i32) -> GResult<Self> {
+        let mut bytes = [0u8; ROOM];
         let mut put = |at: usize, value: &[u8]| bytes[at..at + value.len()].copy_from_slice(value);
         put(0, &(m.at(SPENDING_CLASS) as u64).to_le_bytes());
         put(8, &OBJECT_MARK.to_le_bytes());
@@ -110,18 +120,40 @@ impl Spending {
         put(ABOUT_ID, &m.u64(m.at(NO_ID))?.to_le_bytes());
         Ok(Self(bytes))
     }
+
+    /// A spending of `kind` in `power` points about the province at
+    /// `province`, as the game's own constructor builds one: developing
+    /// and coring.
+    pub fn about_province(m: &Memory, kind: usize, province: usize, power: usize) -> GResult<Self> {
+        let mut spending = Self([0; ROOM]);
+        m.call(m.at(ABOUT_PROVINCE), &[spending.at(), kind, province, power])?;
+        Ok(spending)
+    }
+
+    fn at(&mut self) -> usize {
+        self.0.as_mut_ptr() as usize
+    }
+
+    /// What it costs `player` now, in whole points, as the panel shows it.
+    pub fn cost(&mut self, m: &Memory, player: Tag) -> GResult<i32> {
+        Ok(m.call(m.at(COST), &[self.at(), player.0 as usize, 0, 0])? as i32)
+    }
+
+    /// Whether the spend_power command's check lets `player` spend it now.
+    pub fn allowed(&mut self, m: &Memory, player: Tag) -> GResult<bool> {
+        Ok(m.call(m.at(CHECK), &[self.at(), player.0 as usize])? & 0xff != 0)
+    }
 }
 
 /// What a spending of `kind` in `skill` points, with `data` its first value,
 /// costs `player` now, in whole points, as the panel shows it.
 pub fn cost(m: &Memory, player: Tag, kind: i32, skill: PowerKind, data: i32) -> GResult<i32> {
-    let mut spending = Spending::new(m, kind, skill, data)?;
-    Ok(m.call(m.at(COST), &[spending.0.as_mut_ptr() as usize, player.0 as usize, 0, 0])? as i32)
+    Spending::new(m, kind, skill, data)?.cost(m, player)
 }
 
 /// The monarch points of `skill` the country at `country` has.
 pub fn points_of(m: &Memory, country: usize, skill: PowerKind) -> GResult<i32> {
-    Ok(m.i32(country + POWER + 4 * skill as usize)?)
+    Ok(m.i32(country + country::POWER + 4 * skill as usize)?)
 }
 
 /// The spend_power command in its written form, as the game's buttons make
@@ -194,9 +226,11 @@ pub fn scripted(m: &Memory, function: usize, player: Tag) -> GResult<(bool, Vec<
     Ok((allowed, reasons))
 }
 
-/// The game's date `date` as its texts write it, in the player language.
+/// The game's date `date` as its texts write a month and year, moved on to
+/// the first of the next month ([`crate::wording::dates`]), in the player
+/// language.
 pub fn date_text(m: &Memory, date: i32) -> GResult<String> {
-    let (_, text) = game_string::written(m, |out| m.call(m.at(DATE_TEXT), &[&date as *const i32 as usize, out]))?;
+    let (_, text) = game_string::written(m, |out| m.call(m.at(crate::wording::dates::NEXT_MONTH_YEAR), &[&date as *const i32 as usize, out]))?;
     Ok(game_text::to_utf8(&text))
 }
 

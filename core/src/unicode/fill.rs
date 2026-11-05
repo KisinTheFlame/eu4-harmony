@@ -57,9 +57,6 @@ use windows::Win32::Graphics::Direct3D9::*;
 const CREATE_TEXTURE: usize = 0x16d7aa0;
 /// Releases a texture and frees its wrapper (wrapper).
 const DESTROY_TEXTURE: usize = 0x16d80f0;
-/// The game's `operator new`, which allocates glyph records here and the
-/// recruit command in `game::recruiting`.
-pub const ALLOCATE: usize = 0x1a332d4;
 /// The engine's format numbers for a 32-bit page (A8R8G8B8) and a DXT5 one
 /// (0x16f9850 maps them to Direct3D's).
 const ARGB: u32 = 0xb;
@@ -628,7 +625,7 @@ fn replace_own_glyphs(m: &Memory, font: usize, fill: &mut Fill, tone: Tone) -> c
         let slot = font + OWN_GLYPHS + byte as usize * 8;
         let mut record = m.ptr(slot)?;
         if record == 0 {
-            record = m.call(m.at(ALLOCATE), &[std::mem::size_of::<Glyph>()])?;
+            record = crate::game_heap::new(m, std::mem::size_of::<Glyph>())?;
             if record == 0 {
                 continue;
             }
@@ -772,7 +769,6 @@ pub fn points() -> Vec<Point> {
     vec![
         Point::observe(CREATE_TEXTURE, "48 89 5c 24 20 55 56 57 41 54 41 55 41 56 41 57", "texture creation", 5, Some(create_before), None),
         Point::observe(DESTROY_TEXTURE, "40 53 48 83 ec 20 48 8b d9 ff 15 51 91 8f 00 48", "texture destruction", 1, Some(destroy_before), None),
-        Point::keep(ALLOCATE, "40 53 48 83 ec 20 48 8b d9 eb 0f 48 8b cb e8 95", "game allocator"),
         // The `.fnt` loader allocates its 16-byte glyph records with it.
         Point::keep(0x1595cadusize, "b9 10 00 00 00 e8 1d d6 49 00", "glyph record allocation"),
     ]

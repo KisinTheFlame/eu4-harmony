@@ -317,6 +317,10 @@ pub mod functions {
     /// The accept method ([`super::dialog::ACCEPT`]) of a diplomacy dialog
     /// about a diplomatic action: it sends the action's answer.
     pub const ACTION_DIALOG_ACCEPT: usize = 0x1066a40;
+    /// Adds months to a date: `(&date, months)`.
+    pub const ADD_MONTHS: usize = 0x14c8030;
+    /// Takes a listener off a signal: `(signal, wrapper)`.
+    pub const UNSUBSCRIBE: usize = 0xfbe370;
 }
 
 use super::campaign;
@@ -348,7 +352,7 @@ pub fn points() -> Vec<Point> {
         // Unsubscribing: the listeners, and a removal deferred while the
         // signal calls them.
         Point::keep(
-            0xfbe370usize,
+            UNSUBSCRIBE,
             "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 85 c9 74 67 48 39 11 74 0f 48 8b 49 10 48 85 c9 75 f2 48 83 c4 20 5b c3 80 7b 1c 00",
             "signal listeners",
         )
@@ -434,7 +438,7 @@ pub fn points() -> Vec<Point> {
         .uses(&[diplomacy_dialog::ACTION, super::diplomacy::action::STATE]),
         // Adding months (docs/research/dates.md), which the offers do as it
         // does: a year for each twelve, then the rest through the months.
-        Point::keep(0x14c8030usize, "85 d2 0f 84 e4 00 00 00 48 89 74 24 20 57 48 83 ec 20 8b fa 48 89 5c 24 30 b8 ab aa aa 2a", "adding months"),
+        Point::keep(ADD_MONTHS, "85 d2 0f 84 e4 00 00 00 48 89 74 24 20 57 48 83 ec 20 8b fa 48 89 5c 24 30 b8 ab aa aa 2a", "adding months"),
         // A dialog's description: its text box, by name, and the text.
         Point::keep(0x10a286fusize, "48 8b 01 48 8b da 48 8d 15 84 31 bc 00 ff 90 98 00 00 00 48 8b f0 48 8d b8 70 01 00 00", "dialog description")
             .uses(&[window::FIND_TEXT, text_box::TEXT]),

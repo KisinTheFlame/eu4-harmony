@@ -28,12 +28,12 @@ const NODE_SIZE: usize = 0x138;
 /// countries' entries, a pointer to [`ENTRY_SIZE`]-byte entries by the
 /// country's index; what comes in, a vector (begin, end) of
 /// [`INCOMING_SIZE`]-byte items.
-const DEFINITION: usize = province::TRADE_NODE_DEFINITION;
+pub(super) const DEFINITION: usize = province::TRADE_NODE_DEFINITION;
 const VALUE: usize = 0xb0;
 const LOCAL_VALUE: usize = 0xb4;
 const TOTAL_POWER: usize = 0xc8;
-const ENTRIES: usize = 0x18;
-const ENTRY_SIZE: usize = 0xc0;
+pub(super) const ENTRIES: usize = 0x18;
+pub(super) const ENTRY_SIZE: usize = 0xc0;
 const INCOMING: usize = 0xf0;
 const INCOMING_SIZE: usize = 0x20;
 /// An incoming item's value, fixed point, and the definition it comes from.
@@ -42,12 +42,12 @@ const INCOMING_FROM: usize = 0x18;
 /// A definition's key and name (`std::string`s), its index, and its links
 /// downstream, a vector (begin, end) of [`LINK_SIZE`]-byte items, each with
 /// the definition it leads to at [`LINK_TO`].
-const KEY: usize = province::TRADE_NODE_KEY;
-const NAME: usize = 0x30;
-const INDEX: usize = 0xd8;
-const LINKS: usize = 0x98;
-const LINK_SIZE: usize = 0x78;
-const LINK_TO: usize = 0x30;
+pub(super) const KEY: usize = province::TRADE_NODE_KEY;
+pub(super) const NAME: usize = 0x30;
+pub(super) const INDEX: usize = 0xd8;
+pub(super) const LINKS: usize = 0x98;
+pub(super) const LINK_SIZE: usize = 0x78;
+pub(super) const LINK_TO: usize = 0x30;
 /// A country's entry: its tag; its trade power before what it gives and
 /// gets (`val`), the demand and power that bound it, what it gives away and
 /// gets, fixed point; its merchant: whether it has one, of what kind
@@ -58,17 +58,17 @@ const MAX_DEMAND: usize = 0x44;
 const MAX_POWER: usize = 0x4c;
 const GIVEN: usize = 0x50;
 const GOT: usize = 0x54;
-const HAS_MERCHANT: usize = 0xae;
+pub(super) const HAS_MERCHANT: usize = 0xae;
 const MERCHANT_KIND: usize = 0xac;
 const STEER: u8 = 1;
-const STEER_LINK: usize = 0xa8;
-const HOME: usize = 0xad;
+pub(super) const STEER_LINK: usize = 0xa8;
+pub(super) const HOME: usize = 0xad;
 /// The game's share of a country in a node: (node, out, tag), thousandths;
 /// whether a country collects there: (node, tag).
 const SHARE: usize = 0xb573a0;
 const COLLECTS: usize = 0xb58e00;
 /// The most nodes, links or flows believed.
-const MOST: usize = 10_000;
+pub(super) const MOST: usize = 10_000;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -111,7 +111,7 @@ pub fn points() -> Vec<Point> {
 }
 
 /// The nodes, by their place: (place, address); place 0 is left out.
-fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
+pub(super) fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
     let data = m.ptr(ctx.world + NODES)?;
     let count = m.i32(ctx.world + NODE_COUNT)?;
     if !(0..=MOST as i32).contains(&count) {
@@ -127,6 +127,11 @@ fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
         out.push(node);
     }
     Ok(out)
+}
+
+/// Whether the country `tag` collects in the node at `node`.
+pub(super) fn collects(m: &Memory, node: usize, tag: Tag) -> GResult<bool> {
+    Ok(m.call(m.at(COLLECTS), &[node, tag.0 as usize])? as u8 != 0)
 }
 
 fn text(m: &Memory, string: usize) -> GResult<String> {
@@ -270,7 +275,7 @@ fn countries_in(m: &Memory, ctx: &Ctx, node: usize, links: &[usize]) -> GResult<
         let mut share = 0i32;
         let out_at = &mut share as *mut i32 as usize;
         m.call(m.at(SHARE), &[node, out_at, tag.0 as usize])?;
-        let collects = m.call(m.at(COLLECTS), &[node, tag.0 as usize])? as u8 != 0;
+        let collects = collects(m, node, tag)?;
         out.push(TradePower { country: CountryTag(tag.letters()), power: thousandths(power), share: share as f64 / 10.0, collects, home, merchant });
     }
     Ok(out)

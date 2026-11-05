@@ -62,8 +62,6 @@ const WRITE_SAVE: usize = 0x5cbde0;
 const AFTER_LOAD: usize = 0x824810;
 /// `()`: what the load question puts in [`load_request::CONTEXT`].
 const LOAD_CONTEXT: usize = 0x8bf160;
-/// `(out, key, values, count)`: the game's localisation lookup.
-const LOCALIZE: usize = 0x14b34a0;
 /// Where the load question looks its text up, `CONFIRMLOADSAVETEXT` with
 /// the save's name, which `rdi` points at; and what follows.
 const QUESTION_TEXT: usize = 0x11be26e;
@@ -85,8 +83,6 @@ const RETURN_EXIT_SAVE_DONE: usize = 0x815cc8;
 /// `(application, extra argument)`: asks for the restart, which starts
 /// `eu4.exe` again at the end of the main loop; only the return calls it.
 const RESTART: usize = 0x14c2500;
-/// `(size)`: the game's `operator new`.
-const NEW: usize = 0x1a332d4;
 /// `(memory, application::MAIN_MENU_ARGS, application)`: makes the main
 /// menu, of this size.
 const MAIN_MENU: usize = 0x10d23c0;
@@ -345,7 +341,7 @@ unsafe extern "C" fn in_game_load(request: usize) -> u32 {
 extern "C" fn question_text(out: usize, key: usize, values: usize, name: usize) {
     crate::guarded("load question", || {
         let m = crate::hooked_memory();
-        if let Err(e) = m.call(m.at(LOCALIZE), &[out, key, values, 1]) {
+        if let Err(e) = crate::game_string::localize_into(&m, out, key, values, 1) {
             log!("leave: the load question's text: {e}");
             return;
         }
@@ -551,7 +547,7 @@ fn take_the_interface_down(m: &Memory, manager: usize) -> crate::Result<()> {
 /// information again.
 fn main_menu(m: &Memory, app: usize) -> crate::Result<()> {
     let (first, second) = (m.ptr(app + application::MAIN_MENU_ARGS.0)?, m.ptr(app + application::MAIN_MENU_ARGS.1)?);
-    let memory = m.call(m.at(NEW), &[MAIN_MENU_SIZE])?;
+    let memory = crate::game_heap::new(m, MAIN_MENU_SIZE)?;
     if memory == 0 {
         return Err("no memory for the main menu".into());
     }
@@ -647,13 +643,12 @@ pub fn points() -> Vec<Point> {
         Point::jump(SETUP_SAVE, "e8 93 e8 da ff", "session setup save", setup_save_stub as *const () as usize, &SETUP_SAVE_RESUME),
         Point::keep(SETUP_SAVE_DONE, "49 83 be e0 12 00 00 00", "session setup after its save"),
         Point::keep(EXIT_SAVE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 55 48 8b ec", "ironman exit save").recorded(&EXIT_SAVE_AT),
-        // Returning to the main menu: the map manager's frame on its flag,
-        // the ironman exit save, then the restart.
-        Point::keep(0x815c9fusize, "41 80 bd e9 12 00 00 00", "return flag").uses(&[manager_fields::RETURN]),
+        // Returning to the main menu: the map manager's frame on its flag
+        // (`objects::campaign` keeps it), the ironman exit save, then the
+        // restart.
         Point::jump(RETURN_EXIT_SAVE, "e8 98 64 db ff", "return exit save", returning_stub as *const () as usize, &RETURN_RESUME),
         Point::keep(RETURN_EXIT_SAVE_DONE, "48 8b 1d 81 62 c1 01", "return asks for the restart"),
         Point::replace(RESTART, "66 c7 81 83 00 00 00 01 01 48 81 c1 88 00 00 00", "restart", restart as Restart, &ORIGINAL_RESTART),
-        Point::keep(NEW, "40 53 48 83 ec 20 48 8b d9", "operator new"),
         Point::keep(MAIN_MENU, "48 8b c4 48 89 58 10 48 89 70 18 48 89 78 20 48 89 48 08", "main menu constructor"),
         // Startup makes the main menu of this size.
         Point::keep(0x205830usize, "b9 48 0b 00 00 e8 9a da 82 01", "main menu size"),

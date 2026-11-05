@@ -9,7 +9,8 @@ use super::{
 use crate::{
     memory::Memory,
     objects::campaign::{
-        adjacency, classes, countries as country_list, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world,
+        adjacency, classes, countries as country_list, country as country_fields, functions, geometry, globals, list, map, province, route_options, tag, task,
+        unit, world,
     },
     points::Point,
 };
@@ -25,8 +26,7 @@ const FIND_ID: usize = 0x14cf730;
 const REGISTER_UNIT: usize = 0xd3b0f8;
 /// What the idle task answers: no task kind, and false.
 const NO_KIND: usize = 0x8f480;
-const NO: usize = 0x8f450;
-const IDLE_ANSWERS: [usize; 3] = [NO_KIND, NO, NO];
+const IDLE_ANSWERS: [usize; 3] = [NO_KIND, functions::NO, functions::NO];
 /// `(fleet, army)`: puts the army aboard the fleet, its fleet set and the
 /// army added to the fleet's list (docs/research/units.md).
 const LOAD: usize = 0x90ada0;
@@ -40,7 +40,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(FIND_ID, "44 8b 09 41 81 f9 68 12 00 00 76 5c 4c 8b 05 15", "object lookup by ID"),
         Point::keep(REGISTER_UNIT, "48 8d 54 24 48 48 8d 4f 10 e8 8a 40 79 00", "unit registered by its ID").uses(&[unit::ID_HOLDER]),
         Point::keep(NO_KIND, "33 c0 c3", "no task kind"),
-        Point::keep(NO, "32 c0 c3", "false"),
         Point::keep(
             LOAD,
             "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b 02 48 8b d9 48 8b ca 48 8b fa ff 50 68 4c 8b 05 b3 50 a3 01 48 89 98 18 02 00 00 49 83 b8 c8 74 00 00 00 75 0e c6 80 12 02 00 00 00 c6 80 0d 02 00 00 00 48 8b b3 20 02 00 00 b9 20 00 00 00 e8 df 84 12 01 48 89 38 48 89 70 08 48 c7 40 10 00 00 00 00 c6 40 18 00 8b 93 28 02 00 00",

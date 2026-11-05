@@ -1,30 +1,32 @@
 //! Occupation: handing a province the player occupies over to an ally.
-use super::{countries, tag};
+use super::{countries, tag, Convert};
 use crate::game::{
     occupation::{self as layer, Transfers as Offered},
     Tag,
 };
 use eu4_harmony_remote::{
     occupation::{OccupationAnswer, OccupationRequest, Transferred, Transfers},
-    Error,
+    CountryTag, Error,
 };
 
 layer! {
+    run OccupationRequest => OccupationAnswer + countries::Layer;
     fn transfers(province: u32) -> Offered = layer::options;
     fn transfer_occupation(province: u32, ally: Tag) -> Option<Tag> = layer::transfer;
+    Options { province } => game.transfers(province);
+    Transfer { province, country } => transfer(game, province.0, country);
 }
 
-pub fn run(request: OccupationRequest, game: &mut (impl Layer + countries::Layer + ?Sized)) -> Result<OccupationAnswer, Error> {
-    Ok(match request {
-        OccupationRequest::Options { province } => {
-            let offered = game.transfers(province.0)?;
-            OccupationAnswer::Options(Transfers { choice: offered.choice, allies: offered.allies.into_iter().map(tag).collect() })
-        }
-        OccupationRequest::Transfer { province, country } => {
-            let ally = game.country(country)?;
-            OccupationAnswer::Transfer(Transferred { controller: game.transfer_occupation(province.0, ally)?.map(tag) })
-        }
-    })
+impl Convert<Transfers> for Offered {
+    fn convert(self) -> Transfers {
+        Transfers { choice: self.choice, allies: self.allies.into_iter().map(tag).collect() }
+    }
+}
+
+/// Hands the province over to the ally; who controls it now.
+fn transfer(game: &mut (impl Layer + countries::Layer + ?Sized), province: u32, ally: CountryTag) -> Result<Transferred, Error> {
+    let ally = game.country(ally)?;
+    Ok(Transferred { controller: game.transfer_occupation(province, ally)?.map(tag) })
 }
 
 #[cfg(test)]

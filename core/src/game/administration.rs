@@ -10,7 +10,10 @@ use super::{
 use crate::{
     game_string,
     memory::Memory,
-    objects::campaign::{country, province as field},
+    objects::{
+        campaign::{construction, country, province as field},
+        list,
+    },
     points::Point,
 };
 use eu4_harmony_checks::administration as refuse;
@@ -146,14 +149,6 @@ const CAN_CHANGE_CULTURE: usize = 0x38ba40;
 
 // ---------- prices ----------
 
-/// The power spending, the price of every use of monarch power: its
-/// constructor (spending, kind, province, power), where the province is an
-/// object whose ID it reads; its price in whole points, (spending, country
-/// tag, explanation, 0). The object needs no destructor (its slot `+0x28` is
-/// `ret`).
-const SPENDING: usize = 0x94ee80;
-const SPENDING_PRICE: usize = 0x9526d0;
-const SPENDING_SIZE: usize = 0x38;
 /// The spending kinds of developing (with the power developed) and coring
 /// (with administrative points).
 const DEVELOPING: usize = 7;
@@ -170,33 +165,16 @@ const LOCALIZE_TWO: usize = 0x8edc0;
 
 // ---------- objects ----------
 
-/// A country's primary culture and a province's culture, pointers; a
-/// culture's token, whose name is its key.
-const PRIMARY_CULTURE: usize = 0x1228;
-const CULTURE: usize = 0x440;
-const CULTURE_TOKEN: usize = 0x10;
-/// A province's country state, null for a territory; the state's country
-/// tag, and its active edict, null for none, whose definition is at its
-/// `+0x10`.
-const STATE: usize = 0x2e0;
+/// A state's country tag; its edict and the edict's key are the province's
+/// ([`field::STATE`]).
 const STATE_TAG: usize = 0x1c;
-const ACTIVE_EDICT: usize = 0x28;
-const EDICT_DEFINITION: usize = 0x10;
 /// The edicts' database, its edicts by index a vector of pointers at
-/// `+0x10`; an edict's key, a `std::string`, and its index.
+/// `+0x10`; an edict's index (its key is [`field::EDICT_KEY`]).
 const EDICTS: usize = 0x242bdc8;
 const EDICTS_LIST: usize = 0x10;
-const EDICT_KEY: usize = 0x10;
 const EDICT_INDEX: usize = 0x2d0;
 /// The most edicts believed.
 const MOST_EDICTS: usize = 1000;
-/// A province's constructions, a list: each node the construction at `+0`
-/// and the next node at `+0x10`; a construction's kind, a token, at `+0x08`,
-/// and its country's tag at `+0x40`.
-pub const CONSTRUCTIONS: usize = 0x4d8;
-pub const NODE_NEXT: usize = 0x10;
-pub const CONSTRUCTION_KIND: usize = 0x08;
-const CONSTRUCTION_COUNTRY: usize = 0x40;
 /// The kinds of a core's and a culture's construction.
 const CORE_CONSTRUCTION: u32 = 0x2dfd;
 const CULTURE_CONSTRUCTION: u32 = 0x2dfe;
@@ -216,25 +194,19 @@ pub fn points() -> Vec<Point> {
         // It packs its arguments for the core check and calls it.
         Point::keep(CAN_CORE, "48 83 ec 48 0f b6 44 24 78 48 89 54 24 20 0f b6 54 24 70 88", "core check"),
         Point::keep(CAN_CHANGE_CULTURE, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24", "culture check"),
-        // The spending's constructor sets its kind, its power and the ID of
-        // the province it is given.
-        Point::keep(SPENDING, "c7 41 08 65 01 00 00 48 8d 05 f2 65 30 01 48 89", "power spending"),
-        Point::keep(SPENDING_PRICE, "48 8b c4 48 89 58 10 4c 89 48 20 4c 89 40 18 48 89 48 08 55", "power spending price"),
-        Point::keep(0x955a0usize, "c2 00 00", "power spending destructor"),
         Point::keep(LOCALIZE_TWO, "48 89 5c 24 10 48 89 6c 24 18 48 89 4c 24 08 56 57 41 56 48", "localisation of two values"),
         Point::keep(CULTURE_PRICE, "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55", "culture price"),
         // The province view's culture button converts to the primary
         // culture; the culture command writes a culture's token.
-        Point::keep(0x137b682usize, "48 8b 8f 28 12 00 00", "primary culture").uses(&[PRIMARY_CULTURE]),
+        Point::keep(0x137b682usize, "48 8b 8f 28 12 00 00", "primary culture").uses(&[country::PRIMARY_CULTURE]),
         // The province writer in saves writes its culture.
-        Point::keep(0x9d782ausize, "49 8b 8f 40 04 00 00", "province culture").uses(&[CULTURE]),
-        Point::keep(0x2706eausize, "48 8b 47 58 ba 3a 28 00 00 48 8b ce 8b 58 10", "culture token").uses(&[CULTURE_TOKEN]),
+        Point::keep(0x2706eausize, "48 8b 47 58 ba 3a 28 00 00 48 8b ce 8b 58 10", "culture token").uses(&[field::CULTURE_TOKEN]),
         // The edict command's check asks the province's state, its execute
         // replaces the state's edict, its writer writes the edict's index,
         // its reader takes the edict by index from the database.
-        Point::keep(0x2bd65dusize, "49 8b 84 10 e0 02 00 00", "province state").uses(&[STATE]),
+        Point::keep(0x2bd65dusize, "49 8b 84 10 e0 02 00 00", "province state").uses(&[field::STATE]),
         Point::keep(0xabd57fusize, "48 8b 41 28 48 8b fa 48 8b d9 48 85 c0 74 06 48 8b 70 10 eb 02 33 f6", "state edict")
-            .uses(&[ACTIVE_EDICT, EDICT_DEFINITION]),
+            .uses(&[field::STATE_EDICT, field::EDICT_DEFINITION]),
         Point::keep(0xabd5a4usize, "48 8b 51 1c", "state country").uses(&[STATE_TAG]),
         Point::keep(0x2bd42cusize, "48 8b 46 60 48 85 c0 74 14 44 8b 80 d0 02 00 00", "edict index").uses(&[EDICT_INDEX]),
         Point::keep(0xabaa0ausize, "48 8b 05 b7 13 97 01", "edicts database").uses(&[EDICTS]),
@@ -245,7 +217,7 @@ pub fn points() -> Vec<Point> {
             "48 8b 86 d8 04 00 00 48 85 c0 74 25 66 0f 1f 84 00 00 00 00 00 48 8b 08 81 79 08 c7 28 00 00 0f 84 a7 00 00 00 48 8b 48 10",
             "province constructions",
         )
-        .uses(&[CONSTRUCTIONS, CONSTRUCTION_KIND, NODE_NEXT]),
+        .uses(&[field::CONSTRUCTIONS, construction::KIND, list::NEXT]),
         // The command types: their written forms are made here.
         Point::method(0x1c554c0, 0x40, 0x2a76d0, "spend power check"),
         Point::method(0x1c38810, 0x40, 0xc6250, "exploit check"),
@@ -364,23 +336,16 @@ fn token_name(m: &Memory, token: u32) -> GResult<String> {
 
 /// The key of the player's primary culture.
 fn primary_culture(m: &Memory, ctx: &Ctx) -> GResult<(usize, String)> {
-    let culture = m.ptr(ctx.country + PRIMARY_CULTURE)?;
+    let culture = m.ptr(ctx.country + country::PRIMARY_CULTURE)?;
     if culture == 0 {
         return fail(Status::Rejected, "the player has no primary culture");
     }
-    Ok((culture, token_name(m, m.u32(culture + CULTURE_TOKEN)?)?))
+    Ok((culture, token_name(m, m.u32(culture + field::CULTURE_TOKEN)?)?))
 }
 
 /// The price of a use of monarch power, in whole points.
 fn spending_price(m: &Memory, ctx: &Ctx, kind: usize, province: usize, power: usize) -> GResult<f64> {
-    #[repr(C, align(16))]
-    struct Spending([u8; SPENDING_SIZE + 8]);
-    let mut spending = Spending([0; SPENDING_SIZE + 8]);
-    let at = spending.0.as_mut_ptr() as usize;
-    m.call(m.at(SPENDING), &[at, kind, province, power])?;
-    let (points, _) =
-        game_string::written(m, |explanation| m.call(m.at(SPENDING_PRICE), &[at, ctx.player.0 as usize, explanation, 0]).map_err(super::Fail::from))?;
-    Ok(points as i32 as f64)
+    Ok(f64::from(super::power::Spending::about_province(m, kind, province, power)?.cost(m, ctx.player)?))
 }
 
 /// The edicts the game has, in their order: each one's address, key and
@@ -399,29 +364,29 @@ pub fn edicts(m: &Memory) -> GResult<Vec<(usize, String, u32)>> {
         if index as usize != i {
             return Err(format!("edict {i} has the index {index}").into());
         }
-        out.push((edict, String::from_utf8_lossy(&game_string::read(m, edict + EDICT_KEY)?).into_owned(), index));
+        out.push((edict, String::from_utf8_lossy(&game_string::read(m, edict + field::EDICT_KEY)?).into_owned(), index));
     }
     Ok(out)
 }
 
 /// The player's country state the province is in, when it is.
 fn player_state(m: &Memory, ctx: &Ctx, place: &Place) -> GResult<Option<usize>> {
-    let state = m.ptr(place.address + STATE)?;
+    let state = m.ptr(place.address + field::STATE)?;
     Ok(Some(state).filter(|&s| s != 0 && place.owner == Some(ctx.player)).filter(|&s| m.u64(s + STATE_TAG).ok() == Some(ctx.player.0)))
 }
 
 /// Whether the player is building a construction of `kind` in the province.
 fn doing(m: &Memory, ctx: &Ctx, place: &Place, kind: u32) -> GResult<bool> {
-    let mut node = m.ptr(place.address + CONSTRUCTIONS)?;
+    let mut node = m.ptr(place.address + field::CONSTRUCTIONS)?;
     for _ in 0..MOST_CONSTRUCTIONS {
         if node == 0 {
             return Ok(false);
         }
         let construction = m.ptr(node)?;
-        if m.u32(construction + CONSTRUCTION_KIND)? == kind && m.u64(construction + CONSTRUCTION_COUNTRY)? == ctx.player.0 {
+        if m.u32(construction + construction::KIND)? == kind && m.u64(construction + construction::COUNTRY)? == ctx.player.0 {
             return Ok(true);
         }
-        node = m.ptr(node + NODE_NEXT)?;
+        node = m.ptr(node + list::NEXT)?;
     }
     Err("a province's constructions do not end".to_string().into())
 }
@@ -455,7 +420,7 @@ fn option(m: &Memory, ctx: &Ctx, place: &Place, action: Action) -> GResult<Choic
             let cost = vec![Amount::new(Resource::Dip, m.call(m.at(CULTURE_PRICE), &[province, ctx.player.0 as usize, culture, 0, 0])? as i32 as f64)];
             let price = cost[0].amount;
             let points = m.i32(ctx.country + country::POWER_DIP)?;
-            if m.ptr(province + CULTURE)? == culture {
+            if m.ptr(province + field::CULTURE)? == culture {
                 Choice::cannot(Vec::new(), cost)
             } else {
                 match checked(m, |out| m.call(m.at(CAN_CHANGE_CULTURE), &[country, province, out]))? {
@@ -518,8 +483,8 @@ pub fn act(_: Caller, id: u32, action: Action) -> GResult<()> {
             Action::CancelCore => refuse::not_doing("coring", id),
             Action::CancelCulture => refuse::not_doing("changing the culture of", id),
             Action::CancelEdict if player_state(m, &ctx, &place)?.is_none() => refuse::not_in_a_state(id),
-            Action::CancelEdict if m.ptr(m.ptr(place.address + STATE)? + ACTIVE_EDICT)? == 0 => refuse::no_edict_set(id),
-            Action::ChangeCulture if choice.reasons.is_empty() && m.ptr(place.address + CULTURE)? == primary_culture(m, &ctx)?.0 => {
+            Action::CancelEdict if m.ptr(m.ptr(place.address + field::STATE)? + field::STATE_EDICT)? == 0 => refuse::no_edict_set(id),
+            Action::ChangeCulture if choice.reasons.is_empty() && m.ptr(place.address + field::CULTURE)? == primary_culture(m, &ctx)?.0 => {
                 refuse::primary_culture_already(id)
             }
             _ => refuse::not_allowed(action.doing(), &choice.reasons),

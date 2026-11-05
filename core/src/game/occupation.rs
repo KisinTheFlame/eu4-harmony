@@ -15,8 +15,6 @@ use eu4_harmony_remote::choices::Choice;
 /// check fills ([`receivers`]), `reasons` a `std::string` or null, which
 /// gets the button's tooltip when the check says no.
 const CHECK: usize = 0x3dbce0;
-/// The game's `operator delete`: (block, size).
-const DELETE: usize = 0x17394f0;
 
 /// The list of allies the check fills: the first node, and in each node the
 /// ally's tag and the next node; a node is [`NODE_SIZE`] bytes.
@@ -108,7 +106,7 @@ fn nodes(m: &Memory, mut node: usize) -> GResult<Vec<Tag>> {
         }
         let next = m.ptr(node + receivers::NEXT)?;
         allies.push(Tag(m.u64(node + receivers::TAG)?));
-        m.call(m.at(DELETE), &[node, receivers::NODE_SIZE])?;
+        crate::game_heap::delete(m, node, receivers::NODE_SIZE)?;
         node = next;
     }
     Ok(allies)

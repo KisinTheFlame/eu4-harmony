@@ -1,15 +1,13 @@
 //! The game on the player's desktop, for a game started hidden
 //! (`crate::hidden`).
 use crate::game;
-use eu4_harmony_remote::{
-    desktop::{Desktop, DesktopAnswer, DesktopRequest},
-    Error,
-};
+use eu4_harmony_remote::desktop::{Desktop, DesktopAnswer, DesktopRequest};
 
 layer! {
-    fn desktop() -> Desktop = desktop;
-    fn show() -> Desktop = show;
-    fn hide() -> Desktop = hide;
+    run DesktopRequest => DesktopAnswer;
+    Get => fn desktop() -> Desktop = desktop;
+    Show => fn show() -> Desktop = show;
+    Hide => fn hide() -> Desktop = hide;
 }
 
 fn now() -> Desktop {
@@ -46,12 +44,4 @@ fn hide(caller: game::Caller) -> game::GResult<Desktop> {
     remote_only(caller)?;
     crate::hidden::hide().map_err(refused)?;
     Ok(now())
-}
-
-pub fn run(request: DesktopRequest, game: &mut (impl Layer + ?Sized)) -> Result<DesktopAnswer, Error> {
-    Ok(match request {
-        DesktopRequest::Get {} => DesktopAnswer::Get(game.desktop()?),
-        DesktopRequest::Show {} => DesktopAnswer::Show(game.show()?),
-        DesktopRequest::Hide {} => DesktopAnswer::Hide(game.hide()?),
-    })
 }

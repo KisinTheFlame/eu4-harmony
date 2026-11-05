@@ -2,7 +2,7 @@
 //! player's leaders, and giving one to an army or a fleet, through the
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
-use super::{commands, context, game, world, Caller, Ctx, GResult};
+use super::{commands, context, game, modifiers, world, Caller, Ctx, GResult};
 use crate::{
     game_string,
     memory::Memory,
@@ -50,13 +50,8 @@ mod leader {
     /// The type every leader's ID has.
     pub const TYPE: u32 = 49;
 }
-/// `(country + MODIFIERS)`: the country's modifiers, whose flags are at
-/// `+8`; `(flags, index)`: whether a yes-or-no modifier is set: the one an
-/// explorer and a conquistador need, and the one that forbids colonies.
-const COUNTRY_MODIFIERS: usize = 0x93d750;
-const HAS_MODIFIER: usize = 0x8e7b60;
-const MODIFIERS: usize = 0x28c0;
-const MODIFIER_FLAGS: usize = 8;
+/// The yes-or-no modifiers an explorer and a conquistador need, and the
+/// one that forbids colonies.
 const MAY_EXPLORE: usize = 0xe3;
 const NO_COLONIES: usize = 0;
 /// A unit's leader.
@@ -69,12 +64,10 @@ pub fn points() -> Vec<Point> {
         Point::keep(CAN_RECRUIT, "48 89 5c 24 08 48 89 74 24 18 57 48 83 ec 20 8b da 48 8b f9 83 fa 04 74 4b", "may recruit a leader"),
         // The recruit check asks the two modifiers.
         Point::keep(0x30739cusize, "48 8d b1 c0 28 00 00 48 8b ce e8 a5 63 63 00 48 8d 48 08 ba e3 00 00 00 e8 a7 07 5e 00", "a leader's modifiers").uses(&[
-            MODIFIERS,
-            MODIFIER_FLAGS,
+            country_fields::MODIFIERS,
+            modifiers::VALUES,
             MAY_EXPLORE,
         ]),
-        Point::keep(COUNTRY_MODIFIERS, "48 89 5c 24 10 48 89 7c 24 18 55 48 8d 6c 24 b0 48 81 ec 50 01 00 00", "country modifiers"),
-        Point::keep(HAS_MODIFIER, "48 89 5c 24 08 57 48 83 ec 20 4c 8b 0d 0f 05 a7 01", "has a modifier"),
         Point::keep(POWER_COST, "48 89 5c 24 08 48 89 74 24 18 48 89 7c 24 20 55 41 54 41 55 41 56 41 57", "monarch point cost"),
         Point::keep(MAY_LEAVE, "48 89 5c 24 10 48 89 7c 24 20 55 48 8b ec 48 83 ec 60 48 8b da 48 8b f9", "leader may leave its unit"),
         Point::keep(MAY_TAKE, "48 89 5c 24 08 48 89 74 24 18 57 48 83 ec 60 49 8b f8 48 8b da 48 8b f1", "unit may take a leader"),
@@ -200,11 +193,10 @@ fn option(m: &Memory, ctx: &Ctx, kind: LeaderKind) -> GResult<LeaderOption> {
     let mut reasons = Vec::new();
     let poor = (points as f64) < amount.amount;
     if matches!(kind, LeaderKind::Conquistador | LeaderKind::Explorer) {
-        let modifiers = m.call(m.at(COUNTRY_MODIFIERS), &[ctx.country + MODIFIERS])? + MODIFIER_FLAGS;
-        if m.call(m.at(HAS_MODIFIER), &[modifiers, MAY_EXPLORE])? as u8 == 0 {
+        if !modifiers::has(m, ctx.country, MAY_EXPLORE)? {
             reasons.push(line(m, "RECRUIT_NO_IDEA", None)?);
         }
-        if m.call(m.at(HAS_MODIFIER), &[modifiers, NO_COLONIES])? as u8 != 0 {
+        if modifiers::has(m, ctx.country, NO_COLONIES)? {
             reasons.push(line(m, "CAN_NOT_BUILD_COLONIES", None)?);
         }
     }

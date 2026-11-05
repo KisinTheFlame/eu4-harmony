@@ -12,52 +12,44 @@ use eu4_harmony_remote::{
 };
 
 layer! {
-    fn army(id: u64) -> layer::Army = layer::army;
+    run ArmyRequest => ArmyAnswer;
+    fn army(army: u64) -> layer::Army = layer::army;
     fn own_armies() -> Vec<layer::Army> = layer::own_armies;
     fn armies_in(province: u32) -> Vec<layer::Army> = layer::in_province;
-    fn route(id: u64) -> Vec<u32> = layer::route;
-    fn can_step(id: u64, from: u32, to: u32) -> bool = layer::can_step;
-    fn can_attack(id: u64, target: u64) -> bool = layer::can_attack_seen;
-    fn find_route(id: u64, goal: u32) -> Vec<u32> = layer::find_route;
-    fn move_to(id: u64, goal: u32, transports: bool) -> () = layer::move_to;
-    fn stop(id: u64) -> () = layer::stop;
-    fn selected() -> u64 = layer::selected;
-    fn army_options(id: u64) -> Vec<ArmyAction> = units::options;
-    fn split(id: u64) -> u64 = units::split;
-    fn merge(ids: Vec<ArmyId>) -> () = units::merge;
-    fn disband(id: u64) -> () = units::disband;
-    fn consolidate(id: u64) -> () = units::consolidate;
-    fn drill(id: u64) -> () = units::drill;
-    fn stop_drill(id: u64) -> () = units::stop_drill;
-    fn mission(id: u64, mission: String, target: Option<u32>) -> () = units::mission;
-    fn stop_mission(id: u64) -> () = units::stop_mission;
+    fn route(army: u64) -> Vec<u32> = layer::route;
+    Get { army } => get(game, army.0);
+    List {} => list(game);
+    At { province } => at(game, province.0);
+    RouteTo => fn find_route(army: u64, province: u32) -> Vec<u32> = layer::find_route;
+    CanStep => fn can_step(army: u64, from: u32, to: u32) -> bool = layer::can_step;
+    CanAttack => fn can_attack(army: u64, target: u64) -> bool = layer::can_attack_seen;
+    fn move_to(army: u64, province: u32, transports: bool) -> () = layer::move_to;
+    Move { army, province, transports } => game.move_to(army, province, transports.unwrap_or(false));
+    Stop => fn stop(army: u64) -> () = layer::stop;
+    Selected => fn selected() -> u64 = layer::selected;
+    Options => fn army_options(army: u64) -> Vec<ArmyAction> = units::options;
+    Split => fn split(army: u64) -> u64 = units::split;
+    Merge => fn merge(armies: Vec<ArmyId>) -> () = units::merge;
+    Disband => fn disband(army: u64) -> () = units::disband;
+    Consolidate => fn consolidate(army: u64) -> () = units::consolidate;
+    Drill => fn drill(army: u64) -> () = units::drill;
+    StopDrill => fn stop_drill(army: u64) -> () = units::stop_drill;
+    Mission => fn mission(army: u64, mission: String, target: Option<u32>) -> () = units::mission;
+    StopMission => fn stop_mission(army: u64) -> () = units::stop_mission;
 }
 
-pub fn run(request: ArmyRequest, game: &mut (impl Layer + ?Sized)) -> Result<ArmyAnswer, Error> {
-    let provinces = |ids: Vec<u32>| ids.into_iter().map(ProvinceId).collect();
-    Ok(match request {
-        ArmyRequest::Get { army } => {
-            let a = game.army(army.0)?;
-            ArmyAnswer::Get(own(game, &a)?)
-        }
-        ArmyRequest::List {} => ArmyAnswer::List(game.own_armies()?.iter().map(|a| own(game, a)).collect::<Result<_, _>>()?),
-        ArmyRequest::At { province } => ArmyAnswer::At(game.armies_in(province.0)?.iter().map(|a| snapshot(a, Vec::new())).collect()),
-        ArmyRequest::RouteTo { army, province } => ArmyAnswer::RouteTo(provinces(game.find_route(army.0, province.0)?)),
-        ArmyRequest::CanStep { army, from, to } => ArmyAnswer::CanStep(game.can_step(army.0, from.0, to.0)?),
-        ArmyRequest::CanAttack { army, target } => ArmyAnswer::CanAttack(game.can_attack(army.0, target.0)?),
-        ArmyRequest::Move { army, province, transports } => ArmyAnswer::Move(game.move_to(army.0, province.0, transports.unwrap_or(false))?),
-        ArmyRequest::Stop { army } => ArmyAnswer::Stop(game.stop(army.0)?),
-        ArmyRequest::Selected {} => ArmyAnswer::Selected(ArmyId(game.selected()?)),
-        ArmyRequest::Options { army } => ArmyAnswer::Options(game.army_options(army.0)?),
-        ArmyRequest::Split { army } => ArmyAnswer::Split(ArmyId(game.split(army.0)?)),
-        ArmyRequest::Merge { armies } => ArmyAnswer::Merge(game.merge(armies.0)?),
-        ArmyRequest::Disband { army } => ArmyAnswer::Disband(game.disband(army.0)?),
-        ArmyRequest::Consolidate { army } => ArmyAnswer::Consolidate(game.consolidate(army.0)?),
-        ArmyRequest::Drill { army } => ArmyAnswer::Drill(game.drill(army.0)?),
-        ArmyRequest::StopDrill { army } => ArmyAnswer::StopDrill(game.stop_drill(army.0)?),
-        ArmyRequest::Mission { army, mission, target } => ArmyAnswer::Mission(game.mission(army.0, mission, target)?),
-        ArmyRequest::StopMission { army } => ArmyAnswer::StopMission(game.stop_mission(army.0)?),
-    })
+fn get(game: &mut (impl Layer + ?Sized), army: u64) -> Result<Army, Error> {
+    let a = game.army(army)?;
+    own(game, &a)
+}
+
+fn list(game: &mut (impl Layer + ?Sized)) -> Result<Vec<Army>, Error> {
+    game.own_armies()?.iter().map(|a| own(game, a)).collect()
+}
+
+/// The armies the player sees in the province.
+fn at(game: &mut (impl Layer + ?Sized), province: u32) -> Result<Vec<Army>, Error> {
+    Ok(game.armies_in(province)?.iter().map(|a| snapshot(a, Vec::new())).collect())
 }
 
 /// One of the player's own armies, with its route.

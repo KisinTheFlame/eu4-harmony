@@ -5,7 +5,9 @@
 use super::{
     context,
     envoys::{self, quoted, Kind},
-    game, Caller, Ctx, GResult, Tag,
+    game,
+    trade::{self, DEFINITION, ENTRIES, ENTRY_SIZE, HAS_MERCHANT, HOME, KEY, LINKS, LINK_SIZE, LINK_TO, MOST, NAME, STEER_LINK},
+    Caller, Ctx, GResult, Tag,
 };
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::{
@@ -13,36 +15,10 @@ use eu4_harmony_remote::{
     merchants::{Downstream, MerchantOptions, Merchants, Mission, Placed, TradingPolicies, TradingPolicy},
 };
 
-/// The world's trade nodes: an array of [`NODE_SIZE`]-byte nodes and their
-/// count, i32.
-const NODES: usize = 0x21b0;
-const NODE_COUNT: usize = 0x21bc;
-const NODE_SIZE: usize = 0x138;
-/// A node's countries: an array of [`ENTRY_SIZE`]-byte entries, by the
-/// country's index.
-const COUNTRIES: usize = 0x18;
-const ENTRY_SIZE: usize = 0xc0;
-/// A node's definition, and its own index, i32.
-const DEFINITION: usize = 0xa8;
+/// The trade nodes' and their countries' fields are trade's: a node's own
+/// index, i32, and the province where a node's definition lies, i32.
 const INDEX: usize = 0x120;
-/// A country's entry: the link its merchant steers along (i32), whether it
-/// is the country's home node, whether the country has a merchant there.
-const STEERS_ALONG: usize = 0xa8;
-const HOME: usize = 0xad;
-const PRESENT: usize = 0xae;
-/// A definition's key and localised name (`std::string`), the links
-/// downstream (a vector of [`LINK_SIZE`]-byte links, each the definition it
-/// leads to at [`LINK_TO`]), and the province where the node lies, i32.
-const KEY: usize = 0x10;
-const NAME: usize = 0x30;
-const LINKS: usize = 0x98;
-const LINK_SIZE: usize = 0x78;
-const LINK_TO: usize = 0x30;
 const LOCATION: usize = 0xdc;
-/// The most nodes and links read.
-const MOST: usize = 1_000;
-/// Whether the country collects in the node: `(node, tag) -> bool`.
-const COLLECTS: usize = 0xb58e00;
 /// Whether the country may send a merchant to the node, and the rules, the
 /// ones that hold too: `(country, location, text, already there counts,
 /// needs a free one, _) -> bool`.
@@ -69,21 +45,16 @@ const POLICY_KEY: usize = 0x10;
 const POLICY_INDEX: usize = 0x50;
 /// A country's entry: its trading policy there, or null.
 const POLICY: usize = 0xb0;
-/// A definition's index, i32.
-const DEFINITION_INDEX: usize = 0xd8;
 /// Whether the country may choose the policy in the node, and why not:
 /// `(node, tag, policy, reasons) -> bool`, appending to `reasons`.
 const MAY_CHOOSE: usize = 0xb5c6a0;
 
 pub fn points() -> Vec<Point> {
     vec![
-        // The steer command's execute finds the node by its index.
-        Point::keep(0x5da508usize, "3b 81 bc 21 00 00", "trade node count").uses(&[NODE_COUNT]),
-        Point::keep(0x5da510usize, "4c 69 d0 38 01 00 00 4c 03 91 b0 21 00 00", "trade nodes").uses(&[NODE_SIZE, NODES]),
-        Point::keep(0x2741b4usize, "48 03 46 18", "trade node's countries").uses(&[COUNTRIES]),
-        Point::keep(0x2741c7usize, "80 b8 ae 00 00 00 00", "merchant present").uses(&[PRESENT]),
+        Point::keep(0x2741b4usize, "48 03 46 18", "trade node's countries").uses(&[ENTRIES]),
+        Point::keep(0x2741c7usize, "80 b8 ae 00 00 00 00", "merchant present").uses(&[HAS_MERCHANT]),
         Point::keep(0x101d025usize, "80 b9 ad 00 00 00 00", "home node").uses(&[HOME]),
-        Point::keep(0x5da5c4usize, "44 89 80 a8 00 00 00", "steered along").uses(&[STEERS_ALONG]),
+        Point::keep(0x5da5c4usize, "44 89 80 a8 00 00 00", "steered along").uses(&[STEER_LINK]),
         Point::keep(0x101cb42usize, "48 8b 90 a8 00 00 00 48 63 82 dc 00 00 00", "trade node location").uses(&[DEFINITION, LOCATION]),
         Point::keep(0x13fd6c7usize, "8b 8a 20 01 00 00", "trade node index").uses(&[INDEX]),
         Point::keep(0x13fce02usize, "4c 8b 88 98 00 00 00 4c 8b 80 a0 00 00 00", "trade node links").uses(&[LINKS]),
@@ -93,7 +64,6 @@ pub fn points() -> Vec<Point> {
         // the province tooltip its name (docs/research/provinces.md).
         Point::keep(0x9d7595usize, "48 8b 98 a8 00 00 00 48 83 c3 10", "trade node key").uses(&[KEY]),
         Point::keep(0x9f0e20usize, "4c 8b 88 a8 00 00 00 49 83 c1 30", "trade node name").uses(&[NAME]),
-        Point::keep(COLLECTS, "48 8b 49 18", "collects in the node"),
         Point::keep(MAY_SEND, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55", "may send a merchant"),
         Point::keep(MAY_STEER, "48 89 5c 24 08 55 48 8b ec 48 81 ec 80 00 00 00", "may steer"),
         Point::keep(0x274834usize, "44 39 52 44", "merchant's ID").uses(&[ENVOY_ID]),
@@ -108,7 +78,7 @@ pub fn points() -> Vec<Point> {
         // The policy's tooltip names it by its key's localisation.
         Point::keep(0xd37c7fusize, "48 8d 59 10", "trading policy key").uses(&[POLICY_KEY]),
         // The policy button's click: the command's policy and node.
-        Point::keep(0x13cba84usize, "44 8b a1 d8 00 00 00", "trade node definition index").uses(&[DEFINITION_INDEX]),
+        Point::keep(0x13cba84usize, "44 8b a1 d8 00 00 00", "trade node definition index").uses(&[trade::INDEX]),
         Point::keep(0x13cba8fusize, "4c 63 70 50", "trading policy index").uses(&[POLICY_INDEX]),
         Point::keep(0x13cc601usize, "48 8b ab b0 00 00 00", "node's trading policy").uses(&[POLICY]),
         Point::keep(MAY_CHOOSE, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48 89 7c 24 20 41 56", "may choose a trading policy"),
@@ -123,23 +93,13 @@ struct Node {
 }
 
 fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<Node>> {
-    let (array, count) = (m.ptr(ctx.world + NODES)?, m.i32(ctx.world + NODE_COUNT)?);
-    if array == 0 || !(0..=MOST as i32).contains(&count) {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    for i in 0..count as usize {
-        let address = array + i * NODE_SIZE;
-        let definition = m.ptr(address + DEFINITION)?;
-        if definition == 0 {
-            continue;
-        }
-        let key = game_text::to_utf8(&game_string::read(m, definition + KEY)?);
-        if !key.is_empty() && !out.iter().any(|n: &Node| n.key == key) {
-            out.push(Node { address, definition, key });
-        }
-    }
-    Ok(out)
+    trade::nodes(m, ctx)?
+        .into_iter()
+        .map(|address| {
+            let definition = m.ptr(address + DEFINITION)?;
+            Ok(Node { address, definition, key: game_text::to_utf8(&game_string::read(m, definition + KEY)?) })
+        })
+        .collect()
 }
 
 fn node(m: &Memory, ctx: &Ctx, key: &str) -> GResult<Node> {
@@ -152,7 +112,7 @@ fn name(m: &Memory, definition: usize) -> GResult<String> {
 
 /// The player's entry in the node.
 fn entry(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<usize> {
-    Ok(m.ptr(node.address + COUNTRIES)? + ctx.player.index() as usize * ENTRY_SIZE)
+    Ok(m.ptr(node.address + ENTRIES)? + ctx.player.index() as usize * ENTRY_SIZE)
 }
 
 /// The definitions of the nodes downstream, in the links' order.
@@ -184,7 +144,7 @@ fn sent(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<(usize, usize)>> {
 
 fn present(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<Present>> {
     let entry = entry(m, ctx, node)?;
-    let arrived = m.u8(entry + PRESENT)? != 0;
+    let arrived = m.u8(entry + HAS_MERCHANT)? != 0;
     let mission = match sent(m, ctx, node)? {
         Some((_, mission)) => {
             if m.u8(mission + MISSION_KIND)? == 0 {
@@ -194,11 +154,11 @@ fn present(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<Present>> {
             }
         }
         None if !arrived => return Ok(None),
-        None if m.call(m.at(COLLECTS), &[node.address, ctx.player.0 as usize])? as u8 != 0 => Mission::Collect,
+        None if trade::collects(m, node.address, ctx.player)? => Mission::Collect,
         None => Mission::Steer,
     };
     let steers_to = if arrived && mission == Mission::Steer {
-        let along = m.i32(entry + STEERS_ALONG)?;
+        let along = m.i32(entry + STEER_LINK)?;
         usize::try_from(along).ok().and_then(|i| downstream(m, node.definition).ok()?.get(i).copied())
     } else {
         None
@@ -434,10 +394,10 @@ pub fn set_policy(_: Caller, key: &str, policy: &str) -> GResult<()> {
         _ => {}
     }
     // The command changes the policy only where the player's merchant is.
-    if m.u8(entry(m, &ctx, &node)? + PRESENT)? == 0 {
+    if m.u8(entry(m, &ctx, &node)? + HAS_MERCHANT)? == 0 {
         return Err(eu4_harmony_checks::envoys::none_there("merchant").into());
     }
-    let text = policy_written(ctx.player, m.i32(node.definition + DEFINITION_INDEX)?, m.i32(address + POLICY_INDEX)?);
+    let text = policy_written(ctx.player, m.i32(node.definition + trade::INDEX)?, m.i32(address + POLICY_INDEX)?);
     envoys::post(&text, "the trading policy command")
 }
 

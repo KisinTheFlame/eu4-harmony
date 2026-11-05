@@ -34,6 +34,7 @@
 //! The pool takes other work as well: the save checksum's sum
 //! (`super::sum`).
 use super::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
+use crate::game::commands::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
 use crate::memory::Memory;
 use crate::points::{Function, Point};
 use crate::Result;
@@ -68,23 +69,18 @@ const COUNTRY_COUNT: usize = 0x40;
 const COUNTRY_ARRAY: usize = 0x1ce8;
 const COUNTRY_TAG: usize = 0x20;
 
-/// `(string, &tag)`: a tag as a `std::string`; `(string)` lets one go;
-/// `(writer, &key, country)`: a country under its tag.
+/// `(string, &tag)`: a tag as a `std::string`, which
+/// `game_string::destroy_checked` lets go; `(writer, &key, country)`: a
+/// country under its tag.
 const TAG_STRING: usize = 0x95240;
-const DROP_STRING: usize = 0x95660;
 const WRITE_COUNTRY: usize = 0x1707a20;
 
-/// The writer's texts of its token types, made the first time one is needed:
-/// `[TOKEN_TEXTS]` an array of `std::string`s, `[TOKEN_TEXTS_COUNT]` how many,
-/// `[TOKEN_TEXTS_MADE]` whether they are; `MAKE_TOKEN_TEXTS` makes them.
-const TOKEN_TEXTS: usize = 0x242b888;
-const TOKEN_TEXTS_COUNT: usize = 0x2357b28;
-const TOKEN_TEXTS_MADE: usize = 0x2357b30;
+/// Makes the token table (`game::commands`' [`TOKEN_NAMES`], the writer's
+/// texts of its token types) the first time one is needed.
 const MAKE_TOKEN_TEXTS: usize = 0x170d250;
 
-/// The save's writer (made on `0x14e3f00`'s stack): its vtable, its stream,
-/// and its size.
-const WRITER_VTABLE: usize = 0x1dbf7d8;
+/// The save's writer (made on `0x14e3f00`'s stack): its vtable is
+/// `game::commands`' [`WRITER_VTABLE`]; its stream, and its size.
 const WRITER_STREAM: usize = 0x10;
 const WRITER_SIZE: usize = 0x20;
 const WRITER_DEPTH: usize = super::WRITER_DEPTH;
@@ -94,7 +90,7 @@ const WRITER_DEPTH: usize = super::WRITER_DEPTH;
 /// buffer at `+0x40` of `+0x50` bytes, up to `+0x4c`, keeping `+0x48`, and
 /// sets `+0x54` instead of writing past its end. `+0x55` and `+0x56` say
 /// whether it lets its buffers go.
-const MEMORY_STREAM: [usize; 2] = [0x1d92200, 0x1dc0358];
+const MEMORY_STREAM: [usize; 2] = [0x1d92200, STREAM_VTABLE];
 const STREAM_WRITE_SLOT: usize = 0x50;
 const STREAM_WRITE: usize = 0x171f290;
 const STREAM_MADE: usize = 0x171ec8f;
@@ -747,7 +743,7 @@ impl Writing {
         }
         // What is made the first time it is needed is made now, on this
         // thread: the writer's texts, and the two static objects.
-        if m.u8(m.at(TOKEN_TEXTS_MADE))? == 0 {
+        if m.u8(m.at(TOKENS_READY))? == 0 {
             m.call(m.at(MAKE_TOKEN_TEXTS), &[])?;
         }
         if m.i32(m.at(VALUE_OBJECT_GUARD))? == 0 {
@@ -759,8 +755,8 @@ impl Writing {
         let mut holders = [0; 2 * HOLDER_SIZE];
         holders[..HOLDER_SIZE].copy_from_slice(&m.bytes(m.at(VALUE_OBJECT), HOLDER_SIZE)?);
         holders[HOLDER_SIZE..].copy_from_slice(&m.bytes(m.at(OTHER_OBJECT), HOLDER_SIZE)?);
-        let texts = m.ptr(m.at(TOKEN_TEXTS))?;
-        let text = if m.i32(m.at(TOKEN_TEXTS_COUNT))? >= EQUALS as i32 { texts + 0x20 * EQUALS as usize } else { texts };
+        let texts = m.ptr(m.at(TOKEN_NAMES))?;
+        let text = if m.i32(m.at(TOKENS_LAST))? >= EQUALS as i32 { texts + 0x20 * EQUALS as usize } else { texts };
         let equals = std_string(m, text)?;
         let runs = runs(items.len(), threads);
         let last = LAST_RUN[which as usize].load(Ordering::Relaxed);
@@ -862,7 +858,7 @@ impl Writing {
                 let mut key = Object::<0x20>([0; 0x20]);
                 m.call(m.at(TAG_STRING), &[key.address(), &tag as *const u64 as usize])?;
                 let written = m.call(m.at(WRITE_COUNTRY), &[writer, key.address(), item]);
-                m.call(m.at(DROP_STRING), &[key.address()])?;
+                crate::game_string::destroy_checked(&m, key.address())?;
                 written?;
             }
         }
@@ -1239,9 +1235,9 @@ pub fn points() -> Vec<Point> {
             PROVINCE_SIZE,
             NUMBER as usize,
             EQUALS as usize,
-            TOKEN_TEXTS,
-            TOKEN_TEXTS_COUNT,
-            TOKEN_TEXTS_MADE,
+            TOKEN_NAMES,
+            TOKENS_LAST,
+            TOKENS_READY,
             WRITE_ITSELF,
             0x1d64d54,
         ]),
@@ -1258,7 +1254,6 @@ pub fn points() -> Vec<Point> {
         .uses(&[COUNTRY_COUNT, COUNTRY_ARRAY, COUNTRY_TAG]),
         Point::keep(COUNTRIES_END, "48 8b ce e8 24 70 fb 00", "countries' loop ends"),
         Point::keep(TAG_STRING, "40 53 48 83 ec 20 33 c0 48 c7 41 18 0f 00 00 00", "tag as a string"),
-        Point::keep(DROP_STRING, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string let go"),
         Point::keep(WRITE_COUNTRY, "48 89 5c 24 08 48 89 74 24 10 57 48 81 ec 30 02", "save writer writes a country"),
         Point::keep(MAKE_TOKEN_TEXTS, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57", "save writer makes its texts"),
         // The writer `0x14e3f00` makes: its vtable, depth, stream and bytes.
@@ -1361,9 +1356,9 @@ mod tests {
             WRITER_VTABLE,
             MEMORY_STREAM[0] + STREAM_WRITE_SLOT,
             MEMORY_STREAM[1] + STREAM_WRITE_SLOT,
-            TOKEN_TEXTS,
-            TOKEN_TEXTS_COUNT,
-            TOKEN_TEXTS_MADE,
+            TOKEN_NAMES,
+            TOKENS_LAST,
+            TOKENS_READY,
             MAKE_TOKEN_TEXTS,
             VALUE_OBJECT,
             VALUE_OBJECT_GUARD,
@@ -1372,7 +1367,6 @@ mod tests {
             WRITE_TOKEN,
             TAG_STRING,
             WRITE_COUNTRY,
-            DROP_STRING,
         ];
         for rva in taken {
             assert!(crate::points::checks(rva), "{rva:#x}");

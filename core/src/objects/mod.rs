@@ -4,6 +4,12 @@
 //! build that moved one fails the startup check instead of the framework
 //! reading the wrong place. The points say which numbers they use, and a
 //! test checks that their bytes carry them.
+//!
+//! A game function is named once too: by the module that calls it for the
+//! others (`game::power`'s spending, `game::modifiers`, `game_heap`), or
+//! here, in a `functions` module, when a point here keeps its code. A test
+//! (`points::tests::every_game_address_is_named_in_one_file`) refuses an
+//! address of the game's named in two files.
 pub mod application;
 pub mod camera;
 pub mod campaign;

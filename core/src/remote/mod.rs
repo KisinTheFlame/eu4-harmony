@@ -407,71 +407,18 @@ pub fn submit(request: Request) -> Reply {
     ENGINE.submit(request)
 }
 
-/// What extensions hear at a game's safe frame, in the order they hear it, as
-/// events.
+/// What extensions hear at a game's safe frame ([`game::Frame::heard`]), in
+/// the order they hear it, as remote control keeps it: in the player's view
+/// unless the setting gives it the full view, so that a battle the player
+/// neither sees nor takes part in is left out.
 fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
-    use eu4_harmony_remote::{events::Event, ArmyId, Date, ProvinceId};
-    use game::{events::Change, wars::Happened, Heard};
-    let tag = catalogue::tag;
-    let tags = |ts: Vec<game::Tag>| ts.into_iter().map(tag).collect();
-    // Remote control reads the player's view unless the setting gives it the
-    // full view: a battle the player neither sees nor takes part in is left
-    // out.
     let full = game::view(game::Caller::Remote) == game::View::Full;
-    let event = |heard| {
-        Some(match heard {
-            Heard::Session(session) => Event::Session { session },
-            Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
-            Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
-            Heard::Change(Change::BuildingFinished { province, building, country }) => match game::buildings::key_of(building) {
-                Ok(building) => Event::BuildingFinished { province: ProvinceId(province), building, country: catalogue::tag(country) },
-                Err(e) => {
-                    log!("building finished: {}", e.message);
-                    return None;
-                }
-            },
-            Heard::Change(Change::Battle(battle)) if full || battle.seen => battle_event(&battle),
-            Heard::Change(Change::Battle(_)) => return None,
-            Heard::War(Happened::WarDeclared { war, attacker, defender }) => Event::WarDeclared { war, attacker: tag(attacker), defender: tag(defender) },
-            Heard::War(Happened::PeaceMade { war, attackers, defenders, ended }) => {
-                Event::PeaceMade { war, attackers: tags(attackers), defenders: tags(defenders), ended }
-            }
-            Heard::War(Happened::OwnerChanged { province, from, to }) => {
-                Event::ProvinceOwnerChanged { province: ProvinceId(province), from: from.map(tag), to: to.map(tag) }
-            }
-            Heard::Day(date) => Event::Day { date: Date(date) },
-            Heard::Month(date) => Event::Month { date: Date(date) },
-            Heard::Year(date) => Event::Year { date: Date(date) },
-        })
-    };
-    frame.heard().into_iter().filter_map(event).collect()
-}
-
-/// A battle, as the `battle` event tells it.
-pub fn battle_event(battle: &game::events::Battle) -> eu4_harmony_remote::events::Event {
-    use eu4_harmony_remote::events::{Event, Winner};
-    Event::Battle {
-        province: eu4_harmony_remote::ProvinceId(battle.province),
-        naval: battle.naval,
-        attackers: battle.attackers.iter().copied().map(catalogue::tag).collect(),
-        defenders: battle.defenders.iter().copied().map(catalogue::tag).collect(),
-        winner: if battle.attacker_won { Winner::Attackers } else { Winner::Defenders },
-        attacker_losses: battle.attacker_losses.into(),
-        defender_losses: battle.defender_losses.into(),
-    }
+    frame.heard().into_iter().filter(|heard| full || heard.seen).map(|heard| heard.event).collect()
 }
 
 /// The session is being left, for `end`, as extensions hear it.
 pub(crate) fn session_ended(end: crate::sessions::End) {
-    use crate::sessions::End;
-    use eu4_harmony_remote::events::SessionEnd;
-    let reason = match end {
-        End::Return => SessionEnd::Return,
-        End::Load => SessionEnd::Load,
-        End::NewGame => SessionEnd::NewGame,
-        End::Country => SessionEnd::Country,
-    };
-    ENGINE.session_ended(reason);
+    ENGINE.session_ended(end.reason());
 }
 
 /// At a game's safe frame: keeps what extensions just heard, then runs.

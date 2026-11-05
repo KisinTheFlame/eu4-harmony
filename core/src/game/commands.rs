@@ -42,17 +42,15 @@ const TYPE: usize = 0x50;
 const ID: usize = 0x4c;
 /// `(writer, token)`: writes a token as a key.
 const WRITE_KEY: usize = 0x1709280;
-/// `(block, size)`: the game's `operator delete`.
-const DELETE: usize = 0x17394f0;
 /// The token table: whether it is set up, its last index, and its names, one
 /// `std::string` each.
-const TOKENS_READY: usize = 0x2357b30;
-const TOKENS_LAST: usize = 0x2357b28;
-const TOKEN_NAMES: usize = 0x242b888;
+pub(crate) const TOKENS_READY: usize = 0x2357b30;
+pub(crate) const TOKENS_LAST: usize = 0x2357b28;
+pub(crate) const TOKEN_NAMES: usize = 0x242b888;
 /// The memory stream's and the writer's vtables, as the local handler's post
 /// makes them; the stream's `+0x18` sets its mode and whether it writes.
-const STREAM_VTABLE: usize = 0x1dc0358;
-const WRITER_VTABLE: usize = 0x1dbf7d8;
+pub(crate) const STREAM_VTABLE: usize = 0x1dc0358;
+pub(crate) const WRITER_VTABLE: usize = 0x1dbf7d8;
 const STREAM_MODE: usize = 0x171ed90;
 /// Reading, as the local handler's post reads back what it wrote: a text
 /// tokenizer (its base `(tokenizer, stream, owns)`, then its own vtable, whose
@@ -160,7 +158,6 @@ pub fn points() -> Vec<Point> {
             stream::LINE,
         ]),
         Point::keep(WRITE_KEY, "48 89 5c 24 08 57 48 81 ec 30 02 00 00 8b da 48 8b f9 e8 c9 f2 ff ff 80 7f 18 00", "write a key").uses(&[writer::BINARY]),
-        Point::keep(DELETE, "e9 2b 45 02 00", "operator delete"),
         Point::keep(
             POST_WRITES,
             "48 8b 03 48 8b cb ff 50 50 8b d0 48 8d 8c 24 10 01 00 00 e8 2b 8d 18 00 48 8b 03 48 8d 94 24 10 01 00 00 48 8b cb ff 50 08",
@@ -558,24 +555,8 @@ fn written(m: &Memory, command: usize, token: u32) -> crate::Result<Vec<u8>> {
     // The game grew the vector through the stream.
     let bytes = unsafe { std::ptr::read_volatile(&bytes) };
     let result = result.and_then(|_| m.bytes(bytes[0], bytes[1] - bytes[0]));
-    free_vector(m, bytes)?;
+    crate::game_heap::free_vector(m, bytes)?;
     result
-}
-
-/// Frees the buffer of a `std::vector` the game grew, (start, end, end of
-/// capacity), as the game frees one: a large one is aligned, with the block
-/// it was cut from just before it. Its items are left as they are.
-pub(crate) fn free_vector(m: &Memory, vector: [usize; 3]) -> crate::Result<()> {
-    if vector[0] != 0 {
-        let mut size = vector[2] - vector[0];
-        let mut block = vector[0];
-        if size >= 0x1000 {
-            size += 0x27;
-            block = m.ptr(block - 8)?;
-        }
-        m.call(m.at(DELETE), &[block, size])?;
-    }
-    Ok(())
 }
 
 /// The command `text` (game text) holds, made by the game's factory and read

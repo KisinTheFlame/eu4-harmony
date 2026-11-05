@@ -25,6 +25,7 @@ pub mod dev;
 pub mod files;
 pub mod framework_ui;
 pub mod game;
+pub mod game_heap;
 pub mod game_string;
 pub mod heap;
 pub mod hidden;
@@ -126,6 +127,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(files::points());
     all.extend(objects::points());
     all.extend(game_string::points());
+    all.extend(game_heap::points());
     all.extend(game::points());
     all.extend(ui::points());
     all.extend(map::points());

@@ -7,7 +7,12 @@ use super::{
     envoys::{self, quoted},
     game, with_state, Caller, Ctx, GResult, Tag,
 };
-use crate::{game_string, memory::Memory, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::{construction, country, province as field},
+    points::Point,
+};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     colonists::{ColonistOptions, Expulsion},
@@ -26,13 +31,6 @@ const CONSTRUCTION: usize = 0xa1ba30;
 const CONSTRUCTION_OF: usize = 0xa1ba90;
 /// The kind of a colonist promoting settlement growth.
 const GROWTH: usize = 0x38a2;
-/// A colonist construction's country.
-const SENDER: usize = 0x40;
-/// The colony's settlers, thousandths.
-const SIZE: usize = 0x3f8;
-/// The province's flags, and the one of a city.
-const FLAGS: usize = 0x958;
-const CITY: u8 = 0x10;
 /// The colonial upkeep a month of the country's colonies and of the provinces
 /// a vector names, in thousandths of ducats before the country's factor:
 /// `(country, i32* out, text or null, i32* factor in thousandths, vector of
@@ -54,15 +52,6 @@ const MAY_EXPEL_ANY: usize = 0x264ec0;
 const TAKES_EXPELLED: usize = 0x264fb0;
 const LISTED: usize = 0x264f50;
 const MAY_EXPEL: usize = 0x264ff0;
-/// A country's provinces, an array of province IDs (i32) and their count.
-const OWNED: usize = 0x1338;
-const OWNED_COUNT: usize = 0x1344;
-/// A province's culture and religion, and a country's primary culture and
-/// state religion, pointers.
-const CULTURE: usize = 0x440;
-const RELIGION: usize = 0x448;
-const PRIMARY_CULTURE: usize = 0x1228;
-const STATE_RELIGION: usize = 0xf30;
 /// The most provinces believed.
 const MOST: i32 = 10_000;
 
@@ -77,8 +66,7 @@ pub fn points() -> Vec<Point> {
         // The cancel colonist command's check: the location, then the
         // construction's country.
         Point::keep(0x446850usize, "48 63 41 58 85 c0 0f 88 83 00 00 00 80 79 5c 00 75 74 4c 8b 41 50", "cancel colonist check"),
-        Point::keep(0x4468d9usize, "48 8b 42 40", "colonist construction's country").uses(&[SENDER]),
-        Point::keep(0x9d7962usize, "41 8b 9f f8 03 00 00", "colony size").uses(&[SIZE]),
+        Point::keep(0x4468d9usize, "48 8b 42 40", "colonist construction's country").uses(&[construction::COUNTRY]),
         Point::keep(UPKEEP, "4c 89 4c 24 20 4c 89 44 24 18 48 89 54 24 10 48 89 4c 24 08 55 53", "colonial upkeep"),
         // The budget's colonial upkeep: the sum times the country's factor.
         Point::keep(0xeb78bfusize, "48 63 9f 14 0e 00 00", "colonial upkeep factor").uses(&[UPKEEP_FACTOR]),
@@ -89,9 +77,9 @@ pub fn points() -> Vec<Point> {
         Point::keep(MAY_EXPEL, "48 89 5c 24 10 48 89 7c 24 18 55 48 8b ec 48 83 ec 60 48 8b fa 48", "may expel the minority"),
         // The colonize button's list goes through the player's provinces and
         // keeps those of another culture or religion.
-        Point::keep(0xe2e868usize, "49 8b 9c 24 38 13 00 00 48 89 5d 7f 49 63 84 24 44 13 00 00", "country provinces").uses(&[OWNED, OWNED_COUNT]),
-        Point::keep(0xe2e95dusize, "4d 8b ae 40 04 00 00 4d 3b ac 24 28 12 00 00", "minority culture").uses(&[CULTURE, PRIMARY_CULTURE]),
-        Point::keep(0xe2eab6usize, "4d 8b ae 48 04 00 00 4d 3b ac 24 30 0f 00 00", "minority religion").uses(&[RELIGION, STATE_RELIGION]),
+        Point::keep(0xe2e868usize, "49 8b 9c 24 38 13 00 00 48 89 5d 7f 49 63 84 24 44 13 00 00", "country provinces").uses(&[country::OWNED, country::OWNED_COUNT]),
+        Point::keep(0xe2e95dusize, "4d 8b ae 40 04 00 00 4d 3b ac 24 28 12 00 00", "minority culture").uses(&[field::CULTURE, country::PRIMARY_CULTURE]),
+        Point::keep(0xe2eab6usize, "4d 8b ae 48 04 00 00 4d 3b ac 24 30 0f 00 00", "minority religion").uses(&[field::RELIGION, country::STATE_RELIGION]),
     ]
 }
 
@@ -134,9 +122,9 @@ fn cost(m: &Memory, ctx: &Ctx, p: &Province) -> GResult<Vec<Amount>> {
 
 fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions> {
     let construction = m.call(m.at(CONSTRUCTION), &[p.address])?;
-    let working = construction != 0 && Tag(m.u64(construction + SENDER)?) == ctx.player;
-    let size = m.i32(p.address + SIZE)?;
-    let colony = size > 0 && m.u8(p.address + FLAGS)? & CITY == 0;
+    let working = construction != 0 && Tag(m.u64(construction + construction::COUNTRY)?) == ctx.player;
+    let size = m.i32(p.address + field::COLONY_SIZE)?;
+    let colony = size > 0 && m.u8(p.address + field::HIDDEN)? & field::CITY_BIT == 0;
     let cost = cost(m, ctx, p)?;
     let send = if m.call(m.at(MAY_SEND), &[ctx.country, p.address])? as u8 != 0 {
         Choice::can(cost.clone())
@@ -146,7 +134,7 @@ fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions
     };
     let recall = if working { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
     let growth = m.call(m.at(CONSTRUCTION_OF), &[p.address, GROWTH])?;
-    let growing = growth != 0 && Tag(m.u64(growth + SENDER)?) == ctx.player;
+    let growing = growth != 0 && Tag(m.u64(growth + construction::COUNTRY)?) == ctx.player;
     let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_GROW), &[ctx.country, p.address, out]))?;
     let start_growth = if may as u8 != 0 { Choice::can(cost.clone()) } else { Choice::cannot(envoys::lines(&text), cost.clone()) };
     let stop_growth = if growing { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
@@ -170,16 +158,16 @@ fn expulsions(m: &Memory, ctx: &Ctx, p: &Province, send: &Choice) -> GResult<Vec
     if m.call(m.at(MAY_EXPEL_ANY), &[ctx.player.0 as usize])? as u8 == 0 || m.call(m.at(TAKES_EXPELLED), &[p.address])? as u8 == 0 {
         return Ok(Vec::new());
     }
-    let count = m.i32(ctx.country + OWNED_COUNT)?;
+    let count = m.i32(ctx.country + country::OWNED_COUNT)?;
     if !(0..MOST).contains(&count) {
         return Err(format!("{count} provinces").into());
     }
-    let (ids, mut out) = (m.ptr(ctx.country + OWNED)?, Vec::new());
+    let (ids, mut out) = (m.ptr(ctx.country + country::OWNED)?, Vec::new());
     for i in 0..count as usize {
         let from = m.u32(ids + i * 4)?;
         let address = with_state(|s| s.geography.province_address(m, ctx, from))?;
-        let minority =
-            m.ptr(address + CULTURE)? != m.ptr(ctx.country + PRIMARY_CULTURE)? || m.ptr(address + RELIGION)? != m.ptr(ctx.country + STATE_RELIGION)?;
+        let minority = m.ptr(address + field::CULTURE)? != m.ptr(ctx.country + country::PRIMARY_CULTURE)?
+            || m.ptr(address + field::RELIGION)? != m.ptr(ctx.country + country::STATE_RELIGION)?;
         if !minority || m.call(m.at(LISTED), &[address])? as u8 == 0 {
             continue;
         }

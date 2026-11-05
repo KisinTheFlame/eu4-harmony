@@ -118,6 +118,10 @@ extern "C" fn year_month_day(date: *const i32, out: *mut u8, extra: usize) -> *m
     unsafe { write(&ORIGINAL_DAY, date, out, extra, |date| Some((Shape::Day, date))) }
 }
 
+/// The date as month and year, moved on to the first of the next month,
+/// with a comma: `(&date, out string)`, which the framework replaces.
+pub const NEXT_MONTH_YEAR: usize = 0x6e5b40;
+
 pub fn points() -> Vec<Point> {
     let f = |f: extern "C" fn(*const i32, *mut u8, usize) -> *mut u8| f as DateText;
     vec![
@@ -126,7 +130,7 @@ pub fn points() -> Vec<Point> {
         Point::replace(0x14c7890usize, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 48", "date in a format", f(formatted), &ORIGINAL_FORMAT),
         Point::replace(0x6e6100usize, "48 89 5c 24 08 57 48 81 ec c0 00 00 00 48 8b fa", "date as month and year", f(month_year), &ORIGINAL_MONTH),
         Point::replace(
-            0x6e5b40usize,
+            NEXT_MONTH_YEAR,
             "48 89 5c 24 18 48 89 74 24 20 48 89 54 24 10 55",
             "date as the next month and year",
             f(next_month_year),

@@ -2,12 +2,12 @@
 //! without what it owns. A country's array of bytes, a mercenary company's
 //! leader, a country's rebel factions and the agents its AI started are let
 //! go with them.
-use super::{LettingGo, DELETE};
+use super::LettingGo;
 use crate::{
     hooks::HookFrame,
     memory::Memory,
     objects::{
-        campaign::{ai_king, classes, countries as country_list, country, globals, leader, mercenary_company, world},
+        campaign::{ai_king, classes, countries as country_list, country, functions, globals, leader, mercenary_company, world},
         list,
     },
     points::Point,
@@ -29,9 +29,6 @@ const WORLD_CLEARING_DONE: usize = 0x74a290;
 /// faction and of a leader, their vtables' first slots.
 const FACTION_DELETE: usize = 0xa94480;
 const LEADER_DELETE: usize = 0x860f60;
-/// `()`: answers yes; answers no.
-const YES: usize = 0x8f440;
-const NO: usize = 0x8f450;
 /// `(company, flags)`: a mercenary company's destructor, which its vtable's
 /// first slot is; a country lets the companies it can hire go by it as it
 /// changes them, and in its clear.
@@ -63,7 +60,7 @@ extern "C" fn country_going(frame: *mut HookFrame) {
             if bytes != 0 {
                 m.write(country + country::ENTRY_BYTES, &0usize.to_le_bytes())?;
                 let _letting_go = LettingGo::new("country's array of bytes");
-                m.call(m.at(DELETE), &[bytes, 0])?;
+                crate::game_heap::delete(&m, bytes, 0)?;
             }
             crate::Result::Ok(())
         })();
@@ -234,8 +231,8 @@ pub(super) fn points() -> Vec<Point> {
         // answers that it is one, the game's null leader that it is not.
         Point::method(classes::REBEL_FACTION, 0, FACTION_DELETE, "rebel faction deleting destructor"),
         Point::method(classes::LEADER, 0, LEADER_DELETE, "leader deleting destructor"),
-        Point::method(classes::LEADER, leader::REAL, YES, "a leader is one"),
-        Point::method(classes::NULL_LEADER, leader::REAL, NO, "the null leader is none"),
+        Point::method(classes::LEADER, leader::REAL, functions::YES, "a leader is one"),
+        Point::method(classes::NULL_LEADER, leader::REAL, functions::NO, "the null leader is none"),
         // A mercenary company's destructor, which leaves its leader: it only
         // takes the company's ID off and frees it.
         Point::observe(
