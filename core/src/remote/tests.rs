@@ -630,7 +630,7 @@ fn every_capability_runs_at_a_game_frame() {
     }
     panel.push((Request::Subject(SubjectRequest::Options { subject: CountryTag(*b"WAL") }), Box::new(|v: &Value| v["result"][1]["active"] == true)));
     panel.push((
-        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None }),
+        Request::Subject(SubjectRequest::Interact { subject: CountryTag(*b"WAL"), interaction: "scutage".into(), third_party: None, province: None }),
         Box::new(|v: &Value| *v == ok(Value::Null)),
     ));
     cases.splice(0..0, panel);

@@ -4,7 +4,7 @@
 //! integrating a subject are the diplomacy panel's (`diplomacy.annex`,
 //! `diplomacy.integrate`).
 use crate::choices::Choice;
-use crate::CountryTag;
+use crate::{CountryTag, ProvinceId};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -31,6 +31,11 @@ group! {
         interaction: String,
         /// The third country some interactions are about.
         third_party: Option<CountryTag>,
+        /// The province some interactions are about, as their window has the
+        /// player pick it: the one given (`grant_province`), claimed
+        /// (`grant_core_claim`), given back (`return_land`), fortified
+        /// (`fortify_march`) or taken (`seize_territory`).
+        province: Option<ProvinceId>,
     } -> (), "nothing: the game carried it out";
 }
 
