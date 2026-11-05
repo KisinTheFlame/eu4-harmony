@@ -1959,6 +1959,17 @@ The owner asked for a track to wait for its analysis rather than play as it is u
 - **Not verified**: anything heard; a hold that runs out at 2 s, or an analysis that fails, which play as they are (by reading the code only).
 - **Cleanup**: releasing the game put back the player's files, among them the framework's settings with the line the last start added and the autosaves the games wrote, and the game folder's framework files; the temporary log was taken out of the code.
 
+## 2026-11-06 The monarchs a history keeps let go (tested by me)
+
+The repair of the monarchs, heirs and queens a country's history leaves (`core/src/repairs/monarchs.rs`; research/main-menu.md, "The monarchs a history keeps"), and the leak scenario's `watch_sites`. Each run within a claim the runner made and released, the game started hidden; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **Who held them**: `leak`, five rounds, `watch_sites 0x299db7,0x299e03` from round 2, on master before the repair: 16,095 monarchs and 7,320 heirs left, 15,382 and 6,703 of them pointed at by nothing; the owners let go last are in the research note.
+- **With the quarantine**, four rounds of `leak`: the first try ended at its first `menu.load`, the framework ending the game for a global no dependency point checked (`0x23581a0`, the vector of all persons, whose end alone had one); with a point for both, the four rounds passed, no crash. The quarantine kept 36,730 blocks, 6.4 MB, of the persons the repair deleted, and nothing was written to anything it kept. Each round deleted 2,838, 2,286 to 2,290 and 154 to 156 persons at the three world resets' first frames; none was kept for being on the vector, found by its ID or a country's.
+- **Ten rounds each of `growth` and `leak`**, without the quarantine: both passed. `0x299db7` and `0x299e03` were in no generation's leftovers (302 and 160 KB a generation before). Over rounds 2 to 10: `growth` 12.2 MB of private bytes a round, 5.78 MB of it the game's heap (16.4 and 7.44 on 2026-11-05); `leak` 18.7 and 5.85; the census's leftovers grew 5.7 MB a round (7.7 before).
+- **Twenty rounds of `growth`**: passed, no crash, each round 34 to 50 s. Over rounds 2 to 20: 12.3 MB of private bytes a round, 5.77 MB of it the game's heap, 7.9 MB free pages in the heaps; handles 0.1 a round (14.1 and 7.33 over twenty on 2026-11-04).
+- **Not tried**: ironman; a ruler dying, or an heir or a queen taking over, in a session before its end; the history shown in the country view; the rounds as long as 26 to 27 s were the day before, which another load on the computer may explain or not.
+- **Cleanup**: every claim released with every file put back. The runs' reports and the claims' folders were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

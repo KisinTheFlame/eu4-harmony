@@ -90,7 +90,7 @@ A leftover nothing points at was lost somewhere: most often its owner was let go
 
 An owner let go after its pointer was copied elsewhere, as a vector's buffer is when it grows, is kept too, and is the last owner until a later one; for a leftover nothing points at, the last owner let go is the one that lost it.
 
-A leak run with `--leak.watch N` watches, after round `--leak.watch_after`, the N steady sites that leave the most and whose leftovers nothing (or only other leftovers) mostly points at, and adds a table of who let them go. Reading every block let go slows the game while sites are watched.
+A leak run with `--leak.watch N` watches, after round `--leak.watch_after`, the N steady sites that leave the most and whose leftovers nothing (or only other leftovers) mostly points at, and adds a table of who let them go; `--leak.watch_sites` names the sites instead, as `memory.leftovers` writes them and whatever their trend, separated by commas. Reading every block let go slows the game while sites are watched.
 
 Both this and M2 take a word for a pointer by one rule, in one module (`core/src/census/pointers.rs`): eight bytes that hold an address in a block's first 64 bytes.
 

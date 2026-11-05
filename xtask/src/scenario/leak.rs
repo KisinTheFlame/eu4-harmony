@@ -32,7 +32,9 @@
 //! most and whose leftovers nothing, or only other leftovers, mostly points
 //! at (`memory.watch`); its sections then say, for each, which owners were
 //! let go while they last pointed at its leftovers, and the code that let
-//! them go. Watching slows every letting go of a block.
+//! them go. With `watch_sites`, it watches those sites instead, as
+//! `memory.leftovers` writes them, whatever their trend. Watching slows
+//! every letting go of a block.
 //!
 //! With `quarantine`, the quarantine is on from the start
 //! (`memory.quarantine`): what the framework's repairs let go is kept instead
@@ -102,7 +104,7 @@ impl Scenario for Leak {
     }
 
     fn parameters(&self) -> &'static [Parameter] {
-        const LEAK_ONLY: [Parameter; 9] = [
+        const LEAK_ONLY: [Parameter; 10] = [
             ROUNDS[0],
             ROUNDS[1],
             ROUNDS[2],
@@ -110,6 +112,7 @@ impl Scenario for Leak {
             ROUNDS[4],
             Parameter { name: "sites", default: "40", about: "the leftover sites to list, the most left a generation first" },
             Parameter { name: "watch", default: "0", about: "the steady sites nothing points at to watch from round watch_after" },
+            Parameter { name: "watch_sites", default: "", about: "the sites to watch from round watch_after instead, separated by commas" },
             Parameter { name: "watch_after", default: "3", about: "the round after which to begin watching" },
             Parameter { name: "quarantine", default: "false", about: "keep what the repairs let go, and find what writes to it" },
         ];
@@ -126,10 +129,16 @@ impl Scenario for Leak {
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| super::Stop::Failed(format!("no country tag {country:?}")))?;
         let saves = [parameters.text("first_save"), parameters.text("second_save")];
-        let (sites, watch, watch_after, quarantine) = if self.census {
-            (Some(parameters.number("sites")?), parameters.number("watch")?, parameters.number("watch_after")?, parameters.flag("quarantine")?)
+        let (sites, watch, watch_sites, watch_after, quarantine) = if self.census {
+            (
+                Some(parameters.number("sites")?),
+                parameters.number("watch")?,
+                parameters.text("watch_sites"),
+                parameters.number("watch_after")?,
+                parameters.flag("quarantine")?,
+            )
         } else {
-            (None, 0, 0, false)
+            (None, 0, String::new(), 0, false)
         };
 
         let there: Vec<Save> = game.ask(&MenuRequest::Saves {})?;
@@ -166,15 +175,18 @@ impl Scenario for Leak {
             if self.census {
                 let held: Leftovers = game.ask(&MemoryRequest::Leftovers { sites, holders: Some(i == rounds) })?;
                 leftovers = json!(held);
-                if watch > 0 && i == watch_after && i < rounds {
-                    let held: Leftovers = game.ask(&MemoryRequest::Leftovers { sites, holders: Some(true) })?;
-                    let lost: Vec<String> = held
-                        .sites
-                        .iter()
-                        .filter(|s| s.trend == Trend::Steady && s.holders.as_ref().is_some_and(|h| (h.by_nothing + h.by_leftovers) * 2 >= s.blocks))
-                        .take(watch as usize)
-                        .map(|s| s.site.clone())
-                        .collect();
+                if (watch > 0 || !watch_sites.is_empty()) && i == watch_after && i < rounds {
+                    let lost: Vec<String> = if watch_sites.is_empty() {
+                        let held: Leftovers = game.ask(&MemoryRequest::Leftovers { sites, holders: Some(true) })?;
+                        held.sites
+                            .iter()
+                            .filter(|s| s.trend == Trend::Steady && s.holders.as_ref().is_some_and(|h| (h.by_nothing + h.by_leftovers) * 2 >= s.blocks))
+                            .take(watch as usize)
+                            .map(|s| s.site.clone())
+                            .collect()
+                    } else {
+                        watch_sites.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                    };
                     if !lost.is_empty() {
                         let watched: Watching = game.ask(&MemoryRequest::Watch { sites: lost.join(",") })?;
                         println!("watching from round {i}: {} ({} live blocks)", watched.sites.join(", "), watched.blocks);
