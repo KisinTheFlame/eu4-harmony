@@ -116,11 +116,17 @@ pub fn definitions() -> String {
 fn handlers(out: &mut String) {
     let _ = writeln!(out, "--- The table main.lua returns: a handler for each event the mod hears.\n---@class eu4.Handlers");
     for h in lua::HANDLERS {
-        let args: Vec<String> = std::iter::once("game: eu4.Game".to_string()).chain(h.args.iter().map(|a| format!("{}: {}", a.name, a.ty))).collect();
+        let args: Vec<String> = std::iter::once("game: eu4.Game".to_string()).chain(h.args.iter().map(handler_arg)).collect();
         let returns = h.returns.map_or(String::new(), |r| format!(": {}", r.ty));
         let _ = writeln!(out, "---@field {}? fun({}){returns} {}", h.name, args.join(", "), h.about);
     }
     out.push('\n');
+}
+
+/// A handler's argument; one that may be nil says so, but for `any`.
+fn handler_arg(a: &lua::Value) -> String {
+    let nil = if a.optional && a.ty != "any" { "|nil" } else { "" };
+    format!("{}: {}{nil}", a.name, a.ty)
 }
 
 fn game(out: &mut String) {
@@ -326,6 +332,9 @@ mod tests {
         assert!(!text.contains("eu4.Err|nil"));
         // An element takes nil, as text.get may answer.
         assert!(text.contains("---@field tooltip string|nil"));
+        // A handler's argument that may be nil says so.
+        assert!(text.contains("province: integer, from: string|nil, to: string|nil)"), "{text}");
+        assert!(text.contains("saved: any)"));
     }
 
     #[test]
