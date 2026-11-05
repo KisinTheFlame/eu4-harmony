@@ -1693,6 +1693,19 @@ SC1 to SC3 of [scenarios.md](scenarios.md), with `cargo xtask scenario` from thi
   - `leak` and `growth` with their 10 rounds.
 - **Cleanup**: the runs' report folders and logs were deleted after the figures above were taken from them; the queue held only other checkouts' claims.
 
+## 2026-11-05 What grows outside the census (tested by me)
+
+`growth` and `leak` with ten rounds each on master (f29ab09), then M6 of [leak-finding.md](leak-finding.md), `memory.uncounted`, on this branch. Each run within a claim, the game started hidden; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **Ten rounds**: both scenarios passed, `leak` with `watch 10`; the runner renewed its lease at each build, and the run of 18 minutes needed no renewal in between. Over rounds 2 to 10, `growth` grew 40.6 MB of private bytes a round, 23.9 MB of it the game's heap, 11.6 MB free pages in the heaps and 5.1 MB outside them; `leak` 46.8, 22.4, 14.4 and 7.2. On 2026-11-04 the memory account had measured 15.5 MB a round, 7.45 MB of it the game's heap ("The text boxes' animations let go").
+- **The census did not see it**: the census's leftovers grew 7.7 MB a round (1,235.8 MB after round 1, 1,305.0 MB after round 10), as before, and the sites that leave the most were those of earlier runs (`0x299db7`, `0x155c294`, `0x156acc9`, `0x299e03`, `0x10b59fe`). About 15 MB a round of the game's heap was blocks no site has.
+- **`memory.uncounted`, four rounds of `leak`**: marked after round 2 and compared after round 4. What the census does not count grew 30.1 MB a round, as much as the game's heap (30.6 MB). Of the blocks made since the mark, 16,292 more of 3,088 bytes (with the heap's overhead), 24 MB a round, and 59 more of 204,832 bytes, 5.9 MB. The first ask counted the walk's own buffers too (one block of 137 MB and two of 2.2 MB), which it leaves out since.
+- **The blocks of 3,088 bytes**: each holds its own address at `+8`, the same pointer at `+0x10` in every one, and `0x400558c0` at `+0x20`. The object that pointer reaches holds the tags `NVDA` and `NVDX`, which among the NVIDIA modules the game had loaded only `nvd3dumx.dll`, the Direct3D 9 driver, holds (291 and 206 times). They are the graphics driver's.
+- **With time, not with sessions**: at the idle main menu, three minutes between two asks, 2,395 more of them (13 a second, 7 MB) with the hidden start's sound off, and 22,649 more (126 a second, 66 MB) in a hidden start with sound, every volume set to 0 in `settings.txt` for it. The game process had NVIDIA's capture module `nvspcap64.dll` loaded, with NVIDIA Overlay and NVIDIA Broadcast running.
+- **What it says**: since 2026-11-04 the rounds measure, besides the game's leaks, a growth of the graphics driver's that goes with time and with the sound. The leaks the census counts have not grown. Not known: whether a game with its window shown grows so too, whether NVIDIA's overlay or its capture is what makes the driver allocate them, and whether this happens to a player.
+- **Not tried**: the window shown (`desktop.show`), the overlay off, a computer with another graphics card.
+- **Cleanup**: every claim released with every file put back ("every file is as the backup has it"), `settings.txt` with the volumes among them. The runs' reports and the scratch scripts were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
