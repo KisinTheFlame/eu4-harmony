@@ -80,6 +80,7 @@ end
 - `require` loads a module from the mod's own `eu4-harmony/lua/` only, by its dotted name (`require("range.bfs")` is `eu4-harmony/lua/range/bfs.lua`).
 - There is no `io`, `debug` or `package.loadlib`, and `os` holds `os.clock`, and `os.time` and `os.date`, which work when the manifest declares `clock`.
 - Nothing reaches the process, the operating system, environment variables, other mods or native code; there is no capability for them, declared or not.
+- A Lua state holds at most 256 MiB, so that an extension cannot take the memory the game needs. An allocation past that fails with Lua's `not enough memory` error, as any other error: it ends the handler's call, and the next event calls the extension again, which has the memory back once what held it is gone.
 
 ### Sensitive capabilities
 

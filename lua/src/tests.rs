@@ -418,6 +418,38 @@ fn returns_in_time(e: &Arc<Extension>, name: &str) -> bool {
 }
 
 #[test]
+fn running_out_of_the_extension_s_memory_is_an_error() {
+    let e = load_one(
+        "memory",
+        r#"
+        return {
+          on_big = function(game) BIG = #string.rep("x", 300 * 1024 * 1024) end,
+          on_grow = function(game)
+            local kept = {}
+            for i = 1, 1e6 do kept[i] = string.rep("x", 1024 * 1024) end
+          end,
+          on_day = function(game) DAY = #string.rep("x", 1024 * 1024) end,
+        }
+        "#,
+        &[],
+    )
+    .unwrap();
+    let out_of_memory = |handler: &str| errors(&e).iter().any(|k| k.starts_with(handler) && k.contains("not enough memory"));
+    e.handle("on_big", &[]);
+    assert!(out_of_memory("on_big"), "{:?}", errors(&e));
+    assert_eq!(e.lua.globals().get::<LuaValue>("BIG").unwrap(), LuaValue::Nil);
+    // Growing to the limit a little at a time, under a lower limit to be
+    // quick: the memory a test fills is new to the process, and slow.
+    assert_eq!(e.lua.set_memory_limit(32 * 1024 * 1024).unwrap(), sandbox::MEMORY);
+    e.handle("on_grow", &[]);
+    assert!(out_of_memory("on_grow"), "{:?}", errors(&e));
+    assert!(e.lua.used_memory() <= 32 * 1024 * 1024, "{}", e.lua.used_memory());
+    // Once what held it is gone, the memory is the extension's again.
+    assert_eq!(after(&e, "on_day", "DAY"), LuaValue::Integer(1024 * 1024), "{:?}", errors(&e));
+    assert!(e.state().stopped.is_none());
+}
+
+#[test]
 fn the_time_limit_is_not_caught_by_pcall() {
     let e = load_one(
         "pcall-forever",

@@ -339,7 +339,8 @@ pub const GLOBALS: &[&str] = &["log", "print", "json", "mod_files", "text", "req
 /// What Lua has in the sandbox of its own.
 pub const SANDBOX: &str = "Lua 5.4 with its string, table, math, utf8 and coroutine libraries and the base library, \
 except dofile, loadfile and loading bytecode (load takes text only). There is no io, debug or package; os has os.clock, \
-and os.time and os.date for a mod that declares clock. Nothing reaches the process, the system, other mods or native code.";
+and os.time and os.date for a mod that declares clock. Nothing reaches the process, the system, other mods or native code. \
+A Lua state holds at most 256 MiB; past that, an allocation raises Lua's not enough memory error.";
 
 /// What `game.ui.<element>` is.
 pub const ELEMENTS: &str = "game.ui.<element>, an element of the mod's interface fragments by its name, has visible, enabled \

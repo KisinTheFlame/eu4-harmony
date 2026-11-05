@@ -30,6 +30,14 @@ pub struct Opened {
     pub main_state: *const c_void,
 }
 
+/// The most memory an extension's Lua state may hold. The state lives in
+/// the game's process, and what it holds the game cannot have: past this an
+/// allocation fails with Lua's memory error, an error as any other
+/// (ADR an-error-does-not-stop-an-extension), long before the game's own
+/// allocations would. It is far more than a mod's tables of provinces,
+/// countries and routes need.
+pub const MEMORY: usize = 256 * 1024 * 1024;
+
 /// The registry's name for the modules `require` has loaded.
 const LOADED: &str = "eu4harmony.loaded";
 
@@ -58,6 +66,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
     let (index, serial, id, harmony, permissions) = (at.index, at.serial, at.m.id, at.m.harmony.as_path(), at.m.permissions);
     let libs = StdLib::STRING | StdLib::TABLE | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE | StdLib::OS;
     let lua = Lua::new_with(libs, LuaOptions::default())?;
+    lua.set_memory_limit(MEMORY)?;
     let globals = lua.globals();
 
     // os: the clock the extension spends, and the real time when declared.
