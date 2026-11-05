@@ -48,10 +48,12 @@ pub fn bounded(count: i32) -> GResult<usize> {
 /// Has the game write its reasons for not allowing something into a text of
 /// the framework's: `check` is given the address of an empty `std::string`
 /// and answers whether it is allowed. The reasons are the text's lines, the
-/// conditions that hold left out ([`super::conditions::refusal`]).
+/// conditions that hold left out ([`super::conditions::refusal`]), without
+/// the bullet some checks start a line with.
 pub fn checked(m: &Memory, check: impl FnOnce(usize) -> GResult<usize>) -> GResult<(bool, Vec<String>)> {
     let (allowed, text) = game_string::written(m, check)?;
-    Ok((allowed & 0xff != 0, super::conditions::refusal(&text)))
+    let reasons = super::conditions::refusal(&text).into_iter().map(|l| l.trim_start_matches(['-', '－', '•']).trim_start().to_string());
+    Ok((allowed & 0xff != 0, reasons.filter(|l| !l.is_empty()).collect()))
 }
 
 /// Posts a panel's command, refusing as the game's own check does: with
