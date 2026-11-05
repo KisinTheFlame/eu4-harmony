@@ -84,8 +84,9 @@ pub struct TestSwitches {
     /// the game's bytes kept, so that the threads can be checked.
     pub compare_saves: bool,
     /// Saves are written by the game's own code: its loops on the main
-    /// thread and its deflate at level 0, so that what the framework's take
-    /// can be measured against it.
+    /// thread, its save checksum's sum, its deflate at level 0 and its update
+    /// thread's sleep, so that what the framework's take can be measured
+    /// against it.
     pub game_writes_saves: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be

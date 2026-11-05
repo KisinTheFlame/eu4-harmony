@@ -41,9 +41,9 @@ crash = false
 # well as on several threads, the two compared in the log, and the game's
 # bytes kept.
 compare-saves = false
-# Saves are written by the game's own code, as before the framework wrote the
-# countries and provinces on several threads and stored the zip's entries
-# itself, so that the two can be measured.
+# Saves are written by the game's own code, as before S8: its loops, its
+# save checksum's sum, its zip's deflate and its update thread's sleep, so
+# that the two can be measured.
 game-writes-saves = false
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as

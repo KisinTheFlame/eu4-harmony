@@ -139,6 +139,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(saves::background::points());
     all.extend(saves::parallel::points());
     all.extend(saves::sum::points());
+    all.extend(saves::update_thread::points());
     all.extend(hidden::points());
     all
 }
