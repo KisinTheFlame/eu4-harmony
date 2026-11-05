@@ -231,6 +231,74 @@ pub mod country {
     pub const RIVALS: usize = 0x2248;
     pub const RIVAL_TAG: usize = 0x10;
     pub const RIVAL_NEXT: usize = 0x28;
+    /// Its [`super::technology`], a pointer.
+    pub const TECHNOLOGY: usize = 0x2440;
+    /// The idea groups it has taken: a vector (begin, end) of
+    /// [`IDEA_GROUP_SIZE`]-byte items, each a pointer to an
+    /// [`super::idea_group`] and, at [`IDEA_GROUP_COUNT`], how many of its
+    /// ideas are taken (i32). The national ideas come first.
+    pub const IDEA_GROUPS: usize = 0x1438;
+    pub const IDEA_GROUP_SIZE: usize = 0x10;
+    pub const IDEA_GROUP_COUNT: usize = 8;
+    /// The governing capacity it uses, fixed point.
+    pub const USED_GOVERNING_CAPACITY: usize = 0xe2c;
+    /// Its modifiers, which the game's getter (`0x93d750`) turns into the
+    /// values its other getters read.
+    pub const MODIFIERS: usize = 0x28c0;
+    /// Inflation and mercantilism, fixed point, in percent.
+    pub const INFLATION: usize = 0xbd4;
+    pub const MERCANTILISM: usize = 0x1098;
+    /// Its loans, a [`super::super::list`] of [`super::loan`]s.
+    pub const LOANS: usize = 0xde8;
+    /// Its ledger's tables of this month's income ([`INCOME_CATEGORIES`]
+    /// i32 thousandths of a ducat) and expenses ([`EXPENSE_CATEGORIES`]), in
+    /// the order of the categories' names.
+    pub const INCOME: usize = 0xab4;
+    pub const INCOME_CATEGORIES: usize = 19;
+    pub const EXPENSES: usize = 0xb00;
+    pub const EXPENSE_CATEGORIES: usize = 38;
+}
+
+/// What a country keeps of its technology.
+pub mod technology {
+    /// The levels, a vector (begin, end) of i32 by technology category;
+    /// which index is which kind is in the globals [`ADM`], [`DIP`] and
+    /// [`MIL`], set as the categories are read.
+    pub const LEVELS: usize = 0x128;
+    pub const ADM: usize = 0x2340000;
+    pub const DIP: usize = 0x233fffc;
+    pub const MIL: usize = 0x233fff8;
+}
+
+/// An idea group.
+pub mod idea_group {
+    /// Its key, as a token: the token's name is the key.
+    pub const TOKEN: usize = 0x56c;
+    /// A byte set for a country's national ideas, which take no slot.
+    pub const FREE: usize = 0x568;
+}
+
+/// A loan.
+pub mod loan {
+    /// The lender's tag letters, `---` for none (the bank).
+    pub const LENDER: usize = 0x20;
+    /// Interest, fixed point, in percent.
+    pub const INTEREST: usize = 0x28;
+    /// Whole ducats.
+    pub const AMOUNT: usize = 0x2c;
+    /// When it falls due, a date.
+    pub const DUE: usize = 0x30;
+}
+
+/// A rebel faction.
+pub mod rebel_faction {
+    /// Its rebel type, whose key is a `std::string` at [`TYPE_KEY`].
+    pub const TYPE: usize = 0x20;
+    pub const TYPE_KEY: usize = 0x18;
+    /// Its name, a `std::string`.
+    pub const NAME: usize = 0x60;
+    /// Its progress, fixed point, in percent.
+    pub const PROGRESS: usize = 0x148;
 }
 
 /// A mercenary company, which a country keeps among those it can hire.
@@ -333,6 +401,52 @@ pub mod province {
     pub const MOTHBALLED: u8 = 2;
     pub const FORT_LEVEL_MOTHBALLED: usize = 0x2ddc;
     pub const FORT_LEVEL: usize = 0x2de0;
+    /// Its culture, religion and trade good, pointers; each object's key is
+    /// the name of the token at [`CULTURE_TOKEN`], [`RELIGION_TOKEN`] and
+    /// [`TRADE_GOOD_TOKEN`] in it. A culture or religion is valid when its
+    /// method [`VALID`] says so.
+    pub const CULTURE: usize = 0x440;
+    pub const RELIGION: usize = 0x448;
+    pub const TRADE_GOOD: usize = 0x458;
+    pub const CULTURE_TOKEN: usize = 0x10;
+    pub const RELIGION_TOKEN: usize = 0xd0;
+    pub const TRADE_GOOD_TOKEN: usize = 0x10;
+    pub const VALID: usize = 0x40;
+    /// Its trade node, a pointer to an object whose definition, at
+    /// [`TRADE_NODE_DEFINITION`], has its key, a `std::string`, at
+    /// [`TRADE_NODE_KEY`].
+    pub const TRADE_NODE: usize = 0xe8;
+    pub const TRADE_NODE_DEFINITION: usize = 0xa8;
+    pub const TRADE_NODE_KEY: usize = 0x10;
+    /// Its center of trade, a pointer, null for none: the object at its
+    /// `+8` has the level, i32, at [`CENTER_OF_TRADE_LEVEL`].
+    pub const CENTER_OF_TRADE: usize = 0x960;
+    pub const CENTER_OF_TRADE_DATA: usize = 8;
+    pub const CENTER_OF_TRADE_LEVEL: usize = 0x14;
+    /// Bits of the byte at [`HIDDEN`]: in a trade company; a city, not a
+    /// colony.
+    pub const TRADE_COMPANY_BIT: u8 = 4;
+    pub const CITY_BIT: u8 = 0x10;
+    /// Its owner's country state in its area, null when it is not in a
+    /// state; the state's edict, a pointer at [`STATE_EDICT`], has its
+    /// definition at [`EDICT_DEFINITION`], whose key is a `std::string` at
+    /// [`EDICT_KEY`].
+    pub const STATE: usize = 0x2e0;
+    pub const STATE_EDICT: usize = 0x28;
+    pub const EDICT_DEFINITION: usize = 0x10;
+    pub const EDICT_KEY: usize = 0x10;
+    /// The countries with a core on it, a vector (begin, end) of tags.
+    pub const CORES: usize = 0x490;
+    /// The countries with a claim on it, a list of nodes each with the tag
+    /// at 0 and the next node at `+0x10`.
+    pub const CLAIMS: usize = 0x4c0;
+    /// What is being built or done there, a list of nodes each with a
+    /// [`super::construction`] at 0 and the next node at `+0x10`.
+    pub const CONSTRUCTIONS: usize = 0x4d8;
+    /// The missionary's progress, fixed point, 100 when done.
+    pub const MISSIONARY_PROGRESS: usize = 0x894;
+    /// A colony's size, fixed point, in settlers.
+    pub const COLONY_SIZE: usize = 0x3f8;
 }
 
 /// A province's map data, at [`province::GEOMETRY`].
@@ -369,6 +483,23 @@ pub mod building {
     pub const INDEX: usize = 0x14;
     /// Its key as in common/buildings (`marketplace`), a `std::string`.
     pub const NAME: usize = 0x28;
+}
+
+/// Something being built or done in a province: a building, regiments or
+/// ships, a missionary's work, a colony, a core, a culture conversion.
+pub mod construction {
+    /// What it is, a token whose name is its key (`building_construction`).
+    pub const KIND: usize = 8;
+    /// Its start and end dates.
+    pub const START: usize = 0x20;
+    pub const END: usize = 0x24;
+    /// Its progress, fixed point, from 0 to 1.
+    pub const PROGRESS: usize = 0x30;
+    /// Whose it is, a tag.
+    pub const COUNTRY: usize = 0x40;
+    /// What a building's or a military construction makes: a
+    /// [`super::building`] or a [`super::unit_type`].
+    pub const MAKES: usize = 0x80;
 }
 
 /// A kind of regiment or ship, of class [`classes::UNIT_TYPE`].

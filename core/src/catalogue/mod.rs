@@ -72,6 +72,7 @@ pub mod subjects;
 pub mod technology;
 pub mod texts;
 pub mod time;
+pub mod trade;
 pub mod trade_companies;
 
 use crate::game;
@@ -126,6 +127,7 @@ pub trait Game:
     + trade_companies::Layer
     + centers_of_trade::Layer
     + merchants::Layer
+    + trade::Layer
 {
 }
 impl<
@@ -171,6 +173,7 @@ impl<
             + trade_companies::Layer
             + centers_of_trade::Layer
             + merchants::Layer
+            + trade::Layer
             + ?Sized,
     > Game for T
 {
@@ -358,5 +361,6 @@ pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::B
         Request::TradeCompany(r) => done(trade_companies::run(r, game).map(Answer::TradeCompany)),
         Request::CenterOfTrade(r) => done(centers_of_trade::run(r, game).map(Answer::CenterOfTrade)),
         Request::Merchant(r) => done(merchants::run(r, game).map(Answer::Merchant)),
+        Request::Trade(r) => done(trade::run(r, game).map(Answer::Trade)),
     }
 }

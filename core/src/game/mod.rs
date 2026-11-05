@@ -64,6 +64,7 @@ pub mod subjects;
 pub mod technology;
 pub mod texts;
 pub mod time;
+pub mod trade;
 pub mod trade_companies;
 pub mod units;
 pub mod wars;
@@ -342,6 +343,7 @@ pub fn points() -> Vec<Point> {
     points.extend(orders::points());
     points.extend(events::points());
     points.extend(camera::points());
+    points.extend(countries::points());
     points.extend(provinces::points());
     points.extend(console::points());
     points.extend(time::points());
@@ -379,6 +381,7 @@ pub fn points() -> Vec<Point> {
     points.extend(trade_companies::points());
     points.extend(centers_of_trade::points());
     points.extend(merchants::points());
+    points.extend(trade::points());
     points
 }
 

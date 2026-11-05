@@ -7,7 +7,7 @@ use crate::game::{
     thousandths, Caller, GResult, Tag,
 };
 use eu4_harmony_remote::{
-    countries::{Country, CountryAnswer, CountryRequest, Power, Relation, RelationKind, War},
+    countries::{Budget, Country, CountryAnswer, CountryRequest, Power, Relation, RelationKind, War},
     CountryTag, Error,
 };
 
@@ -21,6 +21,7 @@ layer! {
     fn country(tag: CountryTag) -> Tag = find;
     fn hostile(a: Tag, b: Tag) -> bool = game::countries::hostile;
     fn snapshot(country: Tag) -> layer::Country = game::countries::snapshot;
+    fn budget(country: Tag) -> Budget = game::countries::budget;
 }
 
 pub fn run(request: CountryRequest, game: &mut (impl Layer + ?Sized)) -> Result<CountryAnswer, Error> {
@@ -31,7 +32,11 @@ pub fn run(request: CountryRequest, game: &mut (impl Layer + ?Sized)) -> Result<
         }
         CountryRequest::Get { country } => {
             let found = game.country(country)?;
-            Ok(CountryAnswer::Get(snapshot(&game.snapshot(found)?)))
+            Ok(CountryAnswer::Get(Box::new(snapshot(&game.snapshot(found)?))))
+        }
+        CountryRequest::Budget { country } => {
+            let found = game.country(country)?;
+            Ok(CountryAnswer::Budget(game.budget(found)?))
         }
     }
 }
@@ -40,12 +45,12 @@ fn snapshot(c: &layer::Country) -> Country {
     let tags = |tags: &[Tag]| tags.iter().copied().map(tag).collect();
     Country {
         tag: tag(c.tag),
-        treasury: thousandths(c.treasury),
+        treasury: c.treasury.map(thousandths),
         manpower: c.manpower,
         max_manpower: c.max_manpower,
         stability: thousandths(c.stability),
         prestige: thousandths(c.prestige),
-        power: Power { adm: c.power[0], dip: c.power[1], mil: c.power[2] },
+        power: c.power.map(|p| Power { adm: p[0], dip: p[1], mil: p[2] }),
         wars: c.wars.iter().map(|w| War { name: w.name.clone(), attackers: tags(&w.attackers), defenders: tags(&w.defenders) }).collect(),
         relations: c
             .relations
@@ -61,5 +66,12 @@ fn snapshot(c: &layer::Country) -> Country {
                 subject_type: r.subject_type.clone(),
             })
             .collect(),
+        technology: c.technology,
+        ideas: c.ideas.clone(),
+        governing_capacity: c.own.as_ref().map(|o| o.governing_capacity),
+        inflation: c.own.as_ref().map(|o| thousandths(o.inflation)),
+        mercantilism: c.own.as_ref().map(|o| thousandths(o.mercantilism)),
+        loans: c.own.as_ref().map(|o| o.loans),
+        rebels: c.own.as_ref().map(|o| o.rebels.clone()),
     }
 }

@@ -54,6 +54,7 @@ use eu4_harmony_remote::{
     technology::TechnologyRequest,
     texts::TextRequest,
     time::TimeRequest,
+    trade::TradeRequest,
     trade_companies::TradeCompanyRequest,
     ArmyId, ArmyList, CountryTag, Kind, ProvinceId,
 };
@@ -121,10 +122,40 @@ fn every_capability_runs_at_a_game_frame() {
                     "power": {"adm": 50, "dip": 60, "mil": 70},
                     "wars": [{"name": "Ottoman Conquest of Constantinople", "attackers": ["TUR", "WAL"], "defenders": ["BYZ"]}],
                     "relations": [{"kind": "subject", "country": "WAL", "subject_type": "vassal"}, {"kind": "rival", "country": "BYZ"}],
+                    "technology": {"adm": 3, "dip": 3, "mil": 4},
+                    "ideas": [{"group": "TUR_ideas", "ideas": 1, "national": true}, {"group": "quality_ideas", "ideas": 2, "national": false}],
+                    "governing_capacity": {"used": 512.5, "max": 700.0}, "inflation": 2.5, "mercantilism": 10.0,
+                    "loans": {"count": 1, "ducats": 120.0},
+                    "rebels": [{"kind": "nationalist_rebels", "name": "Albanian Nationalists", "progress": 12.5}],
                 }))
             }),
         ),
         (Request::Country(CountryRequest::Get { country: CountryTag(*b"ZZZ") }), Box::new(error("not_found"))),
+        (
+            Request::Country(CountryRequest::Budget { country: CountryTag(*b"TUR") }),
+            Box::new(|v: &Value| {
+                *v == ok(json!({
+                    "country": "TUR",
+                    "income": [{"category": "INCOMETAX", "name": "税收", "ducats": 4.25}],
+                    "expenses": [{"category": "EXPENSEAM", "name": "陆军维护费", "ducats": 3.5}],
+                    "loans": [{"lender": null, "ducats": 120.0, "interest": 4.0, "due": "1449.11.11"}],
+                }))
+            }),
+        ),
+        (
+            Request::Country(CountryRequest::Budget { country: CountryTag(*b"BYZ") }),
+            Box::new(|v: &Value| *v == ok(json!({"country": "BYZ", "income": null, "expenses": null, "loans": null}))),
+        ),
+        (Request::Trade(TradeRequest::Nodes {}), Box::new(|v: &Value| v["result"][1]["node"] == "venice")),
+        (
+            Request::Trade(TradeRequest::Node { node: "constantinople".into() }),
+            Box::new(|v: &Value| {
+                v["result"]["outgoing"] == json!([{"node": "venice", "ducats": 3.0}])
+                    && v["result"]["countries"][0]
+                        == json!({"country": "TUR", "power": 60.0, "share": 60.0, "collects": false, "home": false, "merchant": {"action": "steer", "toward": "venice"}})
+            }),
+        ),
+        (Request::Trade(TradeRequest::Node { node: "nowhere".into() }), Box::new(error("not_found"))),
         (
             Request::Province(ProvinceRequest::List { provinces: None }),
             Box::new(move |v: &Value| *v == ok(json!([province_json(149, "TUR", "TUR"), province_json(151, "BYZ", "TUR")]))),
@@ -662,6 +693,9 @@ fn a_province_snapshot_carries_its_name_s_characters_and_every_kind() {
         "development": {"tax": 10.0, "production": 9.5, "manpower": 6.0},
         "terrain": "farmlands", "fort": {"level": 2, "mothballed": false},
         "buildings": ["fort_15th", "marketplace"],
+        "autonomy": 25.0, "culture": "greek", "religion": "orthodox", "trade_good": "silk", "unrest": null,
+        "trade_node": "constantinople", "center_of_trade": 3, "trade_company": false, "state": "state", "edict": null,
+        "cores": ["BYZ"], "claims": ["TUR"], "constructions": null, "missionary": null, "colony_size": null,
     }));
     assert_eq!(answer(&reply), expected);
     // What can be recruited there is recruit.options', every kind in order.

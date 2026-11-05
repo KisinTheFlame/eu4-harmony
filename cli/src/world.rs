@@ -301,6 +301,9 @@ impl World {
             "terrain": p.terrain,
             "fort": p.fort.clone().unwrap_or_else(|| json!({"level": 0, "mothballed": false})),
             "buildings": p.buildings,
+            "autonomy": 0.0, "culture": null, "religion": null, "trade_good": null, "unrest": 0.0, "trade_node": null,
+            "center_of_trade": 0, "trade_company": false, "state": p.owner.as_ref().map(|_| "state"), "edict": null,
+            "cores": p.owner.iter().collect::<Vec<_>>(), "claims": [], "constructions": [], "missionary": null, "colony_size": null,
         })
     }
 
@@ -320,6 +323,8 @@ impl World {
                 let mut country = json!({
                     "tag": tag, "treasury": 0.0, "manpower": 0, "max_manpower": 0, "stability": 0.0, "prestige": 0.0,
                     "power": {"adm": 0, "dip": 0, "mil": 0}, "wars": [], "relations": [],
+                    "technology": {"adm": 3, "dip": 3, "mil": 3}, "ideas": [], "governing_capacity": {"used": 0.0, "max": 0.0},
+                    "inflation": 0.0, "mercantilism": 0.0, "loans": {"count": 0, "ducats": 0.0}, "rebels": [],
                 });
                 if let (Some(fields), Value::Object(all)) = (self.countries.get(&tag), &mut country) {
                     all.extend(fields.clone());

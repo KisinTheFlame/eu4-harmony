@@ -357,6 +357,8 @@ groups! {
     CenterOfTrade(centers_of_trade::CenterOfTradeRequest, CenterOfTradeAnswer),
     /// The player's merchants.
     Merchant(merchants::MerchantRequest, MerchantAnswer),
+    /// Trade nodes, as the trade map mode and the trade node view show them.
+    Trade(trade::TradeRequest, TradeAnswer),
 }
 
 pub mod binary;
