@@ -19,10 +19,30 @@ pub fn key(m: &Memory, string: usize) -> GResult<String> {
 }
 
 /// The game's text for the localisation key `key`, in the player language,
-/// without color codes.
+/// without color codes. A `$NAME$` in it that names another key, as
+/// `grant_consessions_to_the_church` names `ESTATE_CHURCH`, is that key's
+/// text, as the game's views show it; the lookup alone leaves it out.
 pub fn name(m: &Memory, key: &str) -> GResult<String> {
+    let names = references(&game_string::unformatted(m, key)?);
     let key = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-    Ok(game_text::plain(&game_string::localized(m, key.as_ptr() as usize)?))
+    if names.is_empty() {
+        return Ok(game_text::plain(&game_string::localized(m, key.as_ptr() as usize)?));
+    }
+    let texts = names.iter().map(|name| game_string::localized(m, name.as_ptr() as usize)).collect::<Result<Vec<_>, _>>()?;
+    let values: Vec<(&std::ffi::CStr, &[u8])> = names.iter().map(|n| n.as_c_str()).zip(texts.iter().map(Vec::as_slice)).collect();
+    Ok(game_text::plain(&game_string::localized_with(m, key.as_ptr() as usize, &values)?))
+}
+
+/// The names a localisation text refers to as `$NAME$`, each once.
+fn references(text: &[u8]) -> Vec<std::ffi::CString> {
+    let mut names: Vec<std::ffi::CString> = Vec::new();
+    for (i, part) in text.split(|&b| b == b'$').enumerate() {
+        let is_name = !part.is_empty() && part.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_');
+        if i % 2 == 1 && is_name && names.iter().all(|n| n.as_bytes() != part) {
+            names.push(std::ffi::CString::new(part).expect("no NUL in a name"));
+        }
+    }
+    names
 }
 
 /// The pointers the game's array at `array` holds.
@@ -75,4 +95,14 @@ pub fn refused<T>(reasons: &[String], what: &str) -> GResult<T> {
 /// A country tag's letters, as commands write it.
 pub fn letters(tag: super::Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_text_refers_to_each_name_between_dollars_once() {
+        let names = super::references(b"Grant Concessions to the $ESTATE_CHURCH$ and $ESTATE_CHURCH$, 5$ $");
+        assert_eq!(names.iter().map(|n| n.to_str().unwrap()).collect::<Vec<_>>(), ["ESTATE_CHURCH"]);
+        assert!(super::references(b"no names").is_empty());
+    }
 }
