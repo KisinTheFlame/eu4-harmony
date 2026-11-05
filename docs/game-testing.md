@@ -19,14 +19,14 @@ Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](protot
 | `cargo xtask game stop` | Ends the game |
 | `cargo xtask game release` | Ends the game if it runs, copies what the run left into the claim's folder, puts back the player's files and the game folder's framework files and `dev.toml` and compares each, and frees the game; prints a summary |
 | `cargo xtask game renew` | Starts the lease again |
-| `cargo xtask game watch` | Run in the background by the holder: exits when the lease is near its end, when the player takes the game, or when the claim is gone |
-| `cargo xtask game status` | Who holds the game, for what and until when, the queue, whether `eu4.exe` runs, and claim folders no claim refers to |
+| `cargo xtask game watch` | Run in the background by the holder: keeps the claim going, so that the game running keeps the lease going, and exits when the lease is near its end, when the player takes the game, or when the claim is gone |
+| `cargo xtask game status` | Who holds the game, for what and until when, what keeps its claim going, the queue, whether `eu4.exe` runs, and claim folders no claim refers to |
 
 `cargo xtask install` (and `--uninstall`) needs the claim too. The owner of a claim is the leaf name of the checkout's folder unless `--owner` names another, as now.
 
 ### One run
 
-1. `claim`: the player's files backed up into `backup\`, the game folder's `version.dll`, `eu4-harmony\eu4_harmony_core.dll`, `eu4-harmony\eu4-harmony.exe` and `eu4-harmony\dev.toml` (each as there or not there) into `framework\`.
+1. `claim`: the player's files backed up into `backup\`, the game folder's `version.dll`, `eu4-harmony\eu4_harmony_core.dll`, `eu4-harmony\eu4-harmony.exe` and `eu4-harmony\dev.toml` (each as there or not there) into `framework\`. The record names the claim's folder and the process making it before the backup begins, and the claim is not one to use until the backup is done: `install` and `start` refuse it, others wait while that process backs up, and once it has ended with the backup not done, a claim of the same owner removes what it made and claims afresh, another claim takes over from it at once, and `release` says that nothing was put back, since nothing ran under it. A backup that fails gives the game back and removes what was made of the folder.
 2. `install`, then `start`, as often as the run needs, with `stop` between.
 3. `release`: the game ended if it runs; the framework's logs, the game's logs and the run's crash folders copied into `kept\`; the player's files put back by `eu4-harmony restore`, the game folder's files put back from `framework\` (a file that was not there removed), each compared. A file not put back is a `NOT RESTORED` line, and the claim is kept, as for the player's files now. The summary says how long the claim was held, whether the game crashed, and where `kept\` is.
 
@@ -45,11 +45,12 @@ Each claim has one, `%LOCALAPPDATA%\eu4-harmony-dev\claims\<owner>-<yyyyMMdd-HHm
 - `cargo xtask game claim --player` claims the game for the player: no backup and no copy of the game folder, since their play is to be kept, and a lease of ten hours. It goes first in the queue and waits for the holder to release.
 - `--now` takes the game from the holder: the holder's `watch` exits at once, saying the player took it, and the holder has two minutes to keep what it needs; then the game is ended, the holder's claim released for it (its files put back as by `release`, `kept\` included), and the game is the player's. The holder's run is unfinished.
 - `cargo xtask game release --player` ends the player's claim.
+- One process at a time puts a claim back: the holder's `release`, the player's claim taking the game, or a claim taking over from a holder gone marks the record as its own to put back first. A release of a claim the player's claim puts back is refused, saying so; a claim waits while another process puts back the holder's. A put back that fails leaves the record unmarked, still the holder's, to be put back again; one whose process ended is done again by the next release or claim. `release` on a claim being put back, or one whose put back did not end, is what redoes it; `install` and `start` refuse such a claim.
 - `eu4.exe` running with no claim is the player playing, as now: a claim waits for the game to close.
 
 ### The lease
 
-As now: 30 minutes, starting again at every `claim` and `renew`, and kept going while `eu4.exe` runs, so that it counts only the time the game is closed. A holder whose lease ran out has gone: the first in the queue takes over, its files put back first.
+30 minutes, starting again at every `claim`, `renew` and `start`, and kept going while `eu4.exe` runs as long as a process keeps the claim going: its `watch`, or the scenario runner playing in it. A holder idling with the game open keeps it then, the lease counting only the time the game is closed; one whose session or runner ended without releasing does not. The record names that process, the keeper, with when it started, so that a later process given the same id is not taken for it, and the game started within the claim, which the keeper follows to the process the game starts in its place. A holder whose lease ran out has gone: with the game closed, or with only the claim's own game running and no keeper running; a game that is not the claim's, as one the player started, keeps the holder until it closes. The first in the queue takes over, the claim's game ended and its files put back first; its record stays until they are, so a put back that fails keeps the game the gone holder's, to be put back again, rather than handing it on.
 
 ### Moving from the skill's script
 
