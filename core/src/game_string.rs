@@ -30,6 +30,10 @@ const DESTROY_AT: usize = 0x95660;
 /// The game's localisation lookup: (out, key, values, count); out is a
 /// `std::string` slot it constructs, key a C string.
 const LOCALIZE_AT: usize = 0x14b34a0;
+/// The localisation, and its lookup `(table, hash)` of a key's text, which
+/// [`LOCALIZE_AT`] calls first.
+const LOCALISATION: usize = 0x2357b20;
+const FIND_TEXT: usize = 0x16fb030;
 
 pub fn points() -> Vec<Point> {
     // The append itself: the size and capacity, the inline test, the text.
@@ -44,6 +48,9 @@ pub fn points() -> Vec<Point> {
         .uses(&[CAPACITY, SIZE, INLINE + 1]),
         Point::keep(DESTROY_AT, "40 53 48 83 ec 20 48 8b 51 18 48 8b d9 48 83 fa", "string destructor").uses(&[CAPACITY]),
         Point::keep(LOCALIZE_AT, "44 89 4c 24 20 4c 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57", "localisation lookup"),
+        Point::keep(0x14b34beusize, "48 8b 05 5b 46 ea 00", "localisation table").uses(&[LOCALISATION]),
+        Point::keep(0x14b34fbusize, "41 8b d2 e8 2d 7b 24 00", "localisation text by hash"),
+        Point::keep(FIND_TEXT, "4c 8b 41 20 4c 8b d2 48 8b 41 28 49 2b c0 48 c1 f8 04 48 85 c0 75 01 c3", "find a localisation text"),
     ]
 }
 
@@ -168,6 +175,27 @@ pub fn written<T, E: From<String>>(m: &Memory, write: impl FnOnce(usize) -> std:
 /// values: `key` is the address of the key, a C string.
 pub fn localized(m: &Memory, key: usize) -> Result<Vec<u8>> {
     Ok(written(m, |out| m.call(m.at(LOCALIZE_AT), &[out, key, 0, 0]))?.1)
+}
+
+/// The localisation's text for `key` as its file has it, its values such as
+/// `$COST$` not given, which [`localized`] leaves out; empty for a key it
+/// does not have. The lookup finds a key by the FNV-1a hash of its bytes in
+/// the table at [`LOCALISATION`].
+pub fn unformatted(m: &Memory, key: &str) -> Result<Vec<u8>> {
+    let hash = key.bytes().fold(0x811c_9dc5u32, |h, b| (h.wrapping_mul(0x0100_0193)) ^ (b as i8 as i32 as u32));
+    let table = m.ptr(m.ptr(m.at(LOCALISATION))?)?;
+    let text = m.call(m.at(FIND_TEXT), &[table, hash as usize])?;
+    if text == 0 {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    while out.len() < MOST {
+        match m.u8(text + out.len())? {
+            0 => return Ok(out),
+            b => out.push(b),
+        }
+    }
+    Err(format!("the text for {key} runs on"))
 }
 
 /// Builds `text` in `slot`, a string nothing has constructed yet; whoever

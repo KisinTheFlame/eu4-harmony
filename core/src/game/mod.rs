@@ -305,6 +305,18 @@ pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
 }
 
 /// Country tag as stored by the game (see [`tag`]).
+/// A tooltip's reasons, as the game wrote them into a string: plain lines,
+/// without color codes, the bullet a line may start with, or empty lines
+/// (docs/player-actions.md, "Choices, reasons, costs").
+pub fn reasons(text: &[u8]) -> Vec<String> {
+    crate::unicode::game_text::plain(text)
+        .lines()
+        .map(|l| l.trim().trim_start_matches(['-', '•', '·']).trim())
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tag(pub u64);
 impl Tag {
