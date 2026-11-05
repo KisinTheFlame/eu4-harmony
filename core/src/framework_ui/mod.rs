@@ -244,6 +244,11 @@ impl FrameworkUi {
             Widget::Toggle { id: "remote_full_view", label: words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW"), on: next.remote_full_view },
             Widget::Label(words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO")),
         ];
+        let sound_page = vec![
+            Widget::Toggle { id: "music_loudness", label: words("EU4HARMONY_SETTINGS_MUSIC_LOUDNESS"), on: next.music_loudness },
+            Widget::Toggle { id: "music_leveling", label: words("EU4HARMONY_SETTINGS_MUSIC_LEVELING"), on: next.music_leveling },
+            Widget::Label(words("EU4HARMONY_SETTINGS_SOUND_INFO")),
+        ];
         let footer = vec![
             Widget::Gap,
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
@@ -255,11 +260,12 @@ impl FrameworkUi {
             "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
             "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
             "EU4HARMONY_SETTINGS_PAGE_REMOTE_CONTROL",
+            "EU4HARMONY_SETTINGS_PAGE_SOUND",
         ];
         let side = Side::new("pages", pages.iter().map(|key| words(key)).collect(), SETTINGS_LIST);
         let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH)
             .with_side(side)
-            .with_pages(vec![fonts_page, sessions_page, achievements_page, speed_page, remote_page])
+            .with_pages(vec![fonts_page, sessions_page, achievements_page, speed_page, remote_page, sound_page])
             .with_footer(footer);
         window.center(&self.font, self.screen.0, self.screen.1);
         self.families = HashMap::from([("body", families.clone()), ("heading", families.clone()), ("map", families), ("console", console_families)]);
@@ -322,12 +328,15 @@ impl FrameworkUi {
                 achievements_with_changed_checksum: w.is_on("changed_checksum").unwrap_or(next.achievements_with_changed_checksum),
                 fastest_speed: w.selected("pace").and_then(|i| PACES.get(i).copied()).unwrap_or(next.fastest_speed),
                 remote_full_view: w.is_on("remote_full_view").unwrap_or(next.remote_full_view),
+                music_loudness: w.is_on("music_loudness").unwrap_or(next.music_loudness),
+                music_leveling: w.is_on("music_leveling").unwrap_or(next.music_leveling),
             };
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),
                 Err(e) => log!("settings not saved: {e}"),
             }
             speed::set_pace(settings::current().fastest_speed);
+            crate::sound::choose(&settings::current());
         }
         self.settings = None;
         self.system_fonts = None;

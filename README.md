@@ -38,7 +38,9 @@ Good to know:
 
 ### Settings
 
-**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed and what remote control may see; each setting says there what it does. The details are in [docs/player-language.md](docs/player-language.md), [docs/sessions.md](docs/sessions.md), [docs/game-speed.md](docs/game-speed.md) and [ADR remote-control-reads-the-players-view](docs/adr/remote-control-reads-the-players-view.md).
+**EU4 Harmony settings** has the player language and its fonts, returning to the main menu without restarting the game, achievement rules, game speed, what remote control may see and how even the music is; each setting says there what it does. The details are in [docs/player-language.md](docs/player-language.md), [docs/sessions.md](docs/sessions.md), [docs/game-speed.md](docs/game-speed.md), [docs/music-volume.md](docs/music-volume.md) and [ADR remote-control-reads-the-players-view](docs/adr/remote-control-reads-the-players-view.md).
+
+With the framework, the game's own volume sliders go as the square of their position, so each step sounds about as large, where vanilla's last tenth fell off steeply: volumes saved below 100 sound quieter than before, and are set again once.
 
 ## Writing a mod
 

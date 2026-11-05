@@ -1767,6 +1767,23 @@ A review of the code found bugs across the framework; those simple to show in th
 - **Not tried in the game**: an ironman exit save that fails; `console.run` with a command that loads a save (it needs the console's developer lock off); an input dropped for another frame size; the Lua time limit and memory limit (unit tests only); `fabricate_claim`, `claim_states`, `trade_favors_for_core`, `transfer_trade_power`, `offer_condottieri` with the new checks (no spy network, no favors or no core to try them on); the framework UI's glyph page filling and a touchpad's wheel; the claim's new marks, beyond one claim, its watch and its release; a scenario run stopped by Ctrl-C or an error.
 - **Cleanup**: each release put the player's files back, every file as its backup had it, and the game folder's framework files.
 
+## 2026-11-05 The music volume the mixer passes to SDL (tested by me)
+
+A player found music at a low volume setting coming and going, sometimes silent. This run measured what the game's mixer (`0x16a6c20`) hands SDL for the music. A developer build with the call trace on `SDL_MixAudioFormat`'s body, `0x17458b0`; the game's `0x1735360` and the dynamic API's default `0x172e8a0` only jump to it through SDL's jump table at `0x1fb0000`, slot `+0x1b0`, which SDL fills at its start. Hidden starts, without sound: SDL's `dummy` driver still runs the mixer. Main menu only, no save loaded; `master_volume` and `music_volume` set in the player's `settings.txt` before each start.
+
+| `master_volume` | `music_volume` | Loading screen | Main menu |
+| --- | --- | --- | --- |
+| 12 | 67.32 (the player's) | 10 | 8 |
+| 100 | 100 | 128 | 96 |
+| 100 | 10 | 13 | 10 |
+| 12 | 3 | 1 | 1 |
+
+- **The level** is the gain times 128, rounded, out of SDL's 128: the gain is master × music × the sound's own, all linear in amplitude, so a level is that fraction of the sample's amplitude. At the main menu a further 0.75 applies; whether it is the main theme's own volume or the menu's was not looked into.
+- **Never 0 above 0**: master 12 with music 3 gives 0.46, which rounds to 0, yet SDL was given 1. A gain above zero plays at level 1 at least, about -42 dB.
+- **The player's setting**: master 12 leaves the whole music slider levels 0 to 15; the player's music plays at level 8 to 10 out of 128, about -22 dB.
+- **The tracks**: measured offline with ffmpeg's `ebur128`, the vanilla tracks' integrated loudness runs from -9.9 LUFS (`event_war_battleofbreitenfeld`) to -24.3 (`kingscourt`), and within a track the loudness range is up to 18.9 LU (`kingsinthenorth`, `maintheme`). No vanilla `music.asset` entry sets a `volume`; in the DLCs' music `.asset` files, 42 entries set one, from 0.35 to 0.9. A quiet track at level 8, against sound effects and ambient sound at 77 and 76, is the coming and going the player heard.
+- **Not verified**: music in a running game and its war and peace tracks; fades between tracks, none of which these runs crossed; what was heard, since no sound was played; the 0.75 at the main menu.
+- **Cleanup**: releasing the game put back the player's files, `settings.txt` with its volumes among them, and the game folder's framework files; `dev.toml` was deleted, and the copied logs were in the session's scratch folder.
 
 ## 2026-11-05 Player actions follow-ups: subjects, government, and what A2, A3 and A5 only saw refused (tested by me)
 
@@ -1885,6 +1902,47 @@ This branch's player build, within a claim, started hidden; a new game as France
 - **Events**: after the opening question was answered, `time.advance 60` gave `session`, a `day` for each of the 60 days, `month` at 1444.12.1 and 1445.1.1 and `year` at 1445.1.1, through the one translation into events.
 - **Not tried in this run**: buying an idea (France has no group taken at the start), a siege's options and a white peace (no war), an extension's handlers hearing the events (unit tests compare their arguments with the old ones), a battle event.
 - **Cleanup**: the release put the player's files and the game folder's framework files back.
+
+## 2026-11-05 The volume curve and the music mixed by the framework (tested by me)
+
+[music-volume.md](music-volume.md), V1 to V3, a developer build with the call trace on `SDL_MixAudioFormat`'s body (`0x17458b0`), which now sees every voice but the music. Hidden starts, without sound: SDL's `dummy` driver runs the mixer, so the music was mixed and measured but not heard. Four starts within one claim.
+
+- **The first start**, the player's volumes (master 12, music 67.32): the startup report said all points matched; the main theme was "heard for the first time" and measured as it played: -35.6 LUFS over its first 20 s and -28.4 over 40 s, where ffmpeg gives the file's first 20 and 40 s -35.5 and -28.4. The cache was written every 20 s; at the end it held the main theme at -11.42 over 240 s, ffmpeg's -11.4 for the same 240 s. The game's gain for it while loading was 0.0808, vanilla's: before the main theme first plays, the game gives the music master × music on its own (`0x202296`), which the first build missed. A third jump point there was added.
+- **The second start**, same volumes: the main theme "is known, -11.4 LUFS" from its first second. The game's gain was 0.0039 while loading, the curve's 0.00386 for master 12 and music 67.32, and 0.00289 at the main menu, that times the menu's 0.75, as in vanilla.
+- **The third start**, master 100, music 50, and a new game as France at speed 1: the gain was 0.1 while loading (the curve's -20 dB at 50), 0.075 at the main menu and 0.0756 in the game. After the main theme, the game played two tracks the cache did not know; the first was measured from -27.2 LUFS over 20 s, a quiet opening, to -12.9 over 220 s, then the next began. Sound effects and ambient sound went to SDL as before, at SDL volumes from 1 to 5 for the map's ambient sound and 33 for a sound at the main menu, which fits the effects curve (77 is 0.347, 44 of 128) times a voice volume of about 0.75; no vanilla run with the same volumes was made to compare.
+- **The fourth start**, music leveling turned on in the framework settings: the log showed it on, and the music went on being mixed.
+- **Not verified**: anything heard, since no run played sound: whether normalization, leveling and the limiter sound right, and whether the volume curve feels even; the settings window's Sound page, which was not opened (its toggles were set in the file); the ambient volume's point, whose gains were not compared; a whole track heard for the first time and normalized as it played, which the log shows only as measured; mods' and DLC music beyond the tracks the game picked.
+- **Since**: the volume curve was changed afterward from even in decibels to the square of the position, which changes only `sound::gain`; the gains above are the first curve's. The square's are in the run below.
+- **Cleanup**: releasing the game put back the player's files, among them `settings.txt`, the framework's settings and the autosaves the new game wrote, and removed `music-loudness.txt`; `dev.toml` was deleted, and the copied logs were in the session's scratch folder, deleted after.
+
+## 2026-11-05 The square volume curve, and what a short hearing keeps (tested by me)
+
+[music-volume.md](music-volume.md) after the volume curve became the square of the position, a developer build with the call trace on `SDL_MixAudioFormat`'s body (`0x17458b0`), every voice but the music. Hidden starts without sound, five within one claim.
+
+- **The curve**: master 12 and music 67.32 gave the music a gain of 0.0065 while loading, the square's 0.00653; master 100 and music 50 gave 0.25, and 0.1887 in a new game as France, that times the game's own voice volume of 0.755. The first sound at the main menu went to SDL at 57 with effects at 77 (0.77² × 128 × 0.75 is 57; the first curve gave 33).
+- **What it found**: the second start recognized the main theme at -35.6 LUFS, which the first start had kept from only 20 s of its quiet opening, and raised it by the most, 12 dB, for all of its 260 s, while that hearing measured it at -11.0. Three changes followed: a hearing is kept only once it is a minute long; a first hearing is raised only once a minute is measured (it is lowered from 3 s, as before); and a track that plays longer than what was kept of it follows what this hearing measures.
+- **After the changes**: with the cache removed, the main theme played its first minute; nothing was kept at 20 or 40 s, and at 60 s it was kept at -13.7 LUFS, ffmpeg's figure for the file's first minute. At the next start it was "known, -13.7 LUFS", and at 80 s the longer hearing replaced it, -15.1 over 80 s.
+- **Not verified**: anything heard; how a first hearing sounds as it is raised after its first minute; whether the limiter is heard on a track a short entry raised, now that one cannot be kept.
+- **Cleanup**: releasing the game put back the player's files, among them `settings.txt` and the autosaves the new game wrote, and removed `music-loudness.txt`; `dev.toml` was deleted.
+
+## 2026-11-05 Each track analyzed from its whole file as it starts (tested by me)
+
+The owner asked for each track's loudness to come from its whole file before it plays, in place of measuring as it plays and keeping that ([music-volume.md](music-volume.md)). A first developer build logged what a streaming voice's sound holds: the object at `[voice+8]` is the one the voice's method at vtable `+8` returns (vtable `0x1dac778`, method `0x9a170`), with the sound's name at `+0x10` ("maintheme"), its file's path in the game's files at `+0x50` ("music/maintheme.ogg"), its length in frames at `+0xd8` (11960945, the file's 271.2 s) and 44100 and 2 channels at `+0xe8`. Then the player build of the change, hidden without sound, the player's volumes, the main menu and a new game as France.
+
+- **The main theme**: "music/maintheme.ogg plays; the game's gain 0.0065", then "is -10.9 LUFS, analyzed in 0.56 s", ffmpeg's -10.9 for the file; the offline check decodes the same file in under half a second.
+- **DLC music**: in the game, `music/sight_of_the_black_sea.ogg` (in `dlc132.zip`) was -8.9 LUFS, analyzed in 0.49 s, and `music/austria_theme.ogg` (in `dlc140.zip`) -13.2, in 0.32 s; ffmpeg gives the files taken from those archives -8.9 and -13.2. Both were read through the game's file system, as the game reads them.
+- **Not verified**: anything heard; a mod's music; a file that cannot be decoded, which plays as it is (a unit test refuses what is not Ogg Vorbis); a track started again within the same game, which takes its measure from the first.
+- **Cleanup**: releasing the game put back the player's files, among them the autosaves the new game wrote, and the game folder's framework files; the files taken from the DLC archives were deleted.
+
+## 2026-11-05 A track held until its file is analyzed (tested by me)
+
+The owner asked for a track to wait for its analysis rather than play as it is until then. The player build of the change, hidden without sound, the player's volumes and playset, the main menu and a new game as France; four starts within one claim.
+
+- **Held**: the main theme "plays", was "-10.9 LUFS, analyzed in 0.58 s", and then "held 441 ms for its analysis" before its first frame was mixed; the next starts held it 557 ms for an analysis of 0.72 s. The hold is counted in mixer calls, which SDL's `dummy` driver makes somewhat slower than real time. In the games, `music/037_theageofdiscovery.ogg` and `music/031_kingscourt.ogg` (files of the playset's mods) and `music/march_on_granada.ogg` (a DLC's) were each held 371 to 557 ms and analyzed in 0.49 to 0.74 s.
+- **The stream goes on as it was**: a temporary log of the seconds each voice mixed gave the main theme 270.1 s, its whole 271.2 s once, with the hold at its start.
+- **A gap the game makes**: with this playset, the next track came about 6 min after the main theme began, some 90 s after it ended, where earlier runs gave about 4 min 34 s. A start with loudness normalization off, which holds nothing, gave the same 6 min 2 s, so the gap is the game's, not the hold's; why the game waits longer with this playset was not looked into.
+- **Not verified**: anything heard; a hold that runs out at 2 s, or an analysis that fails, which play as they are (by reading the code only).
+- **Cleanup**: releasing the game put back the player's files, among them the framework's settings with the line the last start added and the autosaves the games wrote, and the game folder's framework files; the temporary log was taken out of the code.
 
 ## How the implementation differs from the final design
 
