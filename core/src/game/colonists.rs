@@ -33,7 +33,7 @@ const SIZE: usize = 0x3f8;
 /// The province's flags, and the one of a city.
 const FLAGS: usize = 0x958;
 const CITY: u8 = 0x10;
-/// The yearly colonial upkeep of the country's colonies and of the provinces
+/// The colonial upkeep a month of the country's colonies and of the provinces
 /// a vector names, in thousandths of ducats before the country's factor:
 /// `(country, i32* out, text or null, i32* factor in thousandths, vector of
 /// provinces or null) -> out`.
@@ -113,7 +113,7 @@ pub fn options(_: Caller, id: u32) -> GResult<Box<ColonistOptions>> {
     read(m, &ctx, &province(m, &ctx, id)?, id).map(Box::new)
 }
 
-/// The colonial upkeep a year the player's colonies cost, in thousandths of
+/// The colonial upkeep a month the player's colonies cost, in thousandths of
 /// ducats, with the province at `extra` counted too when it is not 0.
 fn upkeep(m: &Memory, ctx: &Ctx, extra: usize) -> GResult<i64> {
     let (mut out, factor) = (0i32, 1000i32);
@@ -129,7 +129,7 @@ fn upkeep(m: &Memory, ctx: &Ctx, extra: usize) -> GResult<i64> {
 /// the colonial upkeep a month its work there adds.
 fn cost(m: &Memory, ctx: &Ctx, p: &Province) -> GResult<Vec<Amount>> {
     let added = upkeep(m, ctx, p.address)? - upkeep(m, ctx, 0)?;
-    Ok(vec![Amount::new(Resource::Colonist, 1.0), Amount::new(Resource::MonthlyDucats, added as f64 / 1000.0 / 12.0)])
+    Ok(vec![Amount::new(Resource::Colonist, 1.0), Amount::new(Resource::MonthlyDucats, added as f64 / 1000.0)])
 }
 
 fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions> {
@@ -147,16 +147,8 @@ fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions
     let recall = if working { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
     let growth = m.call(m.at(CONSTRUCTION_OF), &[p.address, GROWTH])?;
     let growing = growth != 0 && Tag(m.u64(growth + SENDER)?) == ctx.player;
-    let start_growth = if growing {
-        Choice::cannot(Vec::new(), cost.clone())
-    } else {
-        let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_GROW), &[ctx.country, p.address, out]))?;
-        if may as u8 != 0 {
-            Choice::can(cost.clone())
-        } else {
-            Choice::cannot(envoys::lines(&text), cost.clone())
-        }
-    };
+    let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_GROW), &[ctx.country, p.address, out]))?;
+    let start_growth = if may as u8 != 0 { Choice::can(cost.clone()) } else { Choice::cannot(envoys::lines(&text), cost.clone()) };
     let stop_growth = if growing { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
     Ok(ColonistOptions {
         province: ProvinceId(id),
