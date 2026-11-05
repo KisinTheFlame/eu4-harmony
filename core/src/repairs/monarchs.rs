@@ -1,0 +1,266 @@
+//! What a country's history leaks of its persons: the monarchs, heirs and
+//! queens its records hold (docs/research/main-menu.md, "The monarchs a
+//! history keeps").
+//!
+//! A person is let go by the characters' manager, which deletes every one on
+//! the vector of all persons, but only those made while it reads characters
+//! are put there; a history's reader makes the others, and keeps each in a
+//! record of the history, by pointer. A record's destructor leaves its
+//! persons, and nothing else deletes them. Several records may hold one
+//! person (the reader takes the one already registered under an ID; a
+//! record that sets an heir or a queen keeps the one before), and a world
+//! reset still uses them after their records are gone, so a person cannot
+//! go with its record.
+//!
+//! So a person a record held as it went, and that is on no vector, waits:
+//! once a world reset is over, at the first frame after it, those that
+//! waited from before its end are deleted, unless the game deleted them
+//! itself in the meantime, put them on the vector, still finds them by their
+//! ID, or has them as a country's monarch, heir or queen. Those that began
+//! to wait after the reset's end, as a load replaces the main menu's
+//! histories with the save's, wait for the next reset: until then a record of
+//! the session may still keep one as the person before it.
+use super::LettingGo;
+use crate::{
+    game::world::FIND_ID,
+    hooks::HookFrame,
+    memory::Memory,
+    objects::campaign::{countries as country_list, globals},
+    points::Point,
+};
+use std::collections::{HashMap, HashSet};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+    Mutex,
+};
+
+/// `(record, flags)`: the deleting destructor of a monarch's record, the
+/// first slot of [`MONARCH_RECORD`]; and that of the 0x50-byte records,
+/// which heirs' and queens' records share with other kinds of a history's
+/// records.
+const MONARCH_RECORD_DELETE: usize = 0x29bdc0;
+const SMALL_RECORD_DELETE: usize = 0x29a7d0;
+/// The records' vtables: a monarch's holds four persons ([`MONARCH_PERSONS`]),
+/// an heir's and a queen's two ([`SMALL_PERSONS`]).
+const MONARCH_RECORD: usize = 0x1c51630;
+const HEIR_RECORD: usize = 0x1c51220;
+const QUEEN_RECORD: usize = 0x1c512f0;
+const MONARCH_PERSONS: [usize; 4] = [0x40, 0x48, 0x50, 0x58];
+const SMALL_PERSONS: [usize; 2] = [0x40, 0x48];
+/// `(person)`: the destructor every monarch, heir and queen goes through:
+/// it takes the person off the vector of all persons and off the registry.
+const PERSON_DESTRUCTOR: usize = 0xa48fa0;
+/// The persons' classes and their deleting destructors.
+const MONARCH: usize = 0x1cdcdd8;
+const HEIR: usize = 0x1c52240;
+const QUEEN: usize = 0x1c522f8;
+const MONARCH_DELETE: usize = 0xa48a30;
+const HEIR_DELETE: usize = 0x296940;
+const QUEEN_DELETE: usize = 0x296a40;
+/// The vector of all persons (begin, end), which the characters' manager's
+/// clear (`0x7e9820`) deletes; and the null monarch, heir and queen, made
+/// once, which records hold until they are given a person.
+const ALL_PERSONS: usize = 0x23581a0;
+const NULL_PERSONS: [usize; 3] = [0x233ffa0, 0x233ffa8, 0x233ffb0];
+/// A person's ID, as the registry finds it.
+const ID: usize = 0x10;
+/// A country's monarch, heir and queen.
+const COUNTRY_PERSONS: [usize; 3] = [0x1280, 0x1298, 0x12b0];
+
+/// The persons waiting, with the world resets that had ended as each began
+/// to wait.
+static WAITING: Mutex<Option<HashMap<usize, u32>>> = Mutex::new(None);
+/// The world resets that have ended.
+static RESETS: AtomicU32 = AtomicU32::new(0);
+/// Set as a world reset ends, taken by the first frame after it.
+static TO_LET_GO: AtomicBool = AtomicBool::new(false);
+/// What the repair deleted, and what it kept waiting, for the log.
+pub(super) static PERSONS: AtomicUsize = AtomicUsize::new(0);
+pub(super) static PERSONS_KEPT: AtomicUsize = AtomicUsize::new(0);
+
+/// A world reset is over.
+pub(super) fn world_reset() {
+    RESETS.fetch_add(1, Ordering::Relaxed);
+    TO_LET_GO.store(true, Ordering::Relaxed);
+}
+
+/// A record of a history is being deleted: the persons it holds that are on
+/// no vector wait.
+extern "C" fn record_going(frame: *mut HookFrame) {
+    crate::guarded("history record delete", || {
+        let (record, flags) = unsafe { ((*frame).args[0], (*frame).args[1]) };
+        if flags & 1 == 0 {
+            return;
+        }
+        let m = crate::hooked_memory();
+        let kept = (|| {
+            let class = m.ptr(record)?;
+            let fields: &[usize] = if class == m.at(MONARCH_RECORD) {
+                &MONARCH_PERSONS
+            } else if class == m.at(HEIR_RECORD) || class == m.at(QUEEN_RECORD) {
+                &SMALL_PERSONS
+            } else {
+                return Ok(Vec::new());
+            };
+            let nulls = null_persons(&m)?;
+            let mut persons = Vec::new();
+            for field in fields {
+                let person = m.ptr(record + field)?;
+                if person != 0 && !nulls.contains(&person) {
+                    persons.push(person);
+                }
+            }
+            crate::Result::Ok(persons)
+        })();
+        match kept {
+            Ok(persons) if !persons.is_empty() => {
+                let resets = RESETS.load(Ordering::Relaxed);
+                let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+                let waiting = waiting.get_or_insert_with(HashMap::new);
+                for person in persons {
+                    waiting.entry(person).or_insert(resets);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => log!("repair: a history record's persons were not read: {e}"),
+        }
+    });
+}
+
+/// A person is destroyed, by the game or the repair: it waits no more.
+extern "C" fn person_going(frame: *mut HookFrame) {
+    crate::guarded("person destructor", || {
+        let person = unsafe { (*frame).args[0] };
+        if let Some(waiting) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            waiting.remove(&person);
+        }
+    });
+}
+
+/// The first frame after a world reset: the persons that waited from before
+/// its end are deleted, unless the game still has them.
+pub(super) fn let_go(m: &Memory) {
+    if !TO_LET_GO.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    let resets = RESETS.load(Ordering::Relaxed);
+    let due: Vec<usize> = {
+        let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(waiting) = waiting.as_mut() else { return };
+        let due: Vec<usize> = waiting.iter().filter(|(_, &since)| since < resets).map(|(&person, _)| person).collect();
+        for person in &due {
+            waiting.remove(person);
+        }
+        due
+    };
+    if due.is_empty() {
+        return;
+    }
+    let deleted = (|| {
+        let in_use = in_use(m)?;
+        for person in due {
+            if in_use.contains(&person) {
+                PERSONS_KEPT.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+            let id = m.u64(person + ID)?;
+            if m.call(m.at(FIND_ID), &[&id as *const u64 as usize])? == person {
+                PERSONS_KEPT.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+            let _letting_go = LettingGo::new("history's person");
+            m.call(m.vslot(person, 0)?, &[person, 1])?;
+            PERSONS.fetch_add(1, Ordering::Relaxed);
+        }
+        crate::Result::Ok(())
+    })();
+    if let Err(e) = deleted {
+        log!("repair: the persons the histories left were not all deleted: {e}");
+    }
+}
+
+/// The game's null persons.
+fn null_persons(m: &Memory) -> crate::Result<[usize; 3]> {
+    Ok([m.ptr(m.at(NULL_PERSONS[0]))?, m.ptr(m.at(NULL_PERSONS[1]))?, m.ptr(m.at(NULL_PERSONS[2]))?])
+}
+
+/// The persons the game still has by more than their records: those on the
+/// vector of all persons, the null ones, and every country's monarch, heir
+/// and queen.
+fn in_use(m: &Memory) -> crate::Result<HashSet<usize>> {
+    let mut found: HashSet<usize> = null_persons(m)?.into_iter().collect();
+    let (begin, end) = (m.ptr(m.at(ALL_PERSONS))?, m.ptr(m.at(ALL_PERSONS) + 8)?);
+    for at in (begin..end).step_by(8) {
+        found.insert(m.ptr(at)?);
+    }
+    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
+    let list = m.ptr(manager + country_list::LIST)?;
+    for index in 0..m.i32(manager + country_list::COUNT)?.max(0) as usize {
+        let country = m.ptr(list + index * 8)?;
+        if country != 0 {
+            for field in COUNTRY_PERSONS {
+                found.insert(m.ptr(country + field)?);
+            }
+        }
+    }
+    Ok(found)
+}
+
+pub(super) fn points() -> Vec<Point> {
+    vec![
+        Point::observe(
+            MONARCH_RECORD_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 48 8d 05 1f 62 9b 01 8b da 48 89 01 48 8b f9 e8 32 be 54 00",
+            "monarch record deleting destructor",
+            2,
+            Some(record_going),
+            None,
+        ),
+        Point::observe(
+            SMALL_RECORD_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 48 8d 05 0f 78 9b 01 8b da 48 89 01 48 8b f9 e8 22 d4 54 00",
+            "history record deleting destructor",
+            2,
+            Some(record_going),
+            None,
+        ),
+        Point::observe(
+            PERSON_DESTRUCTOR,
+            "40 53 48 83 ec 20 48 8d 05 2b 3e 29 01 48 89 4c 24 30 48 8d 54 24 30 48 89 01 48 8b d9 e8 fe 37 da ff",
+            "person destructor",
+            1,
+            Some(person_going),
+            None,
+        ),
+        Point::method(MONARCH_RECORD, 0, MONARCH_RECORD_DELETE, "monarch record deleting destructor method"),
+        Point::method(HEIR_RECORD, 0, SMALL_RECORD_DELETE, "heir record deleting destructor method"),
+        Point::method(QUEEN_RECORD, 0, SMALL_RECORD_DELETE, "queen record deleting destructor method"),
+        Point::method(MONARCH, 0, MONARCH_DELETE, "monarch deleting destructor"),
+        Point::method(HEIR, 0, HEIR_DELETE, "heir deleting destructor"),
+        Point::method(QUEEN, 0, QUEEN_DELETE, "queen deleting destructor"),
+        // The records' persons, as their constructors set them.
+        Point::keep(
+            0x29bd8dusize,
+            "e8 de cc 7a 00 48 89 43 40 e8 d5 cc 7a 00 48 89 43 48 e8 7c ab 7b 00 48 89 43 50 e8 c3 bd 7b 00 48 89 43 58",
+            "monarch record persons",
+        )
+        .uses(&MONARCH_PERSONS),
+        Point::keep(0x29c17dusize, "e8 9e a7 7b 00 48 89 43 40 e8 95 a7 7b 00 48 89 43 48", "heir record persons").uses(&SMALL_PERSONS),
+        Point::keep(0x29c2bdusize, "e8 ae b8 7b 00 48 89 43 40 e8 a5 b8 7b 00 48 89 43 48", "queen record persons").uses(&SMALL_PERSONS),
+        // A person goes on the vector of all persons as it is made, if at all.
+        Point::keep(0xa48c76usize, "48 8b 15 2b f5 90 01 48 3b 15 2c f5 90 01 74 0d 48 89 1a 48 83 05 17 f5 90 01 08", "person on the vector of all persons")
+            .uses(&[ALL_PERSONS + 8]),
+        // The characters' manager's clear reads the vector, end and begin.
+        Point::keep(0x7e996dusize, "4c 8b 35 34 e8 b6 01 48 8b 3d 25 e8 b6 01", "the vector of all persons cleared").uses(&[ALL_PERSONS, ALL_PERSONS + 8]),
+        Point::keep(0xa48a76usize, "48 8b 05 23 75 8f 01", "null monarch").uses(&[NULL_PERSONS[0]]),
+        Point::keep(0xa56926usize, "48 8b 05 7b 96 8e 01", "null heir").uses(&[NULL_PERSONS[1]]),
+        Point::keep(0xa57b7ausize, "48 8b 05 2f 84 8e 01", "null queen").uses(&[NULL_PERSONS[2]]),
+        // The reader finds a person by its ID as the registry keeps it.
+        Point::keep(0x299e38usize, "49 8d 4c 24 10", "history person's ID").uses(&[ID]),
+        // A country's monarch, as it is set; its heir and queen, as a record
+        // keeps the one before.
+        Point::keep(0x311a7fusize, "4d 89 af 80 12 00 00", "country monarch").uses(&[COUNTRY_PERSONS[0]]),
+        Point::keep(0x29c1dbusize, "49 8b 82 98 12 00 00", "country heir").uses(&[COUNTRY_PERSONS[1]]),
+        Point::keep(0x29c30dusize, "49 8b 82 b0 12 00 00", "country queen").uses(&[COUNTRY_PERSONS[2]]),
+    ]
+}
