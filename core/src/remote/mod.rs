@@ -469,6 +469,7 @@ pub(crate) fn session_ended(end: crate::sessions::End) {
         End::Return => SessionEnd::Return,
         End::Load => SessionEnd::Load,
         End::NewGame => SessionEnd::NewGame,
+        End::Country => SessionEnd::Country,
     };
     ENGINE.session_ended(reason);
 }

@@ -42,7 +42,7 @@ Status: decided (2026-11-02); S1 to S4 built and tried in the game the same day 
 
 ### Extensions
 
-A new event, "session ended", with its reason (a return to the main menu, an in-game load, a new game), comes before the next session begins; it is appended to the ABI (ADR abi-grows-by-appending). It comes for the game's own in-game load outside ironman too. It comes once leaving is certain: after the ironman exit save, when there is one, so that a session whose exit save failed, which goes on, is not told it ended. The ABI's and SDK's comments that call a session a "campaign" are reworded.
+A new event, "session ended", with its reason (a return to the main menu, an in-game load, a new game; or another country, when the player's country changes on the same world, as by the game console's `tag`, which begins a session too), comes before the next session begins; it is appended to the ABI (ADR abi-grows-by-appending). It comes for the game's own in-game load outside ironman too. It comes once leaving is certain: after the ironman exit save, when there is one, so that a session whose exit save failed, which goes on, is not told it ended. The ABI's and SDK's comments that call a session a "campaign" are reworded.
 
 ### What the player sees
 

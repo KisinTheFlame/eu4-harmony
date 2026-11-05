@@ -19,7 +19,7 @@ Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 an
   ```lua
   return {
     on_session = function(game, saved) end,        -- a session began; saved is this extension's save data, or nil
-    on_session_ended = function(game, reason) end, -- the session is being left ("return", "load" or "new_game"); its state is still there to read
+    on_session_ended = function(game, reason) end, -- the session is being left ("return", "load", "new_game", or "country" when the player's country changed); its state is still there to read
     on_frame = function(game) end,                 -- every frame while a session runs, paused or not
     on_day = function(game, date) end,             -- a day finished advancing; date is a date table
     on_button = function(game, name, click) end,   -- a button of this mod was clicked; click is { right, shift, ctrl }
