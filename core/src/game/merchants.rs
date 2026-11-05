@@ -1,6 +1,7 @@
 //! Merchants: what the trade view offers the player in a trade node, and
-//! sending, recalling and steering merchants through the game's own commands
-//! (docs/research/envoys.md, "Merchants").
+//! sending, recalling and steering merchants and choosing the node's trading
+//! policy through the game's own commands (docs/research/envoys.md,
+//! "Merchants").
 use super::{
     context,
     envoys::{self, quoted, Kind},
@@ -9,7 +10,7 @@ use super::{
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
-    merchants::{Downstream, MerchantOptions, Merchants, Mission, Placed},
+    merchants::{Downstream, MerchantOptions, Merchants, Mission, Placed, TradingPolicies, TradingPolicy},
 };
 
 /// The world's trade nodes: an array of [`NODE_SIZE`]-byte nodes and their
@@ -58,6 +59,21 @@ const PHASE: usize = 0x98;
 const RETURNING: i32 = 2;
 /// A merchant's mission's kind, u8: 0 collect, 1 steer.
 const MISSION_KIND: usize = 0x9c;
+/// The trading policies: `() -> database`, its policies an array of
+/// pointers and their count, i32.
+const POLICIES: usize = 0xd38b60;
+const POLICY_LIST: usize = 0x48;
+const POLICY_COUNT: usize = 0x54;
+/// A policy's key (`std::string`) and its index, i32.
+const POLICY_KEY: usize = 0x10;
+const POLICY_INDEX: usize = 0x50;
+/// A country's entry: its trading policy there, or null.
+const POLICY: usize = 0xb0;
+/// A definition's index, i32.
+const DEFINITION_INDEX: usize = 0xd8;
+/// Whether the country may choose the policy in the node, and why not:
+/// `(node, tag, policy, reasons) -> bool`, appending to `reasons`.
+const MAY_CHOOSE: usize = 0xb5c6a0;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -86,6 +102,16 @@ pub fn points() -> Vec<Point> {
         // A recall sends the mission home: its node, and the phase it sets.
         Point::keep(0x25ba8eusize, "48 8b 81 80 00 00 00", "mission's trade node").uses(&[MISSION_NODE]),
         Point::keep(0x25baf7usize, "c7 83 98 00 00 00 02 00 00 00", "mission returning").uses(&[PHASE]),
+        Point::keep(POLICIES, "48 89 5c 24 18 57 48 83 ec 20 48 8b 05 07 33 6f 01", "trading policies"),
+        // The default policy is the first of the list whose conditions hold.
+        Point::keep(0xd397dfusize, "48 8b 71 48 48 63 41 54", "trading policies' list").uses(&[POLICY_LIST, POLICY_COUNT]),
+        // The policy's tooltip names it by its key's localisation.
+        Point::keep(0xd37c7fusize, "48 8d 59 10", "trading policy key").uses(&[POLICY_KEY]),
+        // The policy button's click: the command's policy and node.
+        Point::keep(0x13cba84usize, "44 8b a1 d8 00 00 00", "trade node definition index").uses(&[DEFINITION_INDEX]),
+        Point::keep(0x13cba8fusize, "4c 63 70 50", "trading policy index").uses(&[POLICY_INDEX]),
+        Point::keep(0x13cc601usize, "48 8b ab b0 00 00 00", "node's trading policy").uses(&[POLICY]),
+        Point::keep(MAY_CHOOSE, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48 89 7c 24 20 41 56", "may choose a trading policy"),
     ]
 }
 
@@ -342,6 +368,79 @@ pub fn steer_to(_: Caller, key: &str, to: &str) -> GResult<()> {
     envoys::post(&text, "the steer command")
 }
 
+/// The trading policies of the game's, each its address and content key, in
+/// the game's order.
+fn all_policies(m: &Memory) -> GResult<Vec<(usize, String)>> {
+    let database = m.call(m.at(POLICIES), &[])?;
+    let (list, count) = (m.ptr(database + POLICY_LIST)?, m.i32(database + POLICY_COUNT)?);
+    if list == 0 || !(0..=MOST as i32).contains(&count) {
+        return Ok(Vec::new());
+    }
+    (0..count as usize)
+        .map(|i| {
+            let policy = m.ptr(list + i * 8)?;
+            Ok((policy, game_text::to_utf8(&game_string::read(m, policy + POLICY_KEY)?)))
+        })
+        .collect()
+}
+
+/// The trading policies the trade view offers the player in the node `key`.
+pub fn policies(_: Caller, key: &str) -> GResult<TradingPolicies> {
+    let m = game()?;
+    let ctx = context(m)?;
+    read_policies(m, &ctx, &node(m, &ctx, key)?)
+}
+
+fn read_policies(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<TradingPolicies> {
+    let following = m.ptr(entry(m, ctx, node)? + POLICY)?;
+    let mut current = None;
+    let mut policies = Vec::new();
+    for (policy, key) in all_policies(m)? {
+        let choice = if policy == following {
+            // Choosing it again changes nothing.
+            current = Some(key.clone());
+            Choice::cannot(Vec::new(), Vec::new())
+        } else {
+            let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_CHOOSE), &[node.address, ctx.player.0 as usize, policy, out]))?;
+            if may as u8 != 0 {
+                Choice::can(Vec::new())
+            } else {
+                Choice::cannot(super::conditions::refusal(&text), Vec::new())
+            }
+        };
+        policies.push(TradingPolicy { name: envoys::localized(m, &key)?, current: policy == following, policy: key, choice });
+    }
+    Ok(TradingPolicies { node: node.key.clone(), name: name(m, node.definition)?, current, policies })
+}
+
+/// The command the trade view's policy button posts: the node by its
+/// definition's index, the policy by its index.
+fn policy_written(player: Tag, definition: i32, policy: i32) -> String {
+    format!("select_trading_policy={{ members={{ dummy={} dummy={definition} dummy={policy} }} }}", quoted(player))
+}
+
+/// Chooses the trading policy `policy` for the player in the node `key`.
+pub fn set_policy(_: Caller, key: &str, policy: &str) -> GResult<()> {
+    let m = game()?;
+    let ctx = context(m)?;
+    let node = node(m, &ctx, key)?;
+    let Some(address) = all_policies(m)?.into_iter().find(|(_, k)| k == policy).map(|(a, _)| a) else {
+        return Err(eu4_harmony_checks::envoys::unknown("trading policy", policy).into());
+    };
+    let offered = read_policies(m, &ctx, &node)?.policies.into_iter().find(|p| p.policy == policy);
+    match offered {
+        Some(p) if p.current => return Err(eu4_harmony_checks::envoys::policy_followed(policy).into()),
+        Some(p) if !p.choice.can => return Err(eu4_harmony_checks::envoys::not_allowed("choose that trading policy there", &p.choice.reasons).into()),
+        _ => {}
+    }
+    // The command changes the policy only where the player's merchant is.
+    if m.u8(entry(m, &ctx, &node)? + PRESENT)? == 0 {
+        return Err(eu4_harmony_checks::envoys::none_there("merchant").into());
+    }
+    let text = policy_written(ctx.player, m.i32(node.definition + DEFINITION_INDEX)?, m.i32(address + POLICY_INDEX)?);
+    envoys::post(&text, "the trading policy command")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,5 +450,11 @@ mod tests {
         let ven = Tag(u64::from_le_bytes(*b"VEN\0\0\0\0\0"));
         assert_eq!(send_written(ven, 112, 7, Mission::Collect), r#"send_merchant={ province=112 country="VEN" name=7 type=0 }"#);
         assert_eq!(send_written(ven, 112, 7, Mission::Steer), r#"send_merchant={ province=112 country="VEN" name=7 type=1 }"#);
+    }
+
+    #[test]
+    fn the_policy_command_names_the_country_the_node_and_the_policy_in_its_members_order() {
+        let ven = Tag(u64::from_le_bytes(*b"VEN\0\0\0\0\0"));
+        assert_eq!(policy_written(ven, 42, 3), r#"select_trading_policy={ members={ dummy="VEN" dummy=42 dummy=3 } }"#);
     }
 }

@@ -80,6 +80,33 @@ Then the game state's other sections written while the pool writes the loops, th
 - The main thread waited 40 to 80 ms for the pool where the world has written its game state; the pool's threads took 170 to 190 ms for both loops under that load.
 - A plain save of 1444 (34 MB) stopped the game for 149 ms.
 
+## The events (2026-11-05)
+
+What the events of [player-actions.md](player-actions.md) cost the game: `building_finished`, `battle`, `war_declared`, `peace_made`, `province_owner_changed`, `month` and `year`. `cargo xtask scenario perf` on the player build of `claude/player-actions-fu-cost-view-4c4534`: a new game as Ming, 120 s at speed 5 from 1444.11.11, about 5.4 years; with `--perf.events` naming the seven kinds, a remote client reads events of those kinds before the game runs, so they are worked out from then on, and counts what was heard at the end. The framework counts the time each piece of that work takes and logs it when the session ends (`event costs:`, [`core/src/game/event_costs.rs`](../core/src/game/event_costs.rs)). The machine was the one under [Machine](#machine), busy with other sessions' builds.
+
+| Run | Listening | Game days a minute | CPU at speed 5 (cores) |
+| --- | --- | --- | --- |
+| 1 | none | 855.0 | 2.55 |
+| 2 | the seven, and the reads below after the run | 964.3 | 2.67 |
+| 3 | the seven, owners read alone (below) | 987.1 | 2.78 |
+| 4 | none | 996.5 | 2.85 |
+
+The pace spread by 16% between the two runs that listened to nothing, so it cannot show the events. The framework's own timing can, on the game's main thread:
+
+| Work | When | Run 2 | Run 3 |
+| --- | --- | --- | --- |
+| The wars read and compared with the day before (`war_declared`, `peace_made`) | each new day, 1929 and 1975 | 22.7 µs a day | 19.0 µs a day |
+| The provinces' owners read and compared (`province_owner_changed`) | each new day | 84.2 µs a day | 54.8 µs a day |
+| A building finished read (`building_finished`) | each one finished, 19 and 24 | 1.6 µs each | 1.1 µs each |
+| A combat's results read (`battle`) | each combat's results, sieges' too, 378 and 346 | 1.1 µs each | 1.1 µs each |
+| What a frame heard made into remote control's events | every frame, listening or not | 1.0 µs a frame | 1.0 µs a frame |
+
+- `month` and `year` compare the new day's date with the day before, which is done for every new day whether anyone listens or not; nothing is read for them.
+- **In all**, the seven cost about 74 µs a game day: at the 16 days a second of these runs, 1.2 ms of the main thread a second, about 0.1%, far below the spread between runs. Heard in run 3: 97 provinces changing owner, 52 wars declared, 46 peaces made, 18 battles, 24 buildings finished, 65 months and 6 years.
+- The owners were read with the rest of each province's record (its fog of war, its kind) until run 2; reading only the owner took the watch from 84 to 55 µs a day.
+- **Reads**: after run 2, the scenario read `country.get` and `country.budget` of each of the 170 countries that own a province and `province.get` of each of the 777 provinces the player had discovered that a country owns. On the main thread, as the framework's log times each request, `country.get` took 0.09 ms on average, `country.budget` 0.04 ms and `province.get` 0.01 ms (`province.list`, every province, 2.4 ms). From the client each took 23 to 25 ms, which is the wait for the game's next frame, not work.
+- **Not measured**: an extension's handlers (their Lua is the extension's own; the work above is the same for them), a late game with more wars, and the pace with the events on and off over enough runs to see 0.1%.
+
 ## Setups
 
 Two playsets:
@@ -114,7 +141,7 @@ The runs below were made with `tools/perf-run.ps1`, which measured vanilla too a
 
 CPU is given in cores: the process's CPU seconds per second of wall time (the machine has 16 hardware threads). Memory is what Windows reports for the process; graphics memory was not measured. Each setup was measured two or three times, going through the setups and then back again, with menu-only runs for idle CPU at the main menu (Chinese playset). Game days are counted in the game's calendar, which has no leap years.
 
-The scenario `perf` ([xtask/src/scenario/perf.rs](../xtask/src/scenario/perf.rs), `cargo xtask scenario perf`, [scenarios.md](scenarios.md)) measures the framework's game only, on the player build: within the claim it starts the game hidden and times the start to the main menu, reads memory 20 s later, starts a new game as Ming with `menu.start` and times it, measures CPU over 30 s paused, then 120 s at speed 5 through `time.set_speed`, `time.resume` and `time.pause`, and reads the dates with `time.get`, from which come the game days a minute. Its start is timed from the start command, not from a menu logo on screen, so its menu seconds are not those of the runs below.
+The scenario `perf` ([xtask/src/scenario/perf.rs](../xtask/src/scenario/perf.rs), `cargo xtask scenario perf`, [scenarios.md](scenarios.md)) measures the framework's game only, on the player build: within the claim it starts the game hidden and times the start to the main menu, reads memory 20 s later, starts a new game as Ming with `menu.start` and times it, measures CPU over 30 s paused, then 120 s at speed 5 through `time.set_speed`, `time.resume` and `time.pause`, and reads the dates with `time.get`, from which come the game days a minute. Its start is timed from the start command, not from a menu logo on screen, so its menu seconds are not those of the runs below. With `events` a remote client listens to those kinds of events while the game runs, with `reads` it times `country.get`, `country.budget` and `province.get` afterwards, and it ends at the main menu, where the framework logs what working out the events cost ([The events](#the-events-2026-11-05)).
 
 The figures on this page come from `tools/perf-run.ps1` (since removed), from the framework's log and from `cargo xtask profile`; none yet from the scenario. Its first runs, on 2026-11-05 ([prototype-log.md](prototype-log.md), "Scenarios"), checked that it plays to its end: 47.2 s to the main menu, 9.7 s for `menu.start MNG`, 0.81 cores paused and 1.75 at speed 5, and 487 game days a minute, with 305.6 and 453.3 in two later runs, a spread larger than the framework's setups are likely to differ by. The next measurement of what the framework costs is taken with `cargo xtask scenario perf` and recorded here.
 

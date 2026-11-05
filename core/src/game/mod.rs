@@ -31,6 +31,7 @@ pub mod diplomacy;
 pub mod economy;
 pub mod envoys;
 pub mod estates;
+pub mod event_costs;
 pub mod events;
 pub mod focus;
 pub mod forts;
@@ -313,8 +314,16 @@ fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
     let war = events::listened("war_declared") || events::listened("peace_made");
     let owners = events::listened("province_owner_changed");
     let seen = with_state(|s| {
-        let owners = if owners { Some(s.geography.provinces(m, ctx, false)?.into_iter().map(|p| p.owner).collect()) } else { None };
-        s.wars.day(m, ctx, war, owners)
+        let mut happened = Vec::new();
+        match war {
+            true => happened.extend(event_costs::WARS.time(|| s.wars.wars(m, ctx))?),
+            false => s.wars.forget_wars(),
+        }
+        match owners {
+            true => happened.extend(event_costs::OWNERS.time(|| Ok::<_, Fail>(s.wars.owners(s.geography.owners(m, ctx)?)))?),
+            false => s.wars.forget_owners(),
+        }
+        Ok::<_, Fail>(happened)
     });
     seen.unwrap_or_else(|e| {
         log!("wars: {}", e.message);
@@ -389,12 +398,13 @@ pub fn points() -> Vec<Point> {
 /// without color codes, the bullet a line may start with, or empty lines
 /// (docs/player-actions.md, "Choices, reasons, costs").
 pub fn reasons(text: &[u8]) -> Vec<String> {
-    crate::unicode::game_text::plain(text)
-        .lines()
-        .map(|l| l.trim().trim_start_matches(['-', '•', '·']).trim())
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect()
+    crate::unicode::game_text::plain(text).lines().map(|l| unbulleted(l).trim_end()).filter(|l| !l.is_empty()).map(str::to_string).collect()
+}
+
+/// A reason's line without the bullets it starts with: a check's own `- `
+/// and the full-width dash a localisation text may start with after it.
+pub fn unbulleted(line: &str) -> &str {
+    line.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '－' | '•' | '·'))
 }
 
 /// How many window pixels a GUI unit takes, (across, down); None before the
@@ -536,6 +546,13 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 #[cfg(test)]
 mod tests {
     use super::{events::Change, turned, view_of, wars::Happened, Caller, Ctx, Frame, Heard, Tag, View};
+
+    #[test]
+    fn a_reason_loses_the_check_s_bullet_and_the_text_s_own_dash() {
+        assert_eq!(super::unbulleted("- －提升政府等级你至少需要 50 威望。"), "提升政府等级你至少需要 50 威望。");
+        assert_eq!(super::unbulleted("• 你已经借贷了56笔贷款"), "你已经借贷了56笔贷款");
+        assert_eq!(super::unbulleted("你没有外交官可供派遣。"), "你没有外交官可供派遣。");
+    }
 
     #[test]
     fn extensions_read_the_full_view_and_remote_control_the_players_unless_set() {

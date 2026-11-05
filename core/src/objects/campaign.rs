@@ -382,6 +382,12 @@ pub mod province {
     pub const HIDDEN_BIT: u8 = 2;
     pub const FOGGED: usize = 0x959;
     pub const FOGGED_BIT: u8 = 0x20;
+    /// A province with [`UNDISCOVERED_BIT`] of the byte at [`FOGGED`] set is
+    /// terra incognita to a country whose index is not set in the bits at
+    /// [`DISCOVERED_BY`], a pointer to u32 words, as the fog of war refresh
+    /// reads them for the player (docs/research/fog-of-war.md).
+    pub const UNDISCOVERED_BIT: u8 = 0x10;
+    pub const DISCOVERED_BY: usize = 0x5e0;
     /// Its base tax, production and manpower, i32 in thousandths. The game's
     /// own getters add a native country's tribal development to its capital
     /// (docs/research/provinces.md).
@@ -564,6 +570,10 @@ pub mod unit {
     pub const PATH: usize = 0x100;
     /// Its task; [`super::globals::IDLE_TASK`] or null when idle.
     pub const TASK: usize = 0x1f8;
+    /// An army's fleet while it is aboard one, null on land; a fleet's
+    /// armies aboard, a [`super::list`] of them.
+    pub const FLEET: usize = 0x218;
+    pub const ABOARD: usize = 0x218;
     /// u8 each.
     pub const MOVEMENT_LOCKED: usize = 0x202;
     pub const RETREATING: [usize; 2] = [0x203, 0x204];
@@ -1114,6 +1124,10 @@ pub fn points() -> Vec<Point> {
             .uses(&[province::GEOMETRY, geometry::TERRAIN]),
         Point::keep(0xa075d1usize, "f6 81 59 09 00 00 20 74 23 f6 81 58 09 00 00 02", "province fog")
             .uses(&[province::FOGGED, province::FOGGED_BIT as usize, province::HIDDEN, province::HIDDEN_BIT as usize]),
+        // The fog of war refresh's test of whether the player discovered a
+        // province.
+        Point::keep(0x827c0cusize, "44 0f b6 91 59 09 00 00 41 f6 c2 10 0f 84 44 04 00 00 45 8b ce 49 c1 e9 05 4c 8b 81 e0 05 00 00", "province discovery")
+            .uses(&[province::FOGGED, province::UNDISCOVERED_BIT as usize, province::DISCOVERED_BY]),
         // A strait's sea zone and the units in it.
         Point::keep(
             0x96f691usize,

@@ -116,11 +116,17 @@ pub fn definitions() -> String {
 fn handlers(out: &mut String) {
     let _ = writeln!(out, "--- The table main.lua returns: a handler for each event the mod hears.\n---@class eu4.Handlers");
     for h in lua::HANDLERS {
-        let args: Vec<String> = std::iter::once("game: eu4.Game".to_string()).chain(h.args.iter().map(|a| format!("{}: {}", a.name, a.ty))).collect();
+        let args: Vec<String> = std::iter::once("game: eu4.Game".to_string()).chain(h.args.iter().map(handler_arg)).collect();
         let returns = h.returns.map_or(String::new(), |r| format!(": {}", r.ty));
         let _ = writeln!(out, "---@field {}? fun({}){returns} {}", h.name, args.join(", "), h.about);
     }
     out.push('\n');
+}
+
+/// A handler's argument; one that may be nil says so, but for `any`.
+fn handler_arg(a: &lua::Value) -> String {
+    let nil = if a.optional && a.ty != "any" { "|nil" } else { "" };
+    format!("{}: {}{nil}", a.name, a.ty)
 }
 
 fn game(out: &mut String) {
@@ -326,6 +332,9 @@ mod tests {
         assert!(!text.contains("eu4.Err|nil"));
         // An element takes nil, as text.get may answer.
         assert!(text.contains("---@field tooltip string|nil"));
+        // A handler's argument that may be nil says so.
+        assert!(text.contains("province: integer, from: string|nil, to: string|nil)"), "{text}");
+        assert!(text.contains("saved: any)"));
     }
 
     #[test]
@@ -362,6 +371,39 @@ mod tests {
         }
         // A result with err is nil only when err is not.
         assert!(!text.contains("|nil result") && !text.contains("string|nil text"));
+    }
+
+    /// Every object a result holds, each time it is met.
+    fn every_object(shape: &Shape, found: &mut Vec<Shape>) {
+        match shape {
+            Shape::Object { fields, .. } => {
+                found.push(shape.clone());
+                fields.iter().for_each(|f| every_object(&f.shape, found));
+            }
+            Shape::Optional(inner) | Shape::List(inner) | Shape::Map(inner) => every_object(inner, found),
+            Shape::Either(shapes) => shapes.iter().for_each(|s| every_object(s, found)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn one_class_is_one_shape() {
+        // The definitions write a class once, the first met: two answers'
+        // types of one class name would give the second the first's fields.
+        let mut found = Vec::new();
+        for c in game_capabilities() {
+            if let Some(shape) = result_shape(&c.name()) {
+                every_object(&shape, &mut found);
+            }
+        }
+        let mut differing = Vec::new();
+        for (i, a) in found.iter().enumerate() {
+            let Shape::Object { class, .. } = a else { continue };
+            if found[..i].iter().any(|b| matches!(b, Shape::Object { class: c, .. } if c == class) && b != a) && !differing.contains(class) {
+                differing.push(*class);
+            }
+        }
+        assert!(differing.is_empty(), "classes of one name with different fields: {differing:?}");
     }
 
     #[test]
