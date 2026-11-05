@@ -21,6 +21,12 @@
 //! sites that leave the most per generation, what holds them and what keeps
 //! the free pages.
 //!
+//! What the census does not count, other modules' blocks among them, `leak`
+//! marks after the second round (the first, with one round only) and
+//! compares with after the last (`memory.uncounted`): its sections say how
+//! much of the game's heap that is, how much it grew, and the sizes that
+//! grew the most, with samples of their blocks made since.
+//!
 //! With `watch` above 0, after round `watch_after` `leak` looks for what
 //! holds the leftovers, and watches the `watch` steady sites that leave the
 //! most and whose leftovers nothing, or only other leftovers, mostly points
@@ -37,7 +43,7 @@
 //! keeps counts in the game's heap, so a run with it measures no growth.
 use super::{text, Build, Game, Parameter, Parameters, Played, Scenario};
 use eu4_harmony_remote::{
-    memory::{Leftovers, Memory, MemoryRequest, Pages, Quarantine, Trend, Watching},
+    memory::{Leftovers, Memory, MemoryRequest, Pages, Quarantine, Trend, Uncounted, Watching},
     menu::{MenuRequest, Save},
     session::Session,
     CountryTag,
@@ -138,6 +144,8 @@ impl Scenario for Leak {
             let _: Quarantine = game.ask(&MemoryRequest::Quarantine { on: Some(true) })?;
         }
         let third = (days / 3).max(1);
+        // The round after which the census's uncounted blocks are marked.
+        let mark = if rounds >= 3 { 2 } else { 1 };
         for i in 1..=rounds {
             let began = Instant::now();
             let _: Session = game.ask(&MenuRequest::Load { save: saves[0].clone() })?;
@@ -154,6 +162,7 @@ impl Scenario for Leak {
             let mut watching = Value::Null;
             let mut quarantined = Value::Null;
             let mut pages = Value::Null;
+            let mut uncounted = Value::Null;
             if self.census {
                 let held: Leftovers = game.ask(&MemoryRequest::Leftovers { sites, holders: Some(i == rounds) })?;
                 leftovers = json!(held);
@@ -180,6 +189,13 @@ impl Scenario for Leak {
                     let walked: Pages = game.ask(&MemoryRequest::Pages { sites })?;
                     pages = json!(walked);
                 }
+                if i == mark || (i == rounds && rounds > mark) {
+                    let found: Uncounted = game.ask(&MemoryRequest::Uncounted { sizes: None, samples: None })?;
+                    if found.marked {
+                        println!("not counted: {} MB, {} MB made since round {mark}", mb(&json!(found.bytes)), mb(&json!(found.made_bytes)));
+                    }
+                    uncounted = json!(found);
+                }
             }
             let memory = json!(memory);
             let seconds = began.elapsed().as_secs();
@@ -198,7 +214,7 @@ impl Scenario for Leak {
             };
             println!("round {i} ({seconds} s){grew}: {}{held}", line(&memory));
             record["rounds"].as_array_mut().expect("the rounds").push(
-                json!({ "round": i, "seconds": seconds, "memory": memory, "leftovers": leftovers, "watching": watching, "quarantine": quarantined, "pages": pages }),
+                json!({ "round": i, "seconds": seconds, "memory": memory, "leftovers": leftovers, "watching": watching, "quarantine": quarantined, "pages": pages, "uncounted": uncounted }),
             );
         }
         if quarantine {
@@ -211,6 +227,73 @@ impl Scenario for Leak {
     fn report(&self, record: &Value) -> Vec<String> {
         sections(record)
     }
+}
+
+/// What the census does not count: as marked, and as it was after the last
+/// round, compared with the mark.
+fn uncounted_section(played: &[Value]) -> Vec<String> {
+    let marked = played.iter().find(|r| !r["uncounted"].is_null() && !truthy(&r["uncounted"]["marked"]));
+    let last = played.iter().rev().find(|r| truthy(&r["uncounted"]["marked"]));
+    let (Some(marked), Some(last)) = (marked, last) else { return Vec::new() };
+    let (from, to) = (number(&marked["round"]), number(&last["round"]));
+    let (then, now) = (&marked["uncounted"], &last["uncounted"]);
+    let rounds = (to - from).max(1.0);
+    let heap = |r: &Value| number(&r["memory"]["game_heap"]);
+    let mut md = vec![
+        String::new(),
+        "### What the census does not count".into(),
+        String::new(),
+        format!(
+            "The game's heap's blocks with no site, other modules' among them, marked after round {from} and compared after round {to}. Walked in {} ms{}.",
+            text(&now["took_ms"]),
+            if truthy(&now["complete"]) { "" } else { ", not to its end" }
+        ),
+        String::new(),
+        "| | After round {from} | After round {to} | A round |".replace("{from}", &from.to_string()).replace("{to}", &to.to_string()),
+        "| --- | --- | --- | --- |".into(),
+        format!(
+            "| Not counted, MB | {} | {} | {} |",
+            mb(&then["bytes"]),
+            mb(&now["bytes"]),
+            signed((number(&now["bytes"]) - number(&then["bytes"])) / 1048576.0 / rounds, 2)
+        ),
+        format!(
+            "| The game's heap, MB | {} | {} | {} |",
+            mb(&marked["memory"]["game_heap"]),
+            mb(&last["memory"]["game_heap"]),
+            signed((heap(last) - heap(marked)) / 1048576.0 / rounds, 2)
+        ),
+        String::new(),
+        format!("Made since the mark and still there: {} blocks, {} MB.", text(&now["made_blocks"]), mb(&now["made_bytes"])),
+        String::new(),
+        "| Size | Blocks | Grew | Made since | KB grown | Samples |".into(),
+        "| --- | --- | --- | --- | --- | --- |".into(),
+    ];
+    for s in list(&now["sizes"]) {
+        let grown = number(&s["grew"]) * number(&s["size"]);
+        let samples: Vec<String> = list(&s["samples"])
+            .iter()
+            .map(|x| {
+                let points = list(&x["points"]).iter().map(text).collect::<Vec<_>>().join(", ");
+                let text = text(&x["text"]).replace(['|', '`'], ".");
+                if points.is_empty() {
+                    format!("`{text}`")
+                } else {
+                    format!("`{text}` ({points})")
+                }
+            })
+            .collect();
+        md.push(format!(
+            "| {} | {} | {} | {} | {} | {} |",
+            text(&s["size"]),
+            text(&s["blocks"]),
+            signed(number(&s["grew"]), 0),
+            text(&s["made"]),
+            signed(grown / 1024.0, 0),
+            samples.join("<br>")
+        ));
+    }
+    md
 }
 
 /// The saves' names, for a save that is not among them.
@@ -456,6 +539,8 @@ fn sections(record: &Value) -> Vec<String> {
         }
     }
 
+    md.extend(uncounted_section(&played));
+
     // What the quarantine said last: as it was turned off, or after the last
     // round played when the scenario ended early.
     let kept = if record["quarantine"].is_null() { played.last().map_or(Value::Null, |r| r["quarantine"].clone()) } else { record["quarantine"].clone() };
@@ -656,6 +741,30 @@ mod tests {
                                        "offset": 8, "bytes": "00ff", "generation": 3, "found": 4 }] });
         let md = sections(&report).join("\n");
         assert!(md.contains("compared 9 times.") && md.contains("| text box | 0x1 in 0x2 | 64 | 8 | 00ff | 3 | 4 |"));
+    }
+
+    #[test]
+    fn sections_say_what_the_census_does_not_count_and_what_grew() {
+        let mib = 1048576;
+        let memory = |heap: u64| json!({ "private": mib, "game_heap": heap * mib, "free_in_heaps": 0, "outside_heaps": 0, "framework_heap": 0, "handles": 1, "heaps": [] });
+        let then =
+            json!({ "blocks": 10, "bytes": 100 * mib, "marked": false, "made_blocks": 0, "made_bytes": 0, "sizes": [], "complete": true, "took_ms": 2000 });
+        let now = json!({ "blocks": 20, "bytes": 130 * mib, "marked": true, "made_blocks": 12, "made_bytes": 31 * mib, "complete": true, "took_ms": 2100,
+                          "sizes": [{ "size": 4096, "blocks": 9, "grew": 8, "made": 8,
+                                      "samples": [{ "address": "0x1", "hex": "", "text": "ab|c", "points": ["d3d9.dll+0x10"] }, { "address": "0x2", "hex": "", "text": "..", "points": [] }] }] });
+        let report = json!({ "saves": ["a", "b"], "country": "FRA", "days": 30, "startup": memory(1000),
+                             "rounds": [{ "round": 1, "seconds": 60, "memory": memory(1000) },
+                                        { "round": 2, "seconds": 60, "memory": memory(1010), "uncounted": then },
+                                        { "round": 3, "seconds": 60, "memory": memory(1020) },
+                                        { "round": 4, "seconds": 60, "memory": memory(1030), "uncounted": now }] });
+        let md = sections(&report).join(
+            "
+",
+        );
+        assert!(md.contains("marked after round 2 and compared after round 4. Walked in 2100 ms."), "{md}");
+        assert!(md.contains("| Not counted, MB | 100.0 | 130.0 | +15.00 |") && md.contains("| The game's heap, MB | 1,010.0 | 1,030.0 | +10.00 |"), "{md}");
+        assert!(md.contains("Made since the mark and still there: 12 blocks, 31.0 MB."), "{md}");
+        assert!(md.contains("| 4096 | 9 | +8 | 8 | +32 | `ab.c` (d3d9.dll+0x10)<br>`..` |"), "{md}");
     }
 
     #[test]

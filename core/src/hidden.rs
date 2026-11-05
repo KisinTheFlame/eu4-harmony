@@ -6,7 +6,13 @@
 //! itself:
 //!
 //! - the window is made with `SDL_WINDOW_HIDDEN`, without which SDL shows it,
-//!   and the application's Init does not show it;
+//!   and the application's Init shows it cloaked, as a tool window, without
+//!   the focus: DWM draws nothing of a cloaked window and lets no click reach
+//!   it, a tool window has no taskbar button and is not in Alt+Tab, and for
+//!   the rest of Windows it is shown. A window not shown at all makes
+//!   NVIDIA's Direct3D 9 driver keep 3 KB of the game's heap at most of its
+//!   frames, 20 MB a minute and more (docs/research/headless.md); hiding it
+//!   again conceals it so, and showing it ends that;
 //! - the game's own error messages are left out, as `-suppresserrormessages`
 //!   leaves them out;
 //! - the input device moves remote control's held cursor instead of Windows'
@@ -99,22 +105,51 @@ pub fn show() -> Result<(), Refused> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
     let window = window()?;
     if HIDDEN.swap(false, Ordering::Relaxed) {
+        conceal(window, false);
+        // Shown already, unless Init has not shown it yet.
         unsafe { ShowWindow(window, SW_SHOWNOACTIVATE) };
         log!("hidden start: the window is shown");
     }
     Ok(())
 }
 
-/// Hides the game's window again, holding the cursor as at a hidden start.
+/// Hides the game's window again, cloaked, holding the cursor as at a
+/// hidden start.
 pub fn hide() -> Result<(), Refused> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
     let window = window()?;
     if !HIDDEN.swap(true, Ordering::Relaxed) {
         crate::game::input::hold(None);
-        unsafe { ShowWindow(window, SW_HIDE) };
+        conceal(window, true);
         log!("hidden start: the window is hidden again");
     }
     Ok(())
+}
+
+/// Conceals the window, or ends that: cloaked, a window is shown to
+/// Windows and drawn by nobody, and as a tool window it has no taskbar
+/// button. The taskbar looks at the style only as a window is shown, so a
+/// window shown already is hidden and shown again, for a moment.
+fn conceal(window: windows_sys::Win32::Foundation::HWND, on: bool) {
+    use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CLOAK};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, IsWindowVisible, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+    };
+    let value = i32::from(on);
+    let result = unsafe { DwmSetWindowAttribute(window, DWMWA_CLOAK as u32, (&value as *const i32).cast(), 4) };
+    if result != 0 {
+        log!("hidden start: the window's cloak could not be {}: {result:#x}", if on { "put on" } else { "taken off" });
+    }
+    let style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) } as u32;
+    let wanted = if on { style & !WS_EX_APPWINDOW | WS_EX_TOOLWINDOW } else { style & !WS_EX_TOOLWINDOW };
+    if wanted != style {
+        unsafe { SetWindowLongPtrW(window, GWL_EXSTYLE, wanted as isize) };
+        if unsafe { IsWindowVisible(window) } != 0 {
+            unsafe {
+                ShowWindow(window, SW_HIDE);
+                ShowWindow(window, SW_SHOWNOACTIVATE);
+            }
+        }
+    }
 }
 
 fn window() -> Result<windows_sys::Win32::Foundation::HWND, Refused> {
@@ -219,10 +254,15 @@ extern "C" fn window_made_stub() {
     );
 }
 
-/// Init's `ShowWindow`, left out while the game is hidden.
+/// Init's `ShowWindow`: while the game is hidden, cloaked first and without
+/// the focus.
 extern "C" fn init_shows(window: usize, command: i32) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow;
-    if !hidden() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    if hidden() {
+        conceal(window as _, true);
+        unsafe { ShowWindow(window as _, SW_SHOWNOACTIVATE) };
+        log!("hidden start: the window is shown cloaked");
+    } else {
         unsafe { ShowWindow(window as _, command) };
     }
 }
