@@ -313,6 +313,8 @@ groups! {
     /// The transfer occupation window: handing a province the player
     /// occupies over to an ally.
     Occupation(occupation::OccupationRequest, OccupationAnswer),
+    /// The buildings of the player's provinces.
+    Building(buildings::BuildingRequest, BuildingAnswer),
 }
 
 pub mod binary;

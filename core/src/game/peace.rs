@@ -404,7 +404,7 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::fake::game_tag;
+    use crate::catalogue::fake::game_tag;
 
     #[test]
     fn a_term_is_named_by_its_type_without_po() {

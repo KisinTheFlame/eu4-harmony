@@ -1,8 +1,8 @@
 //! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Each capability is
 //! a function taking the [`Caller`] and returning the framework's own types;
-//! remote control (`crate::remote`) and the Lua host (`crate::lua`), which runs
-//! remote control's groups as the extension, only convert to and from them
+//! the capability catalogue (`crate::catalogue`), which remote control and the
+//! Lua host both run their requests through, only converts to and from them
 //! (ADR one-capability-catalogue). One file per group: [`session`],
 //! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
 //! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
@@ -15,7 +15,9 @@
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
 //! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
 //! defeat.md, time.md, fog-of-war.md).
+pub mod administration;
 pub mod armies;
+pub mod buildings;
 pub mod camera;
 pub mod commands;
 pub mod conditions;
@@ -326,6 +328,8 @@ pub fn points() -> Vec<Point> {
     points.extend(decisions::points());
     points.extend(peace::points());
     points.extend(occupation::points());
+    points.extend(administration::points());
+    points.extend(buildings::points());
     points
 }
 

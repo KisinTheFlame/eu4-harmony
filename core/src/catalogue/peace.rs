@@ -87,9 +87,10 @@ mod tests {
     use super::super::{
         diplomacy,
         fake::{answer, quiet, Fake},
-        Engine, Place,
+        menu, Place,
     };
     use crate::game::diplomacy::Answer;
+    use crate::remote::Engine;
     use eu4_harmony_remote::request_from_json;
     use serde_json::json;
     use std::time::Duration;
@@ -144,7 +145,7 @@ mod tests {
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         engine.run(&mut game, &Place::Game, Duration::from_secs(10));
         assert_eq!(answer(&demand), json!({"ok": true, "result": {"answer": "declined"}}));
-        engine.end(super::super::menu::ending(), Duration::ZERO);
+        engine.end(menu::ending(), Duration::ZERO);
         assert_eq!(answer(&offer), json!({"ok": true, "result": {"answer": "pending"}}));
         assert!(game.calls.contains(&"demand peace 1000021005a5942 humiliate:None:None:None".to_string()));
         assert!(game.calls.contains(&"offer terms 1000021005a5942 concede_defeat:None:None:None".to_string()));

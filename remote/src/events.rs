@@ -94,6 +94,7 @@ pub const EVENTS: &[(&str, &str)] = &[
         "countries left a war, by a peace (or ceasing to be); war, its name; attackers and defenders, those that left on each side; ended, whether the war is over",
     ),
     ("province_owner_changed", "a province changed owner; province; from and to, the old and the new owner, null for none"),
+    ("building_finished", "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
 ];
 
 /// Something that happened in the game, as extensions hear it.
@@ -128,6 +129,14 @@ pub enum Event {
     PeaceMade { war: String, attackers: Vec<CountryTag>, defenders: Vec<CountryTag>, ended: bool },
     /// A province changed owner: the old and the new owner, null for none.
     ProvinceOwnerChanged { province: ProvinceId, from: Option<CountryTag>, to: Option<CountryTag> },
+    /// A building was finished in a province, any country's.
+    BuildingFinished {
+        province: ProvinceId,
+        /// Its content key.
+        building: String,
+        /// The province's owner.
+        country: CountryTag,
+    },
 }
 
 impl Event {
@@ -144,6 +153,7 @@ impl Event {
             Self::WarDeclared { .. } => "war_declared",
             Self::PeaceMade { .. } => "peace_made",
             Self::ProvinceOwnerChanged { .. } => "province_owner_changed",
+            Self::BuildingFinished { .. } => "building_finished",
         }
     }
 
@@ -154,6 +164,7 @@ impl Event {
             Self::WarDeclared { attacker, defender, .. } => vec![*attacker, *defender],
             Self::PeaceMade { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
             Self::ProvinceOwnerChanged { from, to, .. } => from.iter().chain(to).copied().collect(),
+            Self::BuildingFinished { country, .. } => vec![*country],
             _ => Vec::new(),
         }
     }

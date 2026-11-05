@@ -31,8 +31,9 @@ pub fn run(request: OccupationRequest, game: &mut (impl Layer + countries::Layer
 mod tests {
     use super::super::{
         fake::{answer, quiet, Fake},
-        Engine, Place,
+        Place,
     };
+    use crate::remote::Engine;
     use eu4_harmony_remote::request_from_json;
     use serde_json::json;
     use std::time::Duration;

@@ -135,6 +135,7 @@ fn every_event_is_described() {
         Event::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: CountryTag(*b"TUR"), defender: CountryTag(*b"BYZ") },
         Event::PeaceMade { war: "Ottoman-Byzantine War".into(), attackers: vec![], defenders: vec![CountryTag(*b"BYZ")], ended: false },
         Event::ProvinceOwnerChanged { province: ProvinceId(151), from: Some(CountryTag(*b"BYZ")), to: Some(CountryTag(*b"TUR")) },
+        Event::BuildingFinished { province: ProvinceId(151), building: "marketplace".into(), country: CountryTag(*b"TUR") },
     ];
     // An event is flattened beside its own number: none of its fields may
     // be named so.

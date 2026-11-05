@@ -148,9 +148,10 @@ mod tests {
     use super::super::{
         events,
         fake::{answer, quiet, Fake},
-        menu, Engine, Place, Request,
+        menu, Place, Request,
     };
     use super::*;
+    use crate::remote::Engine;
     use eu4_harmony_remote::{response_json, CountryTag, ProvinceId};
     use serde_json::{json, Value};
 

@@ -129,7 +129,7 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::fake::game_tag;
+    use crate::catalogue::fake::game_tag;
 
     #[test]
     fn the_command_names_the_ally_to_take_it_and_the_player() {

@@ -141,7 +141,7 @@ pub fn owners_diff(before: &[Option<Tag>], now: &[Option<Tag>]) -> Vec<Happened>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::fake::game_tag;
+    use crate::catalogue::fake::game_tag;
 
     fn war(at: usize, name: &str, attackers: &[Tag], defenders: &[Tag]) -> Seen {
         Seen { at, name: name.into(), attackers: attackers.to_vec(), defenders: defenders.to_vec() }
