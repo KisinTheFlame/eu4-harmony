@@ -405,8 +405,12 @@ fn claim_as(asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Resu
 fn put_back_for(holder: &Record, putting_back: impl FnOnce() -> Result<()>) -> Result<()> {
     let done = putting_back();
     let me = me();
-    locked(|s| record::put_back(&mut s.held, holder, me, done.is_ok()))?;
-    done.map_err(|e| format!("{e}; {} still holds the game, its claim not put back", holder.owner))
+    let ended = locked(|s| record::put_back(&mut s.held, holder, me, done.is_ok()))?;
+    done.map_err(|e| format!("{e}; {} still holds the game, its claim not put back", holder.owner))?;
+    if !ended {
+        return Err(format!("{}'s claim was put back, but its record was changed meanwhile and stays: cargo xtask game status says by whom", holder.owner));
+    }
+    Ok(())
 }
 
 /// Makes the claim's folder, with the player's files and the game folder's

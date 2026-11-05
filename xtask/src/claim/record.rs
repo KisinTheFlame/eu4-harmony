@@ -6,7 +6,9 @@
 //! that a checkout still on the script and one on these commands never hold
 //! the game at once; the fields it does not know (`folder`, `player`,
 //! `taken`, `preparing`, `puttingBack`, `keeper`, `game`) it keeps as they
-//! are.
+//! are. xtask from before `preparing`, `puttingBack`, `keeper` and `game`
+//! drops them when it writes the record, as it does while it waits in the
+//! queue, so a record may lose them while it is held.
 use serde_json::{json, Value};
 
 /// A process, by its id and when it started: a later process given the same
@@ -377,15 +379,18 @@ pub fn release(owner: &str, held: &mut Option<Record>, seen: &Seen) -> Release {
 }
 
 /// Ends `of`, which `me` put back: its record goes once all was put back,
-/// and is no longer marked otherwise, so that it is put back again.
-pub fn put_back(held: &mut Option<Record>, of: &Record, me: Process, all: bool) {
-    if let Some(h) = held.as_mut().filter(|h| h.same_claim(of) && h.putting_back == Some(me)) {
-        if all {
-            *held = None;
-        } else {
-            h.putting_back = None;
-        }
+/// and is no longer marked otherwise, so that it is put back again. A record
+/// whose mark is gone is still `me`'s to end: xtask from before the marks,
+/// still run by other checkouts, writes the record again without them.
+/// Whether the record went.
+pub fn put_back(held: &mut Option<Record>, of: &Record, me: Process, all: bool) -> bool {
+    let Some(h) = held.as_mut().filter(|h| h.same_claim(of) && h.putting_back.is_none_or(|p| p == me)) else { return false };
+    if all {
+        *held = None;
+    } else {
+        h.putting_back = None;
     }
+    all
 }
 
 #[cfg(test)]
@@ -467,6 +472,23 @@ mod tests {
     /// The player's claim, taking the game, and the holder's own release
     /// never both put the claim back: the first marks it, the other waits
     /// for it or is told who does it.
+    #[test]
+    fn a_claim_whose_mark_an_older_xtask_dropped_is_still_put_back() {
+        let mut held = Some(record("a", 100));
+        let mine = match release("a", &mut held, &at(200, false)) {
+            Release::Mine(r) => *r,
+            other => panic!("{other:?}"),
+        };
+        // A waiter on the xtask of before the marks writes the record again.
+        held.as_mut().unwrap().putting_back = None;
+        assert!(put_back(&mut held, &mine, ME, true));
+        assert_eq!(held, None);
+        // Marked by another that runs, it is not this one's to end.
+        let mut held = Some(Record { putting_back: Some(HOLDER), ..record("a", 100) });
+        assert!(!put_back(&mut held, &mine, ME, true));
+        assert!(held.is_some());
+    }
+
     #[test]
     fn one_process_alone_puts_a_claim_back() {
         // The player's grace runs out first: its claim puts the holder's back.
