@@ -1,5 +1,6 @@
-//! Legacy escapes (GLOSSARY): how older Chinese language mods and saves carry
-//! a character in the game's single-byte text. Everything the framework knows about them is
+//! Legacy escapes (GLOSSARY): how language mods for Chinese, Japanese and
+//! Korean, and saves played with them, carry a character in the game's
+//! single-byte text. Everything the framework knows about them is
 //! here; the import points call [`decode`] and everything after them sees
 //! only the module's game text.
 //!

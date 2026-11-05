@@ -1,10 +1,10 @@
 ---
-status: superseded in part by built-in-unicode-module
+status: superseded in part by built-in-unicode-module and player-language-in-the-settings
 ---
 
 # Localisation in the player language: the framework decides it in one place and transcodes mods' texts
 
-The "How it is decided" part and the "transcode" part have been superseded by ADR built-in-unicode-module: the player language now depends only on the Windows display language, and mods' texts are handed to the game unchanged as UTF-8. The file location, the splicing and the lookup rules still hold.
+The "How it is decided" part and the "transcode" part have been superseded by ADR built-in-unicode-module: the player language came to depend only on the Windows display language (since ADR player-language-in-the-settings, the player chooses it in the framework settings), and mods' texts are handed to the game unchanged as UTF-8. The file location, the splicing and the lookup rules still hold.
 
 The framework's and every mod's texts are all shown in the same "player language", which the framework decides once at startup. The deciding logic lives only in the core's `lang` module; other code only reads the result.
 

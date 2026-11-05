@@ -22,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_ToolHelp",

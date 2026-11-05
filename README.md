@@ -11,7 +11,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Why EU4 Harmony
 
-- **Every language, everywhere.** Chinese and every other script show in the whole game, in fonts you choose. No font mod needed.
+- **Every language, everywhere.** Every script shows in the whole game, in fonts made for your language or ones you choose. No font mod needed.
 - **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
 - **A faster game, the same game.** Smoother and about a tenth faster at top speed, with nothing about the game itself changed.
 - **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions no longer risk a crash, and loading a save no longer costs you achievements.
@@ -40,7 +40,8 @@ Good to know:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Fonts | Microsoft YaHei; KaiTi on the map, Consolas in the console | The system fonts for body text, headings, the map and the console. |
+| Language | The language Windows displays, else English | The language of the framework's and mods' texts, out of twelve. |
+| Fonts | Made for the language: Segoe UI and Georgia on the map for Latin and Cyrillic, Microsoft YaHei and KaiTi for Simplified Chinese ([all](docs/player-language.md#fonts)); Consolas in the console | The system fonts for body text, headings, the map and the console. |
 | Return to the main menu without restarting the game | On | The main menu is back in seconds. The game keeps about 15 MB of memory each time, until it is closed ([why](docs/sessions.md#known-leaks)). |
 | In ironman, save the game before loading another save | On | Ironman games can load another save from the game's menu. Off, loading the same save again undoes what was played since. |
 | Achievements outside ironman | Off | Achievements in a game that is not ironman, even with saves loaded again and the console used. |
@@ -48,7 +49,7 @@ Good to know:
 | Remote control sees everything | Off | Off, programs using the game through remote control read what the player sees: the map under fog of war, and of other countries what their panels show. On, they read everything the game keeps, as mods' extensions always do ([why](docs/adr/remote-control-reads-the-players-view.md)). |
 | Game speed: at the fastest speed | Smooth map | "Faster time" draws no frames in the middle of a long day: late in a game, days pass about another tenth faster, but the map moves in jerks and answers clicks later. |
 
-A font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
+A language or font change takes effect at the next start, an achievement rule with the next game started or loaded, the rest as soon as it is saved. Every other achievement rule stays the game's own. The always-on speed-ups, and why none of them changes the game, are in [docs/game-speed.md](docs/game-speed.md).
 
 ## Writing a mod
 
@@ -71,7 +72,7 @@ return {
 The command line tool is `eu4-harmony.exe`, in the game's `eu4-harmony\` folder:
 
 ```powershell
-eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, English and Chinese texts and editor types
+eu4-harmony new my-mod --name "My Mod"   # a working mod with a button, texts in English and your language, and editor types
 cd my-mod
 eu4-harmony check                         # read everything as the framework will
 eu4-harmony test                          # run eu4-harmony\tests\*.lua against a fake game
