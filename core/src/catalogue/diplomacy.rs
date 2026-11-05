@@ -338,7 +338,6 @@ impl Wait for Waiting {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        events,
         fake::{answer, quiet, Fake},
         menu, Place, Request,
     };
@@ -520,12 +519,11 @@ mod tests {
     #[test]
     fn an_action_with_nothing_come_of_it_in_time_is_pending() {
         let mut game = Fake::default();
-        let buffer = events::Buffer::new();
         let now = Instant::now();
         let mut waiting =
             Waiting { ticket: Ticket(3), answers: |o| Answered::Diplomacy(DiplomacyAnswer::ProposeAlliance(o)), called: None, until: now + WAITED };
         let (in_game, outside) = (Place::Game, Place::Outside(None));
-        let mut poll = |place, now| waiting.poll(&mut super::super::Poll::new(&buffer, now, place, &mut game));
+        let mut poll = |place, now| waiting.poll(&mut super::super::Poll::new(None, now, place, Some(&mut game)));
         assert_eq!(poll(&in_game, now), None);
         assert_eq!(poll(&outside, now), None);
         let late = poll(&outside, now + WAITED).map(|r| response_json(&r));

@@ -21,9 +21,9 @@
 #[cfg(test)]
 mod tests;
 
-use crate::catalogue::{self, events, input, menu, Game, Live, Place, Poll, Wait};
+use crate::catalogue::{self, events, menu, Catalogue, Live, Place, Wait};
 use crate::game;
-use eu4_harmony_remote::{Answer, Code, Error, Request, Response};
+use eu4_harmony_remote::{Code, Error, Request, Response};
 use std::{
     collections::VecDeque,
     sync::{
@@ -214,21 +214,21 @@ impl Engine {
     }
 
     /// Runs at a safe point: answers the waiting requests that are due, then
-    /// runs queued requests in order until `budget` is spent. What does not
-    /// run stays queued, in order.
-    pub fn run(&self, game: &mut dyn Game, place: &Place, budget: Duration) {
-        self.run_at(game, place, budget, Instant::now());
+    /// runs queued requests in order until `budget` is spent, all through
+    /// `catalogue`. What does not run stays queued, in order.
+    pub fn run(&self, catalogue: &mut dyn Catalogue, place: &Place, budget: Duration) {
+        self.run_at(catalogue, place, budget, Instant::now());
     }
 
     /// [`run`](Self::run) with the time the requests' waits are measured
     /// against: now, but for a test that lets time pass without waiting.
-    pub(crate) fn run_at(&self, game: &mut dyn Game, place: &Place, budget: Duration, now: Instant) {
+    pub(crate) fn run_at(&self, catalogue: &mut dyn Catalogue, place: &Place, budget: Duration, now: Instant) {
         let started = Instant::now();
         self.delivering().retain(|slot| !slot.released());
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         let running = &mut *running;
         self.take_recorded(running);
-        self.poll(running, game, place, now);
+        self.poll(running, catalogue, place, now);
         let mut queued = std::mem::take(&mut self.queue().requests);
         let mut kept = VecDeque::new();
         let mut ran = false;
@@ -241,7 +241,7 @@ impl Engine {
             // A request after an input runs once the game has had the input;
             // it and those after it wait, in order.
             if let Some(taken) = running.input.filter(|_| !q.request.gives_input()) {
-                if !game.handled(taken) {
+                if !catalogue.handled(taken) {
                     kept.push_back(q);
                     kept.append(&mut queued);
                     break;
@@ -275,7 +275,7 @@ impl Engine {
                 break;
             }
             ran = true;
-            self.start(running, game, q, now);
+            self.start(running, catalogue, q, now);
             // What the request made happen, for the requests after it.
             self.take_recorded(running);
         }
@@ -286,16 +286,14 @@ impl Engine {
     }
 
     /// Runs a request at `now`.
-    fn start(&self, running: &mut Running, game: &mut dyn Game, q: Queued, now: Instant) {
+    fn start(&self, running: &mut Running, catalogue: &mut dyn Catalogue, q: Queued, now: Instant) {
         let started = Instant::now();
-        if let Request::Input(r) = &q.request {
-            let (response, taken) = input::run(r.clone(), game);
-            running.input = taken.or(running.input);
-            self.answer(&q, response.map(Answer::Input), started.elapsed());
-            return;
-        }
-        match catalogue::dispatch(q.request.clone(), game, &running.events, now) {
+        match catalogue.run(q.request.clone(), Some(&running.events), now) {
             catalogue::Outcome::Done(response) => self.answer(&q, response, started.elapsed()),
+            catalogue::Outcome::Input(response, taken) => {
+                running.input = Some(taken);
+                self.answer(&q, response, started.elapsed());
+            }
             catalogue::Outcome::Later(wait) => {
                 (self.log)(&format!("remote #{} {}: answers later", q.number, json(&q.request)));
                 running.waiting.push(Waiting { number: q.number, name: q.request.name(), started, slot: q.slot, wait });
@@ -315,22 +313,24 @@ impl Engine {
         self.delivering().push(slot.clone());
     }
 
-    fn poll(&self, running: &mut Running, game: &mut dyn Game, place: &Place, now: Instant) {
-        let mut at = Poll::new(&running.events, now, place, game);
-        for mut w in std::mem::take(&mut running.waiting) {
-            if w.slot.released() {
-                (self.log)(&format!("remote #{} {}: given up by its client while it waited", w.number, w.name));
-                w.wait.given_up(&mut at);
-                continue;
-            }
-            match w.wait.poll(&mut at) {
-                Some(response) => {
-                    (self.log)(&format!("remote #{} {}: {} after {} ms", w.number, w.name, outcome(&response), now.duration_since(w.started).as_millis()));
-                    self.deliver(&w.slot, response);
+    fn poll(&self, running: &mut Running, catalogue: &mut dyn Catalogue, place: &Place, now: Instant) {
+        let Running { waiting, events, .. } = running;
+        catalogue.at(Some(events), now, place, &mut |at| {
+            for mut w in std::mem::take(waiting) {
+                if w.slot.released() {
+                    (self.log)(&format!("remote #{} {}: given up by its client while it waited", w.number, w.name));
+                    w.wait.given_up(at);
+                    continue;
                 }
-                None => running.waiting.push(w),
+                match w.wait.poll(at) {
+                    Some(response) => {
+                        (self.log)(&format!("remote #{} {}: {} after {} ms", w.number, w.name, outcome(&response), now.duration_since(w.started).as_millis()));
+                        self.deliver(&w.slot, response);
+                    }
+                    None => waiting.push(w),
+                }
             }
-        }
+        });
     }
 
     /// The process is about to end, as the game starts `eu4.exe` again to
