@@ -114,7 +114,7 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 - When a session begins from a save, `on_session(game, saved)` gets back what that save holds for the extension, or `nil`.
 - The data is any value JSON can hold: a table whose keys are all strings is an object, a sequence is an array, integers stay 64-bit. A function, a userdata, a table with mixed keys or a cycle fails: that save holds no data for the extension, the error is logged and raises a notice as other errors do. At most 16 MiB of JSON.
 - Where and how it is written into the save does not change ([ADR extension-save-data-in-the-save](adr/extension-save-data-in-the-save.md)); a save written by a native extension is read by its Lua rewrite when the data's shape is the same.
-- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `save_data` like any other.
+- `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `save_data` like any other. A session that ends inside an extension's own call (its `console.run` loading a save) is heard once that call is done, at the start or end of a game's safe frame, as no extension is called inside another's call; the session's state is gone by then.
 
 ### The capability catalogue
 

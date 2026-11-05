@@ -221,6 +221,13 @@ fn running(serial: u64) -> bool {
     CURRENT.with(Cell::get) == Some(serial)
 }
 
+/// Whether an extension runs on this thread now, so that what it called is
+/// running inside its call: an extension is not to be called again before
+/// that call is done.
+pub fn calling() -> bool {
+    CURRENT.with(Cell::get).is_some()
+}
+
 /// The task running now on this thread, for the Lua wrapper of a function
 /// that waits.
 fn current_task() -> Option<Thread> {
