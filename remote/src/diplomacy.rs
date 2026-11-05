@@ -414,10 +414,14 @@ group! {
     game TradeFavorsForTrust "trade_favors_for_trust" {
         /// The other country.
         country: CountryTag,
-        /// The favors to spend.
+        /// The favors to spend, a step of them at a time as the window spends
+        /// them (the action's description in `diplomacy.options` says how many
+        /// favors buy how much trust), no more than the country owes, and no
+        /// more steps than it takes to fill its trust.
         favors: u32,
-        /// The trust to gain.
-        trust: u32,
+        /// The trust they buy, a step of trust for each step of favors; worked
+        /// out when left out, and refused when it is not that.
+        trust: Option<u32>,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Spends favors a country owes to have it prepare for war beside the player. As the diplomacy panel's button `trade_favors_for_war_prep` sends it
     /// (`diplomacy.options` says whether the player can).

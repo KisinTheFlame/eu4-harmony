@@ -13,7 +13,7 @@ use crate::{
     game_string,
     memory::Memory,
     objects::{
-        campaign::province as province_fields,
+        campaign::{country as country_fields, province as province_fields},
         diplomacy::{action, action_list, breakdown, classes},
     },
     points::Point,
@@ -46,6 +46,12 @@ const CONDOTTIERI_ARMY: usize = 0x48;
 /// interest.
 const SUBSIDIES_DURATION: u32 = 10;
 const LOAN_INTEREST: i64 = 1000;
+/// The favors the trade favors for trust window spends at each press of its
+/// button, and the trust they buy (i32 each, the defines it reads).
+const TRUST_STEP_FAVORS: usize = 0x233db7c;
+const TRUST_STEP_TRUST: usize = 0x233db80;
+/// The most trust a country has in another.
+const FULL_TRUST: i64 = 100;
 /// How many actions the framework's list has room for, inline: more than the
 /// panel's list maker can add, so that it never grows.
 const ROOM: usize = 512;
@@ -131,7 +137,7 @@ pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<T
         return fail(Status::Rejected, format!("{NOT_OFFERED} {name} toward {}", letters(country)));
     };
     if let What::Act(act) = what {
-        fill(m, &ctx, at, *act, details)?;
+        fill(m, &ctx, at, country, *act, details)?;
     }
     verdict(m, at)?;
     send(m, &ctx, at, country, Vec::new())
@@ -143,13 +149,11 @@ pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<T
 /// opens"). Money is in thousandths of a ducat, but where a window keeps
 /// whole ducats; a province is its number, or where a window keeps it its
 /// object; a country its tag.
-fn fill(m: &Memory, ctx: &Ctx, at: usize, act: Act, details: &Details) -> GResult<()> {
-    let need = |value: Option<u32>, what: &str| {
-        value.ok_or_else(|| crate::game::Fail { status: Status::InvalidArgument, message: format!("{} needs {what}", act.name()) })
-    };
+fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &Details) -> GResult<()> {
+    let invalid = |message: String| crate::game::Fail { status: Status::InvalidArgument, message };
+    let need = |value: Option<u32>, what: &str| value.ok_or_else(|| invalid(format!("{} needs {what}", act.name())));
     let i32_at = |offset: usize, value: i64| -> GResult<()> {
-        let value = i32::try_from(value)
-            .map_err(|_| crate::game::Fail { status: Status::InvalidArgument, message: format!("{value} is too large for {}", act.name()) })?;
+        let value = i32::try_from(value).map_err(|_| invalid(format!("{value} is too large for {}", act.name())))?;
         Ok(m.write(at + offset, &value.to_le_bytes())?)
     };
     let tag_at = |offset: usize, tag: Tag| -> GResult<()> { Ok(m.write(at + offset, &tag.0.to_le_bytes())?) };
@@ -158,9 +162,15 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, act: Act, details: &Details) -> GResul
         Ok((id, with_state(|s| s.geography.province_address(m, ctx, id))?))
     };
     let country = |what: &str| -> GResult<Tag> {
-        let tag = details.country.ok_or_else(|| crate::game::Fail { status: Status::InvalidArgument, message: format!("{} needs {what}", act.name()) })?;
+        let tag = details.country.ok_or_else(|| invalid(format!("{} needs {what}", act.name())))?;
         crate::game::country(m, ctx, tag)?;
         Ok(tag)
+    };
+    let at_least_one = |value: u32, what: &str| -> GResult<u32> {
+        if value == 0 {
+            return Err(invalid(format!("{} needs at least 1 {what}", act.name())));
+        }
+        Ok(value)
     };
     match act {
         Act::SendGift => i32_at(FIELDS, need(details.amount, "an amount")? as i64 * 1000),
@@ -190,7 +200,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, act: Act, details: &Details) -> GResul
         }
         Act::DemandUnlawfulTerritory => i32_at(FIELDS, province()?.0 as i64),
         Act::OfferCondottieri => {
-            let id = details.army.ok_or_else(|| crate::game::Fail { status: Status::InvalidArgument, message: "offer_condottieri needs an army".into() })?;
+            let id = details.army.ok_or_else(|| invalid("offer_condottieri needs an army".into()))?;
             let army = crate::game::world::own_land_army(m, ctx, id)?;
             i32_at(FIELDS, need(details.second, "a price")? as i64 * 1000)?;
             m.write(at + CONDOTTIERI_ARMY, &(army as u64).to_le_bytes())?;
@@ -201,12 +211,47 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, act: Act, details: &Details) -> GResul
             i32_at(FIELDS + 4, LOAN_INTEREST)
         }
         Act::AppointCardinal => Ok(m.write(at + FIELDS, &[details.flag.unwrap_or(false) as u8])?),
+        // Each press of the window's button spends a step of favors for a
+        // step of trust, while the other country owes the favors and its
+        // trust is not yet full.
         Act::TradeFavorsForTrust => {
-            i32_at(FIELDS, need(details.amount, "the favors")? as i64 * 1000)?;
-            i32_at(FIELDS + 4, need(details.second, "the trust")? as i64 * 1000)
+            let favors = at_least_one(need(details.amount, "the favors")?, "favor")? as i64;
+            let (step, trust_step) = (m.i32(m.at(TRUST_STEP_FAVORS))? as i64, m.i32(m.at(TRUST_STEP_TRUST))? as i64);
+            if step <= 0 || trust_step <= 0 {
+                return Err(format!("the favors for trust's step is {step} favors for {trust_step} trust").into());
+            }
+            if favors % step != 0 {
+                return Err(invalid(format!("{favors} favors: the window spends them {step} at a time")));
+            }
+            let other = crate::game::country(m, ctx, recipient)?;
+            let record = m.ptr(other + country_fields::RELATIONS)? + ctx.player.index() as usize * country_fields::RELATION_SIZE;
+            let owed = m.i32(record + country_fields::RELATION_FAVORS)? as i64 / 1000;
+            let trust = m.u8(record + country_fields::RELATION_TRUST)? as i64;
+            let most = most_trust_steps(owed, trust, step, trust_step);
+            if favors / step > most {
+                return Err(invalid(format!(
+                    "{favors} favors: {} owes {owed} and trusts the player {trust}, so the window lets the player spend at most {}",
+                    letters(recipient),
+                    most * step
+                )));
+            }
+            let bought = favors / step * trust_step;
+            if let Some(trust) = details.second.filter(|&t| t as i64 != bought) {
+                return Err(invalid(format!("{trust} trust: {favors} favors buy {bought}, {trust_step} for each {step}")));
+            }
+            i32_at(FIELDS, favors * 1000)?;
+            i32_at(FIELDS + 4, bought)
         }
         _ => Ok(()),
     }
+}
+
+/// How many presses of the trade favors for trust window's button the
+/// player has, `owed` favors owed and `trust` trust had, each press spending
+/// `step` favors for `trust_step` trust: the window stops at the favors
+/// owed, and at the press that fills the trust.
+fn most_trust_steps(owed: i64, trust: i64, step: i64, trust_step: i64) -> i64 {
+    (owed / step).min((trust_step - trust + FULL_TRUST) / trust_step).max(0)
 }
 
 /// Which action the one at `at` is.
@@ -349,5 +394,25 @@ pub fn points() -> Vec<Point> {
         Point::keep(THREAD_BREAKDOWN, "40 53 55 57 41 54 41 56 48 83 ec 30 4c 8b f1 48 8b da", "thread's factors"),
         Point::keep(0xef2a0ausize, "48 8d 0d 27 f2 0d 01 e8 0a c9 1e ff 48 8b f8 48 8b c8 e8 7f be 6b ff", "panel's factors").uses(&[BREAKDOWN_KEY]),
         Point::keep(BREAKDOWN_CLEAR, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b 71 08 48 8b f9 48 8b 19", "factors emptied"),
+        // The trade favors for trust window's button reading the favors and
+        // the trust of a press.
+        Point::keep(0xeebc39usize, "8b 1d 41 1f 45 01 48 89 6c 24 38 48 8b a9 c0 01 00 00 48 89 7c 24 40 8b 3d 26 1f 45 01", "favors for trust's step")
+            .uses(&[TRUST_STEP_TRUST, TRUST_STEP_FAVORS]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::most_trust_steps;
+
+    #[test]
+    fn the_favors_for_trust_window_stops_at_the_favors_owed_and_full_trust() {
+        // 10 favors for 5 trust a press, as the game's defines have it.
+        assert_eq!(most_trust_steps(50, 50, 10, 5), 5);
+        assert_eq!(most_trust_steps(200, 50, 10, 5), 11);
+        assert_eq!(most_trust_steps(200, 98, 10, 5), 1);
+        assert_eq!(most_trust_steps(200, 100, 10, 5), 1);
+        assert_eq!(most_trust_steps(9, 0, 10, 5), 0);
+        assert_eq!(most_trust_steps(-20, 0, 10, 5), 0);
+    }
 }
