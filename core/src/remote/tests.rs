@@ -1147,6 +1147,26 @@ fn a_request_sent_in_one_session_never_runs_in_the_next() {
 }
 
 #[test]
+fn a_request_sent_once_its_session_ended_belongs_to_the_next() {
+    use eu4_harmony_remote::events::SessionEnd;
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    engine.enter(2);
+    let old = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    // An in-process return: the session ends, and no save is read after it.
+    engine.session_ended(SessionEnd::Return);
+    // Sent while a new game is set up, it waits for that game.
+    let new = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert!(answer(&old).is_null() && answer(&new).is_null());
+    engine.enter(3);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(error("session_changed")(&answer(&old)), "{}", answer(&old));
+    assert_eq!(answer(&new), ok(Value::Null));
+    assert_eq!(game.calls, [format!("stop {ARMY}")]);
+}
+
+#[test]
 fn events_say_which_process_numbered_them() {
     let engine = Engine::new(remember);
     engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);

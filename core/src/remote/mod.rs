@@ -191,6 +191,15 @@ impl Engine {
         self.session.store(0, Ordering::Relaxed);
     }
 
+    /// The session going on ends, for `reason`: kept as an event, and, as at
+    /// a load, the requests sent from now on belong to the session that
+    /// comes next, also when no save is read for it (an in-process return,
+    /// then a new game).
+    pub fn session_ended(&self, reason: eu4_harmony_remote::events::SessionEnd) {
+        self.record([eu4_harmony_remote::events::Event::SessionEnded { reason }]);
+        self.leave();
+    }
+
     /// Keeps what happened, for remote clients to read: numbered in order
     /// as the engine next runs, so also from inside a request it runs.
     pub fn record(&self, happened: impl IntoIterator<Item = eu4_harmony_remote::events::Event>) {
@@ -455,13 +464,13 @@ pub fn battle_event(battle: &game::events::Battle) -> eu4_harmony_remote::events
 /// The session is being left, for `end`, as extensions hear it.
 pub(crate) fn session_ended(end: crate::sessions::End) {
     use crate::sessions::End;
-    use eu4_harmony_remote::events::{Event, SessionEnd};
+    use eu4_harmony_remote::events::SessionEnd;
     let reason = match end {
         End::Return => SessionEnd::Return,
         End::Load => SessionEnd::Load,
         End::NewGame => SessionEnd::NewGame,
     };
-    ENGINE.record([Event::SessionEnded { reason }]);
+    ENGINE.session_ended(reason);
 }
 
 /// At a game's safe frame: keeps what extensions just heard, then runs.
