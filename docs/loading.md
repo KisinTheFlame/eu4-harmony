@@ -21,7 +21,7 @@ Status: built (2026-11-05), in one pull request: L1 to L3; the faster inflate se
 
 ### L1 Music kept from one start to the next
 
-For each music asset the game reads the whole file, opens it with Vorbis and keeps four numbers in its sound: the channels, the rate, the length in samples and the duration in nanoseconds (research/loading.md); the rest it lets go, and when the music plays the game opens the file again as a stream and takes the four numbers again. The DLC's music is 3 GB of zips that every start inflated for those numbers.
+For each music asset the game reads the whole file, opens it with Vorbis and keeps four numbers in its sound: the channels, the rate, the length in samples and the duration in nanoseconds; the rest it lets go. Of the four, only the duration is read before the song plays: the songs' list, made with the databases, keeps each song's length in minutes and seconds for the music player; a song that plays is opened again as a stream, which takes the four numbers anew (research/loading.md, watched in the game). The DLC's music is 3 GB of zips that every start inflated for those numbers.
 
 - Built (`loading::music`): where the music is added (`0x16a4c62`), the framework fills the four numbers from what it kept, by the file's name and the place PhysFS reads it from (its real directory, a zip or a folder) and that place's size and time, and the game's read whole does not run; for a file it has not kept, or whose place changed, the read runs and the numbers are kept, in `eu4-harmony\music.txt` in the user folder.
 - Shown: a developer build's test switch `check-loading` has the game read every file too and compares its numbers with the ones kept: the same for the 270 files of the player's playset.
@@ -43,7 +43,7 @@ A node's add (`0x7e7cd0`) walks the node's whole list for the child before it ad
 ### Set aside
 
 - **A faster inflate**: PhysFS's `tinfl_decompress`, replaced by miniz_oxide's port of the same function in the game's own decompressor memory, about half again as fast. With the music kept (L1) what is left to inflate at startup is the textures and meshes, a second or two and off the main thread, so the owner set it aside (2026-11-05); zlib-rs, faster still, would need its own memory for each open file and the game's frees to let it go.
-- **Loading music only when it plays**: not needed: the game takes the four numbers again when it plays, and L1 gives them without the read.
+- **Loading music only when it plays**: the songs' list needs every song's duration as the databases load, before any plays; L1 gives the same durations without the read, and the play takes the four numbers again as it always did.
 
 ## How it fits together
 
