@@ -56,6 +56,30 @@ Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1
 - "Faster time" was 16% faster there, more than the 10% of 1620. Earlier runs of the same save, resumed only every 2 s, came out the other way round, which was not explained; they are left out.
 - The thread compressed each ironman save of 55 MB to 6.1 MB in 1.5 s; the game without the framework wrote the same game at 7.75 MB.
 
+## A save's stop (2026-11-05)
+
+[game-speed.md](game-speed.md)'s S8 on its branch: Austria-37_4-1 (an ironman save of 1724, the player's playset), the same machine, loaded three times with `menu.load`, which saves it as it is loaded and as it is left; the stop is the framework's log line from the start of the local save to its end, five saves each way, in one developer build with the test switches, `game-writes-saves` on for "before" ([prototype-log.md](prototype-log.md)).
+
+| | The game's code | The framework's |
+| --- | --- | --- |
+| A local ironman save of 55 MB stops the game, ms | 986, 1116, 1233, 1256, 1362 | 308, 431, 437, 438, 447 |
+| Of that, the provinces and the countries (eight threads), ms | | 80 to 125 |
+| Of that, the zip's three entries, ms | about 250 | 45 |
+
+- What was left of the 310 ms save: the game state's other sections 66 ms, its save checksum 44, the zip 45, its bytes into the file 25, and 41 that was the wait for the game's update thread ([research/saves.md](research/saves.md), "Where a save's zip goes").
+- The pool of seven threads waits from startup and costs nothing between saves; while a save is written, the runs' buffers hold the two loops' bytes once more, about 60 MB in that save.
+
+Then the game state's other sections written while the pool writes the loops, the save checksum's sum and the zip's CRC on the pool, and the update thread woken (S8, the same branch). The same save and way, measured both ways back to back while other builds on the machine held its processor at 100% the whole time, so the numbers are of that machine and not comparable with the ones above. The update thread was woken in both columns, `game-writes-saves` not yet turning it off; the wait for it with the game's code is from traced saves of the same runs before it was built:
+
+| | The game's code | The framework's |
+| --- | --- | --- |
+| A local ironman save of 55 MB stops the game, ms | 1149, 1195, 1211, 1219, 1312 | 284, 300, 301, 302 |
+| Of that, the save checksum of the game state, ms | 60 to 65 | 11 to 29 |
+| Of that, the wait for the update thread after the zip, ms | 40 to 96 | 0 to 2 |
+
+- The main thread waited 40 to 80 ms for the pool where the world has written its game state; the pool's threads took 170 to 190 ms for both loops under that load.
+- A plain save of 1444 (34 MB) stopped the game for 149 ms.
+
 ## The events (2026-11-05)
 
 What the events of [player-actions.md](player-actions.md) cost the game: `building_finished`, `battle`, `war_declared`, `peace_made`, `province_owner_changed`, `month` and `year`. `cargo xtask scenario perf` on the player build of `claude/player-actions-fu-cost-view-4c4534`: a new game as Ming, 120 s at speed 5 from 1444.11.11, about 5.4 years; with `--perf.events` naming the seven kinds, a remote client reads events of those kinds before the game runs, so they are worked out from then on, and counts what was heard at the end. The framework counts the time each piece of that work takes and logs it when the session ends (`event costs:`, [`core/src/game/event_costs.rs`](../core/src/game/event_costs.rs)). The machine was the one under [Machine](#machine), busy with other sessions' builds.
