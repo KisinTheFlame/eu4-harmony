@@ -598,7 +598,10 @@ fn status() -> Result<()> {
     for (i, w) in waiting.iter().enumerate() {
         println!("waiting {}: {}{}", i + 1, w.owner, if w.player { " (the player)" } else { "" });
     }
-    println!("eu4.exe running: {running}");
+    match eu4_harmony_client::game_running() {
+        Ok(running) => println!("eu4.exe running: {running}"),
+        Err(e) => println!("eu4.exe running: cannot tell, so it counts as running ({e})"),
+    }
     let claims = base()?.join("claims");
     if let Ok(entries) = fs::read_dir(&claims) {
         for entry in entries.flatten() {
