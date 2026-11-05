@@ -603,6 +603,7 @@ fn every_capability_runs_at_a_game_frame() {
             ),
             // No game here, and so no heap of its own to walk.
             (Request::Memory(MemoryRequest::Pages { sites: None }), Box::new(error("unavailable"))),
+            (Request::Memory(MemoryRequest::Uncounted { sizes: None, samples: None }), Box::new(error("unavailable"))),
         ];
         cases.splice(0..0, memory);
     }

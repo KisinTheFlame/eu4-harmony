@@ -1,6 +1,6 @@
 # Leak finding plan
 
-Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day, M6 on 2026-11-05 ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
@@ -114,6 +114,14 @@ About half of what a round adds to the private bytes is free pages the game's he
 `memory.pages`, with the census built in, walks the game's heap page by page (`HeapWalk` under the heap's lock, which lists the low-fragmentation heap's small blocks one by one and not its free ones): each committed page, the bytes the busy blocks on it use, and so the pages no block is on and the free bytes of the others. A page's free bytes fall to the blocks on it alike, and through the census to their sites; the blocks the census does not count, the framework's own and the census's among them, are "not counted". It answers the totals, the pages in use by how full they are, the free bytes the leftovers keep, and the sites that keep the most.
 
 The walk holds the heap, and so the game, for seconds, and must not allocate from it: what it fills is allocated before. A leak run asks after its last round, with the census. What the census holds of its own is in the same heap and keeps pages too, so the figures are those of a game with the census; which sites keep the most is what they are for.
+
+### What the census does not count (M6)
+
+The memory account's game heap is every block of the process's default heap but the framework's; the census counts only those the game's C runtime allocated after the framework started. What grows in the heap and not in the census is other modules': Direct3D's, the graphics driver's, the libraries the game is linked with, and what Windows allocates for them.
+
+`memory.uncounted`, with the census built in, walks the heap as `memory.pages` does and keeps the busy blocks the census has no record of, leaving out the walk's own buffers. Each ask marks them by start and size; the next gives, size by size, how many more there are than at the mark and how many were made since, the sizes that grew the most first, with samples of the blocks made since: their first 64 bytes, and the module and offset of each word that points into a loaded module. A block's first words are often a vtable or its owner, which say whose it is.
+
+`leak` marks after its second round, or its first when it plays one, and compares after its last; its sections give what the census does not count at both, against the game's heap, and the sizes that grew.
 ## How it fits together
 
 - `remote` declares the `memory` group behind its `dev-memory` feature, which the core's `dev-memory` turns on, and `dev-heap-census` with it. A workspace build of the developer build gives the command line tool the same group.
@@ -151,3 +159,7 @@ The `dev-memory` feature, `memory` without the census, and the leak run's split 
 ### M5 What keeps the free pages committed
 
 `memory.pages`, the walk of the game's heap and what its pages' free bytes fall to, and the leak run's table of it.
+
+### M6 What the census does not count
+
+`memory.uncounted`, the blocks of the game's heap no site has, against the last ask, and the `leak` scenario's section on them.

@@ -59,6 +59,19 @@ group! {
         /// How many sites to give; 40 when left out.
         sites: Option<u32>,
     } -> Pages, "committed, the bytes of the heap's committed pages; used, what its busy blocks use of them; free_pages, the pages no block is on; free_on_used_pages, the free bytes of the others; by_leftovers, the part of those the census's leftovers keep; by_use, the pages in use by how full, in eighths; sites, by site, the most free bytes first: site and function (or \"not counted\" for blocks the census does not count, the framework's own among them), blocks, bytes, pinned (the free bytes that fall to them) and leftovers (how many of the blocks are); complete, false when the heap had more entries than were read; took_ms";
+    /// The game's heap's blocks the census does not count: other modules'
+    /// (Direct3D's, the driver's, the libraries' the game is linked with),
+    /// the game's own made before the framework started or not through its
+    /// C runtime, and the framework's. Each ask marks them; the next gives,
+    /// size by size, how many more there are, and samples of those made
+    /// since: their first bytes, and the modules their first words point
+    /// into. It holds the heap, and so the game, for seconds.
+    remote_anywhere Uncounted "uncounted" {
+        /// How many sizes to give; 20 when left out.
+        sizes: Option<u32>,
+        /// How many samples of each size; 3 when left out.
+        samples: Option<u32>,
+    } -> Uncounted, "blocks and bytes, every block the census does not count, with the heap's overhead; marked, whether an earlier ask marked them; made_blocks and made_bytes, those made since the mark; sizes, by size, the most bytes grown since the mark first (or the most bytes, unmarked): size, blocks, grew (how many more than at the mark), made (how many of them were made since), and samples of those made since: address, hex and text (the first 64 bytes), points (what their words point into, module+offset); complete, false when the heap had more entries than were read; took_ms";
 }
 
 /// The quarantine of what the framework's repairs let go.
@@ -309,6 +322,51 @@ pub struct Pages {
     /// False when the heap had more entries than were read.
     pub complete: bool,
     pub took_ms: u64,
+}
+
+/// The game's heap's blocks the census does not count.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Uncounted {
+    /// Every block the census does not count, with the heap's overhead.
+    pub blocks: u64,
+    pub bytes: u64,
+    /// Whether an earlier ask marked the blocks, which the rest compares
+    /// with.
+    pub marked: bool,
+    /// The blocks made since the mark.
+    pub made_blocks: u64,
+    pub made_bytes: u64,
+    /// By size, the most bytes grown since the mark first.
+    pub sizes: Vec<UncountedSize>,
+    /// False when the heap had more entries than were read.
+    pub complete: bool,
+    pub took_ms: u64,
+}
+
+/// The blocks of one size the census does not count.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct UncountedSize {
+    /// With the heap's overhead.
+    pub size: u64,
+    pub blocks: u64,
+    /// How many more than at the mark.
+    pub grew: i64,
+    /// How many of them were made since the mark.
+    pub made: u64,
+    pub samples: Vec<UncountedSample>,
+}
+
+/// A block made since the mark.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct UncountedSample {
+    pub address: String,
+    /// Its first 64 bytes, in hex, and as text, with a dot for each byte
+    /// that is not printable.
+    pub hex: String,
+    pub text: String,
+    /// What its first words point into, as module+offset, such as
+    /// "d3d9.dll+0x1a2b0".
+    pub points: Vec<String>,
 }
 
 /// What a site's blocks keep committed.
