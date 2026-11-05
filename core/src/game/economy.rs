@@ -63,7 +63,10 @@ pub fn points() -> Vec<Point> {
 }
 
 /// The ducats a bank loan of the country at `country` brings, as the view
-/// offers it.
+/// offers it and the loan command reckons them when it runs: the treasury
+/// gets them and the loan is of them. The estimated income behind it changes
+/// at once with what changes the income (developing a province, granting a
+/// privilege).
 fn loan_amount(m: &Memory, country: usize) -> GResult<i32> {
     let size = (m.u8(country + LOAN_SIZE)? as i32).saturating_mul(m.i32(country + ESTIMATED_LOAN)?);
     Ok(size.max(1000) / 1000)
