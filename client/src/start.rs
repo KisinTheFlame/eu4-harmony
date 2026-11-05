@@ -1,7 +1,8 @@
-//! `eu4-harmony start`: starts the game from its folder, hidden with
-//! `--hidden` (the framework's switch `-harmony_hidden`, docs/hidden-start.md),
-//! and returns once remote control says the main menu is up. Steam must be
-//! running, as for any start of the game.
+//! Starting the game from its folder, for `eu4-harmony start` and the claim
+//! of `cargo xtask game`: hidden or shown (the framework's switch
+//! `-harmony_hidden`, docs/hidden-start.md), returning once remote control
+//! says the main menu is up. Steam must be running, as for any start of the
+//! game.
 use crate::pipe;
 use crate::Result;
 use std::{
@@ -39,7 +40,7 @@ fn hidden_start_installed(game_dir: &Path) -> bool {
 /// menu; returns the game's process id. `log` is the framework's log, which
 /// says why when the game ends first.
 pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, wait: Duration) -> Result<u32> {
-    crate::backup::game_not_running()?;
+    crate::game_not_running()?;
     if hidden && !hidden_start_installed(game_dir) {
         return Err(format!(
             "the framework in {} has no hidden start: install a build that has it (cargo xtask install), or start the game shown",

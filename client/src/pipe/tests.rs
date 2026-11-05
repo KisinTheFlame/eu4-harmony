@@ -1,9 +1,11 @@
-//! The client against pipes of the tests' own, served by this test program,
-//! which stands in for the game.
+//! The client against pipes of the tests' own, served by the test program,
+//! which stands in for the game; the server is the tests' of the programs
+//! built on the client too (the `testing` feature).
 use super::*;
+#[cfg(test)]
+use std::sync::mpsc;
 use std::{
     io::{BufRead, BufReader},
-    sync::mpsc,
     thread::{self, JoinHandle},
 };
 use windows_sys::Win32::{
@@ -16,14 +18,14 @@ use windows_sys::Win32::{
     System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT},
 };
 
-pub(crate) const PLENTY: Duration = Duration::from_secs(10);
+pub const PLENTY: Duration = Duration::from_secs(10);
 
-pub(crate) fn pipe_name(test: &str) -> String {
+pub fn pipe_name(test: &str) -> String {
     format!(r"\\.\pipe\eu4-harmony-cli-test-{}-{test}", std::process::id())
 }
 
 /// The executable of this test program, the "game" serving the tests' pipes.
-pub(crate) fn this_program() -> String {
+pub fn this_program() -> String {
     std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().into_owned()
 }
 
@@ -52,7 +54,7 @@ fn instance(name: &str, sddl: Option<&str>) -> File {
 /// Serves one client on the pipe `name`, made before this returns: waits for
 /// it, reads its request line (empty when it sent none) and hands both to
 /// `then`.
-pub(crate) fn serve_one(name: &str, then: impl FnOnce(&File, String) + Send + 'static) -> JoinHandle<()> {
+pub fn serve_one(name: &str, then: impl FnOnce(&File, String) + Send + 'static) -> JoinHandle<()> {
     let pipe = instance(name, None);
     thread::spawn(move || {
         // Connected now, or before this waited for it, or come and gone
@@ -67,11 +69,12 @@ pub(crate) fn serve_one(name: &str, then: impl FnOnce(&File, String) + Send + 's
 }
 
 /// Writes `text` to the client.
-pub(crate) fn answer(pipe: &File, text: &str) {
+pub fn answer(pipe: &File, text: &str) {
     { pipe }.write_all(text.as_bytes()).unwrap();
 }
 
 /// Waits until the client has closed the pipe; how long that took.
+#[cfg(test)]
 fn client_gone(pipe: &File) -> Duration {
     let started = Instant::now();
     while started.elapsed() < PLENTY {
@@ -84,6 +87,7 @@ fn client_gone(pipe: &File) -> Duration {
     panic!("the client kept the pipe open");
 }
 
+#[cfg(test)]
 fn connect_to(name: &str) -> Client {
     connect(name, &this_program(), Instant::now() + PLENTY).unwrap_or_else(|e| panic!("{e}"))
 }
@@ -97,6 +101,42 @@ fn sends_a_request_and_reads_its_answer() {
     });
     let mut client = connect_to(&name);
     assert_eq!(client.ask("{\"capability\":\"session\"}", None).unwrap(), "{\"ok\":true,\"result\":1}");
+    served.join().unwrap();
+}
+
+/// A request of one group goes by its capability's full name, and its result
+/// comes back as its own type, or the game's refusal as an error.
+#[test]
+fn asks_a_group_s_request_for_its_typed_result() {
+    use eu4_harmony_remote::{menu, Code};
+    let name = pipe_name("typed");
+    let served = serve_one(&name, |pipe, line| {
+        assert_eq!(
+            line,
+            "{\"capability\":\"menu.load\",\"save\":\"a\"}
+"
+        );
+        answer(
+            pipe,
+            "{\"ok\":false,\"error\":{\"code\":\"not_found\",\"message\":\"no save a\"}}
+",
+        );
+    });
+    let mut client = connect_to(&name);
+    let refused = client.ask_for::<_, serde_json::Value>(&menu::MenuRequest::Load { save: "a".into() }, None).unwrap().unwrap_err();
+    assert_eq!((refused.code, refused.message.as_str()), (Code::NotFound, "no save a"));
+    served.join().unwrap();
+
+    let served = serve_one(&name, |pipe, _| {
+        answer(
+            pipe,
+            "{\"ok\":true,\"result\":{\"process\":7,\"place\":\"main_menu\"}}
+",
+        )
+    });
+    let mut client = connect_to(&name);
+    let menu: menu::Menu = client.ask_for(&menu::MenuRequest::State {}, None).unwrap().unwrap();
+    assert_eq!(menu.place, menu::Place::MainMenu);
     served.join().unwrap();
 }
 

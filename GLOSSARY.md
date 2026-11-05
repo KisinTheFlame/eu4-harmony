@@ -85,8 +85,12 @@ The heap census's span of time: one ends at every world reset, and when remote c
 A block of the game's heap still live two generations after its own: it outlived two resets of the world it was made in.
 _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, session after session)
 
+**Scenario**:
+A course of play in the real game on one build, driven through remote control from the main menu, with the checks that decide whether it passed and the figures it measures; several are played in turn, within one claim.
+_Avoid_: integration test, game test (a test is a mod's, against the fake game)
+
 **Leak run**:
-Rounds of sessions that `cargo xtask leak-run` plays on a developer build with the heap census, and the report it writes of what the game's memory kept.
+The scenario that plays rounds of sessions on a developer build with the heap census, and the report it writes of what the game's memory kept.
 
 **Quarantine**:
 A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/leak-finding.md).

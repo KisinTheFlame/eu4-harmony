@@ -1,5 +1,6 @@
-//! Countries.
-use crate::CountryTag;
+//! Countries: one read of a country, as the player sees it at a glance, and
+//! its budget, as the economy view shows it.
+use crate::{CountryTag, Date};
 use serde::{Deserialize, Serialize};
 
 group! {
@@ -15,20 +16,33 @@ group! {
         other: CountryTag,
     } -> bool, "whether they are hostile";
     /// One read of a country: its treasury, manpower, stability, prestige,
-    /// monarch points, the wars it takes part in, and its allies, subjects
-    /// (each with its subject type), overlord and rivals.
+    /// monarch points, the wars it takes part in, its allies, subjects (each
+    /// with its subject type), overlord and rivals, its technology, the idea
+    /// groups it has taken, its governing capacity, inflation, mercantilism,
+    /// loans and the rebel factions against it. In the player's view what
+    /// the game's panels do not show of another country is null: its
+    /// treasury, monarch points, governing capacity, inflation, mercantilism,
+    /// loans and rebels.
     game Get "get" {
         /// The country.
         country: CountryTag,
-    } -> Country, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first) and relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state)";
+    } -> Box<Country>, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first), relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state), technology (adm, dip, mil), ideas (each an idea group's key, how many of its ideas are taken, and whether it is the national ideas), governing_capacity (used, max), inflation and mercantilism (percent), loans (count, ducats) and rebels (each its kind, the rebel type's key, its name and progress in percent); in the player's view the fields another country's panels do not show are null";
+    /// A country's budget as the economy view shows it: this month's income
+    /// and expenses by category, and its loans. In the player's view another
+    /// country's are null.
+    game Budget "budget" {
+        /// The country.
+        country: CountryTag,
+    } -> Budget, "the budget: country, income and expenses (each a category, the game's key for it such as INCOMETAX, its name as the view shows it, and ducats; null in the player's view for another country), and loans (each its lender, null for none, ducats, interest in percent and the date it falls due; null likewise)";
 }
 
 /// A country at one moment.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
 pub struct Country {
     pub tag: CountryTag,
-    /// Ducats, to the thousandth.
-    pub treasury: f64,
+    /// Ducats, to the thousandth; null in the player's view for another
+    /// country.
+    pub treasury: Option<f64>,
     /// Men.
     pub manpower: i32,
     pub max_manpower: i32,
@@ -36,13 +50,109 @@ pub struct Country {
     pub stability: f64,
     /// From -100 to 100.
     pub prestige: f64,
-    /// Monarch points.
-    pub power: Power,
+    /// Monarch points; null in the player's view for another country.
+    pub power: Option<Power>,
     /// The wars it takes part in, on either side.
     pub wars: Vec<War>,
     /// Its allies, its subjects, its overlord and the countries it rivals,
     /// in that order.
     pub relations: Vec<Relation>,
+    /// Its technology levels.
+    pub technology: Technology,
+    /// The idea groups it has taken, its national ideas first.
+    pub ideas: Vec<IdeaGroup>,
+    /// Null in the player's view for another country, as the next four.
+    pub governing_capacity: Option<GoverningCapacity>,
+    /// Percent.
+    pub inflation: Option<f64>,
+    /// Percent.
+    pub mercantilism: Option<f64>,
+    pub loans: Option<Loans>,
+    /// The rebel factions against it, as the stability page lists them.
+    pub rebels: Option<Vec<Rebels>>,
+}
+
+/// Technology levels of each kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Technology {
+    pub adm: i32,
+    pub dip: i32,
+    pub mil: i32,
+}
+
+/// An idea group a country has taken.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct IdeaGroup {
+    /// Its content key, such as `quality_ideas`, or a national ideas' key
+    /// such as `FRA_ideas`.
+    pub group: String,
+    /// How many of its ideas are taken.
+    pub ideas: i32,
+    /// It is the country's national ideas, which take no slot.
+    pub national: bool,
+}
+
+/// Governing capacity, as the government view shows it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct GoverningCapacity {
+    pub used: f64,
+    pub max: f64,
+}
+
+/// What a country owes, summed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Loans {
+    /// How many loans.
+    pub count: i32,
+    /// Ducats owed, all loans together.
+    pub ducats: f64,
+}
+
+/// A rebel faction against a country.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Rebels {
+    /// The key of its rebel type, such as `nationalist_rebels`.
+    pub kind: String,
+    /// Its name, as the game shows it.
+    pub name: String,
+    /// Its progress towards rising, in percent.
+    pub progress: f64,
+}
+
+/// A country's budget.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Budget {
+    pub country: CountryTag,
+    /// This month's income by category, in the view's order; null in the
+    /// player's view for another country, as the expenses and the loans.
+    pub income: Option<Vec<Entry>>,
+    pub expenses: Option<Vec<Entry>>,
+    pub loans: Option<Vec<Loan>>,
+}
+
+/// One line of the budget.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Entry {
+    /// The game's key for it, the key of its name in the localisation, such
+    /// as `INCOMETAX` or `EXPENSEARMY`.
+    pub category: String,
+    /// Its name, as the view shows it, in the player language.
+    pub name: String,
+    /// Ducats this month.
+    pub ducats: f64,
+}
+
+/// A loan a country has taken.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
+pub struct Loan {
+    /// Who lent it; null for the bank.
+    pub lender: Option<CountryTag>,
+    /// Ducats.
+    pub ducats: f64,
+    /// Percent a year.
+    pub interest: f64,
+    /// When it falls due.
+    pub due: Date,
 }
 
 /// Monarch points of each kind.

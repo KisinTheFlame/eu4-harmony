@@ -66,6 +66,30 @@ pub fn install(args: &Args) -> Result<()> {
         return Ok(());
     }
 
+    install_built(&root)
+}
+
+/// Builds the player's packages, with the core's `feature` for a developer
+/// build. Only they are built, so that this command's own program, which
+/// runs, is not built again.
+pub fn build(feature: Option<&str>) -> Result<()> {
+    let mut build = cargo();
+    build.args(["build", "--release", "--locked"]);
+    for package in PLAYER_PACKAGES {
+        build.args(["-p", package]);
+    }
+    if let Some(feature) = feature {
+        build.args(["--features", feature]);
+    }
+    run(build, "cargo build --release")
+}
+
+/// Copies the files as last built into the game folder `root`, with the
+/// game closed and within the claim.
+pub fn install_built(root: &Path) -> Result<()> {
+    let harmony = root.join("eu4-harmony");
+    let proxy = root.join("version.dll");
+    let backup = harmony.join("backup").join("version.dll");
     let out = built();
     for (name, _) in PLAYER_FILES {
         if !out.join(name).is_file() {
@@ -106,15 +130,8 @@ pub fn release(args: &Args) -> Result<()> {
     let out = std::path::absolute(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     let zip = PathBuf::from(format!("{}.zip", out.display()));
 
-    // The player's packages alone, with no features, so a developer build
-    // built last is never packed, and this command's own program, which
-    // runs, is not built again.
-    let mut build = cargo();
-    build.args(["build", "--release", "--locked"]);
-    for package in PLAYER_PACKAGES {
-        build.args(["-p", package]);
-    }
-    run(build, "cargo build --release")?;
+    // With no features, so a developer build built last is never packed.
+    build(None)?;
     let from = built();
     for (name, _) in PLAYER_FILES {
         if !from.join(name).is_file() {

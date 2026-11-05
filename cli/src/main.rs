@@ -6,14 +6,11 @@
 //! texts in `localisation/` and its own files in `data/`
 //! (ADR manifest-in-toml-layout-by-convention); game resources (`interface/`,
 //! `gfx/`, ...) sit next to them as in any Paradox mod.
-mod backup;
 mod check;
 mod fake;
 mod game;
-mod pipe;
 mod reload;
 mod skills;
-mod start;
 mod templates;
 mod test;
 mod types;
@@ -25,6 +22,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+
+use eu4_harmony_client::{backup, pipe, start};
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -391,13 +390,13 @@ fn cmd_link(args: &Args) -> Result<()> {
 
 fn cmd_backup(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony backup <new dir>".into()) };
-    backup::game_not_running()?;
+    eu4_harmony_client::game_not_running()?;
     backup::backup(&backup::user_folder(&user_dir(args)?)?, Path::new(dir))
 }
 
 fn cmd_restore(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony restore <dir>".into()) };
-    backup::game_not_running()?;
+    eu4_harmony_client::game_not_running()?;
     let (keep, keep_crashes) = (args.options.contains_key("keep"), args.options.contains_key("keep-crashes"));
     backup::restore(&backup::user_folder(&user_dir(args)?)?, Path::new(dir), keep, keep_crashes)
 }

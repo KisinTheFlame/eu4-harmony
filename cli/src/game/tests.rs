@@ -1,5 +1,5 @@
 use super::*;
-use crate::pipe::tests::{answer, pipe_name, serve_one, this_program};
+use eu4_harmony_client::pipe::tests::{answer, pipe_name, serve_one, this_program};
 use eu4_harmony_remote::{armies::ArmyRequest, events::EventsRequest, session::SessionRequest, ArmyId, ProvinceId};
 use serde_json::json;
 use std::io::Read as _;
@@ -43,7 +43,7 @@ fn temp(name: &str) -> PathBuf {
 
 #[test]
 fn arguments_by_name_or_in_order() {
-    let moved = Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) });
+    let moved = Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151), transports: None });
     for text in [
         "army.move --army 4294967377 --province 151",
         "army move --province 151 --army 4294967377",
@@ -91,7 +91,7 @@ fn a_wrong_command_line_says_why() {
         ("army.fly --army 1", "no capability army.fly"),
         ("--army 1 army.get", "name the capability before its arguments"),
         ("army.move 1", "army.move needs --province <province>: Where it should go."),
-        ("army.move 1 2 3", "\"3\" is one value too many: its arguments: --army <army> --province <province>"),
+        ("army.move 1 2 true 4", "\"4\" is one value too many: its arguments: --army <army> --province <province> [--transports [<boolean>]]"),
         ("army.move --army 1 --army 2 --province 3", "--army is given twice"),
         ("army.move --army 1 --speed 3", "army.move has no argument --speed"),
         ("army.move --army 1 --province", "--province needs a value, a province such as 151"),
@@ -168,7 +168,7 @@ fn after_a_double_dash_every_word_is_a_value() {
 
     // The command line's own options before it still count, and nothing after it does.
     let a = ask("--compact army move --timeout 2 -- 4294967377 151");
-    assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) }));
+    assert_eq!(a.request, Request::Army(ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151), transports: None }));
     assert_eq!((a.compact, a.timeout), (true, Some(Duration::from_secs(2))));
     assert_eq!(ask("events -- 3").request, Request::Events(EventsRequest::Read { since: Some(3), wait_ms: None, process: None, kinds: None, countries: None }));
     assert!(wrong("session.get -- --compact").contains("session.get takes no arguments"));

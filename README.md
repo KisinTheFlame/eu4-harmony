@@ -16,8 +16,8 @@ English | [简体中文](README.zh-CN.md)
 - **A faster game, the same game.** Smoother and about a tenth faster at top speed, with nothing about the game itself changed.
 - **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions no longer risk a crash, and loading a save no longer costs you achievements.
 - **Achievements your way.** Optionally earn them outside ironman, or with mods.
-- **Mods that do more.** Mods can read the game, give orders and add buttons, with a few lines of Lua.
-- **Let an AI play.** A program can play the game for you, even hidden in the background.
+- **Mods that do more.** Mods can read the game, add buttons and do what you do in its panels (build, develop, research, take ideas and reforms, trade, wage war and make peace, every diplomatic action), each with the game's own reasons when it is not allowed, with a few lines of Lua.
+- **Let an AI play.** A program can play the whole game for you, as you would, even hidden in the background.
 
 ## Installing (players)
 

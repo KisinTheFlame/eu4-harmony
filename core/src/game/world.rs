@@ -389,6 +389,14 @@ pub fn own_land_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     }
 }
 
+/// One of the player's armies or fleets, by its ID.
+pub fn own_unit(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
+    match unit_by_id(m, id)? {
+        Some(unit) if m.u64(unit + unit::OWNER)? == ctx.player.0 => Ok(unit),
+        _ => Err(eu4_harmony_checks::armies::not_own(id).into()),
+    }
+}
+
 /// Province ID of a unit's location.
 pub fn location(m: &Memory, army: usize) -> GResult<u32> {
     let p = m.ptr(army + unit::LOCATION)?;
@@ -421,8 +429,11 @@ pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<Army
     let land = m.ptr(army)? == m.at(classes::ARMY);
     let id = m.u64(army + unit::ID)?;
     let owner = Tag(m.u64(army + unit::OWNER)?);
+    // Of a fleet: where it is and its ships; what stops it moving is its
+    // move command's to check.
     if !land {
-        return Ok(Army { id, owner, ..Default::default() });
+        let ships = span(m.ptr(army + unit::REGIMENTS)?, m.ptr(army + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32;
+        return Ok(Army { id, owner, regiments: ships, province: location(m, army)?, in_battle: m.ptr(army + unit::BATTLE)? != 0, ..Default::default() });
     }
     let present = |at: usize| -> GResult<bool> { Ok(m.ptr(army + at)? != 0) };
     let vector = unit::CONTEXT_VECTOR;

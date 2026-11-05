@@ -24,7 +24,8 @@ pub enum RouteSource {
     OtherExtension,
 }
 
-/// A land army; a fleet has only its ID, owner and `land: false`.
+/// A land army, or a fleet, of which the ID, owner, `land: false`, its
+/// province, its ships (as `regiments`) and its route are read.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Army {
     /// Full 64-bit army ID; survives save and load.
@@ -72,7 +73,7 @@ impl Army {
 /// An own army with its route, as `caller` sees it.
 fn own(m: &Memory, caller: Caller, address: usize, id: u64) -> GResult<Army> {
     let mut army = world::army_record(m, &super::special_countries(m)?, address)?;
-    if army.land {
+    {
         let path = orders::read_path(m, address + unit::PATH)?;
         army.route_len = path.ids.len() as u32;
         army.destination = path.ids.last().copied();
@@ -112,11 +113,11 @@ pub fn in_province(caller: Caller, province: u32) -> GResult<Vec<Army>> {
     Ok(world::province_armies(m, &ctx, address, view)?.into_iter().map(|(a, _)| a).collect())
 }
 
-/// Provinces on the current route of an own land army, in order.
+/// Provinces on the current route of an own army or fleet, in order.
 pub fn route(_: Caller, id: u64) -> GResult<Vec<u32>> {
     let m = game()?;
     let ctx = context(m)?;
-    let army = world::own_land_army(m, &ctx, id)?;
+    let army = world::own_unit(m, &ctx, id)?;
     Ok(orders::read_path(m, army + unit::PATH)?.ids)
 }
 
@@ -188,18 +189,24 @@ pub fn can_step(caller: Caller, id: u64, from: u32, to: u32) -> GResult<bool> {
 pub fn find_route(caller: Caller, id: u64, goal: u32) -> GResult<Vec<u32>> {
     let m = game()?;
     let ctx = context(m)?;
-    let army = world::own_land_army(m, &ctx, id)?;
+    let army = world::own_unit(m, &ctx, id)?;
     with_state(|s| s.orders.find_route(m, &ctx, &mut s.geography, army, goal, caller))
 }
 
-/// Orders an own land army along the game's route to `goal`. Done means the
-/// route is installed, not that the army has arrived. An extension's order
-/// is [`Status::NotReady`] while the game is paused; remote control's is the
-/// player's, given while the game is paused as the player gives one.
-pub fn move_to(caller: Caller, id: u64, goal: u32) -> GResult<()> {
+/// Orders an own army or fleet along the game's route to `goal`. Done means
+/// the route is installed, not that the army has arrived. An extension's
+/// order is [`Status::NotReady`] while the game is paused; remote control's
+/// is the player's, given while the game is paused as the player gives one.
+/// With `transports`, an own land army is carried there by the player's
+/// fleets, as the player's automatic transport carries it.
+pub fn move_to(caller: Caller, id: u64, goal: u32, transports: bool) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
-    let army = world::own_land_army(m, &ctx, id)?;
+    if transports {
+        let army = world::own_land_army(m, &ctx, id)?;
+        return orders::transport(m, &ctx, army, id, goal);
+    }
+    let army = world::own_unit(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.move_army(m, &ctx, &mut s.geography, army, id, goal, caller))?;
     ordered.into_iter().for_each(events::raise);
     Ok(())

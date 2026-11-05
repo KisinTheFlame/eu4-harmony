@@ -7,9 +7,8 @@ mod claim;
 mod crash_dump;
 mod files;
 mod game;
-mod leak_run;
-mod perf_run;
 mod profile;
+mod scenario;
 
 use std::{
     collections::HashMap,
@@ -65,24 +64,19 @@ usage:
       Compares every dependency point's bytes with the game's eu4.exe, and
       checks that each observer forwards at least the arguments its function
       reads: the core's ignored tests, with EU4_GAME_DIR set.
-  cargo xtask perf-run --out <dir> --name <run> [--menu-only] [--game-dir <dir>]
-      Within the claim, measures one run of the game for docs/performance.md:
-      start to the main menu, memory, and unless --menu-only a new game as
-      Ming, CPU paused and at speed 5, and the dates before and after. It
-      starts the game hidden and goes through remote control only.
-  cargo xtask leak-run --out <dir> [<save> <save>] [--rounds 10] [--country FRA]
-                       [--days 30] [--sites 40] [--watch <n>] [--watch-after 3]
-                       [--quarantine] [--keep-game] [--game-dir <dir>]
-  cargo xtask leak-run --out <dir> --from-report
-      Within the claim, plays rounds of sessions on a developer build with the memory account,
-      or the heap census, through remote control, and writes report.json and
-      report.md into <dir>: what each round kept and where the game's memory
-      goes (docs/leak-finding.md). The saves are named as menu.saves lists
-      them, the two newest by default. --from-report writes report.md again
-      from the report.json there, with no game. With the census and
-      --quarantine, what the framework's repairs let go is kept instead of
-      freed, and the report says what it kept and every block written to
-      after a repair let it go; a run with it measures no growth.
+  cargo xtask scenario
+  cargo xtask scenario <name>... [--out <dir>] [--wait] [--owner <name>]
+                       [--game-dir <dir>] [--<name>.<parameter> <value>]...
+  cargo xtask scenario --from-report <dir>
+      Plays scenarios in the game, driven through remote control, and
+      writes report.json and report.md into <dir> (target\\scenarios\\<time>
+      by default): how each ended and what it found (docs/scenarios.md).
+      With no name it lists them, with their builds and parameters. It
+      needs Steam running, claims the game unless this checkout holds it
+      (busy, it waits in the queue with --wait), builds and installs each
+      build the scenarios need, starts the game hidden, and releases the
+      claim it made. --<name>.<parameter> changes a parameter for this run.
+      --from-report writes report.md again from the report.json there.
   cargo xtask profile <out> [--seconds 60] [--hz 50]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
       Samples the running game's main thread, its call stack at a steady
@@ -200,13 +194,7 @@ fn main() {
             "the disassembler",
         ),
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks"),
-        Some("perf-run") => Args::parse(rest, &["menu-only"], &["out", "name", "game-dir", "owner", "timeout"]).and_then(|a| perf_run::run(&a)),
-        Some("leak-run") => Args::parse(
-            rest,
-            &["keep-game", "from-report", "quarantine"],
-            &["out", "rounds", "country", "days", "sites", "watch", "watch-after", "game-dir", "owner", "timeout"],
-        )
-        .and_then(|a| leak_run::run(&a)),
+        Some("scenario") => scenario::run(rest),
         Some("profile") => Args::parse(rest, &["tree"], &["seconds", "hz", "root", "depth", "min"]).and_then(|a| profile::run(&a)),
         // Debugger commands are words of their own, which may start with --.
         Some("crash-dump") => crash_dump::run(rest),
