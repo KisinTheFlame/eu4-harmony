@@ -1227,15 +1227,19 @@ impl missionaries::Layer for Fake {
 
 /// The Ottomans have no colonist.
 impl colonists::Layer for Fake {
-    fn colonist_options(&mut self, province: u32) -> GResult<eu4_harmony_remote::colonists::ColonistOptions> {
+    fn colonist_options(&mut self, province: u32) -> GResult<Box<eu4_harmony_remote::colonists::ColonistOptions>> {
         a8_province(province)?;
-        Ok(eu4_harmony_remote::colonists::ColonistOptions {
+        Ok(Box::new(eu4_harmony_remote::colonists::ColonistOptions {
             province: eu4_harmony_remote::ProvinceId(province),
             working: false,
             size: None,
             send: a8_choice(false, "没有可用的殖民者"),
             recall: a8_choice(false, ""),
-        })
+            expel_from: Vec::new(),
+            growing: false,
+            start_growth: a8_choice(false, "没有可用的殖民者"),
+            stop_growth: a8_choice(false, ""),
+        }))
     }
 
     fn send_colonist(&mut self, province: u32) -> GResult<()> {
@@ -1246,6 +1250,20 @@ impl colonists::Layer for Fake {
     fn recall_colonist(&mut self, province: u32) -> GResult<()> {
         a8_province(province)?;
         Err(eu4_harmony_checks::envoys::none_there("colonist").into())
+    }
+
+    fn expel_minorities(&mut self, province: u32, from: u32) -> GResult<()> {
+        a8_province(province)?;
+        Err(eu4_harmony_checks::envoys::no_minority(from).into())
+    }
+
+    fn change_settlement_growth(&mut self, province: u32, start: bool) -> GResult<()> {
+        a8_province(province)?;
+        if start {
+            Err(eu4_harmony_checks::envoys::not_allowed("promote settlement growth there", &["没有可用的殖民者".into()]).into())
+        } else {
+            Err(eu4_harmony_checks::envoys::none_there("colonist promoting settlement growth").into())
+        }
     }
 }
 
@@ -1297,7 +1315,9 @@ impl centers_of_trade::Layer for Fake {
     }
 }
 
-/// The Ottomans have two merchants, one collecting in Constantinople's node.
+/// The Ottomans have two merchants, one collecting in Constantinople's node,
+/// where they follow the first trading policy and may not choose the second
+/// for now.
 impl merchants::Layer for Fake {
     fn merchants(&mut self) -> GResult<eu4_harmony_remote::merchants::Merchants> {
         use eu4_harmony_remote::merchants::{Merchants, Mission, Placed};
@@ -1338,6 +1358,31 @@ impl merchants::Layer for Fake {
     fn steer_to(&mut self, node: &str, to: &str) -> GResult<()> {
         self.merchant_options(node)?;
         Err(eu4_harmony_checks::envoys::unknown("trade node downstream", to).into())
+    }
+
+    fn trading_policies(&mut self, node: &str) -> GResult<eu4_harmony_remote::merchants::TradingPolicies> {
+        use eu4_harmony_remote::merchants::{TradingPolicies, TradingPolicy};
+        self.merchant_options(node)?;
+        let policy =
+            |key: &str, name: &str, current, reason: &str| TradingPolicy { policy: key.into(), name: name.into(), current, choice: a8_choice(false, reason) };
+        Ok(TradingPolicies {
+            node: node.into(),
+            name: "君士坦丁堡".into(),
+            current: Some("maximize_profit".into()),
+            policies: vec![
+                policy("maximize_profit", "利润最大化", true, ""),
+                policy("hostile_trading", "敌对贸易", false, "你需要等到1445年1月1日才能在此贸易节点中选择新的贸易政策。"),
+            ],
+        })
+    }
+
+    fn set_trading_policy(&mut self, node: &str, policy: &str) -> GResult<()> {
+        let offered = self.trading_policies(node)?.policies.into_iter().find(|p| p.policy == policy);
+        match offered {
+            None => Err(eu4_harmony_checks::envoys::unknown("trading policy", policy).into()),
+            Some(p) if p.current => Err(eu4_harmony_checks::envoys::policy_followed(policy).into()),
+            Some(p) => Err(eu4_harmony_checks::envoys::not_allowed("choose that trading policy there", &p.choice.reasons).into()),
+        }
     }
 }
 
