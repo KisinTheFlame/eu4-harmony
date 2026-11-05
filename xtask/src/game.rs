@@ -1,6 +1,6 @@
 //! The installed game: its folder, and its process.
 use crate::Result;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use windows_sys::Win32::{
     Foundation::CloseHandle,
     System::{
@@ -53,41 +53,58 @@ pub fn not_running() -> Result<()> {
     Ok(())
 }
 
-/// The installed command line tool, which asks the game through remote
-/// control.
-pub struct Client {
-    cli: PathBuf,
+/// Waits for `eu4.exe` to end, a minute at most.
+pub fn wait_closed() -> Result<()> {
+    for _ in 0..120 {
+        if !running() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    Err("eu4.exe did not end".into())
 }
 
-impl Client {
-    /// The tool installed in the game folder `game_dir`.
-    pub fn installed(game_dir: &Path) -> Result<Self> {
-        let cli = game_dir.join("eu4-harmony").join("eu4-harmony.exe");
-        if !cli.is_file() {
-            return Err(format!("no command line tool at {}: install a build with cargo xtask install", cli.display()));
+/// Whether Steam runs with a user logged in, as it must for the game to
+/// start: the process and the user Steam records in the registry, its
+/// process still running. The game is never started without it, and Steam
+/// never started by these commands: it is the player's, and may want them
+/// to log in or wait for an update.
+pub fn steam_ready() -> Result<()> {
+    use windows_sys::Win32::System::{
+        Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD},
+        Threading::{GetExitCodeProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+    let read = |name: &str| -> u32 {
+        let key: Vec<u16> = "Software\\Valve\\Steam\\ActiveProcess\0".encode_utf16().collect();
+        let name: Vec<u16> = name.encode_utf16().chain([0]).collect();
+        let (mut value, mut size) = (0u32, 4u32);
+        let read = unsafe {
+            RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), (&mut value as *mut u32).cast(), &mut size)
+        };
+        if read == 0 {
+            value
+        } else {
+            0
         }
-        Ok(Self { cli })
+    };
+    let process = read("pid");
+    let alive = process != 0
+        && unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process);
+            let mut code = 0;
+            let alive = !handle.is_null() && GetExitCodeProcess(handle, &mut code) != 0 && code == 259;
+            if !handle.is_null() {
+                CloseHandle(handle);
+            }
+            alive
+        };
+    if !alive {
+        return Err("Steam is not running: start it, logged in, and run this again".into());
     }
-
-    /// The answer, or what the game said instead.
-    pub fn ask(&self, words: &[&str]) -> Result<serde_json::Value> {
-        self.ask_within(words, 600)
+    if read("ActiveUser") == 0 {
+        return Err("Steam runs with no user logged in: log in, and run this again".into());
     }
-
-    pub fn ask_within(&self, words: &[&str], timeout: u32) -> Result<serde_json::Value> {
-        let output = std::process::Command::new(&self.cli)
-            .arg("game")
-            .args(words)
-            .args(["--compact", "--timeout", &timeout.to_string()])
-            .output()
-            .map_err(|e| format!("cannot run {}: {e}", self.cli.display()))?;
-        let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-        let text = text.trim();
-        if !output.status.success() {
-            return Err(format!("game {}: {text}", words.join(" ")));
-        }
-        serde_json::from_str(text).map_err(|e| format!("game {}: {e}: {text}", words.join(" ")))
-    }
+    Ok(())
 }
 
 /// Ends every running `eu4.exe` at once.

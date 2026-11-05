@@ -57,7 +57,7 @@ The record of who holds the game stays where and as it is (`%LOCALAPPDATA%\eu4-h
 
 ## How it fits together
 
-`cargo xtask game` is a module of `xtask/`, beside `install`: the record, the queue and the claim's folder; it calls the checkout's own `eu4-harmony backup`, `restore` and `start`. `perf-run` and `leak-run` take the claim's start instead of starting `eu4.exe` themselves, and need the claim; with vanilla gone, `perf-run` reaches the game through remote control only, not by clicking at fixed places of the screen. The skill is instructions only: when to claim, start, renew, keep what a run needs and release, and what each exit means.
+`cargo xtask game` is a module of `xtask/`, beside `install`: the record, the queue and the claim's folder; it backs up, restores and starts the game with the checkout's own `client/`, the library under `eu4-harmony backup`, `restore` and `start`. The scenarios' runner ([scenarios.md](scenarios.md)) claims, starts, renews and releases with the same functions, in its own process; with vanilla gone, the game is reached through remote control only, not by clicking at fixed places of the screen. The skill is instructions only: when to claim, start, renew, keep what a run needs and release, and what each exit means.
 
 Three things the runs showed, which the commands now take care of:
 
