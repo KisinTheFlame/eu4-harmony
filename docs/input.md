@@ -14,7 +14,7 @@ Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the
 
 - A position is `x`, `y` in pixels of the frame the game draws, from its top left corner: the frame `screenshot` answers `frame_width` and `frame_height` of.
 - Every capability with a position takes an optional `scale`, as `screenshot` does (1 to 100, percent of the frame): the position is then one in a screenshot taken at that scale, and the framework scales it up. So a client passes what it sees in the image it got.
-- A position outside the frame presented last is `invalid_argument`. Before the first frame, `not_ready`. An input whose frame has changed size by the time it is handed to the game (the resolution changed) is dropped and written to the framework log.
+- A position outside the frame presented last is `invalid_argument`. Before the first frame, `not_ready`. An input whose frame has changed size by the time it is handed to the game (the resolution changed) is dropped and written to the framework log; what it was handed over already and would have let go of later, a modifier or a button held down, is let go of in its place, one frame each.
 
 ### The capabilities
 

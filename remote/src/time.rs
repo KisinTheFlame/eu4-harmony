@@ -38,8 +38,8 @@ group! {
     /// window, when a question waits for the player's answer (also one
     /// waiting already: then time does not run at all), when another game
     /// is loaded or started, and when the game returns to the main menu
-    /// (eu4.exe starts again, and the answer comes just before the old
-    /// process goes). Stopped at the date, paused or for a question, it
+    /// (in this process, once the main menu is up; or eu4.exe starts again,
+    /// and the answer comes just before the old process goes). Stopped at the date, paused or for a question, it
     /// leaves the game paused as time.pause does, so that it stays paused
     /// until it is resumed, also once a window that holds it paused closes.
     /// The answer comes at a frame of the game's, however long the days take
@@ -80,7 +80,8 @@ pub enum Stop {
     Question,
     /// Another game was loaded or started.
     Session,
-    /// The game is returning to the main menu: eu4.exe starts again.
+    /// The game returned to the main menu in this process, or is returning
+    /// to it as eu4.exe starts again.
     MainMenu,
 }
 

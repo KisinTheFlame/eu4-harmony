@@ -256,7 +256,7 @@ fn detailed(request: DiplomacyRequest, game: &mut (impl countries::Layer + ?Size
         R::TradeFavorsForTrust { country, favors, trust } => (
             country,
             Act::TradeFavorsForTrust,
-            Details { amount: Some(favors), second: Some(trust), ..none },
+            Details { amount: Some(favors), second: trust, ..none },
             (|o| Answered::Diplomacy(DiplomacyAnswer::TradeFavorsForTrust(o))) as Answers,
         ),
         request => return Ok(panel_act(request).map(|(country, act, answers)| (country, act, none, answers))),

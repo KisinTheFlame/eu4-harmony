@@ -6,11 +6,11 @@
 //! An in-game load (GLOSSARY) is the game's own, `0x5d0580`, which every
 //! in-game load goes through: the load question's, the game console's and
 //! remote control's. The framework replaces it to take the steps around it.
-//! Extensions hear the session end; then, when the settings ask for it, the
-//! ironman exit save is written, and the load goes on only once that save
-//! was; the world reset inside the game's load never writes one of its own,
-//! which the game would write whatever came of it (ADR in-game-load-in-ironman,
-//! docs/research/main-menu.md).
+//! When the settings ask for it, the ironman exit save is written first;
+//! only once it was does the session end, extensions hearing it, and the
+//! load go on. The world reset inside the game's load never writes one of
+//! its own, which the game would write whatever came of it
+//! (ADR in-game-load-in-ironman, docs/research/main-menu.md).
 //!
 //! In ironman the game's load button is turned on, and its tooltip no
 //! longer says that ironman cannot load; when the ironman exit save comes
@@ -114,11 +114,13 @@ pub enum Destination {
 /// One step of leaving a session, in the order [`plan`] gives them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
-    /// The session ends, and everything that keeps something of it hears
-    /// why (`crate::sessions::ending`).
-    Ended(End),
-    /// The ironman exit save; leaving goes no further when it was not written.
+    /// The ironman exit save; leaving goes no further when it was not
+    /// written, and the session goes on.
     ExitSave,
+    /// The session ends, and everything that keeps something of it hears
+    /// why (`crate::sessions::ending`): after the exit save, once leaving is
+    /// certain.
+    Ended(End),
     /// The game's in-game load: it resets the world and reads the save.
     Load,
     /// The game's restart.
@@ -164,8 +166,11 @@ pub fn plan(to: Destination, ironman: bool, rules: Rules) -> Result<Vec<Step>, &
     };
     // Only an in-game load may leave an ironman session without its save: an undo.
     let exit_save = ironman && (to != Destination::Save || rules.save_ironman_before_load);
-    let mut steps = vec![Step::Ended(reason)];
-    steps.extend(exit_save.then_some(Step::ExitSave));
+    // The exit save first: when it fails the session goes on, so it is told
+    // it ended only once leaving is certain. Extensions' data reaches that
+    // save through `save_data`, which `on_session_ended` has no part in.
+    let mut steps: Vec<Step> = exit_save.then_some(Step::ExitSave).into_iter().collect();
+    steps.push(Step::Ended(reason));
     steps.extend_from_slice(last);
     Ok(steps)
 }
@@ -415,6 +420,20 @@ pub fn load_in_game(m: &Memory, name: &str) -> Result<(), String> {
 /// is an in-process one, or why the session stays.
 static RETURNING: Mutex<Option<Result<bool, String>>> = Mutex::new(None);
 
+/// Where the return the map manager's frame acts on leaves the session for:
+/// a new game when remote control asked for one from it (`menu.start`),
+/// which starts at the new main menu's first frame; the main menu
+/// otherwise. A new game needs the in-process return: with it turned off
+/// since the start was asked for, the game restarts, and the start is
+/// answered as the process ends.
+fn returning_to(new_game_asked: bool, rules: Rules) -> Destination {
+    if new_game_asked && rules.return_without_restart {
+        Destination::NewGame
+    } else {
+        Destination::MainMenu
+    }
+}
+
 /// In the map manager's frame, where it writes the ironman exit save as it
 /// returns to the main menu: the steps up to the restart it asks for next.
 extern "C" fn returning() {
@@ -422,7 +441,8 @@ extern "C" fn returning() {
         crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
         let m = crate::hooked_memory();
         let rules = Rules::now();
-        let decided = plan(Destination::MainMenu, ironman(&m), rules).map_err(String::from).and_then(|steps| {
+        let to = returning_to(super::new_game_asked(), rules);
+        let decided = plan(to, ironman(&m), rules).map_err(String::from).and_then(|steps| {
             for step in steps {
                 match step {
                     Step::Ended(end) => sessions::ending(end),
@@ -432,7 +452,7 @@ extern "C" fn returning() {
             }
             Ok(rules.return_without_restart)
         });
-        log!("leave: returning to the main menu: {decided:?}");
+        log!("leave: returning to the main menu{}: {decided:?}", if to == Destination::NewGame { " for a new game" } else { "" });
         *RETURNING.lock().unwrap_or_else(|e| e.into_inner()) = Some(decided);
     });
 }
@@ -679,25 +699,47 @@ mod tests {
     fn an_in_game_load_saves_an_ironman_session_first_unless_undoing() {
         let ended = Step::Ended(End::Load);
         assert_eq!(plan(Destination::Save, false, ALL), Ok(vec![ended, Step::Load]));
-        assert_eq!(plan(Destination::Save, true, ALL), Ok(vec![ended, Step::ExitSave, Step::Load]));
+        assert_eq!(plan(Destination::Save, true, ALL), Ok(vec![Step::ExitSave, ended, Step::Load]));
         assert_eq!(plan(Destination::Save, true, UNDO), Ok(vec![ended, Step::Load]));
         // Restarting has nothing to do with it.
-        assert_eq!(plan(Destination::Save, true, RESTART), Ok(vec![ended, Step::ExitSave, Step::Load]));
+        assert_eq!(plan(Destination::Save, true, RESTART), Ok(vec![Step::ExitSave, ended, Step::Load]));
     }
 
     #[test]
     fn returning_always_saves_an_ironman_session() {
         let ended = Step::Ended(End::Return);
         assert_eq!(plan(Destination::MainMenu, false, ALL), Ok(vec![ended, Step::Return]));
-        assert_eq!(plan(Destination::MainMenu, true, UNDO), Ok(vec![ended, Step::ExitSave, Step::Return]));
-        assert_eq!(plan(Destination::MainMenu, true, RESTART), Ok(vec![ended, Step::ExitSave, Step::Restart]));
+        assert_eq!(plan(Destination::MainMenu, true, UNDO), Ok(vec![Step::ExitSave, ended, Step::Return]));
+        assert_eq!(plan(Destination::MainMenu, true, RESTART), Ok(vec![Step::ExitSave, ended, Step::Restart]));
     }
 
     #[test]
     fn a_new_game_from_a_session_returns_first_and_needs_no_restart() {
         let ended = Step::Ended(End::NewGame);
-        assert_eq!(plan(Destination::NewGame, true, UNDO), Ok(vec![ended, Step::ExitSave, Step::Return, Step::Start]));
+        assert_eq!(plan(Destination::NewGame, true, UNDO), Ok(vec![Step::ExitSave, ended, Step::Return, Step::Start]));
         assert_eq!(plan(Destination::NewGame, false, ALL), Ok(vec![ended, Step::Return, Step::Start]));
         assert!(plan(Destination::NewGame, false, RESTART).is_err());
+    }
+
+    #[test]
+    fn a_return_for_a_new_game_ends_the_session_for_the_new_game() {
+        assert_eq!(returning_to(true, ALL), Destination::NewGame);
+        assert_eq!(plan(returning_to(true, ALL), false, ALL), Ok(vec![Step::Ended(End::NewGame), Step::Return, Step::Start]));
+        assert_eq!(returning_to(false, ALL), Destination::MainMenu);
+        // Turned off since the start was asked for: the game restarts, and
+        // the start is answered as the process ends.
+        assert_eq!(returning_to(true, RESTART), Destination::MainMenu);
+    }
+
+    #[test]
+    fn the_session_ends_only_once_its_ironman_exit_save_was_written() {
+        // A failed exit save stops leaving where it is: the session must not
+        // have been told it ended, as it goes on.
+        for to in [Destination::Save, Destination::MainMenu, Destination::NewGame] {
+            let steps = plan(to, true, ALL).unwrap();
+            let save = steps.iter().position(|s| *s == Step::ExitSave).unwrap();
+            let ended = steps.iter().position(|s| matches!(s, Step::Ended(_))).unwrap();
+            assert!(save < ended, "{to:?}: {steps:?}");
+        }
     }
 }

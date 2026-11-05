@@ -93,7 +93,7 @@ Where to learn more:
 
 - `eu4-harmony wiki`: every capability with its arguments and results, the handlers and globals (`wiki lua`), the manifest (`wiki manifest`). It needs no game.
 - `eu4-harmony skills`: step-by-step guides for each kind of work (`skills mod` for making a mod, `skills ui`, `skills testing`, …), written for coding agents and readable by anyone.
-- [docs/lua-extensions.md](docs/lua-extensions.md): how extensions work, with errors, the time limit and save data.
+- [docs/lua-extensions.md](docs/lua-extensions.md): how extensions work, with errors, the time and memory limits and save data.
 
 ## Remote control
 

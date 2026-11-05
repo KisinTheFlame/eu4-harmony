@@ -372,7 +372,9 @@ fn loans_of(m: &Memory, ctx: &Ctx, c: usize) -> GResult<Vec<Loan>> {
         }
         let l = m.ptr(node + list::ITEM)?;
         let lender = Tag(m.u64(l + loan::LENDER)?);
-        let lender = if lender.valid() && lender.letters() != *b"---" { Some(CountryTag(checked(m, ctx, vec![lender])?[0].letters())) } else { None };
+        // A lender that is no country now, as one gone since, leaves the loan
+        // with none rather than the whole read failing.
+        let lender = (lender.normal() && country(m, ctx, lender).is_ok()).then(|| CountryTag(lender.letters()));
         out.push(Loan { lender, ducats: m.i32(l + loan::AMOUNT)? as f64, interest: thousandths(m.i32(l + loan::INTEREST)?), due: Date(m.i32(l + loan::DUE)?) });
         node = m.ptr(node + list::NEXT)?;
     }

@@ -1188,6 +1188,26 @@ fn a_request_sent_in_one_session_never_runs_in_the_next() {
 }
 
 #[test]
+fn a_request_sent_once_its_session_ended_belongs_to_the_next() {
+    use eu4_harmony_remote::events::SessionEnd;
+    let engine = Engine::new(remember);
+    let mut game = Fake::default();
+    engine.enter(2);
+    let old = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    // An in-process return: the session ends, and no save is read after it.
+    engine.session_ended(SessionEnd::Return);
+    // Sent while a new game is set up, it waits for that game.
+    let new = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
+    engine.run(&mut game, &Place::Outside(None), PLENTY);
+    assert!(answer(&old).is_null() && answer(&new).is_null());
+    engine.enter(3);
+    engine.run(&mut game, &Place::Game, PLENTY);
+    assert!(error("session_changed")(&answer(&old)), "{}", answer(&old));
+    assert_eq!(answer(&new), ok(Value::Null));
+    assert_eq!(game.calls, [format!("stop {ARMY}")]);
+}
+
+#[test]
 fn events_say_which_process_numbered_them() {
     let engine = Engine::new(remember);
     engine.record([Event::ArmyOrdered { army: army(ARMY) }, Event::ArmyOrdered { army: army(FLEET) }]);
@@ -1204,4 +1224,25 @@ fn events_say_which_process_numbered_them() {
     assert_eq!(other["result"]["events"].as_array().map(Vec::len), Some(2));
     assert_eq!(other["result"]["missed"], true);
     assert_eq!(other["result"]["process"], process());
+}
+
+#[test]
+fn what_happens_inside_a_request_is_kept_as_events() {
+    // A console command that loads a save ends the session inside the
+    // request that runs it, and remote control keeps the end there.
+    use eu4_harmony_remote::events::SessionEnd;
+    static ENGINE: Engine = Engine::new(fake::quiet);
+    let (send, got) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let ended = || ENGINE.record([Event::SessionEnded { reason: SessionEnd::Load }]);
+        let mut game = Fake { console_does: Some(Box::new(ended)), ..Fake::default() };
+        let run = ENGINE.submit(Request::Console(ConsoleRequest::Run { command: "cash 100".into() }));
+        ENGINE.run(&mut game, &Place::Game, PLENTY);
+        let read = ENGINE.submit(Request::Events(EventsRequest::Read { since: Some(0), wait_ms: None, process: None, kinds: None, countries: None }));
+        ENGINE.run(&mut game, &Place::Game, PLENTY);
+        let _ = send.send((answer(&run), answer(&read)));
+    });
+    let (run, read) = got.recv_timeout(Duration::from_secs(10)).expect("the engine held itself up keeping an event from inside a request");
+    assert_eq!(run, ok(json!("Gold changed by 100")));
+    assert_eq!(read["result"]["events"], json!([{"number": 1, "event": "session_ended", "reason": "load"}]), "{read}");
 }

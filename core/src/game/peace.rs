@@ -157,7 +157,7 @@ fn at_war(m: &Memory, enemy: Tag) -> GResult<Ctx> {
     let ctx = context(m)?;
     diplomacy::other(m, &ctx, enemy)?;
     country(m, &ctx, enemy)?;
-    if !super::world::hostile(m, &ctx, ctx.player, enemy)? {
+    if !super::world::at_war(m, &ctx, ctx.player, enemy)? {
         return Err(checks::not_at_war(diplomacy::letters(enemy)).into());
     }
     Ok(ctx)
