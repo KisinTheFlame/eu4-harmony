@@ -374,11 +374,20 @@ fn read_for_session(path: &Path, windows: impl FnOnce() -> Language) -> Settings
     current
 }
 
+/// Writes the file whole or not at all: into a file beside it, which then
+/// takes its place, so that the game ending between the two leaves the
+/// player's settings as they were rather than an empty file.
 fn write(path: &Path, settings: &Settings) -> crate::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    std::fs::write(path, settings.render()).map_err(|e| format!("{}: {e}", path.display()))
+    let new = path.with_extension("txt.new");
+    let written = std::fs::write(&new, settings.render()).map_err(|e| format!("{}: {e}", new.display()));
+    let replaced = written.and_then(|()| std::fs::rename(&new, path).map_err(|e| format!("{}: {e}", path.display())));
+    if replaced.is_err() {
+        let _ = std::fs::remove_file(&new);
+    }
+    replaced
 }
 
 /// The settings this session runs with; defaults before [`load`].
@@ -556,6 +565,29 @@ mod tests {
             assert_eq!(read, Settings { language: Some(Language::German), ..Settings::default() });
         }
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "map_outline=no\n");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_write_replaces_the_file_whole_and_leaves_nothing_beside_it() {
+        let dir = scratch("write");
+        let file = dir.join("eu4-harmony").join("settings.txt");
+        let english = Settings { language: Some(Language::English), ..Settings::default() };
+        write(&file, &english).unwrap();
+        let german = Settings { language: Some(Language::German), map_outline: false, ..Settings::default() };
+        write(&file, &german).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), german.render());
+        let beside: Vec<_> = std::fs::read_dir(file.parent().unwrap()).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(beside, ["settings.txt"]);
+        // A file that cannot be replaced is left as it was, and nothing beside it.
+        std::fs::write(&file, "map_outline=no\n").unwrap();
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let _held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).unwrap();
+            assert!(write(&file, &english).is_err());
+        }
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "map_outline=no\n");
+        assert_eq!(std::fs::read_dir(file.parent().unwrap()).unwrap().count(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
