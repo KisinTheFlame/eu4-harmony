@@ -1970,6 +1970,17 @@ The repair of the monarchs, heirs and queens a country's history leaves (`core/s
 - **Not tried**: ironman; a ruler dying, or an heir or a queen taking over, in a session before its end; the history shown in the country view; the rounds as long as 26 to 27 s were the day before, which another load on the computer may explain or not.
 - **Cleanup**: every claim released with every file put back. The runs' reports and the claims' folders were deleted.
 
+## 2026-11-06 Leaving a session as a whole, and the catalogue's one seam (tested by me)
+
+After three changes that should change nothing a player sees: leaving a session takes its steps in one place over what the game does (`leave::Game`), the world reset with the history puts right what the history leaves wherever it is told, and remote control's engine and the Lua host reach the catalogue through one seam (`catalogue::Catalogue`). The memory account build, hidden without sound, the player's playset with the Regional Combat extension; one claim.
+
+- **The growth scenario**, 2 rounds of 10 days: each round loaded `England-1`, loaded `英格兰1444_11_11` in that game, returned to the main menu, started a new game as France and returned again. It passed; round 2 grew 110.1 MB, as short rounds have before.
+- **The steps in the log**: each in-game load of the ironman saves took `[ExitSave, Ended(Load), Load]`, the load answered `Read`, and the save the game makes as it sets the loaded session up followed; each return logged "returning to the main menu, then: Ok([Return])", the world reset with the history, and the main menu taking over in process.
+- **A new game from a session**, by `eu4-harmony game menu start --country FRA` in a game loaded from `England-1`: session 2 ended for `NewGame`, the return logged `Ok([Return, Start])`, and the new game as France began on 1444.11.11 in the same process.
+- **The extension**: Regional Combat loaded, and its handlers ran 372 times across the sessions with nothing in the log of a failed or refused call.
+- **Not verified**: an ironman exit save that fails, which keeps the session (by the unit tests only); an in-process return that cannot be made, which restarts the game (the same); a return with "return without restarting" off; the single player setup's back button; an extension's capability call that waits, such as a diplomatic action.
+- **Cleanup**: releasing the game put back the player's files, among them the saves the loads rewrote and the backup save one of them added, and the game folder's framework files; the scenario's report in the session's scratch folder was deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

@@ -2,14 +2,17 @@
 //! its requests: through the capability layer (`crate::game`), for both of
 //! its callers, remote control's engine (`crate::remote`), which runs them as
 //! the player, and the Lua host (`crate::lua`), which runs them as the
-//! extension calling ([`run_for`], [`poll_for`]). A request runs at once or
-//! answers at a later safe point ([`Outcome`], [`Wait`]).
+//! extension calling. Both reach it through one seam, [`Catalogue`]: a
+//! request runs at once or answers at a later safe point ([`Outcome`],
+//! [`Wait`]).
 //!
 //! One file per group of capabilities, as in the capability layer: each has
 //! the group's slice of the layer as a trait ([`Game`] is all of them), the
 //! layer itself behind it ([`Live`]), and turns the group's requests into
-//! calls and the layer's types into the answers. Tests put a fake game behind
-//! the traits ([`fake`]).
+//! calls and the layer's types into the answers. Every [`Game`] is a
+//! [`Catalogue`]. The tests of a group that does more than call the layer put
+//! a fake game behind the traits ([`fake`]); a capability a test does not
+//! script fails there.
 
 /// Declares a group's slice of the capability layer and its requests once:
 /// its `Layer` trait, [`Live`] calling each capability there as its caller,
@@ -75,8 +78,22 @@ macro_rules! layer {
     };
     (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $capability:path; })*) => {
         /// The group's slice of the capability layer.
+        #[cfg(not(test))]
         pub trait Layer {
             $( $(#[$doc])* fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret>; )*
+        }
+
+        /// The group's slice of the capability layer; in a test, what a fake
+        /// game does not script fails.
+        #[cfg(test)]
+        pub trait Layer {
+            $(
+                $(#[$doc])*
+                fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> {
+                    let _ = ($($arg,)*);
+                    Err($crate::catalogue::fake::unscripted(stringify!($name)))
+                }
+            )*
         }
 
         impl Layer for super::Live {
@@ -139,7 +156,7 @@ pub mod time;
 pub mod trade;
 pub mod trade_companies;
 
-use crate::game;
+use crate::game::{self, input::Taken};
 use eu4_harmony_remote::{Answer, ArmyId, ArmyList, Code, CountryTag, Error, ProvinceId, Request, Response};
 use std::{
     sync::OnceLock,
@@ -147,9 +164,9 @@ use std::{
 };
 
 /// Declares the groups once, in one list: [`Game`], every group's slice of
-/// the capability layer, and [`dispatch`], which runs a request in its group.
-/// After the names `dispatch` gives its request, game, events and time, each
-/// line is one of
+/// the capability layer, and `dispatch`, which runs a request in its group.
+/// After the names `dispatch` gives its request, game, events (remote
+/// control's, when its caller keeps them) and time, each line is one of
 ///
 /// ```text
 /// Group(module),
@@ -178,11 +195,17 @@ macro_rules! groups {
         [$({ $(#[$attr:meta])* $Group:ident => $outcome:expr })*]) => {
         /// The capability layer, as the catalogue's requests reach it: every
         /// group's slice.
-        pub trait Game: $($module::Layer +)* {}
-        impl<T: $($module::Layer +)* ?Sized> Game for T {}
+        pub trait Game: $($module::Layer +)* {
+            fn as_game(&mut self) -> &mut dyn Game;
+        }
+        impl<T: $($module::Layer +)*> Game for T {
+            fn as_game(&mut self) -> &mut dyn Game {
+                self
+            }
+        }
 
         /// Runs one request at `now`, in its group.
-        pub(crate) fn dispatch($request: Request, $game: &mut dyn Game, $events: &events::Buffer, $now: Instant) -> Outcome {
+        fn dispatch($request: Request, $game: &mut dyn Game, $events: Option<&events::Buffer>, $now: Instant) -> Outcome {
             match $request {
                 $( $(#[$attr])* Request::$Group($request) => $outcome, )*
             }
@@ -208,7 +231,10 @@ groups! {
     Console(console),
     Question(questions),
     Offer(offers),
-    Events => events::run(request, events, now),
+    Events => match events {
+        Some(events) => events::run(request, events, now),
+        None => Outcome::Done(Err(events::unkept())),
+    },
     Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
     Camera(camera),
     Recruit(recruiting),
@@ -217,7 +243,10 @@ groups! {
     Extension(extensions),
     #[cfg(feature = "dev-memory")]
     Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
-    Input(input) => Outcome::Done(input::run(request, game).0.map(Answer::Input)),
+    Input(input) => match input::run(request, game) {
+        (response, Some(taken)) => Outcome::Input(response.map(Answer::Input), taken),
+        (response, None) => Outcome::Done(response.map(Answer::Input)),
+    },
     Desktop(desktop),
     Decision(decisions),
     Subject(subjects),
@@ -245,6 +274,38 @@ groups! {
     CenterOfTrade(centers_of_trade),
     Merchant(merchants),
     Trade(trade),
+}
+
+/// The catalogue as its two callers reach it, remote control's engine and the
+/// Lua host: the one seam between them and the capability layer. Every
+/// [`Game`] is one, [`Live`] in the game.
+pub trait Catalogue {
+    /// Runs one request at `now`. `events` are remote control's, which only
+    /// its engine keeps: a request that reads them, run without, is answered
+    /// that only remote clients read them.
+    fn run(&mut self, request: Request, events: Option<&events::Buffer>, now: Instant) -> Outcome;
+
+    /// At a safe point at `place`: `polls` asks the requests that wait, each
+    /// with the same [`Poll`].
+    fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>));
+
+    /// Whether the game has had every input up to `taken`
+    /// ([`Outcome::Input`]).
+    fn handled(&mut self, taken: Taken) -> bool;
+}
+
+impl<T: Game + ?Sized> Catalogue for T {
+    fn run(&mut self, request: Request, events: Option<&events::Buffer>, now: Instant) -> Outcome {
+        dispatch(request, self.as_game(), events, now)
+    }
+
+    fn at(&mut self, events: Option<&events::Buffer>, now: Instant, place: &Place, polls: &mut dyn FnMut(&mut Poll<'_>)) {
+        polls(&mut Poll::new(events, now, place, Some(self.as_game())));
+    }
+
+    fn handled(&mut self, taken: Taken) -> bool {
+        input::Layer::handled(self, taken)
+    }
 }
 
 /// The capability layer itself, called as its caller: remote control, or an
@@ -366,6 +427,9 @@ pub enum Outcome {
     Done(Response),
     /// The answer comes at a later safe point.
     Later(Box<dyn Wait>),
+    /// Answered at once, with an input taken that the game has yet to have:
+    /// the requests after it wait until it has ([`Catalogue::handled`]).
+    Input(Response, Taken),
 }
 
 /// A request that waits: asked at every safe point until it answers.
@@ -387,22 +451,28 @@ pub trait Wait: Send {
 
 /// What a waiting request may look at.
 pub struct Poll<'a> {
-    pub events: &'a events::Buffer,
+    /// Remote control's events, which only its engine keeps.
+    pub events: Option<&'a events::Buffer>,
     pub now: Instant,
     /// Where a request runs: remote control's engine runs at every safe point,
     /// extensions only at a game's safe frame.
     pub place: &'a Place,
-    game: &'a mut dyn Game,
+    game: Option<&'a mut dyn Game>,
 }
 
 impl<'a> Poll<'a> {
-    pub fn new(events: &'a events::Buffer, now: Instant, place: &'a Place, game: &'a mut dyn Game) -> Self {
+    /// At `place`, with the capability layer if a waiting request may use
+    /// it.
+    pub fn new(events: Option<&'a events::Buffer>, now: Instant, place: &'a Place, game: Option<&'a mut dyn Game>) -> Self {
         Self { events, now, place, game }
     }
 
     /// The game, at a game's safe frame only.
     pub fn game(&mut self) -> Option<&mut dyn Game> {
-        matches!(self.place, Place::Game).then_some(&mut *self.game)
+        match self.game.as_mut() {
+            Some(game) if matches!(self.place, Place::Game) => Some(&mut **game),
+            _ => None,
+        }
     }
 
     /// At a game's frame with no game the player can play, why.
@@ -414,17 +484,61 @@ impl<'a> Poll<'a> {
     }
 }
 
-/// Runs one request for an extension, as the Lua host has it: a capability
-/// of the catalogue both sides have, called as `caller`. A request that
-/// waits (a diplomatic action waiting for its answer) is polled with
-/// [`poll_for`] at later safe points.
-pub fn run_for(caller: game::Caller, request: Request) -> Outcome {
-    dispatch(request, &mut Live(caller), &events::Buffer::new(), Instant::now())
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eu4_harmony_remote::{capabilities, result_shape};
+    use serde_json::Value;
 
-/// Polls a request [`run_for`] left waiting, at a game's safe frame.
-pub fn poll_for(caller: game::Caller, wait: &mut dyn Wait) -> Option<Response> {
-    let events = events::Buffer::new();
-    let mut live = Live(caller);
-    wait.poll(&mut Poll::new(&events, Instant::now(), &Place::Game, &mut live))
+    #[test]
+    fn the_layer_s_failures_keep_their_meaning() {
+        let cases = [
+            (game::Status::NotInGame, Code::NotInGame),
+            (game::Status::NotReady, Code::NotReady),
+            (game::Status::NotFound, Code::NotFound),
+            (game::Status::Rejected, Code::Rejected),
+            (game::Status::InvalidArgument, Code::InvalidArgument),
+            (game::Status::Unavailable, Code::Unavailable),
+            (game::Status::WrongContext, Code::Internal),
+            (game::Status::Internal, Code::Internal),
+        ];
+        for (status, code) in cases {
+            assert_eq!(Error::from(game::Fail { status, message: "why".into() }), Error::new(code, "why"));
+        }
+    }
+
+    #[test]
+    fn what_reads_remote_control_s_events_says_so_when_run_without() {
+        let mut game = fake::Fake::default();
+        let reads = [r#"{"capability": "events"}"#, r#"{"capability": "time.advance", "days": 1}"#];
+        for json in reads {
+            let request = eu4_harmony_remote::request_from_json(json).unwrap();
+            let Outcome::Done(Err(error)) = game.run(request, None, Instant::now()) else { panic!("{json} ran without events") };
+            assert_eq!(error, events::unkept());
+        }
+        assert!(game.calls.is_empty(), "{:?}", game.calls);
+    }
+
+    /// Every answer the fake game gives, through the groups that make it,
+    /// has the shape its capability describes, as Lua has it.
+    #[test]
+    fn answers_have_the_shapes_their_capabilities_describe() {
+        let mut shaped = Vec::new();
+        for capability in capabilities() {
+            let mut fields = serde_json::Map::new();
+            fields.insert("capability".into(), capability.name().into());
+            for arg in capability.args.iter().filter(|a| !a.optional) {
+                fields.insert(arg.name.into(), arg.kind.json(arg.kind.example()).unwrap());
+            }
+            let request = eu4_harmony_remote::request_from_json(&Value::Object(fields).to_string()).unwrap();
+            let name = request.name();
+            if let Outcome::Done(Ok(answer)) = fake::Fake::default().run(request, Some(&events::Buffer::new()), Instant::now()) {
+                let lua = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(&answer)).unwrap();
+                let shape = result_shape(&name).unwrap_or_else(|| panic!("{name} has no result shape"));
+                shape.check(&lua).unwrap_or_else(|why| panic!("{name}'s answer is not its shape: {why}\n{lua}"));
+                shaped.push(name);
+            }
+        }
+        assert!(shaped.len() > 20, "only {} answers were checked against their shapes: {shaped:?}", shaped.len());
+    }
 }

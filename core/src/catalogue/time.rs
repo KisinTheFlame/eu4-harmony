@@ -79,17 +79,19 @@ impl Layer for Live {
     }
 }
 
-pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), events: &events::Buffer) -> Outcome {
+pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), events: Option<&events::Buffer>) -> Outcome {
     let answer = |result: GResult<TimeAnswer>| Outcome::Done(result.map(Answer::Time).map_err(Error::from));
     match request {
         TimeRequest::Get {} => answer(game.time().map(|t| TimeAnswer::Get(Time { date: Date(t.date), paused: t.paused(), speed: t.speed }))),
         TimeRequest::Pause {} => answer(game.pause().map(TimeAnswer::Pause)),
         TimeRequest::Resume {} => answer(game.resume().map(TimeAnswer::Resume)),
         TimeRequest::SetSpeed { speed } => answer(game.set_speed(speed).map(TimeAnswer::SetSpeed)),
-        TimeRequest::Advance { days, speed } => match start(game, events, days, speed) {
-            Ok(Started::Running(advance)) => Outcome::Later(Box::new(advance)),
-            Ok(Started::Stopped(advanced)) => Outcome::Done(Ok(Answer::Time(TimeAnswer::Advance(advanced)))),
-            Err(error) => Outcome::Done(Err(error)),
+        // An advance answers with the events heard while it ran.
+        TimeRequest::Advance { days, speed } => match events.map(|events| start(game, events, days, speed)) {
+            None => Outcome::Done(Err(events::unkept())),
+            Some(Ok(Started::Running(advance))) => Outcome::Later(Box::new(advance)),
+            Some(Ok(Started::Stopped(advanced))) => Outcome::Done(Ok(Answer::Time(TimeAnswer::Advance(advanced)))),
+            Some(Err(error)) => Outcome::Done(Err(error)),
         },
     }
 }
@@ -209,6 +211,7 @@ impl Wait for Advance {
         // The player can no longer play, as when the country was annexed or
         // the game console's observe ran: no later frame would answer, and
         // nothing pauses the game for the advance any more.
+        let Some(events) = at.events else { return self.answer(Err(events::unkept())) };
         if let Some(why) = at.unplayable() {
             let response = Err(Error::new(why.code, format!("the player can no longer play the game ({}); time runs on as the game runs it", why.message)));
             return self.answer(response);
@@ -216,10 +219,10 @@ impl Wait for Advance {
         // The main menu is open: the game returned to it in this process,
         // and no game frame comes until another game starts.
         if let Place::Outside(Some(_)) = at.place {
-            let response = self.stopped(Stop::MainMenu, "the game returned to the main menu", at.events);
+            let response = self.stopped(Stop::MainMenu, "the game returned to the main menu", events);
             return self.answer(response);
         }
-        let (events, now) = (at.events, at.now);
+        let now = at.now;
         let game = at.game()?;
         match self.check(game, events, now) {
             Ok(None) => None,

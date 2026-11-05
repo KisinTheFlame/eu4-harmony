@@ -66,6 +66,12 @@ impl Default for Buffer {
     }
 }
 
+/// The answer to a request that reads remote control's events, run by a
+/// caller that keeps none: an extension hears them through its handlers.
+pub fn unkept() -> Error {
+    Error::new(Code::Unavailable, "only remote control keeps events to read; an extension hears them through its handlers")
+}
+
 pub fn run(request: EventsRequest, events: &Buffer, now: Instant) -> Outcome {
     let EventsRequest::Read { since, wait_ms, process: from, kinds, countries } = request;
     let (since, from) = (since.unwrap_or(0), from.unwrap_or_else(process));
@@ -97,7 +103,8 @@ struct Next {
 
 impl Wait for Next {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
-        (at.events.news(self.since, &self.filter) || at.now >= self.until).then(|| read(at.events, self.since, process(), &self.filter))
+        let Some(events) = at.events else { return Some(Err(unkept())) };
+        (events.news(self.since, &self.filter) || at.now >= self.until).then(|| read(events, self.since, process(), &self.filter))
     }
 }
 

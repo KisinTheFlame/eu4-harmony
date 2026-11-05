@@ -3,16 +3,17 @@
 //! on the live host, the running game, and calls its handlers at safe points
 //! (`crate::safe_point`).
 //!
-//! The live host reaches the capability catalogue as the extension
-//! (`crate::catalogue::run_for`), as remote control's engine does as the
-//! player, so both share one implementation (ADR one-capability-catalogue);
+//! The live host reaches the capability catalogue as the extension, through
+//! the seam remote control's engine reaches it through as the player
+//! (`crate::catalogue::Catalogue`), so both share one implementation
+//! (ADR one-capability-catalogue);
 //! interface elements, the map, texts and the player language through the
 //! core's own modules; the network through [`http`]. Each extension's log is
 //! `eu4-harmony/logs/<id>.log`, the last start's kept beside it.
 mod http;
 
 use crate::{
-    catalogue::{self, Wait},
+    catalogue::{self, Catalogue, Place, Wait},
     game::{self, events, interface, map_coloring, Caller},
     map,
     mods::DiscoveredMod,
@@ -74,14 +75,26 @@ struct Live {
     /// The logs folder, and each extension's log once it is open.
     logs: PathBuf,
     open: Mutex<HashMap<String, File>>,
+    reach: Reach,
 }
 
-/// A capability's answer still to come in remote control.
-struct Later(Caller, Box<dyn Wait>);
+/// How the live host reaches the capability catalogue as an extension: hands
+/// `with` the catalogue as `Caller`, the capability layer itself in the game.
+type Reach = fn(caller: Caller, with: &mut dyn FnMut(&mut dyn Catalogue));
+
+fn layer(caller: Caller, with: &mut dyn FnMut(&mut dyn Catalogue)) {
+    with(&mut catalogue::Live(caller));
+}
+
+/// A capability's answer still to come, polled at a game's safe frame.
+struct Later(Reach, Caller, Box<dyn Wait>);
 
 impl Pending<Answered> for Later {
     fn poll(&mut self) -> Option<Answered> {
-        catalogue::poll_for(self.0, self.1.as_mut()).map(lua_form)
+        let Self(reach, caller, wait) = self;
+        let mut answer = None;
+        reach(*caller, &mut |c| c.at(None, Instant::now(), &Place::Game, &mut |at| answer = wait.poll(at)));
+        answer.map(lua_form)
     }
 }
 
@@ -94,10 +107,16 @@ fn lua_form(response: Response) -> Answered {
 impl Host for Live {
     fn run(&self, extension: usize, request: Request) -> Called {
         let caller = Caller::Extension(extension);
-        match catalogue::run_for(caller, request) {
-            catalogue::Outcome::Done(response) => Called::Done(lua_form(response)),
-            catalogue::Outcome::Later(wait) => Called::Later(Box::new(Later(caller, wait))),
-        }
+        let (mut request, mut called) = (Some(request), None);
+        (self.reach)(caller, &mut |c| {
+            let Some(request) = request.take() else { return };
+            // Extensions give no input, which only remote clients have.
+            called = Some(match c.run(request, None, Instant::now()) {
+                catalogue::Outcome::Done(response) | catalogue::Outcome::Input(response, _) => Called::Done(lua_form(response)),
+                catalogue::Outcome::Later(wait) => Called::Later(Box::new(Later(self.reach, caller, wait))),
+            })
+        });
+        called.unwrap_or_else(|| Called::Done(Err(Error::new(Code::Internal, "the capability catalogue was not reached"))))
     }
 
     fn set_element(&self, extension: usize, element: &str, value: Element) -> Result<(), String> {
@@ -186,7 +205,7 @@ pub struct LoadOutcome {
 /// on the game thread. Logs go to `log_dir`; `data_dir` holds the data
 /// folders.
 pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<LoadOutcome> {
-    let host: Arc<dyn Host> = HOST.get_or_init(|| Arc::new(Live { logs: log_dir.to_path_buf(), open: Mutex::new(HashMap::new()) })).clone();
+    let host: Arc<dyn Host> = HOST.get_or_init(|| Arc::new(Live { logs: log_dir.to_path_buf(), open: Mutex::new(HashMap::new()), reach: layer })).clone();
     let mut opened = Vec::new();
     let supported = crate::memory().is_some();
     let mut loaded = Vec::new();
@@ -569,6 +588,46 @@ mod tests {
         }
         fn first_error(&self, _: &Extension, _: &str, _: &str) {}
         fn stopped(&self, _: &Extension, _: &str) {}
+    }
+
+    thread_local! {
+        static GAME: std::cell::RefCell<catalogue::fake::Fake> = std::cell::RefCell::default();
+    }
+
+    /// The catalogue over the fake game, as any extension calls it.
+    fn fake_game(_: Caller, with: &mut dyn FnMut(&mut dyn Catalogue)) {
+        GAME.with(|game| with(&mut *game.borrow_mut()));
+    }
+
+    #[test]
+    fn an_extension_s_call_reaches_the_catalogue_and_answers_in_lua_s_form() {
+        let dir = std::env::temp_dir().join(format!("eu4h-lua-catalogue-{}", std::process::id()));
+        let harmony = dir.join("eu4-harmony");
+        std::fs::create_dir_all(harmony.join("lua")).unwrap();
+        let main = r#"
+            return {
+              on_frame = function(game)
+                local army = game.army.get(4294967377)
+                local session = game.session.get()
+                local missing, why = game.army.get(1)
+                local date = session.date
+                log(math.type(army.id) .. " " .. army.id .. " " .. date.year .. "." .. date.month .. "." .. date.day .. " " .. tostring(missing) .. " " .. why.code)
+              end,
+            }
+        "#;
+        std::fs::write(harmony.join("lua/main.lua"), main).unwrap();
+        let host = Arc::new(Live { logs: dir.clone(), open: Mutex::new(HashMap::new()), reach: fake_game });
+        let permissions = eu4_harmony_manifest::Permissions::default();
+        let m = Mod { id: "calling", name: "Calling", harmony, permissions: &permissions, data: Some(dir.join("data")) };
+        let extension = eu4_harmony_lua::open(0, &m, host.clone()).unwrap();
+        extension.handle("on_frame", &[]);
+        drop(host);
+        // An army's ID an integer, a date its year, month and day, and a
+        // refusal nil and why.
+        let logged = std::fs::read_to_string(log_file(&dir, "calling")).unwrap();
+        assert_eq!(logged.trim(), "integer 4294967377 1444.11.11 nil not_found");
+        GAME.with(|game| assert_eq!(game.borrow().calls, ["army 4294967377", "session", "army 1"]));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
