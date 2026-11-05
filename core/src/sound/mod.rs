@@ -1,8 +1,8 @@
 //! The game's sound volumes and its music (docs/music-volume.md; ADR
 //! the-framework-sets-the-sound-volumes):
 //!
-//! - every volume slider is a volume curve (GLOSSARY) in decibels, where the
-//!   game multiplies by the slider's percentage: the master, music and
+//! - every volume slider goes by a volume curve (GLOSSARY), the square of its
+//!   position, where the game multiplies by the slider's percentage: the master, music and
 //!   effects volumes as the application frame pushes them to the audio, the
 //!   ambient volume where the map's ambient sound is worked out;
 //! - the music is mixed by the framework instead of SDL: at the game's gain,
@@ -24,18 +24,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 
-/// The quietest a volume above 0 is, in dB below full volume.
-const CURVE_RANGE: f32 = 40.0;
-
-/// The gain of a volume slider at `percent`: 0 is silence, and 1 to 100 go
-/// from -40 dB to full volume evenly in decibels, where the game goes evenly
-/// in amplitude.
+/// The gain of a volume slider at `percent`: the square of its position, so
+/// that each step sounds about as large a change (loudness goes about as the
+/// amplitude to the power 0.6), where the game takes the position itself and
+/// leaves the last tenth of the slider to fall off steeply. 50 is -12 dB, 10
+/// is -40 dB, and 0 is silence.
 pub fn gain(percent: f32) -> f32 {
-    if percent <= 0.0 {
-        0.0
-    } else {
-        10f32.powf(-CURVE_RANGE * (1.0 - percent.min(100.0) / 100.0) / 20.0)
-    }
+    let position = percent.clamp(0.0, 100.0) / 100.0;
+    position * position
 }
 
 /// The application frame pushes the volumes to the audio: the settings'
@@ -334,23 +330,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_volume_curve_is_even_in_decibels() {
+    fn the_volume_curve_is_the_square_of_the_position() {
         assert_eq!(gain(0.0), 0.0);
         assert_eq!(gain(-5.0), 0.0);
         assert_eq!(gain(100.0), 1.0);
         assert_eq!(gain(150.0), 1.0);
         let db = |p| 20.0 * gain(p).log10();
-        assert!((db(50.0) - -20.0).abs() < 1e-4);
-        assert!((db(1.0) - -39.6).abs() < 1e-4);
-        assert!((db(75.0) - db(50.0) - 10.0).abs() < 1e-4);
+        assert!((db(50.0) - -12.04).abs() < 1e-2);
+        assert!((db(10.0) - -40.0).abs() < 1e-4);
+        assert!((db(1.0) - -80.0).abs() < 1e-3);
     }
 
     #[test]
     fn the_effects_gain_is_given_for_the_games_hundredth_after() {
         let mut out = [0.0; 3];
         volumes(50.0, 100.0, 100.0, 50.0, &mut out);
-        assert!((out[0] - 0.1).abs() < 1e-6 && out[1] == 1.0);
-        assert!((out[2] * 0.01 - 0.1).abs() < 1e-6);
-        assert!((f32::from_bits(ambient(50.0, 50.0)) - 0.01).abs() < 1e-6);
+        assert!((out[0] - 0.25).abs() < 1e-6 && out[1] == 1.0);
+        assert!((out[2] * 0.01 - 0.25).abs() < 1e-6);
+        assert!((f32::from_bits(ambient(50.0, 50.0)) - 0.0625).abs() < 1e-6);
     }
 }

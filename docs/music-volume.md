@@ -5,7 +5,7 @@ Status: decided with the owner (2026-11-05); V1 to V3 built in one pull request.
 ## Goal and scope
 
 - **Goal**: music a player turns down stays audible and even. A player found it, at a low volume, coming and going and sometimes silent; the run that measured why is in [prototype-log.md](prototype-log.md), 2026-11-05, "The music volume the mixer passes to SDL".
-- **In scope**: the four volume sliders of the game's settings, which become a volume curve in decibels; the music, mixed by the framework at the game's gain as a fraction, with loudness normalization and music leveling as framework settings.
+- **In scope**: the four volume sliders of the game's settings, which go by a volume curve, the square of their position; the music, mixed by the framework at the game's gain as a fraction, with loudness normalization and music leveling as framework settings.
 - **Out of scope**: the game's own settings window and its sliders, which stay as they are; sound effects and ambient sound beyond their volume curve; which track the game picks and when (`songs.txt`); the main menu's own 0.75 on its music, and whatever else the game does to a voice's volume; a capability for mods to play music, a plan of its own if one is wanted.
 
 ## Why the music comes and goes
@@ -19,9 +19,10 @@ From the game's code and the run ([research/architecture.md](research/architectu
 
 ### The volume curve (V1)
 
-- The master, music, effects and ambient sliders of the game's settings go evenly in decibels: 0 is silence, 1 is -39.6 dB, 50 is -20 dB, 100 is full volume. Vanilla goes evenly in amplitude (50 is -6 dB), so that most of the slider is loud and its last tenth falls off steeply.
+- The master, music, effects and ambient sliders of the game's settings give the square of their position as the gain: 100 is full volume, 50 is -12 dB, 10 is -40 dB, 1 is -80 dB, 0 is silence. Loudness goes about as the amplitude to the power 0.6 (half as loud is about -10 dB), so each step of the slider sounds about as large. Vanilla gives the position itself (50 is -6 dB), so that most of the slider sounds alike and its last tenth falls off to silence.
+- A curve even in decibels, -40 dB at 1 to 0 dB, was built first and replaced before merging: 50 was -20 dB, a quarter as loud, and with the master and music volumes multiplied, both at 50 were -40 dB, much quieter than players' saved volumes were in vanilla.
 - It is always on, with no setting to go back to vanilla's (decided by the owner): a player's saved volumes sound quieter than before below 100, and are set again once.
-- Where the game combines them, it still does: the music's gain is the master's times the music's, so their decibels add (master 50 and music 50 are -40 dB), and the map's ambient sound takes the master volume into its own gain, as in vanilla. What else the mixer multiplies a sound effect or an ambient voice by was not followed.
+- Where the game combines them, it still does: the music's gain is the master's times the music's, so their decibels add (master 50 and music 50 are -24 dB), and the map's ambient sound takes the master volume into its own gain, as in vanilla. What else the mixer multiplies a sound effect or an ambient voice by was not followed.
 
 ### Music mixed by the framework (V2)
 
@@ -56,7 +57,7 @@ From the game's code and the run ([research/architecture.md](research/architectu
 
 ### V1 The volume curve
 
-`sound::gain` and the three points. Unit tests: the curve's decibels; the effects gain given for the game's hundredth after. Tried: SDL's volume for a sound effect at a slider position, against the curve.
+`sound::gain` and the three points. Unit tests: the curve's points; the effects gain given for the game's hundredth after. Tried: SDL's volume for a sound effect at a slider position, against the curve.
 
 ### V2 The music mixed by the framework
 

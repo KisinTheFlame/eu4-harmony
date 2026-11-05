@@ -343,7 +343,7 @@ _Avoid_: configuration; game settings (the game's own `settings.txt`)
 ### Sound
 
 **Volume curve**:
-How a volume slider of the game's settings becomes a gain. With the framework, it goes evenly in decibels, from -40 dB at 1 to full volume at 100; vanilla's goes evenly in amplitude.
+How a volume slider of the game's settings becomes a gain. With the framework, the gain is the square of the slider's position, so each step sounds about as large; vanilla's gain is the position itself.
 _Avoid_: volume scale
 
 **Loudness normalization**:
