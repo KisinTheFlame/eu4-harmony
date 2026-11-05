@@ -1705,6 +1705,19 @@ L2 and L3 of [player-language.md](player-language.md), the player build of this 
 - **Cleanup**: releasing the game put back the player's files, the framework's `settings.txt` with its `text_appearance` line among them, and the game folder's framework files; the screenshots were deleted.
 
 
+## 2026-11-05 Player actions follow-up: armies aboard fleets (tested by me)
+
+The follow-up of A4's transport ([player-actions.md](player-actions.md), A4), a developer build with the command log of branch `claude/player-actions-fu-transport-ba816d`, within a claim, started hidden; the player's playset. A new game as England at 1444.11.11, driven through remote control only, to 1445.3.29.
+
+- **Why A4 found no route onto the sea**: the route's step from land onto a sea zone is open only when one fleet there has room for the whole army: the game asks each fleet whether its ships' room (one regiment for each transport, nothing for the warships in the unmodded game) less the regiments aboard holds every regiment of the army ([research/units.md](research/units.md), [research/routes.md](research/routes.md)). England's armies have 13 and 14 regiments. The route query is the right click's own; the right click then offers the automatic transport instead.
+- **Refusals**: with no fleet in the Thames sea zone (1270), `army.move <london army> 1270` was refused "the player has no fleet in 1270 to board"; with the 9-ship fleet there, the 14-regiment army "no fleet of the player's in 1270 has room for the army's 14 regiments: the most is 0".
+- **Boarding**: with the 24-ship fleet in 1270 too, the army split into 7 and 7 and each half ordered to 1270 got the route `[1270]`; within 20 days both stood in 1270 with `aboard` the 24-ship fleet, whose `carrying` went to 7, then 14. While the step lasted, `blocked` read `movement_locked`, as on land.
+- **Moving aboard**: `army.move <fleet> 1271` took the fleet to the sea zone off Calais in 6 days, and both armies aboard read province 1271.
+- **Landing**: `army.route_to <army aboard> 87` gave `[87]` from 1271 (from 1270, not next to Calais, no route); `army.move` set it, the army stayed aboard and counted in the fleet's `carrying` while it went, and on 1445.1.17 stood in Calais with `aboard` null; the fleet's `carrying` read 7.
+- **Recruiting transports** (A4's seven in Gwynedd never built): `recruit.order 242 transport` in Gwynedd (格温内斯) took 12 ducats at once (78.4 to 66.4) and put a cog in the province's constructions, started 1445.1.25 and to end **1446.1.17**; it progressed the next day. Five more took 12 each, to 6.4; the seventh was refused "建立需要12¤。". So recruiting ships has no fault: a cog takes about a year, and A4's run, which ended 1445.11.26, did not last until its transports were done. That A4's orders took no money was not seen again.
+- **Not verified**: boarding a fleet in a battle. After a declaration of war on France (no casus belli), the fleets waited in 1270 to 1272 for two months and no naval battle came about. The game's step onto the sea does not ask about a battle (read from the code only); what the move does then was not seen. Not tried: the fleet panel's way of landing (the fleet selected, a coastal province clicked), which the framework does not use; an extension calling any of this.
+- The release put every file back and the game folder's framework files as they were.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

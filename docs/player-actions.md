@@ -130,7 +130,9 @@ Added (tried in the game, [prototype-log.md](prototype-log.md), 2026-11-05; foun
 
 Decided here: the siege view's buttons are a group of their own (`siege`), as is the fort box (`fort`), each named after what the player does; a mission's target is the game's number for its trade node or sea region, and no read lists them yet; hiring takes the province, which the player picks; a leader is named by its number (`id`), which the game writes `{ id=N type=49 }`.
 
-Not verified in the game: boarding and landing by `army.move`, and armies moving aboard a fleet (no route was found to a sea zone with the player's fleet in it); an artillery barrage carried out; what a fleet mission does once taken; remote control hearing a battle the player only sees; the full view's every battle; an extension's `on_battle`; and the event's cost, not measured into performance.md.
+Followed up (tried in the game, [prototype-log.md](prototype-log.md), "Player actions follow-up: armies aboard fleets"): an army boards a fleet of the player's by `army.move` onto its sea zone, which the game allows only when one fleet there has room for the whole army; `army.get` says which fleet an army is aboard (`aboard`) and a fleet's regiments aboard (`carrying`); armies aboard move with their fleet and land by `army.move` to a coastal province; a move onto the sea that finds no route says when the player has no fleet there, or none with room, and the most room one has.
+
+Not verified in the game: boarding a fleet that is in a battle (no naval battle came about in the run); an artillery barrage carried out; what a fleet mission does once taken; remote control hearing a battle the player only sees; the full view's every battle; an extension's `on_battle`; and the event's cost, not measured into performance.md.
 
 ### A5 War and peace
 
