@@ -1,10 +1,10 @@
 //! The checks the framework makes of a capability's call itself, before it
 //! asks the game or besides the game's own checks, each with the status and
 //! the words it refuses in. The core makes them; the fakes that stand in for
-//! the core in tests, the SDK's `FakeGame` and the remote control engine's,
-//! make the same ones through here, so that a fake refuses what the core
-//! refuses, in the core's words. A refusal whose reasons the game gives is
-//! not here: only the game has those.
+//! the core in tests, the fake game of `eu4-harmony test` and the remote
+//! control engine's, make the same ones through here, so that a fake refuses
+//! what the core refuses, in the core's words. A refusal whose reasons the
+//! game gives is not here: only the game has those.
 //!
 //! One module per group of capabilities, as in the core's capability layer,
 //! and the game's calendar ([`Date`]), which the refusals, remote control's

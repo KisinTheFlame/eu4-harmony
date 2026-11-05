@@ -1,5 +1,5 @@
 //! The startup report, `report.txt` next to the logs: what the core found and
-//! loaded, and how long each extension's callbacks have taken so far. It is
+//! loaded, and how long each extension's handlers have taken so far. It is
 //! rewritten at startup, at every session start and every few minutes, since
 //! the end of the game process cannot be observed safely.
 use std::{fs, path::PathBuf, sync::Mutex};
@@ -26,7 +26,7 @@ pub fn write() {
     let report = REPORT.lock().unwrap_or_else(|e| e.into_inner());
     let Some(path) = &report.path else { return };
     let mut text = report.lines.join("\n");
-    text.push_str(&format!("\n\nExtension callbacks (as of {}):\n", crate::log::now()));
+    text.push_str(&format!("\n\nExtension handlers (as of {}):\n", crate::log::now()));
     if timing.is_empty() {
         text.push_str("  none loaded\n");
     }
