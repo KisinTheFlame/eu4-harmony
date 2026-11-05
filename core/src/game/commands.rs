@@ -310,6 +310,27 @@ pub fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GR
     Ok(())
 }
 
+/// Whether the command `text` writes would pass its own check now, as
+/// [`post`] asks it before executing it, without executing it: for a panel's
+/// read of what its buttons would do. Refused only when the game reads the
+/// text otherwise than it is written. Only on the main thread, at a safe
+/// point.
+pub fn passes(text: &str) -> Result<bool, Refused> {
+    let given = Written::parse(text).map_err(Refused::Unread)?;
+    let m = game()?;
+    context(m)?;
+    let Some(command) = read(m, &game_text::from_str(text))? else {
+        return Err(Refused::Unread(format!("the game has no command {:?}", given.kind)));
+    };
+    let refusal = refused(m, command, &given)?;
+    m.call(m.vslot(command, DESTROY)?, &[command, FREE])?;
+    match refusal {
+        None => Ok(true),
+        Some(Refused::Check) => Ok(false),
+        Some(refusal) => Err(refusal),
+    }
+}
+
 /// Whether the session's update would execute commands now: in a state in
 /// which it runs its queue, with no command executing and none held back.
 fn executes(m: &Memory, session: usize) -> GResult<bool> {
