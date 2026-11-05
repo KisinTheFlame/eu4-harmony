@@ -590,6 +590,46 @@ mod tests {
         fn stopped(&self, _: &Extension, _: &str) {}
     }
 
+    thread_local! {
+        static GAME: std::cell::RefCell<catalogue::fake::Fake> = std::cell::RefCell::default();
+    }
+
+    /// The catalogue over the fake game, as any extension calls it.
+    fn fake_game(_: Caller, with: &mut dyn FnMut(&mut dyn Catalogue)) {
+        GAME.with(|game| with(&mut *game.borrow_mut()));
+    }
+
+    #[test]
+    fn an_extension_s_call_reaches_the_catalogue_and_answers_in_lua_s_form() {
+        let dir = std::env::temp_dir().join(format!("eu4h-lua-catalogue-{}", std::process::id()));
+        let harmony = dir.join("eu4-harmony");
+        std::fs::create_dir_all(harmony.join("lua")).unwrap();
+        let main = r#"
+            return {
+              on_frame = function(game)
+                local army = game.army.get(4294967377)
+                local session = game.session.get()
+                local missing, why = game.army.get(1)
+                local date = session.date
+                log(math.type(army.id) .. " " .. army.id .. " " .. date.year .. "." .. date.month .. "." .. date.day .. " " .. tostring(missing) .. " " .. why.code)
+              end,
+            }
+        "#;
+        std::fs::write(harmony.join("lua/main.lua"), main).unwrap();
+        let host = Arc::new(Live { logs: dir.clone(), open: Mutex::new(HashMap::new()), reach: fake_game });
+        let permissions = eu4_harmony_manifest::Permissions::default();
+        let m = Mod { id: "calling", name: "Calling", harmony, permissions: &permissions, data: Some(dir.join("data")) };
+        let extension = eu4_harmony_lua::open(0, &m, host.clone()).unwrap();
+        extension.handle("on_frame", &[]);
+        drop(host);
+        // An army's ID an integer, a date its year, month and day, and a
+        // refusal nil and why.
+        let logged = std::fs::read_to_string(log_file(&dir, "calling")).unwrap();
+        assert_eq!(logged.trim(), "integer 4294967377 1444.11.11 nil not_found");
+        GAME.with(|game| assert_eq!(game.borrow().calls, ["army 4294967377", "session", "army 1"]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_reload_carries_the_save_data_and_leaves_failed_code_out() {
         let dir = std::env::temp_dir().join(format!("eu4h-reload-{}", std::process::id()));
