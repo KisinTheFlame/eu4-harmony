@@ -243,7 +243,14 @@ fn sections(record: &Value) -> Vec<String> {
     let census = truthy(&start["census"]);
     let saves: Vec<String> = list(&record["saves"]).iter().map(text).collect();
     let mut md = vec![
-        format!("Saves {}, new games as {}, {} days; {} rounds.", saves.join(" and "), text(&record["country"]), text(&record["days"]), played.len()),
+        format!(
+            "Saves {}, new games as {}, {} days; {} round{}.",
+            saves.join(" and "),
+            text(&record["country"]),
+            text(&record["days"]),
+            played.len(),
+            if played.len() == 1 { "" } else { "s" }
+        ),
         String::new(),
     ];
     md.extend([
