@@ -11,6 +11,16 @@
 //! hook only when it is made, so the sandbox's `coroutine.resume` and
 //! `coroutine.wrap` tell the watcher which coroutine of the mod's own runs
 //! ([`resume`]).
+//!
+//! The hook runs between Lua's instructions, so it cannot stop a call into
+//! one of Lua's own C functions while that runs: a pattern that backtracks
+//! without end in `string.find`, `match`, `gmatch` or `gsub`
+//! (`s:find(".-.-.-.-x")` on a long `s`) holds the game until it returns.
+//! Nothing can stop C code from another thread safely, and bounding the
+//! matcher's work would take a matcher of the framework's own in place of
+//! Lua's, which is not worth its cost. Other long C calls, such as building
+//! a long string or sorting a large table, take time in proportion to their
+//! data, which the memory limit bounds.
 use mlua::ffi;
 use std::{
     sync::{Mutex, Once},

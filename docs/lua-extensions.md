@@ -73,6 +73,7 @@ end
 - A task that runs for more than 1 s without waiting is stopped with an error, as any other error. `pcall` does not let it go on: the error is raised again at each instruction it runs until its stretch has ended. A coroutine of the mod's own runs within the stretch that resumes it, and the limit holds for it as for the task.
 - After three stops in a row, the extension is stopped: it is not called again until the game is closed, its interface elements are hidden, and a notice says why.
 - A task is watched from another thread, which reaches into the Lua state only once the limit has passed, so a task within the limit pays nothing for it. Measured 2026-11-03: a count hook set for the whole run slows Lua 5.4 by 50 to 80% in tight loops, whatever its interval.
+- The limit is checked between Lua's instructions, so it cannot stop a call into one of Lua's own functions written in C while that call runs. A string pattern that backtracks without end in `string.find`, `string.match`, `string.gmatch` or `string.gsub` (`s:find(".-.-.-.-x")` on a 100 kB `s` ran on past 5 s in the Lua host, tried 2026-11-05) holds the game until it returns, so a mod writes patterns that cannot backtrack far over long strings. Bounding the matcher's work would take a matcher of the framework's own in place of Lua's, which is not worth its cost. Other long C calls, such as building a long string or sorting a large table, take time in proportion to their data, which the memory limit bounds.
 
 ### The sandbox
 
