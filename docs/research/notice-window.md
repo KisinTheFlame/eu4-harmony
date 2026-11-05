@@ -10,6 +10,8 @@ The method is the same as in `ui-injection.md`: static analysis only, without st
 
 Items marked **verified** were seen directly in decompiled code or in the bytes; items marked **inferred** are judgements from structure. All function prototypes in the pseudocode are tentative.
 
+The framework does not host its notice window this way: ADR notice-window-in-vanilla-hosts, which followed this study's recommendation, was superseded by [ADR framework-draws-its-own-ui](../adr/framework-draws-its-own-ui.md), and notices are drawn in the framework UI's own window (`core/src/notice.rs`). The recommendations and the suggested implementation below are what was concluded then; the findings on the game's windows, their lifecycle and their destruction still describe the game.
+
 ## Conclusion
 
 **Feasible. The recommended host window is the top bar window `topbar` (`interface/topbar.gui`).** Confidence is high for the host and the lifecycle; the display position and the slide-out animation need confirming at run time.
@@ -252,6 +254,8 @@ Conclusion: **it is built once per game, that is once per in-game idler, not onc
 
 ### 3.5 Recommended hooks
 
+What this study recommended for a window spliced into `topbar`; not built, as said at the top.
+
 1. **Main hook**: an observing hook at the entry of `0x1547520`; `rcx` is the window pointer.
    - If it equals the bound root, unbind at once: unsubscribe from the button signals and clear the object pointers.
    - At this point the memory of the root and its child elements is still valid, so unbinding is safe.
@@ -367,6 +371,8 @@ The first 32 bytes of `0x1548d30` and `0x15492e0` are identical. When checking t
 | `0x1d5a8c8` | main menu idler vtable |
 
 ## Suggested implementation
+
+What this study suggested; not built, as said at the top.
 
 1. **Splicing**: splice the notice window's elements (background icon, text box, close button) straight into the `windowType "topbar"` block of `interface/topbar.gui`, with names prefixed `eu4harmony_`. They can be placed relative to the screen with `Orientation`, the way `pause_window` does it.
    - They can also be spliced in as a nested `windowType`, shown and hidden as a whole with GUI `+0x88/+0x90`. The cost is that lookups must first fetch the subwindow with `+0x1c0`, and that step needs a `std::string` built.
