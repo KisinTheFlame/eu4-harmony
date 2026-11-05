@@ -16,7 +16,7 @@ group! {
     /// The reasons are the game's: the conditions that do not hold, as the
     /// view's tooltip lists them, and its own lines. The national ideas are
     /// not listed: the player has them without choosing.
-    game List "list" {} -> Vec<IdeaGroup>, "the idea groups: group (its content key), name, category, taken, ideas, of, button, next, can, reasons, cost";
+    game List "list" {} -> Vec<IdeaGroupOption>, "the idea groups: group (its content key), name, category, taken, ideas, of, button, next, can, reasons, cost";
 
     /// Takes an idea group, as the player does with its button in the ideas
     /// view: it fills one of the player's idea group slots. `rejected` with
@@ -48,7 +48,7 @@ group! {
 
 /// An idea group of the ideas view.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct IdeaGroup {
+pub struct IdeaGroupOption {
     /// Its content key, which the game's or a mod's idea files give it.
     pub group: String,
     /// Its name, as the view shows it, in the player language.

@@ -1,12 +1,12 @@
 //! Ideas: the idea groups of the ideas view, and taking, buying and
 //! abandoning them.
 use eu4_harmony_remote::{
-    ideas::{IdeaAnswer, IdeaGroup, IdeaRequest},
+    ideas::{IdeaAnswer, IdeaGroupOption, IdeaRequest},
     Error,
 };
 
 layer! {
-    fn idea_groups() -> Vec<IdeaGroup> = crate::game::ideas::list;
+    fn idea_groups() -> Vec<IdeaGroupOption> = crate::game::ideas::list;
     fn take_idea_group(group: String) -> () = crate::game::ideas::take_group;
     fn buy_idea(group: String) -> () = crate::game::ideas::buy;
     fn abandon_idea_group(group: String) -> () = crate::game::ideas::abandon_group;

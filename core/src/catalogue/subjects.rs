@@ -2,12 +2,12 @@
 use super::countries;
 use crate::game::{subjects as layer, Tag};
 use eu4_harmony_remote::{
-    subjects::{Interaction, SubjectAnswer, SubjectRequest},
+    subjects::{SubjectAnswer, SubjectInteraction, SubjectRequest},
     Error,
 };
 
 layer! {
-    fn interactions(subject: Tag) -> Vec<Interaction> = layer::options;
+    fn interactions(subject: Tag) -> Vec<SubjectInteraction> = layer::options;
     fn interact(subject: Tag, interaction: &str, third_party: Option<Tag>) -> () = layer::interact;
 }
 

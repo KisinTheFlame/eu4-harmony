@@ -10,7 +10,7 @@ group! {
     /// The player's provinces with a fort, each with its level, whether it
     /// is mothballed, and whether the player can mothball or reopen it now,
     /// why not as the button's tooltip says.
-    game List "list" {} -> Vec<Fort>, "the forts: province, level, mothballed, can, reasons, cost";
+    game List "list" {} -> Vec<PlayerFort>, "the forts: province, level, mothballed, can, reasons, cost";
     /// Mothballs a fort of the player's, as the province view's button does:
     /// it no longer defends, and costs no upkeep.
     game Mothball "mothball" {
@@ -27,7 +27,7 @@ group! {
 
 /// A fort of the player's.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::shape::Shaped)]
-pub struct Fort {
+pub struct PlayerFort {
     pub province: ProvinceId,
     /// Its level, as the fort's tooltip gives it; what it keeps while
     /// mothballed.

@@ -1,11 +1,11 @@
 //! Forts: the player's forts, mothballing and reopening them.
 use eu4_harmony_remote::{
-    forts::{Fort, FortAnswer, FortRequest},
+    forts::{FortAnswer, FortRequest, PlayerFort},
     Error,
 };
 
 layer! {
-    fn forts() -> Vec<Fort> = crate::game::forts::list;
+    fn forts() -> Vec<PlayerFort> = crate::game::forts::list;
     fn mothball_fort(province: u32) -> () = crate::game::forts::mothball;
     fn reopen_fort(province: u32) -> () = crate::game::forts::reopen;
 }

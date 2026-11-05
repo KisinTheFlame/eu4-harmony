@@ -13,7 +13,7 @@ use super::{
     context, country, fail, game, Caller, Ctx, GResult, Status, Tag,
 };
 use crate::{game_string, memory::Memory, objects::campaign::country as country_fields, points::Point, unicode::game_text};
-use eu4_harmony_remote::{choices::Choice, subjects::Interaction as Listed};
+use eu4_harmony_remote::{choices::Choice, subjects::SubjectInteraction as Listed};
 
 /// An interaction: its key, its number (the key's token), the static object
 /// the game keeps it in and that object's class; [`points`] keeps where the

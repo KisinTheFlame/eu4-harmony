@@ -566,10 +566,10 @@ impl mercenaries::Layer for Fake {
 
 /// Edirne's fort, open.
 impl forts::Layer for Fake {
-    fn forts(&mut self) -> GResult<Vec<eu4_harmony_remote::forts::Fort>> {
-        use eu4_harmony_remote::{choices::Choice, forts::Fort, ProvinceId};
+    fn forts(&mut self) -> GResult<Vec<eu4_harmony_remote::forts::PlayerFort>> {
+        use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
         self.call("forts".into());
-        Ok(vec![Fort { province: ProvinceId(149), level: 2, mothballed: false, choice: Choice::can(Vec::new()) }])
+        Ok(vec![PlayerFort { province: ProvinceId(149), level: 2, mothballed: false, choice: Choice::can(Vec::new()) }])
     }
 
     fn mothball_fort(&mut self, province: u32) -> GResult<()> {
@@ -755,15 +755,15 @@ impl desktop::Layer for Fake {
 /// Wallachia is the Ottomans' subject: scutage the player can take, and
 /// sending officers, which goes on.
 impl subjects::Layer for Fake {
-    fn interactions(&mut self, subject: Tag) -> GResult<Vec<eu4_harmony_remote::subjects::Interaction>> {
-        use eu4_harmony_remote::{choices::Choice, subjects::Interaction};
+    fn interactions(&mut self, subject: Tag) -> GResult<Vec<eu4_harmony_remote::subjects::SubjectInteraction>> {
+        use eu4_harmony_remote::{choices::Choice, subjects::SubjectInteraction};
         self.call(format!("interactions {:x}", subject.0));
         if subject != wal() {
             return fail(Status::Rejected, "not a subject of the player's");
         }
         Ok(vec![
-            Interaction { interaction: "scutage".into(), name: "Demand Scutage".into(), active: false, choice: Choice::can(Vec::new()) },
-            Interaction { interaction: "send_officers".into(), name: "Send Officers".into(), active: true, choice: Choice::can(Vec::new()) },
+            SubjectInteraction { interaction: "scutage".into(), name: "Demand Scutage".into(), active: false, choice: Choice::can(Vec::new()) },
+            SubjectInteraction { interaction: "send_officers".into(), name: "Send Officers".into(), active: true, choice: Choice::can(Vec::new()) },
         ])
     }
 
@@ -811,14 +811,14 @@ fn government_action(key: &str, kind: &str) -> GResult<()> {
 
 /// One idea group taken with two ideas bought, one not taken.
 impl ideas::Layer for Fake {
-    fn idea_groups(&mut self) -> GResult<Vec<eu4_harmony_remote::ideas::IdeaGroup>> {
+    fn idea_groups(&mut self) -> GResult<Vec<eu4_harmony_remote::ideas::IdeaGroupOption>> {
         use eu4_harmony_remote::{
             choices::{Amount, Choice, Resource},
-            ideas::IdeaGroup,
+            ideas::IdeaGroupOption,
         };
         self.call("idea groups".into());
         Ok(vec![
-            IdeaGroup {
+            IdeaGroupOption {
                 group: "defensive_ideas".into(),
                 name: "防御理念".into(),
                 category: "mil".into(),
@@ -829,7 +829,7 @@ impl ideas::Layer for Fake {
                 next: Some("improved_manuever".into()),
                 choice: Choice::can(vec![Amount::new(Resource::Mil, 400.0)]),
             },
-            IdeaGroup {
+            IdeaGroupOption {
                 group: "aristocracy_ideas".into(),
                 name: "贵族理念".into(),
                 category: "mil".into(),
@@ -950,10 +950,12 @@ impl estates::Layer for Fake {
         }])
     }
 
-    fn estate_interactions(&mut self) -> GResult<Vec<eu4_harmony_remote::estates::Interaction>> {
-        use eu4_harmony_remote::{choices::Choice, estates::Interaction};
+    fn estate_interactions(&mut self) -> GResult<Vec<eu4_harmony_remote::estates::EstateInteraction>> {
+        use eu4_harmony_remote::{choices::Choice, estates::EstateInteraction};
         self.call("estate interactions".into());
-        Ok(vec![Interaction { interaction: "seize_land".into(), name: "没收土地".into(), choice: Choice::cannot(vec!["冷却中".into()], Vec::new()) }])
+        Ok(vec![EstateInteraction {
+            interaction: "seize_land".into(), name: "没收土地".into(), choice: Choice::cannot(vec!["冷却中".into()], Vec::new())
+        }])
     }
 
     fn grant_privilege(&mut self, estate: String, privilege: String) -> GResult<()> {
@@ -1017,13 +1019,13 @@ impl missions::Layer for Fake {
 /// The Ottomans' technologies: administrative and diplomatic they can
 /// research, military they cannot afford.
 impl technology::Layer for Fake {
-    fn technologies(&mut self) -> GResult<Vec<eu4_harmony_remote::technology::Technology>> {
+    fn technologies(&mut self) -> GResult<Vec<eu4_harmony_remote::technology::TechnologyOption>> {
         use eu4_harmony_remote::{
             choices::{Amount, Choice, PowerKind, Resource},
-            technology::Technology,
+            technology::TechnologyOption,
         };
         self.call("technologies".into());
-        let at = |technology, level, choice| Technology { technology, level, choice };
+        let at = |technology, level, choice| TechnologyOption { technology, level, choice };
         Ok(vec![
             at(PowerKind::Adm, 3, Choice::can(vec![Amount::new(Resource::Adm, 600.0)])),
             at(PowerKind::Dip, 3, Choice::can(vec![Amount::new(Resource::Dip, 600.0)])),
@@ -1137,15 +1139,15 @@ impl economy::Layer for Fake {
 
 /// One bank loan of the Ottomans', which they can repay.
 impl loans::Layer for Fake {
-    fn loans(&mut self) -> GResult<Vec<eu4_harmony_remote::loans::Loan>> {
+    fn loans(&mut self) -> GResult<Vec<eu4_harmony_remote::loans::PlayerLoan>> {
         use eu4_harmony_remote::{
             choices::{Amount, Choice, Resource},
-            loans::Loan,
+            loans::PlayerLoan,
             Date,
         };
         self.call("loans".into());
         let expires = Date::from_ymd(1449, 11, 11).unwrap();
-        Ok(vec![Loan {
+        Ok(vec![PlayerLoan {
             loan: 7,
             lender: None,
             estate: false,
