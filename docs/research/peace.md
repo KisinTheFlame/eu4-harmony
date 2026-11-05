@@ -51,4 +51,6 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-11-05 
 - Which of the constructor's calls fills the treaty's terms, and how the view decides the categories (`0x1306a60`'s table at `0x1306da0`).
 - The limits of gold other than all the war score (`0x97b530` caps by `[0x233f9e8]` and the givers at `+0x58`, not read), and what `0x1311670` adds for the shift-click.
 - Whether a call to arms the AI accepts brings the ally into every war it may join, or only the first.
+- The byte `+0x50` of a call to arms, which the default diplomacy window's agree clears for a country the AI plays while the world lists which countries human players play (`0xedfb30`); the framework leaves it as the panel made it. Tried on 2026-11-05 (A6): with it left, Provence, asked at war with Savoy, `declined`, as in A5's run; with it cleared as the window clears it, no answer came within five seconds, nor had Provence joined three days later. What the window's call does after that was not looked at.
+- `diplomacy.options` gives a call's acceptance as the panel's entry asks it, with its byte `+0x54` set, which adds the factor of land promised (Provence: +20 "承诺给予萨伏依土地", 65 in all, accepting); the call sent promises none, and Provence declined it.
 - How the AI decides a peace (`0x1bf150`), beyond the factors it gives.

@@ -1634,6 +1634,15 @@ A developer build of this branch with the command log (`dev-command-log`, loggin
 - **Not tried in the game**: most of the panel's other actions (each goes the same way as those sent: the panel's own action, its checks, its command); the acts whose window has the player choose a province, a country, an army or an amount beyond those above (`fabricate_claim` and `claim_states` carried out, `subsidize_war`, `transfer_trade_power`, `threaten_war`, `break_alliance`, the favors, `enforce_peace`, `intervene_in_war`, `demand_unlawful_territory`, `charter_company`, `appoint_cardinal`); those sent as the panel made them though their window chooses something the framework does not set (`support_rebels`, `share_maps`, `steal_maps`, `sell_ships`, `invite_to_federation`'s name); a scripted action carried out; annexing and integrating (no subject could be); the subject interactions that need a third country, an index or a name; Lua extensions calling any of it.
 - **Cleanup**: the release put back every file the run changed and the game folder's framework files; `dev.toml` and the screenshots were deleted.
 
+## 2026-11-05 Player actions A6 merged with A5: the call to arms as a panel action (tested by me)
+
+The player build of this branch after merging the integration branch with A2 to A8, within a claim, started hidden; new games as France, war declared on Savoy without a casus belli at 1444.12.16 and no ally called.
+
+- **`diplomacy.options PRO`** gave `call_to_arms` (召集盟友！), `can` true, with the acceptance the panel's entry asks: accepting, 26 in all with "承诺给予萨伏依土地" +20 (65 in the second process, "对敌人的态度" +40 among them).
+- **`diplomacy.call_to_arms PRO`** was sent from the panel's list and Provence `declined`, as in A5's run; `CAS`, no ally, was refused "the diplomacy panel offers no call to arms to CAS".
+- **The window's byte**: a build that cleared the call's `+0x50` as the diplomacy window does for a country the AI plays had the call answered `pending`, and Provence had not joined the war three days on; that change was taken back, and the question is in research/peace.md.
+- **Cleanup**: each release put back the player's files and the game folder's framework files; the screenshots were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
