@@ -19,8 +19,12 @@ const LEVELING_RATIO: f64 = 3.0;
 /// not raise.
 const SILENCE: f64 = -60.0;
 /// The seconds of a first hearing measured before its integrated loudness
-/// is used; until then the track plays as it is.
+/// is used to lower it; until then the track plays as it is.
 const FIRST_ESTIMATE: f64 = 3.0;
+/// The seconds measured before a first hearing is raised: a quiet opening is
+/// no measure of a track (the main theme is -35.6 LUFS over its first 20 s,
+/// -13.7 over a minute and -11.4 over 240 s).
+const FIRST_RAISE: f64 = 60.0;
 /// How fast the gains follow, in dB a second: a track's known loudness is
 /// taken up within a second, an estimate and leveling more slowly.
 const KNOWN_SLEW: f64 = 12.0;
@@ -42,8 +46,9 @@ pub struct Choices {
 #[derive(Clone, Debug)]
 pub struct Track {
     meter: Meter,
-    /// The track's integrated loudness from an earlier hearing, if known.
-    known: Option<f64>,
+    /// The track's integrated loudness from an earlier hearing, if known, and
+    /// the seconds it is over.
+    known: Option<(f64, f64)>,
     normalization: f64,
     leveling: f64,
     /// The limiter's current factor, 1 for none.
@@ -57,9 +62,9 @@ impl Default for Track {
 }
 
 impl Track {
-    /// Gives the track's loudness from an earlier hearing.
-    pub fn know(&mut self, loudness: f64) {
-        self.known = Some(loudness);
+    /// Gives the track's loudness from an earlier hearing over `seconds`.
+    pub fn know(&mut self, loudness: f64, seconds: f64) {
+        self.known = Some((loudness, seconds));
     }
 
     /// What this hearing measured: its integrated loudness and the seconds
@@ -97,11 +102,16 @@ impl Track {
 
     /// Moves the gains toward what the track wants now, over `seconds`.
     fn follow(&mut self, choices: Choices, seconds: f64) {
-        let (wanted, slew) = match (choices.normalize, self.known) {
+        // An earlier hearing counts until this one is longer.
+        let known = self.known.filter(|&(_, seconds)| seconds >= self.meter.seconds());
+        let (wanted, slew) = match (choices.normalize, known) {
             (false, _) => (0.0, KNOWN_SLEW),
-            (true, Some(known)) => ((TARGET - known).clamp(-RANGE, RANGE), KNOWN_SLEW),
+            (true, Some((known, _))) => ((TARGET - known).clamp(-RANGE, RANGE), KNOWN_SLEW),
             (true, None) => match self.meter.integrated() {
-                Some(estimate) if self.meter.seconds() >= FIRST_ESTIMATE => ((TARGET - estimate).clamp(-RANGE, RANGE), ESTIMATE_SLEW),
+                Some(estimate) if self.meter.seconds() >= FIRST_ESTIMATE => {
+                    let wanted = (TARGET - estimate).clamp(-RANGE, RANGE);
+                    (if self.meter.seconds() < FIRST_RAISE { wanted.min(0.0) } else { wanted }, ESTIMATE_SLEW)
+                }
                 _ => (self.normalization, ESTIMATE_SLEW),
             },
         };
@@ -209,38 +219,56 @@ mod tests {
     fn a_known_quiet_track_is_raised_to_the_target_and_held_below_full_scale() {
         let mut track = Track::default();
         // A tone's loudness is its level in dBFS, so -23 LUFS: raised 10.2 dB.
-        track.know(-23.0);
+        track.know(-23.0, 200.0);
         let out = play(&mut track, -23.0, 2.0, Choices { normalize: true, level: false });
         let raised = 20.0 * peak(&out).log10() - -23.0;
         assert!((raised - 10.2).abs() < 0.1, "{raised}");
         let mut loud = Track::default();
-        loud.know(-24.0);
+        loud.know(-24.0, 200.0);
         let out = play(&mut loud, -3.0, 2.0, Choices { normalize: true, level: false });
         assert!(peak(&out) <= CEILING + 1e-3, "{}", peak(&out));
     }
 
     #[test]
-    fn a_first_hearing_follows_its_estimate_slowly() {
-        let mut track = Track::default();
+    fn a_first_hearing_is_lowered_soon_and_raised_only_after_a_minute() {
         let choices = Choices { normalize: true, level: false };
+        let change = |out: &[i16], dbfs: f64| 20.0 * peak(out).log10() - dbfs;
+        let mut loud = Track::default();
         // Played as it is until 3 s are measured.
-        let out = play(&mut track, -20.0, 2.5, choices);
-        assert!((20.0 * peak(&out).log10() - -20.0).abs() < 0.05);
-        // Then raised by 2 dB a second toward 7.2 dB.
-        let out = play(&mut track, -20.0, 3.0, choices);
-        let raised = 20.0 * peak(&out).log10() - -20.0;
-        assert!((3.0..6.5).contains(&raised), "{raised}");
-        let out = play(&mut track, -20.0, 5.0, choices);
-        let raised = 20.0 * peak(&out).log10() - -20.0;
-        assert!((raised - 7.2).abs() < 0.1, "{raised}");
-        let (loudness, seconds) = track.measured().unwrap();
-        assert!((loudness - -20.0).abs() < 0.1 && seconds > 10.0);
+        let out = play(&mut loud, -3.0, 2.5, choices);
+        assert!(change(&out, -3.0).abs() < 0.05);
+        // Then lowered by 2 dB a second toward -9.8 dB.
+        let out = play(&mut loud, -3.0, 3.0, choices);
+        assert!((-6.5..-3.0).contains(&change(&out, -3.0)), "{}", change(&out, -3.0));
+        let out = play(&mut loud, -3.0, 5.0, choices);
+        assert!((change(&out, -3.0) - -9.8).abs() < 0.1, "{}", change(&out, -3.0));
+        // A quiet one is not raised before a minute is measured, then toward 7.2 dB.
+        let mut quiet = Track::default();
+        let out = play(&mut quiet, -20.0, 55.0, choices);
+        assert!(change(&out, -20.0).abs() < 0.05, "{}", change(&out, -20.0));
+        let out = play(&mut quiet, -20.0, 10.0, choices);
+        assert!((change(&out, -20.0) - 7.2).abs() < 0.1, "{}", change(&out, -20.0));
+        let (loudness, seconds) = quiet.measured().unwrap();
+        assert!((loudness - -20.0).abs() < 0.1 && seconds > 60.0);
+    }
+
+    #[test]
+    fn an_earlier_hearing_counts_until_this_one_is_longer() {
+        let choices = Choices { normalize: true, level: false };
+        let mut track = Track::default();
+        // Kept from a minute of a quiet opening: raised the most at first.
+        track.know(-26.0, 60.0);
+        let out = play(&mut track, -20.0, 30.0, choices);
+        assert!((20.0 * peak(&out).log10() - -20.0 - 12.0).abs() < 0.1);
+        // Past a minute, this hearing's -20 LUFS: 7.2 dB.
+        let out = play(&mut track, -20.0, 40.0, choices);
+        assert!((20.0 * peak(&out).log10() - -20.0 - 7.2).abs() < 0.1);
     }
 
     #[test]
     fn leveling_raises_a_quiet_passage_by_two_thirds_of_its_distance() {
         let mut track = Track::default();
-        track.know(TARGET);
+        track.know(TARGET, 200.0);
         let out = play(&mut track, -30.8, 12.0, Choices { normalize: true, level: true });
         // 18 dB below the target, raised by 12, the most.
         let raised = 20.0 * peak(&out).log10() - -30.8;

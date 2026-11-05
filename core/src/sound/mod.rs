@@ -277,7 +277,7 @@ fn mix_music(voice: usize, sound: usize, source: &[i16], device: &mut [i16], gai
     if playing.sound != sound {
         *playing = Playing { sound, track: Track::default(), fingerprint: Fingerprint::default(), last: calls };
         if let Some(measured) = state.fingerprints.get(&sound).and_then(|f| state.cache.get(*f)) {
-            playing.track.know(measured.loudness);
+            playing.track.know(measured.loudness, measured.seconds);
         }
     }
     playing.last = calls;
@@ -286,7 +286,7 @@ fn mix_music(voice: usize, sound: usize, source: &[i16], device: &mut [i16], gai
             state.fingerprints.insert(sound, fingerprint);
             match state.cache.get(fingerprint) {
                 Some(measured) => {
-                    playing.track.know(measured.loudness);
+                    playing.track.know(measured.loudness, measured.seconds);
                     log!("music: track {fingerprint:016x} is known, {:.1} LUFS; the game's gain {gain:.4}", measured.loudness);
                 }
                 None => log!("music: track {fingerprint:016x} is heard for the first time; the game's gain {gain:.4}"),
