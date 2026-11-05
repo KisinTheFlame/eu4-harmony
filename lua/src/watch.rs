@@ -50,7 +50,8 @@ pub fn start(state: *const std::ffi::c_void) {
 }
 
 /// The stretch has ended; whether the time limit stopped it. The hook, if
-/// set, is taken off before the state runs anything else.
+/// set, is taken off here, before the state runs anything else, and not
+/// before.
 pub fn end() -> bool {
     let r = {
         let mut all = running();
@@ -79,10 +80,10 @@ fn watch() {
     }
 }
 
-/// The hook: off again, then the error, which unwinds the stretch to the
-/// host as any error does.
+/// The hook: the error, which unwinds the stretch to the host as any error
+/// does. It stays set until the stretch ends, so an error caught by `pcall`
+/// is raised again at the next instruction, and the stretch cannot go on.
 unsafe extern "C-unwind" fn time_up(state: *mut ffi::lua_State, _: *mut ffi::lua_Debug) {
-    ffi::lua_sethook(state, None, 0, 0);
     ffi::lua_pushlstring(state, STOPPED.as_ptr().cast(), STOPPED.len());
     ffi::lua_error(state);
 }

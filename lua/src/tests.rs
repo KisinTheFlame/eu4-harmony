@@ -405,6 +405,38 @@ fn the_time_limit_stops_a_handler_and_three_in_a_row_the_extension() {
     assert_eq!(e.state().all.count, before);
 }
 
+/// Whether `e`'s handler `name`, run on a thread of its own, returns within
+/// a few seconds: a handler the time limit does not stop runs on there
+/// instead of hanging the tests.
+fn returns_in_time(e: &Arc<Extension>, name: &str) -> bool {
+    let (e, name, (returned, came)) = (e.clone(), name.to_string(), std::sync::mpsc::channel());
+    std::thread::spawn(move || {
+        e.handle(&name, &[]);
+        let _ = returned.send(());
+    });
+    came.recv_timeout(Duration::from_secs(5)).is_ok()
+}
+
+#[test]
+fn the_time_limit_is_not_caught_by_pcall() {
+    let e = load_one(
+        "pcall-forever",
+        r#"
+        return {
+          on_frame = function(game) while true do pcall(function() while true do end end) end end,
+          on_day = function(game) DAY = true end,
+        }
+        "#,
+        &[],
+    )
+    .unwrap();
+    assert!(returns_in_time(&e, "on_frame"));
+    assert!(errors(&e).iter().any(|k| k.contains(watch::STOPPED)), "{:?}", errors(&e));
+    assert_eq!(e.state().timeouts, 1);
+    // Once the stretch has ended, the next one runs as before.
+    assert_eq!(after(&e, "on_day", "DAY"), LuaValue::Boolean(true), "{:?}", errors(&e));
+}
+
 #[test]
 fn a_yield_of_the_mod_s_own_outside_its_coroutines_is_an_error() {
     let e = load_one("yield", "return { on_frame = function(game) coroutine.yield(1) end }", &[]).unwrap();
