@@ -180,12 +180,14 @@ impl Backend {
 
     unsafe fn draw_scene(&mut self, device: &IDirect3DDevice9, font: &UiFont, commands: &[Command], scale: f32) -> windows::core::Result<()> {
         // Lay out text first, so the page holds every glyph before it is uploaded.
-        let mut texts = Vec::new();
-        for c in commands {
-            if let Command::Text { x, y, text, size, color } = c {
-                texts.push((font.layout(text, *size, *x, *y), *color));
-            }
-        }
+        let texts: Vec<(&str, f32, f32, f32)> = commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Text { x, y, text, size, .. } => Some((text.as_str(), *size, *x, *y)),
+                Command::Fill { .. } => None,
+            })
+            .collect();
+        let texts = font.layout_frame(&texts);
         let texture = self.texture(device, font)?;
         if self.state.is_none() {
             self.state = Some(device.CreateStateBlock(D3DSBT_ALL)?);
@@ -206,12 +208,12 @@ impl Backend {
                         }
                         quad(&mut vertices, pixels(*rect, scale), *color, None);
                     }
-                    Command::Text { .. } => {
+                    Command::Text { color, .. } => {
                         if !textured {
                             Self::flush(device, &mut vertices, None)?;
                             textured = true;
                         }
-                        let (quads, color) = next_text.next().expect("one layout per text");
+                        let quads = next_text.next().expect("one layout per text");
                         for q in quads {
                             quad(&mut vertices, q.screen, *color, Some(q.page));
                         }
