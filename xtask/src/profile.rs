@@ -15,7 +15,16 @@
 //!   own; each thread's CPU.
 //!
 //! Each stack's root is where in the game's time it fell: `[day]`,
-//! `[frame inside a day]` or `[between days]`. `--tree` prints the stacks of
+//! `[frame inside a day]` or `[between days]`, and with `--slice <seconds>`
+//! the stretch of the run it fell in too, as `[between days] 10-20 s`, so
+//! that a run through the game's startup or a load shows what each stretch
+//! did. `--wait` waits for eu4.exe to start, for a run from its first
+//! moments; modules the process loads during the run are taken up as they
+//! come. `--thread <name>` samples the thread the game named so (such as
+//! `LoadingThread`) while it runs, and the main thread otherwise; `--thread
+//! busiest` the thread with the most CPU over each second; `--thread
+//! 0x874010` a thread with that function on its stack, such as the one
+//! a thread starts in, looked for each second. `--tree` prints the stacks of
 //! a .folded file as a tree, top down, or the tree below one frame.
 //!
 //! Frames are named by the function they lie in, from the exception
@@ -34,7 +43,7 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, FILETIME, HANDLE, HMODULE},
+    Foundation::{CloseHandle, LocalFree, FILETIME, HANDLE, HMODULE},
     System::{
         Diagnostics::{
             Debug::{
@@ -46,8 +55,8 @@ use windows_sys::Win32::{
         ProcessStatus::{EnumProcessModulesEx, GetModuleBaseNameW, GetModuleFileNameExW, GetModuleInformation, LIST_MODULES_ALL, MODULEINFO},
         SystemInformation::IMAGE_FILE_MACHINE_AMD64,
         Threading::{
-            GetThreadTimes, OpenProcess, OpenThread, ResumeThread, SuspendThread, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ, THREAD_GET_CONTEXT,
-            THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
+            GetThreadDescription, GetThreadTimes, OpenProcess, OpenThread, ResumeThread, SuspendThread, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+            THREAD_GET_CONTEXT, THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
         },
     },
 };
@@ -84,7 +93,8 @@ pub fn run(args: &Args) -> Result<()> {
     if args.flag("tree") {
         return tree(out, args.value("root"), args.number("depth", 6)?, decimal(args, "min", 1.0)?);
     }
-    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?)
+    let slice = args.value("slice").map(|_| decimal(args, "slice", 0.0)).transpose()?.filter(|s| *s > 0.0);
+    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.value("thread"))
 }
 
 /// The number `--key` gives, or `default`.
@@ -286,12 +296,22 @@ fn threads_of(process: u32) -> Vec<(u32, HANDLE)> {
 
 /// The process's modules, each loaded into dbghelp too.
 fn modules_of(process: HANDLE) -> Vec<Module> {
+    let mut modules = Vec::new();
+    take_up_modules(process, &mut modules);
+    modules
+}
+
+/// Adds the modules the process loaded since `modules` was made, each
+/// loaded into dbghelp too.
+fn take_up_modules(process: HANDLE, modules: &mut Vec<Module>) {
     let mut handles: Vec<HMODULE> = vec![std::ptr::null_mut(); 1024];
     let mut needed = 0;
     unsafe { EnumProcessModulesEx(process, handles.as_mut_ptr(), (handles.len() * size_of::<HMODULE>()) as u32, &mut needed, LIST_MODULES_ALL) };
     handles.truncate(needed as usize / size_of::<HMODULE>());
-    handles
+    let known: std::collections::HashSet<u64> = modules.iter().map(|m| m.base).collect();
+    let new: Vec<Module> = handles
         .into_iter()
+        .filter(|module| !known.contains(&(*module as u64)))
         .map(|module| unsafe {
             let mut info: MODULEINFO = std::mem::zeroed();
             GetModuleInformation(process, module, &mut info, size_of::<MODULEINFO>() as u32);
@@ -307,15 +327,20 @@ fn modules_of(process: HANDLE) -> Vec<Module> {
             let functions = std::fs::read(String::from_utf16_lossy(&path)).ok().and_then(|d| Functions::read(&d)).unwrap_or_default();
             Module { base, end: base + u64::from(info.SizeOfImage), name: String::from_utf16_lossy(&name[..len]).to_lowercase(), functions }
         })
-        .collect()
+        .collect();
+    modules.extend(new);
 }
 
 /// The main thread's instruction pointer and return addresses, innermost
 /// first.
 fn walk(process: HANDLE, thread: HANDLE) -> Vec<u64> {
-    let mut context: CONTEXT = unsafe { std::mem::zeroed() };
+    // GetThreadContext fails on a context that is not 16-byte aligned.
+    #[repr(C, align(16))]
+    struct Aligned(CONTEXT);
+    let mut aligned = Aligned(unsafe { std::mem::zeroed() });
+    let context = &mut aligned.0;
     context.ContextFlags = CONTEXT_FULL_AMD64;
-    if unsafe { GetThreadContext(thread, &mut context) } == 0 {
+    if unsafe { GetThreadContext(thread, context) } == 0 {
         return Vec::new();
     }
     let mut frame: STACKFRAME64 = unsafe { std::mem::zeroed() };
@@ -331,7 +356,7 @@ fn walk(process: HANDLE, thread: HANDLE) -> Vec<u64> {
                 process,
                 thread,
                 &mut frame,
-                (&raw mut context).cast(),
+                (context as *mut CONTEXT).cast(),
                 None,
                 Some(SymFunctionTableAccess64),
                 Some(SymGetModuleBase64),
@@ -419,8 +444,46 @@ fn part(frames: &[String]) -> String {
     format!("{where_}: other")
 }
 
-fn sample(out: &str, seconds: f64, hz: f64) -> Result<()> {
-    let id = *crate::game::processes().first().ok_or("eu4.exe is not running")?;
+/// The thread's name, as the game gave it with SetThreadDescription.
+fn description(thread: HANDLE) -> String {
+    let mut text: windows_sys::core::PWSTR = std::ptr::null_mut();
+    if unsafe { GetThreadDescription(thread, &mut text) } < 0 || text.is_null() {
+        return String::new();
+    }
+    let len = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();
+    let name = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) });
+    unsafe { LocalFree(text as _) };
+    name
+}
+
+/// The thread `--thread` names among `threads`: by its name, or the one with
+/// the most CPU since `cpu` was taken; the main thread when none is.
+fn chosen(which: &str, threads: &[(u32, HANDLE)], cpu: &HashMap<u32, u64>, main: (u32, HANDLE), on_stack: impl Fn(HANDLE) -> bool) -> (u32, HANDLE) {
+    let found = if which.starts_with("0x") {
+        threads.iter().find(|(_, h)| on_stack(*h)).copied()
+    } else if which == "busiest" {
+        threads
+            .iter()
+            .filter(|(t, _)| *t != main.0)
+            .map(|&(t, h)| (thread_times(h).1.saturating_sub(cpu.get(&t).copied().unwrap_or(0)), (t, h)))
+            .max_by_key(|(c, _)| *c)
+            .filter(|(c, _)| *c > 0)
+            .map(|(_, th)| th)
+    } else {
+        threads.iter().find(|(_, h)| description(*h) == which).copied()
+    };
+    found.unwrap_or(main)
+}
+
+fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, which: Option<&str>) -> Result<()> {
+    let waited = Instant::now();
+    let id = loop {
+        match crate::game::processes().first() {
+            Some(&id) => break id,
+            None if wait && waited.elapsed() < Duration::from_secs(300) => std::thread::sleep(Duration::from_millis(20)),
+            None => return Err("eu4.exe is not running".into()),
+        }
+    };
     let process = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, id) };
     if process.is_null() {
         return Err(format!("cannot open eu4.exe ({id})"));
@@ -433,7 +496,7 @@ fn sample(out: &str, seconds: f64, hz: f64) -> Result<()> {
             return Err(format!("SymInitialize failed: {}", std::io::Error::last_os_error()));
         }
     }
-    let modules = modules_of(process);
+    let mut modules = modules_of(process);
     let exe_base = modules.iter().find(|m| m.name == "eu4.exe").ok_or("eu4.exe has no module eu4.exe")?.base;
 
     let before: HashMap<u32, u64> = threads.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
@@ -443,7 +506,39 @@ fn sample(out: &str, seconds: f64, hz: f64) -> Result<()> {
     let (mut suspended, mut count) = (Duration::ZERO, 0u64);
     let began = Instant::now();
     let mut next = began;
+    let mut looked = began;
+    // With --thread, the threads seen so far, their CPU a second ago, and the
+    // one sampled.
+    let mut seen: Vec<(u32, HANDLE)> = Vec::new();
+    let mut cpu: HashMap<u32, u64> = HashMap::new();
+    let mut target = (main_id, main);
+    let mut sampled: Tally<u32> = Tally::new();
     while began.elapsed().as_secs_f64() < seconds {
+        if looked.elapsed() >= Duration::from_secs(1) {
+            take_up_modules(process, &mut modules);
+            if let Some(which) = which {
+                for (t, h) in threads_of(id) {
+                    if seen.iter().any(|(s, _)| *s == t) || t == main_id {
+                        unsafe { CloseHandle(h) };
+                    } else {
+                        seen.push((t, h));
+                    }
+                }
+                let has = |thread: HANDLE| {
+                    if unsafe { SuspendThread(thread) } == u32::MAX {
+                        return false;
+                    }
+                    let pcs = walk(process, thread);
+                    unsafe { ResumeThread(thread) };
+                    pcs.iter().enumerate().any(|(i, &pc)| name(process, &modules, if i == 0 { pc } else { pc - 1 }) == which)
+                };
+                if !(which.starts_with("0x") && target.0 != main_id && has(target.1)) {
+                    target = chosen(which, &seen, &cpu, (main_id, main), has);
+                }
+                cpu = seen.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
+            }
+            looked = Instant::now();
+        }
         let now = Instant::now();
         if now < next {
             std::thread::sleep((next - now).saturating_sub(Duration::from_micros(500)));
@@ -451,19 +546,37 @@ fn sample(out: &str, seconds: f64, hz: f64) -> Result<()> {
         }
         next += interval;
         let t0 = Instant::now();
-        if unsafe { SuspendThread(main) } == u32::MAX {
-            break;
+        if unsafe { SuspendThread(target.1) } == u32::MAX {
+            if target.0 == main_id {
+                break;
+            }
+            // The thread chosen ended: back to the main thread.
+            target = (main_id, main);
+            continue;
         }
-        let pcs = walk(process, main);
+        let pcs = walk(process, target.1);
         let state = world_state(process, exe_base);
-        unsafe { ResumeThread(main) };
+        unsafe { ResumeThread(target.1) };
+        sampled.add(target.0, 1);
         suspended += t0.elapsed();
         count += 1;
-        samples.add((tag(state), pcs), 1);
+        let at = began.elapsed().as_secs_f64();
+        let where_ = match slice {
+            Some(slice) => {
+                let n = (at / slice).floor();
+                format!("{} {}-{} s", tag(state), n * slice, (n + 1.0) * slice)
+            }
+            None => tag(state).to_string(),
+        };
+        samples.add((where_, pcs), 1);
     }
     let wall = began.elapsed().as_secs_f64();
     let end_state = world_state(process, exe_base);
-    let after: HashMap<u32, u64> = threads.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
+    take_up_modules(process, &mut modules);
+    // The threads at the end, those the process started during the run
+    // with all their time.
+    let ended = threads_of(id);
+    let after: HashMap<u32, u64> = ended.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
 
     let mut names: HashMap<u64, String> = HashMap::new();
     let (mut stacks, mut flags) = (Tally::new(), Tally::new());
@@ -476,11 +589,11 @@ fn sample(out: &str, seconds: f64, hz: f64) -> Result<()> {
                 names.entry(at).or_insert_with(|| name(process, &modules, at)).clone()
             })
             .collect();
-        frames.push(where_.to_string());
+        frames.push(where_.clone());
         stacks.add(frames, *n);
-        flags.add(*where_, *n);
+        flags.add(where_.clone(), *n);
     }
-    for (_, thread) in &threads {
+    for (_, thread) in threads.iter().chain(&ended).chain(&seen) {
         unsafe { CloseHandle(*thread) };
     }
     unsafe { CloseHandle(process) };
@@ -513,6 +626,12 @@ fn sample(out: &str, seconds: f64, hz: f64) -> Result<()> {
         let days = f64::from(end.0 - start.0) / 24.0;
         lines.push(format!("{days:.0} days passed, {:.2} a second", days / wall));
     }
+    if which.is_some() {
+        lines.push(format!(
+            "threads sampled: {}",
+            sampled.most().iter().map(|(t, n)| format!("{t}{} {:.1}%", if *t == main_id { " (main)" } else { "" }, share(*n))).collect::<Vec<_>>().join(", ")
+        ));
+    }
     lines.extend(["".into(), "Samples by where in the game's time (the world's flags):".into()]);
     lines.extend(flags.most().iter().map(|(k, n)| format!("  {k}: {:.1}%", share(*n))));
     lines.extend(["".into(), "Samples by part:".into()]);
@@ -525,7 +644,7 @@ fn sample(out: &str, seconds: f64, hz: f64) -> Result<()> {
     lines.extend(["".into(), "Most samples of their own (self):".into()]);
     lines.extend(own.most().iter().take(60).map(|(f, n)| format!("  {:5.1}%  {f}", share(*n))));
     lines.extend(["".into(), "CPU of each thread over the run, in cores (busiest first):".into()]);
-    let mut cpu: Vec<(f64, u32)> = threads.iter().map(|(t, _)| ((after[t] - before[t]) as f64 / 1e7 / wall, *t)).collect();
+    let mut cpu: Vec<(f64, u32)> = ended.iter().map(|(t, _)| ((after[t] - before.get(t).copied().unwrap_or(0)) as f64 / 1e7 / wall, *t)).collect();
     cpu.sort_by(|a, b| b.partial_cmp(a).expect("CPU times are numbers"));
     for (c, t) in cpu.iter().filter(|(c, _)| *c >= 0.005) {
         lines.push(format!("  {c:5.2}  thread {t}{}", if *t == main_id { " (main)" } else { "" }));

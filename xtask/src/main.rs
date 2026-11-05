@@ -79,15 +79,19 @@ usage:
       build the scenarios need, starts the game hidden, and releases the
       claim it made. --<name>.<parameter> changes a parameter for this run.
       --from-report writes report.md again from the report.json there.
-  cargo xtask profile <out> [--seconds 60] [--hz 50]
+  cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--thread <name>|busiest]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
       Samples the running game's main thread, its call stack at a steady
       rate with Windows' own dbghelp.dll, and writes where its time went into
       <out>.txt, and its stacks into <out>.folded for flame graph tools:
       inside days, in frames inside days and between days, by part and by
       function. Each sample slows the game, about 7% at 50 a second, so
-      measure shares at 50. --tree prints a .folded file's stacks as a call
-      tree, or the tree below one frame.
+      measure shares at 50. --slice counts the samples of each stretch of
+      that many seconds apart too, and --wait waits for eu4.exe to start:
+      for the game's startup or a load. --thread samples the thread the game
+      named so while it runs, busiest the busiest of each second, or 0x...
+      a thread with that function on its stack, instead of the main thread. --tree prints a .folded file's stacks
+      as a call tree, or the tree below one frame, such as a stretch's.
   cargo xtask crash-dump <dump> <log> [--symbols <dir>] <command>...
       Runs debugger commands on a crash dump with Windows' own dbgeng.dll,
       writing their output to <log>, such as !analyze -v, .ecxr, kn 30, r,
@@ -197,7 +201,7 @@ fn main() {
         ),
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks"),
         Some("scenario") => scenario::run(rest),
-        Some("profile") => Args::parse(rest, &["tree"], &["seconds", "hz", "root", "depth", "min"]).and_then(|a| profile::run(&a)),
+        Some("profile") => Args::parse(rest, &["tree", "wait"], &["seconds", "hz", "slice", "thread", "root", "depth", "min"]).and_then(|a| profile::run(&a)),
         // Debugger commands are words of their own, which may start with --.
         Some("crash-dump") => crash_dump::run(rest),
         None | Some("-h" | "--help" | "help") => {

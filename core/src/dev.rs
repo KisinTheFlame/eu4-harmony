@@ -88,6 +88,14 @@ pub struct TestSwitches {
     /// thread's sleep, so that what the framework's take can be measured
     /// against it.
     pub game_writes_saves: bool,
+    /// What the framework answers at startup and in loads from what it
+    /// keeps (music's numbers, files missing from folders) is checked against
+    /// the game's own answer, which is kept, and a difference logged.
+    pub check_loading: bool,
+    /// The startup and loads are the game's own: music read whole, every
+    /// file asked of Windows, every list walked, so that what the framework's
+    /// take can be measured against it.
+    pub game_loads: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
@@ -144,12 +152,14 @@ impl Options {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
                 on(switches.compare_saves),
                 on(switches.game_writes_saves),
+                on(switches.check_loading),
+                on(switches.game_loads),
                 switches.post.len()
             ));
         }
