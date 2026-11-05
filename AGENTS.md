@@ -16,7 +16,7 @@ These rules hold for everyone who changes this repository, people and coding age
 - [docs/adr/](docs/adr/): decisions that are hard to reverse, one file each, named by a short slug of the decision (`commands-run-at-once.md`) and without a number, so that branches written side by side do not take the same one. An ADR is referred to by its slug, as `ADR commands-run-at-once`, and keeps it once merged. A changed decision gets a new ADR that supersedes the old one, which stays.
 - [docs/research/](docs/research/): what is known about the game's code, with addresses as RVAs into the 1.37.5 baseline.
 - [docs/prototype-log.md](docs/prototype-log.md): what was tested in the running game and what came out, one dated section per run. Say what was not verified as plainly as what was.
-- [docs/performance.md](docs/performance.md): what the framework costs the game, as measured with `cargo xtask scenario perf`.
+- [docs/performance.md](docs/performance.md): what the framework costs the game, as measured in the running game; `cargo xtask scenario perf` and `cargo xtask profile` take new measurements.
 - [docs/dev-tools.md](docs/dev-tools.md): the development tools, what each is for and how to use it.
 
 ## Building and checking
@@ -29,7 +29,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --features eu4-harmony-core/dev -- -D warnings
 ```
 
-The second clippy is the developer build's: the development tools, each a feature of the core (`dev-call-trace`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`; `dev` has them all), are on when built in, with their options in `dev.toml` ([docs/dev-tools.md](docs/dev-tools.md)). A player's build has none of them.
+The second clippy is the developer build's: the development tools, each a feature of the core (`dev-call-trace`, `dev-memory`, `dev-heap-census`, `dev-command-log`, `dev-test-switches`; `dev` has them all), are on when built in, with their options in `dev.toml` ([docs/dev-tools.md](docs/dev-tools.md)). A player's build has none of them.
 
 Clippy's warnings are fixed, not allowed. Where the code is right as it is, `#[expect(clippy::…, reason = "…")]` at that place says why.
 
@@ -41,7 +41,7 @@ cargo xtask offline-check
 
 It finds the game through `EU4_GAME_DIR` or Steam, as every development command does.
 
-The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, which rustup picks up. CI (`.github/workflows/ci.yml`) checks the formatting and runs the build, the tests and clippy on Windows for every pull request and every merge into master, and builds the developer build and runs clippy on it; the offline checks need the game and are run by hand.
+The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, which rustup picks up. CI (`.github/workflows/ci.yml`) checks the formatting on Linux and runs the build, the tests and clippy on Windows for every pull request and every merge into master, and builds the developer build and runs clippy on it; the offline checks need the game and are run by hand. CI passes `--locked`, so a `Cargo.lock` the build would change fails there: commit it with the change that changes it.
 
 `cargo xtask install` installs the built proxy, core and command line tool into the game folder, where a player puts them (`--uninstall` removes them). `cargo xtask release` builds the player build and packs the same files for players. `cargo xtask` is the repository's own program (`xtask/`), for what needs the repository; `cargo xtask --help` lists its commands, and [docs/dev-tools.md](docs/dev-tools.md) describes them with the other development tools.
 
