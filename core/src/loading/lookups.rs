@@ -105,16 +105,17 @@ extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
 fn missing(path: &[u8]) -> Option<bool> {
     let (roots, own) = ROOTS.get()?;
     let text = std::str::from_utf8(path).ok()?;
-    // Names Windows reads otherwise than as they are written.
-    if !text.is_ascii() || text.contains(['<', '>', '"', '|', '?', '*', '~']) || text.chars().any(|c| c.is_ascii_control()) {
-        return None;
-    }
     let lower = text.replace('/', "\\").to_ascii_lowercase();
     if lower.starts_with(own.as_str()) {
         return None;
     }
     let root = roots.iter().find(|r| lower.starts_with(r.as_str()))?;
     let rest = &lower[root.len()..];
+    // Names Windows reads otherwise than as they are written, below the
+    // folder answered for (whose own path may be a short one, `RUNNER~1`).
+    if !rest.is_ascii() || rest.contains(['<', '>', '"', '|', '?', '*', '~']) || rest.chars().any(|c| c.is_ascii_control()) {
+        return None;
+    }
     let parts: Vec<&str> = rest.split('\\').collect();
     if parts.iter().any(|p| p.is_empty() || *p == "." || *p == ".." || p.ends_with(['.', ' ']) || p.contains(':')) {
         return None;
