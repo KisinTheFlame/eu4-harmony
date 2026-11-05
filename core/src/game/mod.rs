@@ -19,6 +19,8 @@ pub mod administration;
 pub mod armies;
 pub mod buildings;
 pub mod camera;
+pub mod centers_of_trade;
+pub mod colonists;
 pub mod commands;
 pub mod conditions;
 pub mod console;
@@ -27,6 +29,7 @@ pub mod countries;
 pub mod decisions;
 pub mod diplomacy;
 pub mod economy;
+pub mod envoys;
 pub mod estates;
 pub mod events;
 pub mod focus;
@@ -40,6 +43,8 @@ pub mod loans;
 pub mod map_coloring;
 pub mod menu;
 pub mod mercenaries;
+pub mod merchants;
+pub mod missionaries;
 pub mod missions;
 pub mod occupation;
 pub mod offers;
@@ -58,6 +63,7 @@ pub mod stability;
 pub mod technology;
 pub mod texts;
 pub mod time;
+pub mod trade_companies;
 pub mod units;
 pub mod wars;
 pub mod world;
@@ -365,6 +371,12 @@ pub fn points() -> Vec<Point> {
     points.extend(forts::points());
     points.extend(sieges::points());
     points.extend(units::points());
+    points.extend(envoys::points());
+    points.extend(missionaries::points());
+    points.extend(colonists::points());
+    points.extend(trade_companies::points());
+    points.extend(centers_of_trade::points());
+    points.extend(merchants::points());
     points
 }
 

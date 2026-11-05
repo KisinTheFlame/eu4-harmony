@@ -17,6 +17,7 @@ pub mod console;
 pub mod countries;
 mod date;
 pub mod diplomacy;
+pub mod envoys;
 pub mod focus;
 pub mod form;
 pub mod government;
