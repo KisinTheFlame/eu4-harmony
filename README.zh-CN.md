@@ -101,7 +101,7 @@ my-mod/
 
 - `eu4-harmony wiki`：每项能力的参数和结果、事件函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
 - `eu4-harmony skills mod`：每类工作的分步指南，写给 coding agent，人也能读。
-- [docs/lua-extensions.md](docs/lua-extensions.md)：扩展如何工作，包括出错、时间限制和存档数据。
+- [docs/lua-extensions.md](docs/lua-extensions.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
 
 ## 远程控制
 
