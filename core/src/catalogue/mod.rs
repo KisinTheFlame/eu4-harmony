@@ -11,11 +11,69 @@
 //! calls and the layer's types into the answers. Tests put a fake game behind
 //! the traits ([`fake`]).
 
-/// Declares a group's slice of the capability layer once: its `Layer`
-/// trait, and [`Live`] calling each capability there as its caller.
-/// A group whose slice does more than call them writes both itself.
+/// Declares a group's slice of the capability layer and its requests once:
+/// its `Layer` trait, [`Live`] calling each capability there as its caller,
+/// and, given `run Request => Answer;` first, the group's `run`, which
+/// answers each request. Each line is one of
+///
+/// ```text
+/// fn method(argument: Type, ...) -> Result = capability;
+/// Variant => fn method(field: Type, ...) -> Result = capability;
+/// Variant { field, ... } => game.method(expression, ...);
+/// Variant { field, ... } => function(game, expression, ...);
+/// ```
+///
+/// A method alone; a method and the request it answers, whose fields are
+/// its arguments; a request answered by a method of another line; a request
+/// answered by a function of the group's own, which takes the game first
+/// and returns a `Result`. Arguments and answers pass through [`Convert`].
+/// `run Request => Answer + other::Layer;` lets `run` and the group's
+/// functions use another group's slice too. A group whose slice does more
+/// than call the layer writes both itself.
 macro_rules! layer {
-    ($( $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; )*) => {
+    (@munch $head:tt [$($methods:tt)*] $arms:tt
+        $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; $($rest:tt)*) => {
+        layer!(@munch $head [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $capability; }] $arms $($rest)*);
+    };
+    (@munch $head:tt [$($methods:tt)*] [$($arms:tt)*]
+        $(#[$doc:meta])* $Variant:ident => fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; $($rest:tt)*) => {
+        layer!(@munch $head
+            [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $capability; }]
+            [$($arms)* { $Variant { $($arg),* } method $name($($arg),*) }]
+            $($rest)*);
+    };
+    (@munch $head:tt $methods:tt [$($arms:tt)*]
+        $Variant:ident { $($field:ident),* $(,)? } => game.$name:ident($($e:expr),* $(,)?); $($rest:tt)*) => {
+        layer!(@munch $head $methods [$($arms)* { $Variant { $($field),* } method $name($($e),*) }] $($rest)*);
+    };
+    (@munch $head:tt $methods:tt [$($arms:tt)*]
+        $Variant:ident { $($field:ident),* $(,)? } => $function:ident(game $(, $e:expr)* $(,)?); $($rest:tt)*) => {
+        layer!(@munch $head $methods [$($arms)* { $Variant { $($field),* } function $function($($e),*) }] $($rest)*);
+    };
+    (@munch [] [$($methods:tt)*] []) => {
+        layer!(@layer $($methods)*);
+    };
+    (@munch [$Request:ident $Answer:ident [$($bound:tt)*]] [$($methods:tt)*]
+        [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
+        layer!(@layer $($methods)*);
+
+        /// Answers one of the group's requests.
+        pub fn run(request: $Request, game: &mut (impl Layer $($bound)* + ?Sized)) -> Result<$Answer, eu4_harmony_remote::Error> {
+            Ok(match request {
+                $( $Request::$Variant { $($field),* } => $Answer::$Variant($crate::catalogue::Convert::convert(layer!(@call game $how $call($($e),*))?)), )*
+            })
+        }
+    };
+    (@munch $($rest:tt)*) => {
+        compile_error!(concat!("layer!: a line that is none of its forms: ", stringify!($($rest)*)));
+    };
+    (@call $game:ident method $name:ident($($e:expr),*)) => {
+        $game.$name($($crate::catalogue::Convert::convert($e)),*)
+    };
+    (@call $game:ident function $function:ident($($e:expr),*)) => {
+        $function($game, $($e),*)
+    };
+    (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $capability:path; })*) => {
         /// The group's slice of the capability layer.
         pub trait Layer {
             $( $(#[$doc])* fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret>; )*
@@ -24,6 +82,12 @@ macro_rules! layer {
         impl Layer for super::Live {
             $( fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> { $capability(self.0, $($arg),*) } )*
         }
+    };
+    (run $Request:ident => $Answer:ident $(+ $other:ident::Layer)*; $($lines:tt)*) => {
+        layer!(@munch [$Request $Answer [$(+ $other::Layer)*]] [] [] $($lines)*);
+    };
+    ($($lines:tt)*) => {
+        layer!(@munch [] [] [] $($lines)*);
     };
 }
 
@@ -76,7 +140,7 @@ pub mod trade;
 pub mod trade_companies;
 
 use crate::game;
-use eu4_harmony_remote::{Answer, Code, CountryTag, Error, Request, Response};
+use eu4_harmony_remote::{Answer, ArmyId, ArmyList, Code, CountryTag, Error, ProvinceId, Request, Response};
 use std::{
     sync::OnceLock,
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -187,6 +251,56 @@ groups! {
 /// extension through the Lua host, which runs the same groups
 /// (ADR one-capability-catalogue).
 pub struct Live(pub game::Caller);
+
+/// A value as the other side takes it: a request's as the capability layer
+/// takes it, and the layer's as the group's answer gives it (`layer!`).
+/// Most are the same value; the IDs remote clients write are the game's
+/// numbers.
+pub trait Convert<T> {
+    fn convert(self) -> T;
+}
+
+impl<T> Convert<T> for T {
+    fn convert(self) -> T {
+        self
+    }
+}
+
+impl Convert<u32> for ProvinceId {
+    fn convert(self) -> u32 {
+        self.0
+    }
+}
+
+impl Convert<Vec<ProvinceId>> for Vec<u32> {
+    fn convert(self) -> Vec<ProvinceId> {
+        self.into_iter().map(ProvinceId).collect()
+    }
+}
+
+impl Convert<u64> for ArmyId {
+    fn convert(self) -> u64 {
+        self.0
+    }
+}
+
+impl Convert<ArmyId> for u64 {
+    fn convert(self) -> ArmyId {
+        ArmyId(self)
+    }
+}
+
+impl Convert<Vec<ArmyId>> for ArmyList {
+    fn convert(self) -> Vec<ArmyId> {
+        self.0
+    }
+}
+
+impl Convert<String> for &str {
+    fn convert(self) -> String {
+        self.to_string()
+    }
+}
 
 impl From<game::Fail> for Error {
     fn from(fail: game::Fail) -> Self {

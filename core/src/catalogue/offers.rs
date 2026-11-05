@@ -1,24 +1,23 @@
 //! Offers: what other countries proposed to the player, waiting for an
 //! answer. Accepting or declining is the player's answer
 //! (ADR remote-control-uses-capabilities), given in the offer's dialog.
-use super::tag;
+use super::{tag, Convert};
 use crate::game::{self};
 use eu4_harmony_remote::{
     offers::{Offer, OfferAnswer, OfferRequest},
-    Date, Error,
+    Date,
 };
 
 layer! {
-    fn offers() -> Vec<game::offers::Offer> = game::offers::offers;
+    run OfferRequest => OfferAnswer;
+    List => fn offers() -> Vec<game::offers::Offer> = game::offers::offers;
     fn answer_offer(offer: u32, accept: bool) -> () = game::offers::answer;
+    Accept { offer } => game.answer_offer(offer, true);
+    Decline { offer } => game.answer_offer(offer, false);
 }
 
-pub fn run(request: OfferRequest, game: &mut (impl Layer + ?Sized)) -> Result<OfferAnswer, Error> {
-    Ok(match request {
-        OfferRequest::List {} => OfferAnswer::List(
-            game.offers()?.into_iter().map(|o| Offer { id: o.id, from: tag(o.from), date: Date(o.date), title: o.title, description: o.description }).collect(),
-        ),
-        OfferRequest::Accept { offer } => OfferAnswer::Accept(game.answer_offer(offer, true)?),
-        OfferRequest::Decline { offer } => OfferAnswer::Decline(game.answer_offer(offer, false)?),
-    })
+impl Convert<Vec<Offer>> for Vec<game::offers::Offer> {
+    fn convert(self) -> Vec<Offer> {
+        self.into_iter().map(|o| Offer { id: o.id, from: tag(o.from), date: Date(o.date), title: o.title, description: o.description }).collect()
+    }
 }

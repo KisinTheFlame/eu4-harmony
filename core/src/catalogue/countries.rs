@@ -17,28 +17,32 @@ fn find(caller: Caller, tag: CountryTag) -> GResult<Tag> {
 }
 
 layer! {
+    run CountryRequest => CountryAnswer;
     /// The country with this tag.
     fn country(tag: CountryTag) -> Tag = find;
     fn hostile(a: Tag, b: Tag) -> bool = game::countries::hostile;
     fn snapshot(country: Tag) -> layer::Country = game::countries::snapshot;
     fn budget(country: Tag) -> Budget = game::countries::budget;
+    Hostile { country, other } => hostile(game, country, other);
+    Get { country } => get(game, country);
+    Budget { country } => budget(game, country);
 }
 
-pub fn run(request: CountryRequest, game: &mut (impl Layer + ?Sized)) -> Result<CountryAnswer, Error> {
-    match request {
-        CountryRequest::Hostile { country, other } => {
-            let (a, b) = (game.country(country)?, game.country(other)?);
-            Ok(CountryAnswer::Hostile(game.hostile(a, b)?))
-        }
-        CountryRequest::Get { country } => {
-            let found = game.country(country)?;
-            Ok(CountryAnswer::Get(Box::new(snapshot(&game.snapshot(found)?))))
-        }
-        CountryRequest::Budget { country } => {
-            let found = game.country(country)?;
-            Ok(CountryAnswer::Budget(game.budget(found)?))
-        }
-    }
+/// Whether the two countries are at war with each other, or either is a
+/// rebel faction.
+fn hostile(game: &mut (impl Layer + ?Sized), country: CountryTag, other: CountryTag) -> Result<bool, Error> {
+    let (a, b) = (game.country(country)?, game.country(other)?);
+    Ok(game.hostile(a, b)?)
+}
+
+fn get(game: &mut (impl Layer + ?Sized), country: CountryTag) -> Result<Box<Country>, Error> {
+    let found = game.country(country)?;
+    Ok(Box::new(snapshot(&game.snapshot(found)?)))
+}
+
+fn budget(game: &mut (impl Layer + ?Sized), country: CountryTag) -> Result<Budget, Error> {
+    let found = game.country(country)?;
+    Ok(game.budget(found)?)
 }
 
 fn snapshot(c: &layer::Country) -> Country {

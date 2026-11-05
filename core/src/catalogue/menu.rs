@@ -7,7 +7,7 @@
 //! Returning to the main menu starts `eu4.exe` again, so it is answered at
 //! once; at the game's restart the engine answers every request `not_ready`
 //! ([`ending`], `Engine::end`), and the new process takes the pipe over.
-use super::{process, session, Live, Outcome, Poll, Wait};
+use super::{process, Convert, Live, Outcome, Poll, Wait};
 use crate::game::{
     self,
     menu::{Expected, ExpectedProbe, Launch, Returned},
@@ -160,7 +160,7 @@ impl Wait for Starting {
                 Err(fail) => Err(fail.into()),
                 Ok(expected) => match expected.and_then(|e| other_game(&e, &s)) {
                     Some(why) => Err(Error::new(Code::Rejected, why)),
-                    None => Ok(Answer::Menu((self.answer)(session::answer(s)))),
+                    None => Ok(Answer::Menu((self.answer)(s.convert()))),
                 },
             }),
             Err(fail) if fail.status == Status::NotReady => None,
