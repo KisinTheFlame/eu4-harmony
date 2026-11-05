@@ -149,6 +149,20 @@ Every action the diplomacy panel offers the player, with `diplomacy.options`; ri
 
 Idea groups and ideas; policies; government reforms; raising the government's rank; estates (privileges, interactions); parliament; decisions; missions.
 
+Added (2026-11-05; where the game keeps each and the commands' written forms in [research/government.md](research/government.md)):
+
+- `idea.list`, `idea.take_group`, `idea.buy`, `idea.abandon_group`: each group's button is taking it, or buying its next idea at its cost in monarch points (the game's own cost for the spend command); the national ideas and the database's placeholder group are not listed.
+- `policy.list`, `policy.enable`, `policy.disable`: the reasons are what the game's policy check writes, the conditions that hold left out (`conditions::refusal`).
+- `government.options` (type, rank, reform progress, the reforms adopted, whether the rank can be raised with the game's reasons), `government.reforms` (tier by tier, each reform's cost in reform progress, `Resource::ReformProgress`), `government.adopt_reform` (enacting in the next tier, or changing a reached tier's reform, as the view's two commands do), `government.raise_rank` (with the prestige the button gives).
+- `estate.list` (loyalty, influence, land share, the privileges the view lists, each with its grant or revoke Choice and the game's reasons), `estate.interactions` and `estate.interact` (the crown land's `sale_of_titles`, `summon_the_diet`, `seize_land`, with their cooldown in the game's words), `estate.grant_privilege`, `estate.revoke_privilege` (revoking takes the price the game takes).
+- `parliament.options`, `parliament.debate`, `parliament.add_seat`, `parliament.remove_seat`.
+- `decision.take`, beside A0's `decision.list`.
+- `mission.list` (column by column), `mission.complete`.
+
+Decided: what the game's interface shows as a picture or not at all is said in the framework's words: no free idea group slot, too few monarch points for an idea, too little reform progress, a debate going on, the missions before one not completed. A disabled policy's minimum time is refused by the game's command with no reason. Every read is of the player's own panels, so the player's view leaves nothing out. Not offered: estate agendas, parliament's bribes, government mechanics' interactions (their commands are in the research).
+
+Not verified in the game: parliament with a player who has one (only its refusals without a parliament), changing a reform for free, completing a mission and a raise of the rank that the game allows, the influence against the estates view on screen; no panel was compared on screen.
+
 ### A8 Religion, colonies and trade
 
 Missionaries and the number of automatic missionaries; colonists; trade companies and their investments; centers of trade; merchants.

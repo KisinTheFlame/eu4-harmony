@@ -323,6 +323,18 @@ groups! {
     /// The transfer occupation window: handing a province the player
     /// occupies over to an ally.
     Occupation(occupation::OccupationRequest, OccupationAnswer),
+    /// The player's idea groups and ideas.
+    Idea(ideas::IdeaRequest, IdeaAnswer),
+    /// The player's policies.
+    Policy(policies::PolicyRequest, PolicyAnswer),
+    /// The player's government: its reforms and its rank.
+    Government(government::GovernmentRequest, GovernmentAnswer),
+    /// The player's estates.
+    Estate(estates::EstateRequest, EstateAnswer),
+    /// The player's parliament.
+    Parliament(parliament::ParliamentRequest, ParliamentAnswer),
+    /// The player's missions.
+    Mission(missions::MissionRequest, MissionAnswer),
     /// The buildings of the player's provinces.
     Building(buildings::BuildingRequest, BuildingAnswer),
     /// The player's leaders: recruiting, assigning and dismissing them.

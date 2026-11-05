@@ -19,6 +19,7 @@ mod date;
 pub mod diplomacy;
 pub mod focus;
 pub mod form;
+pub mod government;
 pub mod input;
 pub mod loans;
 pub mod military;

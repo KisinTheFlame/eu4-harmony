@@ -1,8 +1,9 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, buildings, camera, console, countries, decisions, desktop, diplomacy, economy, extensions, focus, forts, input, leaders, loans, menu, mercenaries,
-    occupation, offers, peace, provinces, questions, recruiting, screenshot, session, sieges, stability, technology, texts, time,
+    armies, buildings, camera, console, countries, decisions, desktop, diplomacy, economy, estates, extensions, focus, forts, government, ideas, input,
+    leaders, loans, menu, mercenaries, missions, occupation, offers, parliament, peace, policies, provinces, questions, recruiting, screenshot, session,
+    sieges, stability, technology, texts, time,
 };
 use crate::game::{
     self, fail,
@@ -714,6 +715,230 @@ impl decisions::Layer for Fake {
                 decision: "move_capital".into(), name: "迁都".into(), major: false, choice: Choice::cannot(vec!["拥有君士坦丁堡".into()], Vec::new())
             },
         ])
+    }
+
+    fn take_decision(&mut self, decision: String) -> GResult<()> {
+        self.call(format!("take decision {decision}"));
+        match decision.as_str() {
+            "form_rum" => Ok(()),
+            "move_capital" => fail(Status::Rejected, "拥有君士坦丁堡"),
+            _ => Err(eu4_harmony_checks::government::not_found("decision", &decision).into()),
+        }
+    }
+}
+
+/// A refusal of the government's groups for a key the fake game knows as
+/// one it refuses, `no`, or does not know.
+fn government_action(key: &str, kind: &str) -> GResult<()> {
+    match key {
+        "no" => fail(Status::Rejected, "需要和平"),
+        "unknown" => Err(eu4_harmony_checks::government::not_found(kind, key).into()),
+        _ => Ok(()),
+    }
+}
+
+/// One idea group taken with two ideas bought, one not taken.
+impl ideas::Layer for Fake {
+    fn idea_groups(&mut self) -> GResult<Vec<eu4_harmony_remote::ideas::IdeaGroup>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            ideas::IdeaGroup,
+        };
+        self.call("idea groups".into());
+        Ok(vec![
+            IdeaGroup {
+                group: "defensive_ideas".into(),
+                name: "防御理念".into(),
+                category: "mil".into(),
+                taken: true,
+                ideas: 2,
+                of: 7,
+                button: Some("buy".into()),
+                next: Some("improved_manuever".into()),
+                choice: Choice::can(vec![Amount::new(Resource::Mil, 400.0)]),
+            },
+            IdeaGroup {
+                group: "aristocracy_ideas".into(),
+                name: "贵族理念".into(),
+                category: "mil".into(),
+                taken: false,
+                ideas: 0,
+                of: 7,
+                button: Some("take_group".into()),
+                next: None,
+                choice: Choice::cannot(vec!["有政府特性：允许贵族理念组".into()], Vec::new()),
+            },
+        ])
+    }
+
+    fn take_idea_group(&mut self, group: String) -> GResult<()> {
+        self.call(format!("take idea group {group}"));
+        government_action(&group, "idea group")
+    }
+
+    fn buy_idea(&mut self, group: String) -> GResult<()> {
+        self.call(format!("buy idea {group}"));
+        government_action(&group, "idea group")
+    }
+
+    fn abandon_idea_group(&mut self, group: String) -> GResult<()> {
+        self.call(format!("abandon idea group {group}"));
+        government_action(&group, "idea group")
+    }
+}
+
+impl policies::Layer for Fake {
+    fn policies(&mut self) -> GResult<Vec<eu4_harmony_remote::policies::Policy>> {
+        use eu4_harmony_remote::{choices::Choice, policies::Policy};
+        self.call("policies".into());
+        Ok(vec![Policy {
+            policy: "the_combination_act".into(),
+            name: "联合法案".into(),
+            category: "adm".into(),
+            enabled: false,
+            choice: Choice::can(Vec::new()),
+        }])
+    }
+
+    fn enable_policy(&mut self, policy: String) -> GResult<()> {
+        self.call(format!("enable policy {policy}"));
+        government_action(&policy, "policy")
+    }
+
+    fn disable_policy(&mut self, policy: String) -> GResult<()> {
+        self.call(format!("disable policy {policy}"));
+        government_action(&policy, "policy")
+    }
+}
+
+impl government::Layer for Fake {
+    fn government(&mut self) -> GResult<eu4_harmony_remote::government::Government> {
+        use eu4_harmony_remote::{choices::Choice, government::Government};
+        self.call("government".into());
+        Ok(Government {
+            government: "monarchy".into(),
+            rank: 2,
+            reform_progress: 51.5,
+            reforms_adopted: vec!["monarchy_mechanic".into(), "feudalism_reform".into()],
+            raise_rank: Choice::cannot(vec!["需要至少 1000 发展度".into()], Vec::new()),
+        })
+    }
+
+    fn reforms(&mut self) -> GResult<Vec<eu4_harmony_remote::government::ReformTier>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            government::{Reform, ReformTier},
+        };
+        self.call("reforms".into());
+        Ok(vec![ReformTier {
+            tier: "feudalism_vs_autocracy".into(),
+            reached: true,
+            reforms: vec![
+                Reform { reform: "feudalism_reform".into(), name: "封建制".into(), adopted: true, choice: Choice::cannot(Vec::new(), Vec::new()) },
+                Reform {
+                    reform: "autocracy_reform".into(),
+                    name: "独裁制".into(),
+                    adopted: false,
+                    choice: Choice::can(vec![Amount::new(Resource::ReformProgress, 50.0)]),
+                },
+            ],
+        }])
+    }
+
+    fn adopt_reform(&mut self, reform: String) -> GResult<()> {
+        self.call(format!("adopt reform {reform}"));
+        government_action(&reform, "government reform")
+    }
+
+    fn raise_rank(&mut self) -> GResult<()> {
+        self.call("raise rank".into());
+        fail(Status::Rejected, "需要至少 1000 发展度")
+    }
+}
+
+impl estates::Layer for Fake {
+    fn estates(&mut self) -> GResult<Vec<eu4_harmony_remote::estates::Estate>> {
+        use eu4_harmony_remote::{
+            choices::Choice,
+            estates::{Estate, Privilege},
+        };
+        self.call("estates".into());
+        Ok(vec![Estate {
+            estate: "estate_nobles".into(),
+            name: "贵族".into(),
+            loyalty: 56.864,
+            influence: 41.2,
+            land_share: 4.122,
+            privileges: vec![Privilege {
+                privilege: "estate_nobles_land_rights".into(),
+                name: "土地权".into(),
+                granted: true,
+                choice: Choice::can(Vec::new()),
+            }],
+        }])
+    }
+
+    fn estate_interactions(&mut self) -> GResult<Vec<eu4_harmony_remote::estates::Interaction>> {
+        use eu4_harmony_remote::{choices::Choice, estates::Interaction};
+        self.call("estate interactions".into());
+        Ok(vec![Interaction { interaction: "seize_land".into(), name: "没收土地".into(), choice: Choice::cannot(vec!["冷却中".into()], Vec::new()) }])
+    }
+
+    fn grant_privilege(&mut self, estate: String, privilege: String) -> GResult<()> {
+        self.call(format!("grant {estate} {privilege}"));
+        government_action(&privilege, "privilege")
+    }
+
+    fn revoke_privilege(&mut self, estate: String, privilege: String) -> GResult<()> {
+        self.call(format!("revoke {estate} {privilege}"));
+        government_action(&privilege, "privilege")
+    }
+
+    fn estate_interact(&mut self, interaction: String) -> GResult<()> {
+        self.call(format!("interact {interaction}"));
+        government_action(&interaction, "crown land interaction")
+    }
+}
+
+/// No parliament: the Ottomans have none.
+impl parliament::Layer for Fake {
+    fn parliament(&mut self) -> GResult<eu4_harmony_remote::parliament::Parliament> {
+        self.call("parliament".into());
+        Ok(eu4_harmony_remote::parliament::Parliament { parliament: false, debating: None, enacted: None, issues: Vec::new() })
+    }
+
+    fn debate(&mut self, issue: String) -> GResult<()> {
+        self.call(format!("debate {issue}"));
+        Err(eu4_harmony_checks::government::not_now("the player has no parliament").into())
+    }
+
+    fn add_seat(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("add seat {province}"));
+        Err(eu4_harmony_checks::government::not_now("the player has no parliament").into())
+    }
+
+    fn remove_seat(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("remove seat {province}"));
+        Err(eu4_harmony_checks::government::not_now("the player has no parliament").into())
+    }
+}
+
+impl missions::Layer for Fake {
+    fn missions(&mut self) -> GResult<Vec<eu4_harmony_remote::missions::Mission>> {
+        use eu4_harmony_remote::{choices::Choice, missions::Mission};
+        self.call("missions".into());
+        Ok(vec![Mission {
+            mission: "tur_conquer_constantinople".into(),
+            name: "征服君士坦丁堡".into(),
+            column: 0,
+            completed: false,
+            choice: Choice::cannot(vec!["拥有君士坦丁堡".into()], Vec::new()),
+        }])
+    }
+
+    fn complete_mission(&mut self, mission: String) -> GResult<()> {
+        self.call(format!("complete mission {mission}"));
+        government_action(&mission, "mission")
     }
 }
 

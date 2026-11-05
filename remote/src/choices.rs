@@ -81,6 +81,8 @@ pub enum Resource {
     NavyTradition,
     /// Monthly upkeep in ducats, for as long as it lasts.
     MonthlyDucats,
+    /// Reform progress, which government reforms spend.
+    ReformProgress,
 }
 
 /// A kind of monarch power, as the game's panels name them: what a
