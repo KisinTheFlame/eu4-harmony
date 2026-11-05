@@ -54,6 +54,7 @@ pub mod safe_point;
 pub mod saves;
 pub mod sessions;
 pub mod settings;
+pub mod sound;
 pub mod speed;
 pub mod splice;
 #[cfg(feature = "dev-call-trace")]
@@ -143,6 +144,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(saves::sum::points());
     all.extend(saves::update_thread::points());
     all.extend(hidden::points());
+    all.extend(sound::points());
     all
 }
 
@@ -375,6 +377,7 @@ pub(crate) fn deferred_init() {
     let language = lang::decide(&user_dir, chosen.language);
     log!("settings: {chosen:?}");
     speed::set_pace(chosen.fastest_speed);
+    sound::configure(&user_dir, &chosen);
     saves::background::set_folder(&user_dir);
     saves::parallel::start();
     tell_missing_fonts(&chosen);
