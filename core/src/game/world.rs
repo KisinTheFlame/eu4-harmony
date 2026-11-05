@@ -294,6 +294,16 @@ fn province_now(m: &Memory, n: &Node, visibility_current: bool) -> GResult<Provi
     })
 }
 
+/// The player has not discovered this province: it is terra incognita.
+pub fn undiscovered(m: &Memory, ctx: &Ctx, province: usize) -> GResult<bool> {
+    if m.u8(province + province::FOGGED)? & province::UNDISCOVERED_BIT == 0 {
+        return Ok(false);
+    }
+    let index = ctx.player.index() as u16 as usize;
+    let word = m.u32(m.ptr(province + province::DISCOVERED_BY)? + index / 32 * 4)?;
+    Ok(word >> (index % 32) & 1 == 0)
+}
+
 /// Fog of war hides this province.
 pub fn hidden(m: &Memory, province: usize) -> GResult<bool> {
     let fogged = m.u8(province + province::FOGGED)? & province::FOGGED_BIT != 0;
