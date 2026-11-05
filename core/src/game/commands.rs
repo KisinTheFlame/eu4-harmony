@@ -539,18 +539,24 @@ fn written(m: &Memory, command: usize, token: u32) -> crate::Result<Vec<u8>> {
     // The game grew the vector through the stream.
     let bytes = unsafe { std::ptr::read_volatile(&bytes) };
     let result = result.and_then(|_| m.bytes(bytes[0], bytes[1] - bytes[0]));
-    if bytes[0] != 0 {
-        // As the game frees a vector's buffer: a large one is aligned, with
-        // the block it was cut from just before it.
-        let mut size = bytes[2] - bytes[0];
-        let mut block = bytes[0];
+    free_vector(m, bytes)?;
+    result
+}
+
+/// Frees the buffer of a `std::vector` the game grew, (start, end, end of
+/// capacity), as the game frees one: a large one is aligned, with the block
+/// it was cut from just before it. Its items are left as they are.
+pub(crate) fn free_vector(m: &Memory, vector: [usize; 3]) -> crate::Result<()> {
+    if vector[0] != 0 {
+        let mut size = vector[2] - vector[0];
+        let mut block = vector[0];
         if size >= 0x1000 {
             size += 0x27;
             block = m.ptr(block - 8)?;
         }
         m.call(m.at(DELETE), &[block, size])?;
     }
-    result
+    Ok(())
 }
 
 /// The command `text` (game text) holds, made by the game's factory and read

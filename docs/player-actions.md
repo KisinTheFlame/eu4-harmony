@@ -41,7 +41,7 @@ eu4-harmony game diplomacy options CAS
     {"action":"warn","can":true,"reasons":[],"cost":[]}, …]}
 
 eu4-harmony game peace terms ENG
-eu4-harmony game peace evaluate ENG --terms '[{"term":"province","province":236},{"term":"humiliate"}]'
+eu4-harmony game peace evaluate ENG --terms '[{"term":"demand_provinces","province":236},{"term":"humiliate"}]'
 → {"can":true,"reasons":[],"cost":[{"resource":"war_score","amount":27}],"acceptance":{"accepts":true,"total":8,"factors":[…]}}
 eu4-harmony game peace demand ENG --terms '…'
 ```
@@ -131,6 +131,15 @@ Not verified in the game: boarding and landing by `army.move`, and armies moving
 ### A5 War and peace
 
 Handing over occupied provinces; calling allies into a war; peace terms (`peace.terms`, `peace.evaluate`, `peace.demand`, `peace.offer`), every term the peace view offers. The events of a war declared, a peace made, a province changing owner.
+
+Added ([research/peace.md](research/peace.md), tried in the game: [prototype-log.md](prototype-log.md), 2026-11-05, A5):
+
+- **`peace`**, the peace view: `peace.terms` (every term the view offers, on the demand tab or with `offer` the offer tab, each a `Choice` with its war score cost; `gold` with the most ducats the view lets the player set), `peace.evaluate` (a composition's `Choice`, its war score cost and the AI's `acceptance` with its factors, as the send button and the accept or decline icon tell it), `peace.demand` and `peace.offer` (sent as the send button sends it, answered as `diplomacy.offer_peace` is). A term is named by the game's key without `po_` (`demand_provinces`, `humiliate`, `gold`) or a scripted peace treaty's key, with the `province`, the other `country`, the `region` or the `amount` that tell it apart; the argument is the new kind `terms`, a JSON list. The plan's example, which named a province term `province`, names it so now.
+- **`occupation`**, the transfer occupation window: `occupation.options` (the button's `Choice` and the allies the window lists) and `occupation.transfer`, the game's own transfer command.
+- **`diplomacy.call_to_arms`**: the diplomacy panel's call to arms in the player's wars, refused with the panel's reasons, answered with the ally's answer. `game::diplomacy::call_to_arms_option` gives its `Choice` and `acceptance` for A6's `diplomacy.options`.
+- **Events** `war_declared`, `peace_made` and `province_owner_changed`, about every country and naming the countries they concern, with `on_war_declared`, `on_peace_made` and `on_province_owner_changed`: the world's wars and the provinces' owners compared with the day before, at each new day, only while someone listens, so a peace, an annexation or the console are heard alike, at the new day after it. Their cost was not measured into [performance.md](performance.md).
+- **The player's view** leaves nothing out of these: the peace view and the transfer window show the player all they list, and the events are about every country, as the plan has them.
+- **Not verified**: an ally accepting a call to arms; scripted terms, colonial regions and the terms France was not offered in the run; a separate peace with an enemy's ally; extensions' calls and handlers; why demanded gold arrived short (300 asked, 228.7 paid); what the events cost the game.
 
 ### A6 Diplomacy and subjects
 

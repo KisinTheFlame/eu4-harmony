@@ -23,6 +23,7 @@ pub mod input;
 pub mod loans;
 pub mod military;
 pub mod offers;
+pub mod peace;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;

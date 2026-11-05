@@ -228,6 +228,7 @@ impl Shaped for crate::Capability {
             "words",
             "power_kind",
             "armies",
+            "terms",
         ];
         let parameter = Shape::Object {
             class: "Parameter",

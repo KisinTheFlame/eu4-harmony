@@ -317,6 +317,12 @@ groups! {
     Economy(economy::EconomyRequest, EconomyAnswer),
     /// The player's loans, and repaying them.
     Loan(loans::LoanRequest, LoanAnswer),
+    /// The peace view: terms demanded of a country the player is at war
+    /// with, or offered to it.
+    Peace(peace::PeaceRequest, PeaceAnswer),
+    /// The transfer occupation window: handing a province the player
+    /// occupies over to an ally.
+    Occupation(occupation::OccupationRequest, OccupationAnswer),
     /// The buildings of the player's provinces.
     Building(buildings::BuildingRequest, BuildingAnswer),
     /// The player's leaders: recruiting, assigning and dismissing them.
@@ -431,6 +437,10 @@ pub enum Kind {
     /// Army IDs, such as `["4294967377", "4294967378"]`, which a command
     /// line writes `4294967377,4294967378` (see [`ArmyList`]).
     Armies,
+    /// Peace treaty terms, a list of objects such as
+    /// `[{"term":"demand_provinces","province":236}]`, which a command line
+    /// writes as that JSON text (see [`peace::Terms`]).
+    Terms,
 }
 
 impl Kind {
@@ -454,6 +464,7 @@ impl Kind {
             Self::Words => "words",
             Self::PowerKind => "power_kind",
             Self::Armies => "armies",
+            Self::Terms => "terms",
         }
     }
 
@@ -477,6 +488,7 @@ impl Kind {
             Self::Words => "day,month",
             Self::PowerKind => "adm",
             Self::Armies => "4294967377,4294967378",
+            Self::Terms => r#"[{"term":"humiliate"}]"#,
         }
     }
 
@@ -511,6 +523,7 @@ impl Kind {
                 .map(|word| Some(word.trim()).filter(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit())).map(|w| Value::String(w.into())))
                 .collect::<Option<Vec<_>>>()
                 .map(Value::Array),
+            Self::Terms => peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok()),
         }
     }
 }
@@ -550,6 +563,7 @@ arg_kind! {
     Words => Words,
     choices::PowerKind => PowerKind,
     ArmyList => Armies,
+    peace::Terms => Terms,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {

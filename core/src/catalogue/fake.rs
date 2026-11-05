@@ -2,7 +2,7 @@
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
     armies, buildings, camera, console, countries, decisions, desktop, diplomacy, economy, extensions, focus, forts, input, leaders, loans, menu, mercenaries,
-    offers, provinces, questions, recruiting, screenshot, session, sieges, stability, technology, texts, time,
+    occupation, offers, peace, provinces, questions, recruiting, screenshot, session, sieges, stability, technology, texts, time,
 };
 use crate::game::{
     self, fail,
@@ -1127,8 +1127,79 @@ We have a truce with them.",
         Ok(game::diplomacy::Ticket(3))
     }
 
+    fn call_to_arms(&mut self, ally: Tag) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("call to arms {:x}", ally.0));
+        Ok(game::diplomacy::Ticket(4))
+    }
+
     fn answer(&mut self, ticket: game::diplomacy::Ticket) -> GResult<game::diplomacy::Answer> {
         self.call(format!("answer {}", ticket.0));
         self.answers.pop_front().unwrap_or(Ok(game::diplomacy::Answer::Pending))
+    }
+}
+
+/// At war with Byzantium: Constantinople (151) to demand, and humiliating
+/// it, which the view would not let the player add.
+impl peace::Layer for Fake {
+    fn peace_terms(&mut self, enemy: Tag, offer: bool) -> GResult<Vec<game::peace::TermOption>> {
+        use eu4_harmony_remote::choices::{Amount, Choice, Resource};
+        self.call(format!("peace terms {:x} {offer}", enemy.0));
+        if enemy != byz() {
+            return fail(Status::Rejected, "the player is not at war with WAL");
+        }
+        let term = |term: &str, province: Option<u32>, name: &str, choice: Choice| game::peace::TermOption {
+            term: term.into(),
+            province,
+            country: province.map(|_| tur()),
+            region: None,
+            amount: None,
+            name: name.into(),
+            choice,
+        };
+        Ok(vec![
+            term("demand_provinces", Some(151), "Constantinople", Choice::can(vec![Amount::new(Resource::WarScore, 40.0)])),
+            term("humiliate", None, "Humiliate", Choice::cannot(vec!["Not our rival".into()], vec![Amount::new(Resource::WarScore, 10.0)])),
+        ])
+    }
+
+    fn evaluate_peace(&mut self, enemy: Tag, terms: &[game::peace::Term], offer: bool) -> GResult<game::peace::Evaluation> {
+        use eu4_harmony_remote::choices::{Acceptance, Amount, Choice, Factor, Resource};
+        self.call(format!("evaluate peace {:x} {} {offer}", enemy.0, peace_terms(terms)));
+        Ok(game::peace::Evaluation {
+            choice: Choice::can(vec![Amount::new(Resource::WarScore, 40.0)]),
+            acceptance: Acceptance { accepts: false, total: -5.0, factors: vec![Factor { text: "War score".into(), value: -5.0 }] },
+        })
+    }
+
+    fn demand_peace(&mut self, enemy: Tag, terms: &[game::peace::Term]) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("demand peace {:x} {}", enemy.0, peace_terms(terms)));
+        Ok(game::diplomacy::Ticket(5))
+    }
+
+    fn offer_terms(&mut self, enemy: Tag, terms: &[game::peace::Term]) -> GResult<game::diplomacy::Ticket> {
+        self.call(format!("offer terms {:x} {}", enemy.0, peace_terms(terms)));
+        Ok(game::diplomacy::Ticket(6))
+    }
+}
+
+/// Peace terms, as a call records them.
+fn peace_terms(terms: &[game::peace::Term]) -> String {
+    terms.iter().map(|t| format!("{}:{:?}:{:?}:{:?}", t.term, t.province, t.country.map(|c| c.0), t.amount)).collect::<Vec<_>>().join(",")
+}
+
+/// The Ottomans occupy Constantinople (151), which Wallachia may take.
+impl occupation::Layer for Fake {
+    fn transfers(&mut self, province: u32) -> GResult<game::occupation::Transfers> {
+        use eu4_harmony_remote::choices::Choice;
+        self.call(format!("transfers {province}"));
+        Ok(match province {
+            151 => game::occupation::Transfers { choice: Choice::can(Vec::new()), allies: vec![wal()] },
+            _ => game::occupation::Transfers { choice: Choice::cannot(vec!["We are not the controller".into()], Vec::new()), allies: Vec::new() },
+        })
+    }
+
+    fn transfer_occupation(&mut self, province: u32, ally: Tag) -> GResult<Option<Tag>> {
+        self.call(format!("transfer occupation {province} {:x}", ally.0));
+        Ok(Some(ally))
     }
 }

@@ -88,6 +88,12 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("year", "the first day heard in a new year, after month; date"),
     ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
     ("army_defeated", "one of the player's armies lost a battle; army"),
+    ("war_declared", "a war began between any two countries; war, its name; attacker and defender, the leaders of its sides"),
+    (
+        "peace_made",
+        "countries left a war, by a peace (or ceasing to be); war, its name; attackers and defenders, those that left on each side; ended, whether the war is over",
+    ),
+    ("province_owner_changed", "a province changed owner; province; from and to, the old and the new owner, null for none"),
     ("building_finished", "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
     (
         "battle",
@@ -118,6 +124,15 @@ pub enum Event {
     ArmyOrdered { army: ArmyId },
     /// One of the player's armies lost a battle.
     ArmyDefeated { army: ArmyId },
+    /// A war began, between any two countries: its name, as the game shows
+    /// it, and the leaders of its sides.
+    WarDeclared { war: String, attacker: CountryTag, defender: CountryTag },
+    /// Countries left a war on a day: by a peace, the whole war's or a
+    /// separate one, or by ceasing to be. Those on each side that left, and
+    /// whether the war is over.
+    PeaceMade { war: String, attackers: Vec<CountryTag>, defenders: Vec<CountryTag>, ended: bool },
+    /// A province changed owner: the old and the new owner, null for none.
+    ProvinceOwnerChanged { province: ProvinceId, from: Option<CountryTag>, to: Option<CountryTag> },
     /// A building was finished in a province, any country's.
     BuildingFinished {
         province: ProvinceId,
@@ -161,6 +176,9 @@ impl Event {
             Self::Year { .. } => "year",
             Self::ArmyOrdered { .. } => "army_ordered",
             Self::ArmyDefeated { .. } => "army_defeated",
+            Self::WarDeclared { .. } => "war_declared",
+            Self::PeaceMade { .. } => "peace_made",
+            Self::ProvinceOwnerChanged { .. } => "province_owner_changed",
             Self::BuildingFinished { .. } => "building_finished",
             Self::Battle { .. } => "battle",
         }
@@ -170,6 +188,9 @@ impl Event {
     /// about the player's own armies.
     pub fn countries(&self) -> Vec<CountryTag> {
         match self {
+            Self::WarDeclared { attacker, defender, .. } => vec![*attacker, *defender],
+            Self::PeaceMade { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
+            Self::ProvinceOwnerChanged { from, to, .. } => from.iter().chain(to).copied().collect(),
             Self::BuildingFinished { country, .. } => vec![*country],
             Self::Battle { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
             _ => Vec::new(),

@@ -387,7 +387,9 @@ pub fn submit(request: Request) -> Reply {
 /// events.
 fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     use eu4_harmony_remote::{events::Event, ArmyId, Date, ProvinceId};
-    use game::{events::Change, Heard};
+    use game::{events::Change, wars::Happened, Heard};
+    let tag = catalogue::tag;
+    let tags = |ts: Vec<game::Tag>| ts.into_iter().map(tag).collect();
     // Remote control reads the player's view unless the setting gives it the
     // full view: a battle the player neither sees nor takes part in is left
     // out.
@@ -406,6 +408,13 @@ fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
             },
             Heard::Change(Change::Battle(battle)) if full || battle.seen => battle_event(&battle),
             Heard::Change(Change::Battle(_)) => return None,
+            Heard::War(Happened::WarDeclared { war, attacker, defender }) => Event::WarDeclared { war, attacker: tag(attacker), defender: tag(defender) },
+            Heard::War(Happened::PeaceMade { war, attackers, defenders, ended }) => {
+                Event::PeaceMade { war, attackers: tags(attackers), defenders: tags(defenders), ended }
+            }
+            Heard::War(Happened::OwnerChanged { province, from, to }) => {
+                Event::ProvinceOwnerChanged { province: ProvinceId(province), from: from.map(tag), to: to.map(tag) }
+            }
             Heard::Day(date) => Event::Day { date: Date(date) },
             Heard::Month(date) => Event::Month { date: Date(date) },
             Heard::Year(date) => Event::Year { date: Date(date) },

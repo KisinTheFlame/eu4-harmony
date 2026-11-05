@@ -132,6 +132,9 @@ fn every_event_is_described() {
         Event::Year { date },
         Event::ArmyOrdered { army: ArmyId(1) },
         Event::ArmyDefeated { army: ArmyId(1) },
+        Event::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: CountryTag(*b"TUR"), defender: CountryTag(*b"BYZ") },
+        Event::PeaceMade { war: "Ottoman-Byzantine War".into(), attackers: vec![], defenders: vec![CountryTag(*b"BYZ")], ended: false },
+        Event::ProvinceOwnerChanged { province: ProvinceId(151), from: Some(CountryTag(*b"BYZ")), to: Some(CountryTag(*b"TUR")) },
         Event::BuildingFinished { province: ProvinceId(151), building: "marketplace".into(), country: CountryTag(*b"TUR") },
         Event::Battle {
             province: ProvinceId(151),
@@ -241,6 +244,7 @@ fn kinds_from_text() {
         Kind::Words,
         Kind::PowerKind,
         Kind::Armies,
+        Kind::Terms,
     ];
     for kind in all {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
@@ -256,6 +260,7 @@ fn kinds_from_text() {
     assert_eq!(Kind::Countries.json("fra, ENG"), Some(json!(["FRA", "ENG"])));
     assert_eq!(Kind::Words.json("day,month"), Some(json!(["day", "month"])));
     assert_eq!(Kind::Armies.json("12, 34"), Some(json!(["12", "34"])));
+    assert_eq!(Kind::Terms.json(r#"[{"term":"demand_provinces","province":236}]"#), Some(json!([{"term": "demand_provinces", "province": 236}])));
     assert_eq!(Kind::Keys.json("Control+Return"), Some(json!("ctrl+enter")));
     assert_eq!(Kind::Button.json("right"), Some(json!("right")));
     assert_eq!(Kind::PowerKind.json("dip"), Some(json!("dip")));
@@ -265,6 +270,7 @@ fn kinds_from_text() {
         (Kind::Countries, "FRA,France"),
         (Kind::Words, "day,,month"),
         (Kind::Armies, "12,first"),
+        (Kind::Terms, "humiliate"),
         (Kind::Province, "Paris"),
         (Kind::Province, "1.5"),
         (Kind::Integer, "0x10"),

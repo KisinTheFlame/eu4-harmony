@@ -48,7 +48,9 @@ pub mod leaders;
 pub mod loans;
 pub mod menu;
 pub mod mercenaries;
+pub mod occupation;
 pub mod offers;
+pub mod peace;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
@@ -98,6 +100,8 @@ pub trait Game:
     + mercenaries::Layer
     + forts::Layer
     + sieges::Layer
+    + peace::Layer
+    + occupation::Layer
 {
 }
 impl<
@@ -129,6 +133,8 @@ impl<
             + mercenaries::Layer
             + forts::Layer
             + sieges::Layer
+            + peace::Layer
+            + occupation::Layer
             + ?Sized,
     > Game for T
 {
@@ -302,5 +308,7 @@ pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::B
         Request::Mercenary(r) => done(mercenaries::run(r, game).map(Answer::Mercenary)),
         Request::Fort(r) => done(forts::run(r, game).map(Answer::Fort)),
         Request::Siege(r) => done(sieges::run(r, game).map(Answer::Siege)),
+        Request::Peace(r) => peace::run(r, game, now),
+        Request::Occupation(r) => done(occupation::run(r, game).map(Answer::Occupation)),
     }
 }
