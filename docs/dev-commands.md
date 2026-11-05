@@ -41,8 +41,9 @@ Both programs find it the same way: the command's `--game-dir`; else `EU4_GAME_D
 ### `eu4-harmony backup` and `restore`
 
 - `backup <new dir>` and `restore <dir> [--keep] [--keep-crashes]`, with `--game-dir` and `--user-dir`, do what `player-state.ps1 -Backup` and `-Restore` do: the same files (the saves, the framework's folder and every file at the top of the user folder), the same lines (`added:`, `changed:`, `deleted:`, `NOT RESTORED:`, the crash folders), a failure when a file could not be put back, the backup removed once all match.
-- The backup's folder is laid out as the script's (`files\`, `items.txt`, `crashes.txt`, `user-folder.txt`), so a backup the script made is restored by the command.
-- Both refuse while `eu4.exe` runs. `eu4-harmony skills` says when a mod author needs them.
+- The backup's folder is laid out as the script's (`files\`, `items.txt`, `crashes.txt`, `user-folder.txt`), so a backup the script made is restored by the command; `copied.txt` beside them lists every file copied.
+- A restore removes nothing the backup has no whole copy of: a backup missing a file `copied.txt` lists is refused before anything changes, and each copy is made in `.eu4-harmony-restoring\` in the user folder and compared before it takes the place of what is there.
+- Both refuse while `eu4.exe` runs, and when the list of processes cannot be read to tell. `eu4-harmony skills` says when a mod author needs them.
 
 ### No `tools/` folder
 
