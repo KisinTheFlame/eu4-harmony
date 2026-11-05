@@ -320,9 +320,7 @@ fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
             false => s.wars.forget_wars(),
         }
         match owners {
-            true => happened.extend(
-                event_costs::OWNERS.time(|| Ok::<_, Fail>(s.wars.owners(s.geography.provinces(m, ctx, false)?.into_iter().map(|p| p.owner).collect())))?,
-            ),
+            true => happened.extend(event_costs::OWNERS.time(|| Ok::<_, Fail>(s.wars.owners(s.geography.owners(m, ctx)?)))?),
             false => s.wars.forget_owners(),
         }
         Ok::<_, Fail>(happened)

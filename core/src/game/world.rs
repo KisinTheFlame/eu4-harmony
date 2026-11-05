@@ -226,6 +226,15 @@ impl Geography {
         self.nodes(m, ctx)?.iter().map(|n| if n.id == 0 { Ok(Province::default()) } else { province_now(m, n, visibility_current) }).collect()
     }
 
+    /// Every province's owner, by number; none for the placeholder 0 and a
+    /// province no country owns. Only the owner is read.
+    pub fn owners(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<Option<Tag>>> {
+        self.nodes(m, ctx)?
+            .iter()
+            .map(|n| if n.id == 0 { Ok(None) } else { Ok(Some(Tag(m.u64(n.address + province::OWNER)?)).filter(|t| t.valid())) })
+            .collect()
+    }
+
     /// The provinces numbered in `ids` that there are, in their order; only
     /// those are read.
     pub fn named_provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool, ids: &[u32]) -> GResult<Vec<Province>> {
