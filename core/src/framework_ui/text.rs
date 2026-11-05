@@ -31,12 +31,18 @@ pub struct Quad {
 }
 
 struct Cache {
+    /// A glyph that did not fit on the page is kept with its advance alone,
+    /// and draws nothing until the page starts over.
     glyphs: HashMap<(char, u32), Option<Placed>>,
     page: Page,
     /// Coverage, `PAGE * PAGE` bytes.
     pixels: Vec<u8>,
     /// Pixels changed since the page was last uploaded.
     dirty: bool,
+    /// A glyph did not fit since this was last taken.
+    overflowed: bool,
+    /// The log said once that a frame needed more glyphs than the page holds.
+    told: bool,
 }
 
 pub struct UiFont {
@@ -54,7 +60,14 @@ impl UiFont {
         Ok(Self {
             fonts,
             face,
-            cache: RefCell::new(Cache { glyphs: HashMap::new(), page: Page::new(PAGE, PAGE), pixels: vec![0; (PAGE * PAGE) as usize], dirty: true }),
+            cache: RefCell::new(Cache {
+                glyphs: HashMap::new(),
+                page: Page::new(PAGE, PAGE),
+                pixels: vec![0; (PAGE * PAGE) as usize],
+                dirty: true,
+                overflowed: false,
+                told: false,
+            }),
             scale: Cell::new(1.0),
         })
     }
@@ -80,15 +93,11 @@ impl UiFont {
         let mut bitmap = self.fonts.rasterize(&face, c as u32, size).ok()?;
         Tone::Light.apply(&mut bitmap.alpha);
         let mut cache = self.cache.borrow_mut();
-        let spot = match cache.page.place(bitmap.width.max(1), bitmap.height.max(1)) {
-            Some(spot) => spot,
-            None => {
-                // A full page starts over; glyphs come back as they are drawn again.
-                cache.glyphs.clear();
-                cache.page = Page::new(PAGE, PAGE);
-                cache.pixels.fill(0);
-                cache.page.place(bitmap.width.max(1), bitmap.height.max(1))?
-            }
+        // A full page starts over only between layouts ([`Self::layout_frame`]):
+        // text laid out before would point at glyphs no longer there.
+        let Some(spot) = cache.page.place(bitmap.width.max(1), bitmap.height.max(1)) else {
+            cache.overflowed = true;
+            return Some(Placed { x: 0, y: 0, w: 0, h: 0, left: bitmap.left, top: bitmap.top, advance: bitmap.advance });
         };
         for row in 0..bitmap.height {
             let from = (row * bitmap.width) as usize;
@@ -101,7 +110,7 @@ impl UiFont {
 
     /// The glyphs of one line of text whose top-left is at (x, y), all in GUI
     /// units; the quads are in pixels.
-    pub fn layout(&self, text: &str, size: f32, x: f32, y: f32) -> Vec<Quad> {
+    fn layout(&self, text: &str, size: f32, x: f32, y: f32) -> Vec<Quad> {
         let scale = self.scale.get();
         let size = (size * scale).round();
         let baseline = (y * scale).round() + (size * 0.95).round();
@@ -118,6 +127,37 @@ impl UiFont {
             pen += g.advance;
         }
         out
+    }
+
+    /// The glyphs of each of a frame's texts, `(text, size, x, y)` as for
+    /// [`Self::layout`], all on the page as it is uploaded after. When a
+    /// glyph did not fit, the page starts over and the frame's text is laid
+    /// out again, onto a page that holds this frame's glyphs alone. A frame
+    /// that needs more than the page holds goes without those that do not
+    /// fit; frames after it find them so and draw without them, rather than
+    /// start the page over each frame, until a new glyph does not fit.
+    pub fn layout_frame(&self, texts: &[(&str, f32, f32, f32)]) -> Vec<Vec<Quad>> {
+        let lay_out = || texts.iter().map(|&(text, size, x, y)| self.layout(text, size, x, y)).collect::<Vec<_>>();
+        let quads = lay_out();
+        if !self.take_overflowed() {
+            return quads;
+        }
+        {
+            let mut cache = self.cache.borrow_mut();
+            cache.glyphs.clear();
+            cache.page = Page::new(PAGE, PAGE);
+            cache.pixels.fill(0);
+            cache.dirty = true;
+        }
+        let quads = lay_out();
+        if self.take_overflowed() && !std::mem::replace(&mut self.cache.borrow_mut().told, true) {
+            log!("framework UI: a frame needs more glyphs than the text page holds; those that do not fit are left out");
+        }
+        quads
+    }
+
+    fn take_overflowed(&self) -> bool {
+        std::mem::take(&mut self.cache.borrow_mut().overflowed)
     }
 
     /// The whole page has to go up again, to a texture made anew.
@@ -222,5 +262,41 @@ mod tests {
             .count();
         assert!(covered > 20);
         assert!(font.take_page().is_none());
+    }
+
+    /// Whether every quad of a frame, of characters all different, draws a
+    /// glyph of its own from `page`: none overlaps another, and each covers
+    /// some of it.
+    fn each_draws_its_own(quads: &[Quad], page: &[u8]) -> bool {
+        let apart = |a: &Rect, b: &Rect| a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+        let covers = |q: &Rect| (0..q.h as u32).any(|r| (0..q.w as u32).any(|c| page[((q.y as u32 + r) * PAGE + q.x as u32 + c) as usize] > 0));
+        quads.iter().enumerate().all(|(i, a)| covers(&a.page) && quads[i + 1..].iter().all(|b| apart(&a.page, &b.page)))
+    }
+
+    #[test]
+    fn a_frame_draws_from_the_page_it_uploads_when_the_page_fills() {
+        if !crate::unicode::system_font::chinese_installed() {
+            return;
+        }
+        let font = UiFont::new(&Face::regular("Microsoft YaHei")).unwrap();
+        // Characters this large fill the page with about a hundred.
+        let text = |from: u32, n: u32| (from..from + n).filter_map(char::from_u32).collect::<String>();
+        let frame = |texts: &[String]| font.layout_frame(&texts.iter().map(|t| (t.as_str(), 100.0, 0.0, 0.0)).collect::<Vec<_>>()).concat();
+        let first = [text(0x4e00, 60)];
+        frame(&first);
+        font.take_page().expect("the first frame's glyphs");
+        // The second frame's glyphs do not fit beside the first's.
+        let second = [text(0x4e00 + 60, 30), text(0x4e00 + 90, 30)];
+        let quads = frame(&second);
+        assert_eq!(quads.len(), 60);
+        assert!(each_draws_its_own(&quads, &font.take_page().expect("the second frame's glyphs")));
+        // A frame with more than the page holds draws what fits, and the
+        // next frame like it finds the page as it is.
+        let third = [text(0x4e00 + 120, 50), text(0x4e00 + 170, 50), text(0x4e00 + 220, 50)];
+        let quads = frame(&third);
+        assert!((1..150).contains(&quads.len()), "{}", quads.len());
+        assert!(each_draws_its_own(&quads, &font.take_page().expect("the third frame's glyphs")));
+        assert_eq!(frame(&third), quads);
+        assert!(font.take_page().is_none(), "the page started over again");
     }
 }

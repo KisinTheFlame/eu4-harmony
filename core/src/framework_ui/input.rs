@@ -8,7 +8,7 @@
 //! Remote control's input (`crate::game::input`) comes through here too, as
 //! the messages Windows would send ([`inject`]); a message Windows sends
 //! itself is first asked whether it hands the cursor back to the player.
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
@@ -35,6 +35,35 @@ static INJECTING: AtomicBool = AtomicBool::new(false);
 pub type Handler = fn(Event) -> bool;
 static HANDLER: std::sync::OnceLock<Handler> = std::sync::OnceLock::new();
 
+/// How far the wheel turns in a notch.
+const WHEEL_DELTA: i32 = 120;
+
+/// What the wheel turned of a notch since its last whole one, while a modal
+/// window is open: a precision touchpad turns it by fractions of a notch.
+static WHEEL_REST: AtomicI32 = AtomicI32::new(0);
+
+/// The whole notches the wheel turned, `delta` in [`WHEEL_DELTA`]ths of one,
+/// with what `rest` kept of a notch; `rest` keeps what is left. A turn the
+/// other way starts from nothing.
+fn notches(rest: &mut i32, delta: i32) -> i32 {
+    if rest.signum() * delta.signum() < 0 {
+        *rest = 0;
+    }
+    let turned = *rest + delta;
+    *rest = turned % WHEEL_DELTA;
+    turned / WHEEL_DELTA
+}
+
+/// The wheel's event for a turn of `delta`, if it made a whole notch. Only a
+/// modal window scrolls, so what is left of a notch is kept only while one is
+/// open.
+fn wheel(delta: i32) -> Option<Event> {
+    let mut rest = if super::modal() { WHEEL_REST.load(Ordering::Relaxed) } else { 0 };
+    let turned = notches(&mut rest, delta);
+    WHEEL_REST.store(rest, Ordering::Relaxed);
+    (turned != 0).then_some(Event::Wheel(turned))
+}
+
 fn position(lparam: LPARAM) -> (f32, f32) {
     ((lparam & 0xffff) as i16 as f32, ((lparam >> 16) & 0xffff) as i16 as f32)
 }
@@ -48,7 +77,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, 
         WM_MOUSEMOVE => Some(Event::Move(position(lparam).0, position(lparam).1)),
         WM_LBUTTONDOWN => Some(Event::Down(position(lparam).0, position(lparam).1)),
         WM_LBUTTONUP => Some(Event::Up(position(lparam).0, position(lparam).1)),
-        WM_MOUSEWHEEL => Some(Event::Wheel((wparam >> 16) as u16 as i16 as i32 / 120)),
+        WM_MOUSEWHEEL => wheel((wparam >> 16) as u16 as i16 as i32),
         WM_KEYDOWN if wparam == 0x1b => Some(Event::Escape),
         _ => None,
     };
@@ -159,4 +188,27 @@ pub fn attach(handler: Handler) -> bool {
     WINDOW.store(window as isize, Ordering::Release);
     log!("framework UI: input attached to window {window:?}");
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wheel_turned_by_fractions_of_a_notch_adds_them_up() {
+        let mut rest = 0;
+        // A precision touchpad's small turns, up.
+        let turned: Vec<i32> = [40, 40, 30, 60, 8].iter().map(|d| notches(&mut rest, *d)).collect();
+        assert_eq!(turned, [0, 0, 0, 1, 0]);
+        assert_eq!(rest, 58);
+        // A turn the other way starts from nothing.
+        assert_eq!(notches(&mut rest, -60), 0);
+        assert_eq!(notches(&mut rest, -60), -1);
+        assert_eq!(rest, 0);
+        // A mouse's notches, and more than one at once.
+        assert_eq!(notches(&mut rest, 120), 1);
+        assert_eq!(notches(&mut rest, -360), -3);
+        assert_eq!(notches(&mut rest, -130), -1);
+        assert_eq!(rest, -10);
+    }
 }

@@ -32,7 +32,7 @@ Status: L1 to L4 built (2026-11-05); L2 and L3 tried in the game for Simplified 
 
 ### Choosing it
 
-- The framework settings keep it as `language="<Paradox name>"`. When they name none (the first start, or a file from before), the framework takes the language Windows displays when it is on the list, English otherwise, and writes it into the file.
+- The framework settings keep it as `language="<Paradox name>"`. When they name none (the first start, or a file from before), the framework takes the language Windows displays when it is on the list, English otherwise, and writes it into the file. A file that could not be read, or is not UTF-8, is left as it is: the language is taken for the session only. What can be read of a file that is not UTF-8 is kept, and a byte order mark is passed over.
 - The settings window lists the twelve by what each calls itself. A change takes effect at the next start, as a font's does.
 - The game's own language plays no part. The mods' texts are still spliced into the localisation file of the language the game runs in.
 
