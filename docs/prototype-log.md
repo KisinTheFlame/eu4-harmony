@@ -1886,6 +1886,18 @@ This branch's player build, within a claim, started hidden; a new game as France
 - **Not tried in this run**: buying an idea (France has no group taken at the start), a siege's options and a white peace (no war), an extension's handlers hearing the events (unit tests compare their arguments with the old ones), a battle event.
 - **Cleanup**: the release put the player's files and the game folder's framework files back.
 
+## 2026-11-05 The startup and a load sampled, and made shorter (tested by me)
+
+Two claims (`cargo xtask game`, the game started hidden), the player's playset, every DLC. Other sessions' builds held the machine's processor at 67 to 94% throughout, so every time is long and none is of a quiet machine.
+
+- **Sampled** (the first claim, the player build from master): `cargo xtask profile --wait --slice 5` from the process's start, then `--thread busiest` and `--thread 0x874010` for the LoadingThread; where the time went is in research/loading.md. The main menu came 46 to 55 s after the start. A first run with `--thread` came back with empty stacks: `GetThreadContext` had a context that was not 16-byte aligned; the profiler now aligns it.
+- **`check-loading`** (a developer build with the test switches, this branch's L1 to L3): the first start kept the numbers of 270 music files in `eu4-harmony\music.txt`; the second filled them from there and had the game read every file too: no difference was logged for any of them, and none for the lookups the listings answered missing, which the game's stat answered missing as well.
+- **The startup**, one developer build, `game-loads` (the game's own startup) and the framework's in turn: the game's 82 and 82 s to the main menu, the framework's 68 and 71 s. Each of the framework's starts answered more than 131,072 lookups from the listings.
+- **A load**, Austria-37_4-1 (1724, ironman, 55 MB) from the main menu, traced (`0x5cf740`, the save read and the world set up, and `0xd84b80`, the load with what follows it): the game's 6.2 and 7.3 s, and 8.1 and 8.7 s; the framework's 5.1 and 4.7 s, and 6.7 and 6.2 s. The loads that followed, from the game it had loaded, went 5.4 to 9.1 s either way, in an order that did not follow the switch.
+- **The same game loaded**: the save the game writes as an ironman game is loaded, written once after the game's own load and once after the framework's: `gamestate` (55,051,381 bytes) differed in the 4 bytes at 510 that every save changes, `meta` in its UUID and the checksum of it, `ai` not at all.
+- **Not verified**: a start with nothing in the system's file cache; a mod in the workshop changed while the game runs; a playset whose mods have music; the game's own exit and a restart reading `music.txt` written by a start that ended early; how long the dated nodes' lists get.
+- **Cleanup**: the game closed with `cargo xtask game stop`; releasing each claim put back every player file (`music.txt` removed with them) and the game folder's framework files, and found each as the backup had it. The repository's `dev.toml` is as it was.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
