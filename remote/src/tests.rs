@@ -70,7 +70,7 @@ fn every_capability_is_described_and_can_be_called_from_its_description() {
 fn a_request_is_one_flat_object() {
     let wire = json!({"capability": "army.move", "army": "4294967377", "province": 151});
     let decoded = request(wire.clone()).unwrap();
-    assert_eq!(decoded, Request::Army(armies::ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151) }));
+    assert_eq!(decoded, Request::Army(armies::ArmyRequest::Move { army: ArmyId(4294967377), province: ProvinceId(151), transports: None }));
     assert_eq!(serde_json::to_value(&decoded).unwrap(), wire);
 
     let session = request(json!({"capability": "session.get"})).unwrap();
@@ -132,7 +132,18 @@ fn every_event_is_described() {
         Event::Year { date },
         Event::ArmyOrdered { army: ArmyId(1) },
         Event::ArmyDefeated { army: ArmyId(1) },
+        Event::Battle {
+            province: ProvinceId(151),
+            naval: false,
+            attackers: vec![CountryTag(*b"TUR")],
+            defenders: vec![CountryTag(*b"BYZ"), CountryTag(*b"VEN")],
+            winner: events::Winner::Attackers,
+            attacker_losses: 1200,
+            defender_losses: 3400,
+        },
     ];
+    // A battle names the countries on both sides, for a read's countries.
+    assert_eq!(all[7].countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
     // An event is flattened beside its own number: none of its fields may
     // be named so.
     for event in &all {

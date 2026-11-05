@@ -16,6 +16,7 @@ mod date;
 pub mod diplomacy;
 pub mod form;
 pub mod input;
+pub mod military;
 pub mod offers;
 pub mod provinces;
 pub mod questions;

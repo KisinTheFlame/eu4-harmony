@@ -307,6 +307,14 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The player's leaders: recruiting, assigning and dismissing them.
+    Leader(leaders::LeaderRequest, LeaderAnswer),
+    /// The mercenary companies the player can hire.
+    Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
+    /// The player's forts.
+    Fort(forts::FortRequest, FortAnswer),
+    /// The siege view's buttons, for a siege of the player's.
+    Siege(sieges::SiegeRequest, SiegeAnswer),
 }
 
 pub mod binary;

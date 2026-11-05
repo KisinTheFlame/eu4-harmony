@@ -24,10 +24,13 @@ pub mod countries;
 pub mod decisions;
 pub mod diplomacy;
 pub mod events;
+pub mod forts;
 pub mod input;
 pub mod interface;
+pub mod leaders;
 pub mod map_coloring;
 pub mod menu;
+pub mod mercenaries;
 pub mod offers;
 pub mod orders;
 pub mod provinces;
@@ -35,8 +38,10 @@ pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod sieges;
 pub mod texts;
 pub mod time;
+pub mod units;
 pub mod world;
 
 use crate::{
@@ -197,7 +202,7 @@ pub struct Frame {
 }
 
 /// One thing that happened since the last safe frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Heard {
     /// A new session, with its number.
     Session(u64),
@@ -219,7 +224,7 @@ impl Frame {
         let day = self.new_day.then_some(Heard::Day(self.ctx.date));
         let month = self.new_month.then_some(Heard::Month(self.ctx.date));
         let year = self.new_year.then_some(Heard::Year(self.ctx.date));
-        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).chain(month).chain(year).collect()
+        session.into_iter().chain(self.changes.iter().cloned().map(Heard::Change)).chain(day).chain(month).chain(year).collect()
     }
 }
 
@@ -292,19 +297,14 @@ pub fn points() -> Vec<Point> {
     points.extend(input::points());
     points.extend(conditions::points());
     points.extend(decisions::points());
+    points.extend(leaders::points());
+    points.extend(mercenaries::points());
+    points.extend(forts::points());
+    points.extend(sieges::points());
+    points.extend(units::points());
     points
 }
 
-/// How many window pixels a GUI unit takes, (across, down); None before the
-/// GUI exists (docs/research/text-input.md §3).
-pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
-    use crate::objects::gui::{globals, scale};
-    let gui = m.ptr(m.at(globals::SCALE)).ok().filter(|&g| g != 0)?;
-    let read = |at: usize| m.u32(gui + at).ok().map(f32::from_bits).filter(|s| s.is_finite() && *s > 0.0);
-    Some((read(scale::ACROSS)?, read(scale::DOWN)?))
-}
-
-/// Country tag as stored by the game (see [`tag`]).
 /// A tooltip's reasons, as the game wrote them into a string: plain lines,
 /// without color codes, the bullet a line may start with, or empty lines
 /// (docs/player-actions.md, "Choices, reasons, costs").
@@ -317,6 +317,16 @@ pub fn reasons(text: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// How many window pixels a GUI unit takes, (across, down); None before the
+/// GUI exists (docs/research/text-input.md §3).
+pub fn gui_scale(m: &Memory) -> Option<(f32, f32)> {
+    use crate::objects::gui::{globals, scale};
+    let gui = m.ptr(m.at(globals::SCALE)).ok().filter(|&g| g != 0)?;
+    let read = |at: usize| m.u32(gui + at).ok().map(f32::from_bits).filter(|s| s.is_finite() && *s > 0.0);
+    Some((read(scale::ACROSS)?, read(scale::DOWN)?))
+}
+
+/// Country tag as stored by the game (see [`tag`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tag(pub u64);
 impl Tag {

@@ -1,6 +1,6 @@
 //! The events remote control keeps: the ones extensions hear, numbered, the
 //! latest [`KEPT`] of them.
-use crate::{ArmyId, CountryList, CountryTag, Date, Words};
+use crate::{ArmyId, CountryList, CountryTag, Date, ProvinceId, Words};
 use serde::{Deserialize, Serialize};
 
 /// How many events are kept.
@@ -88,6 +88,10 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("year", "the first day heard in a new year, after month; date"),
     ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
     ("army_defeated", "one of the player's armies lost a battle; army"),
+    (
+        "battle",
+        "a land or naval battle was decided: in the player's view one the player sees or takes part in, in the full view every one; province, naval, attackers, defenders (the countries on each side, the leading one first), winner (attackers or defenders), attacker_losses, defender_losses (men in a land battle, ships in a naval one)",
+    ),
 ];
 
 /// Something that happened in the game, as extensions hear it.
@@ -113,6 +117,28 @@ pub enum Event {
     ArmyOrdered { army: ArmyId },
     /// One of the player's armies lost a battle.
     ArmyDefeated { army: ArmyId },
+    /// A land or naval battle was decided: in the player's view one the
+    /// player sees or takes part in, in the full view every one.
+    Battle {
+        province: ProvinceId,
+        naval: bool,
+        /// The countries on each side, the leading one first.
+        attackers: Vec<CountryTag>,
+        defenders: Vec<CountryTag>,
+        winner: Winner,
+        /// What each side lost: men in a land battle, ships in a naval
+        /// one.
+        attacker_losses: i64,
+        defender_losses: i64,
+    },
+}
+
+/// Which side won a battle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+#[serde(rename_all = "snake_case")]
+pub enum Winner {
+    Attackers,
+    Defenders,
 }
 
 impl Event {
@@ -126,13 +152,17 @@ impl Event {
             Self::Year { .. } => "year",
             Self::ArmyOrdered { .. } => "army_ordered",
             Self::ArmyDefeated { .. } => "army_defeated",
+            Self::Battle { .. } => "battle",
         }
     }
 
     /// The countries it names; none for one about the game as a whole or
     /// about the player's own armies.
     pub fn countries(&self) -> Vec<CountryTag> {
-        Vec::new()
+        match self {
+            Self::Battle { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
+            _ => Vec::new(),
+        }
     }
 }
 

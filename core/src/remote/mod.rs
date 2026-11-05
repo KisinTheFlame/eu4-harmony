@@ -51,14 +51,18 @@ pub mod events;
 pub mod extensions;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod forts;
 pub mod input;
+pub mod leaders;
 pub mod menu;
+pub mod mercenaries;
 pub mod offers;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod sieges;
 #[cfg(test)]
 mod tests;
 pub mod texts;
@@ -99,6 +103,10 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + leaders::Layer
+    + mercenaries::Layer
+    + forts::Layer
+    + sieges::Layer
 {
 }
 impl<
@@ -120,6 +128,10 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + leaders::Layer
+            + mercenaries::Layer
+            + forts::Layer
+            + sieges::Layer
             + ?Sized,
     > Game for T
 {
@@ -602,6 +614,10 @@ fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now:
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Leader(r) => done(leaders::run(r, game).map(Answer::Leader)),
+        Request::Mercenary(r) => done(mercenaries::run(r, game).map(Answer::Mercenary)),
+        Request::Fort(r) => done(forts::run(r, game).map(Answer::Fort)),
+        Request::Siege(r) => done(sieges::run(r, game).map(Answer::Siege)),
     }
 }
 
@@ -634,15 +650,34 @@ pub fn submit(request: Request) -> Reply {
 fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
     use eu4_harmony_remote::{events::Event, ArmyId, Date};
     use game::{events::Change, Heard};
+    // Remote control reads the player's view unless the setting gives it the
+    // full view: a battle the player neither sees nor takes part in is left
+    // out.
+    let full = game::view(game::Caller::Remote) == game::View::Full;
     let event = |heard| match heard {
-        Heard::Session(session) => Event::Session { session },
-        Heard::Change(Change::Ordered(army)) => Event::ArmyOrdered { army: ArmyId(army) },
-        Heard::Change(Change::Defeated(army)) => Event::ArmyDefeated { army: ArmyId(army) },
-        Heard::Day(date) => Event::Day { date: Date(date) },
-        Heard::Month(date) => Event::Month { date: Date(date) },
-        Heard::Year(date) => Event::Year { date: Date(date) },
+        Heard::Session(session) => Some(Event::Session { session }),
+        Heard::Change(Change::Ordered(army)) => Some(Event::ArmyOrdered { army: ArmyId(army) }),
+        Heard::Change(Change::Defeated(army)) => Some(Event::ArmyDefeated { army: ArmyId(army) }),
+        Heard::Change(Change::Battle(battle)) => (full || battle.seen).then(|| battle_event(&battle)),
+        Heard::Day(date) => Some(Event::Day { date: Date(date) }),
+        Heard::Month(date) => Some(Event::Month { date: Date(date) }),
+        Heard::Year(date) => Some(Event::Year { date: Date(date) }),
     };
-    frame.heard().into_iter().map(event).collect()
+    frame.heard().into_iter().filter_map(event).collect()
+}
+
+/// A battle, as the `battle` event tells it.
+pub fn battle_event(battle: &game::events::Battle) -> eu4_harmony_remote::events::Event {
+    use eu4_harmony_remote::events::{Event, Winner};
+    Event::Battle {
+        province: eu4_harmony_remote::ProvinceId(battle.province),
+        naval: battle.naval,
+        attackers: battle.attackers.iter().copied().map(tag).collect(),
+        defenders: battle.defenders.iter().copied().map(tag).collect(),
+        winner: if battle.attacker_won { Winner::Attackers } else { Winner::Defenders },
+        attacker_losses: battle.attacker_losses.into(),
+        defender_losses: battle.defender_losses.into(),
+    }
 }
 
 /// The session is being left, for `reason` (`crate::lua::SESSION_ENDED_*`), as

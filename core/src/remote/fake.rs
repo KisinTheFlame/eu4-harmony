@@ -1,8 +1,8 @@
 //! A game for the engine's tests: the capability layer's answers for a small
 //! made-up campaign, the Ottomans at the start, and a record of the calls.
 use super::{
-    armies, camera, console, countries, decisions, desktop, diplomacy, extensions, input, menu, offers, provinces, questions, recruiting, screenshot, session,
-    texts, time,
+    armies, camera, console, countries, decisions, desktop, diplomacy, extensions, forts, input, leaders, menu, mercenaries, offers, provinces, questions,
+    recruiting, screenshot, session, sieges, texts, time,
 };
 use crate::game::{
     self, fail,
@@ -295,8 +295,8 @@ impl armies::Layer for Fake {
         Ok(vec![150, goal])
     }
 
-    fn move_to(&mut self, id: u64, goal: u32) -> GResult<()> {
-        self.call(format!("move {id} {goal}"));
+    fn move_to(&mut self, id: u64, goal: u32, transports: bool) -> GResult<()> {
+        self.call(format!("move {id} {goal}{}", if transports { " by sea" } else { "" }));
         if goal == 1 {
             return fail(Status::Rejected, "no route to 1");
         }
@@ -313,6 +313,186 @@ impl armies::Layer for Fake {
     fn selected(&mut self) -> GResult<u64> {
         self.call("selected".into());
         fail(Status::NotFound, "army panel not open")
+    }
+
+    /// The army may split and drill; it is alone in its province.
+    fn army_options(&mut self, id: u64) -> GResult<Vec<eu4_harmony_remote::armies::ArmyAction>> {
+        use eu4_harmony_remote::{armies::ArmyAction, choices::Choice};
+        self.call(format!("army options {id}"));
+        Ok(vec![
+            ArmyAction { action: "split".into(), choice: Choice::can(Vec::new()) },
+            ArmyAction { action: "merge".into(), choice: Choice::cannot(vec!["至少需要两支部队".into()], Vec::new()) },
+        ])
+    }
+
+    fn split(&mut self, id: u64) -> GResult<u64> {
+        self.call(format!("split {id}"));
+        Ok(id + 1)
+    }
+
+    fn merge(&mut self, ids: Vec<eu4_harmony_remote::ArmyId>) -> GResult<()> {
+        self.call(format!("merge {}", ids.len()));
+        match ids.len() {
+            0 | 1 => fail(Status::Rejected, "至少需要两支部队"),
+            _ => Ok(()),
+        }
+    }
+
+    fn disband(&mut self, id: u64) -> GResult<()> {
+        self.call(format!("disband {id}"));
+        Ok(())
+    }
+
+    fn consolidate(&mut self, id: u64) -> GResult<()> {
+        self.call(format!("consolidate {id}"));
+        Ok(())
+    }
+
+    fn drill(&mut self, id: u64) -> GResult<()> {
+        self.call(format!("drill {id}"));
+        Ok(())
+    }
+
+    fn stop_drill(&mut self, id: u64) -> GResult<()> {
+        self.call(format!("stop drill {id}"));
+        fail(Status::Rejected, "the game does not let the player stop drilling: the army does not drill now, and gives no reason")
+    }
+
+    fn mission(&mut self, id: u64, mission: String, target: Option<u32>) -> GResult<()> {
+        self.call(format!("mission {id} {mission} {target:?}"));
+        Ok(())
+    }
+
+    fn stop_mission(&mut self, id: u64) -> GResult<()> {
+        self.call(format!("stop mission {id}"));
+        Ok(())
+    }
+}
+
+/// A general the player can recruit and one leader, Sinan, leading no army.
+impl leaders::Layer for Fake {
+    fn leader_options(&mut self) -> GResult<Vec<eu4_harmony_remote::leaders::LeaderOption>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            leaders::{LeaderKind, LeaderOption},
+        };
+        self.call("leader options".into());
+        Ok(vec![
+            LeaderOption { kind: LeaderKind::General, choice: Choice::can(vec![Amount::new(Resource::Mil, 50.0)]) },
+            LeaderOption { kind: LeaderKind::Explorer, choice: Choice::cannot(vec!["需要探索理念".into()], vec![Amount::new(Resource::Dip, 50.0)]) },
+        ])
+    }
+
+    fn recruit_leader(&mut self, kind: String) -> GResult<eu4_harmony_remote::leaders::Leader> {
+        self.call(format!("recruit leader {kind}"));
+        match kind.as_str() {
+            "general" => Ok(sinan()),
+            _ => fail(Status::Rejected, "需要探索理念"),
+        }
+    }
+
+    fn leaders(&mut self) -> GResult<Vec<eu4_harmony_remote::leaders::Leader>> {
+        self.call("leaders".into());
+        Ok(vec![sinan()])
+    }
+
+    fn assign_leader(&mut self, leader: u32, army: u64) -> GResult<()> {
+        self.call(format!("assign leader {leader} {army}"));
+        Ok(())
+    }
+
+    fn remove_leader(&mut self, army: u64) -> GResult<()> {
+        self.call(format!("remove leader {army}"));
+        Ok(())
+    }
+
+    fn dismiss_leader(&mut self, leader: u32) -> GResult<()> {
+        self.call(format!("dismiss leader {leader}"));
+        match leader {
+            7 => Ok(()),
+            _ => fail(Status::NotFound, "the player has no leader"),
+        }
+    }
+}
+
+fn sinan() -> eu4_harmony_remote::leaders::Leader {
+    use eu4_harmony_remote::leaders::{Leader, LeaderKind};
+    Leader { id: 7, name: "锡南".into(), kind: LeaderKind::General, fire: 2, shock: 3, maneuver: 1, siege: 0, army: None }
+}
+
+impl mercenaries::Layer for Fake {
+    fn companies(&mut self) -> GResult<Vec<eu4_harmony_remote::mercenaries::Company>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            mercenaries::Company,
+        };
+        self.call("companies".into());
+        Ok(vec![Company {
+            company: "merc_black_army".into(),
+            name: "黑军".into(),
+            regiments: 8,
+            upkeep: 2.5,
+            choice: Choice::can(vec![Amount::new(Resource::Ducats, 120.0)]),
+        }])
+    }
+
+    fn hire(&mut self, company: String, province: u32) -> GResult<()> {
+        self.call(format!("hire {company} {province}"));
+        match company.as_str() {
+            "merc_black_army" => Ok(()),
+            _ => fail(Status::NotFound, "the mercenary view lists no such company"),
+        }
+    }
+}
+
+/// Edirne's fort, open.
+impl forts::Layer for Fake {
+    fn forts(&mut self) -> GResult<Vec<eu4_harmony_remote::forts::Fort>> {
+        use eu4_harmony_remote::{choices::Choice, forts::Fort, ProvinceId};
+        self.call("forts".into());
+        Ok(vec![Fort { province: ProvinceId(149), level: 2, mothballed: false, choice: Choice::can(Vec::new()) }])
+    }
+
+    fn mothball_fort(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("mothball fort {province}"));
+        Ok(())
+    }
+
+    fn reopen_fort(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("reopen fort {province}"));
+        fail(Status::Rejected, "the fort is open already")
+    }
+}
+
+/// A siege of Constantinople with no breach yet.
+impl sieges::Layer for Fake {
+    fn siege_options(&mut self, province: u32) -> GResult<Vec<eu4_harmony_remote::sieges::SiegeAction>> {
+        use eu4_harmony_remote::{
+            choices::{Amount, Choice, Resource},
+            sieges::SiegeAction,
+        };
+        self.call(format!("siege options {province}"));
+        Ok(vec![
+            SiegeAction { action: "bombard".into(), choice: Choice::can(vec![Amount::new(Resource::Mil, 50.0)]) },
+            SiegeAction {
+                action: "assault".into(), choice: Choice::cannot(vec!["没有缺口，无法强攻要塞。".into()], vec![Amount::new(Resource::Mil, 5.0)])
+            },
+        ])
+    }
+
+    fn bombard(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("bombard {province}"));
+        Ok(())
+    }
+
+    fn naval_bombard(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("naval bombard {province}"));
+        fail(Status::Rejected, "附近海域没有舰队")
+    }
+
+    fn assault(&mut self, province: u32) -> GResult<()> {
+        self.call(format!("assault {province}"));
+        fail(Status::Rejected, "没有缺口，无法强攻要塞。")
     }
 }
 

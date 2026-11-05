@@ -103,6 +103,16 @@ pub const HANDLERS: &[Handler] = &[
     },
     Handler { name: "on_army_defeated", args: &[value("army", "integer", "the army's ID")], returns: None, about: "One of the player's armies lost a battle." },
     Handler {
+        name: "on_battle",
+        args: &[value(
+            "battle",
+            "table",
+            "{ province, naval, attackers, defenders, winner, attacker_losses, defender_losses }: the countries on each side, the leading one first; winner \"attackers\" or \"defenders\"; the losses in men in a land battle, in ships in a naval one",
+        )],
+        returns: None,
+        about: "A land or naval battle was decided, anywhere in the world.",
+    },
+    Handler {
         name: "on_button",
         args: &[value("name", "string", "the button's name in its interface fragment"), value("click", "eu4.Click", "{ right, shift, ctrl }")],
         returns: None,
