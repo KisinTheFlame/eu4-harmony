@@ -21,9 +21,7 @@ use crate::{
     hooks::HookFrame,
     memory::Memory,
     objects::{
-        diplomacy::{
-            action, casus_belli, classes, command, factor, globals, send_window, side, sides, treaty, war_entry, war_goal, war_goal_type, war_goals, world,
-        },
+        diplomacy::{action, casus_belli, classes, command, factor, globals, send_window, side, sides, war_entry, war_goal, war_goal_type, war_goals, world},
         gui,
     },
     points::Point,
@@ -43,13 +41,6 @@ pub use panel::{act, options, Details, Offered, What};
 /// The constructor of a declaration of war: (action, from, to, flag, date,
 /// war goal), the war goal copied; the flag 0 as the diplomacy panel's.
 const DECLARE_WAR_NEW: usize = 0x500480;
-/// The constructor of a peace offer: (action, from, to, demand, treaty,
-/// date), the treaty copied.
-const PEACE_NEW: usize = 0x598af0;
-/// A peace treaty's constructor and destructor: (treaty, actor, other,
-/// demand), with no terms; (treaty).
-const TREATY_NEW: usize = 0x975d40;
-const TREATY_DESTROY: usize = 0x9761c0;
 /// The war goals the game offers a country against another: (from, to,
 /// list, filter), into a [`classes::WAR_GOALS`] list; the filter an empty
 /// `std::function`.
@@ -256,8 +247,9 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GRe
     Ok(Declaration { ticket, called, passed_over })
 }
 
-/// Offers `enemy` a white peace: a peace treaty with no terms, demanded by
-/// the player, in the war between them, as the peace view sends one.
+/// Offers `enemy` a white peace: a peace treaty with no terms chosen,
+/// demanded by the player, in the war between them, as the peace view sends
+/// one.
 pub fn offer_peace(_: Caller, enemy: Tag) -> GResult<Ticket> {
     let m = game()?;
     let ctx = context(m)?;
@@ -267,17 +259,10 @@ pub fn offer_peace(_: Caller, enemy: Tag) -> GResult<Ticket> {
     if !super::world::hostile(m, &ctx, ctx.player, enemy)? {
         return fail(Status::Rejected, format!("the player is not at war with {}", letters(enemy)));
     }
-    let treaty = vec![0u64; treaty::SIZE / 8];
-    let at = treaty.as_ptr() as usize;
-    m.call(m.at(TREATY_NEW), &[at, ctx.player.0 as usize, enemy.0 as usize, 1])?;
-    let mut made = Made::new(m, action::PEACE_SIZE);
-    let built = m.call(m.at(PEACE_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, 1, at, ctx.date as u32 as usize]);
-    // The action holds a copy of the treaty.
-    m.call(m.at(TREATY_DESTROY), &[at])?;
-    built?;
-    made.built = true;
-    verdict(m, made.at())?;
-    send(m, &ctx, made.at(), enemy, Vec::new())
+    let treaty = super::peace::Treaty::new(m, &ctx, enemy, false)?;
+    let offer = super::peace::Offer::new(m, &ctx, enemy, &treaty, false)?;
+    verdict(m, offer.at())?;
+    send(m, &ctx, offer.at(), enemy, Vec::new())
 }
 
 /// Proposes an alliance to `ally`.
@@ -1165,9 +1150,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x509e9ausize, "48 8d 15 f7 95 77 01", "declaration of war panel description").uses(&[WAR_DESCRIPTION]),
         // The constructors.
         Point::keep(DECLARE_WAR_NEW, "48 89 5c 24 10 48 89 4c 24 08 57 48 83 ec 20 48 8b d9", "declaration of war constructor"),
-        Point::keep(PEACE_NEW, "48 89 4c 24 08 53 48 83 ec 20 48 8b d9", "peace offer constructor"),
-        Point::keep(TREATY_NEW, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 48 89 4c 24 08 57 41 56 41 57 48 83 ec 20", "peace treaty constructor"),
-        Point::keep(TREATY_DESTROY, "48 89 5c 24 08 57 48 83 ec 20 48 8d 05 e7 16 2e 01", "peace treaty destructor"),
         // Calls to arms: what the declare war window gathers and its lists'
         // destructor, the check its call box asks and the reason it gives
         // when the ally is on the other side too, and a vector of tags

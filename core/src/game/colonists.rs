@@ -6,7 +6,12 @@ use super::{
     envoys::{self, quoted},
     game, with_state, Caller, Ctx, GResult, Tag,
 };
-use crate::{game_string, memory::Memory, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::{construction, province as field},
+    points::Point,
+};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     colonists::ColonistOptions,
@@ -21,13 +26,6 @@ const MAY_SEND: usize = 0x34e7f0;
 const WHY_NOT: usize = 0x34e890;
 /// The province's colonist construction, or null: `(province)`.
 const CONSTRUCTION: usize = 0xa1ba30;
-/// The colonist construction's country.
-const SENDER: usize = 0x40;
-/// The colony's settlers, thousandths.
-const SIZE: usize = 0x3f8;
-/// The province's flags, and the one of a city.
-const FLAGS: usize = 0x958;
-const CITY: u8 = 0x10;
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -37,7 +35,6 @@ pub fn points() -> Vec<Point> {
         // The cancel colonist command's check: the location, then the
         // construction's country.
         Point::keep(0x446850usize, "48 63 41 58 85 c0 0f 88 83 00 00 00 80 79 5c 00 75 74 4c 8b 41 50", "cancel colonist check"),
-        Point::keep(0x9d7962usize, "41 8b 9f f8 03 00 00", "colony size").uses(&[SIZE]),
     ]
 }
 
@@ -61,9 +58,9 @@ pub fn options(_: Caller, id: u32) -> GResult<ColonistOptions> {
 
 fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions> {
     let construction = m.call(m.at(CONSTRUCTION), &[p.address])?;
-    let working = construction != 0 && Tag(m.u64(construction + SENDER)?) == ctx.player;
-    let size = m.i32(p.address + SIZE)?;
-    let colony = size > 0 && m.u8(p.address + FLAGS)? & CITY == 0;
+    let working = construction != 0 && Tag(m.u64(construction + construction::COUNTRY)?) == ctx.player;
+    let size = m.i32(p.address + field::COLONY_SIZE)?;
+    let colony = size > 0 && m.u8(p.address + field::HIDDEN)? & field::CITY_BIT == 0;
     let cost = vec![Amount::new(Resource::Colonist, 1.0)];
     let send = if m.call(m.at(MAY_SEND), &[ctx.country, p.address])? as u8 != 0 {
         Choice::can(cost)

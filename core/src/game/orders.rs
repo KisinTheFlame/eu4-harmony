@@ -15,7 +15,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub const ROUTE_QUERY: usize = 0x96c520;
-const FREE_NODE: usize = 0x17394f0;
 pub const MOVE: usize = 0xd50340;
 pub const STOP: usize = 0xd4fcb0;
 
@@ -23,7 +22,6 @@ pub const STOP: usize = 0xd4fcb0;
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query"),
-        Point::keep(FREE_NODE, "e9 2b 45 02 00 cc cc cc cc cc cc cc cc cc cc cc", "route node free"),
         Point::keep(TRANSPORTS, "48 8b c4 4c 89 40 18 48 89 50 10 53 55 56 57 41 54 41 55 41 56 41 57", "fleets that may carry an army"),
     ]
 }
@@ -279,7 +277,7 @@ impl Orders {
                 return Err("temporary route shares nodes with the army route".to_string().into());
             }
             for node in temp.nodes {
-                m.call(m.at(FREE_NODE), &[node, list::NODE_SIZE])?;
+                crate::game_heap::delete(m, node, list::NODE_SIZE)?;
             }
             Ok(())
         })();
@@ -371,7 +369,7 @@ pub fn transport(m: &Memory, ctx: &Ctx, army: usize, id: u64, goal: u32) -> GRes
     })();
     // The vector's buffer is the game's: freed as its own small blocks are.
     if begin != 0 && capacity > begin && capacity - begin < 0x1000 {
-        m.call(m.at(FREE_NODE), &[begin, capacity - begin])?;
+        crate::game_heap::delete(m, begin, capacity - begin)?;
     }
     let fleets = fleets?;
     if fleets.is_empty() {

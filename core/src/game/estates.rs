@@ -2,8 +2,8 @@
 //! interactions over crown land, granting and revoking privileges and the
 //! interactions, through the game's own commands
 //! (docs/research/government.md, "Estates").
-use super::{conditions, content, context, game, thousandths, Caller, GResult, Tag};
-use crate::{memory::Memory, points::Point};
+use super::{conditions, content, context, game, modifiers, thousandths, Caller, GResult, Tag};
+use crate::{memory::Memory, objects::campaign::country, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
     choices::Choice,
@@ -46,11 +46,9 @@ const IS_VALID: usize = 0x588;
 /// privilege, writing why not into the `std::string` reasons.
 const CAN_GRANT: usize = 0x71edf0;
 const CAN_REVOKE: usize = 0x71f430;
-/// `(entry, out, modifiers) -> out`: the estate's influence, in thousandths,
-/// from the country's modifiers, `(country + MODIFIERS)` plus 8.
+/// `(entry, out, modifier values) -> out`: the estate's influence, in
+/// thousandths, from the country's modifiers.
 const INFLUENCE: usize = 0x71a520;
-const COUNTRY_MODIFIERS: usize = 0x93d750;
-const MODIFIERS: usize = 0x28c0;
 /// The crown land's interactions: `() -> object`, whose `+0x60` is their
 /// game array of 0x128-byte entries, each with its key; `(country,
 /// interaction, reasons) -> bool`, whether the country may use it.
@@ -80,11 +78,10 @@ pub fn points() -> Vec<Point> {
         Point::keep(CAN_GRANT, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57", "privilege grant check"),
         Point::keep(CAN_REVOKE, "48 89 5c 24 10", "privilege revoke check"),
         Point::keep(0x71832cusize, "e8 ef 21 00 00", "estate influence"),
-        Point::keep(0x718308usize, "49 81 c5 c0 28 00 00 4c 89 ad 98 00 00 00 49 8b cd e8", "country modifiers").uses(&[MODIFIERS]),
+        Point::keep(0x718308usize, "49 81 c5 c0 28 00 00 4c 89 ad 98 00 00 00 49 8b cd e8", "country modifiers").uses(&[country::MODIFIERS]),
         // The interaction command's check: the interaction by its index.
         Point::keep(0xc50acusize, "e8 7f 33 66 00 85 ff 78 3a 3b 78 6c 7d 35 48 69 d7 28 01 00 00 48 03 50 60", "crown land interactions"),
         Point::keep(INFLUENCE, "48 89 5c 24 18 57 48 83 ec 20 48 8b da 48 8b f9", "estate influence getter"),
-        Point::keep(COUNTRY_MODIFIERS, "48 89 5c 24 10 48 89 7c 24 18 55 48 8d 6c 24 b0", "country modifiers getter"),
         Point::keep(CROWN_LAND, "48 89 5c 24 18 48 89 74 24 20 57 48 83 ec 20 48", "crown land getter"),
         Point::keep(CAN_INTERACT, "48 89 5c 24 18 55 56 57 41 56 41 57", "crown land interaction check"),
     ]
@@ -140,9 +137,9 @@ fn privilege_index(m: &Memory, privilege: usize) -> GResult<usize> {
 }
 
 fn influence(m: &Memory, country: usize, entry: usize) -> GResult<i32> {
-    let modifiers = m.call(m.at(COUNTRY_MODIFIERS), &[country + MODIFIERS])? + 8;
+    let values = modifiers::values(m, country)?;
     let mut out = 0i32;
-    m.call(m.at(INFLUENCE), &[entry, &mut out as *mut i32 as usize, modifiers])?;
+    m.call(m.at(INFLUENCE), &[entry, &mut out as *mut i32 as usize, values])?;
     Ok(out)
 }
 

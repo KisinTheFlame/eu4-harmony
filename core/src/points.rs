@@ -675,6 +675,86 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
+    /// The game addresses a source file names: the constants of at least
+    /// `IMAGE`, and the places its points are given, as a number or as one
+    /// of its constants.
+    fn addresses_named(text: &str) -> std::collections::BTreeSet<usize> {
+        /// The least RVA a constant counts as an address from: above every
+        /// field's offset (the largest, 0x32604, is the interface's), below
+        /// the game's code.
+        const IMAGE: usize = 1 << 18;
+        let hex = |token: &str| token.strip_prefix("0x").and_then(|digits| usize::from_str_radix(&digits.replace('_', ""), 16).ok());
+        let mut constants = std::collections::HashMap::new();
+        let mut named = std::collections::BTreeSet::new();
+        for line in text.lines().map(str::trim).filter(|l| !l.starts_with("//")) {
+            let Some((_, rest)) = line.split_once("const ") else { continue };
+            let Some((name, value)) = rest.split_once(": usize = ") else { continue };
+            if let Some(value) = hex(value.trim_end_matches(';')) {
+                constants.insert(name.to_string(), value);
+                if value >= IMAGE {
+                    named.insert(value);
+                }
+            }
+        }
+        let word = |text: &str| -> String { text.trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect() };
+        let number = |token: &str| {
+            let token = token.trim_end_matches("usize");
+            hex(token).or_else(|| token.parse().ok()).or_else(|| constants.get(token).copied())
+        };
+        for (i, _) in text.match_indices("Point::") {
+            let Some(open) = text[i..].find('(') else { continue };
+            let after = text[i + open + 1..].trim_start();
+            let first = word(after);
+            let Some(mut place) = number(&first) else { continue };
+            // A place written as an offset from another: `NAME + 0x41`.
+            let rest = after[first.len()..].trim_start();
+            if let Some((sign, operand)) = rest.strip_prefix('+').map(|r| (1, r)).or_else(|| rest.strip_prefix('-').map(|r| (-1, r))) {
+                if let Some(offset) = number(&word(operand)) {
+                    place = if sign > 0 { place + offset } else { place - offset };
+                }
+            }
+            named.insert(place);
+        }
+        named
+    }
+
+    /// Each function, global and place of the game's code is named in one
+    /// file, which every part that relies on it reads it from: a second
+    /// declaration of it is a second understanding of it, which a fix would
+    /// not reach.
+    #[test]
+    fn every_game_address_is_named_in_one_file() {
+        fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap().map(std::result::Result::unwrap) {
+                let path = entry.path();
+                if path.is_dir() {
+                    sources(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        sources(&root, &mut files);
+        let mut by_address: std::collections::BTreeMap<usize, Vec<String>> = std::collections::BTreeMap::new();
+        for file in &files {
+            let name = file.strip_prefix(&root).unwrap().display().to_string();
+            for address in addresses_named(&std::fs::read_to_string(file).unwrap()) {
+                by_address.entry(address).or_default().push(name.clone());
+            }
+        }
+        let twice: Vec<String> = by_address.iter().filter(|(_, files)| files.len() > 1).map(|(a, files)| format!("{a:#x}: {}", files.join(", "))).collect();
+        assert!(twice.is_empty(), "{twice:#?}");
+    }
+
+    #[test]
+    fn addresses_are_read_from_constants_and_points() {
+        let text = "const FIELD: usize = 0x28c0;\nconst F: usize = 0x93d750;\n// const OLD: usize = 0x200000;\n\
+                    const SITE: usize = 0x9a1f0;\nPoint::keep(SITE, \"c3\", \"x\");\nPoint::keep(\n    0xcd1db1usize, \"c3\", \"y\");\nPoint::keep(FIELD + 1, \"c3\", \"z\");";
+        assert_eq!(addresses_named(text), [0x28c1, 0x9a1f0, 0x93d750, 0xcd1db1].into());
+    }
+
     #[test]
     fn a_point_checks_its_bytes_what_they_use_and_a_method_its_function() {
         let points = [

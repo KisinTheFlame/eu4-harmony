@@ -39,7 +39,6 @@ const MENU_FRAME: usize = 0x10d2e80;
 const TOOLTIP: usize = 0x1453b70;
 const TEXT_SET: usize = 0x152ae10;
 const SUBSCRIBE: usize = 0xfbe3f0;
-const UNSUBSCRIBE: usize = 0xfbe370;
 const SET_RIGHT_CLICK: usize = 0x1593860;
 const SHOW: usize = 0x15aeb30;
 const HIDE: usize = 0x15aead0;
@@ -187,7 +186,7 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
         if m.ptr(signal)? != m.at(classes::SIGNAL)
             || m.ptr(signal + signal::AFTER_LISTENERS)? != 0
             || m.vslot(signal, signal::SUBSCRIBE)? != m.at(SUBSCRIBE)
-            || m.vslot(signal, signal::UNSUBSCRIBE)? != m.at(UNSUBSCRIBE)
+            || m.vslot(signal, signal::UNSUBSCRIBE)? != m.at(functions::UNSUBSCRIBE)
             || m.vslot(object, button::SET_RIGHT_CLICK)? != m.at(SET_RIGHT_CLICK)
         {
             return Err(format!("{} has an unexpected click signal", d.element.prefixed));
@@ -234,7 +233,7 @@ fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<(
                 if m.ptr(b.signal)? != m.at(classes::SIGNAL) || m.u8(b.signal + signal::LISTENERS + list::CHANGING)? != 0 {
                     return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
                 }
-                m.call(m.at(UNSUBSCRIBE), &[b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
+                m.call(m.at(functions::UNSUBSCRIBE), &[b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
                 if subscribed(m, b)? {
                     return Err("observer still subscribed after unsubscribe".into());
                 }
@@ -539,7 +538,6 @@ pub fn points() -> Vec<Point> {
         Point::observe(TOOLTIP, "48 89 5c 24 08 48 89 74 24 10 55 57 41 54 41 56", "army panel tooltip", 3, None, Some(tooltip_after)),
         Point::keep(TEXT_SET, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "text box setter"),
         Point::keep(SUBSCRIBE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "signal subscribe"),
-        Point::keep(UNSUBSCRIBE, "40 53 48 83 ec 20 48 8b d9 48 8b 49 08 48 85 c9", "signal unsubscribe"),
         Point::keep(SET_RIGHT_CLICK, "88 91 61 01 00 00 c3", "button right-click enable").uses(&[button::RIGHT_CLICK]),
         Point::keep(SHOW, "40 53 48 83 ec 20 80 b9 00 01 00 00 00 48 8b d9", "element show"),
         Point::keep(HIDE, "40 53 48 83 ec 20 c6 81 c5 00 00 00 00 48 8b d9", "element hide").uses(&[element::VISIBLE]),
@@ -550,7 +548,7 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::BUTTON, element::ENABLE, SET_ENABLED, "button enable method"),
         Point::method(classes::BUTTON, button::SET_RIGHT_CLICK, SET_RIGHT_CLICK, "button right-click method"),
         Point::method(classes::SIGNAL, signal::SUBSCRIBE, SUBSCRIBE, "signal subscribe method"),
-        Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, UNSUBSCRIBE, "signal unsubscribe method"),
+        Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, functions::UNSUBSCRIBE, "signal unsubscribe method"),
     ]
 }
 

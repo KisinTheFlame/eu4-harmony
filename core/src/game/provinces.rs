@@ -292,7 +292,8 @@ pub fn points() -> Vec<Point> {
         .uses(&[field::CONSTRUCTIONS, list::NEXT, construction::KIND]),
         Point::keep(0x24f9e8usize, "48 83 c1 20", "construction start").uses(&[construction::START]),
         Point::keep(0xa1bc53usize, "48 8d 4e 24", "construction end").uses(&[construction::END]),
-        Point::keep(0x24fff0usize, "8b 41 30 89 02", "construction progress").uses(&[construction::PROGRESS]),
+        // The building construction's progress method answers its progress.
+        Point::keep(0x24fff0usize, "8b 41 30 89 02 48 8b c2", "construction progress").uses(&[construction::PROGRESS]),
         Point::keep(0xcd1db1usize, "48 8b 4f 40", "construction country").uses(&[construction::COUNTRY]),
         Point::keep(0x25368dusize, "48 8b 87 80 00 00 00 8b 58 14", "building construction's building").uses(&[construction::MAKES, building::INDEX]),
         Point::keep(0x9d9977usize, "48 8b 8b 80 00 00 00", "military construction's unit type").uses(&[construction::MAKES]),

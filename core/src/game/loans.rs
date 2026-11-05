@@ -2,28 +2,25 @@
 //! and repaying one with its repay button (docs/research/power-spending.md,
 //! "Loans").
 use super::{context, game, power, thousandths, Caller, GResult, Tag};
-use crate::{memory::Memory, objects::list, points::Point};
+use crate::{
+    memory::Memory,
+    objects::{
+        campaign::{country, loan as fields},
+        list,
+    },
+    points::Point,
+};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     loans::Loan,
     CountryTag, Date,
 };
 
-/// A country's loans, a list of the game's kind, and its treasury, in
-/// thousandths of ducats.
-const LOANS: usize = 0xde8;
-const TREASURY: usize = 0xbb0;
 /// A loan's ID (its type, an i32, then the number, an i32, as every ID of
-/// the game's is kept), the lender's tag (not valid
-/// for a bank's or an estate's), its interest in thousandths of a
-/// percentage point, its whole ducats, when it is due, and whether an estate
-/// lent it.
+/// the game's is kept) and whether an estate lent it; the rest of its
+/// fields are in [`fields`].
 const ID_TYPE: usize = 0x10;
 const ID: usize = 0x14;
-const LENDER: usize = 0x20;
-const INTEREST: usize = 0x28;
-const AMOUNT: usize = 0x2c;
-const EXPIRES: usize = 0x30;
 const ESTATE: usize = 0x36;
 /// The interest left to pay on a loan repaid now: `(loan, &out)`, in
 /// thousandths of ducats, answering where it wrote it.
@@ -35,22 +32,20 @@ pub fn points() -> Vec<Point> {
     vec![
         // The pay_loan command walks the country's loans for the one it
         // names.
-        Point::keep(0x5d77beusize, "48 8b 8b e8 0d 00 00 48 8b c1 48 85 c9 0f 84 0e 0d 00 00 4c 39 20 74 11 48 8b 50 10", "loans").uses(&[LOANS, list::NEXT]),
+        Point::keep(0x5d77beusize, "48 8b 8b e8 0d 00 00 48 8b c1 48 85 c9 0f 84 0e 0d 00 00 4c 39 20 74 11 48 8b 50 10", "loans")
+            .uses(&[country::LOANS, list::NEXT]),
         // The loan window's price: the fee, then the amount in thousandths.
-        Point::keep(0xeb1d21usize, "48 8d 55 77 48 8b 4b 50 e8 82 97 9b ff 48 8b 4b 50 69 59 2c e8 03 00 00 03 18", "loan's price").uses(&[AMOUNT]),
+        Point::keep(0xeb1d21usize, "48 8d 55 77 48 8b 4b 50 e8 82 97 9b ff 48 8b 4b 50 69 59 2c e8 03 00 00 03 18", "loan's price").uses(&[fields::AMOUNT]),
         Point::keep(FEE, "48 89 5c 24 18 55 56 57 41 56 41 57 48 83 ec 20 48 8b 05 b1 49 ad 01 4c", "loan's fee"),
-        // The loan's writer.
-        Point::keep(0x86b1afusize, "8b 5e 28", "loan's interest").uses(&[INTEREST]),
-        Point::keep(0x86b24busize, "48 8d 4e 30", "loan's expiry").uses(&[EXPIRES]),
         // The bank loans are counted by the lender's valid byte.
-        Point::keep(0x33e0b0usize, "48 8b 08 8d 53 01 80 79 27 00", "bank loans").uses(&[LENDER + 7]),
+        Point::keep(0x33e0b0usize, "48 8b 08 8d 53 01 80 79 27 00", "bank loans").uses(&[fields::LENDER + 7]),
     ]
 }
 
 /// The player's loans, in the list's order: each loan's address.
 fn loans_of(m: &Memory, country: usize) -> GResult<Vec<usize>> {
     let mut out = Vec::new();
-    let mut node = m.ptr(country + LOANS + list::HEAD)?;
+    let mut node = m.ptr(country + country::LOANS + list::HEAD)?;
     while node != 0 {
         if out.len() >= MOST {
             return Err("too many loans".to_string().into());
@@ -69,14 +64,14 @@ fn price(m: &Memory, loan: usize) -> GResult<i64> {
     let mut fee = 0i32;
     let at = m.call(m.at(FEE), &[loan, &mut fee as *mut i32 as usize])?;
     let fee = if at == 0 { fee } else { m.i32(at)? };
-    Ok(m.i32(loan + AMOUNT)? as i64 * 1000 + fee as i64)
+    Ok(m.i32(loan + fields::AMOUNT)? as i64 * 1000 + fee as i64)
 }
 
 fn read(m: &Memory, country: usize, loan: usize) -> GResult<Loan> {
-    let lender = Tag(m.u64(loan + LENDER)?);
+    let lender = Tag(m.u64(loan + fields::LENDER)?);
     let price = price(m, loan)?;
     let cost = vec![Amount::new(Resource::Ducats, price as f64 / 1000.0)];
-    let repay = if m.i32(country + TREASURY)? as i64 >= price {
+    let repay = if m.i32(country + country::TREASURY)? as i64 >= price {
         Choice::can(cost)
     } else {
         let values = [(c"VAL", format!("{:.2}", price as f64 / 1000.0))];
@@ -86,9 +81,9 @@ fn read(m: &Memory, country: usize, loan: usize) -> GResult<Loan> {
         loan: m.u32(loan + ID)?,
         lender: lender.normal().then(|| CountryTag(lender.letters())),
         estate: m.u8(loan + ESTATE)? != 0,
-        amount: m.i32(loan + AMOUNT)? as f64,
-        interest: thousandths(m.i32(loan + INTEREST)?),
-        expires: Date(m.i32(loan + EXPIRES)?),
+        amount: m.i32(loan + fields::AMOUNT)? as f64,
+        interest: thousandths(m.i32(loan + fields::INTEREST)?),
+        expires: Date(m.i32(loan + fields::DUE)?),
         repay,
     })
 }

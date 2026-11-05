@@ -186,6 +186,13 @@ pub fn written<T, E: From<String>>(m: &Memory, write: impl FnOnce(usize) -> std:
     Ok((wrote?, text?))
 }
 
+/// The game's lookup itself, into the `std::string` slot `out`, which it
+/// constructs: the text of the key at `key`, a C string, with the `count`
+/// values at `values`.
+pub fn localize_into(m: &Memory, out: usize, key: usize, values: usize, count: usize) -> Result<()> {
+    m.call(m.at(LOCALIZE_AT), &[out, key, values, count]).map(|_| ())
+}
+
 /// The game's text for a localisation key, as its lookup writes it, with no
 /// values: `key` is the address of the key, a C string.
 pub fn localized(m: &Memory, key: usize) -> Result<Vec<u8>> {

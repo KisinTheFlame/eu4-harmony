@@ -46,6 +46,7 @@ pub mod mercenaries;
 pub mod merchants;
 pub mod missionaries;
 pub mod missions;
+pub mod modifiers;
 pub mod occupation;
 pub mod offers;
 pub mod orders;
@@ -355,6 +356,7 @@ pub fn points() -> Vec<Point> {
     points.extend(conditions::points());
     points.extend(decisions::points());
     points.extend(power::points());
+    points.extend(modifiers::points());
     points.extend(technology::points());
     points.extend(focus::points());
     points.extend(stability::points());

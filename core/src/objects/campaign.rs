@@ -60,6 +60,17 @@ pub mod classes {
     pub const UNIT_VIEW: usize = 0x1d87540;
 }
 
+/// The game's functions whose code the points here keep, which other parts
+/// call or put in a vtable's slot.
+pub mod functions {
+    /// The subject type a country is to its overlord: `(country)`, null for
+    /// none.
+    pub const SUBJECT_TYPE: usize = 0x3d79f0;
+    /// `()`: answers yes; answers no. Many classes' methods are one of them.
+    pub const YES: usize = 0x8f440;
+    pub const NO: usize = 0x8f450;
+}
+
 /// A country tag, a u64: three letters, then at these bit positions the
 /// country's index (i16), its kind (u8) and a byte that is nonzero when the
 /// tag is valid.
@@ -175,10 +186,10 @@ pub mod countries {
 pub mod country {
     /// Its tag.
     pub const TAG: usize = 0x20;
-    /// A byte for each entry of a global table of the game's (`[0x242bce0]`),
-    /// an array the country tags' setup (`0x283d20`) gives each country
-    /// that has none, and that the country's destructor never frees
-    /// (docs/research/main-menu.md).
+    /// A byte for each idea group of the game's database (`[0x242bce0]`),
+    /// set when the country has taken it: an array the country tags' setup
+    /// (`0x283d20`) gives each country that has none, and that the
+    /// country's destructor never frees (docs/research/main-menu.md).
     pub const ENTRY_BYTES: usize = 0x10a0;
     /// The countries in a coalition against it: a list of 0x20-byte nodes
     /// (a member's tag, the previous node, the next, a byte marking it to
@@ -780,7 +791,7 @@ pub use super::list;
 use crate::points::Point;
 
 pub fn points() -> Vec<Point> {
-    use self::{globals::*, *};
+    use self::{functions::*, globals::*, *};
     vec![
         // The player's country, as the game's own getter reads it.
         Point::keep(
@@ -973,7 +984,7 @@ pub fn points() -> Vec<Point> {
         // finds it: its record of its overlord, the record's diplomacy, the
         // subject relation it keeps for the overlord, that relation's type.
         Point::keep(
-            0x3d79f0usize,
+            SUBJECT_TYPE,
             "80 b9 f7 18 00 00 00 74 4c 48 8b 81 f0 18 00 00 48 c1 e8 20 98 4c 8d 04 c0 48 8b 81 10 15 00 00 4a 8b 14 c0 4a 8b 44 c0 10 \
              48 c1 e8 20 98 48 8b 8a 28 01 00 00 4c 63 82 34 01 00 00 49 c1 e0 04 4c 03 c1 49 3b c8 74 0d 39 01 74 0c 48 83 c1 10 49 3b c8 \
              75 f3 33 c0 c3 48 8b 41 08 48 85 c0 74 f4 48 8b 40 40 c3",
@@ -990,6 +1001,7 @@ pub fn points() -> Vec<Point> {
             country_diplomacy::SUBJECT_RELATION,
             subject_relation::TYPE,
         ]),
+        Point::keep(NO, "32 c0 c3", "answers no"),
         // A subject relation made: its class, its subject type.
         Point::keep(0x4e5d4busize, "48 8d 05 06 ba 79 01 48 89 03 4c 89 63 40", "subject relation")
             .uses(&[classes::SUBJECT_RELATION, subject_relation::TYPE]),

@@ -6,17 +6,20 @@ use super::{
     power::{self, ADVANCE_TECH},
     Caller, GResult, Tag,
 };
-use crate::{game_string, memory::Memory, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::{
+        campaign::{country, technology as levels},
+        gui::functions::ADD_MONTHS,
+    },
+    points::Point,
+};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
     technology::Technology,
 };
 
-/// A country's technology object; in it, the levels, an i32 vector indexed
-/// by a category's index.
-const TECHNOLOGY: usize = 0x2440;
-const LEVELS: usize = 0x128;
-const LEVELS_END: usize = 0x130;
 /// The technology categories: `+0x18` and `+0x20` a vector of pointers.
 const CATEGORIES: usize = 0x242be50;
 const CATEGORY_LIST: usize = 0x18;
@@ -30,8 +33,6 @@ const KIND: usize = 0x78;
 /// monthly gain: `(country, &cost in thousandths, kind)`; 0 or less when it
 /// gains none.
 const MONTHS_UNTIL: usize = 0x380910;
-/// Adds months to a date: `(&date, months)`.
-const ADD_MONTHS: usize = 0x14c8030;
 /// The most categories and levels believed.
 const MOST: usize = 1000;
 
@@ -44,11 +45,9 @@ pub fn points() -> Vec<Point> {
             "49 8b 87 40 24 00 00 49 89 86 50 01 00 00 4d 8b 86 40 01 00 00 45 8b 48 50 48 8b 80 28 01 00 00 42 8b 0c 88 49 8b 40 68 49 2b 40 60",
             "technology view's level",
         )
-        .uses(&[TECHNOLOGY, INDEX, LEVELS, CATEGORY_LEVELS_END, CATEGORY_LEVELS]),
-        Point::keep(0x3c6143usize, "48 8b 87 40 24 00 00 4c 8b 80 28 01 00 00 48 8b 88 30 01 00 00", "technology levels").uses(&[LEVELS, LEVELS_END]),
+        .uses(&[country::TECHNOLOGY, INDEX, levels::LEVELS, CATEGORY_LEVELS_END, CATEGORY_LEVELS]),
         Point::keep(0x9bdb3usize, "48 8b 1d 96 00 39 02 48 8b 43 20 48 2b 43 18", "technology categories").uses(&[CATEGORIES, CATEGORY_LIST]),
         Point::keep(MONTHS_UNTIL, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 20 57 48 83 ec 20 8b 1a 48 8b", "months until points"),
-        Point::keep(ADD_MONTHS, "85 d2 0f 84 e4 00 00 00 48 89 74 24 20 57 48 83 ec 20 8b fa 48 89 5c 24", "add months"),
     ]
 }
 
@@ -67,9 +66,9 @@ fn categories(m: &Memory, country: usize) -> GResult<Vec<Category>> {
     }
     let begin = m.ptr(database + CATEGORY_LIST)?;
     let count = super::span(begin, m.ptr(database + CATEGORY_LIST + 8)?, 8, MOST)?;
-    let technology = m.ptr(country + TECHNOLOGY)?;
-    let levels = m.ptr(technology + LEVELS)?;
-    let known = super::span(levels, m.ptr(technology + LEVELS_END)?, 4, MOST)?;
+    let technology = m.ptr(country + country::TECHNOLOGY)?;
+    let level_of = m.ptr(technology + levels::LEVELS)?;
+    let known = super::span(level_of, m.ptr(technology + levels::LEVELS + 8)?, 4, MOST)?;
     let mut found = Vec::new();
     for i in 0..count {
         let category = m.ptr(begin + i * 8)?;
@@ -84,7 +83,7 @@ fn categories(m: &Memory, country: usize) -> GResult<Vec<Category>> {
             return Err(format!("technology category {index} has no level").into());
         }
         let last = super::span(m.ptr(category + CATEGORY_LEVELS)?, m.ptr(category + CATEGORY_LEVELS_END)?, 8, MOST)? as i32 - 1;
-        found.push(Category { kind, index, level: m.i32(levels + index as usize * 4)?, last });
+        found.push(Category { kind, index, level: m.i32(level_of + index as usize * 4)?, last });
     }
     Ok(found)
 }

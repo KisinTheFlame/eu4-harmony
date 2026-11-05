@@ -2,7 +2,7 @@
 //! never meets, as it restarts instead: the popups its message windows
 //! hold, let go before an in-process return takes the interface down, and
 //! what the map manager's destructor leaves, let go as it goes.
-use super::{LettingGo, DELETE};
+use super::LettingGo;
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -111,7 +111,7 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
     let icons = take(manager_fields::MESSAGE_ICON_HOLDER)?;
     if icons != 0 {
         m.call(m.at(EMPTY_MESSAGE_ICONS), &[icons])?;
-        m.call(m.at(DELETE), &[icons, manager_fields::MESSAGE_ICON_HOLDER_SIZE])?;
+        crate::game_heap::delete(m, icons, manager_fields::MESSAGE_ICON_HOLDER_SIZE)?;
     }
     for field in manager_fields::SESSION_WINDOWS.iter().rev() {
         let window = take(*field)?;

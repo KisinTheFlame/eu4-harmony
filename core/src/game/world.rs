@@ -9,7 +9,8 @@ use super::{
 use crate::{
     memory::Memory,
     objects::campaign::{
-        adjacency, classes, countries as country_list, country as country_fields, geometry, globals, list, map, province, route_options, tag, task, unit, world,
+        adjacency, classes, countries as country_list, country as country_fields, functions, geometry, globals, list, map, province, route_options, tag, task,
+        unit, world,
     },
     points::Point,
 };
@@ -25,8 +26,7 @@ const FIND_ID: usize = 0x14cf730;
 const REGISTER_UNIT: usize = 0xd3b0f8;
 /// What the idle task answers: no task kind, and false.
 const NO_KIND: usize = 0x8f480;
-const NO: usize = 0x8f450;
-const IDLE_ANSWERS: [usize; 3] = [NO_KIND, NO, NO];
+const IDLE_ANSWERS: [usize; 3] = [NO_KIND, functions::NO, functions::NO];
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -37,7 +37,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(FIND_ID, "44 8b 09 41 81 f9 68 12 00 00 76 5c 4c 8b 05 15", "object lookup by ID"),
         Point::keep(REGISTER_UNIT, "48 8d 54 24 48 48 8d 4f 10 e8 8a 40 79 00", "unit registered by its ID").uses(&[unit::ID_HOLDER]),
         Point::keep(NO_KIND, "33 c0 c3", "no task kind"),
-        Point::keep(NO, "32 c0 c3", "false"),
         Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER, "army access method"),
         Point::method(classes::ARMY, unit::MILITARY_TAG, MILITARY_TAG, "army military tag method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[0], IDLE_ANSWERS[0], "idle task method"),

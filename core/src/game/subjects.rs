@@ -12,7 +12,13 @@ use super::{
     commands::{self, Refused},
     context, country, fail, game, Caller, Ctx, GResult, Status, Tag,
 };
-use crate::{game_string, memory::Memory, objects::campaign::country as country_fields, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::{country as country_fields, functions, tag},
+    points::Point,
+    unicode::game_text,
+};
 use eu4_harmony_remote::{choices::Choice, subjects::Interaction as Listed};
 
 /// An interaction: its key, its number (the key's token), the static object
@@ -83,13 +89,13 @@ const ONGOING: usize = 0x38;
 /// subject is the overlord's, its type allows the interaction, the command
 /// stops it only while it goes on, then the interaction's own conditions.
 const CHECK: usize = 0xaf3e70;
-/// A subject's type, (subject country), and whether a type allows an
-/// interaction, (the type's interactions, interaction).
-const SUBJECT_TYPE: usize = 0x3d79f0;
+/// Whether a subject type allows an interaction, (the type's interactions,
+/// interaction); a subject's type is the game's own getter's
+/// ([`functions::SUBJECT_TYPE`]).
 const TYPE_ALLOWS: usize = 0xb22910;
-/// A country's overlord, a tag, its valid byte the tag's last; the subject's
+/// A country's overlord's valid byte, the tag's last; the subject's
 /// interactions going on, a bit set of u32 words.
-const OVERLORD_VALID: usize = 0x18f7;
+const OVERLORD_VALID: usize = country_fields::OVERLORD + tag::VALID / 8;
 const ONGOING_BITS: usize = 0x78;
 
 pub fn points() -> Vec<Point> {
@@ -189,7 +195,6 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xaf3f4ausize, "48 8b 01", "subject interaction conditions"),
         Point::keep(0xaf3f5cusize, "48 ff 60 28", "subject interaction conditions call").uses(&[CONDITIONS]),
         Point::keep(0xaf3e35usize, "48 8b 01 48 8b 53 50 ff 50 30", "subject interaction for the overlord").uses(&[FOR_OVERLORD]),
-        Point::keep(SUBJECT_TYPE, "80 b9 f7 18 00 00 00 74 4c 48 8b 81 f0 18 00 00", "subject's type").uses(&[OVERLORD_VALID, country_fields::OVERLORD]),
         Point::keep(TYPE_ALLOWS, "44 0f b6 42 08 4c 8b c9", "subject type allows"),
         // The interaction's name, as its class's own method writes it.
         Point::keep(0xaf9dc0usize, "40 53 48 83 ec 20 48 8b da 45 33 c9 48 8b cb 48 8d", "subject interaction name"),
@@ -274,7 +279,7 @@ fn offered(m: &Memory, ctx: &Ctx, subject: usize, object: usize) -> GResult<bool
     if m.call(m.vslot(object, FOR_OVERLORD)?, &[object, ctx.player.0 as usize])? as u8 == 0 {
         return Ok(false);
     }
-    let kind = m.call(m.at(SUBJECT_TYPE), &[subject])?;
+    let kind = m.call(m.at(functions::SUBJECT_TYPE), &[subject])?;
     Ok(kind != 0 && m.call(m.at(TYPE_ALLOWS), &[kind, object])? as u8 != 0)
 }
 

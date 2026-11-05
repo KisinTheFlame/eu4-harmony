@@ -2,11 +2,11 @@
 //! view's buttons do, and raising mercantilism, as the trade view's button
 //! does (docs/research/power-spending.md, "The economy").
 use super::{
-    context, game,
+    context, game, modifiers,
     power::{self, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
     Caller, Ctx, GResult,
 };
-use crate::{game_string, memory::Memory, points::Point};
+use crate::{game_string, memory::Memory, objects::campaign::country, points::Point};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     economy::{EconomyAction, EconomyOption},
@@ -25,13 +25,6 @@ const LOAN_SIZE: usize = 0x1105;
 const ESTIMATED_LOAN: usize = 0xe3c;
 /// Whether the country may reduce inflation now: `(country)`.
 const MAY_REDUCE_INFLATION: usize = 0x38d5a0;
-/// Inflation, in thousandths of a percentage point.
-const INFLATION: usize = 0xbd4;
-/// A country's modifiers: `(country + MODIFIERS)` answers the object whose
-/// `+8` [`HAS_MODIFIER`] asks of one: `(modifiers, modifier)`.
-const MODIFIERS_OF: usize = 0x93d750;
-const MODIFIERS: usize = 0x28c0;
-const HAS_MODIFIER: usize = 0x8e7b60;
 /// The modifier `may_not_reduce_inflation`.
 const MAY_NOT_REDUCE_INFLATION: usize = 0xf0;
 /// Whether the country may raise mercantilism now, and why not:
@@ -53,11 +46,12 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x33eb7dusize, "0f b6 99 05 11 00 00 0f af 99 3c 0e 00 00", "bank loan size").uses(&[LOAN_SIZE, ESTIMATED_LOAN]),
         Point::keep(MAY_REDUCE_INFLATION, "48 89 5c 24 08 48 89 6c 24 18 48 89 74 24 20 48 89 54 24 10 57 48 83 ec", "may reduce inflation"),
         // It asks the modifier first, then reads inflation.
-        Point::keep(0x38d5beusize, "48 81 c1 c0 28 00 00 e8 86 01 5b 00 48 8d 48 08 ba f0 00 00 00 e8 88 a5 55 00", "may_not_reduce_inflation")
-            .uses(&[MODIFIERS, MAY_NOT_REDUCE_INFLATION]),
-        Point::keep(0x38d625usize, "39 9e d4 0b 00 00", "inflation").uses(&[INFLATION]),
-        Point::keep(MODIFIERS_OF, "48 89 5c 24 10 48 89 7c 24 18 55 48 8d 6c 24 b0 48 81 ec 50 01 00 00 48", "country modifiers"),
-        Point::keep(HAS_MODIFIER, "48 89 5c 24 08 57 48 83 ec 20 4c 8b 0d 0f 05 a7 01 48 8b f9 8b da 4c 8d", "has modifier"),
+        Point::keep(0x38d5beusize, "48 81 c1 c0 28 00 00 e8 86 01 5b 00 48 8d 48 08 ba f0 00 00 00 e8 88 a5 55 00", "may_not_reduce_inflation").uses(&[
+            country::MODIFIERS,
+            modifiers::VALUES,
+            MAY_NOT_REDUCE_INFLATION,
+        ]),
+        Point::keep(0x38d625usize, "39 9e d4 0b 00 00", "inflation").uses(&[country::INFLATION]),
         Point::keep(MAY_PROMOTE_MERCANTILISM, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18 55 41 54 41 55 41 56 41 57", "may promote mercantilism"),
     ]
 }
@@ -97,11 +91,10 @@ fn reduce_inflation(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
         return Ok(Choice::can(price));
     }
     let mut reasons = Vec::new();
-    let modifiers = m.call(m.at(MODIFIERS_OF), &[ctx.country + MODIFIERS])?;
-    if m.call(m.at(HAS_MODIFIER), &[modifiers + 8, MAY_NOT_REDUCE_INFLATION])? & 0xff != 0 {
+    if modifiers::has(m, ctx.country, MAY_NOT_REDUCE_INFLATION)? {
         reasons.extend(power::tooltip(m, c"CAN_NOT_REDUCE_INFLATION_TT", &[(c"VAL", power::whole(0))])?);
     }
-    if m.i32(ctx.country + INFLATION)? <= 0 {
+    if m.i32(ctx.country + country::INFLATION)? <= 0 {
         reasons.extend(power::tooltip(m, c"NO_INFLATION", &[(c"VAL", power::whole(0))])?);
     }
     let have = power::points_of(m, ctx.country, PowerKind::Adm)?;

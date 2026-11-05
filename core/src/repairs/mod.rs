@@ -41,8 +41,6 @@ pub use session_interface::SessionInterface;
 use crate::{hooks::HookFrame, memory::Memory, points::Point};
 use std::sync::atomic::Ordering;
 
-/// `(block, size)`: the game's `operator delete`.
-const DELETE: usize = 0x17394f0;
 /// `(world)`: the world's own reset, inside the game's and at startup.
 const WORLD_RESET: usize = 0x749020;
 
@@ -112,10 +110,14 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
 }
 
 pub fn points() -> Vec<Point> {
-    let mut all = vec![
-        Point::keep(DELETE, "e9 2b 45 02 00", "operator delete"),
-        Point::observe(WORLD_RESET, "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1", "world's own reset", 1, None, Some(world_reset)),
-    ];
+    let mut all = vec![Point::observe(
+        WORLD_RESET,
+        "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1",
+        "world's own reset",
+        1,
+        None,
+        Some(world_reset),
+    )];
     for points in [
         save_checksum::points,
         masks::points,
