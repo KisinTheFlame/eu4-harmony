@@ -405,6 +405,165 @@ fn the_time_limit_stops_a_handler_and_three_in_a_row_the_extension() {
     assert_eq!(e.state().all.count, before);
 }
 
+/// Whether `e`'s handler `name`, run on a thread of its own, returns within
+/// a few seconds: a handler the time limit does not stop runs on there
+/// instead of hanging the tests.
+fn returns_in_time(e: &Arc<Extension>, name: &str) -> bool {
+    let (e, name, (returned, came)) = (e.clone(), name.to_string(), std::sync::mpsc::channel());
+    std::thread::spawn(move || {
+        e.handle(&name, &[]);
+        let _ = returned.send(());
+    });
+    came.recv_timeout(Duration::from_secs(5)).is_ok()
+}
+
+#[test]
+fn running_out_of_the_extension_s_memory_is_an_error() {
+    let e = load_one(
+        "memory",
+        r#"
+        return {
+          on_big = function(game) BIG = #string.rep("x", 300 * 1024 * 1024) end,
+          on_grow = function(game)
+            local kept = {}
+            for i = 1, 1e6 do kept[i] = string.rep("x", 1024 * 1024) end
+          end,
+          on_day = function(game) DAY = #string.rep("x", 1024 * 1024) end,
+        }
+        "#,
+        &[],
+    )
+    .unwrap();
+    let out_of_memory = |handler: &str| errors(&e).iter().any(|k| k.starts_with(handler) && k.contains("not enough memory"));
+    e.handle("on_big", &[]);
+    assert!(out_of_memory("on_big"), "{:?}", errors(&e));
+    assert_eq!(e.lua.globals().get::<LuaValue>("BIG").unwrap(), LuaValue::Nil);
+    // Growing to the limit a little at a time, under a lower limit to be
+    // quick: the memory a test fills is new to the process, and slow.
+    assert_eq!(e.lua.set_memory_limit(32 * 1024 * 1024).unwrap(), sandbox::MEMORY);
+    e.handle("on_grow", &[]);
+    assert!(out_of_memory("on_grow"), "{:?}", errors(&e));
+    assert!(e.lua.used_memory() <= 32 * 1024 * 1024, "{}", e.lua.used_memory());
+    // Once what held it is gone, the memory is the extension's again.
+    assert_eq!(after(&e, "on_day", "DAY"), LuaValue::Integer(1024 * 1024), "{:?}", errors(&e));
+    assert!(e.state().stopped.is_none());
+}
+
+#[test]
+fn a_stopped_extension_keeps_no_waiting_tasks() {
+    let manifest = "id = \"t\"\napi_version = \"0.3\"\npermissions = { network = [\"api.example.com\"] }";
+    let main = r#"
+        return {
+          on_wait = function(game) http.fetch("https://api.example.com/never") end,
+          on_spin = function(game) http.fetch("https://api.example.com/spin") while true do end end,
+        }
+        "#;
+    let (e, host) = load_with("stopped-tasks", main, &[("eu4-harmony/manifest.toml", manifest)]).unwrap();
+    e.handle("on_wait", &[]);
+    for _ in 0..TIMEOUTS {
+        e.handle("on_spin", &[]);
+    }
+    assert_eq!(e.waiting(), 1 + TIMEOUTS as usize, "{:?}", errors(&e));
+    for (request, slot) in host.requests.lock().unwrap().iter() {
+        if request.target.url().ends_with("/spin") {
+            *slot.lock().unwrap() = Some(Ok(fetch::Response { status: 200, headers: vec![], body: vec![] }));
+        }
+    }
+    // The task still waiting is looked at before the ones whose answers
+    // came, which run past the time limit until the extension is stopped.
+    e.poll();
+    assert!(e.state().stopped.is_some());
+    assert_eq!(e.waiting(), 0);
+}
+
+#[test]
+fn the_time_limit_is_not_caught_by_pcall() {
+    let e = load_one(
+        "pcall-forever",
+        r#"
+        return {
+          on_frame = function(game) while true do pcall(function() while true do end end) end end,
+          on_day = function(game) DAY = true end,
+        }
+        "#,
+        &[],
+    )
+    .unwrap();
+    assert!(returns_in_time(&e, "on_frame"));
+    assert!(errors(&e).iter().any(|k| k.contains(watch::STOPPED)), "{:?}", errors(&e));
+    assert_eq!(e.state().timeouts, 1);
+    // Once the stretch has ended, the next one runs as before.
+    assert_eq!(after(&e, "on_day", "DAY"), LuaValue::Boolean(true), "{:?}", errors(&e));
+}
+
+#[test]
+fn the_time_limit_holds_in_a_coroutine_of_the_mod_s_own() {
+    let e = load_one(
+        "coroutine-forever",
+        r#"
+        local spin = coroutine.create(function() coroutine.yield() while true do end end)
+        return {
+          on_wrap = function(game) coroutine.wrap(function() while true do end end)() end,
+          on_resume = function(game) coroutine.resume(spin) coroutine.resume(spin) end,
+          -- The error the coroutine ends with is caught, and the task goes on.
+          on_caught = function(game)
+            coroutine.resume(coroutine.create(function() while true do end end))
+            while true do end
+          end,
+        }
+        "#,
+        &[],
+    )
+    .unwrap();
+    for handler in ["on_wrap", "on_resume", "on_caught"] {
+        assert!(returns_in_time(&e, handler), "{handler}");
+        assert!(errors(&e).iter().any(|k| k.starts_with(handler) && k.contains(watch::STOPPED)), "{handler}: {:?}", errors(&e));
+    }
+    assert!(e.state().stopped.is_some());
+}
+
+#[test]
+fn the_time_limit_holds_while_a_task_s_error_is_written() {
+    let e = load_one(
+        "tostring-forever",
+        "return { on_frame = function(game) error(setmetatable({}, { __tostring = function() while true do end end })) end }",
+        &[],
+    )
+    .unwrap();
+    assert!(returns_in_time(&e, "on_frame"));
+    assert!(errors(&e).iter().any(|k| k.contains(watch::STOPPED)), "{:?}", errors(&e));
+}
+
+#[test]
+fn coroutines_of_the_mod_s_own_yield_resume_and_fail_as_lua_s_do() {
+    let e = load_one(
+        "coroutine-lua",
+        r##"
+        return {
+          on_frame = function(game)
+            local co = coroutine.wrap(function(a) local b = coroutine.yield(a + 1) return b * 2 end)
+            local seen = { co(1), co(10) }
+            local c = coroutine.create(function(...) coroutine.yield(select("#", ...)) error({ code = 7 }) end)
+            seen[#seen + 1] = select(2, coroutine.resume(c, nil, nil))
+            local ok, err = coroutine.resume(c)
+            seen[#seen + 1] = tostring(ok) .. " " .. err.code .. " " .. coroutine.status(c)
+            seen[#seen + 1] = select(2, coroutine.resume(c))
+            seen[#seen + 1] = select(2, pcall(coroutine.wrap(function() error("boom") end)))
+            seen[#seen + 1] = select(2, pcall(coroutine.resume, 5))
+            SEEN = table.concat(seen, " | ")
+          end,
+        }
+        "##,
+        &[],
+    )
+    .unwrap();
+    let seen = text(after(&e, "on_frame", "SEEN"));
+    let parts: Vec<&str> = seen.split(" | ").collect();
+    assert_eq!(parts[..5], ["2", "20", "2", "false 7 dead", "cannot resume dead coroutine"], "{seen}");
+    assert!(parts[5].ends_with("boom") && parts[5].contains("main.lua"), "{seen}");
+    assert!(parts[6].contains("bad argument #1") && parts[6].contains("thread expected, got number"), "{seen}");
+}
+
 #[test]
 fn a_yield_of_the_mod_s_own_outside_its_coroutines_is_an_error() {
     let e = load_one("yield", "return { on_frame = function(game) coroutine.yield(1) end }", &[]).unwrap();

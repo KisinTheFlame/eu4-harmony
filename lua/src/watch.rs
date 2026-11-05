@@ -5,8 +5,22 @@
 //! in tight loops, whatever its interval (measured 2026-11-03), so a thread
 //! of its own watches instead, and only once the limit has passed sets a
 //! hook on the running Lua thread, which raises the error at its next
-//! instructions. `lua_sethook` is the one Lua call made to be called from
-//! outside the thread running the state.
+//! instruction and at every one after until the stretch ends. `lua_sethook`
+//! is the one Lua call made to be called from outside the thread running the
+//! state. It sets the hook on that one thread, and Lua gives a thread the
+//! hook only when it is made, so the sandbox's `coroutine.resume` and
+//! `coroutine.wrap` tell the watcher which coroutine of the mod's own runs
+//! ([`resume`]).
+//!
+//! The hook runs between Lua's instructions, so it cannot stop a call into
+//! one of Lua's own C functions while that runs: a pattern that backtracks
+//! without end in `string.find`, `match`, `gmatch` or `gsub`
+//! (`s:find(".-.-.-.-x")` on a long `s`) holds the game until it returns.
+//! Nothing can stop C code from another thread safely, and bounding the
+//! matcher's work would take a matcher of the framework's own in place of
+//! Lua's, which is not worth its cost. Other long C calls, such as building
+//! a long string or sorting a large table, take time in proportion to their
+//! data, which the memory limit bounds.
 use mlua::ffi;
 use std::{
     sync::{Mutex, Once},
@@ -22,67 +36,133 @@ const LOOK: Duration = Duration::from_millis(50);
 /// The message of the error a stopped stretch raises.
 pub const STOPPED: &str = "stopped: it ran for more than 1 s without waiting (the time limit)";
 
-/// A stretch running: the Lua thread it runs on, since when, and whether the
-/// hook is set on it.
+/// A stretch running: the Lua thread it runs on, and the one its error is
+/// written on if that is another, since when, and whether the hook is set on
+/// them. Or a coroutine of the mod's own it resumed, which runs within the
+/// stretch and since its start.
 struct Running {
     thread: std::thread::ThreadId,
     state: usize,
+    also: Option<usize>,
     since: Instant,
     hooked: bool,
+    coroutine: bool,
 }
 
-/// The stretches running, the innermost of each thread last: a stretch may
-/// start another, as `spawn` does, which runs until it first waits. In the
-/// game only the main thread runs Lua; tests run several.
+impl Running {
+    fn hook(&self, on: bool) {
+        hook(self.state, on);
+        if let Some(also) = self.also {
+            hook(also, on);
+        }
+    }
+}
+
+/// The stretches running and the coroutines they resumed, the innermost of
+/// each thread last: a stretch may start another, as `spawn` does, which
+/// runs until it first waits. In the game only the main thread runs Lua;
+/// tests run several.
 static RUNNING: Mutex<Vec<Running>> = Mutex::new(Vec::new());
 
 fn running() -> std::sync::MutexGuard<'static, Vec<Running>> {
     RUNNING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// A stretch begins on the Lua thread `state` (a `lua_State*`).
-pub fn start(state: *const std::ffi::c_void) {
+/// Sets the hook on `state`, or takes it off.
+fn hook(state: usize, on: bool) {
+    let state = state as *mut ffi::lua_State;
+    match on {
+        true => unsafe { ffi::lua_sethook(state, Some(time_up), ffi::LUA_MASKCOUNT, 1) },
+        false => unsafe { ffi::lua_sethook(state, None, 0, 0) },
+    }
+}
+
+/// A stretch begins on the Lua thread `state` (a `lua_State*`), its error to
+/// be written on `also`: mlua writes it as text on the thread that resumed
+/// the stretch, which runs the error's `__tostring`, if it has one, there. A
+/// thread Lua made while the hook was set has it too, from its maker; it is
+/// taken off.
+pub fn start(state: *const std::ffi::c_void, also: Option<*const std::ffi::c_void>) {
     static WATCHER: Once = Once::new();
     WATCHER.call_once(|| {
         let _ = std::thread::Builder::new().name("eu4-harmony lua watch".into()).spawn(watch);
     });
-    running().push(Running { thread: std::thread::current().id(), state: state as usize, since: Instant::now(), hooked: false });
+    let mut all = running();
+    let r = Running {
+        thread: std::thread::current().id(),
+        state: state as usize,
+        also: also.map(|also| also as usize),
+        since: Instant::now(),
+        hooked: false,
+        coroutine: false,
+    };
+    r.hook(false);
+    all.push(r);
 }
 
 /// The stretch has ended; whether the time limit stopped it. The hook, if
-/// set, is taken off before the state runs anything else.
+/// set, is taken off here, before the state runs anything else, and not
+/// before; so is that of every coroutine it resumed that an error left
+/// behind.
 pub fn end() -> bool {
-    let r = {
-        let mut all = running();
-        let here = std::thread::current().id();
-        let Some(at) = all.iter().rposition(|r| r.thread == here) else { return false };
-        all.remove(at)
-    };
-    if r.hooked {
-        unsafe { ffi::lua_sethook(r.state as *mut ffi::lua_State, None, 0, 0) };
+    let mut all = running();
+    let here = std::thread::current().id();
+    let mut stopped = false;
+    while let Some(at) = all.iter().rposition(|r| r.thread == here) {
+        let r = all.remove(at);
+        if r.hooked {
+            r.hook(false);
+            stopped = true;
+        }
+        if !r.coroutine {
+            break;
+        }
     }
-    r.hooked
+    stopped
+}
+
+/// The running stretch resumes `state`, a coroutine of the mod's own, which
+/// is watched as the stretch, with the hook set on it when it is set on the
+/// stretch.
+pub fn resume(state: *const std::ffi::c_void) {
+    let mut all = running();
+    let here = std::thread::current().id();
+    let Some(outer) = all.iter().rev().find(|r| r.thread == here) else { return };
+    let (since, hooked) = (outer.since, outer.hooked);
+    hook(state as usize, hooked);
+    all.push(Running { thread: here, state: state as usize, also: None, since, hooked, coroutine: true });
+}
+
+/// The coroutine `state` resumed has given control back, by yielding,
+/// returning or an error.
+pub fn resumed(state: *const std::ffi::c_void) {
+    let mut all = running();
+    let here = std::thread::current().id();
+    let Some(at) = all.iter().rposition(|r| r.thread == here) else { return };
+    if all[at].coroutine && all[at].state == state as usize && all.remove(at).hooked {
+        hook(state as usize, false);
+    }
 }
 
 fn watch() {
     loop {
         std::thread::sleep(LOOK);
-        let mut all = running();
-        for at in 0..all.len() {
-            let innermost = !all[at + 1..].iter().any(|later| later.thread == all[at].thread);
-            let r = &mut all[at];
-            if innermost && !r.hooked && r.since.elapsed() > LIMIT {
+        // Every one past the limit, the stretches waiting for one they
+        // started or a coroutine they resumed too, which raise the error as
+        // soon as they run again.
+        for r in running().iter_mut() {
+            if !r.hooked && r.since.elapsed() > LIMIT {
                 r.hooked = true;
-                unsafe { ffi::lua_sethook(r.state as *mut ffi::lua_State, Some(time_up), ffi::LUA_MASKCOUNT, 1) };
+                r.hook(true);
             }
         }
     }
 }
 
-/// The hook: off again, then the error, which unwinds the stretch to the
-/// host as any error does.
+/// The hook: the error, which unwinds the stretch to the host as any error
+/// does. It stays set until the stretch ends, so an error caught by `pcall`
+/// is raised again at the next instruction, and the stretch cannot go on.
 unsafe extern "C-unwind" fn time_up(state: *mut ffi::lua_State, _: *mut ffi::lua_Debug) {
-    ffi::lua_sethook(state, None, 0, 0);
     ffi::lua_pushlstring(state, STOPPED.as_ptr().cast(), STOPPED.len());
     ffi::lua_error(state);
 }
