@@ -1,6 +1,6 @@
 # Scenarios plan
 
-Status: decided, nothing built yet (2026-11-05). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claim ([game-testing.md](game-testing.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
+Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claim ([game-testing.md](game-testing.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
 
 ## Goal and scope
 
