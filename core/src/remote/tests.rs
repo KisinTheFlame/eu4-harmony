@@ -12,8 +12,9 @@ use eu4_harmony_remote::{
     economy::EconomyRequest, events::Event, events::EventsRequest, extensions::ExtensionRequest, focus::FocusRequest, input::Button, input::Direction,
     input::InputRequest, input::Keys, loans::LoanRequest, menu::MenuRequest, offers::OfferRequest, provinces::ProvinceRequest, questions::QuestionRequest,
     recruiting::RecruitRequest, recruiting::UnitKind, response_json, screenshot::ScreenshotRequest, session::SessionRequest, stability::StabilityRequest,
-    technology::TechnologyRequest, texts::TextRequest, time::TimeRequest, ArmyId, CountryTag, ProvinceId,
+    technology::TechnologyRequest, texts::TextRequest, time::TimeRequest, ArmyId, ArmyList, CountryTag, ProvinceId,
 };
+use eu4_harmony_remote::{forts::FortRequest, leaders::LeaderRequest, mercenaries::MercenaryRequest, sieges::SiegeRequest};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -127,15 +128,55 @@ fn every_capability_runs_at_a_game_frame() {
         (Request::Army(ArmyRequest::CanStep { army: army(ARMY), from: province(149), to: province(316) }), Box::new(|v: &Value| *v == ok(json!(false)))),
         (Request::Army(ArmyRequest::CanAttack { army: army(ARMY), target: army(ENEMY) }), Box::new(|v: &Value| *v == ok(json!(true)))),
         (Request::Army(ArmyRequest::RouteTo { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(json!([150, 151])))),
-        (Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Army(ArmyRequest::Get { army: army(ARMY) }), Box::new(|v: &Value| v["result"]["route"] == json!([150, 151]))),
         (
-            Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1) }),
+            Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1), transports: None }),
             Box::new(|v: &Value| error("rejected")(v) && v["error"]["message"] == "no route to 1"),
         ),
         (Request::Army(ArmyRequest::Stop { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
         (Request::Army(ArmyRequest::Get { army: army(ARMY) }), Box::new(|v: &Value| v["result"]["route"] == json!([]))),
         (Request::Army(ArmyRequest::Selected {}), Box::new(error("not_found"))),
+        (Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(236), transports: Some(true) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Army(ArmyRequest::Options { army: army(ARMY) }),
+            Box::new(|v: &Value| v["result"][1] == json!({"action": "merge", "can": false, "reasons": ["至少需要两支部队"], "cost": []})),
+        ),
+        (Request::Army(ArmyRequest::Split { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(json!((ARMY + 1).to_string())))),
+        (Request::Army(ArmyRequest::Merge { armies: ArmyList(vec![army(ARMY)]) }), Box::new(error("rejected"))),
+        (Request::Army(ArmyRequest::Disband { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Consolidate { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::Drill { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::StopDrill { army: army(ARMY) }), Box::new(error("rejected"))),
+        (Request::Army(ArmyRequest::Mission { army: army(FLEET), mission: "blockade".into(), target: Some(47) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Army(ArmyRequest::StopMission { army: army(FLEET) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (
+            Request::Leader(LeaderRequest::Options {}),
+            Box::new(|v: &Value| v["result"][0] == json!({"kind": "general", "can": true, "reasons": [], "cost": [{"resource": "mil", "amount": 50.0}]})),
+        ),
+        (Request::Leader(LeaderRequest::Recruit { kind: "general".into() }), Box::new(|v: &Value| v["result"]["name"] == "锡南")),
+        (Request::Leader(LeaderRequest::List {}), Box::new(|v: &Value| v["result"][0]["id"] == 7 && v["result"][0]["army"].is_null())),
+        (Request::Leader(LeaderRequest::Assign { leader: 7, army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Leader(LeaderRequest::Remove { army: army(ARMY) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Leader(LeaderRequest::Dismiss { leader: 8 }), Box::new(error("not_found"))),
+        (Request::Mercenary(MercenaryRequest::List {}), Box::new(|v: &Value| v["result"][0]["company"] == "merc_black_army" && v["result"][0]["can"] == true)),
+        (
+            Request::Mercenary(MercenaryRequest::Hire { company: "merc_black_army".into(), province: province(149) }),
+            Box::new(|v: &Value| *v == ok(Value::Null)),
+        ),
+        (
+            Request::Fort(FortRequest::List {}),
+            Box::new(|v: &Value| v["result"][0] == json!({"province": 149, "level": 2, "mothballed": false, "can": true, "reasons": [], "cost": []})),
+        ),
+        (Request::Fort(FortRequest::Mothball { province: province(149) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Fort(FortRequest::Reopen { province: province(149) }), Box::new(error("rejected"))),
+        (
+            Request::Siege(SiegeRequest::Options { province: province(151) }),
+            Box::new(|v: &Value| v["result"][1]["reasons"] == json!(["没有缺口，无法强攻要塞。"])),
+        ),
+        (Request::Siege(SiegeRequest::Bombard { province: province(151) }), Box::new(|v: &Value| *v == ok(Value::Null))),
+        (Request::Siege(SiegeRequest::NavalBombard { province: province(151) }), Box::new(error("rejected"))),
+        (Request::Siege(SiegeRequest::Assault { province: province(151) }), Box::new(error("rejected"))),
         (Request::Text(TextRequest::Language {}), Box::new(|v: &Value| *v == ok(json!("simp_chinese")))),
         (Request::Console(ConsoleRequest::Run { command: "cash 100".into() }), Box::new(|v: &Value| *v == ok(json!("Gold changed by 100")))),
         (
@@ -502,7 +543,7 @@ fn a_recruit_order_from_json_reaches_the_layer_with_its_kind() {
 #[test]
 fn every_request_is_written_to_the_log() {
     let engine = Engine::new(remember);
-    let reply = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1) }));
+    let reply = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(1), transports: None }));
     let fine = engine.submit(Request::Session(SessionRequest::Get {}));
     engine.run(&mut Fake::default(), &Place::Game, PLENTY);
     assert!(answer(&reply)["ok"] == false && answer(&fine)["ok"] == true);
@@ -540,7 +581,7 @@ fn outside_a_game_requests_that_need_one_wait_or_are_answered() {
 fn waiting_requests_keep_their_order_and_run_at_the_game_frame() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    let moved = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }));
+    let moved = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None }));
     let stopped = engine.submit(Request::Army(ArmyRequest::Stop { army: army(ARMY) }));
     engine.run(&mut game, &Place::Outside(None), PLENTY);
     let read = engine.submit(Request::Army(ArmyRequest::Get { army: army(ARMY) }));
@@ -569,7 +610,7 @@ fn the_time_budget_ends_a_frame_and_the_rest_runs_at_the_next() {
 fn a_request_given_up_before_it_runs_never_runs() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
-    drop(engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) })));
+    drop(engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None })));
     let kept = engine.submit(Request::Army(ArmyRequest::Get { army: army(ARMY) }));
     engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(game.calls, [format!("army {ARMY}")]);
@@ -631,7 +672,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
             std::thread::spawn(move || {
                 let mut got = Vec::new();
                 for _ in 0..5 {
-                    let reply = ENGINE.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(200 + i) }));
+                    let reply = ENGINE.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(200 + i), transports: None }));
                     got.push(reply.wait(PLENTY).map(|r| response_json(&r)));
                 }
                 got
@@ -865,7 +906,7 @@ fn a_request_sent_in_one_session_never_runs_in_the_next() {
     let engine = Engine::new(remember);
     let mut game = Fake::default();
     engine.enter(2);
-    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151) }));
+    let old = engine.submit(Request::Army(ArmyRequest::Move { army: army(ARMY), province: province(151), transports: None }));
     let reads = engine.submit(Request::Text(TextRequest::Language {}));
     // A save begins to load; what is sent while it loads is for the next.
     engine.leave();

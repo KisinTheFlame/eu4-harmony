@@ -90,7 +90,7 @@ fn lua_type(kind: Kind) -> &'static str {
         Kind::Date => "eu4.Date|string",
         Kind::Boolean => "boolean",
         Kind::Allies => "\"all\"|\"none\"|string[]",
-        Kind::Provinces => "integer[]",
+        Kind::Provinces | Kind::Armies => "integer[]",
         Kind::Countries | Kind::Words => "string[]",
     }
 }

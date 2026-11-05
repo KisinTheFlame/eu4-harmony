@@ -366,6 +366,13 @@ pub fn frame(state: &game::Frame) {
                 }
                 Err(e) => log!("building finished: {}", e.message),
             },
+            game::Heard::Change(events::Change::Battle(battle)) => {
+                let mut table = serde_json::to_value(crate::remote::battle_event(&battle)).unwrap_or_default();
+                if let Some(fields) = table.as_object_mut() {
+                    fields.remove("event");
+                }
+                all.iter().for_each(|e| e.handle("on_battle", &[Arg::Json(table.clone())]))
+            }
             game::Heard::Day(date) => all.iter().for_each(|e| e.handle("on_day", &[Arg::Date(eu4_harmony_checks::Date(date))])),
             game::Heard::Month(date) => all.iter().for_each(|e| e.handle("on_month", &[Arg::Date(eu4_harmony_checks::Date(date))])),
             game::Heard::Year(date) => all.iter().for_each(|e| e.handle("on_year", &[Arg::Date(eu4_harmony_checks::Date(date))])),

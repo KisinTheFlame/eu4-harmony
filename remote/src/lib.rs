@@ -319,6 +319,14 @@ groups! {
     Loan(loans::LoanRequest, LoanAnswer),
     /// The buildings of the player's provinces.
     Building(buildings::BuildingRequest, BuildingAnswer),
+    /// The player's leaders: recruiting, assigning and dismissing them.
+    Leader(leaders::LeaderRequest, LeaderAnswer),
+    /// The mercenary companies the player can hire.
+    Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
+    /// The player's forts.
+    Fort(forts::FortRequest, FortAnswer),
+    /// The siege view's buttons, for a siege of the player's.
+    Siege(sieges::SiegeRequest, SiegeAnswer),
 }
 
 pub mod binary;
@@ -420,6 +428,9 @@ pub enum Kind {
     /// A kind of monarch power: `"adm"`, `"dip"` or `"mil"` (see
     /// [`choices::PowerKind`]).
     PowerKind,
+    /// Army IDs, such as `["4294967377", "4294967378"]`, which a command
+    /// line writes `4294967377,4294967378` (see [`ArmyList`]).
+    Armies,
 }
 
 impl Kind {
@@ -442,6 +453,7 @@ impl Kind {
             Self::Countries => "countries",
             Self::Words => "words",
             Self::PowerKind => "power_kind",
+            Self::Armies => "armies",
         }
     }
 
@@ -464,6 +476,7 @@ impl Kind {
             Self::Countries => "FRA,ENG",
             Self::Words => "day,month",
             Self::PowerKind => "adm",
+            Self::Armies => "4294967377,4294967378",
         }
     }
 
@@ -493,6 +506,11 @@ impl Kind {
                 .collect::<Option<Vec<_>>>()
                 .map(Value::Array),
             Self::PowerKind => serde_json::from_value::<choices::PowerKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
+            Self::Armies => text
+                .split(',')
+                .map(|word| Some(word.trim()).filter(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit())).map(|w| Value::String(w.into())))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::Array),
         }
     }
 }
@@ -531,6 +549,7 @@ arg_kind! {
     CountryList => Countries,
     Words => Words,
     choices::PowerKind => PowerKind,
+    ArmyList => Armies,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
@@ -672,6 +691,12 @@ pub struct CountryList(pub Vec<CountryTag>);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Words(pub Vec<String>);
+
+/// Armies or fleets, as an argument: a list of IDs, `["4294967377",
+/// "4294967378"]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ArmyList(pub Vec<ArmyId>);
 
 /// An army or a fleet, by its 64-bit ID, which survives saving and loading;
 /// in JSON a decimal string.

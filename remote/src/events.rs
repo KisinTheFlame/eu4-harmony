@@ -89,6 +89,10 @@ pub const EVENTS: &[(&str, &str)] = &[
     ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
     ("army_defeated", "one of the player's armies lost a battle; army"),
     ("building_finished", "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
+    (
+        "battle",
+        "a land or naval battle was decided: in the player's view one the player sees or takes part in, in the full view every one; province, naval, attackers, defenders (the countries on each side, the leading one first), winner (attackers or defenders), attacker_losses, defender_losses (men in a land battle, ships in a naval one)",
+    ),
 ];
 
 /// Something that happened in the game, as extensions hear it.
@@ -122,6 +126,28 @@ pub enum Event {
         /// The province's owner.
         country: CountryTag,
     },
+    /// A land or naval battle was decided: in the player's view one the
+    /// player sees or takes part in, in the full view every one.
+    Battle {
+        province: ProvinceId,
+        naval: bool,
+        /// The countries on each side, the leading one first.
+        attackers: Vec<CountryTag>,
+        defenders: Vec<CountryTag>,
+        winner: Winner,
+        /// What each side lost: men in a land battle, ships in a naval
+        /// one.
+        attacker_losses: i64,
+        defender_losses: i64,
+    },
+}
+
+/// Which side won a battle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+#[serde(rename_all = "snake_case")]
+pub enum Winner {
+    Attackers,
+    Defenders,
 }
 
 impl Event {
@@ -136,6 +162,7 @@ impl Event {
             Self::ArmyOrdered { .. } => "army_ordered",
             Self::ArmyDefeated { .. } => "army_defeated",
             Self::BuildingFinished { .. } => "building_finished",
+            Self::Battle { .. } => "battle",
         }
     }
 
@@ -144,6 +171,7 @@ impl Event {
     pub fn countries(&self) -> Vec<CountryTag> {
         match self {
             Self::BuildingFinished { country, .. } => vec![*country],
+            Self::Battle { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
             _ => Vec::new(),
         }
     }

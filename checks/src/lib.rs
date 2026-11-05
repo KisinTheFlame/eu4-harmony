@@ -21,6 +21,7 @@ pub mod focus;
 pub mod form;
 pub mod input;
 pub mod loans;
+pub mod military;
 pub mod offers;
 pub mod provinces;
 pub mod questions;

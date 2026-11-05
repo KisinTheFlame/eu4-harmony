@@ -28,11 +28,14 @@ pub mod diplomacy;
 pub mod economy;
 pub mod events;
 pub mod focus;
+pub mod forts;
 pub mod input;
 pub mod interface;
+pub mod leaders;
 pub mod loans;
 pub mod map_coloring;
 pub mod menu;
+pub mod mercenaries;
 pub mod offers;
 pub mod orders;
 pub mod power;
@@ -41,10 +44,12 @@ pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod sieges;
 pub mod stability;
 pub mod technology;
 pub mod texts;
 pub mod time;
+pub mod units;
 pub mod world;
 
 use crate::{
@@ -205,7 +210,7 @@ pub struct Frame {
 }
 
 /// One thing that happened since the last safe frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Heard {
     /// A new session, with its number.
     Session(u64),
@@ -227,7 +232,7 @@ impl Frame {
         let day = self.new_day.then_some(Heard::Day(self.ctx.date));
         let month = self.new_month.then_some(Heard::Month(self.ctx.date));
         let year = self.new_year.then_some(Heard::Year(self.ctx.date));
-        session.into_iter().chain(self.changes.iter().copied().map(Heard::Change)).chain(day).chain(month).chain(year).collect()
+        session.into_iter().chain(self.changes.iter().cloned().map(Heard::Change)).chain(day).chain(month).chain(year).collect()
     }
 }
 
@@ -308,7 +313,24 @@ pub fn points() -> Vec<Point> {
     points.extend(loans::points());
     points.extend(administration::points());
     points.extend(buildings::points());
+    points.extend(leaders::points());
+    points.extend(mercenaries::points());
+    points.extend(forts::points());
+    points.extend(sieges::points());
+    points.extend(units::points());
     points
+}
+
+/// A tooltip's reasons, as the game wrote them into a string: plain lines,
+/// without color codes, the bullet a line may start with, or empty lines
+/// (docs/player-actions.md, "Choices, reasons, costs").
+pub fn reasons(text: &[u8]) -> Vec<String> {
+    crate::unicode::game_text::plain(text)
+        .lines()
+        .map(|l| l.trim().trim_start_matches(['-', '•', '·']).trim())
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// How many window pixels a GUI unit takes, (across, down); None before the

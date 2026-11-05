@@ -42,15 +42,19 @@ pub mod extensions;
 #[cfg(test)]
 pub(crate) mod fake;
 pub mod focus;
+pub mod forts;
 pub mod input;
+pub mod leaders;
 pub mod loans;
 pub mod menu;
+pub mod mercenaries;
 pub mod offers;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod sieges;
 pub mod stability;
 pub mod technology;
 pub mod texts;
@@ -90,6 +94,10 @@ pub trait Game:
     + stability::Layer
     + economy::Layer
     + loans::Layer
+    + leaders::Layer
+    + mercenaries::Layer
+    + forts::Layer
+    + sieges::Layer
 {
 }
 impl<
@@ -117,6 +125,10 @@ impl<
             + stability::Layer
             + economy::Layer
             + loans::Layer
+            + leaders::Layer
+            + mercenaries::Layer
+            + forts::Layer
+            + sieges::Layer
             + ?Sized,
     > Game for T
 {
@@ -286,5 +298,9 @@ pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::B
         Request::Stability(r) => done(stability::run(r, game).map(Answer::Stability)),
         Request::Economy(r) => done(economy::run(r, game).map(Answer::Economy)),
         Request::Loan(r) => done(loans::run(r, game).map(Answer::Loan)),
+        Request::Leader(r) => done(leaders::run(r, game).map(Answer::Leader)),
+        Request::Mercenary(r) => done(mercenaries::run(r, game).map(Answer::Mercenary)),
+        Request::Fort(r) => done(forts::run(r, game).map(Answer::Fort)),
+        Request::Siege(r) => done(sieges::run(r, game).map(Answer::Siege)),
     }
 }
