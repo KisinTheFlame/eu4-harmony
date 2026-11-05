@@ -9,8 +9,9 @@
 //!   as a fraction rather than in SDL's 128 steps, with the loudness
 //!   normalization and the music leveling (GLOSSARY) the player chose. As a
 //!   track starts, its whole file is read through the game's file system and
-//!   measured on a thread of its own; it plays as it is until that is done,
-//!   well within a second, and each file is measured once a game.
+//!   measured on a thread of its own; the track waits where it is until
+//!   that is done, well within a second, and each file is measured once a
+//!   game.
 //!
 //! The game mixes on SDL's audio thread (`0x16a6c20`), voice by voice, each
 //! through `SDL_MixAudioFormat`; a voice whose sound streams is music, whose
@@ -77,6 +78,11 @@ const STREAM_REST_MIXED_NEXT: usize = 0x16a75e4;
 const PATH_GIVEN: usize = 0x16a9f6d;
 const PATH: usize = 0x50;
 const PATH_LENGTH: usize = 0x80;
+/// After the first call, the mixer moves the voice on by what it mixed:
+/// `add [rbx+0x10], r14d`, the bytes it passed, to the voice's position in
+/// its buffer.
+const POSITION_MOVED: usize = 0x16a7497;
+const POSITION: usize = 0x10;
 /// Where the mixer tells a streaming voice: its sound `[voice+8]`, whose
 /// kind `[sound+0xc]` is 1 for a stream.
 const VOICE_KIND: usize = 0x16a7452;
@@ -135,6 +141,7 @@ pub fn points() -> Vec<Point> {
         Point::jump(VOICE_MIXED, "e8 11 df 08 00", "voice mixed", voice_stub as *const () as usize, &VOICE_RESUME),
         Point::jump(STREAM_REST_MIXED, "e8 7c dd 08 00", "stream rest mixed", rest_stub as *const () as usize, &REST_RESUME),
         Point::keep(VOICE_KIND, "48 8b 43 08 83 78 0c 01", "voice kind").uses(&[SOUND, KIND]),
+        Point::keep(POSITION_MOVED, "44 01 73 10", "voice moved on").uses(&[POSITION]),
         Point::keep(PATH_GIVEN, "4c 8d 47 50", "sound path").uses(&[PATH]),
         Point::keep(GAIN_FROM_VOICE, "f3 0f 10 73 40", "voice gain").uses(&[VOICE_VOLUME]),
         Point::keep(GAIN_FOR_STREAM, "f3 41 0f 59 f4", "stream gain"),
@@ -206,8 +213,11 @@ extern "C" fn theme_stub() {
 }
 
 /// Mixes one voice's `bytes` into the device's buffer: music by the
-/// framework, every other voice by SDL as the game asked.
-unsafe extern "C" fn mix(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32) {
+/// framework, every other voice by SDL as the game asked. A track whose
+/// file is still being analyzed is held where it is, at the mixer's first
+/// call, which moves it on by `bytes` after.
+#[expect(clippy::too_many_arguments, reason = "the game's call's arguments, the voice and its gain, and which of the two calls it is")]
+fn mix(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32, first: bool) {
     crate::guarded("mix a voice", || {
         let memory = crate::hooked_memory();
         let sound = memory.ptr(voice + SOUND).unwrap_or(0);
@@ -215,17 +225,28 @@ unsafe extern "C" fn mix(device: *mut i16, source: *const i16, format: u32, byte
         if stream && format == AUDIO_S16LSB {
             let samples = bytes as usize / 2;
             let (source, device) = unsafe { (std::slice::from_raw_parts(source, samples), std::slice::from_raw_parts_mut(device, samples)) };
-            mix_music(voice, sound, source, device, f64::from(gain));
+            if mix_music(voice, sound, source, device, f64::from(gain), first) {
+                let position = memory.i32(voice + POSITION).unwrap_or(0);
+                let _ = memory.write(voice + POSITION, &(position - bytes as i32).to_le_bytes());
+            }
         } else {
             unsafe { ORIGINAL_MIX.get()(device, source, format, bytes, volume) };
         }
     })
 }
 
-/// Passes the game's arguments on to [`mix`], with the volume it stored for
+unsafe extern "C" fn mix_first(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32) {
+    mix(device, source, format, bytes, volume, voice, gain, true);
+}
+
+unsafe extern "C" fn mix_rest(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32) {
+    mix(device, source, format, bytes, volume, voice, gain, false);
+}
+
+/// Passes the game's arguments on to `$mix`, with the volume it stored for
 /// the call at its `[rsp+0x20]`, the voice in rbx and its gain in xmm6.
 macro_rules! mix_stub {
-    ($name:ident, $next:ident) => {
+    ($name:ident, $mix:ident, $next:ident) => {
         #[unsafe(naked)]
         extern "C" fn $name() {
             std::arch::naked_asm!(
@@ -237,14 +258,14 @@ macro_rules! mix_stub {
                     call mix
                 ),
                 "jmp qword ptr [rip + {next}]",
-                mix = sym mix,
+                mix = sym $mix,
                 next = sym $next,
             );
         }
     };
 }
-mix_stub!(voice_stub, VOICE_AT);
-mix_stub!(rest_stub, REST_AT);
+mix_stub!(voice_stub, mix_first, VOICE_AT);
+mix_stub!(rest_stub, mix_rest, REST_AT);
 
 static NORMALIZE: AtomicBool = AtomicBool::new(true);
 static LEVEL: AtomicBool = AtomicBool::new(false);
@@ -258,6 +279,8 @@ struct Playing {
     sound: usize,
     track: Track,
     analysis: Analysis,
+    /// The mixer calls it was held for, waiting for its analysis.
+    held: u32,
     /// The mixer call it was last mixed in.
     last: u64,
 }
@@ -274,8 +297,13 @@ static STATE: LazyLock<Mutex<State>> = LazyLock::new(Mutex::default);
 
 /// A voice not mixed for this many calls (about 20 s) has stopped.
 const STOPPED: u64 = 1000;
+/// The most a track is held for its analysis, in mixer calls (about 2 s);
+/// then it plays as it is until the analysis is in.
+const HOLD: u32 = 86;
 
-fn mix_music(voice: usize, sound: usize, source: &[i16], device: &mut [i16], gain: f64) {
+/// Mixes a streaming voice; whether it was held instead, at a first call
+/// (`first`), because its file's analysis is not in yet.
+fn mix_music(voice: usize, sound: usize, source: &[i16], device: &mut [i16], gain: f64, first: bool) -> bool {
     let choices = Choices { normalize: NORMALIZE.load(Ordering::Relaxed), level: LEVEL.load(Ordering::Relaxed) };
     let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let state = &mut *state;
@@ -286,16 +314,25 @@ fn mix_music(voice: usize, sound: usize, source: &[i16], device: &mut [i16], gai
         let path = path_of(sound);
         log!("music: {path} plays; the game's gain {gain:.4}");
         let analysis = state.analyses.entry(path.clone()).or_insert_with(|| analyze(path)).clone();
-        state.playing.insert(voice, Playing { sound, track: Track::default(), analysis, last: calls });
+        state.playing.insert(voice, Playing { sound, track: Track::default(), analysis, held: 0, last: calls });
     }
-    let Some(playing) = state.playing.get_mut(&voice) else { return };
+    let Some(playing) = state.playing.get_mut(&voice) else { return false };
     playing.last = calls;
     if !playing.track.known() {
-        if let Some(Some(loudness)) = playing.analysis.get() {
-            playing.track.know(*loudness);
+        match playing.analysis.get() {
+            Some(Some(loudness)) => playing.track.know(*loudness),
+            None if first && choices.normalize && playing.held < HOLD && !playing.track.started() => {
+                playing.held += 1;
+                return true;
+            }
+            _ => {}
+        }
+        if playing.held > 0 && !playing.track.started() {
+            log!("music: held {} ms for its analysis", u64::from(playing.held) * 1024 * 1000 / 44100);
         }
     }
     playing.track.mix(source, device, gain, choices);
+    false
 }
 
 /// The path of a sound's file in the game's files, as the sound keeps it.

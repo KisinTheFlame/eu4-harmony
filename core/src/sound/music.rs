@@ -46,23 +46,30 @@ pub struct Track {
     leveling: f64,
     /// The limiter's current factor, 1 for none.
     limiter: f64,
+    /// Whether any of it was mixed.
+    started: bool,
 }
 
 impl Default for Track {
     fn default() -> Self {
-        Self { meter: Meter::default(), loudness: None, normalization: 0.0, leveling: 0.0, limiter: 1.0 }
+        Self { meter: Meter::default(), loudness: None, normalization: 0.0, leveling: 0.0, limiter: 1.0, started: false }
     }
 }
 
 impl Track {
-    /// Gives the integrated loudness of the track's whole file; until then
-    /// it plays as it is.
+    /// Gives the integrated loudness of the track's whole file: taken at once
+    /// before the track starts, else within a second; until then it plays as
+    /// it is.
     pub fn know(&mut self, loudness: f64) {
         self.loudness = Some(loudness);
     }
 
     pub fn known(&self) -> bool {
         self.loudness.is_some()
+    }
+
+    pub fn started(&self) -> bool {
+        self.started
     }
 
     /// Mixes `source`, interleaved stereo frames, into `mixed` at the game's
@@ -73,6 +80,11 @@ impl Track {
             self.meter.add(f64::from(frame[0]) / 32768.0, f64::from(frame[1]) / 32768.0);
         }
         let seconds = frames as f64 / RATE;
+        if !self.started {
+            self.follow(choices, f64::INFINITY);
+            self.leveling = 0.0;
+            self.started = true;
+        }
         let (from_normalization, from_leveling) = (self.normalization, self.leveling);
         self.follow(choices, seconds);
         let start = gain * amplitude(from_normalization + from_leveling);
@@ -175,6 +187,15 @@ mod tests {
         loud.know(-24.0);
         let out = play(&mut loud, -3.0, 2.0, choices);
         assert!(peak(&out) <= CEILING + 1e-3, "{}", peak(&out));
+    }
+
+    #[test]
+    fn a_track_known_before_it_starts_is_at_its_gain_from_its_first_frame() {
+        let mut track = Track::default();
+        track.know(-20.0);
+        let mut out = vec![0; 2048];
+        track.mix(&tone(-20.0, 0), &mut out, 1.0, Choices { normalize: true, level: false });
+        assert!((change(&out, -20.0) - 7.2).abs() < 0.1, "{}", change(&out, -20.0));
     }
 
     #[test]

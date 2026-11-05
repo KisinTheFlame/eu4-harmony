@@ -45,7 +45,7 @@ l_french:
  EU4HARMONY_SETTINGS_PAGE_SOUND:0 "Son"
  EU4HARMONY_SETTINGS_MUSIC_LOUDNESS:0 "Jouer tous les morceaux au même volume"
  EU4HARMONY_SETTINGS_MUSIC_LEVELING:0 "Rapprocher passages calmes et forts"
- EU4HARMONY_SETTINGS_SOUND_INFO:0 "Les curseurs de volume du jeu suivent le carré de leur position, pour que chaque cran s'entende à peu près autant. Même volume pour tous les morceaux : quand un morceau commence, son fichier entier est mesuré, et le morceau amené en moins d'une seconde à la même intensité que les autres. Rapprocher les passages relève les passages calmes et baisse les passages forts, pour que la musique reste audible à faible volume, au prix d'une partie de ses nuances."
+ EU4HARMONY_SETTINGS_SOUND_INFO:0 "Les curseurs de volume du jeu suivent le carré de leur position, pour que chaque cran s'entende à peu près autant. Même volume pour tous les morceaux : avant qu'un morceau commence, son fichier entier est mesuré, et le morceau joué à la même intensité que les autres ; il commence un instant plus tard pour cela. Rapprocher les passages relève les passages calmes et baisse les passages forts, pour que la musique reste audible à faible volume, au prix d'une partie de ses nuances."
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN:0 "Succès hors du mode Ironman"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM:0 "Succès avec une somme de contrôle du jeu modifiée"
  EU4HARMONY_SETTINGS_ACHIEVEMENTS:0 "Les autres règles des succès restent celles du jeu. Les modifications prennent effet à la prochaine partie lancée ou chargée."
