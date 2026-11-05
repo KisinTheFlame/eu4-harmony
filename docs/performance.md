@@ -66,8 +66,19 @@ Later in a game (the same day, the build of master at `c6bda5f`): Austria-37_4-1
 | Of that, the provinces and the countries (eight threads), ms | | 80 to 125 |
 | Of that, the zip's three entries, ms | about 250 | 45 |
 
-- What is left of the 310 ms save: the game state's other sections 66 ms, its save checksum 44, the zip 45, its bytes into the file 25, the file's checks and move 41 ([research/saves.md](research/saves.md), "Where a save's zip goes").
+- What was left of the 310 ms save: the game state's other sections 66 ms, its save checksum 44, the zip 45, its bytes into the file 25, and 41 that was the wait for the game's update thread ([research/saves.md](research/saves.md), "Where a save's zip goes").
 - The pool of seven threads waits from startup and costs nothing between saves; while a save is written, the runs' buffers hold the two loops' bytes once more, about 60 MB in that save.
+
+Then the game state's other sections written while the pool writes the loops, the save checksum's sum and the zip's CRC on the pool, and the update thread woken (S8, the same branch). The same save and way, measured both ways back to back while other builds on the machine held its processor at 100% the whole time, so the numbers are of that machine and not comparable with the ones above. The update thread was woken in both columns, `game-writes-saves` not yet turning it off; the wait for it with the game's code is from traced saves of the same runs before it was built:
+
+| | The game's code | The framework's |
+| --- | --- | --- |
+| A local ironman save of 55 MB stops the game, ms | 1149, 1195, 1211, 1219, 1312 | 284, 300, 301, 302 |
+| Of that, the save checksum of the game state, ms | 60 to 65 | 11 to 29 |
+| Of that, the wait for the update thread after the zip, ms | 40 to 96 | 0 to 2 |
+
+- The main thread waited 40 to 80 ms for the pool where the world has written its game state; the pool's threads took 170 to 190 ms for both loops under that load.
+- A plain save of 1444 (34 MB) stopped the game for 149 ms.
 
 ## Setups
 
