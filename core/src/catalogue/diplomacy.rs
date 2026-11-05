@@ -53,7 +53,7 @@ panel_acts! {
     OfferVassalization ReleaseVassal AskForMarch DemandTributary ReleaseTributary ArrangeRoyalMarriage BreakRoyalMarriage
     ConvertTributaryToVassal TradeFavorsForGold TradeFavorsForMen TradeFavorsForSailors TradeFavorsForHeir TradeFavorsForWarPreparations
     SupportHeir StopSupportingHeir CurryFavors StopCurryingFavors BuildSpyNetwork StopBuildingSpyNetwork CounterEspionage
-    StopCounterEspionage JustifyTradeConflict SupportRebels StealMaps SlanderMerchants SabotageRecruitment SowDiscontent SabotageReputation
+    StopCounterEspionage JustifyTradeConflict StealMaps SlanderMerchants SabotageRecruitment SowDiscontent SabotageReputation
     CorruptOfficials InfiltrateAdministration AgitateForLiberty CancelTradePowerTransfer SteerTrade StopSteeringTrade Embargo LiftEmbargo
     AskToBeTributary Guarantee CancelGuarantee Warn AskMilitaryAccess CancelMilitaryAccess OfferMilitaryAccess RevokeMilitaryAccess
     AskFleetBasing CancelFleetBasing OfferFleetBasing RevokeFleetBasing ShareKnowledge StopSharingKnowledge AskForKnowledgeSharing
@@ -193,6 +193,9 @@ fn detailed(request: DiplomacyRequest, game: &mut (impl countries::Layer + ?Size
             Details { amount: Some(percent), ..none },
             (|o| Answered::Diplomacy(DiplomacyAnswer::TransferTradePower(o))) as Answers,
         ),
+        R::SupportRebels { country, rebels } => {
+            (country, Act::SupportRebels, Details { rebels: Some(rebels), ..none }, (|o| Answered::Diplomacy(DiplomacyAnswer::SupportRebels(o))) as Answers)
+        }
         R::ThreatenWar { country, province: p } => {
             (country, Act::ThreatenWar, Details { province: province(p), ..none }, (|o| Answered::Diplomacy(DiplomacyAnswer::ThreatenWar(o))) as Answers)
         }
