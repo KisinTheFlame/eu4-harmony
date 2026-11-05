@@ -1,5 +1,5 @@
 //! Decisions: what the decisions view lists for the player, and whether the
-//! player can take each now.
+//! player can take each now, and taking one as the view's button does.
 use crate::choices::Choice;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +12,15 @@ group! {
     /// sorts them, each with whether the player can take it and, when not,
     /// the conditions that do not hold, as its tooltip lists them.
     game List "list" {} -> Vec<Decision>, "the decisions: decision (its content key), name, major, can, reasons, cost";
+
+    /// Takes a decision the decisions view lists, as its button does, which
+    /// has the game carry out its effects. `rejected` with the conditions
+    /// that do not hold when the player cannot take it now; `not_found` for
+    /// a key that names no decision the view lists for the player.
+    game Take "take" {
+        /// The decision's content key, such as `move_capital`.
+        decision: String,
+    } -> (), "null once the game has taken it";
 }
 
 /// A decision the decisions view lists.

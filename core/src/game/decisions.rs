@@ -1,7 +1,9 @@
 //! Decisions: what the decisions view lists for the player, and whether the
 //! player can take each, with the conditions that do not hold as its tooltip
-//! lists them (docs/research/triggers.md, "Decisions").
-use super::{conditions, context, game, GResult};
+//! lists them (docs/research/triggers.md, "Decisions"); and taking one,
+//! through the game's own command (docs/research/government.md,
+//! "Decisions").
+use super::{conditions, content, context, game, GResult};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
 
@@ -55,6 +57,42 @@ pub fn list(_: super::Caller) -> GResult<Vec<Decision>> {
     Ok(listed)
 }
 
+/// The decide command: the decision by its key and the scope it is taken
+/// in, the player's country, with the seed its random effects draw from, as
+/// the decisions view writes it.
+fn written(country: super::Tag, decision: &str, seed: u32) -> String {
+    let country = content::letters(country);
+    format!("execute_decision_command={{ decision=\"{decision}\" scope={{ country=\"{country}\" scope_is_valid=yes seed={seed} random={seed} }} }}")
+}
+
+/// A seed for a decision's random effects, from the date and its key, as
+/// the game's own seeds change from one taking to the next.
+fn seed(date: i32, decision: &str) -> u32 {
+    decision.bytes().fold(0x811c_9dc5u32 ^ date as u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193)) & 0x7fff_ffff
+}
+
+/// Takes a decision the view lists for the player, as its button does.
+pub fn take(_: super::Caller, key: String) -> GResult<()> {
+    let m = game()?;
+    let ctx = context(m)?;
+    let database = m.ptr(m.at(DATABASE))?;
+    if database == 0 {
+        return Err(eu4_harmony_checks::government::not_found("decision", &key).into());
+    }
+    let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
+    for i in 0..super::span(begin, end, 8, MOST)? {
+        let decision = m.ptr(begin + i * 8)?;
+        if content::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
+            continue;
+        }
+        if !conditions::holds(m, decision + ALLOW, ctx.player, 0)? {
+            return content::refused(&conditions::failing(m, decision + ALLOW, ctx.player, 0)?, "taking this decision");
+        }
+        return content::post(&written(ctx.player, &key, seed(ctx.date, &key)), "taking this decision");
+    }
+    Err(eu4_harmony_checks::government::not_found("decision", &key).into())
+}
+
 fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {
     let key = game_text::to_utf8(&game_string::read(m, decision + KEY)?);
     let title = std::ffi::CString::new(format!("{key}_title")).map_err(|e| e.to_string())?;
@@ -65,4 +103,17 @@ fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {
         Choice::cannot(conditions::failing(m, decision + ALLOW, player, 0)?, Vec::new())
     };
     Ok(Decision { decision: key, name, major: m.u8(decision + MAJOR)? != 0, choice })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_command_names_the_decision_and_the_player_s_scope() {
+        let fra = super::super::Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        assert_eq!(
+            super::written(fra, "move_capital", 17),
+            r#"execute_decision_command={ decision="move_capital" scope={ country="FRA" scope_is_valid=yes seed=17 random=17 } }"#
+        );
+        assert_ne!(super::seed(100, "move_capital"), super::seed(101, "move_capital"));
+    }
 }

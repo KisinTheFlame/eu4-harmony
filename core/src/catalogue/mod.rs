@@ -28,27 +28,52 @@ macro_rules! layer {
 }
 
 pub mod armies;
+pub mod buildings;
 pub mod camera;
+pub mod centers_of_trade;
+pub mod colonists;
 pub mod console;
 pub mod countries;
 pub mod decisions;
 pub mod describe;
 pub mod desktop;
 pub mod diplomacy;
+pub mod economy;
+pub mod estates;
 pub mod events;
 pub mod extensions;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod focus;
+pub mod forts;
+pub mod government;
+pub mod ideas;
 pub mod input;
+pub mod leaders;
+pub mod loans;
 pub mod menu;
+pub mod mercenaries;
+pub mod merchants;
+pub mod missionaries;
+pub mod missions;
+pub mod occupation;
 pub mod offers;
+pub mod parliament;
+pub mod peace;
+pub mod policies;
 pub mod provinces;
 pub mod questions;
 pub mod recruiting;
 pub mod screenshot;
 pub mod session;
+pub mod sieges;
+pub mod stability;
+pub mod subjects;
+pub mod technology;
 pub mod texts;
 pub mod time;
+pub mod trade;
+pub mod trade_companies;
 
 use crate::game;
 use eu4_harmony_remote::{Answer, Code, CountryTag, Error, Request, Response};
@@ -78,6 +103,31 @@ pub trait Game:
     + input::Layer
     + desktop::Layer
     + decisions::Layer
+    + subjects::Layer
+    + buildings::Layer
+    + technology::Layer
+    + focus::Layer
+    + stability::Layer
+    + economy::Layer
+    + loans::Layer
+    + leaders::Layer
+    + mercenaries::Layer
+    + forts::Layer
+    + sieges::Layer
+    + peace::Layer
+    + occupation::Layer
+    + ideas::Layer
+    + policies::Layer
+    + government::Layer
+    + estates::Layer
+    + parliament::Layer
+    + missions::Layer
+    + missionaries::Layer
+    + colonists::Layer
+    + trade_companies::Layer
+    + centers_of_trade::Layer
+    + merchants::Layer
+    + trade::Layer
 {
 }
 impl<
@@ -99,6 +149,31 @@ impl<
             + input::Layer
             + desktop::Layer
             + decisions::Layer
+            + subjects::Layer
+            + buildings::Layer
+            + technology::Layer
+            + focus::Layer
+            + stability::Layer
+            + economy::Layer
+            + loans::Layer
+            + leaders::Layer
+            + mercenaries::Layer
+            + forts::Layer
+            + sieges::Layer
+            + peace::Layer
+            + occupation::Layer
+            + ideas::Layer
+            + policies::Layer
+            + government::Layer
+            + estates::Layer
+            + parliament::Layer
+            + missions::Layer
+            + missionaries::Layer
+            + colonists::Layer
+            + trade_companies::Layer
+            + centers_of_trade::Layer
+            + merchants::Layer
+            + trade::Layer
             + ?Sized,
     > Game for T
 {
@@ -262,5 +337,30 @@ pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::B
         Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
         Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
         Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
+        Request::Subject(r) => done(subjects::run(r, game).map(Answer::Subject)),
+        Request::Idea(r) => done(ideas::run(r, game).map(Answer::Idea)),
+        Request::Policy(r) => done(policies::run(r, game).map(Answer::Policy)),
+        Request::Government(r) => done(government::run(r, game).map(Answer::Government)),
+        Request::Estate(r) => done(estates::run(r, game).map(Answer::Estate)),
+        Request::Parliament(r) => done(parliament::run(r, game).map(Answer::Parliament)),
+        Request::Mission(r) => done(missions::run(r, game).map(Answer::Mission)),
+        Request::Building(r) => done(buildings::run(r, game).map(Answer::Building)),
+        Request::Technology(r) => done(technology::run(r, game).map(Answer::Technology)),
+        Request::Focus(r) => done(focus::run(r, game).map(Answer::Focus)),
+        Request::Stability(r) => done(stability::run(r, game).map(Answer::Stability)),
+        Request::Economy(r) => done(economy::run(r, game).map(Answer::Economy)),
+        Request::Loan(r) => done(loans::run(r, game).map(Answer::Loan)),
+        Request::Leader(r) => done(leaders::run(r, game).map(Answer::Leader)),
+        Request::Mercenary(r) => done(mercenaries::run(r, game).map(Answer::Mercenary)),
+        Request::Fort(r) => done(forts::run(r, game).map(Answer::Fort)),
+        Request::Siege(r) => done(sieges::run(r, game).map(Answer::Siege)),
+        Request::Peace(r) => peace::run(r, game, now),
+        Request::Occupation(r) => done(occupation::run(r, game).map(Answer::Occupation)),
+        Request::Missionary(r) => done(missionaries::run(r, game).map(Answer::Missionary)),
+        Request::Colonist(r) => done(colonists::run(r, game).map(Answer::Colonist)),
+        Request::TradeCompany(r) => done(trade_companies::run(r, game).map(Answer::TradeCompany)),
+        Request::CenterOfTrade(r) => done(centers_of_trade::run(r, game).map(Answer::CenterOfTrade)),
+        Request::Merchant(r) => done(merchants::run(r, game).map(Answer::Merchant)),
+        Request::Trade(r) => done(trade::run(r, game).map(Answer::Trade)),
     }
 }

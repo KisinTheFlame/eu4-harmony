@@ -46,8 +46,9 @@ topics:
 capability groups (eu4-harmony wiki <group>, then <group> <capability>):
 "
     );
+    let width = groups().iter().map(|g| g.name.len()).max().unwrap_or(0) + 2;
     for g in groups() {
-        let _ = writeln!(text, "  {:<12}{}", g.name, prose(g.about));
+        let _ = writeln!(text, "  {:<width$}{}", g.name, prose(g.about));
     }
     text
 }
@@ -229,7 +230,7 @@ fn errors() -> String {
 fn events() -> String {
     let mut text = String::from("events: what extensions hear (as on_<event> handlers) and remote control numbers\n\n");
     for (name, about) in EVENTS {
-        let _ = writeln!(text, "  {name:<16}{about}");
+        let _ = writeln!(text, "  {name:<20}{about}");
     }
     let _ = write!(text, "\nA remote client reads them with the capability below.\n\n{}", group_page(&group("events")));
     text

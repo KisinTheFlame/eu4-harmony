@@ -315,6 +315,58 @@ groups! {
     Desktop(desktop::DesktopRequest, DesktopAnswer),
     /// The decisions the player can see in the decisions view.
     Decision(decisions::DecisionRequest, DecisionAnswer),
+    /// The interactions with the player's subjects.
+    Subject(subjects::SubjectRequest, SubjectAnswer),
+    /// The technology view: researching technology.
+    Technology(technology::TechnologyRequest, TechnologyAnswer),
+    /// The national focus, in the court view.
+    Focus(focus::FocusRequest, FocusAnswer),
+    /// The stability and expansion view: raising stability.
+    Stability(stability::StabilityRequest, StabilityAnswer),
+    /// The treasury's monarch-point spending and bank loans.
+    Economy(economy::EconomyRequest, EconomyAnswer),
+    /// The player's loans, and repaying them.
+    Loan(loans::LoanRequest, LoanAnswer),
+    /// The peace view: terms demanded of a country the player is at war
+    /// with, or offered to it.
+    Peace(peace::PeaceRequest, PeaceAnswer),
+    /// The transfer occupation window: handing a province the player
+    /// occupies over to an ally.
+    Occupation(occupation::OccupationRequest, OccupationAnswer),
+    /// The player's idea groups and ideas.
+    Idea(ideas::IdeaRequest, IdeaAnswer),
+    /// The player's policies.
+    Policy(policies::PolicyRequest, PolicyAnswer),
+    /// The player's government: its reforms and its rank.
+    Government(government::GovernmentRequest, GovernmentAnswer),
+    /// The player's estates.
+    Estate(estates::EstateRequest, EstateAnswer),
+    /// The player's parliament.
+    Parliament(parliament::ParliamentRequest, ParliamentAnswer),
+    /// The player's missions.
+    Mission(missions::MissionRequest, MissionAnswer),
+    /// The buildings of the player's provinces.
+    Building(buildings::BuildingRequest, BuildingAnswer),
+    /// The player's leaders: recruiting, assigning and dismissing them.
+    Leader(leaders::LeaderRequest, LeaderAnswer),
+    /// The mercenary companies the player can hire.
+    Mercenary(mercenaries::MercenaryRequest, MercenaryAnswer),
+    /// The player's forts.
+    Fort(forts::FortRequest, FortAnswer),
+    /// The siege view's buttons, for a siege of the player's.
+    Siege(sieges::SiegeRequest, SiegeAnswer),
+    /// The player's missionaries.
+    Missionary(missionaries::MissionaryRequest, MissionaryAnswer),
+    /// The player's colonists.
+    Colonist(colonists::ColonistRequest, ColonistAnswer),
+    /// The player's trade companies.
+    TradeCompany(trade_companies::TradeCompanyRequest, TradeCompanyAnswer),
+    /// Centers of trade in the player's provinces.
+    CenterOfTrade(centers_of_trade::CenterOfTradeRequest, CenterOfTradeAnswer),
+    /// The player's merchants.
+    Merchant(merchants::MerchantRequest, MerchantAnswer),
+    /// Trade nodes, as the trade map mode and the trade node view show them.
+    Trade(trade::TradeRequest, TradeAnswer),
 }
 
 pub mod binary;
@@ -433,6 +485,16 @@ pub enum Kind {
     /// Words, such as content keys or the names of events, `["day",
     /// "month"]`, which a command line writes `day,month` (see [`Words`]).
     Words,
+    /// A kind of monarch power: `"adm"`, `"dip"` or `"mil"` (see
+    /// [`choices::PowerKind`]).
+    PowerKind,
+    /// Army IDs, such as `["4294967377", "4294967378"]`, which a command
+    /// line writes `4294967377,4294967378` (see [`ArmyList`]).
+    Armies,
+    /// Peace treaty terms, a list of objects such as
+    /// `[{"term":"demand_provinces","province":236}]`, which a command line
+    /// writes as that JSON text (see [`peace::Terms`]).
+    Terms,
 }
 
 impl Kind {
@@ -454,6 +516,9 @@ impl Kind {
             Self::Keys => "keys",
             Self::Countries => "countries",
             Self::Words => "words",
+            Self::PowerKind => "power_kind",
+            Self::Armies => "armies",
+            Self::Terms => "terms",
         }
     }
 
@@ -475,6 +540,9 @@ impl Kind {
             Self::Keys => "ctrl+s",
             Self::Countries => "FRA,ENG",
             Self::Words => "day,month",
+            Self::PowerKind => "adm",
+            Self::Armies => "4294967377,4294967378",
+            Self::Terms => r#"[{"term":"humiliate"}]"#,
         }
     }
 
@@ -503,6 +571,13 @@ impl Kind {
                 .map(|word| Some(word.trim()).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())))
                 .collect::<Option<Vec<_>>>()
                 .map(Value::Array),
+            Self::PowerKind => serde_json::from_value::<choices::PowerKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
+            Self::Armies => text
+                .split(',')
+                .map(|word| Some(word.trim()).filter(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit())).map(|w| Value::String(w.into())))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::Array),
+            Self::Terms => peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok()),
         }
     }
 }
@@ -540,6 +615,9 @@ arg_kind! {
     input::Keys => Keys,
     CountryList => Countries,
     Words => Words,
+    choices::PowerKind => PowerKind,
+    ArmyList => Armies,
+    peace::Terms => Terms,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
@@ -681,6 +759,12 @@ pub struct CountryList(pub Vec<CountryTag>);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Words(pub Vec<String>);
+
+/// Armies or fleets, as an argument: a list of IDs, `["4294967377",
+/// "4294967378"]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ArmyList(pub Vec<ArmyId>);
 
 /// An army or a fleet, by its 64-bit ID, which survives saving and loading;
 /// in JSON a decimal string.
