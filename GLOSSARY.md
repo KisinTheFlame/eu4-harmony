@@ -27,7 +27,7 @@ The Lua interpreter the framework gives one extension. Extensions share nothing.
 _Avoid_: VM, interpreter on its own, sandbox
 
 **Sandbox**:
-What an extension's Lua state can reach: Lua's own libraries for strings, tables, numbers and coroutines, the framework's globals and capabilities, and nothing of the process or the system.
+What an extension's Lua state can reach: Lua's own libraries for strings, tables, numbers, UTF-8 and coroutines, `os.clock`, `require` for the mod's own modules, the framework's globals and capabilities, and of the process and the system only the sensitive capabilities its manifest declares.
 _Avoid_: jail, safe mode
 
 **Handler**:
@@ -40,14 +40,22 @@ _Avoid_: coroutine (that is how it is built), promise, job, thread
 
 **Time limit**:
 The longest a task may run without waiting before the framework stops it. An extension whose calls are stopped several times in a row is stopped for the rest of the game.
-_Avoid_: budget, watchdog
+_Avoid_: budget (remote control's budget is how many requests it answers in one frame), watchdog
+
+**Fake game**:
+What `eu4-harmony test` runs a mod's tests against, without the game: the same Lua host, sandbox and time limit, with capability calls checked by the capability catalogue as in the game.
+_Avoid_: mock, emulator, test game
+
+**User folder**:
+The game's folder of the player's own files, `Documents\Paradox Interactive\Europa Universalis IV`: saves, settings, the playset, and the framework's `eu4-harmony\` with its logs and the startup report. Command line options name it `--user-dir`.
+_Avoid_: user directory, profile, documents folder
 
 **Data folder**:
 An extension's own folder in the user folder, where it keeps files it writes while running, apart from any save.
 _Avoid_: data directory, storage, sandbox folder
 
 **Manifest**:
-The file in a mod that declares its extension to the framework.
+The file `eu4-harmony/manifest.toml` that makes a mod a Harmony mod: its id, api_version and description, and the permissions its extension declares.
 _Avoid_: descriptor (that is Paradox's `descriptor.mod`)
 
 **Playset**:
@@ -68,11 +76,19 @@ _Avoid_: using it for the hooking done at startup
 
 **Developer build**:
 A build of the framework with development tools built in, such as the call trace or the command log, for trying things in the game; it says so at the top of its startup report. Players get only the player build, which has none of them and no hidden switches.
-_Avoid_: trace build, debug build (a build without optimizations), test build
+_Avoid_: trace build (an older name, kept in notes written then), debug build (a build without optimizations), test build
 
 **Claim**:
 The hold one holder has on the game of this computer, its folder, its process and the player's files, while it tries something in the game; one holder at a time, from claiming the game to releasing it, which puts back everything the run changed.
-_Avoid_: lock, reservation
+_Avoid_: lock (it survives only in the name of the claim's record, `game-lock.json`), reservation
+
+**Lease**:
+How long a claim holds the game without being renewed, 30 minutes unless the holder asks for another; it is kept going while the game runs, and when it runs out the holder has gone and the first in the queue takes over.
+_Avoid_: timeout, expiry
+
+**Memory account**:
+A development tool, the `dev-memory` feature, that splits what the game process holds by where it lies, from what Windows keeps of the process and its heaps, so that it costs the game nothing between two asks (docs/leak-finding.md).
+_Avoid_: memory profiler, heap census (that counts the heap's blocks)
 
 **Heap census**:
 A development tool that counts every live block of the game's heap by its site, the code that allocated it, and its generation, so that what the game keeps of its sessions can be found (docs/leak-finding.md).
@@ -90,7 +106,7 @@ A course of play in the real game on one build, driven through remote control fr
 _Avoid_: integration test, game test (a test is a mod's, against the fake game)
 
 **Leak run**:
-The scenario that plays rounds of sessions on a developer build with the heap census, and the report it writes of what the game's memory kept.
+The scenario that plays rounds of sessions on a developer build with the heap census, and the report it writes of what the game's memory kept. The growth scenario plays the same rounds with the memory account only, to measure how much the game grows a round without the census slowing it.
 
 **Quarantine**:
 A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/leak-finding.md).
@@ -100,6 +116,10 @@ _Avoid_: guard, sandbox
 What the framework does inside the game process each time the game starts: identify the baseline, hook, load extensions.
 _Avoid_: installation
 
+**Startup report**:
+The file `report.txt` in the user folder's `eu4-harmony\logs\`, written at every startup and again at every session start and every few minutes: what the framework found and loaded, and how long each extension's handlers have taken so far.
+_Avoid_: log (the log is `core.log` beside it, every line in order), status file
+
 **Baseline**:
 One particular `eu4.exe` build the framework supports, recognized by where its original sections lie; an exe with that layout is taken as the baseline only when every dependency point holds its bytes. The exe is not hashed.
 _Avoid_: version, base exe
@@ -108,9 +128,13 @@ _Avoid_: version, base exe
 One place in the baseline's code or data that the framework relies on: a location, the bytes that should be there, and what the framework changes there (possibly nothing).
 _Avoid_: patch point, hook point
 
+**Observer**:
+A hook that calls the framework before or after a game function and lets the function itself run as it is. The offline checks check that each forwards at least the arguments its function reads.
+_Avoid_: detour (that replaces the function), interceptor, listener
+
 **Repair**:
-A defect of the game's own that the framework puts right where the game goes wrong, so that it holds in vanilla's paths too: memory a world reset leaks, what it leaves of a session, what the map manager leaves of the session's interface. All of them are in one module of the core.
-_Avoid_: fix, patch, workaround
+A defect of the game's own that the framework puts right where the game goes wrong, so that it holds in vanilla's paths too, such as memory a world reset leaks or leaves of a session, the AI changing coalitions on several threads at once, or the overflow in picking a name. Each is a file of its own in one module of the core, `core/src/repairs/`.
+_Avoid_: fix, patch, workaround (where players see them, as on the front page, "bugs fixed" is fine)
 
 ### Capabilities
 
@@ -248,7 +272,7 @@ _Avoid_: simulated, synthetic or fake input; SendInput (that is how a program ou
 
 **Hidden start**:
 Starting the game for remote clients with its window never shown and, unless asked for, no sound, so that the player goes on using other programs undisturbed. The game draws and plays as when it is shown; remote control can show it and hide it again.
-_Avoid_: headless (that also means not drawing, or no graphics card), background mode, invisible mode
+_Avoid_: headless (that also means not drawing, or no graphics card; docs/research/headless.md keeps the word to tell those meanings apart), background mode, invisible mode
 
 **Event**:
 Something extensions hear about at a safe point, such as a new day or the player giving an army an order. Remote control keeps the latest ones, numbered, for remote clients to read.
@@ -267,6 +291,10 @@ _Avoid_: target window, injection target, parent window
 **Binding**:
 The link between the framework and the current instance of a host window; through it the framework controls whether added elements show and what they say. It is undone when the instance is destroyed and made again when the window is rebuilt.
 _Avoid_: hook (that means intercepting a game function)
+
+**Interface fragment**:
+Paradox `.gui` text in a mod's `eu4-harmony/ui/<window>/` that the framework splices into that host window as the game reads it.
+_Avoid_: GUI patch, overlay, injected window
 
 **Button area**:
 A region the framework reserves on a vanilla panel, where the extensions' buttons are laid out automatically.
@@ -297,15 +325,15 @@ A list down a window's left side in the framework UI, one item of which is chose
 _Avoid_: sidebar, tabs, master-detail
 
 **Notice window**:
-The window in the framework UI that shows notices to the player. To the player it is a window, but it is not a window in the game's sense. When the framework fails to start, a Windows message box is used instead.
-_Avoid_: dialog; message box (that is the Windows message box used when startup fails)
+The window in the framework UI that shows notices to the player. To the player it is a window, but it is not a window in the game's sense. When the framework fails to start, or the framework UI cannot be drawn, a Windows message box is used instead; while the game is hidden, notices go only to the log.
+_Avoid_: dialog; message box (that is the Windows message box used when the notice window cannot be)
 
 **Settings window**:
-The window in the framework UI where the player changes framework settings, opened from the framework button in the main menu's corner. Its settings are on pages, one for each thing they concern (language and fonts, loading and returning, achievements, game speed, remote control), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
+The window in the framework UI where the player changes framework settings, opened from the EU4 Harmony settings button in the main menu's corner. Its settings are on pages, one for each thing they concern (language and fonts, loading and returning, achievements, game speed, remote control), chosen in a side list; one Save keeps what was changed on every page. Like the notice window, it is not a window in the game's sense.
 _Avoid_: options menu (that is the game's own settings)
 
 **Mods window**:
-The window in the framework UI, opened from the main menu's corner, that lists the Harmony mods of this start, each with its name, version, description and the sensitive capabilities it declares.
+The window in the framework UI, opened from the EU4 Harmony mods button in the main menu's corner, that lists the Harmony mods of this start, each with its name, version, description and the sensitive capabilities it declares.
 _Avoid_: mod list (that is a playset), mod manager (it manages nothing)
 
 **Framework settings**:
