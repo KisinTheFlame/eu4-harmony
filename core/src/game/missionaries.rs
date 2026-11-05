@@ -66,12 +66,16 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
     Ok(Province { address, owner: Tag(m.u64(address + province_fields::OWNER)?) })
 }
 
-/// What the province view offers the player in province `id`.
-pub fn options(_: Caller, id: u32) -> GResult<MissionaryOptions> {
+/// What the province view offers the player in province `id`; in the
+/// player's view another's missionary's progress in another country's
+/// province is left out, as `province.get` leaves it out.
+pub fn options(caller: Caller, id: u32) -> GResult<MissionaryOptions> {
     let m = game()?;
     let ctx = context(m)?;
     let p = province(m, &ctx, id)?;
     let (working, progress, send, recall) = read(m, &ctx, &p)?;
+    let owner = Some(p.owner).filter(|t| t.valid());
+    let progress = progress.filter(|_| working || super::provinces::sees_inside(super::view(caller), &ctx, owner));
     Ok(MissionaryOptions { province: ProvinceId(id), working, progress, send, recall })
 }
 

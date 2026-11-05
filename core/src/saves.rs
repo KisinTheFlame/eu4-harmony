@@ -9,6 +9,9 @@
 //! (`crate::sessions`) when a save is being read and whether it was.
 pub mod background;
 pub mod file;
+pub mod parallel;
+pub mod sum;
+pub mod update_thread;
 
 use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
 use eu4_harmony_remote::binary as base64;
@@ -84,6 +87,15 @@ static READ: Mutex<Option<Result<BTreeMap<String, Value>>>> = Mutex::new(None);
 static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
 /// Current data of every extension, written with every save.
 static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
+
+/// A developer build's test switch `game-writes-saves`: the game writes
+/// saves by its own code, as before S8, so that the two can be measured.
+fn game_writes_saves() -> bool {
+    #[cfg(feature = "dev-test-switches")]
+    return crate::dev::options().test_switches.game_writes_saves;
+    #[cfg(not(feature = "dev-test-switches"))]
+    false
+}
 
 /// Says which extensions loaded, once they have.
 pub fn keep_for(ids: impl IntoIterator<Item = String>) {
@@ -229,6 +241,14 @@ impl GameToken {
         token.text[..text.len()].copy_from_slice(text.as_bytes());
         token
     }
+
+    /// A token of text the game keeps, its NUL included.
+    fn from_bytes(kind: u32, text: &[u8]) -> Self {
+        let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
+        let len = text.len().min(TOKEN_TEXT_LEN);
+        token.text[..len].copy_from_slice(&text[..len]);
+        token
+    }
 }
 
 /// Writes the entry with the game's writer, after the world's game state and
@@ -270,6 +290,7 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
 }
 
 extern "C" fn game_state_written(writer: usize) {
+    crate::guarded("parallel save", || parallel::join(writer));
     crate::guarded("save data writer", || {
         if let Err(e) = write_entry(crate::hooked_memory(), writer) {
             log!("saves: {e}");

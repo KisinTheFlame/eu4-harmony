@@ -115,6 +115,8 @@ pub struct Details {
     pub second: Option<u32>,
     pub army: Option<u64>,
     pub flag: Option<bool>,
+    /// A rebel faction of the other country's, by its kind.
+    pub rebels: Option<String>,
 }
 
 /// Sends `what` to `country`, as the panel's button and the window it opens
@@ -154,7 +156,7 @@ pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<T
 /// choose (docs/research/diplomacy.md, "The windows the panel opens"). Money
 /// is in thousandths of a ducat, but where a window keeps whole ducats; a
 /// province is its number, or where a window keeps it its object; a country
-/// its tag.
+/// its tag; a rebel faction its object.
 fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &Details) -> GResult<()> {
     let invalid = |message: String| crate::game::Fail { status: Status::InvalidArgument, message };
     let need = |value: Option<u32>, what: &str| value.ok_or_else(|| invalid(format!("{} needs {what}", act.name())));
@@ -275,6 +277,17 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             i32_at(FIELDS, amount as i64)?;
             i32_at(FIELDS + 4, LOAN_INTEREST)
         }
+        Act::SupportRebels => {
+            let kind = details
+                .rebels
+                .as_deref()
+                .ok_or_else(|| crate::game::Fail { status: Status::InvalidArgument, message: "support_rebels needs a rebel faction".into() })?;
+            let at_country = crate::game::country(m, ctx, recipient)?;
+            let Some(faction) = crate::game::countries::rebel_faction(m, at_country, kind)? else {
+                return fail(Status::Rejected, format!("{} has no {kind} faction", letters(recipient)));
+            };
+            Ok(m.write(at + FIELDS, &(faction as u64).to_le_bytes())?)
+        }
         Act::AppointCardinal => Ok(m.write(at + FIELDS, &[details.flag.unwrap_or(false) as u8])?),
         // Each press of the window's button spends a step of favors for a
         // step of trust, while the other country owes the favors and its
@@ -307,11 +320,12 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
             i32_at(FIELDS, favors * 1000)?;
             i32_at(FIELDS + 4, bought)
         }
-        // Their windows have the player choose what the framework cannot
-        // choose yet, and the game takes them up without it.
-        Act::SellShips | Act::ShareMaps | Act::StealMaps | Act::SupportRebels => fail(
+        // Its window has the player choose the ships and their price, which
+        // the framework cannot choose yet, and the game takes it up with no
+        // ships.
+        Act::SellShips => fail(
             Status::Unavailable,
-            format!("{} is not sent: its window has the player choose what the framework cannot choose yet, and the game would take it up without", act.name()),
+            "sell_ships is not sent: its window has the player choose the ships, which the framework cannot choose yet, and the game would take it up without",
         ),
         _ => Ok(()),
     }

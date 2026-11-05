@@ -10,10 +10,10 @@
 //! command layer.
 use super::{
     commands::{self, Refused},
-    context, country, fail, game, Caller, Ctx, GResult, Status, Tag,
+    context, country, fail, game, with_state, Caller, Ctx, GResult, Status, Tag,
 };
 use crate::{game_string, memory::Memory, objects::campaign::country as country_fields, points::Point, unicode::game_text};
-use eu4_harmony_remote::{choices::Choice, subjects::Interaction as Listed};
+use eu4_harmony_remote::{choices::Choice, subjects::SubjectInteraction as Listed};
 
 /// An interaction: its key, its number (the key's token), the static object
 /// the game keeps it in and that object's class; [`points`] keeps where the
@@ -213,7 +213,7 @@ pub fn options(_: Caller, subject: Tag) -> GResult<Vec<Listed>> {
             continue;
         }
         let active = ongoing(m, country, object)?;
-        let text = command(&ctx, subject, i, active, None);
+        let text = command(&ctx, subject, i, active, None, None);
         let (can, reasons) = judge(&text)?;
         let name = game_text::plain(&game_string::written(m, |s| m.call(m.vslot(object, NAME)?, &[object, s]))?.1).trim().to_string();
         let choice = if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) };
@@ -226,8 +226,9 @@ pub fn options(_: Caller, subject: Tag) -> GResult<Vec<Listed>> {
 /// the subjects view's button does: [`Status::InvalidArgument`] for a key the
 /// game has no interaction for; [`Status::Rejected`] when the player's
 /// country may not use it, the subject's type does not allow it, or its
-/// conditions do not hold, with the reasons.
-pub fn interact(_: Caller, subject: Tag, interaction: &str, third_party: Option<Tag>) -> GResult<()> {
+/// conditions do not hold, with the reasons. `province` is the one the
+/// interaction's window has the player pick, written as the command's `index`.
+pub fn interact(_: Caller, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
     let m = game()?;
     let ctx = context(m)?;
     let country = subject_of(m, &ctx, subject)?;
@@ -237,11 +238,17 @@ pub fn interact(_: Caller, subject: Tag, interaction: &str, third_party: Option<
     if let Some(third) = third_party {
         super::country(m, &ctx, third)?;
     }
+    if let Some(id) = province {
+        if id == 0 {
+            return Err(eu4_harmony_checks::provinces::not_found(0).into());
+        }
+        with_state(|s| s.geography.province_address(m, &ctx, id))?;
+    }
     let object = object(m, i)?;
     if !offered(m, &ctx, country, object)? {
         return fail(Status::Rejected, format!("the game does not offer {interaction} toward {}", letters(subject)));
     }
-    let text = command(&ctx, subject, i, ongoing(m, country, object)?, third_party);
+    let text = command(&ctx, subject, i, ongoing(m, country, object)?, third_party, province);
     let (can, reasons) = judge(&text)?;
     if !can {
         return fail(Status::Rejected, if reasons.is_empty() { "the game does not allow it, and gives no reason".into() } else { reasons.join("\n") });
@@ -288,11 +295,13 @@ fn ongoing(m: &Memory, subject: usize, object: usize) -> GResult<bool> {
     Ok(word >> (bit & 31) & 1 == 1)
 }
 
-/// The `subject` command that carries out the interaction, or stops it.
-fn command(ctx: &Ctx, subject: Tag, i: &Interaction, stop: bool, third_party: Option<Tag>) -> String {
+/// The `subject` command that carries out the interaction, or stops it; the
+/// province, when there is one, is its `index`.
+fn command(ctx: &Ctx, subject: Tag, i: &Interaction, stop: bool, third_party: Option<Tag>, province: Option<u32>) -> String {
     let third = third_party.map(|t| format!(" third_party=\"{}\"", letters(t))).unwrap_or_default();
     let cancel = if stop { " cancel=yes" } else { "" };
-    format!("subject={{ overlord=\"{}\" subject=\"{}\"{third}{cancel} interaction={} }}", letters(ctx.player), letters(subject), i.token)
+    let index = province.map(|p| format!(" index={p}")).unwrap_or_default();
+    format!("subject={{ overlord=\"{}\" subject=\"{}\"{third}{cancel} interaction={}{index} }}", letters(ctx.player), letters(subject), i.token)
 }
 
 /// Whether the command's check of the interaction lets the player, and its
@@ -324,10 +333,15 @@ mod tests {
     fn the_command_names_both_countries_and_the_interaction_s_number() {
         let ctx = Ctx { world: 0, date: 0, player: game_tag(b"TUR", 1), country: 0, countries: 0 };
         let scutage = INTERACTIONS.iter().find(|i| i.key == "scutage").unwrap();
-        assert_eq!(command(&ctx, game_tag(b"SER", 2), scutage, false, None), "subject={ overlord=\"TUR\" subject=\"SER\" interaction=12767 }");
+        assert_eq!(command(&ctx, game_tag(b"SER", 2), scutage, false, None, None), "subject={ overlord=\"TUR\" subject=\"SER\" interaction=12767 }");
         assert_eq!(
-            command(&ctx, game_tag(b"SER", 2), scutage, true, Some(game_tag(b"BYZ", 3))),
+            command(&ctx, game_tag(b"SER", 2), scutage, true, Some(game_tag(b"BYZ", 3)), None),
             "subject={ overlord=\"TUR\" subject=\"SER\" third_party=\"BYZ\" cancel=yes interaction=12767 }"
+        );
+        let grant = INTERACTIONS.iter().find(|i| i.key == "grant_province").unwrap();
+        assert_eq!(
+            command(&ctx, game_tag(b"SER", 2), grant, false, None, Some(149)),
+            format!("subject={{ overlord=\"TUR\" subject=\"SER\" interaction={} index=149 }}", grant.token)
         );
     }
 

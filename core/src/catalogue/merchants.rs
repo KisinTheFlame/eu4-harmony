@@ -1,6 +1,6 @@
 //! Merchants: the trade view's merchant buttons.
 use eu4_harmony_remote::{
-    merchants::{MerchantAnswer, MerchantOptions, MerchantRequest, Merchants, Mission},
+    merchants::{MerchantAnswer, MerchantOptions, MerchantRequest, Merchants, Mission, TradingPolicies},
     Error,
 };
 
@@ -10,6 +10,8 @@ layer! {
     fn send_merchant(node: &str, mission: Mission) -> () = crate::game::merchants::send;
     fn recall_merchant(node: &str) -> () = crate::game::merchants::recall;
     fn steer_to(node: &str, to: &str) -> () = crate::game::merchants::steer_to;
+    fn trading_policies(node: &str) -> TradingPolicies = crate::game::merchants::policies;
+    fn set_trading_policy(node: &str, policy: &str) -> () = crate::game::merchants::set_policy;
 }
 
 pub fn run(request: MerchantRequest, game: &mut (impl Layer + ?Sized)) -> Result<MerchantAnswer, Error> {
@@ -20,5 +22,7 @@ pub fn run(request: MerchantRequest, game: &mut (impl Layer + ?Sized)) -> Result
         MerchantRequest::Steer { node } => MerchantAnswer::Steer(game.send_merchant(&node, Mission::Steer)?),
         MerchantRequest::Recall { node } => MerchantAnswer::Recall(game.recall_merchant(&node)?),
         MerchantRequest::SteerTo { node, to } => MerchantAnswer::SteerTo(game.steer_to(&node, &to)?),
+        MerchantRequest::Policies { node } => MerchantAnswer::Policies(game.trading_policies(&node)?),
+        MerchantRequest::SetPolicy { node, policy } => MerchantAnswer::SetPolicy(game.set_trading_policy(&node, &policy)?),
     })
 }

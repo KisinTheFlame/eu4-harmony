@@ -205,6 +205,7 @@ fn tell(happened: Vec<Happening>) {
             Happening::Began(_) => game::input::session_began(),
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({})", end.word());
+                game::event_costs::log_session();
                 crate::remote::session_ended(end);
                 crate::lua::session_ended(end);
             }

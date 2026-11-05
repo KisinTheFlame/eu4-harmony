@@ -5,7 +5,7 @@ use super::{armies::RouteSource, commands, events::Change, fail, paused, span, w
 use crate::{
     memory::Memory,
     objects::{
-        campaign::{classes, globals, province, route_options, unit},
+        campaign::{classes, geometry, globals, province, route_options, unit},
         list,
     },
     points::Point,
@@ -25,6 +25,8 @@ pub fn points() -> Vec<Point> {
         Point::keep(ROUTE_QUERY, "4c 89 4c 24 20 48 89 54 24 10 48 89 4c 24 08 55", "route query"),
         Point::keep(FREE_NODE, "e9 2b 45 02 00 cc cc cc cc cc cc cc cc cc cc cc", "route node free"),
         Point::keep(TRANSPORTS, "48 8b c4 4c 89 40 18 48 89 50 10 53 55 56 57 41 54 41 55 41 56 41 57", "fleets that may carry an army"),
+        Point::keep(MAY_CARRY, "48 89 5c 24 18 48 89 74 24 20 57 48 83 ec 20 41 8b f0 48 8b da 48 8b f9", "fleet may take an army aboard"),
+        Point::keep(SHIP_ROOM, "48 89 5c 24 18 48 89 74 24 20 55 57 41 54 41 56 41 57 48 8d 6c 24 c9 48 81 ec e0 00 00 00", "regiments a ship carries"),
     ]
 }
 
@@ -354,7 +356,8 @@ impl Orders {
         // The route query the command makes, asked first: the command does
         // nothing, and says nothing, when it finds no route.
         if self.with_route(m, ctx, geography, army, goal, caller, |_, _| Ok(()))?.is_none() {
-            return Err(checks::no_route(goal).into());
+            let sea = geography.province_address(m, ctx, goal)?;
+            return Err(boarding_refused(m, ctx, army, sea, goal)?.unwrap_or_else(|| checks::no_route(goal)).into());
         }
         order(&move_text(m.u64(army + unit::ID)?, before.origin, goal))?;
         let after = read_path(m, army + unit::PATH)?;
@@ -377,6 +380,52 @@ impl Orders {
         }
         Ok(self.settle(caller, id, before.origin, Path::default()))
     }
+}
+
+/// `(fleet, army, regiments)`: whether the fleet may take the army aboard,
+/// with room for `regiments` (all the army's when negative) beside those
+/// aboard already: the route query's test of a step onto the sea, made for
+/// each fleet there (docs/research/units.md).
+const MAY_CARRY: usize = 0x90acf0;
+/// `(ship) → i32`: the regiments a ship carries.
+const SHIP_ROOM: usize = 0xae1a40;
+
+/// Why a land army finds no route onto the sea zone at `sea`, when that is
+/// the boarding: the player has no fleet there, or none with room for the
+/// whole army, which a step onto the sea needs. None when a fleet there may
+/// take it, or `sea` is land, or the unit a fleet.
+fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -> GResult<Option<eu4_harmony_checks::Refusal>> {
+    if m.ptr(army)? != m.at(classes::ARMY) || m.u8(m.ptr(sea + province::GEOMETRY)? + geometry::TERRAIN)? & geometry::LAND != 0 {
+        return Ok(None);
+    }
+    let mut fleets = Vec::new();
+    let mut node = m.ptr(sea + province::UNITS)?;
+    while node != 0 && fleets.len() < MAX_UNITS {
+        let unit = m.ptr(node + list::ITEM)?;
+        if m.ptr(unit)? == m.at(classes::FLEET) && m.u64(unit + unit::OWNER)? == ctx.player.0 {
+            fleets.push(unit);
+        }
+        node = m.ptr(node + list::NEXT)?;
+    }
+    let mut most = 0;
+    for &fleet in &fleets {
+        if m.call(m.at(MAY_CARRY), &[fleet, army, -1i32 as u32 as usize])? as u8 != 0 {
+            return Ok(None);
+        }
+        let (begin, end) = (m.ptr(fleet + unit::REGIMENTS)?, m.ptr(fleet + unit::REGIMENTS + 8)?);
+        let mut room = 0i64;
+        for i in 0..span(begin, end, 8, MAX_UNITS)? {
+            room += m.call(m.at(SHIP_ROOM), &[m.ptr(begin + i * 8)?])? as i32 as i64;
+        }
+        for aboard in world::aboard(m, fleet)? {
+            room -= world::regiments(m, aboard)? as i64;
+        }
+        most = most.max(room.max(0) as u32);
+    }
+    Ok(Some(match fleets.is_empty() {
+        true => checks::no_fleet_to_board(goal),
+        false => checks::no_room_aboard(goal, world::regiments(m, army)?, most),
+    }))
 }
 
 /// `(country, std::vector*, army)`: the fleets of the country's that may

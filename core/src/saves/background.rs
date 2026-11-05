@@ -21,8 +21,17 @@
 //! does not: a file it had not finished stays uncompressed, and the temporary
 //! file it was writing, if any, is removed at the next start. Cloud saves take
 //! another path (`0x5c8ba0`) and keep the game's compression.
+//!
+//! The game's deflate at level 0 still passes the data through zlib and takes
+//! its CRC a byte at a time, a quarter of an autosave's stop
+//! (docs/research/saves.md, "Where a save's zip goes"). So at level 0 the
+//! framework copies an entry's data into the zip's stored blocks itself: the
+//! same entry, framed in blocks of its own, its CRC taken in parts by the
+//! threads that write the game state (`super::parallel`) and combined.
+use super::file::{crc32, crc32_combine};
 use crate::hooks::HookFrame;
-use crate::points::Point;
+use crate::memory::Memory;
+use crate::points::{Function, Point};
 use crate::Result;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,6 +47,23 @@ const ADD_ENTRY: usize = 0x153b9a0;
 /// `(from, to) -> bool`: the game's file move, both paths in the folder the
 /// game writes to.
 const MOVE_FILE: usize = 0x1715bb0;
+/// `(zip, data stream, buffer, its size, &crc, level) -> bytes written`: an
+/// entry's data deflated into the zip's stream (`[zip]`), from the start of
+/// the data stream to its size, its CRC carried in the register at `crc`
+/// (`!0` at the start), which it leaves inverted. Where it reads the stream's
+/// size, moves to a place in it and reads it, and where it writes.
+const DEFLATE: usize = 0x153c790;
+const DEFLATE_READS: usize = 0x153c834;
+const DEFLATE_WRITES: usize = 0x153c8f2;
+/// A stream's methods: its size, a move to a place, a read, a write.
+const STREAM_SIZE: usize = 0x88;
+const STREAM_SEEK: usize = 0x60;
+const STREAM_READ: usize = 0x20;
+const STREAM_WRITE: usize = 0x50;
+/// A stored block holds at most this many bytes; the framework reads and
+/// writes sixteen at a time.
+const STORED_BLOCK: usize = 0xffff;
+const STORED_BATCH: usize = 16 * STORED_BLOCK;
 
 const STORED: u16 = 0;
 const DEFLATED: u16 = 8;
@@ -67,11 +93,103 @@ pub fn points() -> Vec<Point> {
         Point::observe(IRONMAN_SAVE, "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55", "local ironman save", 1, Some(save_before), Some(save_after)),
         Point::observe(ADD_ENTRY, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18", "zip entry", 5, Some(entry_before), None),
         Point::observe(MOVE_FILE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20", "file move", 2, None, Some(moved)),
+        Point::replace(DEFLATE, "48 8b c4 48 89 58 10 48 89 68 18 48 89 70 20 48", "zip deflate", deflate as Deflate, &ORIGINAL_DEFLATE),
+        Point::keep(
+            DEFLATE_READS,
+            "49 8b 1e 49 8b ce ff 93 88 00 00 00 2b c7 49 8b ce 8b d0 ff 53 60 49 8b 06 41 3b fc 41 8b dc 48 8b d5 0f 4c df 49 8b ce 44 8b c3 ff 50 20",
+            "zip deflate reads its data",
+        )
+        .uses(&[STREAM_SIZE, STREAM_SEEK, STREAM_READ]),
+        Point::keep(DEFLATE_WRITES, "48 8b 84 24 d0 00 00 00 49 8d 14 2c 03 f3 4c 63 c3 48 8b 08 48 8b 01 ff 50 50", "zip deflate writes")
+            .uses(&[STREAM_WRITE]),
     ]
+}
+
+type Deflate = extern "C" fn(usize, usize, usize, usize, *mut u32, i32) -> u32;
+static ORIGINAL_DEFLATE: Function<Deflate> = Function::new();
+
+/// The game's deflate, but at the level a local save's entries get, which
+/// copies, the framework's copy into stored blocks.
+extern "C" fn deflate(zip: usize, data: usize, buffer: usize, size: usize, crc: *mut u32, level: i32) -> u32 {
+    if level != COPY_LEVEL as i32 || crate::saves::game_writes_saves() {
+        return ORIGINAL_DEFLATE.get()(zip, data, buffer, size, crc, level);
+    }
+    crate::guarded("zip deflate", || match store(crate::hooked_memory(), zip, data, crc) {
+        Ok(written) => written,
+        Err(e) => {
+            // What the game's deflate answers when zlib fails.
+            log!("saves: an entry could not be stored: {e}");
+            0
+        }
+    })
+}
+
+/// Copies the data stream into the zip's stream as stored blocks; the bytes
+/// written.
+fn store(m: Memory, zip: usize, data: usize, crc: *mut u32) -> Result<u32> {
+    let size = m.call(m.vslot(data, STREAM_SIZE)?, &[data])? as u32 as usize;
+    m.call(m.vslot(data, STREAM_SEEK)?, &[data, 0])?;
+    let out = m.ptr(zip)?;
+    let (read, write) = (m.vslot(data, STREAM_READ)?, m.vslot(out, STREAM_WRITE)?);
+    let mut all = vec![0u8; size];
+    for batch in all.chunks_mut(STORED_BATCH) {
+        m.call(read, &[data, batch.as_mut_ptr() as usize, batch.len()])?;
+    }
+    // The register carried in, as the CRC of what came before.
+    unsafe { *crc = crc32_combine(!*crc, crc_on_threads(&all), size) };
+    let mut output = Vec::with_capacity(STORED_BATCH + STORED_BATCH / STORED_BLOCK * 5 + 5);
+    let mut written = 0usize;
+    let batches = all.chunks(STORED_BATCH).count().max(1);
+    for (i, batch) in all.chunks(STORED_BATCH).chain(all.is_empty().then_some(&[][..])).enumerate() {
+        output.clear();
+        stored_blocks(batch, i + 1 == batches, &mut output);
+        m.call(write, &[out, output.as_ptr() as usize, output.len()])?;
+        written += output.len();
+    }
+    u32::try_from(written).map_err(|_| "an entry of 4 GB or more".to_string())
+}
+
+/// The CRC of `data`, its parts taken by the pool's threads and this one
+/// and combined.
+fn crc_on_threads(data: &[u8]) -> u32 {
+    const FEWEST: usize = 4 << 20;
+    const PARTS: usize = 32;
+    if data.len() < FEWEST {
+        return crc32(data);
+    }
+    let (at, len) = (data.as_ptr() as usize, data.len());
+    let part = move |i: usize| i * len / PARTS..(i + 1) * len / PARTS;
+    // `data` stays as it is until `each` returns.
+    let crcs = super::parallel::each(PARTS, move |i| crc32(unsafe { std::slice::from_raw_parts((at + part(i).start) as *const u8, part(i).len()) }));
+    match crcs {
+        Some(crcs) => crcs.iter().enumerate().fold(0, |all, (i, &c)| crc32_combine(all, c, part(i).len())),
+        None => crc32(data),
+    }
+}
+
+/// `data` as deflate's stored blocks, the last of them marked final when
+/// `last`.
+fn stored_blocks(data: &[u8], last: bool, out: &mut Vec<u8>) {
+    if data.is_empty() {
+        if last {
+            out.extend_from_slice(&[1, 0, 0, 0xff, 0xff]);
+        }
+        return;
+    }
+    let mut blocks = data.chunks(STORED_BLOCK).peekable();
+    while let Some(block) = blocks.next() {
+        let len = block.len() as u16;
+        out.push(u8::from(last && blocks.peek().is_none()));
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(&(!len).to_le_bytes());
+        out.extend_from_slice(block);
+    }
 }
 
 /// A local save is under way on the main thread.
 static SAVING: AtomicBool = AtomicBool::new(false);
+/// When the local save under way began.
+static BEGAN: Mutex<Option<Instant>> = Mutex::new(None);
 /// The files the save under way moved into place, by their paths in the
 /// folder the game writes to.
 static MOVED: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -100,6 +218,7 @@ extern "C" fn save_before(_: *mut HookFrame) {
         wait();
         MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
         SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
+        *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
     });
 }
 
@@ -107,6 +226,9 @@ extern "C" fn save_after(_: *mut HookFrame) {
     crate::guarded("local save", || {
         if !SAVING.swap(false, Ordering::SeqCst) {
             return;
+        }
+        if let Some(began) = BEGAN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
         }
         let moved = std::mem::take(&mut *MOVED.lock().unwrap_or_else(|e| e.into_inner()));
         let Some(folder) = FOLDER.get() else { return };
@@ -140,6 +262,24 @@ extern "C" fn moved(frame: *mut HookFrame) {
         }
     });
 }
+
+/// The game waits for the thread: a file another program holds is not tried
+/// again.
+static WAITED_FOR: AtomicBool = AtomicBool::new(false);
+
+struct Waited;
+
+impl Drop for Waited {
+    fn drop(&mut self) {
+        WAITED_FOR.store(false, Ordering::SeqCst);
+    }
+}
+
+/// How often and how far apart the thread tries to put its file in the
+/// save's place while another program holds the save open, as a program
+/// that copies each save it sees may: two seconds in all.
+const MOVE_TRIES: u32 = 10;
+const MOVE_AGAIN: Duration = Duration::from_millis(200);
 
 /// Files handed to the thread and not yet done.
 struct Pending {
@@ -189,6 +329,8 @@ pub fn wait() {
     if *count == 0 {
         return;
     }
+    WAITED_FOR.store(true, Ordering::SeqCst);
+    let _waited = Waited;
     while *count > 0 {
         let (next, timeout) = PENDING.done.wait_timeout(count, Duration::from_secs(60)).unwrap_or_else(|e| e.into_inner());
         count = next;
@@ -216,11 +358,19 @@ fn compact_file(path: &Path) -> Result<Option<(usize, usize)>> {
         file.write_all(&packed).map_err(error)?;
         file.sync_all().map_err(error)?;
         drop(file);
-        let now = std::fs::metadata(path).map_err(error)?;
-        if now.len() != before.len() || now.modified().ok() != before.modified().ok() {
-            return Err("the file changed while it was compressed".to_string());
+        for tried in 1.. {
+            let now = std::fs::metadata(path).map_err(error)?;
+            if now.len() != before.len() || now.modified().ok() != before.modified().ok() {
+                return Err("the file changed while it was compressed".to_string());
+            }
+            match std::fs::rename(&tmp, path) {
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tried < MOVE_TRIES && !WAITED_FOR.load(Ordering::SeqCst) => {
+                    std::thread::sleep(MOVE_AGAIN)
+                }
+                done => return done.map_err(error),
+            }
         }
-        std::fs::rename(&tmp, path).map_err(error)
+        unreachable!()
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -446,6 +596,21 @@ mod tests {
         assert!(!read.iter().any(uncompressed));
         for ((_, data), e) in texts().iter().zip(&read) {
             assert_eq!(&contents(e).unwrap(), data);
+        }
+    }
+
+    #[test]
+    fn stored_blocks_read_back_as_the_data_and_count_as_uncompressed() {
+        let data: Vec<u8> = (0u32..200_000).map(|i| (i.wrapping_mul(2_654_435_761) >> 11) as u8).collect();
+        for len in [0, 1, STORED_BLOCK, STORED_BLOCK + 1, 200_000] {
+            let mut out = Vec::new();
+            // In two batches, as the framework writes an entry.
+            let (a, b) = data[..len].split_at(len / 2);
+            stored_blocks(a, false, &mut out);
+            stored_blocks(b, true, &mut out);
+            assert_eq!(crate::saves::file::inflate(&out, len).unwrap(), &data[..len], "{len} bytes");
+            let entry = Entry { method: DEFLATED, data: out, ..stored("gamestate", &data[..len]) };
+            assert!(uncompressed(&entry));
         }
     }
 

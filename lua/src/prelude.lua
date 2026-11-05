@@ -5,8 +5,12 @@ local call, WAIT, task, names, set_element, fetch, resuming, resumed = ...
 -- The sandbox (ADR extensions-are-lua-in-a-sandbox): code from text only,
 -- nothing that reads files.
 local raw_load = load
-load = function(chunk, name, _, env)
-  return raw_load(chunk, name, "t", env)
+load = function(chunk, name, _, ...)
+  -- An env given, even nil, is the chunk's; none given, the globals are.
+  if select("#", ...) == 0 then
+    return raw_load(chunk, name, "t")
+  end
+  return raw_load(chunk, name, "t", (...))
 end
 dofile, loadfile = nil, nil
 string.dump = nil

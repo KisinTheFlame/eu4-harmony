@@ -125,6 +125,8 @@ fn the_sandbox_has_lua_s_own_libraries_and_nothing_of_the_system() {
         seen[#seen + 1] = "string.dump=" .. type(string.dump)
         seen[#seen + 1] = "os.clock=" .. type(os.clock) .. " os.time=" .. type(os.time) .. " os.execute=" .. type(os.execute)
         seen[#seen + 1] = "bytecode=" .. tostring((load("\27Lua", "x")))
+        -- Text loaded without an environment sees the globals; with one, only it.
+        seen[#seen + 1] = "text=" .. load("return type(string)")() .. "," .. tostring(load("return x", "x", "t", { x = 1 })())
         SEEN = table.concat(seen, " ")
         return {}
         "#,
@@ -133,7 +135,7 @@ fn the_sandbox_has_lua_s_own_libraries_and_nothing_of_the_system() {
     .unwrap();
     assert_eq!(
         text(e.lua.globals().get("SEEN").unwrap()),
-        "io=nil debug=nil package=nil dofile=nil loadfile=nil collectgarbage=function string.dump=nil os.clock=function os.time=function os.execute=nil bytecode=nil"
+        "io=nil debug=nil package=nil dofile=nil loadfile=nil collectgarbage=function string.dump=nil os.clock=function os.time=function os.execute=nil bytecode=nil text=table,1"
     );
 }
 

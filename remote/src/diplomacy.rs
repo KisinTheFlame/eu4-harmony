@@ -500,15 +500,16 @@ group! {
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Supports rebels in a country, with the spy network. As the diplomacy panel's button `support_rebels` sends it
-    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
-    /// window has the player choose a rebel faction, which this does not choose.
+    /// (`diplomacy.options` says whether the player can).
     game SupportRebels "support_rebels" {
         /// The other country.
         country: CountryTag,
+        /// The rebel faction to support, by its kind, as `country.get` lists
+        /// the country's rebels, such as `noble_rebels`.
+        rebels: String,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Steals a country's maps, with the spy network. As the diplomacy panel's button `stealmap` sends it
-    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
-    /// window has the player choose a region, which this does not choose.
+    /// (`diplomacy.options` says whether the player can).
     game StealMaps "steal_maps" {
         /// The other country.
         country: CountryTag,
@@ -712,8 +713,7 @@ group! {
         country: CountryTag,
     } -> Outcome, "answer: done, accepted, declined or pending";
     /// Shares the player's maps with a country. As the diplomacy panel's button `sharemap` sends it
-    /// (`diplomacy.options` says whether the player can). Not sent yet: answered unavailable, since its
-    /// window has the player choose a region, which this does not choose.
+    /// (`diplomacy.options` says whether the player can).
     game ShareMaps "share_maps" {
         /// The other country.
         country: CountryTag,
