@@ -10,6 +10,7 @@
 pub mod background;
 pub mod file;
 pub mod parallel;
+pub mod sum;
 
 use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
 use eu4_harmony_remote::binary as base64;
