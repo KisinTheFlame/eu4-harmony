@@ -82,101 +82,105 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-/// The capability layer, as the catalogue's requests reach it: every
-/// group's slice.
-pub trait Game:
-    session::Layer
-    + countries::Layer
-    + provinces::Layer
-    + armies::Layer
-    + texts::Layer
-    + camera::Layer
-    + screenshot::Layer
-    + console::Layer
-    + time::Layer
-    + recruiting::Layer
-    + questions::Layer
-    + offers::Layer
-    + menu::Layer
-    + diplomacy::Layer
-    + extensions::Layer
-    + input::Layer
-    + desktop::Layer
-    + decisions::Layer
-    + subjects::Layer
-    + buildings::Layer
-    + technology::Layer
-    + focus::Layer
-    + stability::Layer
-    + economy::Layer
-    + loans::Layer
-    + leaders::Layer
-    + mercenaries::Layer
-    + forts::Layer
-    + sieges::Layer
-    + peace::Layer
-    + occupation::Layer
-    + ideas::Layer
-    + policies::Layer
-    + government::Layer
-    + estates::Layer
-    + parliament::Layer
-    + missions::Layer
-    + missionaries::Layer
-    + colonists::Layer
-    + trade_companies::Layer
-    + centers_of_trade::Layer
-    + merchants::Layer
-    + trade::Layer
-{
+/// Declares the groups once, in one list: [`Game`], every group's slice of
+/// the capability layer, and [`dispatch`], which runs a request in its group.
+/// After the names `dispatch` gives its request, game, events and time, each
+/// line is one of
+///
+/// ```text
+/// Group(module),
+/// Group(module) => outcome,
+/// Group => outcome,
+/// ```
+///
+/// A group whose `run(request, game)` answers at once; a group with a slice
+/// of the layer, whose [`Outcome`] the expression gives; a group without a
+/// slice.
+macro_rules! groups {
+    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($modules:tt)*] [$($arms:tt)*]
+        $(#[$attr:meta])* $Group:ident($module:ident) => $outcome:expr, $($rest:tt)*) => {
+        groups!(@munch [$request $game $events $now] [$($modules)* $module] [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
+    };
+    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($modules:tt)*] [$($arms:tt)*]
+        $(#[$attr:meta])* $Group:ident($module:ident), $($rest:tt)*) => {
+        groups!(@munch [$request $game $events $now] [$($modules)* $module]
+            [$($arms)* { $(#[$attr])* $Group => Outcome::Done($module::run($request, $game).map(Answer::$Group)) }]
+            $($rest)*);
+    };
+    (@munch $names:tt $modules:tt [$($arms:tt)*] $(#[$attr:meta])* $Group:ident => $outcome:expr, $($rest:tt)*) => {
+        groups!(@munch $names $modules [$($arms)* { $(#[$attr])* $Group => $outcome }] $($rest)*);
+    };
+    (@munch [$request:ident $game:ident $events:ident $now:ident] [$($module:ident)*]
+        [$({ $(#[$attr:meta])* $Group:ident => $outcome:expr })*]) => {
+        /// The capability layer, as the catalogue's requests reach it: every
+        /// group's slice.
+        pub trait Game: $($module::Layer +)* {}
+        impl<T: $($module::Layer +)* ?Sized> Game for T {}
+
+        /// Runs one request at `now`, in its group.
+        pub(crate) fn dispatch($request: Request, $game: &mut dyn Game, $events: &events::Buffer, $now: Instant) -> Outcome {
+            match $request {
+                $( $(#[$attr])* Request::$Group($request) => $outcome, )*
+            }
+        }
+    };
+    (@munch $($rest:tt)*) => {
+        compile_error!(concat!("groups!: a line that is none of its forms: ", stringify!($($rest)*)));
+    };
+    (fn dispatch($request:ident, $game:ident, $events:ident, $now:ident); $($lines:tt)*) => {
+        groups!(@munch [$request $game $events $now] [] [] $($lines)*);
+    };
 }
-impl<
-        T: session::Layer
-            + countries::Layer
-            + provinces::Layer
-            + armies::Layer
-            + texts::Layer
-            + camera::Layer
-            + screenshot::Layer
-            + console::Layer
-            + time::Layer
-            + recruiting::Layer
-            + questions::Layer
-            + offers::Layer
-            + menu::Layer
-            + diplomacy::Layer
-            + extensions::Layer
-            + input::Layer
-            + desktop::Layer
-            + decisions::Layer
-            + subjects::Layer
-            + buildings::Layer
-            + technology::Layer
-            + focus::Layer
-            + stability::Layer
-            + economy::Layer
-            + loans::Layer
-            + leaders::Layer
-            + mercenaries::Layer
-            + forts::Layer
-            + sieges::Layer
-            + peace::Layer
-            + occupation::Layer
-            + ideas::Layer
-            + policies::Layer
-            + government::Layer
-            + estates::Layer
-            + parliament::Layer
-            + missions::Layer
-            + missionaries::Layer
-            + colonists::Layer
-            + trade_companies::Layer
-            + centers_of_trade::Layer
-            + merchants::Layer
-            + trade::Layer
-            + ?Sized,
-    > Game for T
-{
+
+groups! {
+    fn dispatch(request, game, events, now);
+    Session(session),
+    Time(time) => time::run(request, game, events),
+    Country(countries),
+    Province(provinces),
+    Army(armies),
+    Text(texts),
+    Screenshot(screenshot) => screenshot::run(request, game),
+    Console(console),
+    Question(questions),
+    Offer(offers),
+    Events => events::run(request, events, now),
+    Describe => Outcome::Done(Ok(Answer::Describe(describe::run(request)))),
+    Camera(camera),
+    Recruit(recruiting),
+    Menu(menu) => menu::run(request, game),
+    Diplomacy(diplomacy) => diplomacy::run(request, game, now),
+    Extension(extensions),
+    #[cfg(feature = "dev-memory")]
+    Memory => Outcome::Done(crate::memory_account::answer(request).map(Answer::Memory)),
+    Input(input) => Outcome::Done(input::run(request, game).0.map(Answer::Input)),
+    Desktop(desktop),
+    Decision(decisions),
+    Subject(subjects),
+    Idea(ideas),
+    Policy(policies),
+    Government(government),
+    Estate(estates),
+    Parliament(parliament),
+    Mission(missions),
+    Building(buildings),
+    Technology(technology),
+    Focus(focus),
+    Stability(stability),
+    Economy(economy),
+    Loan(loans),
+    Leader(leaders),
+    Mercenary(mercenaries),
+    Fort(forts),
+    Siege(sieges),
+    Peace(peace) => peace::run(request, game, now),
+    Occupation(occupation),
+    Missionary(missionaries),
+    Colonist(colonists),
+    TradeCompany(trade_companies),
+    CenterOfTrade(centers_of_trade),
+    Merchant(merchants),
+    Trade(trade),
 }
 
 /// The capability layer itself, called as its caller: remote control, or an
@@ -309,58 +313,4 @@ pub fn poll_for(caller: game::Caller, wait: &mut dyn Wait) -> Option<Response> {
     let events = events::Buffer::new();
     let mut live = Live(caller);
     wait.poll(&mut Poll::new(&events, Instant::now(), &Place::Game, &mut live))
-}
-
-/// Runs one request at `now`, group by group.
-pub(crate) fn dispatch(request: Request, game: &mut dyn Game, events: &events::Buffer, now: Instant) -> Outcome {
-    let done = |response: Response| Outcome::Done(response);
-    match request {
-        Request::Session(r) => done(session::run(r, game).map(Answer::Session)),
-        Request::Time(r) => time::run(r, game, events),
-        Request::Country(r) => done(countries::run(r, game).map(Answer::Country)),
-        Request::Province(r) => done(provinces::run(r, game).map(Answer::Province)),
-        Request::Army(r) => done(armies::run(r, game).map(Answer::Army)),
-        Request::Text(r) => done(texts::run(r, game).map(Answer::Text)),
-        Request::Screenshot(r) => screenshot::run(r, game),
-        Request::Console(r) => done(console::run(r, game).map(Answer::Console)),
-        Request::Question(r) => done(questions::run(r, game).map(Answer::Question)),
-        Request::Offer(r) => done(offers::run(r, game).map(Answer::Offer)),
-        Request::Events(r) => events::run(r, events, now),
-        Request::Describe(r) => done(Ok(Answer::Describe(describe::run(r)))),
-        Request::Camera(r) => done(camera::run(r, game).map(Answer::Camera)),
-        Request::Recruit(r) => done(recruiting::run(r, game).map(Answer::Recruit)),
-        Request::Menu(r) => menu::run(r, game),
-        Request::Diplomacy(r) => diplomacy::run(r, game, now),
-        Request::Extension(r) => done(extensions::run(r, game).map(Answer::Extension)),
-        #[cfg(feature = "dev-memory")]
-        Request::Memory(r) => done(crate::memory_account::answer(r).map(Answer::Memory)),
-        Request::Input(r) => done(input::run(r, game).0.map(Answer::Input)),
-        Request::Desktop(r) => done(desktop::run(r, game).map(Answer::Desktop)),
-        Request::Decision(r) => done(decisions::run(r, game).map(Answer::Decision)),
-        Request::Subject(r) => done(subjects::run(r, game).map(Answer::Subject)),
-        Request::Idea(r) => done(ideas::run(r, game).map(Answer::Idea)),
-        Request::Policy(r) => done(policies::run(r, game).map(Answer::Policy)),
-        Request::Government(r) => done(government::run(r, game).map(Answer::Government)),
-        Request::Estate(r) => done(estates::run(r, game).map(Answer::Estate)),
-        Request::Parliament(r) => done(parliament::run(r, game).map(Answer::Parliament)),
-        Request::Mission(r) => done(missions::run(r, game).map(Answer::Mission)),
-        Request::Building(r) => done(buildings::run(r, game).map(Answer::Building)),
-        Request::Technology(r) => done(technology::run(r, game).map(Answer::Technology)),
-        Request::Focus(r) => done(focus::run(r, game).map(Answer::Focus)),
-        Request::Stability(r) => done(stability::run(r, game).map(Answer::Stability)),
-        Request::Economy(r) => done(economy::run(r, game).map(Answer::Economy)),
-        Request::Loan(r) => done(loans::run(r, game).map(Answer::Loan)),
-        Request::Leader(r) => done(leaders::run(r, game).map(Answer::Leader)),
-        Request::Mercenary(r) => done(mercenaries::run(r, game).map(Answer::Mercenary)),
-        Request::Fort(r) => done(forts::run(r, game).map(Answer::Fort)),
-        Request::Siege(r) => done(sieges::run(r, game).map(Answer::Siege)),
-        Request::Peace(r) => peace::run(r, game, now),
-        Request::Occupation(r) => done(occupation::run(r, game).map(Answer::Occupation)),
-        Request::Missionary(r) => done(missionaries::run(r, game).map(Answer::Missionary)),
-        Request::Colonist(r) => done(colonists::run(r, game).map(Answer::Colonist)),
-        Request::TradeCompany(r) => done(trade_companies::run(r, game).map(Answer::TradeCompany)),
-        Request::CenterOfTrade(r) => done(centers_of_trade::run(r, game).map(Answer::CenterOfTrade)),
-        Request::Merchant(r) => done(merchants::run(r, game).map(Answer::Merchant)),
-        Request::Trade(r) => done(trade::run(r, game).map(Answer::Trade)),
-    }
 }
