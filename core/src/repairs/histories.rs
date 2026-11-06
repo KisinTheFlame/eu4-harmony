@@ -1,6 +1,6 @@
-//! What a country's history leaks of its persons: the monarchs, heirs and
-//! queens its records hold (docs/research/main-menu.md, "The monarchs a
-//! history keeps").
+//! What the records of the histories leave as they go: the monarchs, heirs
+//! and queens a country's history holds (docs/research/main-menu.md, "The
+//! monarchs a history keeps"), and the battles a war's history holds.
 //!
 //! A person is let go by the characters' manager, which deletes every one on
 //! the vector of all persons, but only those made while it reads characters
@@ -20,6 +20,11 @@
 //! to wait after the reset's end, as a load replaces the main menu's
 //! histories with the save's, wait for the next reset: until then a record of
 //! the session may still keep one as the person before it.
+//!
+//! A war's history (`warhistory.cpp`) keeps each battle it reads in a
+//! record, by pointer, and the game deletes no battle it made so: a battle
+//! waits as its record goes, as a person does, and goes as a person does,
+//! with nothing else to keep it.
 use super::LettingGo;
 use crate::{
     game::world::FIND_ID,
@@ -57,6 +62,15 @@ const QUEEN: usize = 0x1c522f8;
 const MONARCH_DELETE: usize = 0xa48a30;
 const HEIR_DELETE: usize = 0x296940;
 const QUEEN_DELETE: usize = 0x296a40;
+/// `(record, flags)`: the deleting destructor of a battle's record of a
+/// war's history, which the 0x48-byte records of the war history share; a
+/// battle's record ([`BATTLE_RECORD`]) holds its battle at [`BATTLE`].
+const BATTLE_RECORD_DELETE: usize = 0x4e2020;
+const BATTLE_RECORD: usize = 0x1d210b8;
+const BATTLE: usize = 0x40;
+/// `(battle, flags)`: a battle's class and its deleting destructor.
+const BATTLE_CLASS: usize = 0x1c448d0;
+const BATTLE_DELETE: usize = 0x1dd060;
 /// The vector of all persons (begin, end), which the characters' manager's
 /// clear (`0x7e9820`) deletes; and the null monarch, heir and queen, made
 /// once, which records hold until they are given a person.
@@ -67,9 +81,15 @@ const ID: usize = 0x10;
 /// A country's monarch, heir and queen.
 const COUNTRY_PERSONS: [usize; 3] = [0x1280, 0x1298, 0x12b0];
 
-/// The persons waiting, with the world resets that had ended as each began
-/// to wait.
-static WAITING: Mutex<Option<HashMap<usize, u32>>> = Mutex::new(None);
+/// What a record held as it went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Left {
+    Person,
+    Battle,
+}
+
+/// What waits, with the world resets that had ended as each began to wait.
+static WAITING: Mutex<Option<HashMap<usize, (u32, Left)>>> = Mutex::new(None);
 /// The world resets that have ended.
 static RESETS: AtomicU32 = AtomicU32::new(0);
 /// Set as a world reset ends, taken by the first frame after it.
@@ -77,6 +97,7 @@ static TO_LET_GO: AtomicBool = AtomicBool::new(false);
 /// What the repair deleted, and what it kept waiting, for the log.
 pub(super) static PERSONS: AtomicUsize = AtomicUsize::new(0);
 pub(super) static PERSONS_KEPT: AtomicUsize = AtomicUsize::new(0);
+pub(super) static BATTLES: AtomicUsize = AtomicUsize::new(0);
 
 /// A world reset is over.
 pub(super) fn world_reset() {
@@ -84,8 +105,8 @@ pub(super) fn world_reset() {
     TO_LET_GO.store(true, Ordering::Relaxed);
 }
 
-/// A record of a history is being deleted: the persons it holds that are on
-/// no vector wait.
+/// A record of a history is being deleted: the persons it holds that are not
+/// null wait, and so does a battle.
 extern "C" fn record_going(frame: *mut HookFrame) {
     crate::guarded("history record delete", || {
         let (record, flags) = unsafe { ((*frame).args[0], (*frame).args[1]) };
@@ -95,6 +116,10 @@ extern "C" fn record_going(frame: *mut HookFrame) {
         let m = crate::hooked_memory();
         let kept = (|| {
             let class = m.ptr(record)?;
+            if class == m.at(BATTLE_RECORD) {
+                let battle = m.ptr(record + BATTLE)?;
+                return Ok(if battle == 0 { Vec::new() } else { vec![(battle, Left::Battle)] });
+            }
             let fields: &[usize] = if class == m.at(MONARCH_RECORD) {
                 &MONARCH_PERSONS
             } else if class == m.at(HEIR_RECORD) || class == m.at(QUEEN_RECORD) {
@@ -107,49 +132,50 @@ extern "C" fn record_going(frame: *mut HookFrame) {
             for field in fields {
                 let person = m.ptr(record + field)?;
                 if person != 0 && !nulls.contains(&person) {
-                    persons.push(person);
+                    persons.push((person, Left::Person));
                 }
             }
             crate::Result::Ok(persons)
         })();
         match kept {
-            Ok(persons) if !persons.is_empty() => {
+            Ok(left) if !left.is_empty() => {
                 let resets = RESETS.load(Ordering::Relaxed);
                 let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
                 let waiting = waiting.get_or_insert_with(HashMap::new);
-                for person in persons {
-                    waiting.entry(person).or_insert(resets);
+                for (object, kind) in left {
+                    waiting.entry(object).or_insert((resets, kind));
                 }
             }
             Ok(_) => {}
-            Err(e) => log!("repair: a history record's persons were not read: {e}"),
+            Err(e) => log!("repair: what a history record holds was not read: {e}"),
         }
     });
 }
 
-/// A person is destroyed, by the game or the repair: it waits no more.
-extern "C" fn person_going(frame: *mut HookFrame) {
-    crate::guarded("person destructor", || {
-        let person = unsafe { (*frame).args[0] };
+/// A person or a battle is destroyed, by the game or the repair: it waits
+/// no more.
+extern "C" fn going(frame: *mut HookFrame) {
+    crate::guarded("person or battle destructor", || {
+        let object = unsafe { (*frame).args[0] };
         if let Some(waiting) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            waiting.remove(&person);
+            waiting.remove(&object);
         }
     });
 }
 
-/// The first frame after a world reset: the persons that waited from before
-/// its end are deleted, unless the game still has them.
+/// The first frame after a world reset: what waited from before its end is
+/// deleted, unless the game still has a person.
 pub(super) fn let_go(m: &Memory) {
     if !TO_LET_GO.swap(false, Ordering::Relaxed) {
         return;
     }
     let resets = RESETS.load(Ordering::Relaxed);
-    let due: Vec<usize> = {
+    let due: Vec<(usize, Left)> = {
         let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
         let Some(waiting) = waiting.as_mut() else { return };
-        let due: Vec<usize> = waiting.iter().filter(|(_, &since)| since < resets).map(|(&person, _)| person).collect();
-        for person in &due {
-            waiting.remove(person);
+        let due: Vec<(usize, Left)> = waiting.iter().filter(|(_, (since, _))| *since < resets).map(|(&object, &(_, kind))| (object, kind)).collect();
+        for (object, _) in &due {
+            waiting.remove(object);
         }
         due
     };
@@ -158,7 +184,14 @@ pub(super) fn let_go(m: &Memory) {
     }
     let deleted = (|| {
         let in_use = in_use(m)?;
-        for person in due {
+        for (object, kind) in due {
+            if kind == Left::Battle {
+                let _letting_go = LettingGo::new("war history's battle");
+                m.call(m.vslot(object, 0)?, &[object, 1])?;
+                BATTLES.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+            let person = object;
             if in_use.contains(&person) {
                 PERSONS_KEPT.fetch_add(1, Ordering::Relaxed);
                 continue;
@@ -175,7 +208,7 @@ pub(super) fn let_go(m: &Memory) {
         crate::Result::Ok(())
     })();
     if let Err(e) = deleted {
-        log!("repair: the persons the histories left were not all deleted: {e}");
+        log!("repair: what the histories left was not all deleted: {e}");
     }
 }
 
@@ -229,9 +262,29 @@ pub(super) fn points() -> Vec<Point> {
             "40 53 48 83 ec 20 48 8d 05 2b 3e 29 01 48 89 4c 24 30 48 8d 54 24 30 48 89 01 48 8b d9 e8 fe 37 da ff",
             "person destructor",
             1,
-            Some(person_going),
+            Some(going),
             None,
         ),
+        Point::observe(
+            BATTLE_RECORD_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 8b da 48 8b f9 e8 dc 5b 30 00",
+            "war history record deleting destructor",
+            2,
+            Some(record_going),
+            None,
+        ),
+        Point::observe(
+            BATTLE_DELETE,
+            "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 8b da 48 81 c1 18 01 00 00 e8 e5 85 eb ff",
+            "battle deleting destructor",
+            2,
+            Some(going),
+            None,
+        ),
+        Point::method(BATTLE_RECORD, 0, BATTLE_RECORD_DELETE, "battle record deleting destructor method"),
+        Point::method(BATTLE_CLASS, 0, BATTLE_DELETE, "battle deleting destructor method"),
+        // The war history's reader gives a battle's record its battle.
+        Point::keep(0xda6575usize, "4c 89 72 40", "battle record's battle").uses(&[BATTLE]),
         Point::method(MONARCH_RECORD, 0, MONARCH_RECORD_DELETE, "monarch record deleting destructor method"),
         Point::method(HEIR_RECORD, 0, SMALL_RECORD_DELETE, "heir record deleting destructor method"),
         Point::method(QUEEN_RECORD, 0, SMALL_RECORD_DELETE, "queen record deleting destructor method"),

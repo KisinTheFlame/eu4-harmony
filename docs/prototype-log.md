@@ -1981,6 +1981,37 @@ After three changes that should change nothing a player sees: leaving a session 
 - **Not verified**: an ironman exit save that fails, which keeps the session (by the unit tests only); an in-process return that cannot be made, which restarts the game (the same); a return with "return without restarting" off; the single player setup's back button; an extension's capability call that waits, such as a diplomatic action.
 - **Cleanup**: releasing the game put back the player's files, among them the saves the loads rewrote and the backup save one of them added, and the game folder's framework files; the scenario's report in the session's scratch folder was deleted.
 
+## 2026-11-06 The monarchs' repair through rulers changing, the court and ironman (tested by me)
+
+What the run before left untried of the monarchs' repair (`core/src/repairs/monarchs.rs`), on a player build of master (aec0044), within a claim, the game started hidden, driven by `eu4-harmony game` from a script.
+
+- **A long session**: a new game as Castile, 1444.11.11 to 1456.9.8 at speed 5 in 310 s, each question answered with its first option (35). The return after it deleted 1,094 persons the histories left, where the sessions of a year or less before it deleted 202 and 214: the records made in play went with the session, and their persons after it. No crash, nothing logged about a person not deleted, none kept for the game still having it.
+- **The court**: F1 at 1456.9.8 showed the country view's court, its king, heir and consort drawn, in a screenshot.
+- **Ironman**: the newest of the player's saves that have a backup beside them, `Castilla-5` (Castile, 1470.3.13), loaded as an ironman session; 60 days, then an in-game load of `England-1`, which wrote the ironman exit save first (`ExitSave, Ended(Load), Load`), 30 days and a return. Then a load of `England-1`, an in-game load of `英格兰1444_11_11` and a return. The resets after them deleted 3,633, 2,838 and 2,838 persons; no crash.
+- **Not verified**: that Castile's own king died in those twelve years (the game's logs say nothing of rulers, and the screenshot is too small to read his name); a history shown anywhere but the court.
+- **Cleanup**: the release put every file back ("every file is as the backup has it"), the ironman save rewritten by the run among them. The script, its screenshot and the claim's folder were deleted.
+
+## 2026-11-06 The battles a war's history keeps let go (tested by me)
+
+The battles a war's history leaves (`0xda635b`), let go by the same repair as the monarchs, now `core/src/repairs/histories.rs` (research/main-menu.md, "The battles a war's history keeps"). Each run within a claim the runner made and released, the game started hidden; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **With the quarantine**, four rounds of `leak`: passed, no crash. The quarantine kept 7,712 blocks, 1.1 MB, of the battles the repair deleted, and nothing was written to anything it kept, the persons' 36,736 blocks among them. Each round deleted 419, 1 and 347 battles at its three world resets' first frames, and as many persons as before.
+- **Ten rounds each of `growth` and `leak`**, without the quarantine: both passed, no crash. `0xda635b` was among no generation's 40 largest leftovers. Over rounds 2 to 10: `growth` 15.6 MB of private bytes a round, 5.47 MB of it the game's heap (12.2 and 5.78 with the monarchs alone), the larger part the heaps' committed pages no block uses (11.6 MB a round); `leak` 13.8 and 5.54; the census's leftovers grew 5.4 MB a round.
+- **Not tried**: a war's history shown in the game's interface, as the war's view or the ledger shows it; more than ten rounds.
+- **Cleanup**: every claim released with every file put back. The runs' reports and the claims' folders were deleted.
+
+## 2026-11-06 The session's panels' windows killed (tested by me)
+
+The windows the map manager's constructor and its interface's builds make, killed once an in-process return's map manager is gone (`core/src/repairs/session_interface.rs`; research/main-menu.md, "The session's panels' windows"). Each run within a claim, the game started hidden; the scenarios' runs on the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+
+- **Which windows stay**, an experiment build following every window the GUI's factory makes until its destructor, logging at the main menu after each world reset those made two resets before that were still there, by their type's name and the code on the stack: three and four rounds of `growth` on the memory account, before the repair. The names and the counts are in the research note; one window is kept for the process, `ButtonMenuWindow`, made by neither the constructor nor a build.
+- **The developer build with the census did not start at first**: "census free at 0x1a6833c: observer slots exhausted". The repair's four observers and the census's came to more than the 64 slots; the slots are 96 now.
+- **Four rounds of `leak`**: passed, no crash. 70 to 105 windows killed at each return, none at an in-game load. `0x155c294`, the windows' blocks, 10 KB a generation; the windows' parts (`0x10b59fe`, `0x156acc9`, `0x152a122`, `0x15e7654`) 5 to 9 KB.
+- **Ten rounds each of `growth` and `leak`**: both passed, no crash. Over rounds 2 to 10: `growth` 14.1 MB of private bytes a round, 2.64 MB of it the game's heap (5.47 before), 13.3 MB the heaps' committed pages no block uses; `leak` 13.3 and 2.77; the census's leftovers grew 2.2 MB a round (5.4 before). `0x155c294` 10 KB a generation (195 before), what is left of it held by blocks of `0x1108700` and `0x13b64e0`.
+- **The panels in a session after a return**, the player build: `menu.load` England-1, `menu.return`, `menu.load` England-1 again, then by keys and clicks, with a screenshot of each: the court view (F1), the Holy See (`papacy_window`), the game's menu (Esc), its load dialog (`menu_load`), its save (a save loaded saves under its name, no dialog: the file was written) and the ledger (L) showed as in any session; the log showed 14 parts of the session's interface let go and the windows killed at the return.
+- **Not tried**: the panels after a new game rather than a load; the lobby's, the right-click menu, the Council of Trent's and the building interface opened after a return; a game that is ironman; more than ten rounds.
+- **Cleanup**: every claim released with every file put back. The runs' reports, the screenshots and the claims' folders were deleted.
+
 ## 2026-11-06 A subject relation's end, with and without its repair (tested by me)
 
 The repair of the walk of a subject's supporters as its relation ends (`core/src/repairs/supporters.rs`; research/dependency-teardown.md), after a player's crash in an observer game in 1478. Within one claim, the game started hidden, a developer build with the test switch `game-ends-dependencies`, the heap census's quarantine turned on by `memory.quarantine` before each load, and a copy of that game's 1478.1.1 autosave with `player="NOG"` and `not_observer=yes`, loaded with `menu.load`. In it the Timurids rule Transoxiana, whose `support_independence` list holds Multan.
