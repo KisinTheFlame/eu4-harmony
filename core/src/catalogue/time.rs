@@ -8,9 +8,10 @@
 //! when a window holds the game paused (an event window, when the game pauses
 //! on events, or a message set to pause): a client that got the answer finds
 //! the game paused until it resumes it, not running on once the window is
-//! closed. Not when another game was loaded, the game returns to the main
-//! menu, or the player can no longer play the game (observing, say), which
-//! leave the advance no game of its own to pause.
+//! closed. Not when another game was loaded or the game returns to the main
+//! menu, which leave the advance no game of its own to pause. While the
+//! player observes, the country annexed or the game console's observe run,
+//! time and the advance go on as in a game the player plays.
 use super::{events, process, Live, Outcome, Place, Poll, Wait};
 use crate::game::{self, time::Pause, GResult, Status};
 use eu4_harmony_remote::{
@@ -153,8 +154,9 @@ struct Advance {
 }
 
 impl Advance {
-    /// Whether, and why, it stops at this safe point.
-    fn check(&mut self, game: &mut (impl Layer + ?Sized), events: &events::Buffer, now: Instant) -> GResult<Option<(Stop, &'static str)>> {
+    /// Whether, and why, it stops at this safe point; `observing` when the
+    /// player only observes, which hears no day's event to wait for.
+    fn check(&mut self, game: &mut (impl Layer + ?Sized), events: &events::Buffer, now: Instant, observing: bool) -> GResult<Option<(Stop, &'static str)>> {
         let time = game.time()?;
         self.date = time.date;
         if time.session != self.session {
@@ -166,7 +168,7 @@ impl Advance {
             let until = self.until;
             let heard =
                 events.read(self.since, process(), &Default::default()).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
-            return Ok((heard || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
+            return Ok((heard || observing || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
         }
         if game.questions_waiting()? > 0 {
             game.pause()?;
@@ -208,23 +210,20 @@ impl Advance {
 
 impl Wait for Advance {
     fn poll(&mut self, at: &mut Poll<'_>) -> Option<Response> {
-        // The player can no longer play, as when the country was annexed or
-        // the game console's observe ran: no later frame would answer, and
-        // nothing pauses the game for the advance any more.
         let Some(events) = at.events else { return self.answer(Err(events::unkept())) };
-        if let Some(why) = at.unplayable() {
-            let response = Err(Error::new(why.code, format!("the player can no longer play the game ({}); time runs on as the game runs it", why.message)));
-            return self.answer(response);
-        }
         // The main menu is open: the game returned to it in this process,
         // and no game frame comes until another game starts.
         if let Place::Outside(Some(_)) = at.place {
             let response = self.stopped(Stop::MainMenu, "the game returned to the main menu", events);
             return self.answer(response);
         }
+        // While the player observes, as when the country was annexed or the
+        // game console's observe ran, time runs on for the advance as well,
+        // but no day's event is heard.
+        let observing = at.unplayable().is_some();
         let now = at.now;
-        let game = at.game()?;
-        match self.check(game, events, now) {
+        let game = at.world()?;
+        match self.check(game, events, now, observing) {
             Ok(None) => None,
             // A frame where the game cannot be read comes and goes.
             Err(fail) if fail.status == Status::NotReady => None,

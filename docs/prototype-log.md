@@ -1990,6 +1990,14 @@ The repair of the walk of a subject's supporters as its relation ends (`core/src
 - **Not tried**: the walk without the quarantine, where the game crashes only when the heap gives the freed node again before the walk reads it; a subject with more than one country in its list; the other callers of `0xa61900` and the peace that crashed the player's game; a game of more than 60 days with the repair.
 - **Cleanup**: the edited save was deleted before the release, which put back the player's files and the game folder's framework files; `dev.toml` was deleted.
 
+## 2026-11-06 Time while the player observes (tested by me)
+
+The time group declared `world`, run at a game's frame the player cannot play (`Place::Unplayable`), the game layer's time on the world without the player's country (`game::world_context`). The player build of this branch, the player's playset, the game hidden; a new game as Castile, then `console run observe` ("Entered Spectator Mode.").
+
+- **The first build** refused `time.resume` and `time.advance` there, "the game does not let an observer run time": it read the pause key's other check as "no country and `world+0x74dc` clear", and `observe` leaves that byte clear. Pressed as the player would (`input key space`), the pause key resumed the same game: 1444.11.11 paused, then 1444.12.1 running 2 s later. The key reads the tag's last byte (`world+0x1e67`), which `observe` leaves set, not whether the tag is a country's; `time.resume` now reads the same two bytes.
+- **The second build**, observing: `time.get` 1444.11.11 paused at speed 1; `time.set_speed 5`; `time.resume`, then 1444.11.12 running; `time.pause`, then 1444.11.14 paused; `time.advance 10` answered `date` at 1444.11.24 0.7 s later, with no events; then a year at a time with `time.advance 365`, each answered at its date. `session.get` and `army.list` answered `not_in_game` ("no controllable player"), as before.
+- **Not tried**: an advance under way as the player's country is annexed; a player with no country whose tag's last byte is clear (the pause key's refusal, which `time.resume` now gives); extensions, which run no frame while the player observes.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

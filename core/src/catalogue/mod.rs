@@ -475,6 +475,15 @@ impl<'a> Poll<'a> {
         }
     }
 
+    /// The game, at a game's frame, also one with no country the player
+    /// plays: for a request that needs only the game going on.
+    pub fn world(&mut self) -> Option<&mut dyn Game> {
+        match self.game.as_mut() {
+            Some(game) if matches!(self.place, Place::Game | Place::Unplayable(_)) => Some(&mut **game),
+            _ => None,
+        }
+    }
+
     /// At a game's frame with no game the player can play, why.
     pub fn unplayable(&self) -> Option<&'a Error> {
         match self.place {
