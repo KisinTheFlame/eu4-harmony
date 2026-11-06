@@ -28,6 +28,7 @@
 //! own reset, after which several of them act and all say what they did.
 mod coalitions;
 mod histories;
+mod history_lists;
 mod interface_parts;
 mod masks;
 mod modifiers;
@@ -106,7 +107,7 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
         }
         log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go; {} monarchs, heirs and queens the histories left were deleted, {} kept as the game still had them; {} battles the wars' histories left were deleted; {} windows of the session's interface were killed",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go; {} monarchs, heirs and queens the histories left were deleted, {} kept as the game still had them; {} battles the wars' histories left were deleted; {} records and blocks of records the countries' first histories listed alone were deleted, {} kept as their second histories held some of what they held; {} windows of the session's interface were killed",
             reset_leaks::LEADERS.swap(0, Ordering::Relaxed),
             reset_leaks::FACTIONS.swap(0, Ordering::Relaxed),
             reset_leaks::AGENTS.swap(0, Ordering::Relaxed),
@@ -118,6 +119,8 @@ extern "C" fn world_reset(frame: *mut HookFrame) {
             histories::PERSONS.swap(0, Ordering::Relaxed),
             histories::PERSONS_KEPT.swap(0, Ordering::Relaxed),
             histories::BATTLES.swap(0, Ordering::Relaxed),
+            history_lists::DELETED.swap(0, Ordering::Relaxed),
+            history_lists::SHARED.swap(0, Ordering::Relaxed),
             session_interface::WINDOWS_KILLED.swap(0, Ordering::Relaxed)
         );
         #[cfg(feature = "dev-heap-census")]
@@ -143,6 +146,7 @@ pub fn points() -> Vec<Point> {
         reset_leaks::points,
         modifiers::points,
         histories::points,
+        history_lists::points,
         session_interface::points,
         interface_parts::points,
         text_boxes::points,
