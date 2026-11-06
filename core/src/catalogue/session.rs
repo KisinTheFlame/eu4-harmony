@@ -8,7 +8,7 @@ use eu4_harmony_remote::{
 
 layer! {
     run SessionRequest => SessionAnswer;
-    Get => fn session() -> game::session::Session = game::session::session;
+    Get => fn session() -> game::session::Session = caller game::session::session;
 }
 
 /// The session as remote clients read it.

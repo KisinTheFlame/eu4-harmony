@@ -2,7 +2,7 @@
 //! hiring one with the game's recruit command, as the view and the map post
 //! it once the player has picked a company and a province
 //! (docs/research/leaders.md, "Hiring a mercenary company").
-use super::{commands, context, game, with_state, Caller, Ctx, GResult};
+use super::{commands, with_state, Ctx, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{
@@ -94,16 +94,12 @@ fn read(m: &Memory, ctx: &Ctx, company: usize) -> GResult<Company> {
 }
 
 /// The companies the mercenary view lists for the player.
-pub fn list(_: Caller) -> GResult<Vec<Company>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Company>> {
     addresses(m, &ctx)?.into_iter().map(|c| read(m, &ctx, c)).collect()
 }
 
 /// Hires a company the view lists, raised in a province the player picks.
-pub fn hire(_: Caller, word: String, province: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn hire(Session { m, ctx, .. }: Session, word: String, province: u32) -> GResult<()> {
     let mut found = None;
     for company in addresses(m, &ctx)? {
         if key(m, company)? == word {

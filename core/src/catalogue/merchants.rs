@@ -3,18 +3,18 @@ use eu4_harmony_remote::merchants::{MerchantAnswer, MerchantOptions, MerchantReq
 
 layer! {
     run MerchantRequest => MerchantAnswer;
-    List => fn merchants() -> Merchants = crate::game::merchants::list;
-    fn merchant_options(node: &str) -> Box<MerchantOptions> = crate::game::merchants::options;
-    fn send_merchant(node: &str, mission: Mission) -> () = crate::game::merchants::send;
-    fn recall_merchant(node: &str) -> () = crate::game::merchants::recall;
-    fn steer_to(node: &str, to: &str) -> () = crate::game::merchants::steer_to;
+    List => fn merchants() -> Merchants = session crate::game::merchants::list;
+    fn merchant_options(node: &str) -> Box<MerchantOptions> = session crate::game::merchants::options;
+    fn send_merchant(node: &str, mission: Mission) -> () = session crate::game::merchants::send;
+    fn recall_merchant(node: &str) -> () = session crate::game::merchants::recall;
+    fn steer_to(node: &str, to: &str) -> () = session crate::game::merchants::steer_to;
     Options { node } => game.merchant_options(node.as_str());
     Collect { node } => game.send_merchant(node.as_str(), Mission::Collect);
     Steer { node } => game.send_merchant(node.as_str(), Mission::Steer);
     Recall { node } => game.recall_merchant(node.as_str());
     SteerTo { node, to } => game.steer_to(node.as_str(), to.as_str());
-    fn trading_policies(node: &str) -> TradingPolicies = crate::game::merchants::policies;
-    fn set_trading_policy(node: &str, policy: &str) -> () = crate::game::merchants::set_policy;
+    fn trading_policies(node: &str) -> TradingPolicies = session crate::game::merchants::policies;
+    fn set_trading_policy(node: &str, policy: &str) -> () = session crate::game::merchants::set_policy;
     Policies { node } => game.trading_policies(node.as_str());
     SetPolicy { node, policy } => game.set_trading_policy(node.as_str(), policy.as_str());
 }

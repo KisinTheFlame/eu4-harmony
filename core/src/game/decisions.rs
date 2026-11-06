@@ -3,7 +3,7 @@
 //! lists them (docs/research/triggers.md, "Decisions"); and taking one,
 //! through the game's own command (docs/research/government.md,
 //! "Decisions").
-use super::{conditions, content, context, game, GResult};
+use super::{conditions, content, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
 
@@ -36,9 +36,7 @@ pub fn points() -> Vec<Point> {
 }
 
 /// The decisions the view lists for the player now, major ones first.
-pub fn list(_: super::Caller) -> GResult<Vec<Decision>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Decision>> {
     let database = m.ptr(m.at(DATABASE))?;
     if database == 0 {
         return Ok(Vec::new());
@@ -72,9 +70,7 @@ fn seed(date: i32, decision: &str) -> u32 {
 }
 
 /// Takes a decision the view lists for the player, as its button does.
-pub fn take(_: super::Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn take(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let database = m.ptr(m.at(DATABASE))?;
     if database == 0 {
         return Err(eu4_harmony_checks::government::not_found("decision", &key).into());

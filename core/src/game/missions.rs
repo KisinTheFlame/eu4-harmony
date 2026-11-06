@@ -1,7 +1,7 @@
 //! Missions: the player's missions as the missions view shows them, and
 //! completing one, through the game's own command
 //! (docs/research/government.md, "Missions").
-use super::{conditions, content, context, game, Caller, GResult, Tag};
+use super::{conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
@@ -73,9 +73,7 @@ fn choice(m: &Memory, player: Tag, mission: usize, done: bool) -> GResult<Choice
 }
 
 /// The player's missions as the missions view shows them.
-pub fn list(_: Caller) -> GResult<Vec<Mission>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Mission>> {
     let columns = columns(m, ctx.country)?;
     let mut listed = Vec::new();
     for (column, missions) in columns.iter().enumerate() {
@@ -99,9 +97,7 @@ fn written(country: Tag, mission: &str) -> String {
 }
 
 /// Completes one of the player's missions.
-pub fn complete(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn complete(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let all: Vec<usize> = columns(m, ctx.country)?.into_iter().flatten().collect();
     for &mission in &all {
         if content::key(m, mission + KEY)? != key {

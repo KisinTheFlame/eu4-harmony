@@ -1,15 +1,17 @@
 //! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Each capability is
-//! a function taking the [`Caller`] and returning the framework's own types;
-//! the capability catalogue (`crate::catalogue`), which remote control and the
-//! Lua host both run their requests through, only converts to and from them
-//! (ADR one-capability-catalogue). One file per group: [`session`],
+//! a function taking first the [`Session`] it reads, which the catalogue opens
+//! for each request, or, for one that runs without a session or checks
+//! something of its own before, the [`Caller`], and returning the framework's
+//! own types; the capability catalogue (`crate::catalogue`), which remote
+//! control and the Lua host both run their requests through, only converts to
+//! and from them (ADR one-capability-catalogue). One file per group: [`session`],
 //! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
 //! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
 //! [`recruiting`], [`menu`] and [`diplomacy`]; the game's questions and offers waiting for the player's
 //! answer, [`questions`] and [`offers`].
 //!
-//! Under them, reading the campaign, finding routes and giving orders, ported
+//! Under them, reading the session, finding routes and giving orders, ported
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
 //! [`events`], which establishes the safe point everything here runs at);
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
@@ -17,6 +19,8 @@
 //! defeat.md, time.md, fog-of-war.md).
 pub mod administration;
 pub mod armies;
+#[cfg(test)]
+pub mod buffers;
 pub mod buildings;
 pub mod camera;
 pub mod centers_of_trade;
@@ -77,7 +81,7 @@ use crate::{
     objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::Point,
 };
-use eu4_harmony_remote::events::{Event, Winner};
+use eu4_harmony_remote::events::{Event, Kind, Winner};
 use std::sync::Mutex;
 
 /// How much of the game a read gives (GLOSSARY: Player's view, Full view;
@@ -95,7 +99,10 @@ pub enum View {
 /// control the player's view, unless the player's framework setting gives it
 /// the full view.
 pub fn view(caller: Caller) -> View {
-    view_of(caller, crate::settings::current().remote_full_view)
+    match caller {
+        Caller::Extension(_) => View::Full,
+        Caller::Remote => view_of(caller, crate::settings::current().remote_full_view),
+    }
 }
 
 fn view_of(caller: Caller, remote_full_view: bool) -> View {
@@ -190,6 +197,34 @@ fn game() -> GResult<&'static Memory> {
         return fail(Status::WrongContext, "called off the game's main thread");
     }
     crate::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })
+}
+
+/// The session a capability reads, as its caller reads it: the game, the
+/// session at this instant ([`Ctx`]), how much of it the caller reads, and
+/// the caller. The catalogue opens it once for each request
+/// (`crate::catalogue::Live`) and hands it to the capability, which reaches
+/// the game through it alone; a test builds one over objects of its own
+/// (`buffers`).
+#[derive(Clone, Copy, Debug)]
+pub struct Session {
+    pub m: &'static Memory,
+    pub ctx: Ctx,
+    pub view: View,
+    pub caller: Caller,
+}
+
+impl Session {
+    /// Opens the session for `caller`, deciding in one place what a
+    /// capability that reads it fails with otherwise:
+    /// [`Status::WrongContext`] off the game's main thread,
+    /// [`Status::Unavailable`] before startup found the game,
+    /// [`Status::NotInGame`] with no session or no country the player
+    /// controls, [`Status::NotReady`] while the daily update runs.
+    pub fn open(caller: Caller) -> GResult<Self> {
+        let m = game()?;
+        let ctx = context(m)?;
+        Ok(Self { m, ctx, view: view(caller), caller })
+    }
 }
 
 /// What the capabilities keep between calls: the map's topology and the
@@ -346,7 +381,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
         (new_day, previous)
     });
     let (new_month, new_year) = turned(previous.filter(|_| new_day), ctx.date);
-    let (new_month, new_year) = (new_month && events::listened("month"), new_year && events::listened("year"));
+    let (new_month, new_year) = (new_month && events::listened(Kind::Month), new_year && events::listened(Kind::Year));
     let wars = if new_day { watch_wars(m, &ctx) } else { Vec::new() };
     Ok(Frame { ctx, session: seen.session, new_session: seen.new_session, visibility_current, changes, new_day, new_month, new_year, wars })
 }
@@ -355,8 +390,8 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
 /// before, of the kinds someone listens to; nothing when they cannot be
 /// read, which the log says.
 fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
-    let war = events::listened("war_declared") || events::listened("peace_made");
-    let owners = events::listened("province_owner_changed");
+    let war = events::listened(Kind::WarDeclared) || events::listened(Kind::PeaceMade);
+    let owners = events::listened(Kind::ProvinceOwnerChanged);
     let seen = with_state(|s| {
         let mut happened = Vec::new();
         match war {
@@ -484,7 +519,8 @@ impl Tag {
     }
 }
 
-/// The campaign as seen at one instant.
+/// The session as seen at one instant: its world, its date, and the
+/// player's country, by its tag and its object, among the countries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ctx {
     pub world: usize,
@@ -494,7 +530,7 @@ pub struct Ctx {
     pub countries: usize,
 }
 
-/// Current campaign, refusing while the daily update is running.
+/// The session going on, refusing while the daily update is running.
 pub fn context(m: &Memory) -> GResult<Ctx> {
     context_impl(m, true)
 }

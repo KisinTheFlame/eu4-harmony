@@ -35,6 +35,12 @@ impl Layer for super::Live {
     }
 }
 
+/// The group's slice is written above by hand, without `layer!`'s lines.
+#[cfg(test)]
+pub fn bindings() -> super::Bindings {
+    super::Bindings::default()
+}
+
 fn one(keys: &Keys) -> Result<Key, Error> {
     checks::one_key(&keys.0.iter().map(|k| k.name).collect::<Vec<_>>()).map_err(game::Fail::from)?;
     Ok(keys.0[0])

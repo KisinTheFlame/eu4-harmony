@@ -10,9 +10,9 @@
 //! other country would accept it are the game's own answers for the treaty,
 //! as the view's send button and its accept or decline icon show them.
 use super::{
-    commands, context, country,
+    commands, country,
     diplomacy::{self, Made, Ticket},
-    game, Caller, Ctx, GResult, Tag,
+    Ctx, GResult, Session, Tag,
 };
 use crate::{
     game_string,
@@ -93,9 +93,8 @@ pub struct Evaluation {
 /// with `offer` on the offer tab. Gold, which the view sets with its buttons
 /// rather than lists, comes with the most the view lets the player set and
 /// no cost of its own.
-pub fn terms(_: Caller, enemy: Tag, offer: bool) -> GResult<Vec<TermOption>> {
-    let m = game()?;
-    let ctx = at_war(m, enemy)?;
+pub fn terms(Session { m, ctx, .. }: Session, enemy: Tag, offer: bool) -> GResult<Vec<TermOption>> {
+    at_war(m, &ctx, enemy)?;
     let treaty = Treaty::new(m, &ctx, enemy, offer)?;
     let mut out = Vec::new();
     for at in treaty.terms()? {
@@ -120,9 +119,8 @@ pub fn terms(_: Caller, enemy: Tag, offer: bool) -> GResult<Vec<TermOption>> {
 /// Whether the player can send a treaty of `terms` to `enemy` (with
 /// `offer`, terms they offer), its war score cost, and whether `enemy`
 /// would accept it.
-pub fn evaluate(_: Caller, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Evaluation> {
-    let m = game()?;
-    let ctx = at_war(m, enemy)?;
+pub fn evaluate(Session { m, ctx, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Evaluation> {
+    at_war(m, &ctx, enemy)?;
     let treaty = composed(m, &ctx, enemy, terms, offer)?;
     let cost = vec![Amount::new(Resource::WarScore, m.call(m.at(TREATY_COST), &[treaty.at(), 1])? as i32 as f64)];
     let offered = Offer::new(m, &ctx, enemy, &treaty, offer)?;
@@ -134,33 +132,31 @@ pub fn evaluate(_: Caller, enemy: Tag, terms: &[Term], offer: bool) -> GResult<E
 }
 
 /// Demands `terms` of `enemy`, as the peace view's demand tab sends them.
-pub fn demand(_: Caller, enemy: Tag, terms: &[Term]) -> GResult<Ticket> {
-    send(enemy, terms, false)
+pub fn demand(session: Session, enemy: Tag, terms: &[Term]) -> GResult<Ticket> {
+    send(session, enemy, terms, false)
 }
 
 /// Offers `terms` to `enemy`, as the peace view's offer tab sends them.
-pub fn offer(_: Caller, enemy: Tag, terms: &[Term]) -> GResult<Ticket> {
-    send(enemy, terms, true)
+pub fn offer(session: Session, enemy: Tag, terms: &[Term]) -> GResult<Ticket> {
+    send(session, enemy, terms, true)
 }
 
-fn send(enemy: Tag, terms: &[Term], offer: bool) -> GResult<Ticket> {
-    let m = game()?;
-    let ctx = at_war(m, enemy)?;
+fn send(Session { m, ctx, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Ticket> {
+    at_war(m, &ctx, enemy)?;
     let treaty = composed(m, &ctx, enemy, terms, offer)?;
     let offered = Offer::new(m, &ctx, enemy, &treaty, offer)?;
     diplomacy::verdict(m, offered.at())?;
     diplomacy::send(m, &ctx, offered.at(), enemy, Vec::new())
 }
 
-/// The game, with `enemy` a country the player is at war with.
-fn at_war(m: &Memory, enemy: Tag) -> GResult<Ctx> {
-    let ctx = context(m)?;
-    diplomacy::other(m, &ctx, enemy)?;
-    country(m, &ctx, enemy)?;
-    if !super::world::at_war(m, &ctx, ctx.player, enemy)? {
+/// Whether `enemy` is a country the player is at war with.
+fn at_war(m: &Memory, ctx: &Ctx, enemy: Tag) -> GResult<()> {
+    diplomacy::other(m, ctx, enemy)?;
+    country(m, ctx, enemy)?;
+    if !super::world::at_war(m, ctx, ctx.player, enemy)? {
         return Err(checks::not_at_war(diplomacy::letters(enemy)).into());
     }
-    Ok(ctx)
+    Ok(())
 }
 
 /// A treaty with `terms` chosen, each as ticking it in the peace view

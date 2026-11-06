@@ -4,7 +4,7 @@ use super::tag;
 use crate::game::{
     self,
     countries::{self as layer, RelationKind as Kind},
-    thousandths, Caller, GResult, Tag,
+    thousandths, GResult, Tag,
 };
 use eu4_harmony_remote::{
     countries::{Budget, Country, CountryAnswer, CountryRequest, Power, Relation, RelationKind, War},
@@ -12,17 +12,17 @@ use eu4_harmony_remote::{
 };
 
 /// The country with this tag.
-fn find(caller: Caller, tag: CountryTag) -> GResult<Tag> {
-    game::countries::find(caller, tag.0)
+fn find(session: game::Session, tag: CountryTag) -> GResult<Tag> {
+    game::countries::find(session, tag.0)
 }
 
 layer! {
     run CountryRequest => CountryAnswer;
     /// The country with this tag.
-    fn country(tag: CountryTag) -> Tag = find;
-    fn hostile(a: Tag, b: Tag) -> bool = game::countries::hostile;
-    fn snapshot(country: Tag) -> layer::Country = game::countries::snapshot;
-    fn budget(country: Tag) -> Budget = game::countries::budget;
+    fn country(tag: CountryTag) -> Tag = session find;
+    fn hostile(a: Tag, b: Tag) -> bool = session game::countries::hostile;
+    fn snapshot(country: Tag) -> layer::Country = session game::countries::snapshot;
+    fn budget(country: Tag) -> Budget = session game::countries::budget;
     Hostile { country, other } => hostile(game, country, other);
     Get { country } => get(game, country);
     Budget { country } => budget(game, country);

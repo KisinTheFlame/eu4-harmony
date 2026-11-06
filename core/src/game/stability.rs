@@ -4,7 +4,7 @@
 use super::{
     context, game,
     power::{self, BOOST_STABILITY, CAN_INCREASE_STABILITY},
-    Caller, GResult,
+    GResult, Session,
 };
 use crate::points::Point;
 use eu4_harmony_remote::{
@@ -29,9 +29,7 @@ pub fn points() -> Vec<Point> {
 /// Whether the player can raise stability now, as the button's tooltip
 /// says: not at the most, not when `can_increase_stability` does not allow
 /// it, not with too few points.
-fn choice() -> GResult<Choice> {
-    let m = game()?;
-    let ctx = context(m)?;
+fn choice(Session { m, ctx, .. }: Session) -> GResult<Choice> {
     let cost = power::cost(m, ctx.player, BOOST_STABILITY, PowerKind::Adm, 0)?;
     let price = vec![Amount::new(Resource::Adm, cost as f64)];
     if m.i32(ctx.country + STABILITY)? >= MOST {
@@ -50,13 +48,13 @@ fn choice() -> GResult<Choice> {
 }
 
 /// What the stability button offers now.
-pub fn options(_: Caller) -> GResult<Vec<StabilityOption>> {
-    Ok(vec![StabilityOption { action: StabilityAction::Raise, choice: choice()? }])
+pub fn options(session: Session) -> GResult<Vec<StabilityOption>> {
+    Ok(vec![StabilityOption { action: StabilityAction::Raise, choice: choice(session)? }])
 }
 
 /// Raises stability by one, as the button does.
-pub fn raise(_: Caller) -> GResult<()> {
-    let choice = choice()?;
+pub fn raise(session: Session) -> GResult<()> {
+    let choice = choice(session)?;
     if !choice.can {
         return Err(eu4_harmony_checks::choices::not_allowed("raise stability", &choice.reasons).into());
     }
