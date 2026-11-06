@@ -203,8 +203,12 @@ extern "C" fn after(frame: *mut HookFrame) {
     })
 }
 
+/// The most arguments an observer forwards (`HookFrame::args`).
+const MOST_ARGUMENTS: u32 = 12;
+
 /// Observe points for the functions dev.toml names. A function whose argument count cannot be told is left out, as
-/// are those past the `room` observer slots the framework leaves.
+/// are one that reads more arguments than an observer forwards and those past the `room` observer slots the
+/// framework leaves.
 pub fn points(m: &Memory, room: usize) -> Vec<Point> {
     let options = &crate::dev::options().call_trace;
     if options.functions.is_empty() {
@@ -228,6 +232,11 @@ pub fn points(m: &Memory, room: usize) -> Vec<Point> {
             log!("trace: {rva:#x} starts no function in the exception directory; give its argument count as {rva:#x}:N");
             continue;
         };
+        if argc > MOST_ARGUMENTS {
+            // Forwarding fewer would hand the function garbage for the rest.
+            log!("trace: {rva:#x} left out: it reads {argc} arguments, and an observer forwards at most {MOST_ARGUMENTS}");
+            continue;
+        }
         if traced.len() == room {
             log!("trace: {rva:#x} left out: only {room} functions can be traced besides the framework's own");
             continue;
@@ -243,7 +252,7 @@ pub fn points(m: &Memory, room: usize) -> Vec<Point> {
             None => None,
         };
         log!("trace: {rva:#x}, {argc} argument(s), first {limit} calls");
-        traced.push(Traced { address: m.base + rva, rva, argc: argc.min(12), calls: AtomicUsize::new(0), field });
+        traced.push(Traced { address: m.base + rva, rva, argc, calls: AtomicUsize::new(0), field });
     }
     let points = traced
         .iter()
