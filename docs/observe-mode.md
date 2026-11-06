@@ -1,6 +1,6 @@
 # Observe mode plan
 
-Status: decided with the owner (2026-11-07); not built yet. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Observe mode, Country in view, Player's view, Session). The decision is [ADR observe-mode-acts-as-the-country-in-view](adr/observe-mode-acts-as-the-country-in-view.md).
+Status: decided with the owner (2026-11-07); O1 built and tried in the game (2026-11-07), O2 to O4 not yet. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Observe mode, Country in view, Player's view, Session). The decision is [ADR observe-mode-acts-as-the-country-in-view](adr/observe-mode-acts-as-the-country-in-view.md).
 
 ## Goal and scope
 
@@ -16,7 +16,7 @@ From the game's code (RVAs into 1.37.5):
 - `0x763a20(world, tag)` puts a country in view: it writes `+0x1e68` and, in observe mode, refreshes the fog of war (`0x8275e0`) and the map. Ctrl and a click on a province puts its owner in view (`0x116e357`), as do a country in a panel (`0x139c0e9`) and a player in the outliner (`0x81036e`). The menubar's button takes the view out by passing `---` (`0x81703e`).
 - `0x763840(world, tag)` sets the player's own tag: the console's `tag` and `observe` (`0x2788aa`), loading a save (`0x5d046d`) and the setup.
 - With the player's own tag not a country's, the fog of war hides nothing, so with no country in view the whole map shows.
-- The game refuses observe mode in an ironman game (`FE_NOT_IRONMAN_AND_OBSERVER`). A save of an observe-mode game says `player="O00"` in its header.
+- The game refuses observe mode in an ironman game (`FE_NOT_IRONMAN_AND_OBSERVER`). A save of an observe-mode game says `player="O00"` in its header, or, made with a country in view, that country's tag. Loading the 1600.1.1 save of `O00`, the game put Sweden in view (the run of 2026-11-07).
 
 ## Behavior
 
@@ -49,7 +49,7 @@ From the game's code (RVAs into 1.37.5):
 
 - **`game::player`**, one module that knows who the player is: `Player::{Plays(country), Observes { own, in_view: Option<country> }}`, read from the four fields, with a dependency point on `0x811b20` that uses them. It puts a country in view and takes it out through `0x763a20`, and an observe point after `0x763a20` tells `sessions` of every change, which hands on the `country_in_view` event at the frame.
 - **The session**: `game::context` reads the player through `game::player`. `Session::open` fails `no_country` with no country to act as, so the capabilities taking a session stay as they are. The reads that need no country take a smaller type with the world, the date and what the player's view shows, `Eyes::of(view, player)`, a pure function that decides the fog of war in one place. `sessions` keys a session by the world and the player's own tag.
-- **The catalogue and the remote crate**: `Code::NoCountry` (`no_country`); `Capability::country`, from a marker of its own in `group!` beside the place, `anywhere` with `country` failing to compile; a test that the catalogue's capabilities taking a session are those marked `country`. `remote::session::Session` takes `player: Option<CountryTag>` and `observing`.
+- **The catalogue and the remote crate**: `Code::NoCountry` (`no_country`); `Capability::country`, from the place `group!` declares each capability with: `game` acts as a country, `world` needs a game but no country (the markers the time group brought in on 2026-11-06, whose `observing` in `describe` `country` replaces), and `anywhere` neither; `layer!` opens a `Session` for `session` and a `WorldSession` for `world`, and a test keeps the two in agreement. `remote::session::Session` takes `player: Option<CountryTag>` and `observing`.
 - **Waits**: the diplomacy tickets and the peace negotiation keep the country they were made for and check it.
 - **Saves**: `saves::file` lists the observer tag as no player.
 - **Fakes**: the `buffers` session and `catalogue::fake` grow an observe-mode player, and the command line tool's fake world a session without one.
