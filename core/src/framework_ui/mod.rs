@@ -508,6 +508,33 @@ pub fn still(key: &str) {
     }
 }
 
+/// While set, the frames the main thread presents are held back, and the
+/// game's window keeps showing what it showed last, such as a still notice.
+static HOLDING: AtomicBool = AtomicBool::new(false);
+static HELD: AtomicU64 = AtomicU64::new(0);
+
+/// Holds back the frames the main thread presents from now on.
+pub fn hold() {
+    HELD.store(0, Ordering::Relaxed);
+    HOLDING.store(true, Ordering::Relaxed);
+}
+
+/// Lets the frames the main thread presents through again; answers how many
+/// were held back.
+pub fn let_go() -> u64 {
+    HOLDING.store(false, Ordering::Relaxed);
+    HELD.swap(0, Ordering::Relaxed)
+}
+
+/// Whether the frame the main thread presents now is held back.
+fn held() -> bool {
+    let holding = HOLDING.load(Ordering::Relaxed);
+    if holding {
+        HELD.fetch_add(1, Ordering::Relaxed);
+    }
+    holding
+}
+
 fn handle(event: input::Event) -> bool {
     match UI.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
         Some(ui) => ui.event(event),
