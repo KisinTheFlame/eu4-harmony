@@ -21,6 +21,8 @@
 //! - [`names`]: what the game's pick of a name from a list overflows.
 //! - [`save_checksum`]: what the save checksum of a save loaded in a session
 //!   reads.
+//! - [`supporters`]: what a subject relation's end frees under its walk of
+//!   the subject's supporters.
 //!
 //! Here is what they share: letting the game's memory go, and the world's
 //! own reset, after which several of them act and all say what they did.
@@ -36,6 +38,7 @@ mod reset_leaks;
 mod save_checksum;
 mod session_interface;
 mod sprite_types;
+mod supporters;
 mod text_boxes;
 
 pub use new_start::after_history;
@@ -134,6 +137,7 @@ pub fn points() -> Vec<Point> {
         masks::points,
         coalitions::points,
         names::points,
+        supporters::points,
         reset_leaks::points,
         modifiers::points,
         monarchs::points,

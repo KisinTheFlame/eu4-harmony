@@ -1981,6 +1981,15 @@ After three changes that should change nothing a player sees: leaving a session 
 - **Not verified**: an ironman exit save that fails, which keeps the session (by the unit tests only); an in-process return that cannot be made, which restarts the game (the same); a return with "return without restarting" off; the single player setup's back button; an extension's capability call that waits, such as a diplomatic action.
 - **Cleanup**: releasing the game put back the player's files, among them the saves the loads rewrote and the backup save one of them added, and the game folder's framework files; the scenario's report in the session's scratch folder was deleted.
 
+## 2026-11-06 A subject relation's end, with and without its repair (tested by me)
+
+The repair of the walk of a subject's supporters as its relation ends (`core/src/repairs/supporters.rs`; research/dependency-teardown.md), after a player's crash in an observer game in 1478. Within one claim, the game started hidden, a developer build with the test switch `game-ends-dependencies`, the heap census's quarantine turned on by `memory.quarantine` before each load, and a copy of that game's 1478.1.1 autosave with `player="NOG"` and `not_observer=yes`, loaded with `menu.load`. In it the Timurids rule Transoxiana, whose `support_independence` list holds Multan.
+
+- **The game's own end** (`game-ends-dependencies = true`): `console.run annex TIM` logged "a subject relation's end walks TRS's list (MUL) as the game does", then the console's call faulted (`0xc0000005`), with no end of the walk logged: the walk read the node its refresh had freed, which the quarantine had filled with `0xdd`. The same in two runs. The fault's address is not logged by the console's guard; that it was at the walk's next node (`0xa61980`) is inferred from the log lines around it.
+- **With the repair**: the same command answered "诺盖 Annexed 帖木儿", and the log said "a subject relation's end walked TRS's list (MUL); its refresh waited for the walk's end". 60 days ran on with `time.advance`, no crash; Transoxiana was the Nogai's vassal (`country.get`), and the quarantine found no block written to of the 7,091 it kept.
+- **Not tried**: the walk without the quarantine, where the game crashes only when the heap gives the freed node again before the walk reads it; a subject with more than one country in its list; the other callers of `0xa61900` and the peace that crashed the player's game; a game of more than 60 days with the repair.
+- **Cleanup**: the edited save was deleted before the release, which put back the player's files and the game folder's framework files; `dev.toml` was deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

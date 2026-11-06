@@ -191,6 +191,12 @@ pub mod country {
     /// (`0x283d20`) gives each country that has none, and that the
     /// country's destructor never frees (docs/research/main-menu.md).
     pub const ENTRY_BYTES: usize = 0x10a0;
+    /// The countries it shares a support of independence with, either way,
+    /// while it has an overlord (`support_independence` in saves): a list of
+    /// 0x20-byte nodes (a tag, the previous node, the next) that its refresh
+    /// of its diplomatic caches (`0x93fe30`) clears and builds again
+    /// (docs/research/dependency-teardown.md).
+    pub const SUPPORT_INDEPENDENCE: usize = 0x19a0;
     /// The countries in a coalition against it: a list of 0x20-byte nodes
     /// (a member's tag, the previous node, the next, a byte marking it to
     /// leave), which the interface shows as the coalition's members.
