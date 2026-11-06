@@ -12,17 +12,17 @@ use eu4_harmony_remote::{
 };
 
 /// The country with this tag.
-fn find(session: game::Session, tag: CountryTag) -> GResult<Tag> {
+fn find(session: game::WorldSession, tag: CountryTag) -> GResult<Tag> {
     game::countries::find(session, tag.0)
 }
 
 layer! {
     run CountryRequest => CountryAnswer;
     /// The country with this tag.
-    fn country(tag: CountryTag) -> Tag = session find;
-    fn hostile(a: Tag, b: Tag) -> bool = session game::countries::hostile;
-    fn snapshot(country: Tag) -> layer::Country = session game::countries::snapshot;
-    fn budget(country: Tag) -> Budget = session game::countries::budget;
+    fn country(tag: CountryTag) -> Tag = world find;
+    fn hostile(a: Tag, b: Tag) -> bool = world game::countries::hostile;
+    fn snapshot(country: Tag) -> layer::Country = world game::countries::snapshot;
+    fn budget(country: Tag) -> Budget = world game::countries::budget;
     Hostile { country, other } => hostile(game, country, other);
     Get { country } => get(game, country);
     Budget { country } => budget(game, country);

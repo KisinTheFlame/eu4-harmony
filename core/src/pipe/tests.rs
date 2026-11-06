@@ -154,7 +154,10 @@ fn bad_request(answer: &Value, saying: &str) -> bool {
 fn a_client_reads_the_session_and_errors_come_as_json() {
     let test = test_pipe!("session", Place::Game);
     let mut client = test.connect();
-    assert_eq!(client.ask(r#"{"capability": "session.get"}"#), json!({"ok": true, "result": {"number": 2, "player": "TUR", "date": "1444.11.11"}}));
+    assert_eq!(
+        client.ask(r#"{"capability": "session.get"}"#),
+        json!({"ok": true, "result": {"number": 2, "player": "TUR", "observing": false, "date": "1444.11.11"}})
+    );
     let missing = client.ask(r#"{"capability": "army.get", "army": "1"}"#);
     assert_eq!(missing, json!({"ok": false, "error": {"code": "not_found", "message": "no own army 1"}}), "{missing}");
     // A line may end in CR LF, and a blank line is not answered.

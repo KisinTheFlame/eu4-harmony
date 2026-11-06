@@ -179,7 +179,7 @@ impl Wait for Starting {
 /// game began another (a new game at the start date, say, when it could not
 /// read the save).
 fn other_game(expected: &Expected, s: &game::session::Session) -> Option<String> {
-    let player = s.player.letters();
+    let player = s.player.own().letters();
     let other_date = expected.date.is_some_and(|date| date != s.date);
     (player != expected.player || other_date).then(|| {
         let save = match expected.date {
@@ -225,7 +225,7 @@ mod tests {
         engine.run(&mut game, &Place::Outside(None), PLENTY);
         assert!(answer(&load).is_null());
         engine.run(&mut game, &Place::Game, PLENTY);
-        assert_eq!(answer(&load), ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})));
+        assert_eq!(answer(&load), ok(json!({"number": 2, "player": "TUR", "observing": false, "date": "1444.11.11"})));
         assert_eq!(game.calls, ["load 奥斯曼1444_11_11", "session"]);
 
         // A load that comes to another game than its save's says so.
@@ -300,7 +300,7 @@ mod tests {
         // writes the ironman exit save of the session it leaves.
         *game.rewritten.lock().unwrap() = Some(game::menu::Expected { player: *b"TUR", date: Some(0x035D_7710) });
         engine.run(&mut game, &Place::Game, PLENTY);
-        assert_eq!(answer(&load), ok(json!({"number": 2, "player": "TUR", "date": "1444.11.11"})));
+        assert_eq!(answer(&load), ok(json!({"number": 2, "player": "TUR", "observing": false, "date": "1444.11.11"})));
     }
 
     #[test]
@@ -366,10 +366,10 @@ mod tests {
 
     #[test]
     fn a_return_needs_no_player() {
-        // Observing, where what needs a game is refused, the layer decides.
+        // Where what needs a game is refused, the layer decides.
         let engine = Engine::new(remember);
         let mut game = Fake::default();
-        let observing = Place::Outside(Some(Error::new(Code::NotInGame, "no controllable player")));
+        let observing = Place::Outside(Some(Error::new(Code::NotInGame, "no player")));
         let session = engine.submit(Request::Session(SessionRequest::Get {}));
         let back = engine.submit(Request::Menu(MenuRequest::Return {}));
         engine.run(&mut game, &observing, PLENTY);

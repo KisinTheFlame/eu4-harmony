@@ -1,8 +1,9 @@
 //! The campaign being played: which session, the date, whether it is paused,
-//! and the player's country.
-use super::{context, events, game, paused, Caller, GResult, Tag};
+//! and its player: the country played, or in observe mode the country in
+//! view, if any.
+use super::{events, game, paused, player::Player, world_context, Caller, GResult};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Session {
     /// Increases whenever a different campaign state is loaded or started.
     pub session: u64,
@@ -11,17 +12,17 @@ pub struct Session {
     pub paused: bool,
     /// Visibility (fog of war) reflects the current date.
     pub visibility_current: bool,
-    pub player: Tag,
+    pub player: Player,
 }
 
 pub fn session(_: Caller) -> GResult<Session> {
     let m = game()?;
-    let ctx = context(m)?;
+    let world = world_context(m)?;
     Ok(Session {
         session: crate::sessions::number(),
-        date: ctx.date,
-        paused: paused(m, &ctx)?,
-        visibility_current: events::visibility_current(m, &ctx),
-        player: ctx.player,
+        date: world.date,
+        paused: paused(m, &world)?,
+        visibility_current: events::visibility_current(m, &world),
+        player: world.player,
     })
 }

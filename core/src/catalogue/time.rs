@@ -160,9 +160,8 @@ struct Advance {
 }
 
 impl Advance {
-    /// Whether, and why, it stops at this safe point; `observing` when the
-    /// player only observes, which hears no day's event to wait for.
-    fn check(&mut self, game: &mut (impl Layer + ?Sized), events: &events::Buffer, now: Instant, observing: bool) -> GResult<Option<(Stop, &'static str)>> {
+    /// Whether, and why, it stops at this safe point.
+    fn check(&mut self, game: &mut (impl Layer + ?Sized), events: &events::Buffer, now: Instant) -> GResult<Option<(Stop, &'static str)>> {
         let time = game.time()?;
         self.date = time.date;
         if time.session != self.session {
@@ -174,7 +173,10 @@ impl Advance {
             let until = self.until;
             let heard =
                 events.read(self.since, process(), &Default::default()).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
-            return Ok((heard || observing || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
+            // While the player observes with no country in view, as when
+            // the country was annexed or the game console's observe ran, no
+            // day's event is heard to wait for.
+            return Ok((heard || time.unseen_days || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
         }
         if game.questions_waiting()? > 0 {
             game.pause()?;
@@ -223,13 +225,9 @@ impl Wait for Advance {
             let response = self.stopped(Stop::MainMenu, "the game returned to the main menu", events);
             return self.answer(response);
         }
-        // While the player observes, as when the country was annexed or the
-        // game console's observe ran, time runs on for the advance as well,
-        // but no day's event is heard.
-        let observing = at.unplayable().is_some();
         let now = at.now;
         let game = at.world()?;
-        match self.check(game, events, now, observing) {
+        match self.check(game, events, now) {
             Ok(None) => None,
             // A frame where the game cannot be read comes and goes.
             Err(fail) if fail.status == Status::NotReady => None,

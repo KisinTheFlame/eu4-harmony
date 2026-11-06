@@ -2,10 +2,9 @@
 //! pausing and resuming as the player would, and setting the speed with the
 //! game's speed commands, as the player's speed keys do; stopping time
 //! as a date is reached, for remote control's advancing; and whether a
-//! question waits for the player's answer. All of it also while the player
-//! only observes, with no country to play, as the game lets the player run
-//! time then too. The evidence is in docs/research/time.md.
-use super::{commands, context, context_any, fail, map_manager, observing, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
+//! question waits for the player's answer. All of it also in observe mode
+//! with no country in view, as the game lets the player run time then too. The evidence is in docs/research/time.md.
+use super::{commands, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -57,6 +56,9 @@ pub struct Time {
     /// The end date, once the game is over: past it, unless the player
     /// chose to play on, time does not run (see [`resume`]).
     pub over: Option<i32>,
+    /// The player observes with no country in view, whose days bring no
+    /// day's event.
+    pub unseen_days: bool,
 }
 
 impl Time {
@@ -78,7 +80,8 @@ pub fn time(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<Time> {
     } else {
         Pause::Window
     };
-    Ok(Time { session: crate::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
+    let unseen_days = ctx.player.acting().is_none();
+    Ok(Time { session: crate::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)?, unseen_days })
 }
 
 /// Pauses the game with the player's own pause, as the player would, also
@@ -120,12 +123,13 @@ fn over(m: &Memory, ctx: &World) -> GResult<Option<i32>> {
 }
 
 /// Whether the pause key would resume the game, by its other check: the
-/// player's tag's last byte set (the switched tag's, while switched), which
-/// it is for the game console's observe, or the game letting time run with
-/// no country to play.
+/// last byte set of the tag the game takes for the player's country (the
+/// country in view's, while one is in view in observe mode), which it is for
+/// the game console's observe, or the game letting time run with no country
+/// to play.
 fn lets_time_run(m: &Memory, ctx: &World) -> GResult<bool> {
-    let switched = m.u8(ctx.world + world::PLAYER_MODE)? == world::SWITCHED && m.u8(ctx.world + world::PLAYER_SWITCHED)? != 0;
-    let last = if switched { m.u8(ctx.world + world::PLAYER_SWITCHED)? } else { m.u8(ctx.world + world::PLAYER + 7)? };
+    let in_view = m.u8(ctx.world + world::PLAYER_KIND)? == world::OBSERVE && m.u8(ctx.world + world::IN_VIEW_VALID)? != 0;
+    let last = if in_view { m.u8(ctx.world + world::IN_VIEW_VALID)? } else { m.u8(ctx.world + world::PLAYER + 7)? };
     Ok(last != 0 || m.u8(ctx.world + world::OBSERVER_RUNS_TIME)? != 0)
 }
 
@@ -157,7 +161,7 @@ pub fn set_speed(caller: Caller, speed: u32) -> GResult<()> {
 /// the two never disagree with each other or with the questions listed. None
 /// waits for an observer.
 pub fn questions_waiting(WorldSession { m, .. }: WorldSession) -> GResult<usize> {
-    if observing(m)? {
+    if world_context_any(m)?.player.observing() {
         return Ok(0);
     }
     questions::count(m, &context(m)?)

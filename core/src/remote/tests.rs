@@ -142,14 +142,14 @@ fn every_capability_runs_where_its_kind_says() {
         assert!(ran(&game, request) && !answer(reply).is_null(), "{} did not run at a game's frame", request.name());
     }
 
-    // At a game's frame the player cannot play, what needs a country the
-    // player plays is answered why, and what needs only the game runs.
+    // At a game's frame the player cannot play, what needs a game is
+    // answered why, and the rest runs.
     let engine = Engine::new(fake::quiet);
     let mut game = Scripted::default();
     let replies: Vec<Reply> = all.iter().map(|r| engine.submit(r.clone())).collect();
-    engine.run(&mut game, &Place::Unplayable(Error::new(Code::NotInGame, "no controllable player")), PLENTY);
+    engine.run(&mut game, &Place::Unplayable(Error::new(Code::NotInGame, "no player")), PLENTY);
     for (request, reply) in all.iter().zip(&replies) {
-        assert_eq!(ran(&game, request), !request.in_game() || request.observing(), "{}", request.name());
+        assert_eq!(ran(&game, request), !request.in_game(), "{}", request.name());
         assert!(!answer(reply).is_null(), "{} was not answered", request.name());
     }
 }
@@ -307,7 +307,7 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
 #[test]
 fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     let frame = game::Frame {
-        ctx: game::Ctx { world: 0, date: 0x035D_7710, player: fake::tur(), country: 0, countries: 0 },
+        world: game::World { world: 0, date: 0x035D_7710, countries: 0, player: game::player::Player::Plays(fake::tur()) },
         session: 3,
         new_session: true,
         visibility_current: true,

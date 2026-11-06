@@ -52,8 +52,9 @@ pub enum End {
     Load,
     /// For a new game started from the session.
     NewGame,
-    /// The player's country changed, on the same world: the game console's
-    /// `tag`, say. The next session begins at once.
+    /// The player's own country changed, on the same world: the game
+    /// console's `tag` or `observe`, say, but not a change of the country in
+    /// view. The next session begins at once.
     Country,
 }
 
@@ -78,7 +79,7 @@ impl End {
 /// Where the safe point that is about to run remote control is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum At {
-    /// A game's frame (also while the player only observes).
+    /// A game's frame (also in observe mode).
     Game,
     /// The main menu's frame ran since the last frame was presented; the
     /// main menu object.
@@ -106,8 +107,8 @@ pub enum Happening {
 }
 
 /// How long a game's frames must have failed to read, as no game the player
-/// can play, before they count as such. Observing lasts; but a game's first
-/// frames may fail for a moment as it settles (the player's country read
+/// can play, before they count as such. A game's first frames may fail for a
+/// moment as it settles (the player's country read
 /// before its tag matches, say), and a load or start waiting for its first
 /// frame must not be refused for one of those, nor an advance be ended.
 pub const UNPLAYABLE_AFTER: Duration = Duration::from_secs(1);
@@ -129,7 +130,7 @@ pub struct Lifecycle {
     /// read, a world reset, or a frame of another world or player than the
     /// last begins another.
     number: u64,
-    /// The world and the player's country the last game frame showed.
+    /// The world and the player's own tag the last game frame showed.
     identity: Option<(usize, u64)>,
     /// The number of the session the last game frame showed.
     framed: u64,
@@ -155,7 +156,7 @@ impl Lifecycle {
         Self { number: 0, identity: None, framed: 0, going_on: None, at: At::Elsewhere, reading: 0, loads: 0, last_read: false, failing: None, replaced: false }
     }
 
-    /// A game's safe frame of the world and the player's country `identity`
+    /// A game's safe frame of the world and the player's own tag `identity`
     /// was read: what it shows of sessions. A session begins when it is a
     /// new one, what was kept of the last frame's let go first and the one
     /// going on ended, if any. That one was not left by a way out, which
@@ -276,10 +277,12 @@ fn tell(happened: Vec<Happening>) {
     }
 }
 
-/// A game's safe frame of the campaign `ctx` was read, before what
-/// happened in it is collected: what it shows of sessions.
-pub fn frame_read(ctx: &game::Ctx) -> Seen {
-    let (seen, happened) = lifecycle(|l| l.frame_read((ctx.world, ctx.player.0)));
+/// A game's safe frame of the game `world` was read, before what happened
+/// in it is collected: what it shows of sessions. A session is the world and
+/// the player's own tag: a change of the country in view leaves it going on
+/// (ADR observe-mode-acts-as-the-country-in-view).
+pub fn frame_read(world: &game::World) -> Seen {
+    let (seen, happened) = lifecycle(|l| l.frame_read((world.world, world.player.own().0)));
     tell(happened);
     seen
 }
@@ -373,7 +376,7 @@ mod tests {
     use super::*;
     use Happening::*;
 
-    /// A world and the player's country, as a frame shows them.
+    /// A world and the player's own tag, as a frame shows them.
     const SPAIN: (usize, u64) = (0x1000, 1);
     const FRANCE: (usize, u64) = (0x1000, 2);
     const OTHER_WORLD: (usize, u64) = (0x2000, 1);

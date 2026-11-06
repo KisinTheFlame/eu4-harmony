@@ -234,12 +234,6 @@ fn time_does_not_run_once_the_game_is_over() {
     assert!(game.clock.stops.lock().unwrap().is_empty());
 }
 
-/// A game's frame where the player observes: the country annexed, or the
-/// game console's observe.
-fn observing() -> Place {
-    Place::Unplayable(Error::new(Code::NotInGame, "no controllable player"))
-}
-
 #[test]
 fn an_advance_runs_on_to_its_date_once_the_player_observes() {
     let engine = Engine::new(quiet);
@@ -247,11 +241,14 @@ fn an_advance_runs_on_to_its_date_once_the_player_observes() {
     let reply = engine.submit(advance(2, None));
     engine.run(&mut game, &Place::Game, PLENTY);
     next_day(&engine, &mut game);
-    engine.run(&mut game, &observing(), PLENTY);
+    // The player observes with no country in view: the country annexed, or
+    // the game console's observe. Its frames are a game's as any other.
+    game.clock.time.unseen_days = true;
+    engine.run(&mut game, &Place::Game, PLENTY);
     assert!(answer(&reply).is_null());
     // The second day passes unheard, as an observer's days are.
     game.clock.time.date += DAY;
-    engine.run(&mut game, &observing(), PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
     let got = answer(&reply);
     assert_eq!((got["result"]["stopped"].clone(), got["result"]["date"].clone()), (json!("date"), json!(date(2))), "{got}");
     assert!(game.clock.time.paused());
@@ -259,22 +256,21 @@ fn an_advance_runs_on_to_its_date_once_the_player_observes() {
 }
 
 #[test]
-fn the_clock_is_read_and_set_while_the_player_observes_and_a_country_s_requests_are_refused() {
+fn the_clock_is_read_and_set_while_the_player_observes() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();
     let replies: Vec<Reply> = [time(TimeRequest::SetSpeed { speed: 5 }), time(TimeRequest::Resume {}), time(TimeRequest::Get {}), advance(1, None)]
         .into_iter()
         .map(|r| engine.submit(r))
         .collect();
-    let army = engine.submit(Request::Army(eu4_harmony_remote::armies::ArmyRequest::List {}));
-    engine.run(&mut game, &observing(), PLENTY);
+    game.clock.time.unseen_days = true;
+    engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(answer(&replies[0]), ok(Value::Null));
     assert_eq!(answer(&replies[1]), ok(Value::Null));
     assert_eq!(answer(&replies[2]), ok(json!({"date": "1444.11.11", "paused": false, "speed": 5})));
     assert!(answer(&replies[3]).is_null());
-    assert_eq!(answer(&army)["error"]["code"], "not_in_game");
     game.clock.time.date += DAY;
-    engine.run(&mut game, &observing(), PLENTY);
+    engine.run(&mut game, &Place::Game, PLENTY);
     assert_eq!(answer(&replies[3])["result"]["stopped"], "date");
 }
 

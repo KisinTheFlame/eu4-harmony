@@ -92,6 +92,8 @@ pub struct Fake {
     pub inputs: Vec<game::input::Action>,
     /// How many of them the game has had.
     pub inputs_handled: u64,
+    /// The player, as the session gives it; the Ottomans played when None.
+    pub player: Option<game::player::Player>,
 }
 
 impl Fake {
@@ -141,7 +143,8 @@ impl session::Layer for Fake {
     fn session(&mut self) -> GResult<game::session::Session> {
         self.call("session".into());
         // 1444.11.11
-        Ok(game::session::Session { session: 2, date: 0x035D_7710, paused: true, visibility_current: true, player: tur() })
+        let player = self.player.unwrap_or(game::player::Player::Plays(tur()));
+        Ok(game::session::Session { session: 2, date: 0x035D_7710, paused: true, visibility_current: true, player })
     }
 }
 
@@ -593,7 +596,7 @@ pub struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
-        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player, over: None };
+        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player, over: None, unseen_days: false };
         Self { time, questions: 0, stops: Default::default(), failing: None }
     }
 }

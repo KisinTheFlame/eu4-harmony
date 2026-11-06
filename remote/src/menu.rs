@@ -34,7 +34,8 @@ group! {
     /// add them to the playset and start the game again; and rejected when
     /// the game does not take the load up, cannot read the save (it then
     /// starts a game from what it read), begins another game than the
-    /// save's, or begins one the player cannot play.
+    /// save's, or begins one the player cannot play. A save of observe mode
+    /// loads into observe mode.
     remote_anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
@@ -55,8 +56,8 @@ group! {
     /// Returns to the main menu, without the game's question or its summary,
     /// as the player would; an ironman game is saved first, and rejected,
     /// the game going on, when that save fails. Whenever a game is going on,
-    /// also while the player only observes (when capabilities that need a
-    /// game are refused); not_in_game where none is. With the framework
+    /// also where capabilities that need a game are refused; not_in_game
+    /// where none is. With the framework
     /// settings returning without restarting (the default), this process
     /// answers once its main menu is up, place main_menu. Otherwise the game
     /// returns by starting eu4.exe again, and the answer comes from this
@@ -88,7 +89,7 @@ pub enum Place {
     /// remote client or by the player), or neither the main menu nor a
     /// game's frame runs, as at startup until the main menu shows.
     Starting,
-    /// A game is going on (also while the player only observes).
+    /// A game is going on (also in observe mode).
     Game,
     /// The game is returning to the main menu: this process ends.
     Ending,
@@ -113,7 +114,7 @@ pub struct Save {
     /// When it was last written, in seconds since 1970.
     pub modified: u64,
     /// The country it is played as, as its header says; null when that
-    /// cannot be read, or for an observer's save.
+    /// cannot be read, or for a save of observe mode.
     pub player: Option<CountryTag>,
     /// Its date, as its header says.
     pub date: Option<Date>,

@@ -65,13 +65,14 @@ macro_rules! in_game {
     };
 }
 
-/// Whether a capability that needs a game going on runs while the player
-/// only observes it too, with no country to play.
-macro_rules! observing {
-    (world) => {
+/// Whether a capability acts as a country: the one the player plays, or in
+/// observe mode the country in view (ADR
+/// observe-mode-acts-as-the-country-in-view).
+macro_rules! country {
+    (game) => {
         true
     };
-    (remote_world) => {
+    (remote_game) => {
         true
     };
     ($place:ident) => {
@@ -110,9 +111,9 @@ macro_rules! for_extensions {
 /// game Variant "name" { /// What the argument is. argument: Type, ... } -> Result, "what the result is";
 /// ```
 ///
-/// `game` for a capability that needs a game going on with a country the
-/// player plays, `world` for one that needs a game going on, the player
-/// playing a country in it or only observing, `anywhere` for one that needs
+/// `game` for a capability that needs a game going on and acts as a country
+/// (the one the player plays, or the country in view), `world` for one that
+/// needs a game going on and acts as no country, `anywhere` for one that needs
 /// no game, each with `remote_` before it for one only remote control has; `"name"` empty for one the group's name alone names.
 macro_rules! group {
     (
@@ -171,10 +172,11 @@ macro_rules! group {
                 }
             }
 
-            /// Whether it runs while the player only observes the game too.
-            pub fn observing(&self) -> bool {
+            /// Whether it acts as a country, and fails with no country in
+            /// view.
+            pub fn country(&self) -> bool {
                 match self {
-                    $( Self::$Variant { .. } => observing!($place), )*
+                    $( Self::$Variant { .. } => country!($place), )*
                 }
             }
         }
@@ -192,7 +194,7 @@ macro_rules! group {
                     action: $action,
                     about: concat!($($doc),*),
                     in_game: in_game!($place),
-                    observing: observing!($place),
+                    country: country!($place),
                     extensions: for_extensions!($place),
                     args: &[
                         $(
@@ -248,10 +250,11 @@ macro_rules! groups {
                 }
             }
 
-            /// Whether it runs while the player only observes the game too.
-            pub fn observing(&self) -> bool {
+            /// Whether it acts as a country, and fails with no country in
+            /// view.
+            pub fn country(&self) -> bool {
                 match self {
-                    $( $(#[cfg($cfg)])? Self::$Group(r) => r.observing(), )*
+                    $( $(#[cfg($cfg)])? Self::$Group(r) => r.country(), )*
                 }
             }
 
@@ -679,9 +682,9 @@ pub struct Capability {
     pub about: &'static str,
     /// It runs only while a game is going on.
     pub in_game: bool,
-    /// It runs while the player only observes the game too, with no country
-    /// to play.
-    pub observing: bool,
+    /// It acts as a country: the one the player plays, or in observe mode
+    /// the country in view; it fails with no_country while none is in view.
+    pub country: bool,
     /// Extensions have it too, not only remote control.
     pub extensions: bool,
     pub args: &'static [Parameter],
@@ -725,7 +728,7 @@ impl Serialize for Capability {
         s.serialize_field("capability", &self.name())?;
         s.serialize_field("about", &prose(self.about))?;
         s.serialize_field("in_game", &self.in_game)?;
-        s.serialize_field("observing", &self.observing)?;
+        s.serialize_field("country", &self.country)?;
         s.serialize_field("extensions", &self.extensions)?;
         s.serialize_field("args", self.args)?;
         s.serialize_field("result", self.result)?;
@@ -857,10 +860,13 @@ pub use eu4_harmony_checks::Date;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Code {
-    /// No game is going on to play: the main menu is open, or the player
-    /// plays no country (observing). While a game is being set up or a save
-    /// loads, a request that needs a game waits for one instead.
+    /// No game is going on: the main menu is open. While a game is being
+    /// set up or a save loads, a request that needs a game waits for one
+    /// instead.
     NotInGame,
+    /// It acts as a country, and the player observes with no country in
+    /// view (ADR observe-mode-acts-as-the-country-in-view).
+    NoCountry,
     /// The game state cannot be read right now; it may work a little later.
     NotReady,
     NotFound,
@@ -883,8 +889,9 @@ pub enum Code {
 impl Code {
     /// Every code a client may get, which its help and the documentation
     /// explain.
-    pub const ALL: [Code; 9] = [
+    pub const ALL: [Code; 10] = [
         Self::NotInGame,
+        Self::NoCountry,
         Self::NotReady,
         Self::NotFound,
         Self::Rejected,
@@ -899,6 +906,7 @@ impl Code {
     pub fn name(self) -> &'static str {
         match self {
             Self::NotInGame => "not_in_game",
+            Self::NoCountry => "no_country",
             Self::NotReady => "not_ready",
             Self::NotFound => "not_found",
             Self::Rejected => "rejected",
@@ -913,7 +921,8 @@ impl Code {
     /// What it means, and what a client does about it.
     pub fn about(self) -> &'static str {
         match self {
-            Self::NotInGame => "no game the player can play: the main menu is open, or the player only observes; menu says where the game is",
+            Self::NotInGame => "no game is going on: the main menu is open; menu says where the game is",
+            Self::NoCountry => "the player observes with no country in view, so there is no country to act as; one is put in view as the player does, Ctrl and a click on the map",
             Self::NotReady => "the game cannot answer it right now, such as before visibility has caught up with the date; ask again shortly",
             Self::NotFound => "no such thing: an army, a province, a save, a route",
             Self::Rejected => "the game refused it, as it would refuse the player; the message gives the game's reasons, one a line",

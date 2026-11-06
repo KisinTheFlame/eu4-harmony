@@ -32,7 +32,9 @@
 /// and returns a `Result`. Arguments and answers pass through [`Convert`].
 /// What the capability takes first is said before it: `session`, the
 /// session [`Live`] opens for the request (`crate::game::Session`), which
-/// decides whether there is one to read before the capability runs; or
+/// decides whether there is one to read, with a country to act as, before
+/// the capability runs; `world`, the session of a capability that acts as no
+/// country (`crate::game::WorldSession`), also with none in view; or
 /// `caller`, the caller alone, for a capability that runs without a session
 /// or checks something of its own first. `run Request => Answer +
 /// other::Layer;` lets `run` and the group's functions use another group's
@@ -86,11 +88,14 @@ macro_rules! layer {
     (@live $caller:ident session $capability:path, $($arg:ident),*) => {
         $capability(crate::game::Session::open($caller)?, $($arg),*)
     };
+    (@live $caller:ident world $capability:path, $($arg:ident),*) => {
+        $capability(crate::game::WorldSession::open($caller)?, $($arg),*)
+    };
     (@live $caller:ident caller $capability:path, $($arg:ident),*) => {
         $capability($caller, $($arg),*)
     };
     (@live $caller:ident $takes:ident $capability:path, $($arg:ident),*) => {
-        compile_error!(concat!("layer!: ", stringify!($capability), " takes a session or a caller, not ", stringify!($takes)))
+        compile_error!(concat!("layer!: ", stringify!($capability), " takes a session, a world or a caller, not ", stringify!($takes)))
     };
     (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*) => {
         /// The group's slice of the capability layer.
@@ -451,6 +456,7 @@ impl From<game::Fail> for Error {
     fn from(fail: game::Fail) -> Self {
         let code = match fail.status {
             game::Status::NotInGame => Code::NotInGame,
+            game::Status::NoCountry => Code::NoCountry,
             game::Status::NotReady => Code::NotReady,
             game::Status::NotFound => Code::NotFound,
             game::Status::Rejected => Code::Rejected,
@@ -498,8 +504,9 @@ pub fn tag(tag: game::Tag) -> CountryTag {
 pub enum Place {
     /// A game's safe frame: every request runs.
     Game,
-    /// A game's frame with no game the player can play, and why (the player
-    /// only observes, say): requests that need a game are answered with it.
+    /// A game's frame with no game the player can play, and why (the
+    /// player's country not matching its tag, say): requests that need a
+    /// game are answered with it. Observe mode is a game like any other.
     Unplayable(Error),
     /// A safe point with no game to read. Requests that need one wait for a
     /// game frame, or, given an error, are answered with it.

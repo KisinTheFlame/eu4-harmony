@@ -73,7 +73,7 @@ pub struct Save {
     /// Seconds since 1970.
     pub modified: u64,
     /// The country it is played as, and its date, as its header says; None
-    /// when it cannot be read (or for an observer's save).
+    /// when it cannot be read, or for a save of observe mode.
     pub player: Option<[u8; 3]>,
     pub date: Option<i32>,
     /// The mods it was made with that the game did not start with, by name:
@@ -336,8 +336,8 @@ pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
     let file = save_file(name)?;
     let path = save_games()?.join(&file);
     let header = read_header(&path)?;
-    let Some(letters) = header.player else {
-        return fail(Status::Rejected, "the save has no country to play");
+    let Some(letters) = player_of(&header) else {
+        return fail(Status::Rejected, "the save has no player");
     };
     let missing = missing_mods(&header, crate::mods::playset());
     if !missing.is_empty() {
@@ -353,11 +353,17 @@ pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
     LAUNCHES.ask(if in_game { Action::LoadInGame(save_name(&file).unwrap_or(&file).to_string()) } else { Action::Load(format!("save games/{file}"), player) });
     Ok(Box::new(move || {
         let header = read_header(&path)?;
-        match header.player {
+        match player_of(&header) {
             Some(player) => Ok(Expected { player, date: header.date }),
-            None => fail(Status::Rejected, "the save the game loaded has no country to play"),
+            None => fail(Status::Rejected, "the save the game loaded has no player"),
         }
     }))
+}
+
+/// The player's own tag a save's header says: its country, or in a save of
+/// observe mode the observer's.
+fn player_of(header: &save_file::Header) -> Option<[u8; 3]> {
+    header.player.or(header.observing.then_some(save_file::OBSERVER))
 }
 
 fn read_header(path: &Path) -> GResult<save_file::Header> {
@@ -552,7 +558,9 @@ fn find(m: &Memory, letters: [u8; 3]) -> GResult<Tag> {
             continue;
         }
         let tag = Tag(m.u64(country + country_fields::TAG)?);
-        if tag.normal() && tag.letters() == letters && tag.index() as usize == index {
+        // The observer's tag is of the rebels' kind, which no country is.
+        let player = tag.normal() || (letters == save_file::OBSERVER && tag.valid() && tag.kind() == world::OBSERVE);
+        if player && tag.letters() == letters && tag.index() as usize == index {
             return Ok(tag);
         }
     }

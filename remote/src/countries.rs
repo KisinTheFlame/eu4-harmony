@@ -9,7 +9,7 @@ group! {
 
     /// Whether two countries are at war with each other, or either is a
     /// rebel faction.
-    game Hostile "hostile" {
+    world Hostile "hostile" {
         /// One country.
         country: CountryTag,
         /// The other.
@@ -23,14 +23,14 @@ group! {
     /// the game's panels do not show of another country is null: its
     /// treasury, monarch points, governing capacity, inflation, mercantilism,
     /// loans and rebels.
-    game Get "get" {
+    world Get "get" {
         /// The country.
         country: CountryTag,
     } -> Box<Country>, "the country: tag, treasury, manpower and max_manpower, stability, prestige, power (adm, dip, mil), wars (each its name, attackers and defenders, the leaders first), relations (each a kind, ally, subject, overlord or rival, and a country; a subject or an overlord also its subject_type, the key the game or a mod gives the kind of subject, such as vassal, march, personal_union or tributary_state), technology (adm, dip, mil), ideas (each an idea group's key, how many of its ideas are taken, and whether it is the national ideas), governing_capacity (used, max), inflation and mercantilism (percent), loans (count, ducats) and rebels (each its kind, the rebel type's key, its name and progress in percent); in the player's view the fields another country's panels do not show are null";
     /// A country's budget as the economy view shows it: this month's income
     /// and expenses by category, and its loans. In the player's view another
     /// country's are null.
-    game Budget "budget" {
+    world Budget "budget" {
         /// The country.
         country: CountryTag,
     } -> Budget, "the budget: country, income and expenses (each a category, the game's key for it such as INCOMETAX, its name as the view shows it, and ducats; null in the player's view for another country), and loans (each its lender, null for none, ducats, interest in percent and the date it falls due; null likewise)";

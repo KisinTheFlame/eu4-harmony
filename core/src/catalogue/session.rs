@@ -14,6 +14,6 @@ layer! {
 /// The session as remote clients read it.
 impl Convert<Session> for game::session::Session {
     fn convert(self) -> Session {
-        Session { number: self.session, player: tag(self.player), date: Date(self.date) }
+        Session { number: self.session, player: self.player.acting().map(tag), observing: self.player.observing(), date: Date(self.date) }
     }
 }

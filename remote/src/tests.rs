@@ -266,7 +266,7 @@ fn descriptions_in_json() {
             "capability": "country.hostile",
             "about": "Whether two countries are at war with each other, or either is a rebel faction.",
             "in_game": true,
-            "observing": false,
+            "country": false,
             "extensions": true,
             "args": [
                 {"name": "country", "kind": "country", "optional": false, "about": "One country."},

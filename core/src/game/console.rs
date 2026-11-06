@@ -9,7 +9,7 @@
 //! only developers may run, or any command but two in an ironman or
 //! multiplayer game, is refused with the game's own words
 //! (docs/research/game-console.md).
-use super::{fail, GResult, Session, Status};
+use super::{fail, GResult, Status, WorldSession};
 use crate::{
     game_string,
     memory::Memory,
@@ -46,7 +46,7 @@ pub fn points() -> Vec<Point> {
 /// Runs `command` in the game console, as the player would type it, such as
 /// `cash 100`, and returns what it printed. [`Status::Rejected`], with what
 /// it printed, when the game console refuses the command or it fails.
-pub fn run(Session { m, .. }: Session, command: &str) -> GResult<String> {
+pub fn run(WorldSession { m, .. }: WorldSession, command: &str) -> GResult<String> {
     let words = Words::new(command)?;
     let (succeeded, printed) = run_words(m, &words)?;
     let printed = game_text::to_utf8(&printed);

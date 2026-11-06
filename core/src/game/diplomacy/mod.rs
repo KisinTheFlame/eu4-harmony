@@ -393,7 +393,7 @@ fn kept(ticket: Ticket) -> GResult<(Sent, Seen)> {
 
 /// The name of the player's latest war with `enemy` on the other side.
 fn war_with(session: Session, enemy: Tag) -> GResult<Option<String>> {
-    let (player, ctx) = (countries::snapshot(session, session.ctx.player)?, session.ctx);
+    let (player, ctx) = (countries::snapshot(session.world()?, session.ctx.player)?, session.ctx);
     let opposed = |ours: &[Tag], theirs: &[Tag]| ours.iter().any(|t| t.index() == ctx.player.index()) && theirs.iter().any(|t| t.index() == enemy.index());
     Ok(player.wars.into_iter().rev().find(|w| opposed(&w.attackers, &w.defenders) || opposed(&w.defenders, &w.attackers)).map(|w| w.name))
 }
