@@ -1999,6 +1999,15 @@ The player had seen the game's window flicker a few times and the loading screen
 - **Not verified**: the player's own ways out (the return question, the load button), which reach the same steps; a window in exclusive full screen; how long a load runs before Windows calls the game hung on other machines (5 s by default).
 - **Cleanup**: the game was closed by ending its process. Releasing the game restored the player's files, the `H-Test` saves rewritten by the ironman saves among them, and found every file as the backup had it. The recordings and scripts were in the session's scratch folder.
 
+## 2026-11-06 A return holding back the main menu's painting (tested by me)
+
+The in-process return now holds back the main thread's presents while the new main menu takes over (`0x10d5bc0`), so the still notice stays until its first frame. Master at `97abf89` with the change, built twice: the player build, then with the call trace on `0x10b3600`, `0x11bb4f0` and `0x11bb850`. The game hidden, claimed with `cargo xtask game`, driven by `eu4-harmony game`: the ironman save `England-1` loaded from the main menu, `menu return`; loaded and returned once more in the traced build.
+
+- **What was held back**: each of the three returns logged "the main menu took over, 1 of its presents held back". The trace shows which: `0x11bb4f0` with `载入图像……` called `0x10b3600` from `0x11bb567`, the branch for no loading screen window, which draws the painting alone and presents. `0x11bb850` was called with its third argument set and called `0x10b3600` not at all.
+- **After it**: the return took 4.6 s and answered `main_menu` from the same process; the screenshot showed the main menu with its title, map and continue box; a load of `England-1` from that main menu and another return worked.
+- **Not verified**: what the screen shows during the return, since the game ran hidden and the screenshot takes only presented frames; the single player setup's back button, which goes through the same main menu.
+- **Cleanup**: releasing the game ended it, put back the player's files, `England-1` and the backup save the load added among them, and the game folder's framework files with `dev.toml`; the `dev.toml` in the checkout was deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
