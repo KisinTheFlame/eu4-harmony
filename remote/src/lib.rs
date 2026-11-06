@@ -179,6 +179,17 @@ macro_rules! group {
                     $( Self::$Variant { .. } => country!($place), )*
                 }
             }
+
+            /// [`Self::country`] of the capability whose variant is named
+            /// `variant`, for the core's test that its binding opens a
+            /// session with a country to act as exactly then.
+            #[doc(hidden)]
+            pub fn country_of(variant: &str) -> Option<bool> {
+                match variant {
+                    $( stringify!($Variant) => Some(country!($place)), )*
+                    _ => None,
+                }
+            }
         }
 
         /// The shape of each capability's result, by its full name.

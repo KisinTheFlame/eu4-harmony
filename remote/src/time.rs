@@ -48,8 +48,7 @@ group! {
     /// at the speed; a client that gives the request up calls the advance
     /// off, and time stops at the end of the day under way. It runs on in
     /// observe mode, also once the player's country is annexed on the way;
-    /// no question waits for an observer, and with no country in view it
-    /// does not wait for the day's event.
+    /// no question waits for an observer.
     remote_world Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,

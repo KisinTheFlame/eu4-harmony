@@ -596,7 +596,7 @@ pub struct Clock {
 
 impl Default for Clock {
     fn default() -> Self {
-        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player, over: None, unseen_days: false };
+        let time = game::time::Time { session: 2, date: 0x035D_7710, speed: 2, pause: game::time::Pause::Player, over: None };
         Self { time, questions: 0, stops: Default::default(), failing: None }
     }
 }

@@ -62,12 +62,12 @@ macro_rules! layer {
     };
     (@munch [] [$($methods:tt)*] []) => {
         layer!(@layer $($methods)*);
-        layer!(@bindings [$($methods)*] []);
+        layer!(@bindings None [$($methods)*] []);
     };
     (@munch [$Request:ident $Answer:ident [$($bound:tt)*]] [$($methods:tt)*]
         [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
         layer!(@layer $($methods)*);
-        layer!(@bindings [$($methods)*] [$({ $Variant { $($field),* } $how $call($($e),*) })*]);
+        layer!(@bindings $Request [$($methods)*] [$({ $Variant { $($field),* } $how $call($($e),*) })*]);
 
         /// Answers one of the group's requests.
         pub fn run(request: $Request, game: &mut (impl Layer $($bound)* + ?Sized)) -> Result<$Answer, eu4_harmony_remote::Error> {
@@ -126,7 +126,7 @@ macro_rules! layer {
             )*
         }
     };
-    (@bindings [$({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*]
+    (@bindings $Request:ident [$({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*]
         [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
         /// What the group's lines name, for the test that every capability
         /// takes its arguments by their names.
@@ -139,6 +139,7 @@ macro_rules! layer {
                         arguments: vec![$(stringify!($arg)),*],
                         types: vec![$(stringify!($ty)),*],
                         capability: std::any::type_name_of_val(&$capability),
+                        takes: stringify!($takes),
                     }
                 ),*],
                 requests: vec![$(
@@ -148,6 +149,7 @@ macro_rules! layer {
                         function: stringify!($how) == "function",
                         call: stringify!($call),
                         arguments: vec![$(stringify!($e)),*],
+                        country: $Request::country_of(stringify!($Variant)),
                     }
                 ),*],
             }
@@ -384,6 +386,8 @@ pub struct Method {
     pub arguments: Vec<&'static str>,
     pub types: Vec<&'static str>,
     pub capability: &'static str,
+    /// What it takes first: `session`, `world` or `caller`.
+    pub takes: &'static str,
 }
 
 /// A request, its fields, and the method or the group's function that
@@ -395,6 +399,9 @@ pub struct Answered {
     pub function: bool,
     pub call: &'static str,
     pub arguments: Vec<&'static str>,
+    /// Whether its capability acts as a country, as remote control
+    /// describes it.
+    pub country: Option<bool>,
 }
 
 /// The capability layer itself, called as its caller: remote control, or an
@@ -736,6 +743,33 @@ mod tests {
                 }
             }
         }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// A request answered by a method of its slice acts as a country, in
+    /// its description, exactly when the method opens a session with a
+    /// country to act as; one that opens a session without is described as
+    /// acting as none.
+    #[test]
+    fn what_acts_as_a_country_opens_a_session_with_one() {
+        let groups = bindings();
+        let mut wrong = Vec::new();
+        let mut checked = 0;
+        for (group, bindings) in &groups {
+            for request in bindings.requests.iter().filter(|r| !r.function) {
+                let Some(method) = bindings.methods.iter().find(|m| m.name == request.call) else { continue };
+                let expected = match method.takes {
+                    "session" => true,
+                    "world" => false,
+                    _ => continue,
+                };
+                checked += 1;
+                if request.country != Some(expected) {
+                    wrong.push(format!("{group} {}: takes a {}, described as country {:?}", request.request, method.takes, request.country));
+                }
+            }
+        }
+        assert!(checked > 100, "only {checked} checked");
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 

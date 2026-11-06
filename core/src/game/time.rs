@@ -56,9 +56,6 @@ pub struct Time {
     /// The end date, once the game is over: past it, unless the player
     /// chose to play on, time does not run (see [`resume`]).
     pub over: Option<i32>,
-    /// The player observes with no country in view, whose days bring no
-    /// day's event.
-    pub unseen_days: bool,
 }
 
 impl Time {
@@ -80,8 +77,7 @@ pub fn time(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<Time> {
     } else {
         Pause::Window
     };
-    let unseen_days = ctx.player.acting().is_none();
-    Ok(Time { session: crate::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)?, unseen_days })
+    Ok(Time { session: crate::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
 }
 
 /// Pauses the game with the player's own pause, as the player would, also

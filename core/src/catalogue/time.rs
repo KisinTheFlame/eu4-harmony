@@ -173,10 +173,7 @@ impl Advance {
             let until = self.until;
             let heard =
                 events.read(self.since, process(), &Default::default()).events.iter().any(|n| matches!(n.event, Event::Day { date } if date.0 >= until));
-            // While the player observes with no country in view, as when
-            // the country was annexed or the game console's observe ran, no
-            // day's event is heard to wait for.
-            return Ok((heard || time.unseen_days || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
+            return Ok((heard || now.duration_since(reached) >= DAY_EVENT_WAIT).then_some((Stop::Date, "the date was reached")));
         }
         if game.questions_waiting()? > 0 {
             game.pause()?;

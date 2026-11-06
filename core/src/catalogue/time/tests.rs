@@ -235,46 +235,6 @@ fn time_does_not_run_once_the_game_is_over() {
 }
 
 #[test]
-fn an_advance_runs_on_to_its_date_once_the_player_observes() {
-    let engine = Engine::new(quiet);
-    let mut game = Fake::default();
-    let reply = engine.submit(advance(2, None));
-    engine.run(&mut game, &Place::Game, PLENTY);
-    next_day(&engine, &mut game);
-    // The player observes with no country in view: the country annexed, or
-    // the game console's observe. Its frames are a game's as any other.
-    game.clock.time.unseen_days = true;
-    engine.run(&mut game, &Place::Game, PLENTY);
-    assert!(answer(&reply).is_null());
-    // The second day passes unheard, as an observer's days are.
-    game.clock.time.date += DAY;
-    engine.run(&mut game, &Place::Game, PLENTY);
-    let got = answer(&reply);
-    assert_eq!((got["result"]["stopped"].clone(), got["result"]["date"].clone()), (json!("date"), json!(date(2))), "{got}");
-    assert!(game.clock.time.paused());
-    assert!(game.clock.stops.lock().unwrap().is_empty());
-}
-
-#[test]
-fn the_clock_is_read_and_set_while_the_player_observes() {
-    let engine = Engine::new(quiet);
-    let mut game = Fake::default();
-    let replies: Vec<Reply> = [time(TimeRequest::SetSpeed { speed: 5 }), time(TimeRequest::Resume {}), time(TimeRequest::Get {}), advance(1, None)]
-        .into_iter()
-        .map(|r| engine.submit(r))
-        .collect();
-    game.clock.time.unseen_days = true;
-    engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(answer(&replies[0]), ok(Value::Null));
-    assert_eq!(answer(&replies[1]), ok(Value::Null));
-    assert_eq!(answer(&replies[2]), ok(json!({"date": "1444.11.11", "paused": false, "speed": 5})));
-    assert!(answer(&replies[3]).is_null());
-    game.clock.time.date += DAY;
-    engine.run(&mut game, &Place::Game, PLENTY);
-    assert_eq!(answer(&replies[3])["result"]["stopped"], "date");
-}
-
-#[test]
 fn an_advance_answers_once_the_game_returned_to_the_main_menu_in_process() {
     let engine = Engine::new(quiet);
     let mut game = Fake::default();

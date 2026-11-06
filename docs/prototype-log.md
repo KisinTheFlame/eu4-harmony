@@ -2099,6 +2099,18 @@ What the player sees of an in-process return, which the run above could not show
 - **Not verified**: the single player setup's back button; the flicker of a window the game stops answering for, which this change does not touch.
 - **Cleanup**: the change to `leave.rs` was put back before anything was committed; releasing the game ended it and put back the player's files, `England-1` among them, and the game folder's framework files. The recordings were in the session's scratch folder; the logs the release kept were deleted.
 
+## 2026-11-07 An observe-mode game with no country in view (tested by me)
+
+O1 of [observe-mode.md](observe-mode.md), at `b2622d03`, the player build. The game claimed with `cargo xtask game`, started hidden; `observer-1600.1.1.eu4` (`player="O00"`) copied into the save games folder as `observe-test`, everything driven through `eu4-harmony game`.
+
+- **The save**: `menu.saves` listed it with `player` null; `menu.load observe-test` loaded it, `{"number": 2, "observing": true, "player": "SWE"}`. The game put Sweden in view as it loaded the save, though no country was in view when it was made (the save says `player="O00"` only); the map showed Sweden's fog of war and its top bar.
+- **A change of view**: the camera on Constantinople (`camera.look_at --province 151`), Ctrl and a click at the screen's middle: `session.get` said `TUR`, session 2 still, and `army.list` listed the Ottomans' armies. The eye button left of the minimap took the view out: `player` null, session 2 still.
+- **No country in view**: `army.list` and `recruit.options 151` answered `no_country`. `province.get 151` answered Constantinople with its owner `TUR`, and `unrest` and `constructions` null; `province.get 1` Stockholm; `province.list` 4941 provinces, 2953 of them with an owner, the whole map; `country.get TUR` with `treasury` and `power` null; `camera.get` and `console.run help` answered.
+- **Time**: `time.advance 3`, then 5, then 60, at speed 5, each stopped at its date with one `day` event a day: the days are heard with no country in view, so the advance waits for them as in any game (the special case for an observer's unheard days, added for the run, was taken out after it).
+- **The player's own country**: `console run "tag TUR"` began session 3 (`Now Playing`), `console run observe` session 4 ("Entered Spectator Mode."), each after a `session_ended`; then `observing` true, `player` null and `army.list` `no_country`: after `observe`, no country was in view.
+- **Not verified**: a battle or a war event heard with no country in view (none in 68 days); events about the country in view's own armies; an extension in an observe-mode game; a save made with a country in view (the 1700 save says the country in view as its player, which this run did not load); `menu.start` and `menu.return` in observe mode.
+- **Cleanup**: releasing the game put back the player's files, removing `observe-test`, and the game folder's framework files; the screenshots were in the session's scratch folder.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
