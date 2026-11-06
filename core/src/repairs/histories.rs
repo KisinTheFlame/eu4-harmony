@@ -25,6 +25,17 @@
 //! record, by pointer, and the game deletes no battle it made so: a battle
 //! waits as its record goes, as a person does, and goes as a person does,
 //! with nothing else to keep it.
+//!
+//! A diplomatic history (`diplomatichistory.cpp`) keeps each relation it
+//! reads in a record, and in a second one where it ends; one that takes
+//! effect goes to the diplomacy, which marks it and deletes it itself, and
+//! the others nothing deletes. A relation that was not given to the
+//! diplomacy waits as its records go, and is deleted as the world's clear
+//! begins once a return has taken the session's interface down after it
+//! began to wait: a relation's destructor updates its country unless the
+//! world is being cleared, and the interface may show it until it goes. A relation the game deleted while a record still
+//! held it, as it does with one the diplomacy would not take, is not waited
+//! for.
 use super::LettingGo;
 use crate::{
     game::world::FIND_ID,
@@ -71,6 +82,18 @@ const BATTLE: usize = 0x40;
 /// `(battle, flags)`: a battle's class and its deleting destructor.
 const BATTLE_CLASS: usize = 0x1c448d0;
 const BATTLE_DELETE: usize = 0x1dd060;
+/// The records of a diplomatic history, which share [`BATTLE_RECORD_DELETE`]
+/// and hold their relation at [`RELATION`].
+const DIPLOMACY_RECORDS: [usize; 6] = [0x1c7a960, 0x1c7ab00, 0x1c7abd0, 0x1c7a890, 0x1c7aa30, 0x1c7a7c0];
+const RELATION: usize = 0x40;
+/// `(kind) -> relation`: makes a relation of a kind, as the diplomatic
+/// history's reader does; `(relation)`: every relation's base destructor.
+const MAKE_RELATION: usize = 0xa5c220;
+const RELATION_DESTRUCTOR: usize = 0xa5bb00;
+/// A relation's flags, u8: [`PERMITTED`] lets its destructor go without an
+/// error, [`GIVEN`] is set as the diplomacy takes it.
+const PERMITTED: usize = 0x28;
+const GIVEN: usize = 0x29;
 /// The vector of all persons (begin, end), which the characters' manager's
 /// clear (`0x7e9820`) deletes; and the null monarch, heir and queen, made
 /// once, which records hold until they are given a person.
@@ -86,9 +109,11 @@ const COUNTRY_PERSONS: [usize; 3] = [0x1280, 0x1298, 0x12b0];
 enum Left {
     Person,
     Battle,
+    Relation,
 }
 
-/// What waits, with the world resets that had ended as each began to wait.
+/// What waits, with the world resets that had ended as each began to wait,
+/// or for a relation the returns.
 static WAITING: Mutex<Option<HashMap<usize, (u32, Left)>>> = Mutex::new(None);
 /// The world resets that have ended.
 static RESETS: AtomicU32 = AtomicU32::new(0);
@@ -98,6 +123,11 @@ static TO_LET_GO: AtomicBool = AtomicBool::new(false);
 pub(super) static PERSONS: AtomicUsize = AtomicUsize::new(0);
 pub(super) static PERSONS_KEPT: AtomicUsize = AtomicUsize::new(0);
 pub(super) static BATTLES: AtomicUsize = AtomicUsize::new(0);
+pub(super) static RELATIONS: AtomicUsize = AtomicUsize::new(0);
+pub(super) static RELATIONS_KEPT: AtomicUsize = AtomicUsize::new(0);
+/// The relations the game deleted, until a relation is made at their place:
+/// a record may still hold one.
+static GONE: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
 
 /// A world reset is over.
 pub(super) fn world_reset() {
@@ -120,6 +150,11 @@ extern "C" fn record_going(frame: *mut HookFrame) {
                 let battle = m.ptr(record + BATTLE)?;
                 return Ok(if battle == 0 { Vec::new() } else { vec![(battle, Left::Battle)] });
             }
+            if DIPLOMACY_RECORDS.iter().any(|&c| class == m.at(c)) {
+                let relation = m.ptr(record + RELATION)?;
+                let gone = GONE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|g| g.contains(&relation));
+                return Ok(if relation == 0 || gone { Vec::new() } else { vec![(relation, Left::Relation)] });
+            }
             let fields: &[usize] = if class == m.at(MONARCH_RECORD) {
                 &MONARCH_PERSONS
             } else if class == m.at(HEIR_RECORD) || class == m.at(QUEEN_RECORD) {
@@ -140,10 +175,12 @@ extern "C" fn record_going(frame: *mut HookFrame) {
         match kept {
             Ok(left) if !left.is_empty() => {
                 let resets = RESETS.load(Ordering::Relaxed);
+                let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
                 let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
                 let waiting = waiting.get_or_insert_with(HashMap::new);
                 for (object, kind) in left {
-                    waiting.entry(object).or_insert((resets, kind));
+                    // A relation counts returns, the others world resets.
+                    waiting.entry(object).or_insert((if kind == Left::Relation { returns } else { resets }, kind));
                 }
             }
             Ok(_) => {}
@@ -163,8 +200,63 @@ extern "C" fn going(frame: *mut HookFrame) {
     });
 }
 
+/// A relation is destroyed, by the game or the repair: it waits no more, and
+/// a record that still holds it does not make it wait.
+extern "C" fn relation_going(frame: *mut HookFrame) {
+    crate::guarded("relation destructor", || {
+        let relation = unsafe { (*frame).args[0] };
+        if let Some(waiting) = WAITING.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            waiting.remove(&relation);
+        }
+        GONE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashSet::new).insert(relation);
+    });
+}
+
+/// A relation is made where one the game deleted was.
+extern "C" fn relation_made(frame: *mut HookFrame) {
+    let relation = unsafe { (*frame).result };
+    if relation != 0 {
+        if let Some(gone) = GONE.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            gone.remove(&relation);
+        }
+    }
+}
+
+/// The world's clear begins: the relations that waited from before the last
+/// return are deleted, unless the diplomacy was given one: the session's
+/// interface may show them until it goes.
+pub(super) fn world_clearing(m: &Memory) {
+    let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
+    let due: Vec<usize> = {
+        let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(waiting) = waiting.as_mut() else { return };
+        let due: Vec<usize> = waiting.iter().filter(|(_, (since, kind))| *kind == Left::Relation && *since < returns).map(|(&object, _)| object).collect();
+        for object in &due {
+            waiting.remove(object);
+        }
+        due
+    };
+    let deleted = (|| {
+        for relation in due {
+            if m.u8(relation + GIVEN)? != 0 {
+                RELATIONS_KEPT.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+            m.write(relation + PERMITTED, &[1u8])?;
+            let _letting_go = LettingGo::new("diplomatic history's relation");
+            m.call(m.vslot(relation, 0)?, &[relation, 1])?;
+            RELATIONS.fetch_add(1, Ordering::Relaxed);
+        }
+        crate::Result::Ok(())
+    })();
+    if let Err(e) = deleted {
+        log!("repair: the relations the diplomatic histories left were not all deleted: {e}");
+    }
+}
+
 /// The first frame after a world reset: what waited from before its end is
-/// deleted, unless the game still has a person.
+/// deleted, unless the game still has a person; relations wait for the
+/// world's next clear.
 pub(super) fn let_go(m: &Memory) {
     if !TO_LET_GO.swap(false, Ordering::Relaxed) {
         return;
@@ -173,7 +265,8 @@ pub(super) fn let_go(m: &Memory) {
     let due: Vec<(usize, Left)> = {
         let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());
         let Some(waiting) = waiting.as_mut() else { return };
-        let due: Vec<(usize, Left)> = waiting.iter().filter(|(_, (since, _))| *since < resets).map(|(&object, &(_, kind))| (object, kind)).collect();
+        let due: Vec<(usize, Left)> =
+            waiting.iter().filter(|(_, (since, kind))| *since < resets && *kind != Left::Relation).map(|(&object, &(_, kind))| (object, kind)).collect();
         for (object, _) in &due {
             waiting.remove(object);
         }
@@ -282,6 +375,27 @@ pub(super) fn points() -> Vec<Point> {
             None,
         ),
         Point::method(BATTLE_RECORD, 0, BATTLE_RECORD_DELETE, "battle record deleting destructor method"),
+        Point::observe(
+            RELATION_DESTRUCTOR,
+            "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 48 8d 6c 24 c0",
+            "relation destructor",
+            1,
+            Some(relation_going),
+            None,
+        ),
+        Point::observe(MAKE_RELATION, "48 89 5c 24 08 48 89 7c 24 10 55 48 8b ec 48 83 ec 40", "relation made", 1, None, Some(relation_made)),
+        // The diplomatic history's reader gives a record its relation, the
+        // diplomacy marks one it takes, and a relation's destructor lets one
+        // go without an error when it is permitted or was given.
+        Point::keep(0x4e2f72usize, "e8 69 0c 00 00 48 8b d8 48 89 78 40", "diplomacy record's relation").uses(&[RELATION]),
+        Point::keep(0x4e1504usize, "c6 47 29 01", "relation given to the diplomacy").uses(&[GIVEN]),
+        Point::keep(0xa5bb61usize, "80 7f 28 00 0f 85 12 02 00 00 80 7f 29 00", "relation deleted where permitted").uses(&[PERMITTED, GIVEN]),
+        Point::method(DIPLOMACY_RECORDS[0], 0, BATTLE_RECORD_DELETE, "diplomacy record deleting destructor method"),
+        Point::method(DIPLOMACY_RECORDS[1], 0, BATTLE_RECORD_DELETE, "diplomacy record deleting destructor method"),
+        Point::method(DIPLOMACY_RECORDS[2], 0, BATTLE_RECORD_DELETE, "diplomacy record deleting destructor method"),
+        Point::method(DIPLOMACY_RECORDS[3], 0, BATTLE_RECORD_DELETE, "diplomacy record deleting destructor method"),
+        Point::method(DIPLOMACY_RECORDS[4], 0, BATTLE_RECORD_DELETE, "diplomacy record deleting destructor method"),
+        Point::method(DIPLOMACY_RECORDS[5], 0, BATTLE_RECORD_DELETE, "diplomacy record deleting destructor method"),
         Point::method(BATTLE_CLASS, 0, BATTLE_DELETE, "battle deleting destructor method"),
         // The war history's reader gives a battle's record its battle.
         Point::keep(0xda6575usize, "4c 89 72 40", "battle record's battle").uses(&[BATTLE]),

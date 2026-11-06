@@ -69,6 +69,9 @@ static MADE: Mutex<Option<HashMap<usize, u64>>> = Mutex::new(None);
 static MADE_COUNT: AtomicU64 = AtomicU64::new(0);
 /// The windows killed so since the last world reset.
 pub static WINDOWS_KILLED: AtomicUsize = AtomicUsize::new(0);
+/// The returns whose session's interface is gone, its windows killed: what
+/// the session's interface may still have shown can go after one.
+pub static RETURNS: AtomicU32 = AtomicU32::new(0);
 
 impl SessionInterface {
     /// Before an in-process return takes the session's interface down. A
@@ -160,6 +163,7 @@ extern "C" fn map_manager_gone(_frame: *mut HookFrame) {
             }
         }
         WINDOWS_KILLED.fetch_add(killed, Ordering::Relaxed);
+        RETURNS.fetch_add(1, Ordering::Relaxed);
     });
 }
 
