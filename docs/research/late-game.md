@@ -2,7 +2,7 @@
 
 Baseline 1.37.5. All addresses are RVAs into `eu4.exe`. Measured on 2026-11-06 with `cargo xtask profile --slice 60`, which writes a line for each minute of a run: its dates, days and frames a second, and the shares of the main thread's parts ([dev-tools.md](../dev-tools.md)). The parts are those of [main-thread.md](main-thread.md); the runs are in [prototype-log.md](../prototype-log.md).
 
-In short: **what grows is the AI's handling of armies, and it grows on the main thread's critical path.** In one game the AI played alone from 1444 to 1821, the day's AI stage went from 5 ms of the main thread a game day to 30 ms, as the world's regiments tripled and gathered in a few great powers (the Ottomans' from 249 to 1,575). The stage runs one task per AI country on the worker threads, and the main thread spins until the last of them is done; the largest countries' tasks are the last, while the workers sleep most of the time. The rest of the day did not grow: each country's daily update became cheaper as countries were annexed, and a frame cost the same in 1800 as in 1600. At speed 5 the days went from 19.7 a second around 1650 to 12.5 around 1800.
+In short: **what grows is the AI's handling of armies, and it grows on the main thread's critical path.** In one game the AI played alone from 1444 to 1821, the day's AI stage went from 5 ms of the main thread a game day to 30 ms, as the world's regiments tripled and gathered in a few great powers (the Ottomans' from 249 to 1,575). The stage runs one task per AI country on the worker threads, and the main thread spins until the last of them is done; timed task by task, a stage lasts exactly as long as its longest task, a great power's, which starts first and still ends last, while the workers sleep most of the time. The rest of the day did not grow: each country's daily update became cheaper as countries were annexed, and a frame cost the same in 1800 as in 1600. At speed 5 the days went from 19.7 a second around 1650 to 12.5 around 1800.
 
 ## Setup
 
@@ -50,6 +50,28 @@ Milliseconds of the main thread for each game day, from the shares (the sampler'
 - **The workers were idle.** In the game loaded at 1700, the sixteen worker threads ran 0.09 cores each (1.4 in all); the busiest thread of each second spent 82% of its samples asleep in the pool's condition variable (`0x1a13a58`), 7% in AI countries' updates. The stage is not short of cores: it waits for its longest tasks, the countries with the most to do.
 - **What grew inside an AI country's update**, of the tasks the main thread ran itself, the same number of game days early and late: `0xb0fa0` → `0x786150` → `0x14b370` → `0xe4890` → `0xe9f30` → `0xea250` → `0xeab50` from 543 samples to 1,858. `0xeab50` reports errors from `ai_army.cpp` ("Main army in AI army '", "' does not belong to country! ("), so it is the AI's handling of its armies; under it `0x1022b0` reads provinces by ID (`map.h`). The rest of the AI country's update grew less: `0x14acc0` 260 to 482, `0x13d4c0` 454 to 604.
 
+## Each AI country's task, timed
+
+Measured on 2026-11-07 with the call trace's `times` ([dev-tools.md](../dev-tools.md), "Call tracing"): every call of the stage (`0x77d8a0`) and of each AI country's task (`0xb0fa0`, with the country's tag, at `+0x20` of its argument, the country's AI), on whichever thread it ran. Two runs of the same game, in the Ottomans' view at speed 5: the save of 1700.1.1 played to 1725.1.1 (9,125 stages), and the game's autosave of that run's 1721.1.1 played to 1730.1.1 with the functions inside the task timed too (3,285 stages).
+
+| Years | Stage ms | Tasks | Their work ms | Longest task ms | Main thread's spin ms |
+| --- | --- | --- | --- | --- | --- |
+| 1700–1704 | 9.0 | 145 | 72 | 8.8 | 4.7 |
+| 1705–1709 | 15.1 | 138 | 102 | 14.9 | 10.2 |
+| 1710–1714 | 9.0 | 135 | 67 | 8.9 | 5.1 |
+| 1715–1719 | 13.6 | 132 | 93 | 13.5 | 8.5 |
+| 1720–1724 | 19.0 | 131 | 112 | 18.9 | 13.6 |
+| 1721–1729 (second run) | 16.9 | 129 | 113 | 16.8 | 11.0 |
+
+- **A stage lasts as long as its longest task.** The median stage was 1.00 times its longest task, and ended 0.01 ms after it. The work of all the tasks shared out among the 16 threads that ran them would have taken half as long (the median stage was 2.0 times that).
+- **The longest task does not start late.** It was the first or second task of its stage to start (the median of 135), 0.02 ms into it: the order in which the stage takes its tasks changes from day to day, and the countries that took longest come first. Starting the longest task at once would have saved 0.1 ms a stage. **The order is not what to change.**
+- **The longest tasks are the great powers'**: Austria's (2,899 stages of 9,125) and Great Britain's (2,766) from 1700 to 1725, then the Ottomans' (1,060 of 3,285), Great Britain's, France's and Austria's. One country's task varies greatly from day to day: Great Britain's took 3.4, 8.9 and 20.7 ms on 1700.1.2 to 1700.1.4.
+- **The stages have a long tail.** A stage's median was 10.1 ms, its 90th percentile 19.0, its 99th 76.5, the longest 483 ms (Great Britain's task alone). Days whose stage took over 20 ms were 8.6% of the days and 29% of the stages' time; over 50 ms, 1.8% and 16%. Such a day stands out as a stutter at speed 5.
+- **Inside a task, the time is in `0xe4890`, called once for each of the AI's items** (each call with an object of its own): 9.8 calls a task on average, 18.5 in the longest 1% of tasks, 22 to 25 in the Ottomans' and Great Britain's. `0xe4890` takes 97% of the longest task of a stage (the median), through `0xea250` → `0xeab50` (`ai_army.cpp`) for most calls and `0x13d4c0` for a few. The path `0xb0fa0` → `0x14b370` holds 92% of every task; `0x786150` comes between them only for smaller countries.
+- **One item can take most of a day.** The largest single call of `0xe4890` in a stage's longest task was 6.6 ms on average (the stage 16.9 ms); on days whose stage took over 20 ms it was 45% of the stage, over 50 ms 64%. The longest seen: 141 ms in one call (a colonial nation's, 1728.9.19), and 127 ms in one call of the Ottomans' through `0x13d4c0`.
+
+So, of the stage's 13 to 19 ms a day: if the longest task alone could be split, the next country's would bound the stage, 8.6 ms on average (1700 to 1725); if every country's items could run apart, the largest single item would, 6.6 ms (1721 to 1730); the work shared out evenly is 5.6 ms. The order of the stage's tasks gives nothing.
+
 ## What the world gathers
 
 Counted in the game's autosaves of the run (a script of the run's own):
@@ -76,7 +98,7 @@ Counted in the game's autosaves of the run (a script of the run's own):
 ## What this means
 
 - Later in a game the day is slower because the AI countries that are left have more armies to handle, and the largest of them set how long the AI stage lasts. A player's own country has no AI, so a player's own armies do not count here; the AI great powers' do.
-- More cores would not help: the stage already leaves most of them idle. What would is the largest countries' tasks taking less time, or being split, which changes the AI's own code and the order its work is done in: a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../game-speed.md), S5 and S6, set aside).
+- More cores would not help: the stage already leaves most of them idle, and the stage already starts its longest tasks first. What would is the largest countries' tasks taking less time, or their items (`0xe4890`) running apart, and on the worst days the single item that takes most of the day taking less time. Each changes the AI's own code and the order its work is done in: a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../game-speed.md), S5 and S6, set aside).
 - A late game the player feels to be slow can also be slow for reasons of the session, not of the date: the windows left open, or (with the game's own pace instead of "Faster time") the frames inside a day.
 
 ## Saves to test with
@@ -90,7 +112,8 @@ A claim's release removes what a run added to the save games folder, so a copy t
 
 ## Not verified
 
-- How long each AI country's task takes, and that the largest countries' are the last: inferred from the spin, the idle workers and the growth of the army handling, not timed task by task.
-- What else in the AI country's update `0xe4890` and `0xea250` do, beyond `ai_army.cpp`'s error texts.
+- What an item of `0xe4890` is (its argument's object), and what `0xea250` and `0xeab50` do beyond `ai_army.cpp`'s error texts; whether two items of one country read or write what the other does, which decides whether they could run apart at all.
+- What makes one item take over 100 ms on some days.
+- The tasks timed in one game from 1700 to 1730 only.
 - One game only, as the AI played it; a game a player plays, with the player's country out of the AI, and other great powers.
 - The game's own pace (frames inside a day) over a long run, and a vanilla game without the framework.

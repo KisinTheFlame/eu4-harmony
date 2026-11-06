@@ -11,6 +11,14 @@
 functions = []
 # How many of each function's first calls are logged.
 calls = 20
+# Every call of each function is timed too, into call-times.tsv next to the
+# log: its thread, start and end in microseconds, the game's date and its first
+# argument.
+times = false
+# For a function whose first argument points at an object, an offset into it
+# whose eight bytes the times record with each call, as
+# { "0xb0fa0" = "0x20" }. None by default.
+fields = {}
 
 # Answers remote control's memory: what the process holds, by where it lies,
 # at no cost between two asks (docs/leak-finding.md). No options.

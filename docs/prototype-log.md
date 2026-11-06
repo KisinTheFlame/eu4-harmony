@@ -2111,6 +2111,16 @@ O1 of [observe-mode.md](observe-mode.md), at `b2622d03`, the player build. The g
 - **Not verified**: a battle or a war event heard with no country in view (none in 68 days); events about the country in view's own armies; an extension in an observe-mode game; a save made with a country in view (the 1700 save says the country in view as its player, which this run did not load); `menu.start` and `menu.return` in observe mode.
 - **Cleanup**: releasing the game put back the player's files, removing `observe-test`, and the game folder's framework files; the screenshots were in the session's scratch folder.
 
+## 2026-11-07 Each AI country's task timed, 1700 to 1730 (tested by me)
+
+Whether a late game's AI stage waits for its longest task or for the order of its tasks, the question the run of 2026-11-06 left ([research/late-game.md](research/late-game.md), "Each AI country's task, timed"). Master at `05022e8` with the call trace's new `times`, built with `dev-call-trace` alone; the player's playset and settings; one claim of 18 minutes, the game started hidden.
+
+- **First run**: `dev.toml` traced `0x77d8a0` and `0xb0fa0` with `times`, the field `0x20` of `0xb0fa0`'s argument, `calls = 0`. The kept save of 1700.1.1 copied into the save games folder and loaded with `menu.load`, `console run observe`, the Ottomans viewed by Ctrl and a click on Anatolia (the top bar and outliner became theirs). `time.advance 365` at speed 5 to 1725.1.1: 9,125 days in 524 s (17.4 a second), no question waited. `call-times.tsv` had one stage a day and 131 to 145 tasks a stage, each with a three-letter tag in its field.
+- **Second run**: the game restarted with `0x786150`, `0x14b370`, `0xe4890`, `0xea250`, `0xeab50`, `0x14acc0` and `0x13d4c0` traced too, the run's autosave of 1721.1.1 loaded, viewed as the Ottomans again, to 1730.1.1: 3,285 days in 196 s (16.8 a second), about 25,000 timed calls a second. The first start of it ran the player build: `cargo xtask disasm`, run in between, had built the core again without the feature, so `call-times.tsv` stayed the first run's and the log had no `trace:` lines; built again and installed, the second start was the developer build.
+- **Found**: a stage lasted as long as its longest task (the median 1.00 times), which started first; inside the tasks, the time was in `0xe4890`'s items, and on the worst days in one of them.
+- **Not verified**: the cost of the timing itself, beyond the days a second being near those of the profiled run of the same years (15.0 under the profiler); the order of a stage's tasks read from the game's code, rather than seen in the times; a game a player plays.
+- **Cleanup**: `dev.toml` at the top of the checkout deleted; releasing the game put back the player's files and removed the two saves the runs added; `call-times.tsv` of both runs, the screenshots, the 1701 and 1721 autosaves and the scripts stayed in the session's scratch folder.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

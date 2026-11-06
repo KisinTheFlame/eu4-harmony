@@ -53,7 +53,7 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 
 ## Testing in the game
 
-- One game serves every checkout on the machine. Claim it before you use it, and release it after, with `cargo xtask game` as [.claude/skills/game-test](.claude/skills/game-test/SKILL.md) says, and start it only through the claim, hidden unless the user asks to see it ([docs/game-testing.md](docs/game-testing.md)).
+- One game serves every checkout on the machine. Claim it before you use it, and release it after, with `cargo xtask game` as [.claude/skills/game-test](.claude/skills/game-test/SKILL.md) says, and start it only through the claim, hidden unless the user asks to see it ([docs/game-testing.md](docs/game-testing.md)). Hold it only while you use it, since everyone else waits meanwhile: build and plan the run before you claim, and release before you read the results, fix what they show or wait on the user.
 - The game rewrites a save it loads and rotates its autosaves, rewrites its settings files when it applies its settings, and rewrites its login cache; a run installs into the game folder. The claim backs up the player's files (`eu4-harmony backup`) and the game folder's framework files, and the release puts every file back and compares each (`eu4-harmony restore`), removing the run's crash folders.
 - Leave nothing behind: scratch files, and what `restore` reports it could not put back.
 - Record the result in [docs/prototype-log.md](docs/prototype-log.md).
