@@ -40,8 +40,9 @@ group! {
         /// The save's name, as menu.saves lists it.
         save: String,
     } -> Session, "the session of the loaded game, as session answers it, its player and date the save's";
-    /// Starts a new game at the default start date as a country, as the
-    /// single player setup does: from the main menu's first page (at
+    /// Starts a new game at the default start date as a country, or in
+    /// observe mode with no country given, as the single player setup and
+    /// its observe button do: from the main menu's first page (at
     /// startup, once menu says main_menu), or from a game, which is left
     /// first as menu.return leaves it (an ironman game saved), when the
     /// framework settings return without restarting. Answers once the game is ready.
@@ -50,8 +51,9 @@ group! {
     /// only be observed); and rejected when the game does not take the start
     /// up or begins a game the player cannot play.
     remote_anywhere Start "start" {
-        /// The country to play.
-        country: CountryTag,
+        /// The country to play; none for observe mode, the AI playing every
+        /// country and none in view.
+        country: Option<CountryTag>,
     } -> Session, "the session of the new game, as session answers it";
     /// Returns to the main menu, without the game's question or its summary,
     /// as the player would; an ironman game is saved first, and rejected,

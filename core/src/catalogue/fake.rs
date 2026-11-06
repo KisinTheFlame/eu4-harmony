@@ -530,8 +530,8 @@ impl menu::Layer for Fake {
         Ok(Box::new(move || Ok(expected)))
     }
 
-    fn start(&mut self, country: CountryTag) -> GResult<()> {
-        self.call(format!("start {country}"));
+    fn start(&mut self, country: Option<CountryTag>) -> GResult<()> {
+        self.call(country.map_or("start observing".into(), |country| format!("start {country}")));
         Ok(())
     }
 

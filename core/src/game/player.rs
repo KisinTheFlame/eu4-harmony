@@ -152,7 +152,7 @@ fn observing(world: &World) -> GResult<()> {
 
 pub fn points() -> Vec<Point> {
     vec![
-        Point::keep(SET_IN_VIEW, "53 48 83 ec 20 48 89 91 68 1e 00 00 48 8b d9 48 8b 89 00 1e 00 00", "set the country in view")
+        Point::keep(SET_IN_VIEW, "40 53 48 83 ec 20 48 89 91 68 1e 00 00 48 8b d9 48 8b 89 00 1e 00 00", "set the country in view")
             .uses(&[world::IN_VIEW, world::MAP_MANAGER]),
         Point::keep(LEAVE_VIEW_CALL, "ba 2d 2d 2d 00 49 8b c8 e8 dd c9 f4 ff", "the menubar taking the view out").uses(&[NO_COUNTRY as usize]),
     ]

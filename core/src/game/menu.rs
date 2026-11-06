@@ -50,6 +50,13 @@ const CHOOSE_SAVE: usize = 0x1130f40;
 const CONTINUE: usize = 0x1120740;
 /// `(world, tag)`: makes the country the player's.
 const SET_PLAYER: usize = 0x763840;
+/// `(world, &tag, kind)`: the tag of that kind for the letters, made when
+/// there is none; the setup's observe button (`0x11374d0`) asks it for
+/// `---` of the observer's kind, and makes the player the tag it points to.
+const KIND_TAG: usize = 0x76ee40;
+/// `(setup)`: starts the game, as entering the setup with a `-start_tag`
+/// country does once it selected it (`0x110e88c`).
+const START: usize = 0x1120280;
 
 use crate::sessions::{self, At};
 use launch::{Action, Launches, Reads, Steps};
@@ -385,19 +392,28 @@ pub(crate) fn game_frame(m: &Memory) -> bool {
 /// main menu's first frame; the land is
 /// not looked at then, nor after an in-process return before the single
 /// player setup is entered, since the world has no history yet.
-pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
+pub fn start(_: Caller, country: Option<[u8; 3]>) -> GResult<()> {
     let m = game()?;
+    // Observe mode: a new game as the observer's tag, the player's own then.
+    let letters = country.unwrap_or(save_file::OBSERVER);
     if sessions::at() == At::Game {
         if let Err(why) = leave::plan(leave::Destination::NewGame, false, leave::Rules::now()) {
             return fail(Status::Unavailable, why);
         }
-        find(m, letters)?;
+        if country.is_some() {
+            find(m, letters)?;
+        }
         ask_return(m)?;
         log!("menu: a new game as {} from the session", String::from_utf8_lossy(&letters));
         LAUNCHES.ask(Action::Start(letters));
         return Ok(());
     }
     first_page(m)?;
+    if country.is_none() {
+        log!("menu: a new game in observe mode");
+        LAUNCHES.ask(Action::Start(letters));
+        return Ok(());
+    }
     let tag = find(m, letters)?;
     if super::world::owned_provinces(m, world_now(m)?, tag)? == 0 {
         let name = String::from_utf8_lossy(&letters).into_owned();
@@ -475,6 +491,9 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
     m.write(world_now(m)? + world::MULTIPLAYER, &0i32.to_le_bytes())?;
     // Continuing a save, the setup would leave the country where it is.
     m.write(frontend + main_menu::CONTINUING, &[0])?;
+    if letters == save_file::OBSERVER {
+        return observe_now(m, frontend);
+    }
     let start_tag = m.at(setup::START_TAG);
     set_text(m, start_tag, &letters)?;
     // Without the setup's animation, as the continue box shows it.
@@ -488,6 +507,31 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
     if !left?.is_empty() {
         return Err("the single player setup did not take the country".into());
     }
+    if m.u8(page + setup::STARTED)? == 0 {
+        return Err("the single player setup did not start the game".into());
+    }
+    Ok(())
+}
+
+/// As the single player setup's observe button and then its start: the
+/// setup entered with no country to start as, the observer's tag made the
+/// player's, the game started.
+fn observe_now(m: &Memory, frontend: usize) -> Result<()> {
+    let start_tag = m.at(setup::START_TAG);
+    if !game_string::read(m, start_tag)?.is_empty() {
+        set_text(m, start_tag, b"")?;
+    }
+    m.call(m.at(SHOW_PAGE), &[frontend, main_menu::SETUP_PAGE as usize, 0])?;
+    let page = setup(m, frontend)?;
+    let world = world_now(m)?;
+    let none = u64::from_le_bytes(*b"---\0\0\0\0\0");
+    let observer = m.call(m.at(KIND_TAG), &[world, &none as *const u64 as usize, world::OBSERVE as usize])?;
+    let observer = Tag(m.u64(observer)?);
+    if observer.kind() != world::OBSERVE || !observer.valid() {
+        return Err(format!("the game gave {:#x} for the observer's tag", observer.0));
+    }
+    m.call(m.at(SET_PLAYER), &[world, observer.0 as usize])?;
+    m.call(m.at(START), &[page])?;
     if m.u8(page + setup::STARTED)? == 0 {
         return Err("the single player setup did not start the game".into());
     }
@@ -626,6 +670,16 @@ pub fn points() -> Vec<Point> {
         Point::keep(CHOOSE_SAVE, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d9 48 81 ec", "single player setup choose save"),
         Point::keep(CONTINUE, "48 89 5c 24 08 55 56 57 41 56 41 57 48 8d 6c 24 c9 48 81 ec 00 01 00 00", "single player setup continue"),
         Point::keep(SET_PLAYER, "40 57 48 83 ec 20 48 8b c2 48 89 91 60 1e 00 00 48 c1 e8 38 48 8b f9 84", "world set player").uses(&[world::PLAYER]),
+        Point::keep(KIND_TAG, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8d 6c 24 d0 48 81 ec 30 01 00 00 45 0f b6 f8", "tag of a kind"),
+        Point::keep(
+            START,
+            "48 89 5c 24 18 55 56 57 41 56 41 57 48 8d 6c 24 a0 48 81 ec 60 01 00 00 48 8b f9 45 33 ff 44 89 bd 90 00 00 00 c6 81 b0 2c 00 00 01",
+            "single player setup start",
+        )
+        .uses(&[setup::STARTED]),
+        // The setup's observe button: the observer's tag, `---` of its kind.
+        Point::keep(0x1137502usize, "66 c7 44 24 78 2d 2d c7 44 24 7a 2d 00 00 00", "observe button no tag"),
+        Point::keep(0x1137528usize, "41 b0 07 48 8d 54 24 78 e8 0b 79 63 ff", "observe button observer's tag").uses(&[world::OBSERVE as usize]),
         // Entering the single player setup with a `-start_tag` country: it
         // selects the country, empties the text and starts.
         Point::keep(

@@ -26,8 +26,8 @@ pub trait Layer {
     /// Asks for the save to be loaded and played; what its header says the
     /// game will be, asked once the game came.
     fn load(&mut self, save: &str) -> GResult<ExpectedProbe>;
-    /// Asks for a new game as the country.
-    fn start(&mut self, country: CountryTag) -> GResult<()>;
+    /// Asks for a new game as the country, or in observe mode for none.
+    fn start(&mut self, country: Option<CountryTag>) -> GResult<()>;
     /// What came of the load or start just asked for so far, asked again at
     /// each safe point until the game's first frame.
     fn launch(&mut self) -> Box<dyn FnMut() -> Launch + Send>;
@@ -50,8 +50,8 @@ impl Layer for Live {
         game::menu::load(self.0, save)
     }
 
-    fn start(&mut self, country: CountryTag) -> GResult<()> {
-        game::menu::start(self.0, country.0)
+    fn start(&mut self, country: Option<CountryTag>) -> GResult<()> {
+        game::menu::start(self.0, country.map(|c| c.0))
     }
 
     fn launch(&mut self) -> Box<dyn FnMut() -> Launch + Send> {
@@ -239,7 +239,7 @@ mod tests {
 
         // What the game refuses is answered at once, or as soon as it says so.
         let missing = engine.submit(Request::Menu(MenuRequest::Load { save: "missing".into() }));
-        let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
+        let start = engine.submit(Request::Menu(MenuRequest::Start { country: Some(CountryTag(*b"FRA")) }));
         engine.run(&mut game, &menu, PLENTY);
         assert!(error("not_found")(&answer(&missing)));
         assert!(answer(&start).is_null());
@@ -273,7 +273,7 @@ mod tests {
         let engine = Engine::new(remember);
         let mut game = Fake::default();
         let load = engine.submit(Request::Menu(MenuRequest::Load { save: "奥斯曼1444_11_11".into() }));
-        let start = engine.submit(Request::Menu(MenuRequest::Start { country: CountryTag(*b"FRA") }));
+        let start = engine.submit(Request::Menu(MenuRequest::Start { country: Some(CountryTag(*b"FRA")) }));
         engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
         // Every frame of the game that came fails: without this answer, they
         // would wait until the process ends.
