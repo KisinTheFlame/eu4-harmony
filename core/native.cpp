@@ -31,7 +31,7 @@ struct Slot {
     Callback before;
     Callback after;
 };
-constexpr size_t kSlots = 64;
+constexpr size_t kSlots = 96;
 static Slot slots[kSlots]{};
 template <size_t> using Arg = Word;
 
