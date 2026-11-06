@@ -18,17 +18,23 @@ concurrency:
 permissions:
   contents: read
 
+# The build, the tests and the developer build use the release profile, so
+# that they are built as a player's build is, with no debug assertions and no
+# overflow checks, but without its optimization: CI checks that they build,
+# link and pass, and how fast they run does not matter there. Optimizing the
+# workspace took about three quarters of the time spent compiling it, most of
+# it in the (de)serializing of every request and answer.
+env:
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
+  CARGO_PROFILE_RELEASE_LTO: "false"
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+
 # The build, the tests and the developer build each compile the whole
 # workspace once, and none needs another's result, so each is a job of its own
 # and they run side by side instead of one after another.
 jobs:
   build:
     runs-on: windows-2025
-    # Optimized like a player's build, but without its link-time optimization
-    # and single codegen unit, which take most of the build time.
-    env:
-      CARGO_PROFILE_RELEASE_LTO: "false"
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
       - uses: actions/checkout@v7
       - name: Rust
@@ -45,9 +51,6 @@ jobs:
 
   test:
     runs-on: windows-2025
-    env:
-      CARGO_PROFILE_RELEASE_LTO: "false"
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
       - uses: actions/checkout@v7
       - name: Rust
@@ -62,9 +65,6 @@ jobs:
   # building too.
   dev-build:
     runs-on: windows-2025
-    env:
-      CARGO_PROFILE_RELEASE_LTO: "false"
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
       - uses: actions/checkout@v7
       - name: Rust
