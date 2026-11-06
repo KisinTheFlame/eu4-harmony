@@ -484,7 +484,15 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::most_trust_steps;
+    use super::*;
+    use crate::{
+        catalogue::fake::{byz, tur, wal},
+        game::{
+            buffers::{self, Image, Object},
+            Caller, Fail, Session,
+        },
+    };
+    use std::cell::RefCell;
 
     #[test]
     fn the_favors_for_trust_window_stops_at_the_favors_owed_and_full_trust() {
@@ -495,5 +503,213 @@ mod tests {
         assert_eq!(most_trust_steps(200, 100, 10, 5), 1);
         assert_eq!(most_trust_steps(9, 0, 10, 5), 0);
         assert_eq!(most_trust_steps(-20, 0, 10, 5), 0);
+    }
+
+    /// What the panel's actions are, as the game's functions below answer for
+    /// them: each action's address and its type's token, the actions the
+    /// panel destroyed, and the reason the game's check gives for every one.
+    #[derive(Default)]
+    struct Script {
+        actions: Vec<(usize, u32)>,
+        destroyed: Vec<usize>,
+    }
+
+    thread_local! {
+        static SCRIPT: RefCell<Script> = RefCell::default();
+    }
+
+    /// The panel's list maker: (the player's country, the other's tag, the
+    /// list), the list's room inline, the actions added there.
+    extern "C" fn list_maker(_: usize, _: usize, list: usize) -> usize {
+        SCRIPT.with(|s| {
+            let actions = &s.borrow().actions;
+            let items = unsafe { *((list + action_list::ITEMS) as *const usize) };
+            for (i, (at, _)) in actions.iter().enumerate() {
+                unsafe { *((items + i * 8) as *mut usize) = *at };
+            }
+            unsafe { *((list + action_list::COUNT) as *mut u32) = actions.len() as u32 };
+        });
+        0
+    }
+
+    /// An action's type: its token.
+    extern "C" fn kind(at: usize) -> usize {
+        SCRIPT.with(|s| s.borrow().actions.iter().find(|(a, _)| *a == at).map_or(0, |(_, token)| *token as usize))
+    }
+
+    /// The panel's check, which offers every action.
+    extern "C" fn offered(_: usize, _: usize, _: usize) -> usize {
+        1
+    }
+
+    /// The window's check, which refuses every action, its reason a line of
+    /// the game's, as it appends it to the `std::string` given.
+    extern "C" fn refused(_: usize, reasons: usize, _: usize) -> usize {
+        if reasons != 0 {
+            let said = b"- no money";
+            unsafe {
+                std::ptr::copy_nonoverlapping(said.as_ptr(), reasons as *mut u8, said.len());
+                *((reasons + game_string::SIZE) as *mut usize) = said.len();
+            }
+        }
+        0
+    }
+
+    /// An action's destructor: (the action, 1, freeing it).
+    extern "C" fn destroy(at: usize, _: usize) -> usize {
+        SCRIPT.with(|s| s.borrow_mut().destroyed.push(at));
+        0
+    }
+
+    /// A `std::string`'s destructor, for one whose text is inline.
+    extern "C" fn destroy_string(_: usize) -> usize {
+        0
+    }
+
+    /// The Ottomans' session, with 500 ducats, toward Byzantium, which owes
+    /// them 50 favors and trusts them 50; the diplomacy panel offers the
+    /// player `acts` toward any country, and the game lets the player send
+    /// none of them, saying the player has no money.
+    struct Panel {
+        _image: Image,
+        session: Session,
+        actions: Vec<(Act, Object)>,
+        _objects: Vec<Object>,
+    }
+
+    impl Panel {
+        fn offering(acts: &[Act]) -> Self {
+            let image = Image::new();
+            let m = image.memory();
+            image.function(PANEL_ACTIONS, list_maker as *const ()).function(game_string::DESTROY_AT, destroy_string as *const ());
+            image.i32(TRUST_STEP_FAVORS, 10).i32(TRUST_STEP_TRUST, 5);
+            let player = Object::country(tur(), country_fields::TREASURY + 4).i32(country_fields::TREASURY, 500_000);
+            let record = tur().index() as usize * country_fields::RELATION_SIZE;
+            let relations = Object::new(record + country_fields::RELATION_SIZE)
+                .u8(record + country_fields::RELATION_TRUST, 50)
+                .i32(record + country_fields::RELATION_FAVORS, 50_000);
+            let other = Object::country(byz(), country_fields::RELATIONS + 8).points_to(country_fields::RELATIONS, relations);
+            let countries = Object::countries(&[&player, &other]);
+            let vtable = Object::new(action::NAME + 8)
+                .u64(action::DESTROY, destroy as *const () as u64)
+                .u64(action::KIND, kind as *const () as u64)
+                .u64(action::OFFERED, offered as *const () as u64)
+                .u64(action::ALLOWED, refused as *const () as u64);
+            let actions: Vec<(Act, Object)> =
+                acts.iter().map(|&act| (act, Object::new(0x80).u64(0, vtable.at() as u64).u8(action::OFFER, act.offer() as u8))).collect();
+            SCRIPT.with(|s| *s.borrow_mut() = Script { actions: actions.iter().map(|(act, o)| (o.at(), act.token())).collect(), destroyed: Vec::new() });
+            let session = buffers::session(m, 0, tur(), player.at(), countries.at(), Caller::Remote);
+            Self { _image: image, session, actions, _objects: vec![player, other, countries, vtable] }
+        }
+
+        /// Sends `act` to Byzantium with `details`, as the capability does.
+        fn act(&self, act: Act, details: Details) -> GResult<Ticket> {
+            act_toward(self, byz(), act, details)
+        }
+
+        /// The action of `act`'s field at `offset`.
+        fn field(&self, act: Act, offset: usize) -> i32 {
+            self.actions.iter().find(|(a, _)| *a == act).unwrap().1.read_i32(offset)
+        }
+    }
+
+    fn act_toward(panel: &Panel, country: Tag, act: Act, details: Details) -> GResult<Ticket> {
+        super::act(panel.session, country, &What::Act(act), &details)
+    }
+
+    /// The failure's status and message.
+    fn failed(result: GResult<Ticket>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was sent") };
+        (status, message)
+    }
+
+    fn invalid(message: &str) -> (Status, String) {
+        (Status::InvalidArgument, message.to_string())
+    }
+
+    /// What the game says once the window let the player choose it.
+    fn no_money() -> (Status, String) {
+        (Status::Rejected, "no money".to_string())
+    }
+
+    #[test]
+    fn an_act_the_panel_does_not_offer_is_refused_and_its_actions_destroyed() {
+        let panel = Panel::offering(&[Act::SendGift]);
+        let (status, message) = failed(panel.act(Act::OfferLoan, Details::default()));
+        assert_eq!((status, message.as_str()), (Status::Rejected, "the diplomacy panel does not offer offer_loan toward BYZ"));
+        assert_eq!(SCRIPT.with(|s| s.borrow().destroyed.clone()), [panel.actions[0].1.at()]);
+        // A call to arms says so in its own words.
+        assert_eq!(
+            failed(super::super::call_to_arms(panel.session, byz())),
+            (Status::Rejected, "the diplomacy panel offers no call to arms to BYZ".to_string())
+        );
+        // Neither the player's own country nor one that is none is another.
+        assert_eq!(failed(act_toward(&panel, tur(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::InvalidArgument);
+        assert_eq!(failed(act_toward(&panel, wal(), Act::SendGift, Details { amount: Some(5), ..Default::default() })).0, Status::NotFound);
+    }
+
+    #[test]
+    fn a_gift_is_of_a_ducat_at_least() {
+        let panel = Panel::offering(&[Act::SendGift]);
+        let gift = |amount| panel.act(Act::SendGift, Details { amount, ..Default::default() });
+        assert_eq!(failed(gift(None)), invalid("send_gift needs an amount"));
+        assert_eq!(failed(gift(Some(0))), invalid("send_gift needs at least 1 ducat"));
+        // The window writes it in thousandths, and the game's check is asked.
+        assert_eq!(failed(gift(Some(5))), no_money());
+        assert_eq!(panel.field(Act::SendGift, FIELDS), 5000);
+    }
+
+    #[test]
+    fn war_subsidies_go_as_far_as_the_treasury_for_the_window_s_durations() {
+        let panel = Panel::offering(&[Act::SubsidizeWar]);
+        let subsidies = |amount, second| panel.act(Act::SubsidizeWar, Details { amount: Some(amount), second, ..Default::default() });
+        assert_eq!(failed(subsidies(501, None)), invalid("501 ducats is more than the treasury's 500, as far as subsidize_war's window goes"));
+        let durations = "the subsidies window goes from 10 to 400, by 10";
+        assert_eq!(failed(subsidies(500, Some(15))), invalid(&format!("a duration of 15: {durations}")));
+        assert_eq!(failed(subsidies(500, Some(410))), invalid(&format!("a duration of 410: {durations}")));
+        assert_eq!(failed(subsidies(500, Some(0))), invalid(&format!("a duration of 0: {durations}")));
+        assert_eq!(failed(subsidies(500, None)), no_money());
+        assert_eq!((panel.field(Act::SubsidizeWar, FIELDS), panel.field(Act::SubsidizeWar, FIELDS + 4)), (500_000, 10));
+        assert_eq!(failed(subsidies(20, Some(400))), no_money());
+        assert_eq!((panel.field(Act::SubsidizeWar, FIELDS), panel.field(Act::SubsidizeWar, FIELDS + 4)), (20_000, 400));
+    }
+
+    #[test]
+    fn a_loan_goes_as_far_as_the_treasury_and_trade_power_as_all_of_it() {
+        let panel = Panel::offering(&[Act::OfferLoan, Act::TransferTradePower]);
+        let loan = |amount| panel.act(Act::OfferLoan, Details { amount: Some(amount), ..Default::default() });
+        assert_eq!(failed(loan(0)), invalid("offer_loan needs at least 1 ducat"));
+        assert_eq!(failed(loan(501)), invalid("501 ducats is more than the treasury's 500, as far as offer_loan's window goes"));
+        assert_eq!(failed(loan(500)), no_money());
+        assert_eq!((panel.field(Act::OfferLoan, FIELDS), panel.field(Act::OfferLoan, FIELDS + 4)), (500, LOAN_INTEREST as i32));
+        let transfer = |amount| panel.act(Act::TransferTradePower, Details { amount: Some(amount), ..Default::default() });
+        assert_eq!(failed(transfer(101)), invalid("101 percent: a country has no more than all its trade power to transfer"));
+        assert_eq!(failed(transfer(0)), invalid("transfer_trade_power needs at least 1 percent"));
+        assert_eq!(failed(transfer(100)), no_money());
+        assert_eq!(panel.field(Act::TransferTradePower, FIELDS), 1000);
+    }
+
+    #[test]
+    fn favors_buy_trust_in_the_window_s_steps_up_to_the_favors_owed() {
+        let panel = Panel::offering(&[Act::TradeFavorsForTrust]);
+        let trade = |favors, trust| panel.act(Act::TradeFavorsForTrust, Details { amount: Some(favors), second: trust, ..Default::default() });
+        assert_eq!(failed(trade(15, None)), invalid("15 favors: the window spends them 10 at a time"));
+        assert_eq!(failed(trade(60, None)), invalid("60 favors: BYZ owes 50 and trusts the player 50, so the window lets the player spend at most 50"));
+        assert_eq!(failed(trade(50, Some(20))), invalid("20 trust: 50 favors buy 25, 5 for each 10"));
+        assert_eq!(failed(trade(50, Some(25))), no_money());
+        assert_eq!(failed(trade(50, None)), no_money());
+        let fields = (panel.field(Act::TradeFavorsForTrust, FIELDS), panel.field(Act::TradeFavorsForTrust, FIELDS + 4));
+        assert_eq!(fields, (50_000, 25));
+    }
+
+    #[test]
+    fn what_the_window_chooses_and_the_framework_cannot_is_not_sent() {
+        let panel = Panel::offering(&[Act::SellShips, Act::SupportRebels, Act::BreakAlliance]);
+        assert_eq!(failed(panel.act(Act::SellShips, Details::default())).0, Status::Unavailable);
+        assert_eq!(failed(panel.act(Act::SupportRebels, Details::default())), invalid("support_rebels needs a rebel faction"));
+        assert_eq!(failed(panel.act(Act::BreakAlliance, Details::default())), invalid("break_alliance needs an ally"));
+        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { country: Some(wal()), ..Default::default() })).0, Status::NotFound);
+        assert_eq!(failed(panel.act(Act::BreakAlliance, Details { country: Some(tur()), ..Default::default() })), no_money());
+        assert_eq!(panel.actions[2].1.read_u64(FIELDS), tur().0);
     }
 }

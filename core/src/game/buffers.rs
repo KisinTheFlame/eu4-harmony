@@ -34,12 +34,12 @@ impl Object {
         Self::new(size.max(country::TAG + 8)).u64(country::TAG, tag.0)
     }
 
-    /// The game's list of countries ([`Ctx::countries`]): each of `countries`
-    /// at its tag's index, read from the tag it holds.
+    /// The game's list of countries ([`Ctx::countries`]), with room for
+    /// every index a tag has: each of `countries` at its tag's index, read
+    /// from the tag it holds, and none at the others.
     pub fn countries(countries: &[&Object]) -> Self {
         let tags: Vec<Tag> = countries.iter().map(|c| Tag(c.read_u64(country::TAG))).collect();
-        let most = tags.iter().map(|t| t.index() as usize).max().unwrap_or(0);
-        let mut list = Self::new((most + 1) * 8);
+        let mut list = Self::new((i16::MAX as usize + 1) * 8);
         for (tag, object) in tags.iter().zip(countries) {
             list = list.u64(tag.index() as usize * 8, object.at() as u64);
         }
