@@ -1,0 +1,239 @@
+//! The game's memory as a test lays it out: an object of the game's in a
+//! buffer of the test's, its fields set at the offsets `crate::objects`
+//! names ([`Object`]), and the game's image, its globals and functions put at
+//! their RVAs ([`Image`]). A capability then runs through its interface over
+//! a [`Session`] made of them ([`session`]), reading and calling them as it
+//! reads and calls the game's: through [`Memory`], under the same guard.
+use super::{Caller, Ctx, Session, Tag, View};
+use crate::{game_string, memory::Memory, objects::campaign::country};
+use windows_sys::Win32::System::{
+    Diagnostics::Debug::FlushInstructionCache,
+    Memory::{VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_NOACCESS},
+    Threading::GetCurrentProcess,
+};
+
+/// An object of the game's, in a buffer of the test's: zero until a field is
+/// set, and the objects it points to kept with it. The game's code reads and
+/// writes it through its address, so it is written through that too.
+pub struct Object {
+    at: *mut u64,
+    words: usize,
+    kept: Vec<Object>,
+    vectors: Vec<Box<[u64]>>,
+}
+
+impl Object {
+    /// `size` bytes, all zero.
+    pub fn new(size: usize) -> Self {
+        let words = size.div_ceil(8).max(1);
+        Self { at: Box::into_raw(vec![0u64; words].into_boxed_slice()) as *mut u64, words, kept: Vec::new(), vectors: Vec::new() }
+    }
+
+    /// A country of the game's with `tag`, `size` bytes or as far as its tag.
+    pub fn country(tag: Tag, size: usize) -> Self {
+        Self::new(size.max(country::TAG + 8)).u64(country::TAG, tag.0)
+    }
+
+    /// The game's list of countries ([`Ctx::countries`]): each of `countries`
+    /// at its tag's index, read from the tag it holds.
+    pub fn countries(countries: &[&Object]) -> Self {
+        let tags: Vec<Tag> = countries.iter().map(|c| Tag(c.read_u64(country::TAG))).collect();
+        let most = tags.iter().map(|t| t.index() as usize).max().unwrap_or(0);
+        let mut list = Self::new((most + 1) * 8);
+        for (tag, object) in tags.iter().zip(countries) {
+            list = list.u64(tag.index() as usize * 8, object.at() as u64);
+        }
+        list
+    }
+
+    /// Where it is.
+    pub fn at(&self) -> usize {
+        self.at as usize
+    }
+
+    /// Writes `bytes` at `offset`, as the game's code writes it.
+    pub fn set(&self, offset: usize, bytes: &[u8]) {
+        assert!(offset + bytes.len() <= self.words * 8, "{offset:#x}+{} is past the object's {:#x} bytes", bytes.len(), self.words * 8);
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), (self.at as *mut u8).add(offset), bytes.len()) };
+    }
+
+    fn read<const N: usize>(&self, offset: usize) -> [u8; N] {
+        assert!(offset + N <= self.words * 8, "{offset:#x}+{N} is past the object's {:#x} bytes", self.words * 8);
+        let mut out = [0; N];
+        unsafe { std::ptr::copy_nonoverlapping((self.at as *const u8).add(offset), out.as_mut_ptr(), N) };
+        out
+    }
+
+    pub fn read_u64(&self, offset: usize) -> u64 {
+        u64::from_le_bytes(self.read(offset))
+    }
+
+    pub fn read_i32(&self, offset: usize) -> i32 {
+        i32::from_le_bytes(self.read(offset))
+    }
+
+    pub fn u8(self, offset: usize, value: u8) -> Self {
+        self.set(offset, &[value]);
+        self
+    }
+
+    pub fn i32(self, offset: usize, value: i32) -> Self {
+        self.set(offset, &value.to_le_bytes());
+        self
+    }
+
+    pub fn u32(self, offset: usize, value: u32) -> Self {
+        self.set(offset, &value.to_le_bytes());
+        self
+    }
+
+    pub fn u64(self, offset: usize, value: u64) -> Self {
+        self.set(offset, &value.to_le_bytes());
+        self
+    }
+
+    /// A pointer at `offset` to `object`, which it keeps.
+    pub fn points_to(mut self, offset: usize, object: Object) -> Self {
+        self = self.u64(offset, object.at() as u64);
+        self.kept.push(object);
+        self
+    }
+
+    /// A `std::vector` of `items` at `offset`: its begin and end.
+    pub fn vector(mut self, offset: usize, items: &[u64]) -> Self {
+        let items: Box<[u64]> = items.into();
+        let begin = items.as_ptr() as u64;
+        self = self.u64(offset, begin).u64(offset + 8, begin + 8 * items.len() as u64);
+        self.vectors.push(items);
+        self
+    }
+
+    /// A `std::string` at `offset` holding `text` in itself, as one of at
+    /// most 15 bytes is held.
+    pub fn string(self, offset: usize, text: &str) -> Self {
+        assert!(text.len() <= game_string::INLINE, "{text:?} is longer than a string holds in itself");
+        self.set(offset, text.as_bytes());
+        self.u64(offset + game_string::SIZE, text.len() as u64).u64(offset + game_string::CAPACITY, game_string::INLINE as u64)
+    }
+}
+
+impl Drop for Object {
+    fn drop(&mut self) {
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.at, self.words)) });
+    }
+}
+
+/// Past the furthest RVA a dependency point names.
+const IMAGE: usize = 40 << 20;
+const PAGE: usize = 0x1000;
+
+/// The game's image, for a test: reserved as far as the game's, with only
+/// what the test puts there, the game's globals and its functions at their
+/// RVAs. A function is the test's own, reached from its RVA by a jump.
+pub struct Image {
+    base: usize,
+}
+
+impl Image {
+    pub fn new() -> Self {
+        let base = unsafe { VirtualAlloc(std::ptr::null(), IMAGE, MEM_RESERVE, PAGE_NOACCESS) } as usize;
+        assert!(base != 0, "reserving a test's image failed");
+        Self { base }
+    }
+
+    /// The game's memory with this image, as capabilities read it.
+    pub fn memory(&self) -> &'static Memory {
+        Box::leak(Box::new(Memory { base: self.base }))
+    }
+
+    /// The bytes at `rva`, committed first.
+    fn put(&self, rva: usize, bytes: &[u8]) {
+        assert!(rva + bytes.len() <= IMAGE, "{rva:#x} is past the test's image");
+        let first = rva / PAGE * PAGE;
+        let committed = unsafe { VirtualAlloc((self.base + first) as _, rva + bytes.len() - first, MEM_COMMIT, PAGE_EXECUTE_READWRITE) };
+        assert!(!committed.is_null(), "committing the test's image at {rva:#x} failed");
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), (self.base + rva) as *mut u8, bytes.len()) };
+    }
+
+    /// A global of the game's at `rva`.
+    pub fn i32(&self, rva: usize, value: i32) -> &Self {
+        self.put(rva, &value.to_le_bytes());
+        self
+    }
+
+    pub fn u64(&self, rva: usize, value: u64) -> &Self {
+        self.put(rva, &value.to_le_bytes());
+        self
+    }
+
+    /// The game's function at `rva`, as `function`: `mov rax, function;
+    /// jmp rax`, which leaves its arguments as the caller passed them.
+    pub fn function(&self, rva: usize, function: *const ()) -> &Self {
+        let mut jump = vec![0x48, 0xb8];
+        jump.extend_from_slice(&(function as u64).to_le_bytes());
+        jump.extend_from_slice(&[0xff, 0xe0]);
+        self.put(rva, &jump);
+        unsafe { FlushInstructionCache(GetCurrentProcess(), (self.base + rva) as _, jump.len()) };
+        self
+    }
+}
+
+impl Default for Image {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for Image {
+    fn drop(&mut self) {
+        unsafe { VirtualFree(self.base as _, 0, MEM_RELEASE) };
+    }
+}
+
+/// The session of the player `player`, whose country is the object at
+/// `country`, among the countries' list at `countries`, in the world at
+/// `world`, as `caller` reads it in the full view.
+pub fn session(m: &'static Memory, world: usize, player: Tag, country: usize, countries: usize, caller: Caller) -> Session {
+    Session { m, ctx: Ctx { world, date: 0, player, country, countries }, view: View::Full, caller }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalogue::fake::{byz, tur};
+
+    extern "C" fn twice(value: usize) -> usize {
+        value * 2
+    }
+
+    #[test]
+    fn an_image_s_globals_and_functions_are_at_their_rvas() {
+        let image = Image::new();
+        let m = image.memory();
+        // A global and a function of the game's, at RVAs points check.
+        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED, twice as *const ());
+        assert_eq!(m.i32(m.at(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0])).unwrap(), 7);
+        assert_eq!(m.call(m.at(super::super::IS_PAUSED), &[21]).unwrap(), 42);
+    }
+
+    #[test]
+    fn countries_are_listed_at_their_tags_indices_and_found_by_them() {
+        let (player, other) = (Object::country(tur(), 0), Object::country(byz(), 0));
+        let list = Object::countries(&[&player, &other]);
+        let m = Image::new().memory();
+        let session = session(m, 0, tur(), player.at(), list.at(), Caller::Remote);
+        assert_eq!(super::super::country(m, &session.ctx, byz()).unwrap(), other.at());
+        assert_eq!(super::super::country(m, &session.ctx, tur()).unwrap(), player.at());
+        assert!(super::super::country(m, &session.ctx, crate::catalogue::fake::wal()).is_err());
+    }
+
+    #[test]
+    fn an_object_keeps_what_it_points_to_and_its_vectors() {
+        let object = Object::new(0x40).points_to(0, Object::new(8).u64(0, 5)).vector(0x10, &[1, 2, 3]).string(0x20, "march");
+        let m = Memory { base: 0 };
+        assert_eq!(m.u64(m.ptr(object.at()).unwrap()).unwrap(), 5);
+        let (begin, end) = (m.ptr(object.at() + 0x10).unwrap(), m.ptr(object.at() + 0x18).unwrap());
+        assert_eq!((end - begin, m.u64(begin + 16).unwrap()), (24, 3));
+        assert_eq!(game_string::read(&m, object.at() + 0x20).unwrap(), b"march");
+    }
+}

@@ -19,6 +19,8 @@
 //! defeat.md, time.md, fog-of-war.md).
 pub mod administration;
 pub mod armies;
+#[cfg(test)]
+pub mod buffers;
 pub mod buildings;
 pub mod camera;
 pub mod centers_of_trade;

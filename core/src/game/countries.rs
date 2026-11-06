@@ -563,19 +563,16 @@ pub(super) fn sides(m: &Memory, war: usize) -> Option<(Vec<Tag>, Vec<Tag>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::fake::game_tag;
+    use crate::{catalogue::fake::game_tag, game::buffers::Object};
 
     /// A war of the game's class with these sides; its name is empty.
-    fn war_object(m: &Memory, attackers: &[Tag], defenders: &[Tag]) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
+    fn war_object(m: &Memory, attackers: &[Tag], defenders: &[Tag]) -> Object {
         let tags = |tags: &[Tag]| tags.iter().map(|t| t.0).collect::<Vec<u64>>();
-        let (attackers, defenders) = (tags(attackers), tags(defenders));
-        let mut object = vec![0u64; (war::DEFENDERS + 16) / 8];
-        object[0] = m.at(classes::WAR) as u64;
-        object[(war::NAME + game_string::CAPACITY) / 8] = game_string::INLINE as u64;
-        let range = |v: &Vec<u64>| [v.as_ptr() as u64, v.as_ptr() as u64 + 8 * v.len() as u64];
-        object[war::ATTACKERS / 8..war::ATTACKERS / 8 + 2].copy_from_slice(&range(&attackers));
-        object[war::DEFENDERS / 8..war::DEFENDERS / 8 + 2].copy_from_slice(&range(&defenders));
-        (object, attackers, defenders)
+        Object::new(war::DEFENDERS + 16)
+            .u64(0, m.at(classes::WAR) as u64)
+            .string(war::NAME, "")
+            .vector(war::ATTACKERS, &tags(attackers))
+            .vector(war::DEFENDERS, &tags(defenders))
     }
 
     /// Wars between countries 1 to 3, one with a tag that is no country's,
@@ -585,23 +582,14 @@ mod tests {
     fn a_bad_war_fails_only_its_own_countries() {
         let m = Memory { base: 0x1_4000_0000 };
         let (a, b, c) = (game_tag(b"AAA", 1), game_tag(b"BBB", 2), game_tag(b"CCC", 3));
-        let objects: Vec<Vec<u64>> = [a, b, c]
-            .iter()
-            .map(|t| {
-                let mut object = vec![0u64; fields::TAG / 8 + 1];
-                object[fields::TAG / 8] = t.0;
-                object
-            })
-            .collect();
-        let countries: Vec<u64> = [0].into_iter().chain(objects.iter().map(|o| o.as_ptr() as u64)).collect();
+        let objects = [a, b, c].map(|t| Object::country(t, 0));
+        let countries = Object::countries(&objects.iter().collect::<Vec<_>>());
         let first = war_object(&m, &[a, c], &[b]);
         let bad = war_object(&m, &[b], &[game_tag(b"ZZZ", 9)]);
-        let not_a_war = vec![0u64; first.0.len()];
-        let wars = [first.0.as_ptr() as u64, bad.0.as_ptr() as u64, not_a_war.as_ptr() as u64, 0];
-        let mut world = vec![0u8; world_fields::WAR_COUNT + 4];
-        world[world_fields::WARS..world_fields::WARS + 8].copy_from_slice(&(wars.as_ptr() as u64).to_le_bytes());
-        world[world_fields::WAR_COUNT..].copy_from_slice(&(wars.len() as i32).to_le_bytes());
-        let ctx = Ctx { world: world.as_ptr() as usize, date: 0, player: a, country: 0, countries: countries.as_ptr() as usize };
+        let not_a_war = Object::new(war::DEFENDERS + 16);
+        let wars = Object::new(32).u64(0, first.at() as u64).u64(8, bad.at() as u64).u64(16, not_a_war.at() as u64);
+        let world = Object::new(world_fields::WAR_COUNT + 4).points_to(world_fields::WARS, wars).i32(world_fields::WAR_COUNT, 4);
+        let ctx = Ctx { world: world.at(), date: 0, player: a, country: 0, countries: countries.at() };
         let first_war = War { name: String::new(), attackers: vec![a, c], defenders: vec![b] };
         assert_eq!(wars_of(&m, &ctx, a).unwrap(), std::slice::from_ref(&first_war));
         assert_eq!(wars_of(&m, &ctx, c).unwrap(), [first_war]);
@@ -617,32 +605,18 @@ mod tests {
     fn a_subject_s_type_is_read_as_the_game_reads_it() {
         let m = Memory { base: 0x1_4000_0000 };
         let overlord = game_tag(b"TUR", 2);
-        let mut kind = [0u64; (subject_type::KEY + game_string::OBJECT) / 8];
-        kind[subject_type::KEY / 8] = u64::from_le_bytes(*b"march\0\0\0");
-        kind[(subject_type::KEY + game_string::SIZE) / 8] = 5;
-        kind[(subject_type::KEY + game_string::CAPACITY) / 8] = game_string::INLINE as u64;
-        #[expect(clippy::useless_vec, reason = "the relation is changed through the Vec after its pointer is taken")]
-        let mut relation = vec![0u64; subject_relation::TYPE / 8 + 1];
-        relation[0] = m.at(classes::SUBJECT_RELATION) as u64;
-        relation[subject_relation::TYPE / 8] = kind.as_ptr() as u64;
-        let items = [5, 0, overlord.index() as u64, relation.as_ptr() as u64];
-        let mut diplomacy = vec![0u64; country_diplomacy::SUBJECT_COUNT / 8 + 1];
-        diplomacy[country_diplomacy::SUBJECTS / 8] = items.as_ptr() as u64;
-        diplomacy[country_diplomacy::SUBJECT_COUNT / 8] = 2 << 32;
-        let mut records = vec![0u64; fields::RELATION_SIZE * 3 / 8];
-        let record = overlord.index() as usize * fields::RELATION_SIZE / 8;
-        records[record] = diplomacy.as_ptr() as u64;
-        records[record + fields::RELATION_OTHER / 8] = overlord.0;
-        let country = |overlord: u64| {
-            let mut object = vec![0u64; fields::OVERLORD / 8 + 1];
-            object[fields::OVERLORD / 8] = overlord;
-            object[fields::RELATIONS / 8] = records.as_ptr() as u64;
-            object
-        };
+        let kind = Object::new(subject_type::KEY + game_string::OBJECT).string(subject_type::KEY, "march");
+        let relation = Object::new(subject_relation::TYPE + 8).u64(0, m.at(classes::SUBJECT_RELATION) as u64).points_to(subject_relation::TYPE, kind);
+        let items = Object::new(32).u64(0, 5).u64(16, overlord.index() as u64).u64(24, relation.at() as u64);
+        let diplomacy =
+            Object::new(country_diplomacy::SUBJECT_COUNT + 8).points_to(country_diplomacy::SUBJECTS, items).i32(country_diplomacy::SUBJECT_COUNT, 2);
+        let record = overlord.index() as usize * fields::RELATION_SIZE;
+        let records = Object::new(fields::RELATION_SIZE * 3).points_to(record, diplomacy).u64(record + fields::RELATION_OTHER, overlord.0);
+        let country = |overlord: u64| Object::new(fields::OVERLORD + 8).u64(fields::OVERLORD, overlord).u64(fields::RELATIONS, records.at() as u64);
         let subject = country(overlord.0);
-        assert_eq!(subject_of(&m, subject.as_ptr() as usize).unwrap(), Some((overlord, "march".to_string())));
-        assert_eq!(subject_of(&m, country(0).as_ptr() as usize).unwrap(), None);
-        relation[0] = m.at(classes::WAR) as u64;
-        assert!(subject_of(&m, subject.as_ptr() as usize).is_err());
+        assert_eq!(subject_of(&m, subject.at()).unwrap(), Some((overlord, "march".to_string())));
+        assert_eq!(subject_of(&m, country(0).at()).unwrap(), None);
+        relation.set(0, &(m.at(classes::WAR) as u64).to_le_bytes());
+        assert!(subject_of(&m, subject.at()).is_err());
     }
 }
