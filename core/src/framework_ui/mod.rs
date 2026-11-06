@@ -13,8 +13,8 @@ pub mod mods_window;
 pub mod text;
 pub mod widgets;
 
-use crate::settings::{self, Role, Settings};
-use crate::speed::{self, Pace};
+use crate::settings::{self, Page, Role, Settings, Shows};
+use crate::speed::Pace;
 use crate::unicode::system_font::{self, Face, SystemFonts};
 use crate::{lang, loc};
 use eu4_harmony_loc::Language;
@@ -135,8 +135,56 @@ fn corner(screen: (f32, f32), measure: &dyn Measure) -> Vec<(Rect, String, Opens
 const SETTINGS_WIDTH: f32 = 600.0;
 const SETTINGS_LIST: f32 = 168.0;
 
-/// The choice bar's options for the pace at the fastest speed, in order.
-const PACES: [Pace; 2] = [Pace::Smooth, Pace::Faster];
+/// The widgets of the settings in [`settings::SETTINGS`] that `page` shows,
+/// in their order there, showing the values `shown` has; each widget's id is
+/// its setting's key.
+fn setting_widgets(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+    let mut out = Vec::new();
+    for setting in settings::SETTINGS.iter().filter(|s| s.page == page) {
+        match setting.shows {
+            Shows::Toggle { label, field } => out.push(Widget::Toggle { id: setting.key, label: words(label), on: (field.get)(shown) }),
+            Shows::Pace { label, info, field } => {
+                out.push(Widget::Explained { label: words(label), info: words(info) });
+                out.push(Widget::Choice {
+                    id: setting.key,
+                    options: Pace::ALL.iter().map(|p| words(p.label())).collect(),
+                    selected: Pace::ALL.iter().position(|&p| p == (field.get)(shown)).unwrap_or(0),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The words under `page`'s settings.
+fn page_note(page: Page, words: &dyn Fn(&str) -> String) -> Option<Widget> {
+    page.note().map(|key| Widget::Label(words(key)))
+}
+
+/// A page with nothing but settings from [`settings::SETTINGS`]: they, and
+/// its note under them.
+fn settings_page(page: Page, shown: &Settings, words: &dyn Fn(&str) -> String) -> Vec<Widget> {
+    setting_widgets(page, shown, words).into_iter().chain(page_note(page, words)).collect()
+}
+
+/// Takes into `chosen` what the settings window `w` shows of the settings
+/// in [`settings::SETTINGS`]; one it does not show keeps its value.
+fn read_back(w: &Window, chosen: &mut Settings) {
+    for setting in &settings::SETTINGS {
+        match setting.shows {
+            Shows::Toggle { field, .. } => {
+                if let Some(on) = w.is_on(setting.key) {
+                    (field.set)(chosen, on);
+                }
+            }
+            Shows::Pace { field, .. } => {
+                if let Some(&pace) = w.selected(setting.key).and_then(|i| Pace::ALL.get(i)) {
+                    (field.set)(chosen, pace);
+                }
+            }
+        }
+    }
+}
 
 impl FrameworkUi {
     fn new() -> crate::Result<Self> {
@@ -192,7 +240,7 @@ impl FrameworkUi {
         let (heading_weights, heading_names, heading_weight) = weight_options(fonts.as_ref(), &faces[&Role::Heading]);
         let (map_weights, map_names, map_weight) = weight_options(fonts.as_ref(), &faces[&Role::Map]);
         let (console_weights, console_names, console_weight) = weight_options(fonts.as_ref(), &faces[&Role::Console]);
-        let fonts_page = vec![
+        let mut fonts_page = vec![
             Widget::Label(words("EU4HARMONY_SETTINGS_LANGUAGE")),
             Widget::Dropdown {
                 id: "language",
@@ -211,62 +259,30 @@ impl FrameworkUi {
             Widget::Dropdown { id: "map", options: shown, selected: index(&families, Role::Map) },
             Widget::Label(words("EU4HARMONY_SETTINGS_MAP_WEIGHT")),
             Widget::Dropdown { id: "map_weight", options: map_names, selected: map_weight },
-            Widget::Toggle { id: "outline", label: words("EU4HARMONY_SETTINGS_MAP_OUTLINE"), on: next.map_outline },
+        ];
+        // The page's own settings, the map outline, follow the map's font.
+        fonts_page.extend(setting_widgets(Page::LanguageFonts, &next, &words));
+        fonts_page.extend([
             Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_FONT")),
             Widget::Dropdown { id: "console", options: console_shown, selected: index(&console_families, Role::Console) },
             Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_WEIGHT")),
             Widget::Dropdown { id: "console_weight", options: console_names, selected: console_weight },
-            Widget::Label(words("EU4HARMONY_SETTINGS_RESTART")),
-        ];
-        let sessions_page = vec![
-            Widget::Toggle { id: "return", label: words("EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART"), on: next.return_without_restart },
-            Widget::Toggle { id: "ironman_save", label: words("EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD"), on: next.save_ironman_before_load },
-            Widget::Label(words("EU4HARMONY_SETTINGS_UNDO")),
-        ];
-        let achievements_page = vec![
-            Widget::Toggle { id: "outside_ironman", label: words("EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN"), on: next.achievements_outside_ironman },
-            Widget::Toggle {
-                id: "changed_checksum",
-                label: words("EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM"),
-                on: next.achievements_with_changed_checksum,
-            },
-            Widget::Label(words("EU4HARMONY_SETTINGS_ACHIEVEMENTS")),
-        ];
-        let speed_page = vec![
-            Widget::Explained { label: words("EU4HARMONY_SETTINGS_FASTEST_SPEED"), info: words("EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO") },
-            Widget::Choice {
-                id: "pace",
-                options: vec![words("EU4HARMONY_SETTINGS_PACE_SMOOTH"), words("EU4HARMONY_SETTINGS_PACE_FASTER")],
-                selected: PACES.iter().position(|&p| p == next.fastest_speed).unwrap_or(0),
-            },
-        ];
-        let remote_page = vec![
-            Widget::Toggle { id: "remote_full_view", label: words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW"), on: next.remote_full_view },
-            Widget::Label(words("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO")),
-        ];
-        let sound_page = vec![
-            Widget::Toggle { id: "music_loudness", label: words("EU4HARMONY_SETTINGS_MUSIC_LOUDNESS"), on: next.music_loudness },
-            Widget::Toggle { id: "music_leveling", label: words("EU4HARMONY_SETTINGS_MUSIC_LEVELING"), on: next.music_leveling },
-            Widget::Label(words("EU4HARMONY_SETTINGS_SOUND_INFO")),
-        ];
+        ]);
+        fonts_page.extend(page_note(Page::LanguageFonts, &words));
+        let pages = Page::ALL
+            .into_iter()
+            .map(|page| match page {
+                Page::LanguageFonts => std::mem::take(&mut fonts_page),
+                _ => settings_page(page, &next, &words),
+            })
+            .collect();
         let footer = vec![
             Widget::Gap,
             Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
             Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
         ];
-        let pages = [
-            "EU4HARMONY_SETTINGS_PAGE_LANGUAGE_FONTS",
-            "EU4HARMONY_SETTINGS_PAGE_SESSIONS",
-            "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
-            "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
-            "EU4HARMONY_SETTINGS_PAGE_REMOTE_CONTROL",
-            "EU4HARMONY_SETTINGS_PAGE_SOUND",
-        ];
-        let side = Side::new("pages", pages.iter().map(|key| words(key)).collect(), SETTINGS_LIST);
-        let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH)
-            .with_side(side)
-            .with_pages(vec![fonts_page, sessions_page, achievements_page, speed_page, remote_page, sound_page])
-            .with_footer(footer);
+        let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
+        let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
         window.center(&self.font, self.screen.0, self.screen.1);
         self.families = HashMap::from([("body", families.clone()), ("heading", families.clone()), ("map", families), ("console", console_families)]);
         self.weights = HashMap::from([
@@ -315,28 +331,19 @@ impl FrameworkUi {
                     Some(face)
                 }
             };
-            let chosen = Settings {
+            let mut chosen = Settings {
                 language: w.selected("language").and_then(|i| Language::ALL.get(i).copied()).or(next.language),
                 body_font: font(Role::Body),
                 heading_font: font(Role::Heading),
                 map_font: font(Role::Map),
                 console_font: font(Role::Console),
-                map_outline: w.is_on("outline").unwrap_or(next.map_outline),
-                return_without_restart: w.is_on("return").unwrap_or(next.return_without_restart),
-                save_ironman_before_load: w.is_on("ironman_save").unwrap_or(next.save_ironman_before_load),
-                achievements_outside_ironman: w.is_on("outside_ironman").unwrap_or(next.achievements_outside_ironman),
-                achievements_with_changed_checksum: w.is_on("changed_checksum").unwrap_or(next.achievements_with_changed_checksum),
-                fastest_speed: w.selected("pace").and_then(|i| PACES.get(i).copied()).unwrap_or(next.fastest_speed),
-                remote_full_view: w.is_on("remote_full_view").unwrap_or(next.remote_full_view),
-                music_loudness: w.is_on("music_loudness").unwrap_or(next.music_loudness),
-                music_leveling: w.is_on("music_leveling").unwrap_or(next.music_leveling),
+                ..next.clone()
             };
+            read_back(w, &mut chosen);
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),
                 Err(e) => log!("settings not saved: {e}"),
             }
-            speed::set_pace(settings::current().fastest_speed);
-            crate::sound::choose(&settings::current());
         }
         self.settings = None;
         self.system_fonts = None;
@@ -560,5 +567,68 @@ pub unsafe fn frame(device: *mut c_void) {
 pub fn device_reset() {
     if let Some(ui) = UI.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
         ui.backend.release();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(key: &str) -> String {
+        key.to_string()
+    }
+
+    /// The ids of the widgets that are read back.
+    fn ids(widgets: &[Widget]) -> Vec<&'static str> {
+        widgets
+            .iter()
+            .filter_map(|w| match w {
+                Widget::Toggle { id, .. } | Widget::Choice { id, .. } | Widget::Dropdown { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The settings window's pages as far as [`settings::SETTINGS`] builds
+    /// them: the language and fonts page without its fonts.
+    fn pages(shown: &Settings) -> Vec<Vec<Widget>> {
+        Page::ALL.into_iter().map(|page| settings_page(page, shown, &keys)).collect()
+    }
+
+    fn every_setting_changed() -> Settings {
+        let mut changed = Settings::default();
+        for setting in &settings::SETTINGS {
+            setting.change(&mut changed);
+        }
+        changed
+    }
+
+    #[test]
+    fn every_setting_shows_on_exactly_one_page() {
+        let pages = pages(&Settings::default());
+        for setting in &settings::SETTINGS {
+            let on: Vec<Page> = Page::ALL.into_iter().zip(&pages).filter(|(_, widgets)| ids(widgets).contains(&setting.key)).map(|(page, _)| page).collect();
+            assert_eq!(on, [setting.page], "{}", setting.key);
+            assert_eq!(pages.iter().flat_map(|w| ids(w)).filter(|id| *id == setting.key).count(), 1, "{}", setting.key);
+        }
+        // The pace shows under its label with an info mark; a page's note
+        // comes after its settings.
+        assert!(matches!(&pages[3][..], [Widget::Explained { .. }, Widget::Choice { .. }]));
+        assert!(matches!(pages[1].last(), Some(Widget::Label(note)) if note == "EU4HARMONY_SETTINGS_UNDO"));
+    }
+
+    #[test]
+    fn the_settings_window_reads_back_what_it_shows() {
+        for (shown, before) in [(Settings::default(), every_setting_changed()), (every_setting_changed(), Settings::default())] {
+            let side = Side::new("pages", Page::ALL.iter().map(|p| keys(p.title())).collect(), SETTINGS_LIST);
+            let window = Window::new("", Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages(&shown));
+            let mut read = before;
+            read_back(&window, &mut read);
+            assert_eq!(read, shown);
+        }
+        // A setting the window does not show keeps its value.
+        let mut kept = every_setting_changed();
+        read_back(&Window::new("", Vec::new(), SETTINGS_WIDTH), &mut kept);
+        assert_eq!(kept, every_setting_changed());
     }
 }
