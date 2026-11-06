@@ -2030,6 +2030,16 @@ The branch that takes a load or start through `launch::Launches`, numbers and fo
 - **Not verified**: the window's cloak and style in the start without sound, which goes through the same `desktop.show`; that sound was heard, rather than answered by `desktop.get`; whether the window took the focus, which `desktop.show` does not ask for.
 - **Cleanup**: releasing the game put back the player's files and the game folder's framework files, nothing reported not put back.
 
+## 2026-11-06 A return watched with and without the main menu's painting held back (tested by me)
+
+What the player sees of an in-process return, which the run above could not show with the game hidden. Master at `5e2e620`, the player build, and a build of it with the call to `framework_ui::hold` taken out, not committed. The game claimed with `cargo xtask game`, started with `game start --visible`, which shows the window at the main menu; the ironman save `England-1` loaded from the main menu, then `menu return` while ffmpeg recorded the desktop (`ddagrab`, 60 fps, scaled to 960 by 540). Frames were compared by eye and by their mean brightness.
+
+- **Without the hold**: "the main menu took over, 0 of its presents held back". The recording shows the map under the still notice, then the loading screen's painting over the whole screen for 0.5 s (5.817 to 6.317 s into the recording, brightness 87 against the notice's 43), then the main menu fading in from black. The return took 4.7 s.
+- **With the hold (master)**: "the main menu took over, 1 of its presents held back". The notice's last frame (7.333 s) is followed straight by the main menu's first, black but for its bottom bar (7.350 s, brightness 18), with no frame of the painting between. The return took 5.8 s and answered `main_menu`.
+- **So**: the one present the hold keeps back is the painting the player saw. The recording of 2026-11-03 did not show it, which the run before the change here does; why it did not then was not looked into.
+- **Not verified**: the single player setup's back button; the flicker of a window the game stops answering for, which this change does not touch.
+- **Cleanup**: the change to `leave.rs` was put back before anything was committed; releasing the game ended it and put back the player's files, `England-1` among them, and the game folder's framework files. The recordings were in the session's scratch folder; the logs the release kept were deleted.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
