@@ -14,7 +14,7 @@
 //! game carried out, which an observer of the game's own function sees.
 use super::{
     commands::{self, Refused},
-    context_any, countries, country, fail, game, Caller, Ctx, GResult, Session, Status, Tag,
+    context_any, countries, country, fail, game, Caller, Ctx, GResult, Session, Status, Tag, WorldSession,
 };
 use crate::{
     game_string,
@@ -358,9 +358,13 @@ pub(super) fn acceptance(m: &Memory, at: usize) -> GResult<choices::Acceptance> 
 /// What came of an action sent. [`Status::NotFound`] for a ticket that is
 /// no longer kept; [`Status::NotInGame`] once the game it was sent in has
 /// ended; [`Status::Rejected`] for a declaration of war the game carried
-/// out without the war beginning.
-pub fn answer(session: Session, ticket: Ticket) -> GResult<Answer> {
+/// out without the war beginning, and once another country is acted as than
+/// the one that sent it: in observe mode, another country in view, or none
+/// (ADR observe-mode-acts-as-the-country-in-view).
+pub fn answer(world: WorldSession, ticket: Ticket) -> GResult<Answer> {
     let (sent, seen) = kept(ticket)?;
+    still_acting(sent.from, world.world.player.acting())?;
+    let session = Session::open(world.caller)?;
     Ok(match seen {
         Seen::Answered(true) => Answer::Accepted,
         Seen::Answered(false) => Answer::Declined,
@@ -372,6 +376,16 @@ pub fn answer(session: Session, ticket: Ticket) -> GResult<Answer> {
         Seen::CarriedOut if !sent.answers => Answer::Done,
         Seen::CarriedOut | Seen::Nothing => Answer::Pending,
     })
+}
+
+/// Whether the country an action was sent as, `from`, is still the one acted
+/// as; [`Status::Rejected`] if not.
+fn still_acting(from: Tag, acting: Option<Tag>) -> GResult<()> {
+    if acting.map(Tag::index) == Some(from.index()) {
+        return Ok(());
+    }
+    let now = acting.map_or("no country is in view".to_string(), |country| format!("{} is in view", letters(country)));
+    fail(Status::Rejected, format!("it was sent as {}, and {now}: what comes of it is no longer seen", letters(from)))
 }
 
 /// The allies a declaration of war sent called to arms, none for a proposal;
@@ -486,7 +500,7 @@ pub(super) fn send(m: &Memory, ctx: &Ctx, at: usize, to: Tag, called: Vec<Tag>) 
         m.write(ctx.world + from, &ctx.player.0.to_le_bytes())?;
         m.write(ctx.world + date, &ctx.date.to_le_bytes())?;
     }
-    Ok(ledger(|l| l.send(kind, answers, to, after, crate::sessions::number(), called)))
+    Ok(ledger(|l| l.send(kind, answers, ctx.player, to, after, crate::sessions::number(), called)))
 }
 
 /// Asks the action the checks the diplomacy panel and the window ask before
@@ -987,6 +1001,8 @@ struct Sent {
     kind: Kind,
     /// It needs the other country's answer.
     answers: bool,
+    /// The country it was sent as.
+    from: Tag,
     to: Tag,
     /// How many actions the game had carried out before.
     after: u64,
@@ -1023,13 +1039,14 @@ struct Ledger {
 }
 
 impl Ledger {
-    fn send(&mut self, kind: Kind, answers: bool, to: Tag, after: u64, session: u64, called: Vec<Tag>) -> Ticket {
+    #[expect(clippy::too_many_arguments, reason = "each is a field of the action kept")]
+    fn send(&mut self, kind: Kind, answers: bool, from: Tag, to: Tag, after: u64, session: u64, called: Vec<Tag>) -> Ticket {
         self.tickets += 1;
         let ticket = Ticket(self.tickets);
         if self.sent.len() == KEPT {
             self.sent.pop_front();
         }
-        self.sent.push_back(Sent { ticket, kind, answers, to, after, session, called });
+        self.sent.push_back(Sent { ticket, kind, answers, from, to, after, session, called });
         ticket
     }
 
@@ -1336,8 +1353,8 @@ mod tests {
         let mut l = Ledger::default();
         // Carried out before it was sent: not its.
         l.carried_out(ALLIANCE, byz, action::DECLINED);
-        let alliance = l.send(ALLIANCE, true, byz, l.carried_count, 1, Vec::new());
-        let war = l.send(WAR, false, ven, l.carried_count, 1, Vec::new());
+        let alliance = l.send(ALLIANCE, true, game_tag(b"TUR", 154), byz, l.carried_count, 1, Vec::new());
+        let war = l.send(WAR, false, game_tag(b"TUR", 154), ven, l.carried_count, 1, Vec::new());
         assert_eq!(l.seen(alliance).unwrap().1, Seen::Nothing);
         l.carried_out(ALLIANCE, byz, action::UNANSWERED);
         l.carried_out(ALLIANCE, ven, action::ACCEPTED);
@@ -1354,12 +1371,21 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_is_seen_only_while_its_country_is_acted_as() {
+        let (tur, byz) = (game_tag(b"TUR", 154), game_tag(b"BYZ", 33));
+        assert!(still_acting(tur, Some(tur)).is_ok());
+        let other = still_acting(tur, Some(byz)).unwrap_err();
+        assert_eq!((other.status, other.message.as_str()), (Status::Rejected, "it was sent as TUR, and BYZ is in view: what comes of it is no longer seen"));
+        assert_eq!(still_acting(tur, None).unwrap_err().message, "it was sent as TUR, and no country is in view: what comes of it is no longer seen");
+    }
+
+    #[test]
     fn an_earlier_proposal_s_answer_is_not_a_later_one_s() {
         let byz = game_tag(b"BYZ", 33);
         let mut l = Ledger::default();
         // A proposal carried out before this one was sent, its answer after.
         l.carried_out(PEACE, byz, action::UNANSWERED);
-        let peace = l.send(PEACE, true, byz, l.carried_count, 1, Vec::new());
+        let peace = l.send(PEACE, true, game_tag(b"TUR", 154), byz, l.carried_count, 1, Vec::new());
         l.carried_out(PEACE, byz, action::ACCEPTED);
         assert_eq!(l.seen(peace).unwrap().1, Seen::Nothing);
         l.carried_out(PEACE, byz, action::UNANSWERED);
@@ -1371,9 +1397,9 @@ mod tests {
     #[test]
     fn only_the_latest_actions_are_kept() {
         let mut l = Ledger::default();
-        let first = l.send(PEACE, true, game_tag(b"BYZ", 33), 0, 1, Vec::new());
+        let first = l.send(PEACE, true, game_tag(b"TUR", 154), game_tag(b"BYZ", 33), 0, 1, Vec::new());
         for _ in 0..KEPT {
-            l.send(PEACE, true, game_tag(b"BYZ", 33), 0, 1, Vec::new());
+            l.send(PEACE, true, game_tag(b"TUR", 154), game_tag(b"BYZ", 33), 0, 1, Vec::new());
             l.carried_out(PEACE, game_tag(b"BYZ", 33), action::UNANSWERED);
         }
         assert_eq!(l.seen(first), None);

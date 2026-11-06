@@ -26,7 +26,7 @@ layer! {
     fn options(country: Tag) -> Vec<layer::Offered> = session layer::options;
     fn act(country: Tag, what: &What, details: &Details) -> Ticket = session layer::act;
     fn call_to_arms(ally: Tag) -> Ticket = session layer::call_to_arms;
-    fn answer(ticket: Ticket) -> Answer = session layer::answer;
+    fn answer(ticket: Ticket) -> Answer = world layer::answer;
     fn add_rival(rival: Tag) -> () = session layer::add_rival;
     fn remove_rival(rival: Tag) -> () = session layer::remove_rival;
 }
