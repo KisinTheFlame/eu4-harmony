@@ -2109,6 +2109,17 @@ Whether a late game's AI stage waits for its longest task or for the order of it
 - **Not verified**: the cost of the timing itself, beyond the days a second being near those of the profiled run of the same years (15.0 under the profiler); the order of a stage's tasks read from the game's code, rather than seen in the times; a game a player plays.
 - **Cleanup**: `dev.toml` at the top of the checkout deleted; releasing the game put back the player's files and removed the two saves the runs added; `call-times.tsv` of both runs, the screenshots, the 1701 and 1721 autosaves and the scripts stayed in the session's scratch folder.
 
+## 2026-11-07 The sampler's own stack walk, and every thread sampled (tested by me)
+
+Whether `cargo xtask profile` walks stacks as dbghelp does once it copies a thread's stack and walks it afterwards with the modules' unwind data, what a sample then costs, and whether `--threads` gives every thread's CPU. Master at `5bc2dbd` with this change, the player build; the run's autosave of 1721.1.1 (the AI-only game of 2026-11-06), observed in the Ottomans' view, `time.advance` a year at a time at speed 5; one claim, the game started hidden.
+
+- **Against dbghelp**: a build of the sampler that, for every sample, walked the suspended thread with dbghelp's `StackWalk64` too and compared the two, 30 s with `--threads` at 50 a second. The first walk differed in 27 of 48,239 stacks, all at the innermost frame: a thread stopped on a `jmp` inside a function was taken for one leaving it, and version 2 unwind data's epilog codes (`UWOP_EPILOG`, in ntdll and the CRT's `0x1a35de0`) ended the walk. With both mended, 48,089 of 48,093 stacks were the same; the 4 others ended in the framework's hook stubs, which have no unwind data and after which dbghelp's walk went on through addresses in no module.
+- **What a sample holds its thread**: the main thread 0.099 ms a sample alone, 0.5% of the time at 50 a second (dbghelp's walk held it 1.15 ms on the same save the day before, run 9); with `--threads`, the main thread 0.09 to 0.16 ms and the others 0.02 ms each, about 33 threads at a tick, at 43 to 48 ticks a second.
+- **The game's speed**: 30 s at a time, in turn, with no sampling, the main thread sampled and every thread sampled, twice: 11.93, 11.09 and 11.82 days a second, then 13.81, 12.24 and 15.31. The game's own changes from one stretch to the next were larger than any cost of sampling, which these runs therefore do not measure.
+- **Every thread's CPU**: weighing each sample by the cycles its thread had run since the last put 1.36 of 2.84 cores in `ZwWaitForAlertByThreadId`: workers run in bursts and are found asleep. Counting a thread only when its instruction pointer is not right after a `syscall` gave the whole game 2.15 cores, against 2.76 that Windows counted for its threads (kernel time included), and the AI countries' updates (`0xb0fa0`) 0.95 of them.
+- **Not verified**: the walk on other games or machines; frames past the framework's hook stubs.
+- **Cleanup**: the comparison was taken out before the change was committed; releasing the game put back the player's files and removed the save the run added.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

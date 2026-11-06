@@ -117,7 +117,7 @@ Each part sits behind an interface no larger than what its callers need; what it
 
 ### S0 The sampler
 
-Built: `cargo xtask profile` ([xtask/src/profile.rs](../xtask/src/profile.rs), first written as `tools/profile.py`) samples the main thread's call stack from outside the process, with Windows' own dbghelp, at a steady rate, and writes a report of the shares and flame graph stacks ([dev-tools.md](dev-tools.md)). It needs no developer build and measures vanilla too.
+Built: `cargo xtask profile` ([xtask/src/profile.rs](../xtask/src/profile.rs), first written as `tools/profile.py`) samples the main thread's call stack from outside the process, with Windows' own dbghelp, at a steady rate, and writes a report of the shares and flame graph stacks ([dev-tools.md](dev-tools.md)). It needs no developer build and measures vanilla too. Since 2026-11-07 it copies a thread's stack and walks it afterwards with the modules' unwind data instead of dbghelp's walk, which holds the thread about 0.1 ms a sample where it held it 1.2 to 1.4 ms, and with `--threads` samples every thread that runs, each alone and the whole game merged.
 
 ### S1 POPS without sleeping
 
