@@ -13,21 +13,23 @@ group! {
     "time": TimeRequest, TimeAnswer;
 
     /// The date, whether the game is paused, and its speed.
-    game Get "get" {} -> Time, "the date, whether the game is paused, and the speed from 1 (slowest) to 5 (fastest)";
+    world Get "get" {} -> Time, "the date, whether the game is paused, and the speed from 1 (slowest) to 5 (fastest)";
     /// Pauses the game with the player's own pause, as the player would,
     /// also when a window holds it paused already, such as an event window:
     /// the game then stays paused once the window closes, until it is
     /// resumed. Nothing when the player's pause holds it already.
-    game Pause "pause" {} -> (), "nothing";
+    world Pause "pause" {} -> (), "nothing";
     /// Resumes the game, as the player would: also when a window holds it
     /// paused, such as an event window when the game pauses on events, which
     /// stays open. Nothing when it runs. Refused once the game is past its
     /// end date, as the player's resuming is, until the end-of-game summary
-    /// is closed to play on.
-    game Resume "resume" {} -> (), "nothing";
+    /// is closed to play on; and refused with no country to play when the
+    /// game would not let time run, as the pause key is (it does for the
+    /// game console's observe).
+    world Resume "resume" {} -> (), "nothing";
     /// Sets the game speed, as the player would; the game stays paused or
     /// running as it was.
-    game SetSpeed "set_speed" {
+    world SetSpeed "set_speed" {
         /// From 1 (slowest) to 5 (fastest).
         speed: u32,
     } -> (), "nothing";
@@ -44,10 +46,11 @@ group! {
     /// until it is resumed, also once a window that holds it paused closes.
     /// The answer comes at a frame of the game's, however long the days take
     /// at the speed; a client that gives the request up calls the advance
-    /// off, and time stops at the end of the day under way. Once the player
-    /// can no longer play the game (the country annexed, observing), it is
-    /// answered not_in_game, and time runs on as the game runs it.
-    remote_game Advance "advance" {
+    /// off, and time stops at the end of the day under way. It runs on while
+    /// the player observes, also once the player's country is annexed on the
+    /// way; no question waits for an observer, and the events of the days an
+    /// observer sees are not heard, so then it answers with none.
+    remote_world Advance "advance" {
         /// How many days, from 1 to 36500.
         days: u32,
         /// The speed to run at, from 1 (slowest) to 5 (fastest); the game

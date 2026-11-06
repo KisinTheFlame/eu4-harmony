@@ -116,6 +116,7 @@ const FLAGS: Capability = Capability {
     action: "flags",
     about: " Flags.",
     in_game: false,
+    observing: false,
     extensions: true,
     args: &[
         Parameter { name: "paused", kind: Kind::Boolean, optional: true, about: " Paused." },
@@ -143,6 +144,7 @@ const SAY: Capability = Capability {
     action: "say",
     about: " Says a text.",
     in_game: false,
+    observing: false,
     extensions: true,
     args: &[
         Parameter { name: "text", kind: Kind::Text, optional: false, about: " The text." },

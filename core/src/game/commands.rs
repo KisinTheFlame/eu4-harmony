@@ -11,7 +11,7 @@
 //! The game's reader takes almost any text and says nothing of what it could
 //! not read, so [`post`] writes the command it read out again and refuses it
 //! unless every key given came back with the value given.
-use super::{command_session, context, game, Fail, GResult, Status};
+use super::{command_session, context, game, world_context, Fail, GResult, Status};
 use crate::{
     game_string,
     hooks::HookFrame,
@@ -272,10 +272,12 @@ pub fn post(text: &str) -> Result<(), Refused> {
 pub fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
     let given = Written::parse(text).map_err(Refused::Unread)?;
     let m = game()?;
-    let ctx = context(m)?;
+    // The game's own commands, such as the speed's, go also while the player
+    // observes.
+    let world = world_context(m)?;
     // Once the command is made, only a call into the game can fail before it
     // is destroyed. A command a call into the game failed on is left alone.
-    let session = command_session(m, &ctx)?;
+    let session = command_session(m, &world)?;
     if crate::thread_id() != crate::main_thread() {
         return Err(Refused::NotTaken);
     }

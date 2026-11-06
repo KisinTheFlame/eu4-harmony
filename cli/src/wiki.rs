@@ -74,7 +74,15 @@ fn group_page(group: &Group) -> String {
 /// command line, its arguments and its result.
 pub fn capability_page(c: &Capability) -> String {
     let mut text = format!("{}\n\n{}\n", c.name(), prose(c.about));
-    let _ = writeln!(text, "{}", if c.in_game { "Only while a game is going on." } else { "In the main menu too." });
+    let _ = writeln!(
+        text,
+        "{}",
+        match (c.in_game, c.observing) {
+            (true, true) => "Only while a game is going on, the player playing a country in it or observing it.",
+            (true, false) => "Only while a game is going on with a country the player plays.",
+            (false, _) => "In the main menu too.",
+        }
+    );
     let _ = writeln!(text, "\ncalled:");
     if c.extensions {
         let _ = writeln!(text, "  Lua:          {}", lua_call(c));
