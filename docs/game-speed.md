@@ -117,7 +117,7 @@ Each part sits behind an interface no larger than what its callers need; what it
 
 ### S0 The sampler
 
-Built: `cargo xtask profile` ([xtask/src/profile.rs](../xtask/src/profile.rs), first written as `tools/profile.py`) samples the main thread's call stack from outside the process, with Windows' own dbghelp, at a steady rate, and writes a report of the shares and flame graph stacks ([dev-tools.md](dev-tools.md)). It needs no developer build and measures vanilla too.
+Built: `cargo xtask profile` ([xtask/src/profile.rs](../xtask/src/profile.rs), first written as `tools/profile.py`) samples the main thread's call stack from outside the process, with Windows' own dbghelp, at a steady rate, and writes a report of the shares and flame graph stacks ([dev-tools.md](dev-tools.md)). It needs no developer build and measures vanilla too. Since 2026-11-07 it copies a thread's stack and walks it afterwards with the modules' unwind data instead of dbghelp's walk, which holds the thread about 0.1 ms a sample where it held it 1.2 to 1.4 ms, and with `--threads` samples every thread that runs, each alone and the whole game merged.
 
 ### S1 POPS without sleeping
 
@@ -161,6 +161,8 @@ The bench need not play as vanilla does; it must give the same days twice from t
 2. **Finding what varies.** A developer build's tool that records the draw count and the checksum record at the boundaries of the day's phases, so that two runs show the first phase in which they part, and that phase is read further. If what varies is not the AI, the replay holds it too, and it is made to repeat on the bench alone (a stage run in a fixed order, for example), both builds compared with it.
 
 Changes to the AI's own code cannot be checked on a replay, which runs no AI.
+
+A lead found later (2026-11-07, [research/late-game.md](research/late-game.md), "What an army's think writes"): the AI's agents draw from the world's one random generator, from many threads at once, unless the game is started with `-seed`, which gives each agent a generator of its own. A run started with it may repeat the AI's draws, which a bench needs; whether the rest of a day then repeats is not known.
 
 ### S6 Inside the day
 

@@ -1,43 +1,58 @@
-//! `cargo xtask profile`: samples the running game's main thread, its call
-//! stack at a steady rate, with Windows' own dbghelp.dll and no debugger to
-//! install.
+//! `cargo xtask profile`: samples the running game's call stacks at a steady
+//! rate, from outside, with no debugger to install.
 //!
-//! It finds eu4.exe, suspends its main thread `--hz` times a second, walks
-//! its call stack, reads the date and the world's flags, and resumes it. It
-//! writes:
+//! It finds eu4.exe and, `--hz` times a second, suspends its main thread,
+//! takes its registers and copies its stack, reads the date and the world's
+//! flags, and resumes it; the stack is walked afterwards, outside the game,
+//! with the unwind data of each module's file, so that the thread is held
+//! for the copy alone. With `--threads`, every other thread of the game that
+//! ran since its last sample is sampled the same way at each tick. It writes:
 //!
-//! - `<out>.folded`: one line per distinct stack, root first,
-//!   `frame;frame;... count`, which flame graph tools read;
+//! - `<out>.folded`: the main thread's samples, one line per distinct stack,
+//!   root first, `frame;frame;... count`, which flame graph tools read;
 //! - `<out>.txt`: how many days passed; the share of samples inside a day,
 //!   inside a frame that runs inside a day, and between days, and of the
 //!   parts of each (as docs/research/main-thread.md counts them); the
 //!   functions with the most samples inside them and with the most of their
-//!   own; each thread's CPU.
+//!   own; each thread's CPU; with `--threads`, the whole game's functions by
+//!   the cores they ran on;
+//! - with `--threads`, `<out>.threads.folded`: every thread's samples, each
+//!   stack's root the thread (`[main 123]`, the name the game gave it, or
+//!   `[thread 456]`), counted only when the sample found the thread running:
+//!   one waiting in the kernel, its instruction pointer right after a
+//!   `syscall`, takes no CPU, so that a thread counts by the CPU it took and
+//!   not by the time it slept, and a function's samples over the ticks are
+//!   the cores it ran on;
+//! - with `--threads`, `<out>.game.folded`: the same with the threads
+//!   merged, the whole game's CPU by where it went.
 //!
-//! Each stack's root is where in the game's time it fell: `[day]`,
-//! `[frame inside a day]` or `[between days]`, and with `--slice <seconds>`
-//! the stretch of the run it fell in too, as `[between days] 10-20 s`, so
-//! that a run through the game's startup or a load shows what each stretch
-//! did; `<out>.slices.tsv` then has a line for each stretch: its dates, days
-//! and frames a second, and the share of its samples in each part, so that
-//! a long run shows how they change as the game goes on. `--wait` waits for eu4.exe to start, for a run from its first
-//! moments; modules the process loads during the run are taken up as they
-//! come. `--thread <name>` samples the thread the game named so (such as
-//! `LoadingThread`) while it runs, and the main thread otherwise; `--thread
-//! busiest` the thread with the most CPU over each second; `--thread
-//! 0x874010` a thread with that function on its stack, such as the one
-//! a thread starts in, looked for each second. `--tree` prints the stacks of
-//! a .folded file as a tree, top down, or the tree below one frame.
+//! Each main-thread stack's root is where in the game's time it fell:
+//! `[day]`, `[frame inside a day]` or `[between days]`, and with `--slice
+//! <seconds>` the stretch of the run it fell in too, as `[between days]
+//! 10-20 s`, so that a run through the game's startup or a load shows what
+//! each stretch did; `<out>.slices.tsv` then has a line for each stretch: its
+//! dates, days and frames a second, with `--threads` the cores the whole game
+//! ran, and the share of its samples in each part, so that a long run shows
+//! how they change as the game goes on. In `<out>.threads.folded` the
+//! stretch, when sliced, comes first, then the thread, then where in the
+//! game's time; in `<out>.game.folded` the stretch, then where in the game's
+//! time. `--wait` waits for eu4.exe to start, for a run from its first
+//! moments; modules the process loads during the run, and threads it
+//! starts, are taken up as they come.
+//! `--tree` prints the stacks of a .folded file as a tree, top down, or the
+//! tree below one frame.
 //!
 //! Frames are named by the function they lie in, from the exception
 //! directory of the module's file: in eu4.exe by the function's RVA,
 //! elsewhere by module and export, or module and RVA where the function is
 //! not exported.
 //!
-//! Suspending the thread for each walk slows the game, about 1.4 ms a sample
-//! (the report gives it): at 50 samples a second the game runs about 7%
-//! slower, at 200 about 30%, and a slower day brings more frames inside
-//! days. Measure shares at 50.
+//! A sample holds its thread for its registers and a copy of its stack,
+//! about 0.1 ms for the main thread and less for the others (the report
+//! gives it). What sampling from outside cannot see: the kernel's side of a
+//! stack, and which thread a waiting one waits for, which Windows' own event
+//! tracing gives an administrator; and a stack past the framework's hook
+//! stubs, which have no unwind data.
 use crate::{Args, Result};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -49,17 +64,18 @@ use windows_sys::Win32::{
     System::{
         Diagnostics::{
             Debug::{
-                GetThreadContext, ReadProcessMemory, StackWalk64, SymFromAddrW, SymFunctionTableAccess64, SymGetModuleBase64, SymInitializeW, SymLoadModuleExW,
-                SymSetOptions, CONTEXT, CONTEXT_FULL_AMD64, STACKFRAME64, SYMBOL_INFOW, SYMOPT_DEFERRED_LOADS, SYMOPT_UNDNAME,
+                GetThreadContext, ReadProcessMemory, SymFromAddrW, SymInitializeW, SymLoadModuleExW, SymSetOptions, CONTEXT, CONTEXT_FULL_AMD64, SYMBOL_INFOW,
+                SYMOPT_DEFERRED_LOADS, SYMOPT_UNDNAME,
             },
             ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32},
         },
+        Memory::{VirtualQueryEx, MEMORY_BASIC_INFORMATION},
         ProcessStatus::{EnumProcessModulesEx, GetModuleBaseNameW, GetModuleFileNameExW, GetModuleInformation, LIST_MODULES_ALL, MODULEINFO},
-        SystemInformation::IMAGE_FILE_MACHINE_AMD64,
         Threading::{
             GetThreadDescription, GetThreadTimes, OpenProcess, OpenThread, ResumeThread, SuspendThread, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
             THREAD_GET_CONTEXT, THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
         },
+        WindowsProgramming::QueryThreadCycleTime,
     },
 };
 
@@ -102,7 +118,7 @@ pub fn run(args: &Args) -> Result<()> {
         return tree(out, args.value("root"), args.number("depth", 6)?, decimal(args, "min", 1.0)?);
     }
     let slice = args.value("slice").map(|_| decimal(args, "slice", 0.0)).transpose()?.filter(|s| *s > 0.0);
-    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.value("thread"))
+    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"))
 }
 
 /// The number `--key` gives, or `default`.
@@ -191,17 +207,7 @@ fn tree(path: &str, root: Option<&str>, depth: u32, min: f64) -> Result<()> {
     Ok(())
 }
 
-// ---------- which function an address lies in ----------
-
-/// A module's functions from its exception directory: their starts, sorted,
-/// their ends, and the function each belongs to, a chained entry (a
-/// function's later part) counting as the function it continues.
-#[derive(Default)]
-struct Functions {
-    starts: Vec<u32>,
-    ends: Vec<u32>,
-    primary: Vec<u32>,
-}
+// ---------- which function an address lies in, and how to unwind it ----------
 
 fn u16_at(data: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes(data.get(at..at + 2)?.try_into().ok()?))
@@ -211,56 +217,340 @@ fn u32_at(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(data.get(at..at + 4)?.try_into().ok()?))
 }
 
-impl Functions {
-    fn read(data: &[u8]) -> Option<Self> {
-        let pe = u32_at(data, 0x3c)? as usize;
-        let sections = u16_at(data, pe + 6)? as usize;
-        let optional = u16_at(data, pe + 20)? as usize;
-        let (directory, directory_size) = (u32_at(data, pe + 24 + 112 + 3 * 8)?, u32_at(data, pe + 24 + 112 + 3 * 8 + 4)?);
-        let mut table = Vec::new();
-        for i in 0..sections {
+/// A module's file, read by RVA through its sections.
+#[derive(Default)]
+struct Image {
+    data: Vec<u8>,
+    /// Each section's RVA, size and offset in the file.
+    sections: Vec<(u32, u32, u32)>,
+}
+
+impl Image {
+    fn read(data: Vec<u8>) -> Option<Self> {
+        let pe = u32_at(&data, 0x3c)? as usize;
+        let count = u16_at(&data, pe + 6)? as usize;
+        let optional = u16_at(&data, pe + 20)? as usize;
+        let mut sections = Vec::new();
+        for i in 0..count {
             let s = pe + 24 + optional + 40 * i;
-            let (size, rva, raw_size, raw) = (u32_at(data, s + 8)?, u32_at(data, s + 12)?, u32_at(data, s + 16)?, u32_at(data, s + 20)?);
-            table.push((rva, size.max(raw_size), raw));
+            let (size, rva, raw_size, raw) = (u32_at(&data, s + 8)?, u32_at(&data, s + 12)?, u32_at(&data, s + 16)?, u32_at(&data, s + 20)?);
+            sections.push((rva, size.max(raw_size), raw));
         }
-        let offset = |rva: u32| table.iter().find(|(start, size, _)| *start <= rva && rva < start + size).map(|(start, _, raw)| (raw + rva - start) as usize);
+        Some(Image { data, sections })
+    }
+
+    /// The `n` bytes at `rva`, where the file has them.
+    fn at(&self, rva: u32, n: usize) -> Option<&[u8]> {
+        let &(start, _, raw) = self.sections.iter().find(|(start, size, _)| *start <= rva && rva < start + size)?;
+        let offset = (raw + rva - start) as usize;
+        self.data.get(offset..offset + n)
+    }
+}
+
+/// A module's functions from its exception directory, sorted by start: their
+/// ends, their unwind data, and the function each belongs to, a chained
+/// entry (a function's later part) counting as the function it continues.
+#[derive(Default)]
+struct Functions {
+    starts: Vec<u32>,
+    ends: Vec<u32>,
+    unwind: Vec<u32>,
+    primary: Vec<u32>,
+}
+
+/// UNW_FLAG_CHAININFO: the unwind data continues another entry's.
+const CHAINED: u8 = 4;
+
+impl Functions {
+    fn read(image: &Image) -> Option<Self> {
+        let pe = u32_at(&image.data, 0x3c)? as usize;
+        let (directory, directory_size) = (u32_at(&image.data, pe + 24 + 112 + 3 * 8)?, u32_at(&image.data, pe + 24 + 112 + 3 * 8 + 4)?);
         let mut entries = Vec::new();
         if directory != 0 {
-            let begin = offset(directory)?;
-            for i in 0..directory_size as usize / 12 {
-                entries.push((u32_at(data, begin + 12 * i)?, u32_at(data, begin + 12 * i + 4)?, u32_at(data, begin + 12 * i + 8)?));
+            let table = image.at(directory, directory_size as usize)?;
+            for entry in table.chunks_exact(12) {
+                entries.push((u32_at(entry, 0)?, u32_at(entry, 4)?, u32_at(entry, 8)?));
             }
         }
-        // UNW_FLAG_CHAININFO: the entry continues another function.
         let primary = |start: u32, unwind: u32| -> Option<u32> {
-            let mut u = offset(unwind & !1)?;
-            let (mut flags, mut codes) = (*data.get(u)? >> 3, *data.get(u + 2)? as usize);
-            let mut at = start;
+            let (mut at, mut info) = (start, unwind & !1);
             for _ in 0..32 {
-                if flags & 4 == 0 {
+                let head = image.at(info, 4)?;
+                if head[0] >> 3 & CHAINED == 0 {
                     break;
                 }
-                let c = u + 4 + 2 * (codes + (codes & 1));
-                at = u32_at(data, c)?;
-                u = offset(u32_at(data, c + 8)? & !1)?;
-                (flags, codes) = (*data.get(u)? >> 3, *data.get(u + 2)? as usize);
+                let codes = u32::from(head[2]);
+                let chained = image.at(info + 4 + 2 * (codes + (codes & 1)), 12)?;
+                at = u32_at(chained, 0)?;
+                info = u32_at(chained, 8)? & !1;
             }
             Some(at)
         };
-        let mut functions: Vec<_> = entries.iter().map(|&(start, end, unwind)| (start, end, primary(start, unwind).unwrap_or(start))).collect();
+        let mut functions: Vec<_> = entries.iter().map(|&(start, end, unwind)| (start, end, unwind, primary(start, unwind).unwrap_or(start))).collect();
         functions.sort();
         Some(Functions {
             starts: functions.iter().map(|f| f.0).collect(),
             ends: functions.iter().map(|f| f.1).collect(),
-            primary: functions.iter().map(|f| f.2).collect(),
+            unwind: functions.iter().map(|f| f.2).collect(),
+            primary: functions.iter().map(|f| f.3).collect(),
         })
+    }
+
+    /// The entry `rva` lies in.
+    fn entry(&self, rva: u32) -> Option<usize> {
+        let i = self.starts.partition_point(|&s| s <= rva).checked_sub(1)?;
+        (rva < self.ends[i]).then_some(i)
     }
 
     /// The RVA of the function `rva` lies in, or none (a leaf function).
     fn of(&self, rva: u32) -> Option<u32> {
-        let i = self.starts.partition_point(|&s| s <= rva).checked_sub(1)?;
-        (rva < self.ends[i]).then(|| self.primary[i])
+        self.entry(rva).map(|i| self.primary[i])
     }
+}
+
+/// A thread's integer registers, by the numbers unwind data gives them (rax,
+/// rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8 to r15), and its instruction
+/// pointer.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Registers {
+    rip: u64,
+    r: [u64; 16],
+}
+
+const RSP: usize = 4;
+
+/// A copy of a thread's stack, from its stack pointer up.
+#[derive(Default)]
+struct Stack {
+    from: u64,
+    bytes: Vec<u8>,
+}
+
+impl Stack {
+    fn u64(&self, at: u64) -> Option<u64> {
+        let offset = usize::try_from(at.checked_sub(self.from)?).ok()?;
+        Some(u64::from_le_bytes(self.bytes.get(offset..offset + 8)?.try_into().ok()?))
+    }
+}
+
+/// Undoes the rest of the epilog `code` (the bytes at the instruction
+/// pointer) is in, the way Windows recognizes one: an `add rsp` or `lea
+/// rsp`, pops, then a `ret` or a jump out. False when it is in none.
+fn undo_epilog(code: &[u8], registers: &mut Registers, stack: &Stack) -> Option<bool> {
+    let mut r = *registers;
+    let mut i = 0;
+    match code {
+        [0x48, 0x83, 0xc4, n, ..] => {
+            r.r[RSP] += u64::from(*n);
+            i = 4;
+        }
+        [0x48, 0x81, 0xc4, a, b, c, d, ..] => {
+            r.r[RSP] += u64::from(u32::from_le_bytes([*a, *b, *c, *d]));
+            i = 7;
+        }
+        // lea rsp, [base + displacement]
+        [prefix @ (0x48 | 0x49), 0x8d, modrm, ..] if modrm >> 3 & 7 == RSP as u8 && modrm >> 6 != 3 && modrm & 7 != RSP as u8 => {
+            let base = usize::from(modrm & 7) + if *prefix == 0x49 { 8 } else { 0 };
+            let (displacement, length) = match modrm >> 6 {
+                1 => (i64::from(*code.get(3)? as i8), 4),
+                2 => (i64::from(i32::from_le_bytes(code.get(3..7)?.try_into().ok()?)), 7),
+                _ => (0, 3),
+            };
+            r.r[RSP] = r.r[base].wrapping_add_signed(displacement);
+            i = length;
+        }
+        _ => {}
+    }
+    loop {
+        match code.get(i..)? {
+            [n @ 0x58..=0x5f, ..] => {
+                r.r[usize::from(n - 0x58)] = stack.u64(r.r[RSP])?;
+                r.r[RSP] += 8;
+                i += 1;
+            }
+            [0x41, n @ 0x58..=0x5f, ..] => {
+                r.r[usize::from(n - 0x58) + 8] = stack.u64(r.r[RSP])?;
+                r.r[RSP] += 8;
+                i += 2;
+            }
+            [0xc3 | 0xc2, ..] => break,
+            // A jump out ends an epilog only after what undoes the frame.
+            [0xe9, ..] | [0xff, 0x25, ..] if i > 0 => break,
+            _ => return Some(false),
+        }
+    }
+    r.rip = stack.u64(r.r[RSP])?;
+    r.r[RSP] += 8;
+    *registers = r;
+    Some(true)
+}
+
+/// Whether the prolog has set the frame register, `done` bytes into it.
+fn set_fpreg_done(codes: &[u8], done: u32) -> bool {
+    codes.chunks_exact(2).any(|c| c[1] & 15 == 3 && u32::from(c[0]) <= done)
+}
+
+/// How far the prolog has yet to move the stack pointer, `done` bytes into
+/// it: its pushes and allocations not yet run.
+fn not_yet_moved(codes: &[u8], done: u32) -> Option<u64> {
+    let (mut i, mut moved) = (0, 0);
+    while i < codes.len() / 2 {
+        let (offset, op, op_info) = (u32::from(codes[2 * i]), codes[2 * i + 1] & 15, u64::from(codes[2 * i + 1] >> 4));
+        let slot = |n: usize| -> Option<u64> { Some(u64::from(u16_at(codes, 2 * (i + n))?)) };
+        let (size, slots) = match op {
+            0 => (8, 1),
+            1 if op_info == 0 => (slot(1)? * 8, 2),
+            1 => (slot(1)? | slot(2)? << 16, 3),
+            2 => (op_info * 8 + 8, 1),
+            4 | 8 => (0, 2),
+            5 | 9 => (0, 3),
+            _ => (0, 1),
+        };
+        if offset > done {
+            moved += size;
+        }
+        i += slots;
+    }
+    Some(moved)
+}
+
+/// Unwinds one frame of the function the instruction pointer is in, in
+/// `module` loaded at `base`: the registers as they were at the call into
+/// it. `innermost` is the stack's first frame, which may be anywhere in its
+/// function; the others are at calls.
+fn unwind(module: &Module, base: u64, registers: &mut Registers, stack: &Stack, innermost: bool) -> Option<()> {
+    let rva = u32::try_from(registers.rip.checked_sub(base)?).ok()?;
+    let Some(entry) = module.functions.entry(rva) else {
+        // A leaf function, which does not move the stack pointer.
+        if !innermost {
+            return None;
+        }
+        registers.rip = stack.u64(registers.r[RSP])?;
+        registers.r[RSP] += 8;
+        return Some(());
+    };
+    if innermost {
+        if let Some(code) = module.image.at(rva, 16).or_else(|| module.image.at(rva, 8)) {
+            if undo_epilog(code, registers, stack)? {
+                return Some(());
+            }
+        }
+    }
+    let mut r = *registers;
+    let (mut start, mut info) = (module.functions.starts[entry], module.functions.unwind[entry] & !1);
+    let mut first = true;
+    let mut machine_frame = false;
+    for _ in 0..32 {
+        let head = module.image.at(info, 4)?;
+        let (flags, prolog, count) = (head[0] >> 3, u32::from(head[1]), usize::from(head[2]));
+        let (frame_register, frame_offset) = (usize::from(head[3] & 15), u64::from(head[3] >> 4) * 16);
+        let codes = module.image.at(info + 4, 2 * count)?;
+        // Only the first entry's prolog can be part done.
+        let done = if first { rva - start } else { u32::MAX };
+        // What the saves are relative to: the stack pointer as the prolog
+        // leaves it, which the frame register keeps once it is set; in a
+        // prolog part done, less what it has yet to push and allocate.
+        let frame = if frame_register != 0 && (done >= prolog || set_fpreg_done(codes, done)) {
+            r.r[frame_register].wrapping_sub(frame_offset)
+        } else if done < prolog {
+            r.r[RSP].wrapping_sub(not_yet_moved(codes, done)?)
+        } else {
+            r.r[RSP]
+        };
+        let mut i = 0;
+        while i < count {
+            let (offset, op, op_info) = (u32::from(codes[2 * i]), codes[2 * i + 1] & 15, usize::from(codes[2 * i + 1] >> 4));
+            let slot = |n: usize| -> Option<u64> { Some(u64::from(u16_at(codes, 2 * (i + n))?)) };
+            let applies = done >= prolog || offset <= done;
+            i += match op {
+                // UWOP_PUSH_NONVOL
+                0 => {
+                    if applies {
+                        r.r[op_info] = stack.u64(r.r[RSP])?;
+                        r.r[RSP] += 8;
+                    }
+                    1
+                }
+                // UWOP_ALLOC_LARGE
+                1 => {
+                    let (size, slots) = if op_info == 0 { (slot(1)? * 8, 2) } else { (slot(1)? | slot(2)? << 16, 3) };
+                    if applies {
+                        r.r[RSP] += size;
+                    }
+                    slots
+                }
+                // UWOP_ALLOC_SMALL
+                2 => {
+                    if applies {
+                        r.r[RSP] += op_info as u64 * 8 + 8;
+                    }
+                    1
+                }
+                // UWOP_SET_FPREG
+                3 => {
+                    if applies {
+                        r.r[RSP] = r.r[frame_register].wrapping_sub(frame_offset);
+                    }
+                    1
+                }
+                // UWOP_SAVE_NONVOL, UWOP_SAVE_NONVOL_FAR
+                4 | 5 => {
+                    let (at, slots) = if op == 4 { (slot(1)? * 8, 2) } else { (slot(1)? | slot(2)? << 16, 3) };
+                    if applies {
+                        r.r[op_info] = stack.u64(frame + at)?;
+                    }
+                    slots
+                }
+                // UWOP_EPILOG (version 2): where an epilog is, which
+                // undo_epilog finds by its instructions.
+                6 => 1,
+                // UWOP_SAVE_XMM128, UWOP_SAVE_XMM128_FAR: no integer register.
+                8 => 2,
+                9 => 3,
+                // UWOP_PUSH_MACHFRAME: an interrupt's or exception's frame.
+                10 => {
+                    if applies {
+                        let at = r.r[RSP] + if op_info == 1 { 8 } else { 0 };
+                        r.rip = stack.u64(at)?;
+                        r.r[RSP] = stack.u64(at + 24)?;
+                        machine_frame = true;
+                    }
+                    1
+                }
+                _ => return None,
+            };
+        }
+        if flags & CHAINED == 0 {
+            break;
+        }
+        let count = count as u32;
+        let chained = module.image.at(info + 4 + 2 * (count + (count & 1)), 12)?;
+        (start, info) = (u32_at(chained, 0)?, u32_at(chained, 8)? & !1);
+        first = false;
+    }
+    if !machine_frame {
+        r.rip = stack.u64(r.r[RSP])?;
+        r.r[RSP] += 8;
+    }
+    *registers = r;
+    Some(())
+}
+
+/// The instruction pointer and return addresses of a stack, innermost
+/// first, unwound from its registers through the modules' unwind data;
+/// they end where an address lies in no module, or the unwind data cannot
+/// go on.
+fn frames(modules: &[Module], mut registers: Registers, stack: &Stack) -> Vec<u64> {
+    let mut pcs = Vec::new();
+    while pcs.len() < 200 && registers.rip != 0 {
+        pcs.push(registers.rip);
+        let Some(module) = modules.iter().find(|m| m.base <= registers.rip && registers.rip < m.end) else { break };
+        let sp = registers.r[RSP];
+        if unwind(module, module.base, &mut registers, stack, pcs.len() == 1).is_none() || registers.r[RSP] <= sp {
+            break;
+        }
+    }
+    pcs
 }
 
 // ---------- the process and its threads ----------
@@ -269,6 +559,7 @@ struct Module {
     base: u64,
     end: u64,
     name: String,
+    image: Image,
     functions: Functions,
 }
 
@@ -332,52 +623,61 @@ fn take_up_modules(process: HANDLE, modules: &mut Vec<Module>) {
             path.push(0);
             SymLoadModuleExW(process, std::ptr::null_mut(), path.as_ptr(), std::ptr::null(), base, info.SizeOfImage, std::ptr::null(), 0);
             path.pop();
-            let functions = std::fs::read(String::from_utf16_lossy(&path)).ok().and_then(|d| Functions::read(&d)).unwrap_or_default();
-            Module { base, end: base + u64::from(info.SizeOfImage), name: String::from_utf16_lossy(&name[..len]).to_lowercase(), functions }
+            let image = std::fs::read(String::from_utf16_lossy(&path)).ok().and_then(Image::read).unwrap_or_default();
+            let functions = Functions::read(&image).unwrap_or_default();
+            Module { base, end: base + u64::from(info.SizeOfImage), name: String::from_utf16_lossy(&name[..len]).to_lowercase(), image, functions }
         })
         .collect();
     modules.extend(new);
 }
 
-/// The main thread's instruction pointer and return addresses, innermost
-/// first.
-fn walk(process: HANDLE, thread: HANDLE) -> Vec<u64> {
+/// The most of a stack a sample copies.
+const STACK_COPIED: u64 = 512 << 10;
+
+/// A suspended thread's registers and a copy of its stack, from its stack
+/// pointer to the stack's end, walked later.
+fn capture(process: HANDLE, thread: HANDLE) -> Option<(Registers, Stack)> {
     // GetThreadContext fails on a context that is not 16-byte aligned.
     #[repr(C, align(16))]
     struct Aligned(CONTEXT);
     let mut aligned = Aligned(unsafe { std::mem::zeroed() });
-    let context = &mut aligned.0;
-    context.ContextFlags = CONTEXT_FULL_AMD64;
-    if unsafe { GetThreadContext(thread, context) } == 0 {
-        return Vec::new();
+    let c = &mut aligned.0;
+    c.ContextFlags = CONTEXT_FULL_AMD64;
+    if unsafe { GetThreadContext(thread, c) } == 0 {
+        return None;
     }
-    let mut frame: STACKFRAME64 = unsafe { std::mem::zeroed() };
-    // AddrModeFlat.
-    (frame.AddrPC.Offset, frame.AddrPC.Mode) = (context.Rip, 3);
-    (frame.AddrFrame.Offset, frame.AddrFrame.Mode) = (context.Rbp, 3);
-    (frame.AddrStack.Offset, frame.AddrStack.Mode) = (context.Rsp, 3);
-    let mut pcs = Vec::new();
-    while pcs.len() < 200
-        && unsafe {
-            StackWalk64(
-                u32::from(IMAGE_FILE_MACHINE_AMD64),
-                process,
-                thread,
-                &mut frame,
-                (context as *mut CONTEXT).cast(),
-                None,
-                Some(SymFunctionTableAccess64),
-                Some(SymGetModuleBase64),
-                None,
-            )
-        } != 0
-    {
-        if frame.AddrPC.Offset == 0 {
-            break;
-        }
-        pcs.push(frame.AddrPC.Offset);
+    let registers = Registers { rip: c.Rip, r: [c.Rax, c.Rcx, c.Rdx, c.Rbx, c.Rsp, c.Rbp, c.Rsi, c.Rdi, c.R8, c.R9, c.R10, c.R11, c.R12, c.R13, c.R14, c.R15] };
+    // The committed pages from the stack pointer up end where the stack does.
+    let mut region: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+    if unsafe { VirtualQueryEx(process, c.Rsp as *const _, &mut region, size_of::<MEMORY_BASIC_INFORMATION>()) } == 0 {
+        return None;
     }
-    pcs
+    let end = (region.BaseAddress as u64 + region.RegionSize as u64).min(c.Rsp + STACK_COPIED);
+    let mut bytes = vec![0u8; usize::try_from(end.checked_sub(c.Rsp)?).ok()?];
+    let mut got = 0;
+    let ok = unsafe { ReadProcessMemory(process, c.Rsp as *const _, bytes.as_mut_ptr().cast(), bytes.len(), &mut got) };
+    if ok == 0 {
+        return None;
+    }
+    bytes.truncate(got);
+    Some((registers, Stack { from: c.Rsp, bytes }))
+}
+
+/// Whether a stack's thread was running, in user mode, rather than in the
+/// kernel, where a thread that waits is: its instruction pointer right after
+/// a `syscall`.
+fn running(modules: &[Module], pcs: &[u64]) -> bool {
+    let Some(&rip) = pcs.first() else { return false };
+    let Some(module) = modules.iter().find(|m| m.base <= rip && rip < m.end) else { return true };
+    let rva = (rip - module.base) as u32;
+    rva < 2 || module.image.at(rva - 2, 2) != Some(&[0x0f, 0x05][..])
+}
+
+/// The CPU cycles the thread ran.
+fn cycles(thread: HANDLE) -> u64 {
+    let mut n = 0;
+    unsafe { QueryThreadCycleTime(thread, &mut n) };
+    n
 }
 
 fn read<const N: usize>(process: HANDLE, address: u64) -> Option<[u8; N]> {
@@ -473,26 +773,25 @@ fn description(thread: HANDLE) -> String {
     name
 }
 
-/// The thread `--thread` names among `threads`: by its name, or the one with
-/// the most CPU since `cpu` was taken; the main thread when none is.
-fn chosen(which: &str, threads: &[(u32, HANDLE)], cpu: &HashMap<u32, u64>, main: (u32, HANDLE), on_stack: impl Fn(HANDLE) -> bool) -> (u32, HANDLE) {
-    let found = if which.starts_with("0x") {
-        threads.iter().find(|(_, h)| on_stack(*h)).copied()
-    } else if which == "busiest" {
-        threads
-            .iter()
-            .filter(|(t, _)| *t != main.0)
-            .map(|&(t, h)| (thread_times(h).1.saturating_sub(cpu.get(&t).copied().unwrap_or(0)), (t, h)))
-            .max_by_key(|(c, _)| *c)
-            .filter(|(c, _)| *c > 0)
-            .map(|(_, th)| th)
-    } else {
-        threads.iter().find(|(_, h)| description(*h) == which).copied()
-    };
-    found.unwrap_or(main)
+/// A thread other than the main thread, with `--threads`: the CPU cycles it
+/// had run at its last sample.
+struct Other {
+    id: u32,
+    handle: HANDLE,
+    cycles: u64,
 }
 
-fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, which: Option<&str>) -> Result<()> {
+/// `[main 123]`, `[LoadingThread 456]` or `[thread 789]`: a thread as the
+/// root of its stacks.
+fn thread_frame(id: u32, main: bool, name: &str) -> String {
+    match (main, name.is_empty()) {
+        (true, _) => format!("[main {id}]"),
+        (false, true) => format!("[thread {id}]"),
+        (false, false) => format!("[{name} {id}]"),
+    }
+}
+
+fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool) -> Result<()> {
     let waited = Instant::now();
     let id = loop {
         match crate::game::processes().first() {
@@ -516,45 +815,33 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
     let mut modules = modules_of(process);
     let exe_base = modules.iter().find(|m| m.name == "eu4.exe").ok_or("eu4.exe has no module eu4.exe")?.base;
 
-    let before: HashMap<u32, u64> = threads.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
+    let before: HashMap<u32, (u64, u64)> = threads.iter().map(|&(t, h)| (t, (thread_times(h).1, cycles(h)))).collect();
     let start_state = world_state(process, exe_base);
     let mut samples = Tally::new();
+    // With --threads, every thread's samples taken as it ran, and each
+    // stretch's ticks.
+    let (mut thread_samples, mut stretch_ticks, mut waiting) = (Tally::new(), HashMap::new(), 0u64);
     // With --slice, each stretch's first and last sample.
     let mut stretches: BTreeMap<u32, (Mark, Mark)> = BTreeMap::new();
     let interval = Duration::from_secs_f64(1.0 / hz);
     let (mut suspended, mut count) = (Duration::ZERO, 0u64);
+    let (mut held, mut held_count) = (Duration::ZERO, 0u64);
     let began = Instant::now();
     let mut next = began;
     let mut looked = began;
-    // With --thread, the threads seen so far, their CPU a second ago, and the
-    // one sampled.
-    let mut seen: Vec<(u32, HANDLE)> = Vec::new();
-    let mut cpu: HashMap<u32, u64> = HashMap::new();
-    let mut target = (main_id, main);
-    let mut sampled: Tally<u32> = Tally::new();
+    let mut others: Vec<Other> = Vec::new();
     while began.elapsed().as_secs_f64() < seconds {
-        if looked.elapsed() >= Duration::from_secs(1) {
+        if looked.elapsed() >= Duration::from_secs(1) || (all && others.is_empty()) {
             take_up_modules(process, &mut modules);
-            if let Some(which) = which {
+            if all {
                 for (t, h) in threads_of(id) {
-                    if seen.iter().any(|(s, _)| *s == t) || t == main_id {
+                    if t == main_id || others.iter().any(|o| o.id == t) {
                         unsafe { CloseHandle(h) };
                     } else {
-                        seen.push((t, h));
+                        let cycles = before.get(&t).map_or_else(|| cycles(h), |b| b.1);
+                        others.push(Other { id: t, handle: h, cycles });
                     }
                 }
-                let has = |thread: HANDLE| {
-                    if unsafe { SuspendThread(thread) } == u32::MAX {
-                        return false;
-                    }
-                    let pcs = walk(process, thread);
-                    unsafe { ResumeThread(thread) };
-                    pcs.iter().enumerate().any(|(i, &pc)| name(process, &modules, if i == 0 { pc } else { pc - 1 }) == which)
-                };
-                if !(which.starts_with("0x") && target.0 != main_id && has(target.1)) {
-                    target = chosen(which, &seen, &cpu, (main_id, main), has);
-                }
-                cpu = seen.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
             }
             looked = Instant::now();
         }
@@ -563,27 +850,55 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
             std::thread::sleep((next - now).saturating_sub(Duration::from_micros(500)));
             continue;
         }
-        next += interval;
+        // A tick that came late is not made up for.
+        next = (next + interval).max(now);
         let t0 = Instant::now();
-        if unsafe { SuspendThread(target.1) } == u32::MAX {
-            if target.0 == main_id {
-                break;
-            }
-            // The thread chosen ended: back to the main thread.
-            target = (main_id, main);
-            continue;
+        if unsafe { SuspendThread(main) } == u32::MAX {
+            break;
         }
-        let pcs = walk(process, target.1);
+        let captured = capture(process, main);
         let state = world_state(process, exe_base);
-        unsafe { ResumeThread(target.1) };
-        sampled.add(target.0, 1);
+        unsafe { ResumeThread(main) };
         suspended += t0.elapsed();
         count += 1;
+        let pcs = captured.map(|(registers, stack)| frames(&modules, registers, &stack)).unwrap_or_default();
         let at = began.elapsed().as_secs_f64();
         let stretch = slice.map(|slice| (at / slice).floor() as u32);
         if let (Some(n), Some((date, ..)), Some(frames)) = (stretch, state, frame_count(process, exe_base)) {
             let mark = Mark { at, date, frames };
             stretches.entry(n).and_modify(|(_, last)| *last = mark).or_insert((mark, mark));
+        }
+        if all {
+            if let Some(stretch) = stretch {
+                *stretch_ticks.entry(stretch).or_insert(0u64) += 1;
+            }
+            match running(&modules, &pcs) {
+                true => thread_samples.add((stretch, main_id, tag(state), pcs.clone()), 1),
+                false => waiting += 1,
+            }
+            others.retain_mut(|other| {
+                let now = cycles(other.handle);
+                if now <= other.cycles {
+                    return true;
+                }
+                let t0 = Instant::now();
+                if unsafe { SuspendThread(other.handle) } == u32::MAX {
+                    // The thread ended.
+                    unsafe { CloseHandle(other.handle) };
+                    return false;
+                }
+                let captured = capture(process, other.handle);
+                unsafe { ResumeThread(other.handle) };
+                held += t0.elapsed();
+                held_count += 1;
+                let pcs = captured.map(|(registers, stack)| frames(&modules, registers, &stack)).unwrap_or_default();
+                match running(&modules, &pcs) {
+                    true => thread_samples.add((stretch, other.id, tag(state), pcs), 1),
+                    false => waiting += 1,
+                }
+                other.cycles = now;
+                true
+            });
         }
         samples.add((tag(state), stretch, pcs), 1);
     }
@@ -593,25 +908,46 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
     // The threads at the end, those the process started during the run
     // with all their time.
     let ended = threads_of(id);
-    let after: HashMap<u32, u64> = ended.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
+    let after: HashMap<u32, (u64, u64)> = ended.iter().map(|&(t, h)| (t, (thread_times(h).1, cycles(h)))).collect();
+    let names_of_threads: HashMap<u32, String> = ended.iter().map(|&(t, h)| (t, description(h))).collect();
 
     let mut names: HashMap<u64, String> = HashMap::new();
-    let (mut stacks, mut flags) = (Tally::new(), Tally::new());
-    for ((tag, stretch, pcs), n) in &samples.counts {
-        let mut frames: Vec<String> = pcs
-            .iter()
+    let mut frames_of = |pcs: &[u64]| -> Vec<String> {
+        pcs.iter()
             .enumerate()
             .map(|(i, &pc)| {
                 let at = if i == 0 { pc } else { pc - 1 };
                 names.entry(at).or_insert_with(|| name(process, &modules, at)).clone()
             })
-            .collect();
+            .collect()
+    };
+    let (mut stacks, mut flags) = (Tally::new(), Tally::new());
+    for ((tag, stretch, pcs), n) in &samples.counts {
+        let mut frames = frames_of(pcs);
         frames.push(tag.to_string());
         stacks.add((frames, *stretch), *n);
         flags.add(*tag, *n);
     }
-    for (_, thread) in threads.iter().chain(&ended).chain(&seen) {
+    // Each thread's stacks, and the whole game's with the threads merged.
+    let (mut thread_stacks, mut game_stacks, mut stretch_cpu) = (Tally::new(), Tally::new(), HashMap::new());
+    for ((stretch, thread, tag, pcs), n) in &thread_samples.counts {
+        let mut frames = frames_of(pcs);
+        frames.push(tag.to_string());
+        let mut game = frames.clone();
+        frames.push(thread_frame(*thread, *thread == main_id, names_of_threads.get(thread).map_or("", String::as_str)));
+        if let (Some(stretch), Some(slice)) = (stretch, slice) {
+            frames.push(format!("[{}]", seconds_of(*stretch, slice)));
+            game.push(format!("[{}]", seconds_of(*stretch, slice)));
+            *stretch_cpu.entry(*stretch).or_insert(0) += n;
+        }
+        thread_stacks.add(frames, *n);
+        game_stacks.add(game, *n);
+    }
+    for (_, thread) in threads.iter().chain(&ended) {
         unsafe { CloseHandle(*thread) };
+    }
+    for other in &others {
+        unsafe { CloseHandle(other.handle) };
     }
     unsafe { CloseHandle(process) };
 
@@ -628,6 +964,17 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
         })
         .collect();
     std::fs::write(format!("{out}.folded"), folded).map_err(|e| format!("cannot write {out}.folded: {e}"))?;
+    if all {
+        for (stacks, file) in [(&thread_stacks, "threads"), (&game_stacks, "game")] {
+            let folded: String = stacks
+                .most()
+                .iter()
+                .filter(|(_, n)| *n > 0)
+                .map(|(frames, n)| format!("{} {n}\n", frames.iter().rev().cloned().collect::<Vec<_>>().join(";")))
+                .collect();
+            std::fs::write(format!("{out}.{file}.folded"), folded).map_err(|e| format!("cannot write {out}.{file}.folded: {e}"))?;
+        }
+    }
 
     let (mut inclusive, mut own, mut parts, mut stretch_parts) = (Tally::new(), Tally::new(), HashMap::new(), HashMap::new());
     for ((frames, stretch), n) in &stacks.counts {
@@ -645,27 +992,30 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
     }
     let framework: u64 = stacks.counts.iter().filter(|((f, _), _)| f.iter().any(|fr| fr.starts_with("eu4_harmony_core.dll"))).map(|(_, n)| n).sum();
     if let Some(slice) = slice {
-        let table = stretch_table(&stretches, &stretch_parts, slice);
+        // With --threads, the cores the whole game ran in each stretch.
+        let cores: HashMap<u32, f64> =
+            stretch_cpu.iter().map(|(&stretch, &n)| (stretch, n as f64 / stretch_ticks.get(&stretch).copied().unwrap_or(1).max(1) as f64)).collect();
+        let table = stretch_table(&stretches, &stretch_parts, all.then_some(&cores), slice);
         std::fs::write(format!("{out}.slices.tsv"), table).map_err(|e| format!("cannot write {out}.slices.tsv: {e}"))?;
     }
 
     let total = count.max(1) as f64;
     let share = |n: u64| 100.0 * n as f64 / total;
     let mut lines = vec![format!(
-        "{count} samples in {wall:.1} s ({:.0} a second); the main thread (id {main_id}) was suspended {:.1}% of the time, {:.2} ms a sample",
+        "{count} samples in {wall:.1} s ({:.0} a second); the main thread (id {main_id}) was suspended {:.1}% of the time, {:.3} ms a sample",
         count as f64 / wall,
         100.0 * suspended.as_secs_f64() / wall,
         1000.0 * suspended.as_secs_f64() / total
     )];
+    if all {
+        lines.push(format!(
+            "{held_count} samples of the other threads, each holding its thread {:.3} ms; of every thread's, {waiting} found it waiting in the kernel",
+            1000.0 * held.as_secs_f64() / held_count.max(1) as f64
+        ));
+    }
     if let (Some(start), Some(end)) = (start_state, end_state) {
         let days = f64::from(end.0 - start.0) / 24.0;
         lines.push(format!("{days:.0} days passed, {:.2} a second", days / wall));
-    }
-    if which.is_some() {
-        lines.push(format!(
-            "threads sampled: {}",
-            sampled.most().iter().map(|(t, n)| format!("{t}{} {:.1}%", if *t == main_id { " (main)" } else { "" }, share(*n))).collect::<Vec<_>>().join(", ")
-        ));
     }
     lines.extend(["".into(), "Samples by where in the game's time (the world's flags):".into()]);
     lines.extend(flags.most().iter().map(|(k, n)| format!("  {k}: {:.1}%", share(*n))));
@@ -679,12 +1029,37 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
     lines.extend(["".into(), "Most samples of their own (self):".into()]);
     lines.extend(own.most().iter().take(60).map(|(f, n)| format!("  {:5.1}%  {f}", share(*n))));
     lines.extend(["".into(), "CPU of each thread over the run, in cores (busiest first):".into()]);
-    let mut cpu: Vec<(f64, u32)> = ended.iter().map(|(t, _)| ((after[t] - before.get(t).copied().unwrap_or(0)) as f64 / 1e7 / wall, *t)).collect();
+    let mut cpu: Vec<(f64, u32)> = ended.iter().map(|(t, _)| ((after[t].0 - before.get(t).map_or(0, |b| b.0)) as f64 / 1e7 / wall, *t)).collect();
     cpu.sort_by(|a, b| b.partial_cmp(a).expect("CPU times are numbers"));
     for (c, t) in cpu.iter().filter(|(c, _)| *c >= 0.005) {
-        lines.push(format!("  {c:5.2}  thread {t}{}", if *t == main_id { " (main)" } else { "" }));
+        lines.push(format!("  {c:5.2}  {}", thread_frame(*t, *t == main_id, &names_of_threads[t])));
     }
     lines.push(format!("  {:5.2}  in all", cpu.iter().map(|(c, _)| c).sum::<f64>()));
+    if all {
+        // The whole game's functions, every thread's merged, in cores: the
+        // CPU their samples stand for over the run.
+        let (mut inclusive, mut own) = (Tally::new(), Tally::new());
+        for (frames, n) in &game_stacks.counts {
+            own.add(frames[0].clone(), *n);
+            let mut seen = std::collections::HashSet::new();
+            for frame in frames.iter().filter(|f| !f.starts_with('[')) {
+                if seen.insert(frame) {
+                    inclusive.add(frame.clone(), *n);
+                }
+            }
+        }
+        // Each tick samples every thread that runs, so a function's samples
+        // over the ticks are the cores it ran on.
+        let cores = |n: u64| n as f64 / total;
+        let sampled: u64 = game_stacks.counts.iter().map(|(_, n)| n).sum();
+        lines.extend([
+            "".into(),
+            format!("The whole game's CPU inside each function, every thread's merged, in cores of the {:.2} sampled (inclusive):", cores(sampled)),
+        ]);
+        lines.extend(inclusive.most().iter().take(60).map(|(f, n)| format!("  {:5.2}  {f}", cores(*n))));
+        lines.extend(["".into(), "The whole game's CPU in each function's own code, in cores (self):".into()]);
+        lines.extend(own.most().iter().take(60).map(|(f, n)| format!("  {:5.2}  {f}", cores(*n))));
+    }
     std::fs::write(format!("{out}.txt"), lines.join("\n") + "\n").map_err(|e| format!("cannot write {out}.txt: {e}"))?;
     println!("{}", lines[..lines.len().min(40)].join("\n"));
     Ok(())
@@ -705,13 +1080,15 @@ fn seconds_of(stretch: u32, slice: f64) -> String {
 
 /// One line for each stretch of the run, tab-separated: its seconds, the
 /// dates of its first and last sample, days and frames a second between
-/// them, and the share of its samples in each part.
-fn stretch_table(stretches: &BTreeMap<u32, (Mark, Mark)>, parts: &HashMap<(u32, String), u64>, slice: f64) -> String {
+/// them, with `--threads` the cores the whole game ran, and the share of
+/// the main thread's samples in each part.
+fn stretch_table(stretches: &BTreeMap<u32, (Mark, Mark)>, parts: &HashMap<(u32, String), u64>, cores: Option<&HashMap<u32, f64>>, slice: f64) -> String {
     let mut labels: Vec<&String> = parts.keys().map(|(_, label)| label).collect();
     labels.sort();
     labels.dedup();
     let mut lines = vec![["seconds", "from", "to", "days a second", "frames a second"]
         .iter()
+        .chain(cores.map(|_| &"the game's cores"))
         .map(|s| s.to_string())
         .chain(labels.iter().map(|l| l.to_string()))
         .collect::<Vec<_>>()
@@ -727,6 +1104,9 @@ fn stretch_table(stretches: &BTreeMap<u32, (Mark, Mark)>, parts: &HashMap<(u32, 
             rate(f64::from(last.date - first.date) / 24.0),
             rate((last.frames - first.frames) as f64),
         ];
+        if let Some(cores) = cores {
+            row.push(format!("{:.2}", cores.get(&stretch).copied().unwrap_or(0.0)));
+        }
         row.extend(labels.iter().map(|label| {
             let n = parts.get(&(stretch, (*label).clone())).copied().unwrap_or(0);
             format!("{:.1}", 100.0 * n as f64 / total.max(1) as f64)
@@ -760,10 +1140,108 @@ mod tests {
         let stretches = BTreeMap::from([(1, (Mark { at: 60.0, date, frames: 100 }, Mark { at: 62.0, date: date + 240, frames: 140 }))]);
         let parts = HashMap::from([((1, "[day]: the AI".to_string()), 3), ((1, "[between days]: drawing".to_string()), 1)]);
         assert_eq!(
-            stretch_table(&stretches, &parts, 60.0),
+            stretch_table(&stretches, &parts, None, 60.0),
             "seconds\tfrom\tto\tdays a second\tframes a second\t[between days]: drawing\t[day]: the AI\n\
              60-120 s\t1444.11.11\t1444.11.21\t5.00\t20.00\t25.0\t75.0\n"
         );
+        let cores = HashMap::from([(1, 3.25)]);
+        assert_eq!(
+            stretch_table(&stretches, &parts, Some(&cores), 60.0),
+            "seconds\tfrom\tto\tdays a second\tframes a second\tthe game's cores\t[between days]: drawing\t[day]: the AI\n\
+             60-120 s\t1444.11.11\t1444.11.21\t5.00\t20.00\t3.25\t25.0\t75.0\n"
+        );
+    }
+
+    const BASE: u64 = 0x1_4000_0000;
+
+    /// A module of two functions: one at 0x100 whose prolog is
+    /// `mov [rsp+8], rbx; push rdi; sub rsp, 0x20` and whose epilog at 0x1f0
+    /// is `add rsp, 0x20; pop rdi; ret`; one at 0x300 that keeps its frame
+    /// in rbp: `push rbp; sub rsp, 0x40; lea rbp, [rsp+0x20]`.
+    fn module() -> Module {
+        let mut data = vec![0u8; 0x400];
+        // The first's unwind data: version 1, a prolog of 10 bytes, 4 slots.
+        data[0x10..0x1c].copy_from_slice(&[1, 0x0a, 4, 0, 0x0a, 3 << 4 | 2, 0x06, 7 << 4, 0x05, 3 << 4 | 4, 6, 0]);
+        // The second's: rbp at 2 × 16 above the stack pointer.
+        data[0x40..0x4a].copy_from_slice(&[1, 0x0a, 3, 2 << 4 | 5, 0x0a, 3, 0x05, 7 << 4 | 2, 0x01, 5 << 4]);
+        data[0x100..0x10a].copy_from_slice(&[0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x20]);
+        data[0x1f0..0x1f6].copy_from_slice(&[0x48, 0x83, 0xc4, 0x20, 0x5f, 0xc3]);
+        Module {
+            base: BASE,
+            end: BASE + 0x400,
+            name: "eu4.exe".into(),
+            image: Image { data, sections: vec![(0, 0x400, 0)] },
+            functions: Functions { starts: vec![0x100, 0x300], ends: vec![0x200, 0x400], unwind: vec![0x10, 0x40], primary: vec![0x100, 0x300] },
+        }
+    }
+
+    /// A stack from `from` with these values at these addresses.
+    fn stack(from: u64, len: usize, values: &[(u64, u64)]) -> Stack {
+        let mut bytes = vec![0u8; len];
+        for &(at, value) in values {
+            let at = (at - from) as usize;
+            bytes[at..at + 8].copy_from_slice(&value.to_le_bytes());
+        }
+        Stack { from, bytes }
+    }
+
+    fn registers(rip: u64, rsp: u64, others: &[(usize, u64)]) -> Registers {
+        let mut r = Registers { rip, r: [0; 16] };
+        r.r[RSP] = rsp;
+        for &(i, v) in others {
+            r.r[i] = v;
+        }
+        r
+    }
+
+    #[test]
+    fn a_frame_is_unwound_by_its_functions_unwind_data() {
+        let (module, caller) = (module(), 0x7ff0_1234);
+        // rdi pushed at 0x1020, the return address at 0x1028, rbx saved in
+        // the caller's space at 0x1030.
+        let stack = stack(0x1000, 0x40, &[(0x1020, 0x77), (0x1028, caller), (0x1030, 0x33)]);
+        let mut r = registers(BASE + 0x120, 0x1000, &[]);
+        unwind(&module, BASE, &mut r, &stack, true).unwrap();
+        assert_eq!(r, registers(caller, 0x1030, &[(3, 0x33), (7, 0x77)]));
+
+        // Stopped after `push rdi`, before `sub rsp`: the allocation is not
+        // undone, and the save is found where the prolog will leave it.
+        let mut r = registers(BASE + 0x106, 0x1020, &[]);
+        unwind(&module, BASE, &mut r, &stack, true).unwrap();
+        assert_eq!(r, registers(caller, 0x1030, &[(3, 0x33), (7, 0x77)]));
+
+        // In the epilog: its own instructions are followed.
+        let mut r = registers(BASE + 0x1f0, 0x1000, &[(3, 0x33)]);
+        unwind(&module, BASE, &mut r, &stack, true).unwrap();
+        assert_eq!(r, registers(caller, 0x1030, &[(3, 0x33), (7, 0x77)]));
+    }
+
+    #[test]
+    fn a_frame_kept_in_a_register_is_unwound_through_it() {
+        let (module, caller) = (module(), 0x7ff0_1234);
+        // The prolog left the stack pointer at 0x2000 and rbp at 0x2020; the
+        // function then took more stack, to 0x1f00.
+        let stack = stack(0x1f00, 0x200, &[(0x2040, 0x5555), (0x2048, caller)]);
+        let mut r = registers(BASE + 0x320, 0x1f00, &[(5, 0x2020)]);
+        unwind(&module, BASE, &mut r, &stack, true).unwrap();
+        assert_eq!(r, registers(caller, 0x2050, &[(5, 0x5555)]));
+    }
+
+    #[test]
+    fn a_stack_is_walked_until_an_address_lies_in_no_module() {
+        let module = module();
+        let stack = stack(0x1000, 0x40, &[(0x1000, BASE + 0x130), (0x1028, 0x77), (0x1030, 0x7ff0_1234)]);
+        // A leaf function at 0x250 returns into the first function, which
+        // returns out of the module.
+        let pcs = super::frames(std::slice::from_ref(&module), registers(BASE + 0x250, 0x1000, &[]), &stack);
+        assert_eq!(pcs, [BASE + 0x250, BASE + 0x130, 0x7ff0_1234]);
+    }
+
+    #[test]
+    fn a_thread_is_named_by_its_name_or_number() {
+        assert_eq!(thread_frame(1, true, "SDL"), "[main 1]");
+        assert_eq!(thread_frame(2, false, "LoadingThread"), "[LoadingThread 2]");
+        assert_eq!(thread_frame(3, false, ""), "[thread 3]");
     }
 
     #[test]

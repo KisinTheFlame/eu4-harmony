@@ -2131,6 +2131,29 @@ O2 to O4 of [observe-mode.md](observe-mode.md), the player build, the game claim
 - **Not verified**: a proposal answered after the view changed (the AI answers within the frame after, too soon for a second request from the command line; `still_acting` is unit-tested); `menu.start` with ironman chosen in the setup (the refusal reads the main menu world's ironman flag, `world+0x24d0`, which is inferred to be the setup's choice, not seen); an extension's `on_country_in_view`; building as the country in view.
 - **Cleanup**: releasing the game put back the player's files and the game folder's framework files.
 
+## 2026-11-07 The sampler's own stack walk, and every thread sampled (tested by me)
+
+Whether `cargo xtask profile` walks stacks as dbghelp does once it copies a thread's stack and walks it afterwards with the modules' unwind data, what a sample then costs, and whether `--threads` gives every thread's CPU. Master at `5bc2dbd` with this change, the player build; the run's autosave of 1721.1.1 (the AI-only game of 2026-11-06), observed in the Ottomans' view, `time.advance` a year at a time at speed 5; one claim, the game started hidden.
+
+- **Against dbghelp**: a build of the sampler that, for every sample, walked the suspended thread with dbghelp's `StackWalk64` too and compared the two, 30 s with `--threads` at 50 a second. The first walk differed in 27 of 48,239 stacks, all at the innermost frame: a thread stopped on a `jmp` inside a function was taken for one leaving it, and version 2 unwind data's epilog codes (`UWOP_EPILOG`, in ntdll and the CRT's `0x1a35de0`) ended the walk. With both mended, 48,089 of 48,093 stacks were the same; the 4 others ended in the framework's hook stubs, which have no unwind data and after which dbghelp's walk went on through addresses in no module.
+- **What a sample holds its thread**: the main thread 0.099 ms a sample alone, 0.5% of the time at 50 a second (dbghelp's walk held it 1.15 ms on the same save the day before, run 9); with `--threads`, the main thread 0.09 to 0.16 ms and the others 0.02 ms each, about 33 threads at a tick, at 43 to 48 ticks a second.
+- **The game's speed**: 30 s at a time, in turn, with no sampling, the main thread sampled and every thread sampled, twice: 11.93, 11.09 and 11.82 days a second, then 13.81, 12.24 and 15.31. The game's own changes from one stretch to the next were larger than any cost of sampling, which these runs therefore do not measure.
+- **Every thread's CPU**: weighing each sample by the cycles its thread had run since the last put 1.36 of 2.84 cores in `ZwWaitForAlertByThreadId`: workers run in bursts and are found asleep. Counting a thread only when its instruction pointer is not right after a `syscall` gave the whole game 2.15 cores, against 2.76 that Windows counted for its threads (kernel time included), and the AI countries' updates (`0xb0fa0`) 0.95 of them.
+- **Not verified**: the walk on other games or machines; frames past the framework's hook stubs.
+- **Cleanup**: the comparison was taken out before the change was committed; releasing the game put back the player's files and removed the save the run added.
+
+## 2026-11-07 Inside an AI country's task, 1721 onwards (tested by me)
+
+What an AI country's task spends its time on, what an army agent's think writes, and whether it could be made faster ([research/late-game.md](research/late-game.md), "An AI country's agents" to "Whether it can be made faster"). Master at `05022e8` and later at `f6bb9a3`; the run's autosave of 1721.1.1 (the AI-only game of 2026-11-06) loaded in each start, observed in the Ottomans' view, `time.advance` at speed 5; four claims, the game started hidden.
+
+- **Write watch** (`dev-write-watch` alone, `[write-watch] function = "0xea250"`, `calls = 3`): the first three army thinks on the main thread, on 1721.1.2 to 1721.1.6, each with 100 other threads held and 8.2 million heap blocks made read-only in about 0.5 s; 643, 148 and 2,779 writes. The game did not hang.
+- **Sampled, the old way**: `cargo xtask profile --thread 0xea250 --hz 200` for 240 s picked the main thread 73% of the seconds, so few samples were a worker's.
+- **Timed calls, too many**: two runs of four and three minutes with the call trace's `times` on the think and functions inside it. Tracing `0x96bd00` (86 million calls) and then `0x96f860` and `0x102140` (138 and 50 million) made the thinks that call them take several times as long and wrote 5.4 and 11 GB; their lengths were not used, only their counts and the shares of their paths. A first start traced `0xf8ea0`, which reads 18 arguments while an observer forwards 12; it was stopped before a game was loaded, and the call trace now leaves such a function out.
+- **Sampled, every thread**: `cargo xtask profile --threads --slice 1` (the sampler of the section above), 240 s, 3,702 days, 15.4 a second; the whole game 2.17 cores.
+- **Route queries logged**: the call trace logging `0x96c520`'s and the stage's first 300,000 calls, `time.advance 30` twelve times, 1721.1.1 to 1721.12.27: 18,666 queries over 360 stages.
+- **Not verified**: a top agent's plan watched or timed on its own; the write watch on a long think; another game or a player's.
+- **Cleanup**: `dev.toml` deleted after each run; the timing files deleted from the scratch folder and from the claims' kept logs (5.4 and 11 GB, and the first day's 420 MB); releasing the game put back the player's files and removed the save each run added.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
