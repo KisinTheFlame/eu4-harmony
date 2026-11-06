@@ -7,7 +7,7 @@
 //! from its left edge, y from its bottom edge, as `map/positions.txt` writes
 //! them. The camera's height is in the same unit, above the map's base plane
 //! (docs/research/camera.md).
-use super::{context, game, map_manager, with_state, Caller, Ctx, GResult};
+use super::{map_manager, with_state, Ctx, GResult, Session};
 use crate::{
     memory::Memory,
     objects::{
@@ -61,17 +61,13 @@ pub struct Camera {
 }
 
 /// Where the camera looks now.
-pub fn camera(_: Caller) -> GResult<Camera> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn camera(Session { m, ctx, .. }: Session) -> GResult<Camera> {
     read(m, find(m, &ctx)?.1)
 }
 
 /// Turns the camera to a province, where the game looks at it from, keeping
 /// the height.
-pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn look_at_province(Session { m, ctx, .. }: Session, province: u32) -> GResult<Camera> {
     if province == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
@@ -82,9 +78,7 @@ pub fn look_at_province(_: Caller, province: u32) -> GResult<Camera> {
 }
 
 /// Turns the camera to a map position, keeping the height.
-pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn look_at(Session { m, ctx, .. }: Session, x: u32, y: u32) -> GResult<Camera> {
     checks::position(x, y, map_size(m)?)?;
     let (manager, camera) = movable(m, &ctx)?;
     m.call(m.at(LOOK_AT_POSITION), &[manager, x as usize, y as usize])?;
@@ -92,9 +86,7 @@ pub fn look_at(_: Caller, x: u32, y: u32) -> GResult<Camera> {
 }
 
 /// Raises or lowers the camera to a height, looking at the same position.
-pub fn zoom(_: Caller, height: u32) -> GResult<Camera> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn zoom(Session { m, ctx, .. }: Session, height: u32) -> GResult<Camera> {
     checks::height(height, limits(m, find(m, &ctx)?.1)?)?;
     let (_, camera) = movable(m, &ctx)?;
     let [x, _, z] = point(m, camera + fields::GOAL_LOOK_AT)?;

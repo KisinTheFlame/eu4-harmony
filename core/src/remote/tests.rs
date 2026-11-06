@@ -142,14 +142,14 @@ fn every_capability_runs_where_its_kind_says() {
         assert!(ran(&game, request) && !answer(reply).is_null(), "{} did not run at a game's frame", request.name());
     }
 
-    // At a game's frame the player cannot play, what needs a game is
-    // answered why.
+    // At a game's frame the player cannot play, what needs a country the
+    // player plays is answered why, and what needs only the game runs.
     let engine = Engine::new(fake::quiet);
     let mut game = Scripted::default();
     let replies: Vec<Reply> = all.iter().map(|r| engine.submit(r.clone())).collect();
     engine.run(&mut game, &Place::Unplayable(Error::new(Code::NotInGame, "no controllable player")), PLENTY);
     for (request, reply) in all.iter().zip(&replies) {
-        assert_eq!(ran(&game, request), !request.in_game(), "{}", request.name());
+        assert_eq!(ran(&game, request), !request.in_game() || request.observing(), "{}", request.name());
         assert!(!answer(reply).is_null(), "{} was not answered", request.name());
     }
 }

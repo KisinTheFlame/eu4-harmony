@@ -1,7 +1,7 @@
 //! Loans: the player's loans, as the economy view's loan window lists them,
 //! and repaying one with its repay button (docs/research/power-spending.md,
 //! "Loans").
-use super::{context, game, power, thousandths, Caller, GResult, Tag};
+use super::{power, thousandths, GResult, Session, Tag};
 use crate::{
     memory::Memory,
     objects::{
@@ -89,9 +89,7 @@ fn read(m: &Memory, country: usize, loan: usize) -> GResult<PlayerLoan> {
 }
 
 /// The player's loans.
-pub fn list(_: Caller) -> GResult<Vec<PlayerLoan>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<PlayerLoan>> {
     loans_of(m, ctx.country)?.into_iter().map(|loan| read(m, ctx.country, loan)).collect()
 }
 
@@ -103,9 +101,7 @@ fn written(country: [u8; 3], id: u32, kind: u32) -> String {
 
 /// Repays the player's loan with the ID `id`, as its repay button does once
 /// the player confirms.
-pub fn repay(_: Caller, id: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn repay(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     let Some(loan) = find(m, ctx.country, id)? else {
         return Err(eu4_harmony_checks::loans::not_found(id).into());
     };

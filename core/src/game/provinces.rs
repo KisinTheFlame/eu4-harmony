@@ -3,7 +3,7 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, context, events, game, span, thousandths, view, with_state, Caller, Ctx, GResult, Tag, View};
+use super::{commands, events, span, thousandths, with_state, Ctx, GResult, Session, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
@@ -39,22 +39,18 @@ pub struct Neighbor {
 /// Every province, indexed by ID; index 0 is a placeholder with nothing set.
 /// In the player's view a province the player has not discovered has no
 /// owner or controller, as the map shows it.
-pub fn provinces(caller: Caller) -> GResult<Vec<Province>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn provinces(Session { m, ctx, view, .. }: Session) -> GResult<Vec<Province>> {
     let visible = events::visibility_current(m, &ctx);
     let provinces = with_state(|s| s.geography.provinces(m, &ctx, visible))?;
-    discovered(m, &ctx, view(caller), provinces)
+    discovered(m, &ctx, view, provinces)
 }
 
 /// The provinces numbered in `ids` that there are, in their order, as
 /// [`provinces`] has them.
-pub fn named(caller: Caller, ids: Vec<u32>) -> GResult<Vec<Province>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn named(Session { m, ctx, view, .. }: Session, ids: Vec<u32>) -> GResult<Vec<Province>> {
     let visible = events::visibility_current(m, &ctx);
     let provinces = with_state(|s| s.geography.named_provinces(m, &ctx, visible, &ids))?;
-    discovered(m, &ctx, view(caller), provinces)
+    discovered(m, &ctx, view, provinces)
 }
 
 /// `provinces` with the owner and controller of those the player has not
@@ -81,9 +77,7 @@ pub fn sees_inside(view: View, ctx: &Ctx, owner: Option<Tag>) -> bool {
 
 /// The passable land provinces next to a province; none for a province an
 /// army cannot stand on.
-pub fn neighbors(_: Caller, province: u32) -> GResult<Vec<Neighbor>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn neighbors(Session { m, ctx, .. }: Session, province: u32) -> GResult<Vec<Neighbor>> {
     with_state(|s| s.geography.neighbors(m, &ctx, province))
 }
 
@@ -198,14 +192,11 @@ pub struct Snapshot {
 /// province. In the player's view a province another country owns leaves
 /// out its unrest, its constructions and its missionary, and one the player
 /// has not discovered is refused as terra incognita.
-pub fn province(caller: Caller, id: u32) -> GResult<Snapshot> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn province(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<Snapshot> {
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
-    let view = view(caller);
     if view == View::Player && super::world::undiscovered(m, &ctx, address)? {
         return Err(eu4_harmony_checks::provinces::not_discovered(id).into());
     }

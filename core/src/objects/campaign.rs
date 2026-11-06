@@ -90,6 +90,10 @@ pub mod world {
     /// ([`super::globals::END_DATE`]), u8: set as the end-of-game summary
     /// the end date shows is closed (docs/research/time.md).
     pub const PLAY_ON: usize = 0x1dd8;
+    /// Nonzero when the game lets the player run time with a tag whose last
+    /// byte is clear, u8: the pause key resumes such a game only then
+    /// (docs/research/time.md).
+    pub const OBSERVER_RUNS_TIME: usize = 0x74dc;
     /// The map manager.
     pub const MAP_MANAGER: usize = 0x1e00;
     /// Nonzero while the daily update runs, u8.
@@ -191,6 +195,12 @@ pub mod country {
     /// (`0x283d20`) gives each country that has none, and that the
     /// country's destructor never frees (docs/research/main-menu.md).
     pub const ENTRY_BYTES: usize = 0x10a0;
+    /// The countries it shares a support of independence with, either way,
+    /// while it has an overlord (`support_independence` in saves): a list of
+    /// 0x20-byte nodes (a tag, the previous node, the next) that its refresh
+    /// of its diplomatic caches (`0x93fe30`) clears and builds again
+    /// (docs/research/dependency-teardown.md).
+    pub const SUPPORT_INDEPENDENCE: usize = 0x19a0;
     /// The countries in a coalition against it: a list of 0x20-byte nodes
     /// (a member's tag, the previous node, the next, a byte marking it to
     /// leave), which the interface shows as the coalition's members.
@@ -1216,6 +1226,14 @@ pub fn points() -> Vec<Point> {
         // unless the player plays on (docs/research/time.md).
         Point::keep(0x8105bbusize, "8b 05 67 1d 7b 01 39 87 d0 1d 00 00 7e 0d 80 bf d8 1d 00 00 00 0f 84 25 02 00 00", "resume past the end date")
             .uses(&[END_DATE, world::DATE, world::PLAY_ON]),
+        // The same, with no country to play: refused unless the game lets
+        // an observer run time.
+        Point::keep(
+            0x8105d6usize,
+            "80 bf 66 1e 00 00 07 75 12 80 bf 6f 1e 00 00 00 74 09 0f b6 87 6f 1e 00 00 eb 07 0f b6 87 67 1e 00 00 84 c0 75 0c              38 87 dc 74 00 00 0f 84 f3 01 00 00",
+            "resume with no country",
+        )
+        .uses(&[world::PLAYER_MODE, world::SWITCHED as usize, world::PLAYER_SWITCHED, world::PLAYER + 7, world::OBSERVER_RUNS_TIME]),
         // A province's snapshot (docs/research/provinces.md). The province
         // writer in saves: its name.
         Point::keep(0x9d6fb0usize, "49 8b 5f 28 48 83 c3 10", "province name").uses(&[province::GEOMETRY, geometry::NAME]),

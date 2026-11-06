@@ -11,6 +11,13 @@
 //! happened ([`Happening`]); [`tell`] hands each happening to those that hear
 //! it, outside the lock, as their handlers may ask where the game is:
 //!
+//! - A game frame shows another session than the last frame did: a save
+//!   was read, the world reset, or the frame shows another world or player
+//!   than the last. Sessions are numbered here, and only here. What the
+//!   capability layer keeps of the last frame's session, its map, routes,
+//!   last day and wars, and the changes it collected for it, is let go
+//!   (`game`, `game::events`), and the map's coloring put back (`crate::map`),
+//!   before anything hears that session ended.
 //! - A session began, at its first safe frame: the input held for the
 //!   session before is let go (`game::input`). Extensions and remote control
 //!   hear it at that frame with the rest of what happened, in its order
@@ -83,6 +90,9 @@ pub enum At {
 /// One thing that happened to sessions, as [`tell`] hands it on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Happening {
+    /// A game frame shows the session with this number, not the last
+    /// frame's: what was kept of that one is let go.
+    Forgotten(u64),
     /// A session began, with its number.
     Began(u64),
     /// The session with this number ended, for this reason.
@@ -102,10 +112,27 @@ pub enum Happening {
 /// frame must not be refused for one of those, nor an advance be ended.
 pub const UNPLAYABLE_AFTER: Duration = Duration::from_secs(1);
 
+/// What a game's safe frame shows of sessions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Seen {
+    /// The session's number.
+    pub session: u64,
+    /// The session differs from the last frame's.
+    pub new_session: bool,
+}
+
 /// What is known of sessions, and how each thing that happens to them
 /// changes it.
 #[derive(Debug)]
 pub struct Lifecycle {
+    /// The number of the session the game is in or comes to next: a save
+    /// read, a world reset, or a frame of another world or player than the
+    /// last begins another.
+    number: u64,
+    /// The world and the player's country the last game frame showed.
+    identity: Option<(usize, u64)>,
+    /// The number of the session the last game frame showed.
+    framed: u64,
     /// The session going on, by its number.
     going_on: Option<u64>,
     at: At,
@@ -125,18 +152,27 @@ pub struct Lifecycle {
 
 impl Lifecycle {
     pub const fn new() -> Self {
-        Self { going_on: None, at: At::Elsewhere, reading: 0, loads: 0, last_read: false, failing: None, replaced: false }
+        Self { number: 0, identity: None, framed: 0, going_on: None, at: At::Elsewhere, reading: 0, loads: 0, last_read: false, failing: None, replaced: false }
     }
 
-    /// A game's safe frame of `session` was read: a session begins when it
-    /// is a new one, ending the one going on, if any. That one was not left
-    /// by a way out, which would have ended it: with nothing read or reset
-    /// since it began, the player's country changed, and otherwise the
-    /// game's world was replaced as at a load.
-    pub fn frame_read(&mut self, session: u64, new_session: bool) -> Vec<Happening> {
+    /// A game's safe frame of the world and the player's country `identity`
+    /// was read: what it shows of sessions. A session begins when it is a
+    /// new one, what was kept of the last frame's let go first and the one
+    /// going on ended, if any. That one was not left by a way out, which
+    /// would have ended it: with nothing read or reset since it began, the
+    /// player's country changed, and otherwise the game's world was
+    /// replaced as at a load.
+    pub fn frame_read(&mut self, identity: (usize, u64)) -> (Seen, Vec<Happening>) {
         self.failing = None;
+        if self.identity != Some(identity) {
+            self.identity = Some(identity);
+            self.number += 1;
+        }
+        let (session, new_session) = (self.number, self.framed != self.number);
+        self.framed = session;
         let mut happened = Vec::new();
-        if new_session && self.going_on != Some(session) {
+        if new_session {
+            happened.push(Happening::Forgotten(session));
             if let Some(old) = self.going_on.take() {
                 happened.push(Happening::Ended(old, if self.replaced { End::Load } else { End::Country }));
             }
@@ -144,7 +180,7 @@ impl Lifecycle {
             self.replaced = false;
             happened.push(Happening::Began(session));
         }
-        happened
+        (Seen { session, new_session }, happened)
     }
 
     /// A game's frame failed to read at `now`: whether its frames have
@@ -166,6 +202,7 @@ impl Lifecycle {
 
     /// The game begins to read a save.
     pub fn load_began(&mut self) -> Vec<Happening> {
+        self.number += 1;
         self.reading += 1;
         self.loads += 1;
         self.last_read = false;
@@ -184,6 +221,7 @@ impl Lifecycle {
     }
 
     pub fn world_reset(&mut self) -> Vec<Happening> {
+        self.number += 1;
         self.replaced = true;
         vec![Happening::WorldReset]
     }
@@ -209,6 +247,11 @@ fn lifecycle<T>(f: impl FnOnce(&mut Lifecycle) -> T) -> T {
 fn tell(happened: Vec<Happening>) {
     for happening in happened {
         match happening {
+            Happening::Forgotten(_) => {
+                game::session_forgotten();
+                game::events::session_forgotten();
+                crate::map::reset_session();
+            }
             Happening::Began(_) => game::input::session_began(),
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({end:?})");
@@ -233,10 +276,12 @@ fn tell(happened: Vec<Happening>) {
     }
 }
 
-/// A game's safe frame was read, before extensions and remote control hear
-/// what happened in it.
-pub fn frame_read(frame: &game::Frame) {
-    tell(lifecycle(|l| l.frame_read(frame.session, frame.new_session)));
+/// A game's safe frame of the campaign `ctx` was read, before what
+/// happened in it is collected: what it shows of sessions.
+pub fn frame_read(ctx: &game::Ctx) -> Seen {
+    let (seen, happened) = lifecycle(|l| l.frame_read((ctx.world, ctx.player.0)));
+    tell(happened);
+    seen
 }
 
 /// A game's frame failed to read: whether its frames have failed for long
@@ -290,6 +335,12 @@ pub fn at() -> At {
     lifecycle(|l| l.at)
 }
 
+/// The number of the session the game is in, or comes to next once a save
+/// began to be read or the world was reset.
+pub fn number() -> u64 {
+    lifecycle(|l| l.number)
+}
+
 /// Whether a session is going on.
 pub fn going_on() -> bool {
     lifecycle(|l| l.going_on.is_some())
@@ -322,6 +373,15 @@ mod tests {
     use super::*;
     use Happening::*;
 
+    /// A world and the player's country, as a frame shows them.
+    const SPAIN: (usize, u64) = (0x1000, 1);
+    const FRANCE: (usize, u64) = (0x1000, 2);
+    const OTHER_WORLD: (usize, u64) = (0x2000, 1);
+
+    fn began(l: &mut Lifecycle, identity: (usize, u64)) -> Vec<Happening> {
+        l.frame_read(identity).1
+    }
+
     #[test]
     fn a_session_begins_at_its_first_frame_and_ends_once() {
         let mut l = Lifecycle::new();
@@ -329,26 +389,26 @@ mod tests {
         l.load_read(true);
         l.load_ended();
         assert_eq!((l.reading, l.loads, l.last_read), (0, 1, true));
-        assert_eq!(l.frame_read(1, true), vec![Began(1)]);
-        assert_eq!(l.frame_read(1, false), vec![]);
-        assert_eq!(l.ending(End::Return), vec![Ended(1, End::Return)]);
+        assert_eq!(l.frame_read(SPAIN), (Seen { session: 2, new_session: true }, vec![Forgotten(2), Began(2)]));
+        assert_eq!(l.frame_read(SPAIN), (Seen { session: 2, new_session: false }, vec![]));
+        assert_eq!(l.ending(End::Return), vec![Ended(2, End::Return)]);
         // Leaving again, as by a second way out within one frame: the
         // session was told it ended already. (An ironman exit save that
         // fails comes before the end, which is then not told at all.)
         assert_eq!(l.ending(End::Load), vec![]);
         assert_eq!(l.world_reset(), vec![WorldReset]);
-        assert_eq!(l.frame_read(2, true), vec![Began(2)]);
+        assert_eq!(began(&mut l, SPAIN), vec![Forgotten(3), Began(3)]);
     }
 
     #[test]
     fn a_session_that_begins_while_another_goes_on_ends_that_one_first() {
         let mut l = Lifecycle::new();
-        l.frame_read(4, true);
+        began(&mut l, SPAIN);
         l.load_began();
         l.load_ended();
-        assert_eq!(l.frame_read(5, true), vec![Ended(4, End::Load), Began(5)]);
+        assert_eq!(began(&mut l, SPAIN), vec![Forgotten(2), Ended(1, End::Load), Began(2)]);
         l.world_reset();
-        assert_eq!(l.frame_read(6, true), vec![Ended(5, End::Load), Began(6)]);
+        assert_eq!(began(&mut l, OTHER_WORLD), vec![Forgotten(4), Ended(2, End::Load), Began(4)]);
     }
 
     #[test]
@@ -357,9 +417,29 @@ mod tests {
         let mut l = Lifecycle::new();
         l.load_began();
         l.load_ended();
-        l.frame_read(4, true);
-        assert_eq!(l.frame_read(5, true), vec![Ended(4, End::Country), Began(5)]);
+        began(&mut l, SPAIN);
+        assert_eq!(began(&mut l, FRANCE), vec![Forgotten(3), Ended(2, End::Country), Began(3)]);
         assert_eq!(serde_json::to_value(End::Country.reason()).unwrap(), "country");
+    }
+
+    #[test]
+    fn sessions_are_numbered_by_the_saves_read_the_resets_and_what_the_frames_show() {
+        let mut l = Lifecycle::new();
+        assert_eq!(l.frame_read(SPAIN).0, Seen { session: 1, new_session: true });
+        // A save begins to be read: the next session's number at once.
+        l.load_began();
+        assert_eq!(l.number, 2);
+        l.load_ended();
+        // Read into the same world for the same country: that session.
+        assert_eq!(l.frame_read(SPAIN).0, Seen { session: 2, new_session: true });
+        // Into another world: one more.
+        l.load_began();
+        l.load_ended();
+        assert_eq!(l.frame_read(OTHER_WORLD).0, Seen { session: 4, new_session: true });
+        l.world_reset();
+        assert_eq!(l.number, 5);
+        assert_eq!(l.frame_read(OTHER_WORLD).0, Seen { session: 5, new_session: true });
+        assert_eq!(l.frame_read(OTHER_WORLD).0, Seen { session: 5, new_session: false });
     }
 
     #[test]
@@ -383,7 +463,7 @@ mod tests {
         assert!(!l.frame_failed(start + UNPLAYABLE_AFTER / 2));
         assert!(l.frame_failed(start + UNPLAYABLE_AFTER));
         // A frame that reads starts it again.
-        l.frame_read(1, false);
+        l.frame_read(SPAIN);
         assert!(!l.frame_failed(start + UNPLAYABLE_AFTER * 2));
         assert!(l.frame_failed(start + UNPLAYABLE_AFTER * 3));
         // So does another save loaded.

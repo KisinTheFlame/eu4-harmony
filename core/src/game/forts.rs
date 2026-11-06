@@ -1,7 +1,7 @@
 //! Forts: the player's forts, and mothballing and reopening them with the
 //! game's command that the province view's fort maintenance box posts
 //! (docs/research/sieges.md, "Mothballing and reopening a fort").
-use super::{commands, context, game, with_state, Caller, Ctx, GResult};
+use super::{commands, with_state, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -45,9 +45,7 @@ fn read(m: &Memory, ctx: &Ctx, id: u32, address: usize) -> GResult<PlayerFort> {
 }
 
 /// The player's provinces with a fort.
-pub fn list(_: Caller) -> GResult<Vec<PlayerFort>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<PlayerFort>> {
     let count = m.i32(ctx.country + country::OWNED_COUNT)?;
     if !(0..MOST).contains(&count) {
         return Err(format!("{count} provinces").into());
@@ -65,9 +63,7 @@ pub fn list(_: Caller) -> GResult<Vec<PlayerFort>> {
 }
 
 /// Mothballs the fort (`mothball` true) or reopens it.
-fn set(id: u32, mothball: bool) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+fn set(Session { m, ctx, .. }: Session, id: u32, mothball: bool) -> GResult<()> {
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     if m.u8(address + HAS_FORT)? == 0 || m.u64(address + crate::objects::campaign::province::OWNER)? != ctx.player.0 {
         return Err(checks::no_fort(id).into());
@@ -83,12 +79,12 @@ fn set(id: u32, mothball: bool) -> GResult<()> {
     Ok(())
 }
 
-pub fn mothball(_: Caller, province: u32) -> GResult<()> {
-    set(province, true)
+pub fn mothball(session: Session, province: u32) -> GResult<()> {
+    set(session, province, true)
 }
 
-pub fn reopen(_: Caller, province: u32) -> GResult<()> {
-    set(province, false)
+pub fn reopen(session: Session, province: u32) -> GResult<()> {
+    set(session, province, false)
 }
 
 #[cfg(test)]

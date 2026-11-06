@@ -48,13 +48,33 @@ macro_rules! in_game {
     (game) => {
         true
     };
+    (world) => {
+        true
+    };
     (anywhere) => {
         false
     };
     (remote_game) => {
         true
     };
+    (remote_world) => {
+        true
+    };
     (remote_anywhere) => {
+        false
+    };
+}
+
+/// Whether a capability that needs a game going on runs while the player
+/// only observes it too, with no country to play.
+macro_rules! observing {
+    (world) => {
+        true
+    };
+    (remote_world) => {
+        true
+    };
+    ($place:ident) => {
         false
     };
 }
@@ -65,10 +85,16 @@ macro_rules! for_extensions {
     (game) => {
         true
     };
+    (world) => {
+        true
+    };
     (anywhere) => {
         true
     };
     (remote_game) => {
+        false
+    };
+    (remote_world) => {
         false
     };
     (remote_anywhere) => {
@@ -84,9 +110,10 @@ macro_rules! for_extensions {
 /// game Variant "name" { /// What the argument is. argument: Type, ... } -> Result, "what the result is";
 /// ```
 ///
-/// `game` for a capability that needs a game going on, `anywhere` for one
-/// that does not, each with `remote_` before it for one only remote control
-/// has; `"name"` empty for one the group's name alone names.
+/// `game` for a capability that needs a game going on with a country the
+/// player plays, `world` for one that needs a game going on, the player
+/// playing a country in it or only observing, `anywhere` for one that needs
+/// no game, each with `remote_` before it for one only remote control has; `"name"` empty for one the group's name alone names.
 macro_rules! group {
     (
         $(#[doc = $about:literal])*
@@ -143,6 +170,13 @@ macro_rules! group {
                     $( Self::$Variant { .. } => in_game!($place), )*
                 }
             }
+
+            /// Whether it runs while the player only observes the game too.
+            pub fn observing(&self) -> bool {
+                match self {
+                    $( Self::$Variant { .. } => observing!($place), )*
+                }
+            }
         }
 
         /// The shape of each capability's result, by its full name.
@@ -158,6 +192,7 @@ macro_rules! group {
                     action: $action,
                     about: concat!($($doc),*),
                     in_game: in_game!($place),
+                    observing: observing!($place),
                     extensions: for_extensions!($place),
                     args: &[
                         $(
@@ -210,6 +245,13 @@ macro_rules! groups {
             pub fn in_game(&self) -> bool {
                 match self {
                     $( $(#[cfg($cfg)])? Self::$Group(r) => r.in_game(), )*
+                }
+            }
+
+            /// Whether it runs while the player only observes the game too.
+            pub fn observing(&self) -> bool {
+                match self {
+                    $( $(#[cfg($cfg)])? Self::$Group(r) => r.observing(), )*
                 }
             }
 
@@ -637,6 +679,9 @@ pub struct Capability {
     pub about: &'static str,
     /// It runs only while a game is going on.
     pub in_game: bool,
+    /// It runs while the player only observes the game too, with no country
+    /// to play.
+    pub observing: bool,
     /// Extensions have it too, not only remote control.
     pub extensions: bool,
     pub args: &'static [Parameter],
@@ -676,10 +721,11 @@ pub fn prose(doc: &str) -> String {
 impl Serialize for Capability {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("Capability", 6)?;
+        let mut s = serializer.serialize_struct("Capability", 7)?;
         s.serialize_field("capability", &self.name())?;
         s.serialize_field("about", &prose(self.about))?;
         s.serialize_field("in_game", &self.in_game)?;
+        s.serialize_field("observing", &self.observing)?;
         s.serialize_field("extensions", &self.extensions)?;
         s.serialize_field("args", self.args)?;
         s.serialize_field("result", self.result)?;

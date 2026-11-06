@@ -3,9 +3,8 @@
 //! growth, and carrying each out through the game's own commands
 //! (docs/research/envoys.md, "Colonists").
 use super::{
-    context,
     envoys::{self, quoted},
-    game, with_state, Caller, Ctx, GResult, Tag,
+    with_state, Ctx, GResult, Session, Tag,
 };
 use crate::{
     game_string,
@@ -95,9 +94,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
 }
 
 /// What the province view offers the player in province `id`.
-pub fn options(_: Caller, id: u32) -> GResult<Box<ColonistOptions>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Box<ColonistOptions>> {
     read(m, &ctx, &province(m, &ctx, id)?, id).map(Box::new)
 }
 
@@ -208,9 +205,7 @@ fn written(player: Tag, province: u32, work: Work) -> String {
 }
 
 /// Sends one of the player's colonists to province `id`.
-pub fn send(_: Caller, id: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn send(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
     if !options.send.can {
         return Err(eu4_harmony_checks::envoys::not_allowed("send a colonist there", &options.send.reasons).into());
@@ -219,35 +214,29 @@ pub fn send(_: Caller, id: u32) -> GResult<()> {
 }
 
 /// Recalls the player's colonist from province `id`.
-pub fn recall(_: Caller, id: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn recall(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     if !read(m, &ctx, &province(m, &ctx, id)?, id)?.working {
         return Err(eu4_harmony_checks::envoys::none_there("colonist").into());
     }
     envoys::post(&written(ctx.player, id, Work::Recall), "the cancel colonist command")
 }
 
-/// Sends one of the player's colonists to found a colony in province `id`
-/// with the minority expelled from the player's province `from`.
-pub fn expel(_: Caller, id: u32, from: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
-    let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
+/// Sends one of the player's colonists to found a colony in province
+/// `province` with the minority expelled from the player's province `from`.
+pub fn expel(Session { m, ctx, .. }: Session, province: u32, from: u32) -> GResult<()> {
+    let options = read(m, &ctx, &self::province(m, &ctx, province)?, province)?;
     let Some(offered) = options.expel_from.iter().find(|e| e.from.0 == from) else {
         return Err(eu4_harmony_checks::envoys::no_minority(from).into());
     };
     if !offered.choice.can {
         return Err(eu4_harmony_checks::envoys::not_allowed("expel that minority there", &offered.choice.reasons).into());
     }
-    envoys::post(&written(ctx.player, id, Work::Expel { from }), "the colonist command")
+    envoys::post(&written(ctx.player, province, Work::Expel { from }), "the colonist command")
 }
 
 /// Has one of the player's colonists promote settlement growth in province
 /// `id`, or, `start` false, stops the one there.
-pub fn change_growth(_: Caller, id: u32, start: bool) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn change_growth(Session { m, ctx, .. }: Session, id: u32, start: bool) -> GResult<()> {
     let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
     if !start {
         // The command's own check takes any province.

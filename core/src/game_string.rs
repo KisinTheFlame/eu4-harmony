@@ -26,7 +26,7 @@ type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
 static APPEND: Function<Append> = Function::new();
 const APPEND_AT: usize = 0x932f0;
 /// The game's destructor, which frees the text when it is not inline.
-const DESTROY_AT: usize = 0x95660;
+pub(crate) const DESTROY_AT: usize = 0x95660;
 /// The game's localisation lookup: (out, key, values, count); out is a
 /// `std::string` slot it constructs, key a C string.
 const LOCALIZE_AT: usize = 0x14b34a0;

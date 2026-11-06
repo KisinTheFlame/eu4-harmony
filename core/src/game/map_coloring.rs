@@ -1,6 +1,6 @@
 //! Coloring provinces on the map (see `crate::map`). Only extensions color
 //! the map.
-use super::{context, game, Caller, GResult};
+use super::{Caller, GResult, Session};
 
 const COLORING: &str = "map coloring";
 
@@ -16,15 +16,13 @@ pub struct MapColor {
 /// extension painting later takes over the map.
 pub fn paint(caller: Caller, colors: &[MapColor]) -> GResult<()> {
     let extension = caller.extension(COLORING)?;
-    let m = game()?;
-    let ctx = context(m)?;
+    let Session { m, ctx, .. } = Session::open(caller)?;
     crate::map::paint(m, &ctx, extension, colors)
 }
 
 /// Removes the caller's coloring and restores the map mode from before.
 pub fn clear(caller: Caller) -> GResult<()> {
     let extension = caller.extension(COLORING)?;
-    let m = game()?;
-    let ctx = context(m)?;
+    let Session { m, ctx, .. } = Session::open(caller)?;
     crate::map::clear(m, &ctx, extension)
 }

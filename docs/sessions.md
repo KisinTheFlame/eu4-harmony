@@ -46,7 +46,7 @@ A new event, "session ended", with its reason (a return to the main menu, an in-
 
 ### What the player sees
 
-From the moment a return or a load begins until the next frame the game draws, the framework UI shows a still notice in the game's window: "Returning to the main menu…" or "Loading the save…".
+From the moment a return or a load begins until the next frame the game draws, the framework UI shows a still notice in the game's window: "Returning to the main menu…" or "Loading the save…". The main menu of an in-process return presents the loading screen's painting as it takes over, as at startup; those frames are held back, so the notice stays until the main menu's first frame.
 
 ### Framework settings
 

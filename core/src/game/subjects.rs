@@ -10,7 +10,7 @@
 //! command layer.
 use super::{
     commands::{self, Refused},
-    context, country, fail, game, with_state, Caller, Ctx, GResult, Status, Tag,
+    country, fail, with_state, Ctx, GResult, Session, Status, Tag,
 };
 use crate::{
     game_string,
@@ -207,9 +207,7 @@ pub fn points() -> Vec<Point> {
 
 /// The interactions the game has for the player toward `subject`: those
 /// the player's country may use at all and the subject's type allows.
-pub fn options(_: Caller, subject: Tag) -> GResult<Vec<Listed>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, subject: Tag) -> GResult<Vec<Listed>> {
     let country = subject_of(m, &ctx, subject)?;
     let mut listed = Vec::new();
     for i in INTERACTIONS {
@@ -233,9 +231,7 @@ pub fn options(_: Caller, subject: Tag) -> GResult<Vec<Listed>> {
 /// country may not use it, the subject's type does not allow it, or its
 /// conditions do not hold, with the reasons. `province` is the one the
 /// interaction's window has the player pick, written as the command's `index`.
-pub fn interact(_: Caller, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn interact(Session { m, ctx, .. }: Session, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
     let country = subject_of(m, &ctx, subject)?;
     let Some(i) = INTERACTIONS.iter().find(|i| i.key == interaction) else {
         return fail(Status::InvalidArgument, format!("the game has no subject interaction {interaction}; subject.options lists them"));

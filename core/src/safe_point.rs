@@ -59,7 +59,6 @@ pub fn game_frame() {
     }
     match game::begin_frame(&m) {
         Ok(frame) => {
-            sessions::frame_read(&frame);
             repairs::session_frame();
             #[cfg(feature = "dev-test-switches")]
             if frame.new_session {

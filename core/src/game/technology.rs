@@ -2,9 +2,8 @@
 //! them, and researching the next level with its research button
 //! (docs/research/power-spending.md, "Technology").
 use super::{
-    context, game,
     power::{self, ADVANCE_TECH},
-    Caller, GResult, Tag,
+    GResult, Session, Tag,
 };
 use crate::{
     game_string,
@@ -137,9 +136,7 @@ fn when(m: &Memory, country: usize, date: i32, cost: i32, kind: PowerKind) -> GR
 }
 
 /// The player's technologies, administrative, diplomatic and military.
-pub fn options(_: Caller) -> GResult<Vec<TechnologyOption>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<TechnologyOption>> {
     let found = categories(m, ctx.country)?;
     PowerKind::ALL
         .into_iter()
@@ -152,9 +149,7 @@ pub fn options(_: Caller) -> GResult<Vec<TechnologyOption>> {
 
 /// Researches the next level of `technology`, as the view's research button
 /// does: the game's spend_power command with the category's index.
-pub fn research(_: Caller, technology: PowerKind) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn research(Session { m, ctx, .. }: Session, technology: PowerKind) -> GResult<()> {
     let category = category(m, ctx.country, technology)?;
     if category.level >= category.last {
         return Err(eu4_harmony_checks::technology::last_level(key(technology)).into());

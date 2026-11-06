@@ -153,7 +153,7 @@ fn every_event_is_described() {
     use events::EVENTS;
     let all = every_event();
     // A battle names the countries on both sides, for a read's countries.
-    assert_eq!(all.iter().find(|e| e.kind() == "battle").unwrap().countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
+    assert_eq!(all.iter().find(|e| e.kind() == events::Kind::Battle).unwrap().countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
     // An event is flattened beside its own number: none of its fields may
     // be named so.
     for event in &all {
@@ -161,10 +161,13 @@ fn every_event_is_described() {
     }
     let names: Vec<Value> = all.iter().map(|e| serde_json::to_value(e).unwrap()["event"].clone()).collect();
     assert_eq!(names, EVENTS.iter().map(|(name, _)| json!(name)).collect::<Vec<_>>());
-    // A kind, as a read's kinds name it, is the name JSON gives the event.
+    // A kind, as a read's kinds name it, is the name JSON gives the event,
+    // and the kind of that name.
     for event in &all {
         assert_eq!(json!(event.kind()), serde_json::to_value(event).unwrap()["event"]);
+        assert_eq!(events::Kind::named(event.kind().name()), Some(event.kind()));
     }
+    assert_eq!(events::Kind::named("months"), None);
 }
 
 /// Each event calls the handler of its kind, with the fields the handler
@@ -263,6 +266,7 @@ fn descriptions_in_json() {
             "capability": "country.hostile",
             "about": "Whether two countries are at war with each other, or either is a rebel faction.",
             "in_game": true,
+            "observing": false,
             "extensions": true,
             "args": [
                 {"name": "country", "kind": "country", "optional": false, "about": "One country."},

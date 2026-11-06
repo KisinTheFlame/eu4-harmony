@@ -2,7 +2,7 @@
 //! player's leaders, and giving one to an army or a fleet, through the
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
-use super::{commands, context, game, modifiers, world, Caller, Ctx, GResult};
+use super::{commands, modifiers, world, Caller, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -211,9 +211,7 @@ fn option(m: &Memory, ctx: &Ctx, kind: LeaderKind) -> GResult<LeaderOption> {
 }
 
 /// What the military view offers to recruit now.
-pub fn options(_: Caller) -> GResult<Vec<LeaderOption>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<LeaderOption>> {
     KINDS.into_iter().map(|kind| option(m, &ctx, kind)).collect()
 }
 
@@ -254,9 +252,7 @@ fn read(m: &Memory, address: usize) -> GResult<Leader> {
 }
 
 /// The player's leaders.
-pub fn list(_: Caller) -> GResult<Vec<Leader>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Leader>> {
     addresses(m, &ctx)?.into_iter().map(|a| read(m, a)).collect()
 }
 
@@ -272,10 +268,9 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 
 /// Recruits a leader of a kind, as the military view's button does, with the
 /// name the game picks.
-pub fn recruit(_: Caller, word: String) -> GResult<Leader> {
+pub fn recruit(caller: Caller, word: String) -> GResult<Leader> {
     let kind = kind(&word)?;
-    let m = game()?;
-    let ctx = context(m)?;
+    let Session { m, ctx, .. } = Session::open(caller)?;
     let o = option(m, &ctx, kind)?;
     if !o.choice.can {
         return Err(checks::not_allowed(&format!("recruit a leader of the kind {word}"), &o.choice.reasons).into());
@@ -289,9 +284,7 @@ pub fn recruit(_: Caller, word: String) -> GResult<Leader> {
 }
 
 /// Gives a leader to one of the player's armies or fleets.
-pub fn assign(_: Caller, id: u32, army: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn assign(Session { m, ctx, .. }: Session, id: u32, army: u64) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     let unit = world::own_unit(m, &ctx, army)?;
     let kind = read(m, leader)?.kind;
@@ -312,9 +305,7 @@ pub fn assign(_: Caller, id: u32, army: u64) -> GResult<()> {
 
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
-pub fn remove(_: Caller, army: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn remove(Session { m, ctx, .. }: Session, army: u64) -> GResult<()> {
     let unit = world::own_unit(m, &ctx, army)?;
     let leader = m.ptr(unit + UNIT_LEADER)?;
     if leader != 0 && m.ptr(leader + leader::UNIT)? == unit {
@@ -328,9 +319,7 @@ pub fn remove(_: Caller, army: u64) -> GResult<()> {
 }
 
 /// Dismisses one of the player's leaders that leads no unit.
-pub fn dismiss(_: Caller, id: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn dismiss(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     if m.ptr(leader + leader::UNIT)? != 0 {
         return Err(checks::leads_a_unit(id).into());

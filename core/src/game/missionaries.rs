@@ -3,9 +3,8 @@
 //! command, and the number of missionaries the game sends by itself
 //! (docs/research/envoys.md, "Missionaries").
 use super::{
-    context,
     envoys::{self, quoted, Kind},
-    game, with_state, Caller, Ctx, GResult, Tag,
+    with_state, Ctx, GResult, Session, Tag,
 };
 use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point};
 use eu4_harmony_remote::{
@@ -69,13 +68,11 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
 /// What the province view offers the player in province `id`; in the
 /// player's view another's missionary's progress in another country's
 /// province is left out, as `province.get` leaves it out.
-pub fn options(caller: Caller, id: u32) -> GResult<MissionaryOptions> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<MissionaryOptions> {
     let p = province(m, &ctx, id)?;
     let (working, progress, send, recall) = read(m, &ctx, &p)?;
     let owner = Some(p.owner).filter(|t| t.valid());
-    let progress = progress.filter(|_| working || super::provinces::sees_inside(super::view(caller), &ctx, owner));
+    let progress = progress.filter(|_| working || super::provinces::sees_inside(view, &ctx, owner));
     Ok(MissionaryOptions { province: ProvinceId(id), working, progress, send, recall })
 }
 
@@ -110,9 +107,7 @@ fn written(owner: Tag, player: Tag, province: u32, recall: bool) -> String {
 }
 
 /// Sends one of the player's missionaries to province `id`.
-pub fn send(_: Caller, id: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn send(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     let p = province(m, &ctx, id)?;
     let (_, _, send, _) = read(m, &ctx, &p)?;
     if !send.can {
@@ -122,9 +117,7 @@ pub fn send(_: Caller, id: u32) -> GResult<()> {
 }
 
 /// Recalls the player's missionary from province `id`.
-pub fn recall(_: Caller, id: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn recall(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     let p = province(m, &ctx, id)?;
     if !read(m, &ctx, &p)?.0 {
         return Err(eu4_harmony_checks::envoys::none_there("missionary").into());
@@ -133,9 +126,7 @@ pub fn recall(_: Caller, id: u32) -> GResult<()> {
 }
 
 /// The player's missionaries and how many of them the game sends by itself.
-pub fn automatic(_: Caller) -> GResult<AutomaticMissionaries> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn automatic(Session { m, ctx, .. }: Session) -> GResult<AutomaticMissionaries> {
     let (missionaries, _) = envoys::count(m, ctx.country, Kind::Missionary)?;
     let automatic = m.i32(ctx.country + AUTOMATIC)?.max(0) as u32;
     let choice = |can: bool| if can { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
@@ -144,15 +135,15 @@ pub fn automatic(_: Caller) -> GResult<AutomaticMissionaries> {
 
 /// Has the game send one more (`raise`) or one fewer of the player's
 /// missionaries by itself, as the religion view's buttons do.
-pub fn set_automatic(caller: Caller, raise: bool) -> GResult<()> {
-    let now = automatic(caller)?;
+pub fn set_automatic(session: Session, raise: bool) -> GResult<()> {
+    let now = automatic(session)?;
     if raise && now.automatic >= now.missionaries {
         return Err(eu4_harmony_checks::envoys::all_automatic(now.missionaries).into());
     }
     if !raise && now.automatic == 0 {
         return Err(eu4_harmony_checks::envoys::none_automatic().into());
     }
-    let ctx = context(game()?)?;
+    let ctx = session.ctx;
     envoys::post(
         &format!("automate_missionary_command={{ country={}{} }}", quoted(ctx.player), if raise { " value=yes" } else { "" }),
         "the automatic missionaries command",

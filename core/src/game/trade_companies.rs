@@ -2,7 +2,7 @@
 //! company, adding the province to it and removing it, and the trade
 //! company investments of its area, through the game's own commands
 //! (docs/research/envoys.md, "Trade companies").
-use super::{context, envoys, game, with_state, Caller, Ctx, GResult, Tag};
+use super::{envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point, unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
@@ -72,9 +72,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 }
 
 /// What the province view offers the player in province `id`.
-pub fn options(_: Caller, id: u32) -> GResult<TradeCompanyOptions> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<TradeCompanyOptions> {
     read(m, &ctx, province(m, &ctx, id)?, id)
 }
 
@@ -148,9 +146,7 @@ fn written(player: Tag, province: u32, add: bool) -> String {
 
 /// Adds the player's province `id` to the trade company of its region
 /// (`add`), or removes it from its trade company.
-pub fn change(_: Caller, id: u32, add: bool) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn change(Session { m, ctx, .. }: Session, id: u32, add: bool) -> GResult<()> {
     let options = read(m, &ctx, province(m, &ctx, id)?, id)?;
     let choice = if add { &options.add } else { &options.remove };
     if !choice.can {
@@ -167,9 +163,7 @@ fn invest_written(player: Tag, index: i32, province: u32) -> String {
 }
 
 /// Makes the investment `key` in the area of the player's province `id`.
-pub fn invest(_: Caller, id: u32, key: &str) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn invest(Session { m, ctx, .. }: Session, id: u32, key: &str) -> GResult<()> {
     let province = province(m, &ctx, id)?;
     let Some((at, _)) = database(m)?.into_iter().find(|(_, k)| k == key) else {
         return Err(eu4_harmony_checks::envoys::unknown("trade company investment", key).into());

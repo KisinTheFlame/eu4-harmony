@@ -82,24 +82,82 @@ pub enum SessionEnd {
     Country,
 }
 
-/// Every event by its name, with what it carries and when it comes.
-pub const EVENTS: &[(&str, &str)] = &[
-    ("session", "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
-    ("session_ended", "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save), new_game, or country (the player's country changed)"),
-    ("day", "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
-    ("month", "the first day heard in a new month; date, which with the game running fast may be past the 1st"),
-    ("year", "the first day heard in a new year, after month; date"),
-    ("army_ordered", "the player gave one of their armies an order, by hand or through remote control; army"),
-    ("army_defeated", "one of the player's armies lost a battle; army"),
-    ("war_declared", "a war began between any two countries; war, its name; attacker and defender, the leaders of its sides"),
+/// The kind of an [`Event`], one for each of its variants, which `kinds`,
+/// [`EVENTS`] and an extension's handler (`on_<kind>`) name by
+/// [`Kind::name`]. Whoever works an event out only for those who listen
+/// asks by it, so that a kind misspelled does not compile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Kind {
+    Session,
+    SessionEnded,
+    Day,
+    Month,
+    Year,
+    ArmyOrdered,
+    ArmyDefeated,
+    WarDeclared,
+    PeaceMade,
+    ProvinceOwnerChanged,
+    BuildingFinished,
+    Battle,
+}
+
+impl Kind {
+    /// Its name, as the event's `event` field gives it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::SessionEnded => "session_ended",
+            Self::Day => "day",
+            Self::Month => "month",
+            Self::Year => "year",
+            Self::ArmyOrdered => "army_ordered",
+            Self::ArmyDefeated => "army_defeated",
+            Self::WarDeclared => "war_declared",
+            Self::PeaceMade => "peace_made",
+            Self::ProvinceOwnerChanged => "province_owner_changed",
+            Self::BuildingFinished => "building_finished",
+            Self::Battle => "battle",
+        }
+    }
+
+    /// The kind named `name`; none for a name no kind has.
+    pub fn named(name: &str) -> Option<Self> {
+        EVENTS.iter().map(|(kind, _)| *kind).find(|kind| kind.name() == name)
+    }
+}
+
+impl std::fmt::Display for Kind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.pad(self.name())
+    }
+}
+
+/// By its name.
+impl Serialize for Kind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.name())
+    }
+}
+
+/// Every kind of event, with what it carries and when it comes.
+pub const EVENTS: &[(Kind, &str)] = &[
+    (Kind::Session, "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
+    (Kind::SessionEnded, "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save), new_game, or country (the player's country changed)"),
+    (Kind::Day, "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
+    (Kind::Month, "the first day heard in a new month; date, which with the game running fast may be past the 1st"),
+    (Kind::Year, "the first day heard in a new year, after month; date"),
+    (Kind::ArmyOrdered, "the player gave one of their armies an order, by hand or through remote control; army"),
+    (Kind::ArmyDefeated, "one of the player's armies lost a battle; army"),
+    (Kind::WarDeclared, "a war began between any two countries; war, its name; attacker and defender, the leaders of its sides"),
     (
-        "peace_made",
+        Kind::PeaceMade,
         "countries left a war, by a peace (or ceasing to be); war, its name; attackers and defenders, those that left on each side; ended, whether the war is over",
     ),
-    ("province_owner_changed", "a province changed owner; province; from and to, the old and the new owner, null for none"),
-    ("building_finished", "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
+    (Kind::ProvinceOwnerChanged, "a province changed owner; province; from and to, the old and the new owner, null for none"),
+    (Kind::BuildingFinished, "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
     (
-        "battle",
+        Kind::Battle,
         "a land or naval battle was decided: in the player's view one the player sees or takes part in, in the full view every one; province, naval, attackers, defenders (the countries on each side, the leading one first), winner (attackers or defenders), attacker_losses, defender_losses (men in a land battle, ships in a naval one)",
     ),
 ];
@@ -169,21 +227,21 @@ pub enum Winner {
 }
 
 impl Event {
-    /// Its kind, as `kinds` and [`EVENTS`] name it.
-    pub fn kind(&self) -> &'static str {
+    /// Its kind.
+    pub fn kind(&self) -> Kind {
         match self {
-            Self::Session { .. } => "session",
-            Self::SessionEnded { .. } => "session_ended",
-            Self::Day { .. } => "day",
-            Self::Month { .. } => "month",
-            Self::Year { .. } => "year",
-            Self::ArmyOrdered { .. } => "army_ordered",
-            Self::ArmyDefeated { .. } => "army_defeated",
-            Self::WarDeclared { .. } => "war_declared",
-            Self::PeaceMade { .. } => "peace_made",
-            Self::ProvinceOwnerChanged { .. } => "province_owner_changed",
-            Self::BuildingFinished { .. } => "building_finished",
-            Self::Battle { .. } => "battle",
+            Self::Session { .. } => Kind::Session,
+            Self::SessionEnded { .. } => Kind::SessionEnded,
+            Self::Day { .. } => Kind::Day,
+            Self::Month { .. } => Kind::Month,
+            Self::Year { .. } => Kind::Year,
+            Self::ArmyOrdered { .. } => Kind::ArmyOrdered,
+            Self::ArmyDefeated { .. } => Kind::ArmyDefeated,
+            Self::WarDeclared { .. } => Kind::WarDeclared,
+            Self::PeaceMade { .. } => Kind::PeaceMade,
+            Self::ProvinceOwnerChanged { .. } => Kind::ProvinceOwnerChanged,
+            Self::BuildingFinished { .. } => Kind::BuildingFinished,
+            Self::Battle { .. } => Kind::Battle,
         }
     }
 
@@ -216,7 +274,7 @@ impl Filter {
 
     /// Whether `event` is one asked for.
     pub fn takes(&self, event: &Event) -> bool {
-        let kind = self.kinds.as_ref().is_none_or(|kinds| kinds.iter().any(|k| k == event.kind()));
+        let kind = self.kinds.as_ref().is_none_or(|kinds| kinds.iter().any(|k| k == event.kind().name()));
         let named = event.countries();
         let country = named.is_empty() || self.countries.as_ref().is_none_or(|countries| named.iter().any(|c| countries.contains(c)));
         kind && country
@@ -224,6 +282,6 @@ impl Filter {
 
     /// A kind it names that is no event's.
     pub fn unknown_kind(&self) -> Option<&str> {
-        self.kinds.as_ref()?.iter().find(|k| !EVENTS.iter().any(|(name, _)| name == k)).map(String::as_str)
+        self.kinds.as_ref()?.iter().find(|k| Kind::named(k).is_none()).map(String::as_str)
     }
 }

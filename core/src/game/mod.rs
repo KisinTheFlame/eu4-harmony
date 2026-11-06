@@ -1,15 +1,17 @@
 //! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Each capability is
-//! a function taking the [`Caller`] and returning the framework's own types;
-//! the capability catalogue (`crate::catalogue`), which remote control and the
-//! Lua host both run their requests through, only converts to and from them
-//! (ADR one-capability-catalogue). One file per group: [`session`],
+//! a function taking first the [`Session`] it reads, which the catalogue opens
+//! for each request, or, for one that runs without a session or checks
+//! something of its own before, the [`Caller`], and returning the framework's
+//! own types; the capability catalogue (`crate::catalogue`), which remote
+//! control and the Lua host both run their requests through, only converts to
+//! and from them (ADR one-capability-catalogue). One file per group: [`session`],
 //! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
 //! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
 //! [`recruiting`], [`menu`] and [`diplomacy`]; the game's questions and offers waiting for the player's
 //! answer, [`questions`] and [`offers`].
 //!
-//! Under them, reading the campaign, finding routes and giving orders, ported
+//! Under them, reading the session, finding routes and giving orders, ported
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
 //! [`events`], which establishes the safe point everything here runs at);
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
@@ -17,6 +19,8 @@
 //! defeat.md, time.md, fog-of-war.md).
 pub mod administration;
 pub mod armies;
+#[cfg(test)]
+pub mod buffers;
 pub mod buildings;
 pub mod camera;
 pub mod centers_of_trade;
@@ -77,7 +81,7 @@ use crate::{
     objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::Point,
 };
-use eu4_harmony_remote::events::{Event, Winner};
+use eu4_harmony_remote::events::{Event, Kind, Winner};
 use std::sync::Mutex;
 
 /// How much of the game a read gives (GLOSSARY: Player's view, Full view;
@@ -95,7 +99,10 @@ pub enum View {
 /// control the player's view, unless the player's framework setting gives it
 /// the full view.
 pub fn view(caller: Caller) -> View {
-    view_of(caller, crate::settings::current().remote_full_view)
+    match caller {
+        Caller::Extension(_) => View::Full,
+        Caller::Remote => view_of(caller, crate::settings::current().remote_full_view),
+    }
 }
 
 fn view_of(caller: Caller, remote_full_view: bool) -> View {
@@ -192,14 +199,61 @@ fn game() -> GResult<&'static Memory> {
     crate::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })
 }
 
+/// The session a capability reads, as its caller reads it: the game, the
+/// session at this instant ([`Ctx`]), how much of it the caller reads, and
+/// the caller. The catalogue opens it once for each request
+/// (`crate::catalogue::Live`) and hands it to the capability, which reaches
+/// the game through it alone; a test builds one over objects of its own
+/// (`buffers`).
+#[derive(Clone, Copy, Debug)]
+pub struct Session {
+    pub m: &'static Memory,
+    pub ctx: Ctx,
+    pub view: View,
+    pub caller: Caller,
+}
+
+impl Session {
+    /// Opens the session for `caller`, deciding in one place what a
+    /// capability that reads it fails with otherwise:
+    /// [`Status::WrongContext`] off the game's main thread,
+    /// [`Status::Unavailable`] before startup found the game,
+    /// [`Status::NotInGame`] with no session or no country the player
+    /// controls, [`Status::NotReady`] while the daily update runs.
+    pub fn open(caller: Caller) -> GResult<Self> {
+        let m = game()?;
+        let ctx = context(m)?;
+        Ok(Self { m, ctx, view: view(caller), caller })
+    }
+}
+
+/// The session as a capability that needs no country of the player's reads
+/// it: the game, the world at this instant ([`World`]), also while the
+/// player only observes, and the caller. The catalogue opens it for each
+/// request of such a capability, as it opens [`Session`] for the others.
+#[derive(Clone, Copy, Debug)]
+pub struct WorldSession {
+    pub m: &'static Memory,
+    pub world: World,
+    pub caller: Caller,
+}
+
+impl WorldSession {
+    /// Opens it for `caller`: failing as [`Session::open`] does, but with a
+    /// world whose player has no country to play.
+    pub fn open(caller: Caller) -> GResult<Self> {
+        let m = game()?;
+        Ok(Self { m, world: world_context(m)?, caller })
+    }
+}
+
 /// What the capabilities keep between calls: the map's topology and the
 /// routes extensions installed. Both belong to one session, as does the last
-/// day announced.
+/// day announced; the sessions let them go ([`session_forgotten`]).
 #[derive(Default)]
 struct State {
     geography: world::Geography,
     orders: orders::Orders,
-    session: u64,
     day: Option<i32>,
     /// The wars and the provinces' owners of the day before.
     wars: wars::Watch,
@@ -210,6 +264,18 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
     let mut guard = STATE.lock().unwrap_or_else(|e| e.into_inner());
     f(guard.get_or_insert_with(State::default))
+}
+
+/// A game frame shows another session than the last frame did: what the
+/// capabilities kept of that one goes. Told by the sessions
+/// (`crate::sessions`).
+pub fn session_forgotten() {
+    with_state(|s| {
+        s.geography.clear();
+        s.orders.clear();
+        s.day = None;
+        s.wars.clear();
+    });
 }
 
 /// What a safe frame starts from: the campaign, its session, and what
@@ -317,53 +383,35 @@ fn battle_event(battle: &events::Battle) -> Event {
 }
 
 /// Starts a safe frame (see [`events`]); fails when this is not one, saying
-/// why. At a new session, forgets the old one's map, routes and map coloring.
-/// An army the player gave an order is no longer an extension's to move.
+/// why. The sessions hear of it first, which let what was kept of another
+/// session go (`crate::sessions`). An army the player gave an order is no
+/// longer an extension's to move.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
-    let state = events::begin_frame(m)?;
-    let (new_session, new_day, previous) = with_state(|s| {
-        let new_session = s.session != state.session;
-        if new_session {
-            s.session = state.session;
-            s.geography.clear();
-            s.orders.clear();
-            s.day = None;
-            s.wars.clear();
-        }
-        for change in &state.changes {
+    let (ctx, fog) = events::frame_campaign(m)?;
+    let seen = crate::sessions::frame_read(&ctx);
+    let (visibility_current, changes) = events::take_frame(&ctx, fog);
+    let (new_day, previous) = with_state(|s| {
+        for change in &changes {
             if let events::Change::Ordered(army) = change {
                 s.orders.revoke(*army);
             }
         }
         let previous = s.day;
-        let new_day = state.visibility_current && s.day.replace(state.ctx.date) != Some(state.ctx.date);
-        (new_session, new_day, previous)
+        let new_day = visibility_current && s.day.replace(ctx.date) != Some(ctx.date);
+        (new_day, previous)
     });
-    let (new_month, new_year) = turned(previous.filter(|_| new_day), state.ctx.date);
-    let (new_month, new_year) = (new_month && events::listened("month"), new_year && events::listened("year"));
-    if new_session {
-        crate::map::reset_session(m, &state.ctx);
-    }
-    let wars = if new_day { watch_wars(m, &state.ctx) } else { Vec::new() };
-    Ok(Frame {
-        ctx: state.ctx,
-        session: state.session,
-        new_session,
-        visibility_current: state.visibility_current,
-        changes: state.changes,
-        new_day,
-        new_month,
-        new_year,
-        wars,
-    })
+    let (new_month, new_year) = turned(previous.filter(|_| new_day), ctx.date);
+    let (new_month, new_year) = (new_month && events::listened(Kind::Month), new_year && events::listened(Kind::Year));
+    let wars = if new_day { watch_wars(m, &ctx) } else { Vec::new() };
+    Ok(Frame { ctx, session: seen.session, new_session: seen.new_session, visibility_current, changes, new_day, new_month, new_year, wars })
 }
 
 /// What the wars and the provinces' owners show happened since the day
 /// before, of the kinds someone listens to; nothing when they cannot be
 /// read, which the log says.
 fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
-    let war = events::listened("war_declared") || events::listened("peace_made");
-    let owners = events::listened("province_owner_changed");
+    let war = events::listened(Kind::WarDeclared) || events::listened(Kind::PeaceMade);
+    let owners = events::listened(Kind::ProvinceOwnerChanged);
     let seen = with_state(|s| {
         let mut happened = Vec::new();
         match war {
@@ -491,7 +539,8 @@ impl Tag {
     }
 }
 
-/// The campaign as seen at one instant.
+/// The session as seen at one instant: its world, its date, and the
+/// player's country, by its tag and its object, among the countries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ctx {
     pub world: usize,
@@ -501,7 +550,33 @@ pub struct Ctx {
     pub countries: usize,
 }
 
-/// Current campaign, refusing while the daily update is running.
+/// The game going on as seen at one instant, whether the player plays a
+/// country in it or only observes: what time and the game's commands need.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct World {
+    pub world: usize,
+    pub date: i32,
+}
+
+/// What holds the game's world: [`Ctx`], with the player's country, or
+/// [`World`], with or without one.
+pub trait InWorld {
+    fn world(&self) -> usize;
+}
+
+impl InWorld for Ctx {
+    fn world(&self) -> usize {
+        self.world
+    }
+}
+
+impl InWorld for World {
+    fn world(&self) -> usize {
+        self.world
+    }
+}
+
+/// The session going on, refusing while the daily update is running.
 pub fn context(m: &Memory) -> GResult<Ctx> {
     context_impl(m, true)
 }
@@ -511,7 +586,19 @@ pub fn context_any(m: &Memory) -> GResult<Ctx> {
     context_impl(m, false)
 }
 
-fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
+/// The game going on, also while the player observes, refusing while the
+/// daily update is running.
+pub fn world_context(m: &Memory) -> GResult<World> {
+    world_impl(m, true)
+}
+
+/// [`world_context`], also during the daily update; only for boundary
+/// observers.
+pub fn world_context_any(m: &Memory) -> GResult<World> {
+    world_impl(m, false)
+}
+
+fn world_impl(m: &Memory, require_stable: bool) -> GResult<World> {
     let world = m.ptr(m.at(globals::WORLD))?;
     if world == 0 {
         return fail(Status::NotInGame, "no world");
@@ -519,6 +606,21 @@ fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
     if require_stable && m.u8(world + campaign::world::DAILY_UPDATE)? != 0 {
         return fail(Status::NotReady, "daily update in progress");
     }
+    Ok(World { world, date: m.i32(world + campaign::world::DATE)? })
+}
+
+/// Whether the player only observes the game going on, with no country to
+/// play (the game console's observe, a country annexed).
+pub fn observing(m: &Memory) -> GResult<bool> {
+    match context_any(m) {
+        Ok(_) => Ok(false),
+        Err(fail) if fail.status == Status::NotInGame => world_context_any(m).map(|_| true),
+        Err(fail) => Err(fail),
+    }
+}
+
+fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
+    let World { world, .. } = world_impl(m, require_stable)?;
     let switched = m.u8(world + campaign::world::PLAYER_MODE)? == campaign::world::SWITCHED && m.u8(world + campaign::world::PLAYER_SWITCHED)? != 0;
     let player = Tag(m.u64(world + if switched { campaign::world::SWITCHED_PLAYER } else { campaign::world::PLAYER })?);
     if !player.normal() {
@@ -557,7 +659,7 @@ pub fn special_countries(m: &Memory) -> GResult<[i32; 3]> {
 }
 
 /// Whether the game is paused (the map manager's pause owner says so).
-pub fn paused(m: &Memory, ctx: &Ctx) -> GResult<bool> {
+pub fn paused(m: &Memory, ctx: &impl InWorld) -> GResult<bool> {
     let manager = map_manager(m, ctx)?;
     let pause = m.ptr(manager + map_manager::PAUSE)?;
     if m.ptr(pause + pause::MANAGER)? != manager {
@@ -567,8 +669,8 @@ pub fn paused(m: &Memory, ctx: &Ctx) -> GResult<bool> {
 }
 
 /// The world's map manager, checked by its class.
-pub fn map_manager(m: &Memory, ctx: &Ctx) -> GResult<usize> {
-    let manager = m.ptr(ctx.world + campaign::world::MAP_MANAGER)?;
+pub fn map_manager(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
+    let manager = m.ptr(ctx.world() + campaign::world::MAP_MANAGER)?;
     if m.ptr(manager)? != m.at(campaign::classes::MAP_MANAGER) {
         return Err("unexpected map manager".to_string().into());
     }
@@ -578,7 +680,7 @@ pub fn map_manager(m: &Memory, ctx: &Ctx) -> GResult<usize> {
 /// The game's session, which takes the player's commands, as the player's
 /// buttons find it: the map manager's method answers it
 /// (`objects::session`).
-pub fn command_session(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+pub fn command_session(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
     let session = m.call(m.at(crate::objects::session::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
     if session == 0 || m.ptr(session)? != m.at(crate::objects::session::CLASS) {
         return Err("the map manager has no session".to_string().into());

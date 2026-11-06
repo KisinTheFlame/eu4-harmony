@@ -18,7 +18,9 @@
 //! `[frame inside a day]` or `[between days]`, and with `--slice <seconds>`
 //! the stretch of the run it fell in too, as `[between days] 10-20 s`, so
 //! that a run through the game's startup or a load shows what each stretch
-//! did. `--wait` waits for eu4.exe to start, for a run from its first
+//! did; `<out>.slices.tsv` then has a line for each stretch: its dates, days
+//! and frames a second, and the share of its samples in each part, so that
+//! a long run shows how they change as the game goes on. `--wait` waits for eu4.exe to start, for a run from its first
 //! moments; modules the process loads during the run are taken up as they
 //! come. `--thread <name>` samples the thread the game named so (such as
 //! `LoadingThread`) while it runs, and the main thread otherwise; `--thread
@@ -38,7 +40,7 @@
 //! days. Measure shares at 50.
 use crate::{Args, Result};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     hash::Hash,
     time::{Duration, Instant},
 };
@@ -66,6 +68,9 @@ use windows_sys::Win32::{
 const WORLD: usize = 0x233fe78;
 const WORLD_DATE: usize = 0x1dd0;
 const WORLD_DAY: usize = 0x1e10;
+/// The application, and in it the frame count (docs/research/architecture.md).
+const APPLICATION: usize = 0x242bf50;
+const APPLICATION_FRAMES: usize = 0x320;
 
 /// The parts of the day and of a frame (docs/research/architecture.md), as
 /// docs/research/main-thread.md counts them: the first that is on the stack.
@@ -76,13 +81,16 @@ const DAY: [(&str, &str); 5] = [
     ("the provinces' passes", "0x75b2d0"),
     ("the yearly update", "0x75e260"),
 ];
-const FRAME: [(&str, &str); 7] = [
+const FRAME: [(&str, &str); 10] = [
     ("the autosave", "0x5cbb00"),
     ("POPS", "pops_api.dll"),
     ("drawing", "0x8183b0"),
     ("the GUI update", "0x14c5810"),
     ("commands", "0x20f810"),
     ("input", "0x830fd0"),
+    ("the top bar's alerts", "0xdf5860"),
+    ("the outliner", "0x128cd30"),
+    ("the map's markers", "0x10a6d00"),
     ("the in-game frame, other", "0x8137c0"),
 ];
 /// The day's own frame, below which a frame inside a day runs.
@@ -390,6 +398,15 @@ fn world_state(process: HANDLE, exe_base: u64) -> Option<(i32, bool, bool)> {
     Some((date, flags[0] != 0, flags[8] != 0))
 }
 
+/// The application's frame count.
+fn frame_count(process: HANDLE, exe_base: u64) -> Option<u64> {
+    let application = u64::from_le_bytes(read(process, exe_base + APPLICATION as u64)?);
+    if application == 0 {
+        return None;
+    }
+    Some(u64::from_le_bytes(read(process, application + APPLICATION_FRAMES as u64)?))
+}
+
 /// Where in the game's time the sample fell, by the world's flags.
 fn tag(state: Option<(i32, bool, bool)>) -> &'static str {
     match state {
@@ -502,6 +519,8 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
     let before: HashMap<u32, u64> = threads.iter().map(|&(t, h)| (t, thread_times(h).1)).collect();
     let start_state = world_state(process, exe_base);
     let mut samples = Tally::new();
+    // With --slice, each stretch's first and last sample.
+    let mut stretches: BTreeMap<u32, (Mark, Mark)> = BTreeMap::new();
     let interval = Duration::from_secs_f64(1.0 / hz);
     let (mut suspended, mut count) = (Duration::ZERO, 0u64);
     let began = Instant::now();
@@ -561,14 +580,12 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
         suspended += t0.elapsed();
         count += 1;
         let at = began.elapsed().as_secs_f64();
-        let where_ = match slice {
-            Some(slice) => {
-                let n = (at / slice).floor();
-                format!("{} {}-{} s", tag(state), n * slice, (n + 1.0) * slice)
-            }
-            None => tag(state).to_string(),
-        };
-        samples.add((where_, pcs), 1);
+        let stretch = slice.map(|slice| (at / slice).floor() as u32);
+        if let (Some(n), Some((date, ..)), Some(frames)) = (stretch, state, frame_count(process, exe_base)) {
+            let mark = Mark { at, date, frames };
+            stretches.entry(n).and_modify(|(_, last)| *last = mark).or_insert((mark, mark));
+        }
+        samples.add((tag(state), stretch, pcs), 1);
     }
     let wall = began.elapsed().as_secs_f64();
     let end_state = world_state(process, exe_base);
@@ -580,7 +597,7 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
 
     let mut names: HashMap<u64, String> = HashMap::new();
     let (mut stacks, mut flags) = (Tally::new(), Tally::new());
-    for ((where_, pcs), n) in &samples.counts {
+    for ((tag, stretch, pcs), n) in &samples.counts {
         let mut frames: Vec<String> = pcs
             .iter()
             .enumerate()
@@ -589,20 +606,31 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
                 names.entry(at).or_insert_with(|| name(process, &modules, at)).clone()
             })
             .collect();
-        frames.push(where_.clone());
-        stacks.add(frames, *n);
-        flags.add(where_.clone(), *n);
+        frames.push(tag.to_string());
+        stacks.add((frames, *stretch), *n);
+        flags.add(*tag, *n);
     }
     for (_, thread) in threads.iter().chain(&ended).chain(&seen) {
         unsafe { CloseHandle(*thread) };
     }
     unsafe { CloseHandle(process) };
 
-    let folded: String = stacks.most().iter().map(|(frames, n)| format!("{} {n}\n", frames.iter().rev().cloned().collect::<Vec<_>>().join(";"))).collect();
+    // The root of each folded stack is its tag, and with --slice its stretch.
+    let folded: String = stacks
+        .most()
+        .iter()
+        .map(|((frames, stretch), n)| {
+            let mut frames: Vec<String> = frames.iter().rev().cloned().collect();
+            if let (Some(stretch), Some(slice)) = (stretch, slice) {
+                frames[0] = format!("{} {}", frames[0], seconds_of(*stretch, slice));
+            }
+            format!("{} {n}\n", frames.join(";"))
+        })
+        .collect();
     std::fs::write(format!("{out}.folded"), folded).map_err(|e| format!("cannot write {out}.folded: {e}"))?;
 
-    let (mut inclusive, mut own, mut parts) = (Tally::new(), Tally::new(), HashMap::new());
-    for (frames, n) in &stacks.counts {
+    let (mut inclusive, mut own, mut parts, mut stretch_parts) = (Tally::new(), Tally::new(), HashMap::new(), HashMap::new());
+    for ((frames, stretch), n) in &stacks.counts {
         own.add(frames[0].clone(), *n);
         let mut seen = std::collections::HashSet::new();
         for frame in frames {
@@ -611,8 +639,15 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
             }
         }
         *parts.entry(part(frames)).or_insert(0) += n;
+        if let Some(stretch) = stretch {
+            *stretch_parts.entry((*stretch, part(frames))).or_insert(0) += n;
+        }
     }
-    let framework: u64 = stacks.counts.iter().filter(|(f, _)| f.iter().any(|fr| fr.starts_with("eu4_harmony_core.dll"))).map(|(_, n)| n).sum();
+    let framework: u64 = stacks.counts.iter().filter(|((f, _), _)| f.iter().any(|fr| fr.starts_with("eu4_harmony_core.dll"))).map(|(_, n)| n).sum();
+    if let Some(slice) = slice {
+        let table = stretch_table(&stretches, &stretch_parts, slice);
+        std::fs::write(format!("{out}.slices.tsv"), table).map_err(|e| format!("cannot write {out}.slices.tsv: {e}"))?;
+    }
 
     let total = count.max(1) as f64;
     let share = |n: u64| 100.0 * n as f64 / total;
@@ -655,6 +690,52 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, whic
     Ok(())
 }
 
+/// A sample's time into the run, the game's date (hours) and the frame count.
+#[derive(Clone, Copy)]
+struct Mark {
+    at: f64,
+    date: i32,
+    frames: u64,
+}
+
+/// `0-60 s`, the seconds of a stretch of the run.
+fn seconds_of(stretch: u32, slice: f64) -> String {
+    format!("{}-{} s", f64::from(stretch) * slice, f64::from(stretch + 1) * slice)
+}
+
+/// One line for each stretch of the run, tab-separated: its seconds, the
+/// dates of its first and last sample, days and frames a second between
+/// them, and the share of its samples in each part.
+fn stretch_table(stretches: &BTreeMap<u32, (Mark, Mark)>, parts: &HashMap<(u32, String), u64>, slice: f64) -> String {
+    let mut labels: Vec<&String> = parts.keys().map(|(_, label)| label).collect();
+    labels.sort();
+    labels.dedup();
+    let mut lines = vec![["seconds", "from", "to", "days a second", "frames a second"]
+        .iter()
+        .map(|s| s.to_string())
+        .chain(labels.iter().map(|l| l.to_string()))
+        .collect::<Vec<_>>()
+        .join("\t")];
+    for (&stretch, (first, last)) in stretches {
+        let total: u64 = parts.iter().filter(|((s, _), _)| *s == stretch).map(|(_, n)| n).sum();
+        let span = last.at - first.at;
+        let rate = |n: f64| if span > 0.0 { format!("{:.2}", n / span) } else { String::new() };
+        let mut row = vec![
+            seconds_of(stretch, slice),
+            eu4_harmony_remote::Date(first.date).to_string(),
+            eu4_harmony_remote::Date(last.date).to_string(),
+            rate(f64::from(last.date - first.date) / 24.0),
+            rate((last.frames - first.frames) as f64),
+        ];
+        row.extend(labels.iter().map(|label| {
+            let n = parts.get(&(stretch, (*label).clone())).copied().unwrap_or(0);
+            format!("{:.1}", 100.0 * n as f64 / total.max(1) as f64)
+        }));
+        lines.push(row.join("\t"));
+    }
+    lines.join("\n") + "\n"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -670,6 +751,19 @@ mod tests {
         assert_eq!(part(&frames("0x1;0x5cbb00;0x769ea0;0x8183b0;[frame inside a day]")), "[frame inside a day]: the autosave");
         assert_eq!(part(&frames("0x1;pops_api.dll+0x10;0x8137c0;[between days]")), "[between days]: POPS");
         assert_eq!(part(&frames("0x1;[between days]")), "[between days]: other");
+    }
+
+    #[test]
+    fn each_stretch_has_its_dates_rates_and_shares() {
+        // 1444.11.11 and ten days later, in hours.
+        let date = eu4_harmony_remote::Date::parse("1444.11.11").unwrap().0;
+        let stretches = BTreeMap::from([(1, (Mark { at: 60.0, date, frames: 100 }, Mark { at: 62.0, date: date + 240, frames: 140 }))]);
+        let parts = HashMap::from([((1, "[day]: the AI".to_string()), 3), ((1, "[between days]: drawing".to_string()), 1)]);
+        assert_eq!(
+            stretch_table(&stretches, &parts, 60.0),
+            "seconds\tfrom\tto\tdays a second\tframes a second\t[between days]: drawing\t[day]: the AI\n\
+             60-120 s\t1444.11.11\t1444.11.21\t5.00\t20.00\t25.0\t75.0\n"
+        );
     }
 
     #[test]

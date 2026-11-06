@@ -242,6 +242,7 @@ impl Shaped for crate::Capability {
                 field("capability", Shape::Text),
                 field("about", Shape::Text),
                 field("in_game", Shape::Boolean),
+                field("observing", Shape::Boolean),
                 field("extensions", Shape::Boolean),
                 field("args", Shape::List(Box::new(parameter))),
                 field("result", Shape::Text),
