@@ -132,6 +132,7 @@ extern "C" fn world_clearing() {
             log!("repair: the rebel factions were not deleted: {e}");
         }
         super::histories::world_clearing(&m);
+        super::trade_nodes::world_clearing(&m);
     });
 }
 
