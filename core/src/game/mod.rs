@@ -81,7 +81,7 @@ use crate::{
     objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::Point,
 };
-use eu4_harmony_remote::events::{Event, Winner};
+use eu4_harmony_remote::events::{Event, Kind, Winner};
 use std::sync::Mutex;
 
 /// How much of the game a read gives (GLOSSARY: Player's view, Full view;
@@ -375,7 +375,7 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
         (new_session, new_day, previous)
     });
     let (new_month, new_year) = turned(previous.filter(|_| new_day), state.ctx.date);
-    let (new_month, new_year) = (new_month && events::listened("month"), new_year && events::listened("year"));
+    let (new_month, new_year) = (new_month && events::listened(Kind::Month), new_year && events::listened(Kind::Year));
     if new_session {
         crate::map::reset_session(m, &state.ctx);
     }
@@ -397,8 +397,8 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
 /// before, of the kinds someone listens to; nothing when they cannot be
 /// read, which the log says.
 fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
-    let war = events::listened("war_declared") || events::listened("peace_made");
-    let owners = events::listened("province_owner_changed");
+    let war = events::listened(Kind::WarDeclared) || events::listened(Kind::PeaceMade);
+    let owners = events::listened(Kind::ProvinceOwnerChanged);
     let seen = with_state(|s| {
         let mut happened = Vec::new();
         match war {

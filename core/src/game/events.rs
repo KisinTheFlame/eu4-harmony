@@ -23,6 +23,7 @@ use crate::{
     points::Point,
     Result,
 };
+use eu4_harmony_remote::events::Kind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::sync::Mutex;
@@ -284,14 +285,14 @@ extern "C" fn route_after(frame: *mut HookFrame) {
     });
 }
 
-/// Which kinds of event (`remote/src/events.rs`'s `EVENTS`) someone listens
-/// to: those an extension has a handler for, and those a remote client has
-/// read in this process (every kind once one read them all). A kind nobody
-/// listens to is not worked out (docs/player-actions.md, "Events").
+/// Which kinds of event someone listens to: those an extension has a
+/// handler for, and those a remote client has read in this process (every
+/// kind once one read them all). A kind nobody listens to is not worked out
+/// (docs/player-actions.md, "Events").
 #[derive(Default)]
 struct Listening {
-    extensions: BTreeSet<&'static str>,
-    remote: BTreeSet<String>,
+    extensions: BTreeSet<Kind>,
+    remote: BTreeSet<Kind>,
     remote_all: bool,
 }
 
@@ -303,19 +304,20 @@ fn listening<T>(f: impl FnOnce(&mut Listening) -> T) -> T {
 }
 
 /// Whether anyone listens to events of `kind`.
-pub fn listened(kind: &str) -> bool {
-    listening(|l| l.remote_all || l.remote.contains(kind) || l.extensions.contains(kind))
+pub fn listened(kind: Kind) -> bool {
+    listening(|l| l.remote_all || l.remote.contains(&kind) || l.extensions.contains(&kind))
 }
 
 /// The kinds the extensions have handlers for now.
-pub fn extensions_listen(kinds: BTreeSet<&'static str>) {
+pub fn extensions_listen(kinds: BTreeSet<Kind>) {
     listening(|l| l.extensions = kinds);
 }
 
-/// A remote client read events of `kinds`, or of every kind.
+/// A remote client read events of the kinds named `kinds`, or of every
+/// kind. A name no kind has, which the read refuses, is none.
 pub fn read_remotely(kinds: Option<&[String]>) {
     listening(|l| match kinds {
-        Some(kinds) => l.remote.extend(kinds.iter().cloned()),
+        Some(kinds) => l.remote.extend(kinds.iter().filter_map(|k| Kind::named(k))),
         None => l.remote_all = true,
     });
 }
@@ -376,7 +378,7 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
 extern "C" fn results_before(frame: *mut HookFrame) {
     crate::guarded("battle results", || {
         let Some(m) = crate::memory() else { return };
-        if crate::sessions::loading() || !listened("battle") {
+        if crate::sessions::loading() || !listened(Kind::Battle) {
             return;
         }
         let (a, back) = unsafe { ((*frame).args, (*frame).return_address) };

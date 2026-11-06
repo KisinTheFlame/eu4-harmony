@@ -76,7 +76,7 @@ pub fn points() -> Vec<Point> {
 /// province's owner, heard while the game finishes it, when someone listens.
 extern "C" fn finished(frame: *mut HookFrame) {
     crate::guarded("building finished", || {
-        if !events::listened("building_finished") {
+        if !events::listened(eu4_harmony_remote::events::Kind::BuildingFinished) {
             return;
         }
         let Some(m) = crate::memory() else { return };
