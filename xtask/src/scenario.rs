@@ -1,21 +1,22 @@
 //! `cargo xtask scenario`: plays scenarios (GLOSSARY), courses of play in
-//! the real game driven through remote control, within one claim, and writes
-//! one report of them (docs/scenarios.md).
+//! the real game driven through remote control, and writes one report of
+//! them (docs/scenarios.md).
 //!
-//! The runner does everything but the playing: it finds Steam ready, claims
-//! the game unless this checkout holds it, builds and installs each build the
-//! scenarios named need, starts the game hidden, hands each scenario the game
-//! at its main menu, tells how it ended, keeps the lease going and notices
-//! the player taking the game, and releases the claim it made, whatever ends
-//! the run: an error, a panic or Ctrl-C. Only cargo, for the builds, and the
-//! game run as programs of their own.
+//! The runner does everything but the playing: it finds Steam ready, builds
+//! and installs each build the scenarios named need, starts the game hidden,
+//! hands each scenario the game at its main menu, tells how it ended, and
+//! ends the game, whatever ends the run: an error, a panic or Ctrl-C. It
+//! knows nothing of the claim, which the holder makes, keeps going and
+//! releases with the commands of `cargo xtask game` (ADR
+//! only-the-claims-commands-know-the-claim). Only cargo, for the builds,
+//! and the game run as programs of their own.
 mod game;
 mod leak;
 mod perf;
 
 pub use game::{Game, Played, Stop};
 
-use crate::{claim, files, repo, Result};
+use crate::{files, repo, Result};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -142,23 +143,18 @@ fn find(name: &str) -> Option<&'static dyn Scenario> {
     all().into_iter().find(|s| s.name() == name)
 }
 
-/// How often the runner looks at its claim.
-const LOOK_EVERY: Duration = Duration::from_secs(5);
-/// The lease is renewed when less than this is left of it.
-const RENEW_BELOW: u64 = 10 * 60;
+/// How often the runner looks whether the run was interrupted.
+const LOOK_EVERY: Duration = Duration::from_secs(1);
 /// How long a crash dump may take to read before the report goes without it.
 const READING_A_DUMP: Duration = Duration::from_secs(180);
 
-const USAGE: &str =
-    "cargo xtask scenario [<name>... [--out <dir>] [--wait] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
+const USAGE: &str = "cargo xtask scenario [<name>... [--out <dir>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
 
 /// What the command line asked for.
 #[derive(Debug, Default, PartialEq)]
 struct Asked {
     names: Vec<String>,
     out: Option<PathBuf>,
-    wait: bool,
-    owner: Option<String>,
     game_dir: Option<PathBuf>,
     from_report: Option<PathBuf>,
     /// Scenario, parameter and value.
@@ -171,9 +167,7 @@ fn parse(raw: &[String]) -> Result<Asked> {
     while let Some(word) = words.next() {
         let mut value = |key: &str| words.next().cloned().ok_or_else(|| format!("--{key} needs a value"));
         match word.strip_prefix("--") {
-            Some("wait") => asked.wait = true,
             Some("out") => asked.out = Some(value("out")?.into()),
-            Some("owner") => asked.owner = Some(value("owner")?),
             Some("game-dir") => asked.game_dir = Some(value("game-dir")?.into()),
             Some("from-report") => asked.from_report = Some(value("from-report")?.into()),
             Some(key) => match key.split_once('.') {
@@ -214,71 +208,35 @@ pub fn run(raw: &[String]) -> Result<()> {
     };
     crate::game::steam_ready()?;
 
-    let owner = asked.owner.clone().unwrap_or_else(|| claim::owner_of(None));
-    let held_before = claim::held_by(&owner).is_ok();
-    if !held_before {
-        let purpose = format!("scenarios {}", asked.names.join(", "));
-        if claim::take(&owner, &purpose, asked.wait, &game_dir)? == claim::Claimed::Busy {
-            return Err("the game is busy; --wait waits for it in the queue".into());
-        }
-    }
     let out = asked.out.clone().unwrap_or_else(|| repo().join("target").join("scenarios").join(stamp().1));
-    if let Err(e) = std::fs::create_dir_all(&out) {
-        if !held_before {
-            claim::give_back(&owner, &game_dir, false)?;
-        }
-        return Err(format!("cannot make {}: {e}", out.display()));
-    }
-    let taken = Arc::new(AtomicBool::new(false));
+    std::fs::create_dir_all(&out).map_err(|e| format!("cannot make {}: {e}", out.display()))?;
     let done = Arc::new(AtomicBool::new(false));
-    let looking = look_at_the_claim(owner.clone(), taken.clone(), done.clone());
+    let looking = end_when_interrupted(done.clone());
     let interrupts = Interrupts::catch();
-    let ended = given_back(
-        || play_all(&playing, &owner, &game_dir, &out, &taken),
+    let ended = ended_after(
+        || play_all(&playing, &game_dir, &out),
         || {
-            let was_taken = taken.load(Ordering::SeqCst);
-            if !was_taken {
-                crate::game::kill();
-                let _ = crate::game::wait_closed();
-            }
+            crate::game::kill();
+            let _ = crate::game::wait_closed();
             done.store(true, Ordering::SeqCst);
             let _ = looking.join();
-            if was_taken {
-                println!("the player took the game: their claim ends it and puts back this run's files");
-                Ok(())
-            } else if held_before {
-                Ok(())
-            } else {
-                claim::give_back(&owner, &game_dir, false)
-            }
         },
     );
     drop(interrupts);
     ended
 }
 
-/// Runs `playing`, then `giving_back` whatever came of it: an error, which
-/// comes back with the giving back's own, or a panic, which goes on once the
-/// game is given back.
-fn given_back<T>(playing: impl FnOnce() -> Result<T>, giving_back: impl FnOnce() -> Result<()>) -> Result<T> {
+/// Runs `playing`, then `ending` whatever came of it, an error or a panic,
+/// which goes on once `ending` is done.
+fn ended_after<T>(playing: impl FnOnce() -> Result<T>, ending: impl FnOnce()) -> Result<T> {
     let played = std::panic::catch_unwind(std::panic::AssertUnwindSafe(playing));
-    let given = giving_back();
-    match (played, given) {
-        (Err(panic), given) => {
-            if let Err(e) = given {
-                eprintln!("{e}");
-            }
-            std::panic::resume_unwind(panic)
-        }
-        (Ok(Err(e)), Err(not_given)) => Err(format!("{e}; giving the game back: {not_given}")),
-        (Ok(_), Err(not_given)) => Err(not_given),
-        (Ok(played), Ok(())) => played,
-    }
+    ending();
+    played.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 /// Set by Ctrl-C or Ctrl-Break while scenarios play: the scenario playing
-/// ends with the game, the others are not played, and the runner gives the
-/// game back.
+/// ends with the game, the others are not played, and the runner ends the
+/// game.
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
 /// The run was interrupted.
@@ -288,7 +246,7 @@ pub fn interrupted() -> bool {
 
 /// Catches Ctrl-C and Ctrl-Break while it lives: the first sets
 /// [`INTERRUPTED`]; another ends the runner at once, as without it, leaving
-/// the claim to run out.
+/// the game as it is.
 struct Interrupts;
 
 impl Interrupts {
@@ -309,7 +267,7 @@ impl Drop for Interrupts {
 unsafe extern "system" fn on_ctrl(kind: u32) -> windows_sys::core::BOOL {
     use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT};
     if (kind == CTRL_C_EVENT || kind == CTRL_BREAK_EVENT) && !INTERRUPTED.swap(true, Ordering::SeqCst) {
-        println!("interrupted: ending the game and giving it back; again to end at once, leaving the claim");
+        println!("interrupted: ending the game; again to end at once, leaving it as it is");
         return 1;
     }
     0
@@ -317,16 +275,8 @@ unsafe extern "system" fn on_ctrl(kind: u32) -> windows_sys::core::BOOL {
 
 /// Plays each build's scenarios and writes the report; fails when one did
 /// not pass.
-fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Path, out: &Path, taken: &Arc<AtomicBool>) -> Result<()> {
-    let stopped = || {
-        if taken.load(Ordering::SeqCst) {
-            Some("the player took the game")
-        } else if interrupted() {
-            Some("the run was interrupted")
-        } else {
-            None
-        }
-    };
+fn play_all(playing: &[(&dyn Scenario, Parameters)], game_dir: &Path, out: &Path) -> Result<()> {
+    let stopped = || interrupted().then_some("the run was interrupted");
     let mut played = Vec::new();
     for build in builds(playing) {
         let these: Vec<&(&dyn Scenario, Parameters)> = playing.iter().filter(|(s, _)| s.build() == build).collect();
@@ -334,7 +284,7 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
             Some(why) => Err(why.to_string()),
             None => prepare(build, game_dir),
         };
-        let mut game = Game::new(owner, game_dir.to_path_buf(), taken.clone());
+        let mut game = Game::new(game_dir.to_path_buf());
         for (scenario, parameters) in these {
             let entry = match (&ready, stopped()) {
                 (Err(e), _) => not_played(*scenario, parameters, e),
@@ -345,7 +295,7 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
         }
     }
 
-    let report = json!({ "date": stamp().0, "owner": owner, "scenarios": played });
+    let report = json!({ "date": stamp().0, "scenarios": played });
     write(&out.join("report.json"), &serde_json::to_string_pretty(&report).expect("JSON"))?;
     write(&out.join("report.md"), &markdown(&report))?;
     println!("report: {}", out.join("report.md").display());
@@ -387,24 +337,14 @@ fn prepare(build: Build, game_dir: &Path) -> Result<()> {
     files::install_built(game_dir)
 }
 
-/// Looks at the claim every few seconds until `done`: keeps it going,
-/// renews the lease, and sets `taken` once the player takes the game or the
-/// claim is gone; ends the game once the run is interrupted, so that the
-/// step waiting on it ends.
-fn look_at_the_claim(owner: String, taken: Arc<AtomicBool>, done: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
+/// Ends the game once the run is interrupted, so that the step waiting on
+/// it ends; looks until `done`.
+fn end_when_interrupted(done: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        let mut ended = false;
         while !done.load(Ordering::SeqCst) {
-            if interrupted() && !ended {
+            if interrupted() {
                 crate::game::kill();
-                ended = true;
-            }
-            match claim::look(&owner) {
-                Ok(claim::Look::Held(left)) if left < RENEW_BELOW => {
-                    let _ = claim::renew_as(&owner);
-                }
-                Ok(claim::Look::Taken | claim::Look::Gone) => taken.store(true, Ordering::SeqCst),
-                _ => {}
+                return;
             }
             std::thread::sleep(LOOK_EVERY);
         }
@@ -428,7 +368,6 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, game_
         Err(Stop::Failed(why)) => ("failed", Some(why.clone())),
         Err(Stop::Crashed(why)) => ("crashed", Some(why.clone())),
         Err(Stop::Hung(why)) => ("hung", Some(why.clone())),
-        Err(Stop::Taken) => ("unfinished", Some("the player took the game".into())),
         Err(Stop::Interrupted) => ("unfinished", Some("the run was interrupted".into())),
     };
     let mut entry = entry(scenario, parameters, outcome, why.as_deref());
@@ -581,9 +520,9 @@ mod tests {
 
     #[test]
     fn the_command_line_names_scenarios_and_their_parameters() {
-        let asked = parse(&words("perf leak --wait --leak.rounds 1 --out D:\\r")).unwrap();
+        let asked = parse(&words("perf leak --leak.rounds 1 --out D:\\r")).unwrap();
         assert_eq!(asked.names, ["perf", "leak"]);
-        assert!(asked.wait && asked.out == Some(PathBuf::from("D:\\r")));
+        assert_eq!(asked.out, Some(PathBuf::from("D:\\r")));
         assert_eq!(asked.parameters, [("leak".to_string(), "rounds".to_string(), "1".to_string())]);
         assert!(parse(&words("--rounds 1")).unwrap_err().contains("unknown option --rounds"));
         assert!(parse(&words("perf --out")).unwrap_err().contains("--out needs a value"));
@@ -619,24 +558,16 @@ mod tests {
         assert!(md.contains("Its dump was not read in time."), "{md}");
     }
 
-    /// Whatever playing comes to, the game is given back: after an error,
-    /// which comes back with the giving back's own, and after a panic, which
-    /// goes on once the game is given back.
+    /// Whatever playing comes to, the game is ended: after an error, and
+    /// after a panic, which goes on once it is.
     #[test]
-    fn the_game_is_given_back_whatever_playing_comes_to() {
-        let given = std::cell::Cell::new(0);
-        let give = || {
-            given.set(given.get() + 1);
-            Ok(())
-        };
-        assert_eq!(given_back(|| Ok(7), give), Ok(7));
-        assert_eq!(given_back(|| Err::<(), _>("cannot write report.json".to_string()), give), Err("cannot write report.json".into()));
-        assert_eq!(
-            given_back(|| Err::<(), _>("cannot write report.json".to_string()), || Err("1 file(s) not put back".into())),
-            Err("cannot write report.json; giving the game back: 1 file(s) not put back".into())
-        );
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| given_back(|| -> Result<()> { panic!("a scenario's bug") }, give)));
+    fn the_game_is_ended_whatever_playing_comes_to() {
+        let ended = std::cell::Cell::new(0);
+        let end = || ended.set(ended.get() + 1);
+        assert_eq!(ended_after(|| Ok(7), end), Ok(7));
+        assert_eq!(ended_after(|| Err::<(), _>("cannot write report.json".to_string()), end), Err("cannot write report.json".into()));
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ended_after(|| -> Result<()> { panic!("a scenario's bug") }, end)));
         assert!(panicked.is_err());
-        assert_eq!(given.get(), 3);
+        assert_eq!(ended.get(), 3);
     }
 }

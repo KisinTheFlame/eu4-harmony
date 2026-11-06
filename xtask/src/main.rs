@@ -28,17 +28,14 @@ usage:
       another.
   cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>] [--owner <name>]
   cargo xtask game claim --player [--now]
-  cargo xtask game start [--visible] [--sound] [--timeout <seconds>]
-  cargo xtask game stop | release [--keep-crashes] | renew | watch [--warn 5] | status
+  cargo xtask game release [--keep-crashes] | renew | watch [--warn 5] | status
       The claim: one holder of this computer's game at a time
       (docs/game-testing.md). claim backs up the player's files and copies
       the game folder's framework files and dev.toml into the claim's folder,
       which it prints; busy, it exits with 2, or with --wait joins the queue
-      and returns once it holds the game. start starts the game hidden and
-      without sound and waits for its main menu, ending a start that does
-      not get there; --visible shows its window there, --sound keeps its
-      sound. stop ends it. release ends the game, keeps the logs and the run's crash
-      folders in the claim's kept\\, puts back the player's files and the
+      and returns once it holds the game. release ends the game, keeps the
+      logs and the run's crash folders in the claim's kept\\, puts back the
+      player's files and the
       game folder's, and frees the game. watch, run in the background by the
       holder, exits with 3 when the lease (30 minutes unless --lease says
       otherwise, kept going while the game runs) is --warn minutes from its
@@ -46,9 +43,15 @@ usage:
       with 0 when the claim is gone. The player's claim (--player) keeps
       their files as they play and goes first in the queue; with --now it
       takes the game from its holder after two minutes. The owner is this
-      checkout's folder's name unless --owner names another.
-  cargo xtask install [--uninstall] [--game-dir <dir>] [--owner <name>]
-      Within the claim, copies the player's files as last built, a player build or a developer
+      checkout's folder's name unless --owner names another. Only these
+      commands know the claim: the others neither check nor renew it.
+  cargo xtask game start [--visible] [--sound] [--timeout <seconds>]
+  cargo xtask game stop
+      start starts the game hidden and without sound and waits for its main
+      menu, ending a start that does not get there; --visible shows its
+      window there, --sound keeps its sound. stop ends it.
+  cargo xtask install [--uninstall] [--game-dir <dir>]
+      Copies the player's files as last built, a player build or a developer
       build, into the game folder: version.dll in its root, the core and
       eu4-harmony.exe in eu4-harmony\\. A version.dll there that is not ours
       is moved to eu4-harmony\\backup\\ and never loaded; the repository's
@@ -68,17 +71,16 @@ usage:
       checks that each observer forwards at least the arguments its function
       reads: the core's ignored tests, with EU4_GAME_DIR set.
   cargo xtask scenario
-  cargo xtask scenario <name>... [--out <dir>] [--wait] [--owner <name>]
-                       [--game-dir <dir>] [--<name>.<parameter> <value>]...
+  cargo xtask scenario <name>... [--out <dir>] [--game-dir <dir>]
+                       [--<name>.<parameter> <value>]...
   cargo xtask scenario --from-report <dir>
       Plays scenarios in the game, driven through remote control, and
       writes report.json and report.md into <dir> (target\\scenarios\\<time>
       by default): how each ended and what it found (docs/scenarios.md).
       With no name it lists them, with their builds and parameters. It
-      needs Steam running, claims the game unless this checkout holds it
-      (busy, it waits in the queue with --wait), builds and installs each
-      build the scenarios need, starts the game hidden, and releases the
-      claim it made. --<name>.<parameter> changes a parameter for this run.
+      needs Steam running, builds and installs each build the scenarios
+      need, starts the game hidden, and ends it at the end.
+      --<name>.<parameter> changes a parameter for this run.
       --from-report writes report.md again from the report.json there.
   cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--thread <name>|busiest]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
@@ -189,11 +191,18 @@ fn main() {
     let rest = raw.get(1..).unwrap_or_default();
     let result = match raw.first().map(String::as_str) {
         Some("game-dir") => game::dir().map(|dir| println!("{}", dir.display())),
-        Some("install") => Args::parse(rest, &["uninstall"], &["game-dir", "owner"]).and_then(|a| files::install(&a)),
-        Some("game") => match claim::run(rest) {
-            Ok(code) => std::process::exit(code),
-            Err(e) => Err(e),
-        },
+        Some("install") => Args::parse(rest, &["uninstall"], &["game-dir"]).and_then(|a| files::install(&a)),
+        Some("game") => {
+            let ran = match rest.split_first() {
+                Some((command, rest)) if command == "start" || command == "stop" => game::run(command, rest),
+                Some((command, rest)) => claim::run(command, rest),
+                None => Err("cargo xtask game claim | start | stop | release | renew | watch | status".into()),
+            };
+            match ran {
+                Ok(code) => std::process::exit(code),
+                Err(e) => Err(e),
+            }
+        }
         Some("release") => Args::parse(rest, &[], &["out"]).and_then(|a| files::release(&a)),
         Some("disasm") => with_game(
             &["run", "--release", "--quiet", "-p", "eu4-harmony-core", "--features", "analysis", "--example", "disasm", "--"],

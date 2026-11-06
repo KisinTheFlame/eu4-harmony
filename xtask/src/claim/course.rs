@@ -1,6 +1,5 @@
-//! The claim's course: claiming the game, keeping the claim going, starting
-//! and stopping the game within it, and releasing it, which puts back what
-//! its run changed. It reaches the computer only through [`Machine`], so
+//! The claim's course: claiming the game, keeping the claim going, and
+//! releasing it, which puts back what its run changed. It reaches the computer only through [`Machine`], so
 //! that the order of its writes of the record against what it does to the
 //! game and the files is what the tests below follow.
 use super::machine::{Framework, Machine};
@@ -33,17 +32,6 @@ pub enum Claimed {
     Busy,
 }
 
-/// What one look at a claim found, as `watch` looks every few seconds.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Look {
-    /// Held, with this many seconds of the lease left.
-    Held(u64),
-    /// The player takes the game.
-    Taken,
-    /// The claim is not this owner's any more.
-    Gone,
-}
-
 /// What this process sees now, for a look at the record.
 fn seen<M: Machine>(m: &M) -> Seen<'_> {
     let games = m.games();
@@ -63,7 +51,7 @@ fn game_running<M: Machine>(m: &M) -> bool {
 }
 
 /// The game holds a claim of `owner`'s; the record if so.
-pub fn held_by<M: Machine>(m: &M, owner: &str) -> Result<Record> {
+fn held_by<M: Machine>(m: &M, owner: &str) -> Result<Record> {
     let held = m.locked(|s| s.held.clone())?;
     match held {
         Some(h) if h.owner == owner && h.unfinished() => {
@@ -343,12 +331,12 @@ pub fn renew<M: Machine>(m: &M, owner: &str) -> Result<()> {
     Ok(())
 }
 
-/// The look of the process keeping `owner`'s claim going, its `watch` or
-/// the runner playing in it: it keeps the claim, unless another that runs
-/// does already; starts its lease again while the game runs; and takes the
-/// one `eu4.exe` that runs, as `started` finds it, for the claim's game when
-/// the claim has none that runs: the game it is starting, or the process the
-/// game started in its own place. The claim, if it is still `owner`'s.
+/// The look of the process keeping `owner`'s claim going, its `watch`: it
+/// keeps the claim, unless another that runs does already; starts its lease
+/// again while the game runs; and takes the one `eu4.exe` that runs, as
+/// `started` finds it, for the claim's game when the claim has none that
+/// runs: the game the holder started, or the process the game started in its
+/// own place. The claim, if it is still `owner`'s.
 fn keep(owner: &str, held: &mut Option<Record>, seen: &Seen, started: impl Fn(u32) -> Option<Process>) -> Option<Record> {
     let h = held.as_mut().filter(|h| h.owner == owner)?;
     if !h.kept(seen) {
@@ -370,16 +358,6 @@ fn keep(owner: &str, held: &mut Option<Record>, seen: &Seen, started: impl Fn(u3
 fn keep_going<M: Machine>(m: &M, owner: &str) -> Result<Option<Record>> {
     let seen = seen(m);
     m.locked(|s| keep(owner, &mut s.held, &seen, |id| m.process(id)))
-}
-
-/// One look at `owner`'s claim by the process keeping it going, which keeps
-/// the lease going while the game runs.
-pub fn look<M: Machine>(m: &M, owner: &str) -> Result<Look> {
-    Ok(match keep_going(m, owner)? {
-        None => Look::Gone,
-        Some(h) if h.taken.is_some() => Look::Taken,
-        Some(h) => Look::Held(h.lease_ends().saturating_sub(m.now())),
-    })
 }
 
 /// Keeps `owner`'s claim going until the lease is down to `warn` minutes,
@@ -445,38 +423,6 @@ pub fn status<M: Machine>(m: &M) -> Result<()> {
     Ok(())
 }
 
-/// Starts the game hidden within `owner`'s claim, waiting up to `wait` for
-/// its main menu, and names it in the record as the claim's game; a start
-/// that does not reach it ends the game. The seconds it took.
-pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, sound: bool, wait: Duration) -> Result<f64> {
-    held_by(m, owner)?;
-    renew(m, owner)?;
-    let started = m.start_game(game_dir, sound, wait);
-    if let Ok((id, _)) = started {
-        let game = m.process(id);
-        m.locked(|s| {
-            if let Some(h) = s.held.as_mut().filter(|h| h.owner == owner) {
-                h.game = game;
-            }
-        })?;
-    }
-    if started.is_err() && game_running(m) {
-        m.say("ending the game, which did not reach its main menu");
-        m.kill_game();
-        m.wait_closed()?;
-    }
-    started.map(|(_, seconds)| seconds)
-}
-
-/// Ends the game within `owner`'s claim.
-pub fn stop<M: Machine>(m: &M, owner: &str) -> Result<()> {
-    held_by(m, owner)?;
-    m.kill_game();
-    m.wait_closed()?;
-    m.say("the game is closed");
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::machine::State;
@@ -498,7 +444,6 @@ mod tests {
         RestoreFramework,
         Kill,
         WaitClosed,
-        Start,
         Waited,
         Said(String),
     }
@@ -547,7 +492,6 @@ mod tests {
         games: RefCell<Vec<Process>>,
         ended: RefCell<Vec<Process>>,
         back_up_fails: Option<&'static str>,
-        start_fails: bool,
         /// The framework files a put back cannot put back, a line each.
         lost: Vec<String>,
         /// Done once, while the backup is made.
@@ -565,7 +509,6 @@ mod tests {
             games: RefCell::new(games.to_vec()),
             ended: RefCell::default(),
             back_up_fails: None,
-            start_fails: false,
             lost: Vec::new(),
             while_backing_up: RefCell::default(),
             while_putting_back: RefCell::default(),
@@ -668,15 +611,6 @@ mod tests {
                 Ok(())
             } else {
                 Err("eu4.exe did not end".into())
-            }
-        }
-        fn start_game(&self, _: &Path, _: bool, _: Duration) -> Result<(u32, f64)> {
-            self.did(Did::Start);
-            self.games.borrow_mut().push(GAME);
-            if self.start_fails {
-                Err("the game ended before its main menu".into())
-            } else {
-                Ok((GAME.id, 30.0))
             }
         }
         fn back_up(&self, _: &Path, _: &Path) -> Result<()> {
@@ -969,7 +903,7 @@ mod tests {
     fn its_watch_keeps_the_claim_going_and_follows_its_game() {
         let m = machine(100, Some(complete("a", 0)), &[GAME]);
         m.me.set(HOLDER);
-        assert_eq!(look(&m, "a"), Ok(Look::Held(30 * 60)));
+        assert_eq!(keep_going(&m, "a").unwrap().map(|h| h.lease_ends() - m.now()), Some(30 * 60));
         let held = m.held().unwrap();
         assert_eq!((held.keeper, held.game, held.renewed), (Some(HOLDER), Some(GAME), 100));
 
@@ -977,13 +911,11 @@ mod tests {
         let again = Process { id: 41, started: 6 };
         m.ended.borrow_mut().push(GAME);
         *m.games.borrow_mut() = vec![again];
-        m.as_process(ME, || look(&m, "a")).unwrap();
+        m.as_process(ME, || keep_going(&m, "a")).unwrap();
         let held = m.held().unwrap();
         assert_eq!((held.keeper, held.game), (Some(HOLDER), Some(again)), "its watch runs still and keeps it");
 
-        m.state.borrow_mut().held.as_mut().unwrap().taken = Some(100);
-        assert_eq!(look(&m, "a"), Ok(Look::Taken));
-        assert_eq!(look(&m, "b"), Ok(Look::Gone));
+        assert_eq!(keep_going(&m, "b"), Ok(None), "not b's");
     }
 
     #[test]
@@ -1028,19 +960,5 @@ mod tests {
         m.games.borrow_mut().clear();
         assert_eq!(release_as(&m, "player"), Ok(()));
         assert_eq!(m.said().last().unwrap(), "released: the game is free");
-    }
-
-    #[test]
-    fn a_start_names_the_game_in_the_record_and_one_that_misses_its_main_menu_ends_the_game() {
-        let mut m = machine(1000, Some(complete("a", 0)), &[]);
-        assert_eq!(start_game(&m, "a", Path::new(GAME_DIR), false, Duration::from_secs(60)), Ok(30.0));
-        assert_eq!(m.steps(), [wrote("a"), Did::Start, wrote("a")]);
-        assert_eq!(m.held().unwrap().game, Some(GAME));
-
-        m.games.borrow_mut().clear();
-        m.start_fails = true;
-        m.forget();
-        assert!(start_game(&m, "a", Path::new(GAME_DIR), false, Duration::from_secs(60)).is_err());
-        assert_eq!(m.steps(), [Did::Start, Did::Kill, Did::WaitClosed], "renewed already this second: nothing written");
     }
 }

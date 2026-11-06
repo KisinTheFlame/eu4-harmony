@@ -75,12 +75,11 @@ pub struct Record {
     /// The process putting back what the claim's run changed: while it
     /// runs, nothing else puts it back.
     pub putting_back: Option<Process>,
-    /// The process keeping the claim going: the scenario runner playing in
-    /// it, or its `watch`. While it runs, the game running keeps the lease
-    /// going.
+    /// The process keeping the claim going: its `watch`. While it runs, the
+    /// game running keeps the lease going.
     pub keeper: Option<Process>,
-    /// The game started within the claim, followed to the process it starts
-    /// in its place.
+    /// The claim's game: the one `eu4.exe` its keeper found running, followed
+    /// to the process it starts in its place.
     pub game: Option<Process>,
 }
 
@@ -131,9 +130,8 @@ impl Record {
 
     /// A holder that let its lease run out has gone: with the game closed,
     /// or with only the claim's own game running and nothing that keeps the
-    /// claim going, its runner or its `watch`, running any more. A game that
-    /// runs and is not the claim's, the player's, keeps the holder until it
-    /// closes.
+    /// claim going, its `watch`, running any more. A game that runs and is
+    /// not the claim's, the player's, keeps the holder until it closes.
     pub fn stale(&self, seen: &Seen) -> bool {
         seen.now > self.lease_ends() && (!seen.game_running || self.only_its_game_runs(seen) && !self.kept(seen))
     }
@@ -421,7 +419,7 @@ mod tests {
         let mut held = left();
         assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id, 41])), Found::Busy(_)));
         let mut held = Some(Record { keeper: None, ..left().unwrap() });
-        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id])), Found::Gone(_)), "a claim no runner or watch kept");
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id])), Found::Gone(_)), "a claim no watch kept");
         // One kept going is not.
         let mut held = Some(Record { keeper: Some(HOLDER), ..left().unwrap() });
         assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &with_games(late, &[GAME.id])), Found::Busy(_)));

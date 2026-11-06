@@ -1,6 +1,11 @@
-//! The installed game: its folder, and its process.
-use crate::Result;
-use std::path::PathBuf;
+//! The installed game: its folder, and its process; `cargo xtask game start`
+//! and `stop`, which start and end it and know nothing of the claim (ADR
+//! only-the-claims-commands-know-the-claim).
+use crate::{Args, Result};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use windows_sys::Win32::{
     Foundation::CloseHandle,
     System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE},
@@ -102,5 +107,66 @@ pub fn kill_process(id: u32) {
             TerminateProcess(process, 1);
             CloseHandle(process);
         }
+    }
+}
+
+/// `cargo xtask game start | stop`.
+pub fn run(command: &str, rest: &[String]) -> Result<i32> {
+    let args = Args::parse(rest, &["sound", "visible"], &["timeout", "game-dir"])?;
+    match command {
+        "start" => start_command(&args).map(|_| 0),
+        "stop" => stop().map(|()| 0),
+        other => Err(format!("unknown command game {other:?}; cargo xtask --help lists them")),
+    }
+}
+
+/// `cargo xtask game start`: starts the game hidden and waits for its main
+/// menu; with `--visible` shows it there, as `desktop.show` shows it. The
+/// start is a hidden start either way, so that `--sound` chooses the sound
+/// and the game can be hidden again.
+fn start_command(args: &Args) -> Result<f64> {
+    let wait = args
+        .value("timeout")
+        .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
+    let took = start(&args.game_dir()?, args.flag("sound"), wait)?;
+    if args.flag("visible") {
+        show().map_err(|why| format!("the game runs hidden at its main menu, not shown: {why}; eu4-harmony game desktop show shows it"))?;
+        println!("the window is shown");
+    }
+    Ok(took)
+}
+
+/// Starts the game hidden from `game_dir`, waiting up to `wait` for its main
+/// menu; a start that does not reach it ends the game. The seconds it took.
+pub fn start(game_dir: &Path, sound: bool, wait: Duration) -> Result<f64> {
+    let log = eu4_harmony_manifest::user_dir(Some(game_dir))?.join("eu4-harmony").join("logs").join("core.log");
+    let began = std::time::Instant::now();
+    let started = eu4_harmony_client::start::start(game_dir, &log, true, sound, wait);
+    if started.is_err() && running() {
+        println!("ending the game, which did not reach its main menu");
+        kill();
+        wait_closed()?;
+    }
+    started.map(|_| began.elapsed().as_secs_f64())
+}
+
+/// `cargo xtask game stop`: ends the game, and waits for it to close.
+fn stop() -> Result<()> {
+    kill();
+    wait_closed()?;
+    println!("the game is closed");
+    Ok(())
+}
+
+/// Shows the game's window, through remote control.
+fn show() -> Result<()> {
+    use eu4_harmony_client::pipe;
+    use eu4_harmony_remote::desktop::{Desktop, DesktopRequest};
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut client = pipe::connect(pipe::NAME, pipe::GAME, deadline).map_err(|e| e.to_string())?;
+    match client.ask_for::<_, Desktop>(&DesktopRequest::Show {}, Some(deadline)).map_err(|e| e.to_string())? {
+        Ok(desktop) if !desktop.hidden => Ok(()),
+        Ok(_) => Err("desktop.show answered that the window is still hidden".into()),
+        Err(refused) => Err(format!("desktop.show: {refused}")),
     }
 }

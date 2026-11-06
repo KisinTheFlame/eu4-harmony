@@ -1,10 +1,10 @@
 # Scenarios plan
 
-Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claim ([game-testing.md](game-testing.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
+Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claim ([game-testing.md](game-testing.md)) and on remote control ([remote-control.md](remote-control.md)); the decisions behind it are [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md) and [ADR only-the-claims-commands-know-the-claim](adr/only-the-claims-commands-know-the-claim.md).
 
 ## Goal and scope
 
-- **Goal**: the runs the framework's developers make in the real game to measure it, the leak run and the perf run first, become scenarios that one runner plays. A new kind of run is then a short scenario, not another program that claims, installs, starts, drives and reports on its own, and a set of them plays unattended within one claim and ends in one report.
+- **Goal**: the runs the framework's developers make in the real game to measure it, the leak run and the perf run first, become scenarios that one runner plays. A new kind of run is then a short scenario, not another program that installs, starts, drives and reports on its own, and a set of them plays unattended within one claim and ends in one report.
 - **In scope**: the runner, `cargo xtask scenario`; a library for reaching the game that the command line tool and xtask share (remote control's pipe, the hidden start, the backup of the player's files); the leak run and the perf run as scenarios, in place of `cargo xtask leak-run` and `perf-run`.
 - **Out of scope**: mod authors, whose tests run against the fake game (`eu4-harmony test`); vanilla, which has no remote control; comparing figures with those of earlier runs by themselves (reference figures), a later part; what can only be judged by looking, such as text drawn on screen; CI, which has no game.
 
@@ -15,10 +15,10 @@ Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried 
 | Command | What it does |
 | --- | --- |
 | `cargo xtask scenario` | Lists the scenarios: each one's build, about how long it plays, and its parameters with their values |
-| `cargo xtask scenario <name>… [--out <dir>] [--wait] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]…` | Plays the scenarios named, in that order but grouped by build, and writes the report into `--out` |
+| `cargo xtask scenario <name>… [--out <dir>] [--game-dir <dir>] [--<name>.<parameter> <value>]…` | Plays the scenarios named, in that order but grouped by build, and writes the report into `--out` |
 | `cargo xtask scenario --from-report <dir>` | Writes `report.md` again from the `report.json` in the folder, with no game |
 
-`--wait` waits in the claim's queue when the game is held. `--owner` and `--game-dir` are the claim's, as in `cargo xtask game`. `--leak.rounds 1` and the like change one of a scenario's parameters for this run only.
+The runner knows nothing of the claim ([ADR only-the-claims-commands-know-the-claim](adr/only-the-claims-commands-know-the-claim.md)): the session claims the game with `cargo xtask game claim` and runs `watch` before it, and releases after, as for any use of the game. `--game-dir` names a game folder other than the one found. `--leak.rounds 1` and the like change one of a scenario's parameters for this run only.
 
 ### A scenario
 
@@ -33,13 +33,12 @@ It is handed the game at its main menu and plays it through remote control, aski
 ### One run
 
 1. **Steam**: the runner finds Steam running with a user logged in, or stops before anything else, saying to start it. It never starts Steam itself.
-2. **The claim**: it claims the game, waiting in the queue with `--wait`; if this checkout holds the game already, it plays within that claim and leaves it held at the end.
-3. **Each build** the scenarios named need, in turn: it builds it, installs it, starts the game hidden, and plays that build's scenarios one after another, each from the main menu.
-4. **The report**, then **the release**, of a claim it made itself.
+2. **Each build** the scenarios named need, in turn: it builds it, installs it, starts the game hidden, and plays that build's scenarios one after another, each from the main menu.
+3. **The report**, the game ended.
 
-Whatever ends the run, an error such as a report it cannot write, a scenario's panic, or Ctrl-C, the runner ends the game and releases a claim it made, the panic going on after. Ctrl-C ends the game, so that the step waiting on it ends, leaves the scenarios after it unplayed, and writes the report as far as it got; a second Ctrl-C ends the runner at once, leaving the claim, whose lease then runs out, since nothing keeps it going any more ([game-testing.md](game-testing.md), "The lease").
+Whatever ends the run, an error such as a report it cannot write, a scenario's panic, or Ctrl-C, the runner ends the game, the panic going on after. Ctrl-C ends the game, so that the step waiting on it ends, leaves the scenarios after it unplayed, and writes the report as far as it got; a second Ctrl-C ends the runner at once, leaving the game as it is.
 
-While it plays, it keeps the claim going, and with it the lease, and notices the player taking the game. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
+While it plays, the holder's `watch` keeps the claim going, and with it the lease, as the game runs ([game-testing.md](game-testing.md), "The lease"). The player taking the game ends it, which the scenario playing counts as a crash; the holder's `watch` exits with 4 then, and the holder ends the run. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
 
 ### How a scenario ends
 
@@ -49,9 +48,8 @@ While it plays, it keeps the claim going, and with it the lease, and notices the
 | Failed | A check did not hold | The scenario ends there, with the figures it recorded until then; the game returns to the main menu, and the next one plays |
 | Crashed | The game ended | The report has what the crash dump says; the game is started again for the next one |
 | Hung | A step took longer than its time: an answer, the main menu, the days to run | The report says which step; the game is ended and started again for the next one |
-| Unfinished | The player took the game | The scenarios left are not played; the runner does not release, since the player's claim does, and writes the report as far as it got |
-| Not played | Its build could not be built or installed, or the player had taken the game before it began | The report says why; the scenarios of the next build are played |
-| Unfinished | Ctrl-C | The game is ended and the scenarios left are not played; the runner writes the report as far as it got and releases a claim it made |
+| Not played | Its build could not be built or installed | The report says why; the scenarios of the next build are played |
+| Unfinished | Ctrl-C | The game is ended and the scenarios left are not played; the runner writes the report as far as it got |
 
 ### The report
 
@@ -70,16 +68,17 @@ client/                  remote control's pipe, asked with remote/'s request and
                          the hidden start; the backup and restore of the player's files
 cli/                     eu4-harmony game, start, reload, backup, restore: over client/
 xtask/src/
-  claim.rs               the claim, cargo xtask game; the runner calls the same functions
-  scenario.rs            the runner: Steam, the claim, the builds, install, start,
-                         the outcomes, the lease, the report
+  claim.rs               the claim, cargo xtask game, which the runner knows nothing of
+  game.rs                the game's folder and process; cargo xtask game start and stop
+  scenario.rs            the runner: Steam, the builds, install, start,
+                         the outcomes, the report
   scenario/game.rs       what a scenario is handed: ask, the main menu, days, events,
                          checks, figures, sections
   scenario/leak.rs       leak and growth
   scenario/perf.rs       perf
 ```
 
-The claim backs up and starts the game with `client/`, the library under the command line tool, not through the installed tool. A scenario asks its capabilities over one connection, typed, so a capability whose fields change fails to build the scenario instead of failing its run. xtask builds `remote/` with the memory group, which only developer builds answer.
+The claim backs up, and the runner starts the game, with `client/`, the library under the command line tool, not through the installed tool. A scenario asks its capabilities over one connection, typed, so a capability whose fields change fails to build the scenario instead of failing its run. xtask builds `remote/` with the memory group, which only developer builds answer.
 
 ## Parts
 

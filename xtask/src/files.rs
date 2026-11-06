@@ -37,8 +37,6 @@ pub fn install(args: &Args) -> Result<()> {
     if !root.join("eu4.exe").is_file() {
         return Err(format!("no eu4.exe in {}", root.display()));
     }
-    // The claim puts the game folder back as it was (docs/game-testing.md).
-    crate::claim::needs_claim(args)?;
     game::not_running()?;
 
     if args.flag("uninstall") {
@@ -85,7 +83,7 @@ pub fn build(feature: Option<&str>) -> Result<()> {
 }
 
 /// Copies the files as last built into the game folder `root`, with the
-/// game closed and within the claim.
+/// game closed.
 pub fn install_built(root: &Path) -> Result<()> {
     let harmony = root.join("eu4-harmony");
     let proxy = root.join("version.dll");
