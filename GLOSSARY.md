@@ -212,6 +212,14 @@ _Avoid_: request, diplomatic request, diplomatic message, question (that is one 
 One stretch of play of one game, from when a save is loaded or a new game is started until it is left: by returning to the main menu, by an in-game load, or by quitting. Sessions are numbered.
 _Avoid_: campaign, game on its own
 
+**Observe mode**:
+The game's own way of playing no country: the player watches a game the AI plays for every country, and may put one country in view at a time.
+_Avoid_: observer mode, observer (that is a hook), spectator mode, spectating
+
+**Country in view**:
+The country the player has chosen to look at in observe mode: the map shows what it sees, and what the player does is done in its name, while the AI still plays it.
+_Avoid_: switched player, selected country, country view (the game's panels are views)
+
 **Restart**:
 The game ending its own process and starting `eu4.exe` again, as vanilla does on returning to the main menu.
 _Avoid_: relaunch, reboot
@@ -255,7 +263,7 @@ A program outside the game process that uses remote control, such as `eu4-harmon
 _Avoid_: bot, agent
 
 **Player's view**:
-How much of the game remote control reads unless the player gives it the full view: the map as fog of war leaves it, and of other countries what the player's interface shows them.
+How much of the game remote control reads unless the player gives it the full view: the map as fog of war leaves it, and of other countries what the player's interface shows them. In observe mode, the country in view's fog of war, and with none in view the whole map.
 _Avoid_: fog mode, fair mode
 
 **Full view**:
