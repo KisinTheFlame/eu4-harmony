@@ -40,7 +40,7 @@ pub struct Seen<'a> {
     /// The process that looks.
     pub me: Process,
     /// Whether a process recorded runs still.
-    pub alive: &'a dyn Fn(&Process) -> bool,
+    pub alive: Box<dyn Fn(&Process) -> bool + 'a>,
 }
 
 /// The player's claim lasts this long without a renewal: ten hours.
@@ -156,7 +156,7 @@ impl Record {
     }
 
     /// Another process that runs makes this claim's backup.
-    fn made_by_another(&self, seen: &Seen) -> Option<Process> {
+    pub fn made_by_another(&self, seen: &Seen) -> Option<Process> {
         self.preparing.filter(|p| self.unfinished() && *p != seen.me && (seen.alive)(p))
     }
 
@@ -167,7 +167,7 @@ impl Record {
     }
 
     /// Another process that runs puts this claim back.
-    fn put_back_by_another(&self, seen: &Seen) -> Option<Process> {
+    pub fn put_back_by_another(&self, seen: &Seen) -> Option<Process> {
         self.putting_back.filter(|p| *p != seen.me && (seen.alive)(p))
     }
 
@@ -329,70 +329,6 @@ fn wait_in(queue: &mut Vec<Waiting>, asking: &Asking, now: u64) {
     tidy(queue, now);
 }
 
-/// The look of the process keeping `owner`'s claim going, its `watch` or
-/// the runner playing in it: it keeps the claim, unless another that runs
-/// does already; starts its lease again while the game runs; and takes the
-/// one `eu4.exe` that runs, as `started` finds it, for the claim's game when
-/// the claim has none that runs: the game it is starting, or the process the
-/// game started in its own place. The claim, if it is still `owner`'s.
-pub fn keep(owner: &str, held: &mut Option<Record>, seen: &Seen, started: impl Fn(u32) -> Option<Process>) -> Option<Record> {
-    let h = held.as_mut().filter(|h| h.owner == owner)?;
-    if !h.kept(seen) {
-        h.keeper = Some(seen.me);
-    }
-    if seen.game_running {
-        h.renewed = seen.now;
-    }
-    if let [id] = seen.games.as_slice() {
-        if !h.game.is_some_and(|g| (seen.alive)(&g)) {
-            h.game = started(*id).or(h.game);
-        }
-    }
-    Some(h.clone())
-}
-
-/// What a holder's release finds of its claim.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Release {
-    /// The claim, marked as this process's to put back.
-    Mine(Box<Record>),
-    /// Another process puts it back: the player's claim taking the game, or
-    /// one that took over.
-    Busy(String),
-    /// The game is not `owner`'s.
-    NotHeld,
-}
-
-/// Marks `owner`'s claim as the looking process's to put back, unless
-/// another process that runs puts it back already.
-pub fn release(owner: &str, held: &mut Option<Record>, seen: &Seen) -> Release {
-    let Some(h) = held.as_mut().filter(|h| h.owner == owner) else { return Release::NotHeld };
-    if let Some(p) = h.made_by_another(seen) {
-        return Release::Busy(format!("the claim is being made: process {} backs up the player's files; release once it is claimed", p.id));
-    }
-    if let Some(p) = h.put_back_by_another(seen) {
-        let whose = if h.taken.is_some() { "the player's claim, which takes the game," } else { "another claim" };
-        return Release::Busy(format!("{whose} puts back what this claim's run changed (process {}), and frees the game", p.id));
-    }
-    h.putting_back = Some(seen.me);
-    Release::Mine(Box::new(h.clone()))
-}
-
-/// Ends `of`, which `me` put back: its record goes once all was put back,
-/// and is no longer marked otherwise, so that it is put back again. A record
-/// whose mark is gone is still `me`'s to end: xtask from before the marks,
-/// still run by other checkouts, writes the record again without them.
-/// Whether the record went.
-pub fn put_back(held: &mut Option<Record>, of: &Record, me: Process, all: bool) -> bool {
-    let Some(h) = held.as_mut().filter(|h| h.same_claim(of) && h.putting_back.is_none_or(|p| p == me)) else { return false };
-    if all {
-        *held = None;
-    } else {
-        h.putting_back = None;
-    }
-    all
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,7 +371,7 @@ mod tests {
 
     /// What the looking process sees; a game that runs is not a claim's.
     fn at(now: u64, game_running: bool) -> Seen<'static> {
-        Seen { now, game_running, games: if game_running { vec![99] } else { Vec::new() }, me: ME, alive: &alive }
+        Seen { now, game_running, games: if game_running { vec![99] } else { Vec::new() }, me: ME, alive: Box::new(alive) }
     }
 
     /// What it sees with these `eu4.exe` running.
@@ -469,49 +405,6 @@ mod tests {
         assert_eq!(Record::from_json(&ours.to_json()).unwrap(), ours);
     }
 
-    /// The player's claim, taking the game, and the holder's own release
-    /// never both put the claim back: the first marks it, the other waits
-    /// for it or is told who does it.
-    #[test]
-    fn a_claim_whose_mark_an_older_xtask_dropped_is_still_put_back() {
-        let mut held = Some(record("a", 100));
-        let mine = match release("a", &mut held, &at(200, false)) {
-            Release::Mine(r) => *r,
-            other => panic!("{other:?}"),
-        };
-        // A waiter on the xtask of before the marks writes the record again.
-        held.as_mut().unwrap().putting_back = None;
-        assert!(put_back(&mut held, &mine, ME, true));
-        assert_eq!(held, None);
-        // Marked by another that runs, it is not this one's to end.
-        let mut held = Some(Record { putting_back: Some(HOLDER), ..record("a", 100) });
-        assert!(!put_back(&mut held, &mine, ME, true));
-        assert!(held.is_some());
-    }
-
-    #[test]
-    fn one_process_alone_puts_a_claim_back() {
-        // The player's grace runs out first: its claim puts the holder's back.
-        let mut held = Some(record("a", 100));
-        let mut queue = Vec::new();
-        look(&player(true), &mut held, &mut queue, &at(200, true));
-        assert!(matches!(look(&player(true), &mut held, &mut queue, &at(320, true)), Found::Take(_)));
-        assert!(matches!(release("a", &mut held, &by(HOLDER, 321, true)), Release::Busy(why) if why.contains("the player's claim")));
-        let taken = held.clone().unwrap();
-        put_back(&mut held, &taken, ME, true);
-        assert_eq!(held, None);
-
-        // The holder releases first: the player waits for it.
-        let mut held = Some(record("a", 100));
-        let mut queue = Vec::new();
-        look(&player(true), &mut held, &mut queue, &at(200, true));
-        let Release::Mine(mine) = release("a", &mut held, &by(HOLDER, 310, true)) else { panic!("the holder's to put back") };
-        assert!(matches!(look(&player(true), &mut held, &mut queue, &at(320, true)), Found::Busy(why) if why.contains("process 20 puts back")));
-        assert!(matches!(release("a", &mut held, &by(HOLDER, 321, true)), Release::Mine(_)), "the same process may go on");
-        put_back(&mut held, &mine, HOLDER, true);
-        assert_eq!(look(&player(true), &mut held, &mut queue, &at(330, false)), Found::Free);
-    }
-
     /// A claim whose runner or `watch` ended, cut short, keeps its lease no
     /// longer while its game runs: once the lease runs out, the next claim
     /// takes over, the claim's game ended. A game that is not the claim's,
@@ -535,22 +428,6 @@ mod tests {
         assert_eq!(held.unwrap().renewed, late);
     }
 
-    /// The runner's or the watch's look keeps the claim, unless another that
-    /// runs does, and follows its game to the process it started in its
-    /// place.
-    #[test]
-    fn its_keeper_keeps_the_claim_and_follows_its_game() {
-        let started = |id| Some(Process { id, started: 5 });
-        let mut held = Some(Record { keeper: Some(HOLDER), game: Some(GAME), ..record("a", 100) });
-        let kept = keep("a", &mut held, &with_games(200, &[GAME.id]), started).unwrap();
-        assert_eq!((kept.keeper, kept.game, kept.renewed), (Some(HOLDER), Some(GAME), 200));
-        held.as_mut().unwrap().keeper = Some(DEAD);
-        held.as_mut().unwrap().game = Some(DEAD);
-        let kept = keep("a", &mut held, &with_games(300, &[50]), started).unwrap();
-        assert_eq!((kept.keeper, kept.game), (Some(ME), Some(Process { id: 50, started: 5 })));
-        assert_eq!(keep("b", &mut held, &at(300, false), started), None);
-    }
-
     /// A claim whose backup is not done is never held: its own owner, asking
     /// again once it was cut short, makes it afresh, another takes over from
     /// it at once, and while its process still backs up, everyone waits.
@@ -566,34 +443,22 @@ mod tests {
         let late = 100 + 30 * 60 + 1;
         assert!(matches!(look(&asking("a", false), &mut held, &mut queue, &at(late, false)), Found::Busy(why) if why.contains("being made")));
         assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &at(late, false)), Found::Busy(why) if why.contains("being made")));
-        assert!(matches!(release("a", &mut held, &at(late, false)), Release::Busy(why) if why.contains("being made")));
-        // Its own process finishing it is no other's.
-        assert_eq!(
-            release("a", &mut held, &by(HOLDER, late, false)),
-            Release::Mine(Box::new(Record { putting_back: Some(HOLDER), ..unfinished("a", 100, HOLDER) }))
-        );
     }
 
-    /// A holder gone keeps its record until its claim is put back, so that a
-    /// put back that fails leaves it to be put back again; one whose put
-    /// back ended with its process is put back by the next.
+    /// A holder gone keeps its record, marked as the process's that puts it
+    /// back, while that process runs; one whose put back ended with its
+    /// process is put back by the next.
     #[test]
-    fn a_gone_holder_keeps_its_record_until_it_is_put_back() {
+    fn a_gone_holder_keeps_its_record_marked_while_it_is_put_back() {
         let mut held = Some(record("a", 100));
         let mut queue = Vec::new();
         let late = 100 + 30 * 60 + 1;
-        let Found::Gone(gone) = look(&asking("b", false), &mut held, &mut queue, &at(late, false)) else { panic!("a has gone") };
+        assert!(matches!(look(&asking("b", false), &mut held, &mut queue, &at(late, false)), Found::Gone(h) if h.owner == "a"));
         assert_eq!(held.as_ref().unwrap().owner, "a");
         assert_eq!(held.as_ref().unwrap().putting_back, Some(ME));
         assert!(matches!(look(&asking("c", false), &mut held, &mut queue, &by(HOLDER, late, false)), Found::Busy(_)));
-        put_back(&mut held, &gone, ME, false);
-        assert_eq!(held.as_ref().unwrap().putting_back, None, "not put back: still a's, to be put back again");
-
         held.as_mut().unwrap().putting_back = Some(DEAD);
-        let Found::Gone(gone) = look(&asking("c", false), &mut held, &mut queue, &by(HOLDER, late, false)) else { panic!("its put back ended") };
-        put_back(&mut held, &gone, HOLDER, true);
-        assert_eq!(held, None);
-        assert_eq!(look(&asking("c", false), &mut held, &mut queue, &at(late, false)), Found::Free);
+        assert!(matches!(look(&asking("c", false), &mut held, &mut queue, &by(HOLDER, late, false)), Found::Gone(h) if h.putting_back == Some(HOLDER)));
     }
 
     #[test]
