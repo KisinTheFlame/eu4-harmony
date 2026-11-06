@@ -3,11 +3,11 @@ use eu4_harmony_remote::colonists::{ColonistAnswer, ColonistOptions, ColonistReq
 
 layer! {
     run ColonistRequest => ColonistAnswer;
-    Options => fn colonist_options(province: u32) -> Box<ColonistOptions> = crate::game::colonists::options;
-    Send => fn send_colonist(province: u32) -> () = crate::game::colonists::send;
-    Recall => fn recall_colonist(province: u32) -> () = crate::game::colonists::recall;
-    ExpelMinorities => fn expel_minorities(province: u32, from: u32) -> () = crate::game::colonists::expel;
-    fn change_settlement_growth(province: u32, start: bool) -> () = crate::game::colonists::change_growth;
+    Options => fn colonist_options(province: u32) -> Box<ColonistOptions> = caller crate::game::colonists::options;
+    Send => fn send_colonist(province: u32) -> () = caller crate::game::colonists::send;
+    Recall => fn recall_colonist(province: u32) -> () = caller crate::game::colonists::recall;
+    ExpelMinorities => fn expel_minorities(province: u32, from: u32) -> () = caller crate::game::colonists::expel;
+    fn change_settlement_growth(province: u32, start: bool) -> () = caller crate::game::colonists::change_growth;
     StartSettlementGrowth { province } => game.change_settlement_growth(province, true);
     StopSettlementGrowth { province } => game.change_settlement_growth(province, false);
 }

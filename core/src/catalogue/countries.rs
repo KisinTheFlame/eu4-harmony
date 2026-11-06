@@ -19,10 +19,10 @@ fn find(caller: Caller, tag: CountryTag) -> GResult<Tag> {
 layer! {
     run CountryRequest => CountryAnswer;
     /// The country with this tag.
-    fn country(tag: CountryTag) -> Tag = find;
-    fn hostile(a: Tag, b: Tag) -> bool = game::countries::hostile;
-    fn snapshot(country: Tag) -> layer::Country = game::countries::snapshot;
-    fn budget(country: Tag) -> Budget = game::countries::budget;
+    fn country(tag: CountryTag) -> Tag = caller find;
+    fn hostile(a: Tag, b: Tag) -> bool = caller game::countries::hostile;
+    fn snapshot(country: Tag) -> layer::Country = caller game::countries::snapshot;
+    fn budget(country: Tag) -> Budget = caller game::countries::budget;
     Hostile { country, other } => hostile(game, country, other);
     Get { country } => get(game, country);
     Budget { country } => budget(game, country);

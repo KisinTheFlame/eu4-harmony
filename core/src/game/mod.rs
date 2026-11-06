@@ -95,7 +95,10 @@ pub enum View {
 /// control the player's view, unless the player's framework setting gives it
 /// the full view.
 pub fn view(caller: Caller) -> View {
-    view_of(caller, crate::settings::current().remote_full_view)
+    match caller {
+        Caller::Extension(_) => View::Full,
+        Caller::Remote => view_of(caller, crate::settings::current().remote_full_view),
+    }
 }
 
 fn view_of(caller: Caller, remote_full_view: bool) -> View {
@@ -190,6 +193,34 @@ fn game() -> GResult<&'static Memory> {
         return fail(Status::WrongContext, "called off the game's main thread");
     }
     crate::memory().ok_or_else(|| Fail { status: Status::Unavailable, message: "game capabilities unavailable".into() })
+}
+
+/// The session a capability reads, as its caller reads it: the game, the
+/// session at this instant ([`Ctx`]), how much of it the caller reads, and
+/// the caller. The catalogue opens it once for each request
+/// (`crate::catalogue::Live`) and hands it to the capability, which reaches
+/// the game through it alone; a test builds one over objects of its own
+/// (`buffers`).
+#[derive(Clone, Copy, Debug)]
+pub struct Session {
+    pub m: &'static Memory,
+    pub ctx: Ctx,
+    pub view: View,
+    pub caller: Caller,
+}
+
+impl Session {
+    /// Opens the session for `caller`, deciding in one place what a
+    /// capability that reads it fails with otherwise:
+    /// [`Status::WrongContext`] off the game's main thread,
+    /// [`Status::Unavailable`] before startup found the game,
+    /// [`Status::NotInGame`] with no session or no country the player
+    /// controls, [`Status::NotReady`] while the daily update runs.
+    pub fn open(caller: Caller) -> GResult<Self> {
+        let m = game()?;
+        let ctx = context(m)?;
+        Ok(Self { m, ctx, view: view(caller), caller })
+    }
 }
 
 /// What the capabilities keep between calls: the map's topology and the

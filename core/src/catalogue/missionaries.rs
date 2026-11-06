@@ -4,11 +4,11 @@ use eu4_harmony_remote::missionaries::{AutomaticMissionaries, MissionaryAnswer, 
 
 layer! {
     run MissionaryRequest => MissionaryAnswer;
-    Options => fn missionary_options(province: u32) -> MissionaryOptions = crate::game::missionaries::options;
-    Send => fn send_missionary(province: u32) -> () = crate::game::missionaries::send;
-    Recall => fn recall_missionary(province: u32) -> () = crate::game::missionaries::recall;
-    Automatic => fn automatic_missionaries() -> AutomaticMissionaries = crate::game::missionaries::automatic;
-    fn set_automatic_missionaries(raise: bool) -> () = crate::game::missionaries::set_automatic;
+    Options => fn missionary_options(province: u32) -> MissionaryOptions = caller crate::game::missionaries::options;
+    Send => fn send_missionary(province: u32) -> () = caller crate::game::missionaries::send;
+    Recall => fn recall_missionary(province: u32) -> () = caller crate::game::missionaries::recall;
+    Automatic => fn automatic_missionaries() -> AutomaticMissionaries = caller crate::game::missionaries::automatic;
+    fn set_automatic_missionaries(raise: bool) -> () = caller crate::game::missionaries::set_automatic;
     RaiseAutomatic {} => game.set_automatic_missionaries(true);
     LowerAutomatic {} => game.set_automatic_missionaries(false);
 }

@@ -14,10 +14,10 @@ use eu4_harmony_remote::{
 use std::time::Instant;
 
 layer! {
-    fn peace_terms(enemy: Tag, offer: bool) -> Vec<Offered> = layer::terms;
-    fn evaluate_peace(enemy: Tag, terms: &[Term], offer: bool) -> Evaluated = layer::evaluate;
-    fn demand_peace(enemy: Tag, terms: &[Term]) -> Ticket = layer::demand;
-    fn offer_terms(enemy: Tag, terms: &[Term]) -> Ticket = layer::offer;
+    fn peace_terms(enemy: Tag, offer: bool) -> Vec<Offered> = caller layer::terms;
+    fn evaluate_peace(enemy: Tag, terms: &[Term], offer: bool) -> Evaluated = caller layer::evaluate;
+    fn demand_peace(enemy: Tag, terms: &[Term]) -> Ticket = caller layer::demand;
+    fn offer_terms(enemy: Tag, terms: &[Term]) -> Ticket = caller layer::offer;
 }
 
 pub fn run(request: PeaceRequest, game: &mut (impl Layer + countries::Layer + ?Sized), now: Instant) -> Ran {

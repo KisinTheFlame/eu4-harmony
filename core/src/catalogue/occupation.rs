@@ -11,8 +11,8 @@ use eu4_harmony_remote::{
 
 layer! {
     run OccupationRequest => OccupationAnswer + countries::Layer;
-    fn transfers(province: u32) -> Offered = layer::options;
-    fn transfer_occupation(province: u32, ally: Tag) -> Option<Tag> = layer::transfer;
+    fn transfers(province: u32) -> Offered = caller layer::options;
+    fn transfer_occupation(province: u32, ally: Tag) -> Option<Tag> = caller layer::transfer;
     Options { province } => game.transfers(province);
     Transfer { province, country } => transfer(game, province.0, country);
 }

@@ -15,13 +15,13 @@
 //! script fails there.
 
 /// Declares a group's slice of the capability layer and its requests once:
-/// its `Layer` trait, [`Live`] calling each capability there as its caller,
+/// its `Layer` trait, [`Live`] calling each capability there for its caller,
 /// and, given `run Request => Answer;` first, the group's `run`, which
 /// answers each request. Each line is one of
 ///
 /// ```text
-/// fn method(argument: Type, ...) -> Result = capability;
-/// Variant => fn method(field: Type, ...) -> Result = capability;
+/// fn method(argument: Type, ...) -> Result = session capability;
+/// Variant => fn method(field: Type, ...) -> Result = session capability;
 /// Variant { field, ... } => game.method(expression, ...);
 /// Variant { field, ... } => function(game, expression, ...);
 /// ```
@@ -30,18 +30,23 @@
 /// its arguments; a request answered by a method of another line; a request
 /// answered by a function of the group's own, which takes the game first
 /// and returns a `Result`. Arguments and answers pass through [`Convert`].
-/// `run Request => Answer + other::Layer;` lets `run` and the group's
-/// functions use another group's slice too. A group whose slice does more
-/// than call the layer writes both itself.
+/// What the capability takes first is said before it: `session`, the
+/// session [`Live`] opens for the request (`crate::game::Session`), which
+/// decides whether there is one to read before the capability runs; or
+/// `caller`, the caller alone, for a capability that runs without a session
+/// or checks something of its own first. `run Request => Answer +
+/// other::Layer;` lets `run` and the group's functions use another group's
+/// slice too. A group whose slice does more than call the layer writes both
+/// itself.
 macro_rules! layer {
     (@munch $head:tt [$($methods:tt)*] $arms:tt
-        $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; $($rest:tt)*) => {
-        layer!(@munch $head [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $capability; }] $arms $($rest)*);
+        $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $takes:ident $capability:path; $($rest:tt)*) => {
+        layer!(@munch $head [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $takes $capability; }] $arms $($rest)*);
     };
     (@munch $head:tt [$($methods:tt)*] [$($arms:tt)*]
-        $(#[$doc:meta])* $Variant:ident => fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $capability:path; $($rest:tt)*) => {
+        $(#[$doc:meta])* $Variant:ident => fn $name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty = $takes:ident $capability:path; $($rest:tt)*) => {
         layer!(@munch $head
-            [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $capability; }]
+            [$($methods)* { $(#[$doc])* fn $name($($arg: $ty),*) -> $ret = $takes $capability; }]
             [$($arms)* { $Variant { $($arg),* } method $name($($arg),*) }]
             $($rest)*);
     };
@@ -76,7 +81,16 @@ macro_rules! layer {
     (@call $game:ident function $function:ident($($e:expr),*)) => {
         $function($game, $($e),*)
     };
-    (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $capability:path; })*) => {
+    (@live $caller:ident session $capability:path, $($arg:ident),*) => {
+        $capability(crate::game::Session::open($caller)?, $($arg),*)
+    };
+    (@live $caller:ident caller $capability:path, $($arg:ident),*) => {
+        $capability($caller, $($arg),*)
+    };
+    (@live $caller:ident $takes:ident $capability:path, $($arg:ident),*) => {
+        compile_error!(concat!("layer!: ", stringify!($capability), " takes a session or a caller, not ", stringify!($takes)))
+    };
+    (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*) => {
         /// The group's slice of the capability layer.
         #[cfg(not(test))]
         pub trait Layer {
@@ -97,7 +111,12 @@ macro_rules! layer {
         }
 
         impl Layer for super::Live {
-            $( fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> { $capability(self.0, $($arg),*) } )*
+            $(
+                fn $name(&mut self, $($arg: $ty),*) -> crate::game::GResult<$ret> {
+                    let caller = self.0;
+                    layer!(@live caller $takes $capability, $($arg),*)
+                }
+            )*
         }
     };
     (run $Request:ident => $Answer:ident $(+ $other:ident::Layer)*; $($lines:tt)*) => {

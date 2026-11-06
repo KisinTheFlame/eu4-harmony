@@ -9,11 +9,11 @@ use eu4_harmony_remote::{
 
 layer! {
     run BuildingRequest => BuildingAnswer;
-    fn building_options(province: u32) -> (Option<layer::Constructing>, Vec<layer::Offer>) = layer::options;
+    fn building_options(province: u32) -> (Option<layer::Constructing>, Vec<layer::Offer>) = caller layer::options;
     Options { province } => options(game, province);
-    Build => fn build(province: u32, building: String) -> () = layer::build;
-    Cancel => fn cancel_building(province: u32) -> () = layer::cancel;
-    Destroy => fn destroy_building(province: u32, building: String) -> () = layer::destroy;
+    Build => fn build(province: u32, building: String) -> () = caller layer::build;
+    Cancel => fn cancel_building(province: u32) -> () = caller layer::cancel;
+    Destroy => fn destroy_building(province: u32, building: String) -> () = caller layer::destroy;
 }
 
 /// What the building panel offers in the province, and what it builds now.

@@ -6,6 +6,6 @@ use eu4_harmony_remote::{
 
 layer! {
     run TechnologyRequest => TechnologyAnswer;
-    Options => fn technologies() -> Vec<TechnologyOption> = crate::game::technology::options;
-    Research => fn research(technology: PowerKind) -> () = crate::game::technology::research;
+    Options => fn technologies() -> Vec<TechnologyOption> = caller crate::game::technology::options;
+    Research => fn research(technology: PowerKind) -> () = caller crate::game::technology::research;
 }

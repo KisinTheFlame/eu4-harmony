@@ -3,6 +3,6 @@ use eu4_harmony_remote::trade::{NodeValue, TradeAnswer, TradeNode, TradeRequest}
 
 layer! {
     run TradeRequest => TradeAnswer;
-    Nodes => fn trade_nodes() -> Vec<NodeValue> = crate::game::trade::list;
-    Node => fn trade_node(node: String) -> TradeNode = crate::game::trade::node;
+    Nodes => fn trade_nodes() -> Vec<NodeValue> = caller crate::game::trade::list;
+    Node => fn trade_node(node: String) -> TradeNode = caller crate::game::trade::node;
 }

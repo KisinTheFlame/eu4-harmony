@@ -10,8 +10,8 @@ use eu4_harmony_remote::{
 
 layer! {
     run QuestionRequest => QuestionAnswer;
-    List => fn questions() -> Vec<game::questions::Question> = game::questions::questions;
-    Answer => fn answer_question(question: u32, option: u32) -> () = game::questions::answer;
+    List => fn questions() -> Vec<game::questions::Question> = caller game::questions::questions;
+    Answer => fn answer_question(question: u32, option: u32) -> () = caller game::questions::answer;
 }
 
 impl Convert<Vec<Question>> for Vec<game::questions::Question> {
