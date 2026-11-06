@@ -17,6 +17,7 @@
 //! where the game's own clicks run, not at the safe point that asked for it,
 //! which is inside the frame being presented; an in-game load runs at the
 //! next game frame, after the map manager's ([`game_frame`]).
+mod launch;
 pub mod leave;
 
 use super::{fail, game, Caller, GResult, Status, Tag};
@@ -36,7 +37,7 @@ use crate::{
 use std::{
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
-    time::{Duration, Instant, UNIX_EPOCH},
+    time::{Instant, UNIX_EPOCH},
 };
 
 /// `(main menu, page, animate)`: shows a page of the main menu.
@@ -51,6 +52,7 @@ const CONTINUE: usize = 0x1120740;
 const SET_PLAYER: usize = 0x763840;
 
 use crate::sessions::{self, At};
+use launch::{Action, Launches, Reads, Steps};
 
 /// Where the game is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,124 +106,97 @@ pub struct Expected {
 /// first, which may be the very save being loaded.
 pub type ExpectedProbe = Box<dyn FnMut() -> GResult<Expected> + Send>;
 
-/// How long the main menu's frames may go on, after a load or start ran in
-/// one, with none of the game's steps towards a game ([`Steps`]) changing,
-/// before the load or start is given up. The game took its steps at most
-/// 1.8 s apart in the runs (the setup's commands run at a later frame), and
-/// a save being read, which no frame shows, is a step of its own; 30 s
-/// leaves a slow machine more than 15 times that, and a client still hears
-/// within half a minute of a start the game will not carry out.
-const QUIET: Duration = Duration::from_secs(30);
-
-#[derive(Clone)]
-enum Action {
-    /// The save's PhysFS path, and its player's country.
-    Load(String, Tag),
-    Start([u8; 3]),
-    /// From a session: the save's name, without `.eu4`.
-    LoadInGame(String),
-}
-
-/// What the main menu's frame sees of a game being started from it; each
-/// change is a step towards the game.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Steps {
-    /// The saves the game began to read: a save is read with no frame
-    /// presented, so only the count shows it.
-    loads: usize,
-    page: u32,
-    /// The single player setup shows, and its start was made: by remote
-    /// control or by the player.
-    started: bool,
-    /// The main menu accepted the start (its start command ran).
-    accepted: bool,
-    /// The game starts at the main menu's next frame.
-    launch: bool,
-    /// The application's idler switch is pending.
-    switching: bool,
-    /// The main menu is the world's idler (in the world's map manager slot,
-    /// `campaign::world::MAP_MANAGER`): a game's map manager takes the slot
-    /// when it is made, at the start, before the main menu goes.
-    idler: bool,
-}
-
-impl Steps {
-    fn starting(&self) -> bool {
-        self.started || self.accepted || self.launch || self.switching || !self.idler
-    }
-}
-
-enum Stage {
-    /// Runs at the main menu's next frame.
-    Asked,
-    /// Ran there, and the game takes it up: what the main menu's frame saw
-    /// last, and since when; and how many saves the game had begun to read
-    /// when it ran.
-    Taken {
-        seen: Steps,
-        since: Instant,
-        loads: usize,
-    },
-    /// An in-game load ran, with this many saves begun to be read before.
-    LoadedInGame {
-        loads: usize,
-    },
-    Failed(String),
-}
-
-struct Attempt {
-    /// Counts the attempts, so that one waiting is not told what came of
-    /// another.
-    number: u64,
-    action: Action,
-    stage: Stage,
-}
-
-/// The last load or start asked for.
-static ATTEMPT: Mutex<Option<Attempt>> = Mutex::new(None);
-
-fn attempt<T>(f: impl FnOnce(&mut Option<Attempt>) -> T) -> T {
-    f(&mut ATTEMPT.lock().unwrap_or_else(|e| e.into_inner()))
-}
-
-/// Asks for `action`, to run at the main menu's next frame.
-fn ask(action: Action) {
-    attempt(|a| {
-        let number = a.as_ref().map_or(1, |a| a.number + 1);
-        *a = Some(Attempt { number, action, stage: Stage::Asked });
-    });
-}
+/// The last load or start asked for, and its course.
+static LAUNCHES: Launches = Launches::new();
 
 /// Whether remote control asked for a new game from the session, which the
 /// return the map manager's frame acts on next leaves the session for.
 fn new_game_asked() -> bool {
-    attempt(|a| matches!(a, Some(Attempt { action: Action::Start(_), stage: Stage::Asked, .. })))
+    LAUNCHES.new_game_asked()
 }
 
-/// Whether a load remote control asked for from a session has not run yet.
-fn loading_in_game() -> bool {
-    attempt(|a| matches!(a, Some(Attempt { action: Action::LoadInGame(_), stage: Stage::Asked, .. })))
+/// The map manager's frame acted on a return ([`leave`]) and the session
+/// stays, for `why`: a new game asked for from the session does not come
+/// either.
+fn start_failed(why: &str) {
+    LAUNCHES.start_failed(why);
 }
 
 /// Where the game is.
 pub fn place(_: Caller) -> GResult<Place> {
     let m = game()?;
-    Ok(match sessions::at() {
-        At::Game if loading_in_game() => Place::Starting,
-        At::Game => Place::Game,
-        At::MainMenu(frontend) if !starting(m, frontend) => Place::MainMenu,
-        At::MainMenu(_) | At::Elsewhere => Place::Starting,
-    })
+    let at = sessions::at();
+    Ok(LAUNCHES.place(at, &mut InMenu::at(m, at)))
 }
 
-/// Whether a game is being started from the main menu `frontend`: remote
-/// control asked for one that has not run yet, a save is being read, or the
-/// game's own state says so (see [`Steps`]), whoever started it. A main menu
-/// that no longer reads as one, as when a game takes over within the frame,
-/// is not open either.
+/// Whether a game is being started from the main menu `frontend`
+/// ([`Launches::starting`]).
 pub(crate) fn starting(m: &Memory, frontend: usize) -> bool {
-    let asked = attempt(|a| matches!(a, Some(Attempt { stage: Stage::Asked, .. })));
-    asked || sessions::loading() || steps(m, frontend).map_or(true, |s| s.starting())
+    LAUNCHES.starting(&mut InMenu { m, frontend })
+}
+
+/// The main menu's and the game's own steps of starting a game, at the hook
+/// or capability that takes them: `frontend` is the main menu object, 0
+/// outside the main menu.
+struct InMenu<'a> {
+    m: &'a Memory,
+    frontend: usize,
+}
+
+impl<'a> InMenu<'a> {
+    fn at(m: &'a Memory, at: At) -> Self {
+        Self { m, frontend: if let At::MainMenu(frontend) = at { frontend } else { 0 } }
+    }
+}
+
+impl launch::Menu for InMenu<'_> {
+    fn steps(&mut self) -> std::result::Result<Steps, String> {
+        steps(self.m, self.frontend)
+    }
+
+    fn first_page(&mut self) -> std::result::Result<(), String> {
+        let (m, frontend) = (self.m, self.frontend);
+        if m.ptr(frontend).ok() != Some(m.at(gui_classes::MAIN_MENU)) {
+            Err("unexpected main menu object".into())
+        } else if m.u32(frontend + main_menu::PAGE).ok() != Some(main_menu::FIRST_PAGE) {
+            // The player went to another page meanwhile, and stays there.
+            Err("the main menu left its first page before the game could take it up".into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn carry_out(&mut self, action: &Action) -> std::result::Result<(), String> {
+        match action {
+            Action::Load(path, player) => load_now(self.m, self.frontend, path, *player),
+            Action::Start(letters) => start_now(self.m, self.frontend, *letters),
+            Action::LoadInGame(_) => Err("an in-game load runs only in a session".into()),
+        }
+    }
+
+    fn back_to_first_page(&mut self) {
+        back_to_first_page(self.m, self.frontend);
+    }
+
+    fn not_continuing(&mut self) {
+        let _ = self.m.write(self.frontend + main_menu::CONTINUING, &[0]);
+    }
+
+    fn load_in_game(&mut self, name: &str) -> std::result::Result<(), String> {
+        leave::load_in_game(self.m, name)
+    }
+
+    fn reads(&self) -> Reads {
+        reads()
+    }
+
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
+
+fn reads() -> Reads {
+    Reads { loads: sessions::loads(), reading: sessions::loading(), last_read: sessions::last_load_read() }
 }
 
 /// What the main menu `frontend` shows of a game being started from it.
@@ -352,7 +327,7 @@ pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
     // Where the game is first: a save is refused alike wherever it cannot be loaded.
     let in_game = sessions::at() == At::Game;
     if in_game {
-        if loading_in_game() {
+        if LAUNCHES.loading_in_game() {
             return fail(Status::Unavailable, "a save is already being loaded");
         }
     } else {
@@ -375,7 +350,7 @@ pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
         );
     }
     let player = find(m, letters)?;
-    ask(if in_game { Action::LoadInGame(save_name(&file).unwrap_or(&file).to_string()) } else { Action::Load(format!("save games/{file}"), player) });
+    LAUNCHES.ask(if in_game { Action::LoadInGame(save_name(&file).unwrap_or(&file).to_string()) } else { Action::Load(format!("save games/{file}"), player) });
     Ok(Box::new(move || {
         let header = read_header(&path)?;
         match header.player {
@@ -392,29 +367,7 @@ fn read_header(path: &Path) -> GResult<save_file::Header> {
 /// At a game frame, after the map manager's: runs the in-game load remote
 /// control asked for, if there is one; then the frame is over.
 pub(crate) fn game_frame(m: &Memory) -> bool {
-    let Some((number, name)) = attempt(|a| match a {
-        Some(Attempt { number, action: Action::LoadInGame(name), stage: Stage::Asked }) => Some((*number, name.clone())),
-        _ => None,
-    }) else {
-        return false;
-    };
-    let loads = sessions::loads();
-    let stage = match leave::load_in_game(m, &name) {
-        Ok(()) => {
-            log!("menu: loading {name} in the session's place started");
-            Stage::LoadedInGame { loads }
-        }
-        Err(why) => {
-            log!("menu: loading {name} in the session's place failed: {why}");
-            Stage::Failed(why)
-        }
-    };
-    attempt(|a| {
-        if let Some(a) = a.as_mut().filter(|a| a.number == number) {
-            a.stage = stage;
-        }
-    });
-    true
+    LAUNCHES.game_frame(&mut InMenu { m, frontend: 0 })
 }
 
 /// Starts a new game as the country `letters` from the main menu, at the
@@ -435,7 +388,7 @@ pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
         find(m, letters)?;
         ask_return(m)?;
         log!("menu: a new game as {} from the session", String::from_utf8_lossy(&letters));
-        ask(Action::Start(letters));
+        LAUNCHES.ask(Action::Start(letters));
         return Ok(());
     }
     first_page(m)?;
@@ -447,157 +400,25 @@ pub fn start(_: Caller, letters: [u8; 3]) -> GResult<()> {
             format!("{name} has no land at the start date, so it cannot be played from it; started as {name}, the game would only be observed"),
         );
     }
-    ask(Action::Start(letters));
+    LAUNCHES.ask(Action::Start(letters));
     Ok(())
 }
 
 /// The last load or start asked for, to ask [`launch`] about.
 pub fn last(_: Caller) -> u64 {
-    attempt(|a| a.as_ref().map_or(0, |a| a.number))
+    LAUNCHES.last()
 }
 
 /// What came of the load or start `number` ([`last`]), at a safe point
 /// outside a game's frame.
 pub fn launch(_: Caller, number: u64) -> Launch {
-    attempt(|a| match a {
-        Some(Attempt { number: n, action, stage }) if *n == number => match stage {
-            Stage::Failed(why) => Launch::Failed(why.clone()),
-            Stage::Taken { loads, .. } if matches!(action, Action::Load(..)) && unread(*loads) => Launch::Failed(UNREAD.into()),
-            Stage::LoadedInGame { loads } if unread(*loads) => Launch::Failed(UNREAD.into()),
-            Stage::Asked => Launch::Asked,
-            Stage::Taken { .. } | Stage::LoadedInGame { .. } => Launch::Waiting,
-        },
-        _ => Launch::Failed("another load or start was asked for".into()),
-    })
-}
-
-const UNREAD: &str = "the game could not read the save: it starts a game anyway, from what it read of it (menu and session say where it is)";
-
-/// Whether the game read a save since a load ran, `loads` saves read
-/// before, and could not read it: its loader said it failed. The game goes
-/// on and starts a game from what it read (seen in the game with a save
-/// whose game state was damaged).
-fn unread(loads: usize) -> bool {
-    sessions::loads() > loads && !sessions::loading() && !sessions::last_load_read()
+    LAUNCHES.outcome(number, reads())
 }
 
 /// At the end of the main menu's frame: runs the load or start asked for,
-/// then follows the game taking it up, and gives it up when the main menu
-/// shows with nothing started from it, or when the game takes no step for
-/// [`QUIET`].
+/// and follows the game taking it up ([`Launches::main_menu_frame`]).
 pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
-    enum Now {
-        Run(Action),
-        Follow(Action, Steps, Instant, usize),
-    }
-    let Some((number, now)) = attempt(|a| match a {
-        // Asked for in a session that ended before its next game frame.
-        Some(Attempt { action: Action::LoadInGame(name), stage: stage @ Stage::Asked, .. }) => {
-            log!("menu: loading {name} in the session's place failed: the session ended first");
-            *stage = Stage::Failed("the session ended before the load could run".into());
-            None
-        }
-        Some(Attempt { number, action, stage: Stage::Asked }) => Some((*number, Now::Run(action.clone()))),
-        Some(Attempt { number, action, stage: Stage::Taken { seen, since, loads } }) => Some((*number, Now::Follow(action.clone(), *seen, *since, *loads))),
-        _ => None,
-    }) else {
-        return;
-    };
-    let stage = match now {
-        Now::Run(action) => run(m, frontend, &action),
-        Now::Follow(action, seen, since, loads) => follow(m, frontend, &action, seen, since, loads),
-    };
-    attempt(|a| {
-        if let Some(a) = a.as_mut().filter(|a| a.number == number) {
-            a.stage = stage;
-        }
-    });
-}
-
-/// Runs a load or start in the main menu's frame.
-fn run(m: &Memory, frontend: usize, action: &Action) -> Stage {
-    let result = if m.ptr(frontend).ok() != Some(m.at(gui_classes::MAIN_MENU)) {
-        // Not the main menu the framework knows: nothing is touched.
-        Err("unexpected main menu object".to_string())
-    } else if m.u32(frontend + main_menu::PAGE).ok() != Some(main_menu::FIRST_PAGE) {
-        // The player went to another page meanwhile, and stays there.
-        Err("the main menu left its first page before the game could take it up".to_string())
-    } else {
-        let result = match action {
-            Action::Load(path, player) => load_now(m, frontend, path, *player),
-            Action::Start(letters) => start_now(m, frontend, *letters),
-            Action::LoadInGame(_) => Err("an in-game load runs only in a session".to_string()),
-        };
-        match result {
-            Ok(()) => steps(m, frontend),
-            Err(why) => {
-                back_to_first_page(m, frontend);
-                Err(why)
-            }
-        }
-    };
-    match result {
-        Ok(seen) => {
-            log!("menu: {} started", describe(action));
-            Stage::Taken { seen, since: Instant::now(), loads: seen.loads }
-        }
-        Err(why) => {
-            log!("menu: {} failed: {why}", describe(action));
-            Stage::Failed(why)
-        }
-    }
-}
-
-/// Follows the game taking up a load or start that ran, at a main menu's
-/// frame: the main menu still shows, so the game has not switched to the
-/// game yet.
-fn follow(m: &Memory, frontend: usize, action: &Action, seen: Steps, since: Instant, loads: usize) -> Stage {
-    let why = match steps(m, frontend) {
-        // Not the main menu the framework knows: nothing is touched.
-        Err(e) => e.to_string(),
-        Ok(now) => match judge(&seen, &now, sessions::loading(), since.elapsed()) {
-            Judged::Step => return Stage::Taken { seen: now, since: Instant::now(), loads },
-            Judged::Wait => return Stage::Taken { seen, since, loads },
-            Judged::Open => {
-                // The single player setup was left, by the player: the page
-                // stays.
-                let _ = m.write(frontend + main_menu::CONTINUING, &[0]);
-                "the game did not start it: the main menu is open".to_string()
-            }
-            Judged::Quiet => {
-                back_to_first_page(m, frontend);
-                format!("the game did not start it: it took no step towards it for {} s", QUIET.as_secs())
-            }
-        },
-    };
-    log!("menu: {} failed: {why}", describe(action));
-    Stage::Failed(why)
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Judged {
-    /// The game took a step: wait again from now.
-    Step,
-    /// Nothing changed yet: wait.
-    Wait,
-    /// Nothing is being started any more: the main menu is open.
-    Open,
-    /// Nothing changed for [`QUIET`]: the game will not carry it out.
-    Quiet,
-}
-
-/// What a main menu's frame makes of a load or start that ran, from what it
-/// saw last (`seen`, `quiet` ago) and what it sees `now`.
-fn judge(seen: &Steps, now: &Steps, loading: bool, quiet: Duration) -> Judged {
-    if !now.starting() && !loading {
-        Judged::Open
-    } else if now != seen {
-        Judged::Step
-    } else if quiet < QUIET {
-        Judged::Wait
-    } else {
-        Judged::Quiet
-    }
+    LAUNCHES.main_menu_frame(&mut InMenu { m, frontend });
 }
 
 /// After a load or start that did not go through: the main menu as the
@@ -618,14 +439,6 @@ fn back_to_first_page(m: &Memory, frontend: usize) {
     }
     if m.u32(frontend + main_menu::PAGE).is_ok_and(|page| page == main_menu::SETUP_PAGE) {
         let _ = m.call(m.at(SHOW_PAGE), &[frontend, main_menu::FIRST_PAGE as usize, 1]);
-    }
-}
-
-fn describe(action: &Action) -> String {
-    match action {
-        Action::Load(path, _) => format!("loading {path}"),
-        Action::Start(letters) => format!("a new game as {}", String::from_utf8_lossy(letters)),
-        Action::LoadInGame(name) => format!("loading {name} in the session's place"),
     }
 }
 
@@ -756,17 +569,6 @@ pub enum Returned {
     Done,
 }
 
-/// The map manager's frame acted on a return ([`leave`]) and the session
-/// stays, for `why`: a new game asked for from the session does not come
-/// either.
-pub(super) fn start_failed(why: &str) {
-    attempt(|a| {
-        if let Some(a @ Attempt { action: Action::Start(_), stage: Stage::Asked, .. }) = a {
-            a.stage = Stage::Failed(why.to_string());
-        }
-    });
-}
-
 /// What came of the return remote control asked for as `number`.
 pub fn returned(_: Caller, number: u64) -> Returned {
     let outcome = leave::return_outcome(number);
@@ -829,8 +631,7 @@ pub fn points() -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::{judge, missing_mods, save_file, save_name, Judged, Steps, QUIET};
-    use std::time::Duration;
+    use super::{missing_mods, save_file, save_name};
 
     #[test]
     fn a_save_misses_the_mods_it_was_made_with_that_the_playset_lacks() {
@@ -848,37 +649,6 @@ mod tests {
         // Mods the playset has and the save lacks are no matter.
         assert_eq!(missing_mods(&save_file::Header::default(), &playset), Vec::<String>::new());
         assert_eq!(missing_mods(&header, &[]).len(), 3);
-    }
-
-    #[test]
-    fn a_load_or_start_is_followed_by_the_games_steps() {
-        let started = Steps { loads: 4, page: 3, started: true, accepted: false, launch: false, switching: false, idler: true };
-        let second = Duration::from_secs(1);
-        // Just ran, and waiting for the setup's commands.
-        assert_eq!(judge(&started, &started, false, second), Judged::Wait);
-        // Each step waits again from then on: a save read, the start
-        // accepted, the start at the next frame.
-        let loaded = Steps { loads: 5, ..started };
-        assert_eq!(judge(&started, &loaded, false, QUIET), Judged::Step);
-        let accepted = Steps { accepted: true, ..loaded };
-        assert_eq!(judge(&loaded, &accepted, false, QUIET + second), Judged::Step);
-        // Once accepted, it stays so, whatever page shows.
-        let elsewhere = Steps { page: 0, started: false, launch: true, ..accepted };
-        assert_eq!(judge(&accepted, &elsewhere, false, second), Judged::Step);
-        // No step for QUIET: given up.
-        assert_eq!(judge(&started, &started, false, QUIET - second), Judged::Wait);
-        assert_eq!(judge(&started, &started, false, QUIET), Judged::Quiet);
-        // The setup left before the start was accepted: the main menu is
-        // open, unless a save is being read.
-        let left = Steps { page: 0, started: false, ..started };
-        assert_eq!(judge(&started, &left, false, second), Judged::Open);
-        assert_eq!(judge(&started, &left, true, second), Judged::Step);
-        // The setup shown again with its start made, by the player, say.
-        assert_eq!(judge(&left, &started, false, second), Judged::Step);
-        // A game's map manager made, the main menu still showing: never open.
-        let taken_over = Steps { idler: false, ..left };
-        assert_eq!(judge(&left, &taken_over, false, second), Judged::Step);
-        assert_eq!(judge(&taken_over, &taken_over, false, QUIET - second), Judged::Wait);
     }
 
     #[test]

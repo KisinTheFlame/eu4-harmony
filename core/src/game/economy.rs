@@ -2,9 +2,9 @@
 //! view's buttons do, and raising mercantilism, as the trade view's button
 //! does (docs/research/power-spending.md, "The economy").
 use super::{
-    context, game, modifiers,
+    modifiers,
     power::{self, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
-    Caller, Ctx, GResult,
+    Ctx, GResult, Session,
 };
 use crate::{game_string, memory::Memory, objects::campaign::country, points::Point};
 use eu4_harmony_remote::{
@@ -119,9 +119,7 @@ fn raise_mercantilism(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
 }
 
 /// What the buttons offer now.
-pub fn options(_: Caller) -> GResult<Vec<EconomyOption>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<EconomyOption>> {
     let spending = |action, choice| EconomyOption { action, choice, gives: Vec::new() };
     Ok(vec![
         take_loan(m, &ctx)?,
@@ -146,25 +144,19 @@ fn written_loan(country: [u8; 3]) -> String {
 }
 
 /// Takes a bank loan, as the button does.
-pub fn take_bank_loan(_: Caller) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn take_bank_loan(Session { m, ctx, .. }: Session) -> GResult<()> {
     allowed(take_loan(m, &ctx)?.choice, "take a loan")?;
     power::post(&written_loan(ctx.player.letters()), "take a loan")
 }
 
 /// Reduces inflation, as the button does.
-pub fn reduce(_: Caller) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn reduce(Session { m, ctx, .. }: Session) -> GResult<()> {
     allowed(reduce_inflation(m, &ctx)?, "reduce inflation")?;
     power::spend(ctx.player, REDUCE_INFLATION, PowerKind::Adm, 0, "reduce inflation")
 }
 
 /// Raises mercantilism, as the trade view's button does.
-pub fn promote(_: Caller) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn promote(Session { m, ctx, .. }: Session) -> GResult<()> {
     allowed(raise_mercantilism(m, &ctx)?, "raise mercantilism")?;
     power::spend(ctx.player, PROMOTE_MERCANTILISM, PowerKind::Dip, 0, "raise mercantilism")
 }

@@ -18,7 +18,7 @@ pub fn session(_: Caller) -> GResult<Session> {
     let m = game()?;
     let ctx = context(m)?;
     Ok(Session {
-        session: events::session(),
+        session: crate::sessions::number(),
         date: ctx.date,
         paused: paused(m, &ctx)?,
         visibility_current: events::visibility_current(m, &ctx),

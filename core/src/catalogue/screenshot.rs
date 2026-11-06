@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 layer! {
     /// Asks for the next frame at `percent` of its size.
-    fn screenshot(percent: u32) -> Arc<Shot> = layer::screenshot;
+    fn screenshot(percent: u32) -> Arc<Shot> = caller layer::screenshot;
 }
 
 pub fn run(request: ScreenshotRequest, game: &mut (impl Layer + ?Sized)) -> Outcome {

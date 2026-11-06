@@ -247,16 +247,18 @@ pub fn clear(m: &Memory, ctx: &game::Ctx, extension: usize) -> GResult<()> {
 }
 
 /// Drops coloring state at a session change, restoring the mode when the
-/// same map is still there.
-pub fn reset_session(m: &Memory, ctx: &game::Ctx) {
+/// same map is still there. Told by the sessions (`crate::sessions`) at the
+/// new session's first frame.
+pub fn reset_session() {
     let saved = with_state(|s| {
         s.colors.clear();
         s.owner = None;
         s.lost.clear();
         s.saved.take()
     });
-    if let Some((old, old_mode)) = saved {
-        if let Ok(current) = manager(m, ctx) {
+    let Some(m) = crate::memory() else { return };
+    if let (Some((old, old_mode)), Ok(ctx)) = (saved, game::context(m)) {
+        if let Ok(current) = manager(m, &ctx) {
             let current_mode = m.i32(current + map_manager::MODE).unwrap_or(-1);
             let target = if current == old && current_mode == PAINT_MODE { old_mode } else { current_mode };
             if (0..=0x4c).contains(&target) {

@@ -3,7 +3,7 @@
 //! merchants in any node the player has discovered, so the player's view
 //! leaves out only the nodes none of whose provinces the player has
 //! discovered, which the trade map leaves out.
-use super::{context, game, span, thousandths, view, with_state, world, Caller, Ctx, GResult, Status, Tag, View};
+use super::{span, thousandths, with_state, world, Ctx, GResult, Session, Status, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
@@ -160,10 +160,8 @@ fn seen(m: &Memory, ctx: &Ctx, view: View) -> GResult<Option<BTreeSet<usize>>> {
 
 /// Every trade node with its value; in the player's view those with a
 /// province the player has discovered.
-pub fn list(caller: Caller) -> GResult<Vec<NodeValue>> {
-    let m = game()?;
-    let ctx = context(m)?;
-    let seen = seen(m, &ctx, view(caller))?;
+pub fn list(Session { m, ctx, view, .. }: Session) -> GResult<Vec<NodeValue>> {
+    let seen = seen(m, &ctx, view)?;
     let mut out = Vec::new();
     for node in nodes(m, &ctx)? {
         let definition = m.ptr(node + DEFINITION)?;
@@ -192,9 +190,7 @@ fn incoming(m: &Memory, node: usize) -> GResult<Vec<(usize, i32)>> {
 
 /// One trade node, by its key; in the player's view one none of whose
 /// provinces the player has discovered is refused.
-pub fn node(caller: Caller, key: String) -> GResult<TradeNode> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn node(Session { m, ctx, view, .. }: Session, key: String) -> GResult<TradeNode> {
     let all = nodes(m, &ctx)?;
     let mut found = None;
     for &node in &all {
@@ -206,7 +202,7 @@ pub fn node(caller: Caller, key: String) -> GResult<TradeNode> {
         return super::fail(Status::NotFound, format!("no trade node {key}"));
     };
     let definition = m.ptr(node + DEFINITION)?;
-    if seen(m, &ctx, view(caller))?.is_some_and(|s| !s.contains(&definition)) {
+    if seen(m, &ctx, view)?.is_some_and(|s| !s.contains(&definition)) {
         return super::fail(Status::NotFound, format!("the player has not discovered trade node {key}"));
     }
     let by_definition = |d: usize| -> GResult<usize> {

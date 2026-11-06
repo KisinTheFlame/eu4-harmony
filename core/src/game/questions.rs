@@ -3,7 +3,7 @@
 //! answered as the player does, by choosing an option in the window.
 //! [`count`] says how many wait, for advancing time too. The evidence is in
 //! docs/research/questions-and-offers.md.
-use super::{context, game, map_manager, span, Caller, Ctx, GResult};
+use super::{map_manager, span, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -61,36 +61,30 @@ pub struct QuestionOption {
 }
 
 /// The questions waiting for the player's answer, oldest first.
-pub fn questions(_: Caller) -> GResult<Vec<Question>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn questions(Session { m, ctx, .. }: Session) -> GResult<Vec<Question>> {
     open(m, &ctx)?.iter().map(|w| read(m, w)).collect()
 }
 
 /// One question, by its id.
-pub fn question(_: Caller, id: u32) -> GResult<Question> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn question(Session { m, ctx, .. }: Session, id: u32) -> GResult<Question> {
     read(m, &find(m, &ctx, id)?)
 }
 
 /// Answers a question with one of its options, as the player does in its
 /// event window: the game has the answer once this returns, and applies it a
 /// moment later; the window is closed, so the question is no longer listed.
-pub fn answer(_: Caller, id: u32, option: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
-    let w = find(m, &ctx, id)?;
+pub fn answer(Session { m, ctx, .. }: Session, question: u32, option: u32) -> GResult<()> {
+    let w = find(m, &ctx, question)?;
     let options = options(m, w.event)?;
     let Some(&chosen) = options.get(option as usize) else {
-        return Err(eu4_harmony_checks::questions::no_option(id, option).into());
+        return Err(eu4_harmony_checks::questions::no_option(question, option).into());
     };
     if !may_choose(m, chosen, w.scope)? {
-        return Err(eu4_harmony_checks::questions::not_allowed(id, option).into());
+        return Err(eu4_harmony_checks::questions::not_allowed(question, option).into());
     }
     m.call(m.at(CHOOSE), &[w.address, option as usize])?;
     if m.u8(w.address + window::OPEN)? != 0 {
-        return Err(format!("the event window of question {id} stayed open").into());
+        return Err(format!("the event window of question {question} stayed open").into());
     }
     Ok(())
 }
