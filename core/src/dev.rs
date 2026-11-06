@@ -5,6 +5,7 @@
 //! tool, and a section left out takes its defaults (`core/dev.toml.example`
 //! shows them all). A player's build has none of this.
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -42,11 +43,19 @@ pub struct CallTrace {
     pub functions: Vec<String>,
     /// How many of each function's first calls are logged.
     pub calls: usize,
+    /// Every call of each function is timed too, into `call-times.tsv` next
+    /// to the log: its thread, start and end, the game's date and its first
+    /// argument.
+    pub times: bool,
+    /// For a function whose first argument points at an object, an offset
+    /// into it, in hex, whose eight bytes the times record with each call
+    /// (`{ "0xb0fa0" = "0x20" }`).
+    pub fields: BTreeMap<String, String>,
 }
 
 impl Default for CallTrace {
     fn default() -> Self {
-        Self { functions: Vec::new(), calls: 20 }
+        Self { functions: Vec::new(), calls: 20, times: false, fields: BTreeMap::new() }
     }
 }
 
@@ -140,7 +149,11 @@ impl Options {
             let (functions, calls) = (&self.call_trace.functions, self.call_trace.calls);
             lines.push(match functions.is_empty() {
                 true => "call trace: no functions".to_string(),
-                false => format!("call trace: {}; the first {calls} calls of each", functions.join(", ")),
+                false => format!(
+                    "call trace: {}; the first {calls} calls of each{}",
+                    functions.join(", "),
+                    if self.call_trace.times { ", every call timed into call-times.tsv" } else { "" }
+                ),
             });
         }
         if built("memory-account") {
@@ -243,10 +256,12 @@ mod tests {
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ncompare-saves = true\ngame-writes-saves = true\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ncompare-saves = true\ngame-writes-saves = true\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
+        assert!(options.call_trace.times);
+        assert_eq!(options.call_trace.fields, BTreeMap::from([("0x15988e0".to_string(), "0x20".to_string())]));
         assert!(
             options.test_switches.fail_startup
                 && options.test_switches.test_notice
