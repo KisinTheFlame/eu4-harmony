@@ -47,12 +47,13 @@ From the game's code (RVAs into 1.37.5):
 
 ## How it fits together
 
-- **`game::player`**, one module that knows who the player is: `Player::{Plays(country), Observes { own, in_view: Option<country> }}`, read from the four fields, with a dependency point on `0x811b20` that uses them. It puts a country in view and takes it out through `0x763a20`, and an observe point after `0x763a20` tells `sessions` of every change, which hands on the `country_in_view` event at the frame.
+- **`game::player`**, one module that knows who the player is: `Player::{Plays(country), Observes { own, in_view: Option<country> }}`, read from the four fields, with a dependency point on `0x811b20` that uses them. It puts a country in view and takes it out through `0x763a20`, passing `---` to take it out as the menubar's button does (`0x817036`). The frame compares the country in view with the last frame's of the session (`view_changed`) and is heard as `country_in_view` when it differs: whoever changed it, as often as the frame shows a change. Two changes between two frames are heard as the last; an observe point on `0x763a20` would hear both, but nothing a client does lands between two frames but its own requests, which answer with the session as they leave it.
 - **The session**: `game::context` reads the player through `game::player`. `Session::open` fails `no_country` with no country to act as, so the capabilities taking a session stay as they are. The reads that need no country take a smaller type with the world, the date and what the player's view shows, `Eyes::of(view, player)`, a pure function that decides the fog of war in one place. `sessions` keys a session by the world and the player's own tag.
 - **The catalogue and the remote crate**: `Code::NoCountry` (`no_country`); `Capability::country`, from the place `group!` declares each capability with: `game` acts as a country, `world` needs a game but no country (the markers the time group brought in on 2026-11-06, whose `observing` in `describe` `country` replaces), and `anywhere` neither; `layer!` opens a `Session` for `session` and a `WorldSession` for `world`, and a test keeps the two in agreement. `remote::session::Session` takes `player: Option<CountryTag>` and `observing`.
-- **Waits**: the diplomacy tickets and the peace negotiation keep the country they were made for and check it.
+- **Waits**: a diplomatic action, a peace offer among them, keeps the country it was sent as; its answer, read at a later frame, is `rejected` once another country, or none, is acted as (`still_acting`).
 - **Saves**: `saves::file` lists the observer tag as no player.
-- **Fakes**: the `buffers` session and `catalogue::fake` grow an observe-mode player, and the command line tool's fake world a session without one.
+- **Fakes**: `catalogue::fake` takes a player to give the session, and the command line tool's fake world answers `observing`.
+- **Starting**: `menu.start` with no country starts as the observer's tag (`O00`, the player's own tag in observe mode) through the launches as any start; at the main menu, as the setup's observe button (`0x11374d0`) and then its start: the observer's tag the game gives for `---` of the rebels' kind (`0x76ee40`) made the player's, and the setup's start (`0x1120280`).
 
 ## Parts
 
@@ -68,7 +69,7 @@ From the game's code (RVAs into 1.37.5):
 
 ### O2 Changing the view
 
-`session.view`, `session.leave_view`, the observe point and `country_in_view`, for remote clients and extensions. Unit tests: the failures; one event per change. Tried: both capabilities, and the event for a change the game made.
+`session.view`, `session.leave_view`, the frame's comparison and `country_in_view`, for remote clients and extensions. Unit tests: the failures; one event per change. Tried: both capabilities, and the event for a change the game made.
 
 ### O3 Acting as the country in view
 
@@ -80,4 +81,4 @@ The waits checking their country. Tried: moving an army, recruiting, building an
 
 ## Order
 
-One pull request a part, in order: O1, O2, O3, O4.
+In order, O1, O2, O3, O4, in one pull request.
