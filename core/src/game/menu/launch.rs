@@ -119,6 +119,12 @@ enum Stage {
         since: Instant,
         loads: usize,
     },
+    /// The game took a load or start that ran in the main menu over: a
+    /// game's frame showed. A main menu's frame, after a return, no longer
+    /// judges it.
+    InGame {
+        loads: usize,
+    },
     /// An in-game load ran, with this many saves begun to be read before.
     LoadedInGame {
         loads: usize,
@@ -245,21 +251,28 @@ impl Launches {
         self.with(|a| match a {
             Some(Attempt { number: n, action, stage }) if *n == number => match stage {
                 Stage::Failed(why) => Launch::Failed(why.clone()),
-                Stage::Taken { loads, .. } if matches!(action, Action::Load(..)) && unread(*loads) => Launch::Failed(UNREAD.into()),
+                Stage::Taken { loads, .. } | Stage::InGame { loads } if matches!(action, Action::Load(..)) && unread(*loads) => Launch::Failed(UNREAD.into()),
                 Stage::LoadedInGame { loads } if unread(*loads) => Launch::Failed(UNREAD.into()),
                 Stage::Asked => Launch::Asked,
-                Stage::Taken { .. } | Stage::LoadedInGame { .. } => Launch::Waiting,
+                Stage::Taken { .. } | Stage::InGame { .. } | Stage::LoadedInGame { .. } => Launch::Waiting,
             },
             _ => Launch::Failed("another load or start was asked for".into()),
         })
     }
 
     /// At a game frame, after the map manager's: runs the in-game load
-    /// remote control asked for, if there is one; then the frame is over.
+    /// remote control asked for, if there is one; then the frame is over. A
+    /// load or start that ran in the main menu was taken over by the game.
     pub fn game_frame(&self, menu: &mut impl Menu) -> bool {
         let Some((number, name)) = self.with(|a| match a {
             Some(Attempt { number, action: Action::LoadInGame(name), stage: Stage::Asked }) => Some((*number, name.clone())),
-            _ => None,
+            Some(Attempt { stage, .. }) => {
+                if let Stage::Taken { loads, .. } = *stage {
+                    *stage = Stage::InGame { loads };
+                }
+                None
+            }
+            None => None,
         }) else {
             return false;
         };
@@ -503,6 +516,27 @@ mod tests {
         assert_eq!(launches.outcome(number, game.reads), Launch::Waiting);
         // Run once only.
         assert_eq!(game.did, [Did::CarryOut(load())]);
+    }
+
+    #[test]
+    fn a_load_or_start_the_game_took_over_is_not_judged_by_the_main_menu_after_a_return() {
+        for action in [Action::Start(*b"FRA"), load()] {
+            let (launches, mut game) = (Launches::new(), Recorded::new());
+            let number = launches.ask(action.clone());
+            launches.main_menu_frame(&mut game);
+            // The game takes it over: a game's frame shows, which it does not take.
+            assert!(!launches.game_frame(&mut game));
+            // Back at a new main menu, nothing started from it.
+            game.steps = Some(OPEN);
+            launches.main_menu_frame(&mut game);
+            assert_eq!(game.did, [Did::CarryOut(action.clone())]);
+            assert_eq!(launches.outcome(number, game.reads), Launch::Waiting);
+            assert!(!launches.starting(&mut game));
+            // A save the game could not read still fails a load.
+            game.reads = Reads { loads: 3, reading: false, last_read: false };
+            let unread = if matches!(action, Action::Load(..)) { Launch::Failed(UNREAD.into()) } else { Launch::Waiting };
+            assert_eq!(launches.outcome(number, game.reads), unread);
+        }
     }
 
     #[test]
