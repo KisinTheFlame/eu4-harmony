@@ -1,6 +1,6 @@
 # Game testing plan
 
-Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](prototype-log.md), "Game testing"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
+Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](prototype-log.md), "Game testing"), G6 built and tried (2026-11-06; "Watching the game a claim starts"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
 
 ## Goal and scope
 
@@ -96,4 +96,4 @@ The skill renamed game-test, rewritten for the commands, `game-lock.ps1` removed
 
 ### G6 Watching the game
 
-`game start --visible`, the window shown at the main menu, and `--sound` independent of it, so that a start is hidden or shown, silent or heard. The window is shown once the start reaches the main menu, as `desktop.show` shows it: the startup's own screens stay hidden. A start shown from its first frame would take a switch of the framework's and points of its own, for a need not yet seen.
+`game start --visible`, the window shown at the main menu, and `--sound` independent of it, so that a start is hidden or shown, silent or heard. Tried: each with `desktop.get`'s answer, the shown window looked at from another process. The window is shown once the start reaches the main menu, as `desktop.show` shows it: the startup's own screens stay hidden. A start shown from its first frame would take a switch of the framework's and points of its own, for a need not yet seen.
