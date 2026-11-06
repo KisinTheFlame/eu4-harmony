@@ -95,7 +95,7 @@ Built (2026-10-29). F1 added no capability; it moved every existing one into the
 | `texts` | `language` | | the player language's Paradox name |
 | | `text` (extensions only) | key | the mod's text in the player language |
 
-`move_to` and `stop` from `Caller::Remote` are the player's orders: the army's route is nobody's afterwards, and `Change::Ordered` is raised once, so extensions hear `on_army_ordered` at the next safe frame (unit test `a_remote_order_is_the_players`). `game::begin_frame` starts a safe frame and forgets the old session's map, routes and map coloring; the extension dispatch in `ext.rs` runs on it, and so can the engine.
+`move_to` and `stop` from `Caller::Remote` are the player's orders: the army's route is nobody's afterwards, and `Change::Ordered` is raised once, so extensions hear `on_army_ordered` at the next safe frame (unit test `a_remote_order_is_the_players`). `game::begin_frame` starts a safe frame; at a new session the sessions (`crate::sessions`) have the old one's map, routes and map coloring forgotten first; the extension dispatch in `ext.rs` runs on it, and so can the engine.
 
 ### F2 Engine
 

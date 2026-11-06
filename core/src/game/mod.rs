@@ -194,12 +194,11 @@ fn game() -> GResult<&'static Memory> {
 
 /// What the capabilities keep between calls: the map's topology and the
 /// routes extensions installed. Both belong to one session, as does the last
-/// day announced.
+/// day announced; the sessions let them go ([`session_forgotten`]).
 #[derive(Default)]
 struct State {
     geography: world::Geography,
     orders: orders::Orders,
-    session: u64,
     day: Option<i32>,
     /// The wars and the provinces' owners of the day before.
     wars: wars::Watch,
@@ -210,6 +209,18 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
     let mut guard = STATE.lock().unwrap_or_else(|e| e.into_inner());
     f(guard.get_or_insert_with(State::default))
+}
+
+/// A game frame shows another session than the last frame did: what the
+/// capabilities kept of that one goes. Told by the sessions
+/// (`crate::sessions`).
+pub fn session_forgotten() {
+    with_state(|s| {
+        s.geography.clear();
+        s.orders.clear();
+        s.day = None;
+        s.wars.clear();
+    });
 }
 
 /// What a safe frame starts from: the campaign, its session, and what
@@ -317,45 +328,27 @@ fn battle_event(battle: &events::Battle) -> Event {
 }
 
 /// Starts a safe frame (see [`events`]); fails when this is not one, saying
-/// why. At a new session, forgets the old one's map, routes and map coloring.
-/// An army the player gave an order is no longer an extension's to move.
+/// why. The sessions hear of it first, which let what was kept of another
+/// session go (`crate::sessions`). An army the player gave an order is no
+/// longer an extension's to move.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
-    let state = events::begin_frame(m)?;
-    let (new_session, new_day, previous) = with_state(|s| {
-        let new_session = s.session != state.session;
-        if new_session {
-            s.session = state.session;
-            s.geography.clear();
-            s.orders.clear();
-            s.day = None;
-            s.wars.clear();
-        }
-        for change in &state.changes {
+    let (ctx, fog) = events::frame_campaign(m)?;
+    let seen = crate::sessions::frame_read(&ctx);
+    let (visibility_current, changes) = events::take_frame(&ctx, fog);
+    let (new_day, previous) = with_state(|s| {
+        for change in &changes {
             if let events::Change::Ordered(army) = change {
                 s.orders.revoke(*army);
             }
         }
         let previous = s.day;
-        let new_day = state.visibility_current && s.day.replace(state.ctx.date) != Some(state.ctx.date);
-        (new_session, new_day, previous)
+        let new_day = visibility_current && s.day.replace(ctx.date) != Some(ctx.date);
+        (new_day, previous)
     });
-    let (new_month, new_year) = turned(previous.filter(|_| new_day), state.ctx.date);
+    let (new_month, new_year) = turned(previous.filter(|_| new_day), ctx.date);
     let (new_month, new_year) = (new_month && events::listened("month"), new_year && events::listened("year"));
-    if new_session {
-        crate::map::reset_session(m, &state.ctx);
-    }
-    let wars = if new_day { watch_wars(m, &state.ctx) } else { Vec::new() };
-    Ok(Frame {
-        ctx: state.ctx,
-        session: state.session,
-        new_session,
-        visibility_current: state.visibility_current,
-        changes: state.changes,
-        new_day,
-        new_month,
-        new_year,
-        wars,
-    })
+    let wars = if new_day { watch_wars(m, &ctx) } else { Vec::new() };
+    Ok(Frame { ctx, session: seen.session, new_session: seen.new_session, visibility_current, changes, new_day, new_month, new_year, wars })
 }
 
 /// What the wars and the provinces' owners show happened since the day

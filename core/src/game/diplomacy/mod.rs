@@ -14,7 +14,7 @@
 //! game carried out, which an observer of the game's own function sees.
 use super::{
     commands::{self, Refused},
-    context, context_any, countries, country, events, fail, game, Caller, Ctx, GResult, Status, Tag,
+    context, context_any, countries, country, fail, game, Caller, Ctx, GResult, Status, Tag,
 };
 use crate::{
     game_string,
@@ -397,7 +397,7 @@ pub fn allies_called(_: Caller, ticket: Ticket) -> GResult<Vec<Tag>> {
 /// while it is kept and its game goes on.
 fn kept(ticket: Ticket) -> GResult<(Sent, Seen)> {
     let (sent, seen) = ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail::from(checks::not_kept(ticket.0)))?;
-    if sent.session != events::session() {
+    if sent.session != crate::sessions::number() {
         return fail(Status::NotInGame, "the game the diplomatic action was sent in has ended");
     }
     Ok((sent, seen))
@@ -498,7 +498,7 @@ pub(super) fn send(m: &Memory, ctx: &Ctx, at: usize, to: Tag, called: Vec<Tag>) 
         m.write(ctx.world + from, &ctx.player.0.to_le_bytes())?;
         m.write(ctx.world + date, &ctx.date.to_le_bytes())?;
     }
-    Ok(ledger(|l| l.send(kind, answers, to, after, events::session(), called)))
+    Ok(ledger(|l| l.send(kind, answers, to, after, crate::sessions::number(), called)))
 }
 
 /// Asks the action the checks the diplomacy panel and the window ask before

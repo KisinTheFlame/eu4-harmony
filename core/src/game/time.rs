@@ -4,7 +4,7 @@
 //! as a date is reached, for remote control's advancing; and whether a
 //! question waits for the player's answer. The evidence is in
 //! docs/research/time.md.
-use super::{commands, context, context_any, events, fail, game, map_manager, paused, questions, Caller, Ctx, GResult, Status};
+use super::{commands, context, context_any, fail, game, map_manager, paused, questions, Caller, Ctx, GResult, Status};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -79,7 +79,7 @@ pub fn time(_: Caller) -> GResult<Time> {
     } else {
         Pause::Window
     };
-    Ok(Time { session: events::session(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
+    Ok(Time { session: crate::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
 }
 
 /// Pauses the game with the player's own pause, as the player would, also
@@ -166,7 +166,7 @@ pub struct Stop {
 /// A stop held.
 struct Held {
     number: u64,
-    /// The session it was held in ([`events::session`]).
+    /// The session it was held in (`crate::sessions::number`).
     session: u64,
     date: i32,
     reached: bool,
@@ -248,7 +248,7 @@ impl Stop {
 impl Drop for Stop {
     fn drop(&mut self) {
         if !self.released {
-            let (number, session) = (self.number, events::session());
+            let (number, session) = (self.number, crate::sessions::number());
             stops(|s| s.call_off(number, session));
         }
     }
@@ -262,7 +262,7 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
     if let Caller::Extension(_) = caller {
         return fail(Status::Unavailable, "only remote control advances time");
     }
-    let session = events::session();
+    let session = crate::sessions::number();
     let number = stops(|s| s.hold(session, date));
     Ok(Stop { number, released: false })
 }
@@ -277,7 +277,7 @@ pub(super) fn day_passed(m: &Memory) {
         return;
     }
     let Ok(ctx) = context_any(m) else { return };
-    let session = events::session();
+    let session = crate::sessions::number();
     let due = stops(|s| s.reach(session, ctx.date)) || (stops(|s| s.advancing(session)) && questions::count(m, &ctx).is_ok_and(|waiting| waiting > 0));
     if due {
         if let Err(e) = pause_game(m, &ctx) {
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn only_remote_control_holds_a_stop_and_one_dropped_is_called_off() {
         assert_eq!(stop_at(Caller::Extension(0), 100).unwrap_err().status, Status::Unavailable);
-        let session = events::session();
+        let session = crate::sessions::number();
         let answered = stop_at(Caller::Remote, 100).unwrap();
         let given_up = stop_at(Caller::Remote, 1000).unwrap();
         answered.release();
