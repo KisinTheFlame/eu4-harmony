@@ -9,7 +9,7 @@ use super::{
     judge, letters, other, send, verdict, Kind, Ticket,
 };
 use crate::{
-    game::{context, fail, game, with_state, Caller, Ctx, GResult, Status, Tag},
+    game::{fail, with_state, Ctx, GResult, Session, Status, Tag},
     game_string,
     memory::Memory,
     objects::{
@@ -93,9 +93,7 @@ pub struct Offered {
 
 /// The actions the diplomacy panel offers the player toward `country`, in its
 /// order.
-pub fn options(_: Caller, country: Tag) -> GResult<Vec<Offered>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, country: Tag) -> GResult<Vec<Offered>> {
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
     panel.actions.iter().map(|&at| offered(m, at)).collect()
@@ -124,9 +122,7 @@ pub struct Details {
 /// panel does not offer it toward that country now, or the game does not let
 /// the player send it, with its reasons; [`Status::InvalidArgument`] when
 /// the act's window needs a choice `details` does not make.
-pub fn act(_: Caller, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn act(Session { m, ctx, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
     let mut found = None;

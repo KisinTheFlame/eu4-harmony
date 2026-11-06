@@ -3,6 +3,6 @@ use eu4_harmony_remote::decisions::{Decision, DecisionAnswer, DecisionRequest};
 
 layer! {
     run DecisionRequest => DecisionAnswer;
-    List => fn decisions() -> Vec<Decision> = caller crate::game::decisions::list;
-    Take => fn take_decision(decision: String) -> () = caller crate::game::decisions::take;
+    List => fn decisions() -> Vec<Decision> = session crate::game::decisions::list;
+    Take => fn take_decision(decision: String) -> () = session crate::game::decisions::take;
 }

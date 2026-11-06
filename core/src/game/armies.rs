@@ -6,7 +6,7 @@
 //! army back from the extension that was moving it, and extensions hear that
 //! the player gave the army an order, exactly once
 //! (ADR remote-control-uses-capabilities).
-use super::{context, events, game, orders, with_state, world, Caller, GResult, Tag, View};
+use super::{events, orders, with_state, world, Caller, GResult, Session, Tag, View};
 use crate::{memory::Memory, objects::campaign::unit};
 use eu4_harmony_checks::armies as checks;
 
@@ -87,9 +87,7 @@ fn own(m: &Memory, caller: Caller, address: usize, id: u64) -> GResult<Army> {
 }
 
 /// One of the player's armies or fleets.
-pub fn army(caller: Caller, id: u64) -> GResult<Army> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn army(Session { m, ctx, caller, .. }: Session, id: u64) -> GResult<Army> {
     let Some((_, address, _)) = world::own_roster(m, &ctx)?.into_iter().find(|(i, _, _)| *i == id) else {
         return Err(checks::not_own(id).into());
     };
@@ -97,9 +95,7 @@ pub fn army(caller: Caller, id: u64) -> GResult<Army> {
 }
 
 /// All the player's armies and fleets.
-pub fn own_armies(caller: Caller) -> GResult<Vec<Army>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn own_armies(Session { m, ctx, caller, .. }: Session) -> GResult<Vec<Army>> {
     world::own_roster(m, &ctx)?.into_iter().map(|(id, address, _)| own(m, caller, address, id)).collect()
 }
 
@@ -107,10 +103,7 @@ pub fn own_armies(caller: Caller) -> GResult<Vec<Army>> {
 /// none under fog, and [`Status::NotReady`] while visibility is not current,
 /// and of another country's only whether it fights, besieges or retreats,
 /// which the map shows; in the full view every one, as the game keeps it.
-pub fn in_province(caller: Caller, province: u32) -> GResult<Vec<Army>> {
-    let m = game()?;
-    let ctx = context(m)?;
-    let view = super::view(caller);
+pub fn in_province(Session { m, ctx, view, .. }: Session, province: u32) -> GResult<Vec<Army>> {
     if view == View::Player && !events::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
@@ -123,35 +116,27 @@ pub fn in_province(caller: Caller, province: u32) -> GResult<Vec<Army>> {
 }
 
 /// Provinces on the current route of an own army or fleet, in order.
-pub fn route(_: Caller, id: u64) -> GResult<Vec<u32>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn route(Session { m, ctx, .. }: Session, id: u64) -> GResult<Vec<u32>> {
     let army = world::own_unit(m, &ctx, id)?;
     Ok(orders::read_path(m, army + unit::PATH)?.ids)
 }
 
 /// Whether an own land army may enter a province now (military access and
 /// terrain; forts are not considered).
-pub fn can_enter(_: Caller, id: u64, province: u32) -> GResult<bool> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn can_enter(Session { m, ctx, .. }: Session, id: u64, province: u32) -> GResult<bool> {
     let army = world::own_land_army(m, &ctx, id)?;
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     world::can_enter(m, army, address)
 }
 
 /// Whether the strait between two neighboring provinces is open to the army.
-pub fn strait_open(_: Caller, id: u64, from: u32, to: u32) -> GResult<bool> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn strait_open(Session { m, ctx, .. }: Session, id: u64, from: u32, to: u32) -> GResult<bool> {
     let army = world::own_land_army(m, &ctx, id)?;
     with_state(|s| s.geography.strait_open(m, &ctx, army, from, to))
 }
 
 /// Whether an own land army may attack a visible army in `province`.
-pub fn can_attack(_: Caller, id: u64, target: u64, province: u32) -> GResult<bool> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, province: u32) -> GResult<bool> {
     if !events::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
@@ -165,9 +150,7 @@ pub fn can_attack(_: Caller, id: u64, target: u64, province: u32) -> GResult<boo
 
 /// Whether an own land army may attack an army the player sees, wherever
 /// that is.
-pub fn can_attack_seen(_: Caller, id: u64, target: u64) -> GResult<bool> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn can_attack_seen(Session { m, ctx, .. }: Session, id: u64, target: u64) -> GResult<bool> {
     if !events::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
@@ -187,17 +170,15 @@ pub fn can_attack_seen(_: Caller, id: u64, target: u64) -> GResult<bool> {
 /// Whether an own land army may go from a province to a neighboring one
 /// now: the neighbor is open to it (military access and terrain; forts are
 /// not considered), and so is the strait between them, if any.
-pub fn can_step(caller: Caller, id: u64, from: u32, to: u32) -> GResult<bool> {
-    Ok(can_enter(caller, id, to)? && strait_open(caller, id, from, to)?)
+pub fn can_step(session: Session, id: u64, from: u32, to: u32) -> GResult<bool> {
+    Ok(can_enter(session, id, to)? && strait_open(session, id, from, to)?)
 }
 
 /// The route the game itself would choose for an own land army; empty when
 /// `goal` is where the army is. [`Status::NotFound`] when there is none.
 /// Asked by an extension, [`Status::NotReady`] while the game is paused, as
 /// the orders below; remote control asks as the player, paused or not.
-pub fn find_route(caller: Caller, id: u64, goal: u32) -> GResult<Vec<u32>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn find_route(Session { m, ctx, caller, .. }: Session, id: u64, goal: u32) -> GResult<Vec<u32>> {
     let army = world::own_unit(m, &ctx, id)?;
     with_state(|s| s.orders.find_route(m, &ctx, &mut s.geography, army, goal, caller))
 }
@@ -208,9 +189,7 @@ pub fn find_route(caller: Caller, id: u64, goal: u32) -> GResult<Vec<u32>> {
 /// is the player's, given while the game is paused as the player gives one.
 /// With `transports`, an own land army is carried there by the player's
 /// fleets, as the player's automatic transport carries it.
-pub fn move_to(caller: Caller, id: u64, goal: u32, transports: bool) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn move_to(Session { m, ctx, caller, .. }: Session, id: u64, goal: u32, transports: bool) -> GResult<()> {
     if transports {
         let army = world::own_land_army(m, &ctx, id)?;
         return orders::transport(m, &ctx, army, id, goal);
@@ -222,9 +201,7 @@ pub fn move_to(caller: Caller, id: u64, goal: u32, transports: bool) -> GResult<
 }
 
 /// Stops an own land army where it is.
-pub fn stop(caller: Caller, id: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn stop(Session { m, ctx, caller, .. }: Session, id: u64) -> GResult<()> {
     let army = world::own_land_army(m, &ctx, id)?;
     let ordered = with_state(|s| s.orders.stop_army(m, &ctx, army, id, caller))?;
     ordered.into_iter().for_each(events::raise);
@@ -232,8 +209,6 @@ pub fn stop(caller: Caller, id: u64) -> GResult<()> {
 }
 
 /// The own land army shown in the open single-army panel.
-pub fn selected(_: Caller) -> GResult<u64> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn selected(Session { m, ctx, .. }: Session) -> GResult<u64> {
     crate::ui::selected_army(m, &ctx)
 }

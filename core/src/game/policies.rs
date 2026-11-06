@@ -1,7 +1,7 @@
 //! Policies: those the policies view offers, enabling and disabling them,
 //! through the game's own commands (docs/research/government.md,
 //! "Policies").
-use super::{conditions, content, context, game, Caller, GResult, Tag};
+use super::{conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{choices::Choice, policies::Policy};
@@ -77,9 +77,7 @@ fn choice(m: &Memory, country: usize, policy: usize) -> GResult<Choice> {
 }
 
 /// The policies the policies view offers the player.
-pub fn list(_: Caller) -> GResult<Vec<Policy>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Policy>> {
     let active = active(m, ctx.country)?;
     let mut listed = Vec::new();
     for policy in content::vector(m, database(m)? + POLICIES)? {
@@ -114,9 +112,7 @@ fn written(command: &str, country: Tag, policy: &str) -> String {
 }
 
 /// Enables a policy for the player.
-pub fn enable(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn enable(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let policy = find(m, &key)?;
     let choice = choice(m, ctx.country, policy)?;
     if !choice.can {
@@ -126,9 +122,7 @@ pub fn enable(_: Caller, key: String) -> GResult<()> {
 }
 
 /// Disables a policy the player has enabled.
-pub fn disable(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn disable(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let policy = find(m, &key)?;
     if !active(m, ctx.country)?.contains(&policy) {
         return Err(checks::not_now(format!("the player has not enabled the policy {key}")).into());

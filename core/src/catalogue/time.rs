@@ -55,15 +55,15 @@ impl Held for game::time::Stop {
 
 impl Layer for Live {
     fn time(&mut self) -> GResult<game::time::Time> {
-        game::time::time(self.0)
+        game::time::time(game::Session::open(self.0)?)
     }
 
     fn pause(&mut self) -> GResult<()> {
-        game::time::pause(self.0)
+        game::time::pause(game::Session::open(self.0)?)
     }
 
     fn resume(&mut self) -> GResult<()> {
-        game::time::resume(self.0)
+        game::time::resume(game::Session::open(self.0)?)
     }
 
     fn set_speed(&mut self, speed: u32) -> GResult<()> {
@@ -71,7 +71,7 @@ impl Layer for Live {
     }
 
     fn questions_waiting(&mut self) -> GResult<usize> {
-        game::time::questions_waiting(self.0)
+        game::time::questions_waiting(game::Session::open(self.0)?)
     }
 
     fn stop_at(&mut self, date: i32) -> GResult<Box<dyn Held>> {

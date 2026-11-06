@@ -2,7 +2,7 @@
 //! consolidating, drilling, and a fleet's missions, through the game's own
 //! commands as the panels post them, with the game's own answers of whether
 //! the player can and why not (docs/research/units.md).
-use super::{commands, context, game, world, Caller, Ctx, GResult};
+use super::{commands, world, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -209,9 +209,7 @@ fn entry(action: &str, choice: Choice) -> ArmyAction {
 }
 
 /// What the panel's buttons offer for one of the player's armies or fleets.
-pub fn options(_: Caller, id: u64) -> GResult<Vec<ArmyAction>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, id: u64) -> GResult<Vec<ArmyAction>> {
     let unit = world::own_unit(m, &ctx, id)?;
     let others: Vec<usize> = mergeable(m, &ctx, unit)?.into_iter().map(|(_, u)| u).collect();
     let mut out = vec![entry("split", may_split(m, unit)?), entry("merge", may_merge(m, &ctx, &others)?), entry("disband", may_disband(m, &ctx, unit)?)];
@@ -237,9 +235,7 @@ fn allowed(choice: Choice, what: &str) -> GResult<()> {
     }
 }
 
-pub fn split(_: Caller, id: u64) -> GResult<u64> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn split(Session { m, ctx, .. }: Session, id: u64) -> GResult<u64> {
     let unit = world::own_unit(m, &ctx, id)?;
     allowed(may_split(m, unit)?, "split this unit")?;
     let before: Vec<u64> = world::own_roster(m, &ctx)?.into_iter().map(|(i, _, _)| i).collect();
@@ -250,18 +246,14 @@ pub fn split(_: Caller, id: u64) -> GResult<u64> {
     }
 }
 
-pub fn merge(_: Caller, ids: Vec<ArmyId>) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn merge(Session { m, ctx, .. }: Session, ids: Vec<ArmyId>) -> GResult<()> {
     let units = ids.iter().map(|id| world::own_unit(m, &ctx, id.0)).collect::<GResult<Vec<_>>>()?;
     allowed(may_merge(m, &ctx, &units)?, "merge these units")?;
     commands::post(&merge_text(&ids.iter().map(|id| id.0).collect::<Vec<_>>()))?;
     Ok(())
 }
 
-pub fn disband(_: Caller, id: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn disband(Session { m, ctx, .. }: Session, id: u64) -> GResult<()> {
     let unit = world::own_unit(m, &ctx, id)?;
     allowed(may_disband(m, &ctx, unit)?, "disband this unit")?;
     commands::post(&disband_text(id))?;
@@ -273,18 +265,14 @@ fn own_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     world::own_land_army(m, ctx, id)
 }
 
-pub fn consolidate(_: Caller, id: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn consolidate(Session { m, ctx, .. }: Session, id: u64) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     allowed(may_consolidate(m, unit)?, "consolidate this army")?;
     commands::post(&consolidate_text(id, m.ptr(unit + COMPANY)? != 0))?;
     Ok(())
 }
 
-pub fn drill(_: Caller, id: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn drill(Session { m, ctx, .. }: Session, id: u64) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     if mission_kind(m, unit)? == DRILLING {
         return Err(checks::state("the army drills already").into());
@@ -294,9 +282,7 @@ pub fn drill(_: Caller, id: u64) -> GResult<()> {
     Ok(())
 }
 
-pub fn stop_drill(_: Caller, id: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn stop_drill(Session { m, ctx, .. }: Session, id: u64) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     if mission_kind(m, unit)? != DRILLING {
         return Err(checks::state("the army does not drill").into());
@@ -314,9 +300,7 @@ fn own_fleet(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     }
 }
 
-pub fn mission(_: Caller, id: u64, mission: String, target: Option<u32>) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn mission(Session { m, ctx, .. }: Session, id: u64, mission: String, target: Option<u32>) -> GResult<()> {
     let fleet = own_fleet(m, &ctx, id)?;
     if !MISSIONS.contains(&mission.as_str()) {
         return Err(checks::unknown("mission", &mission, &MISSIONS).into());
@@ -330,9 +314,7 @@ pub fn mission(_: Caller, id: u64, mission: String, target: Option<u32>) -> GRes
     Ok(())
 }
 
-pub fn stop_mission(_: Caller, id: u64) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn stop_mission(Session { m, ctx, .. }: Session, id: u64) -> GResult<()> {
     own_fleet(m, &ctx, id)?;
     commands::post(&stop_mission_text(id))?;
     Ok(())

@@ -5,7 +5,7 @@
 use super::{
     administration::MOST_CONSTRUCTIONS,
     commands::{self, Refused},
-    context, context_any, events, fail, game, thousandths, with_state, Caller, Ctx, GResult, Status, Tag,
+    context_any, events, fail, game, thousandths, with_state, Ctx, GResult, Session, Status, Tag,
 };
 use crate::{
     game_string,
@@ -204,13 +204,11 @@ fn can_build(m: &Memory, ctx: &Ctx, province: usize, building: usize) -> GResult
 /// What the building panel offers the player in a province now, and what is
 /// being built there; in the player's view not in another country's
 /// province, as the province view does not show it.
-pub fn options(caller: Caller, id: u32) -> GResult<(Option<Constructing>, Vec<Offer>)> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<(Option<Constructing>, Vec<Offer>)> {
     let province = province_address(m, &ctx, id)?;
     let owner = Some(Tag(m.u64(province + field::OWNER)?)).filter(|t| t.valid());
     let owned = owner == Some(ctx.player);
-    let seen = super::provinces::sees_inside(super::view(caller), &ctx, owner);
+    let seen = super::provinces::sees_inside(view, &ctx, owner);
     let mut offers = Vec::new();
     let constructing = match construction(m, province)?.filter(|_| seen) {
         None => None,
@@ -270,9 +268,7 @@ fn destroy_text(tag: Tag, province: u32, index: u32) -> String {
 }
 
 /// Starts building `key` in the province for the player.
-pub fn build(_: Caller, id: u32, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn build(Session { m, ctx, .. }: Session, id: u32, key: String) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let (building, index) = named(m, &key)?;
     let choice = can_build(m, &ctx, province, building)?;
@@ -283,9 +279,7 @@ pub fn build(_: Caller, id: u32, key: String) -> GResult<()> {
 }
 
 /// Cancels the building the player is building in the province.
-pub fn cancel(_: Caller, id: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn cancel(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let Some(construction) = construction(m, province)? else {
         return Err(refuse::not_doing("building in", id).into());
@@ -299,9 +293,7 @@ pub fn cancel(_: Caller, id: u32) -> GResult<()> {
 }
 
 /// Destroys the building `key` in one of the player's provinces.
-pub fn destroy(_: Caller, id: u32, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn destroy(Session { m, ctx, .. }: Session, id: u32, key: String) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let (_, index) = named(m, &key)?;
     if Tag(m.u64(province + field::OWNER)?) != ctx.player {

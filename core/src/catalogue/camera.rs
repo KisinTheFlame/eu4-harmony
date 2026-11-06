@@ -8,11 +8,11 @@ use eu4_harmony_remote::{
 
 layer! {
     run CameraRequest => CameraAnswer;
-    Get => fn camera() -> game::camera::Camera = caller game::camera::camera;
-    fn look_at_province(province: u32) -> game::camera::Camera = caller game::camera::look_at_province;
-    fn look_at(x: u32, y: u32) -> game::camera::Camera = caller game::camera::look_at;
+    Get => fn camera() -> game::camera::Camera = session game::camera::camera;
+    fn look_at_province(province: u32) -> game::camera::Camera = session game::camera::look_at_province;
+    fn look_at(x: u32, y: u32) -> game::camera::Camera = session game::camera::look_at;
     LookAt { province, x, y } => look(game, province, x, y);
-    Zoom => fn zoom(height: u32) -> game::camera::Camera = caller game::camera::zoom;
+    Zoom => fn zoom(height: u32) -> game::camera::Camera = session game::camera::zoom;
 }
 
 /// Looks at a province, or at a point of the map.

@@ -8,8 +8,8 @@ use eu4_harmony_remote::{
 
 layer! {
     run SubjectRequest => SubjectAnswer + countries::Layer;
-    fn interactions(subject: Tag) -> Vec<SubjectInteraction> = caller layer::options;
-    fn interact(subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> () = caller layer::interact;
+    fn interactions(subject: Tag) -> Vec<SubjectInteraction> = session layer::options;
+    fn interact(subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> () = session layer::interact;
     Options { subject } => options(game, subject);
     Interact { subject, interaction, third_party, province } => use_interaction(game, subject, &interaction, third_party, province.map(|p| p.0));
 }

@@ -1,7 +1,7 @@
 //! Centers of trade: what the province view's center of trade button offers,
 //! and upgrading and downgrading one through the game's own command
 //! (docs/research/envoys.md, "Centers of trade").
-use super::{context, envoys, game, with_state, Caller, Ctx, GResult, Tag};
+use super::{envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_remote::{
     centers_of_trade::CenterOfTradeOptions,
@@ -48,9 +48,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 
 /// The center of trade in province `id`, and what the province view offers
 /// the player for it.
-pub fn options(_: Caller, id: u32) -> GResult<CenterOfTradeOptions> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<CenterOfTradeOptions> {
     read(m, &ctx, province(m, &ctx, id)?, id).map(|(options, _)| options)
 }
 
@@ -98,9 +96,7 @@ fn written(player: Tag, province: u32, level: u32) -> String {
 
 /// Upgrades (`up`) or downgrades the center of trade in the player's
 /// province `id` a level.
-pub fn change(_: Caller, id: u32, up: bool) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn change(Session { m, ctx, .. }: Session, id: u32, up: bool) -> GResult<()> {
     let (options, level) = read(m, &ctx, province(m, &ctx, id)?, id)?;
     let choice = if up { &options.upgrade } else { &options.downgrade };
     if level == 0 {

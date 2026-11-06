@@ -1,15 +1,17 @@
 //! The capability layer: every capability extensions and remote clients use,
 //! implemented once (ADR remote-control-uses-capabilities). Each capability is
-//! a function taking the [`Caller`] and returning the framework's own types;
-//! the capability catalogue (`crate::catalogue`), which remote control and the
-//! Lua host both run their requests through, only converts to and from them
-//! (ADR one-capability-catalogue). One file per group: [`session`],
+//! a function taking first the [`Session`] it reads, which the catalogue opens
+//! for each request, or, for one that runs without a session or checks
+//! something of its own before, the [`Caller`], and returning the framework's
+//! own types; the capability catalogue (`crate::catalogue`), which remote
+//! control and the Lua host both run their requests through, only converts to
+//! and from them (ADR one-capability-catalogue). One file per group: [`session`],
 //! [`countries`], [`provinces`], [`armies`], [`interface`], [`map_coloring`],
 //! [`texts`], [`camera`], [`screenshot`], [`console`], [`time`],
 //! [`recruiting`], [`menu`] and [`diplomacy`]; the game's questions and offers waiting for the player's
 //! answer, [`questions`] and [`offers`].
 //!
-//! Under them, reading the campaign, finding routes and giving orders, ported
+//! Under them, reading the session, finding routes and giving orders, ported
 //! from eu4-regional-combat's native adapter ([`world`], [`orders`], and
 //! [`events`], which establishes the safe point everything here runs at);
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
@@ -522,7 +524,8 @@ impl Tag {
     }
 }
 
-/// The campaign as seen at one instant.
+/// The session as seen at one instant: its world, its date, and the
+/// player's country, by its tag and its object, among the countries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ctx {
     pub world: usize,
@@ -532,7 +535,7 @@ pub struct Ctx {
     pub countries: usize,
 }
 
-/// Current campaign, refusing while the daily update is running.
+/// The session going on, refusing while the daily update is running.
 pub fn context(m: &Memory) -> GResult<Ctx> {
     context_impl(m, true)
 }

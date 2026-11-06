@@ -13,14 +13,14 @@ use eu4_harmony_remote::{
 
 layer! {
     run ProvinceRequest => ProvinceAnswer;
-    fn provinces() -> Vec<game::provinces::Province> = caller game::provinces::provinces;
-    fn named_provinces(ids: Vec<u32>) -> Vec<game::provinces::Province> = caller game::provinces::named;
-    fn neighbors(province: u32) -> Vec<game::provinces::Neighbor> = caller game::provinces::neighbors;
-    fn province_act(province: u32, action: Action) -> () = caller game::administration::act;
+    fn provinces() -> Vec<game::provinces::Province> = session game::provinces::provinces;
+    fn named_provinces(ids: Vec<u32>) -> Vec<game::provinces::Province> = session game::provinces::named;
+    fn neighbors(province: u32) -> Vec<game::provinces::Neighbor> = session game::provinces::neighbors;
+    fn province_act(province: u32, action: Action) -> () = session game::administration::act;
     List { provinces } => list(game, provinces);
     Neighbors { province } => neighbors(game, province.0);
-    Get => fn province(province: u32) -> layer::Snapshot = caller layer::province;
-    Options => fn province_options(province: u32) -> Vec<ProvinceOption> = caller game::administration::options;
+    Get => fn province(province: u32) -> layer::Snapshot = session layer::province;
+    Options => fn province_options(province: u32) -> Vec<ProvinceOption> = session game::administration::options;
     DevelopTax { province } => game.province_act(province, Action::Develop(Kind::Tax));
     DevelopProduction { province } => game.province_act(province, Action::Develop(Kind::Production));
     DevelopManpower { province } => game.province_act(province, Action::Develop(Kind::Manpower));
@@ -31,7 +31,7 @@ layer! {
     LowerAutonomy { province } => game.province_act(province, Action::LowerAutonomy);
     MakeState { province } => game.province_act(province, Action::MakeState);
     MakeTerritory { province } => game.province_act(province, Action::MakeTerritory);
-    SetEdict => fn set_edict(province: u32, edict: String) -> () = caller game::administration::set_edict;
+    SetEdict => fn set_edict(province: u32, edict: String) -> () = session game::administration::set_edict;
     CancelEdict { province } => game.province_act(province, Action::CancelEdict);
     Core { province } => game.province_act(province, Action::Core);
     CancelCore { province } => game.province_act(province, Action::CancelCore);

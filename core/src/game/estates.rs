@@ -2,7 +2,7 @@
 //! interactions over crown land, granting and revoking privileges and the
 //! interactions, through the game's own commands
 //! (docs/research/government.md, "Estates").
-use super::{conditions, content, context, game, modifiers, thousandths, Caller, GResult, Tag};
+use super::{conditions, content, modifiers, thousandths, GResult, Session, Tag};
 use crate::{memory::Memory, objects::campaign::country, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
@@ -155,9 +155,7 @@ fn choice(m: &Memory, player: Tag, entry: usize, privilege: usize, granted: bool
 }
 
 /// The player's estates as the estates view shows them.
-pub fn list(_: Caller) -> GResult<Vec<Estate>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Estate>> {
     let mut listed = Vec::new();
     for entry in entries(m, ctx.country)? {
         let estate = m.ptr(entry + ENTRY_ESTATE)?;
@@ -197,9 +195,7 @@ fn interaction_choice(m: &Memory, country: usize, interaction: usize) -> GResult
 }
 
 /// The estates view's interactions over crown land.
-pub fn interactions_list(_: Caller) -> GResult<Vec<EstateInteraction>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn interactions_list(Session { m, ctx, .. }: Session) -> GResult<Vec<EstateInteraction>> {
     interactions(m)?
         .into_iter()
         .map(|at| {
@@ -239,9 +235,7 @@ fn written_interaction(country: Tag, interaction: usize) -> String {
 }
 
 /// Grants an estate of the player's a privilege.
-pub fn grant_privilege(_: Caller, estate: String, privilege: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn grant_privilege(Session { m, ctx, .. }: Session, estate: String, privilege: String) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if has {
         return Err(checks::not_now(format!("{estate} has the privilege {privilege} already")).into());
@@ -254,9 +248,7 @@ pub fn grant_privilege(_: Caller, estate: String, privilege: String) -> GResult<
 }
 
 /// Revokes a privilege the player granted an estate.
-pub fn revoke_privilege(_: Caller, estate: String, privilege: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn revoke_privilege(Session { m, ctx, .. }: Session, estate: String, privilege: String) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if !has {
         return Err(checks::not_now(format!("{estate} does not have the privilege {privilege}")).into());
@@ -269,9 +261,7 @@ pub fn revoke_privilege(_: Caller, estate: String, privilege: String) -> GResult
 }
 
 /// Uses one of the estates view's interactions over crown land.
-pub fn interact(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn interact(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     for (index, at) in interactions(m)?.into_iter().enumerate() {
         if content::key(m, at + INTERACTION_KEY)? != key {
             continue;

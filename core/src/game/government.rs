@@ -1,7 +1,7 @@
 //! Government: the player's government reforms and rank, adopting reforms
 //! and raising the rank, through the game's own commands
 //! (docs/research/government.md, "Reforms" and "Rank").
-use super::{conditions, content, context, game, thousandths, Caller, GResult, Tag};
+use super::{conditions, content, thousandths, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
@@ -136,9 +136,7 @@ fn cost_thousandths(cost: &[Amount]) -> i32 {
 
 /// The player's government: its type, rank, reform progress, and whether
 /// they can raise the rank.
-pub fn options(_: Caller) -> GResult<Government> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session) -> GResult<Government> {
     let government = government(m, ctx.country)?;
     let (can, reasons) = content::checked(m, |reasons| Ok(m.call(m.at(CAN_RAISE), &[ctx.country, reasons])?))?;
     Ok(Government {
@@ -151,9 +149,7 @@ pub fn options(_: Caller) -> GResult<Government> {
 }
 
 /// The government view's reforms, tier by tier.
-pub fn reforms(_: Caller) -> GResult<Vec<ReformTier>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn reforms(Session { m, ctx, .. }: Session) -> GResult<Vec<ReformTier>> {
     let government = government(m, ctx.country)?;
     let adopted = adopted(m, government)?;
     let mut listed = Vec::new();
@@ -195,9 +191,7 @@ fn written_rank(country: Tag, rank: i32) -> String {
 }
 
 /// Adopts a reform for the player, as its button does.
-pub fn adopt_reform(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn adopt_reform(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let government = government(m, ctx.country)?;
     let adopted = adopted(m, government)?;
     for (tier, (_, reforms)) in tiers(m, government)?.into_iter().enumerate() {
@@ -217,9 +211,7 @@ pub fn adopt_reform(_: Caller, key: String) -> GResult<()> {
 }
 
 /// Raises the player's government rank by one.
-pub fn raise_rank(_: Caller) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn raise_rank(Session { m, ctx, .. }: Session) -> GResult<()> {
     let (can, reasons) = content::checked(m, |reasons| Ok(m.call(m.at(CAN_RAISE), &[ctx.country, reasons])?))?;
     if !can {
         return content::refused(&reasons, "raising the government rank");

@@ -3,11 +3,9 @@
 //! policy through the game's own commands (docs/research/envoys.md,
 //! "Merchants").
 use super::{
-    context,
     envoys::{self, quoted, Kind},
-    game,
     trade::{self, DEFINITION, ENTRIES, ENTRY_SIZE, HAS_MERCHANT, HOME, KEY, LINKS, LINK_SIZE, LINK_TO, MOST, NAME, STEER_LINK},
-    Caller, Ctx, GResult, Tag,
+    Ctx, GResult, Session, Tag,
 };
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::{
@@ -167,9 +165,7 @@ fn present(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<Option<Present>> {
 }
 
 /// The player's merchants, and where the placed ones are.
-pub fn list(_: Caller) -> GResult<Merchants> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Merchants> {
     let (merchants, free) = envoys::count(m, ctx.country, Kind::Merchant)?;
     let mut placed = Vec::new();
     for node in nodes(m, &ctx)? {
@@ -182,9 +178,7 @@ pub fn list(_: Caller) -> GResult<Merchants> {
 }
 
 /// What the trade view offers the player in the node `key`.
-pub fn options(_: Caller, key: &str) -> GResult<Box<MerchantOptions>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, key: &str) -> GResult<Box<MerchantOptions>> {
     read(m, &ctx, &node(m, &ctx, key)?).map(Box::new)
 }
 
@@ -274,9 +268,7 @@ fn send_written(player: Tag, location: i32, merchant: i32, mission: Mission) -> 
 
 /// Sends a merchant to the node `key` for `mission`, or has the one there
 /// take it up.
-pub fn send(_: Caller, key: &str, mission: Mission) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn send(Session { m, ctx, .. }: Session, key: &str, mission: Mission) -> GResult<()> {
     let node = node(m, &ctx, key)?;
     let options = read(m, &ctx, &node)?;
     let choice = match mission {
@@ -297,9 +289,7 @@ pub fn send(_: Caller, key: &str, mission: Mission) -> GResult<()> {
 }
 
 /// Recalls the player's merchant from the node `key`.
-pub fn recall(_: Caller, key: &str) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn recall(Session { m, ctx, .. }: Session, key: &str) -> GResult<()> {
     let node = node(m, &ctx, key)?;
     match present(m, &ctx, &node)? {
         None => return Err(eu4_harmony_checks::envoys::none_there("merchant").into()),
@@ -312,9 +302,7 @@ pub fn recall(_: Caller, key: &str) -> GResult<()> {
 
 /// Has the player's merchant steering in the node `key` steer to the node
 /// `to` downstream.
-pub fn steer_to(_: Caller, key: &str, to: &str) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn steer_to(Session { m, ctx, .. }: Session, key: &str, to: &str) -> GResult<()> {
     let node = node(m, &ctx, key)?;
     let options = read(m, &ctx, &node)?;
     let Some(along) = options.steer_to.iter().position(|d| d.node == to) else {
@@ -345,9 +333,7 @@ fn all_policies(m: &Memory) -> GResult<Vec<(usize, String)>> {
 }
 
 /// The trading policies the trade view offers the player in the node `key`.
-pub fn policies(_: Caller, key: &str) -> GResult<TradingPolicies> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn policies(Session { m, ctx, .. }: Session, key: &str) -> GResult<TradingPolicies> {
     read_policies(m, &ctx, &node(m, &ctx, key)?)
 }
 
@@ -380,9 +366,7 @@ fn policy_written(player: Tag, definition: i32, policy: i32) -> String {
 }
 
 /// Chooses the trading policy `policy` for the player in the node `key`.
-pub fn set_policy(_: Caller, key: &str, policy: &str) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn set_policy(Session { m, ctx, .. }: Session, key: &str, policy: &str) -> GResult<()> {
     let node = node(m, &ctx, key)?;
     let Some(address) = all_policies(m)?.into_iter().find(|(_, k)| k == policy).map(|(a, _)| a) else {
         return Err(eu4_harmony_checks::envoys::unknown("trading policy", policy).into());

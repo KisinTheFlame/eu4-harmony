@@ -1,6 +1,6 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/research/countries.md).
-use super::{commands, context, country, game, modifiers, span, thousandths, view, world, Caller, Ctx, GResult, Tag, View};
+use super::{commands, country, modifiers, span, thousandths, world, Ctx, GResult, Session, Tag, View};
 use crate::{
     game_string,
     memory::Memory,
@@ -19,9 +19,7 @@ use std::collections::BTreeSet;
 
 /// The country whose tag is these three letters (for example `CAS`);
 /// [`super::Status::NotFound`] when there is none.
-pub fn find(_: Caller, letters: [u8; 3]) -> GResult<Tag> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn find(Session { m, ctx, .. }: Session, letters: [u8; 3]) -> GResult<Tag> {
     match world::countries(m, &ctx)?.into_iter().find(|t| t.letters() == letters) {
         Some(tag) => Ok(tag),
         None => Err(eu4_harmony_checks::countries::not_found(&String::from_utf8_lossy(&letters)).into()),
@@ -29,17 +27,13 @@ pub fn find(_: Caller, letters: [u8; 3]) -> GResult<Tag> {
 }
 
 /// The three letters of a country's tag (for example `CAS`).
-pub fn tag(_: Caller, country_id: Tag) -> GResult<[u8; 3]> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn tag(Session { m, ctx, .. }: Session, country_id: Tag) -> GResult<[u8; 3]> {
     country(m, &ctx, country_id)?;
     Ok(country_id.letters())
 }
 
 /// Whether the two countries are at war, or either is a rebel faction.
-pub fn hostile(_: Caller, a: Tag, b: Tag) -> GResult<bool> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn hostile(Session { m, ctx, .. }: Session, a: Tag, b: Tag) -> GResult<bool> {
     world::hostile(m, &ctx, a, b)
 }
 
@@ -259,21 +253,19 @@ const EXPENSE_KEYS: [&str; fields::EXPENSE_CATEGORIES] = [
     "COLONY_CHANGES",
 ];
 
-/// Whether `caller` sees what the panels show only to the country `tag`
-/// itself: in the full view, or of the player's own country.
-fn sees_all_of(caller: Caller, ctx: &Ctx, tag: Tag) -> bool {
-    view(caller) == View::Full || tag.index() == ctx.player.index()
+/// Whether a caller reading `view` sees what the panels show only to the
+/// country `tag` itself: in the full view, or of the player's own country.
+fn sees_all_of(view: View, ctx: &Ctx, tag: Tag) -> bool {
+    view == View::Full || tag.index() == ctx.player.index()
 }
 
 /// One read of a country: its treasury, manpower, stability, prestige,
 /// monarch points, wars, diplomatic relations, technology and ideas, and
 /// what only it sees of itself ([`Own`]). In the player's view another
 /// country's treasury, monarch points and [`Own`] are left out.
-pub fn snapshot(caller: Caller, tag: Tag) -> GResult<Country> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn snapshot(Session { m, ctx, view, .. }: Session, tag: Tag) -> GResult<Country> {
     let c = country(m, &ctx, tag)?;
-    let all = sees_all_of(caller, &ctx, tag);
+    let all = sees_all_of(view, &ctx, tag);
     let fixed = |at: usize| m.i32(c + at);
     let mut relations = Vec::new();
     let mut add = |kind: RelationKind, country: Tag, subject_type: Option<String>| relations.push(Relation { kind, country, subject_type });
@@ -429,12 +421,10 @@ fn faction_kind(m: &Memory, faction: usize) -> GResult<String> {
 /// A country's budget as the economy view shows it: this month's income and
 /// expenses by category, and its loans; in the player's view another
 /// country's are left out.
-pub fn budget(caller: Caller, tag: Tag) -> GResult<Budget> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn budget(Session { m, ctx, view, .. }: Session, tag: Tag) -> GResult<Budget> {
     let c = country(m, &ctx, tag)?;
     let letters = CountryTag(tag.letters());
-    if !sees_all_of(caller, &ctx, tag) {
+    if !sees_all_of(view, &ctx, tag) {
         return Ok(Budget { country: letters, income: None, expenses: None, loans: None });
     }
     let entries = |table: usize, keys: &[&str]| -> GResult<Vec<Entry>> {
