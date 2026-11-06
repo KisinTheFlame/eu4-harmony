@@ -17,7 +17,7 @@ Tools for trying things in a running game, finding dependency points and looking
 | `cargo xtask crash-dump` | Runs debugger commands on a crash dump with Windows' own dbgeng.dll, with no debugger to install |
 | `cargo xtask disasm` | Reads the installed game's code: disassembles, dumps bytes, counts a function's arguments ([below](#disassembly)) |
 | `cargo xtask offline-check` | Checks every dependency point's bytes against the game's `eu4.exe`, and that every observe point forwards no fewer arguments than its function reads |
-| `dev-call-trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value (`core/src/trace.rs`; [below](#call-tracing)) |
+| `dev-call-trace` feature | Logs calls to chosen game functions: the arguments, the text arguments point to, the call site, the return value; with `times`, times every call into a file, on whichever thread it runs (`core/src/trace.rs`; [below](#call-tracing)) |
 | `dev-memory` feature | Answers remote control's `memory`: what the process holds, split into the game's heap, the other heaps, the heaps' free pages, what lies outside the heaps and the framework's heap, at no cost between two asks (`core/src/memory_account.rs`, [leak-finding.md](leak-finding.md)) |
 | `dev-heap-census` feature | Counts the game's live heap blocks by site and generation, logs at every world reset those the earlier sessions left, and answers remote control's `memory.leftovers`, `memory.watch`, `memory.generation`, `memory.quarantine`, `memory.pages` and `memory.uncounted`; builds the memory account in too (`core/src/census.rs`, [leak-finding.md](leak-finding.md)) |
 | `dev-command-log` feature | Logs every command the game executes, or those of the types named, in its written form, as the command layer hears them (`core/src/command_log.rs`, `core/src/game/commands.rs`) |
@@ -63,6 +63,8 @@ The tools' options are in `dev.toml` at the top of the repository, which is not 
 ## Call tracing
 
 In `dev.toml`'s `[call-trace]`, `functions` lists the RVAs of the functions to trace, for example `["0x15988e0", "0x159c600"]`. The first 20 calls to each function (`calls` changes this) go into the framework log: the value of each argument, with the text when an argument points to text (a C string or a `std::string`, decoded as game text), the call site, and the return value.
+
+With `times = true`, every call of each traced function is timed as well, into `call-times.tsv` in the logs folder, a new file each run: the function, the thread (`main` for the main thread), its start and end in microseconds, the game's date, its first argument, and, for a function `fields` names, the eight bytes at an offset into the object the first argument points at (`fields = { "0xb0fa0" = "0x20" }`). It is for how long calls take and how they lie on the threads, such as the tasks of a parallel stage ([research/late-game.md](research/late-game.md)); `calls = 0` leaves the log out. The calls are kept in memory and written by a thread of the tool's own once a second. Each timed call goes through the observer and takes a lock, so a function called very often slows the game; tens of thousands of calls a second did not show in the days a second (prototype-log, 2026-11-07).
 
 The number of arguments is counted from the function's code. For a leaf function with no entry in the exception directory, write `"RVA:N"` and give the count yourself; give too few and the function reads garbage, and the game may crash.
 
