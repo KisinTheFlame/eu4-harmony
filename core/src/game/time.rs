@@ -5,10 +5,7 @@
 //! question waits for the player's answer. All of it also while the player
 //! only observes, with no country to play, as the game lets the player run
 //! time then too. The evidence is in docs/research/time.md.
-use super::{
-    commands, context, context_any, events, fail, game, map_manager, observing, paused, questions, world_context, world_context_any, Caller, GResult, Status,
-    World,
-};
+use super::{commands, context, context_any, fail, map_manager, observing, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -69,9 +66,7 @@ impl Time {
 }
 
 /// The date, the speed, and what holds the game paused.
-pub fn time(_: Caller) -> GResult<Time> {
-    let m = game()?;
-    let ctx = world_context(m)?;
+pub fn time(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<Time> {
     let index = m.i32(ctx.world + world::SPEED)?;
     if !(0..=4).contains(&index) {
         return Err(format!("unexpected game speed {index}").into());
@@ -83,24 +78,21 @@ pub fn time(_: Caller) -> GResult<Time> {
     } else {
         Pause::Window
     };
-    Ok(Time { session: events::session(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
+    Ok(Time { session: crate::sessions::number(), date: ctx.date, speed: index as u32 + 1, pause, over: over(m, &ctx)? })
 }
 
 /// Pauses the game with the player's own pause, as the player would, also
 /// when windows hold it paused already: it then stays paused once they close,
 /// until it is resumed. Nothing when the player's pause holds it already.
-pub fn pause(_: Caller) -> GResult<()> {
-    let m = game()?;
-    pause_game(m, &world_context(m)?)
+pub fn pause(WorldSession { m, world, .. }: WorldSession) -> GResult<()> {
+    pause_game(m, &world)
 }
 
 /// Resumes the game, as the player would: also when windows hold it paused,
 /// which stay open. Nothing when it runs. Refused, as the player's resuming
 /// is, once the game is over ([`over`]), and when it would not let time run
 /// with no country to play ([`lets_time_run`]).
-pub fn resume(_: Caller) -> GResult<()> {
-    let m = game()?;
-    let ctx = world_context(m)?;
+pub fn resume(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<()> {
     if paused(m, &ctx)? {
         if let Some(end) = over(m, &ctx)? {
             return Err(eu4_harmony_checks::time::over(eu4_harmony_checks::Date(end)).into());
@@ -140,10 +132,9 @@ fn lets_time_run(m: &Memory, ctx: &World) -> GResult<bool> {
 /// Sets the game speed, 1 (slowest) to 5 (fastest), as the player's speed
 /// keys do: one of the game's speed commands for each step, each carried out
 /// at once.
-pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
+pub fn set_speed(caller: Caller, speed: u32) -> GResult<()> {
     eu4_harmony_checks::time::speed(speed)?;
-    let m = game()?;
-    let ctx = world_context(m)?;
+    let WorldSession { m, world: ctx, .. } = WorldSession::open(caller)?;
     let target = speed as i32 - 1;
     let now = m.i32(ctx.world + world::SPEED)?;
     let command = if target > now { "increase_game_speed={ }" } else { "decrease_game_speed={ }" };
@@ -165,9 +156,7 @@ pub fn set_speed(_: Caller, speed: u32) -> GResult<()> {
 /// and the end of the daily update during an advance asks it directly, so
 /// the two never disagree with each other or with the questions listed. None
 /// waits for an observer.
-pub fn questions_waiting(_: Caller) -> GResult<usize> {
-    let m = game()?;
-    world_context(m)?;
+pub fn questions_waiting(WorldSession { m, .. }: WorldSession) -> GResult<usize> {
     if observing(m)? {
         return Ok(0);
     }
@@ -188,7 +177,7 @@ pub struct Stop {
 /// A stop held.
 struct Held {
     number: u64,
-    /// The session it was held in ([`events::session`]).
+    /// The session it was held in (`crate::sessions::number`).
     session: u64,
     date: i32,
     reached: bool,
@@ -270,7 +259,7 @@ impl Stop {
 impl Drop for Stop {
     fn drop(&mut self) {
         if !self.released {
-            let (number, session) = (self.number, events::session());
+            let (number, session) = (self.number, crate::sessions::number());
             stops(|s| s.call_off(number, session));
         }
     }
@@ -284,7 +273,7 @@ pub fn stop_at(caller: Caller, date: i32) -> GResult<Stop> {
     if let Caller::Extension(_) = caller {
         return fail(Status::Unavailable, "only remote control advances time");
     }
-    let session = events::session();
+    let session = crate::sessions::number();
     let number = stops(|s| s.hold(session, date));
     Ok(Stop { number, released: false })
 }
@@ -299,7 +288,7 @@ pub(super) fn day_passed(m: &Memory) {
         return;
     }
     let Ok(ctx) = world_context_any(m) else { return };
-    let session = events::session();
+    let session = crate::sessions::number();
     let asked = || context_any(m).is_ok_and(|player| questions::count(m, &player).is_ok_and(|waiting| waiting > 0));
     let due = stops(|s| s.reach(session, ctx.date)) || (stops(|s| s.advancing(session)) && asked());
     if due {
@@ -444,7 +433,7 @@ mod tests {
     #[test]
     fn only_remote_control_holds_a_stop_and_one_dropped_is_called_off() {
         assert_eq!(stop_at(Caller::Extension(0), 100).unwrap_err().status, Status::Unavailable);
-        let session = events::session();
+        let session = crate::sessions::number();
         let answered = stop_at(Caller::Remote, 100).unwrap();
         let given_up = stop_at(Caller::Remote, 1000).unwrap();
         answered.release();

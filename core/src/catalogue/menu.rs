@@ -65,6 +65,12 @@ impl Layer for Live {
     }
 }
 
+/// The group's slice is written above by hand, without `layer!`'s lines.
+#[cfg(test)]
+pub fn bindings() -> super::Bindings {
+    super::Bindings::default()
+}
+
 /// What every request is answered once the game starts `eu4.exe` again to
 /// return to the main menu, unless it has an answer of its own then.
 pub fn ending() -> Error {

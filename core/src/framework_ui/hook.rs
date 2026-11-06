@@ -6,7 +6,8 @@
 //! back when a screenshot asks for it (`crate::game::screenshot`). Before a
 //! device reset the game calls 0x16d4bb0 (renderer), where the framework
 //! drops what lives in the default pool. A frame the main thread presents is
-//! also a safe point (`crate::safe_point`).
+//! also a safe point (`crate::safe_point`). Frames held back
+//! ([`super::hold`]) are neither presented nor any of that.
 //!
 //! The device is created multithreaded (behaviour flags 0x44, seen in game):
 //! each call takes the device's lock, a sequence of calls does not. While the
@@ -30,6 +31,10 @@ static ORIGINAL_PRESENT: Function<Present> = Function::new();
 
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
+        if super::held() {
+            // Answered as a frame presented on a working device.
+            return 1;
+        }
         // Inside a guard, as all framework code here: a panic must not
         // unwind into the game.
         let device = crate::guarded("frame present", || crate::memory().and_then(|m| m.ptr(renderer + DEVICE).ok()).map(|device| device as *mut c_void));

@@ -378,8 +378,6 @@ pub(crate) fn deferred_init() {
     let chosen = settings::load(&user_dir);
     let language = lang::decide(&user_dir, chosen.language);
     log!("settings: {chosen:?}");
-    speed::set_pace(chosen.fastest_speed);
-    sound::choose(&chosen);
     saves::background::set_folder(&user_dir);
     loading::set_folders(&game_dir, &user_dir);
     saves::parallel::start();

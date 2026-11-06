@@ -19,16 +19,16 @@ use std::time::{Duration, Instant};
 pub const WAITED: Duration = Duration::from_secs(5);
 
 layer! {
-    fn war_goals(enemy: Tag) -> Vec<layer::WarGoal> = layer::war_goals;
-    fn declare_war(enemy: Tag, choice: &Choice, calls: &Calls) -> Declaration = layer::declare_war;
-    fn offer_peace(enemy: Tag) -> Ticket = layer::offer_peace;
-    fn propose_alliance(ally: Tag) -> Ticket = layer::propose_alliance;
-    fn options(country: Tag) -> Vec<layer::Offered> = layer::options;
-    fn act(country: Tag, what: &What, details: &Details) -> Ticket = layer::act;
-    fn call_to_arms(ally: Tag) -> Ticket = layer::call_to_arms;
-    fn answer(ticket: Ticket) -> Answer = layer::answer;
-    fn add_rival(rival: Tag) -> () = layer::add_rival;
-    fn remove_rival(rival: Tag) -> () = layer::remove_rival;
+    fn war_goals(enemy: Tag) -> Vec<layer::WarGoal> = session layer::war_goals;
+    fn declare_war(enemy: Tag, choice: &Choice, calls: &Calls) -> Declaration = session layer::declare_war;
+    fn offer_peace(enemy: Tag) -> Ticket = session layer::offer_peace;
+    fn propose_alliance(ally: Tag) -> Ticket = session layer::propose_alliance;
+    fn options(country: Tag) -> Vec<layer::Offered> = session layer::options;
+    fn act(country: Tag, what: &What, details: &Details) -> Ticket = session layer::act;
+    fn call_to_arms(ally: Tag) -> Ticket = session layer::call_to_arms;
+    fn answer(ticket: Ticket) -> Answer = session layer::answer;
+    fn add_rival(rival: Tag) -> () = session layer::add_rival;
+    fn remove_rival(rival: Tag) -> () = session layer::remove_rival;
 }
 
 /// The panel's act a capability sends, the country it sends it to, and the

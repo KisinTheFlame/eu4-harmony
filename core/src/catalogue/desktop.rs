@@ -5,9 +5,9 @@ use eu4_harmony_remote::desktop::{Desktop, DesktopAnswer, DesktopRequest};
 
 layer! {
     run DesktopRequest => DesktopAnswer;
-    Get => fn desktop() -> Desktop = desktop;
-    Show => fn show() -> Desktop = show;
-    Hide => fn hide() -> Desktop = hide;
+    Get => fn desktop() -> Desktop = caller desktop;
+    Show => fn show() -> Desktop = caller show;
+    Hide => fn hide() -> Desktop = caller hide;
 }
 
 fn now() -> Desktop {

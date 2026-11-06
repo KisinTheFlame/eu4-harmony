@@ -14,7 +14,7 @@
 //! game carried out, which an observer of the game's own function sees.
 use super::{
     commands::{self, Refused},
-    context, context_any, countries, country, events, fail, game, Caller, Ctx, GResult, Status, Tag,
+    context_any, countries, country, fail, game, Caller, Ctx, GResult, Session, Status, Tag,
 };
 use crate::{
     game_string,
@@ -212,9 +212,7 @@ pub enum Answer {
 /// The war goals the game offers the player against `enemy`, as the
 /// declare war window lists them, and last, when the game offers it, the
 /// declaration without a casus belli.
-pub fn war_goals(_: Caller, enemy: Tag) -> GResult<Vec<WarGoal>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn war_goals(Session { m, ctx, .. }: Session, enemy: Tag) -> GResult<Vec<WarGoal>> {
     other(m, &ctx, enemy)?;
     let offered = WarGoalsOffered::list(m, &ctx, enemy)?;
     Ok(offered.goals.iter().map(|(_, goal)| goal.clone()).collect())
@@ -227,9 +225,7 @@ pub fn war_goals(_: Caller, enemy: Tag) -> GResult<Vec<WarGoal>> {
 /// [`Status::Rejected`] when the game offers no such war goal, does not let
 /// the player declare war now, or would not let the player call an ally
 /// named, with its reasons.
-pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn declare_war(Session { m, ctx, .. }: Session, enemy: Tag, choice: &Choice, calls: &Calls) -> GResult<Declaration> {
     other(m, &ctx, enemy)?;
     if choice.casus_belli.as_deref() == Some("") {
         return Err(checks::no_casus_belli(NO_CASUS_BELLI).into());
@@ -250,9 +246,7 @@ pub fn declare_war(_: Caller, enemy: Tag, choice: &Choice, calls: &Calls) -> GRe
 /// Offers `enemy` a white peace: a peace treaty with no terms chosen,
 /// demanded by the player, in the war between them, as the peace view sends
 /// one.
-pub fn offer_peace(_: Caller, enemy: Tag) -> GResult<Ticket> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn offer_peace(Session { m, ctx, .. }: Session, enemy: Tag) -> GResult<Ticket> {
     other(m, &ctx, enemy)?;
     // The game's check refuses an offer to a country the player is not at
     // war with without a reason: it looks for the war between them first.
@@ -266,9 +260,7 @@ pub fn offer_peace(_: Caller, enemy: Tag) -> GResult<Ticket> {
 }
 
 /// Proposes an alliance to `ally`.
-pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn propose_alliance(Session { m, ctx, .. }: Session, ally: Tag) -> GResult<Ticket> {
     other(m, &ctx, ally)?;
     let mut made = Made::new(m, action::ALLIANCE_SIZE);
     // As the game makes one, field by field: it has no constructor of its own.
@@ -298,14 +290,14 @@ pub fn propose_alliance(_: Caller, ally: Tag) -> GResult<Ticket> {
 /// ([`Status::Rejected`]) with the game's reasons when the game does not let
 /// the player rival that country, and with none when the player has as many
 /// rivals as the game allows.
-pub fn add_rival(_: Caller, rival: Tag) -> GResult<()> {
-    rival_command("add_rival", CAN_RIVAL, rival)
+pub fn add_rival(session: Session, rival: Tag) -> GResult<()> {
+    rival_command(session, "add_rival", CAN_RIVAL, rival)
 }
 
 /// Drops `rival`, with the game's `remove_rival` command; refused with the
 /// game's reasons when it does not let the player.
-pub fn remove_rival(_: Caller, rival: Tag) -> GResult<()> {
-    rival_command("remove_rival", CAN_DROP_RIVAL, rival)
+pub fn remove_rival(session: Session, rival: Tag) -> GResult<()> {
+    rival_command(session, "remove_rival", CAN_DROP_RIVAL, rival)
 }
 
 /// Whether a country may rival another, and drop it as a rival: (country,
@@ -314,9 +306,7 @@ pub fn remove_rival(_: Caller, rival: Tag) -> GResult<()> {
 const CAN_RIVAL: usize = 0x3d2760;
 const CAN_DROP_RIVAL: usize = 0x3d2970;
 
-fn rival_command(kind: &str, check: usize, rival: Tag) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+fn rival_command(Session { m, ctx, .. }: Session, kind: &str, check: usize, rival: Tag) -> GResult<()> {
     other(m, &ctx, rival)?;
     let args = |reasons: usize| [ctx.country, rival.0 as usize, reasons];
     if m.call(m.at(check), &args(0))? as u8 == 0 {
@@ -330,8 +320,8 @@ fn rival_command(kind: &str, check: usize, rival: Tag) -> GResult<()> {
 /// to arms button and the window it opens send the call, with no land
 /// promised. [`Status::Rejected`] when the panel offers no call to arms to
 /// it, or the game does not let the player send it, with its reasons.
-pub fn call_to_arms(caller: Caller, ally: Tag) -> GResult<Ticket> {
-    act(caller, ally, &What::Act(Act::CallToArms), &Details::default()).map_err(|fail| {
+pub fn call_to_arms(session: Session, ally: Tag) -> GResult<Ticket> {
+    act(session, ally, &What::Act(Act::CallToArms), &Details::default()).map_err(|fail| {
         if fail.status == Status::Rejected && fail.message.starts_with(panel::NOT_OFFERED) {
             checks_peace::no_call_to_arms(letters(ally)).into()
         } else {
@@ -369,15 +359,13 @@ pub(super) fn acceptance(m: &Memory, at: usize) -> GResult<choices::Acceptance> 
 /// no longer kept; [`Status::NotInGame`] once the game it was sent in has
 /// ended; [`Status::Rejected`] for a declaration of war the game carried
 /// out without the war beginning.
-pub fn answer(caller: Caller, ticket: Ticket) -> GResult<Answer> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn answer(session: Session, ticket: Ticket) -> GResult<Answer> {
     let (sent, seen) = kept(ticket)?;
     Ok(match seen {
         Seen::Answered(true) => Answer::Accepted,
         Seen::Answered(false) => Answer::Declined,
         // A declaration has no answer: it is done once carried out.
-        Seen::CarriedOut if sent.kind.token == DECLARE_WAR_KIND => match war_with(caller, &ctx, sent.to)? {
+        Seen::CarriedOut if sent.kind.token == DECLARE_WAR_KIND => match war_with(session, sent.to)? {
             Some(name) => Answer::Declared(name),
             None => return fail(Status::Rejected, format!("the game carried the declaration out, but no war with {} began", letters(sent.to))),
         },
@@ -397,15 +385,15 @@ pub fn allies_called(_: Caller, ticket: Ticket) -> GResult<Vec<Tag>> {
 /// while it is kept and its game goes on.
 fn kept(ticket: Ticket) -> GResult<(Sent, Seen)> {
     let (sent, seen) = ledger(|l| l.seen(ticket)).ok_or_else(|| super::Fail::from(checks::not_kept(ticket.0)))?;
-    if sent.session != events::session() {
+    if sent.session != crate::sessions::number() {
         return fail(Status::NotInGame, "the game the diplomatic action was sent in has ended");
     }
     Ok((sent, seen))
 }
 
 /// The name of the player's latest war with `enemy` on the other side.
-fn war_with(caller: Caller, ctx: &Ctx, enemy: Tag) -> GResult<Option<String>> {
-    let player = countries::snapshot(caller, ctx.player)?;
+fn war_with(session: Session, enemy: Tag) -> GResult<Option<String>> {
+    let (player, ctx) = (countries::snapshot(session, session.ctx.player)?, session.ctx);
     let opposed = |ours: &[Tag], theirs: &[Tag]| ours.iter().any(|t| t.index() == ctx.player.index()) && theirs.iter().any(|t| t.index() == enemy.index());
     Ok(player.wars.into_iter().rev().find(|w| opposed(&w.attackers, &w.defenders) || opposed(&w.defenders, &w.attackers)).map(|w| w.name))
 }
@@ -498,7 +486,7 @@ pub(super) fn send(m: &Memory, ctx: &Ctx, at: usize, to: Tag, called: Vec<Tag>) 
         m.write(ctx.world + from, &ctx.player.0.to_le_bytes())?;
         m.write(ctx.world + date, &ctx.date.to_le_bytes())?;
     }
-    Ok(ledger(|l| l.send(kind, answers, to, after, events::session(), called)))
+    Ok(ledger(|l| l.send(kind, answers, to, after, crate::sessions::number(), called)))
 }
 
 /// Asks the action the checks the diplomacy panel and the window ask before

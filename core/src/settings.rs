@@ -1,9 +1,14 @@
 //! Framework settings (GLOSSARY): the player's choices for the framework,
 //! kept in `eu4-harmony/settings.txt` under the user directory and written the
 //! way the game writes its own `settings.txt`. They are read once at startup.
-//! A change made in the settings window to how a session is left, to the
-//! pace at the fastest speed, the achievement rules or the music, takes effect
-//! when it is saved; a change to the language or the fonts, at the next start.
+//! A change to the language or the fonts takes effect at the next start.
+//!
+//! Every other setting is declared once, in [`SETTINGS`]: its key in the
+//! file, its default, the page and widget it shows as in the settings window,
+//! when a change to it takes effect, and which part of the framework is told.
+//! The file, the settings window and what is applied at startup and on a
+//! save all follow from that table, so a new setting is one row of it (and
+//! one field of [`Settings`], its default, and its words in the localisation).
 //!
 //! A font the player has not chosen follows the player language: it is the
 //! first installed of the language's [`defaults`], and is not written to the
@@ -14,6 +19,9 @@ use eu4_harmony_loc::Language;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+/// The framework settings. Each field after the fonts is kept by a row of
+/// [`SETTINGS`], which the file, the settings window and what is applied
+/// follow; its default is [`Settings::default`]'s.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// The player language (GLOSSARY); None in a file from before it was
@@ -56,6 +64,247 @@ pub struct Settings {
     /// Whether quiet and loud passages of the music are brought closer
     /// (GLOSSARY: Music leveling).
     pub music_leveling: bool,
+}
+
+/// A framework setting the settings window shows as a toggle or a choice
+/// bar, declared once; [`SETTINGS`] holds them all.
+pub struct Setting {
+    /// Its key in the settings file, which is also its widget's id in the
+    /// settings window.
+    pub key: &'static str,
+    /// The settings window's page it shows on.
+    pub page: Page,
+    /// How it shows there, and the field of [`Settings`] that keeps it.
+    pub shows: Shows,
+    /// When a change to it takes effect.
+    pub effect: Effect,
+}
+
+/// A field of [`Settings`], read and written.
+#[derive(Clone, Copy)]
+pub struct Field<T> {
+    pub get: fn(&Settings) -> T,
+    pub set: fn(&mut Settings, T),
+}
+
+/// The [`Field`] of [`Settings`] named `$name`.
+macro_rules! field {
+    ($name:ident) => {
+        Field { get: |s| s.$name, set: |s, v| s.$name = v }
+    };
+}
+
+/// How a [`Setting`] shows in the settings window, and how the file keeps it.
+#[derive(Clone, Copy)]
+pub enum Shows {
+    /// A toggle (GLOSSARY) with the words of `label`; `yes` or `no` in the
+    /// file.
+    Toggle { label: &'static str, field: Field<bool> },
+    /// The words of `label` with an info mark (GLOSSARY) showing those of
+    /// `info`, and under them a choice bar (GLOSSARY) of [`Pace::ALL`]; the
+    /// pace's name, in quotes, in the file.
+    Pace { label: &'static str, info: &'static str, field: Field<Pace> },
+}
+
+/// When a change to a [`Setting`] made in the settings window takes effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// At the next start: this session keeps what it started with.
+    NextStart,
+    /// When it is saved: [`current`] has it from then on, and `tells` is
+    /// told then, and at startup. A setting no part is told of is read from
+    /// [`current`] where it is used.
+    WhenSaved { tells: Option<Listener> },
+}
+
+/// A part of the framework that is told the settings it runs with, at startup
+/// and whenever settings are saved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Listener {
+    /// The achievement rules.
+    Achievements,
+    /// The pace at the fastest speed.
+    Speed,
+    /// The music's loudness.
+    Sound,
+}
+
+impl Listener {
+    fn tell(self, settings: &Settings) {
+        match self {
+            Listener::Achievements => crate::achievements::follow(settings),
+            Listener::Speed => crate::speed::set_pace(settings.fastest_speed),
+            Listener::Sound => crate::sound::choose(settings),
+        }
+    }
+}
+
+/// The settings window's pages, in the order its side list shows them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    LanguageFonts,
+    Sessions,
+    Achievements,
+    GameSpeed,
+    RemoteControl,
+    Sound,
+}
+
+impl Page {
+    pub const ALL: [Page; 6] = [Page::LanguageFonts, Page::Sessions, Page::Achievements, Page::GameSpeed, Page::RemoteControl, Page::Sound];
+
+    /// The key of its name in the side list.
+    pub fn title(self) -> &'static str {
+        match self {
+            Page::LanguageFonts => "EU4HARMONY_SETTINGS_PAGE_LANGUAGE_FONTS",
+            Page::Sessions => "EU4HARMONY_SETTINGS_PAGE_SESSIONS",
+            Page::Achievements => "EU4HARMONY_SETTINGS_PAGE_ACHIEVEMENTS",
+            Page::GameSpeed => "EU4HARMONY_SETTINGS_PAGE_GAME_SPEED",
+            Page::RemoteControl => "EU4HARMONY_SETTINGS_PAGE_REMOTE_CONTROL",
+            Page::Sound => "EU4HARMONY_SETTINGS_PAGE_SOUND",
+        }
+    }
+
+    /// The key of the words under its settings, if it has any.
+    pub fn note(self) -> Option<&'static str> {
+        match self {
+            Page::LanguageFonts => Some("EU4HARMONY_SETTINGS_RESTART"),
+            Page::Sessions => Some("EU4HARMONY_SETTINGS_UNDO"),
+            Page::Achievements => Some("EU4HARMONY_SETTINGS_ACHIEVEMENTS"),
+            Page::GameSpeed => None,
+            Page::RemoteControl => Some("EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW_INFO"),
+            Page::Sound => Some("EU4HARMONY_SETTINGS_SOUND_INFO"),
+        }
+    }
+}
+
+/// Every [`Setting`], in the order the file writes them and each page of
+/// the settings window shows them; those on the language and fonts page show
+/// after the map's font. Their defaults are [`Settings::default`]'s.
+pub static SETTINGS: [Setting; 9] = [
+    Setting {
+        key: "map_outline",
+        page: Page::LanguageFonts,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_MAP_OUTLINE", field: field!(map_outline) },
+        effect: Effect::NextStart,
+    },
+    Setting {
+        key: "return_without_restart",
+        page: Page::Sessions,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_RETURN_WITHOUT_RESTART", field: field!(return_without_restart) },
+        effect: Effect::WhenSaved { tells: None },
+    },
+    Setting {
+        key: "save_ironman_before_load",
+        page: Page::Sessions,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_SAVE_IRONMAN_BEFORE_LOAD", field: field!(save_ironman_before_load) },
+        effect: Effect::WhenSaved { tells: None },
+    },
+    Setting {
+        key: "achievements_outside_ironman",
+        page: Page::Achievements,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_ACHIEVEMENTS_OUTSIDE_IRONMAN", field: field!(achievements_outside_ironman) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Achievements) },
+    },
+    Setting {
+        key: "achievements_with_changed_checksum",
+        page: Page::Achievements,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_ACHIEVEMENTS_CHANGED_CHECKSUM", field: field!(achievements_with_changed_checksum) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Achievements) },
+    },
+    Setting {
+        key: "fastest_speed",
+        page: Page::GameSpeed,
+        shows: Shows::Pace { label: "EU4HARMONY_SETTINGS_FASTEST_SPEED", info: "EU4HARMONY_SETTINGS_FASTEST_SPEED_INFO", field: field!(fastest_speed) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Speed) },
+    },
+    Setting {
+        key: "remote_full_view",
+        page: Page::RemoteControl,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_REMOTE_FULL_VIEW", field: field!(remote_full_view) },
+        effect: Effect::WhenSaved { tells: None },
+    },
+    Setting {
+        key: "music_loudness",
+        page: Page::Sound,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_MUSIC_LOUDNESS", field: field!(music_loudness) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Sound) },
+    },
+    Setting {
+        key: "music_leveling",
+        page: Page::Sound,
+        shows: Shows::Toggle { label: "EU4HARMONY_SETTINGS_MUSIC_LEVELING", field: field!(music_leveling) },
+        effect: Effect::WhenSaved { tells: Some(Listener::Sound) },
+    },
+];
+
+impl Setting {
+    /// Its value in `settings` as the file keeps it.
+    fn render(&self, settings: &Settings) -> String {
+        match self.shows {
+            Shows::Toggle { field, .. } => if (field.get)(settings) { "yes" } else { "no" }.to_string(),
+            Shows::Pace { field, .. } => format!("\"{}\"", (field.get)(settings).name()),
+        }
+    }
+
+    /// Takes `value`, as the file keeps it without quotes, into `settings`;
+    /// one it cannot read leaves `settings` as they are.
+    fn parse(&self, settings: &mut Settings, value: &str) {
+        match self.shows {
+            Shows::Toggle { field, .. } => {
+                if let Some(on) = yes(value) {
+                    (field.set)(settings, on);
+                }
+            }
+            Shows::Pace { field, .. } => {
+                if let Some(pace) = Pace::from_name(value) {
+                    (field.set)(settings, pace);
+                }
+            }
+        }
+    }
+
+    /// Copies its value from `from` into `to`.
+    fn copy(&self, from: &Settings, to: &mut Settings) {
+        match self.shows {
+            Shows::Toggle { field, .. } => (field.set)(to, (field.get)(from)),
+            Shows::Pace { field, .. } => (field.set)(to, (field.get)(from)),
+        }
+    }
+
+    /// Changes its value in `settings` to another: for tests that want every
+    /// setting away from its default.
+    #[cfg(test)]
+    pub fn change(&self, settings: &mut Settings) {
+        match self.shows {
+            Shows::Toggle { field, .. } => (field.set)(settings, !(field.get)(settings)),
+            Shows::Pace { field, .. } => {
+                let at = Pace::ALL.iter().position(|&p| p == (field.get)(settings)).unwrap_or(0);
+                (field.set)(settings, Pace::ALL[(at + 1) % Pace::ALL.len()]);
+            }
+        }
+    }
+}
+
+/// The parts told of the settings that take effect when saved, each once, in
+/// the order of [`SETTINGS`].
+fn listeners() -> Vec<Listener> {
+    let mut out = Vec::new();
+    for setting in &SETTINGS {
+        if let Effect::WhenSaved { tells: Some(listener) } = setting.effect {
+            if !out.contains(&listener) {
+                out.push(listener);
+            }
+        }
+    }
+    out
+}
+
+/// Tells every [`Listener`] the settings this session runs with.
+fn tell_listeners(current: &Settings) {
+    for listener in listeners() {
+        listener.tell(current);
+    }
 }
 
 /// What a system font is chosen for.
@@ -213,20 +462,10 @@ impl Settings {
                 weights[i] = weight(value).or(weights[i]);
                 continue;
             }
-            match key {
-                "language" => settings.language = Language::from_id(value).or(settings.language),
-                "map_outline" => settings.map_outline = yes(value).unwrap_or(settings.map_outline),
-                "return_without_restart" => settings.return_without_restart = yes(value).unwrap_or(settings.return_without_restart),
-                "save_ironman_before_load" => settings.save_ironman_before_load = yes(value).unwrap_or(settings.save_ironman_before_load),
-                "achievements_outside_ironman" => settings.achievements_outside_ironman = yes(value).unwrap_or(settings.achievements_outside_ironman),
-                "achievements_with_changed_checksum" => {
-                    settings.achievements_with_changed_checksum = yes(value).unwrap_or(settings.achievements_with_changed_checksum)
-                }
-                "fastest_speed" => settings.fastest_speed = Pace::from_name(value).unwrap_or(settings.fastest_speed),
-                "remote_full_view" => settings.remote_full_view = yes(value).unwrap_or(settings.remote_full_view),
-                "music_loudness" => settings.music_loudness = yes(value).unwrap_or(settings.music_loudness),
-                "music_leveling" => settings.music_leveling = yes(value).unwrap_or(settings.music_leveling),
-                _ => {}
+            if key == "language" {
+                settings.language = Language::from_id(value).or(settings.language);
+            } else if let Some(setting) = SETTINGS.iter().find(|s| s.key == key) {
+                setting.parse(&mut settings, value);
             }
         }
         for (i, role) in Role::ALL.into_iter().enumerate() {
@@ -241,7 +480,6 @@ impl Settings {
     }
 
     pub fn render(&self) -> String {
-        let yes_no = |on: bool| if on { "yes" } else { "no" };
         let mut out = String::new();
         if let Some(language) = self.language {
             out.push_str(&format!("language=\"{}\"\n", language.id()));
@@ -251,33 +489,18 @@ impl Settings {
                 out.push_str(&format!("{0}_font=\"{1}\"\n{0}_weight={2}\n", role.key(), face.family, face.weight));
             }
         }
-        out.push_str(&format!(
-            "map_outline={}\nreturn_without_restart={}\nsave_ironman_before_load={}\nachievements_outside_ironman={}\nachievements_with_changed_checksum={}\nfastest_speed=\"{}\"\nremote_full_view={}\nmusic_loudness={}\nmusic_leveling={}\n",
-            yes_no(self.map_outline),
-            yes_no(self.return_without_restart),
-            yes_no(self.save_ironman_before_load),
-            yes_no(self.achievements_outside_ironman),
-            yes_no(self.achievements_with_changed_checksum),
-            self.fastest_speed.name(),
-            yes_no(self.remote_full_view),
-            yes_no(self.music_loudness),
-            yes_no(self.music_leveling)
-        ));
+        for setting in &SETTINGS {
+            out.push_str(&format!("{}={}\n", setting.key, setting.render(self)));
+        }
         out
     }
 
-    /// Takes from `chosen` the settings that take effect when they are saved:
-    /// those for leaving a session, the achievement rules, the pace at the
-    /// fastest speed, what remote control reads, and the music's.
+    /// Takes from `chosen` the settings that take effect when they are saved
+    /// ([`Effect::WhenSaved`]).
     fn take_immediate(&mut self, chosen: &Settings) {
-        self.return_without_restart = chosen.return_without_restart;
-        self.save_ironman_before_load = chosen.save_ironman_before_load;
-        self.achievements_outside_ironman = chosen.achievements_outside_ironman;
-        self.achievements_with_changed_checksum = chosen.achievements_with_changed_checksum;
-        self.fastest_speed = chosen.fastest_speed;
-        self.remote_full_view = chosen.remote_full_view;
-        self.music_loudness = chosen.music_loudness;
-        self.music_leveling = chosen.music_leveling;
+        for setting in SETTINGS.iter().filter(|s| s.effect != Effect::NextStart) {
+            setting.copy(chosen, self);
+        }
     }
 }
 
@@ -349,12 +572,12 @@ pub fn read(user_dir: &Path) -> Settings {
 
 /// Reads the settings for this session from the user directory. The first
 /// time, when they name no language, the language Windows displays is
-/// chosen and written to the file.
+/// chosen and written to the file. Every [`Listener`] is told them.
 pub fn load(user_dir: &Path) -> Settings {
     let path = path(user_dir);
     let current = read_for_session(&path, crate::lang::from_windows);
     let _ = STORE.set(Mutex::new(Store { path, current: current.clone(), next: current.clone() }));
-    crate::achievements::follow(&current);
+    tell_listeners(&current);
     current
 }
 
@@ -414,15 +637,18 @@ pub fn next() -> Settings {
     store().map(|s| s.next.clone()).unwrap_or_default()
 }
 
-/// Saves settings: those for leaving a session, the achievement rules and the
-/// pace at the fastest speed take effect now, the language and the fonts at
-/// the next start.
+/// Saves settings: those that take effect when saved ([`Effect`]) do now,
+/// and every [`Listener`] is told; the rest, the language and the fonts
+/// among them, take effect at the next start.
 pub fn save(settings: Settings) -> crate::Result<()> {
-    let mut store = store().ok_or("settings not loaded")?;
-    write(&store.path, &settings)?;
-    store.current.take_immediate(&settings);
-    crate::achievements::follow(&store.current);
-    store.next = settings;
+    let current = {
+        let mut store = store().ok_or("settings not loaded")?;
+        write(&store.path, &settings)?;
+        store.current.take_immediate(&settings);
+        store.next = settings;
+        store.current.clone()
+    };
+    tell_listeners(&current);
     Ok(())
 }
 
@@ -503,6 +729,11 @@ mod tests {
         // Fonts not chosen are not written.
         let following = Settings { language: Some(Language::English), ..Settings::default() };
         assert_eq!(following.render().lines().next(), Some("language=\"english\""));
+        // As every file written before has it.
+        assert_eq!(
+            following.render(),
+            "language=\"english\"\nmap_outline=yes\nreturn_without_restart=yes\nsave_ironman_before_load=yes\nachievements_outside_ironman=no\nachievements_with_changed_checksum=no\nfastest_speed=\"smooth\"\nremote_full_view=no\nmusic_loudness=yes\nmusic_leveling=no\n"
+        );
         assert!(!following.render().contains("_font"));
         assert_eq!(Settings::parse(&following.render()), following);
         // A weight without its font follows the language with the font.
@@ -611,34 +842,68 @@ mod tests {
     }
 
     #[test]
-    fn the_settings_for_leaving_a_session_achievements_the_pace_and_the_music_take_effect_when_saved() {
+    fn the_settings_that_take_effect_when_saved_do_and_reach_their_listeners() {
+        for setting in &SETTINGS {
+            let mut chosen = Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() };
+            setting.change(&mut chosen);
+            let mut current = Settings::default();
+            current.take_immediate(&chosen);
+            match setting.effect {
+                Effect::NextStart => assert_eq!(current, Settings::default(), "{}", setting.key),
+                Effect::WhenSaved { tells } => {
+                    let mut expected = Settings::default();
+                    setting.change(&mut expected);
+                    assert_eq!(current, expected, "{}", setting.key);
+                    if let Some(listener) = tells {
+                        assert!(listeners().contains(&listener), "{}", setting.key);
+                    }
+                }
+            }
+        }
+        // The language and the fonts wait for the next start.
         let mut current = Settings::default();
-        let chosen = Settings {
-            language: Some(Language::German),
-            body_font: Some(Face::regular("SimSun")),
-            map_outline: false,
-            return_without_restart: false,
-            save_ironman_before_load: false,
-            achievements_outside_ironman: true,
-            achievements_with_changed_checksum: true,
-            fastest_speed: Pace::Faster,
-            remote_full_view: true,
-            music_loudness: false,
-            music_leveling: true,
-            ..Settings::default()
-        };
-        current.take_immediate(&chosen);
-        let immediate = Settings {
-            return_without_restart: false,
-            save_ironman_before_load: false,
-            achievements_outside_ironman: true,
-            achievements_with_changed_checksum: true,
-            fastest_speed: Pace::Faster,
-            remote_full_view: true,
-            music_loudness: false,
-            music_leveling: true,
-            ..Settings::default()
-        };
-        assert_eq!(current, immediate);
+        current.take_immediate(&Settings { language: Some(Language::German), body_font: Some(Face::regular("SimSun")), ..Settings::default() });
+        assert_eq!(current, Settings::default());
+        // Each part is told once.
+        assert_eq!(listeners(), [Listener::Achievements, Listener::Speed, Listener::Sound]);
+    }
+
+    #[test]
+    fn every_setting_round_trips_through_the_file() {
+        for setting in &SETTINGS {
+            let mut changed = Settings { language: Some(Language::English), ..Settings::default() };
+            setting.change(&mut changed);
+            assert_ne!(changed, Settings { language: Some(Language::English), ..Settings::default() }, "{}", setting.key);
+            assert_eq!(Settings::parse(&changed.render()), changed, "{}", setting.key);
+        }
+        let mut every = Settings::default();
+        for setting in &SETTINGS {
+            setting.change(&mut every);
+        }
+        assert_eq!(Settings::parse(&every.render()), every);
+    }
+
+    #[test]
+    fn an_unknown_or_unreadable_value_keeps_the_default() {
+        for setting in &SETTINGS {
+            for value in ["maybe", "\"maybe\"", "", "1", "YES"] {
+                assert_eq!(Settings::parse(&format!("{}={value}\n", setting.key)), Settings::default(), "{}={value}", setting.key);
+            }
+            // Away from the default, a line it cannot read keeps the one before.
+            let mut changed = Settings::default();
+            setting.change(&mut changed);
+            assert_eq!(Settings::parse(&format!("{}{}=maybe\n", changed.render(), setting.key)), changed, "{}", setting.key);
+        }
+        assert_eq!(Settings::parse("unknown=yes\nmap_outlines=no\n"), Settings::default());
+    }
+
+    #[test]
+    fn every_setting_has_a_key_of_its_own() {
+        let mut keys: Vec<&str> = vec!["language"];
+        keys.extend(Role::ALL.iter().flat_map(|r| [format!("{}_font", r.key()), format!("{}_weight", r.key())]).map(|k| &*k.leak()));
+        for setting in &SETTINGS {
+            assert!(!keys.contains(&setting.key), "{} is taken", setting.key);
+            keys.push(setting.key);
+        }
     }
 }

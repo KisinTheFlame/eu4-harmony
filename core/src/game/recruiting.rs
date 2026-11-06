@@ -5,9 +5,9 @@
 //! through the command layer ([`super::commands`]).
 use super::{
     commands::{self, Refused},
-    context, fail, game,
+    fail,
     provinces::{can_recruit, unit_type, UnitKind},
-    with_state, Caller, GResult, Status,
+    with_state, GResult, Session, Status,
 };
 use crate::{game_string, objects::campaign::unit_type as unit_type_fields, unicode::game_text};
 
@@ -28,9 +28,7 @@ fn written(country: [u8; 3], province: u32, unit: &str) -> String {
 /// command layer has the game execute it at once (ADR commands-run-at-once), so
 /// orders given one after another are each checked against what the ones before
 /// left.
-pub fn recruit(_: Caller, id: u32, kind: UnitKind) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn recruit(Session { m, ctx, .. }: Session, id: u32, kind: UnitKind) -> GResult<()> {
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }

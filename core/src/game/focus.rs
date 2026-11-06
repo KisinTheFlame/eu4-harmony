@@ -1,7 +1,7 @@
 //! The national focus: which kind of monarch power the player's country
 //! favors, as the court view's focus buttons set it
 //! (docs/research/power-spending.md, "National focus").
-use super::{context, game, power, technology::key, Caller, GResult};
+use super::{power, technology::key, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_remote::{
     choices::{Choice, PowerKind},
@@ -50,9 +50,7 @@ fn choice((may, why): &(bool, Vec<String>)) -> Choice {
 }
 
 /// The player's focus and what the focus buttons offer now.
-pub fn options(_: Caller) -> GResult<Focus> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session) -> GResult<Focus> {
     let focus = focus_of(m, ctx.country)?;
     let may = may_change(m, ctx.country)?;
     let choose = PowerKind::ALL
@@ -70,9 +68,7 @@ fn written(country: [u8; 3], focus: i32) -> String {
 }
 
 /// Sets the focus on `kind`, as its button does.
-pub fn choose(_: Caller, kind: PowerKind) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn choose(Session { m, ctx, .. }: Session, kind: PowerKind) -> GResult<()> {
     if focus_of(m, ctx.country)? == Some(kind) {
         return Err(eu4_harmony_checks::focus::already(key(kind)).into());
     }
@@ -84,9 +80,7 @@ pub fn choose(_: Caller, kind: PowerKind) -> GResult<()> {
 }
 
 /// Removes the focus, as pressing the button of the focus set does.
-pub fn cancel(_: Caller) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn cancel(Session { m, ctx, .. }: Session) -> GResult<()> {
     if focus_of(m, ctx.country)?.is_none() {
         return Err(eu4_harmony_checks::focus::none_set().into());
     }
