@@ -52,6 +52,11 @@ check-loading = false
 # The startup and loads are the game's own, music read whole, every file asked
 # of Windows, every list walked, so that the two can be measured.
 game-loads = false
+# A subject relation's end is the game's own: its walk of the subject's
+# supporters refreshes the subject as it goes, which frees the list it walks,
+# so that the defect can be tried; with the heap census's quarantine on, the
+# walk then reads the freed list filled with 0xdd and fails at once.
+game-ends-dependencies = false
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.

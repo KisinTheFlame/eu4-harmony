@@ -96,6 +96,11 @@ pub struct TestSwitches {
     /// file asked of Windows, every list walked, so that what the framework's
     /// take can be measured against it.
     pub game_loads: bool,
+    /// A subject relation's end is the game's own: its walk of the subject's
+    /// supporters refreshes the subject as it goes, freeing the list it
+    /// walks, so that the defect can be tried (with the heap census's
+    /// quarantine on, the walk then reads what it freed filled with `0xdd`).
+    pub game_ends_dependencies: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
@@ -152,7 +157,7 @@ impl Options {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
@@ -160,6 +165,7 @@ impl Options {
                 on(switches.game_writes_saves),
                 on(switches.check_loading),
                 on(switches.game_loads),
+                on(switches.game_ends_dependencies),
                 switches.post.len()
             ));
         }
