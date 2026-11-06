@@ -221,17 +221,17 @@ pub fn recall(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     envoys::post(&written(ctx.player, id, Work::Recall), "the cancel colonist command")
 }
 
-/// Sends one of the player's colonists to found a colony in province `id`
-/// with the minority expelled from the player's province `from`.
-pub fn expel(Session { m, ctx, .. }: Session, id: u32, from: u32) -> GResult<()> {
-    let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
+/// Sends one of the player's colonists to found a colony in province
+/// `province` with the minority expelled from the player's province `from`.
+pub fn expel(Session { m, ctx, .. }: Session, province: u32, from: u32) -> GResult<()> {
+    let options = read(m, &ctx, &self::province(m, &ctx, province)?, province)?;
     let Some(offered) = options.expel_from.iter().find(|e| e.from.0 == from) else {
         return Err(eu4_harmony_checks::envoys::no_minority(from).into());
     };
     if !offered.choice.can {
         return Err(eu4_harmony_checks::envoys::not_allowed("expel that minority there", &offered.choice.reasons).into());
     }
-    envoys::post(&written(ctx.player, id, Work::Expel { from }), "the colonist command")
+    envoys::post(&written(ctx.player, province, Work::Expel { from }), "the colonist command")
 }
 
 /// Has one of the player's colonists promote settlement growth in province

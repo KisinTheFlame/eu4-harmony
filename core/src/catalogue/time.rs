@@ -79,6 +79,12 @@ impl Layer for Live {
     }
 }
 
+/// The group's slice is written above by hand, without `layer!`'s lines.
+#[cfg(test)]
+pub fn bindings() -> super::Bindings {
+    super::Bindings::default()
+}
+
 pub fn run(request: TimeRequest, game: &mut (impl Layer + ?Sized), events: Option<&events::Buffer>) -> Outcome {
     let answer = |result: GResult<TimeAnswer>| Outcome::Done(result.map(Answer::Time).map_err(Error::from));
     match request {

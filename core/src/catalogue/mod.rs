@@ -60,10 +60,12 @@ macro_rules! layer {
     };
     (@munch [] [$($methods:tt)*] []) => {
         layer!(@layer $($methods)*);
+        layer!(@bindings [$($methods)*] []);
     };
     (@munch [$Request:ident $Answer:ident [$($bound:tt)*]] [$($methods:tt)*]
         [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
         layer!(@layer $($methods)*);
+        layer!(@bindings [$($methods)*] [$({ $Variant { $($field),* } $how $call($($e),*) })*]);
 
         /// Answers one of the group's requests.
         pub fn run(request: $Request, game: &mut (impl Layer $($bound)* + ?Sized)) -> Result<$Answer, eu4_harmony_remote::Error> {
@@ -117,6 +119,33 @@ macro_rules! layer {
                     layer!(@live caller $takes $capability, $($arg),*)
                 }
             )*
+        }
+    };
+    (@bindings [$({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*]
+        [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
+        /// What the group's lines name, for the test that every capability
+        /// takes its arguments by their names.
+        #[cfg(test)]
+        pub fn bindings() -> $crate::catalogue::Bindings {
+            $crate::catalogue::Bindings {
+                methods: vec![$(
+                    $crate::catalogue::Method {
+                        name: stringify!($name),
+                        arguments: vec![$(stringify!($arg)),*],
+                        types: vec![$(stringify!($ty)),*],
+                        capability: std::any::type_name_of_val(&$capability),
+                    }
+                ),*],
+                requests: vec![$(
+                    $crate::catalogue::Answered {
+                        request: stringify!($Variant),
+                        fields: vec![$(stringify!($field)),*],
+                        function: stringify!($how) == "function",
+                        call: stringify!($call),
+                        arguments: vec![$(stringify!($e)),*],
+                    }
+                ),*],
+            }
         }
     };
     (run $Request:ident => $Answer:ident $(+ $other:ident::Layer)*; $($lines:tt)*) => {
@@ -223,6 +252,12 @@ macro_rules! groups {
             }
         }
 
+        /// Every group's lines, by its module.
+        #[cfg(test)]
+        fn bindings() -> Vec<(&'static str, Bindings)> {
+            vec![$( (stringify!($module), $module::bindings()) ),*]
+        }
+
         /// Runs one request at `now`, in its group.
         fn dispatch($request: Request, $game: &mut dyn Game, $events: Option<&events::Buffer>, $now: Instant) -> Outcome {
             match $request {
@@ -325,6 +360,36 @@ impl<T: Game + ?Sized> Catalogue for T {
     fn handled(&mut self, taken: Taken) -> bool {
         input::Layer::handled(self, taken)
     }
+}
+
+/// What a group's `layer!` lines name: each method of its slice and the
+/// capability it calls, and each request and what answers it.
+#[cfg(test)]
+#[derive(Default)]
+pub struct Bindings {
+    pub methods: Vec<Method>,
+    pub requests: Vec<Answered>,
+}
+
+/// A method of a group's slice: its arguments and their types, and the
+/// capability it calls, by its path.
+#[cfg(test)]
+pub struct Method {
+    pub name: &'static str,
+    pub arguments: Vec<&'static str>,
+    pub types: Vec<&'static str>,
+    pub capability: &'static str,
+}
+
+/// A request, its fields, and the method or the group's function that
+/// answers it, with the expressions it passes.
+#[cfg(test)]
+pub struct Answered {
+    pub request: &'static str,
+    pub fields: Vec<&'static str>,
+    pub function: bool,
+    pub call: &'static str,
+    pub arguments: Vec<&'static str>,
 }
 
 /// The capability layer itself, called as its caller: remote control, or an
@@ -536,6 +601,126 @@ mod tests {
             assert_eq!(error, events::unkept());
         }
         assert!(game.calls.is_empty(), "{:?}", game.calls);
+    }
+
+    /// The parameters of the function at `path` (as `std::any::type_name`
+    /// writes it), each its name and its type, read from its source.
+    fn parameters(path: &str) -> Result<Vec<(String, String)>, String> {
+        let mut segments: Vec<&str> = path.split("::").collect();
+        let name = segments.pop().ok_or("no name")?;
+        if segments.first() != Some(&"eu4_harmony_core") {
+            return Err(format!("{path} is not the core's"));
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let module = segments[1..].join("/");
+        let source = [format!("{module}.rs"), format!("{module}/mod.rs")]
+            .iter()
+            .find_map(|file| std::fs::read_to_string(root.join(file)).ok())
+            .ok_or_else(|| format!("no source for {path}"))?;
+        let header = ["pub fn ", "pub(crate) fn ", "pub(super) fn ", "fn "]
+            .iter()
+            .find_map(|start| source.lines().position(|line| line.strip_prefix(start).is_some_and(|rest| rest.starts_with(&format!("{name}(")))));
+        let start = header.ok_or_else(|| format!("no fn {name} in the source of {path}"))?;
+        let text: String = source.lines().skip(start).collect::<Vec<_>>().join(
+            "
+",
+        );
+        let open = text.find('(').unwrap();
+        let (mut depth, mut current, mut parameters) = (0, String::new(), Vec::new());
+        for c in text[open + 1..].chars() {
+            match c {
+                '(' | '[' | '{' | '<' => depth += 1,
+                ')' if depth == 0 => break,
+                ')' | ']' | '}' | '>' => depth -= 1,
+                ',' if depth == 0 => {
+                    parameters.push(std::mem::take(&mut current));
+                    continue;
+                }
+                _ => {}
+            }
+            current.push(c);
+        }
+        parameters.push(current);
+        Ok(parameters
+            .iter()
+            .filter_map(|p| p.rsplit_once(": "))
+            .map(|(name, kind)| (name.trim().trim_start_matches("mut ").to_string(), kind.split_whitespace().collect()))
+            .collect())
+    }
+
+    /// The field an argument passed is made of: its first word, without a
+    /// reference.
+    fn root(expression: &str) -> &str {
+        let expression = expression.trim_start_matches(['&', ' ']);
+        &expression[..expression.find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(expression.len())]
+    }
+
+    /// Whether two of `types` are the same, so that the arguments of those
+    /// could be passed the other way round and still compile.
+    fn shared(types: &[String], i: usize) -> bool {
+        types.iter().filter(|t| **t == types[i]).count() > 1
+    }
+
+    /// Two arguments of the same type cannot be passed the other way round:
+    /// a capability's parameters of a type it takes more than once, after
+    /// the session or the caller, are named as its binding's arguments; and
+    /// a request's fields passed to a method or to the group's own function
+    /// go to the parameters of their names, where it takes more than one of
+    /// their type, and never to a parameter named after another field.
+    #[test]
+    fn arguments_of_the_same_type_reach_each_capability_by_their_names() {
+        let groups = bindings();
+        let methods: Vec<&Method> = groups.iter().flat_map(|(_, b)| &b.methods).collect();
+        assert!(methods.len() > 140, "only {} methods", methods.len());
+        let mut wrong = Vec::new();
+        for method in &methods {
+            let types: Vec<String> = method.types.iter().map(|t| t.split_whitespace().collect()).collect();
+            let parameters = match parameters(method.capability) {
+                Ok(parameters) if parameters.len() == method.arguments.len() + 1 => parameters,
+                Ok(parameters) => {
+                    wrong.push(format!("{} takes {:?}, its binding passes {:?}", method.capability, &parameters[1..], method.arguments));
+                    continue;
+                }
+                Err(e) => {
+                    wrong.push(e);
+                    continue;
+                }
+            };
+            for (i, argument) in method.arguments.iter().enumerate() {
+                let parameter = &parameters[i + 1].0;
+                if shared(&types, i) && parameter != argument {
+                    wrong.push(format!("{} takes {argument}, of a type it takes twice, as {parameter}", method.capability));
+                }
+            }
+        }
+        for (group, bindings) in &groups {
+            for request in &bindings.requests {
+                let parameters = match request.function {
+                    true => parameters(&format!("eu4_harmony_core::catalogue::{group}::{}", request.call)).map(|p| p[1..].to_vec()),
+                    false => methods
+                        .iter()
+                        .find(|m| m.name == request.call)
+                        .map(|m| m.arguments.iter().zip(&m.types).map(|(a, t)| (a.to_string(), t.split_whitespace().collect())).collect())
+                        .ok_or_else(|| format!("no method {}", request.call)),
+                };
+                let parameters = match parameters {
+                    Ok(parameters) => parameters,
+                    Err(e) => {
+                        wrong.push(e);
+                        continue;
+                    }
+                };
+                let types: Vec<String> = parameters.iter().map(|(_, t)| t.clone()).collect();
+                for (i, argument) in request.arguments.iter().enumerate() {
+                    let (field, parameter) = (root(argument), parameters.get(i).map_or("", |(p, _)| p.as_str()));
+                    let other_field = parameter != field && request.fields.contains(&parameter);
+                    if request.fields.contains(&field) && (other_field || shared(&types, i) && parameter != field) {
+                        wrong.push(format!("{group} {}: {argument} goes to {}'s {parameter}", request.request, request.call));
+                    }
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     /// Every answer the fake game gives, through the groups that make it,

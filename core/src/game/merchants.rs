@@ -300,10 +300,10 @@ pub fn recall(Session { m, ctx, .. }: Session, key: &str) -> GResult<()> {
     envoys::post(&text, "the recall merchant command")
 }
 
-/// Has the player's merchant steering in the node `key` steer to the node
+/// Has the player's merchant steering in the node `node` steer to the node
 /// `to` downstream.
-pub fn steer_to(Session { m, ctx, .. }: Session, key: &str, to: &str) -> GResult<()> {
-    let node = node(m, &ctx, key)?;
+pub fn steer_to(Session { m, ctx, .. }: Session, node: &str, to: &str) -> GResult<()> {
+    let node = self::node(m, &ctx, node)?;
     let options = read(m, &ctx, &node)?;
     let Some(along) = options.steer_to.iter().position(|d| d.node == to) else {
         return Err(eu4_harmony_checks::envoys::unknown("trade node downstream", to).into());
@@ -365,9 +365,9 @@ fn policy_written(player: Tag, definition: i32, policy: i32) -> String {
     format!("select_trading_policy={{ members={{ dummy={} dummy={definition} dummy={policy} }} }}", quoted(player))
 }
 
-/// Chooses the trading policy `policy` for the player in the node `key`.
-pub fn set_policy(Session { m, ctx, .. }: Session, key: &str, policy: &str) -> GResult<()> {
-    let node = node(m, &ctx, key)?;
+/// Chooses the trading policy `policy` for the player in the node `node`.
+pub fn set_policy(Session { m, ctx, .. }: Session, node: &str, policy: &str) -> GResult<()> {
+    let node = self::node(m, &ctx, node)?;
     let Some(address) = all_policies(m)?.into_iter().find(|(_, k)| k == policy).map(|(a, _)| a) else {
         return Err(eu4_harmony_checks::envoys::unknown("trading policy", policy).into());
     };

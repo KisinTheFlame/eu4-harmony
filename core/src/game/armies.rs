@@ -150,11 +150,11 @@ pub fn can_attack(Session { m, ctx, .. }: Session, id: u64, target: u64, provinc
 
 /// Whether an own land army may attack an army the player sees, wherever
 /// that is.
-pub fn can_attack_seen(Session { m, ctx, .. }: Session, id: u64, target: u64) -> GResult<bool> {
+pub fn can_attack_seen(Session { m, ctx, .. }: Session, army: u64, target: u64) -> GResult<bool> {
     if !events::visibility_current(m, &ctx) {
         return Err(checks::visibility_not_current().into());
     }
-    let army = world::own_land_army(m, &ctx, id)?;
+    let army = world::own_land_army(m, &ctx, army)?;
     // Found by the game's lookup, and seen as army.at sees it: a land army in
     // a province not under fog.
     let Some(other) = world::unit_by_id(m, target)? else {

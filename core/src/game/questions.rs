@@ -73,18 +73,18 @@ pub fn question(Session { m, ctx, .. }: Session, id: u32) -> GResult<Question> {
 /// Answers a question with one of its options, as the player does in its
 /// event window: the game has the answer once this returns, and applies it a
 /// moment later; the window is closed, so the question is no longer listed.
-pub fn answer(Session { m, ctx, .. }: Session, id: u32, option: u32) -> GResult<()> {
-    let w = find(m, &ctx, id)?;
+pub fn answer(Session { m, ctx, .. }: Session, question: u32, option: u32) -> GResult<()> {
+    let w = find(m, &ctx, question)?;
     let options = options(m, w.event)?;
     let Some(&chosen) = options.get(option as usize) else {
-        return Err(eu4_harmony_checks::questions::no_option(id, option).into());
+        return Err(eu4_harmony_checks::questions::no_option(question, option).into());
     };
     if !may_choose(m, chosen, w.scope)? {
-        return Err(eu4_harmony_checks::questions::not_allowed(id, option).into());
+        return Err(eu4_harmony_checks::questions::not_allowed(question, option).into());
     }
     m.call(m.at(CHOOSE), &[w.address, option as usize])?;
     if m.u8(w.address + window::OPEN)? != 0 {
-        return Err(format!("the event window of question {id} stayed open").into());
+        return Err(format!("the event window of question {question} stayed open").into());
     }
     Ok(())
 }
