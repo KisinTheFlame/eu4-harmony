@@ -17,6 +17,8 @@ How a capability reaches both extensions and remote clients, layer by layer, and
 
 A new group is a line in `groups!` in `remote/src/lib.rs` and one in `groups!` in `core/src/catalogue/mod.rs`, and a new argument's kind lines in `Kind` and `arg_kind!` in `remote/src/lib.rs`; other sessions add to these lists as well, so when merging master, keep both sides' lines.
 
+A part that brings a framework setting declares it once, as a row of `SETTINGS` in `core/src/settings.rs`: its key in the file, the settings window's page and widget it shows as with the keys of its words, and when it takes effect, with the `Listener` told of it, if any. Its field and default go into `Settings` there, and its words into each of `core/localisation/eu4harmony_l_*.yml`; the file, the settings window and what is applied at startup and on a save follow from the row, and the settings' tests run it with nothing more.
+
 ## Trying it in the game
 
 - Claim the game, install and start it as [.claude/skills/game-test](../.claude/skills/game-test/SKILL.md) says, and drive it with `eu4-harmony game <group> <capability> …`; release it when done.

@@ -29,6 +29,9 @@ pub enum Pace {
 }
 
 impl Pace {
+    /// Every pace, in the order the settings window's choice bar shows them.
+    pub const ALL: [Pace; 2] = [Pace::Smooth, Pace::Faster];
+
     /// As the settings file keeps it.
     pub fn name(self) -> &'static str {
         match self {
@@ -38,7 +41,15 @@ impl Pace {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        [Pace::Smooth, Pace::Faster].into_iter().find(|p| p.name() == name)
+        Self::ALL.into_iter().find(|p| p.name() == name)
+    }
+
+    /// The key of its label in the settings window's choice bar.
+    pub fn label(self) -> &'static str {
+        match self {
+            Pace::Smooth => "EU4HARMONY_SETTINGS_PACE_SMOOTH",
+            Pace::Faster => "EU4HARMONY_SETTINGS_PACE_FASTER",
+        }
     }
 
     /// Speed 5's factor: the game's, or more seconds than any day takes.
