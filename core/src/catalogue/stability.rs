@@ -3,6 +3,6 @@ use eu4_harmony_remote::stability::{StabilityAnswer, StabilityOption, StabilityR
 
 layer! {
     run StabilityRequest => StabilityAnswer;
-    Options => fn stability_options() -> Vec<StabilityOption> = crate::game::stability::options;
-    Raise => fn raise_stability() -> () = crate::game::stability::raise;
+    Options => fn stability_options() -> Vec<StabilityOption> = session crate::game::stability::options;
+    Raise => fn raise_stability() -> () = session crate::game::stability::raise;
 }

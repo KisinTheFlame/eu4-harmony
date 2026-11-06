@@ -14,7 +14,7 @@ mod http;
 
 use crate::{
     catalogue::{self, Catalogue, Place, Wait},
-    game::{self, events, interface, map_coloring, Caller},
+    game::{self, interface, map_coloring, Caller},
     map,
     mods::DiscoveredMod,
     notice::Message,
@@ -165,13 +165,13 @@ impl Host for Live {
     }
 
     fn session(&self) -> u64 {
-        events::session()
+        crate::sessions::number()
     }
 
     fn first_error(&self, extension: &Extension, from: &str, message: &str) {
         // The player is told in a game the framework runs in.
         if crate::memory().is_some() {
-            let session = events::session();
+            let session = crate::sessions::number();
             log!("extension {:?}: error in {from}: {message}", extension.id());
             crate::notice::post(&format!("errors:{}:{session}", extension.id()), Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
         }

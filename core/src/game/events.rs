@@ -23,6 +23,7 @@ use crate::{
     points::Point,
     Result,
 };
+use eu4_harmony_remote::events::Kind;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::sync::Mutex;
@@ -86,7 +87,6 @@ pub struct Battle {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Proof {
-    session: u64,
     world: usize,
     date: i32,
     player: u64,
@@ -97,14 +97,12 @@ struct Proof {
 
 #[derive(Default)]
 struct Boundary {
-    session: u64,
     revision: u64,
     depth: u32,
     refresh_thread: u32,
     before: Option<(Ctx, u8, u64)>,
     proof: Option<Proof>,
     changes: Vec<Change>,
-    identity: Option<(usize, u64)>,
 }
 
 impl Boundary {
@@ -112,8 +110,8 @@ impl Boundary {
         self.revision += 1;
         self.proof = None;
     }
-    fn rotate(&mut self) {
-        self.session += 1;
+    /// Another campaign comes: nothing proven or collected holds for it.
+    fn replaced(&mut self) {
         self.invalidate();
         self.changes.clear();
     }
@@ -126,16 +124,22 @@ fn boundary<T>(f: impl FnOnce(&mut Boundary) -> T) -> T {
     f(guard.get_or_insert_with(Boundary::default))
 }
 
+/// A save begins to be read. Told by the sessions (`crate::sessions`), as
+/// are [`world_reset`] and [`session_forgotten`].
 pub fn load_begin() {
-    boundary(Boundary::rotate);
+    boundary(Boundary::replaced);
 }
 
 /// The world was put back as a new start has it, with its history (an
-/// in-process return, the single player setup left): the next game begun on
-/// it is a new session, though the game reads nothing for it. Told by the
-/// sessions (`crate::sessions`), as is [`load_begin`].
+/// in-process return, the single player setup left).
 pub fn world_reset() {
-    boundary(Boundary::rotate);
+    boundary(Boundary::replaced);
+}
+
+/// A game frame shows another session than the last frame did: the changes
+/// collected since are the last one's.
+pub fn session_forgotten() {
+    boundary(|b| b.changes.clear());
 }
 
 fn fog_mode(m: &Memory, ctx: &Ctx) -> Result<u8> {
@@ -178,7 +182,7 @@ extern "C" fn fow_after(frame: *mut HookFrame) {
             let Some((before, fog, revision)) = before else { return };
             let Ok(after) = context_any(m) else { return };
             if before == after && revision == b.revision && fog_mode(m, &after).ok() == Some(fog) {
-                b.proof = Some(Proof { session: b.session, world: after.world, date: after.date, player: after.player.0, revision: b.revision, thread, fog });
+                b.proof = Some(Proof { world: after.world, date: after.date, player: after.player.0, revision: b.revision, thread, fog });
             }
         });
     });
@@ -284,14 +288,14 @@ extern "C" fn route_after(frame: *mut HookFrame) {
     });
 }
 
-/// Which kinds of event (`remote/src/events.rs`'s `EVENTS`) someone listens
-/// to: those an extension has a handler for, and those a remote client has
-/// read in this process (every kind once one read them all). A kind nobody
-/// listens to is not worked out (docs/player-actions.md, "Events").
+/// Which kinds of event someone listens to: those an extension has a
+/// handler for, and those a remote client has read in this process (every
+/// kind once one read them all). A kind nobody listens to is not worked out
+/// (docs/player-actions.md, "Events").
 #[derive(Default)]
 struct Listening {
-    extensions: BTreeSet<&'static str>,
-    remote: BTreeSet<String>,
+    extensions: BTreeSet<Kind>,
+    remote: BTreeSet<Kind>,
     remote_all: bool,
 }
 
@@ -303,19 +307,20 @@ fn listening<T>(f: impl FnOnce(&mut Listening) -> T) -> T {
 }
 
 /// Whether anyone listens to events of `kind`.
-pub fn listened(kind: &str) -> bool {
-    listening(|l| l.remote_all || l.remote.contains(kind) || l.extensions.contains(kind))
+pub fn listened(kind: Kind) -> bool {
+    listening(|l| l.remote_all || l.remote.contains(&kind) || l.extensions.contains(&kind))
 }
 
 /// The kinds the extensions have handlers for now.
-pub fn extensions_listen(kinds: BTreeSet<&'static str>) {
+pub fn extensions_listen(kinds: BTreeSet<Kind>) {
     listening(|l| l.extensions = kinds);
 }
 
-/// A remote client read events of `kinds`, or of every kind.
+/// A remote client read events of the kinds named `kinds`, or of every
+/// kind. A name no kind has, which the read refuses, is none.
 pub fn read_remotely(kinds: Option<&[String]>) {
     listening(|l| match kinds {
-        Some(kinds) => l.remote.extend(kinds.iter().cloned()),
+        Some(kinds) => l.remote.extend(kinds.iter().filter_map(|k| Kind::named(k))),
         None => l.remote_all = true,
     });
 }
@@ -376,7 +381,7 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
 extern "C" fn results_before(frame: *mut HookFrame) {
     crate::guarded("battle results", || {
         let Some(m) = crate::memory() else { return };
-        if crate::sessions::loading() || !listened("battle") {
+        if crate::sessions::loading() || !listened(Kind::Battle) {
             return;
         }
         let (a, back) = unsafe { ((*frame).args, (*frame).return_address) };
@@ -457,18 +462,10 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
-/// What a frame needs to know before dispatching.
-pub struct FrameState {
-    pub ctx: Ctx,
-    pub session: u64,
-    pub visibility_current: bool,
-    pub changes: Vec<Change>,
-}
-
-/// Called at the start of a safe frame: tracks the session and collects
-/// changes. Fails when the frame is not one: while a save loads, off the main
-/// thread, or when the campaign cannot be read.
-pub fn begin_frame(m: &Memory) -> GResult<FrameState> {
+/// The campaign at the start of a safe frame, and its fog of war's mode.
+/// Fails when the frame is not one: while a save loads, off the main thread,
+/// or when the campaign cannot be read.
+pub fn frame_campaign(m: &Memory) -> GResult<(Ctx, u8)> {
     if crate::sessions::loading() {
         return fail(Status::NotReady, "a save is being loaded");
     }
@@ -477,20 +474,21 @@ pub fn begin_frame(m: &Memory) -> GResult<FrameState> {
     }
     let ctx = context(m)?;
     let fog = fog_mode(m, &ctx)?;
-    Ok(boundary(|b| {
-        let identity = (ctx.world, ctx.player.0);
-        if b.identity != Some(identity) {
-            b.identity = Some(identity);
-            b.rotate();
-        }
-        FrameState { ctx, session: b.session, visibility_current: proof_valid(b, &ctx, fog), changes: std::mem::take(&mut b.changes) }
-    }))
+    Ok((ctx, fog))
 }
 
+/// What a safe frame of `ctx` collects: whether visibility reflects it, and
+/// the changes since the last frame.
+pub fn take_frame(ctx: &Ctx, fog: u8) -> (bool, Vec<Change>) {
+    boundary(|b| (proof_valid(b, ctx, fog), std::mem::take(&mut b.changes)))
+}
+
+/// A proof holds for the campaign it was made of, at its date, until
+/// anything since could have changed what the fog of war shows: a daily
+/// update, another campaign, a refresh on another thread.
 fn proof_valid(b: &Boundary, ctx: &Ctx, fog: u8) -> bool {
     b.proof.is_some_and(|p| {
         b.depth == 0
-            && p.session == b.session
             && p.revision == b.revision
             && p.thread == crate::thread_id()
             && p.world == ctx.world
@@ -506,27 +504,12 @@ pub fn visibility_current(m: &Memory, ctx: &Ctx) -> bool {
     boundary(|b| proof_valid(b, ctx, fog))
 }
 
-pub fn session() -> u64 {
-    boundary(|b| b.session)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn path(ids: &[u32], nodes: &[usize]) -> orders::Path {
         orders::Path { ids: ids.into(), nodes: nodes.into() }
-    }
-
-    #[test]
-    fn a_world_reset_begins_a_session_as_a_load_does() {
-        // Other tests may count sessions too: only that this one counts.
-        let before = session();
-        world_reset();
-        assert!(session() > before);
-        let after_reset = session();
-        load_begin();
-        assert!(session() > after_reset);
     }
 
     #[test]

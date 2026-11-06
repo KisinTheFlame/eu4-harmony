@@ -1,7 +1,7 @@
 //! Ideas: the idea groups of the ideas view, taking one, buying its ideas
 //! and abandoning it, through the game's own commands
 //! (docs/research/government.md, "Ideas").
-use super::{conditions, content, context, game, power, Caller, GResult, Tag};
+use super::{conditions, content, power, GResult, Session, Tag};
 use crate::{
     memory::Memory,
     objects::campaign::{country, idea_group},
@@ -172,9 +172,7 @@ fn take_choice(m: &Memory, country: usize, player: Tag, group: &Group) -> GResul
 }
 
 /// The idea groups of the ideas view, those taken first.
-pub fn list(_: Caller) -> GResult<Vec<IdeaGroupOption>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<IdeaGroupOption>> {
     let taken = taken(m, ctx.country)?;
     let mut groups: Vec<Group> = groups(m)?.into_iter().filter(|g| m.u8(g.at + idea_group::FREE).is_ok_and(|free| free == 0)).collect();
     groups.sort_by_key(|g| taken.iter().position(|&(t, _)| t == g.at).unwrap_or(usize::MAX));
@@ -223,9 +221,7 @@ fn written_buy(country: Tag, index: u32, skill: u32) -> String {
 }
 
 /// Takes an idea group for the player, as its button does.
-pub fn take_group(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn take_group(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     if taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has taken the idea group {key} already")).into());
@@ -238,9 +234,7 @@ pub fn take_group(_: Caller, key: String) -> GResult<()> {
 }
 
 /// Buys the next idea of an idea group the player has taken.
-pub fn buy(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn buy(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     let Some(&(_, bought)) = taken(m, ctx.country)?.iter().find(|&&(t, _)| t == group.at) else {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")).into());
@@ -256,9 +250,7 @@ pub fn buy(_: Caller, key: String) -> GResult<()> {
 }
 
 /// Abandons an idea group the player has taken.
-pub fn abandon_group(_: Caller, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn abandon_group(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     if !taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")).into());

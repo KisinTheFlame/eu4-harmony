@@ -4,5 +4,5 @@ use eu4_harmony_remote::texts::{TextAnswer, TextRequest};
 
 layer! {
     run TextRequest => TextAnswer;
-    Language => fn language() -> &'static str = game::texts::language;
+    Language => fn language() -> &'static str = caller game::texts::language;
 }

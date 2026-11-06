@@ -10,8 +10,8 @@ use eu4_harmony_remote::{
 
 layer! {
     run OfferRequest => OfferAnswer;
-    List => fn offers() -> Vec<game::offers::Offer> = game::offers::offers;
-    fn answer_offer(offer: u32, accept: bool) -> () = game::offers::answer;
+    List => fn offers() -> Vec<game::offers::Offer> = session game::offers::offers;
+    fn answer_offer(offer: u32, accept: bool) -> () = session game::offers::answer;
     Accept { offer } => game.answer_offer(offer, true);
     Decline { offer } => game.answer_offer(offer, false);
 }

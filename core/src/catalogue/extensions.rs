@@ -4,7 +4,7 @@ use eu4_harmony_remote::extensions::{ExtensionAnswer, ExtensionRequest, Reloaded
 
 layer! {
     run ExtensionRequest => ExtensionAnswer;
-    Reload => fn reload(id: String) -> crate::lua::Reloaded = crate::lua::reload;
+    Reload => fn reload(id: String) -> crate::lua::Reloaded = caller crate::lua::reload;
 }
 
 impl Convert<Reloaded> for crate::lua::Reloaded {

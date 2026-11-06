@@ -2,7 +2,7 @@
 //! for an answer, read from the diplomacy dialogs the game holds for the
 //! player, and answered as the player does, with the dialog's accept or
 //! decline button. The evidence is in docs/research/questions-and-offers.md.
-use super::{context, game, map_manager, questions, Caller, Ctx, GResult, Status, Tag};
+use super::{map_manager, questions, Ctx, GResult, Session, Status, Tag};
 use crate::{
     game_string,
     memory::Memory,
@@ -30,16 +30,12 @@ pub struct Offer {
 }
 
 /// The offers waiting for the player's answer, those shown as icons first.
-pub fn offers(_: Caller) -> GResult<Vec<Offer>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn offers(Session { m, ctx, .. }: Session) -> GResult<Vec<Offer>> {
     listed(m, &ctx)?.iter().map(|h| read(m, h)).collect()
 }
 
 /// One offer, by its id.
-pub fn offer(_: Caller, id: u32) -> GResult<Offer> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn offer(Session { m, ctx, .. }: Session, id: u32) -> GResult<Offer> {
     match listed(m, &ctx)?.into_iter().find(|w| w.id == id) {
         Some(w) => read(m, &w),
         None => Err(eu4_harmony_checks::offers::not_found(id).into()),
@@ -59,9 +55,7 @@ pub fn offer(_: Caller, id: u32) -> GResult<Offer> {
 /// it while it flashes, the last days before it times out, so the player can
 /// see an offer the game would decline at once; such an offer is not listed
 /// ([`in_time`]).
-pub fn answer(_: Caller, id: u32, accept: bool) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn answer(Session { m, ctx, .. }: Session, id: u32, accept: bool) -> GResult<()> {
     let Some(w) = held(m, &ctx)?.into_iter().find(|w| w.id == id) else {
         return Err(eu4_harmony_checks::offers::not_found(id).into());
     };

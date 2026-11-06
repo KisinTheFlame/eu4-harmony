@@ -2008,6 +2008,18 @@ The in-process return now holds back the main thread's presents while the new ma
 - **Not verified**: what the screen shows during the return, since the game ran hidden and the screenshot takes only presented frames; the single player setup's back button, which goes through the same main menu.
 - **Cleanup**: releasing the game ended it, put back the player's files, `England-1` and the backup save the load added among them, and the game folder's framework files with `dev.toml`; the `dev.toml` in the checkout was deleted.
 
+## 2026-11-06 Launches, sessions, settings and capabilities each through one module (tested by me)
+
+The branch that takes a load or start through `launch::Launches`, numbers and forgets sessions in `sessions`, declares the framework settings in one table, opens the session a capability reads once, and takes the claim's course over the computer through `claim::Machine`. The game was claimed with this branch's own `cargo xtask game claim --wait`, which queued behind two other sessions and granted it; `cargo xtask scenario` played in the claim. First `growth` and `perf` at `09804f2`; then, after master's `5d25fd0` was merged, `growth` again at `eb2d5f0`.
+
+- **growth**, 10 rounds of the saves `England-1` (ironman, loaded from the main menu, then in-game) and `英格兰1444_11_11`, returns and new games as France: passed both times, 26 to 30 s a round. Private bytes grew 13.8 MB a round over rounds 2 to 10 at `09804f2`, the game's heap 5.8 MB of it; the framework's heap stayed at 6.8 to 6.9 MB. In the second run the sessions were numbered up to 59, each in-game load, return and new game logged its session's end and the next one's start, 116 remote requests answered with none failed, and each of the 20 returns logged "the main menu took over, 1 of its presents held back" (master's change).
+- **perf**, the player build, a new game as Ming at speed 5: passed; the main menu after 29.9 s, 1,179 game days a minute at speed 5, 3.15 cores at speed 5 and 0.84 paused.
+- **The settings table**: the framework settings were read at startup as the player had saved them (the language and fonts chosen, the music settings, the fastest speed), and the player language took effect.
+- **Found**: each new game started from the main menu logged "a new game as FRA failed: the game did not start it: the main menu is open" at the main menu after its return, though it had started (also in a run of master by another session). The start was still followed after the game took it over, and the next main menu's frame gave it up. Fixed afterwards in `e642996`, which lets it go at the game's first frame; unit-tested only.
+- **The claim**: the queue, the grant, the renewal at each scenario's start and the release, which ended the game, found every one of the player's files as the backup had it and the game folder's framework files as they were.
+- **Not verified**: `e642996` in the game; the settings window and saving a setting; an ironman exit save that fails; the claim taking over from a holder whose lease ran out, and the player's claim; the STATE province panel's acts through the capability.
+- **Cleanup**: releasing the game put back the player's files, among them the saves the loads rewrote and the backup save one of them added; the reports were in the session's scratch folder.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.

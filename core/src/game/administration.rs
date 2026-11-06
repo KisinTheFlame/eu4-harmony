@@ -5,7 +5,7 @@
 //! command's own check is asked again there.
 use super::{
     commands::{self, Refused},
-    conditions, context, fail, game, with_state, Caller, Ctx, GResult, Status, Tag,
+    conditions, fail, with_state, Ctx, GResult, Session, Status, Tag,
 };
 use crate::{
     game_string,
@@ -438,9 +438,7 @@ fn option(m: &Memory, ctx: &Ctx, place: &Place, action: Action) -> GResult<Choic
 }
 
 /// What the province view offers the player in a province now.
-pub fn options(_: Caller, id: u32) -> GResult<Vec<ProvinceOption>> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Vec<ProvinceOption>> {
     let place = place(m, &ctx, id)?;
     let mut out = Vec::new();
     for action in Action::ALL {
@@ -473,9 +471,7 @@ fn post(action: Action, text: &str) -> GResult<()> {
 /// Takes `action` in the province for the player, as its button does:
 /// refused with the game's reasons when the button would be refused, and
 /// done once the game has carried the command out.
-pub fn act(_: Caller, id: u32, action: Action) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn act(Session { m, ctx, .. }: Session, id: u32, action: Action) -> GResult<()> {
     let place = place(m, &ctx, id)?;
     let choice = option(m, &ctx, &place, action)?;
     if !choice.can {
@@ -513,9 +509,7 @@ pub fn act(_: Caller, id: u32, action: Action) -> GResult<()> {
 }
 
 /// Sets the edict `key` in the player's state the province is in.
-pub fn set_edict(_: Caller, id: u32, key: String) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+pub fn set_edict(Session { m, ctx, .. }: Session, id: u32, key: String) -> GResult<()> {
     let place = place(m, &ctx, id)?;
     let Some((edict, _, index)) = edicts(m)?.into_iter().find(|(_, k, _)| *k == key) else {
         return Err(refuse::no_such_edict(&key).into());

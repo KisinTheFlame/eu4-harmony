@@ -2,7 +2,7 @@
 //! barrage and the assault, each the game's spending of military points,
 //! posted as the view posts it, with the game's own answer of whether the
 //! player can and why not (docs/research/sieges.md).
-use super::{commands, context, game, power, with_state, Caller, Ctx, GResult, View};
+use super::{commands, power, with_state, Ctx, GResult, Session, View};
 use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{
@@ -67,17 +67,13 @@ fn action(m: &Memory, ctx: &Ctx, siege: usize, province: u32, (name, category, m
 }
 
 /// What the siege view offers for the siege in a province.
-pub fn options(caller: Caller, province: u32) -> GResult<Vec<SiegeAction>> {
-    let m = game()?;
-    let ctx = context(m)?;
-    let siege = siege(m, &ctx, province, super::view(caller))?;
+pub fn options(Session { m, ctx, view, .. }: Session, province: u32) -> GResult<Vec<SiegeAction>> {
+    let siege = siege(m, &ctx, province, view)?;
     ACTIONS.into_iter().map(|a| action(m, &ctx, siege, province, a)).collect()
 }
 
 /// Presses one of the siege view's buttons.
-fn press(name: &str, province: u32) -> GResult<()> {
-    let m = game()?;
-    let ctx = context(m)?;
+fn press(Session { m, ctx, .. }: Session, name: &str, province: u32) -> GResult<()> {
     let siege = siege(m, &ctx, province, View::Player)?;
     let Some(entry) = ACTIONS.into_iter().find(|a| a.0 == name) else {
         return Err(format!("no siege action {name}").into());
@@ -90,16 +86,16 @@ fn press(name: &str, province: u32) -> GResult<()> {
     Ok(())
 }
 
-pub fn bombard(_: Caller, province: u32) -> GResult<()> {
-    press("bombard", province)
+pub fn bombard(session: Session, province: u32) -> GResult<()> {
+    press(session, "bombard", province)
 }
 
-pub fn naval_bombard(_: Caller, province: u32) -> GResult<()> {
-    press("naval_bombard", province)
+pub fn naval_bombard(session: Session, province: u32) -> GResult<()> {
+    press(session, "naval_bombard", province)
 }
 
-pub fn assault(_: Caller, province: u32) -> GResult<()> {
-    press("assault", province)
+pub fn assault(session: Session, province: u32) -> GResult<()> {
+    press(session, "assault", province)
 }
 
 #[cfg(test)]

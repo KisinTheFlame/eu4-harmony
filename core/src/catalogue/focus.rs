@@ -6,7 +6,7 @@ use eu4_harmony_remote::{
 
 layer! {
     run FocusRequest => FocusAnswer;
-    Options => fn focus() -> Focus = crate::game::focus::options;
-    Choose => fn choose_focus(focus: PowerKind) -> () = crate::game::focus::choose;
-    Cancel => fn cancel_focus() -> () = crate::game::focus::cancel;
+    Options => fn focus() -> Focus = session crate::game::focus::options;
+    Choose => fn choose_focus(focus: PowerKind) -> () = session crate::game::focus::choose;
+    Cancel => fn cancel_focus() -> () = session crate::game::focus::cancel;
 }

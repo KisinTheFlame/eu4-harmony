@@ -9,9 +9,9 @@ use eu4_harmony_remote::{
 
 layer! {
     run RecruitRequest => RecruitAnswer;
-    fn province_snapshot(province: u32) -> game::provinces::Snapshot = game::provinces::province;
+    fn province_snapshot(province: u32) -> game::provinces::Snapshot = session game::provinces::province;
     Options { province } => options(game, province.0);
-    Order => fn recruit(province: u32, kind: UnitKind) -> () = game::recruiting::recruit;
+    Order => fn recruit(province: u32, kind: UnitKind) -> () = session game::recruiting::recruit;
 }
 
 /// What can be recruited in the province, and whether it can now.
