@@ -1,6 +1,6 @@
 # Observe mode plan
 
-Status: decided with the owner (2026-11-07); O1 built and tried in the game (2026-11-07), O2 to O4 not yet. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Observe mode, Country in view, Player's view, Session). The decision is [ADR observe-mode-acts-as-the-country-in-view](adr/observe-mode-acts-as-the-country-in-view.md).
+Status: decided with the owner (2026-11-07); built and tried in the game (2026-11-07). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Observe mode, Country in view, Player's view, Session). The decision is [ADR observe-mode-acts-as-the-country-in-view](adr/observe-mode-acts-as-the-country-in-view.md).
 
 ## Goal and scope
 

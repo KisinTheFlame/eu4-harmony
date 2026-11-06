@@ -146,6 +146,14 @@ impl session::Layer for Fake {
         let player = self.player.unwrap_or(game::player::Player::Plays(tur()));
         Ok(game::session::Session { session: 2, date: 0x035D_7710, paused: true, visibility_current: true, player })
     }
+
+    fn leave_view(&mut self) -> GResult<game::session::Session> {
+        self.call("leave view".into());
+        if let Some(game::player::Player::Observes { in_view, .. }) = &mut self.player {
+            *in_view = None;
+        }
+        session::Layer::session(self)
+    }
 }
 
 impl countries::Layer for Fake {

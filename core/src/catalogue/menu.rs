@@ -86,11 +86,11 @@ pub fn run(request: MenuRequest, game: &mut (impl Layer + ?Sized)) -> Outcome {
         MenuRequest::State {} => done(game.place().map_err(Error::from).map(|place| MenuAnswer::State(Menu { process: process(), place: place_of(place) }))),
         MenuRequest::Saves {} => done(game.saves().map_err(Error::from).map(|saves| MenuAnswer::Saves(saves.into_iter().map(save).collect()))),
         MenuRequest::Load { save } => match game.load(&save) {
-            Ok(expected) => Outcome::Later(Box::new(Starting { probe: game.launch(), answer: MenuAnswer::Load, expected: Some(expected) })),
+            Ok(expected) => Outcome::Later(Box::new(Starting { probe: game.launch(), answer: MenuAnswer::Load, expected: Some(expected), observing: false })),
             Err(fail) => done(Err(fail.into())),
         },
         MenuRequest::Start { country } => match game.start(country) {
-            Ok(()) => Outcome::Later(Box::new(Starting { probe: game.launch(), answer: MenuAnswer::Start, expected: None })),
+            Ok(()) => Outcome::Later(Box::new(Starting { probe: game.launch(), answer: MenuAnswer::Start, expected: None, observing: country.is_none() })),
             Err(fail) => done(Err(fail.into())),
         },
         MenuRequest::Return {} => match game.return_to_main_menu() {
@@ -142,6 +142,9 @@ struct Starting {
     answer: fn(Session) -> MenuAnswer,
     /// For a load, the game its save's header says will come.
     expected: Option<ExpectedProbe>,
+    /// A start in observe mode: it begins with no country in view, which the
+    /// game puts one in at its start.
+    observing: bool,
 }
 
 impl Wait for Starting {
@@ -161,7 +164,11 @@ impl Wait for Starting {
             )));
         }
         let game = at.game()?;
-        match game.session() {
+        let session = match game.session() {
+            Ok(s) if self.observing && s.player.acting().is_some() => game.leave_view(),
+            session => session,
+        };
+        match session {
             Ok(s) => Some(match self.expected.as_mut().map(|probe| probe()).transpose() {
                 Err(fail) => Err(fail.into()),
                 Ok(expected) => match expected.and_then(|e| other_game(&e, &s)) {
@@ -246,6 +253,21 @@ mod tests {
         *game.launch.lock().unwrap() = game::menu::Launch::Failed("the single player setup did not take the country".into());
         engine.run(&mut game, &menu, PLENTY);
         assert_eq!(answer(&start), json!({"ok": false, "error": {"code": "rejected", "message": "the single player setup did not take the country"}}));
+    }
+
+    #[test]
+    fn a_start_in_observe_mode_answers_with_no_country_in_view() {
+        // The game puts a country in view at its start; the start takes it
+        // out before it answers.
+        let engine = Engine::new(remember);
+        let observer = game::Tag(super::super::fake::game_tag(b"O00", 900).0 | 7 << crate::objects::campaign::tag::KIND);
+        let in_view = Some(super::super::fake::tur());
+        let mut game = Fake { player: Some(game::player::Player::Observes { own: observer, in_view }), ..Fake::default() };
+        let start = engine.submit(Request::Menu(MenuRequest::Start { country: None }));
+        engine.run(&mut game, &Place::Outside(Some(Error::new(Code::NotInGame, "the main menu is open"))), PLENTY);
+        engine.run(&mut game, &Place::Game, PLENTY);
+        assert_eq!(answer(&start), ok(json!({"number": 2, "player": null, "observing": true, "date": "1444.11.11"})));
+        assert_eq!(game.calls, ["start observing", "session", "leave view", "session"]);
     }
 
     #[test]

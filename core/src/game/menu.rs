@@ -54,6 +54,10 @@ const SET_PLAYER: usize = 0x763840;
 /// there is none; the setup's observe button (`0x11374d0`) asks it for
 /// `---` of the observer's kind, and makes the player the tag it points to.
 const KIND_TAG: usize = 0x76ee40;
+/// `(setup, &tag, false)`: selects the country in the setup, posting the
+/// command that makes it the player's, as entering the setup with a
+/// `-start_tag` country does (`0x110e871`).
+const SELECT: usize = 0x111cb80;
 /// `(setup)`: starts the game, as entering the setup with a `-start_tag`
 /// country does once it selected it (`0x110e88c`).
 const START: usize = 0x1120280;
@@ -410,6 +414,11 @@ pub fn start(_: Caller, country: Option<[u8; 3]>) -> GResult<()> {
     }
     first_page(m)?;
     if country.is_none() {
+        // The setup's ironman choice is the main menu world's, which the
+        // game does not let observe (FE_NOT_IRONMAN_AND_OBSERVER).
+        if m.u8(world_now(m)? + world::IRONMAN)? != 0 {
+            return fail(Status::Rejected, "an ironman game cannot be observed; turn ironman off in the single player setup");
+        }
         log!("menu: a new game in observe mode");
         LAUNCHES.ask(Action::Start(letters));
         return Ok(());
@@ -514,8 +523,9 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
 }
 
 /// As the single player setup's observe button and then its start: the
-/// setup entered with no country to start as, the observer's tag made the
-/// player's, the game started.
+/// setup entered with no country to start as, the observer's tag selected
+/// in it as a `-start_tag` country is (the button posts the same command),
+/// the game started.
 fn observe_now(m: &Memory, frontend: usize) -> Result<()> {
     let start_tag = m.at(setup::START_TAG);
     if !game_string::read(m, start_tag)?.is_empty() {
@@ -530,7 +540,7 @@ fn observe_now(m: &Memory, frontend: usize) -> Result<()> {
     if observer.kind() != world::OBSERVE || !observer.valid() {
         return Err(format!("the game gave {:#x} for the observer's tag", observer.0));
     }
-    m.call(m.at(SET_PLAYER), &[world, observer.0 as usize])?;
+    m.call(m.at(SELECT), &[page, &observer.0 as *const u64 as usize, 0])?;
     m.call(m.at(START), &[page])?;
     if m.u8(page + setup::STARTED)? == 0 {
         return Err("the single player setup did not start the game".into());
@@ -670,6 +680,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(CHOOSE_SAVE, "48 89 5c 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8d 6c 24 d9 48 81 ec", "single player setup choose save"),
         Point::keep(CONTINUE, "48 89 5c 24 08 55 56 57 41 56 41 57 48 8d 6c 24 c9 48 81 ec 00 01 00 00", "single player setup continue"),
         Point::keep(SET_PLAYER, "40 57 48 83 ec 20 48 8b c2 48 89 91 60 1e 00 00 48 c1 e8 38 48 8b f9 84", "world set player").uses(&[world::PLAYER]),
+        Point::keep(SELECT, "48 89 5c 24 10 48 89 74 24 18 48 89 7c 24 20 55 41 56 41 57 48 8b ec 48 83 ec 70", "single player setup select"),
         Point::keep(KIND_TAG, "48 89 5c 24 10 48 89 74 24 18 55 57 41 54 41 56 41 57 48 8d 6c 24 d0 48 81 ec 30 01 00 00 45 0f b6 f8", "tag of a kind"),
         Point::keep(
             START,

@@ -52,7 +52,8 @@ group! {
     /// up or begins a game the player cannot play.
     remote_anywhere Start "start" {
         /// The country to play; none for observe mode, the AI playing every
-        /// country and none in view.
+        /// country and none in view, rejected with ironman chosen in the
+        /// single player setup, which the game does not let observe.
         country: Option<CountryTag>,
     } -> Session, "the session of the new game, as session answers it";
     /// Returns to the main menu, without the game's question or its summary,
