@@ -47,7 +47,8 @@ pub fn needs_claim(args: &Args) -> Result<Record> {
 /// `cargo xtask game <command>`.
 pub fn run(raw: &[String]) -> Result<i32> {
     let (command, rest) = raw.split_first().ok_or("cargo xtask game claim | start | stop | release | renew | watch | status")?;
-    let args = Args::parse(rest, &["wait", "player", "now", "sound", "keep-crashes"], &["purpose", "owner", "lease", "warn", "timeout", "game-dir"])?;
+    let args =
+        Args::parse(rest, &["wait", "player", "now", "sound", "visible", "keep-crashes"], &["purpose", "owner", "lease", "warn", "timeout", "game-dir"])?;
     match command.as_str() {
         "claim" => claim(&args),
         "release" => give_back(&owner(&args), &args.game_dir()?, args.flag("keep-crashes")).map(|()| 0),
@@ -138,10 +139,30 @@ pub fn start_game_as(owner: &str, game_dir: &Path, sound: bool, wait: Duration) 
 }
 
 /// `cargo xtask game start`: starts the game hidden, within this owner's
-/// claim, and waits for its main menu.
+/// claim, and waits for its main menu; with `--visible` shows it there, as
+/// `desktop.show` shows it. The start is a hidden start either way, so that
+/// `--sound` chooses the sound and the game can be hidden again.
 fn start(args: &Args) -> Result<f64> {
     let wait = args
         .value("timeout")
         .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
-    start_game_as(&owner(args), &args.game_dir()?, args.flag("sound"), wait)
+    let took = start_game_as(&owner(args), &args.game_dir()?, args.flag("sound"), wait)?;
+    if args.flag("visible") {
+        show().map_err(|why| format!("the game runs hidden at its main menu, not shown: {why}; eu4-harmony game desktop show shows it"))?;
+        println!("the window is shown");
+    }
+    Ok(took)
+}
+
+/// Shows the game's window, through remote control.
+fn show() -> Result<()> {
+    use eu4_harmony_client::pipe;
+    use eu4_harmony_remote::desktop::{Desktop, DesktopRequest};
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut client = pipe::connect(pipe::NAME, pipe::GAME, deadline).map_err(|e| e.to_string())?;
+    match client.ask_for::<_, Desktop>(&DesktopRequest::Show {}, Some(deadline)).map_err(|e| e.to_string())? {
+        Ok(desktop) if !desktop.hidden => Ok(()),
+        Ok(_) => Err("desktop.show answered that the window is still hidden".into()),
+        Err(refused) => Err(format!("desktop.show: {refused}")),
+    }
 }

@@ -5,7 +5,7 @@ description: Claim the game before trying anything in it, start it hidden, and r
 
 # Trying things in the game
 
-Every session on this computer, whatever its checkout, shares one game: its folder, eu4.exe and the player's files. One holder has it at a time: the claim (GLOSSARY). `cargo xtask game` keeps it, one record for the whole computer; run it from your own checkout. The game is always started hidden, so nothing of it reaches the desktop of the person at the computer.
+Every session on this computer, whatever its checkout, shares one game: its folder, eu4.exe and the player's files. One holder has it at a time: the claim (GLOSSARY). `cargo xtask game` keeps it, one record for the whole computer; run it from your own checkout. The game is started hidden and silent, so nothing of it reaches the desktop or the speakers of the person at the computer, unless the user asks to see or hear it.
 
 ## Steps
 
@@ -28,7 +28,7 @@ Done when `release` reports `released` and `cargo xtask game status` lists no cl
 ## Reference
 
 - **Owner**: the leaf name of your checkout's folder, unless `--owner` names another. Sessions sharing one checkout each pass their own `--owner`, to every command.
-- **Options**: `claim --lease <minutes>` sets the lease (30 without it); `game start --timeout <seconds>` waits longer than 300 s for the main menu; `watch --warn <minutes>` exits that long before the lease's end (5); `--game-dir` names a game folder other than the one found.
+- **Options**: `claim --lease <minutes>` sets the lease (30 without it); `game start --timeout <seconds>` waits longer than 300 s for the main menu; `game start --visible` shows the window at the main menu and `--sound` keeps the sound, each only when the user asks to watch or hear the game (`eu4-harmony game desktop hide` hides it again); `watch --warn <minutes>` exits that long before the lease's end (5); `--game-dir` names a game folder other than the one found.
 - **Status**: `cargo xtask game status` prints the holder, its purpose and lease, the queue, whether eu4.exe runs, and claims' folders and backups no claim refers to.
 - **eu4.exe running with no claim** means the player is playing; a claim waits for the game to close.
 - **The player** claims with `cargo xtask game claim --player`, which keeps their files as they play and goes first in the queue, and `--now` to take the game from its holder after two minutes; they release with `cargo xtask game release --player`. A session never claims as the player.

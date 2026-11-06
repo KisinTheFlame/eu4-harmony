@@ -1,11 +1,11 @@
 # Game testing plan
 
-Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](prototype-log.md), "Game testing"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
+Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](prototype-log.md), "Game testing"), G6 built and tried (2026-11-06; "Watching the game a claim starts"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
 
 ## Goal and scope
 
 - **Goal**: every session on this computer that tries something in the game does it the same way, through one set of commands that hands the game to one holder at a time, fairly, starts it hidden, and puts back everything the run changed: the player's files, the framework files in the game folder and its `dev.toml`. The player, who plays on the same computer, gets the game first when they ask for it.
-- **In scope**: the claim, now `game-lock.ps1` in the game-lock skill, as commands of `cargo xtask game`; a queue of those waiting; the player's claim; the claim's own folder, with what a run leaves to look at; starting and stopping the game within a claim, always hidden; `cargo xtask install`, `perf-run` and `leak-run` on top of it (since replaced by the scenarios of `cargo xtask scenario`, [scenarios.md](scenarios.md)); the skill, renamed game-test, rewritten for the commands.
+- **In scope**: the claim, now `game-lock.ps1` in the game-lock skill, as commands of `cargo xtask game`; a queue of those waiting; the player's claim; the claim's own folder, with what a run leaves to look at; starting and stopping the game within a claim, hidden unless the holder asks to see it; `cargo xtask install`, `perf-run` and `leak-run` on top of it (since replaced by the scenarios of `cargo xtask scenario`, [scenarios.md](scenarios.md)); the skill, renamed game-test, rewritten for the commands.
 - **Out of scope**: more than one game at once ([research/headless.md](research/headless.md), "What it would take"); a playset of the run's own, since the playset is a player file the release puts back anyway; measuring vanilla, which the perf run no longer does: what matters is the framework's own game.
 
 ## Behavior
@@ -15,7 +15,7 @@ Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](protot
 | Command | What it does |
 | --- | --- |
 | `cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>]` | Claims the game: backs up the player's files and copies the framework files in the game folder, with `eu4-harmony\dev.toml` if there is one, into the claim's folder. Busy without `--wait`: says who holds it and exits with 2. With `--wait`: joins the queue and exits once it holds the game. `--lease` sets the lease, 30 minutes without it |
-| `cargo xtask game start [--sound] [--timeout <seconds>]` | Starts the game hidden, as `eu4-harmony start --hidden` does and with the same `client/` library, and waits for the main menu, 300 seconds unless `--timeout` says otherwise; a start that has not reached it in time ends the game and fails. Refused without the claim |
+| `cargo xtask game start [--visible] [--sound] [--timeout <seconds>]` | Starts the game hidden, as `eu4-harmony start --hidden` does and with the same `client/` library, and waits for the main menu, 300 seconds unless `--timeout` says otherwise; a start that has not reached it in time ends the game and fails. `--visible` shows its window at the main menu, as `desktop.show` does, for someone at the computer to watch; `--sound` keeps its sound. Either way it is a hidden start, so `desktop.hide` hides it again and the sound stays as chosen until the game ends. Refused without the claim |
 | `cargo xtask game stop` | Ends the game |
 | `cargo xtask game release [--keep-crashes]` | Ends the game if it runs, copies what the run left into the claim's folder, puts back the player's files and the game folder's framework files and `dev.toml` and compares each, and frees the game; prints a summary |
 | `cargo xtask game renew` | Starts the lease again |
@@ -93,3 +93,7 @@ The queue with its liveness; `claim --player`, first in the queue, and `--now`, 
 ### G5 The skill
 
 The skill renamed game-test, rewritten for the commands, `game-lock.ps1` removed; AGENTS.md's testing section pointing at it.
+
+### G6 Watching the game
+
+`game start --visible`, the window shown at the main menu, and `--sound` independent of it, so that a start is hidden or shown, silent or heard. Tried: each with `desktop.get`'s answer, the shown window looked at from another process. The window is shown once the start reaches the main menu, as `desktop.show` shows it: the startup's own screens stay hidden. A start shown from its first frame would take a switch of the framework's and points of its own, for a need not yet seen.
