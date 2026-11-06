@@ -37,7 +37,7 @@ Shares of the main thread's samples. A sample counts where the world's flags put
 | … the rest of the frames | 7.6% | 22.9% | 19.8% |
 
 - **The main thread is what limits the game.** It ran 0.84 to 0.87 cores at speed 5, suspended by the sampler 7% of the time and asleep or waiting the rest (POPS's sleeps, the driver, the workers). Each other thread ran at most 0.16 cores, all of them together 1.0 to 1.6, on a machine of 16 hardware threads.
-- **Later in the game, more than half of the main thread's time is not the day.** In 1624 a day took about 40 ms of simulation and the frames drawn for it about 60 ms; in 1462, 39 ms and 21 ms. The difference is the frames inside days, which the slower days bring (below).
+- **Later in the game, more than half of the main thread's time is not the day.** In 1624 a day took about 40 ms of simulation and the frames drawn for it about 60 ms; in 1462, 39 ms and 21 ms. The difference is the frames inside days, which the slower days bring (below). One game the AI played alone from 1444 to 1821 found what grows later on: the AI stage, from 5 to 30 ms a game day, waiting for the largest countries' handling of their armies ([late-game.md](late-game.md)).
 - **Paused**, a frame is drawing, the GUI update and POPS's waits; a third of it is POPS.
 
 ## Frames inside a day

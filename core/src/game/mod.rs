@@ -227,6 +227,26 @@ impl Session {
     }
 }
 
+/// The session as a capability that needs no country of the player's reads
+/// it: the game, the world at this instant ([`World`]), also while the
+/// player only observes, and the caller. The catalogue opens it for each
+/// request of such a capability, as it opens [`Session`] for the others.
+#[derive(Clone, Copy, Debug)]
+pub struct WorldSession {
+    pub m: &'static Memory,
+    pub world: World,
+    pub caller: Caller,
+}
+
+impl WorldSession {
+    /// Opens it for `caller`: failing as [`Session::open`] does, but with a
+    /// world whose player has no country to play.
+    pub fn open(caller: Caller) -> GResult<Self> {
+        let m = game()?;
+        Ok(Self { m, world: world_context(m)?, caller })
+    }
+}
+
 /// What the capabilities keep between calls: the map's topology and the
 /// routes extensions installed. Both belong to one session, as does the last
 /// day announced; the sessions let them go ([`session_forgotten`]).
@@ -530,6 +550,32 @@ pub struct Ctx {
     pub countries: usize,
 }
 
+/// The game going on as seen at one instant, whether the player plays a
+/// country in it or only observes: what time and the game's commands need.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct World {
+    pub world: usize,
+    pub date: i32,
+}
+
+/// What holds the game's world: [`Ctx`], with the player's country, or
+/// [`World`], with or without one.
+pub trait InWorld {
+    fn world(&self) -> usize;
+}
+
+impl InWorld for Ctx {
+    fn world(&self) -> usize {
+        self.world
+    }
+}
+
+impl InWorld for World {
+    fn world(&self) -> usize {
+        self.world
+    }
+}
+
 /// The session going on, refusing while the daily update is running.
 pub fn context(m: &Memory) -> GResult<Ctx> {
     context_impl(m, true)
@@ -540,7 +586,19 @@ pub fn context_any(m: &Memory) -> GResult<Ctx> {
     context_impl(m, false)
 }
 
-fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
+/// The game going on, also while the player observes, refusing while the
+/// daily update is running.
+pub fn world_context(m: &Memory) -> GResult<World> {
+    world_impl(m, true)
+}
+
+/// [`world_context`], also during the daily update; only for boundary
+/// observers.
+pub fn world_context_any(m: &Memory) -> GResult<World> {
+    world_impl(m, false)
+}
+
+fn world_impl(m: &Memory, require_stable: bool) -> GResult<World> {
     let world = m.ptr(m.at(globals::WORLD))?;
     if world == 0 {
         return fail(Status::NotInGame, "no world");
@@ -548,6 +606,21 @@ fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
     if require_stable && m.u8(world + campaign::world::DAILY_UPDATE)? != 0 {
         return fail(Status::NotReady, "daily update in progress");
     }
+    Ok(World { world, date: m.i32(world + campaign::world::DATE)? })
+}
+
+/// Whether the player only observes the game going on, with no country to
+/// play (the game console's observe, a country annexed).
+pub fn observing(m: &Memory) -> GResult<bool> {
+    match context_any(m) {
+        Ok(_) => Ok(false),
+        Err(fail) if fail.status == Status::NotInGame => world_context_any(m).map(|_| true),
+        Err(fail) => Err(fail),
+    }
+}
+
+fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
+    let World { world, .. } = world_impl(m, require_stable)?;
     let switched = m.u8(world + campaign::world::PLAYER_MODE)? == campaign::world::SWITCHED && m.u8(world + campaign::world::PLAYER_SWITCHED)? != 0;
     let player = Tag(m.u64(world + if switched { campaign::world::SWITCHED_PLAYER } else { campaign::world::PLAYER })?);
     if !player.normal() {
@@ -586,7 +659,7 @@ pub fn special_countries(m: &Memory) -> GResult<[i32; 3]> {
 }
 
 /// Whether the game is paused (the map manager's pause owner says so).
-pub fn paused(m: &Memory, ctx: &Ctx) -> GResult<bool> {
+pub fn paused(m: &Memory, ctx: &impl InWorld) -> GResult<bool> {
     let manager = map_manager(m, ctx)?;
     let pause = m.ptr(manager + map_manager::PAUSE)?;
     if m.ptr(pause + pause::MANAGER)? != manager {
@@ -596,8 +669,8 @@ pub fn paused(m: &Memory, ctx: &Ctx) -> GResult<bool> {
 }
 
 /// The world's map manager, checked by its class.
-pub fn map_manager(m: &Memory, ctx: &Ctx) -> GResult<usize> {
-    let manager = m.ptr(ctx.world + campaign::world::MAP_MANAGER)?;
+pub fn map_manager(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
+    let manager = m.ptr(ctx.world() + campaign::world::MAP_MANAGER)?;
     if m.ptr(manager)? != m.at(campaign::classes::MAP_MANAGER) {
         return Err("unexpected map manager".to_string().into());
     }
@@ -607,7 +680,7 @@ pub fn map_manager(m: &Memory, ctx: &Ctx) -> GResult<usize> {
 /// The game's session, which takes the player's commands, as the player's
 /// buttons find it: the map manager's method answers it
 /// (`objects::session`).
-pub fn command_session(m: &Memory, ctx: &Ctx) -> GResult<usize> {
+pub fn command_session(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
     let session = m.call(m.at(crate::objects::session::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
     if session == 0 || m.ptr(session)? != m.at(crate::objects::session::CLASS) {
         return Err("the map manager has no session".to_string().into());

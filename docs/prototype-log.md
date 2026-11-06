@@ -2029,6 +2029,34 @@ The branch that takes a load or start through `launch::Launches`, numbers and fo
 - **No option**: at the main menu after 33 s; `desktop.get` answered `hidden: true`, `sound: false`, as before.
 - **Not verified**: the window's cloak and style in the start without sound, which goes through the same `desktop.show`; that sound was heard, rather than answered by `desktop.get`; whether the window took the focus, which `desktop.show` does not ask for.
 - **Cleanup**: releasing the game put back the player's files and the game folder's framework files, nothing reported not put back.
+## 2026-11-06 One game from 1444 to 1580, and four saves loaded afresh (tested by me)
+
+Why later days are slower; the findings are in [research/late-game.md](research/late-game.md). The player build of master at `ae4e4ae8`, with `cargo xtask profile` writing a line for each stretch of a run (`--slice`, `<out>.slices.tsv`), built from this branch; the player's playset and settings ("Faster time", half-yearly autosaves); one claim of 102 minutes, the game started hidden twice.
+
+- **The long run**: a new game as Castile at speed 5, 1444.11.11 to 1580.4.10 in 84 minutes, a script answering 417 questions with their first option and declining every offer, under the profiler at 50 samples a second in slices of 60 s; a copy of the autosave every 20 years. 12.7 days a second in its first twenty years, 6.8 in its last; paused in 1580, 14 frames a second. Cut short at 1580 instead of 1821 because another session waited for the game; the profiler's report was written when the game was ended, which ends its sampling.
+- **Four saves loaded afresh** with `menu.load`, in a game started again: 30 s paused and 120 s at speed 5 each, under the profiler. The long run's autosave of 1580.1.1: 15.1 days a second, 144 frames a second paused. England 1444.11.11: 14.9 and 143. The player's Spain 1618.9.2: 13.1 and 63. The player's Holy Roman Empire 1724.5.13: 31.9 and 78.
+- **The windows**: the screenshots after five years from the 1580 and the 1444 loads showed a stack of the game's message windows. England five years on, paused: 102 frames a second; loaded again in the same process, 138.
+- **Not verified**: a player's own long session; the windows counted, or all of them closed (Esc did not close them; clicking their buttons closed some); a session past 1580; the game's own pace over a long run; vanilla.
+- **Cleanup**: releasing the game put back the player's files (the saves the loads and the run rewrote, the autosaves, `continue_game.json`, the login cache among them) and the game folder's framework files. The profiles, the autosaves' copies and the scripts stayed in the session's scratch folder.
+
+## 2026-11-06 Time while the player observes (tested by me)
+
+The time group declared `world`, run at a game's frame the player cannot play (`Place::Unplayable`), the game layer's time on the world without the player's country (`game::world_context`). The player build of this branch, the player's playset, the game hidden; a new game as Castile, then `console run observe` ("Entered Spectator Mode.").
+
+- **The first build** refused `time.resume` and `time.advance` there, "the game does not let an observer run time": it read the pause key's other check as "no country and `world+0x74dc` clear", and `observe` leaves that byte clear. Pressed as the player would (`input key space`), the pause key resumed the same game: 1444.11.11 paused, then 1444.12.1 running 2 s later. The key reads the tag's last byte (`world+0x1e67`), which `observe` leaves set, not whether the tag is a country's; `time.resume` now reads the same two bytes.
+- **The second build**, observing: `time.get` 1444.11.11 paused at speed 1; `time.set_speed 5`; `time.resume`, then 1444.11.12 running; `time.pause`, then 1444.11.14 paused; `time.advance 10` answered `date` at 1444.11.24 0.7 s later, with no events; then a year at a time with `time.advance 365`, each answered at its date. `session.get` and `army.list` answered `not_in_game` ("no controllable player"), as before.
+- **Not tried**: an advance under way as the player's country is annexed; a player with no country whose tag's last byte is clear (the pause key's refusal, which `time.resume` now gives); extensions, which run no frame while the player observes.
+
+## 2026-11-06 One game the AI played alone, 1444 to 1821 (tested by me)
+
+What grows later in a game, the run of [research/late-game.md](research/late-game.md), after the run above, whose player closed no windows, was found to measure those windows. The player build of this branch with time running while the player observes (below), the player's playset and settings; one claim of 182 minutes, the game started hidden.
+
+- **Observing, no country viewed**: a new game as Castile, `console run observe`, then `time.advance 365` at speed 5 again and again, 1444.11.11 to 1608.5.11 in 69 minutes, under the profiler (50 samples a second, slices of 60 s), a copy of the autosave every 20 years. No window of the game's opened.
+- **The Ottomans' view**: the autosave of 1600.1.1 copied with `player="TUR"` and `not_observer=yes`, loaded with `menu.load` in the same process, `console run observe`, Ctrl and a click on Ankara (`input key_down ctrl`, `input click`, `input key_up ctrl`: the top bar, the outliner and the alerts became the Ottomans', `session.get` answered `TUR`), W for the political map at 1602.9. `time.advance 365` at speed 5 to 1821.1.3 in 88 minutes, the same profiler going on; a screenshot every 10 years showed two windows open, the ages' (1621, 1721), each closed by its button; no question waited.
+- **Loaded afresh** (another start of the game): the autosave of 1700.1.1, viewed as the Ottomans; the main thread sampled for 60 s, then the thread with `0x786150` on its stack, then the busiest thread of each second; then six minutes of the main thread, 1710 to 1724.
+- **The saves kept**: the autosaves of 1600.1.1 and 1700.1.1 copied to `%LOCALAPPDATA%\eu4-harmony-dev\saves\`, for later runs (asked for by the owner); each read whole (its braces balanced, its checksum at the end).
+- **Not verified**: each AI country's task timed on its own; a game a player plays; the game's own pace over the run; vanilla.
+- **Cleanup**: releasing the game put back the player's files (the loads' saves and the autosaves among them) and removed the two saves the run added to the save games folder; the profiles, the autosaves' copies and the scripts stayed in the session's scratch folder.
 
 ## How the implementation differs from the final design
 

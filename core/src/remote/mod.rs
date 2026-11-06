@@ -256,6 +256,9 @@ impl Engine {
                         continue;
                     }
                     Place::Game => {}
+                    // The game goes on with no country the player plays:
+                    // what needs only the game runs.
+                    Place::Unplayable(_) if q.request.observing() => {}
                     Place::Outside(None) => {
                         kept.push_back(q);
                         continue;
