@@ -25,7 +25,9 @@
 //! taken down as the in-game load takes it down, its interface, then its world
 //! reset, here with the game's history; then a new main menu, made as startup
 //! makes it after its own reset, takes the application over by its idler
-//! switch, which lets the map manager go. The single player setup's back
+//! switch, which lets the map manager go. The loading screen it presents as
+//! it takes over, as at startup, is held back: the still notice stays until
+//! its first frame. The single player setup's back
 //! button, which restarts the game too, goes back the same way.
 //!
 //! What the game's world reset and the map manager's destructor leave of a
@@ -44,6 +46,7 @@ use crate::{
     objects::{
         application,
         campaign::{classes, globals, load_request, map_manager as manager_fields, world},
+        gui,
     },
     points::{Function, Point},
     repairs,
@@ -96,6 +99,10 @@ const MAIN_MENU_SIZE: usize = 0xb48;
 /// `(application, &idler, keep)`: the application's idler switch, at its
 /// next frame; with `keep` clear it lets the idler it leaves go.
 const SWITCH_IDLER: usize = 0x14c2530;
+/// `(main menu)`: the main menu taking over at the idler switch, its method
+/// at `+0x30`. As at startup, it presents a frame of the loading screen, a
+/// painting over the whole screen (docs/research/main-menu.md).
+const TAKE_OVER: usize = 0x10d5bc0;
 /// `(task)`: waits for a task of the game's to be done.
 const WAIT_TASK: usize = 0x17139c0;
 /// `(application)`: the continue information from the newest save.
@@ -697,6 +704,7 @@ fn main_menu(m: &Memory, app: usize) -> crate::Result<()> {
     m.call(m.at(MAIN_MENU), &[memory, first, second, app])?;
     let mut idler = memory;
     m.call(m.at(SWITCH_IDLER), &[app, &mut idler as *mut usize as usize, 0])?;
+    RETURNED.store(true, Ordering::Relaxed);
     // The continue box offers the save the game wrote last, as after a restart.
     let task = m.ptr(app + application::CONTINUE_TASK)?;
     if task != 0 {
@@ -704,6 +712,29 @@ fn main_menu(m: &Memory, app: usize) -> crate::Result<()> {
     }
     m.call(m.at(CONTINUE), &[app])?;
     Ok(())
+}
+
+/// Set from when [`main_menu`] asked for the switch to the main menu it made
+/// until that main menu took over.
+static RETURNED: AtomicBool = AtomicBool::new(false);
+
+/// As a main menu takes over: one an in-process return made presents the
+/// loading screen as at startup, which is held back, so the still notice
+/// stays until the main menu's first frame.
+extern "C" fn taking_over(_frame: *mut HookFrame) {
+    crate::guarded("main menu taking over", || {
+        if RETURNED.load(Ordering::Relaxed) {
+            crate::framework_ui::hold();
+        }
+    });
+}
+
+extern "C" fn took_over(_frame: *mut HookFrame) {
+    crate::guarded("main menu taking over", || {
+        if RETURNED.swap(false, Ordering::Relaxed) {
+            log!("leave: the main menu took over, {} of its presents held back", crate::framework_ui::let_go());
+        }
+    });
 }
 
 /// The single player setup's back button, about to ask for the restart:
@@ -795,6 +826,15 @@ pub fn points() -> Vec<Point> {
         // Startup makes the main menu of this size.
         Point::keep(0x205830usize, "b9 48 0b 00 00 e8 9a da 82 01", "main menu size"),
         Point::keep(SWITCH_IDLER, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b da c6 41 48 01", "idler switch"),
+        Point::method(gui::classes::MAIN_MENU, 0x30, TAKE_OVER, "main menu takes over"),
+        Point::observe(
+            TAKE_OVER,
+            "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 e8 f0 ff ff",
+            "main menu takes over",
+            1,
+            Some(taking_over),
+            Some(took_over),
+        ),
         Point::keep(WAIT_TASK, "48 89 5c 24 08 57 48 83 ec 20 48 8b 59 10", "wait for a task"),
         Point::keep(CONTINUE, "4c 8b dc 53 48 83 ec 70 48 8b d9", "continue information from the newest save"),
         Point::keep(RESET_GAME, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 80 fe ff ff", "game reset"),
