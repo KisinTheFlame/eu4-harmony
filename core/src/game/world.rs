@@ -3,8 +3,9 @@
 use super::{
     armies::Army,
     country, fail,
+    player::Eyes,
     provinces::{Neighbor, Province},
-    span, special_countries, Ctx, GResult, Status, Tag, View, MAX_PROVINCES, MAX_UNITS,
+    span, special_countries, Ctx, GResult, InWorld, Status, Tag, View, MAX_PROVINCES, MAX_UNITS,
 };
 use crate::{
     memory::Memory,
@@ -201,9 +202,9 @@ impl Geography {
         self.entry = None;
     }
 
-    fn nodes(&mut self, m: &Memory, ctx: &Ctx) -> GResult<&[Node]> {
-        let (first, count) = province_array(m, ctx.world)?;
-        let key = MapKey { world: ctx.world, map: m.ptr(m.at(globals::MAP))?, first, count };
+    fn nodes(&mut self, m: &Memory, ctx: &impl InWorld) -> GResult<&[Node]> {
+        let (first, count) = province_array(m, ctx.world())?;
+        let key = MapKey { world: ctx.world(), map: m.ptr(m.at(globals::MAP))?, first, count };
         if self.entry.as_ref().map(|(k, _)| *k) != Some(key) {
             self.entry = None;
             let nodes = (0..count).map(|id| read_node(m, first, id, count)).collect::<GResult<Vec<_>>>()?;
@@ -212,7 +213,7 @@ impl Geography {
         Ok(&self.entry.as_ref().unwrap().1)
     }
 
-    fn node(&mut self, m: &Memory, ctx: &Ctx, id: u32) -> GResult<Node> {
+    fn node(&mut self, m: &Memory, ctx: &impl InWorld, id: u32) -> GResult<Node> {
         let nodes = self.nodes(m, ctx)?;
         let count = nodes.len();
         let Some(node) = nodes.get(id as usize).cloned() else {
@@ -226,17 +227,17 @@ impl Geography {
     }
 
     /// Address of a province object.
-    pub fn province_address(&mut self, m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
+    pub fn province_address(&mut self, m: &Memory, ctx: &impl InWorld, id: u32) -> GResult<usize> {
         Ok(self.node(m, ctx, id)?.address)
     }
 
-    pub fn provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool) -> GResult<Vec<Province>> {
+    pub fn provinces(&mut self, m: &Memory, ctx: &impl InWorld, visibility_current: bool) -> GResult<Vec<Province>> {
         self.nodes(m, ctx)?.iter().map(|n| if n.id == 0 { Ok(Province::default()) } else { province_now(m, n, visibility_current) }).collect()
     }
 
     /// Every province's owner, by number; none for the placeholder 0 and a
     /// province no country owns. Only the owner is read.
-    pub fn owners(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<Option<Tag>>> {
+    pub fn owners(&mut self, m: &Memory, ctx: &impl InWorld) -> GResult<Vec<Option<Tag>>> {
         self.nodes(m, ctx)?
             .iter()
             .map(|n| if n.id == 0 { Ok(None) } else { Ok(Some(Tag(m.u64(n.address + province::OWNER)?)).filter(|t| t.valid())) })
@@ -245,23 +246,23 @@ impl Geography {
 
     /// The provinces numbered in `ids` that there are, in their order; only
     /// those are read.
-    pub fn named_provinces(&mut self, m: &Memory, ctx: &Ctx, visibility_current: bool, ids: &[u32]) -> GResult<Vec<Province>> {
+    pub fn named_provinces(&mut self, m: &Memory, ctx: &impl InWorld, visibility_current: bool, ids: &[u32]) -> GResult<Vec<Province>> {
         let nodes = self.nodes(m, ctx)?;
         ids.iter().filter_map(|id| nodes.get(*id as usize).filter(|n| n.id != 0)).map(|n| province_now(m, n, visibility_current)).collect()
     }
 
     /// Every province's address, land, sea and lake.
-    pub fn addresses(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
+    pub fn addresses(&mut self, m: &Memory, ctx: &impl InWorld) -> GResult<Vec<usize>> {
         Ok(self.nodes(m, ctx)?.iter().filter(|n| n.id != 0).map(|n| n.address).collect())
     }
 
     /// Every province armies can stand on, as (number, address).
-    pub fn land_provinces(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<(u32, usize)>> {
+    pub fn land_provinces(&mut self, m: &Memory, ctx: &impl InWorld) -> GResult<Vec<(u32, usize)>> {
         Ok(self.nodes(m, ctx)?.iter().filter(|n| n.admissible()).map(|n| (n.id, n.address)).collect())
     }
 
     /// Land connections between passable land provinces.
-    pub fn neighbors(&mut self, m: &Memory, ctx: &Ctx, id: u32) -> GResult<Vec<Neighbor>> {
+    pub fn neighbors(&mut self, m: &Memory, ctx: &impl InWorld, id: u32) -> GResult<Vec<Neighbor>> {
         let node = self.node(m, ctx, id)?;
         if !node.admissible() {
             return Ok(Vec::new());
@@ -295,7 +296,7 @@ impl Geography {
         Ok(m.call(m.at(STRAIT_BLOCKED), &[military.0 as usize, edge.address])? as u8 == 0)
     }
 
-    pub fn clear_if_changed(&mut self, m: &Memory, ctx: &Ctx) {
+    pub fn clear_if_changed(&mut self, m: &Memory, ctx: &impl InWorld) {
         if self.nodes(m, ctx).is_err() {
             self.clear();
         }
@@ -316,12 +317,14 @@ fn province_now(m: &Memory, n: &Node, visibility_current: bool) -> GResult<Provi
     })
 }
 
-/// The player has not discovered this province: it is terra incognita.
-pub fn undiscovered(m: &Memory, ctx: &Ctx, province: usize) -> GResult<bool> {
+/// `eyes` see this province as terra incognita: the country whose
+/// discoveries they go by has not discovered it.
+pub fn undiscovered(m: &Memory, eyes: Eyes, province: usize) -> GResult<bool> {
+    let Some(country) = eyes.discovering() else { return Ok(false) };
     if m.u8(province + province::FOGGED)? & province::UNDISCOVERED_BIT == 0 {
         return Ok(false);
     }
-    let index = ctx.player.index() as u16 as usize;
+    let index = country.index() as u16 as usize;
     let word = m.u32(m.ptr(province + province::DISCOVERED_BY)? + index / 32 * 4)?;
     Ok(word >> (index % 32) & 1 == 0)
 }
@@ -564,9 +567,9 @@ pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize, view: View) -> GR
 
 /// Every country's tag, by tag index; empty slots and invalid tags are
 /// skipped.
-pub fn countries(m: &Memory, ctx: &Ctx) -> GResult<Vec<Tag>> {
+pub fn countries(m: &Memory, ctx: &impl InWorld) -> GResult<Vec<Tag>> {
     let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    if m.ptr(manager + country_list::LIST)? != ctx.countries {
+    if m.ptr(manager + country_list::LIST)? != ctx.countries() {
         return Err("country array moved".to_string().into());
     }
     let count = m.i32(manager + country_list::COUNT)?;
@@ -575,7 +578,7 @@ pub fn countries(m: &Memory, ctx: &Ctx) -> GResult<Vec<Tag>> {
     }
     let mut out = Vec::with_capacity(count as usize);
     for index in 0..count as usize {
-        let country = m.ptr(ctx.countries + index * 8)?;
+        let country = m.ptr(ctx.countries() + index * 8)?;
         if country == 0 {
             continue;
         }
@@ -592,7 +595,7 @@ pub fn countries(m: &Memory, ctx: &Ctx) -> GResult<Vec<Tag>> {
 }
 
 /// At war with each other, or either is a hostile special country (rebels).
-pub fn hostile(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
+pub fn hostile(m: &Memory, ctx: &impl InWorld, a: Tag, b: Tag) -> GResult<bool> {
     if a == b {
         return Ok(false);
     }
@@ -605,7 +608,7 @@ pub fn hostile(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
 
 /// In a war with each other: a special country, hostile to every country,
 /// is in none.
-pub fn at_war(m: &Memory, ctx: &Ctx, a: Tag, b: Tag) -> GResult<bool> {
+pub fn at_war(m: &Memory, ctx: &impl InWorld, a: Tag, b: Tag) -> GResult<bool> {
     if a == b {
         return Ok(false);
     }

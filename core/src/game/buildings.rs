@@ -208,7 +208,7 @@ pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<(Optio
     let province = province_address(m, &ctx, id)?;
     let owner = Some(Tag(m.u64(province + field::OWNER)?)).filter(|t| t.valid());
     let owned = owner == Some(ctx.player);
-    let seen = super::provinces::sees_inside(view, &ctx, owner);
+    let seen = super::player::Eyes::acting(view, ctx.player).sees_inside(owner);
     let mut offers = Vec::new();
     let constructing = match construction(m, province)?.filter(|_| seen) {
         None => None,

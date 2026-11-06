@@ -32,7 +32,9 @@
 /// and returns a `Result`. Arguments and answers pass through [`Convert`].
 /// What the capability takes first is said before it: `session`, the
 /// session [`Live`] opens for the request (`crate::game::Session`), which
-/// decides whether there is one to read before the capability runs; or
+/// decides whether there is one to read, with a country to act as, before
+/// the capability runs; `world`, the session of a capability that acts as no
+/// country (`crate::game::WorldSession`), also with none in view; or
 /// `caller`, the caller alone, for a capability that runs without a session
 /// or checks something of its own first. `run Request => Answer +
 /// other::Layer;` lets `run` and the group's functions use another group's
@@ -60,12 +62,12 @@ macro_rules! layer {
     };
     (@munch [] [$($methods:tt)*] []) => {
         layer!(@layer $($methods)*);
-        layer!(@bindings [$($methods)*] []);
+        layer!(@bindings None [$($methods)*] []);
     };
     (@munch [$Request:ident $Answer:ident [$($bound:tt)*]] [$($methods:tt)*]
         [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
         layer!(@layer $($methods)*);
-        layer!(@bindings [$($methods)*] [$({ $Variant { $($field),* } $how $call($($e),*) })*]);
+        layer!(@bindings $Request [$($methods)*] [$({ $Variant { $($field),* } $how $call($($e),*) })*]);
 
         /// Answers one of the group's requests.
         pub fn run(request: $Request, game: &mut (impl Layer $($bound)* + ?Sized)) -> Result<$Answer, eu4_harmony_remote::Error> {
@@ -86,11 +88,14 @@ macro_rules! layer {
     (@live $caller:ident session $capability:path, $($arg:ident),*) => {
         $capability(crate::game::Session::open($caller)?, $($arg),*)
     };
+    (@live $caller:ident world $capability:path, $($arg:ident),*) => {
+        $capability(crate::game::WorldSession::open($caller)?, $($arg),*)
+    };
     (@live $caller:ident caller $capability:path, $($arg:ident),*) => {
         $capability($caller, $($arg),*)
     };
     (@live $caller:ident $takes:ident $capability:path, $($arg:ident),*) => {
-        compile_error!(concat!("layer!: ", stringify!($capability), " takes a session or a caller, not ", stringify!($takes)))
+        compile_error!(concat!("layer!: ", stringify!($capability), " takes a session, a world or a caller, not ", stringify!($takes)))
     };
     (@layer $({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*) => {
         /// The group's slice of the capability layer.
@@ -121,7 +126,7 @@ macro_rules! layer {
             )*
         }
     };
-    (@bindings [$({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*]
+    (@bindings $Request:ident [$({ $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $takes:ident $capability:path; })*]
         [$({ $Variant:ident { $($field:ident),* } $how:ident $call:ident($($e:expr),*) })*]) => {
         /// What the group's lines name, for the test that every capability
         /// takes its arguments by their names.
@@ -134,6 +139,7 @@ macro_rules! layer {
                         arguments: vec![$(stringify!($arg)),*],
                         types: vec![$(stringify!($ty)),*],
                         capability: std::any::type_name_of_val(&$capability),
+                        takes: stringify!($takes),
                     }
                 ),*],
                 requests: vec![$(
@@ -143,6 +149,7 @@ macro_rules! layer {
                         function: stringify!($how) == "function",
                         call: stringify!($call),
                         arguments: vec![$(stringify!($e)),*],
+                        country: $Request::country_of(stringify!($Variant)),
                     }
                 ),*],
             }
@@ -379,6 +386,8 @@ pub struct Method {
     pub arguments: Vec<&'static str>,
     pub types: Vec<&'static str>,
     pub capability: &'static str,
+    /// What it takes first: `session`, `world` or `caller`.
+    pub takes: &'static str,
 }
 
 /// A request, its fields, and the method or the group's function that
@@ -390,6 +399,9 @@ pub struct Answered {
     pub function: bool,
     pub call: &'static str,
     pub arguments: Vec<&'static str>,
+    /// Whether its capability acts as a country, as remote control
+    /// describes it.
+    pub country: Option<bool>,
 }
 
 /// The capability layer itself, called as its caller: remote control, or an
@@ -451,6 +463,7 @@ impl From<game::Fail> for Error {
     fn from(fail: game::Fail) -> Self {
         let code = match fail.status {
             game::Status::NotInGame => Code::NotInGame,
+            game::Status::NoCountry => Code::NoCountry,
             game::Status::NotReady => Code::NotReady,
             game::Status::NotFound => Code::NotFound,
             game::Status::Rejected => Code::Rejected,
@@ -498,8 +511,9 @@ pub fn tag(tag: game::Tag) -> CountryTag {
 pub enum Place {
     /// A game's safe frame: every request runs.
     Game,
-    /// A game's frame with no game the player can play, and why (the player
-    /// only observes, say): requests that need a game are answered with it.
+    /// A game's frame with no game the player can play, and why (the
+    /// player's country not matching its tag, say): requests that need a
+    /// game are answered with it. Observe mode is a game like any other.
     Unplayable(Error),
     /// A safe point with no game to read. Requests that need one wait for a
     /// game frame, or, given an error, are answered with it.
@@ -729,6 +743,33 @@ mod tests {
                 }
             }
         }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// A request answered by a method of its slice acts as a country, in
+    /// its description, exactly when the method opens a session with a
+    /// country to act as; one that opens a session without is described as
+    /// acting as none.
+    #[test]
+    fn what_acts_as_a_country_opens_a_session_with_one() {
+        let groups = bindings();
+        let mut wrong = Vec::new();
+        let mut checked = 0;
+        for (group, bindings) in &groups {
+            for request in bindings.requests.iter().filter(|r| !r.function) {
+                let Some(method) = bindings.methods.iter().find(|m| m.name == request.call) else { continue };
+                let expected = match method.takes {
+                    "session" => true,
+                    "world" => false,
+                    _ => continue,
+                };
+                checked += 1;
+                if request.country != Some(expected) {
+                    wrong.push(format!("{group} {}: takes a {}, described as country {:?}", request.request, method.takes, request.country));
+                }
+            }
+        }
+        assert!(checked > 100, "only {checked} checked");
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 

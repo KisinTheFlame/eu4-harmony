@@ -15,7 +15,7 @@
 //! capabilities call. The one exception is the end of the daily update, which
 //! no capability runs: there `time` pauses the game at a date remote control
 //! advances it to.
-use super::{context, context_any, fail, orders, Ctx, GResult, Status, Tag};
+use super::{context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -100,7 +100,7 @@ struct Boundary {
     revision: u64,
     depth: u32,
     refresh_thread: u32,
-    before: Option<(Ctx, u8, u64)>,
+    before: Option<(World, u8, u64)>,
     proof: Option<Proof>,
     changes: Vec<Change>,
 }
@@ -142,7 +142,7 @@ pub fn session_forgotten() {
     boundary(|b| b.changes.clear());
 }
 
-fn fog_mode(m: &Memory, ctx: &Ctx) -> Result<u8> {
+fn fog_mode(m: &Memory, ctx: &World) -> Result<u8> {
     m.u8(ctx.world + world::FOG)
 }
 
@@ -159,7 +159,7 @@ extern "C" fn fow_before(_: *mut HookFrame) {
             }
             b.invalidate();
             b.refresh_thread = crate::thread_id();
-            b.before = context_any(m).ok().and_then(|c| fog_mode(m, &c).ok().map(|fog| (c, fog, b.revision)));
+            b.before = world_context_any(m).ok().and_then(|c| fog_mode(m, &c).ok().map(|fog| (c, fog, b.revision)));
         });
     });
 }
@@ -180,9 +180,9 @@ extern "C" fn fow_after(frame: *mut HookFrame) {
                 return;
             }
             let Some((before, fog, revision)) = before else { return };
-            let Ok(after) = context_any(m) else { return };
+            let Ok(after) = world_context_any(m) else { return };
             if before == after && revision == b.revision && fog_mode(m, &after).ok() == Some(fog) {
-                b.proof = Some(Proof { world: after.world, date: after.date, player: after.player.0, revision: b.revision, thread, fog });
+                b.proof = Some(Proof { world: after.world, date: after.date, player: after.player.seen_as().0, revision: b.revision, thread, fog });
             }
         });
     });
@@ -341,7 +341,8 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
         }
         let a = unsafe { (*frame).args };
         let result = (|| -> Result<Vec<u64>> {
-            let ctx = context_any(m).map_err(|e| e.message)?;
+            // With no country to act as, no army is the player's.
+            let Some(player) = world_context_any(m).map_err(|e| e.message)?.player.acting() else { return Ok(Vec::new()) };
             let index = a[3] & 255;
             if index > 1 || m.u8(a[0] + battle::SETTLED)? != 0 || m.ptr(a[0] + battle::SIDES[index])? != a[1] || m.ptr(a[0] + battle::SIDES[1 - index])? != a[2]
             {
@@ -362,7 +363,7 @@ extern "C" fn defeat_before(frame: *mut HookFrame) {
                 if m.ptr(army)? != m.at(classes::ARMY) {
                     return Ok(Vec::new());
                 }
-                if Tag(m.u64(army + unit::OWNER)?) == ctx.player {
+                if Tag(m.u64(army + unit::OWNER)?) == player {
                     ids.push(m.u64(army + unit::ID)?);
                 }
                 node = m.ptr(node + list::NEXT)?;
@@ -403,7 +404,7 @@ fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle
     if !(1..=2).contains(&kind) || m.u8(combat + battle::SETTLED)? != 0 {
         return Ok(None);
     }
-    let ctx = context_any(m).map_err(|e| e.message)?;
+    let player = world_context_any(m).map_err(|e| e.message)?.player.acting();
     let province = m.ptr(combat + COMBAT_PROVINCE)?;
     let countries = |side: usize| -> Result<Vec<Tag>> {
         let (begin, end) = (m.ptr(side + SIDE_COUNTRIES)?, m.ptr(side + SIDE_COUNTRIES + 8)?);
@@ -412,7 +413,7 @@ fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle
     };
     let (attacker, defender) = (m.ptr(combat + battle::SIDES[0])?, m.ptr(combat + battle::SIDES[1])?);
     let (attackers, defenders) = (countries(attacker)?, countries(defender)?);
-    let party = attackers.iter().chain(&defenders).any(|t| t.0 == ctx.player.0);
+    let party = attackers.iter().chain(&defenders).any(|t| Some(*t) == player);
     let seen = party || (province != 0 && !super::world::hidden(m, province).map_err(|e| e.message)?);
     Ok(Some(Battle {
         province: if province == 0 { 0 } else { m.u32(province + crate::objects::campaign::province::ID)? },
@@ -465,43 +466,44 @@ pub fn points() -> Vec<Point> {
 /// The campaign at the start of a safe frame, and its fog of war's mode.
 /// Fails when the frame is not one: while a save loads, off the main thread,
 /// or when the campaign cannot be read.
-pub fn frame_campaign(m: &Memory) -> GResult<(Ctx, u8)> {
+pub fn frame_campaign(m: &Memory) -> GResult<(World, u8)> {
     if crate::sessions::loading() {
         return fail(Status::NotReady, "a save is being loaded");
     }
     if crate::thread_id() != crate::main_thread() {
         return fail(Status::WrongContext, "off the game's main thread");
     }
-    let ctx = context(m)?;
-    let fog = fog_mode(m, &ctx)?;
-    Ok((ctx, fog))
+    let world = world_context(m)?;
+    let fog = fog_mode(m, &world)?;
+    Ok((world, fog))
 }
 
-/// What a safe frame of `ctx` collects: whether visibility reflects it, and
-/// the changes since the last frame.
-pub fn take_frame(ctx: &Ctx, fog: u8) -> (bool, Vec<Change>) {
-    boundary(|b| (proof_valid(b, ctx, fog), std::mem::take(&mut b.changes)))
+/// What a safe frame of `world` collects: whether visibility reflects it,
+/// and the changes since the last frame.
+pub fn take_frame(world: &World, fog: u8) -> (bool, Vec<Change>) {
+    boundary(|b| (proof_valid(b, world, fog), std::mem::take(&mut b.changes)))
 }
 
 /// A proof holds for the campaign it was made of, at its date, until
 /// anything since could have changed what the fog of war shows: a daily
 /// update, another campaign, a refresh on another thread.
-fn proof_valid(b: &Boundary, ctx: &Ctx, fog: u8) -> bool {
+fn proof_valid(b: &Boundary, ctx: &World, fog: u8) -> bool {
     b.proof.is_some_and(|p| {
         b.depth == 0
             && p.revision == b.revision
             && p.thread == crate::thread_id()
             && p.world == ctx.world
             && p.date == ctx.date
-            && p.player == ctx.player.0
+            && p.player == ctx.player.seen_as().0
             && p.fog == fog
     })
 }
 
 /// Whether visibility reflects the current state, for capability calls.
-pub fn visibility_current(m: &Memory, ctx: &Ctx) -> bool {
-    let Ok(fog) = fog_mode(m, ctx) else { return false };
-    boundary(|b| proof_valid(b, ctx, fog))
+pub fn visibility_current(m: &Memory, ctx: &impl InWorld) -> bool {
+    let Ok(world) = world_context_any(m).ok().filter(|w| w.world == ctx.world()).ok_or(()) else { return false };
+    let Ok(fog) = fog_mode(m, &world) else { return false };
+    boundary(|b| proof_valid(b, &world, fog))
 }
 
 #[cfg(test)]

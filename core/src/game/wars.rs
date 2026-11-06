@@ -10,7 +10,7 @@
 //! is not listened to is not read, and its record is dropped, so that
 //! listening again starts from that day without telling of what came
 //! between.
-use super::{countries, Ctx, GResult, Tag};
+use super::{countries, GResult, InWorld, Tag};
 use crate::{game_string, memory::Memory, objects::campaign::world as world_fields, unicode::game_text};
 
 /// The most wars the game is believed to keep.
@@ -54,7 +54,7 @@ impl Watch {
     /// The wars declared and the peaces made since the day it last looked,
     /// comparing the wars the game keeps now: someone listens to war or
     /// peace.
-    pub fn wars(&mut self, m: &Memory, ctx: &Ctx) -> GResult<Vec<Happened>> {
+    pub fn wars(&mut self, m: &Memory, ctx: &impl InWorld) -> GResult<Vec<Happened>> {
         let now = wars_now(m, ctx)?;
         let happened = self.wars.as_ref().map(|before| wars_diff(before, &now)).unwrap_or_default();
         self.wars = Some(now);
@@ -82,9 +82,9 @@ impl Watch {
 
 /// The wars going on, as the game keeps them; one whose sides cannot be read
 /// is left out.
-fn wars_now(m: &Memory, ctx: &Ctx) -> GResult<Vec<Seen>> {
-    let data = m.ptr(ctx.world + world_fields::WARS)?;
-    let count = m.i32(ctx.world + world_fields::WAR_COUNT)?;
+fn wars_now(m: &Memory, ctx: &impl InWorld) -> GResult<Vec<Seen>> {
+    let data = m.ptr(ctx.world() + world_fields::WARS)?;
+    let count = m.i32(ctx.world() + world_fields::WAR_COUNT)?;
     if !(0..=MOST_WARS as i32).contains(&count) {
         return Err("war array bound".to_string().into());
     }

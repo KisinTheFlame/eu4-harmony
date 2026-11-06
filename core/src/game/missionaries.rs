@@ -72,7 +72,7 @@ pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<Missio
     let p = province(m, &ctx, id)?;
     let (working, progress, send, recall) = read(m, &ctx, &p)?;
     let owner = Some(p.owner).filter(|t| t.valid());
-    let progress = progress.filter(|_| working || super::provinces::sees_inside(view, &ctx, owner));
+    let progress = progress.filter(|_| working || super::player::Eyes::acting(view, ctx.player).sees_inside(owner));
     Ok(MissionaryOptions { province: ProvinceId(id), working, progress, send, recall })
 }
 

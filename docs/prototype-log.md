@@ -2099,6 +2099,18 @@ What the player sees of an in-process return, which the run above could not show
 - **Not verified**: the single player setup's back button; the flicker of a window the game stops answering for, which this change does not touch.
 - **Cleanup**: the change to `leave.rs` was put back before anything was committed; releasing the game ended it and put back the player's files, `England-1` among them, and the game folder's framework files. The recordings were in the session's scratch folder; the logs the release kept were deleted.
 
+## 2026-11-07 An observe-mode game with no country in view (tested by me)
+
+O1 of [observe-mode.md](observe-mode.md), at `b2622d03`, the player build. The game claimed with `cargo xtask game`, started hidden; `observer-1600.1.1.eu4` (`player="O00"`) copied into the save games folder as `observe-test`, everything driven through `eu4-harmony game`.
+
+- **The save**: `menu.saves` listed it with `player` null; `menu.load observe-test` loaded it, `{"number": 2, "observing": true, "player": "SWE"}`. The game put Sweden in view as it loaded the save, though no country was in view when it was made (the save says `player="O00"` only); the map showed Sweden's fog of war and its top bar.
+- **A change of view**: the camera on Constantinople (`camera.look_at --province 151`), Ctrl and a click at the screen's middle: `session.get` said `TUR`, session 2 still, and `army.list` listed the Ottomans' armies. The eye button left of the minimap took the view out: `player` null, session 2 still.
+- **No country in view**: `army.list` and `recruit.options 151` answered `no_country`. `province.get 151` answered Constantinople with its owner `TUR`, and `unrest` and `constructions` null; `province.get 1` Stockholm; `province.list` 4941 provinces, 2953 of them with an owner, the whole map; `country.get TUR` with `treasury` and `power` null; `camera.get` and `console.run help` answered.
+- **Time**: `time.advance 3`, then 5, then 60, at speed 5, each stopped at its date with one `day` event a day: the days are heard with no country in view, so the advance waits for them as in any game (the special case for an observer's unheard days, added for the run, was taken out after it).
+- **The player's own country**: `console run "tag TUR"` began session 3 (`Now Playing`), `console run observe` session 4 ("Entered Spectator Mode."), each after a `session_ended`; then `observing` true, `player` null and `army.list` `no_country`: after `observe`, no country was in view.
+- **Not verified**: a battle or a war event heard with no country in view (none in 68 days); events about the country in view's own armies; an extension in an observe-mode game; a save made with a country in view (the 1700 save says the country in view as its player, which this run did not load); `menu.start` and `menu.return` in observe mode.
+- **Cleanup**: releasing the game put back the player's files, removing `observe-test`, and the game folder's framework files; the screenshots were in the session's scratch folder.
+
 ## 2026-11-07 Each AI country's task timed, 1700 to 1730 (tested by me)
 
 Whether a late game's AI stage waits for its longest task or for the order of its tasks, the question the run of 2026-11-06 left ([research/late-game.md](research/late-game.md), "Each AI country's task, timed"). Master at `05022e8` with the call trace's new `times`, built with `dev-call-trace` alone; the player's playset and settings; one claim of 18 minutes, the game started hidden.
@@ -2108,6 +2120,16 @@ Whether a late game's AI stage waits for its longest task or for the order of it
 - **Found**: a stage lasted as long as its longest task (the median 1.00 times), which started first; inside the tasks, the time was in `0xe4890`'s items, and on the worst days in one of them.
 - **Not verified**: the cost of the timing itself, beyond the days a second being near those of the profiled run of the same years (15.0 under the profiler); the order of a stage's tasks read from the game's code, rather than seen in the times; a game a player plays.
 - **Cleanup**: `dev.toml` at the top of the checkout deleted; releasing the game put back the player's files and removed the two saves the runs added; `call-times.tsv` of both runs, the screenshots, the 1701 and 1721 autosaves and the scripts stayed in the session's scratch folder.
+
+## 2026-11-07 Changing the view, acting as the country in view, and an observe-mode start (tested by me)
+
+O2 to O4 of [observe-mode.md](observe-mode.md), the player build, the game claimed with `cargo xtask game` and started hidden, everything through `eu4-harmony game`.
+
+- **A start in observe mode**: the first build made the observer's tag the player's (`0x763840`) before the setup's start, and the game began with no player at all (`menu.start` answered "the player cannot play it (no player)"): the start makes the player the setup's selected country. Selecting the observer's tag as the `-start_tag` path selects a country (`0x111cb80`) started it: `observing` true, Sweden in view, which the game puts in view at a start as at the 1600 save's load. The start now takes it out before answering: `{"number": 1, "observing": true, "player": null}`, `army.list` `no_country`. Started again from that session, from a session as Turkey (`--country TUR`) and back: sessions 3, 5 and 7, each as asked.
+- **Changing the view**: `session.view FRA` answered France as the player, session 1 still, and `army.list` France's armies; `events` had `session`, `country_in_view` null (the start's taking Sweden out, after the first frame) and `country_in_view` `FRA`. `session.leave_view` answered `player` null, twice in a row. Refused: `PRU` (no land in 1444) `rejected`, "PRU owns no province to put in view"; `XYZ` `not_found`; after `console run "tag ENG"`, both `rejected`, "the player plays ENG, not observe mode".
+- **Acting as France in view**, the AI playing it: `army.move` of the army in Paris (183) to 185 set its route; `recruit.order 183 infantry` answered; `diplomacy.propose_alliance CAS` answered `accepted`. After `time.advance 30` with France in view: the army in 185, Castile among France's allies, the infantry 0.6 built in Paris; one `army_ordered` event, the order given. The AI had undone none of it in a month.
+- **Not verified**: a proposal answered after the view changed (the AI answers within the frame after, too soon for a second request from the command line; `still_acting` is unit-tested); `menu.start` with ironman chosen in the setup (the refusal reads the main menu world's ironman flag, `world+0x24d0`, which is inferred to be the setup's choice, not seen); an extension's `on_country_in_view`; building as the country in view.
+- **Cleanup**: releasing the game put back the player's files and the game folder's framework files.
 
 ## 2026-11-07 The sampler's own stack walk, and every thread sampled (tested by me)
 

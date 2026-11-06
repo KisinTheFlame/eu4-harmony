@@ -314,7 +314,7 @@ impl World {
         let text = |name: &str| request.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
         let province = |name: &str| int(name) as u32;
         Some(match capability {
-            "session.get" => Ok(json!({"number": 1, "player": self.player(), "date": self.date()})),
+            "session.get" => Ok(json!({"number": 1, "player": self.player(), "observing": false, "date": self.date()})),
             "country.get" => {
                 let tag = text("country");
                 if !self.country_known(&tag) {

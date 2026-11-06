@@ -92,6 +92,8 @@ pub struct Fake {
     pub inputs: Vec<game::input::Action>,
     /// How many of them the game has had.
     pub inputs_handled: u64,
+    /// The player, as the session gives it; the Ottomans played when None.
+    pub player: Option<game::player::Player>,
 }
 
 impl Fake {
@@ -141,7 +143,16 @@ impl session::Layer for Fake {
     fn session(&mut self) -> GResult<game::session::Session> {
         self.call("session".into());
         // 1444.11.11
-        Ok(game::session::Session { session: 2, date: 0x035D_7710, paused: true, visibility_current: true, player: tur() })
+        let player = self.player.unwrap_or(game::player::Player::Plays(tur()));
+        Ok(game::session::Session { session: 2, date: 0x035D_7710, paused: true, visibility_current: true, player })
+    }
+
+    fn leave_view(&mut self) -> GResult<game::session::Session> {
+        self.call("leave view".into());
+        if let Some(game::player::Player::Observes { in_view, .. }) = &mut self.player {
+            *in_view = None;
+        }
+        session::Layer::session(self)
     }
 }
 
@@ -527,8 +538,8 @@ impl menu::Layer for Fake {
         Ok(Box::new(move || Ok(expected)))
     }
 
-    fn start(&mut self, country: CountryTag) -> GResult<()> {
-        self.call(format!("start {country}"));
+    fn start(&mut self, country: Option<CountryTag>) -> GResult<()> {
+        self.call(country.map_or("start observing".into(), |country| format!("start {country}")));
         Ok(())
     }
 

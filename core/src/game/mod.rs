@@ -57,6 +57,7 @@ pub mod offers;
 pub mod orders;
 pub mod parliament;
 pub mod peace;
+pub mod player;
 pub mod policies;
 pub mod power;
 pub mod provinces;
@@ -138,6 +139,9 @@ impl Caller {
 pub enum Status {
     /// No campaign is running, or one is being loaded.
     NotInGame,
+    /// The player observes with no country in view, so there is no country
+    /// to act as (ADR observe-mode-acts-as-the-country-in-view).
+    NoCountry,
     /// The game state cannot be read right now; a later frame may succeed.
     NotReady,
     NotFound,
@@ -218,32 +222,39 @@ impl Session {
     /// capability that reads it fails with otherwise:
     /// [`Status::WrongContext`] off the game's main thread,
     /// [`Status::Unavailable`] before startup found the game,
-    /// [`Status::NotInGame`] with no session or no country the player
-    /// controls, [`Status::NotReady`] while the daily update runs.
+    /// [`Status::NotInGame`] with no session, [`Status::NoCountry`] with no
+    /// country to act as, [`Status::NotReady`] while the daily update runs.
     pub fn open(caller: Caller) -> GResult<Self> {
         let m = game()?;
         let ctx = context(m)?;
         Ok(Self { m, ctx, view: view(caller), caller })
     }
+
+    /// The same session, as a capability that acts as no country reads it.
+    pub fn world(self) -> GResult<WorldSession> {
+        Ok(WorldSession { m: self.m, world: world_context(self.m)?, view: self.view, caller: self.caller })
+    }
 }
 
-/// The session as a capability that needs no country of the player's reads
-/// it: the game, the world at this instant ([`World`]), also while the
-/// player only observes, and the caller. The catalogue opens it for each
-/// request of such a capability, as it opens [`Session`] for the others.
+/// The session as a capability that acts as no country reads it: the game,
+/// the world at this instant ([`World`]) with its player, also while the
+/// player observes with no country in view, how much of it the caller reads,
+/// and the caller. The catalogue opens it for each request of such a
+/// capability, as it opens [`Session`] for the others.
 #[derive(Clone, Copy, Debug)]
 pub struct WorldSession {
     pub m: &'static Memory,
     pub world: World,
+    pub view: View,
     pub caller: Caller,
 }
 
 impl WorldSession {
-    /// Opens it for `caller`: failing as [`Session::open`] does, but with a
-    /// world whose player has no country to play.
+    /// Opens it for `caller`: failing as [`Session::open`] does, but never
+    /// for want of a country to act as.
     pub fn open(caller: Caller) -> GResult<Self> {
         let m = game()?;
-        Ok(Self { m, world: world_context(m)?, caller })
+        Ok(Self { m, world: world_context(m)?, view: view(caller), caller })
     }
 }
 
@@ -257,6 +268,10 @@ struct State {
     day: Option<i32>,
     /// The wars and the provinces' owners of the day before.
     wars: wars::Watch,
+    /// In observe mode, the country in view at the last frame of the
+    /// session (none for none in view); None when the player played a
+    /// country then, or before the session's first frame.
+    in_view: Option<Option<Tag>>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -275,6 +290,7 @@ pub fn session_forgotten() {
         s.orders.clear();
         s.day = None;
         s.wars.clear();
+        s.in_view = None;
     });
 }
 
@@ -282,11 +298,15 @@ pub fn session_forgotten() {
 /// happened since the last one, which extensions and remote control hear
 /// ([`Frame::heard`]).
 pub struct Frame {
-    pub ctx: Ctx,
+    /// The game and its player, also with no country to act as.
+    pub world: World,
     pub session: u64,
     /// The session differs from the last frame's: a campaign was loaded or
     /// started, and what the capabilities kept from the old one is gone.
     pub new_session: bool,
+    /// In observe mode, the country in view changed since the last frame of
+    /// the session, to this one (none for none in view).
+    pub in_view: Option<Option<Tag>>,
     pub visibility_current: bool,
     pub changes: Vec<events::Change>,
     /// The date differs from the last day announced in this session, and
@@ -319,14 +339,15 @@ impl Frame {
     /// left out.
     pub fn heard(&self) -> Vec<Heard> {
         let seen = |event| Heard { event, seen: true };
-        let date = eu4_harmony_remote::Date(self.ctx.date);
+        let date = eu4_harmony_remote::Date(self.world.date);
         let session = self.new_session.then(|| seen(Event::Session { session: self.session }));
+        let in_view = self.in_view.map(|country| seen(Event::CountryInView { country: country.map(named) }));
         let changes = self.changes.iter().filter_map(changed);
         let wars = self.wars.iter().cloned().map(|happened| seen(war_event(happened)));
         let day = self.new_day.then(|| seen(Event::Day { date }));
         let month = self.new_month.then(|| seen(Event::Month { date }));
         let year = self.new_year.then(|| seen(Event::Year { date }));
-        session.into_iter().chain(changes).chain(wars).chain(day).chain(month).chain(year).collect()
+        session.into_iter().chain(in_view).chain(changes).chain(wars).chain(day).chain(month).chain(year).collect()
     }
 }
 
@@ -387,29 +408,31 @@ fn battle_event(battle: &events::Battle) -> Event {
 /// session go (`crate::sessions`). An army the player gave an order is no
 /// longer an extension's to move.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
-    let (ctx, fog) = events::frame_campaign(m)?;
-    let seen = crate::sessions::frame_read(&ctx);
-    let (visibility_current, changes) = events::take_frame(&ctx, fog);
-    let (new_day, previous) = with_state(|s| {
+    let (world, fog) = events::frame_campaign(m)?;
+    let seen = crate::sessions::frame_read(&world);
+    let (visibility_current, changes) = events::take_frame(&world, fog);
+    let (new_day, previous, in_view) = with_state(|s| {
+        let now = world.player.observing().then(|| world.player.acting());
+        let in_view = view_changed(std::mem::replace(&mut s.in_view, now), now);
         for change in &changes {
             if let events::Change::Ordered(army) = change {
                 s.orders.revoke(*army);
             }
         }
         let previous = s.day;
-        let new_day = visibility_current && s.day.replace(ctx.date) != Some(ctx.date);
-        (new_day, previous)
+        let new_day = visibility_current && s.day.replace(world.date) != Some(world.date);
+        (new_day, previous, in_view)
     });
-    let (new_month, new_year) = turned(previous.filter(|_| new_day), ctx.date);
+    let (new_month, new_year) = turned(previous.filter(|_| new_day), world.date);
     let (new_month, new_year) = (new_month && events::listened(Kind::Month), new_year && events::listened(Kind::Year));
-    let wars = if new_day { watch_wars(m, &ctx) } else { Vec::new() };
-    Ok(Frame { ctx, session: seen.session, new_session: seen.new_session, visibility_current, changes, new_day, new_month, new_year, wars })
+    let wars = if new_day { watch_wars(m, &world) } else { Vec::new() };
+    Ok(Frame { world, session: seen.session, new_session: seen.new_session, in_view, visibility_current, changes, new_day, new_month, new_year, wars })
 }
 
 /// What the wars and the provinces' owners show happened since the day
 /// before, of the kinds someone listens to; nothing when they cannot be
 /// read, which the log says.
-fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
+fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
     let war = events::listened(Kind::WarDeclared) || events::listened(Kind::PeaceMade);
     let owners = events::listened(Kind::ProvinceOwnerChanged);
     let seen = with_state(|s| {
@@ -428,6 +451,17 @@ fn watch_wars(m: &Memory, ctx: &Ctx) -> Vec<wars::Happened> {
         log!("wars: {}", e.message);
         Vec::new()
     })
+}
+
+/// The country in view a frame shows changed to, from the last frame's,
+/// each in observe mode the country in view (none for none) and None when
+/// the player played a country, or for the session's first frame: a change
+/// only from one frame in observe mode to the next.
+fn view_changed(before: Option<Option<Tag>>, now: Option<Option<Tag>>) -> Option<Option<Tag>> {
+    match (before, now) {
+        (Some(before), Some(now)) if before != now => Some(now),
+        _ => None,
+    }
 }
 
 /// Whether the day `now`, heard after the day `before`, is in a new month,
@@ -455,6 +489,7 @@ pub fn points() -> Vec<Point> {
     points.extend(provinces::points());
     points.extend(console::points());
     points.extend(time::points());
+    points.extend(player::points());
     points.extend(questions::points());
     points.extend(menu::points());
     points.extend(diplomacy::points());
@@ -539,8 +574,10 @@ impl Tag {
     }
 }
 
-/// The session as seen at one instant: its world, its date, and the
-/// player's country, by its tag and its object, among the countries.
+/// The session as seen at one instant: its world, its date, and the country
+/// acted as, by its tag and its object, among the countries: the one the
+/// player plays, or in observe mode the country in view
+/// ([`player::Player::acting`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ctx {
     pub world: usize,
@@ -550,29 +587,38 @@ pub struct Ctx {
     pub countries: usize,
 }
 
-/// The game going on as seen at one instant, whether the player plays a
-/// country in it or only observes: what time and the game's commands need.
+/// The game going on as seen at one instant, whether there is a country to
+/// act as or not: its world, its date, its countries and its player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct World {
     pub world: usize,
     pub date: i32,
+    pub countries: usize,
+    pub player: player::Player,
 }
 
-/// What holds the game's world: [`Ctx`], with the player's country, or
-/// [`World`], with or without one.
+/// What holds the game's world and its countries: [`Ctx`], with a country to
+/// act as, or [`World`], with or without one.
 pub trait InWorld {
     fn world(&self) -> usize;
+    fn countries(&self) -> usize;
 }
 
 impl InWorld for Ctx {
     fn world(&self) -> usize {
         self.world
     }
+    fn countries(&self) -> usize {
+        self.countries
+    }
 }
 
 impl InWorld for World {
     fn world(&self) -> usize {
         self.world
+    }
+    fn countries(&self) -> usize {
+        self.countries
     }
 }
 
@@ -586,7 +632,7 @@ pub fn context_any(m: &Memory) -> GResult<Ctx> {
     context_impl(m, false)
 }
 
-/// The game going on, also while the player observes, refusing while the
+/// The game going on, also with no country to act as, refusing while the
 /// daily update is running.
 pub fn world_context(m: &Memory) -> GResult<World> {
     world_impl(m, true)
@@ -606,41 +652,30 @@ fn world_impl(m: &Memory, require_stable: bool) -> GResult<World> {
     if require_stable && m.u8(world + campaign::world::DAILY_UPDATE)? != 0 {
         return fail(Status::NotReady, "daily update in progress");
     }
-    Ok(World { world, date: m.i32(world + campaign::world::DATE)? })
-}
-
-/// Whether the player only observes the game going on, with no country to
-/// play (the game console's observe, a country annexed).
-pub fn observing(m: &Memory) -> GResult<bool> {
-    match context_any(m) {
-        Ok(_) => Ok(false),
-        Err(fail) if fail.status == Status::NotInGame => world_context_any(m).map(|_| true),
-        Err(fail) => Err(fail),
-    }
+    let player = player::read(m, world)?;
+    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
+    let countries = m.ptr(manager + country_list::LIST)?;
+    Ok(World { world, date: m.i32(world + campaign::world::DATE)?, countries, player })
 }
 
 fn context_impl(m: &Memory, require_stable: bool) -> GResult<Ctx> {
-    let World { world, .. } = world_impl(m, require_stable)?;
-    let switched = m.u8(world + campaign::world::PLAYER_MODE)? == campaign::world::SWITCHED && m.u8(world + campaign::world::PLAYER_SWITCHED)? != 0;
-    let player = Tag(m.u64(world + if switched { campaign::world::SWITCHED_PLAYER } else { campaign::world::PLAYER })?);
-    if !player.normal() {
-        return fail(Status::NotInGame, "no controllable player");
+    let World { world, date, countries, player } = world_impl(m, require_stable)?;
+    let Some(acting) = player.acting() else {
+        return fail(Status::NoCountry, "the player observes with no country in view");
+    };
+    let country = m.ptr(countries + acting.index() as usize * 8)?;
+    if m.u64(country + country_fields::TAG)? != acting.0 {
+        return fail(Status::NotInGame, "the player's country does not match its tag");
     }
-    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    let countries = m.ptr(manager + country_list::LIST)?;
-    let country = m.ptr(countries + player.index() as usize * 8)?;
-    if m.u64(country + country_fields::TAG)? != player.0 {
-        return fail(Status::NotInGame, "player country does not match its tag");
-    }
-    Ok(Ctx { world, date: m.i32(world + campaign::world::DATE)?, player, country, countries })
+    Ok(Ctx { world, date, player: acting, country, countries })
 }
 
 /// Country object for a tag, verified against the tag it stores.
-pub fn country(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<usize> {
+pub fn country(m: &Memory, ctx: &impl InWorld, tag: Tag) -> GResult<usize> {
     if !tag.valid() || tag.index() < 0 {
         return fail(Status::NotFound, "invalid country");
     }
-    let p = m.ptr(ctx.countries + tag.index() as usize * 8)?;
+    let p = m.ptr(ctx.countries() + tag.index() as usize * 8)?;
     if p == 0 || m.u64(p + country_fields::TAG)? != tag.0 {
         return fail(Status::NotFound, "country does not match its tag");
     }
@@ -701,9 +736,9 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 mod tests {
     use super::{
         events::{Battle, Change},
-        turned, view_of,
+        player, turned, view_changed, view_of,
         wars::Happened,
-        Caller, Ctx, Event, Frame, Heard, Tag, View, Winner,
+        Caller, Event, Frame, Heard, Tag, View, Winner, World,
     };
     use eu4_harmony_remote::{ArmyId, CountryTag, Date, ProvinceId};
 
@@ -722,9 +757,22 @@ mod tests {
     }
 
     #[test]
+    fn a_change_of_view_is_heard_once_between_frames_in_observe_mode() {
+        let (fra, eng) = (Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\x01")), Tag(u64::from_le_bytes(*b"ENG\0\0\0\0\x01")));
+        assert_eq!(view_changed(Some(None), Some(Some(fra))), Some(Some(fra)));
+        assert_eq!(view_changed(Some(Some(fra)), Some(Some(eng))), Some(Some(eng)));
+        assert_eq!(view_changed(Some(Some(fra)), Some(None)), Some(None));
+        assert_eq!(view_changed(Some(Some(fra)), Some(Some(fra))), None);
+        // A session's first frame, and the player taking up or leaving a
+        // country, end a session instead.
+        assert_eq!(view_changed(None, Some(Some(fra))), None);
+        assert_eq!(view_changed(Some(Some(fra)), None), None);
+    }
+
+    #[test]
     fn a_frame_is_heard_session_first_then_the_changes_and_the_wars_and_day_last() {
-        let ctx = Ctx { world: 0, date: 0x035D_7710, player: Tag(0), country: 0, countries: 0 };
         let tur = Tag(u64::from_le_bytes(*b"TUR\0\0\0\0\x01"));
+        let world = World { world: 0, date: 0x035D_7710, countries: 0, player: player::Player::Plays(tur) };
         let byz = Tag(u64::from_le_bytes(*b"BYZ\0\0\0\0\x01"));
         let battle = Battle {
             province: 151,
@@ -737,9 +785,10 @@ mod tests {
             seen: false,
         };
         let frame = Frame {
-            ctx,
+            world,
             session: 3,
             new_session: true,
+            in_view: Some(Some(tur)),
             visibility_current: true,
             changes: vec![Change::Ordered(7), Change::Defeated(8), Change::Battle(battle)],
             new_day: true,
@@ -754,6 +803,7 @@ mod tests {
             frame.heard(),
             [
                 seen(Event::Session { session: 3 }),
+                seen(Event::CountryInView { country: Some(tur) }),
                 seen(Event::ArmyOrdered { army: ArmyId(7) }),
                 seen(Event::ArmyDefeated { army: ArmyId(8) }),
                 // A battle the player neither sees nor takes part in.
@@ -775,7 +825,8 @@ mod tests {
                 seen(Event::Year { date })
             ]
         );
-        let quiet = Frame { new_session: false, new_day: false, new_month: false, new_year: false, changes: Vec::new(), wars: Vec::new(), ..frame };
+        let quiet =
+            Frame { new_session: false, in_view: None, new_day: false, new_month: false, new_year: false, changes: Vec::new(), wars: Vec::new(), ..frame };
         assert!(quiet.heard().is_empty());
     }
 

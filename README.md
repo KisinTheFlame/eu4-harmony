@@ -111,6 +111,8 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # back to the main menu
 ```
 
+In observe mode, the AI playing every country, `menu start` with no country starts such a game, `session view FRA` puts France in view and `session leave_view` takes it out; what acts as a country then acts as the one in view while the AI goes on playing it, and with none in view fails with `no_country` ([docs/observe-mode.md](docs/observe-mode.md)).
+
 Remote control is open only to the Windows user playing, only on this computer, and can do only what the player could. Where no capability reaches, it can use the player's mouse and keyboard. `eu4-harmony wiki remote` explains how a game goes and what each exit code means; [docs/remote-control.md](docs/remote-control.md) and [docs/hidden-start.md](docs/hidden-start.md) have the design.
 
 ## Documentation

@@ -9,7 +9,7 @@ use eu4_harmony_remote::{
 
 layer! {
     run RecruitRequest => RecruitAnswer;
-    fn province_snapshot(province: u32) -> game::provinces::Snapshot = session game::provinces::province;
+    fn province_snapshot(province: u32) -> game::provinces::Snapshot = session game::provinces::acting_province;
     Options { province } => options(game, province.0);
     Order => fn recruit(province: u32, kind: UnitKind) -> () = session game::recruiting::recruit;
 }

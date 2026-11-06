@@ -11,14 +11,14 @@ group! {
     /// Every province, or those named. In the player's view a province the
     /// player has not discovered has no owner or controller, as the map
     /// shows terra incognita.
-    game List "list" {
+    world List "list" {
         /// Only these provinces, in their order; a number that names none is
         /// left out. Every province when it is left out.
         provinces: Option<ProvinceList>,
     } -> Vec<Province>, "the provinces, by number: id, kind (land, sea, lake or wasteland), visible (to the player, not under fog of war), owner and controller (null when none)";
     /// The provinces an army can go to from a province over land, possibly
     /// across a strait; none for a province an army cannot stand on.
-    game Neighbors "neighbors" {
+    world Neighbors "neighbors" {
         /// The province.
         province: ProvinceId,
     } -> Vec<Neighbor>, "its neighbors: province, and strait, whether it is across a strait";
@@ -31,7 +31,7 @@ group! {
     /// being done there, as the province view does, and one the player has
     /// not discovered is refused (not_found). What the player can
     /// recruit there is recruit.options'.
-    game Get "get" {
+    world Get "get" {
         /// The province.
         province: ProvinceId,
     } -> Box<ProvinceSnapshot>, "its snapshot: id, name, owner, controller, development, terrain, fort, buildings, autonomy (percent), culture, religion and trade_good (their keys), unrest, trade_node (its key), center_of_trade (its level, 0 for none), trade_company, state (state or territory, null when it has no owner), edict (the state edict's key), cores, claims, constructions (each its kind, the game's key such as building_construction, the country, progress from 0 to 1, start and end dates, and the building or unit type it makes), missionary (a missionary's progress in percent, null when none works there) and colony_size (null for no colony); in the player's view unrest, constructions and missionary are null for a province another country owns";

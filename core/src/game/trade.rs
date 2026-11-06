@@ -151,7 +151,7 @@ fn seen(m: &Memory, ctx: &Ctx, view: View) -> GResult<Option<BTreeSet<usize>>> {
     let mut seen = BTreeSet::new();
     for address in with_state(|s| s.geography.addresses(m, ctx))? {
         let node = m.ptr(address + province::TRADE_NODE)?;
-        if node != 0 && !world::undiscovered(m, ctx, address)? {
+        if node != 0 && !world::undiscovered(m, super::player::Eyes::acting(view, ctx.player), address)? {
             seen.insert(m.ptr(node + DEFINITION)?);
         }
     }
