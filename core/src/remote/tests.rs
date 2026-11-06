@@ -310,6 +310,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         world: game::World { world: 0, date: 0x035D_7710, countries: 0, player: game::player::Player::Plays(fake::tur()) },
         session: 3,
         new_session: true,
+        in_view: None,
         visibility_current: true,
         // A battle the player neither sees nor takes part in, which remote
         // control, reading the player's view, does not hear.

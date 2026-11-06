@@ -3,12 +3,14 @@ use super::{tag, Convert};
 use crate::game::{self};
 use eu4_harmony_remote::{
     session::{Session, SessionAnswer, SessionRequest},
-    Date,
+    CountryTag, Date,
 };
 
 layer! {
     run SessionRequest => SessionAnswer;
     Get => fn session() -> game::session::Session = caller game::session::session;
+    View => fn view(country: CountryTag) -> game::session::Session = world game::session::view;
+    LeaveView => fn leave_view() -> game::session::Session = world game::session::leave_view;
 }
 
 /// The session as remote clients read it.

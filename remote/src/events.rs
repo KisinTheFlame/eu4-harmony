@@ -90,6 +90,7 @@ pub enum SessionEnd {
 pub enum Kind {
     Session,
     SessionEnded,
+    CountryInView,
     Day,
     Month,
     Year,
@@ -108,6 +109,7 @@ impl Kind {
         match self {
             Self::Session => "session",
             Self::SessionEnded => "session_ended",
+            Self::CountryInView => "country_in_view",
             Self::Day => "day",
             Self::Month => "month",
             Self::Year => "year",
@@ -144,6 +146,7 @@ impl Serialize for Kind {
 pub const EVENTS: &[(Kind, &str)] = &[
     (Kind::Session, "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
     (Kind::SessionEnded, "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save), new_game, or country (the player's country changed)"),
+    (Kind::CountryInView, "in observe mode, another country was put in view, or the view taken out, by the player, a remote client or an extension; country, null for none. A new session starts with none heard: session.get says what is in view"),
     (Kind::Day, "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
     (Kind::Month, "the first day heard in a new month; date, which with the game running fast may be past the 1st"),
     (Kind::Year, "the first day heard in a new year, after month; date"),
@@ -172,6 +175,9 @@ pub enum Event {
     Session { session: u64 },
     /// The session is being left, while its state is still there to read.
     SessionEnded { reason: SessionEnd },
+    /// In observe mode, another country was put in view, or the view taken
+    /// out (none), by whoever (GLOSSARY: Country in view).
+    CountryInView { country: Option<CountryTag> },
     /// A new day, once visibility reflects it; with the game running fast,
     /// days in between may be left out.
     Day { date: Date },
@@ -232,6 +238,7 @@ impl Event {
         match self {
             Self::Session { .. } => Kind::Session,
             Self::SessionEnded { .. } => Kind::SessionEnded,
+            Self::CountryInView { .. } => Kind::CountryInView,
             Self::Day { .. } => Kind::Day,
             Self::Month { .. } => Kind::Month,
             Self::Year { .. } => Kind::Year,
@@ -254,6 +261,7 @@ impl Event {
             Self::ProvinceOwnerChanged { from, to, .. } => from.iter().chain(to).copied().collect(),
             Self::BuildingFinished { country, .. } => vec![*country],
             Self::Battle { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
+            Self::CountryInView { country } => country.iter().copied().collect(),
             _ => Vec::new(),
         }
     }

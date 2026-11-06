@@ -268,6 +268,10 @@ struct State {
     day: Option<i32>,
     /// The wars and the provinces' owners of the day before.
     wars: wars::Watch,
+    /// In observe mode, the country in view at the last frame of the
+    /// session (none for none in view); None when the player played a
+    /// country then, or before the session's first frame.
+    in_view: Option<Option<Tag>>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -286,6 +290,7 @@ pub fn session_forgotten() {
         s.orders.clear();
         s.day = None;
         s.wars.clear();
+        s.in_view = None;
     });
 }
 
@@ -299,6 +304,9 @@ pub struct Frame {
     /// The session differs from the last frame's: a campaign was loaded or
     /// started, and what the capabilities kept from the old one is gone.
     pub new_session: bool,
+    /// In observe mode, the country in view changed since the last frame of
+    /// the session, to this one (none for none in view).
+    pub in_view: Option<Option<Tag>>,
     pub visibility_current: bool,
     pub changes: Vec<events::Change>,
     /// The date differs from the last day announced in this session, and
@@ -333,12 +341,13 @@ impl Frame {
         let seen = |event| Heard { event, seen: true };
         let date = eu4_harmony_remote::Date(self.world.date);
         let session = self.new_session.then(|| seen(Event::Session { session: self.session }));
+        let in_view = self.in_view.map(|country| seen(Event::CountryInView { country: country.map(named) }));
         let changes = self.changes.iter().filter_map(changed);
         let wars = self.wars.iter().cloned().map(|happened| seen(war_event(happened)));
         let day = self.new_day.then(|| seen(Event::Day { date }));
         let month = self.new_month.then(|| seen(Event::Month { date }));
         let year = self.new_year.then(|| seen(Event::Year { date }));
-        session.into_iter().chain(changes).chain(wars).chain(day).chain(month).chain(year).collect()
+        session.into_iter().chain(in_view).chain(changes).chain(wars).chain(day).chain(month).chain(year).collect()
     }
 }
 
@@ -402,7 +411,9 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     let (world, fog) = events::frame_campaign(m)?;
     let seen = crate::sessions::frame_read(&world);
     let (visibility_current, changes) = events::take_frame(&world, fog);
-    let (new_day, previous) = with_state(|s| {
+    let (new_day, previous, in_view) = with_state(|s| {
+        let now = world.player.observing().then(|| world.player.acting());
+        let in_view = view_changed(std::mem::replace(&mut s.in_view, now), now);
         for change in &changes {
             if let events::Change::Ordered(army) = change {
                 s.orders.revoke(*army);
@@ -410,12 +421,12 @@ pub fn begin_frame(m: &Memory) -> GResult<Frame> {
         }
         let previous = s.day;
         let new_day = visibility_current && s.day.replace(world.date) != Some(world.date);
-        (new_day, previous)
+        (new_day, previous, in_view)
     });
     let (new_month, new_year) = turned(previous.filter(|_| new_day), world.date);
     let (new_month, new_year) = (new_month && events::listened(Kind::Month), new_year && events::listened(Kind::Year));
     let wars = if new_day { watch_wars(m, &world) } else { Vec::new() };
-    Ok(Frame { world, session: seen.session, new_session: seen.new_session, visibility_current, changes, new_day, new_month, new_year, wars })
+    Ok(Frame { world, session: seen.session, new_session: seen.new_session, in_view, visibility_current, changes, new_day, new_month, new_year, wars })
 }
 
 /// What the wars and the provinces' owners show happened since the day
@@ -440,6 +451,17 @@ fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
         log!("wars: {}", e.message);
         Vec::new()
     })
+}
+
+/// The country in view a frame shows changed to, from the last frame's,
+/// each in observe mode the country in view (none for none) and None when
+/// the player played a country, or for the session's first frame: a change
+/// only from one frame in observe mode to the next.
+fn view_changed(before: Option<Option<Tag>>, now: Option<Option<Tag>>) -> Option<Option<Tag>> {
+    match (before, now) {
+        (Some(before), Some(now)) if before != now => Some(now),
+        _ => None,
+    }
 }
 
 /// Whether the day `now`, heard after the day `before`, is in a new month,
@@ -467,6 +489,7 @@ pub fn points() -> Vec<Point> {
     points.extend(provinces::points());
     points.extend(console::points());
     points.extend(time::points());
+    points.extend(player::points());
     points.extend(questions::points());
     points.extend(menu::points());
     points.extend(diplomacy::points());
@@ -713,7 +736,7 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 mod tests {
     use super::{
         events::{Battle, Change},
-        player, turned, view_of,
+        player, turned, view_changed, view_of,
         wars::Happened,
         Caller, Event, Frame, Heard, Tag, View, Winner, World,
     };
@@ -731,6 +754,19 @@ mod tests {
         assert_eq!(view_of(Caller::Extension(0), false), View::Full);
         assert_eq!(view_of(Caller::Remote, false), View::Player);
         assert_eq!(view_of(Caller::Remote, true), View::Full);
+    }
+
+    #[test]
+    fn a_change_of_view_is_heard_once_between_frames_in_observe_mode() {
+        let (fra, eng) = (Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\x01")), Tag(u64::from_le_bytes(*b"ENG\0\0\0\0\x01")));
+        assert_eq!(view_changed(Some(None), Some(Some(fra))), Some(Some(fra)));
+        assert_eq!(view_changed(Some(Some(fra)), Some(Some(eng))), Some(Some(eng)));
+        assert_eq!(view_changed(Some(Some(fra)), Some(None)), Some(None));
+        assert_eq!(view_changed(Some(Some(fra)), Some(Some(fra))), None);
+        // A session's first frame, and the player taking up or leaving a
+        // country, end a session instead.
+        assert_eq!(view_changed(None, Some(Some(fra))), None);
+        assert_eq!(view_changed(Some(Some(fra)), None), None);
     }
 
     #[test]
@@ -752,6 +788,7 @@ mod tests {
             world,
             session: 3,
             new_session: true,
+            in_view: Some(Some(tur)),
             visibility_current: true,
             changes: vec![Change::Ordered(7), Change::Defeated(8), Change::Battle(battle)],
             new_day: true,
@@ -766,6 +803,7 @@ mod tests {
             frame.heard(),
             [
                 seen(Event::Session { session: 3 }),
+                seen(Event::CountryInView { country: Some(tur) }),
                 seen(Event::ArmyOrdered { army: ArmyId(7) }),
                 seen(Event::ArmyDefeated { army: ArmyId(8) }),
                 // A battle the player neither sees nor takes part in.
@@ -787,7 +825,8 @@ mod tests {
                 seen(Event::Year { date })
             ]
         );
-        let quiet = Frame { new_session: false, new_day: false, new_month: false, new_year: false, changes: Vec::new(), wars: Vec::new(), ..frame };
+        let quiet =
+            Frame { new_session: false, in_view: None, new_day: false, new_month: false, new_year: false, changes: Vec::new(), wars: Vec::new(), ..frame };
         assert!(quiet.heard().is_empty());
     }
 

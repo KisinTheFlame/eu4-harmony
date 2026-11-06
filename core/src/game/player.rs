@@ -4,8 +4,22 @@
 //! the game's own "the player's country" (`0x811b20`, a dependency point that
 //! uses both) is the country in view while the player observes and one is
 //! in view, and the player's own tag otherwise.
-use super::{fail, GResult, Status, Tag, View};
-use crate::{memory::Memory, objects::campaign::world};
+//!
+//! A country is put in view, and taken out, through the game's own setter
+//! (`0x763a20`), as the player's Ctrl and click on the map, a country in a
+//! panel, a player in the outliner and the menubar's button do: it writes
+//! the country in view and, in observe mode, refreshes the fog of war and
+//! the map.
+use super::{fail, GResult, Status, Tag, View, World};
+use crate::{memory::Memory, objects::campaign::world, points::Point};
+
+/// The game's setter of the country in view: (world, tag), the tag by value.
+const SET_IN_VIEW: usize = 0x763a20;
+/// The menubar's button taking the view out, which passes `---` with no
+/// valid byte.
+const LEAVE_VIEW_CALL: usize = 0x817036;
+/// The tag the menubar's button passes to take the view out.
+const NO_COUNTRY: u64 = 0x2d2d2d;
 
 /// The player of a game going on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +119,43 @@ impl Eyes {
     pub fn sees_inside(self, owner: Option<Tag>) -> bool {
         owner.is_none_or(|owner| self.sees_all_of(owner))
     }
+}
+
+/// Puts `country` in view, as the player's Ctrl and click on one of its
+/// provinces does: [`Status::Rejected`] when the player plays a country,
+/// not observe mode, or `country` owns no province.
+pub fn put_in_view(m: &Memory, world: &World, country: Tag) -> GResult<()> {
+    observing(world)?;
+    if !country.normal() || super::world::owned_provinces(m, world.world, country)? == 0 {
+        return fail(Status::Rejected, format!("{} owns no province to put in view", super::named(country)));
+    }
+    m.call(m.at(SET_IN_VIEW), &[world.world, country.0 as usize])?;
+    Ok(())
+}
+
+/// Takes the country in view out, as the menubar's button does; nothing with
+/// none in view. [`Status::Rejected`] when the player plays a country.
+pub fn leave_view(m: &Memory, world: &World) -> GResult<()> {
+    observing(world)?;
+    if world.player.acting().is_some() {
+        m.call(m.at(SET_IN_VIEW), &[world.world, NO_COUNTRY as usize])?;
+    }
+    Ok(())
+}
+
+fn observing(world: &World) -> GResult<()> {
+    match world.player {
+        Player::Observes { .. } => Ok(()),
+        Player::Plays(country) => fail(Status::Rejected, format!("the player plays {}, not observe mode", super::named(country))),
+    }
+}
+
+pub fn points() -> Vec<Point> {
+    vec![
+        Point::keep(SET_IN_VIEW, "53 48 83 ec 20 48 89 91 68 1e 00 00 48 8b d9 48 8b 89 00 1e 00 00", "set the country in view")
+            .uses(&[world::IN_VIEW, world::MAP_MANAGER]),
+        Point::keep(LEAVE_VIEW_CALL, "ba 2d 2d 2d 00 49 8b c8 e8 dd c9 f4 ff", "the menubar taking the view out").uses(&[NO_COUNTRY as usize]),
+    ]
 }
 
 /// The player of the game whose world is `world`.

@@ -126,6 +126,7 @@ fn every_event() -> Vec<events::Event> {
     vec![
         Event::Session { session: 1 },
         Event::SessionEnded { reason: SessionEnd::Return },
+        Event::CountryInView { country: Some(CountryTag(*b"TUR")) },
         Event::Day { date },
         Event::Month { date },
         Event::Year { date },
@@ -182,6 +183,7 @@ fn every_event_calls_its_handler() {
         [
             ("on_session", json!([{"session": 1}])),
             ("on_session_ended", json!(["return"])),
+            ("on_country_in_view", json!(["TUR"])),
             ("on_day", json!([date])),
             ("on_month", json!([date])),
             ("on_year", json!([date])),

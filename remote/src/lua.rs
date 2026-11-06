@@ -92,6 +92,12 @@ pub const HANDLERS: &[Handler] = &[
         about: "The session is being left, while its state is still there to read. Its waiting tasks are dropped after this.",
     },
     Handler {
+        name: "on_country_in_view",
+        args: &[optional("country", "string", "the country now in view, a tag; nil once the view is taken out")],
+        returns: None,
+        about: "In observe mode, another country was put in view, or the view taken out, by the player, a remote client or a mod. What acts as a country acts as the one in view.",
+    },
+    Handler {
         name: "on_day",
         args: &[value("date", "eu4.Date", "the new day")],
         returns: None,
