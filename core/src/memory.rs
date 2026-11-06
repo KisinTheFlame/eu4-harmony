@@ -10,7 +10,7 @@ use windows_sys::Win32::System::{
 };
 
 extern "C" {
-    fn eu4h_native_call(target: usize, args: *const usize, count: u32, result: *mut usize) -> u32;
+    fn eu4h_native_call(target: usize, args: *const usize, count: u32, result: *mut usize, fault: *mut usize) -> u32;
     fn eu4h_read(source: *const u8, target: *mut u8, count: usize) -> u32;
 }
 
@@ -110,9 +110,12 @@ impl Memory {
             return Err("more than 12 arguments".into());
         }
         let mut result = 0;
-        let code = unsafe { eu4h_native_call(target, args.as_ptr(), args.len() as u32, &mut result) };
+        let mut fault = [0usize; 3];
+        let code = unsafe { eu4h_native_call(target, args.as_ptr(), args.len() as u32, &mut result, fault.as_mut_ptr()) };
         if code != 0 {
-            return Err(format!("call {target:#x} faulted: {code:#x}"));
+            let [at, address, wrote] = fault;
+            let access = if code == 0xc000_0005 { format!(", {} {address:#x}", if wrote == 1 { "writing" } else { "reading" }) } else { String::new() };
+            return Err(format!("call {target:#x} faulted: {code:#x} at {at:#x} (RVA {:#x}){access}", at.wrapping_sub(self.base)));
         }
         Ok(result)
     }

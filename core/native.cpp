@@ -88,14 +88,23 @@ template <size_t... I> Word invoke(Word target, const Word* args, std::index_seq
     using Function = Word (*)(Arg<I>...);
     return reinterpret_cast<Function>(target)(args[I]...);
 }
-extern "C" unsigned eu4h_native_call(Word target, const Word* args, unsigned count, Word* result) {
-    if (!target || !result || count > 12) return ERROR_INVALID_PARAMETER;
+// Where a fault happened: the instruction, and for an access violation the
+// address it read or wrote and whether it wrote.
+static int note_fault(const EXCEPTION_POINTERS* e, Word* fault) {
+    const EXCEPTION_RECORD* r = e->ExceptionRecord;
+    fault[0] = reinterpret_cast<Word>(r->ExceptionAddress);
+    fault[1] = r->NumberParameters >= 2 ? r->ExceptionInformation[1] : 0;
+    fault[2] = r->NumberParameters >= 1 ? r->ExceptionInformation[0] : 0;
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+extern "C" unsigned eu4h_native_call(Word target, const Word* args, unsigned count, Word* result, Word* fault) {
+    if (!target || !result || !fault || count > 12) return ERROR_INVALID_PARAMETER;
     __try {
 #define CASE(N) case N: *result = invoke(target, args, std::make_index_sequence<N>{}); break
         switch (count) { CASE(0); CASE(1); CASE(2); CASE(3); CASE(4); CASE(5); CASE(6); CASE(7); CASE(8); CASE(9); CASE(10); CASE(11); CASE(12); }
 #undef CASE
         return 0;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (note_fault(GetExceptionInformation(), fault)) {
         return GetExceptionCode();
     }
 }
