@@ -11,7 +11,7 @@ use super::{
     values::{self, date_text},
     Element, Host, Mod, Waits,
 };
-use eu4_harmony_remote::{capabilities, Capability, Kind};
+use eu4_harmony_remote::{capabilities, shape::Shape, Capability, Kind};
 use mlua::{Function, Lua, LuaOptions, MultiValue, StdLib, Table, Thread, Value as LuaValue, Variadic};
 use serde_json::{Map, Number, Value};
 use std::{
@@ -405,66 +405,79 @@ fn article(word: &str) -> String {
     format!("{} {word}", if an { "an" } else { "a" })
 }
 
-/// One argument as JSON, as its kind is written there.
+/// One argument as JSON, as its kind's shape says Lua passes it. An army is
+/// the one kind whose JSON its shape does not say: Lua passes its ID as a
+/// number or as text, and JSON writes it as text.
 fn arg_json(kind: Kind, value: &LuaValue) -> Result<Value, String> {
     let wrong = || format!("{} such as {}, not {}", article(kind.name()), kind.example(), article(value.type_name()));
-    let integer = |v: &LuaValue| match v {
+    let json = match kind {
+        Kind::Army => army(value),
+        Kind::Armies => sequence(value, |id| Ok(army(id)))?,
+        _ => shaped(&kind.shape(), value)?,
+    };
+    json.ok_or_else(wrong)
+}
+
+/// `value` as JSON, when it has `shape`; an error for a table JSON cannot
+/// write.
+fn shaped(shape: &Shape, value: &LuaValue) -> Result<Option<Value>, String> {
+    Ok(match (shape, value) {
+        (Shape::Integer, _) => integer(value).map(Value::from),
+        (Shape::Number, LuaValue::Integer(i)) => Some(Value::from(*i)),
+        (Shape::Number, LuaValue::Number(n)) => Number::from_f64(*n).map(Value::Number),
+        (Shape::Boolean, LuaValue::Boolean(b)) => Some(Value::Bool(*b)),
+        (Shape::Text | Shape::Words(_), _) => string(value).map(Value::String),
+        (Shape::Date, _) => date_text(value).map(Value::String),
+        (Shape::Optional(_), LuaValue::Nil) => Some(Value::Null),
+        (Shape::Optional(inner), _) => shaped(inner, value)?,
+        (Shape::List(inner), _) => sequence(value, |item| shaped(inner, item))?,
+        (Shape::Either(shapes), _) => {
+            for shape in shapes {
+                if let Some(json) = shaped(shape, value)? {
+                    return Ok(Some(json));
+                }
+            }
+            None
+        }
+        (Shape::Object { .. } | Shape::Map(_), LuaValue::Table(_)) | (Shape::Any, _) => Some(values::to_json(value)?),
+        _ => None,
+    })
+}
+
+/// A table whose keys are 1 to its length, as a JSON array of its values,
+/// each as `item` writes it.
+fn sequence(value: &LuaValue, item: impl Fn(&LuaValue) -> Result<Option<Value>, String>) -> Result<Option<Value>, String> {
+    let LuaValue::Table(t) = value else { return Ok(None) };
+    if t.pairs::<LuaValue, LuaValue>().count() != t.raw_len() {
+        return Ok(None);
+    }
+    let mut items = Vec::new();
+    for value in t.clone().sequence_values::<LuaValue>() {
+        match item(&value.map_err(|e| e.to_string())?)? {
+            Some(json) => items.push(json),
+            None => return Ok(None),
+        }
+    }
+    Ok(Some(Value::Array(items)))
+}
+
+/// An army's ID, a number or its decimal text, as JSON's text.
+fn army(value: &LuaValue) -> Option<Value> {
+    integer(value).map(|i| i.to_string()).or_else(|| string(value)).map(Value::String)
+}
+
+fn integer(value: &LuaValue) -> Option<i64> {
+    match value {
         LuaValue::Integer(i) => Some(*i),
         LuaValue::Number(n) if n.fract() == 0.0 => Some(*n as i64),
         _ => None,
-    };
-    let string = |v: &LuaValue| match v {
+    }
+}
+
+fn string(value: &LuaValue) -> Option<String> {
+    match value {
         LuaValue::String(s) => s.to_str().ok().map(|s| s.to_string()),
         _ => None,
-    };
-    match kind {
-        Kind::Province | Kind::Integer => integer(value).map(|i| Value::Number(Number::from(i))).ok_or_else(wrong),
-        Kind::Army => match (integer(value), string(value)) {
-            (Some(i), _) => Ok(Value::String(i.to_string())),
-            (None, Some(s)) => Ok(Value::String(s)),
-            _ => Err(wrong()),
-        },
-        Kind::Boolean => match value {
-            LuaValue::Boolean(b) => Ok(Value::Bool(*b)),
-            _ => Err(wrong()),
-        },
-        Kind::Date => date_text(value).map(Value::String).ok_or_else(wrong),
-        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys | Kind::PowerKind => {
-            string(value).map(Value::String).ok_or_else(wrong)
-        }
-        Kind::Allies => match value {
-            LuaValue::String(_) => string(value).map(Value::String).ok_or_else(wrong),
-            LuaValue::Table(t) => {
-                let tags = t.clone().sequence_values::<String>().collect::<mlua::Result<Vec<_>>>().map_err(|e| e.to_string())?;
-                Ok(Value::Array(tags.into_iter().map(Value::String).collect()))
-            }
-            _ => Err(wrong()),
-        },
-        Kind::Countries | Kind::Words => match value {
-            LuaValue::Table(t) => {
-                let words = t.clone().sequence_values::<String>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
-                Ok(Value::Array(words.into_iter().map(Value::String).collect()))
-            }
-            _ => Err(wrong()),
-        },
-        Kind::Armies => match value {
-            LuaValue::Table(t) => {
-                let ids = t.clone().sequence_values::<LuaValue>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
-                ids.iter().map(|id| arg_json(Kind::Army, id).map_err(|_| wrong())).collect::<Result<Vec<_>, _>>().map(Value::Array)
-            }
-            _ => Err(wrong()),
-        },
-        Kind::Provinces => match value {
-            LuaValue::Table(t) => {
-                let ids = t.clone().sequence_values::<i64>().collect::<mlua::Result<Vec<_>>>().map_err(|_| wrong())?;
-                Ok(Value::Array(ids.into_iter().map(|i| Value::Number(Number::from(i))).collect()))
-            }
-            _ => Err(wrong()),
-        },
-        Kind::Terms => match value {
-            LuaValue::Table(_) => values::to_json(value),
-            _ => Err(wrong()),
-        },
     }
 }
 
@@ -503,5 +516,37 @@ mod tests {
         assert!(request("building.build", args("return 1, 2")).unwrap_err().contains("building: a text such as text, not an integer"));
         assert!(request("camera.look_at", args("return { height = 3 }")).unwrap_err().contains("no option height"));
         assert!(request("menu.load", args("return 'x'")).unwrap_err().contains("no such capability for extensions"));
+    }
+
+    #[test]
+    fn every_kind_takes_what_its_shape_says_lua_passes() {
+        let lua = Lua::new();
+        let json = |kind: Kind, code: &str| arg_json(kind, &lua.load(code).eval::<LuaValue>().unwrap());
+        assert_eq!(json(Kind::Army, "return 545460846646").unwrap(), serde_json::json!("545460846646"));
+        assert_eq!(json(Kind::Army, "return '545460846646'").unwrap(), serde_json::json!("545460846646"));
+        assert_eq!(json(Kind::Armies, "return { 12, '34' }").unwrap(), serde_json::json!(["12", "34"]));
+        assert_eq!(json(Kind::Province, "return 151.0").unwrap(), serde_json::json!(151));
+        assert_eq!(json(Kind::Date, "return { year = 1444, month = 11, day = 11 }").unwrap(), serde_json::json!("1444.11.11"));
+        assert_eq!(json(Kind::Date, "return '1444.11.11'").unwrap(), serde_json::json!("1444.11.11"));
+        assert_eq!(json(Kind::Allies, "return 'all'").unwrap(), serde_json::json!("all"));
+        assert_eq!(json(Kind::Allies, "return { 'DUL', 'CND' }").unwrap(), serde_json::json!(["DUL", "CND"]));
+        assert_eq!(json(Kind::Provinces, "return {}").unwrap(), serde_json::json!([]));
+        assert_eq!(json(Kind::UnitKind, "return 'infantry'").unwrap(), serde_json::json!("infantry"));
+        assert_eq!(
+            json(Kind::Terms, "return { { term = 'demand_provinces', province = 236 } }").unwrap(),
+            serde_json::json!([{"term": "demand_provinces", "province": 236}])
+        );
+        for (kind, bad, wrong) in [
+            (Kind::Province, "return 1.5", "a province such as 151, not a number"),
+            (Kind::Boolean, "return 1", "a boolean such as true, not an integer"),
+            (Kind::Countries, "return { 'FRA', 2 }", "a countries such as FRA,ENG, not a table"),
+            (Kind::Allies, "return { 'DUL', true }", "an allies such as DUL,CND, not a table"),
+            (Kind::Armies, "return { 12, {} }", "an armies such as 4294967377,4294967378, not a table"),
+            (Kind::Provinces, "return { 151, x = 2 }", "a provinces such as 151,152, not a table"),
+            (Kind::Terms, "return { term = 'humiliate' }", "a terms such as [{\"term\":\"humiliate\"}], not a table"),
+            (Kind::Terms, "return 'humiliate'", "a terms such as [{\"term\":\"humiliate\"}], not a string"),
+        ] {
+            assert_eq!(json(kind, bad).unwrap_err(), wrong, "{bad}");
+        }
     }
 }
