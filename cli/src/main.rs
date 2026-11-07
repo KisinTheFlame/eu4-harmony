@@ -96,7 +96,7 @@ usage:
 ";
 
 use eu4_harmony_loc::Language;
-use eu4_harmony_manifest::{descriptor_entry, HarmonyMod, LOCATION_KEYS};
+use eu4_harmony_manifest::{line_entries, line_entry, HarmonyMod, LOCATION_KEYS};
 
 /// Positional arguments and `--key value` / `--flag` options.
 struct Args {
@@ -215,7 +215,7 @@ fn start_dir(args: &Args) -> Result<PathBuf> {
 fn strip_location(descriptor: &str) -> String {
     let mut out = String::new();
     for line in descriptor.lines() {
-        if !descriptor_entry(line).is_some_and(|(key, _)| LOCATION_KEYS.contains(&key)) {
+        if !line_entry(line).is_some_and(|(key, _)| LOCATION_KEYS.contains(&key)) {
             out.push_str(line);
             out.push('\n');
         }
@@ -318,8 +318,7 @@ fn cmd_test(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
     let manifest = HarmonyMod::read(&root)?.manifest;
     let descriptor = fs::read_to_string(root.join("descriptor.mod")).map_err(|e| e.to_string())?;
-    let name =
-        descriptor.lines().find_map(|l| descriptor_entry(l).filter(|(k, _)| *k == "name").map(|(_, v)| v.to_string())).unwrap_or_else(|| manifest.id.clone());
+    let name = line_entries(&descriptor).find(|(k, _)| *k == "name").map_or_else(|| manifest.id.clone(), |(_, v)| v.to_string());
     let outcome = test::run(&root, manifest, name)?;
     print!("{}", outcome.report);
     if outcome.failed > 0 {
