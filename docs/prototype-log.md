@@ -2334,6 +2334,16 @@ The developer build with the test switches of `claude/parallel-army-search`, fro
 - **Not verified**: other saves and years; a player's game; the build without the test switches in the game (built and checked offline).
 - **Cleanup**: `dev.toml` removed; the releases put back the player's files and the framework files; the profiles and logs deleted from the scratchpad.
 
+## 2026-11-08 The session repairs with the player's panels opened (tested by me)
+
+The repairs that let go what the session's panels and lists leave (the panels' windows with their owners, the building interface's tabs, the entries a list's kill leaves, the message icon holder, the estates' modifiers) had been tried only with the panels the session's build makes, as the scenarios open none. Here a script, not committed, drove a test game of its own with remote control's `input`, as a player does, on the heap census build with the quarantine on: five rounds of the `leak` scenario's sessions (England-1 for 30 days, an in-game load of 英格兰1444_11_11 for 10, a return, a new game as France for 10, a return), and before and after every load, return and new game the panels opened: the country view (F1) and each of its fourteen tabs, among them the diplomacy, technology, decisions and policies and stability and expansion tabs; the building interface (B); the ledger; the map modes' panel; and a province's view, clicked on the map next to the capital after the events waiting were answered with their first options. The positions are the 3840×2160 frame of this computer's settings; screenshots checked that each panel opened. The country view was left open at some loads and returns.
+
+- **Outcome**: five rounds, no crash, both games ended by the release (exit code 1); the framework's log has no repair that failed, faulted, or kept an object as no longer what it was.
+- **What was let go**: each return's clear deleted 500 to 506 estates' modifiers and 204 to 207 lists' entries, the in-game load's 119 to 123 and 78 to 81, against 144 and 60 entries with no panel opened; 37 panels' windows were killed at each return and in-game load, 5 at each load from the main menu.
+- **The quarantine**: 1,089,575 blocks kept over the five rounds, among them 6,034 estates' modifiers, 1,912 entries, 2,091 blocks of message icon holders, 1,662 of the panels' windows and 3,070 of the session's interface; none was written to after it was let go.
+- **Not verified**: panels clicked through further than their tabs (a building built, a policy taken, the ledger's pages turned); the outliner's and the military panels' parts, not among these repairs; other resolutions and interface scales, where these positions miss.
+- **Cleanup**: the release kept the logs in the claim's folder and removed the rest; the script and its screenshots deleted from the scratchpad.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
