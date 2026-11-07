@@ -110,10 +110,29 @@ pub struct TestSwitches {
     /// walks, so that the defect can be tried (with the heap census's
     /// quarantine on, the walk then reads what it freed filled with `0xdd`).
     pub game_ends_dependencies: bool,
+    /// The order in which an AI country's top agent has its agents do their
+    /// day: `game` leaves the game's walks, `forward` and
+    /// `reversed` are the framework's, in the game's order or the opposite
+    /// one, so that whether an agent's day depends on another's can be tried
+    /// in a game started with `-seed` (`core/src/agents_order.rs`).
+    pub agents_order: AgentsOrder,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
     pub post: Vec<String>,
+}
+
+/// The test switch `agents-order`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentsOrder {
+    /// The game's own walks.
+    #[default]
+    Game,
+    /// The framework's walks, in the game's order.
+    Forward,
+    /// The framework's walks, in the opposite order.
+    Reversed,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -170,7 +189,7 @@ impl Options {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
@@ -179,6 +198,7 @@ impl Options {
                 on(switches.check_loading),
                 on(switches.game_loads),
                 on(switches.game_ends_dependencies),
+                format!("{:?}", switches.agents_order).to_lowercase(),
                 switches.post.len()
             ));
         }
@@ -256,7 +276,7 @@ mod tests {
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ncompare-saves = true\ngame-writes-saves = true\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ncompare-saves = true\ngame-writes-saves = true\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
@@ -268,6 +288,7 @@ mod tests {
                 && options.test_switches.compare_saves
                 && options.test_switches.game_writes_saves
         );
+        assert_eq!(options.test_switches.agents_order, AgentsOrder::Reversed);
         assert_eq!(options.test_switches.post, ["a={ }"]);
         assert_eq!(options.write_watch, WriteWatch { function: "0x74ff30".into(), calls: 3 });
     }
