@@ -306,38 +306,41 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
 
 #[test]
 fn what_a_game_frame_tells_extensions_is_kept_as_events() {
-    let frame = game::Frame {
-        world: game::World { world: 0, date: 0x035D_7710, countries: 0, player: game::player::Player::Plays(fake::tur()) },
-        session: 3,
-        new_session: true,
-        in_view: None,
+    let observed = |session, new_session, date, changes| game::frame::Observed {
+        world: game::World { world: 0, date, countries: 0, player: game::player::Player::Plays(fake::tur()) },
+        seen: crate::sessions::Seen { session, new_session },
         visibility_current: true,
-        // A battle the player neither sees nor takes part in, which remote
-        // control, reading the player's view, does not hear.
-        changes: vec![
-            game::events::Change::Ordered(ARMY),
-            game::events::Change::Defeated(ARMY),
-            game::events::Change::Battle(game::events::Battle {
-                province: 151,
-                naval: false,
-                attackers: vec![fake::wal()],
-                defenders: vec![fake::byz()],
-                attacker_won: true,
-                attacker_losses: 100,
-                defender_losses: 900,
-                seen: false,
-            }),
-        ],
-        new_day: true,
-        new_month: true,
-        new_year: false,
-        wars: vec![
+        changes,
+    };
+    let day = |y, m, d| eu4_harmony_checks::Date::from_ymd(y, m, d).unwrap().0;
+    let mut recall = game::frame::Recall::new();
+    // A battle the player neither sees nor takes part in, which remote
+    // control, reading the player's view, does not hear.
+    let changes = vec![
+        game::events::Change::Ordered(ARMY),
+        game::events::Change::Defeated(ARMY),
+        game::events::Change::Battle(game::events::Battle {
+            province: 151,
+            naval: false,
+            attackers: vec![fake::wal()],
+            defenders: vec![fake::byz()],
+            attacker_won: true,
+            attacker_losses: 100,
+            defender_losses: 900,
+            seen: false,
+        }),
+    ];
+    let wars = |_: &game::World| {
+        vec![
             game::wars::Happened::WarDeclared { war: "Ottoman-Byzantine War".into(), attacker: fake::tur(), defender: fake::byz() },
             game::wars::Happened::OwnerChanged { province: 151, from: Some(fake::byz()), to: None },
-        ],
+        ]
     };
+    let first = recall.next(observed(3, true, day(1444, 11, 30), changes), |_| true, wars);
+    let month = recall.next(observed(3, false, day(1444, 12, 1), vec![]), |_| true, |_| vec![]);
     let engine = Engine::new(remember);
-    engine.record(happened(&frame.heard()));
+    engine.record(happened(&first.heard()));
+    engine.record(happened(&month.heard()));
     let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
     assert_eq!(
@@ -348,8 +351,9 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
             {"number": 3, "event": "army_defeated", "army": ARMY.to_string()},
             {"number": 4, "event": "war_declared", "war": "Ottoman-Byzantine War", "attacker": "TUR", "defender": "BYZ"},
             {"number": 5, "event": "province_owner_changed", "province": 151, "from": "BYZ", "to": null},
-            {"number": 6, "event": "day", "date": "1444.11.11"},
-            {"number": 7, "event": "month", "date": "1444.11.11"},
+            {"number": 6, "event": "day", "date": "1444.11.30"},
+            {"number": 7, "event": "day", "date": "1444.12.1"},
+            {"number": 8, "event": "month", "date": "1444.12.1"},
         ])
     );
     // Only those naming a country asked for, and those naming none.
@@ -362,8 +366,8 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
     let numbers: Vec<u64> = answer(&read)["result"]["events"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
-    assert_eq!(numbers, [1, 2, 3, 4, 6, 7]);
-    let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, wars: vec![], ..frame };
+    assert_eq!(numbers, [1, 2, 3, 4, 6, 7, 8]);
+    let quiet = recall.next(observed(3, false, day(1444, 12, 1), vec![]), |_| true, wars);
     assert!(happened(&quiet.heard()).is_empty());
 }
 

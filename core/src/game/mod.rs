@@ -40,6 +40,7 @@ pub mod event_costs;
 pub mod events;
 pub mod focus;
 pub mod forts;
+pub mod frame;
 pub mod government;
 pub mod ideas;
 pub mod input;
@@ -83,8 +84,10 @@ use crate::{
     objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
     points::Point,
 };
-use eu4_harmony_remote::events::{Event, Kind, Winner};
+use eu4_harmony_remote::events::Kind;
 use std::sync::Mutex;
+
+pub use frame::{Frame, Heard};
 
 /// How much of the game a read gives (GLOSSARY: Player's view, Full view;
 /// ADR remote-control-reads-the-players-view).
@@ -269,20 +272,15 @@ impl WorldSession {
     }
 }
 
-/// What the capabilities keep between calls: the map's topology and the
-/// routes extensions installed. Both belong to one session, as does the last
-/// day announced; the sessions let them go ([`session_forgotten`]).
+/// What the capabilities keep between calls: the map's topology, the routes
+/// extensions installed, and the wars and the provinces' owners of the day
+/// before. All belong to one session; the sessions let them go
+/// ([`session_forgotten`]).
 #[derive(Default)]
 struct State {
     geography: world::Geography,
     orders: orders::Orders,
-    day: Option<i32>,
-    /// The wars and the provinces' owners of the day before.
     wars: wars::Watch,
-    /// In observe mode, the country in view at the last frame of the
-    /// session (none for none in view); None when the player played a
-    /// country then, or before the session's first frame.
-    in_view: Option<Option<Tag>>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -292,6 +290,9 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> T {
     f(guard.get_or_insert_with(State::default))
 }
 
+/// What the session's frames showed, which the next is heard against.
+static RECALL: Mutex<frame::Recall> = Mutex::new(frame::Recall::new());
+
 /// A game frame shows another session than the last frame did: what the
 /// capabilities kept of that one goes. Told by the sessions
 /// (`crate::sessions`).
@@ -299,145 +300,29 @@ pub fn session_forgotten() {
     with_state(|s| {
         s.geography.clear();
         s.orders.clear();
-        s.day = None;
         s.wars.clear();
-        s.in_view = None;
     });
-}
-
-/// What a safe frame starts from: the campaign, its session, and what
-/// happened since the last one, which extensions and remote control hear
-/// ([`Frame::heard`]).
-pub struct Frame {
-    /// The game and its player, also with no country to act as.
-    pub world: World,
-    pub session: u64,
-    /// The session differs from the last frame's: a campaign was loaded or
-    /// started, and what the capabilities kept from the old one is gone.
-    pub new_session: bool,
-    /// In observe mode, the country in view changed since the last frame of
-    /// the session, to this one (none for none in view).
-    pub in_view: Option<Option<Tag>>,
-    pub visibility_current: bool,
-    pub changes: Vec<events::Change>,
-    /// The date differs from the last day announced in this session, and
-    /// visibility reflects it.
-    pub new_day: bool,
-    /// The new day is the first heard in a new month, and someone listens.
-    pub new_month: bool,
-    /// The new day is the first heard in a new year, and someone listens.
-    pub new_year: bool,
-    /// At a new day, the wars declared, the peaces made and the provinces
-    /// that changed owner since the day before, of the kinds someone
-    /// listens to.
-    pub wars: Vec<wars::Happened>,
-}
-
-/// One thing that happened since the last safe frame, as the event both
-/// extensions' handlers and remote control's reads are made from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Heard {
-    pub event: Event,
-    /// The player's view shows it. Extensions hear every event; remote
-    /// control, unless the setting gives it the full view, only these.
-    pub seen: bool,
-}
-
-impl Frame {
-    /// What happened, in the order extensions hear it and remote control
-    /// numbers it: a new session, the changes, the wars', a new day, its
-    /// month, its year. A building whose key cannot be read is logged and
-    /// left out.
-    pub fn heard(&self) -> Vec<Heard> {
-        let seen = |event| Heard { event, seen: true };
-        let date = eu4_harmony_remote::Date(self.world.date);
-        let session = self.new_session.then(|| seen(Event::Session { session: self.session }));
-        let in_view = self.in_view.map(|country| seen(Event::CountryInView { country: country.map(named) }));
-        let changes = self.changes.iter().filter_map(changed);
-        let wars = self.wars.iter().cloned().map(|happened| seen(war_event(happened)));
-        let day = self.new_day.then(|| seen(Event::Day { date }));
-        let month = self.new_month.then(|| seen(Event::Month { date }));
-        let year = self.new_year.then(|| seen(Event::Year { date }));
-        session.into_iter().chain(in_view).chain(changes).chain(wars).chain(day).chain(month).chain(year).collect()
-    }
-}
-
-/// A country, as events name it.
-fn named(tag: Tag) -> eu4_harmony_remote::CountryTag {
-    eu4_harmony_remote::CountryTag(tag.letters())
-}
-
-/// A change, as it is heard; none for a building whose key cannot be read.
-fn changed(change: &events::Change) -> Option<Heard> {
-    use eu4_harmony_remote::{ArmyId, ProvinceId};
-    use events::Change;
-    let seen = |event| Some(Heard { event, seen: true });
-    match change {
-        Change::Ordered(army) => seen(Event::ArmyOrdered { army: ArmyId(*army) }),
-        Change::Defeated(army) => seen(Event::ArmyDefeated { army: ArmyId(*army) }),
-        Change::BuildingFinished { province, building, country: owner } => match buildings::key_of(*building) {
-            Ok(building) => seen(Event::BuildingFinished { province: ProvinceId(*province), building, country: named(*owner) }),
-            Err(e) => {
-                log!("building finished: {}", e.message);
-                None
-            }
-        },
-        Change::Battle(battle) => Some(Heard { event: battle_event(battle), seen: battle.seen }),
-    }
-}
-
-/// A war's happening, as its event.
-fn war_event(happened: wars::Happened) -> Event {
-    use wars::Happened;
-    let countries = |tags: Vec<Tag>| tags.into_iter().map(named).collect();
-    match happened {
-        Happened::WarDeclared { war, attacker, defender } => Event::WarDeclared { war, attacker: named(attacker), defender: named(defender) },
-        Happened::PeaceMade { war, attackers, defenders, ended } => {
-            Event::PeaceMade { war, attackers: countries(attackers), defenders: countries(defenders), ended }
-        }
-        Happened::OwnerChanged { province, from, to } => {
-            Event::ProvinceOwnerChanged { province: eu4_harmony_remote::ProvinceId(province), from: from.map(named), to: to.map(named) }
-        }
-    }
-}
-
-/// A battle, as the `battle` event tells it.
-fn battle_event(battle: &events::Battle) -> Event {
-    Event::Battle {
-        province: eu4_harmony_remote::ProvinceId(battle.province),
-        naval: battle.naval,
-        attackers: battle.attackers.iter().copied().map(named).collect(),
-        defenders: battle.defenders.iter().copied().map(named).collect(),
-        winner: if battle.attacker_won { Winner::Attackers } else { Winner::Defenders },
-        attacker_losses: battle.attacker_losses.into(),
-        defender_losses: battle.defender_losses.into(),
-    }
 }
 
 /// Starts a safe frame (see [`events`]); fails when this is not one, saying
 /// why. The sessions hear of it first, which let what was kept of another
 /// session go (`crate::sessions`). An army the player gave an order is no
-/// longer an extension's to move.
+/// longer an extension's to move. What happened since the last frame is
+/// [`frame`]'s to decide.
 pub fn begin_frame(m: &Memory) -> GResult<Frame> {
     let (world, fog) = events::frame_campaign(m)?;
     let seen = crate::sessions::frame_read(&world);
     let (visibility_current, changes) = events::take_frame(&world, fog);
-    let (new_day, previous, in_view) = with_state(|s| {
-        let now = world.player.observing().then(|| world.player.acting());
-        let in_view = view_changed(std::mem::replace(&mut s.in_view, now), now);
+    with_state(|s| {
         for change in &changes {
             if let events::Change::Ordered(army) = change {
                 s.orders.revoke(*army);
             }
         }
-        let previous = s.day;
-        let new_day = visibility_current && s.day.replace(world.date) != Some(world.date);
-        (new_day, previous, in_view)
     });
-    let (new_month, new_year) = turned(previous.filter(|_| new_day), world.date);
-    let (new_month, new_year) = (new_month && events::listened(Kind::Month), new_year && events::listened(Kind::Year));
-    let wars = if new_day { watch_wars(m, &world) } else { Vec::new() };
-    Ok(Frame { world, session: seen.session, new_session: seen.new_session, in_view, visibility_current, changes, new_day, new_month, new_year, wars })
+    let observed = frame::Observed { world, seen, visibility_current, changes };
+    let mut recall = RECALL.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(recall.next(observed, events::listened, |world| watch_wars(m, world)))
 }
 
 /// What the wars and the provinces' owners show happened since the day
@@ -464,23 +349,9 @@ fn watch_wars(m: &Memory, ctx: &World) -> Vec<wars::Happened> {
     })
 }
 
-/// The country in view a frame shows changed to, from the last frame's,
-/// each in observe mode the country in view (none for none) and None when
-/// the player played a country, or for the session's first frame: a change
-/// only from one frame in observe mode to the next.
-fn view_changed(before: Option<Option<Tag>>, now: Option<Option<Tag>>) -> Option<Option<Tag>> {
-    match (before, now) {
-        (Some(before), Some(now)) if before != now => Some(now),
-        _ => None,
-    }
-}
-
-/// Whether the day `now`, heard after the day `before`, is in a new month,
-/// and in a new year. The first day heard in a session is in neither.
-fn turned(before: Option<i32>, now: i32) -> (bool, bool) {
-    let Some(before) = before else { return (false, false) };
-    let ((y0, m0, _), (y1, m1, _)) = (eu4_harmony_checks::Date(before).ymd(), eu4_harmony_checks::Date(now).ymd());
-    ((y0, m0) != (y1, m1), y0 != y1)
+/// A country, as events name it.
+fn named(tag: Tag) -> eu4_harmony_remote::CountryTag {
+    eu4_harmony_remote::CountryTag(tag.letters())
 }
 
 const IS_PAUSED: usize = 0x7e01b0;
@@ -745,13 +616,7 @@ pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        events::{Battle, Change},
-        player, turned, view_changed, view_of,
-        wars::Happened,
-        Caller, Event, Frame, Heard, Tag, View, Winner, World,
-    };
-    use eu4_harmony_remote::{ArmyId, CountryTag, Date, ProvinceId};
+    use super::{view_of, Caller, Tag, View};
 
     #[test]
     fn a_reason_loses_the_check_s_bullet_and_the_text_s_own_dash() {
@@ -765,89 +630,6 @@ mod tests {
         assert_eq!(view_of(Caller::Extension(0), false), View::Full);
         assert_eq!(view_of(Caller::Remote, false), View::Player);
         assert_eq!(view_of(Caller::Remote, true), View::Full);
-    }
-
-    #[test]
-    fn a_change_of_view_is_heard_once_between_frames_in_observe_mode() {
-        let (fra, eng) = (Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\x01")), Tag(u64::from_le_bytes(*b"ENG\0\0\0\0\x01")));
-        assert_eq!(view_changed(Some(None), Some(Some(fra))), Some(Some(fra)));
-        assert_eq!(view_changed(Some(Some(fra)), Some(Some(eng))), Some(Some(eng)));
-        assert_eq!(view_changed(Some(Some(fra)), Some(None)), Some(None));
-        assert_eq!(view_changed(Some(Some(fra)), Some(Some(fra))), None);
-        // A session's first frame, and the player taking up or leaving a
-        // country, end a session instead.
-        assert_eq!(view_changed(None, Some(Some(fra))), None);
-        assert_eq!(view_changed(Some(Some(fra)), None), None);
-    }
-
-    #[test]
-    fn a_frame_is_heard_session_first_then_the_changes_and_the_wars_and_day_last() {
-        let tur = Tag(u64::from_le_bytes(*b"TUR\0\0\0\0\x01"));
-        let world = World { world: 0, date: 0x035D_7710, countries: 0, player: player::Player::Plays(tur) };
-        let byz = Tag(u64::from_le_bytes(*b"BYZ\0\0\0\0\x01"));
-        let battle = Battle {
-            province: 151,
-            naval: false,
-            attackers: vec![tur],
-            defenders: vec![byz],
-            attacker_won: false,
-            attacker_losses: 1200,
-            defender_losses: 300,
-            seen: false,
-        };
-        let frame = Frame {
-            world,
-            session: 3,
-            new_session: true,
-            in_view: Some(Some(tur)),
-            visibility_current: true,
-            changes: vec![Change::Ordered(7), Change::Defeated(8), Change::Battle(battle)],
-            new_day: true,
-            new_month: true,
-            new_year: true,
-            wars: vec![Happened::OwnerChanged { province: 151, from: None, to: Some(tur) }],
-        };
-        let seen = |event| Heard { event, seen: true };
-        let date = Date(0x035D_7710);
-        let (tur, byz) = (CountryTag(*b"TUR"), CountryTag(*b"BYZ"));
-        assert_eq!(
-            frame.heard(),
-            [
-                seen(Event::Session { session: 3 }),
-                seen(Event::CountryInView { country: Some(tur) }),
-                seen(Event::ArmyOrdered { army: ArmyId(7) }),
-                seen(Event::ArmyDefeated { army: ArmyId(8) }),
-                // A battle the player neither sees nor takes part in.
-                Heard {
-                    event: Event::Battle {
-                        province: ProvinceId(151),
-                        naval: false,
-                        attackers: vec![tur],
-                        defenders: vec![byz],
-                        winner: Winner::Defenders,
-                        attacker_losses: 1200,
-                        defender_losses: 300
-                    },
-                    seen: false
-                },
-                seen(Event::ProvinceOwnerChanged { province: ProvinceId(151), from: None, to: Some(tur) }),
-                seen(Event::Day { date }),
-                seen(Event::Month { date }),
-                seen(Event::Year { date })
-            ]
-        );
-        let quiet =
-            Frame { new_session: false, in_view: None, new_day: false, new_month: false, new_year: false, changes: Vec::new(), wars: Vec::new(), ..frame };
-        assert!(quiet.heard().is_empty());
-    }
-
-    #[test]
-    fn a_month_and_a_year_turn_with_the_first_day_heard_in_them() {
-        let day = |y, m, d| eu4_harmony_checks::Date::from_ymd(y, m, d).unwrap().0;
-        assert_eq!(turned(Some(day(1444, 11, 30)), day(1444, 12, 1)), (true, false));
-        assert_eq!(turned(Some(day(1444, 12, 30)), day(1445, 1, 2)), (true, true));
-        assert_eq!(turned(Some(day(1444, 11, 11)), day(1444, 11, 12)), (false, false));
-        assert_eq!(turned(None, day(1445, 1, 1)), (false, false));
     }
 
     #[test]

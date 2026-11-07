@@ -173,7 +173,7 @@ pub fn game_frame() {
         Ok(frame) => {
             sessions::frame_ran();
             #[cfg(feature = "dev-test-switches")]
-            if frame.new_session {
+            if frame.new_session() {
                 game::commands::post_test_commands();
                 if crate::dev::options().test_switches.crash {
                     log!("test switch crash: crashing the game");
@@ -182,7 +182,7 @@ pub fn game_frame() {
                 }
             }
             let heard = game::event_costs::EVENTS.time(|| frame.heard());
-            LISTENERS.frame(frame.session, &heard);
+            LISTENERS.frame(frame.session(), &heard);
         }
         // A frame the game is not ready in comes and goes: the frame's
         // presenting decides.

@@ -15,10 +15,12 @@
 //! - A game frame shows another session than the last frame did: a save
 //!   was read, the world reset, or the frame shows another world or player
 //!   than the last. Sessions are numbered here, and only here. What the
-//!   capability layer keeps of the last frame's session, its map, routes,
-//!   last day and wars, and the changes it collected for it, is let go
-//!   (`game`, `game::events`), and the map's coloring put back (`crate::map`),
-//!   before anything hears that session ended.
+//!   capability layer keeps of the last frame's session, its map, routes
+//!   and wars, and the changes it collected for it, is let go (`game`,
+//!   `game::events`), and the map's coloring put back (`crate::map`), before
+//!   anything hears that session ended. The last day and the country in
+//!   view the session's frames showed are forgotten by the frame that sees
+//!   the new session (`game::frame`).
 //! - A session began, at its first safe frame: the input held for the
 //!   session before is let go (`game::input`). Extensions and remote control
 //!   hear it at that frame with the rest of what happened, in its order
