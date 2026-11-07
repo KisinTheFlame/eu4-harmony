@@ -1,50 +1,31 @@
-//! What the claim reaches of the computer, as one seam: the record and the
-//! queue under the mutex that guards them, the game's processes, the
-//! player's files and the game folder's framework files backed up and put
-//! back, the clock, processes by their identity, and what the claim says.
+//! What the claim reaches of the computer, as one seam: the record under the
+//! mutex that guards it, the games' processes and pipes, the claims'
+//! folders, the clock, processes by their identity, and what the claim says.
 //! [`ThisComputer`] is the real one; the claim's course (`course.rs`) is
 //! tested over a recorded one.
 //!
-//! The record of who holds the game is `%LOCALAPPDATA%\eu4-harmony-dev\
-//! game-lock.json`, as the game-lock skill's script kept it and still keeps
-//! it in checkouts from before the claim's commands, the queue
-//! `game-queue.json` beside it; a named mutex, the script's, guards every
-//! read and write of both. Each claim has a folder of its own under
-//! `claims\`: `backup\` (the player's files, as `eu4-harmony backup` keeps them) and
-//! `framework\` (the game folder's framework files and `dev.toml`, each as
-//! it was) while it is held, `kept\` (the framework's and the game's logs and
-//! the run's crash folders) after it is released.
-use super::record::{GameEnd, Process, Record, Waiting};
-use crate::{game, Result};
+//! The record is `%LOCALAPPDATA%\eu4-harmony-dev\claims.json`; the named
+//! mutex the claims of the whole game used guards every read and write of it
+//! and of `game-lock.json`, their record, which it reads for a claim of a
+//! checkout from before test games and writes [`record::old_holder`] into
+//! while test games are held. Each claim has a folder under `claims\`
+//! (docs/test-games.md): `user\`, the test game's user folder, made from the
+//! player's with a junction to their `mod` folder; `core\`, the core and
+//! `dev.toml` its start copied; `follow.exe`, which follows its games to
+//! their ends into `game-ends.tsv`; and `kept\` after the release.
+use super::record::{self, GameEnd, Process, State};
+use crate::{built, game, repo, Result};
+use eu4_harmony_client::start::Start;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-/// The record and the queue, as the mutex guards them.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct State {
-    pub held: Option<Record>,
-    pub waiting: Vec<Waiting>,
-}
-
-/// What putting back the game folder's framework files came to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Framework {
-    /// The claim's folder has no copy of them: nothing to put back.
-    NoCopy,
-    /// Each is as it was, and the copy is gone.
-    PutBack,
-    /// These are not as they were, a line each; the copy stays.
-    Lost(Vec<String>),
-}
-
 /// The computer, as the claim reaches it.
 pub trait Machine {
-    /// Runs `action` on the record and the queue, holding the mutex that
-    /// guards them, and writes back what it changed.
+    /// Runs `action` on the record, holding the mutex that guards it, and
+    /// writes back what it changed.
     fn locked<T>(&self, action: impl FnOnce(&mut State) -> T) -> Result<T>;
     /// The folder that holds the claims' folders.
     fn claims(&self) -> Result<PathBuf>;
@@ -62,69 +43,75 @@ pub trait Machine {
     /// The process `id` is now, with when it started; none when no process
     /// has that id.
     fn process(&self, id: u32) -> Option<Process>;
-    /// Whether `p` runs still: a process has its id, started when it did,
-    /// and has not ended. One that cannot be looked at for another reason
-    /// than its being gone runs, as far as the claim goes.
+    /// Whether `p` runs still. One that cannot be looked at for another
+    /// reason than its being gone runs, as far as the claim goes.
     fn alive(&self, p: &Process) -> bool;
-
     /// The ids of the `eu4.exe` that run; an error when they cannot be told.
     fn games(&self) -> Result<Vec<u32>>;
-    /// Ends every `eu4.exe` at once.
-    fn kill_game(&self);
-    /// Waits for `eu4.exe` to end, a minute at most.
-    fn wait_closed(&self) -> Result<()>;
-    /// Follows every `eu4.exe` that runs, holding it open so that its exit
-    /// code stays to be read once it ends; those it follows that have ended
-    /// since it last looked, with how.
-    fn game_ends(&self) -> Vec<GameEnd>;
-    /// Adds `ends` to the record of how the claim's games ended, in the
-    /// claim's `folder`.
-    fn note_ends(&self, folder: &Path, ends: &[GameEnd]);
-    /// How the claim's games ended, as its `folder` records them.
-    fn ends(&self, folder: &Path) -> Vec<GameEnd>;
-    /// Starts the game hidden from `game_dir`, with the game's `-seed` when
-    /// `seed` gives one, waiting up to `wait` for its main menu: its process
-    /// id, and the seconds it took.
-    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)>;
+    /// The `eu4.exe` serving the pipe `name`, if any.
+    fn serving(&self, name: &str) -> Option<u32>;
+    /// Ends the game `id` and waits for it to end, a minute at most.
+    fn end_game(&self, id: u32) -> Result<()>;
 
-    /// Makes the claim's `folder`, with the player's files and the game
-    /// folder's framework files in it; removes the `kept\` of claims
+    /// Whether the proxy in `game_dir` loads a test game's core.
+    fn proxy_loads_cores(&self, game_dir: &Path) -> bool;
+    /// Makes the test game's user folder in the claim's `folder` from the
+    /// player's user folder of `game_dir`; removes the `kept\` of claims
     /// released long ago.
-    fn back_up(&self, folder: &Path, game_dir: &Path) -> Result<()>;
-    /// Removes a claim's folder, if it is there.
+    fn make_folder(&self, folder: &Path, game_dir: &Path) -> Result<()>;
+    /// Copies this checkout's built core and `dev.toml` into the claim's
+    /// `folder`, and the saves `saves` names from the player's; the core's
+    /// path.
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, saves: &[String]) -> Result<PathBuf>;
+    /// Starts the game from `game_dir` as `start` says, waiting up to `wait`
+    /// for its main menu, `log` being the framework's log: its process id,
+    /// and the seconds it took. A test game that does not reach it is ended.
+    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<(u32, f64)>;
+    /// Starts the claim's `follow.exe`, which follows the game `id` and the
+    /// games the test game restarts in its place, serving the pipe `pipe`,
+    /// to their ends.
+    fn follow(&self, folder: &Path, id: u32, pipe: &str) -> Result<()>;
+    /// Tells the claim's `follow.exe` that the claim is released, and waits
+    /// for it to end, a few seconds at most.
+    fn stop_following(&self, folder: &Path);
+    /// How the claim's games ended, as its folder records them.
+    fn ends(&self, folder: &Path) -> Vec<GameEnd>;
+    /// Keeps the test game's logs and crash folders in the claim's `kept\`
+    /// and removes the rest of its folder, the junction first; whether there
+    /// was a crash folder.
+    fn keep_and_remove(&self, folder: &Path) -> Result<bool>;
+    /// Removes a claim's folder, if it is there, the junction first.
     fn remove_folder(&self, folder: &Path) -> Result<()>;
-    /// Copies the framework's logs, the game's logs and the crash folders
-    /// `backup` did not know into the claim's `kept\`, when it has a folder;
-    /// whether there was a crash.
-    fn keep_logs(&self, folder: Option<&Path>, backup: Option<&Path>, game_dir: &Path) -> Result<bool>;
-    /// Restores the player's files from `backup`, if it is there, removing
-    /// the run's crash folders unless `keep_crashes`.
-    fn restore_player_files(&self, backup: &Path, game_dir: &Path, keep_crashes: bool) -> Result<()>;
-    /// Puts the game folder's framework files back as the claim's `folder`
-    /// has them, and compares each.
-    fn restore_framework_files(&self, folder: &Path, game_dir: &Path) -> Result<Framework>;
-    /// When a claim's folder was made, in seconds since 1970.
-    fn made_at(&self, folder: &Path) -> Option<u64>;
-    /// The claims' folders and the backups no claim refers to, a line each,
-    /// besides `held`'s.
-    fn leftovers(&self, held: Option<&Record>) -> Result<Vec<String>>;
+    /// The claims' folders no claim in `state` refers to that still have a
+    /// test game's files, a line each.
+    fn leftovers(&self, state: &State) -> Result<Vec<String>>;
 
     /// Says `line` to whoever runs the command.
     fn say(&self, line: &str);
 }
 
-/// The files of the game folder a run may change, by their path in it: what
-/// installing may create, change or move aside.
-const FRAMEWORK_FILES: [&str; 5] = crate::files::GAME_FOLDER_FILES;
+/// The player's files a test game's user folder starts with, those of them
+/// that are there.
+const USER_FILES: [&str; 9] = [
+    "settings.txt",
+    "dlc_load.json",
+    "dlc_signature",
+    "game_data.json",
+    "gameplaysettings.txt",
+    "messagetypes_custom.txt",
+    "pdx_settings.txt",
+    "shortcuts.txt",
+    "eu4-harmony\\settings.txt",
+];
 /// A `kept\` older than this goes at the next claim.
 const KEEP_DAYS: u64 = 7;
-
-/// The record of how a claim's games ended, in its `kept\`, a line each.
+/// The record of how a claim's games ended, a line each.
 const ENDS: &str = "game-ends.tsv";
-
-/// The `eu4.exe` this process follows, each with the handle that keeps its
-/// exit code to be read once it ends.
-static FOLLOWED: Mutex<Vec<(Process, usize)>> = Mutex::new(Vec::new());
+/// What the release leaves for `follow.exe`, which ends when it sees it.
+const RELEASED: &str = "released";
+/// How long `follow.exe` waits for the game a test game restarts in its
+/// place to open the pipe.
+const RESTART_WAIT: Duration = Duration::from_secs(90);
 
 /// This computer.
 pub struct ThisComputer;
@@ -139,29 +126,31 @@ impl Machine for ThisComputer {
         let name: Vec<u16> = "Global\\eu4-harmony-dev-game-lock\0".encode_utf16().collect();
         let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
         if mutex.is_null() {
-            return Err("cannot open the claim's mutex".into());
+            return Err("cannot open the claims' mutex".into());
         }
         let waited = unsafe { WaitForSingleObject(mutex, INFINITE) };
         if waited != WAIT_OBJECT_0 && waited != WAIT_ABANDONED {
             unsafe { CloseHandle(mutex) };
-            return Err("cannot take the claim's mutex".into());
+            return Err("cannot take the claims' mutex".into());
         }
         let result = (|| {
-            let (record, queue) = (base.join("game-lock.json"), base.join("game-queue.json"));
-            let mut state = State {
-                held: read_json(&record).as_ref().and_then(Record::from_json),
-                waiting: read_json(&queue).and_then(|v| v.as_array().map(|a| a.iter().filter_map(Waiting::from_json).collect())).unwrap_or_default(),
-            };
+            let (record, old) = (base.join("claims.json"), base.join("game-lock.json"));
+            let old_record = read_json(&old);
+            let mut state = read_json(&record).as_ref().map(State::from_json).unwrap_or_default();
+            state.old = old_record.as_ref().and_then(record::old_claim);
             let before = state.clone();
             let value = action(&mut state);
-            if state.held != before.held {
-                match &state.held {
-                    Some(h) => write_json(&record, &h.to_json())?,
-                    None => remove_file(&record)?,
-                }
+            if state != before {
+                write_json(&record, &state.to_json())?;
             }
-            if state.waiting != before.waiting {
-                write_json(&queue, &serde_json::Value::Array(state.waiting.iter().map(Waiting::to_json).collect()))?;
+            // The holder checkouts from before test games wait for, while
+            // any is held; never over a claim of theirs.
+            if state.old.is_none() {
+                match (state.claims.is_empty(), old_record.is_some()) {
+                    (false, false) => write_json(&old, &record::old_holder(self.now(), &self.stamps().0))?,
+                    (true, true) => remove_file(&old)?,
+                    _ => {}
+                }
             }
             Ok(value)
         })();
@@ -202,21 +191,7 @@ impl Machine for ThisComputer {
     }
 
     fn process(&self, id: u32) -> Option<Process> {
-        use windows_sys::Win32::{
-            Foundation::{CloseHandle, FILETIME},
-            System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
-        };
-        unsafe {
-            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id);
-            if handle.is_null() {
-                return None;
-            }
-            let mut times: [FILETIME; 4] = std::mem::zeroed();
-            let [created, exited, kernel, user] = &mut times;
-            let read = GetProcessTimes(handle, created, exited, kernel, user) != 0;
-            CloseHandle(handle);
-            read.then(|| Process { id, started: (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime) })
-        }
+        process(id)
     }
 
     fn alive(&self, p: &Process) -> bool {
@@ -248,124 +223,106 @@ impl Machine for ThisComputer {
         eu4_harmony_client::game_processes()
     }
 
-    fn kill_game(&self) {
-        game::kill();
+    fn serving(&self, name: &str) -> Option<u32> {
+        serving(name)
     }
 
-    fn wait_closed(&self) -> Result<()> {
-        game::wait_closed()
-    }
-
-    fn game_ends(&self) -> Vec<GameEnd> {
-        use windows_sys::Win32::{
-            Foundation::CloseHandle,
-            System::{
-                SystemInformation::GetLocalTime,
-                Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
-            },
-        };
-        const STILL_ACTIVE: u32 = 259;
-        let mut followed = FOLLOWED.lock().unwrap_or_else(|e| e.into_inner());
-        for id in self.games().unwrap_or_default() {
-            if followed.iter().any(|(p, _)| p.id == id) {
-                continue;
+    fn end_game(&self, id: u32) -> Result<()> {
+        game::kill_process(id);
+        for _ in 0..120 {
+            if !self.games()?.contains(&id) {
+                return Ok(());
             }
-            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id) };
-            match self.process(id) {
-                Some(game) if !handle.is_null() => followed.push((game, handle as usize)),
-                _ if !handle.is_null() => unsafe {
-                    CloseHandle(handle);
-                },
-                _ => {}
-            }
+            std::thread::sleep(Duration::from_millis(500));
         }
-        let seen = unsafe {
-            let mut t = std::mem::zeroed();
-            GetLocalTime(&mut t);
-            format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond)
-        };
-        let mut ends = Vec::new();
-        followed.retain(|&(game, handle)| {
-            let mut code = STILL_ACTIVE;
-            if unsafe { GetExitCodeProcess(handle as _, &mut code) } == 0 || code == STILL_ACTIVE {
-                return true;
-            }
-            unsafe { CloseHandle(handle as _) };
-            ends.push(GameEnd { game, seen: seen.clone(), code });
-            false
-        });
-        ends
+        Err(format!("eu4.exe {id} did not end"))
     }
 
-    fn note_ends(&self, folder: &Path, ends: &[GameEnd]) {
-        use std::io::Write;
-        let kept = folder.join("kept");
-        let _ = fs::create_dir_all(&kept);
-        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(kept.join(ENDS)) {
-            for end in ends {
-                let _ = writeln!(file, "{}", end.to_line());
+    fn proxy_loads_cores(&self, game_dir: &Path) -> bool {
+        eu4_harmony_client::start::knows(&game_dir.join("version.dll"), "-harmony_core")
+    }
+
+    fn make_folder(&self, folder: &Path, game_dir: &Path) -> Result<()> {
+        forget_old(&self.claims()?);
+        let player = eu4_harmony_manifest::user_dir(Some(game_dir))?;
+        make_user_folder(&player, &folder.join("user"))
+    }
+
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, saves: &[String]) -> Result<PathBuf> {
+        let core = folder.join("core");
+        fs::create_dir_all(&core).map_err(|e| format!("cannot make {}: {e}", core.display()))?;
+        let dll = core.join("eu4_harmony_core.dll");
+        copy(&built().join("eu4_harmony_core.dll"), &dll)?;
+        let options = repo().join("dev.toml");
+        if options.is_file() {
+            copy(&options, &core.join("dev.toml"))?;
+        } else {
+            remove_file(&core.join("dev.toml"))?;
+        }
+        let player = eu4_harmony_manifest::user_dir(Some(game_dir))?;
+        copy_saves(&player.join("save games"), &folder.join("user").join("save games"), saves)?;
+        Ok(dll)
+    }
+
+    fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<(u32, f64)> {
+        let began = std::time::Instant::now();
+        let id = eu4_harmony_client::start::start(game_dir, log, start, wait)?;
+        Ok((id, began.elapsed().as_secs_f64()))
+    }
+
+    fn follow(&self, folder: &Path, id: u32, pipe: &str) -> Result<()> {
+        let follower = folder.join("follow.exe");
+        let _ = fs::remove_file(folder.join(RELEASED));
+        let me = std::env::current_exe().map_err(|e| format!("cannot find this program: {e}"))?;
+        if fs::read(&follower).ok() != fs::read(&me).ok() {
+            copy(&me, &follower)?;
+        }
+        let words = ["game".to_string(), "follow".into(), folder.display().to_string(), id.to_string(), pipe.to_string()];
+        spawn_detached(&follower, &words)
+    }
+
+    fn stop_following(&self, folder: &Path) {
+        let _ = fs::write(folder.join(RELEASED), "");
+        let follower = folder.join("follow.exe");
+        for _ in 0..30 {
+            // A program that runs cannot be removed.
+            if !follower.exists() || fs::remove_file(&follower).is_ok() {
+                return;
             }
+            std::thread::sleep(Duration::from_millis(200));
         }
     }
 
     fn ends(&self, folder: &Path) -> Vec<GameEnd> {
-        fs::read_to_string(folder.join("kept").join(ENDS)).map(|text| text.lines().filter_map(GameEnd::from_line).collect()).unwrap_or_default()
+        ends_in(folder)
     }
 
-    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)> {
-        let log = eu4_harmony_manifest::user_dir(Some(game_dir))?.join("eu4-harmony").join("logs").join("core.log");
-        let began = std::time::Instant::now();
-        let id = eu4_harmony_client::start::start(game_dir, &log, true, sound, seed, wait)?;
-        Ok((id, began.elapsed().as_secs_f64()))
-    }
-
-    fn back_up(&self, folder: &Path, game_dir: &Path) -> Result<()> {
-        forget_old(&self.claims()?);
-        save_framework(game_dir, &folder.join("framework"))?;
-        eu4_harmony_client::game_not_running()?;
-        eu4_harmony_client::backup::backup(&user_folder(game_dir)?, &folder.join("backup"))
+    fn keep_and_remove(&self, folder: &Path) -> Result<bool> {
+        let crashed = keep(folder);
+        self.remove_rest(folder)?;
+        Ok(crashed)
     }
 
     fn remove_folder(&self, folder: &Path) -> Result<()> {
         if !folder.exists() {
             return Ok(());
         }
+        unlink_mods(&folder.join("user"))?;
         fs::remove_dir_all(folder).map_err(|e| format!("cannot remove {}: {e}", folder.display()))
     }
 
-    fn keep_logs(&self, folder: Option<&Path>, backup: Option<&Path>, game_dir: &Path) -> Result<bool> {
-        let user = eu4_harmony_manifest::user_dir(Some(game_dir))?;
-        Ok(folder.is_some_and(|folder| keep(folder, &user, backup)))
-    }
-
-    fn restore_player_files(&self, backup: &Path, game_dir: &Path, keep_crashes: bool) -> Result<()> {
-        if !backup.is_dir() {
-            return Ok(());
+    fn leftovers(&self, state: &State) -> Result<Vec<String>> {
+        let mut lines = Vec::new();
+        if let Ok(entries) = fs::read_dir(self.claims()?) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let held = state.claims.iter().any(|c| Path::new(&c.folder) == path);
+                if !held && (path.join("user").exists() || path.join("core").exists()) {
+                    lines.push(format!("a claim's folder no claim refers to, with a test game's files: {}", path.display()));
+                }
+            }
         }
-        eu4_harmony_client::game_not_running()?;
-        eu4_harmony_client::backup::restore(&user_folder(game_dir)?, backup, false, keep_crashes)
-    }
-
-    fn restore_framework_files(&self, folder: &Path, game_dir: &Path) -> Result<Framework> {
-        let framework = folder.join("framework");
-        if !framework.is_dir() {
-            return Ok(Framework::NoCopy);
-        }
-        let lost = restore_framework(&framework, game_dir);
-        if !lost.is_empty() {
-            return Ok(Framework::Lost(lost));
-        }
-        fs::remove_dir_all(&framework).map_err(|e| format!("cannot remove {}: {e}", framework.display()))?;
-        Ok(Framework::PutBack)
-    }
-
-    fn made_at(&self, folder: &Path) -> Option<u64> {
-        let made = fs::metadata(folder).ok()?.created().ok()?;
-        made.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs())
-    }
-
-    fn leftovers(&self, held: Option<&Record>) -> Result<Vec<String>> {
-        Ok(leftovers(&self.claims()?, &base()?.join("backups"), held))
+        Ok(lines)
     }
 
     fn say(&self, line: &str) {
@@ -373,28 +330,47 @@ impl Machine for ThisComputer {
     }
 }
 
-/// The claims' folders under `claims` and the backups under `backups` that
-/// no claim refers to, a line each, besides `held`'s.
-fn leftovers(claims: &Path, backups: &Path, held: Option<&Record>) -> Vec<String> {
-    let mut lines = Vec::new();
-    if let Ok(entries) = fs::read_dir(claims) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let ours = held.and_then(|h| h.folder.as_deref()).is_some_and(|f| Path::new(f) == path);
-            if !ours && (path.join("backup").exists() || path.join("framework").exists()) {
-                lines.push(format!("a claim's folder no claim refers to, not put back: {}", path.display()));
+impl ThisComputer {
+    /// Removes what the release does not keep of the claim's folder.
+    fn remove_rest(&self, folder: &Path) -> Result<()> {
+        let user = folder.join("user");
+        unlink_mods(&user)?;
+        for dir in [user, folder.join("core")] {
+            if dir.exists() {
+                fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
             }
         }
-    }
-    if let Ok(entries) = fs::read_dir(backups) {
-        for entry in entries.flatten() {
-            let path = entry.path().display().to_string();
-            if held.and_then(|h| h.backup.as_deref()) != Some(path.as_str()) {
-                lines.push(format!("a backup no claim refers to: {path}"));
-            }
+        for file in ["follow.exe", RELEASED, ENDS] {
+            let _ = fs::remove_file(folder.join(file));
         }
+        Ok(())
     }
-    lines
+}
+
+/// The process `id` is now, with when it started.
+fn process(id: u32) -> Option<Process> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, FILETIME},
+        System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    };
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id);
+        if handle.is_null() {
+            return None;
+        }
+        let mut times: [FILETIME; 4] = std::mem::zeroed();
+        let [created, exited, kernel, user] = &mut times;
+        let read = GetProcessTimes(handle, created, exited, kernel, user) != 0;
+        CloseHandle(handle);
+        read.then(|| Process { id, started: (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime) })
+    }
+}
+
+/// The `eu4.exe` serving the pipe `name`, if any.
+fn serving(name: &str) -> Option<u32> {
+    use eu4_harmony_client::pipe;
+    let deadline = std::time::Instant::now() + Duration::from_millis(500);
+    pipe::connect(name, pipe::GAME, deadline).ok()?.process().ok()
 }
 
 fn base() -> Result<PathBuf> {
@@ -420,19 +396,85 @@ fn remove_file(path: &Path) -> Result<()> {
     }
 }
 
-/// The player's user folder, for the game in `game_dir`.
-fn user_folder(game_dir: &Path) -> Result<PathBuf> {
-    eu4_harmony_client::backup::user_folder(&eu4_harmony_manifest::user_dir(Some(game_dir))?)
+fn copy(from: &Path, to: &Path) -> Result<()> {
+    fs::copy(from, to).map(drop).map_err(|e| format!("cannot copy {} to {}: {e}", from.display(), to.display()))
+}
+
+/// Makes a test game's user folder `user` from the player's `player`: the
+/// files it starts with, copied, and `mod` a junction to theirs.
+fn make_user_folder(player: &Path, user: &Path) -> Result<()> {
+    fs::create_dir_all(user.join("eu4-harmony")).map_err(|e| format!("cannot make {}: {e}", user.display()))?;
+    for file in USER_FILES {
+        let from = player.join(file);
+        if from.is_file() {
+            copy(&from, &user.join(file))?;
+        }
+    }
+    let mods = player.join("mod");
+    if mods.is_dir() {
+        junction(&user.join("mod"), &mods)?;
+    }
+    Ok(())
+}
+
+/// Makes `link` a junction to the folder `target`.
+fn junction(link: &Path, target: &Path) -> Result<()> {
+    let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
+    let made = std::process::Command::new(system.join("cmd.exe"))
+        .arg("/c")
+        .arg("mklink")
+        .arg("/J")
+        .arg(link)
+        .arg(target)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .map_err(|e| format!("cannot run mklink: {e}"))?;
+    made.success().then_some(()).ok_or_else(|| format!("cannot make the junction {} to {}", link.display(), target.display()))
+}
+
+/// Removes the junction `user\mod`, never what it leads to, before the
+/// folder is removed.
+fn unlink_mods(user: &Path) -> Result<()> {
+    let link = user.join("mod");
+    match fs::symlink_metadata(&link) {
+        Ok(m) if m.file_type().is_symlink() || is_junction(&link) => {
+            fs::remove_dir(&link).map_err(|e| format!("cannot remove the junction {}: {e}", link.display()))
+        }
+        Ok(_) => Err(format!("{} is no junction; nothing of the claim's folder was removed", link.display())),
+        Err(_) => Ok(()),
+    }
+}
+
+/// Whether `path` is a reparse point, as a junction is.
+fn is_junction(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+}
+
+/// Copies each save of `saves`, by its name as `menu.saves` gives it or its
+/// file's, from `from` into `to`.
+fn copy_saves(from: &Path, to: &Path, saves: &[String]) -> Result<()> {
+    if saves.is_empty() {
+        return Ok(());
+    }
+    fs::create_dir_all(to).map_err(|e| format!("cannot make {}: {e}", to.display()))?;
+    for save in saves {
+        let file = [from.join(save), from.join(format!("{save}.eu4"))].into_iter().find(|f| f.is_file());
+        let file = file.ok_or_else(|| format!("no save {save:?} in {}", from.display()))?;
+        copy(&file, &to.join(file.file_name().expect("a file")))?;
+    }
+    Ok(())
 }
 
 /// Removes the claims' folders whose `kept\` is older than [`KEEP_DAYS`]
-/// and that a claim no longer holds.
+/// and that hold no test game's files.
 fn forget_old(claims: &Path) {
     let Ok(entries) = fs::read_dir(claims) else { return };
     let limit = Duration::from_secs(KEEP_DAYS * 24 * 3600);
     for entry in entries.flatten() {
         let path = entry.path();
-        let only_kept = path.join("kept").is_dir() && !path.join("backup").exists() && !path.join("framework").exists();
+        let only_kept = path.join("kept").is_dir() && !path.join("user").exists() && !path.join("core").exists();
         let old = fs::metadata(path.join("kept")).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > limit);
         if only_kept && old {
             let _ = fs::remove_dir_all(&path);
@@ -440,25 +482,18 @@ fn forget_old(claims: &Path) {
     }
 }
 
-/// Copies the framework's logs, the game's logs and the crash folders the
-/// backup did not know into `<folder>\kept\`; whether there was a crash.
-fn keep(folder: &Path, user: &Path, backup: Option<&Path>) -> bool {
-    let kept = folder.join("kept");
+/// Copies the test game's framework logs, game logs and crash folders, and
+/// the record of its games' ends, into the claim's `kept\`; whether there
+/// was a crash folder.
+fn keep(folder: &Path) -> bool {
+    let (user, kept) = (folder.join("user"), folder.join("kept"));
     let _ = copy_tree(&user.join("eu4-harmony").join("logs"), &kept.join("eu4-harmony-logs"));
     let _ = copy_tree(&user.join("logs"), &kept.join("game-logs"));
-    let known: Vec<String> =
-        backup.and_then(|b| fs::read_to_string(b.join("crashes.txt")).ok()).map(|t| t.lines().map(String::from).collect()).unwrap_or_default();
-    let mut crashed = false;
-    if let Ok(entries) = fs::read_dir(user.join("crashes")) {
-        for entry in entries.flatten().filter(|e| e.path().is_dir()) {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !known.contains(&name) {
-                crashed = true;
-                let _ = copy_tree(&entry.path(), &kept.join("crashes").join(&name));
-            }
-        }
+    let _ = copy_tree(&user.join("crashes"), &kept.join("crashes"));
+    if folder.join(ENDS).is_file() {
+        let _ = fs::create_dir_all(&kept).and_then(|()| fs::copy(folder.join(ENDS), kept.join(ENDS)));
     }
-    crashed
+    fs::read_dir(user.join("crashes")).is_ok_and(|mut entries| entries.any(|e| e.is_ok_and(|e| e.path().is_dir())))
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -478,49 +513,99 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Copies the game folder's framework files, those of them that are there,
-/// into `framework`.
-fn save_framework(game_dir: &Path, framework: &Path) -> Result<()> {
-    fs::create_dir_all(framework).map_err(|e| format!("cannot make {}: {e}", framework.display()))?;
-    for file in FRAMEWORK_FILES {
-        let from = game_dir.join(file);
-        if from.is_file() {
-            let to = framework.join(file);
-            fs::create_dir_all(to.parent().expect("a file's folder")).map_err(|e| e.to_string())?;
-            fs::copy(&from, &to).map_err(|e| format!("cannot copy {}: {e}", from.display()))?;
+/// How the games of the claim in `folder` ended, as `follow.exe` wrote them.
+fn ends_in(folder: &Path) -> Vec<GameEnd> {
+    fs::read_to_string(folder.join(ENDS)).map(|text| text.lines().filter_map(GameEnd::from_line).collect()).unwrap_or_default()
+}
+
+/// Starts `program` with `words`, with no console and none of this
+/// process's handles: a handle of a pipe this command's output goes to would
+/// keep whoever reads it waiting until the program ends.
+fn spawn_detached(program: &Path, words: &[String]) -> Result<()> {
+    use windows_sys::Win32::{
+        Foundation::CloseHandle,
+        System::Threading::{CreateProcessW, DETACHED_PROCESS, PROCESS_INFORMATION, STARTUPINFOW},
+    };
+    let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let quoted = std::iter::once(program.display().to_string()).chain(words.iter().cloned()).map(|w| format!("\"{w}\"")).collect::<Vec<_>>().join(" ");
+    let (mut line, exe) = (wide(&quoted), wide(&program.display().to_string()));
+    let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
+    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    let made = unsafe {
+        CreateProcessW(
+            exe.as_ptr(),
+            line.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            DETACHED_PROCESS,
+            std::ptr::null(),
+            std::ptr::null(),
+            &startup,
+            &mut info,
+        )
+    };
+    if made == 0 {
+        return Err(format!("cannot start {}: {}", program.display(), std::io::Error::last_os_error()));
+    }
+    unsafe {
+        CloseHandle(info.hThread);
+        CloseHandle(info.hProcess);
+    }
+    Ok(())
+}
+
+/// `follow.exe`'s work, `cargo xtask game follow <folder> <id> <pipe>`:
+/// follows the game `id` to its end and writes how it ended into the
+/// claim's `game-ends.tsv`; then, unless the claim is released, follows the
+/// game the test game restarts in its place, the one that opens its pipe
+/// within [`RESTART_WAIT`].
+pub fn follow_games(folder: &Path, first: u32, pipe: &str) -> Result<()> {
+    use std::io::Write;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, WAIT_OBJECT_0},
+        System::{
+            SystemInformation::GetLocalTime,
+            Threading::{GetExitCodeProcess, OpenProcess, WaitForSingleObject, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE},
+        },
+    };
+    let mut next = Some(first);
+    while let Some(id) = next.take() {
+        let Some(game) = process(id) else { return Ok(()) };
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, id) };
+        if handle.is_null() {
+            return Ok(());
+        }
+        let mut code = 0;
+        let ended = unsafe { WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0 && GetExitCodeProcess(handle, &mut code) != 0 };
+        unsafe { CloseHandle(handle) };
+        if !ended {
+            return Ok(());
+        }
+        let seen = unsafe {
+            let mut t = std::mem::zeroed();
+            GetLocalTime(&mut t);
+            format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond)
+        };
+        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(folder.join(ENDS)) {
+            let _ = writeln!(file, "{}", GameEnd { game, seen, code }.to_line());
+        }
+        let began = std::time::Instant::now();
+        while began.elapsed() < RESTART_WAIT && !folder.join(RELEASED).exists() {
+            if let Some(again) = serving(pipe).filter(|&again| again != id) {
+                next = Some(again);
+                break;
+            }
+            std::thread::sleep(Duration::from_secs(1));
         }
     }
     Ok(())
 }
 
-/// Puts the game folder's framework files back as `framework` has them, one
-/// that was not there removed, and compares each; what is not as it was.
-fn restore_framework(framework: &Path, game_dir: &Path) -> Vec<String> {
-    let mut lost = Vec::new();
-    for file in FRAMEWORK_FILES {
-        let (saved, there) = (framework.join(file), game_dir.join(file));
-        let done = if saved.is_file() {
-            fs::create_dir_all(there.parent().expect("a file's folder")).and_then(|()| fs::copy(&saved, &there)).map_err(|e| e.to_string()).and_then(|_| {
-                if fs::read(&saved).ok() == fs::read(&there).ok() {
-                    Ok(())
-                } else {
-                    Err("differs after the copy".into())
-                }
-            })
-        } else {
-            remove_file(&there)
-        };
-        if let Err(e) = done {
-            lost.push(format!("{}: {e}", there.display()));
-        }
-    }
-    lost
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
 
     /// A folder of its own for a test, empty, which goes when it is dropped.
     struct Scratch(PathBuf);
@@ -543,119 +628,56 @@ mod tests {
 
     impl Drop for Scratch {
         fn drop(&mut self) {
+            let _ = unlink_mods(&self.0.join("claim").join("user"));
             let _ = fs::remove_dir_all(&self.0);
         }
     }
 
-    /// Every file under `dir`, by its path in it, with what it holds.
-    fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
-        fn walk(dir: &Path, under: &Path, into: &mut BTreeMap<String, Vec<u8>>) {
-            for entry in fs::read_dir(dir).unwrap().flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    walk(&path, under, into);
-                } else {
-                    into.insert(path.strip_prefix(under).unwrap().display().to_string(), fs::read(&path).unwrap());
-                }
-            }
-        }
-        let mut found = BTreeMap::new();
-        walk(dir, dir, &mut found);
-        found
-    }
-
-    /// The build output: the player's files, the proxy marked as ours.
-    fn built(s: &Scratch) -> PathBuf {
-        s.write("out\\version.dll", "the proxy, eu4_harmony_bootstrap");
-        s.write("out\\eu4_harmony_core.dll", "the core, new");
-        s.write("out\\eu4-harmony.exe", "the tool, new");
-        s.0.join("out")
-    }
-
+    /// The test game's user folder starts with the player's settings and
+    /// playset and reaches their mods through a junction; the release keeps
+    /// its logs and crash folders and removes the rest, the player's mods
+    /// untouched.
     #[test]
-    fn installing_then_putting_back_leaves_the_game_folder_s_files_as_they_were() {
-        // A game folder with another's version.dll, and one with an older
-        // install of ours, whose dev.toml the repository no longer has.
-        let folders: [&[(&str, &str)]; 2] = [
-            &[("eu4.exe", "the game"), ("version.dll", "another's")],
-            &[
-                ("eu4.exe", "the game"),
-                ("version.dll", "the proxy, eu4_harmony_bootstrap, old"),
-                ("eu4-harmony\\eu4_harmony_core.dll", "the core, old"),
-                ("eu4-harmony\\dev.toml", "old options"),
-                ("eu4-harmony\\logs\\proxy.log", "the proxy's log"),
-            ],
-        ];
-        for (i, folder) in folders.iter().enumerate() {
-            let s = Scratch::new(&format!("install-{i}"));
-            for (path, text) in folder.iter() {
-                s.write(&format!("game\\{path}"), text);
-            }
-            let (game, framework) = (s.0.join("game"), s.0.join("framework"));
-            let before = files(&game);
-            let options = if i == 0 { s.write("dev.toml", "options") } else { s.0.join("no dev.toml") };
+    fn a_test_game_s_folder_is_made_from_the_player_s_and_removed_leaving_theirs() {
+        let s = Scratch::new("folder");
+        s.write("player\\settings.txt", "the player's settings");
+        s.write("player\\dlc_load.json", "the playset");
+        s.write("player\\eu4-harmony\\settings.txt", "the language");
+        s.write("player\\mod\\a.mod", "a descriptor");
+        s.write("player\\save games\\England-1.eu4", "a save");
+        s.write("player\\save games\\other.eu4", "another");
+        s.write("player\\pdx_login_cache.txt", "not copied");
+        let (player, folder) = (s.0.join("player"), s.0.join("claim"));
+        make_user_folder(&player, &folder.join("user")).unwrap();
+        let user = folder.join("user");
+        assert_eq!(fs::read_to_string(user.join("settings.txt")).unwrap(), "the player's settings");
+        assert_eq!(fs::read_to_string(user.join("eu4-harmony\\settings.txt")).unwrap(), "the language");
+        assert_eq!(fs::read_to_string(user.join("mod\\a.mod")).unwrap(), "a descriptor");
+        assert!(!user.join("pdx_login_cache.txt").exists());
+        copy_saves(&player.join("save games"), &user.join("save games"), &["England-1".into()]).unwrap();
+        assert!(user.join("save games\\England-1.eu4").is_file() && !user.join("save games\\other.eu4").exists());
+        assert!(copy_saves(&player.join("save games"), &user.join("save games"), &["none".into()]).unwrap_err().contains("no save \"none\""));
 
-            save_framework(&game, &framework).unwrap();
-            let installed = crate::files::install_from(&built(&s), &options, &game).unwrap();
-            let changed: Vec<String> = files(&game).into_iter().filter(|(path, text)| before.get(path) != Some(text)).map(|(path, _)| path).collect();
-            let gone: Vec<String> = before.keys().filter(|path| !game.join(path).exists()).cloned().collect();
-            assert!(!changed.is_empty() && (i == 0 || !gone.is_empty()), "folder {i}: installing changed {changed:?} and removed {gone:?}");
-            for path in changed.iter().chain(&gone) {
-                assert!(FRAMEWORK_FILES.contains(&path.as_str()), "installing changed {path}, which the claim does not put back");
-            }
-            assert!(installed.iter().all(|p| FRAMEWORK_FILES.contains(&&*p.strip_prefix(&game).unwrap().display().to_string())));
-
-            assert_eq!(restore_framework(&framework, &game), Vec::<String>::new());
-            assert_eq!(files(&game), before, "folder {i}");
-        }
+        s.write("claim\\user\\eu4-harmony\\logs\\core.log", "the core's log");
+        s.write("claim\\user\\crashes\\eu4_1\\exception.txt", "a crash");
+        s.write("claim\\core\\eu4_harmony_core.dll", "the core");
+        s.write("claim\\game-ends.tsv", "1\t2\t03:00:00\t0x1\n");
+        assert!(ThisComputer.keep_and_remove(&folder).unwrap());
+        assert!(!user.exists() && !folder.join("core").exists());
+        let kept = folder.join("kept");
+        assert_eq!(fs::read_to_string(kept.join("eu4-harmony-logs\\core.log")).unwrap(), "the core's log");
+        assert!(kept.join("crashes\\eu4_1\\exception.txt").is_file());
+        assert_eq!(fs::read_to_string(kept.join("game-ends.tsv")).unwrap(), "1\t2\t03:00:00\t0x1\n");
+        assert_eq!(fs::read_to_string(player.join("mod\\a.mod")).unwrap(), "a descriptor");
     }
 
+    /// A `mod` that is a folder and no junction stops the removal: it might
+    /// be the player's.
     #[test]
-    fn the_logs_are_kept_with_only_the_crash_folders_the_backup_did_not_know() {
-        let s = Scratch::new("keep");
-        s.write("user\\eu4-harmony\\logs\\core.log", "the framework's log");
-        s.write("user\\logs\\game.log", "the game's log");
-        s.write("user\\crashes\\before\\exception.txt", "a crash before the claim");
-        s.write("backup\\crashes.txt", "before\n");
-        let (user, backup, folder) = (s.0.join("user"), s.0.join("backup"), s.0.join("claim"));
-        assert!(!keep(&folder, &user, Some(&backup)), "no crash of the run's");
-
-        s.write("user\\crashes\\during\\exception.txt", "a crash of the run's");
-        assert!(keep(&folder, &user, Some(&backup)));
-        let kept: Vec<String> = files(&folder.join("kept")).into_keys().collect();
-        assert_eq!(kept, ["crashes\\during\\exception.txt", "eu4-harmony-logs\\core.log", "game-logs\\game.log"]);
-    }
-
-    #[test]
-    fn the_leftovers_are_the_folders_and_backups_no_claim_refers_to() {
-        let s = Scratch::new("leftovers");
-        s.write("claims\\a-1\\backup\\settings.txt", "");
-        s.write("claims\\b-2\\framework\\version.dll", "");
-        s.write("claims\\c-3\\kept\\game-logs\\game.log", "");
-        s.write("backups\\x\\settings.txt", "");
-        s.write("backups\\y\\settings.txt", "");
-        let record = Record {
-            owner: "a".into(),
-            purpose: String::new(),
-            checkout: String::new(),
-            since: String::new(),
-            renewed: 0,
-            lease_minutes: 30,
-            backup: Some(s.0.join("backups\\x").display().to_string()),
-            folder: Some(s.0.join("claims\\a-1").display().to_string()),
-            player: false,
-            taken: None,
-            preparing: None,
-            putting_back: None,
-            keeper: None,
-            game: None,
-        };
-        assert_eq!(
-            leftovers(&s.0.join("claims"), &s.0.join("backups"), Some(&record)),
-            [
-                format!("a claim's folder no claim refers to, not put back: {}", s.0.join("claims\\b-2").display()),
-                format!("a backup no claim refers to: {}", s.0.join("backups\\y").display()),
-            ]
-        );
+    fn a_mod_folder_that_is_no_junction_is_never_removed() {
+        let s = Scratch::new("no-junction");
+        s.write("claim\\user\\mod\\a.mod", "a descriptor");
+        assert!(ThisComputer.remove_folder(&s.0.join("claim")).unwrap_err().contains("no junction"));
+        assert!(s.0.join("claim\\user\\mod\\a.mod").is_file());
     }
 }

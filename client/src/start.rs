@@ -148,6 +148,10 @@ pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Resu
             return Ok(id);
         }
         if started.elapsed() > wait {
+            if start.test_game.is_some() {
+                game.end();
+                return Err(format!("the test game (process {id}) had not reached its main menu after {} s; it was ended", wait.as_secs()));
+            }
             return Err(format!("the game (process {id}) had not reached its main menu after {} s; it still runs", wait.as_secs()));
         }
         std::thread::sleep(ASK_EVERY);
@@ -180,6 +184,11 @@ impl Game {
         }
         unsafe { windows_sys::Win32::Foundation::CloseHandle(info.hThread) };
         Ok(Self { process: info.hProcess, id: info.dwProcessId })
+    }
+
+    /// Ends it, as `game stop` does.
+    fn end(&self) {
+        unsafe { windows_sys::Win32::System::Threading::TerminateProcess(self.process, 1) };
     }
 
     /// Its exit code, once it has ended.

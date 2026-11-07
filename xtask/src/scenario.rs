@@ -3,12 +3,13 @@
 //! one report of them (docs/scenarios.md).
 //!
 //! The runner does everything but the playing: it finds Steam ready, claims
-//! the game unless this checkout holds it, builds and installs each build the
-//! scenarios named need, starts the game hidden, hands each scenario the game
-//! at its main menu, tells how it ended, keeps the lease going and notices
-//! the player taking the game, and releases the claim it made, whatever ends
-//! the run: an error, a panic or Ctrl-C. Only cargo, for the builds, and the
-//! game run as programs of their own.
+//! a test game unless this checkout holds one, builds each build the
+//! scenarios named need, with the test games' pipes, which its test game's
+//! next start takes up, starts it hidden, hands each scenario the game at
+//! its main menu, tells how it ended, keeps the lease going, and releases
+//! the claim it made, whatever ends the run: an error, a panic or Ctrl-C
+//! (docs/test-games.md). Only cargo, for the builds, and the game run as
+//! programs of their own.
 mod game;
 mod leak;
 mod perf;
@@ -20,17 +21,15 @@ use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant, SystemTime},
 };
 
 /// The builds a scenario may need.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Build {
-    /// The player build: no development tools.
+    /// The player build, with the test games' pipes only, which name the
+    /// pipe and nothing else.
     Player,
     /// A developer build with the memory account, which costs the game
     /// nothing between two asks.
@@ -49,12 +48,13 @@ impl Build {
         }
     }
 
-    /// The core's feature that makes it, if any.
-    fn feature(self) -> Option<&'static str> {
+    /// The core's features that make it: always the test games' pipes, for
+    /// a test game is where it plays.
+    fn features(self) -> &'static str {
         match self {
-            Self::Player => None,
-            Self::Memory => Some("eu4-harmony-core/dev-memory"),
-            Self::Census => Some("eu4-harmony-core/dev-heap-census"),
+            Self::Player => "eu4-harmony-core/dev-test-games",
+            Self::Memory => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-memory",
+            Self::Census => "eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-heap-census",
         }
     }
 }
@@ -130,6 +130,11 @@ pub trait Scenario: Sync {
     /// Plays the game, handed at its main menu, keeping in `record` what it
     /// found as it goes: a scenario that ends early keeps what it had.
     fn play(&self, game: &mut Game, parameters: &Parameters, record: &mut Value) -> Played<()>;
+    /// The saves of the player's it loads, by their names as `menu.saves`
+    /// gives them, copied into its test game before it starts.
+    fn saves(&self, _parameters: &Parameters) -> Vec<String> {
+        Vec::new()
+    }
     /// Its sections of the report, from its record; headings from `###`.
     fn report(&self, record: &Value) -> Vec<String>;
 }
@@ -213,10 +218,10 @@ pub fn run(raw: &[String]) -> Result<()> {
     let owner = asked.owner.clone().unwrap_or_else(|| claim::owner_of(None));
     let run = claim::hold_for_run(&owner, &format!("scenarios {}", asked.names.join(", ")), asked.wait, &game_dir)?;
     let interrupts = Interrupts::catch();
-    let ended = claim::play_within(&run, &game_dir, &interrupted, |taken| {
+    let ended = claim::play_within(&run, &interrupted, || {
         let out = asked.out.clone().unwrap_or_else(|| repo().join("target").join("scenarios").join(stamp().1));
         std::fs::create_dir_all(&out).map_err(|e| format!("cannot make {}: {e}", out.display()))?;
-        play_all(&playing, &owner, &game_dir, &out, taken)
+        play_all(&playing, &owner, &game_dir, &out)
     });
     drop(interrupts);
     ended
@@ -263,29 +268,21 @@ unsafe extern "system" fn on_ctrl(kind: u32) -> windows_sys::core::BOOL {
 
 /// Plays each build's scenarios and writes the report; fails when one did
 /// not pass.
-fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Path, out: &Path, taken: &Arc<AtomicBool>) -> Result<()> {
-    let stopped = || {
-        if taken.load(Ordering::SeqCst) {
-            Some("the player took the game")
-        } else if interrupted() {
-            Some("the run was interrupted")
-        } else {
-            None
-        }
-    };
+fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Path, out: &Path) -> Result<()> {
+    let stopped = || interrupted().then_some("the run was interrupted");
     let mut played = Vec::new();
     for build in builds(playing) {
         let these: Vec<&(&dyn Scenario, Parameters)> = playing.iter().filter(|(s, _)| s.build() == build).collect();
         let ready = match stopped() {
             Some(why) => Err(why.to_string()),
-            None => prepare(build, owner, game_dir),
+            None => prepare(build, owner),
         };
-        let mut game = Game::new(owner, game_dir.to_path_buf(), taken.clone());
+        let mut game = Game::new(owner, game_dir.to_path_buf())?;
         for (scenario, parameters) in these {
             let entry = match (&ready, stopped()) {
                 (Err(e), _) => not_played(*scenario, parameters, e),
                 (Ok(()), Some(why)) => not_played(*scenario, parameters, why),
-                (Ok(()), None) => play(*scenario, parameters, &mut game, game_dir, out),
+                (Ok(()), None) => play(*scenario, parameters, &mut game, owner, out),
             };
             played.push(entry);
         }
@@ -324,47 +321,46 @@ fn builds(playing: &[(&dyn Scenario, Parameters)]) -> Vec<Build> {
     builds
 }
 
-/// Builds `build` and installs it, with the game closed, within `owner`'s
-/// claim.
-fn prepare(build: Build, owner: &str, game_dir: &Path) -> Result<()> {
-    crate::game::kill();
-    crate::game::wait_closed()?;
+/// Ends `owner`'s test game and builds `build`, which its next start copies
+/// into the test game.
+fn prepare(build: Build, owner: &str) -> Result<()> {
+    claim::stop_game_as(owner)?;
     println!("building the {} build", build.name());
-    files::build(build.feature())?;
-    files::install_as(owner, game_dir)
+    files::build(Some(build.features()))
 }
 
 /// Plays one scenario; its entry in the report.
-fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, game_dir: &Path, out: &Path) -> Value {
+fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner: &str, out: &Path) -> Value {
     println!("playing {}", scenario.name());
     let began = Instant::now();
     let since = SystemTime::now();
     let mut record = json!({});
     game.next_scenario();
+    game.loads(scenario.saves(parameters));
+    // The games that run beside it, which take some of the computer it
+    // measures.
+    let beside = crate::game::processes().len().saturating_sub(usize::from(game.runs()));
     // A game that runs is brought to its main menu; one that does not is
     // started by the scenario's first step, which a scenario that times the
     // start takes itself.
-    let at_main_menu = if crate::game::running() { game.at_main_menu() } else { Ok(()) };
+    let at_main_menu = if game.runs() { game.at_main_menu() } else { Ok(()) };
     let ended = at_main_menu.and_then(|()| scenario.play(game, parameters, &mut record));
     let (outcome, why) = match &ended {
         Ok(()) => ("passed", None),
         Err(Stop::Failed(why)) => ("failed", Some(why.clone())),
         Err(Stop::Crashed(why)) => ("crashed", Some(why.clone())),
         Err(Stop::Hung(why)) => ("hung", Some(why.clone())),
-        Err(Stop::Taken) => ("unfinished", Some("the player took the game".into())),
         Err(Stop::Interrupted) => ("unfinished", Some("the run was interrupted".into())),
     };
     let mut entry = entry(scenario, parameters, outcome, why.as_deref());
     entry["minutes"] = json!((began.elapsed().as_secs_f64() / 6.0).round() / 10.0);
+    entry["games_beside"] = json!(beside);
     match ended {
         Err(Stop::Crashed(_)) => {
-            entry["crash"] = crash(game_dir, since, &out.join(format!("{}-crash.log", scenario.name())));
-            let _ = crate::game::wait_closed();
+            entry["crash"] = crash(owner, since, &out.join(format!("{}-crash.log", scenario.name())));
+            game.end();
         }
-        Err(Stop::Hung(_)) => {
-            crate::game::kill();
-            let _ = crate::game::wait_closed();
-        }
+        Err(Stop::Hung(_)) => game.end(),
         _ => {}
     }
     entry["record"] = record;
@@ -380,10 +376,10 @@ fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Va
     entry(scenario, parameters, "not played", Some(why))
 }
 
-/// What the game's newest crash folder since `since` says: its exception,
-/// and the stack its dump gives, written to `log` too.
-fn crash(game_dir: &Path, since: SystemTime, log: &Path) -> Value {
-    let Ok(user) = eu4_harmony_manifest::user_dir(Some(game_dir)) else { return Value::Null };
+/// What the newest crash folder of `owner`'s test game since `since` says:
+/// its exception, and the stack its dump gives, written to `log` too.
+fn crash(owner: &str, since: SystemTime, log: &Path) -> Value {
+    let Ok(user) = claim::user_dir(owner) else { return Value::Null };
     let newest = std::fs::read_dir(user.join("crashes"))
         .into_iter()
         .flatten()

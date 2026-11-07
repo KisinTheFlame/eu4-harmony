@@ -216,6 +216,11 @@ impl ProcessUser {
 }
 
 impl Client {
+    /// The id of the game's process serving the pipe.
+    pub fn process(&self) -> Result<u32, Failure> {
+        serving(&self.pipe).map(|s| s.process)
+    }
+
     /// Sends `request`, one line of JSON, and waits for the answer line until
     /// `deadline`, or as long as it takes without one. The pipe breaking ends
     /// the wait at once.
