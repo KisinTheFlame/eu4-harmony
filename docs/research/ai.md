@@ -96,6 +96,7 @@ Within a country, in the order the King walks them (the King, its children in th
 | The armies' targets (`+0xb00`) | the King (`0x104720`), army agents (`0xf1390`) | `0x14f510`, whether a siege already has enough regiments; the King's `0x14e3d0`; the Admiral | an army sees the targets chosen today by the armies before it and yesterday by those after it |
 | The war plan (`country+0x5ec`) | the foreign minister; cleared by the King | recruitment, spending, trade; army agents' scores | those after the minister see a new or dropped plan today, those before it tomorrow |
 | The units' AI fields (`unit+0x24a`..`+0x260`) | the King, army agents | army agents | written directly, read by whoever thinks next |
+| **The country's access cache** (`AI+0x60`, `country+0x430`): whether a unit may be in a province, a hash map | every access query given it (`0x374c50` → `0x415b00`), through the army search's steps (`0x96f860` → `0x1a2280`) and the King's `0x14c120` | the same | the AI object's update (`0xb0fa0`) clears its entries as it begins and hands it to the King's day (`0xb120e`), which hands it to every agent's day and think as their argument; the search takes it as its fourth argument and puts it in its steps' options (`0x102538`). Only a cache, but a map no two threads may add to at once (prototype-log, 2026-11-08) |
 
 Between countries, during the parallel stage, on other threads:
 
@@ -106,7 +107,7 @@ Between countries, during the parallel stage, on other threads:
 | The world's random generator (`world+0xb90`) | every agent's draw, without `-seed` | every agent | which numbers a country gets depends on the threads' timing |
 | The ids of new agents, plans and fleets (`[0x2340154]`, spinlock `[0x23587e0]`) | every country's task | the ids in `create_unit` and the agents | the ids depend on the threads' timing (inferred: it may be what still varies with `-seed`, but with `-seed` the stage runs on one thread) |
 
-Not order-dependent within a day: the search itself (it writes only its stack), the threat map (rebuilt before the stage, read-only in it, inferred), the per-area danger (computed from what commands change only after the stage, inferred), the strategy (recalculated before the stage; in it only the war plan is written), and everything done by command.
+Not order-dependent within a day: the search itself (it writes its stack, its own agent's region scores, and the country's access cache, whose answers do not change within the stage, inferred: access changes by commands), the threat map (rebuilt before the stage, read-only in it, inferred), the per-area danger (computed from what commands change only after the stage, inferred), the strategy (recalculated before the stage; in it only the war plan is written), and everything done by command.
 
 The one lock `[0x2357ba0]` guards the offensive records, because a leader's King writes its record while its allies read it on other threads; the army search reads the record it follows two to five times for every province it scores ([late-game.md](late-game.md), "One lock for every country").
 
