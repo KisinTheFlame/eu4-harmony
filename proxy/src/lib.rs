@@ -196,7 +196,8 @@ fn core_named(line: &str) -> Option<PathBuf> {
         .rev()
         .find_map(|w| {
             let (switch, value) = w.split_once('=')?;
-            switch.eq_ignore_ascii_case("-harmony_core").then(|| value.to_string())
+            let switch = switch.strip_prefix("--").or_else(|| switch.strip_prefix('-'))?;
+            switch.eq_ignore_ascii_case("harmony_core").then(|| value.to_string())
         })
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
@@ -221,6 +222,8 @@ mod tests {
             r"eu4.exe -HARMONY_CORE=D:\one.dll -harmony_core=D:\two.dll",
             "eu4.exe -harmony_core= -debug",
             r"eu4.exe -harmony_corex=D:\x.dll",
+            r#"--E:\eu4.exe --harmony_core="E:\a b\core.dll" --harmony_hidden -skiplauncher"#,
+            r"eu4.exe harmony_core=D:\x.dll ---harmony_core=D:\y.dll",
             "eu4.exe",
         ] {
             let expected = eu4_harmony_manifest::switch_value(line, "-harmony_core").filter(|v| !v.is_empty()).map(std::path::PathBuf::from);

@@ -231,12 +231,22 @@ pub fn command_words(line: &str) -> Vec<String> {
 }
 
 /// The value of the switch `name=value` among a command line's words, the
-/// name in any case; the last one when it is there more than once.
+/// name in any case and with one dash or two, the last one when it is there
+/// more than once. The game restarting, as a return to the main menu with
+/// the in-process return off does, writes every switch again as
+/// `--name="value"`.
 pub fn switch_value(line: &str, name: &str) -> Option<String> {
     command_words(line).into_iter().rev().find_map(|word| {
         let (switch, value) = word.split_once('=')?;
-        switch.eq_ignore_ascii_case(name).then(|| value.to_string())
+        same_switch(switch, name).then(|| value.to_string())
     })
+}
+
+/// Whether the word `switch` is the switch `name`: in any case, with one
+/// dash or two.
+pub fn same_switch(switch: &str, name: &str) -> bool {
+    let bare = |s: &str| s.strip_prefix("--").or_else(|| s.strip_prefix('-')).map(str::to_ascii_lowercase);
+    bare(switch).is_some_and(|s| Some(s) == bare(name))
 }
 
 /// The folder `userdir.txt` in the game folder names, absolute or relative to
@@ -424,6 +434,17 @@ permissions = { network = [\"https://x.com\"] }"
         assert_eq!(switch_value(line, "-harmony_hidden"), None);
         assert_eq!(switch_value("eu4.exe -seed=1 -seed=2", "-seed").as_deref(), Some("2"));
         assert_eq!(command_words(r#"a "" b"#), ["a", "", "b"]);
+    }
+
+    /// The command line the game makes as it restarts itself.
+    #[test]
+    fn a_switch_is_read_as_the_restarted_game_writes_it_again() {
+        let line = r#"--E:\Steam\eu4.exe --harmony_core="E:\claims\a\core\eu4_harmony_core.dll" --harmony_hidden --harmony_test_game="a" --userdir="E:\claims\a\user" -skiplauncher"#;
+        assert_eq!(switch_value(line, "-harmony_core").as_deref(), Some(r"E:\claims\a\core\eu4_harmony_core.dll"));
+        assert_eq!(switch_value(line, "-harmony_test_game").as_deref(), Some("a"));
+        assert_eq!(switch_value(line, "-userdir").as_deref(), Some(r"E:\claims\a\user"));
+        assert!(same_switch("--harmony_hidden", "-harmony_hidden") && same_switch("-HARMONY_HIDDEN", "-harmony_hidden"));
+        assert!(!same_switch("harmony_hidden", "-harmony_hidden") && !same_switch("---harmony_hidden", "-harmony_hidden"));
     }
 
     #[test]
