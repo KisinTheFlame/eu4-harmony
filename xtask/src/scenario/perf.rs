@@ -20,6 +20,7 @@
 //! log tells what working out the events cost the session
 //! (`event costs:`).
 use super::{text, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
+use crate::game;
 use eu4_harmony_remote::{
     countries::{Budget, Country, CountryRequest},
     events::{Events, EventsRequest},
@@ -69,7 +70,7 @@ impl Scenario for Perf {
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| Stop::Failed(format!("no country tag {country:?}")))?;
         record["menu_seconds"] = rounded(game.restart()?, 1);
-        let process = Process::find(game)?;
+        let process = Process::find()?;
         pause(20);
         record["menu"] = process.sample()?.json();
         if parameters.flag("menu_only")? {
@@ -247,9 +248,9 @@ impl Sample {
 }
 
 impl Process {
-    fn find(game: &Game) -> Played<Self> {
+    fn find() -> Played<Self> {
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ};
-        let id = game.process()?;
+        let id = *game::processes().first().ok_or_else(|| Stop::Crashed("the game is not running".into()))?;
         let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, id) };
         if handle.is_null() {
             return Err(Stop::Failed(format!("cannot open the game's process {id}")));

@@ -57,7 +57,7 @@ What a game that runs unseen could still do to the program the player works in: 
 
 ## One game per machine
 
-`main` calls `0x14c4470` first, which looks for a top-level window `Europa Universalis IV` (`FindWindowExA(NULL, NULL, …)`, `0x14c4496`), the game window's title (its class is SDL's, `SDL_app`; which of the two the call is given was not read). When there is one, it logs "An instance of this game is already running on this computer! Exiting.", shows a message box unless `-suppresserrormessages`, and calls `FatalExit`. A hidden window is still found (`FindWindowExA` lists hidden windows; _inferred_ from its documentation).
+`main` calls `0x14c4470` first, which looks for a top-level window of the class `Europa Universalis IV` (`FindWindowExA(NULL, NULL, class, NULL)`, `0x14c4496`). When there is one, it logs "An instance of this game is already running on this computer! Exiting.", shows a message box unless `-suppresserrormessages`, and calls `FatalExit`. The game registers that class but makes its window with SDL's, `SDL_app`, so the check finds nothing and a second game starts (tried; [several-games.md](several-games.md)).
 
 ## The game's own automation switches
 
@@ -111,7 +111,7 @@ Read from `eu4.exe` on 2026-11-04 with `cargo xtask disasm`, for the hidden star
    [hidden-start.md](../hidden-start.md) has it.
 2. **Not drawn: feasible, size of the gain unknown.** Skipping the idler's drawing (`0x8183b0` in a game, the main menu's frame draws the same way) and drawing only the frames a screenshot asks for would idle the graphics card; whether it makes days faster depends on how much of the main thread's frame the drawing takes at speed 5, which was not measured (the day's update runs whole frames inside it, [architecture.md](architecture.md), "Frames inside a day"). What the views update while drawing, and what a skipped frame would leave stale, is not known.
 3. **No graphics card: not feasible as the game is.** The device must be a hardware one. Untried routes: Windows' Basic Render Driver, which may or may not take a Direct3D 9 hardware device; `-opengl` with a software OpenGL in the game folder. Steam must also be running and signed in, and the game is licensed per player, so a build machine could not hold it anyway.
-4. **Several at once: blocked by the instance check.** It would take that check (one dependency point), a user folder per process (`-userdir`), a pipe name per process for remote control, and Steam starting the same game twice, which was not tried.
+4. **Several at once: feasible.** The instance check finds nothing and Steam runs the game twice; it takes each game started from the game folder with a user folder of its own (`-userdir`), a core and a pipe of its own, and a claim per game ([several-games.md](several-games.md)).
 
 ## Open questions
 

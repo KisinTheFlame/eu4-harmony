@@ -1,4 +1,10 @@
+---
+status: superseded by the-game-may-be-made-faster-with-reasoned-differences
+---
+
 # Making the game faster leaves what it computes as it is
+
+Superseded: the game may be made faster inside the day too, the AI included, when each difference has a stated reason and is checked (ADR the-game-may-be-made-faster-with-reasoned-differences).
 
 The framework makes the game faster only where that leaves the game's rules, data, AI and decisions as they are: in work the game does that writes no game state (Paradox's online client, compressing and writing saves, drawing, the framework's own work), and, when the player chooses it, in how often the game draws while a day is worked out. It never makes the game faster by doing less of the game's work: no define, script or AI setting changes, no update skipped or thinned, no precision lowered, no feature turned off.
 

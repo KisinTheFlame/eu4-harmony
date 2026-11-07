@@ -37,9 +37,10 @@ pub struct Switches {
 }
 
 impl Switches {
-    /// The switches among a command line's words, in any case.
+    /// The switches among a command line's words, in any case and with one
+    /// dash or two, as the game writes them again when it restarts.
     pub fn of(command_line: &str) -> Self {
-        let has = |switch: &str| command_line.split_whitespace().any(|word| word.trim_matches('"').eq_ignore_ascii_case(switch));
+        let has = |switch: &str| command_line.split_whitespace().any(|word| eu4_harmony_folders::same_switch(word.trim_matches('"'), switch));
         Self { hidden: has("-harmony_hidden"), sound: has("-harmony_sound") }
     }
 }
@@ -52,13 +53,8 @@ static HIDDEN: AtomicBool = AtomicBool::new(false);
 /// starts, and turns the sound off for a hidden start without
 /// `-harmony_sound`.
 pub fn read_switches() {
-    use windows_sys::Win32::System::Environment::{GetCommandLineW, SetEnvironmentVariableW};
-    let line = unsafe {
-        let line = GetCommandLineW();
-        let len = (0..).take_while(|&i| *line.add(i) != 0).count();
-        String::from_utf16_lossy(std::slice::from_raw_parts(line, len))
-    };
-    let switches = Switches::of(&line);
+    use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+    let switches = Switches::of(crate::paths::command_line());
     let _ = SWITCHES.set(switches);
     if !switches.hidden {
         return;
@@ -345,5 +341,6 @@ mod tests {
         assert_eq!(both, Switches { hidden: true, sound: true });
         assert_eq!(Switches::of(r#""E:\eu4.exe" "-harmony_hidden""#), Switches { hidden: true, sound: false });
         assert_eq!(Switches::of(r#""E:\harmony_hidden\eu4.exe" -harmony_hiddenx -debug"#), Switches::default());
+        assert_eq!(Switches::of(r#"--E:\eu4.exe --harmony_hidden --userdir="E:\u" -skiplauncher"#), Switches { hidden: true, sound: false });
     }
 }

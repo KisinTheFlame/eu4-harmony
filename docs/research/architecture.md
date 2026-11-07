@@ -70,7 +70,7 @@ The program has three layers: third-party libraries, the Clausewitz engine and t
 **`main`, in order:**
 
 1. Basics:
-   - refuses a second instance (`0x14c4470`);
+   - looks for a second instance (`0x14c4470`), by a window class no window has, so it never finds one ([several-games.md](several-games.md));
    - parses the command line (`0x1719120`);
    - registers the thread as "Main Thread" and raises its priority;
    - calls `SDL_Init(SDL_INIT_VIDEO)`.

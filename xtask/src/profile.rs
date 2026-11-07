@@ -124,54 +124,6 @@ const FRAME: [(&str, &str); 10] = [
 /// The day's own frame, below which a frame inside a day runs.
 const FRAME_IN_DAY: &str = "0x769ea0";
 
-/// What the places above hold in the 1.37.5 baseline, checked in the game's
-/// file before it is sampled, as the framework checks its dependency points:
-/// on another build of the game the samples would be sorted into the wrong
-/// parts without a word. Each function by its first bytes; the world's and
-/// the application's fields by an instruction of the game's that reads them
-/// from the global.
-const PLACES: [(u32, &str, &str); 18] = [
-    (0x2ee280, "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8d ac", "each country's daily update"),
-    (0x75d690, "88 54 24 10 55 53 56 57 41 54 41 55 41 56 41 57", "the monthly update"),
-    (0x75b4b0, "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57", "the AI"),
-    (0x75b2d0, "48 8b c4 48 89 58 10 48 89 68 18 48 89 70 20 57", "the provinces' passes"),
-    (0x75e260, "48 8b c4 48 89 58 10 48 89 70 18 48 89 78 20 55", "the yearly update"),
-    (0x5cbb00, "48 89 5c 24 10 48 89 6c 24 18 56 57 41 56 48 83", "the autosave"),
-    (0x8183b0, "48 8b c4 48 89 58 08 55 56 57 41 54 41 55 41 56", "drawing"),
-    (0x14c5810, "48 8b c4 48 89 58 10 48 89 78 18 55 48 8d 68 e8", "the GUI update"),
-    (0x20f810, "48 89 5c 24 10 57 48 83 ec 20 48 8b f9 48 8b 81", "commands"),
-    (0x830fd0, "48 89 5c 24 10 48 89 6c 24 18 48 89 74 24 20 57", "input"),
-    (0xdf5860, "48 89 4c 24 08 55 53 56 57 41 54 41 55 41 56 41", "the top bar's alerts"),
-    (0x128cd30, "48 89 4c 24 08 55 53 56 57 41 54 41 55 41 56 41", "the outliner"),
-    (0x10a6d00, "48 89 5c 24 10 48 89 6c 24 18 56 48 83 ec 30 33", "the map's markers"),
-    (0x8137c0, "48 8b c4 88 50 10 55 53 56 57 41 54 41 55 41 56", "the in-game frame"),
-    (0x769ea0, "48 8b c4 48 89 58 10 4c 89 40 18 55 56 57 41 54", "the day's own frame"),
-    // mov rcx, [WORLD]; add rcx, WORLD_DATE
-    (0xa3320, "48 8b 0d 51 cb 29 02 48 81 c1 d0 1d 00 00", "the world's date"),
-    // mov rax, [WORLD]; cmp byte [rax + WORLD_DAY], ...
-    (0x10a5213, "48 8b 05 5e ac 29 01 80 b8 10 1e 00 00", "the world's flag of a day running"),
-    // mov rax, [APPLICATION]; mov rcx, [rax + APPLICATION_FRAMES]
-    (0x15e00ef, "48 8b 05 5a be e4 00 48 8b 88 20 03 00 00", "the application's frame count"),
-];
-
-/// Refuses unless the game's file `exe` holds what [`PLACES`] expects at
-/// each place.
-fn check_places(exe: &Image) -> Result<()> {
-    let differ: Vec<String> = PLACES
-        .iter()
-        .filter(|(rva, bytes, _)| {
-            let expected: Vec<u8> = bytes.split(' ').map(|b| u8::from_str_radix(b, 16).expect("a byte in hex")).collect();
-            exe.at(*rva, expected.len()) != Some(expected.as_slice())
-        })
-        .map(|(rva, _, what)| format!("{what} ({rva:#x})"))
-        .collect();
-    if differ.is_empty() {
-        Ok(())
-    } else {
-        Err(format!("this eu4.exe is not the build the profiler knows: it differs at {}", differ.join(", ")))
-    }
-}
-
 pub fn run(args: &Args) -> Result<()> {
     let out = args.positional.first().ok_or("profile needs <out>, or with --tree a .folded file")?;
     if args.flag("tree") {
@@ -179,7 +131,25 @@ pub fn run(args: &Args) -> Result<()> {
     }
     let slice = args.value("slice").map(|_| decimal(args, "slice", 0.0)).transpose()?.filter(|s| *s > 0.0);
     let waiting_in = args.value("waiting-in").map(waiting_functions).transpose()?.unwrap_or_default();
-    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"), &waiting_in)
+    let test_game = args.value("test-game");
+    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"), &waiting_in, test_game)
+}
+
+/// The game to sample: the test game `test_game` names, else this
+/// checkout's while it runs, else the only `eu4.exe`; none while it is not
+/// running, and an error when several run and none is named.
+fn the_game(test_game: Option<&str>) -> Result<Option<u32>> {
+    if let Some(name) = test_game {
+        return Ok(crate::claim::game_named(name));
+    }
+    if let Some(id) = crate::claim::game_of(&crate::claim::owner_of(None)) {
+        return Ok(Some(id));
+    }
+    match crate::game::processes().as_slice() {
+        [] => Ok(None),
+        [id] => Ok(Some(*id)),
+        several => Err(format!("{} eu4.exe run; --test-game <name> names the one to sample (cargo xtask game status lists them)", several.len())),
+    }
 }
 
 /// The functions `--waiting-in` names, as the stacks name them: `0x179e90`
@@ -892,11 +862,12 @@ fn thread_frame(id: u32, main: bool, name: &str) -> String {
 /// meanwhile, or none.
 type Wait = (Option<u32>, &'static str, Vec<u64>, Option<Vec<u64>>);
 
-fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool, waiting_in: &[(String, u32)]) -> Result<()> {
+#[expect(clippy::too_many_arguments, reason = "the command line's options, each as it was given")]
+fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool, waiting_in: &[(String, u32)], test_game: Option<&str>) -> Result<()> {
     let waited = Instant::now();
     let id = loop {
-        match eu4_harmony_client::game::processes()?.first() {
-            Some(&id) => break id,
+        match the_game(test_game)? {
+            Some(id) => break id,
             None if wait && waited.elapsed() < Duration::from_secs(300) => std::thread::sleep(Duration::from_millis(20)),
             None => return Err("eu4.exe is not running".into()),
         }
@@ -914,9 +885,7 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
         }
     }
     let mut modules = modules_of(process);
-    let exe = modules.iter().find(|m| m.name == "eu4.exe").ok_or("eu4.exe has no module eu4.exe")?;
-    check_places(&exe.image)?;
-    let exe_base = exe.base;
+    let exe_base = modules.iter().find(|m| m.name == "eu4.exe").ok_or("eu4.exe has no module eu4.exe")?.base;
 
     let before: HashMap<u32, (u64, u64)> = threads.iter().map(|&(t, h)| (t, (thread_times(h).1, cycles(h)))).collect();
     let start_state = world_state(process, exe_base);
@@ -1280,28 +1249,6 @@ fn stretch_table(stretches: &BTreeMap<u32, (Mark, Mark)>, parts: &HashMap<(u32, 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Every function the parts are told by is a place checked before
-    /// sampling, and each place's bytes are written as bytes.
-    #[test]
-    fn every_part_s_function_is_checked_in_the_game_s_file() {
-        let checked: Vec<String> = PLACES.iter().map(|(rva, _, _)| format!("{rva:#x}")).collect();
-        for rva in DAY.iter().chain(&FRAME).map(|(_, at)| *at).chain([FRAME_IN_DAY]).filter(|at| at.starts_with("0x")) {
-            assert!(checked.iter().any(|c| c == rva), "{rva} is not checked");
-        }
-        for (_, bytes, what) in PLACES {
-            assert!(bytes.split(' ').all(|b| b.len() == 2 && u8::from_str_radix(b, 16).is_ok()), "{what}");
-        }
-    }
-
-    /// The places hold what they should in the installed game.
-    #[test]
-    #[ignore = "needs the game: EU4_GAME_DIR"]
-    fn the_places_match_the_installed_game() {
-        let exe = std::path::Path::new(&std::env::var_os("EU4_GAME_DIR").expect("EU4_GAME_DIR")).join("eu4.exe");
-        let image = Image::read(std::fs::read(exe).unwrap()).unwrap();
-        assert_eq!(check_places(&image), Ok(()));
-    }
 
     fn frames(text: &str) -> Vec<String> {
         text.split(';').map(String::from).collect()

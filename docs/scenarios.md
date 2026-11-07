@@ -1,6 +1,6 @@
 # Scenarios plan
 
-Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claim ([game-testing.md](game-testing.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
+Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried is in [prototype-log.md](prototype-log.md). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Leak run, Claim, Hidden start). It builds on the claims of test games ([test-games.md](test-games.md)) and on remote control ([remote-control.md](remote-control.md)); the decision behind it is [ADR scenarios-drive-the-game-through-remote-control-only](adr/scenarios-drive-the-game-through-remote-control-only.md).
 
 ## Goal and scope
 
@@ -18,7 +18,7 @@ Status: SC1 to SC3 built and tried in the game (2026-11-05); what was not tried 
 | `cargo xtask scenario <name>… [--out <dir>] [--wait] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]…` | Plays the scenarios named, in that order but grouped by build, and writes the report into `--out` |
 | `cargo xtask scenario --from-report <dir>` | Writes `report.md` again from the `report.json` in the folder, with no game |
 
-`--wait` waits in the claim's queue when the game is held. `--owner` and `--game-dir` are the claim's, as in `cargo xtask game`. `--leak.rounds 1` and the like change one of a scenario's parameters for this run only.
+`--wait` waits in the claims' queue when every test game is held. `--owner` and `--game-dir` are the claim's, as in `cargo xtask game`. `--leak.rounds 1` and the like change one of a scenario's parameters for this run only.
 
 ### A scenario
 
@@ -33,13 +33,13 @@ It is handed the game at its main menu and plays it through remote control, aski
 ### One run
 
 1. **Steam**: the runner finds Steam running with a user logged in, or stops before anything else, saying to start it. It never starts Steam itself.
-2. **The claim**: it claims the game, waiting in the queue with `--wait`; if this checkout holds the game already, it plays within that claim and leaves it held at the end.
-3. **Each build** the scenarios named need, in turn: it builds it, installs it, starts the game hidden, and plays that build's scenarios one after another, each from the main menu.
+2. **The claim**: it claims a test game, waiting in the queue with `--wait`; if this checkout holds one already, it plays within that claim and leaves it held at the end.
+3. **Each build** the scenarios named need, in turn, each with the test games' pipes (`dev-test-games`; the player build has that feature alone): it builds it, starts the test game hidden with it, the saves its scenarios load copied in from the player's, and plays that build's scenarios one after another, each from the main menu. Each scenario's report says how many other games ran beside it (`games_beside`).
 4. **The report**, then **the release**, of a claim it made itself.
 
-Whatever ends the run, an error such as a report it cannot write, a scenario's panic, or Ctrl-C, the runner ends the game and releases a claim it made, the panic going on after. Ctrl-C ends the game, so that the step waiting on it ends, leaves the scenarios after it unplayed, and writes the report as far as it got; a second Ctrl-C ends the runner at once, leaving the claim, whose lease then runs out, since nothing keeps it going any more ([game-testing.md](game-testing.md), "The lease").
+Whatever ends the run, an error such as a report it cannot write, a scenario's panic, or Ctrl-C, the runner ends the game and releases a claim it made, the panic going on after. Ctrl-C ends the game, so that the step waiting on it ends, leaves the scenarios after it unplayed, and writes the report as far as it got; a second Ctrl-C ends the runner at once, leaving the claim, whose lease then runs out, since nothing keeps it going any more ([test-games.md](test-games.md), "The queue and the lease").
 
-While it plays, it keeps the claim going, and with it the lease, and notices the player taking the game. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
+While it plays, it starts the lease again every minute. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
 
 A scenario reaches the game's process only through the claim, which follows each game it starts from its start to its exit code, and remote control through the pipe by its name. So how a scenario ends, crashed, hung, failed, taken, and the wait for the main menu across a restart, is tested without the game, on the claim's recorded computer with the client's own test server for the pipe (`xtask/src/scenario/game.rs`).
 
@@ -51,8 +51,7 @@ A scenario reaches the game's process only through the claim, which follows each
 | Failed | A check did not hold | The scenario ends there, with the figures it recorded until then; the game returns to the main menu, and the next one plays |
 | Crashed | The game ended | The report has how the game ended, its exit code as the claim followed it, and what its crash folder and dump say; the game is started again for the next one |
 | Hung | A step took longer than its time: an answer, the main menu, the days to run | The report says which step; the game is ended and started again for the next one |
-| Unfinished | The player took the game | The scenarios left are not played; the runner does not release, since the player's claim does, and writes the report as far as it got |
-| Not played | Its build could not be built or installed, or the player had taken the game before it began | The report says why; the scenarios of the next build are played |
+| Not played | Its build could not be built, or the run was interrupted before it began | The report says why; the scenarios of the next build are played |
 | Unfinished | Ctrl-C | The game is ended and the scenarios left are not played; the runner writes the report as far as it got and releases a claim it made |
 
 ### The report

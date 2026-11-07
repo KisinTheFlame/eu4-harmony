@@ -70,6 +70,12 @@ game-ends-dependencies = false
 # in the game's order or the opposite one, so that whether an agent's day
 # depends on another's can be tried in a game started with -seed.
 agents-order = "game"
+# The searches of an AI country's armies are the game's own, one after another,
+# instead of the framework's on its threads, to measure those against.
+game-searches-armies = false
+# Every army search the framework worked out ahead is worked out again as the
+# game does when taken, and a difference counted in the log.
+check-army-searches = false
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.

@@ -27,29 +27,30 @@ usage:
       game finds it so; game, install and scenario take --game-dir for
       another.
   cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>] [--owner <name>]
-  cargo xtask game claim --player [--now]
-  cargo xtask game start [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
-  cargo xtask game stop | release [--keep-crashes] | renew | watch [--warn 5] | status
-      The claim: one holder of this computer's game at a time
-      (docs/game-testing.md). claim backs up the player's files and copies
-      the game folder's framework files and dev.toml into the claim's folder,
-      which it prints; busy, it exits with 2, or with --wait joins the queue
-      and returns once it holds the game. start starts the game hidden and
-      without sound and waits for its main menu, ending a start that does
-      not get there; --visible shows its window there, --sound keeps its
-      sound, --seed passes the game its own -seed=<n>. stop ends it. release ends the game, keeps the logs and the run's crash
-      folders in the claim's kept\\, puts back the player's files and the
-      game folder's, and frees the game. watch, run in the background by the
-      holder, exits with 3 when the lease (30 minutes unless --lease says
-      otherwise, kept going while the game runs) is --warn minutes from its
-      end, with 4 when the player takes the game, and
-      with 0 when the claim is gone. The player's claim (--player) keeps
-      their files as they play and goes first in the queue; with --now it
-      takes the game from its holder after two minutes. The owner is this
-      checkout's folder's name unless --owner names another.
-  cargo xtask install [--uninstall] [--game-dir <dir>] [--owner <name>]
-      Within the claim, copies the player's files as last built, a player build or a developer
-      build, into the game folder: version.dll in its root, the core and
+  cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
+  cargo xtask game stop | release | status
+      Claims of test games: games started from the game folder with a user
+      folder, a core and a pipe of their own, a few at once
+      (docs/test-games.md). claim makes the claim's folder, with a user
+      folder made from the player's, and prints it; with every test game
+      held it exits with 2, or with --wait joins the queue and returns once
+      it holds one. start copies this checkout's built core, which needs
+      --features eu4-harmony-core/dev-test-games, and dev.toml into the test
+      game, and each --save from the player's saves, then starts it hidden
+      and without sound and waits for its main menu, ending a start that
+      does not get there; --visible shows its window there, --sound keeps
+      its sound, --seed passes the game its own -seed=<n>. Its pipe is the
+      owner's: eu4-harmony game --test-game <owner>, or
+      EU4_HARMONY_TEST_GAME. stop ends it. release ends it, keeps its logs
+      and crash folders in the claim's kept\\ and removes the rest. Every
+      command starts the lease again (30 minutes unless --lease says
+      otherwise); a claim waiting with no test game free takes one whose
+      lease ran out. status lists the test games, the queue and the eu4.exe
+      no test game's. The owner is this checkout's folder's name unless
+      --owner names another.
+  cargo xtask install [--uninstall] [--game-dir <dir>]
+      With no game running, copies the player's files as last built, a
+      player build or a developer build, into the game folder: version.dll in its root, the core and
       eu4-harmony.exe in eu4-harmony\\. A version.dll there that is not ours
       is moved to eu4-harmony\\backup\\ and never loaded; the repository's
       dev.toml goes into eu4-harmony\\ too, and one installed before is
@@ -75,15 +76,16 @@ usage:
       writes report.json and report.md into <dir> (target\\scenarios\\<time>
       by default): how each ended and what it found (docs/scenarios.md).
       With no name it lists them, with their builds and parameters. It
-      needs Steam running, claims the game unless this checkout holds it
-      (busy, it waits in the queue with --wait), builds and installs each
-      build the scenarios need, starts the game hidden, and releases the
-      claim it made. --<name>.<parameter> changes a parameter for this run.
+      needs Steam running, claims a test game unless this checkout holds
+      one (busy, it waits in the queue with --wait), builds each build the
+      scenarios need with the test games' pipes, starts the test game
+      hidden with it, and releases the claim it made. --<name>.<parameter> changes a parameter for this run.
       --from-report writes report.md again from the report.json there.
-  cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads] [--waiting-in <functions>]
+  cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads] [--waiting-in <functions>] [--test-game <name>]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
-      Samples the running game's main thread, its call stack at a steady
-      rate, and writes where its time went into <out>.txt, and its stacks
+      Samples the running game's main thread (the test game --test-game
+      names, else this checkout's, else the only eu4.exe), its call stack
+      at a steady rate, and writes where its time went into <out>.txt, and its stacks
       into <out>.folded for flame graph tools: inside days, in frames inside
       days and between days, by part and by function. A sample holds the
       thread about 0.1 ms, for its registers and a copy of its stack.
@@ -111,18 +113,30 @@ usage:
 struct Args {
     positional: Vec<String>,
     options: HashMap<String, Option<String>>,
+    /// The values of the options that may be given more than once, in order.
+    repeated: Vec<(String, String)>,
 }
 
 impl Args {
     /// Reads `raw`, where `flags` take no value and the options in `values`
     /// take one; any other option is refused.
     fn parse(raw: &[String], flags: &[&str], values: &[&str]) -> Result<Self> {
-        let mut args = Args { positional: Vec::new(), options: HashMap::new() };
+        Self::parse_repeated(raw, flags, values, &[])
+    }
+
+    /// Reads `raw` as [`Args::parse`] does, the options in `repeated` taking
+    /// a value each time they are given.
+    fn parse_repeated(raw: &[String], flags: &[&str], values: &[&str], repeated: &[&str]) -> Result<Self> {
+        let mut args = Args { positional: Vec::new(), options: HashMap::new(), repeated: Vec::new() };
         let mut i = 0;
         while i < raw.len() {
             if let Some(key) = raw[i].strip_prefix("--") {
                 if flags.contains(&key) {
                     args.options.insert(key.to_string(), None);
+                } else if repeated.contains(&key) {
+                    let value = raw.get(i + 1).ok_or_else(|| format!("--{key} needs a value"))?;
+                    args.repeated.push((key.to_string(), value.clone()));
+                    i += 1;
                 } else if values.contains(&key) {
                     let value = raw.get(i + 1).ok_or_else(|| format!("--{key} needs a value"))?;
                     args.options.insert(key.to_string(), Some(value.clone()));
@@ -144,6 +158,11 @@ impl Args {
 
     fn flag(&self, key: &str) -> bool {
         self.options.contains_key(key)
+    }
+
+    /// Every value of the repeated option `key`, in order.
+    fn values(&self, key: &str) -> Vec<String> {
+        self.repeated.iter().filter(|(k, _)| k == key).map(|(_, v)| v.clone()).collect()
     }
 
     /// The whole number `--key` gives, or `default`.
@@ -194,7 +213,7 @@ fn main() {
     let rest = raw.get(1..).unwrap_or_default();
     let result = match raw.first().map(String::as_str) {
         Some("game-dir") => game::dir().map(|dir| println!("{}", dir.display())),
-        Some("install") => Args::parse(rest, &["uninstall"], &["game-dir", "owner"]).and_then(|a| files::install(&a)),
+        Some("install") => Args::parse(rest, &["uninstall"], &["game-dir"]).and_then(|a| files::install(&a)),
         Some("game") => match claim::run(rest) {
             Ok(code) => std::process::exit(code),
             Err(e) => Err(e),
@@ -207,9 +226,8 @@ fn main() {
         ),
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks"),
         Some("scenario") => scenario::run(rest),
-        Some("profile") => {
-            Args::parse(rest, &["tree", "wait", "threads"], &["seconds", "hz", "slice", "root", "depth", "min", "waiting-in"]).and_then(|a| profile::run(&a))
-        }
+        Some("profile") => Args::parse(rest, &["tree", "wait", "threads"], &["seconds", "hz", "slice", "root", "depth", "min", "waiting-in", "test-game"])
+            .and_then(|a| profile::run(&a)),
         // Debugger commands are words of their own, which may start with --.
         Some("crash-dump") => crash_dump::run(rest),
         None | Some("-h" | "--help" | "help") => {

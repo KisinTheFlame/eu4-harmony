@@ -46,11 +46,12 @@ usage:
   eu4-harmony test [<mod dir>]
       Runs the mod's eu4-harmony/tests/*.lua against a fake game, with the
       game's Lua host and sandbox; eu4-harmony skills testing says how.
-  eu4-harmony reload [<mod dir>] [--watch]
+  eu4-harmony reload [<mod dir>] [--watch] [--test-game <name>]
       Reloads the mod's Lua code and texts in the running game, its state
       carried through save_data; with --watch, whenever a file under
       eu4-harmony/lua/ or eu4-harmony/localisation/ changes, until stopped.
       Interface fragments and the manifest take a restart of the game.
+      --test-game reloads it in a developer's test game, as game does.
   eu4-harmony types [<mod dir>]
       Writes the editor's type definitions for this tool's catalogue again,
       in .eu4-harmony/types/, and a .luarc.json pointing at them where the
@@ -95,7 +96,7 @@ usage:
 ";
 
 use eu4_harmony_loc::Language;
-use eu4_harmony_manifest::{descriptor_entry, Manifest, LOCATION_KEYS};
+use eu4_harmony_manifest::{descriptor_entry, HarmonyMod, LOCATION_KEYS};
 
 /// Positional arguments and `--key value` / `--flag` options.
 #[derive(Debug)]
@@ -146,7 +147,7 @@ fn main() {
         Some("check") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_check(&a)),
         Some("types") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_types(&a)),
         Some("test") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_test(&a)),
-        Some("reload") => Args::parse(&raw[1..], &["watch"], &[]).and_then(|a| cmd_reload(&a)),
+        Some("reload") => Args::parse(&raw[1..], &["watch"], &["test-game"]).and_then(|a| cmd_reload(&a)),
         Some("backup") => Args::parse(&raw[1..], &[], &FOLDERS).and_then(|a| cmd_backup(&a)),
         Some("restore") => Args::parse(&raw[1..], &["keep", "keep-crashes"], &FOLDERS).and_then(|a| cmd_restore(&a)),
         Some("start") => Args::parse(&raw[1..], &["hidden", "sound"], &["timeout", "game-dir", "user-dir"]).and_then(|a| cmd_start(&a)),
@@ -168,11 +169,12 @@ fn main() {
 /// `eu4-harmony reload`: the mod at or above the start folder, by its id.
 fn cmd_reload(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
-    let id = read_manifest(&root)?.id;
+    let id = HarmonyMod::read(&root)?.manifest.id;
+    let name = pipe::name_of(args.value("test-game"))?;
     if args.options.contains_key("watch") {
-        reload::watch(&root, &id);
+        reload::watch(&root, &id, &name);
     }
-    println!("{}", reload::once(&id)?);
+    println!("{}", reload::once(&id, &name)?);
     Ok(())
 }
 
@@ -202,7 +204,7 @@ fn mod_root(start: &Path) -> Result<PathBuf> {
     let start = plain(start)?;
     let mut dir = Some(start.as_path());
     while let Some(d) = dir {
-        if d.join("descriptor.mod").is_file() && d.join("eu4-harmony").join(eu4_harmony_manifest::FILE).is_file() {
+        if d.join("descriptor.mod").is_file() && eu4_harmony_manifest::is_harmony(d) {
             return Ok(d.to_path_buf());
         }
         dir = d.parent();
@@ -215,12 +217,6 @@ fn start_dir(args: &Args) -> Result<PathBuf> {
         Some(p) => Ok(PathBuf::from(p)),
         None => std::env::current_dir().map_err(|e| e.to_string()),
     }
-}
-
-fn read_manifest(root: &Path) -> Result<Manifest> {
-    let path = root.join("eu4-harmony").join(eu4_harmony_manifest::FILE);
-    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Manifest::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Descriptor text without the `path=`/`archive=` lines the launcher adds.
@@ -328,7 +324,7 @@ fn cmd_new(args: &Args) -> Result<()> {
 
 fn cmd_test(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
-    let manifest = read_manifest(&root)?;
+    let manifest = HarmonyMod::read(&root)?.manifest;
     let descriptor = fs::read_to_string(root.join("descriptor.mod")).map_err(|e| e.to_string())?;
     let name =
         descriptor.lines().find_map(|l| descriptor_entry(l).filter(|(k, _)| *k == "name").map(|(_, v)| v.to_string())).unwrap_or_else(|| manifest.id.clone());
@@ -360,7 +356,7 @@ fn game_dir(args: &Args) -> Result<PathBuf> {
 
 /// Writes `<user dir>/mod/eu4-harmony-<id>.mod` pointing at the mod folder.
 fn link_mod(root: &Path, user_dir: &Path) -> Result<PathBuf> {
-    let manifest = read_manifest(root)?;
+    let manifest = HarmonyMod::read(root)?.manifest;
     if !user_dir.is_dir() {
         return Err(format!("{} does not exist; pass --user-dir", user_dir.display()));
     }
@@ -416,8 +412,8 @@ fn cmd_start(args: &Args) -> Result<()> {
         Some(text) => std::time::Duration::from_secs(text.parse().map_err(|_| format!("--timeout {text}: not a number of seconds"))?),
         None => start::WAIT,
     };
-    let log = eu4_harmony_folders::UserFolder::new(user_dir(args)?).core_log();
-    start::start(&game, &log, hidden, sound, None, wait).map(drop)
+    let log = user_dir(args)?.join("eu4-harmony").join("logs").join("core.log");
+    start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop)
 }
 
 // ---------- package ----------
@@ -461,7 +457,7 @@ fn package_mod(root: &Path, out: &Path) -> Result<Vec<PathBuf>> {
     let harmony = root.join("eu4-harmony");
     if out.exists() {
         // Only replace an earlier package of this same mod.
-        let ours = read_manifest(out).is_ok_and(|m| m.id == manifest.id) && out.join("descriptor.mod").is_file();
+        let ours = HarmonyMod::read(out).is_ok_and(|m| m.manifest.id == manifest.id) && out.join("descriptor.mod").is_file();
         if !ours {
             return Err(format!("{} exists and is not a package of this mod", out.display()));
         }
@@ -523,7 +519,7 @@ fn cmd_check(args: &Args) -> Result<()> {
 
 fn cmd_package(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
-    let manifest = read_manifest(&root)?;
+    let manifest = HarmonyMod::read(&root)?.manifest;
     let out = match args.value("out") {
         Some(d) => PathBuf::from(d),
         None => root.parent().ok_or("mod folder has no parent")?.join(format!("{}-package", manifest.id)),
@@ -563,7 +559,7 @@ mod tests {
     /// The template mod is written for the catalogue the framework serves.
     #[test]
     fn the_template_mod_is_for_this_catalogue_version() {
-        let manifest = Manifest::parse(templates::MANIFEST).unwrap();
+        let manifest = eu4_harmony_manifest::Manifest::parse(templates::MANIFEST).unwrap();
         assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), (templates::ID, eu4_harmony_remote::API_VERSION));
     }
 
@@ -594,7 +590,7 @@ mod tests {
     fn new_mod_has_every_file_filled_in() {
         let dir = temp("new");
         let root = create_mod(&dir, "my-mod", "My Mod", BOTH).unwrap();
-        let manifest = read_manifest(&root).unwrap();
+        let manifest = HarmonyMod::read(&root).unwrap().manifest;
         assert_eq!((manifest.id.as_str(), manifest.api_version.as_str()), ("my-mod", eu4_harmony_remote::API_VERSION));
         assert_eq!(manifest.description.as_deref(), Some("MY_MOD_DESCRIPTION"));
         let layout = eu4_harmony_manifest::layout(&root.join("eu4-harmony"));
@@ -634,7 +630,7 @@ mod tests {
     fn a_new_mod_s_own_tests_pass() {
         let dir = temp("tests-new");
         let root = create_mod(&dir, "tested", "Tested", BOTH).unwrap();
-        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Tested".into()).unwrap();
+        let outcome = test::run(&root, HarmonyMod::read(&root).unwrap().manifest, "Tested".into()).unwrap();
         assert_eq!((outcome.passed, outcome.failed), (3, 0), "{}", outcome.report);
         assert!(!outcome.report.contains("note:"), "{}", outcome.report);
         let _ = fs::remove_dir_all(dir);
@@ -699,7 +695,7 @@ mod tests {
         )
         .unwrap();
         write(&root.join("eu4-harmony/tests/broken_test.lua"), "test(").unwrap();
-        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Driven".into()).unwrap();
+        let outcome = test::run(&root, HarmonyMod::read(&root).unwrap().manifest, "Driven".into()).unwrap();
         let report = &outcome.report;
         assert_eq!((outcome.passed, outcome.failed), (2, 2), "{report}");
         assert!(report.contains("ok      a proposal and a request wait"), "{report}");
@@ -733,7 +729,7 @@ end)
 ",
         )
         .unwrap();
-        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Shaped".into()).unwrap();
+        let outcome = test::run(&root, HarmonyMod::read(&root).unwrap().manifest, "Shaped".into()).unwrap();
         let report = &outcome.report;
         assert_eq!((outcome.passed, outcome.failed), (1, 2), "{report}");
         assert!(report.contains("main_test.lua:3: army.get's answer: regiment is no field of eu4.Army"), "{report}");
@@ -803,7 +799,7 @@ end)
         )
         .unwrap();
         write(&root.join("eu4-harmony/lua/steps.lua"), "return { count = function(t) return #t end }").unwrap();
-        let outcome = test::run(&root, read_manifest(&root).unwrap(), "Worldly".into()).unwrap();
+        let outcome = test::run(&root, HarmonyMod::read(&root).unwrap().manifest, "Worldly".into()).unwrap();
         assert_eq!((outcome.passed, outcome.failed), (3, 0), "{}", outcome.report);
         assert!(!outcome.report.contains("note:"), "{}", outcome.report);
         let _ = fs::remove_dir_all(dir);

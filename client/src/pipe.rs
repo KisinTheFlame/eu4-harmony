@@ -40,6 +40,9 @@ use windows_sys::Win32::{
 
 /// The pipe the game serves.
 pub const NAME: &str = eu4_harmony_remote::PIPE;
+/// The environment variable that names the test game to ask when the
+/// command does not (docs/test-games.md).
+pub const TEST_GAME_VARIABLE: &str = "EU4_HARMONY_TEST_GAME";
 /// The game's executable, the only one trusted to serve the pipe.
 pub const GAME: &str = "eu4.exe";
 /// How often to look for the pipe while it is not there.
@@ -48,6 +51,13 @@ const LOOK: Duration = Duration::from_millis(50);
 const POLL: Duration = Duration::from_millis(5);
 /// The most read from the pipe at once.
 const CHUNK: usize = 64 * 1024;
+
+/// The pipe of the test game `given` names, else of the one
+/// [`TEST_GAME_VARIABLE`] names, else [`NAME`], the game's own.
+pub fn name_of(given: Option<&str>) -> Result<String, String> {
+    let named = given.map(String::from).or_else(|| std::env::var(TEST_GAME_VARIABLE).ok()).filter(|n| !n.is_empty());
+    eu4_harmony_remote::pipe_of(named.as_deref())
+}
 
 /// Why no answer came.
 #[derive(Debug)]
@@ -72,10 +82,10 @@ pub enum Failure {
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::NotOpen => write!(f, "no game with EU4 Harmony opened {NAME} in time: the game is not running, is still starting, or is starting again after returning to the main menu"),
-            Self::Denied => write!(f, "{NAME} is there but not open to this Windows user: a game run by another user, or another program, has it"),
+            Self::NotOpen => write!(f, "no game with EU4 Harmony opened its pipe in time: the game is not running, is still starting, or is starting again after returning to the main menu"),
+            Self::Denied => write!(f, "the pipe is there but not open to this Windows user: a game run by another user, or another program, has it"),
             Self::NotTheGame(why) => write!(f, "nothing was sent: {why}"),
-            Self::Unknown(why) => write!(f, "nothing was sent: who serves {NAME} cannot be told ({why})"),
+            Self::Unknown(why) => write!(f, "nothing was sent: who serves the pipe cannot be told ({why})"),
             Self::Broken => write!(f, "the pipe broke before the answer came: the game ended, or returned to the main menu, which starts it again; the request may or may not have run"),
             Self::TimedOut => write!(f, "no answer in time; the request was given up, so it never runs if it had not yet"),
             Self::Io(e) => write!(f, "the pipe: {e}"),
@@ -130,10 +140,10 @@ pub fn connect(name: &str, game: &str, deadline: Instant) -> Result<Client, Fail
 pub fn check(serving: &Serving, game: &str) -> Result<(), Failure> {
     let image = serving.image.display();
     if !serving.same_user {
-        return Err(Failure::NotTheGame(format!("{NAME} is served by {image} (process {}), which runs as another Windows user", serving.process)));
+        return Err(Failure::NotTheGame(format!("the pipe is served by {image} (process {}), which runs as another Windows user", serving.process)));
     }
     if !serving.image.file_name().is_some_and(|name| name.eq_ignore_ascii_case(game)) {
-        return Err(Failure::NotTheGame(format!("{NAME} is served by {image} (process {}), not by the game ({game})", serving.process)));
+        return Err(Failure::NotTheGame(format!("the pipe is served by {image} (process {}), not by the game ({game})", serving.process)));
     }
     Ok(())
 }
@@ -207,6 +217,11 @@ impl ProcessUser {
 }
 
 impl Client {
+    /// The id of the game's process serving the pipe.
+    pub fn process(&self) -> Result<u32, Failure> {
+        serving(&self.pipe).map(|s| s.process)
+    }
+
     /// Sends `request`, one line of JSON, and waits for the answer line until
     /// `deadline`, or as long as it takes without one. The pipe breaking ends
     /// the wait at once.

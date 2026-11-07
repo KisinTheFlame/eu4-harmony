@@ -1,6 +1,6 @@
 //! The player's files: installed into the game folder as last built, and
 //! packed for players.
-use crate::{built, cargo, repo, run, Args, Result};
+use crate::{built, cargo, game, repo, run, Args, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -24,12 +24,6 @@ const DEV_OPTIONS: &str = "eu4-harmony\\dev.toml";
 /// Where a `version.dll` not ours, found in the game folder, is kept aside.
 const KEPT_PROXY: &str = "eu4-harmony\\backup\\version.dll";
 
-/// Every file of the game folder that installing may create, change or move
-/// aside, by its path in it: the player's files, the developer build's
-/// options and a `version.dll` kept aside. The claim backs these up and puts
-/// them back (docs/game-testing.md).
-pub const GAME_FOLDER_FILES: [&str; 5] = [PLAYER_FILES[0].1, PLAYER_FILES[1].1, PLAYER_FILES[2].1, DEV_OPTIONS, KEPT_PROXY];
-
 /// The packages that build them.
 const PLAYER_PACKAGES: [&str; 3] = ["eu4-harmony-proxy", "eu4-harmony-core", "eu4-harmony-cli"];
 
@@ -48,9 +42,9 @@ pub fn install(args: &Args) -> Result<()> {
     if !root.join("eu4.exe").is_file() {
         return Err(format!("no eu4.exe in {}", root.display()));
     }
-    // The claim puts the game folder back as it was (docs/game-testing.md).
-    crate::claim::needs_claim(args)?;
-    eu4_harmony_client::game::not_running()?;
+    // A loaded version.dll cannot be replaced: no game may run, the test
+    // games included (docs/test-games.md).
+    game::not_running()?;
 
     if args.flag("uninstall") {
         if ours(&proxy) {
@@ -95,16 +89,8 @@ pub fn build(feature: Option<&str>) -> Result<()> {
     run(build, "cargo build --release")
 }
 
-/// Installs the files as last built into the game folder `root`, within
-/// `owner`'s claim, with the game closed, as `cargo xtask install` does.
-pub fn install_as(owner: &str, root: &Path) -> Result<()> {
-    crate::claim::held_by(owner)?;
-    eu4_harmony_client::game::not_running()?;
-    install_built(root)
-}
-
 /// Copies the files as last built into the game folder `root`, which the
-/// caller found closed and within the claim.
+/// caller found closed.
 fn install_built(root: &Path) -> Result<()> {
     let installed = install_from(&built(), &repo().join("dev.toml"), root)?;
     println!("installed:");
