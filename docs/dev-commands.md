@@ -28,7 +28,7 @@ Status: decided (2026-11-04); X1 to X4 built and tried the same day ([prototype-
 
 ### The game folder
 
-Both programs find it the same way: the command's `--game-dir`; else `EU4_GAME_DIR`; else, for `eu4-harmony`, the folder it is installed in (`<game>\eu4-harmony\eu4-harmony.exe`), as now; else the Steam library that holds the game, from `SteamPath` under `HKCU\Software\Valve\Steam` and the libraries `steamapps\libraryfolders.vdf` lists. `cargo xtask game-dir` prints it. The lookup lives in the manifest crate, which both use already for the user folder.
+Both programs find it the same way: the command's `--game-dir`; else `EU4_GAME_DIR`; else, for `eu4-harmony`, the folder it is installed in (`<game>\eu4-harmony\eu4-harmony.exe`), as now; else the Steam library that holds the game, from `SteamPath` under `HKCU\Software\Valve\Steam` and the libraries `steamapps\libraryfolders.vdf` lists. `cargo xtask game-dir` prints it. The lookup lived in the manifest crate at first; it is now the `folders` crate's, with the user folder and the names of what it holds, and an empty `EU4_GAME_DIR` counts as unset for both programs ([deepening.md](deepening.md), D14).
 
 ### `cargo xtask`
 

@@ -41,13 +41,15 @@ Whatever ends the run, an error such as a report it cannot write, a scenario's p
 
 While it plays, it keeps the claim going, and with it the lease, and notices the player taking the game. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
 
+A scenario reaches the game's process only through the claim, which follows each game it starts from its start to its exit code, and remote control through the pipe by its name. So how a scenario ends, crashed, hung, failed, taken, and the wait for the main menu across a restart, is tested without the game, on the claim's recorded computer with the client's own test server for the pipe (`xtask/src/scenario/game.rs`).
+
 ### How a scenario ends
 
 | Outcome | When | Then |
 | --- | --- | --- |
 | Passed | Every check held | The next scenario |
 | Failed | A check did not hold | The scenario ends there, with the figures it recorded until then; the game returns to the main menu, and the next one plays |
-| Crashed | The game ended | The report has what the crash dump says; the game is started again for the next one |
+| Crashed | The game ended | The report has how the game ended, its exit code as the claim followed it, and what its crash folder and dump say; the game is started again for the next one |
 | Hung | A step took longer than its time: an answer, the main menu, the days to run | The report says which step; the game is ended and started again for the next one |
 | Unfinished | The player took the game | The scenarios left are not played; the runner does not release, since the player's claim does, and writes the report as far as it got |
 | Not played | Its build could not be built or installed, or the player had taken the game before it began | The report says why; the scenarios of the next build are played |

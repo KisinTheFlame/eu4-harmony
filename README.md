@@ -161,7 +161,8 @@ Read [AGENTS.md](AGENTS.md) first: it has the rules for code, commits, checks an
 | `lua/` | The Lua host shared by the game and the fake game: sandbox, handlers, tasks, time limit |
 | `remote/` | The capability catalogue: every capability's arguments, results and description |
 | `checks/` | The checks a capability's call goes through, and the game's calendar |
-| `client/` | Reaching the running game from outside: remote control's pipe, starting the game, and backing up and restoring the player's files, shared by the tool and `cargo xtask` |
+| `client/` | Reaching the running game from outside: remote control's pipe, the game's process, started, followed to its exit code and ended, and backing up and restoring the player's files, shared by the tool and `cargo xtask` |
+| `folders/` | The game folder and the user folder, as every program finds them, and the names of what the user folder holds |
 | `loc/`, `manifest/` | Localisation files and mod manifests, shared by the core and the tool |
 | `cli/` | `eu4-harmony.exe`, and the template mod `new` writes |
 | `xtask/` | The repository's development commands (`cargo xtask`) |
