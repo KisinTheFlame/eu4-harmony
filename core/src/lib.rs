@@ -12,6 +12,8 @@ pub mod log;
 #[macro_use]
 pub mod stub;
 pub mod achievements;
+#[cfg(feature = "dev-test-switches")]
+mod agents_order;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
 pub mod baseline;
@@ -148,6 +150,8 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(loading::points());
     all.extend(hidden::points());
     all.extend(sound::points());
+    #[cfg(feature = "dev-test-switches")]
+    all.extend(agents_order::points());
     all
 }
 

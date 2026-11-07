@@ -53,8 +53,11 @@ pub fn needs_claim(args: &Args) -> Result<Record> {
 /// `cargo xtask game <command>`.
 pub fn run(raw: &[String]) -> Result<i32> {
     let (command, rest) = raw.split_first().ok_or("cargo xtask game claim | start | stop | release | renew | watch | status")?;
-    let args =
-        Args::parse(rest, &["wait", "player", "now", "sound", "visible", "keep-crashes"], &["purpose", "owner", "lease", "warn", "timeout", "game-dir"])?;
+    let args = Args::parse(
+        rest,
+        &["wait", "player", "now", "sound", "visible", "keep-crashes"],
+        &["purpose", "owner", "lease", "warn", "timeout", "game-dir", "seed"],
+    )?;
     match command.as_str() {
         "claim" => claim(&args),
         "release" => give_back(&owner(&args), &args.game_dir()?, args.flag("keep-crashes")).map(|()| 0),
@@ -139,22 +142,24 @@ fn step_aside() {
     }
 }
 
-/// Starts the game hidden within `owner`'s claim, waiting up to `wait` for
-/// its main menu; a start that does not reach it ends the game. The seconds
-/// it took.
-pub fn start_game_as(owner: &str, game_dir: &Path, sound: bool, wait: Duration) -> Result<f64> {
-    course::start_game(&ThisComputer, owner, game_dir, sound, wait)
+/// Starts the game hidden within `owner`'s claim, with the game's `-seed`
+/// when `seed` gives one, waiting up to `wait` for its main menu; a start
+/// that does not reach it ends the game. The seconds it took.
+pub fn start_game_as(owner: &str, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<f64> {
+    course::start_game(&ThisComputer, owner, game_dir, sound, seed, wait)
 }
 
 /// `cargo xtask game start`: starts the game hidden, within this owner's
 /// claim, and waits for its main menu; with `--visible` shows it there, as
 /// `desktop.show` shows it. The start is a hidden start either way, so that
-/// `--sound` chooses the sound and the game can be hidden again.
+/// `--sound` chooses the sound and the game can be hidden again. `--seed`
+/// starts it with the game's own `-seed`.
 fn start(args: &Args) -> Result<f64> {
     let wait = args
         .value("timeout")
         .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
-    let took = start_game_as(&owner(args), &args.game_dir()?, args.flag("sound"), wait)?;
+    let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
+    let took = start_game_as(&owner(args), &args.game_dir()?, args.flag("sound"), seed, wait)?;
     if args.flag("visible") {
         show().map_err(|why| format!("the game runs hidden at its main menu, not shown: {why}; eu4-harmony game desktop show shows it"))?;
         println!("the window is shown");

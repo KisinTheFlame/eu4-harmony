@@ -65,6 +65,11 @@ game-loads = false
 # so that the defect can be tried; with the heap census's quarantine on, the
 # walk then reads the freed list filled with 0xdd and fails at once.
 game-ends-dependencies = false
+# The order in which an AI country's top agent has its agents do their day:
+# "game" leaves the game's walks; "forward" and "reversed" are the framework's,
+# in the game's order or the opposite one, so that whether an agent's day
+# depends on another's can be tried in a game started with -seed.
+agents-order = "game"
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.

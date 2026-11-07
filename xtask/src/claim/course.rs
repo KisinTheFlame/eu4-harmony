@@ -454,10 +454,10 @@ pub fn status<M: Machine>(m: &M) -> Result<()> {
 /// Starts the game hidden within `owner`'s claim, waiting up to `wait` for
 /// its main menu, and names it in the record as the claim's game; a start
 /// that does not reach it ends the game. The seconds it took.
-pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, sound: bool, wait: Duration) -> Result<f64> {
+pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<f64> {
     held_by(m, owner)?;
     renew(m, owner)?;
-    let started = m.start_game(game_dir, sound, wait);
+    let started = m.start_game(game_dir, sound, seed, wait);
     if let Ok((id, _)) = started {
         let game = m.process(id);
         m.locked(|s| {
@@ -798,7 +798,7 @@ mod tests {
                 Err("eu4.exe did not end".into())
             }
         }
-        fn start_game(&self, _: &Path, _: bool, _: Duration) -> Result<(u32, f64)> {
+        fn start_game(&self, _: &Path, _: bool, _: Option<u32>, _: Duration) -> Result<(u32, f64)> {
             self.did(Did::Start);
             self.games.borrow_mut().push(GAME);
             if self.start_fails {
@@ -1161,14 +1161,14 @@ mod tests {
     #[test]
     fn a_start_names_the_game_in_the_record_and_one_that_misses_its_main_menu_ends_the_game() {
         let mut m = machine(1000, Some(complete("a", 0)), &[]);
-        assert_eq!(start_game(&m, "a", Path::new(GAME_DIR), false, Duration::from_secs(60)), Ok(30.0));
+        assert_eq!(start_game(&m, "a", Path::new(GAME_DIR), false, None, Duration::from_secs(60)), Ok(30.0));
         assert_eq!(m.steps(), [wrote("a"), Did::Start, wrote("a")]);
         assert_eq!(m.held().unwrap().game, Some(GAME));
 
         m.games.borrow_mut().clear();
         m.start_fails = true;
         m.forget();
-        assert!(start_game(&m, "a", Path::new(GAME_DIR), false, Duration::from_secs(60)).is_err());
+        assert!(start_game(&m, "a", Path::new(GAME_DIR), false, None, Duration::from_secs(60)).is_err());
         assert_eq!(m.steps(), [Did::Start, Did::Kill, Did::WaitClosed], "renewed already this second: nothing written");
     }
 

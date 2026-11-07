@@ -2164,6 +2164,16 @@ What holds a late game's day back, as a whole ([research/late-game.md](research/
 - **Not verified**: a player's game; vanilla; the size of the sets `0x8ea420` adds to.
 - **Cleanup**: `dev.toml` deleted; the crash folder went into the claim's kept files and out of the user folder; releasing the game put back the player's files and removed the four saves the runs added; the timing file deleted from the claim's kept logs.
 
+## 2026-11-07 Whether a game repeats its days with -seed, and an AI country's agents in another order (tested by me)
+
+Whether running an AI country's agents apart changes only the order of its random draws ([research/late-game.md](research/late-game.md), "Whether a game repeats its days", "Whether an AI country's agents depend on each other"). Master at `91fa19f`, with `cargo xtask game start --seed` and the test switch `agents-order` of this branch; the AI-only game's autosave of 1780.7.1, loaded in a new process for each run, observed (`console run observe`), 185 days at speed 5 (`time.advance`), the game's autosave of 1781.1.1 kept. Two claims, of 15 and 22 minutes, the game started hidden.
+
+- **The player build**, `-seed=1`: two runs in new processes gave saves identical but for `campaign_id` (and `campaign_length` in later runs); a second load in the same process kept the save's seed and went another way. Without `-seed`, two runs differed in 3.4 million of 3.6 million lines, each with a new `multiplayer_random_seed`.
+- **The test switches build**: a first walk read each list whole before the agents' days; its `forward` run's save differed from the player build's, but by 25 lines from the next run's with no walk of the framework's (`game`), which went another way too. Replaced anyway by a walk that reads each node's neighbor before its agent's day, as the game does: with it, `forward` gave the player build's save line for line. Then five runs with the autosave set to monthly (`settings.txt`, put back by the release), two `forward` and three `reversed`: after a month two runs in the same order differed in 6 lines of a diff, or none, the Royal Navy's admiral (`id=50176` or `49643`); a run in one order against one in the other, in about 14,950.
+- **Found**: `-seed` repeats a late game's half-year most times; the agents' order changes what the AI decides within a month, with each agent's draws its own.
+- **Not verified**: which reads make the order matter; which list's order matters; what picks the admiral; other saves and longer runs.
+- **Cleanup**: `dev.toml` deleted; the releases put back the player's files (the settings' half-yearly autosave among them) and removed the save and autosaves the runs added; the runs' saves (about 1.7 GB) deleted from the scratchpad.
+
 ## 2026-11-07 The deepened modules, in the game (tested by me)
 
 The frame's listeners, the world's own reset heard by the sessions, one course for the menu's requests, the panels' actions posted through the session, the settings window's fonts page and the scenario runner within the claim, together at `113108a`; one claim of 12 minutes, the game started hidden.
@@ -2174,6 +2184,7 @@ The frame's listeners, the world's own reset heard by the sessions, one course f
 - **Actions**: `stability.raise` posted through the session (stability 0 to 1, the next raise's cost 100 to 150); `technology.research adm` without the points refused with the game's two reasons; `focus.choose adm` carried out, `focus.choose dip` refused with the game's reason; `army.move` to 184 set the route, `army.stop` cleared it, a move to province 1 answered `not_found`.
 - **Not verified**: two `menu.return`s pending at once (the second reached the game only after the first's return, and answered `not_in_game`); an ironman return or load, and an exit save that fails; an extension's handlers around an end heard inside its own call; the heap census's generations; a family or weight changed in the settings window.
 - **Cleanup**: releasing the game put back the player's files, removed the backup save the load added and found the game folder's framework files as they were.
+||||||| 91fa19f5
 
 ## How the implementation differs from the final design
 
