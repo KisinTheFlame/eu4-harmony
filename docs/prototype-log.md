@@ -2164,6 +2164,17 @@ What holds a late game's day back, as a whole ([research/late-game.md](research/
 - **Not verified**: a player's game; vanilla; the size of the sets `0x8ea420` adds to.
 - **Cleanup**: `dev.toml` deleted; the crash folder went into the claim's kept files and out of the user folder; releasing the game put back the player's files and removed the four saves the runs added; the timing file deleted from the claim's kept logs.
 
+## 2026-11-07 The deepened modules, in the game (tested by me)
+
+The frame's listeners, the world's own reset heard by the sessions, one course for the menu's requests, the panels' actions posted through the session, the settings window's fonts page and the scenario runner within the claim, together at `113108a`; one claim of 12 minutes, the game started hidden.
+
+- **Scenarios**: `cargo xtask scenario growth perf --growth.rounds 2 --growth.days 10`, played within the claim and leaving it held: growth passed (two rounds of a load, an in-game load, a return, a new game and a return; +76.8 and +62.5 MB private a round), perf passed. The runner built, installed, started and ended each build itself.
+- **Settings window**: the language and fonts page listed the families and weights as before (Simplified Chinese, the FZ families, Regular); Save with nothing changed wrote `settings.txt` again with the same bytes.
+- **Menu**: `menu.load England-1` from the main menu (session 2), `menu.return` (answered after 3.7 s, in process), `menu.load` again (session 5), `menu.start FRA` from that session: the return, then the start at the new main menu (session 7). The events read `session` 2, `session_ended` return, `session` 5, `session_ended` new_game, `session` 7, each end before the next session. The numbers skip as on master, a load's beginning and a world reset each taking one.
+- **Actions**: `stability.raise` posted through the session (stability 0 to 1, the next raise's cost 100 to 150); `technology.research adm` without the points refused with the game's two reasons; `focus.choose adm` carried out, `focus.choose dip` refused with the game's reason; `army.move` to 184 set the route, `army.stop` cleared it, a move to province 1 answered `not_found`.
+- **Not verified**: two `menu.return`s pending at once (the second reached the game only after the first's return, and answered `not_in_game`); an ironman return or load, and an exit save that fails; an extension's handlers around an end heard inside its own call; the heap census's generations; a family or weight changed in the settings window.
+- **Cleanup**: releasing the game put back the player's files, removed the backup save the load added and found the game folder's framework files as they were.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
