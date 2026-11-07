@@ -3,7 +3,11 @@
 //! `-harmony_hidden`, docs/hidden-start.md), returning once remote control
 //! says the main menu is up. Steam must be running, as for any start of the
 //! game.
-use crate::{game::Game, pipe, Result};
+use crate::{
+    game::Game,
+    pipe::{self, NoMainMenu},
+    Result,
+};
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -11,8 +15,6 @@ use std::{
 
 /// How long the game may take to reach its main menu without `--timeout`.
 pub const WAIT: Duration = Duration::from_secs(300);
-/// How often to ask remote control where the game is.
-const ASK_EVERY: Duration = Duration::from_millis(500);
 
 /// The game's command line switches for a start. A `seed` is the game's own
 /// `-seed`, which seeds its random generator and gives each AI agent a
@@ -68,28 +70,18 @@ pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, seed: Optio
         },
         seed.map_or(String::new(), |seed| format!(", -seed={seed}"))
     );
-    loop {
-        if let Some(code) = game.exit_code() {
-            let why = why_it_ended(log, since).unwrap_or_else(|| format!("the framework's log of this start ({}) says nothing of it", log.display()));
-            return Err(format!("the game ended (exit code {code}) before its main menu: {why}"));
-        }
-        if at_main_menu() {
+    let ended = || game.exit_code().map_or(Ok(()), Err);
+    match pipe::main_menu(pipe::NAME, pipe::GAME, started + wait, ended) {
+        Ok(_) => {
             println!("at the main menu after {:.0} s", started.elapsed().as_secs_f64());
-            return Ok(game);
+            Ok(game)
         }
-        if started.elapsed() > wait {
-            return Err(format!("the game (process {id}) had not reached its main menu after {} s; it still runs", wait.as_secs()));
+        Err(NoMainMenu::Stopped(code)) => {
+            let why = why_it_ended(log, since).unwrap_or_else(|| format!("the framework's log of this start ({}) says nothing of it", log.display()));
+            Err(format!("the game ended (exit code {code}) before its main menu: {why}"))
         }
-        std::thread::sleep(ASK_EVERY);
+        Err(NoMainMenu::TimedOut) => Err(format!("the game (process {id}) had not reached its main menu after {} s; it still runs", wait.as_secs())),
     }
-}
-
-/// Whether remote control answers that the main menu is up.
-fn at_main_menu() -> bool {
-    let deadline = Instant::now() + ASK_EVERY;
-    let Ok(mut client) = pipe::connect(pipe::NAME, pipe::GAME, deadline) else { return false };
-    let Ok(answer) = client.ask(r#"{"capability":"menu"}"#, Some(Instant::now() + Duration::from_secs(5))) else { return false };
-    serde_json::from_str::<serde_json::Value>(&answer).is_ok_and(|v| v["result"]["place"] == "main_menu")
 }
 
 /// The framework's own word on why the game ended: the last failed startup

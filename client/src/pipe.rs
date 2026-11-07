@@ -16,6 +16,7 @@
 //! and a pipe that breaks is an error at once, never a wait.
 use eu4_harmony_remote::{Error, GroupRequest};
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use std::{
     fmt,
     fs::File,
@@ -224,11 +225,9 @@ impl Client {
         let line = serde_json::to_string(&eu4_harmony_remote::request_json(request)).expect("a request is JSON");
         let answer = self.ask(&line, deadline)?;
         let unreadable = |why: String| Failure::Io(io::Error::new(io::ErrorKind::InvalidData, format!("the answer to {}: {why}", request.full_name())));
-        let mut response: serde_json::Value = serde_json::from_str(&answer).map_err(|e| unreadable(e.to_string()))?;
-        if response["ok"] == true {
-            serde_json::from_value(response["result"].take()).map(Ok).map_err(|e| unreadable(e.to_string()))
-        } else {
-            serde_json::from_value(response["error"].take()).map(Err).map_err(|e| unreadable(e.to_string()))
+        match answer_of(&answer).map_err(unreadable)? {
+            Ok(result) => serde_json::from_value(result).map(Ok).map_err(|e| unreadable(e.to_string())),
+            Err(error) => serde_json::from_value(error).map(Err).map_err(|e| unreadable(e.to_string())),
         }
     }
 
@@ -260,6 +259,58 @@ impl Client {
                 return String::from_utf8(line).map_err(|_| Failure::Io(io::Error::new(io::ErrorKind::InvalidData, "the answer is not UTF-8")));
             }
         }
+    }
+}
+
+/// What an answer line says, as `eu4_harmony_remote::response_json` writes
+/// it: the result, or the game's error; why the line is not an answer
+/// otherwise.
+pub fn answer_of(line: &str) -> Result<Result<Value, Value>, String> {
+    let mut response: Value = serde_json::from_str(line).map_err(|e| format!("not JSON ({e}): {line}"))?;
+    match (response.get("ok").and_then(Value::as_bool), response.get_mut("result").map(Value::take), response.get_mut("error").map(Value::take)) {
+        (Some(true), Some(result), _) => Ok(Ok(result)),
+        (Some(false), _, Some(error)) => Ok(Err(error)),
+        _ => Err(format!("not one: {line}")),
+    }
+}
+
+/// Why the wait for the main menu ended without it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum NoMainMenu<E> {
+    /// What was asked between looks said to stop.
+    Stopped(E),
+    /// The main menu had not come up by the deadline.
+    TimedOut,
+}
+
+/// How long one look for the main menu waits for the pipe and its answer.
+const MENU_LOOK: Duration = Duration::from_secs(1);
+/// How long between looks for the main menu.
+const MENU_EVERY: Duration = Duration::from_millis(500);
+
+/// Waits until `deadline` for the `game` serving the pipe `name` to answer
+/// that its main menu is up, in this process or the next: when the game
+/// starts again, as a return to the main menu may make it, its pipe breaks
+/// and the next process opens it a few seconds later, so a pipe that is
+/// missing or breaks is waited through. `going_on` is asked before each
+/// look, and its error ends the wait. The connection to the game at its
+/// main menu.
+pub fn main_menu<E>(name: &str, game: &str, deadline: Instant, mut going_on: impl FnMut() -> Result<(), E>) -> Result<Client, NoMainMenu<E>> {
+    use eu4_harmony_remote::menu::{Menu, MenuRequest, Place};
+    loop {
+        going_on().map_err(NoMainMenu::Stopped)?;
+        let look = deadline.min(Instant::now() + MENU_LOOK);
+        if let Ok(mut client) = connect(name, game, look) {
+            if let Ok(Ok(menu)) = client.ask_for::<_, Menu>(&MenuRequest::State {}, Some(look)) {
+                if menu.place == Place::MainMenu {
+                    return Ok(client);
+                }
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(NoMainMenu::TimedOut);
+        }
+        std::thread::sleep(MENU_EVERY);
     }
 }
 

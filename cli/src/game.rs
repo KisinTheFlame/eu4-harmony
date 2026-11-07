@@ -352,13 +352,8 @@ impl Ask {
 
     /// What to print for the game's answer, a line of JSON.
     fn output(&self, answer: &str) -> Outcome {
-        let response: Value = match serde_json::from_str(answer) {
-            Ok(response) => response,
-            Err(e) => return Outcome::failed(EXIT_NO_ANSWER, format!("the game's answer is not JSON ({e}): {answer}")),
-        };
-        match (response.get("ok").and_then(Value::as_bool), response.get("result"), response.get("error")) {
-            (Some(true), Some(result), _) => {
-                let mut result = result.clone();
+        match pipe::answer_of(answer) {
+            Ok(Ok(mut result)) => {
                 let mut stderr = None;
                 if let Some(out) = &self.out {
                     match write_binaries(&mut result, out) {
@@ -369,8 +364,8 @@ impl Ask {
                 }
                 Outcome { code: EXIT_OK, stdout: Some(self.json(&result)), stderr }
             }
-            (Some(false), _, Some(error)) => Outcome { code: EXIT_ERROR, stdout: Some(self.json(error)), stderr: None },
-            _ => Outcome::failed(EXIT_NO_ANSWER, format!("the game's answer is not one: {answer}")),
+            Ok(Err(error)) => Outcome { code: EXIT_ERROR, stdout: Some(self.json(&error)), stderr: None },
+            Err(why) => Outcome::failed(EXIT_NO_ANSWER, format!("the game's answer is {why}")),
         }
     }
 

@@ -11,7 +11,7 @@
 use crate::claim::{self, GameEnd, RunGame};
 use eu4_harmony_client::{
     game::counts_as_running,
-    pipe::{self, Failure},
+    pipe::{self, Failure, NoMainMenu},
 };
 use eu4_harmony_remote::{
     menu::{Menu, MenuRequest, Place},
@@ -144,24 +144,21 @@ impl Game {
     pub fn main_menu(&mut self) -> Played<()> {
         self.started()?;
         self.client = None;
-        let deadline = Instant::now() + self.menu_wait;
-        while Instant::now() < deadline {
+        let going_on = || {
             self.not_taken()?;
-            if self.gone() {
-                return Err(Stop::Crashed("the game ended on its way to the main menu".into()));
+            match self.gone() {
+                true => Err(Stop::Crashed("the game ended on its way to the main menu".into())),
+                false => Ok(()),
             }
-            let look = deadline.min(Instant::now() + Duration::from_secs(10));
-            if let Ok(mut client) = pipe::connect(&self.pipe.0, &self.pipe.1, look) {
-                if let Ok(Ok(menu)) = client.ask_for::<_, Menu>(&MenuRequest::State {}, Some(look)) {
-                    if menu.place == Place::MainMenu {
-                        self.client = Some(client);
-                        return Ok(());
-                    }
-                }
+        };
+        match pipe::main_menu(&self.pipe.0, &self.pipe.1, Instant::now() + self.menu_wait, going_on) {
+            Ok(client) => {
+                self.client = Some(client);
+                Ok(())
             }
-            std::thread::sleep(Duration::from_millis(200));
+            Err(NoMainMenu::Stopped(stop)) => Err(stop),
+            Err(NoMainMenu::TimedOut) => Err(Stop::Hung(format!("the main menu did not come up in {} s", self.menu_wait.as_secs()))),
         }
-        Err(Stop::Hung(format!("the main menu did not come up in {} s", self.menu_wait.as_secs())))
     }
 
     /// The main menu, from wherever the game is: started if it is not
