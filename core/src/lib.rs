@@ -196,7 +196,20 @@ fn open_fallback_log() {
     }
 }
 
+/// Logs every panic in framework code as it happens, with its thread and
+/// backtrace: one in a function the game calls cannot unwind into the game
+/// and ends it at once, with no crash folder and no fatal error to say why.
+fn log_panics() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        log!("panic on thread {} ({}): {info}\n{}", thread.name().unwrap_or("of the game's"), thread_id(), std::backtrace::Backtrace::force_capture());
+        default(info);
+    }));
+}
+
 fn bootstrap() -> Result<()> {
+    log_panics();
     MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
