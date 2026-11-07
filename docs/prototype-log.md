@@ -2258,6 +2258,17 @@ How often each of an AI country's agents thinks and what its thinks cost ([resea
 - **Not verified**: other years, a player's game; the trace's own cost in the times.
 - **Cleanup**: `dev.toml` deleted; the crash folder went into the claim's kept files and out of the user folder; the timing file (48 MB) deleted from the scratchpad and the claim's kept logs.
 
+## 2026-11-07 Two games at once (tested by me)
+
+Whether a second game runs beside the first ([research/several-games.md](research/several-games.md)). Master at `1d47fca`, the player build, one claim of 23 minutes; every game started hidden with `-suppresserrormessages`.
+
+- **The first game**: installed and started through the claim, from the game folder, with the player's user folder.
+- **The second game**: from a folder of the run's own on `E:`, a junction to each of the game folder's folders and copies of its files, with `userdir.txt` naming a user folder of the run's own (copies of the player's `settings.txt`, `dlc_load.json` and four small settings files, a junction to the player's `mod` folder) and `steam_appid.txt`. Its core and command line tool were built with the pipe `\\.\pipe\eu4-harmony-b`, not kept. Started while the first was at its main menu, it was not stopped by the instance check, reached its main menu in 33 to 39 s and answered remote control on its pipe while the first answered on its own; its playset's extension loaded. Its screenshot showed the game as the first draws it.
+- **DLCs**: the second game had 26 of 31 DLCs, with 17 lines "Could not find item in store backend" in `error.log`; the same with `SteamAppId` set instead of `steam_appid.txt`, and with the login cache copied. A third game started from the game folder with `-userdir` had all 31; it ran up to its DLCs and was ended. That third game's core wrote into the player's user folder, moving the first game's `core.log` aside.
+- **Two games in 1700**: both loaded `observer-1700.1.1.eu4` (10 and 17 s) and ran at speed 5, each alone and both together, in two rounds of 45 s after a first of 60 s; the figures are in the research. A game ran 4 to 8% slower beside the other; the second ran 15 to 20% slower than the first throughout. About 4.0 to 4.3 GB private memory and 1.3 to 1.4 GB of graphics memory each.
+- **Not verified**: a game from the game folder with `-userdir` driven through remote control; the player starting the game while a development game runs; the late game; more than two games; why the second game lost DLCs and ran slower.
+- **Cleanup**: the release put back the player's files and removed the save the run added; the game folder's framework files were as they were. The run's folder's junctions were removed one by one, the folders they led to found in place; removing the rest of the folder (1.3 GB) was left to the owner.
+
 ## 2026-11-08 What the main thread waits on, sampled (tested by me)
 
 `cargo xtask profile` sharing out the main thread's waits among the threads that ran ([dev-tools.md](dev-tools.md)), with the player build of master at `c201eac0` installed; one claim of 4 minutes, the game started hidden.
