@@ -95,6 +95,7 @@ extern "C" fn map_manager_going(frame: *mut HookFrame) {
             Ok(gone) => log!("repair: {gone} parts of the session's interface the map manager leaves were let go"),
             Err(e) => log!("repair: the session's interface was not let go: {e}"),
         }
+        super::panels::map_manager_going(manager);
         GONE.store(true, Ordering::Relaxed);
     });
 }

@@ -25,7 +25,7 @@ const LET_OUTLINER_GO: usize = 0x81dc30;
 /// and the framework as the map manager goes. `(map manager, window)`:
 /// takes a window off the map manager's windows.
 const UNIT_VIEW_DELETE: usize = 0x14719b0;
-const TAKE_WINDOW_OFF: usize = 0x6ecc80;
+pub(super) const TAKE_WINDOW_OFF: usize = 0x6ecc80;
 /// Where the unit view, making its selection's bar again, lets the old one
 /// go: off the map manager's windows, then killed.
 const SELECTION_BAR_MADE_AGAIN: usize = 0x1471540;
