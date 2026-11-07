@@ -69,9 +69,10 @@ client/                  remote control's pipe, asked with remote/'s request and
                          the hidden start; the backup and restore of the player's files
 cli/                     eu4-harmony game, start, reload, backup, restore: over client/
 xtask/src/
-  claim.rs               the claim, cargo xtask game; a run within a claim, from holding
-                         it to giving it back, which the runner plays in
-  scenario.rs            the runner: Steam, the builds, install, start, the outcomes,
+  claim.rs               the claims of test games, cargo xtask game; a run within a
+                         claim, from holding it to giving it back, which the runner
+                         plays in
+  scenario.rs            the runner: Steam, the builds, start, the outcomes,
                          the report
   scenario/game.rs       what a scenario is handed: ask, the main menu, days, events,
                          checks, figures, sections
@@ -79,14 +80,14 @@ xtask/src/
   scenario/perf.rs       perf
 ```
 
-The claim backs up and starts the game with `client/`, the library under the command line tool, not through the installed tool. A scenario asks its capabilities over one connection, typed, so a capability whose fields change fails to build the scenario instead of failing its run. xtask builds `remote/` with the memory group, which only developer builds answer.
+The claim starts its test game with `client/`, the library under the command line tool, not through the installed tool. A scenario asks its capabilities over one connection, typed, so a capability whose fields change fails to build the scenario instead of failing its run. xtask builds `remote/` with the memory group, which only developer builds answer.
 
 ## Parts
 
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried in the game, within a claim, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, in a claim's test game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
 - [dev-tools.md](dev-tools.md), and the game-test skill where it names a command, describe what changed.
 
 ### SC1 The client library
