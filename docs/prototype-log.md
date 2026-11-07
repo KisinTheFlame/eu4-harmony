@@ -2287,6 +2287,15 @@ What each round still left after the session's panels' windows went (research/ma
 - **With master's repairs each declaring their own points and counts merged**: two rounds of `growth` passed, no crash, and the world reset's log line said 496 and 498 modifiers and 144 entries at each return's clear, 60 entries at the in-game load's.
 - **Not verified**: a player opening the policies', the institutions', the disasters' or the diplomacy view's panels in a session, as the runs open none of them (their entries were the ones the session's build made); the estates' modifiers of the estates' setup in play (`0x37c730`), left as in vanilla; the textures' masks, which stay in slots freed (research/font-textures.md, "What still stays"), and what OpenSSL keeps, not followed.
 
+## 2026-11-08 How the claim's games ended (tested by me)
+
+`cargo xtask game watch` following each `eu4.exe` and `release` saying how each ended, by its exit code ([game-testing.md](game-testing.md)); one claim of 2 minutes, the player build of this branch installed, the games started hidden, `watch` running throughout.
+
+- **Runs**: three games. The first ended with `game stop`: exit code 1, seen by `watch` within its 5 s and said by `release` as ended by game stop. The second was ended from outside with `TerminateProcess` and the code `0xc0000374`, as Windows ends a game whose heap is corrupt: `watch` said `eu4.exe 46924 had ended by 04:26:44: heap corruption (exit code 0xc0000374)`, and `release` said it again and summed up "the game crashed", with no crash folder. The third was running at the release, which followed it before ending it and said its exit code 1. Each game was said once though `watch` and the release both saw the last.
+- **Why**: in the parallel army searches' runs the same day, the game ended at once three times with `0xc0000374`, heap corruption, which bypasses the game's crash handler: no crash folder, nothing in the logs, and the release said "the game did not crash".
+- **Not verified**: the exit code of a game that quits by itself (taken for 0: the console's `quit` answered `not_in_game` at the main menu), of the framework's fatal error (3, read from its code), and of a game ended by its own crash handler, which writes a crash folder; a real heap corruption seen through the claim rather than the code set from outside; a game that ends while no `watch` runs, which has no line.
+- **Cleanup**: the release put back the player's files and found the game folder's framework files as they were.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
