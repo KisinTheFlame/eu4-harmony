@@ -123,6 +123,10 @@ extern "C" fn outliner_going(frame: *mut HookFrame) {
     });
 }
 
+/// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
+/// nothing.
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+
 pub(super) fn points() -> Vec<Point> {
     vec![
         Point::observe(LET_OUTLINER_GO, "48 89 5c 24 08 57 48 83 ec 20 48 8b d9 48 8b 89 b0 04 00 00", "let the outliner go", 1, Some(outliner_going), None),

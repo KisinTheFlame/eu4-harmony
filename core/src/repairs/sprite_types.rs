@@ -50,6 +50,10 @@ unsafe extern "C" fn sprite_type_unloading(kind: usize) {
     }
 }
 
+/// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
+/// nothing.
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+
 pub(super) fn points() -> Vec<Point> {
     vec![
         // A sprite type unloaded with its group of graphics, which the main

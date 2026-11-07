@@ -2258,6 +2258,23 @@ How often each of an AI country's agents thinks and what its thinks cost ([resea
 - **Not verified**: other years, a player's game; the trace's own cost in the times.
 - **Cleanup**: `dev.toml` deleted; the crash folder went into the claim's kept files and out of the user folder; the timing file (48 MB) deleted from the scratchpad and the claim's kept logs.
 
+## 2026-11-08 What the main thread waits on, sampled (tested by me)
+
+`cargo xtask profile` sharing out the main thread's waits among the threads that ran ([dev-tools.md](dev-tools.md)), with the player build of master at `c201eac0` installed; one claim of 4 minutes, the game started hidden.
+
+- **Run**: the 1780.7.1 save loaded, observe mode, speed 5, `--threads --waiting-in 0x179e90 --slice 60` for 180 s: 2,935 days, 16.3 a second; 8,503 samples of the main thread (0.094 ms each) and 443,042 of the other threads (0.023 ms each). Half of what the main thread waited on in the AI stage was the armies' searches ([research/late-game.md](research/late-game.md), "What the main thread waits on in the AI stage").
+- **Not verified**: how near the shared-out wait comes to the stage's longest task; other years and saves; a vanilla game.
+- **Cleanup**: the release put back the player's files and found the game folder's framework files as they were; the profile's files deleted from the scratchpad.
+
+## 2026-11-08 A frame's events and the repairs' log line after their modules were deepened (tested by me)
+
+`cargo xtask scenario growth perf --growth.rounds 2 --perf.events day,month,year`, on the branch that moves what a frame heard into `game::frame` and lets each repair declare its own points and counts; one claim of about 8 minutes, the game started hidden.
+
+- **growth**, memory account, two rounds of the saves England-1 and 英格兰1444_11_11 and new games as FRA: passed, no crash. The world reset's log line came out with every counting repair's own part, one after another; after a new game it said 2,289 mercenary companies' leaders, 882 rebel factions, 774 agents, 28,697 sets of modifiers, 9,413 records of the first histories, 5 windows and 1,407 text boxes' animations let go, 5.2 MB of masks.
+- **perf**, player build, Ming at speed 5 for 120 s: passed; 1444.11.11 to 1450.2.22, and heard 1,928 `day`, 63 `month` and 6 `year` events, one a day, month and year the dates passed.
+- **Not verified**: the country in view's change in observe mode, wars heard on a new day, an in-game load's first frame with an extension listening; the four bad Lua arguments now refused, which only the tests try.
+- **Cleanup**: the release put back the player's files and found the game folder's framework files as they were; the report deleted from the scratchpad.
+
 ## 2026-11-08 The estates' modifiers, the message icon holders and the lists' entries let go (tested by me)
 
 What each round still left after the session's panels' windows went (research/main-menu.md, "The estates' modifiers", "The message icon holder", "The entries a list's kill leaves"), found with `cargo xtask scenario leak`: six rounds listing sixty sites and watching fifteen; then two experiment builds, not committed, tracing with `dev-call-trace` the signal's disconnecting of all (`0x1530150`), the list box's two ways of dropping its entries (`0x1530640`, `0x1532310`) and the list's (`0x163d760`), two and three rounds of `growth` each; then the repairs (`core/src/repairs/estates.rs`, `list_entries.rs`, `session_interface.rs`), two leak runs of five rounds with the quarantine and two of twenty rounds of `growth`. Every run within the runner's claim.
@@ -2267,6 +2284,7 @@ What each round still left after the session's panels' windows went (research/ma
 - **The first leak run with the repairs**: passed, nothing written to after it was let go, but every deleting of the entries ended at the first of the diplomacy view's shields: their destructor faulted at `0xef4956`, reading their window, which the list's kill had forgotten, and the framework, taking the fault, left the rest; 2 to 10 entries were deleted at each clear. The shields are destroyed as their destructors destroy them after that point since, and each entry on its own.
 - **The second leak run, five rounds with the quarantine**: passed; each round's return's clear deleted 497 to 503 estates' modifiers and 144 entries, the in-game load's 60; the quarantine kept 4,996 modifiers (0.5 MB), 1,248 entries (0.4 MB) and 1,635 blocks of the message icon holders (0.2 MB), and nothing it kept was written to. None of the sites above but the masks' and OpenSSL's were among the leftovers.
 - **Twice twenty rounds of `growth`**: both passed, no crash. Over rounds 2 to 20 the game's heap held 0.25 and 0.35 MB a round, against 0.44 and 0.62 before; the private bytes 3.0 and 7.0 MB a round, against 5.0 and 6.0, the heaps' unused pages 4.7 and 7.1 MB.
+- **With master's repairs each declaring their own points and counts merged**: two rounds of `growth` passed, no crash, and the world reset's log line said 496 and 498 modifiers and 144 entries at each return's clear, 60 entries at the in-game load's.
 - **Not verified**: a player opening the policies', the institutions', the disasters' or the diplomacy view's panels in a session, as the runs open none of them (their entries were the ones the session's build made); the estates' modifiers of the estates' setup in play (`0x37c730`), left as in vanilla; the textures' masks, which stay in slots freed (research/font-textures.md, "What still stays"), and what OpenSSL keeps, not followed.
 
 ## How the implementation differs from the final design

@@ -39,8 +39,21 @@ const MOST: usize = 1 << 20;
 
 /// What the repair deleted, and what it left as the second's too, for the
 /// log.
-pub(super) static DELETED: AtomicUsize = AtomicUsize::new(0);
-pub(super) static SHARED: AtomicUsize = AtomicUsize::new(0);
+static DELETED: AtomicUsize = AtomicUsize::new(0);
+static SHARED: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!(
+        "{} records and blocks of records the countries' first histories listed alone were deleted, {} kept as their second histories held some of what they held",
+        DELETED.swap(0, Ordering::Relaxed),
+        SHARED.swap(0, Ordering::Relaxed)
+    )
+}
 
 /// What a history lists, the nodes taken out left out.
 fn listed(m: &Memory, history: usize) -> crate::Result<Vec<usize>> {

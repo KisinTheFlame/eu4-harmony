@@ -66,7 +66,16 @@ const SHIELDS: [(usize, usize, &[usize]); 2] = [(0x1d3a778, 0x198, &[0x88, 0x68]
 /// had been as it began to wait.
 static WAITING: Mutex<Option<HashMap<usize, (usize, u32)>>> = Mutex::new(None);
 /// The entries deleted since the last world reset, for the log.
-pub(super) static DELETED: AtomicUsize = AtomicUsize::new(0);
+static DELETED: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!("{} entries the lists' kills left were deleted", DELETED.swap(0, Ordering::Relaxed))
+}
 
 fn waiting() -> std::sync::MutexGuard<'static, Option<HashMap<usize, (usize, u32)>>> {
     WAITING.lock().unwrap_or_else(|e| e.into_inner())

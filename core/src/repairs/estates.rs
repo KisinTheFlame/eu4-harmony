@@ -41,7 +41,16 @@ const MODIFIER_DELETE: usize = 0x7158b0;
 /// been as it began to wait.
 static WAITING: Mutex<Vec<(usize, u32)>> = Mutex::new(Vec::new());
 /// The modifiers deleted since the last world reset, for the log.
-pub(super) static DELETED: AtomicUsize = AtomicUsize::new(0);
+static DELETED: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!("{} modifiers the estates it cleared left were deleted", DELETED.swap(0, Ordering::Relaxed))
+}
 
 /// The world's clear begins: the modifiers that waited from before the last
 /// return are deleted, and those of the estates it is about to clear wait.
