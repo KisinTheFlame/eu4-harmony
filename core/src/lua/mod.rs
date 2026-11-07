@@ -17,7 +17,7 @@ use crate::{
     game::{self, interface, map_coloring, Caller},
     map,
     mods::DiscoveredMod,
-    notice::Message,
+    notice::{Message, Repeat},
     saves, ui,
 };
 use eu4_harmony_lua::{
@@ -174,9 +174,8 @@ impl Host for Live {
     fn first_error(&self, extension: &Extension, from: &str, message: &str) {
         // The player is told in a game the framework runs in.
         if crate::memory().is_some() {
-            let session = crate::sessions::number();
             log!("extension {:?}: error in {from}: {message}", extension.id());
-            crate::notice::post(&format!("errors:{}:{session}", extension.id()), Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
+            crate::notice::post(&format!("errors:{}", extension.id()), Repeat::Session, Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
         }
     }
 
@@ -185,7 +184,11 @@ impl Host for Live {
         ui::hide_extension(extension.index());
         if let Some(m) = crate::memory() {
             map::release(m, extension.index());
-            crate::notice::post(&format!("stopped:{}", extension.id()), Message::new("EU4HARMONY_STOPPED").arg("MOD", extension.name()).arg("DETAIL", reason));
+            crate::notice::post(
+                &format!("stopped:{}", extension.id()),
+                Repeat::Run,
+                Message::new("EU4HARMONY_STOPPED").arg("MOD", extension.name()).arg("DETAIL", reason),
+            );
         }
     }
 }
@@ -256,7 +259,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
                 outcomes.push(LoadOutcome { included: false, status: format!("extension NOT loaded: {e}") });
                 // An unsupported executable has its own notice.
                 if supported {
-                    crate::notice::post(&format!("load:{}", m.manifest.id), not_loaded(m, &e));
+                    crate::notice::post(&format!("load:{}", m.manifest.id), Repeat::Run, not_loaded(m, &e));
                 }
             }
         }

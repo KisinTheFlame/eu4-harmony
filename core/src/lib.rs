@@ -291,7 +291,7 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
     for (font, role) in chosen.missing_fonts(installed) {
         let default = settings::default_face(chosen.language(), role, installed).family;
         log!("settings: the font {font:?} is not installed; {default} draws instead");
-        notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
+        notice::post(&format!("font:{font}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
     }
     for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
@@ -316,14 +316,14 @@ fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec
     for note in &notes {
         log!("discovery: {}", note.text);
         if let Some(message) = &note.notice {
-            notice::post(&format!("skipped:{}", note.text), message.clone());
+            notice::post(&format!("skipped:{}", note.text), notice::Repeat::Run, message.clone());
         }
     }
     // Lets the notice window be tried without a broken mod.
     #[cfg(feature = "dev-test-switches")]
     if dev::options().test_switches.test_notice {
         for number in ["1", "2"] {
-            notice::post(&format!("test:{number}"), notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
+            notice::post(&format!("test:{number}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
         }
     }
     for m in &mods {
