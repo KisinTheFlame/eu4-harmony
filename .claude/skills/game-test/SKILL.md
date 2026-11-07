@@ -1,45 +1,35 @@
 ---
 name: game-test
-description: Claim the game before trying anything in it, start it hidden, hold it only for the minutes it is in use, and release it after, which puts back the player's files and the game folder's framework files. Use before installing into the game folder (cargo xtask install), starting eu4.exe, playing scenarios (cargo xtask scenario), or sending the running game input, screenshots or remote-control commands.
+description: Claim a test game of your own before trying anything in the game, start it hidden, ask it on its own pipe, and release it after, which keeps its logs and removes the rest. Use before starting eu4.exe, playing scenarios (cargo xtask scenario), sending the game input, screenshots or remote-control commands, or installing into the game folder (cargo xtask install).
 ---
 
 # Trying things in the game
 
-Every session on this computer, whatever its checkout, shares one game: its folder, eu4.exe and the player's files. One holder has it at a time: the claim (GLOSSARY). `cargo xtask game` keeps it, one record for the whole computer; run it from your own checkout. The game is started hidden and silent, so nothing of it reaches the desktop or the speakers of the person at the computer, unless the user asks to see or hear it.
-
-## Hold the game only while you use it
-
-While you hold the game, every other session and the player wait for it, however little the game is doing. Hold it for the minutes of the run, not the hours of the work around it:
-
-- **Be ready before you claim.** Everything built, and the run planned: what to install, what to try and in what order, what to copy out. Building, unit tests and reading code need no claim; claim when the next command is `cargo xtask install` or `game start`.
-- **One claim, one run.** Try everything you planned, then release. Do not keep the game for whatever comes up next.
-- **Release before you think it over.** Reading the logs, finding the cause, a fix, a rebuild, writing the prototype log: all after the release, from `kept\` (step 5). When the next use of the game is more than about ten minutes away, or anyone waits in the queue (`cargo xtask game status`), release and claim again when you are ready. Holding on is only for a quick fix and retry with no one waiting.
-- **Never wait on the user holding the game.** Before you ask the user something, or end a turn that no background command of the run will wake you from, release. `watch` keeps the lease going while the game runs so that a run in progress is not cut short, not so that an idle holder keeps the game.
-- **Renew only to finish.** `renew` is for a run still going that needs the minutes; a `--lease` longer than 30 minutes only for a run known to take longer.
+Every session on this computer tries things in a test game of its own (GLOSSARY): a game started from the one game folder with a user folder, a core and a remote control pipe of its own. It touches neither the player's files nor the framework installed in the game folder, and up to three run at once; a claim holds one. `cargo xtask game` keeps the claims, one record for the whole computer; run it from your own checkout. The test game starts hidden and silent, so nothing of it reaches the desktop or the speakers of the person at the computer, unless the user asks to see or hear it.
 
 ## Steps
 
-1. **Do the work that needs no game first**: build, unit tests, reading code, the run's plan (above).
-2. **Claim**: `cargo xtask game claim --purpose "<one line: what this run tests>"`. It backs up the player's files and copies the game folder's framework files, and prints the claim's folder.
-   - Exit 0: you hold the game. Start `cargo xtask game watch` as a background command at once: it is what wakes you (step 4), and only while it runs does the game running keep your lease going.
-   - Exit 2: busy, the output says who holds it. Run the same command with `--wait` as a background command, carry on with work that needs no game, and end the turn once that is done. It joins the queue, first come first served, and exits once you hold the game; start `watch` then, as for exit 0.
-   - "took over from …": the previous holder let its lease run out, and the claim put back what its run changed first. Tell the user who it was.
-   - "not claimed: …" (exit 1): the game is free again, with no claim of yours. Claim once more; failing the same way, show the user the error.
-3. **Use the game**: `cargo xtask install` (it needs the claim), then `cargo xtask game start`, which starts the game hidden and returns at its main menu; `cargo xtask game stop` ends it. `cargo xtask scenario` claims, starts and releases the game itself, and within a claim of yours plays in it and leaves it held. Drive the game with `eu4-harmony game …` (`screenshot`, `input`, the capabilities); never start `eu4.exe` any other way.
-4. **When `watch` exits**:
-   - 3: the lease (30 minutes, kept going while the game runs and `watch` does) ends in 5 minutes. Still using the game, its run not finished: `cargo xtask game renew`, then start `watch` again. Done, waiting on the user, or with the next use of the game ten minutes away or more: release (step 6), so the next in the queue gets the game.
-   - 4: the player takes the game, in two minutes. Stop using it, copy what you need from the user folder's logs if anything, and do not release: the player's claim ends the game and releases yours. Your run is unfinished; say so where you record it.
-   - 0: you no longer hold the game.
-5. **Keep what the run produced**: release copies the framework's logs, the game's logs and the run's crash folders into the claim's `kept\`, which it prints and keeps for seven days. Read them there after the release, not with the game held, and copy what you need for longer to your scratchpad. `--keep-crashes` leaves the crash folders in the user folder too.
-6. **Release**: `cargo xtask game release`. It ends the game if it runs, puts back the player's files and the game folder's framework files and `dev.toml`, compares each, and frees the game. It says how each game the claim followed ended (an exit code that is not 0 or 1, such as `heap corruption`, is a crash, though it leaves no crash folder), so keep `watch` running while the game does. On a `NOT RESTORED` line it keeps the claim and stops: show the user those lines.
+1. **Build first, with the test games' pipes**: `cargo build --release --features eu4-harmony-core/dev-test-games`, with any other `dev-*` feature the run needs (`--features eu4-harmony-core/dev-test-games,eu4-harmony-core/dev-memory`). Without it `game start` refuses the core. Plan the run too: what to try, which saves it loads.
+2. **Claim**: `cargo xtask game claim --purpose "<one line: what this run tests>"`. It makes the claim's folder, with the test game's user folder copied from the player's settings and playset, and prints it.
+   - Exit 0: the test game is yours.
+   - Exit 2: every test game is held, or others wait first. Run the same command with `--wait` as a background command, carry on with work that needs no game, and end the turn once that is done: it joins the queue and exits once you hold one.
+   - "taking the test game of …": a holder whose lease had run out lost it to you. Tell the user who it was.
+   - Refused because the game folder's proxy cannot load a test game's core: the installed framework is from before test games. Tell the user; installing is theirs to decide (below).
+3. **Start**: `cargo xtask game start --save <name>`, a `--save` for each of the player's saves the run loads, by its name as `menu.saves` gives it. It copies your built core and `dev.toml` into the test game and starts it hidden, returning at its main menu; `cargo xtask game stop` ends it, and a rebuild before the next `start` is taken up then.
+4. **Use it**: ask your test game, never the player's: `eu4-harmony game --test-game <owner> …` (`screenshot`, `input`, the capabilities), or set `EU4_HARMONY_TEST_GAME=<owner>` for every call; `claim` prints the line to use. `cargo xtask scenario` claims, starts and releases a test game itself, and within a claim of yours plays in it and leaves it held. `cargo xtask profile --test-game <owner>` samples it. Never start `eu4.exe` any other way.
+5. **Release**: `cargo xtask game release`. It ends the test game, keeps its framework logs, game logs and crash folders in the claim's `kept\`, which it prints and keeps for seven days, says how each of its games ended (an exit code that is not 0 or 1, such as `heap corruption`, is a crash, though it leaves no crash folder), and removes the rest. Read the results there, and copy what you need for longer to your scratchpad.
 
-Done when `release` reports `released` and `cargo xtask game status` lists no claim's folder or backup of yours. The release's summary says how long the claim was held: little more than the minutes the game was used is right.
+Done when `release` reports `released` and `cargo xtask game status` lists no folder of yours.
+
+## The lease
+
+Every `cargo xtask game` command of yours starts the lease again (30 minutes, or `claim --lease <minutes>`), and the scenario runner keeps it going while it plays. Once it has run out you keep the test game until a claim waits with none free; that claim then takes yours, ending its game. So release when you are done, and before you wait on the user for long.
 
 ## Reference
 
-- **Owner**: the leaf name of your checkout's folder, unless `--owner` names another. Sessions sharing one checkout each pass their own `--owner`, to every command.
-- **Options**: `claim --lease <minutes>` sets the lease (30 without it); `game start --timeout <seconds>` waits longer than 300 s for the main menu; `game start --visible` shows the window at the main menu and `--sound` keeps the sound, each only when the user asks to watch or hear the game (`eu4-harmony game desktop hide` hides it again); `watch --warn <minutes>` exits that long before the lease's end (5); `--game-dir` names a game folder other than the one found.
-- **Status**: `cargo xtask game status` prints the holder, its purpose and lease, the queue, whether eu4.exe runs, and claims' folders and backups no claim refers to.
-- **eu4.exe running with no claim** means the player is playing; a claim waits for the game to close.
-- **The player** claims with `cargo xtask game claim --player`, which keeps their files as they play and goes first in the queue, and `--now` to take the game from its holder after two minutes; they release with `cargo xtask game release --player`. A session never claims as the player.
-- The record is `%LOCALAPPDATA%\eu4-harmony-dev\game-lock.json`, the queue `game-queue.json` beside it, the claims' folders under `claims\`. The design is [docs/game-testing.md](../../../docs/game-testing.md).
+- **Owner**: the leaf name of your checkout's folder, unless `--owner` names another; it names your test game and its pipe, `\\.\pipe\eu4-harmony-<owner>`. Sessions sharing one checkout each pass their own `--owner`, to every command.
+- **Options**: `game start --timeout <seconds>` waits longer than 300 s for the main menu; `game start --visible` shows the window at the main menu and `--sound` keeps the sound, each only when the user asks to watch or hear the game (`eu4-harmony game --test-game <owner> desktop hide` hides it again); `--seed <n>` passes the game its own `-seed`; `--game-dir` names a game folder other than the one found.
+- **Status**: `cargo xtask game status` prints each test game's holder, purpose, lease and process, the queue, the `eu4.exe` that are no test game's (the player's, or an older checkout's), and folders no claim refers to.
+- **The player** plays from Steam as always, beside the test games: their game is no claim's, and no command ends it.
+- **Installing into the game folder** (`cargo xtask install`) changes the player's own framework, and is refused while any `eu4.exe` runs, test games included: do it only when the user asks.
+- The record is `%LOCALAPPDATA%\eu4-harmony-dev\claims.json`, the claims' folders under `claims\`; `game-lock.json` beside it names `test-games` while any is held, so that checkouts from before test games wait. The design is [docs/test-games.md](../../../docs/test-games.md).

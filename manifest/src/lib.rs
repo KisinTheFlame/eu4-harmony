@@ -176,14 +176,77 @@ pub fn descriptor_entry(line: &str) -> Option<(&str, &str)> {
 }
 
 /// The game's user directory, where it keeps saves, settings and the `.mod`
-/// descriptors in `mod\`, as the game itself decides it: the folder
-/// `userdir.txt` in the game folder names, and otherwise
-/// `Documents\Paradox Interactive\Europa Universalis IV`.
+/// descriptors in `mod\`, as the game itself decides it for a start without
+/// `-userdir`: the folder `userdir.txt` in the game folder names, and
+/// otherwise `Documents\Paradox Interactive\Europa Universalis IV`.
 pub fn user_dir(game_dir: Option<&Path>) -> Result<PathBuf, String> {
     match game_dir.and_then(named_user_dir) {
         Some(dir) => Ok(dir),
         None => Ok(documents()?.join("Paradox Interactive").join("Europa Universalis IV")),
     }
+}
+
+/// The user directory of the game started with `command_line`: the folder
+/// its `-userdir=` names, as the game takes it before `userdir.txt`, relative
+/// to the game folder when it is not absolute; else [`user_dir`].
+pub fn user_dir_of(command_line: &str, game_dir: Option<&Path>) -> Result<PathBuf, String> {
+    match switch_value(command_line, "-userdir").filter(|v| !v.is_empty()) {
+        Some(named) => {
+            let path = PathBuf::from(named);
+            Ok(match game_dir {
+                Some(game) if !path.is_absolute() => game.join(path),
+                _ => path,
+            })
+        }
+        None => user_dir(game_dir),
+    }
+}
+
+/// The words of a Windows command line, split at spaces and tabs outside
+/// double quotes, with the quotes left out. Backslashes are taken as they
+/// are, which is all a path needs.
+pub fn command_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let (mut quoted, mut any) = (false, false);
+    for c in line.chars() {
+        match c {
+            '"' => (quoted, any) = (!quoted, true),
+            ' ' | '\t' if !quoted => {
+                if any {
+                    words.push(std::mem::take(&mut word));
+                }
+                any = false;
+            }
+            _ => {
+                word.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        words.push(word);
+    }
+    words
+}
+
+/// The value of the switch `name=value` among a command line's words, the
+/// name in any case and with one dash or two, the last one when it is there
+/// more than once. The game restarting, as a return to the main menu with
+/// the in-process return off does, writes every switch again as
+/// `--name="value"`.
+pub fn switch_value(line: &str, name: &str) -> Option<String> {
+    command_words(line).into_iter().rev().find_map(|word| {
+        let (switch, value) = word.split_once('=')?;
+        same_switch(switch, name).then(|| value.to_string())
+    })
+}
+
+/// Whether the word `switch` is the switch `name`: in any case, with one
+/// dash or two.
+pub fn same_switch(switch: &str, name: &str) -> bool {
+    let bare = |s: &str| s.strip_prefix("--").or_else(|| s.strip_prefix('-')).map(str::to_ascii_lowercase);
+    bare(switch).is_some_and(|s| Some(s) == bare(name))
 }
 
 /// The folder `userdir.txt` in the game folder names, absolute or relative to
@@ -357,5 +420,39 @@ permissions = { network = [\"https://x.com\"] }"
         assert_eq!(descriptor_entry(r#" path = "D:/m" "#), Some(("path", "D:/m")));
         assert_eq!(descriptor_entry("tags={"), Some(("tags", "{")));
         assert_eq!(descriptor_entry("}"), None);
+    }
+
+    #[test]
+    fn a_command_line_s_words_and_switches() {
+        let line = r#""E:\Steam\Europa Universalis IV\eu4.exe" -harmony_hidden "-harmony_core=C:\a b\core.dll"  -USERDIR=D:\u -seed=3"#;
+        assert_eq!(
+            command_words(line),
+            [r"E:\Steam\Europa Universalis IV\eu4.exe", "-harmony_hidden", r"-harmony_core=C:\a b\core.dll", r"-USERDIR=D:\u", "-seed=3"]
+        );
+        assert_eq!(switch_value(line, "-harmony_core").as_deref(), Some(r"C:\a b\core.dll"));
+        assert_eq!(switch_value(line, "-userdir").as_deref(), Some(r"D:\u"));
+        assert_eq!(switch_value(line, "-harmony_hidden"), None);
+        assert_eq!(switch_value("eu4.exe -seed=1 -seed=2", "-seed").as_deref(), Some("2"));
+        assert_eq!(command_words(r#"a "" b"#), ["a", "", "b"]);
+    }
+
+    /// The command line the game makes as it restarts itself.
+    #[test]
+    fn a_switch_is_read_as_the_restarted_game_writes_it_again() {
+        let line = r#"--E:\Steam\eu4.exe --harmony_core="E:\claims\a\core\eu4_harmony_core.dll" --harmony_hidden --harmony_test_game="a" --userdir="E:\claims\a\user" -skiplauncher"#;
+        assert_eq!(switch_value(line, "-harmony_core").as_deref(), Some(r"E:\claims\a\core\eu4_harmony_core.dll"));
+        assert_eq!(switch_value(line, "-harmony_test_game").as_deref(), Some("a"));
+        assert_eq!(switch_value(line, "-userdir").as_deref(), Some(r"E:\claims\a\user"));
+        assert!(same_switch("--harmony_hidden", "-harmony_hidden") && same_switch("-HARMONY_HIDDEN", "-harmony_hidden"));
+        assert!(!same_switch("harmony_hidden", "-harmony_hidden") && !same_switch("---harmony_hidden", "-harmony_hidden"));
+    }
+
+    #[test]
+    fn the_user_folder_is_the_one_userdir_names_first() {
+        let game = Path::new(r"E:\game");
+        assert_eq!(user_dir_of(r"eu4.exe -userdir=D:\u", Some(game)).unwrap(), Path::new(r"D:\u"));
+        assert_eq!(user_dir_of("eu4.exe -userdir=u", Some(game)).unwrap(), Path::new(r"E:\game\u"));
+        assert_eq!(user_dir_of("eu4.exe -userdir=", Some(game)).unwrap(), user_dir(Some(game)).unwrap());
+        assert_eq!(user_dir_of("eu4.exe", Some(game)).unwrap(), user_dir(Some(game)).unwrap());
     }
 }

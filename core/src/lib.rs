@@ -161,7 +161,7 @@ fn start(m: memory::Memory) -> Result<String> {
     let baseline = baseline::recognize(&m)?;
     icu::load()?;
     #[cfg(dev_build)]
-    dev::load(GAME_DIR.get().map_or(std::path::Path::new(""), |d| d.as_path()))?;
+    dev::load(&paths::core_dir()?)?;
     #[cfg(feature = "dev-test-switches")]
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
@@ -394,6 +394,9 @@ pub(crate) fn deferred_init() {
     let logs = open_logs(&user_dir);
     report_header(Some(&game_dir));
     report::line(format!("user dir: {}", user_dir.display()));
+    if let Some(game) = pipe::test_game() {
+        report::line(format!("test game {game}: remote control on {}", pipe::name()));
+    }
     log!("user dir {}", user_dir.display());
     let chosen = settings::load(&user_dir);
     let language = lang::decide(&user_dir, chosen.language);

@@ -44,6 +44,23 @@ pub const API_VERSION: &str = "0.3";
 /// one response per line out.
 pub const PIPE: &str = r"\\.\pipe\eu4-harmony";
 
+/// The pipe a test game serves remote control on, the game started with
+/// `-harmony_test_game=<name>` by a developer build that has the test games'
+/// pipes (docs/test-games.md): [`PIPE`] and `-<name>`; [`PIPE`] itself
+/// without a name. A name is letters, digits, `.`, `_` and `-`, 64 at most.
+pub fn pipe_of(test_game: Option<&str>) -> Result<String, String> {
+    match test_game {
+        None => Ok(PIPE.to_string()),
+        Some(name) if test_game_name(name) => Ok(format!("{PIPE}-{name}")),
+        Some(name) => Err(format!("{name:?} is not a test game's name: letters, digits, '.', '_' and '-', 64 at most")),
+    }
+}
+
+/// Whether `name` may name a test game.
+pub fn test_game_name(name: &str) -> bool {
+    (1..=64).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
 /// Whether a capability runs only while a game is going on.
 macro_rules! in_game {
     (game) => {

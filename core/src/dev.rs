@@ -1,9 +1,11 @@
 //! A developer build: which development tools are built in, each a feature of
 //! its own (`dev-call-trace`, `dev-memory`, `dev-heap-census`,
-//! `dev-command-log`, `dev-test-switches`, `dev-write-watch`), and their options. A tool built in is on; its
-//! options are in `eu4-harmony\dev.toml` in the game folder, one section a
-//! tool, and a section left out takes its defaults (`core/dev.toml.example`
-//! shows them all). A player's build has none of this.
+//! `dev-command-log`, `dev-test-switches`, `dev-write-watch`,
+//! `dev-test-games`), and their options. A tool built in is on; its options
+//! are in `dev.toml` beside the core, `eu4-harmony\dev.toml` in the game
+//! folder or a test game's own, one section a tool, and a section left out
+//! takes its defaults (`core/dev.toml.example` shows them all). A player's
+//! build has none of this.
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -11,13 +13,14 @@ use std::sync::OnceLock;
 
 /// The tools: each one's name, its section in dev.toml, and whether it is
 /// built in.
-const TOOLS: [(&str, &str, bool); 6] = [
+const TOOLS: [(&str, &str, bool); 7] = [
     ("call trace", "call-trace", cfg!(feature = "dev-call-trace")),
     ("memory account", "memory-account", cfg!(feature = "dev-memory")),
     ("heap census", "heap-census", cfg!(feature = "dev-heap-census")),
     ("command log", "command-log", cfg!(feature = "dev-command-log")),
     ("test switches", "test-switches", cfg!(feature = "dev-test-switches")),
     ("write watch", "write-watch", cfg!(feature = "dev-write-watch")),
+    ("test games' pipes", "test-games", cfg!(feature = "dev-test-games")),
 ];
 
 /// What dev.toml says.
@@ -30,6 +33,7 @@ pub struct Options {
     pub command_log: CommandLog,
     pub test_switches: TestSwitches,
     pub write_watch: WriteWatch,
+    pub test_games: TestGames,
     /// The sections dev.toml has, to tell those of tools not built in.
     #[serde(skip)]
     sections: Vec<String>,
@@ -70,6 +74,12 @@ pub struct MemoryAccount {}
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HeapCensus {}
+
+/// The test games' pipes have no options: the pipe is the one
+/// `-harmony_test_game` names (src/pipe.rs).
+#[derive(Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TestGames {}
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -218,6 +228,9 @@ impl Options {
                 false => format!("write watch: {}, its first {} call(s) on the main thread", watch.function, watch.calls),
             });
         }
+        if built("test-games") {
+            lines.push("test games' pipes: the pipe is the test game's own when -harmony_test_game names it".to_string());
+        }
         for (name, section, built) in TOOLS {
             if !built && self.sections.iter().any(|s| s == section) {
                 lines.push(format!("{name}: not built in, so [{section}] is not used"));
@@ -238,10 +251,11 @@ pub fn build() -> String {
     format!("developer build with {}", built.join(", "))
 }
 
-/// Reads `eu4-harmony\dev.toml` in the game folder; with no such file every
-/// tool takes its defaults. A file that cannot be read fails startup.
-pub fn load(game_dir: &Path) -> crate::Result<()> {
-    let path = game_dir.join("eu4-harmony").join("dev.toml");
+/// Reads `dev.toml` beside the core, in `eu4-harmony\` in the game folder or
+/// in a test game's own folder; with no such file every tool takes its
+/// defaults. A file that cannot be read fails startup.
+pub fn load(core_dir: &Path) -> crate::Result<()> {
+    let path = core_dir.join("dev.toml");
     let (options, source) = match std::fs::read_to_string(&path) {
         Ok(text) => (Options::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?, path.display().to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Options::default(), format!("defaults, no {}", path.display())),
