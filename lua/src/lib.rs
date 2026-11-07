@@ -236,6 +236,40 @@ fn current_task() -> Option<Thread> {
     TASK.with(|t| t.borrow().clone())
 }
 
+/// Every Lua file under the `lua/` of the mod's `eu4-harmony/` folder
+/// `harmony`, in name order, compiled as [`open`] and `require` load them,
+/// without running any; and each that does not compile, or read, with why.
+pub fn compile(harmony: &std::path::Path) -> (Vec<PathBuf>, Vec<String>) {
+    fn walk(dir: &std::path::Path, found: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.extension().is_some_and(|x| x == "lua") {
+                found.push(path);
+            }
+        }
+    }
+    let modules = harmony.join("lua");
+    let mut scripts = Vec::new();
+    walk(&modules, &mut scripts);
+    scripts.sort();
+    let lua = Lua::new();
+    let mut problems = Vec::new();
+    for path in &scripts {
+        let file = path.strip_prefix(&modules).unwrap_or(path).to_string_lossy().replace('\\', "/");
+        match std::fs::read(path) {
+            Ok(source) => {
+                if let Err(e) = sandbox::chunk(&lua, source, &file).into_function() {
+                    problems.push(e.to_string());
+                }
+            }
+            Err(e) => problems.push(format!("{file}: {e}")),
+        }
+    }
+    (scripts, problems)
+}
+
 /// Opens the extension of `m` as the `index`th of `host`: its Lua state made
 /// in the sandbox and its `main.lua` run.
 pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>, String> {
@@ -247,7 +281,7 @@ pub fn open(index: usize, m: &Mod, host: Arc<dyn Host>) -> Result<Arc<Extension>
     // main.lua runs as a plain call: it cannot wait, and the time limit
     // holds for it too.
     watch::start(opened.main_state, None);
-    let ran = opened.lua.load(source).set_name("@main.lua").set_mode(mlua::ChunkMode::Text).eval::<LuaValue>();
+    let ran = sandbox::chunk(&opened.lua, source, "main.lua").eval::<LuaValue>();
     let stopped = watch::end();
     let handlers = match ran.map_err(|e| e.to_string())? {
         LuaValue::Table(t) => t,

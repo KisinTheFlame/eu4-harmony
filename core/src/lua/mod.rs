@@ -220,8 +220,8 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
         };
         let result = if !supported {
             Err("the game executable is not supported, so no extension can run".to_string())
-        } else if !m.manifest.built_for(eu4_harmony_remote::API_VERSION) {
-            Err(format!("written for api_version {}, this EU4 Harmony provides {}", m.manifest.api_version, eu4_harmony_remote::API_VERSION))
+        } else if let Some(why) = m.manifest.unsupported(eu4_harmony_remote::API_VERSION) {
+            Err(why)
         } else {
             // The last start's log is kept beside it; this start's begins
             // before main.lua runs, which may write to it already.
@@ -297,18 +297,16 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
         (i, o.name.clone(), o.dir.clone(), o.permissions.clone(), o.data.clone())
     };
     let harmony = dir.join("eu4-harmony");
-    let manifest_file = harmony.join(eu4_harmony_manifest::FILE);
-    let manifest = std::fs::read_to_string(&manifest_file).map_err(|e| e.to_string()).and_then(|t| eu4_harmony_manifest::Manifest::parse(&t));
     let rejected = |message: String| game::Fail { status: game::Status::Rejected, message };
-    let manifest = manifest.map_err(|e| rejected(format!("{}: {e}", manifest_file.display())))?;
+    let manifest = eu4_harmony_manifest::HarmonyMod::read(&dir).map_err(rejected)?.manifest;
     if manifest.id != id {
         return Err(rejected(format!("the manifest's id is now {:?}; a changed id takes a restart of the game", manifest.id)));
     }
     if manifest.permissions != permissions {
         return Err(rejected("the manifest's permissions changed; the player saw them as they were, and they change only with a restart of the game".into()));
     }
-    if !manifest.built_for(eu4_harmony_remote::API_VERSION) {
-        return Err(rejected(format!("written for api_version {}, this EU4 Harmony provides {}", manifest.api_version, eu4_harmony_remote::API_VERSION)));
+    if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
+        return Err(rejected(why));
     }
     let opening = Mod { id, name: &name, harmony: harmony.clone(), permissions: &permissions, data: Some(data) };
     let new = eu4_harmony_lua::open(index, &opening, host).map_err(|e| rejected(format!("the new code did not load, and the old goes on: {e}")))?;

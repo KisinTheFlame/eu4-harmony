@@ -164,8 +164,7 @@ pub fn open(at: &Opening) -> mlua::Result<Opened> {
             }
             let file = module_file(&modules, &name).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {e}")))?;
             let source = std::fs::read_to_string(&file).map_err(|e| mlua::Error::runtime(format!("require {name:?}: {e}")))?;
-            let chunk = format!("@{}.lua", name.replace('.', "/"));
-            let module = lua.load(source).set_name(chunk).set_mode(mlua::ChunkMode::Text).call::<LuaValue>(name.as_str())?;
+            let module = chunk(lua, source, &format!("{}.lua", name.replace('.', "/"))).call::<LuaValue>(name.as_str())?;
             let module = if module.is_nil() { LuaValue::Boolean(true) } else { module };
             loaded.set(name.as_str(), module.clone())?;
             Ok(module)
@@ -293,6 +292,12 @@ fn file_name(name: &str) -> bool {
         && !name.ends_with(['.', ' '])
         && !name.chars().any(|c| c.is_control() || r#"<>:"\|?*"#.contains(c))
         && !DEVICES.contains(&stem.as_str())
+}
+
+/// The Lua file `file` of the mod's `lua/` (`range/bfs.lua`), as the host
+/// loads it: as text, never bytecode, named by that path.
+pub(crate) fn chunk<'a>(lua: &'a Lua, source: impl mlua::AsChunk + 'a, file: &str) -> mlua::Chunk<'a> {
+    lua.load(source).set_name(format!("@{file}")).set_mode(mlua::ChunkMode::Text)
 }
 
 /// The file of the module `name` (`range.bfs` is `range/bfs.lua`) under the

@@ -17,7 +17,7 @@ struct DlcLoad {
     enabled_mods: Vec<String>,
 }
 
-pub use eu4_harmony_manifest::{Layout, Manifest, Permissions, UiFragment};
+pub use eu4_harmony_manifest::{HarmonyMod, Layout, Manifest, Permissions, UiFragment};
 
 #[derive(Debug)]
 pub struct Descriptor {
@@ -120,12 +120,11 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
             }
             continue;
         };
-        let manifest_file = dir.join("eu4-harmony").join(eu4_harmony_manifest::FILE);
-        if !manifest_file.is_file() {
+        if !eu4_harmony_manifest::is_harmony(&dir) {
             continue;
         }
-        let manifest: Manifest = match std::fs::read_to_string(&manifest_file).map_err(|e| e.to_string()).and_then(|t| Manifest::parse(&t)) {
-            Ok(m) => m,
+        let HarmonyMod { manifest, layout } = match HarmonyMod::read(&dir) {
+            Ok(read) => read,
             Err(e) => {
                 let notice = Message::new("EU4HARMONY_SKIPPED_MANIFEST").arg("MOD", &descriptor.name).arg("DETAIL", &e);
                 notes.push(Skipped { text: format!("{}: bad manifest: {e}", descriptor.name), notice: Some(notice) });
@@ -140,7 +139,6 @@ pub fn discover(user_dir: &Path) -> Result<(Vec<DiscoveredMod>, Vec<Skipped>)> {
             });
             continue;
         }
-        let layout = eu4_harmony_manifest::layout(&dir.join("eu4-harmony"));
         mods.push(DiscoveredMod { descriptor_file, descriptor, dir, manifest, layout });
     }
     Ok((mods, notes))
