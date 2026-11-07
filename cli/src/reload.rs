@@ -2,7 +2,10 @@
 //! through remote control (docs/extension-reload.md), once, or whenever a
 //! file of its code or texts changes.
 use crate::pipe;
-use serde_json::{json, Value};
+use eu4_harmony_remote::{
+    extensions::{ExtensionRequest, Reloaded},
+    Error,
+};
 use std::{
     collections::BTreeMap,
     fs,
@@ -20,27 +23,21 @@ const SETTLE: Duration = Duration::from_millis(400);
 /// Reloads the mod `id`'s extension in the game serving the pipe `name`;
 /// what came of it, as a line to print.
 pub fn once(id: &str, name: &str) -> Result<String, String> {
-    let request = json!({"capability": "extension.reload", "id": id}).to_string();
     let started = Instant::now();
     let answer = pipe::connect(name, pipe::GAME, started + PIPE_WAIT)
-        .and_then(|mut client| client.ask(&request, None))
+        .and_then(|mut client| client.ask_for(&ExtensionRequest::Reload { id: id.into() }, None))
         .map_err(|f| format!("{f}; is the game running?"))?;
-    said(id, &answer)
+    said(id, answer)
 }
 
-/// The line for the game's answer to a reload.
-fn said(id: &str, answer: &str) -> Result<String, String> {
-    let response: Value = serde_json::from_str(answer).map_err(|e| format!("the game's answer is not JSON ({e}): {answer}"))?;
-    if response["ok"] == true {
-        let result = &response["result"];
-        return Ok(match (result["session"].as_bool(), result["lost"].as_str()) {
-            (Some(true), None) => format!("reloaded {id}; on_session got what save_data gave"),
-            (Some(true), Some(lost)) => format!("reloaded {id}; on_session got nil: {lost}"),
-            _ => format!("reloaded {id}; no session is going on, so on_session comes with the next"),
-        });
-    }
-    let error = &response["error"];
-    Err(format!("{} ({})", error["message"].as_str().unwrap_or(answer), error["code"].as_str().unwrap_or("error")))
+/// The line for what a reload came to.
+fn said(id: &str, answer: Result<Reloaded, Error>) -> Result<String, String> {
+    let reloaded = answer.map_err(|error| format!("{} ({})", error.message, error.code.name()))?;
+    Ok(match (reloaded.session, reloaded.lost) {
+        (true, None) => format!("reloaded {id}; on_session got what save_data gave"),
+        (true, Some(lost)) => format!("reloaded {id}; on_session got nil: {lost}"),
+        (false, _) => format!("reloaded {id}; no session is going on, so on_session comes with the next"),
+    })
 }
 
 /// The files a reload takes up: the code and the texts.
@@ -117,11 +114,11 @@ mod tests {
 
     #[test]
     fn the_answer_says_what_the_reload_came_to() {
-        let ok = |result: &str| said("rc", &format!("{{\"ok\": true, \"result\": {result}}}"));
-        assert_eq!(ok(r#"{"session": true, "lost": null}"#).unwrap(), "reloaded rc; on_session got what save_data gave");
-        assert!(ok(r#"{"session": true, "lost": "save_data failed: x"}"#).unwrap().ends_with("on_session got nil: save_data failed: x"));
-        assert!(ok(r#"{"session": false, "lost": null}"#).unwrap().contains("no session is going on"));
-        let refused = said("rc", r#"{"ok": false, "error": {"code": "rejected", "message": "the new code did not load"}}"#).unwrap_err();
+        let ok = |session: bool, lost: Option<&str>| said("rc", Ok(Reloaded { session, lost: lost.map(String::from) }));
+        assert_eq!(ok(true, None).unwrap(), "reloaded rc; on_session got what save_data gave");
+        assert!(ok(true, Some("save_data failed: x")).unwrap().ends_with("on_session got nil: save_data failed: x"));
+        assert!(ok(false, None).unwrap().contains("no session is going on"));
+        let refused = said("rc", Err(Error::new(eu4_harmony_remote::Code::Rejected, "the new code did not load"))).unwrap_err();
         assert_eq!(refused, "the new code did not load (rejected)");
     }
 
