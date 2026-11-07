@@ -163,53 +163,10 @@ macro_rules! layer {
     };
 }
 
-pub mod armies;
-pub mod buildings;
-pub mod camera;
-pub mod centers_of_trade;
-pub mod colonists;
-pub mod console;
-pub mod countries;
-pub mod decisions;
 pub mod describe;
-pub mod desktop;
-pub mod diplomacy;
-pub mod economy;
-pub mod estates;
 pub mod events;
-pub mod extensions;
 #[cfg(test)]
 pub(crate) mod fake;
-pub mod focus;
-pub mod forts;
-pub mod government;
-pub mod ideas;
-pub mod input;
-pub mod leaders;
-pub mod loans;
-pub mod menu;
-pub mod mercenaries;
-pub mod merchants;
-pub mod missionaries;
-pub mod missions;
-pub mod occupation;
-pub mod offers;
-pub mod parliament;
-pub mod peace;
-pub mod policies;
-pub mod provinces;
-pub mod questions;
-pub mod recruiting;
-pub mod screenshot;
-pub mod session;
-pub mod sieges;
-pub mod stability;
-pub mod subjects;
-pub mod technology;
-pub mod texts;
-pub mod time;
-pub mod trade;
-pub mod trade_companies;
 
 use crate::game::{self, input::Taken};
 use eu4_harmony_remote::{Answer, ArmyId, ArmyList, Code, CountryTag, Error, ProvinceId, Request, Response};
@@ -231,7 +188,8 @@ use std::{
 ///
 /// A group whose `run(request, game)` answers at once; a group with a slice
 /// of the layer, whose [`Outcome`] the expression gives; a group without a
-/// slice.
+/// slice. The module of a group with a slice is declared here, as remote
+/// control's groups declare theirs; a group without one declares its own.
 macro_rules! groups {
     (@munch [$request:ident $game:ident $events:ident $now:ident] [$($modules:tt)*] [$($arms:tt)*]
         $(#[$attr:meta])* $Group:ident($module:ident) => $outcome:expr, $($rest:tt)*) => {
@@ -248,6 +206,8 @@ macro_rules! groups {
     };
     (@munch [$request:ident $game:ident $events:ident $now:ident] [$($module:ident)*]
         [$({ $(#[$attr:meta])* $Group:ident => $outcome:expr })*]) => {
+        $( pub mod $module; )*
+
         /// The capability layer, as the catalogue's requests reach it: every
         /// group's slice.
         pub trait Game: $($module::Layer +)* {
