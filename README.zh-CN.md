@@ -139,14 +139,17 @@ cargo test --release
 cargo xtask release        # 打出玩家包
 ```
 
-游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，先认领游戏：认领时备份玩家的文件，释放时放回去（[docs/game-testing.md](docs/game-testing.md)）。
+游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，就认领一局测试游戏：它从游戏目录启动，有自己的用户文件夹、核心和远程控制管道，既不碰玩家的文件，也不碰游戏目录里装好的框架，几局可以同时跑（[docs/test-games.md](docs/test-games.md)）。游戏目录里要先装一次支持测试游戏的框架，装时不能有游戏在跑（`cargo xtask install`）。
 
 ```powershell
+cargo build --release --features eu4-harmony-core/dev-test-games
 cargo xtask game claim --purpose "try my change"
-cargo xtask install        # 把构建装进游戏目录（--uninstall 卸载）
-cargo xtask game start     # 隐藏启动游戏
-cargo xtask game release   # 放回玩家的文件，交还游戏
+cargo xtask game start     # 用这个构建隐藏启动测试游戏
+eu4-harmony game --test-game <本检出的文件夹名> session get
+cargo xtask game release   # 留下日志，删掉其余
 ```
+
+框架和游戏一样，按游戏自己的 `-userdir` 找用户文件夹。
 
 `cargo xtask --help` 列出其他开发命令。
 
