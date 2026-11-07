@@ -1,6 +1,6 @@
 # Reading the frame back (for screenshots)
 
-Baseline 1.37.5. All addresses are RVAs. What was checked in the running game is marked "tested"; the run is in [prototype-log.md](../prototype-log.md) (2026-10-29, remote control C10). The machine: a 3840x2160 display at 144 Hz, the game in a borderless window of that size with `multi_sampling=8` and `vsync=yes` in its `settings.txt`, an NVIDIA GeForce RTX 4070 Ti SUPER beside AMD integrated graphics (which of the two the game drew with was not checked).
+Baseline 1.37.5. All addresses are RVAs. What was checked in the running game is marked "tested"; the run is [Screenshots](../prototype-log/2026-10-29-screenshots.md) (2026-10-29, remote control C10). The machine: a 3840x2160 display at 144 Hz, the game in a borderless window of that size with `multi_sampling=8` and `vsync=yes` in its `settings.txt`, an NVIDIA GeForce RTX 4070 Ti SUPER beside AMD integrated graphics (which of the two the game drew with was not checked).
 
 ## The frame the player sees
 

@@ -1,0 +1,11 @@
+# 2026-11-07 Inside an AI country's task, 1721 onwards (tested by me)
+
+What an AI country's task spends its time on, what an army agent's think writes, and whether it could be made faster ([research/late-game.md](../research/late-game.md), "An AI country's agents" to "Whether it can be made faster"). Master at `05022e8` and later at `f6bb9a3`; the run's autosave of 1721.1.1 (the AI-only game of 2026-11-06) loaded in each start, observed in the Ottomans' view, `time.advance` at speed 5; four claims, the game started hidden.
+
+- **Write watch** (`dev-write-watch` alone, `[write-watch] function = "0xea250"`, `calls = 3`): the first three army thinks on the main thread, on 1721.1.2 to 1721.1.6, each with 100 other threads held and 8.2 million heap blocks made read-only in about 0.5 s; 643, 148 and 2,779 writes. The game did not hang.
+- **Sampled, the old way**: `cargo xtask profile --thread 0xea250 --hz 200` for 240 s picked the main thread 73% of the seconds, so few samples were a worker's.
+- **Timed calls, too many**: two runs of four and three minutes with the call trace's `times` on the think and functions inside it. Tracing `0x96bd00` (86 million calls) and then `0x96f860` and `0x102140` (138 and 50 million) made the thinks that call them take several times as long and wrote 5.4 and 11 GB; their lengths were not used, only their counts and the shares of their paths. A first start traced `0xf8ea0`, which reads 18 arguments while an observer forwards 12; it was stopped before a game was loaded, and the call trace now leaves such a function out.
+- **Sampled, every thread**: `cargo xtask profile --threads --slice 1` (the sampler of the section above), 240 s, 3,702 days, 15.4 a second; the whole game 2.17 cores.
+- **Route queries logged**: the call trace logging `0x96c520`'s and the stage's first 300,000 calls, `time.advance 30` twelve times, 1721.1.1 to 1721.12.27: 18,666 queries over 360 stages.
+- **Not verified**: a top agent's plan watched or timed on its own; the write watch on a long think; another game or a player's.
+- **Cleanup**: `dev.toml` deleted after each run; the timing files deleted from the scratch folder and from the claims' kept logs (5.4 and 11 GB, and the first day's 420 MB); releasing the game put back the player's files and removed the save each run added.

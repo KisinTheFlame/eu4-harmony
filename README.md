@@ -124,7 +124,7 @@ Remote control is open only to the Windows user playing, only on this computer, 
 | [docs/adr/](docs/adr/) | Decisions that are hard to reverse, and why they were made |
 | [docs/research/](docs/research/) | What is known about the game's code |
 | [docs/performance.md](docs/performance.md) | What the framework costs the game, measured |
-| [docs/prototype-log.md](docs/prototype-log.md) | What was tested in the running game, and what came out |
+| [docs/prototype-log/](docs/prototype-log/) | What was tested in the running game, and what came out, one file per run |
 | [docs/dev-tools.md](docs/dev-tools.md) | The development tools |
 
 Each larger piece of work has a plan of its own in [docs/](docs/), listed in [AGENTS.md](AGENTS.md).

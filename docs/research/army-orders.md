@@ -1,6 +1,6 @@
 # Army orders: from a right click to the route (for `game::events`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, checked again on 2026-11-03. What was checked in the running game is marked "tested", from [prototype-log.md](../prototype-log.md) (2026-10-31, army orders). What was seen in the running game on 2026-10-26, while regional-combat was developed and before the framework existed, is marked "seen 2026-10-26"; it is not in that log. Everything else was read from the code only. The route query, the route install and the stop themselves are in [routes.md](routes.md).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, checked again on 2026-11-03. What was checked in the running game is marked "tested", from [Army orders that change nothing](../prototype-log/2026-10-31-army-orders-change-nothing.md) (2026-10-31). What was seen in the running game on 2026-10-26, while regional-combat was developed and before the framework existed, is marked "seen 2026-10-26"; it is not in that log. Everything else was read from the code only. The route query, the route install and the stop themselves are in [routes.md](routes.md).
 
 ## From the map input to the army's action
 
@@ -52,7 +52,7 @@ The input path above, with the action called at `0xad0c29` from `0xad0ba0` calle
 
 ## The framework's orders as commands
 
-Read from the code on 2026-11-03, and tried in the game the same day ([prototype-log.md](../prototype-log.md)). Since then `army.move` and `army.stop` have the game execute the commands the army's action makes for a right click, through the command layer, at once (ADR commands-run-at-once); the route changes they make are the framework's own, as its direct calls' were, so the observer above does not hear them as orders.
+Read from the code on 2026-11-03, and tried in the game the same day ([Commands C1 to C3](../prototype-log/2026-11-03-commands-c1-c3.md)). Since then `army.move` and `army.stop` have the game execute the commands the army's action makes for a right click, through the command layer, at once (ADR commands-run-at-once); the route changes they make are the framework's own, as its direct calls' were, so the observer above does not hear them as orders.
 
 - **The move command's written form** (its write `0xd5d9e0`; type `move_order`, `0x28a5`): `unit` (the army's ID, `{ id=… type=… }`, from `+0x58`: the u64 at `unit+0x20` holds the type in its low half and the number in its high half, as `0xce610` writes them), `province` (the destinations at `+0x60`, `{ 183 }`, written only when there are some), `path` (the route list at `+0x78`, only when it is not empty), `location` (`+0x94`), then `clear` (`+0x90`), `safe` (`+0x91`), `cancel_autofleet` (`+0x98`) and `clear_all_but_next` (`+0x99`), each only when set, and the base fields last.
 - **What the right click sets** (`0xd43a23`, the constructor `0xd5cd20`): `clear` is the queue flag inverted, `cancel_autofleet` is 1, `safe` comes from the action's own flag (`bl`), `clear_all_but_next` from `r12b`, the destination is the province clicked, and `location` the province the army is in. The framework sets `clear` and `cancel_autofleet`, and leaves `safe` and `clear_all_but_next` out.

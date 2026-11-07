@@ -60,7 +60,7 @@ From the game's code (RVAs into 1.37.5):
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and both clippy runs pass, and so do the offline checks against the game's files;
-- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - a change players or mod authors notice is in README.md and README.zh-CN.md.
 
 ### O1 A game with no country played

@@ -2,7 +2,7 @@
 
 The framework decides how loud the game's sound is: the volume sliders of the game's settings give the square of their position, always, and the music is mixed by the framework rather than SDL, at the game's gain as a fraction, with loudness normalization (on by default), by the loudness of each track's whole file, measured as it starts, and music leveling (off by default) as framework settings ([music-volume.md](../music-volume.md)).
 
-Vanilla makes every slider linear in amplitude and multiplies them, then rounds the gain into SDL's 128 steps. A player who turns the master volume down leaves the music a few steps, about -22 dB at the player's own settings, and the vanilla tracks differ by 14 dB in loudness and by up to 19 LU within a track ([prototype-log.md](../prototype-log.md), 2026-11-05). Quiet tracks and passages then fall under the sound effects. Mixing the music itself lets the framework give it any gain, and measure what it plays.
+Vanilla makes every slider linear in amplitude and multiplies them, then rounds the gain into SDL's 128 steps. A player who turns the master volume down leaves the music a few steps, about -22 dB at the player's own settings, and the vanilla tracks differ by 14 dB in loudness and by up to 19 LU within a track ([the music volume the mixer passes to SDL](../prototype-log/2026-11-05-music-volume-to-sdl.md)). Quiet tracks and passages then fall under the sound effects. Mixing the music itself lets the framework give it any gain, and measure what it plays.
 
 ## Considered Options
 

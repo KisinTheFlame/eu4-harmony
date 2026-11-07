@@ -1,6 +1,6 @@
 # Government: ideas, policies, reforms, rank, estates, parliament, decisions, missions
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `cargo xtask disasm` and scripts over the PE file (the command vtables, the token table), and from the running game's memory read from outside (a 1592 save, the Netherlands); the commands' written forms were then seen in a developer build's command log as the AI posted them. What was tried in the game through the capabilities is in [prototype-log.md](../prototype-log.md). What is marked _inferred_ was concluded from the shape of the code. Where the conditions are kept and how the game writes them is [triggers.md](triggers.md); the country's fields are [countries.md](countries.md).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `cargo xtask disasm` and scripts over the PE file (the command vtables, the token table), and from the running game's memory read from outside (a 1592 save, the Netherlands); the commands' written forms were then seen in a developer build's command log as the AI posted them. What was tried in the game through the capabilities is in [Player actions A7](../prototype-log/2026-11-05-player-actions-a7-government.md). What is marked _inferred_ was concluded from the shape of the code. Where the conditions are kept and how the game writes them is [triggers.md](triggers.md); the country's fields are [countries.md](countries.md).
 
 ## The commands
 

@@ -112,7 +112,7 @@ extern "C" fn map_manager_going(frame: *mut HookFrame) {
 /// GUI, was tried (2026-11-06) and taken out: one of the GUI's objects keeps
 /// windows of them in its lists, and its destructor, at a later return, called
 /// into one the GUI's sweep had freed (a pure call), about once in ten rounds
-/// (docs/prototype-log.md, "The windows killed at a return taken out").
+/// (docs/prototype-log/2026-11-07-windows-killed-at-return-taken-out.md).
 extern "C" fn map_manager_gone(_frame: *mut HookFrame) {
     if GONE.swap(false, Ordering::Relaxed) {
         RETURNS.fetch_add(1, Ordering::Relaxed);

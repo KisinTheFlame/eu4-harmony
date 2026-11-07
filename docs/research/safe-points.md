@@ -1,6 +1,6 @@
 # Safe points (for `safe_point` and remote control)
 
-Baseline 1.37.5. All addresses are RVAs. What was checked in the running game is marked "tested"; the runs are in [prototype-log.md](../prototype-log.md) (2026-10-29, remote control F2 and F3).
+Baseline 1.37.5. All addresses are RVAs. What was checked in the running game is marked "tested"; the runs are [F2](../prototype-log/2026-10-29-remote-control-engine-probe-thread.md) and [F3](../prototype-log/2026-10-29-remote-control-named-pipe.md) of remote control (2026-10-29).
 
 ## Where the main thread comes by
 

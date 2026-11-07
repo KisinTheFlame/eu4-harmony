@@ -1,6 +1,6 @@
 # Recruiting (for `game::recruiting`)
 
-Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29; what was checked in the running game is marked "tested" (the run is in [prototype-log.md](../prototype-log.md), remote control C6). The recruit command itself, its fields and its check, and what the province snapshot asks of it, are in [provinces.md](provinces.md).
+Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29; what was checked in the running game is marked "tested" (the run is [Recruiting](../prototype-log/2026-10-29-recruiting.md), remote control C6). The recruit command itself, its fields and its check, and what the province snapshot asks of it, are in [provinces.md](provinces.md).
 
 ## The recruit button
 

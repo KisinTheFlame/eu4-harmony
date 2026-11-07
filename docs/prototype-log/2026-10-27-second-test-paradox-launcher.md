@@ -1,0 +1,13 @@
+# 2026-10-27 Second test (Paradox launcher, hello + regional-combat)
+
+The framework, extension loading, click bindings and every game capability run together for the first time. A new game (not a loaded save) as Ethiopia, with an army selected:
+
+- **Loading**: baseline 1.37.5 passes the section layout and dependency point checks; both extensions load; 10 elements and 2 button area slots are spliced in (22784→24562 bytes).
+- **Interface**: about 2 seconds after the game starts, 10 elements are bound. Left and right clicks on the hello button both arrive, and it gets the army currently selected. The region button's left and right clicks, the radius box's Chinese titles "区域战斗" (Regional Combat) and "半径 5" (Radius 5), and the apply button all work (the user's screenshot). The framework converts the Chinese and writes it through `0x152ae10`; both strings are within 15 bytes, so writing longer text is still not tested.
+- **Combat**: once on, the center is province 1224 with radius 5. It decides daily: it attacks 2771 (correctly holding off during the siege), then 2772 (holding off during the battle and the siege), and finally returns to the center, 1224. The route matches the one recorded in the old regional-combat's tests. The reasons for holding off all come from the framework's army state (movement lock, siege, battle).
+- **Save data**: after the autosave finishes, `eu4-harmony/saves/<path digest>-<save digest>.json` is written. Restoring it on load is not tested.
+- **Timing**: a button callback takes 9 ms at most; a decision takes about 16–17 ms, and the frame that issues an order about 32 ms (two snapshots); each map redraw while the radius is adjusted takes about 8 ms.
+- **Settings box problem**: the background was nearly black and flickered on mouse hover. The cause: the background used the vanilla dark dialog texture, and it was made as a button (which has a hover state). regional-combat now makes the background an icon and keeps the look of the dark texture (a 330×150 image made in advance, because icons do not stretch their texture). The user tested again and confirmed it displays correctly and no longer flickers.
+- **The proxy loaded by other processes**: `proxy.log` recorded one `eu4_harmony_bootstrap returned 1`. Other programs in the game folder (such as launcher components) may also load `winmm.dll` indirectly; the core then fails because it finds no PhysFS exports there, and on the way rotates `core.log` to `core.prev.log`. Now the core loads only in `eu4.exe`; other processes only forward calls.
+
+Not tested: the actual colors of the map preview, tooltips, turning off on defeat and on a manual order, restoring on load, the Shift/Ctrl step sizes.
