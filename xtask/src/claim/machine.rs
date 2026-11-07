@@ -17,6 +17,7 @@ use super::record::{self, GameEnd, Process, State};
 use crate::{built, repo, Result};
 use eu4_harmony_client::game::{self, Game};
 use eu4_harmony_client::start::Start;
+use eu4_harmony_folders::UserFolder;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -262,7 +263,7 @@ impl Machine for ThisComputer {
             remove_file(&core.join("dev.toml"))?;
         }
         let player = eu4_harmony_folders::user_dir(Some(game_dir))?;
-        copy_saves(&player.join("save games"), &folder.join("user").join("save games"), saves)?;
+        copy_saves(&UserFolder::new(player).save_games(), &UserFolder::new(folder.join("user")).save_games(), saves)?;
         Ok(dll)
     }
 
@@ -513,14 +514,14 @@ fn forget_old(claims: &Path) {
 /// the record of its games' ends, into the claim's `kept\`; whether there
 /// was a crash folder.
 fn keep(folder: &Path) -> bool {
-    let (user, kept) = (folder.join("user"), folder.join("kept"));
-    let _ = copy_tree(&user.join("eu4-harmony").join("logs"), &kept.join("eu4-harmony-logs"));
-    let _ = copy_tree(&user.join("logs"), &kept.join("game-logs"));
-    let _ = copy_tree(&user.join("crashes"), &kept.join("crashes"));
+    let (user, kept) = (UserFolder::new(folder.join("user")), folder.join("kept"));
+    let _ = copy_tree(&user.logs(), &kept.join("eu4-harmony-logs"));
+    let _ = copy_tree(&user.game_logs(), &kept.join("game-logs"));
+    let _ = copy_tree(&user.crashes(), &kept.join("crashes"));
     if folder.join(ENDS).is_file() {
         let _ = fs::create_dir_all(&kept).and_then(|()| fs::copy(folder.join(ENDS), kept.join(ENDS)));
     }
-    fs::read_dir(user.join("crashes")).is_ok_and(|mut entries| entries.any(|e| e.is_ok_and(|e| e.path().is_dir())))
+    user.crash_folders().is_ok_and(|crashes| !crashes.is_empty())
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {

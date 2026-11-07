@@ -196,7 +196,7 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &St
     let folder = Path::new(&claim.folder);
     let core = m.prepare_start(folder, game_dir, &starting.saves)?;
     let user = user_dir(&claim);
-    let log = user.join("eu4-harmony").join("logs").join("core.log");
+    let log = eu4_harmony_folders::UserFolder::new(&user).core_log();
     let test_game = TestGame { name: owner.to_string(), user_dir: user, core };
     let start = Start { hidden: true, sound: starting.sound, seed: starting.seed, test_game: Some(test_game) };
     let (id, seconds) = m.start_game(game_dir, &log, &start, wait)?;

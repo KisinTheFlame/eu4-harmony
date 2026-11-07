@@ -412,7 +412,7 @@ fn cmd_start(args: &Args) -> Result<()> {
         Some(text) => std::time::Duration::from_secs(text.parse().map_err(|_| format!("--timeout {text}: not a number of seconds"))?),
         None => start::WAIT,
     };
-    let log = user_dir(args)?.join("eu4-harmony").join("logs").join("core.log");
+    let log = eu4_harmony_folders::UserFolder::new(user_dir(args)?).core_log();
     start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop)
 }
 
