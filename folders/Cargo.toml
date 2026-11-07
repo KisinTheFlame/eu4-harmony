@@ -1,0 +1,16 @@
+[package]
+name = "eu4-harmony-folders"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+description = "The game folder and the user folder, as every program of EU4 Harmony finds them, and the names of what the user folder holds"
+
+[lib]
+name = "eu4_harmony_folders"
+
+[dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Com", "Win32_System_Registry", "Win32_UI_Shell"] }
+
+[lints]
+workspace = true

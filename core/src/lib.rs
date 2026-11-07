@@ -231,13 +231,13 @@ fn bootstrap() -> Result<()> {
 /// Opens the log and the report in the user directory's `eu4-harmony\logs`,
 /// or the fallback log when the folder cannot be written; returns the folder.
 fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
-    let logs = user_dir.join("eu4-harmony").join("logs");
-    if let Err(e) = log::open(&logs.join("core.log")) {
+    let user = eu4_harmony_folders::UserFolder::new(user_dir);
+    if let Err(e) = log::open(&user.core_log()) {
         open_fallback_log();
-        log!("cannot open {}: {e}", logs.join("core.log").display());
+        log!("cannot open {}: {e}", user.core_log().display());
     }
-    report::open(logs.join("report.txt"));
-    logs
+    report::open(user.report());
+    user.logs()
 }
 
 /// What this core is, after its version: its api, and in a developer build

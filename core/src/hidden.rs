@@ -40,7 +40,7 @@ impl Switches {
     /// The switches among a command line's words, in any case and with one
     /// dash or two, as the game writes them again when it restarts.
     pub fn of(command_line: &str) -> Self {
-        let has = |switch: &str| command_line.split_whitespace().any(|word| eu4_harmony_manifest::same_switch(word.trim_matches('"'), switch));
+        let has = |switch: &str| command_line.split_whitespace().any(|word| eu4_harmony_folders::same_switch(word.trim_matches('"'), switch));
         Self { hidden: has("-harmony_hidden"), sound: has("-harmony_sound") }
     }
 }

@@ -69,7 +69,7 @@ The release removes the junction before the folder, so that the player's `mod` f
 
 ## How it fits together
 
-- `proxy/` reads `-harmony_core` (its own copy of the manifest crate's word splitting, which a test compares, so that the proxy links nothing but the core); `core/src/paths.rs` reads the command line once, `-userdir` through `eu4_harmony_manifest::user_dir_of`, and the core's own folder; `core/src/pipe.rs` names the pipe; `eu4_harmony_remote::pipe_of` makes a test game's pipe's name for the core and the client alike.
+- `proxy/` reads `-harmony_core` (its own copy of the folders crate's word splitting, which a test compares, so that the proxy links nothing but the core); `core/src/paths.rs` reads the command line once, `-userdir` through `eu4_harmony_folders::user_dir_of`, and the core's own folder; `core/src/pipe.rs` names the pipe; `eu4_harmony_remote::pipe_of` makes a test game's pipe's name for the core and the client alike.
 - `client/src/start.rs` starts a test game, checking the proxy and the core for the switches they need, and waiting for the main menu on the test game's pipe; `client/src/pipe.rs` names the pipe from `--test-game` or the environment.
 - `xtask/src/claim/`: `record.rs` the claims and what a claim finds when it looks at them, without files or clock; `course.rs` claiming, starting, stopping, releasing and a run within a claim, over the seam `machine.rs`, which is the computer: the record under its mutex, the processes, the claims' folders and the clock. The course's tests play whole courses over a recorded machine.
 - The scenario runner builds each build with `dev-test-games` and copies it into its test game's `core\`; its "player" build is the player's with the test games' pipes only, which the startup report names.
