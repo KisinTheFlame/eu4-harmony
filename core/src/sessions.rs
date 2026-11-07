@@ -23,9 +23,8 @@
 //!   hear it at that frame with the rest of what happened, in its order
 //!   (`game::Frame::heard`).
 //! - The session ended, while its state is still the game's: remote control
-//!   keeps it as an event, and its requests sent from then on belong to the
-//!   next session, then every extension hears it (`crate::lua`). A
-//!   session ends once: a second end of the same is not told, and a session
+//!   and the extensions hear it, in the order and at the time
+//!   `crate::safe_point` says. A session ends once: a second end of the same is not told, and a session
 //!   that begins while another is going on ends that one first, for another
 //!   country when nothing was read or reset since (the game console's `tag`).
 //! - The campaign changes, as a save begins to be read: the capability
@@ -257,8 +256,7 @@ fn tell(happened: Vec<Happening>) {
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({end:?})");
                 game::event_costs::log_session();
-                crate::remote::session_ended(end);
-                crate::lua::session_ended(end);
+                crate::safe_point::session_ended(end);
             }
             Happening::CampaignChanges => {
                 game::events::load_begin();

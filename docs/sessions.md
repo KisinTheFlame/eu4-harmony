@@ -65,6 +65,8 @@ pub fn plan(to: Destination, ironman: bool, rules: Rules) -> Result<Vec<Step>, &
 
 What those steps and the safe points see of a session, its first game frame, its end with the reason, a save beginning to be read, a world reset, the game's restart, goes to one module of the core, `sessions` (`core/src/sessions.rs`). It keeps whether a session is going on, where the safe point is and whether a save is being read, in a state machine with tests of its own, and tells each thing to the parts that keep something of a session in one order: remote control keeps the end as an event before extensions hear it, and a session ends once, before the next begins.
 
+What extensions and remote control hear, a session's end and a game's safe frame with what happened since the last, goes through one module, the safe points (`core/src/safe_point.rs`). Each is a listener there, an adapter of its own (`lua::Extensions`, `remote::Remote`), and the order is written once and tested with recorded listeners: remote control hears an end first, the extensions a frame first; an extension that ends a session inside a call of its own, a console command that loads a save, say, hears the end once that call is done, at the start or the end of its part of the next safe frame, so before the next session begins.
+
 ## Known leaks
 
 Decided 2026-11-03: left as they are in this version. Each is the game's own: a restart hides it, and the game's own in-game load leaves its share in vanilla too. Measured 2026-11-02 with the GUI root's elements, the process's private bytes and the heap census ([prototype-log.md](prototype-log.md), "A sprite type unloaded while shown, and the stability runs"). A leak run ([leak-finding.md](leak-finding.md)) lists what is left now, site by site:

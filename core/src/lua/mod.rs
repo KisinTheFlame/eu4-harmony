@@ -360,19 +360,47 @@ fn handler_call(event: &Event) -> Option<(&'static str, Vec<Arg>)> {
     Some((name, args.into_iter().map(Arg::Json).collect()))
 }
 
-/// Dispatches a game's safe frame (`crate::safe_point`) to every extension:
-/// waiting tasks whose answer came, what happened in its order
-/// ([`game::Frame::heard`]), what concerns one extension (its map coloring
-/// taken over, its buttons clicked), then the frame. A session that ended
-/// inside an extension's call is heard first, and at the frame's end.
-pub fn frame(state: &game::Frame) {
-    ended_within_a_call();
+/// The extensions, as they hear the sessions' ends and the game's safe frames
+/// (`crate::safe_point`).
+pub(crate) struct Extensions;
+
+impl crate::safe_point::Listener for Extensions {
+    fn name(&self) -> &'static str {
+        "extensions"
+    }
+
+    /// Within an extension's own call, no extension is called again: one
+    /// would run inside itself, its waiting tasks dropped under the task
+    /// running.
+    fn can_hear(&self) -> bool {
+        !eu4_harmony_lua::calling()
+    }
+
+    /// Every extension hears it, on the main thread, before anything of the
+    /// session is taken down: once leaving is certain, after the ironman exit
+    /// save, when there is one, was written. Heard late, after the extension's
+    /// call it ended in, the session's state is gone by then, as what ended
+    /// it ran inside that call.
+    fn ended(&self, end: crate::sessions::End) {
+        tell_ended(end);
+    }
+
+    fn frame(&self, _: u64, heard: &[game::Heard]) {
+        frame(heard);
+    }
+}
+
+/// Dispatches a game's safe frame to every extension: waiting tasks whose
+/// answer came, what happened in its order ([`game::Frame::heard`]), what
+/// concerns one extension (its map coloring taken over, its buttons
+/// clicked), then the frame.
+fn frame(heard: &[game::Heard]) {
     let all = extensions();
     for e in &all {
         e.poll();
     }
-    for heard in state.heard() {
-        match heard.event {
+    for heard in heard {
+        match heard.event.clone() {
             Event::Session { session } => {
                 let loaded = saves::take_loaded();
                 log!("session {session} started (from a loaded save: {})", loaded.is_some());
@@ -415,40 +443,7 @@ pub fn frame(state: &game::Frame) {
     for e in &all {
         e.handle("on_frame", &[]);
     }
-    ended_within_a_call();
     refresh_report(false);
-}
-
-/// The sessions that ended while an extension was inside a call of its own,
-/// as when a console command it ran loaded a save, for extensions to hear
-/// once that call is done ([`ended_within_a_call`]).
-static ENDED_WITHIN: Mutex<Vec<crate::sessions::End>> = Mutex::new(Vec::new());
-
-/// The session is being left, for `end` (`crate::sessions`): every
-/// extension hears it while the session's state is still the game's, on the
-/// main thread, before anything of it is taken down: once leaving is
-/// certain, after the ironman exit save, when there is one, was written.
-///
-/// Within an extension's own call, no extension is called again: one would
-/// run inside itself, its waiting tasks dropped under the task running.
-/// Then they hear it at the next point the framework calls them from, the
-/// start or end of a game's safe frame; the session's state is gone by then,
-/// as what ended it ran inside that call.
-pub fn session_ended(end: crate::sessions::End) {
-    if eu4_harmony_lua::calling() {
-        log!("extensions hear the session's end once the extension's call it ended in is done");
-        ENDED_WITHIN.lock().unwrap_or_else(|e| e.into_inner()).push(end);
-        return;
-    }
-    tell_ended(end);
-}
-
-/// Tells extensions of the sessions that ended inside an extension's call.
-fn ended_within_a_call() {
-    let ended = std::mem::take(&mut *ENDED_WITHIN.lock().unwrap_or_else(|e| e.into_inner()));
-    for end in ended {
-        tell_ended(end);
-    }
 }
 
 fn tell_ended(end: crate::sessions::End) {
