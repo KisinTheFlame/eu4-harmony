@@ -623,9 +623,11 @@ mod tests {
         extension.handle("on_frame", &[]);
         drop(host);
         // An army's ID an integer, a date its year, month and day, and a
-        // refusal nil and why.
+        // refusal nil and why. On a busy machine the host also logs the
+        // handler's stretch as slow, which is not the extension's line.
         let logged = std::fs::read_to_string(log_file(&dir, "calling")).unwrap();
-        assert_eq!(logged.trim(), "integer 4294967377 1444.11.11 nil not_found");
+        let logged: Vec<&str> = logged.lines().filter(|line| !line.starts_with("slow stretch:")).collect();
+        assert_eq!(logged, ["integer 4294967377 1444.11.11 nil not_found"]);
         GAME.with(|game| assert_eq!(game.borrow().calls, ["army 4294967377", "session", "army 1"]));
         let _ = std::fs::remove_dir_all(&dir);
     }
