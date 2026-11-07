@@ -14,9 +14,10 @@
 //! game carried out, which an observer of the game's own function sees.
 use super::peace::checks as checks_peace;
 use super::{commands::Commands, context_any, countries, country, fail, game, Caller, Ctx, GResult, Session, Status, Tag, WorldSession};
+use crate::called_by_game;
 use crate::{
     game_string,
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::{
         diplomacy::{action, casus_belli, classes, command, factor, globals, send_window, side, sides, war_entry, war_goal, war_goal_type, war_goals, world},
@@ -845,10 +846,12 @@ struct Asking<'a> {
 
 /// The made-up window's methods: its list box of any name is the window
 /// itself, and its entries start at its second word, null.
+#[called_by_game]
 extern "C" fn list_box_of(window: usize, _name: usize) -> usize {
     window
 }
 
+#[called_by_game]
 extern "C" fn no_entries(window: usize) -> usize {
     window + 8
 }
@@ -1077,27 +1080,25 @@ fn ledger<T>(f: impl FnOnce(&mut Ledger) -> T) -> T {
 
 /// Before the game carries out a diplomatic action's command: keeps the
 /// player's actions.
-extern "C" fn carry_out_before(frame: *mut HookFrame) {
-    crate::guarded("diplomatic action", || {
-        let Some(m) = crate::memory() else { return };
-        if crate::sessions::loading() {
-            return;
+fn carry_out_before(call: &mut Call) {
+    let m = &call.memory();
+    if crate::sessions::loading() {
+        return;
+    }
+    let command = call.arg(0);
+    let found = (|| -> GResult<Option<(Kind, Tag, i32)>> {
+        let a = m.ptr(command + command::ACTION)?;
+        let Ok(ctx) = context_any(m) else { return Ok(None) };
+        if Tag(m.u64(a + action::FROM)?).index() != ctx.player.index() {
+            return Ok(None);
         }
-        let command = unsafe { (*frame).args[0] };
-        let found = (|| -> GResult<Option<(Kind, Tag, i32)>> {
-            let a = m.ptr(command + command::ACTION)?;
-            let Ok(ctx) = context_any(m) else { return Ok(None) };
-            if Tag(m.u64(a + action::FROM)?).index() != ctx.player.index() {
-                return Ok(None);
-            }
-            Ok(Some((Kind::of(m, a)?, Tag(m.u64(a + action::TO)?), m.i32(a + action::STATE)?)))
-        })();
-        match found {
-            Ok(Some((kind, to, state))) => ledger(|l| l.carried_out(kind, to, state)),
-            Ok(None) => {}
-            Err(e) => log!("diplomacy: reading a command carried out: {}", e.message),
-        }
-    });
+        Ok(Some((Kind::of(m, a)?, Tag(m.u64(a + action::TO)?), m.i32(a + action::STATE)?)))
+    })();
+    match found {
+        Ok(Some((kind, to, state))) => ledger(|l| l.carried_out(kind, to, state)),
+        Ok(None) => {}
+        Err(e) => log!("diplomacy: reading a command carried out: {}", e.message),
+    }
 }
 
 /// The functions diplomacy calls and observes; the objects are in

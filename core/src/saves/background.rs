@@ -28,7 +28,8 @@
 //! framework copies an entry's data into the zip's stored blocks itself: the
 //! same entry, framed in blocks of its own, its CRC taken in parts by the
 //! threads that write the game state (`super::parallel`) and combined.
-use crate::hooks::HookFrame;
+use crate::called_by_game;
+use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::{Function, Point};
 use crate::zip::{self, crc32, crc32_combine, DEFLATED, STORED};
@@ -108,6 +109,7 @@ static ORIGINAL_DEFLATE: Function<Deflate> = Function::new();
 
 /// The game's deflate, but at the level a local save's entries get, which
 /// copies, the framework's copy into stored blocks.
+#[called_by_game]
 extern "C" fn deflate(zip: usize, data: usize, buffer: usize, size: usize, crc: *mut u32, level: i32) -> u32 {
     if level != COPY_LEVEL as i32 || crate::saves::game_writes_saves() {
         return ORIGINAL_DEFLATE.get()(zip, data, buffer, size, crc, level);
@@ -211,54 +213,46 @@ fn remove_leftovers(dir: &Path) -> usize {
     entries.flatten().filter(|e| e.file_name().to_string_lossy().ends_with(TMP_SUFFIX)).filter(|e| std::fs::remove_file(e.path()).is_ok()).count()
 }
 
-extern "C" fn save_before(_: *mut HookFrame) {
-    crate::guarded("local save", || {
-        wait();
-        MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
-        *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
-    });
+fn save_before(_: &mut Call) {
+    wait();
+    MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
+    *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
 }
 
-extern "C" fn save_after(_: *mut HookFrame) {
-    crate::guarded("local save", || {
-        if !SAVING.swap(false, Ordering::SeqCst) {
-            return;
-        }
-        if let Some(began) = BEGAN.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
-        }
-        let moved = std::mem::take(&mut *MOVED.lock().unwrap_or_else(|e| e.into_inner()));
-        let Some(folder) = FOLDER.get() else { return };
-        for path in moved {
-            hand_over(folder.join(path));
-        }
-    });
-}
-
-extern "C" fn entry_before(frame: *mut HookFrame) {
-    let h = unsafe { &mut *frame };
-    if SAVING.load(Ordering::SeqCst)
-        && h.args[3] as u32 == DEFLATED as u32
-        && h.args[4] as u32 == GAME_LEVEL as u32
-        && crate::thread_id() == crate::main_thread()
-    {
-        h.args[4] = COPY_LEVEL;
+fn save_after(_: &mut Call) {
+    if !SAVING.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    if let Some(began) = BEGAN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
+    }
+    let moved = std::mem::take(&mut *MOVED.lock().unwrap_or_else(|e| e.into_inner()));
+    let Some(folder) = FOLDER.get() else { return };
+    for path in moved {
+        hand_over(folder.join(path));
     }
 }
 
-extern "C" fn moved(frame: *mut HookFrame) {
-    crate::guarded("file move", || {
-        let h = unsafe { &*frame };
-        if !SAVING.load(Ordering::SeqCst) || h.fault != 0 || h.result as u8 == 0 || h.args[1] == 0 {
-            return;
-        }
-        let to = unsafe { std::ffi::CStr::from_ptr(h.args[1] as *const std::ffi::c_char) };
-        match to.to_str() {
-            Ok(to) => MOVED.lock().unwrap_or_else(|e| e.into_inner()).push(to.to_string()),
-            Err(_) => log!("saves: a file moved to a path that is not UTF-8 stays uncompressed"),
-        }
-    });
+fn entry_before(call: &mut Call) {
+    if SAVING.load(Ordering::SeqCst)
+        && call.arg(3) as u32 == DEFLATED as u32
+        && call.arg(4) as u32 == GAME_LEVEL as u32
+        && crate::thread_id() == crate::main_thread()
+    {
+        call.set_arg(4, COPY_LEVEL);
+    }
+}
+
+fn moved(call: &mut Call) {
+    if !SAVING.load(Ordering::SeqCst) || call.result_as::<u8>().unwrap_or(0) == 0 || call.arg(1) == 0 {
+        return;
+    }
+    let to = unsafe { std::ffi::CStr::from_ptr(call.arg(1) as *const std::ffi::c_char) };
+    match to.to_str() {
+        Ok(to) => MOVED.lock().unwrap_or_else(|e| e.into_inner()).push(to.to_string()),
+        Err(_) => log!("saves: a file moved to a path that is not UTF-8 stays uncompressed"),
+    }
 }
 
 /// The game waits for the thread: a file another program holds is not tried

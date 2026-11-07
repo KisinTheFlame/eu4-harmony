@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["checks", "cli", "client", "core", "folders", "loc", "lua", "manifest", "proxy", "remote", "remote/derive", "xtask"]
+members = ["checks", "cli", "client", "core", "core/macros", "folders", "loc", "lua", "manifest", "proxy", "remote", "remote/derive", "xtask"]
 
 [workspace.package]
 version = "0.1.0"

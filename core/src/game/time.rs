@@ -6,7 +6,7 @@
 //! with no country in view, as the game lets the player run time then too. The evidence is in docs/research/time.md.
 use super::{action, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::campaign::{
         globals::{END_DATE, WORLD},
@@ -336,11 +336,9 @@ fn pause_game(m: &Memory, ctx: &World) -> GResult<()> {
 /// Before the game starts `eu4.exe` again, whoever asked for it: the
 /// sessions are told (`crate::sessions::restarting`), so that remote control
 /// answers every request while this process can still write the answers.
-extern "C" fn restart_before(_: *mut HookFrame) {
-    crate::guarded("restart", || {
-        log!("the game starts eu4.exe again");
-        crate::sessions::restarting();
-    });
+fn restart_before(_: &mut Call) {
+    log!("the game starts eu4.exe again");
+    crate::sessions::restarting();
 }
 
 /// The speed, the pause toggle and the restart.

@@ -44,6 +44,7 @@
 //! handed between agents, other armies' targets, the strength planned to
 //! arrive in provinces) is not, and is what the developer build's
 //! `check-army-searches` counts.
+use crate::called_by_game;
 use crate::points::{Function, Point};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -589,6 +590,7 @@ unsafe fn search_as_the_game(agent: usize, call: &Call, cache: usize) -> Outcome
 /// Once the King has thought: its army agents' searches of today, handed
 /// to the pool. The developer build's `agents-order` calls it from its own
 /// walk.
+#[called_by_game]
 pub(crate) extern "C" fn children_begin(king: usize, argument: usize) {
     if let Some(old) = BATCH.with(|b| b.borrow_mut().take()) {
         settle(old);
@@ -641,6 +643,7 @@ pub(crate) extern "C" fn children_begin(king: usize, argument: usize) {
 
 /// After the King's army agents' day: the searches not taken called off,
 /// those under way waited for.
+#[called_by_game]
 extern "C" fn armies_end() {
     if let Some(batch) = BATCH.with(|b| b.borrow_mut().take()) {
         settle(batch);
@@ -662,6 +665,7 @@ fn job_of(agent: usize) -> Option<Arc<Job>> {
 
 /// The army agent's think: its own search settled first, so that its think
 /// and its search never use its region scores at once.
+#[called_by_game]
 unsafe extern "C" fn think(agent: usize, argument: usize) -> usize {
     if let Some(job) = job_of(agent) {
         job.thought.store(true, Ordering::Relaxed);
@@ -681,6 +685,7 @@ unsafe extern "C" fn think(agent: usize, argument: usize) -> usize {
 }
 
 /// A unit handed to an agent: no search of the country runs meanwhile.
+#[called_by_game]
 unsafe extern "C" fn unit_to_agent(agent: usize, unit: usize) -> usize {
     let gate = if HANDING.with(Cell::get) { None } else { BATCH.with(|b| b.borrow().as_ref().map(|b| b.gate.clone())) };
     let Some(gate) = gate else { return unsafe { ORIGINAL_UNIT_TO_AGENT.get()(agent, unit) } };
@@ -692,6 +697,7 @@ unsafe extern "C" fn unit_to_agent(agent: usize, unit: usize) -> usize {
 }
 
 /// The framework's search: the one worked out ahead when it matches.
+#[called_by_game]
 unsafe extern "C" fn search(
     callback: usize,
     depth: i32,
@@ -786,17 +792,18 @@ extern "C" fn walked_stub() {
     );
 }
 
-/// Whether the developer build's `agents-order` walks the King's agents, and
-/// calls [`children_begin`] itself.
-fn walked_by_agents_order() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.agents_order != crate::dev::AgentsOrder::Game;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
+/// The King's walk of its children, where the searches are handed out. The
+/// developer build's `agents-order` walks the King's agents at the same place
+/// instead, and calls [`children_begin`] itself; which of the two startup
+/// installs, `points::this_build` decides.
+pub fn children_walk() -> Point {
+    Point::jump(CHILDREN_WALK, "48 8b 5f 40 48 85 db 74 1a", "King's walk of its children", children_stub as *const () as usize, &CHILDREN_RESUME)
+        .uses(&[CHILDREN])
 }
 
+/// The searches' points but [`children_walk`].
 pub fn points() -> Vec<Point> {
-    let mut points = vec![
+    vec![
         Point::replace(SEARCH, "4c 89 4c 24 20 89 54 24 10 48 89 4c 24 08 55 53", "army search", search as Search, &ORIGINAL_SEARCH),
         Point::method(CALLBACK, 0, 0x103200, "army search's callback"),
         Point::method(CALLBACK, 8, 0x96f860, "army search's callback's step"),
@@ -872,12 +879,5 @@ pub fn points() -> Vec<Point> {
         Point::keep(0xf8ea0usize, "48 89 5c 24 18 4c 89 4c 24 20 48 89", "army score of a province").recorded(SCORE.slot()),
         Point::keep(crate::wording::dates::YEAR, "44 8b 01 41 b9 01 00 00 00 41 81 e8", "date's year").recorded(YEAR.slot()),
         Point::keep(0xcfe10usize, "48 83 ec 28 44 8b 11 41 81 ea c0 55", "date's day of the year").recorded(DAY_OF_YEAR.slot()),
-    ];
-    if !walked_by_agents_order() {
-        points.push(
-            Point::jump(CHILDREN_WALK, "48 8b 5f 40 48 85 db 74 1a", "King's walk of its children", children_stub as *const () as usize, &CHILDREN_RESUME)
-                .uses(&[CHILDREN]),
-        );
-    }
-    points
+    ]
 }

@@ -7,6 +7,9 @@
 //! hooked; a thread of its own writes the report and tells the player.
 pub type Result<T> = std::result::Result<T, String>;
 
+/// Marks a function the game's code calls, which runs under [`guarded`].
+pub(crate) use eu4_harmony_core_macros::called_by_game;
+
 #[macro_use]
 pub mod log;
 #[macro_use]
@@ -106,8 +109,10 @@ pub(crate) fn hooked_memory() -> memory::Memory {
 }
 
 /// Runs framework code. A panic there is a framework bug, not something to
-/// carry on from: it is logged, the player is told, and the game ends
-/// (ADR framework-succeeds-or-fails-as-a-whole).
+/// carry on from: its thread and backtrace are logged as it happens
+/// ([`log_panics`]), then the player is told and the game ends ([`fatal`];
+/// ADR framework-succeeds-or-fails-as-a-whole). Every function the game
+/// calls runs under it, so no panic crosses into the game's code.
 pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(value) => value,
@@ -120,6 +125,7 @@ pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
 
 /// Ends the game after an unexpected error in framework code
 /// (ADR framework-succeeds-or-fails-as-a-whole).
+#[cfg(not(test))]
 pub(crate) fn fatal(detail: &str) -> ! {
     log!("fatal error, ending the game: {detail}");
     notice::tell_and_wait(&notice::Message::new("EU4HARMONY_FATAL").arg("DETAIL", detail));
@@ -127,35 +133,11 @@ pub(crate) fn fatal(detail: &str) -> ! {
     unreachable!("the process was terminated")
 }
 
-/// Every dependency point, in one declaration list.
-pub(crate) fn points() -> Vec<points::Point> {
-    let mut all = physfs::points();
-    all.extend(files::points());
-    all.extend(objects::points());
-    all.extend(game_string::points());
-    all.extend(game_heap::points());
-    all.extend(game::points());
-    all.extend(ui::points());
-    all.extend(map::points());
-    all.extend(saves::points());
-    all.extend(repairs::points());
-    all.extend(sessions::points());
-    all.extend(achievements::points());
-    all.extend(unicode::points());
-    all.extend(wording::points());
-    all.extend(framework_ui::hook::points());
-    all.extend(speed::points());
-    all.extend(saves::background::points());
-    all.extend(saves::parallel::points());
-    all.extend(saves::sum::points());
-    all.extend(saves::update_thread::points());
-    all.extend(loading::points());
-    all.extend(hidden::points());
-    all.extend(sound::points());
-    all.extend(army_search::points());
-    #[cfg(feature = "dev-test-switches")]
-    all.extend(agents_order::points());
-    all
+/// In a test, the fatal path panics with the detail instead, so a test can
+/// see that a panic reached it.
+#[cfg(test)]
+pub(crate) fn fatal(detail: &str) -> ! {
+    panic!("fatal: {detail}")
 }
 
 fn start(m: memory::Memory) -> Result<String> {
@@ -167,23 +149,7 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(
-        not(any(feature = "dev-memory", feature = "dev-call-trace", feature = "dev-write-watch")),
-        expect(unused_mut, reason = "only the development tools add points")
-    )]
-    let mut all = points();
-    #[cfg(feature = "dev-memory")]
-    all.extend(memory_account::points(&m));
-    #[cfg(feature = "dev-heap-census")]
-    all.extend(census::points(&m));
-    #[cfg(feature = "dev-write-watch")]
-    all.extend(write_watch::points(&m));
-    #[cfg(feature = "dev-call-trace")]
-    {
-        let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
-        all.extend(trace::points(&m, hooks::observer_slots().saturating_sub(observers)));
-    }
-    let installed = points::install(m, &all)?;
+    let installed = points::install(m, &points::this_build::installed(m))?;
     #[cfg(feature = "dev-command-log")]
     command_log::start();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
@@ -200,8 +166,10 @@ fn open_fallback_log() {
 }
 
 /// Logs every panic in framework code as it happens, with its thread and
-/// backtrace: one in a function the game calls cannot unwind into the game
-/// and ends it at once, with no crash folder and no fatal error to say why.
+/// backtrace, which only the panic itself still has: the first step of the
+/// one way a panic goes. [`guarded`], around every function the game calls
+/// (the observer seam and `#[called_by_game]`), then catches it, and
+/// [`fatal`] tells the player and ends the game.
 fn log_panics() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

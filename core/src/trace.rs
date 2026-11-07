@@ -20,7 +20,7 @@
 //! `RVA:N` gives it for a function the exception directory has no entry for
 //! (a leaf), or overrides it.
 use crate::analysis;
-use crate::hooks::{self, HookFrame};
+use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::Point;
 use crate::unicode::game_text;
@@ -136,86 +136,82 @@ fn text_at(m: &Memory, p: usize) -> Option<String> {
     readable(&bytes[..end]).map(|text| format!("text {text:?}"))
 }
 
-fn traced(frame: &HookFrame) -> Option<(&'static Traced, Memory)> {
-    let address = hooks::observed(frame.slot)?;
+fn traced(call: &Call) -> Option<(&'static Traced, Memory)> {
+    let address = call.observed()?;
     let traced = TRACED.get()?.iter().find(|t| t.address == address)?;
-    Some((traced, *crate::memory()?))
+    Some((traced, call.memory()))
 }
 
-extern "C" fn before(frame: *mut HookFrame) {
-    crate::guarded("trace", || {
-        let frame = unsafe { &*frame };
-        let Some((traced, m)) = traced(frame) else { return };
-        let n = traced.calls.fetch_add(1, Ordering::Relaxed);
-        let limit = *LIMIT.get().unwrap_or(&20);
-        let logged = n < limit;
-        let time = TIMED.get().map(|origin| {
-            let argument = frame.args[0];
-            Time {
-                rva: traced.rva,
-                thread: crate::thread_id(),
-                start: origin.elapsed(),
-                end: Duration::ZERO,
-                date: crate::game::world_context_any(&m).ok().map(|w| w.date),
-                argument,
-                field: traced.field.and_then(|f| m.u64(argument.wrapping_add(f)).ok()),
-            }
-        });
-        RUNNING.with(|r| r.borrow_mut().push(Running { logged: logged.then_some(n), time }));
-        if !logged {
-            if n == limit {
-                log!("trace {:#x}: later calls not logged", traced.rva);
-            }
-            return;
+fn before(call: &mut Call) {
+    let Some((traced, m)) = traced(call) else { return };
+    let n = traced.calls.fetch_add(1, Ordering::Relaxed);
+    let limit = *LIMIT.get().unwrap_or(&20);
+    let logged = n < limit;
+    let time = TIMED.get().map(|origin| {
+        let argument = call.arg(0);
+        Time {
+            rva: traced.rva,
+            thread: crate::thread_id(),
+            start: origin.elapsed(),
+            end: Duration::ZERO,
+            date: crate::game::world_context_any(&m).ok().map(|w| w.date),
+            argument,
+            field: traced.field.and_then(|f| m.u64(argument.wrapping_add(f)).ok()),
         }
-        let args: Vec<String> = frame.args[..traced.argc as usize]
-            .iter()
-            .map(|&a| match text_at(&m, a) {
-                Some(text) => format!("{a:#x} {text}"),
-                None => format!("{a:#x}"),
-            })
-            .collect();
-        let from = frame.return_address.wrapping_sub(m.base);
-        log!("trace {:#x} #{n} from {from:#x}: {}", traced.rva, args.join(", "));
-    })
+    });
+    RUNNING.with(|r| r.borrow_mut().push(Running { logged: logged.then_some(n), time }));
+    if !logged {
+        if n == limit {
+            log!("trace {:#x}: later calls not logged", traced.rva);
+        }
+        return;
+    }
+    let args: Vec<String> = (0..traced.argc as usize)
+        .map(|i| call.arg(i))
+        .map(|a| match text_at(&m, a) {
+            Some(text) => format!("{a:#x} {text}"),
+            None => format!("{a:#x}"),
+        })
+        .collect();
+    let from = call.caller().wrapping_sub(m.base);
+    log!("trace {:#x} #{n} from {from:#x}: {}", traced.rva, args.join(", "));
 }
 
-extern "C" fn after(frame: *mut HookFrame) {
-    crate::guarded("trace", || {
-        let frame = unsafe { &*frame };
-        let Some((traced, m)) = traced(frame) else { return };
-        // The call returning is this thread's innermost traced one.
-        let Some(running) = RUNNING.with(|r| r.borrow_mut().pop()) else { return };
-        if let (Some(mut time), Some(origin)) = (running.time, TIMED.get()) {
-            time.end = origin.elapsed();
-            TIMES.lock().unwrap_or_else(|e| e.into_inner()).push(time);
-        }
-        let Some(n) = running.logged else { return };
-        if frame.fault != 0 {
-            log!("trace {:#x} #{n}: left through an exception", traced.rva);
-            return;
-        }
-        let result = frame.result;
-        match text_at(&m, result) {
-            Some(text) => log!("trace {:#x} #{n} returned {result:#x} {text}", traced.rva),
-            None => log!("trace {:#x} #{n} returned {result:#x}", traced.rva),
-        }
-    })
+fn after(call: &mut Call) {
+    let Some((traced, m)) = traced(call) else { return };
+    // The call returning is this thread's innermost traced one.
+    let Some(running) = RUNNING.with(|r| r.borrow_mut().pop()) else { return };
+    if let (Some(mut time), Some(origin)) = (running.time, TIMED.get()) {
+        time.end = origin.elapsed();
+        TIMES.lock().unwrap_or_else(|e| e.into_inner()).push(time);
+    }
+    let Some(n) = running.logged else { return };
+    let Some(result) = call.result() else {
+        log!("trace {:#x} #{n}: left through an exception", traced.rva);
+        return;
+    };
+    match text_at(&m, result) {
+        Some(text) => log!("trace {:#x} #{n} returned {result:#x} {text}", traced.rva),
+        None => log!("trace {:#x} #{n} returned {result:#x}", traced.rva),
+    }
 }
 
-/// The most arguments an observer forwards (`HookFrame::args`).
+/// The most arguments an observer forwards.
 const MOST_ARGUMENTS: u32 = 12;
 
-/// Observe points for the functions dev.toml names. A function whose argument count cannot be told is left out, as
+/// The functions dev.toml names, chosen to be traced, and the bytes each
+/// holds now.
+pub struct Chosen(Vec<(Traced, &'static str)>);
+
+/// The functions dev.toml names that can be traced. A function whose argument count cannot be told is left out, as
 /// are one that reads more arguments than an observer forwards and those past the `room` observer slots the
 /// framework leaves.
-pub fn points(m: &Memory, room: usize) -> Vec<Point> {
+pub fn chosen(m: &Memory, room: usize) -> Chosen {
     let options = &crate::dev::options().call_trace;
     if options.functions.is_empty() {
-        return Vec::new();
+        return Chosen(Vec::new());
     }
     let limit = options.calls;
-    LIMIT.get_or_init(|| limit);
     let image = unsafe { analysis::loaded(m.base) };
     let hex = |s: &str| usize::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok();
     let mut traced = Vec::new();
@@ -252,28 +248,34 @@ pub fn points(m: &Memory, room: usize) -> Vec<Point> {
             None => None,
         };
         log!("trace: {rva:#x}, {argc} argument(s), first {limit} calls");
-        traced.push(Traced { address: m.base + rva, rva, argc, calls: AtomicUsize::new(0), field });
+        // The bytes there now: tracing checks nothing about the game.
+        let bytes: Vec<String> = image[rva..rva + 8].iter().map(|b| format!("{b:02x}")).collect();
+        traced.push((Traced { address: m.base + rva, rva, argc, calls: AtomicUsize::new(0), field }, &*bytes.join(" ").leak()));
     }
-    let points = traced
-        .iter()
-        .map(|t| {
-            // The bytes there now: tracing checks nothing about the game.
-            let bytes: Vec<String> = image[t.rva..t.rva + 8].iter().map(|b| format!("{b:02x}")).collect();
-            let bytes: &'static str = bytes.join(" ").leak();
-            Point::observe(t.rva, bytes, "traced function", t.argc, Some(before), Some(after))
-        })
-        .collect();
-    if TRACED.set(traced).is_err() {
-        log!("trace: already set up");
-        return Vec::new();
+    Chosen(traced)
+}
+
+impl Chosen {
+    /// An observe point for each.
+    pub fn points(&self) -> Vec<Point> {
+        self.0.iter().map(|(t, bytes)| Point::observe(t.rva, bytes, "traced function", t.argc, Some(before), Some(after))).collect()
     }
-    if options.times && TIMED.set(Instant::now()).is_ok() {
-        let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::guarded("trace", write_times));
-        if let Err(e) = writer {
-            log!("trace: the times are not written: {e}");
+
+    /// Traces them, and times them when dev.toml says so.
+    pub fn start(self) {
+        let options = &crate::dev::options().call_trace;
+        LIMIT.get_or_init(|| options.calls);
+        if TRACED.set(self.0.into_iter().map(|(t, _)| t).collect()).is_err() {
+            log!("trace: already set up");
+            return;
+        }
+        if options.times && TIMED.set(Instant::now()).is_ok() {
+            let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::guarded("trace", write_times));
+            if let Err(e) = writer {
+                log!("trace: the times are not written: {e}");
+            }
         }
     }
-    points
 }
 
 #[cfg(test)]

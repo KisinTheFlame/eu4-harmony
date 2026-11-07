@@ -188,6 +188,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "eu4-harmony-checks",
+ "eu4-harmony-core-macros",
  "eu4-harmony-folders",
  "eu4-harmony-loc",
  "eu4-harmony-lua",
@@ -203,6 +204,15 @@ dependencies = [
  "toml",
  "windows",
  "windows-sys",
+]
+
+[[package]]
+name = "eu4-harmony-core-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

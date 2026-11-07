@@ -19,6 +19,7 @@
 //! process's locale, which does not change), so a kept text answers what ICU
 //! would.
 use super::{costs, game_text};
+use crate::called_by_game;
 use crate::icu::{self, LineBreak, LineBreaker};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -180,16 +181,18 @@ pub fn last_at_or_before(text: &[u8], end: usize) -> Option<usize> {
 ///
 /// # Safety
 /// `text` is null or has `len` readable bytes.
+#[called_by_game]
 pub unsafe extern "C" fn after_at(text: *const u8, len: u32, end: u32) -> bool {
-    crate::guarded("text wrap", || !text.is_null() && after(unsafe { std::slice::from_raw_parts(text, len as usize) }, end as usize))
+    !text.is_null() && after(unsafe { std::slice::from_raw_parts(text, len as usize) }, end as usize)
 }
 
 /// [`after`] for a stub that has the game's `std::string`.
 ///
 /// # Safety
 /// `string` is the game's `std::string`.
+#[called_by_game]
 pub unsafe extern "C" fn after_in(string: *const u8, end: u32) -> bool {
-    crate::guarded("text wrap", || after(unsafe { crate::game_string::text(string) }, end as usize))
+    after(unsafe { crate::game_string::text(string) }, end as usize)
 }
 
 #[cfg(test)]

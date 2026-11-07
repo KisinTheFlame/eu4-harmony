@@ -3,9 +3,11 @@
 //! framework does there, and that one declaration drives checking, hooking and
 //! undoing (ADR framework-succeeds-or-fails-as-a-whole). [`install`] applies
 //! every point or none, and [`Memory::at`] gives the address of only what a
-//! point checks.
+//! point checks. [`this_build`] gathers every point of a build.
+pub mod this_build;
+
 use crate::{
-    hooks::{self, Callback},
+    hooks::{self, Observer},
     memory::Memory,
     Result,
 };
@@ -121,7 +123,7 @@ pub enum Action {
     /// Relies on it only: calls it, reads it or continues there.
     Keep,
     /// Runs `before` and `after` around every call of the function there.
-    Observe { argc: u32, before: Option<Callback>, after: Option<Callback> },
+    Observe { argc: u32, before: Option<Observer>, after: Option<Observer> },
     /// Sends calls to `with`; the original stays callable through `original`.
     Replace { with: usize, original: &'static AtomicUsize },
     /// Jumps from inside a function to `stub`, which does what the point's
@@ -156,7 +158,7 @@ impl Point {
         Self::new(place, bytes, what, Action::Keep)
     }
 
-    pub fn observe(place: impl Into<Place>, bytes: &'static str, what: &'static str, argc: u32, before: Option<Callback>, after: Option<Callback>) -> Self {
+    pub fn observe(place: impl Into<Place>, bytes: &'static str, what: &'static str, argc: u32, before: Option<Observer>, after: Option<Observer>) -> Self {
         Self::new(place, bytes, what, Action::Observe { argc, before, after })
     }
 
@@ -230,10 +232,10 @@ impl Checked {
 static CHECKED: OnceLock<Checked> = OnceLock::new();
 
 /// Whether a dependency point checks the game's bytes at `rva`, or a point's
-/// bytes use it: one of [`crate::points`], which startup installs all of or
-/// none.
+/// bytes use it: one of the points this build declares ([`this_build::declared`]),
+/// which the offline checks check.
 pub(crate) fn checks(rva: usize) -> bool {
-    CHECKED.get_or_init(|| Checked::of(&crate::points())).contains(rva)
+    CHECKED.get_or_init(|| Checked::of(&this_build::declared())).contains(rva)
 }
 
 /// What [`install`] did, for the log and the startup report.
@@ -431,7 +433,7 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
         let made = |r: Result<()>| r.map_err(|e| format!("{}: {e}", describe(point)));
         match &point.action {
             Action::Keep | Action::Write(_) => continue,
-            Action::Observe { argc, before, after } => made(hooks::observe(at, *argc, *before, *after))?,
+            Action::Observe { argc, before, after } => made(hooks::observe(at, *argc, m, point.what, *before, *after))?,
             Action::Replace { with, original } => made(hooks::create(at, *with).map(|t| original.store(t, Ordering::Release)))?,
             Action::Jump { stub, resume } => {
                 made(hooks::create(at, *stub).map(|_| ()))?;
@@ -474,7 +476,7 @@ pub fn install(m: Memory, points: &[Point]) -> Result<Installed> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hooks::HookFrame;
+    use crate::hooks::Call;
     use std::sync::Mutex;
     use windows_sys::Win32::System::Memory::{VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_READWRITE};
 
@@ -521,8 +523,8 @@ mod tests {
     }
 
     static SEEN: AtomicUsize = AtomicUsize::new(0);
-    extern "C" fn remember(frame: *mut HookFrame) {
-        SEEN.store(unsafe { (*frame).args[0] }, Ordering::SeqCst);
+    fn remember(call: &mut Call) {
+        SEEN.store(call.arg(0), Ordering::SeqCst);
     }
 
     type Adder = extern "C" fn(usize) -> usize;
@@ -603,7 +605,7 @@ mod tests {
     /// change the same bytes.
     #[test]
     fn every_point_is_well_formed() {
-        let points = crate::points();
+        let points = this_build::declared();
         let problems: Vec<String> = points.iter().flat_map(malformed).collect();
         assert!(problems.is_empty(), "{problems:#?}");
         // Exports are far from the image and from each other.
@@ -624,7 +626,7 @@ mod tests {
     /// bytes, or right after them, where the jump's own bytes end.
     #[test]
     fn every_jump_resumes_at_code_a_point_checks() {
-        let points = crate::points();
+        let points = this_build::declared();
         let checked: Vec<(usize, usize)> = points
             .iter()
             .filter(|p| p.method.is_none())
@@ -648,11 +650,7 @@ mod tests {
     /// build with it, leave slots over, for tracing.
     #[test]
     fn the_observers_leave_slots_over() {
-        #[cfg_attr(not(feature = "dev-heap-census"), expect(unused_mut, reason = "only the heap census adds observers"))]
-        let mut points = crate::points();
-        #[cfg(feature = "dev-heap-census")]
-        points.extend(crate::census::points(&crate::memory::Memory { base: 0 }));
-        let observers = points.iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
+        let observers = this_build::declared().iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
         assert!(observers < hooks::observer_slots(), "{observers} observers for {} slots", hooks::observer_slots());
     }
 
@@ -662,7 +660,7 @@ mod tests {
     #[test]
     fn every_point_uses_what_it_names() {
         let mut wrong = Vec::new();
-        for point in crate::points().iter().filter(|p| !p.uses.is_empty()) {
+        for point in this_build::declared().iter().filter(|p| !p.uses.is_empty()) {
             let Place::Rva(rva) = point.place else { continue };
             let code = crate::analysis::instructions(&hex(point.bytes).unwrap(), rva);
             let carried: Vec<u64> = code.iter().flat_map(crate::analysis::values).collect();
@@ -869,7 +867,7 @@ mod tests {
     fn every_point_matches_the_installed_game() {
         with_game(|m, lookup| {
             assert_eq!(crate::baseline::recognize(&m).unwrap(), "1.37.5");
-            let points = crate::points();
+            let points = this_build::declared();
             let addresses = check(m, &points, lookup).unwrap();
             assert_eq!(addresses.len(), points.len());
         });
@@ -881,9 +879,9 @@ mod tests {
     #[ignore]
     fn observers_forward_every_argument_their_function_reads() {
         let mut found = None;
-        with_game(|m, lookup| found = Some((m, check(m, &crate::points(), lookup).unwrap())));
+        with_game(|m, lookup| found = Some((m, check(m, &this_build::declared(), lookup).unwrap())));
         let (m, addresses) = found.unwrap();
-        let points = crate::points();
+        let points = this_build::declared();
         let image = unsafe { crate::analysis::loaded(m.base) };
         let mut short = Vec::new();
         for (point, &at) in points.iter().zip(&addresses) {
