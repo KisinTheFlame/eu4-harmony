@@ -164,6 +164,8 @@ Changes to the AI's own code cannot be checked on a replay, which runs no AI.
 
 A lead found later (2026-11-07, [research/late-game.md](research/late-game.md), "What an army's think writes"): the AI's agents draw from the world's one random generator, from many threads at once, unless the game is started with `-seed`, which gives each agent a generator of its own. A run started with it may repeat the AI's draws, which a bench needs; whether the rest of a day then repeats is not known.
 
+Tried on 2026-11-07 ([research/late-game.md](research/late-game.md), "Whether a game repeats its days"): a late game's save loaded in a new process with `-seed` (`cargo xtask game start --seed <n>`) played the same 185 days in three runs of four, the saves identical line for line but for a load's own id and time played; the other runs went another way from a Royal Navy given one of two admirals, which varies run to run. Without `-seed` a load takes a new random seed, and no two runs are alike. So this route gives a bench that compares two builds by their saves, run a few times each, without replaying commands.
+
 ### S6 Inside the day
 
 Set aside with S5, which it needs. A faster allocator changes where blocks lie, and code that orders by address, hashes addresses or reads memory it did not set would then go another way; the parallel stages are where the runs' differences may come from. The candidates:
