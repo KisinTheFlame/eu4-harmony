@@ -7,6 +7,7 @@
 //! presents (`hook`); the window procedure ([`input`]) hands it the
 //! mouse and keyboard on the window's thread. The two share it under a lock.
 pub mod d3d9;
+pub mod fonts_page;
 pub mod hook;
 pub mod input;
 pub mod mods_window;
@@ -15,10 +16,9 @@ pub mod widgets;
 
 use crate::settings::{self, Page, Role, Settings, Shows};
 use crate::speed::Pace;
-use crate::unicode::system_font::{self, Face, SystemFonts};
+use crate::unicode::system_font::SystemFonts;
 use crate::{lang, loc};
-use eu4_harmony_loc::Language;
-use std::collections::HashMap;
+use fonts_page::{FontSystem, FontsPage};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -42,41 +42,9 @@ struct FrameworkUi {
     /// The notice on screen, by its number.
     notice: Option<(u64, Window)>,
     settings: Option<Window>,
+    /// The settings window's language and fonts page, while it is open.
+    fonts_page: Option<FontsPage<Option<SystemFonts>>>,
     mods: Option<Window>,
-    /// The system fonts the settings window offers.
-    system_fonts: Option<SystemFonts>,
-    /// Families offered in the settings window, by English name, by their
-    /// drop-down list.
-    families: HashMap<&'static str, Vec<String>>,
-    /// Weights offered in the settings window, by their drop-down list.
-    weights: HashMap<&'static str, Vec<u16>>,
-    /// The face each role showed when the settings window opened: one not
-    /// chosen that the player leaves as it is goes on following the language.
-    shown_faces: HashMap<Role, Face>,
-}
-
-/// A font role's drop-down lists in the settings window: its family's and
-/// its weight's.
-fn ids(role: Role) -> (&'static str, &'static str) {
-    match role {
-        Role::Body => ("body", "body_weight"),
-        Role::Heading => ("heading", "heading_weight"),
-        Role::Map => ("map", "map_weight"),
-        Role::Console => ("console", "console_weight"),
-    }
-}
-
-/// The weights offered for `face`'s family, their names, and which of them
-/// draws `face`. A family not installed offers the weight chosen for it.
-fn weight_options(fonts: Option<&SystemFonts>, face: &Face) -> (Vec<u16>, Vec<String>, usize) {
-    let offered = fonts.map(|f| f.weights(&face.family)).unwrap_or_default();
-    if offered.is_empty() {
-        return (vec![face.weight], vec![system_font::weight_name(face.weight).to_string()], 0);
-    }
-    let drawn = fonts.and_then(|f| f.drawn(face)).map_or(face.weight, |d| d.weight);
-    let selected = offered.iter().position(|(w, _)| *w == drawn).unwrap_or(0);
-    let (weights, names) = offered.into_iter().unzip();
-    (weights, names, selected)
 }
 
 // Its Direct3D objects are used only on the main thread; DirectWrite, which
@@ -186,6 +154,34 @@ fn read_back(w: &Window, chosen: &mut Settings) {
     }
 }
 
+/// The settings window showing `next`, the settings the next start runs
+/// with; its language and fonts page is `fonts`.
+fn settings_window(next: &Settings, fonts: &FontsPage<impl FontSystem>, words: &dyn Fn(&str) -> String) -> Window {
+    let pages = Page::ALL
+        .into_iter()
+        .map(|page| match page {
+            Page::LanguageFonts => fonts.widgets(next, words),
+            _ => settings_page(page, next, words),
+        })
+        .collect();
+    let footer = vec![
+        Widget::Gap,
+        Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
+        Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
+    ];
+    let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
+    Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer)
+}
+
+/// The settings the settings window `w` saves: `next`, which it was opened
+/// with, as `w` changed it.
+fn chosen_settings(w: &Window, next: &Settings, fonts: &FontsPage<impl FontSystem>) -> Settings {
+    let mut chosen = next.clone();
+    fonts.read_back(w, &mut chosen);
+    read_back(w, &mut chosen);
+    chosen
+}
+
 impl FrameworkUi {
     fn new() -> crate::Result<Self> {
         let face = SystemFonts::new().map(|fonts| settings::current().face(Role::Body, |f| fonts.has_family(f)))?;
@@ -198,156 +194,39 @@ impl FrameworkUi {
             scale: 1.0,
             notice: None,
             settings: None,
+            fonts_page: None,
             mods: None,
-            system_fonts: None,
-            families: HashMap::new(),
-            weights: HashMap::new(),
-            shown_faces: HashMap::new(),
         })
     }
 
     fn open_settings(&mut self) {
         let next = settings::next();
-        let fonts = SystemFonts::new().ok();
-        let language = next.language();
-        // Each role's face as the window shows it: in the weight that draws it.
-        let faces: HashMap<Role, Face> = Role::ALL
-            .into_iter()
-            .map(|role| {
-                let face = next.face(role, |f| fonts.as_ref().is_some_and(|fonts| fonts.has_family(f)));
-                (role, fonts.as_ref().and_then(|fonts| fonts.drawn(&face)).unwrap_or(face))
-            })
-            .collect();
-        // The installed families that draw `text`, by English name and as
-        // shown in the language, and those shown that do not.
-        let offered = |text: &str, roles: &[Role]| {
-            let offered = fonts.as_ref().map(|f| f.families_with(text, language)).unwrap_or_default();
-            let (mut families, mut shown): (Vec<String>, Vec<String>) = offered.into_iter().unzip();
-            for family in roles.iter().flat_map(|role| next.chosen(*role).into_iter().chain([&faces[role]])).map(|face| &face.family) {
-                if !families.contains(family) {
-                    families.push(family.clone());
-                    shown.push(family.clone());
-                }
-            }
-            (families, shown)
-        };
-        // Fonts that write the language's name; the game console's needs
-        // only Latin letters, as other fonts draw the rest.
-        let (families, shown) = offered(language.native_name(), &[Role::Body, Role::Heading, Role::Map]);
-        let (console_families, console_shown) = offered("A", &[Role::Console]);
-        let index = |families: &[String], role: Role| families.iter().position(|f| *f == faces[&role].family).unwrap_or(0);
-        let (body_weights, body_names, body_weight) = weight_options(fonts.as_ref(), &faces[&Role::Body]);
-        let (heading_weights, heading_names, heading_weight) = weight_options(fonts.as_ref(), &faces[&Role::Heading]);
-        let (map_weights, map_names, map_weight) = weight_options(fonts.as_ref(), &faces[&Role::Map]);
-        let (console_weights, console_names, console_weight) = weight_options(fonts.as_ref(), &faces[&Role::Console]);
-        let mut fonts_page = vec![
-            Widget::Label(words("EU4HARMONY_SETTINGS_LANGUAGE")),
-            Widget::Dropdown {
-                id: "language",
-                options: Language::ALL.iter().map(|l| l.native_name().to_string()).collect(),
-                selected: Language::ALL.iter().position(|&l| l == language).unwrap_or(0),
-            },
-            Widget::Label(words("EU4HARMONY_SETTINGS_BODY_FONT")),
-            Widget::Dropdown { id: "body", options: shown.clone(), selected: index(&families, Role::Body) },
-            Widget::Label(words("EU4HARMONY_SETTINGS_BODY_WEIGHT")),
-            Widget::Dropdown { id: "body_weight", options: body_names, selected: body_weight },
-            Widget::Label(words("EU4HARMONY_SETTINGS_HEADING_FONT")),
-            Widget::Dropdown { id: "heading", options: shown.clone(), selected: index(&families, Role::Heading) },
-            Widget::Label(words("EU4HARMONY_SETTINGS_HEADING_WEIGHT")),
-            Widget::Dropdown { id: "heading_weight", options: heading_names, selected: heading_weight },
-            Widget::Label(words("EU4HARMONY_SETTINGS_MAP_FONT")),
-            Widget::Dropdown { id: "map", options: shown, selected: index(&families, Role::Map) },
-            Widget::Label(words("EU4HARMONY_SETTINGS_MAP_WEIGHT")),
-            Widget::Dropdown { id: "map_weight", options: map_names, selected: map_weight },
-        ];
-        // The page's own settings, the map outline, follow the map's font.
-        fonts_page.extend(setting_widgets(Page::LanguageFonts, &next, &words));
-        fonts_page.extend([
-            Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_FONT")),
-            Widget::Dropdown { id: "console", options: console_shown, selected: index(&console_families, Role::Console) },
-            Widget::Label(words("EU4HARMONY_SETTINGS_CONSOLE_WEIGHT")),
-            Widget::Dropdown { id: "console_weight", options: console_names, selected: console_weight },
-        ]);
-        fonts_page.extend(page_note(Page::LanguageFonts, &words));
-        let pages = Page::ALL
-            .into_iter()
-            .map(|page| match page {
-                Page::LanguageFonts => std::mem::take(&mut fonts_page),
-                _ => settings_page(page, &next, &words),
-            })
-            .collect();
-        let footer = vec![
-            Widget::Gap,
-            Widget::Button { id: "save", label: words("EU4HARMONY_SETTINGS_SAVE") },
-            Widget::Button { id: "cancel", label: words("EU4HARMONY_SETTINGS_CANCEL") },
-        ];
-        let side = Side::new("pages", Page::ALL.iter().map(|page| words(page.title())).collect(), SETTINGS_LIST);
-        let mut window = Window::new(words("EU4HARMONY_SETTINGS_TITLE"), Vec::new(), SETTINGS_WIDTH).with_side(side).with_pages(pages).with_footer(footer);
+        let fonts = FontsPage::new(SystemFonts::new().ok(), &next);
+        let mut window = settings_window(&next, &fonts, &words);
         window.center(&self.font, self.screen.0, self.screen.1);
-        self.families = HashMap::from([("body", families.clone()), ("heading", families.clone()), ("map", families), ("console", console_families)]);
-        self.weights = HashMap::from([
-            ("body_weight", body_weights),
-            ("heading_weight", heading_weights),
-            ("map_weight", map_weights),
-            ("console_weight", console_weights),
-        ]);
-        self.system_fonts = fonts;
-        self.shown_faces = faces;
         self.settings = Some(window);
+        self.fonts_page = Some(fonts);
         MODAL.store(true, Ordering::Relaxed);
     }
 
-    /// The player chose the family at `index` in the drop-down list `id`:
-    /// its weight list becomes the new family's, keeping the weight chosen
-    /// when it has it, else the one below.
-    fn family_chosen(&mut self, id: &str, index: usize) {
-        let weight_id = match id {
-            "body" => "body_weight",
-            "heading" => "heading_weight",
-            "console" => "console_weight",
-            _ => "map_weight",
-        };
-        let (Some(family), Some(window)) = (self.families.get(id).and_then(|f| f.get(index)), self.settings.as_mut()) else { return };
-        let chosen = window.selected(weight_id).and_then(|i| self.weights.get(weight_id)?.get(i).copied()).unwrap_or(system_font::REGULAR);
-        let (weights, names, selected) = weight_options(self.system_fonts.as_ref(), &Face::new(family.clone(), chosen));
-        window.set_options(weight_id, names, selected);
-        self.weights.insert(weight_id, weights);
+    /// The player chose the option at `index` in the settings window's
+    /// drop-down list or choice bar `id`.
+    fn settings_chose(&mut self, id: &str, index: usize) {
+        if let (Some(fonts), Some(window)) = (self.fonts_page.as_mut(), self.settings.as_mut()) {
+            fonts.chose(window, id, index);
+        }
     }
 
     fn close_settings(&mut self, save: bool) {
-        if let (true, Some(w)) = (save, &self.settings) {
-            let next = settings::next();
-            let family = |id| w.selected(id).and_then(|i| self.families.get(id)?.get(i)).cloned();
-            let weight = |id: &str| w.selected(id).and_then(|i| self.weights.get(id)?.get(i).copied());
-            // A font left as it showed stays as it was: chosen, or following
-            // the language.
-            let font = |role: Role| {
-                let shown = self.shown_faces.get(&role)?;
-                let (family_id, weight_id) = ids(role);
-                let face = Face::new(family(family_id).unwrap_or(shown.family.clone()), weight(weight_id).unwrap_or(shown.weight));
-                if face == *shown {
-                    next.chosen(role).cloned()
-                } else {
-                    Some(face)
-                }
-            };
-            let mut chosen = Settings {
-                language: w.selected("language").and_then(|i| Language::ALL.get(i).copied()).or(next.language),
-                body_font: font(Role::Body),
-                heading_font: font(Role::Heading),
-                map_font: font(Role::Map),
-                console_font: font(Role::Console),
-                ..next.clone()
-            };
-            read_back(w, &mut chosen);
+        if let (true, Some(w), Some(fonts)) = (save, &self.settings, &self.fonts_page) {
+            let chosen = chosen_settings(w, &settings::next(), fonts);
             match settings::save(chosen.clone()) {
                 Ok(()) => log!("settings saved: {chosen:?}"),
                 Err(e) => log!("settings not saved: {e}"),
             }
         }
         self.settings = None;
-        self.system_fonts = None;
-        self.shown_faces.clear();
+        self.fonts_page = None;
         MODAL.store(false, Ordering::Relaxed);
     }
 
@@ -407,7 +286,7 @@ impl FrameworkUi {
         }
         if let Some(w) = self.settings.as_mut() {
             match Self::modal_event(w, &self.font, event) {
-                Some(Action::Chose(id @ ("body" | "heading" | "map" | "console"), index)) => self.family_chosen(id, index),
+                Some(Action::Chose(id, index)) => self.settings_chose(id, index),
                 Some(Action::Pressed("save")) => self.close_settings(true),
                 Some(Action::Pressed(_)) | Some(Action::Closed) => self.close_settings(false),
                 _ => {}
@@ -600,6 +479,8 @@ pub fn device_reset() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::unicode::system_font::Face;
+    use eu4_harmony_loc::Language;
 
     fn keys(key: &str) -> String {
         key.to_string()
@@ -657,5 +538,41 @@ mod tests {
         let mut kept = every_setting_changed();
         read_back(&Window::new("", Vec::new(), SETTINGS_WIDTH), &mut kept);
         assert_eq!(kept, every_setting_changed());
+    }
+
+    #[test]
+    fn the_settings_window_saved_unchanged_keeps_the_settings() {
+        for language in Language::ALL {
+            let following = Settings { language: Some(language), ..Settings::default() };
+            // Chosen fonts: one in a weight its family lacks, and one not
+            // installed.
+            let chosen = Settings {
+                body_font: Some(Face::new("Microsoft YaHei", 700)),
+                heading_font: Some(Face::new("Segoe UI", 600)),
+                map_font: Some(Face::new("Gone", 700)),
+                console_font: Some(Face::new("Cascadia Mono", 600)),
+                ..every_setting_changed()
+            };
+            let chosen = Settings { language: Some(language), ..chosen };
+            for next in [following, chosen] {
+                for fonts in [Some(fonts_page::tests::installed()), None] {
+                    let page = FontsPage::new(fonts, &next);
+                    let window = settings_window(&next, &page, &keys);
+                    assert_eq!(chosen_settings(&window, &next, &page), next, "{language:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_settings_window_saves_the_language_chosen() {
+        let next = Settings { language: Some(Language::English), ..Settings::default() };
+        let page = FontsPage::new(Some(fonts_page::tests::installed()), &next);
+        let mut window = settings_window(&next, &page, &keys);
+        let languages = Language::ALL.iter().map(|l| l.native_name().to_string()).collect();
+        let korean = Language::ALL.iter().position(|&l| l == Language::Korean).unwrap();
+        window.set_options("language", languages, korean);
+        // Its fonts follow it at the next start.
+        assert_eq!(chosen_settings(&window, &next, &page), Settings { language: Some(Language::Korean), ..next });
     }
 }

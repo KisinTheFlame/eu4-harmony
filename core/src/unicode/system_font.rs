@@ -76,6 +76,12 @@ fn weight_for(have: &[u16], wanted: u16) -> Option<usize> {
     have.iter().rposition(|&w| w <= wanted).or((!have.is_empty()).then_some(0))
 }
 
+/// `face` as a family with the weights `have`, lightest first, draws it: in
+/// the weight [`weight_for`] picks; None when it has none.
+pub fn drawn_in(have: &[u16], face: &Face) -> Option<Face> {
+    weight_for(have, face.weight).map(|i| Face::new(face.family.clone(), have[i]))
+}
+
 /// DirectWrite's names for its weights.
 const NAMES: &[(u16, &str)] = &[
     (100, "Thin"),
@@ -217,7 +223,7 @@ impl SystemFonts {
     /// [`weight_for`]); None when the family is not installed.
     pub fn drawn(&self, face: &Face) -> Option<Face> {
         let have: Vec<u16> = self.weights(&face.family).into_iter().map(|(w, _)| w).collect();
-        weight_for(&have, face.weight).map(|i| Face::new(face.family.clone(), have[i]))
+        drawn_in(&have, face)
     }
 
     /// Installed families that have every character of `text`, as (English
