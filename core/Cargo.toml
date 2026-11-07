@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 eu4-harmony-checks = { path = "../checks" }
 eu4-harmony-core-macros = { path = "macros" }
+eu4-harmony-folders = { path = "../folders" }
 eu4-harmony-loc = { path = "../loc" }
 eu4-harmony-lua = { path = "../lua" }
 eu4-harmony-manifest = { path = "../manifest" }

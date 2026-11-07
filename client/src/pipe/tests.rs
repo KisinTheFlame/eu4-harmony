@@ -364,3 +364,51 @@ fn a_request_without_an_answer_in_time_is_given_up() {
     assert!(told.recv_timeout(PLENTY).unwrap() < PLENTY);
     served.join().unwrap();
 }
+
+/// An answer is a result or an error, as remote control writes it; any
+/// other line is not one.
+#[test]
+fn an_answer_is_a_result_or_an_error() {
+    assert_eq!(answer_of(r#"{"ok":true,"result":null}"#), Ok(Ok(serde_json::Value::Null)));
+    assert_eq!(answer_of(r#"{"ok":false,"error":{"code":"rejected"}}"#), Ok(Err(serde_json::json!({"code": "rejected"}))));
+    for bad in ["not json", r#"{"ok":true}"#, r#"{"ok":false}"#, "[]"] {
+        assert!(answer_of(bad).is_err(), "{bad}");
+    }
+}
+
+/// When the game starts again its pipe breaks, and the next process opens
+/// it a little later; the wait goes on through both until the main menu
+/// answers.
+#[test]
+fn the_wait_for_the_main_menu_goes_on_across_a_restart() {
+    let name = pipe_name("menu-restart");
+    let starting = "{\"ok\":true,\"result\":{\"process\":7,\"place\":\"starting\"}}\n";
+    let first = serve_one(&name, move |pipe, _| answer(pipe, starting));
+    let served = {
+        let name = name.clone();
+        thread::spawn(move || {
+            first.join().unwrap();
+            thread::sleep(Duration::from_millis(300));
+            serve_one(&name, |pipe, _| answer(pipe, "{\"ok\":true,\"result\":{\"process\":8,\"place\":\"main_menu\"}}\n")).join().unwrap();
+        })
+    };
+    let mut looks = 0;
+    let waited = main_menu(&name, &this_program(), Instant::now() + PLENTY, || -> Result<(), ()> {
+        looks += 1;
+        Ok(())
+    });
+    assert!(waited.is_ok(), "{:?}", waited.err());
+    assert!(looks >= 2, "looked again after the first process's answer");
+    served.join().unwrap();
+}
+
+#[test]
+fn the_wait_for_the_main_menu_ends_when_told_or_at_its_deadline() {
+    let name = pipe_name("menu-none");
+    let stopped = main_menu(&name, &this_program(), Instant::now() + PLENTY, || Err::<(), _>(3));
+    assert_eq!(stopped.err(), Some(NoMainMenu::Stopped(3)));
+    let started = Instant::now();
+    let timed_out = main_menu(&name, &this_program(), started + Duration::from_millis(300), || Ok::<(), ()>(()));
+    assert_eq!(timed_out.err(), Some(NoMainMenu::TimedOut));
+    assert!(started.elapsed() < PLENTY);
+}

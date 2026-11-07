@@ -274,7 +274,7 @@ Counted in the game's autosaves of the run (a script of the run's own):
 
 The game's autosaves of the run are kept outside the game's folders, for runs that need a mid or late game, at `%LOCALAPPDATA%\eu4-harmony-dev\saves\` on the machine that made them:
 
-- `observer-1600.1.1.eu4`, observing (`player="O00"`). `menu.load` refuses it ("no country O00"): within a claim, copy it into the save games folder with its header's `player` set to a country (`"TUR"`) and `not_observer=yes`, load that, and observe.
+- `observer-1600.1.1.eu4`, observing (`player="O00"`). `menu.load` refuses it ("no country O00"): copy it into a test game's save games folder (`user\save games\` in the claim's folder, [test-games.md](../test-games.md)) with its header's `player` set to a country (`"TUR"`) and `not_observer=yes`, load that, and observe.
 - `observer-1700.1.1.eu4`, written while the Ottomans were viewed, so `player="TUR"`: `menu.load` loads it as the Ottomans; observe, and view them again.
 
 A claim's release removes what a run added to the save games folder, so a copy there goes with it.

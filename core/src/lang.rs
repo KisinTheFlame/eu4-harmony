@@ -31,10 +31,9 @@ const GAME: [Language; 4] = [Language::English, Language::French, Language::Germ
 /// The game's language from `settings.txt` (`language="l_english"`); English
 /// when it names none or one the game does not run in.
 fn game_language(settings: &str) -> Language {
-    settings
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("language="))
-        .and_then(|v| v.trim().trim_matches('"').strip_prefix("l_"))
+    eu4_harmony_manifest::line_entries(settings)
+        .find(|&(key, _)| key == "language")
+        .and_then(|(_, v)| v.strip_prefix("l_"))
         .and_then(Language::from_id)
         .filter(|l| GAME.contains(l))
         .unwrap_or(Language::English)
