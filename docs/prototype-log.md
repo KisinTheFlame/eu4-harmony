@@ -2334,6 +2334,17 @@ The developer build with the test switches of `claude/parallel-army-search`, fro
 - **Not verified**: other saves and years; a player's game; the build without the test switches in the game (built and checked offline).
 - **Cleanup**: `dev.toml` removed; the releases put back the player's files and the framework files; the profiles and logs deleted from the scratchpad.
 
+## 2026-11-08 Every function the game calls guarded, and a build's points in one module (tested by me)
+
+The observer seam that guards every observer and gives it a `Call`, `#[called_by_game]` on every other function the game calls, and `points::this_build` ([deepening.md](deepening.md), D1 and D10), before master's panic logging and army searches were merged in. `cargo xtask scenario perf growth leak --growth.rounds 2 --leak.rounds 2`, one claim of 9 minutes, the games started hidden.
+
+- **perf** (player build): passed: the game started hidden, reached the main menu in 44 s, played the new game as Ming paused and at speed 5, and returned to the main menu.
+- **growth** (memory account build), two rounds: passed: each round loaded the first save, made an in-game load of the second, returned to the main menu, started a new game and returned, with the observers of sessions, saves, the world reset, the repairs and the framework UI all converted; no fatal error in the log, and the release found both games ended by the run (exit code 1).
+- **leak** (heap census build): not run: the run was stopped while it built the census build, and the claim released, as the whole-game claim was given up for test games. The census's observers of `malloc`, `calloc`, `realloc`, `free` and `new` are therefore tried only by their unit tests, through the seam with test frames.
+- **Offline**: `cargo xtask offline-check` passed, and with `--features dev` the developer build's points (the heap census's seven, the memory account's and the test switch's walks), which the offline checks had never seen, matched the game too.
+- **Not verified**: a panic in the game reaching the notice through the seam (only the tests', which take the fatal path's test form); the call trace and the write watch in the game; anything after master's merge, which only the builds, tests, clippy and the offline checks covered.
+- **Cleanup**: the release put back every file of the player's as the backup had it, removed the backup, and found the game folder's framework files as they were.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
