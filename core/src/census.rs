@@ -30,7 +30,7 @@ use eu4_harmony_remote::{Code, Error};
 use holders::{Held, Scan, Source, Target};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 mod holders;
@@ -76,7 +76,10 @@ struct Shard {
 const SHARDS: usize = 64;
 static BLOCKS: [Mutex<Option<Shard>>; SHARDS] = [const { Mutex::new(None) }; SHARDS];
 static GENERATION: AtomicU32 = AtomicU32::new(0);
-static BASE: AtomicUsize = AtomicUsize::new(0);
+/// Where `eu4.exe` lies, 0 before startup and in tests.
+fn base() -> usize {
+    crate::memory().map_or(0, |m| m.base)
+}
 
 fn shard(block: usize) -> std::sync::MutexGuard<'static, Option<Shard>> {
     BLOCKS[((block >> 4) ^ (block >> 12)) % SHARDS].lock().unwrap_or_else(|e| e.into_inner())
@@ -84,7 +87,7 @@ fn shard(block: usize) -> std::sync::MutexGuard<'static, Option<Shard>> {
 
 /// The RVA of an address in `eu4.exe`, or 0 for one outside it.
 fn rva(address: usize) -> u32 {
-    let base = BASE.load(Ordering::Relaxed);
+    let base = base();
     match address.checked_sub(base) {
         Some(rva) if rva < 0x4000000 => rva as u32,
         _ => 0,
@@ -125,7 +128,7 @@ fn remove(block: usize, by: Option<usize>) -> Option<Block> {
 
 /// Whether `site` is inside `operator new`, which counts its own blocks.
 fn in_new(site: usize) -> bool {
-    let base = BASE.load(Ordering::Relaxed);
+    let base = base();
     (base + game_heap::NEW..base + NEW_END).contains(&site)
 }
 
@@ -217,9 +220,7 @@ fn new_after(call: &mut Call) {
     }
 }
 
-pub fn points(m: &crate::memory::Memory) -> Vec<Point> {
-    BASE.store(m.base, Ordering::Relaxed);
-    log!("census: counting the C runtime's heap blocks by call site");
+pub fn points() -> Vec<Point> {
     vec![
         Point::observe(MALLOC, "40 53 48 83 ec 20 48 8b d9 48 83 f9 e0", "census malloc", 1, None, Some(malloc_after)),
         Point::observe(CALLOC, "40 53 48 83 ec 20 4c 8b c2 48 8b d9", "census calloc", 2, None, Some(calloc_after)),
@@ -299,7 +300,7 @@ fn hex(rva: u32) -> String {
 /// directory, following chained entries to the function's first.
 fn function_of(rva: u32) -> Option<u32> {
     use windows_sys::Win32::System::Diagnostics::Debug::RtlLookupFunctionEntry;
-    let base = BASE.load(Ordering::Relaxed);
+    let base = base();
     if rva == 0 || base == 0 {
         return None;
     }
@@ -423,7 +424,7 @@ fn scan_range(m: &crate::memory::Memory, scan: &mut Scan, buffer: &mut [u8], sou
 fn holders_of(now: u32, sites: &[SiteKey]) -> HashMap<SiteKey, Holders> {
     let Some(last) = now.checked_sub(2) else { return HashMap::new() };
     let began = std::time::Instant::now();
-    let m = crate::memory::Memory { base: BASE.load(Ordering::Relaxed) };
+    let m = crate::memory::Memory { base: base() };
     let wanted: HashSet<SiteKey> = sites.iter().copied().collect();
     let shards: Vec<_> = BLOCKS.iter().map(|s| s.lock().unwrap_or_else(|e| e.into_inner())).collect();
     let live = || shards.iter().filter_map(|s| s.as_ref()).flat_map(|s| s.blocks.iter());

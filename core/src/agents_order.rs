@@ -76,13 +76,18 @@ extern "C" fn walks_stub() {
     );
 }
 
-/// The points, when the switch asks for the framework's walks.
-pub fn points() -> Vec<Point> {
+/// Whether the switch asks for the framework's walks, which then installs
+/// [`points`].
+pub fn chosen() -> bool {
     let order = order();
-    if order == AgentsOrder::Game {
-        return Vec::new();
+    if order != AgentsOrder::Game {
+        log!("test switch agents-order: an AI country's top agent has its agents do their day {order:?}");
     }
-    log!("test switch agents-order: an AI country's top agent has its agents do their day {order:?}");
+    order != AgentsOrder::Game
+}
+
+/// The framework's walks.
+pub fn points() -> Vec<Point> {
     vec![
         Point::jump(WALKS, "48 8b 5f 40 48 85 db 74 1a", "top agent's walk of its agents", walks_stub as *const () as usize, &WALKED_RESUME).uses(&[CHILDREN]),
         Point::keep(0x14b645usize, "48 8b 9f 50 0c 00 00", "top agent's walk of its armies' agents").uses(&[ARMIES]),

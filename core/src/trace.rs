@@ -199,16 +199,19 @@ fn after(call: &mut Call) {
 /// The most arguments an observer forwards.
 const MOST_ARGUMENTS: u32 = 12;
 
-/// Observe points for the functions dev.toml names. A function whose argument count cannot be told is left out, as
+/// The functions dev.toml names, chosen to be traced, and the bytes each
+/// holds now.
+pub struct Chosen(Vec<(Traced, &'static str)>);
+
+/// The functions dev.toml names that can be traced. A function whose argument count cannot be told is left out, as
 /// are one that reads more arguments than an observer forwards and those past the `room` observer slots the
 /// framework leaves.
-pub fn points(m: &Memory, room: usize) -> Vec<Point> {
+pub fn chosen(m: &Memory, room: usize) -> Chosen {
     let options = &crate::dev::options().call_trace;
     if options.functions.is_empty() {
-        return Vec::new();
+        return Chosen(Vec::new());
     }
     let limit = options.calls;
-    LIMIT.get_or_init(|| limit);
     let image = unsafe { analysis::loaded(m.base) };
     let hex = |s: &str| usize::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok();
     let mut traced = Vec::new();
@@ -245,28 +248,34 @@ pub fn points(m: &Memory, room: usize) -> Vec<Point> {
             None => None,
         };
         log!("trace: {rva:#x}, {argc} argument(s), first {limit} calls");
-        traced.push(Traced { address: m.base + rva, rva, argc, calls: AtomicUsize::new(0), field });
+        // The bytes there now: tracing checks nothing about the game.
+        let bytes: Vec<String> = image[rva..rva + 8].iter().map(|b| format!("{b:02x}")).collect();
+        traced.push((Traced { address: m.base + rva, rva, argc, calls: AtomicUsize::new(0), field }, &*bytes.join(" ").leak()));
     }
-    let points = traced
-        .iter()
-        .map(|t| {
-            // The bytes there now: tracing checks nothing about the game.
-            let bytes: Vec<String> = image[t.rva..t.rva + 8].iter().map(|b| format!("{b:02x}")).collect();
-            let bytes: &'static str = bytes.join(" ").leak();
-            Point::observe(t.rva, bytes, "traced function", t.argc, Some(before), Some(after))
-        })
-        .collect();
-    if TRACED.set(traced).is_err() {
-        log!("trace: already set up");
-        return Vec::new();
+    Chosen(traced)
+}
+
+impl Chosen {
+    /// An observe point for each.
+    pub fn points(&self) -> Vec<Point> {
+        self.0.iter().map(|(t, bytes)| Point::observe(t.rva, bytes, "traced function", t.argc, Some(before), Some(after))).collect()
     }
-    if options.times && TIMED.set(Instant::now()).is_ok() {
-        let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::guarded("trace", write_times));
-        if let Err(e) = writer {
-            log!("trace: the times are not written: {e}");
+
+    /// Traces them, and times them when dev.toml says so.
+    pub fn start(self) {
+        let options = &crate::dev::options().call_trace;
+        LIMIT.get_or_init(|| options.calls);
+        if TRACED.set(self.0.into_iter().map(|(t, _)| t).collect()).is_err() {
+            log!("trace: already set up");
+            return;
+        }
+        if options.times && TIMED.set(Instant::now()).is_ok() {
+            let writer = std::thread::Builder::new().name("eu4-harmony call times".into()).spawn(|| crate::guarded("trace", write_times));
+            if let Err(e) = writer {
+                log!("trace: the times are not written: {e}");
+            }
         }
     }
-    points
 }
 
 #[cfg(test)]

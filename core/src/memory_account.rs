@@ -12,23 +12,24 @@
 use crate::points::Point;
 use eu4_harmony_remote::memory::{Heap, Memory, MemoryAnswer, MemoryRequest};
 use eu4_harmony_remote::Error;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The game's C runtime's heap handle, which `free` passes to `HeapFree`.
 const CRT_HEAP: usize = 0x233d850;
 /// `free`, where it reads [`CRT_HEAP`].
 const FREE_READS_HEAP: usize = 0x1a6834b;
 
-static BASE: AtomicUsize = AtomicUsize::new(0);
+/// Where `eu4.exe` lies, 0 before startup.
+fn base() -> usize {
+    crate::memory().map_or(0, |m| m.base)
+}
 
-pub fn points(m: &crate::memory::Memory) -> Vec<Point> {
-    BASE.store(m.base, Ordering::Relaxed);
+pub fn points() -> Vec<Point> {
     vec![Point::keep(FREE_READS_HEAP, "48 8b 0d fe 54 8d 00 ff 15", "free passes the C runtime's heap").uses(&[CRT_HEAP])]
 }
 
 /// The game's C runtime's heap, once the game has made it; 0 before.
 pub fn game_heap() -> usize {
-    let base = BASE.load(Ordering::Relaxed);
+    let base = base();
     if base == 0 {
         return 0;
     }

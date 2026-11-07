@@ -136,36 +136,6 @@ pub(crate) fn fatal(detail: &str) -> ! {
     panic!("fatal: {detail}")
 }
 
-/// Every dependency point, in one declaration list.
-pub(crate) fn points() -> Vec<points::Point> {
-    let mut all = physfs::points();
-    all.extend(files::points());
-    all.extend(objects::points());
-    all.extend(game_string::points());
-    all.extend(game_heap::points());
-    all.extend(game::points());
-    all.extend(ui::points());
-    all.extend(map::points());
-    all.extend(saves::points());
-    all.extend(repairs::points());
-    all.extend(sessions::points());
-    all.extend(achievements::points());
-    all.extend(unicode::points());
-    all.extend(wording::points());
-    all.extend(framework_ui::hook::points());
-    all.extend(speed::points());
-    all.extend(saves::background::points());
-    all.extend(saves::parallel::points());
-    all.extend(saves::sum::points());
-    all.extend(saves::update_thread::points());
-    all.extend(loading::points());
-    all.extend(hidden::points());
-    all.extend(sound::points());
-    #[cfg(feature = "dev-test-switches")]
-    all.extend(agents_order::points());
-    all
-}
-
 fn start(m: memory::Memory) -> Result<String> {
     let baseline = baseline::recognize(&m)?;
     icu::load()?;
@@ -175,23 +145,7 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(
-        not(any(feature = "dev-memory", feature = "dev-call-trace", feature = "dev-write-watch")),
-        expect(unused_mut, reason = "only the development tools add points")
-    )]
-    let mut all = points();
-    #[cfg(feature = "dev-memory")]
-    all.extend(memory_account::points(&m));
-    #[cfg(feature = "dev-heap-census")]
-    all.extend(census::points(&m));
-    #[cfg(feature = "dev-write-watch")]
-    all.extend(write_watch::points(&m));
-    #[cfg(feature = "dev-call-trace")]
-    {
-        let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
-        all.extend(trace::points(&m, hooks::observer_slots().saturating_sub(observers)));
-    }
-    let installed = points::install(m, &all)?;
+    let installed = points::install(m, &points::this_build::installed(m))?;
     #[cfg(feature = "dev-command-log")]
     command_log::start();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
