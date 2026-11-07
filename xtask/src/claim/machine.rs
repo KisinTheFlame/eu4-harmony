@@ -16,6 +16,7 @@
 //! the run's crash folders) after it is released.
 use super::record::{GameEnd, Process, Record, Waiting};
 use crate::{game, Result};
+use eu4_harmony_folders::UserFolder;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -313,7 +314,7 @@ impl Machine for ThisComputer {
     }
 
     fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)> {
-        let log = eu4_harmony_manifest::user_dir(Some(game_dir))?.join("eu4-harmony").join("logs").join("core.log");
+        let log = UserFolder::of(game_dir)?.core_log();
         let began = std::time::Instant::now();
         let id = eu4_harmony_client::start::start(game_dir, &log, true, sound, seed, wait)?;
         Ok((id, began.elapsed().as_secs_f64()))
@@ -334,7 +335,7 @@ impl Machine for ThisComputer {
     }
 
     fn keep_logs(&self, folder: Option<&Path>, backup: Option<&Path>, game_dir: &Path) -> Result<bool> {
-        let user = eu4_harmony_manifest::user_dir(Some(game_dir))?;
+        let user = UserFolder::of(game_dir)?;
         Ok(folder.is_some_and(|folder| keep(folder, &user, backup)))
     }
 
@@ -422,7 +423,7 @@ fn remove_file(path: &Path) -> Result<()> {
 
 /// The player's user folder, for the game in `game_dir`.
 fn user_folder(game_dir: &Path) -> Result<PathBuf> {
-    eu4_harmony_client::backup::user_folder(&eu4_harmony_manifest::user_dir(Some(game_dir))?)
+    eu4_harmony_client::backup::user_folder(UserFolder::of(game_dir)?.path())
 }
 
 /// Removes the claims' folders whose `kept\` is older than [`KEEP_DAYS`]
@@ -442,23 +443,17 @@ fn forget_old(claims: &Path) {
 
 /// Copies the framework's logs, the game's logs and the crash folders the
 /// backup did not know into `<folder>\kept\`; whether there was a crash.
-fn keep(folder: &Path, user: &Path, backup: Option<&Path>) -> bool {
+fn keep(folder: &Path, user: &UserFolder, backup: Option<&Path>) -> bool {
     let kept = folder.join("kept");
-    let _ = copy_tree(&user.join("eu4-harmony").join("logs"), &kept.join("eu4-harmony-logs"));
-    let _ = copy_tree(&user.join("logs"), &kept.join("game-logs"));
+    let _ = copy_tree(&user.logs(), &kept.join("eu4-harmony-logs"));
+    let _ = copy_tree(&user.game_logs(), &kept.join("game-logs"));
     let known: Vec<String> =
         backup.and_then(|b| fs::read_to_string(b.join("crashes.txt")).ok()).map(|t| t.lines().map(String::from).collect()).unwrap_or_default();
-    let mut crashed = false;
-    if let Ok(entries) = fs::read_dir(user.join("crashes")) {
-        for entry in entries.flatten().filter(|e| e.path().is_dir()) {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !known.contains(&name) {
-                crashed = true;
-                let _ = copy_tree(&entry.path(), &kept.join("crashes").join(&name));
-            }
-        }
+    let crashes = user.new_crash_folders(&known);
+    for crash in &crashes {
+        let _ = copy_tree(crash, &kept.join("crashes").join(crash.file_name().expect("a crash folder's name")));
     }
-    crashed
+    !crashes.is_empty()
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -617,7 +612,7 @@ mod tests {
         s.write("user\\logs\\game.log", "the game's log");
         s.write("user\\crashes\\before\\exception.txt", "a crash before the claim");
         s.write("backup\\crashes.txt", "before\n");
-        let (user, backup, folder) = (s.0.join("user"), s.0.join("backup"), s.0.join("claim"));
+        let (user, backup, folder) = (UserFolder::new(s.0.join("user")), s.0.join("backup"), s.0.join("claim"));
         assert!(!keep(&folder, &user, Some(&backup)), "no crash of the run's");
 
         s.write("user\\crashes\\during\\exception.txt", "a crash of the run's");

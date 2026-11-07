@@ -344,18 +344,10 @@ fn cmd_types(args: &Args) -> Result<()> {
 
 // ---------- link ----------
 
-/// The game folder: `--game-dir`, else `EU4_GAME_DIR`, else the one this
-/// tool is installed in (`<game>\eu4-harmony\eu4-harmony.exe`), else the
-/// Steam library that holds the game.
-fn game_dir(args: &Args) -> Option<PathBuf> {
-    let named = args.value("game-dir").map(PathBuf::from).or_else(|| std::env::var_os("EU4_GAME_DIR").map(PathBuf::from));
-    named.or_else(|| std::env::current_exe().ok().and_then(|exe| installed_in(&exe))).or_else(eu4_harmony_manifest::steam_game_dir)
-}
-
-/// The game folder holding the tool at `exe`, when it is installed there.
-fn installed_in(exe: &Path) -> Option<PathBuf> {
-    let game = exe.parent()?.parent()?;
-    game.join("eu4.exe").is_file().then(|| game.to_path_buf())
+/// The game folder: `--game-dir`, else as every program of EU4 Harmony
+/// finds it ([`eu4_harmony_folders::game_dir`]).
+fn game_dir(args: &Args) -> Result<PathBuf> {
+    eu4_harmony_folders::game_dir(args.value("game-dir").map(Path::new))
 }
 
 /// Writes `<user dir>/mod/eu4-harmony-<id>.mod` pointing at the mod folder.
@@ -374,7 +366,7 @@ fn link_mod(root: &Path, user_dir: &Path) -> Result<PathBuf> {
 fn user_dir(args: &Args) -> Result<PathBuf> {
     match args.value("user-dir") {
         Some(d) => Ok(PathBuf::from(d)),
-        None => eu4_harmony_manifest::user_dir(game_dir(args).as_deref()),
+        None => eu4_harmony_folders::user_dir(game_dir(args).ok().as_deref()),
     }
 }
 
@@ -407,7 +399,7 @@ fn cmd_start(args: &Args) -> Result<()> {
     if !args.positional.is_empty() {
         return Err("usage: eu4-harmony start [--hidden] [--sound] [--timeout <seconds>]".into());
     }
-    let game = game_dir(args).ok_or("no game folder: pass --game-dir or set EU4_GAME_DIR")?;
+    let game = game_dir(args)?;
     let (hidden, sound) = (args.options.contains_key("hidden"), args.options.contains_key("sound"));
     if sound && !hidden {
         return Err("--sound is for --hidden: a game started shown plays its sound anyway".into());
@@ -416,7 +408,7 @@ fn cmd_start(args: &Args) -> Result<()> {
         Some(text) => std::time::Duration::from_secs(text.parse().map_err(|_| format!("--timeout {text}: not a number of seconds"))?),
         None => start::WAIT,
     };
-    let log = user_dir(args)?.join("eu4-harmony").join("logs").join("core.log");
+    let log = eu4_harmony_folders::UserFolder::new(user_dir(args)?).core_log();
     start::start(&game, &log, hidden, sound, None, wait).map(drop)
 }
 
@@ -819,17 +811,6 @@ end)
         assert_eq!(file, user.join("mod").join("eu4-harmony-linked.mod"));
         let text = fs::read_to_string(file).unwrap();
         assert!(text.contains("name=\"Linked\"") && text.ends_with(&format!("path=\"{}\"\n", forward_slashes(&root))));
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn the_game_folder_is_the_one_the_tool_is_installed_in() {
-        let dir = temp("installed");
-        let exe = dir.join("eu4-harmony").join("eu4-harmony.exe");
-        write(&exe, "MZ").unwrap();
-        assert_eq!(installed_in(&exe), None);
-        write(&dir.join("eu4.exe"), "MZ").unwrap();
-        assert_eq!(installed_in(&exe), Some(dir.clone()));
         let _ = fs::remove_dir_all(dir);
     }
 

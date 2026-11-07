@@ -160,6 +160,7 @@ version = "0.1.0"
 dependencies = [
  "eu4-harmony-checks",
  "eu4-harmony-client",
+ "eu4-harmony-folders",
  "eu4-harmony-loc",
  "eu4-harmony-lua",
  "eu4-harmony-manifest",
@@ -174,6 +175,7 @@ dependencies = [
 name = "eu4-harmony-client"
 version = "0.1.0"
 dependencies = [
+ "eu4-harmony-folders",
  "eu4-harmony-remote",
  "serde",
  "serde_json",
@@ -186,6 +188,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "eu4-harmony-checks",
+ "eu4-harmony-folders",
  "eu4-harmony-loc",
  "eu4-harmony-lua",
  "eu4-harmony-manifest",
@@ -199,6 +202,13 @@ dependencies = [
  "tokio",
  "toml",
  "windows",
+ "windows-sys",
+]
+
+[[package]]
+name = "eu4-harmony-folders"
+version = "0.1.0"
+dependencies = [
  "windows-sys",
 ]
 
@@ -224,7 +234,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "toml",
- "windows-sys",
 ]
 
 [[package]]
@@ -1602,7 +1611,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "eu4-harmony-client",
- "eu4-harmony-manifest",
+ "eu4-harmony-folders",
  "eu4-harmony-remote",
  "serde",
  "serde_json",

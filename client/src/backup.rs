@@ -9,6 +9,7 @@
 //! (every file copied, by its path under the user folder), `crashes.txt`
 //! (the crash folders there were) and `user-folder.txt`.
 use crate::Result;
+use eu4_harmony_folders::{UserFolder, HARMONY, SAVE_GAMES};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -17,7 +18,7 @@ use std::{
 
 /// The folders a run may change, under the user folder; every file at its
 /// top is added to them.
-const FOLDERS: [&str; 2] = ["save games", "eu4-harmony"];
+const FOLDERS: [&str; 2] = [SAVE_GAMES, HARMONY];
 /// Where a restore puts a copy, in the user folder, before the copy takes
 /// the place of what is there.
 const STAGE: &str = ".eu4-harmony-restoring";
@@ -56,7 +57,7 @@ pub fn backup(user: &Path, dir: &Path) -> Result<()> {
     }
     write_lines(&dir.join("copied.txt"), &copied)?;
     write_lines(&dir.join("items.txt"), &items)?;
-    write_lines(&dir.join("crashes.txt"), &crashes(user)?)?;
+    write_lines(&dir.join("crashes.txt"), &UserFolder::new(user).crash_folders()?)?;
     write_lines(&dir.join("user-folder.txt"), &[user.display().to_string()])?;
     println!("backed up to {}; afterwards: eu4-harmony restore \"{}\"", dir.display(), dir.display());
     Ok(())
@@ -141,9 +142,8 @@ pub fn restore(user: &Path, dir: &Path, keep: bool, keep_crashes: bool) -> Resul
     }
     remove_tree(&stage)?;
 
-    let known: BTreeSet<String> = read_lines(&dir.join("crashes.txt")).unwrap_or_default().into_iter().collect();
-    for crash in crashes(user)?.into_iter().filter(|c| !known.contains(c)) {
-        let path = user.join("crashes").join(&crash);
+    let known = read_lines(&dir.join("crashes.txt")).unwrap_or_default();
+    for path in UserFolder::new(user).new_crash_folders(&known) {
         if keep_crashes {
             println!("  crash folder left: {}", path.display());
         } else {
@@ -214,15 +214,6 @@ fn same(a: &Path, b: &Path) -> bool {
 /// The names of the files at the top of the user folder, hidden ones too.
 fn top_files(user: &Path) -> Result<Vec<String>> {
     names(user, |kind| kind.is_file())
-}
-
-/// The crash folders there are now.
-fn crashes(user: &Path) -> Result<Vec<String>> {
-    let dir = user.join("crashes");
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    names(&dir, |kind| kind.is_dir())
 }
 
 /// The names in `dir` of the entries of the kind `wanted` takes, in order.

@@ -88,7 +88,7 @@ fn time_line(t: &Time, main: u32) -> String {
 /// folder, a new file each run.
 fn write_times() {
     let path = match crate::paths::game_dir().and_then(|dir| crate::paths::user_dir(&dir)) {
-        Ok(dir) => dir.join("eu4-harmony").join("logs").join("call-times.tsv"),
+        Ok(dir) => eu4_harmony_folders::UserFolder::new(dir).logs().join("call-times.tsv"),
         Err(e) => {
             log!("trace: the times are not written: {e}");
             return;

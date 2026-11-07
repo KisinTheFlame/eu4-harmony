@@ -6,15 +6,10 @@ use windows_sys::Win32::{
     System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE},
 };
 
-/// The game folder: `EU4_GAME_DIR` when it is set, or else the Steam library
-/// that holds the game.
+/// The game folder, as every program of EU4 Harmony finds it
+/// ([`eu4_harmony_folders::game_dir`]).
 pub fn dir() -> Result<PathBuf> {
-    match std::env::var_os("EU4_GAME_DIR").filter(|d| !d.is_empty()) {
-        Some(dir) => Ok(PathBuf::from(dir)),
-        None => {
-            eu4_harmony_manifest::steam_game_dir().ok_or_else(|| "cannot find the game: set EU4_GAME_DIR, or pass --game-dir to a command that takes it".into())
-        }
-    }
+    eu4_harmony_folders::game_dir(None)
 }
 
 /// The ids of every running `eu4.exe`; none when the list of processes

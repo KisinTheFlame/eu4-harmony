@@ -16,6 +16,7 @@ mod perf;
 pub use game::{Game, Played, Stop};
 
 use crate::{claim, files, repo, Result};
+use eu4_harmony_folders::UserFolder;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -24,7 +25,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 /// The builds a scenario may need.
@@ -338,7 +339,7 @@ fn prepare(build: Build, owner: &str, game_dir: &Path) -> Result<()> {
 fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, game_dir: &Path, out: &Path) -> Value {
     println!("playing {}", scenario.name());
     let began = Instant::now();
-    let since = SystemTime::now();
+    let crashes = UserFolder::of(game_dir).and_then(|user| user.crash_folders()).unwrap_or_default();
     let mut record = json!({});
     game.next_scenario();
     // A game that runs is brought to its main menu; one that does not is
@@ -358,7 +359,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, game_
     entry["minutes"] = json!((began.elapsed().as_secs_f64() / 6.0).round() / 10.0);
     match ended {
         Err(Stop::Crashed(_)) => {
-            entry["crash"] = crash(game_dir, since, &out.join(format!("{}-crash.log", scenario.name())));
+            entry["crash"] = crash(game_dir, &crashes, &out.join(format!("{}-crash.log", scenario.name())));
             let _ = crate::game::wait_closed();
         }
         Err(Stop::Hung(_)) => {
@@ -380,19 +381,12 @@ fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Va
     entry(scenario, parameters, "not played", Some(why))
 }
 
-/// What the game's newest crash folder since `since` says: its exception,
-/// and the stack its dump gives, written to `log` too.
-fn crash(game_dir: &Path, since: SystemTime, log: &Path) -> Value {
-    let Ok(user) = eu4_harmony_manifest::user_dir(Some(game_dir)) else { return Value::Null };
-    let newest = std::fs::read_dir(user.join("crashes"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
-        .filter(|(modified, _)| *modified >= since)
-        .max();
-    let Some((_, folder)) = newest else { return json!({ "folder": null }) };
+/// What the game's newest crash folder, of those not `known` when the
+/// scenario began, says: its exception, and the stack its dump gives,
+/// written to `log` too.
+fn crash(game_dir: &Path, known: &[String], log: &Path) -> Value {
+    let Ok(user) = UserFolder::of(game_dir) else { return Value::Null };
+    let Some(folder) = user.new_crash_folders(known).pop() else { return json!({ "folder": null }) };
     let exception: Vec<String> = std::fs::read_to_string(folder.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect();
     let dump = folder.join("minidump.dmp");
     let mut stack = Vec::new();

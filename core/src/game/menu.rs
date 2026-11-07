@@ -271,7 +271,7 @@ static SAVE_GAMES: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::ne
 
 /// The save games folder, in the user directory.
 fn save_games() -> GResult<PathBuf> {
-    let dir = SAVE_GAMES.get_or_init(|| Ok(crate::paths::user_dir(&crate::paths::game_dir()?)?.join("save games")));
+    let dir = SAVE_GAMES.get_or_init(|| Ok(eu4_harmony_folders::UserFolder::new(crate::paths::user_dir(&crate::paths::game_dir()?)?).save_games()));
     dir.clone().map_err(|e| format!("the user directory: {e}").into())
 }
 

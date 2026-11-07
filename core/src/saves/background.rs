@@ -84,8 +84,8 @@ const HEADER: &[u8] = b"EU4";
 /// What the thread adds to a save's name for the file it writes before
 /// moving it into the save's place.
 const TMP_SUFFIX: &str = ".eu4harmony-tmp";
-/// Where the game keeps its saves, in the user folder.
-const SAVE_GAMES: &str = "save games";
+// Where the game keeps its saves, in the user folder.
+use eu4_harmony_folders::SAVE_GAMES;
 
 pub fn points() -> Vec<Point> {
     vec![
