@@ -13,6 +13,10 @@ use crate::points::Point;
 /// the female names weigh by the country's female heir chance.
 const NAME_DRAW: usize = 0xda9981;
 
+/// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
+/// nothing.
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+
 pub(super) fn points() -> Vec<Point> {
     vec![
         // The random number goes into the division as it is (`mov eax,

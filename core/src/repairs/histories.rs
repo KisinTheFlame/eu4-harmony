@@ -118,14 +118,30 @@ static WAITING: Mutex<Option<HashMap<usize, (u32, Left)>>> = Mutex::new(None);
 /// The world resets that have ended.
 static RESETS: AtomicU32 = AtomicU32::new(0);
 /// What the repair deleted, and what it kept waiting, for the log.
-pub(super) static PERSONS: AtomicUsize = AtomicUsize::new(0);
-pub(super) static PERSONS_KEPT: AtomicUsize = AtomicUsize::new(0);
-pub(super) static BATTLES: AtomicUsize = AtomicUsize::new(0);
-pub(super) static RELATIONS: AtomicUsize = AtomicUsize::new(0);
-pub(super) static RELATIONS_KEPT: AtomicUsize = AtomicUsize::new(0);
+static PERSONS: AtomicUsize = AtomicUsize::new(0);
+static PERSONS_KEPT: AtomicUsize = AtomicUsize::new(0);
+static BATTLES: AtomicUsize = AtomicUsize::new(0);
+static RELATIONS: AtomicUsize = AtomicUsize::new(0);
+static RELATIONS_KEPT: AtomicUsize = AtomicUsize::new(0);
 /// The relations the game deleted, until a relation is made at their place:
 /// a record may still hold one.
 static GONE: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!(
+        "{} monarchs, heirs and queens the histories left were deleted, {} kept as the game still had them; {} battles the wars' histories left were deleted; {} relations the diplomatic histories left were deleted, {} kept as the diplomacy was given them",
+        PERSONS.swap(0, Ordering::Relaxed),
+        PERSONS_KEPT.swap(0, Ordering::Relaxed),
+        BATTLES.swap(0, Ordering::Relaxed),
+        RELATIONS.swap(0, Ordering::Relaxed),
+        RELATIONS_KEPT.swap(0, Ordering::Relaxed)
+    )
+}
 
 /// A world reset is over.
 pub(super) fn world_reset() {

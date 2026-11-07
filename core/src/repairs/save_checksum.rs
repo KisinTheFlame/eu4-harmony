@@ -66,6 +66,10 @@ extern "C" fn save_checksum_sum_stub() {
     );
 }
 
+/// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
+/// nothing.
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+
 pub(super) fn points() -> Vec<Point> {
     vec![
         // The save checksum calls the stream's sum, its method at +0x98; a

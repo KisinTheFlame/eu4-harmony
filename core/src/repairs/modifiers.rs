@@ -23,9 +23,23 @@ const MODIFIER_SET_DELETE: usize = 0x1b2290;
 /// The sets of modifiers deleted since the last world reset, those of them
 /// deleted once the modifiers that listed them went, and those that still
 /// wait for them, for the log.
-pub(super) static MODIFIER_SETS: AtomicUsize = AtomicUsize::new(0);
-pub(super) static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
-pub(super) static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
+static MODIFIER_SETS: AtomicUsize = AtomicUsize::new(0);
+static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
+static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!(
+        "{} sets of modifiers were deleted with what owned them, {} of them once the modifiers that listed them went, and {} wait for the modifiers that list them",
+        MODIFIER_SETS.swap(0, Ordering::Relaxed),
+        MODIFIER_SETS_WAITED.swap(0, Ordering::Relaxed),
+        MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed)
+    )
+}
 
 /// The sets of modifiers to delete once a country's modifiers have gone, or
 /// to wait for them once they are copied over, by those modifiers.

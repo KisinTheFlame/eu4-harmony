@@ -41,9 +41,23 @@ const AI_KING_DELETE: usize = 0x148260;
 
 /// What the repair let go since the last world reset, for the log:
 /// mercenary companies' leaders, rebel factions and the AI's agents.
-pub(super) static LEADERS: AtomicUsize = AtomicUsize::new(0);
-pub(super) static FACTIONS: AtomicUsize = AtomicUsize::new(0);
-pub(super) static AGENTS: AtomicUsize = AtomicUsize::new(0);
+static LEADERS: AtomicUsize = AtomicUsize::new(0);
+static FACTIONS: AtomicUsize = AtomicUsize::new(0);
+static AGENTS: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!(
+        "{} mercenary companies' leaders, {} rebel factions and {} agents of the AI were deleted with what owned them",
+        LEADERS.swap(0, Ordering::Relaxed),
+        FACTIONS.swap(0, Ordering::Relaxed),
+        AGENTS.swap(0, Ordering::Relaxed)
+    )
+}
 
 /// The agents of the AI whose top agent is being deleted, by that agent:
 /// they are deleted once it is gone.
@@ -260,4 +274,18 @@ pub(super) fn points() -> Vec<Point> {
         Point::method(classes::AI_KING, 0, AI_KING_DELETE, "AI king deleting destructor method"),
         Point::keep(0x14b2f1usize, "48 8b 0b 48 8b 5b 10 48 85 c9 74 0a 48 8b 01 ba 01 00 00 00 ff 10", "AI retired agents deleted by their first slots"),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_was_let_go_is_said_and_counted_again_from_none() {
+        LEADERS.store(3, Ordering::Relaxed);
+        FACTIONS.store(2, Ordering::Relaxed);
+        AGENTS.store(40, Ordering::Relaxed);
+        assert_eq!(since_reset(), "3 mercenary companies' leaders, 2 rebel factions and 40 agents of the AI were deleted with what owned them");
+        assert_eq!(since_reset(), "0 mercenary companies' leaders, 0 rebel factions and 0 agents of the AI were deleted with what owned them");
+    }
 }

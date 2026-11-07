@@ -15,7 +15,16 @@ const MASK_RESIZED: usize = 0x16c302d;
 const WORDS_DESTRUCTOR: usize = 0x943e0;
 
 /// The bytes of transparency masks let go since the last world reset.
-pub(super) static MASK_BYTES: AtomicUsize = AtomicUsize::new(0);
+static MASK_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!("{:.1} MB of transparency masks were let go", MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0))
+}
 
 /// A vector of bits is resized: when it is a transparency mask the texture
 /// loader is about to write a texture to, and its buffer holds more than the
