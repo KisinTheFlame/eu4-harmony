@@ -31,7 +31,7 @@ fn wrong(text: &str) -> String {
 
 /// An ask for the session, printing as `out` and `compact` say.
 fn session(out: Option<PathBuf>, compact: bool) -> Ask {
-    Ask { request: Request::Session(SessionRequest::Get {}), timeout: None, out, compact }
+    Ask { request: Request::Session(SessionRequest::Get {}), timeout: None, out, compact, test_game: None }
 }
 
 fn temp(name: &str) -> PathBuf {

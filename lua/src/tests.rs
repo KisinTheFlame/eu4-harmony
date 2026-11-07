@@ -644,3 +644,125 @@ fn the_sandbox_has_every_global_the_catalogue_describes_and_no_other() {
     let game: Table = after(&e, "on_frame", "GAME").as_table().cloned().unwrap();
     assert_eq!(keys(&game.get::<Table>("map").unwrap()), under("game.map"));
 }
+
+/// A feed that records when it is asked, and gives one mod save data.
+#[derive(Default)]
+struct TestFeed {
+    asked: Vec<String>,
+    lost: Vec<usize>,
+    clicks: Vec<dispatch::Click>,
+}
+
+impl dispatch::Feed for TestFeed {
+    fn session_begins(&mut self, session: u64) {
+        self.asked.push(format!("session {session}"));
+    }
+    fn saved(&mut self, id: &str) -> Option<Value> {
+        (id == "first").then(|| serde_json::json!({ "n": 7 }))
+    }
+    fn map_lost(&mut self) -> Vec<usize> {
+        self.asked.push("map_lost".into());
+        std::mem::take(&mut self.lost)
+    }
+    fn clicks(&mut self) -> Vec<dispatch::Click> {
+        self.asked.push("clicks".into());
+        std::mem::take(&mut self.clicks)
+    }
+}
+
+#[test]
+fn a_frame_reaches_every_extension_in_its_order() {
+    let main = r#"
+        local function say(...) log(table.concat({ ... }, " ")) end
+        return {
+          on_session = function(game, saved) say(ID, "session", tostring(saved and saved.n)) end,
+          on_day = function(game, date) say(ID, "day", date.year .. "." .. date.month .. "." .. date.day) end,
+          on_month = function(game, date) say(ID, "month", date.month) end,
+          on_army_ordered = function(game, army) say(ID, "ordered", math.type(army), army) end,
+          on_battle = function(game, battle) say(ID, "battle", battle.winner, #battle.attackers) end,
+          on_session_ended = function(game, reason) say(ID, "ended", reason) end,
+          on_map_lost = function(game) say(ID, "map_lost") end,
+          on_button = function(game, name, click) say(ID, "button", name, tostring(click.right)) end,
+          on_frame = function(game) say(ID, "frame") end,
+        }
+    "#;
+    let host = Arc::new(TestHost::default());
+    let mut opened = Vec::new();
+    for (index, id) in ["first", "second"].into_iter().enumerate() {
+        let (dir, manifest) = write_mod(&format!("dispatch-{id}"), &format!("ID = {id:?}\n{main}"), &[]);
+        let m = Mod { id, name: id, harmony: dir.join("eu4-harmony"), permissions: &manifest.permissions, data: None };
+        opened.push(open(index, &m, host.clone()).unwrap());
+    }
+    use eu4_harmony_remote::{events::*, ArmyId, CountryTag, Date, ProvinceId};
+    let date = Date::parse("1444.12.1").unwrap();
+    let tag = |t: &str| serde_json::from_value::<CountryTag>(serde_json::json!(t)).unwrap();
+    let heard: Vec<dispatch::Heard> = [
+        Event::Session { session: 3 },
+        Event::ArmyOrdered { army: ArmyId(4294967377) },
+        Event::Battle {
+            province: ProvinceId(151),
+            naval: false,
+            attackers: vec![tag("TUR")],
+            defenders: vec![tag("BYZ")],
+            winner: Winner::Attackers,
+            attacker_losses: 100,
+            defender_losses: 900,
+        },
+        Event::Day { date },
+        Event::Month { date },
+    ]
+    .iter()
+    .map(dispatch::Heard::of)
+    .collect();
+    let mut feed = TestFeed {
+        lost: vec![1],
+        clicks: vec![dispatch::Click { extension: 0, button: "go".into(), right: true, shift: false, ctrl: false }],
+        ..Default::default()
+    };
+    dispatch::frame(&opened, &heard, &mut feed);
+    dispatch::hear(&opened, &dispatch::Heard::of(&Event::SessionEnded { reason: SessionEnd::Load }), &mut feed);
+    let log: Vec<String> = host.log.lock().unwrap().iter().filter(|l| !l.starts_with("slow stretch:")).cloned().collect();
+    assert_eq!(
+        log,
+        [
+            "first session 7",
+            "second session nil",
+            "first ordered integer 4294967377",
+            "second ordered integer 4294967377",
+            "first battle attackers 1",
+            "second battle attackers 1",
+            "first day 1444.12.1",
+            "second day 1444.12.1",
+            "first month 12",
+            "second month 12",
+            "second map_lost",
+            "first button go true",
+            "first frame",
+            "second frame",
+            "first ended load",
+            "second ended load",
+        ]
+    );
+    // The map and the clicks are asked for when their turn comes, after
+    // what was heard.
+    assert_eq!(feed.asked, ["session 3", "map_lost", "clicks"]);
+    let listened: Vec<&str> = dispatch::listened(&opened).iter().map(|k| k.name()).collect();
+    assert_eq!(listened, ["session", "session_ended", "day", "month", "army_ordered", "battle"]);
+}
+
+#[test]
+fn an_event_a_test_raises_is_held_to_its_shape() {
+    use eu4_harmony_remote::events::Kind;
+    use serde_json::json;
+    let heard = dispatch::Heard::new(Kind::WarDeclared, json!({ "war": "The War", "attacker": "FRA", "defender": "ENG" })).unwrap();
+    assert_eq!(heard.field("attacker"), Some(&json!("FRA")));
+    // An optional field may be left out; one the event requires may not.
+    assert!(dispatch::Heard::new(Kind::ProvinceOwnerChanged, json!({ "province": 1 })).is_ok());
+    let missing = dispatch::Heard::new(Kind::WarDeclared, json!({ "war": "The War" })).unwrap_err();
+    assert!(missing.contains("attacker, defender"), "{missing}");
+    let wrong = dispatch::Heard::new(Kind::Day, json!({ "date": "1444.11.11" })).unwrap_err();
+    assert!(wrong.contains("a date"), "{wrong}");
+    let unknown = dispatch::Heard::new(Kind::ArmyDefeated, json!({ "army": 1, "fleet": 2 })).unwrap_err();
+    assert!(unknown.contains("fleet is no field"), "{unknown}");
+    assert!(dispatch::Heard::new(Kind::Day, json!([1])).is_err());
+}

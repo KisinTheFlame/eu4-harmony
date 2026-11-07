@@ -131,7 +131,25 @@ pub fn run(args: &Args) -> Result<()> {
     }
     let slice = args.value("slice").map(|_| decimal(args, "slice", 0.0)).transpose()?.filter(|s| *s > 0.0);
     let waiting_in = args.value("waiting-in").map(waiting_functions).transpose()?.unwrap_or_default();
-    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"), &waiting_in)
+    let test_game = args.value("test-game");
+    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"), &waiting_in, test_game)
+}
+
+/// The game to sample: the test game `test_game` names, else this
+/// checkout's while it runs, else the only `eu4.exe`; none while it is not
+/// running, and an error when several run and none is named.
+fn the_game(test_game: Option<&str>) -> Result<Option<u32>> {
+    if let Some(name) = test_game {
+        return Ok(crate::claim::game_named(name));
+    }
+    if let Some(id) = crate::claim::game_of(&crate::claim::owner_of(None)) {
+        return Ok(Some(id));
+    }
+    match crate::game::processes().as_slice() {
+        [] => Ok(None),
+        [id] => Ok(Some(*id)),
+        several => Err(format!("{} eu4.exe run; --test-game <name> names the one to sample (cargo xtask game status lists them)", several.len())),
+    }
 }
 
 /// The functions `--waiting-in` names, as the stacks name them: `0x179e90`
@@ -844,11 +862,12 @@ fn thread_frame(id: u32, main: bool, name: &str) -> String {
 /// meanwhile, or none.
 type Wait = (Option<u32>, &'static str, Vec<u64>, Option<Vec<u64>>);
 
-fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool, waiting_in: &[(String, u32)]) -> Result<()> {
+#[expect(clippy::too_many_arguments, reason = "the command line's options, each as it was given")]
+fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool, waiting_in: &[(String, u32)], test_game: Option<&str>) -> Result<()> {
     let waited = Instant::now();
     let id = loop {
-        match crate::game::processes().first() {
-            Some(&id) => break id,
+        match the_game(test_game)? {
+            Some(id) => break id,
             None if wait && waited.elapsed() < Duration::from_secs(300) => std::thread::sleep(Duration::from_millis(20)),
             None => return Err("eu4.exe is not running".into()),
         }

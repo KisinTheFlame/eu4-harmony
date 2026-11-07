@@ -33,6 +33,7 @@ fn framework() -> Vec<Point> {
     all.extend(crate::loading::points());
     all.extend(crate::hidden::points());
     all.extend(crate::sound::points());
+    all.extend(crate::army_search::points());
     all
 }
 
@@ -48,31 +49,33 @@ fn tools(mut all: Vec<Point>) -> Vec<Point> {
 }
 
 /// Every point this build declares, whether startup installs it or not:
-/// what the offline checks check, and what the framework may use.
+/// what the offline checks check, and what the framework may use. The
+/// `agents-order` test switch's walks are not among them: they hook the
+/// bytes the army searches' walk of the King's children does, in its place,
+/// and keep the bytes the searches keep, which these check.
 pub(crate) fn declared() -> Vec<Point> {
-    #[cfg_attr(not(feature = "dev-test-switches"), expect(unused_mut, reason = "only the test switches add points here"))]
     let mut all = tools(framework());
-    #[cfg(feature = "dev-test-switches")]
-    all.extend(crate::agents_order::points());
+    all.push(crate::army_search::children_walk());
     all
 }
 
 /// What startup installs in the game whose image is `m`: the framework's
-/// points, the tools', those of the test switches dev.toml turns on, and the
-/// functions dev.toml has the write watch and the call trace observe, which
-/// take the bytes the game holds there now and check nothing. The tools that
-/// observe those functions start here, before they are hooked.
-#[cfg_attr(not(any(feature = "dev-write-watch", feature = "dev-call-trace")), expect(unused_variables, reason = "only the write watch and the call trace look at the game here"))]
+/// points, the tools', the army searches' walk of the King's children or the
+/// `agents-order` test switch's walks in its place, and the functions
+/// dev.toml has the write watch and the call trace observe, which take the
+/// bytes the game holds there now and check nothing. The tools that observe
+/// those functions start here, before they are hooked.
 #[cfg_attr(
-    not(any(feature = "dev-test-switches", feature = "dev-write-watch", feature = "dev-call-trace")),
-    expect(unused_mut, reason = "only the development tools add points here")
+    not(any(feature = "dev-write-watch", feature = "dev-call-trace")),
+    expect(unused_variables, reason = "only the write watch and the call trace look at the game here")
 )]
 pub(crate) fn installed(m: Memory) -> Vec<Point> {
     let mut all = tools(framework());
     #[cfg(feature = "dev-test-switches")]
-    if crate::agents_order::chosen() {
-        all.extend(crate::agents_order::points());
-    }
+    let walks = if crate::agents_order::chosen() { crate::agents_order::points() } else { vec![crate::army_search::children_walk()] };
+    #[cfg(not(feature = "dev-test-switches"))]
+    let walks = vec![crate::army_search::children_walk()];
+    all.extend(walks);
     #[cfg(feature = "dev-write-watch")]
     {
         let watch = crate::write_watch::chosen(&m);

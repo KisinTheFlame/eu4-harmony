@@ -17,11 +17,12 @@ const PIPE_WAIT: Duration = Duration::from_secs(10);
 const LOOK: Duration = Duration::from_millis(250);
 const SETTLE: Duration = Duration::from_millis(400);
 
-/// Reloads the mod `id`'s extension; what came of it, as a line to print.
-pub fn once(id: &str) -> Result<String, String> {
+/// Reloads the mod `id`'s extension in the game serving the pipe `name`;
+/// what came of it, as a line to print.
+pub fn once(id: &str, name: &str) -> Result<String, String> {
     let request = json!({"capability": "extension.reload", "id": id}).to_string();
     let started = Instant::now();
-    let answer = pipe::connect(pipe::NAME, pipe::GAME, started + PIPE_WAIT)
+    let answer = pipe::connect(name, pipe::GAME, started + PIPE_WAIT)
         .and_then(|mut client| client.ask(&request, None))
         .map_err(|f| format!("{f}; is the game running?"))?;
     said(id, &answer)
@@ -68,9 +69,10 @@ fn look(dirs: &[PathBuf]) -> BTreeMap<PathBuf, (SystemTime, u64)> {
     seen
 }
 
-/// Reloads the mod `id` at `root` whenever its code or texts change, until
-/// the command is stopped; a failed reload is printed and waited past.
-pub fn watch(root: &Path, id: &str) -> ! {
+/// Reloads the mod `id` at `root` in the game serving the pipe `name`
+/// whenever its code or texts change, until the command is stopped; a
+/// failed reload is printed and waited past.
+pub fn watch(root: &Path, id: &str, name: &str) -> ! {
     let dirs = watched(root);
     let mut last = look(&dirs);
     println!("watching {} and {} for {id}; Ctrl+C stops", dirs[0].display(), dirs[1].display());
@@ -91,7 +93,7 @@ pub fn watch(root: &Path, id: &str) -> ! {
             settled = again;
         }
         last = settled;
-        match once(id) {
+        match once(id, name) {
             Ok(line) => println!("{} {line}", clock()),
             Err(e) => eprintln!("{} not reloaded: {e}", clock()),
         }

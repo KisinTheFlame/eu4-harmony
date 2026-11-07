@@ -33,7 +33,7 @@ const PIPE_WAIT: Duration = Duration::from_secs(10);
 
 /// The command line's own options, which no capability's argument may be
 /// named.
-const OPTIONS: [&str; 4] = ["timeout", "out", "compact", "help"];
+const OPTIONS: [&str; 5] = ["timeout", "out", "compact", "help", "test_game"];
 
 /// Runs `eu4-harmony game` with the arguments after `game`; returns the exit
 /// code.
@@ -52,7 +52,10 @@ pub fn run(raw: &[String]) -> i32 {
             EXIT_OK
         }
         Ok(Command::Ask(ask)) => {
-            let outcome = ask.run(pipe::NAME, pipe::GAME);
+            let outcome = match pipe::name_of(ask.test_game.as_deref()) {
+                Ok(name) => ask.run(&name, pipe::GAME),
+                Err(e) => Outcome::failed(EXIT_USAGE, e),
+            };
             if let Some(text) = &outcome.stdout {
                 println!("{text}");
             }
@@ -82,6 +85,9 @@ struct Ask {
     out: Option<PathBuf>,
     /// The JSON on one line.
     compact: bool,
+    /// The test game to ask, else the one `EU4_HARMONY_TEST_GAME` names, else
+    /// the game's own pipe.
+    test_game: Option<String>,
 }
 
 /// What a call prints, and its exit code.
@@ -104,7 +110,7 @@ impl Outcome {
 /// are, then the capability's name and its arguments. A `--` ends the
 /// options: every word after it is a value, even one that starts with `--`.
 fn parse(raw: &[String]) -> Result<Command, String> {
-    let (mut timeout, mut out, mut compact, mut help) = (None, None, false, false);
+    let (mut timeout, mut out, mut compact, mut help, mut test_game) = (None, None, false, false, None);
     let mut words = Vec::new();
     let mut values: &[String] = &[];
     let mut i = 0;
@@ -118,6 +124,7 @@ fn parse(raw: &[String]) -> Result<Command, String> {
             Some("timeout") => timeout = Some(seconds(option_value(raw, &mut i)?)?),
             Some("out") => out = Some(PathBuf::from(option_value(raw, &mut i)?)),
             Some("compact") => compact = true,
+            Some("test_game") => test_game = Some(option_value(raw, &mut i)?.to_string()),
             Some(_) => help = true,
             None if raw[i] == "-h" => help = true,
             None => words.push(raw[i].clone()),
@@ -134,7 +141,7 @@ fn parse(raw: &[String]) -> Result<Command, String> {
                 return Ok(Command::Help(Some(capability)));
             }
             let request = request(&capability, &words[used..], values)?;
-            Ok(Command::Ask(Ask { request, timeout, out, compact }))
+            Ok(Command::Ask(Ask { request, timeout, out, compact, test_game }))
         }
     }
 }
@@ -295,7 +302,7 @@ fn usage() -> String {
         "eu4-harmony game: use the running game through remote control
 
 usage:
-  eu4-harmony game <capability> [--<argument> <value>]... [--timeout <seconds>] [--out <file>] [--compact] [-- <value>...]
+  eu4-harmony game <capability> [--<argument> <value>]... [--timeout <seconds>] [--out <file>] [--compact] [--test-game <name>] [-- <value>...]
       Sends the game one request and prints the result as JSON. Values may
       also come without their names, in the order of the arguments, and a
       name's dot may be a space: eu4-harmony game army move <army> 151. The
@@ -314,6 +321,9 @@ options:
                        extension (shot.png, then shot-2.png, shot-3.png...),
                        and prints the files in their place.
   --compact            Prints the JSON on one line.
+  --test-game <name>   Asks the test game of that name, which a developer
+                       build serves on a pipe of its own; without it, the one
+                       EU4_HARMONY_TEST_GAME names, else the game's own pipe.
   --                   Ends the options: every word after it is a value, even
                        one that starts with --.
 

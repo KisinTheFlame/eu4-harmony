@@ -18,33 +18,14 @@ pub fn dir() -> Result<PathBuf> {
 }
 
 /// The ids of every running `eu4.exe`; none when the list of processes
-/// cannot be read, which [`running`] counts as a game that runs.
+/// cannot be read.
 pub fn processes() -> Vec<u32> {
     eu4_harmony_client::game_processes().unwrap_or_default()
-}
-
-/// Whether an `eu4.exe` runs, as it counts for what this guards: when it
-/// cannot be told, it does.
-pub fn running() -> bool {
-    eu4_harmony_client::game_running().unwrap_or(true)
 }
 
 /// Refuses while the game runs, and when it cannot be told whether it runs.
 pub fn not_running() -> Result<()> {
     eu4_harmony_client::game_not_running()
-}
-
-/// Waits for `eu4.exe` to end, a minute at most.
-pub fn wait_closed() -> Result<()> {
-    for _ in 0..120 {
-        match eu4_harmony_client::game_running() {
-            Ok(false) => return Ok(()),
-            Ok(true) => {}
-            Err(e) => return Err(format!("cannot tell whether eu4.exe has ended: {e}")),
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-    Err("eu4.exe did not end".into())
 }
 
 /// Whether Steam runs with a user logged in, as it must for the game to
@@ -90,11 +71,7 @@ pub fn steam_ready() -> Result<()> {
     Ok(())
 }
 
-/// Ends every running `eu4.exe` at once.
-pub fn kill() {
-    processes().into_iter().for_each(kill_process);
-}
-
+/// Ends the `eu4.exe` `id` at once.
 pub fn kill_process(id: u32) {
     unsafe {
         let process = OpenProcess(PROCESS_TERMINATE, 0, id);

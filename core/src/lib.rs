@@ -19,6 +19,7 @@ pub mod achievements;
 mod agents_order;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
+mod army_search;
 pub mod baseline;
 pub mod catalogue;
 #[cfg(feature = "dev-heap-census")]
@@ -140,7 +141,7 @@ fn start(m: memory::Memory) -> Result<String> {
     let baseline = baseline::recognize(&m)?;
     icu::load()?;
     #[cfg(dev_build)]
-    dev::load(GAME_DIR.get().map_or(std::path::Path::new(""), |d| d.as_path()))?;
+    dev::load(&paths::core_dir()?)?;
     #[cfg(feature = "dev-test-switches")]
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
@@ -161,7 +162,20 @@ fn open_fallback_log() {
     }
 }
 
+/// Logs every panic in framework code as it happens, with its thread and
+/// backtrace: one in a function the game calls cannot unwind into the game
+/// and ends it at once, with no crash folder and no fatal error to say why.
+fn log_panics() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        log!("panic on thread {} ({}): {info}\n{}", thread.name().unwrap_or("of the game's"), thread_id(), std::backtrace::Backtrace::force_capture());
+        default(info);
+    }));
+}
+
 fn bootstrap() -> Result<()> {
+    log_panics();
     MAIN_THREAD.store(thread_id(), Ordering::Relaxed);
     let game_dir = paths::game_dir()?;
     // The log stays buffered until the user directory is known (deferred_init).
@@ -256,7 +270,7 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
     for (font, role) in chosen.missing_fonts(installed) {
         let default = settings::default_face(chosen.language(), role, installed).family;
         log!("settings: the font {font:?} is not installed; {default} draws instead");
-        notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
+        notice::post(&format!("font:{font}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
     }
     for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
@@ -281,14 +295,14 @@ fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec
     for note in &notes {
         log!("discovery: {}", note.text);
         if let Some(message) = &note.notice {
-            notice::post(&format!("skipped:{}", note.text), message.clone());
+            notice::post(&format!("skipped:{}", note.text), notice::Repeat::Run, message.clone());
         }
     }
     // Lets the notice window be tried without a broken mod.
     #[cfg(feature = "dev-test-switches")]
     if dev::options().test_switches.test_notice {
         for number in ["1", "2"] {
-            notice::post(&format!("test:{number}"), notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
+            notice::post(&format!("test:{number}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
         }
     }
     for m in &mods {
@@ -344,6 +358,9 @@ pub(crate) fn deferred_init() {
     let logs = open_logs(&user_dir);
     report_header(Some(&game_dir));
     report::line(format!("user dir: {}", user_dir.display()));
+    if let Some(game) = pipe::test_game() {
+        report::line(format!("test game {game}: remote control on {}", pipe::name()));
+    }
     log!("user dir {}", user_dir.display());
     let chosen = settings::load(&user_dir);
     let language = lang::decide(&user_dir, chosen.language);

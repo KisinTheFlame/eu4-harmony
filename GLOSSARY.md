@@ -78,12 +78,16 @@ _Avoid_: using it for the hooking done at startup
 A build of the framework with development tools built in, such as the call trace or the command log, for trying things in the game; it says so at the top of its startup report. Players get only the player build, which has none of them and no hidden switches.
 _Avoid_: trace build (an older name, kept in notes written then), debug build (a build without optimizations), test build
 
+**Test game**:
+A game a claim starts for its holder from the game folder, with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder; several run side by side (docs/test-games.md). Not a mod's test, which runs against the fake game.
+_Avoid_: instance (a window's), game copy, slot, sandbox
+
 **Claim**:
-The hold one holder has on the game of this computer, its folder, its process and the player's files, while it tries something in the game; one holder at a time, from claiming the game to releasing it, which puts back everything the run changed.
-_Avoid_: lock (it survives only in the name of the claim's record, `game-lock.json`), reservation
+The hold a holder has on one test game, from claiming it to releasing it, which keeps the test game's logs and removes the rest of it; a few holders at a time, the others waiting in the queue. Until 2026-11-08 a claim held the whole game of the computer and put back the player's files it backed up.
+_Avoid_: lock (it survives only in the name of the older claim's record, `game-lock.json`), reservation
 
 **Lease**:
-How long a claim holds the game without being renewed, 30 minutes unless the holder asks for another; it is kept going while the game runs, and when it runs out the holder has gone and the first in the queue takes over.
+How long a claim holds its test game without a command of its holder's, 30 minutes unless the holder asks for another; once it has run out, a claim waiting with no test game free takes this one.
 _Avoid_: timeout, expiry
 
 **Memory account**:
@@ -102,7 +106,7 @@ A block of the game's heap still live two generations after its own: it outlived
 _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, session after session)
 
 **Scenario**:
-A course of play in the real game on one build, driven through remote control from the main menu, with the checks that decide whether it passed and the figures it measures; several are played in turn, within one claim.
+A course of play in the real game on one build, driven through remote control from the main menu, with the checks that decide whether it passed and the figures it measures; several are played in turn, in one claim's test game.
 _Avoid_: integration test, game test (a test is a mod's, against the fake game)
 
 **Leak run**:

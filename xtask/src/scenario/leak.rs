@@ -123,6 +123,10 @@ impl Scenario for Leak {
         }
     }
 
+    fn saves(&self, parameters: &Parameters) -> Vec<String> {
+        vec![parameters.text("first_save"), parameters.text("second_save")]
+    }
+
     fn play(&self, game: &mut Game, parameters: &Parameters, record: &mut Value) -> Played<()> {
         let rounds = parameters.number("rounds")?;
         let days = parameters.number("days")?;

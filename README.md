@@ -13,7 +13,7 @@ English | [简体中文](README.zh-CN.md)
 
 - **Every language, everywhere.** Every script shows in the whole game, in fonts made for your language or ones you choose. No font mod needed.
 - **No more restarts.** Back to the main menu in seconds instead of 45. Ironman games can load another save too.
-- **A faster game, the same game.** Smoother, about a tenth faster at top speed, a save stops it for a third of the time, and it starts and loads sooner, with nothing about the game itself changed.
+- **A faster game, the same game.** Smoother, about a tenth faster at top speed, a save stops it for a third of the time, and it starts and loads sooner; late in a game the AI's armies plan on idle cores. The game's rules and data stay as they are.
 - **Bugs fixed that vanilla still has.** Heirs no longer get the same name half the time, coalitions and an overlord's fall no longer risk a crash, and loading a save no longer costs you achievements.
 - **Achievements your way.** Optionally earn them outside ironman, or with mods.
 - **Mods that do more.** Mods can read the game, add buttons and do what you do in its panels (build, develop, research, take ideas and reforms, trade, wage war and make peace, every diplomatic action), each with the game's own reasons when it is not allowed, with a few lines of Lua.
@@ -139,14 +139,17 @@ cargo test --release
 cargo xtask release        # pack the player package
 ```
 
-The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim it first: the claim backs up the player's files, and its release puts them back ([docs/game-testing.md](docs/game-testing.md)).
+The game is found through `EU4_GAME_DIR` or Steam. To try the build in the game, claim a test game: a game started from the game folder with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder, and several run side by side ([docs/test-games.md](docs/test-games.md)). The game folder needs a framework from test games on, installed once with no game running (`cargo xtask install`).
 
 ```powershell
+cargo build --release --features eu4-harmony-core/dev-test-games
 cargo xtask game claim --purpose "try my change"
-cargo xtask install        # put the build into the game folder (--uninstall removes it)
-cargo xtask game start     # start the game, hidden
-cargo xtask game release   # restore the player's files and give the game back
+cargo xtask game start     # start the test game, hidden, with this build
+eu4-harmony game --test-game <this checkout's folder name> session get
+cargo xtask game release   # keep its logs, remove the rest
 ```
+
+The framework takes the game's own `-userdir` for the user folder, as the game does.
 
 `cargo xtask --help` lists the other development commands.
 
@@ -158,7 +161,7 @@ Read [AGENTS.md](AGENTS.md) first: it has the rules for code, commits, checks an
 | --- | --- |
 | `proxy/` | The `version.dll` that loads the core into `eu4.exe` |
 | `core/` | The framework: dependency points and startup, the capabilities, the Lua host on the live game, remote control, the framework UI and the Unicode module |
-| `lua/` | The Lua host shared by the game and the fake game: sandbox, handlers, tasks, time limit |
+| `lua/` | The Lua host shared by the game and the fake game: sandbox, handlers, tasks, time limit, and what extensions hear in which order |
 | `remote/` | The capability catalogue: every capability's arguments, results and description |
 | `checks/` | The checks a capability's call goes through, and the game's calendar |
 | `client/` | Reaching the running game from outside: remote control's pipe, starting the game, and backing up and restoring the player's files, shared by the tool and `cargo xtask` |

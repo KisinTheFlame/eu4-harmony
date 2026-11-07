@@ -52,7 +52,7 @@ use crate::{
     unicode::game_text,
 };
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
 };
 
@@ -201,7 +201,6 @@ extern "C" fn reset_exit_save_stub() {
 
 type InGameLoad = unsafe extern "C" fn(usize) -> u32;
 static ORIGINAL: Function<InGameLoad> = Function::new();
-static FAILED_SAVES: AtomicU64 = AtomicU64::new(0);
 
 /// The game's own in-game load of the `request`, inside the hook: the world
 /// reset inside it writes no ironman exit save of its own, and the save the
@@ -254,8 +253,7 @@ pub(super) fn stay(m: &Memory) {
 
 /// The player hears that the ironman exit save failed.
 pub(super) fn save_failed() {
-    let n = FAILED_SAVES.fetch_add(1, Ordering::Relaxed);
-    crate::notice::post(&format!("ironman save failed:{n}"), Message::new("EU4HARMONY_IRONMAN_SAVE_FAILED"));
+    crate::notice::post("ironman save failed", crate::notice::Repeat::Always, Message::new("EU4HARMONY_IRONMAN_SAVE_FAILED"));
 }
 
 /// Every in-game load: its steps, around the game's own (`super::course`).
