@@ -66,9 +66,13 @@ pub fn read(path: &Path) -> Result<Header> {
 pub fn parse(meta: &[u8]) -> Result<Header> {
     if meta.starts_with(b"EU4txt") {
         let text = String::from_utf8_lossy(meta);
-        let value = |key: &str| text.lines().find_map(|line| line.strip_prefix(key)).map(|v| v.trim().trim_matches('"').to_string());
-        let player = value("player=").and_then(|p| <[u8; 3]>::try_from(p.as_bytes()).ok());
-        let date = value("date=").and_then(|d| eu4_harmony_remote::Date::parse(&d)).map(|d| d.0);
+        // The header's own lines, not those of its blocks, which are indented.
+        let value = |key: &str| {
+            let top = text.lines().filter(|line| !line.starts_with(char::is_whitespace));
+            top.filter_map(eu4_harmony_manifest::line_entry).find(|&(k, _)| k == key).map(|(_, v)| v.to_string())
+        };
+        let player = value("player").and_then(|p| <[u8; 3]>::try_from(p.as_bytes()).ok());
+        let date = value("date").and_then(|d| eu4_harmony_remote::Date::parse(&d)).map(|d| d.0);
         return Ok(Header { player: country(player), observing: player == Some(OBSERVER), date, mods: text_mods(&text)? });
     }
     if meta.starts_with(b"EU4bin") {

@@ -1,8 +1,9 @@
 //! The files that make a Paradox mod an EU4 Harmony mod, as the core reads
 //! them at startup and the command line tool writes and checks them:
 //! `eu4-harmony/manifest.toml`, where the layout puts the rest of a mod's
-//! files (ADR manifest-in-toml-layout-by-convention), the lines of a `.mod`
-//! descriptor, and the user directory whose `mod\` folder holds the
+//! files (ADR manifest-in-toml-layout-by-convention), the `key="value"`
+//! lines of a `.mod` descriptor and the game's other plain files, and the
+//! user directory whose `mod\` folder holds the
 //! descriptors.
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -210,10 +211,29 @@ impl HarmonyMod {
 /// and an upload leaves them out.
 pub const LOCATION_KEYS: [&str; 2] = ["path", "archive"];
 
-/// The key and the unquoted value of a descriptor line `key="value"`.
-pub fn descriptor_entry(line: &str) -> Option<(&str, &str)> {
-    let (key, value) = line.split_once('=')?;
+/// The key and the value of one line of the game's plain `key="value"`
+/// files, as a `.mod` descriptor, the game's `settings.txt`, the framework
+/// settings and a plain save's header have them: both trimmed, the value's
+/// quotes taken off. A comment, from a `#` outside quotes, is no part of the
+/// line, nor a byte order mark before the key, which Notepad writes. None for
+/// a line with no `=` before its comment, such as a block's `}`.
+pub fn line_entry(line: &str) -> Option<(&str, &str)> {
+    let line = line.strip_prefix('\u{feff}').unwrap_or(line);
+    let mut quoted = false;
+    let end = line
+        .char_indices()
+        .find(|&(_, c)| {
+            quoted ^= c == '"';
+            c == '#' && !quoted
+        })
+        .map_or(line.len(), |(at, _)| at);
+    let (key, value) = line[..end].split_once('=')?;
     Some((key.trim(), value.trim().trim_matches('"')))
+}
+
+/// Every entry of a file of such lines, in order; see [`line_entry`].
+pub fn line_entries(text: &str) -> impl Iterator<Item = (&str, &str)> {
+    text.lines().filter_map(line_entry)
 }
 
 /// The game's user directory, where it keeps saves, settings and the `.mod`
@@ -487,10 +507,18 @@ permissions = { network = [\"https://x.com\"] }"
     }
 
     #[test]
-    fn descriptor_lines_give_their_key_and_value() {
-        assert_eq!(descriptor_entry(r#" path = "D:/m" "#), Some(("path", "D:/m")));
-        assert_eq!(descriptor_entry("tags={"), Some(("tags", "{")));
-        assert_eq!(descriptor_entry("}"), None);
+    fn lines_give_their_key_and_value() {
+        assert_eq!(line_entry(r#" path = "D:/m" "#), Some(("path", "D:/m")));
+        assert_eq!(line_entry("tags={"), Some(("tags", "{")));
+        assert_eq!(line_entry("}"), None);
+        assert_eq!(line_entry("language=l_english"), Some(("language", "l_english")));
+        // A comment is no part of the line, but a `#` in quotes is.
+        assert_eq!(line_entry(r#"name="Mod #1" # the first"#), Some(("name", "Mod #1")));
+        assert_eq!(line_entry("# version=\"1\""), None);
+        assert_eq!(line_entry("version=\"1\"#=2"), Some(("version", "1")));
+        // A byte order mark, as Notepad saves a file with.
+        assert_eq!(line_entries("\u{feff}body_font=\"Microsoft YaHei\"\r\n}\r\nx = 2").collect::<Vec<_>>(), [("body_font", "Microsoft YaHei"), ("x", "2")]);
+        assert_eq!(line_entry(""), None);
     }
 
     #[test]
