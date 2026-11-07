@@ -12,8 +12,8 @@
 //! again: as the owner's destructor begins, or, for those never deleted, as
 //! the map manager an in-process return lets go is going. Killing the
 //! windows the session's builds made without knowing their owners crashed
-//! the game (prototype-log.md, "Which holders keep the windows killed at a
-//! return"); here only what owns a window kills it.
+//! the game (docs/prototype-log/2026-11-07-holders-of-windows-killed.md); here
+//! only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
 use crate::{hooks::HookFrame, memory::Memory, objects::gui::window as gui_window, points::Point};
 use std::sync::atomic::{AtomicUsize, Ordering};

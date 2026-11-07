@@ -22,11 +22,11 @@
 //! The other threads are held because the kernel's writes for a system call
 //! (a message read into a heap buffer) fail on a read-only page instead of
 //! stopping, and Windows' messaging ended the game so when they ran on
-//! (docs/prototype-log.md). A function that waits for another thread waits
-//! for ever, and so does one that takes a lock a held thread has: the census
-//! takes one at every allocation, so build the watch without it. The game
-//! runs many times slower while watched: the watch is for finding out, not
-//! for play.
+//! (docs/prototype-log/2026-11-04-writing-game-state.md). A function that
+//! waits for another thread waits for ever, and so does one that takes a lock
+//! a held thread has: the census takes one at every allocation, so build the
+//! watch without it. The game runs many times slower while watched: the watch
+//! is for finding out, not for play.
 use crate::analysis;
 use crate::hooks::{self, HookFrame};
 use crate::memory::Memory;

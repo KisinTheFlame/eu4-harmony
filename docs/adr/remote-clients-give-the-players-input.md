@@ -10,7 +10,7 @@ Input is a capability like the others in the sense of ADR remote-control-uses-ca
 
 ## Considered Options
 
-- **Input from outside the process, as `tools/game-input.ps1` sent it** (`SendInput`): no change to the framework, but the game has to be brought to the front, the real cursor moves, and a click meant for the game lands in whatever program is in front, as happened in a run (prototype-log.md); positions are the screen's, not the frame's, and an injected Backspace deleted more than one character.
+- **Input from outside the process, as `tools/game-input.ps1` sent it** (`SendInput`): no change to the framework, but the game has to be brought to the front, the real cursor moves, and a click meant for the game lands in whatever program is in front, as happened in a run ([2026-10-31](../prototype-log/2026-10-31-weight-text-map-fonts.md)); positions are the screen's, not the frame's, and an injected Backspace deleted more than one character.
 - **Only named capabilities**: every answer means something, but each part of the game a client needs waits for its reverse engineering, and a client that meets one not done yet cannot go on.
 - **Extensions too**: a mod could work any panel, but then the catalogue no longer says everything a mod can do to the game, and a mod's clicks would fight the player's.
 

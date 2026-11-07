@@ -8,7 +8,8 @@
 //! without compressing it, so the game writes, checks and moves its file as it
 //! always does, only sooner. (Not the zip's method 0, "stored": the game's
 //! code for it reads its data from where the stream stands, after the end,
-//! and wrote a save of zeros when it was tried; docs/prototype-log.md.)
+//! and wrote a save of zeros when it was tried;
+//! docs/prototype-log/2026-11-04-game-speed-s1-s4.md.)
 //! Each file the save moved into place is then handed to a thread of the
 //! framework's, which deflates its uncompressed entries again at a real level,
 //! reads the result back, and puts it in the file's place, unless the file

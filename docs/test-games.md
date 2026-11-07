@@ -1,6 +1,6 @@
 # Test games plan
 
-Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [prototype-log.md](prototype-log.md), "Test games". The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](adr/test-games-run-side-by-side.md).
+Status: decided 2026-11-08, T1 to T4 built; what was tried in the game is in [Test games](prototype-log/2026-11-08-test-games.md). The limit of three, the queue and the lease were taken out the same day ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Test game, Claim). It replaces the claim of the whole game of [game-testing.md](game-testing.md), and rests on [research/several-games.md](research/several-games.md), which found that several games run at once. The decision is [ADR test-games-run-side-by-side](adr/test-games-run-side-by-side.md).
 
 ## Goal and scope
 
@@ -58,7 +58,7 @@ The release removes the junction before the folder, so that the player's `mod` f
 
 ### How many, and for how long
 
-- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([prototype-log.md](prototype-log.md), "Test games"); `status` says how many are held.
+- Any number of test games at once, and a claim holds its own until its holder releases it: no queue, no lease, nothing taken from a holder ([ADR test-games-have-no-limit-or-lease](adr/test-games-have-no-limit-or-lease.md)). A game in 1820 takes 4.2 GB of memory and 1.3 GB of the graphics card's ([Test games](prototype-log/2026-11-08-test-games.md)); `status` says how many are held.
 - A claim left behind, such as a scenario run's ended by a second Ctrl-C, stays until `cargo xtask game release --owner <name>` releases it.
 
 ### Beside other games
@@ -79,7 +79,7 @@ The release removes the junction before the folder, so that the player's `mod` f
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`;
-- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - [dev-tools.md](dev-tools.md) describes what changed.
 
 ### T1 A core and a user folder of a test game's own

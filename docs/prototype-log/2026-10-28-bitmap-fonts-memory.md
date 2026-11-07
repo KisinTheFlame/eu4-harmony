@@ -1,0 +1,3 @@
+# 2026-10-28 Where bitmap fonts' memory goes (measured by me)
+
+A build that logs process private bytes and the framework's heap: at startup, around each font page it makes, and at the main menu. Chinese playset, to the main menu only (no save loaded), once with bitmap fonts and once with system fonts, then once more with bitmap fonts after splitting each page into creating it and writing it. Results in [performance.md](../performance.md) and [research/font-textures.md](../research/font-textures.md): writing the grown dynamic pages a band at a time accounts for about 440 MB (425 MB for the map page), and the glyph records each of the 46 fonts keeps for itself for 63 MB more. The framework settings were put back afterwards.

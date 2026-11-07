@@ -1,6 +1,6 @@
 # Defeat: an army losing a land battle (for `game::events`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` while regional-combat was developed (2026-10-26), and checked again with `core/examples/disasm.rs` on 2026-11-03: every address below holds the instructions described. What was seen in the running game on 2026-10-26, before the framework existed, is marked "seen 2026-10-26"; it is not in [prototype-log.md](../prototype-log.md). What was checked in the running game through the framework is marked "tested", from that log. Everything else was read from the code only. The logged texts quoted come from the game's own log calls.
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` while regional-combat was developed (2026-10-26), and checked again with `core/examples/disasm.rs` on 2026-11-03: every address below holds the instructions described. What was seen in the running game on 2026-10-26, before the framework existed, is marked "seen 2026-10-26"; it is not in [prototype-log/](../prototype-log/). What was checked in the running game through the framework is marked "tested", from that log. Everything else was read from the code only. The logged texts quoted come from the game's own log calls.
 
 ## A battle
 

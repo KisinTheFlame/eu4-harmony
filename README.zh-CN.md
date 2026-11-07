@@ -124,7 +124,7 @@ eu4-harmony game menu return               # 回到主菜单
 | [docs/adr/](docs/adr/) | 难以撤回的决定，以及做出它们的理由 |
 | [docs/research/](docs/research/) | 对游戏代码的了解 |
 | [docs/performance.md](docs/performance.md) | 框架给游戏带来的开销，实测 |
-| [docs/prototype-log.md](docs/prototype-log.md) | 在运行中的游戏里试过什么、结果如何 |
+| [docs/prototype-log/](docs/prototype-log/) | 在运行中的游戏里试过什么、结果如何，每次一个文件 |
 | [docs/dev-tools.md](docs/dev-tools.md) | 开发工具 |
 
 每项较大的工作在 [docs/](docs/) 里有自己的方案，列在 [AGENTS.md](AGENTS.md) 里。

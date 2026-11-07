@@ -1,6 +1,6 @@
 # The user folder: how the game reads `userdir.txt` (for `paths`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` while regional-combat was developed (2026-10-26), and checked again with `core/examples/disasm.rs` on 2026-11-03. What was seen in the running game on 2026-10-26, before the framework existed, is marked "seen 2026-10-26"; it is not in [prototype-log.md](../prototype-log.md). Everything else was read from the code only.
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` while regional-combat was developed (2026-10-26), and checked again with `core/examples/disasm.rs` on 2026-11-03. What was seen in the running game on 2026-10-26, before the framework existed, is marked "seen 2026-10-26"; it is not in [prototype-log/](../prototype-log/). Everything else was read from the code only.
 
 The user folder holds the player's saves, settings, logs and the `.mod` descriptors. It is the folder `userdir.txt` in the game folder names, or the game's `-userdir` option ([architecture.md](architecture.md)), and otherwise `Documents\Paradox Interactive\Europa Universalis IV`.
 

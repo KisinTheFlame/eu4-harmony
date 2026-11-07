@@ -1,6 +1,6 @@
 # Several games at once
 
-Whether more than one game can run on this computer at the same time, for development runs side by side: what in the game, in Steam, in the framework and in the development tools keeps it to one, and what each would take. Baseline 1.37.5 (`9ad3efe1…`); all addresses are RVAs. Read from `eu4.exe` with `cargo xtask disasm` and its import table on 2026-11-07, and tried in the game the same day ([prototype-log.md](../prototype-log.md), "Two games at once"). What is marked _inferred_ was concluded, not seen. It answers [headless.md](headless.md), "What it would take", item 4.
+Whether more than one game can run on this computer at the same time, for development runs side by side: what in the game, in Steam, in the framework and in the development tools keeps it to one, and what each would take. Baseline 1.37.5 (`9ad3efe1…`); all addresses are RVAs. Read from `eu4.exe` with `cargo xtask disasm` and its import table on 2026-11-07, and tried in the game the same day ([Two games at once](../prototype-log/2026-11-07-two-games-at-once.md)). What is marked _inferred_ was concluded, not seen. It answers [headless.md](headless.md), "What it would take", item 4.
 
 ## Why
 

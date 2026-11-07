@@ -1,0 +1,8 @@
+# 2026-11-02 Where the leaders a load leaves come from (tested by me)
+
+An experiment, not kept: the census module observed `CLeader::CreateFromReader` by call site, the leader's destructor and the countries' history records holding a leader, and, with an environment variable, skipped the world reset's first call (`0x20fa30`, which empties the game's registry of objects by ID) to make it after the world's own reset instead. Four processes, `trace` build, the census on; backups as AGENTS.md says.
+
+- **Counts**: each load of `英格兰1444_11_11` made about 3,160 leaders: 2,275 by the mercenary companies' reader, 806 by the rebel factions', 40 by the countries' history, 38 by a fourth; about 44 leaders were destroyed. The history records destroyed (810, then 40 a load) all found their leader by ID and deleted it.
+- **The registry emptied last**: loads and returns went on as before, no crash; each load left 26,090 blocks, 3.7 MB, and the leaders as before. So the registry's being emptied first is not why they stay (research/main-menu.md).
+- **Two experiment builds stopped the game**: an observer without `crate::guarded` panicked (`0xc0000409` in the core, twice), and one using addresses no dependency point checks was ended by the framework's own check, as designed. Both mistakes of the experiment.
+- **Cleanup**: the experiment's code was taken out of `core/src/census.rs`. `-Restore` listed what the runs changed (the framework's logs, `pdx_login_cache.txt`, `settings.txt`), put each back and found every file as the backup had it. The framework files in the game folder were put back and compared equal.
