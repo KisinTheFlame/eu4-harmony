@@ -151,6 +151,7 @@ static MAIN_MENU: AtomicUsize = AtomicUsize::new(0);
 pub fn main_menu_frame(frontend: usize) {
     MAIN_MENU.store(frontend, Ordering::Relaxed);
     if let Some(m) = crate::memory() {
+        sessions::frame_ran();
         repairs::main_menu_shown(m);
         game::menu::main_menu_frame(m, frontend);
     }
@@ -170,7 +171,7 @@ pub fn game_frame() {
     }
     match game::begin_frame(&m) {
         Ok(frame) => {
-            repairs::session_frame();
+            sessions::frame_ran();
             #[cfg(feature = "dev-test-switches")]
             if frame.new_session {
                 game::commands::post_test_commands();

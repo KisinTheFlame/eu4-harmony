@@ -670,7 +670,7 @@ fn in_process_return(m: &Memory, app: usize) -> crate::Result<()> {
     let took = Took::begin();
     m.call(m.at(RESET), &[manager, 0])?;
     log!("leave: the world reset with the history, {}", took.end());
-    sessions::world_reset(m);
+    sessions::reset_with_history();
     interface.let_go_with_map_manager(m)?;
     main_menu(m, app)
 }
@@ -751,7 +751,7 @@ extern "C" fn setup_back(app: usize) -> bool {
         let took = Took::begin();
         let back = m.call(m.at(RESET_GAME), &[app, 0]).and_then(|_| {
             log!("leave: the single player setup was left; the world reset with the history, {}", took.end());
-            sessions::world_reset(&m);
+            sessions::reset_with_history();
             main_menu(&m, app)
         });
         match back {
