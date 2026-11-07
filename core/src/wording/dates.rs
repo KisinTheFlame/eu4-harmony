@@ -14,6 +14,7 @@
 //!
 //! Each of the functions takes the date, a `std::string` slot it constructs
 //! the text in, and, for the format language, the format.
+use crate::called_by_game;
 use crate::game_string;
 use crate::lang;
 use crate::loc;
@@ -92,6 +93,7 @@ unsafe fn write(original: &Function<DateText>, date: *const i32, out: *mut u8, e
 }
 
 /// The format language (0x14c7890): the three formats the game uses.
+#[called_by_game]
 extern "C" fn formatted(date: *const i32, out: *mut u8, format: usize) -> *mut u8 {
     unsafe {
         write(&ORIGINAL_FORMAT, date, out, format, |date| {
@@ -106,14 +108,17 @@ extern "C" fn formatted(date: *const i32, out: *mut u8, format: usize) -> *mut u
     }
 }
 
+#[called_by_game]
 extern "C" fn month_year(date: *const i32, out: *mut u8, extra: usize) -> *mut u8 {
     unsafe { write(&ORIGINAL_MONTH, date, out, extra, |date| Some((Shape::Month, date))) }
 }
 
+#[called_by_game]
 extern "C" fn next_month_year(date: *const i32, out: *mut u8, extra: usize) -> *mut u8 {
     unsafe { write(&ORIGINAL_NEXT_MONTH, date, out, extra, |date| Some((Shape::Month, date.next_month_start()))) }
 }
 
+#[called_by_game]
 extern "C" fn year_month_day(date: *const i32, out: *mut u8, extra: usize) -> *mut u8 {
     unsafe { write(&ORIGINAL_DAY, date, out, extra, |date| Some((Shape::Day, date))) }
 }

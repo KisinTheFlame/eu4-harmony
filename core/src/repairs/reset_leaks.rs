@@ -3,8 +3,9 @@
 //! leader, a country's rebel factions and the agents its AI started are let
 //! go with them.
 use super::LettingGo;
+use crate::called_by_game;
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::{
         campaign::{ai_king, classes, countries as country_list, country, functions, globals, leader, mercenary_company, world},
@@ -65,23 +66,21 @@ static AGENTS_LEFT: Mutex<Vec<(usize, Vec<usize>)>> = Mutex::new(Vec::new());
 
 /// A country's destructor begins: its array of bytes
 /// ([`country::ENTRY_BYTES`]), which the destructor leaves, is freed.
-extern "C" fn country_going(frame: *mut HookFrame) {
-    crate::guarded("country destructor", || {
-        let m = crate::hooked_memory();
-        let country = unsafe { (*frame).args[0] };
-        let freed = (|| {
-            let bytes = m.ptr(country + country::ENTRY_BYTES)?;
-            if bytes != 0 {
-                m.write(country + country::ENTRY_BYTES, &0usize.to_le_bytes())?;
-                let _letting_go = LettingGo::new("country's array of bytes");
-                crate::game_heap::delete(&m, bytes, 0)?;
-            }
-            crate::Result::Ok(())
-        })();
-        if let Err(e) = freed {
-            log!("repair: a country's array of bytes was not freed: {e}");
+fn country_going(call: &mut Call) {
+    let m = call.memory();
+    let country = call.arg(0);
+    let freed = (|| {
+        let bytes = m.ptr(country + country::ENTRY_BYTES)?;
+        if bytes != 0 {
+            m.write(country + country::ENTRY_BYTES, &0usize.to_le_bytes())?;
+            let _letting_go = LettingGo::new("country's array of bytes");
+            crate::game_heap::delete(&m, bytes, 0)?;
         }
-    });
+        crate::Result::Ok(())
+    })();
+    if let Err(e) = freed {
+        log!("repair: a country's array of bytes was not freed: {e}");
+    }
 }
 
 /// A mercenary company's destructor begins: its leader, which the
@@ -89,25 +88,23 @@ extern "C" fn country_going(frame: *mut HookFrame) {
 /// leader's own destructor takes it off its army and its country. Where the
 /// game hands a company's leader on, it gives the company the null leader
 /// in its place.
-extern "C" fn company_going(frame: *mut HookFrame) {
-    crate::guarded("mercenary company destructor", || {
-        let m = crate::hooked_memory();
-        let company = unsafe { (*frame).args[0] };
-        let deleted = (|| {
-            let leader = m.ptr(company + mercenary_company::LEADER)?;
-            if leader == 0 || m.call(m.vslot(leader, leader::REAL)?, &[leader])? as u8 == 0 {
-                return Ok(());
-            }
-            m.write(company + mercenary_company::LEADER, &0usize.to_le_bytes())?;
-            let _letting_go = LettingGo::new("mercenary company's leader");
-            m.call(m.vslot(leader, 0)?, &[leader, 1])?;
-            LEADERS.fetch_add(1, Ordering::Relaxed);
-            crate::Result::Ok(())
-        })();
-        if let Err(e) = deleted {
-            log!("repair: a mercenary company's leader was not deleted: {e}");
+fn company_going(call: &mut Call) {
+    let m = call.memory();
+    let company = call.arg(0);
+    let deleted = (|| {
+        let leader = m.ptr(company + mercenary_company::LEADER)?;
+        if leader == 0 || m.call(m.vslot(leader, leader::REAL)?, &[leader])? as u8 == 0 {
+            return Ok(());
         }
-    });
+        m.write(company + mercenary_company::LEADER, &0usize.to_le_bytes())?;
+        let _letting_go = LettingGo::new("mercenary company's leader");
+        m.call(m.vslot(leader, 0)?, &[leader, 1])?;
+        LEADERS.fetch_add(1, Ordering::Relaxed);
+        crate::Result::Ok(())
+    })();
+    if let Err(e) = deleted {
+        log!("repair: a mercenary company's leader was not deleted: {e}");
+    }
 }
 
 /// The world's own reset begins to clear the world: every country's rebel
@@ -118,38 +115,37 @@ extern "C" fn company_going(frame: *mut HookFrame) {
 /// `0xa9e160`), and a faction's destructor deletes its leaders whoever holds
 /// them. A faction's destructor takes it off its countries' vectors and,
 /// with the world being cleared, leaves its provinces be.
+#[called_by_game]
 extern "C" fn world_clearing() {
-    crate::guarded("world clear", || {
-        let m = crate::hooked_memory();
-        let deleted = (|| {
-            let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-            let list = m.ptr(manager + country_list::LIST)?;
-            for index in 0..m.i32(manager + country_list::COUNT)?.max(0) as usize {
-                let country = m.ptr(list + index * 8)?;
-                if country == 0 {
-                    continue;
-                }
-                let vector = country + country::REBEL_FACTIONS;
-                let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
-                let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::Result<Vec<_>>>()?;
-                for faction in factions.into_iter().filter(|&f| f != 0) {
-                    let _letting_go = LettingGo::new("rebel faction");
-                    m.call(m.vslot(faction, 0)?, &[faction, 1])?;
-                    FACTIONS.fetch_add(1, Ordering::Relaxed);
-                }
-                // Each took itself off; none is left for the clear.
-                m.write(vector + 8, &m.ptr(vector)?.to_le_bytes())?;
+    let m = crate::hooked_memory();
+    let deleted = (|| {
+        let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
+        let list = m.ptr(manager + country_list::LIST)?;
+        for index in 0..m.i32(manager + country_list::COUNT)?.max(0) as usize {
+            let country = m.ptr(list + index * 8)?;
+            if country == 0 {
+                continue;
             }
-            crate::Result::Ok(())
-        })();
-        if let Err(e) = deleted {
-            log!("repair: the rebel factions were not deleted: {e}");
+            let vector = country + country::REBEL_FACTIONS;
+            let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
+            let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::Result<Vec<_>>>()?;
+            for faction in factions.into_iter().filter(|&f| f != 0) {
+                let _letting_go = LettingGo::new("rebel faction");
+                m.call(m.vslot(faction, 0)?, &[faction, 1])?;
+                FACTIONS.fetch_add(1, Ordering::Relaxed);
+            }
+            // Each took itself off; none is left for the clear.
+            m.write(vector + 8, &m.ptr(vector)?.to_le_bytes())?;
         }
-        super::histories::world_clearing(&m);
-        super::trade_nodes::world_clearing(&m);
-        super::estates::world_clearing(&m);
-        super::list_entries::world_clearing(&m);
-    });
+        crate::Result::Ok(())
+    })();
+    if let Err(e) = deleted {
+        log!("repair: the rebel factions were not deleted: {e}");
+    }
+    super::histories::world_clearing(&m);
+    super::trade_nodes::world_clearing(&m);
+    super::estates::world_clearing(&m);
+    super::list_entries::world_clearing(&m);
 }
 
 /// The items of one of the game's lists.
@@ -167,49 +163,45 @@ fn list_items(m: &Memory, header: usize) -> crate::Result<Vec<usize>> {
 /// started, and those that retired since its last update, which its
 /// destructor leaves, are kept to be deleted once it is gone
 /// ([`ai_king_gone`]), when nothing of it can use them any more.
-extern "C" fn ai_king_going(frame: *mut HookFrame) {
-    crate::guarded("AI king delete", || {
-        let (king, flags) = unsafe { ((*frame).args[0], (*frame).args[1]) };
-        if flags & 1 == 0 {
-            return;
-        }
-        let m = crate::hooked_memory();
-        let kept = (|| {
-            let mut agents = list_items(&m, king + ai_king::AGENTS)?;
-            agents.extend(list_items(&m, king + ai_king::RETIRED)?);
-            agents.retain(|&a| a != 0);
-            crate::Result::Ok(agents)
-        })();
-        match kept {
-            Ok(agents) => AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((king, agents)),
-            Err(e) => log!("repair: the agents of a country's AI were not read: {e}"),
-        }
-    });
+fn ai_king_going(call: &mut Call) {
+    let (king, flags) = (call.arg(0), call.arg(1));
+    if flags & 1 == 0 {
+        return;
+    }
+    let m = call.memory();
+    let kept = (|| {
+        let mut agents = list_items(&m, king + ai_king::AGENTS)?;
+        agents.extend(list_items(&m, king + ai_king::RETIRED)?);
+        agents.retain(|&a| a != 0);
+        crate::Result::Ok(agents)
+    })();
+    match kept {
+        Ok(agents) => AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner()).push((king, agents)),
+        Err(e) => log!("repair: the agents of a country's AI were not read: {e}"),
+    }
 }
 
 /// The agent at the top of a country's AI is gone: the agents it left are
 /// deleted, as its update deletes those that retire.
-extern "C" fn ai_king_gone(frame: *mut HookFrame) {
-    crate::guarded("AI king deleted", || {
-        let king = unsafe { (*frame).args[0] };
-        let agents = {
-            let mut left = AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner());
-            match left.iter().rposition(|(k, _)| *k == king) {
-                Some(at) => left.swap_remove(at).1,
-                None => return,
-            }
-        };
-        let m = crate::hooked_memory();
-        for agent in agents {
-            let _letting_go = LettingGo::new("agent of a country's AI");
-            match m.vslot(agent, 0).and_then(|delete| m.call(delete, &[agent, 1])) {
-                Ok(_) => {
-                    AGENTS.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(e) => log!("repair: an agent of a country's AI was not deleted: {e}"),
-            }
+fn ai_king_gone(call: &mut Call) {
+    let king = call.arg(0);
+    let agents = {
+        let mut left = AGENTS_LEFT.lock().unwrap_or_else(|e| e.into_inner());
+        match left.iter().rposition(|(k, _)| *k == king) {
+            Some(at) => left.swap_remove(at).1,
+            None => return,
         }
-    });
+    };
+    let m = call.memory();
+    for agent in agents {
+        let _letting_go = LettingGo::new("agent of a country's AI");
+        match m.vslot(agent, 0).and_then(|delete| m.call(delete, &[agent, 1])) {
+            Ok(_) => {
+                AGENTS.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(e) => log!("repair: an agent of a country's AI was not deleted: {e}"),
+        }
+    }
 }
 
 crate::resume!(WORLD_CLEARING_RESUME: WORLD_CLEARING_NEXT = WORLD_CLEARING_DONE);

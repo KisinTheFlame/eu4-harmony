@@ -22,6 +22,7 @@ pub mod plan;
 mod window;
 
 use super::{fail, Caller, GResult, Status};
+use crate::called_by_game;
 use crate::points::{Function, Point};
 use plan::{Held, Step};
 use std::collections::VecDeque;
@@ -43,6 +44,7 @@ pub fn points() -> Vec<Point> {
     vec![Point::replace(CURSOR_AT, "48 89 5c 24 10 55 56 57 48 83 ec 40", "cursor position", cursor_at as CursorAt, &ORIGINAL_CURSOR_AT)]
 }
 
+#[called_by_game]
 unsafe extern "C" fn cursor_at(out: *mut [i32; 2], full_screen: u8, borderless: u8) -> *mut [i32; 2] {
     let held = || {
         // No player's mouse moves a hidden game's cursor: remote control

@@ -3,7 +3,7 @@
 //! are copied over from their own set still lists, and go with them.
 use super::LettingGo;
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::campaign::{classes, modifiers},
     points::Point,
@@ -108,71 +108,63 @@ fn kept_modifier_sets(modifiers: usize) -> Vec<usize> {
 /// were copied over, which their own set listed until now, are kept to be
 /// deleted once they are gone ([`modifiers_gone`]) with what of them points
 /// to the sets.
-extern "C" fn modifiers_going(frame: *mut HookFrame) {
-    crate::guarded("modifiers destructor", || {
-        let m = crate::hooked_memory();
-        let modifiers = unsafe { (*frame).args[0] };
-        let waiting = take_modifier_sets(&MODIFIER_SETS_WAITING, modifiers);
-        MODIFIER_SETS_WAITING_COUNT.fetch_sub(waiting.len(), Ordering::Relaxed);
-        MODIFIER_SETS_WAITED.fetch_add(waiting.len(), Ordering::Relaxed);
-        let sets = modifier_copies(&m, modifiers).map(|mut sets| {
-            for set in waiting {
-                if !sets.contains(&set) {
-                    sets.push(set);
-                }
+fn modifiers_going(call: &mut Call) {
+    let m = call.memory();
+    let modifiers = call.arg(0);
+    let waiting = take_modifier_sets(&MODIFIER_SETS_WAITING, modifiers);
+    MODIFIER_SETS_WAITING_COUNT.fetch_sub(waiting.len(), Ordering::Relaxed);
+    MODIFIER_SETS_WAITED.fetch_add(waiting.len(), Ordering::Relaxed);
+    let sets = modifier_copies(&m, modifiers).map(|mut sets| {
+        for set in waiting {
+            if !sets.contains(&set) {
+                sets.push(set);
             }
-            sets
-        });
-        keep_modifier_sets(modifiers, sets);
+        }
+        sets
     });
+    keep_modifier_sets(modifiers, sets);
 }
 
-extern "C" fn modifiers_gone(frame: *mut HookFrame) {
-    crate::guarded("modifiers destructor", || {
-        let m = crate::hooked_memory();
-        delete_modifier_sets(&m, kept_modifier_sets(unsafe { (*frame).args[0] }));
-    });
+fn modifiers_gone(call: &mut Call) {
+    let m = call.memory();
+    delete_modifier_sets(&m, kept_modifier_sets(call.arg(0)));
 }
 
 /// A country's modifiers are copied over from other modifiers: the sets
 /// they copied that the others do not hold would be lost, and wait for them
 /// to go once the copy is made ([`modifiers_copied`]).
-extern "C" fn modifiers_copying(frame: *mut HookFrame) {
-    crate::guarded("modifiers copy", || {
-        let m = crate::hooked_memory();
-        let (modifiers, other) = unsafe { ((*frame).args[0], (*frame).args[1]) };
-        let lost = (|| {
-            let kept = modifier_copies(&m, other)?;
-            Ok(modifier_copies(&m, modifiers)?.into_iter().filter(|s| !kept.contains(s)).collect())
-        })();
-        keep_modifier_sets(modifiers, lost);
-    });
+fn modifiers_copying(call: &mut Call) {
+    let m = call.memory();
+    let (modifiers, other) = (call.arg(0), call.arg(1));
+    let lost = (|| {
+        let kept = modifier_copies(&m, other)?;
+        Ok(modifier_copies(&m, modifiers)?.into_iter().filter(|s| !kept.contains(s)).collect())
+    })();
+    keep_modifier_sets(modifiers, lost);
 }
 
 /// The copy is made: their own set still lists the lost sets, as a set's
 /// copy leaves the list it has, so the lost sets wait for the modifiers to
 /// go; and the other modifiers no longer point to the sets they now share,
 /// so that the sets go with these alone: the copy moves them.
-extern "C" fn modifiers_copied(frame: *mut HookFrame) {
-    crate::guarded("modifiers copy", || {
-        let m = crate::hooked_memory();
-        let (modifiers, other) = unsafe { ((*frame).args[0], (*frame).args[1]) };
-        let lost = kept_modifier_sets(modifiers);
-        if !lost.is_empty() {
-            #[cfg(feature = "dev-heap-census")]
-            check_listed(&m, modifiers, &lost);
-            MODIFIER_SETS_WAITING_COUNT.fetch_add(lost.len(), Ordering::Relaxed);
-            let mut waiting = MODIFIER_SETS_WAITING.lock().unwrap_or_else(|e| e.into_inner());
-            match waiting.iter_mut().find(|(k, _)| *k == modifiers) {
-                Some((_, sets)) => sets.extend(lost),
-                None => waiting.push((modifiers, lost)),
-            }
+fn modifiers_copied(call: &mut Call) {
+    let m = call.memory();
+    let (modifiers, other) = (call.arg(0), call.arg(1));
+    let lost = kept_modifier_sets(modifiers);
+    if !lost.is_empty() {
+        #[cfg(feature = "dev-heap-census")]
+        check_listed(&m, modifiers, &lost);
+        MODIFIER_SETS_WAITING_COUNT.fetch_add(lost.len(), Ordering::Relaxed);
+        let mut waiting = MODIFIER_SETS_WAITING.lock().unwrap_or_else(|e| e.into_inner());
+        match waiting.iter_mut().find(|(k, _)| *k == modifiers) {
+            Some((_, sets)) => sets.extend(lost),
+            None => waiting.push((modifiers, lost)),
         }
-        let moved = m.ptr(other + modifiers::COPIES).and_then(|begin| m.write(other + modifiers::COPIES + 8, &begin.to_le_bytes()));
-        if let Err(e) = moved {
-            log!("repair: the sets of modifiers copied were not moved: {e}");
-        }
-    });
+    }
+    let moved = m.ptr(other + modifiers::COPIES).and_then(|begin| m.write(other + modifiers::COPIES + 8, &begin.to_le_bytes()));
+    if let Err(e) = moved {
+        log!("repair: the sets of modifiers copied were not moved: {e}");
+    }
 }
 
 /// Logs the lost sets the modifiers' own set does not list: a check, in

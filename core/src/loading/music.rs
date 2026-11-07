@@ -16,6 +16,7 @@
 //! for a file in a folder, its size and time. The next start fills the
 //! numbers in from there while the file is as it was, and the game reads only
 //! what is new or changed.
+use crate::called_by_game;
 use crate::points::Point;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
@@ -104,6 +105,7 @@ struct Kept {
 /// The numbers kept, by the place and the file's name.
 static KEPT_MUSIC: Mutex<Option<HashMap<(String, String), Kept>>> = Mutex::new(None);
 
+#[called_by_game]
 extern "C" fn read_whole(sound: usize) -> usize {
     let m = crate::hooked_memory();
     let read = || m.call(m.at(READ), &[sound, 1]).unwrap_or(0);

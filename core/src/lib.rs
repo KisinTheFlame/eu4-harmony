@@ -7,6 +7,9 @@
 //! hooked; a thread of its own writes the report and tells the player.
 pub type Result<T> = std::result::Result<T, String>;
 
+/// Marks a function the game's code calls, which runs under [`guarded`].
+pub(crate) use eu4_harmony_core_macros::called_by_game;
+
 #[macro_use]
 pub mod log;
 #[macro_use]
@@ -118,11 +121,19 @@ pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
 
 /// Ends the game after an unexpected error in framework code
 /// (ADR framework-succeeds-or-fails-as-a-whole).
+#[cfg(not(test))]
 pub(crate) fn fatal(detail: &str) -> ! {
     log!("fatal error, ending the game: {detail}");
     notice::tell_and_wait(&notice::Message::new("EU4HARMONY_FATAL").arg("DETAIL", detail));
     unsafe { TerminateProcess(GetCurrentProcess(), 3) };
     unreachable!("the process was terminated")
+}
+
+/// In a test, the fatal path panics with the detail instead, so a test can
+/// see that a panic reached it.
+#[cfg(test)]
+pub(crate) fn fatal(detail: &str) -> ! {
+    panic!("fatal: {detail}")
 }
 
 /// Every dependency point, in one declaration list.

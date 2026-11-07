@@ -20,6 +20,7 @@
 //! with a texture of size 0 and vanished, with or without the framework. The
 //! limit is raised to 256 MiB.
 use super::glyphs::{self, Glyph};
+use crate::called_by_game;
 use crate::points::Point;
 use crate::resume;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,22 +40,21 @@ static LOADED: AtomicU64 = AtomicU64::new(0);
 static DUPLICATES: AtomicU64 = AtomicU64::new(0);
 
 /// Stores one parsed glyph with an id above 0xFF.
+#[called_by_game]
 extern "C" fn store(font: usize, id: u32, x: i32, y: i32, width: i32, height: i32, x_offset: i32, y_offset: i32, advance: i32) {
-    crate::guarded("font glyph", || {
-        let glyph = Glyph {
-            x: x as u16,
-            y: y as u16,
-            width: width as u16,
-            height: height as u16,
-            x_offset: x_offset as i16,
-            y_offset: y_offset as i16,
-            advance: advance as i16,
-            kerned: 0,
-            page: 0,
-        };
-        let counter = if glyphs::insert(font, id, glyph) { &LOADED } else { &DUPLICATES };
-        counter.fetch_add(1, Ordering::Relaxed);
-    })
+    let glyph = Glyph {
+        x: x as u16,
+        y: y as u16,
+        width: width as u16,
+        height: height as u16,
+        x_offset: x_offset as i16,
+        y_offset: y_offset as i16,
+        advance: advance as i16,
+        kerned: 0,
+        page: 0,
+    };
+    let counter = if glyphs::insert(font, id, glyph) { &LOADED } else { &DUPLICATES };
+    counter.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Replaces `cmp edi, 0xff; ja BAD_ID`: an id above 0xFF goes to the glyph

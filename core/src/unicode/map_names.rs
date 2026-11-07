@@ -24,6 +24,7 @@
 //! another direction instead, but reads it from a vector of doubles as floats
 //! (0xfd45d4, 0xfd464b), so whatever it gives is arbitrary.
 use super::{breaks, game_text, text_loops};
+use crate::called_by_game;
 use crate::game_string;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE, SCALE_FROM_GLYPHS};
 use crate::points::Point;
@@ -47,8 +48,9 @@ fn characters(text: &[u8]) -> Vec<&[u8]> {
 
 /// The spacing loop: `dst` gets each character of `src` with `spacer` after
 /// every one but the last.
+#[called_by_game]
 extern "C" fn space_letters(dst: usize, src: *const u8, spacer: *const u8) {
-    crate::guarded("map name spacing", || unsafe {
+    unsafe {
         let spacer = game_string::text(spacer);
         let chars = characters(game_string::text(src));
         for (i, c) in chars.iter().enumerate() {
@@ -57,12 +59,13 @@ extern "C" fn space_letters(dst: usize, src: *const u8, spacer: *const u8) {
                 crate::game_string::append(dst, spacer);
             }
         }
-    })
+    }
 }
 
 /// Writes how many characters the `std::string` at `string` holds to `count`.
+#[called_by_game]
 extern "C" fn store_character_count(string: *const u8, count: *mut usize) {
-    crate::guarded("map name length", || unsafe { *count = characters(game_string::text(string)).len() })
+    unsafe { *count = characters(game_string::text(string)).len() }
 }
 
 /// Layout pass (0x159da60): `movzx eax, byte [r15+rax]; mov r11,

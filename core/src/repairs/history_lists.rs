@@ -15,7 +15,7 @@
 //! hold, at any depth, is deleted first, unless something it holds is the
 //! second's too, or one of the first's others holds it.
 use super::LettingGo;
-use crate::{hooks::HookFrame, memory::Memory, points::Point};
+use crate::{hooks::Call, memory::Memory, points::Point};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -88,18 +88,15 @@ fn under(m: &Memory, objects: &[usize], found: &mut HashSet<usize>) -> crate::Re
 
 /// The first history is being emptied by a clear: what it lists alone goes
 /// first.
-extern "C" fn emptying(frame: *mut HookFrame) {
-    crate::guarded("history list emptied", || {
-        let h = unsafe { &*frame };
-        let m = crate::hooked_memory();
-        if !FIRST_EMPTIED.iter().any(|&at| h.return_address == m.at(at)) {
-            return;
-        }
-        let first = h.args[0];
-        if let Err(e) = delete_alone(&m, first) {
-            log!("repair: what a country's first history lists alone was not deleted: {e}");
-        }
-    });
+fn emptying(call: &mut Call) {
+    let m = call.memory();
+    if !FIRST_EMPTIED.iter().any(|&at| call.caller() == m.at(at)) {
+        return;
+    }
+    let first = call.arg(0);
+    if let Err(e) = delete_alone(&m, first) {
+        log!("repair: what a country's first history lists alone was not deleted: {e}");
+    }
 }
 
 fn delete_alone(m: &Memory, first: usize) -> crate::Result<()> {

@@ -15,6 +15,7 @@
 //! with `-seed`, where each agent draws from a generator of its own, then
 //! plays the same days in either order if no agent reads what another of
 //! its country wrote that day.
+use crate::called_by_game;
 use crate::{dev::AgentsOrder, points::Point};
 
 /// In the top agent's step `0x14b370`, once it has thought: `mov rbx, [rdi +
@@ -52,6 +53,7 @@ unsafe fn walk_list(list: usize, from: usize, step: usize, day: usize) {
 }
 
 /// The two walks, in the switch's order.
+#[called_by_game]
 unsafe extern "C" fn walk(top: usize, day: usize) {
     let (from, step) = if order() == AgentsOrder::Reversed { (LAST, PREVIOUS) } else { (0, NEXT) };
     for list in [CHILDREN, ARMIES] {

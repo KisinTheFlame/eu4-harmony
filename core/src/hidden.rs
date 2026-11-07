@@ -23,6 +23,7 @@
 //! Sound needs no point: before SDL's audio starts, the `dummy` driver is
 //! chosen through the environment, which SDL reads then
 //! (docs/research/headless.md).
+use crate::called_by_game;
 use crate::points::{Function, Point};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -229,16 +230,15 @@ pub fn points() -> Vec<Point> {
 /// The flags the window is made with: `SDL_WINDOW_HIDDEN` in place of
 /// `SDL_WINDOW_SHOWN` for a hidden start. A full screen device needs the focus, which a hidden game
 /// never has, so a hidden start in full screen ends the game.
+#[called_by_game]
 extern "C" fn window_flags(flags: u32) -> u32 {
-    crate::guarded("window flags", || {
-        if !hidden_start() {
-            return flags;
-        }
-        if flags & SDL_WINDOW_FULLSCREEN != 0 {
-            crate::fatal("a hidden start needs a windowed or borderless game, and the settings have it full screen");
-        }
-        flags & !SDL_WINDOW_SHOWN | SDL_WINDOW_HIDDEN
-    })
+    if !hidden_start() {
+        return flags;
+    }
+    if flags & SDL_WINDOW_FULLSCREEN != 0 {
+        crate::fatal("a hidden start needs a windowed or borderless game, and the settings have it full screen");
+    }
+    flags & !SDL_WINDOW_SHOWN | SDL_WINDOW_HIDDEN
 }
 
 /// [`window_flags`] for the flags at the game's `[rsp+0x28]`, which is
@@ -256,6 +256,7 @@ extern "C" fn window_made_stub() {
 
 /// Init's `ShowWindow`: while the game is hidden, cloaked first and without
 /// the focus.
+#[called_by_game]
 extern "C" fn init_shows(window: usize, command: i32) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
     if hidden() {
@@ -279,6 +280,7 @@ extern "C" fn init_shows_stub() {
 
 /// Stores whether the game's error messages are left out: as the command
 /// line asks, and always for a hidden start.
+#[called_by_game]
 extern "C" fn suppress(asked: u8) {
     let on = asked != 0 || hidden_start();
     unsafe { *(crate::hooked_memory().at(SUPPRESS_ERROR_MESSAGES) as *mut u8) = on as u8 };
@@ -297,6 +299,7 @@ extern "C" fn suppress_stub() {
 /// The input device moves Windows' cursor; while the game is hidden, it
 /// moves remote control's held cursor instead, and Windows' stays where the
 /// player has it.
+#[called_by_game]
 unsafe extern "C" fn warp(device: usize, at: *const [i32; 2]) {
     if hidden() {
         let at = *at;
@@ -308,6 +311,7 @@ unsafe extern "C" fn warp(device: usize, at: *const [i32; 2]) {
 
 /// After a crash, the window is minimized only when it is shown: minimizing a
 /// hidden window puts it on the taskbar.
+#[called_by_game]
 extern "C" fn crash_minimizes(window: usize) {
     if !hidden() {
         unsafe { MINIMIZE.get()(window) };
@@ -327,6 +331,7 @@ extern "C" fn crash_minimizes_stub() {
 /// The crash reporter is a program with a window: a hidden start does not
 /// start it. The crash's files are written before, either way. Runs inside
 /// the game's crash handling, so it takes no lock.
+#[called_by_game]
 unsafe extern "C" fn start_crash_reporter(handler: usize, folder: usize) -> usize {
     if hidden_start() {
         0

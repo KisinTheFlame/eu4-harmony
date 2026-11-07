@@ -26,6 +26,7 @@
 //! has the character (control characters), as the loops expect.
 use super::glyphs::{self, Glyph};
 use super::{fill, game_text};
+use crate::called_by_game;
 use crate::objects::text::font::OWN_GLYPHS;
 
 /// The glyph `font` draws for `c`.
@@ -63,12 +64,11 @@ pub unsafe fn glyph_at(font: usize, text: *const u8) -> (*const Glyph, usize) {
 ///
 /// # Safety
 /// `text` as for [`glyph_at`]; `len` is writable.
+#[called_by_game]
 pub unsafe extern "C" fn char_glyph(font: usize, text: *const u8, len: *mut usize) -> *const Glyph {
-    crate::guarded("text glyph", || {
-        let (glyph, n) = unsafe { glyph_at(font, text) };
-        unsafe { *len = n };
-        glyph
-    })
+    let (glyph, n) = unsafe { glyph_at(font, text) };
+    unsafe { *len = n };
+    glyph
 }
 
 /// For loops that know where the text ends: the glyph for the character at
@@ -76,13 +76,12 @@ pub unsafe extern "C" fn char_glyph(font: usize, text: *const u8, len: *mut usiz
 ///
 /// # Safety
 /// `text` has `end` readable bytes; `len` is writable.
+#[called_by_game]
 pub unsafe extern "C" fn glyph_in(font: usize, text: *const u8, index: u32, end: u32, len: *mut usize) -> *const Glyph {
-    crate::guarded("text glyph", || {
-        let all = unsafe { std::slice::from_raw_parts(text, end as usize) };
-        let (c, n) = game_text::char_at(all.get(index as usize..).unwrap_or_default());
-        unsafe { *len = n.max(1) };
-        glyph(font, c)
-    })
+    let all = unsafe { std::slice::from_raw_parts(text, end as usize) };
+    let (c, n) = game_text::char_at(all.get(index as usize..).unwrap_or_default());
+    unsafe { *len = n.max(1) };
+    glyph(font, c)
 }
 
 /// For layout passes that copy each byte into a word (`std::string*`) before
@@ -92,15 +91,16 @@ pub unsafe extern "C" fn glyph_in(font: usize, text: *const u8, index: u32, end:
 /// # Safety
 /// `text` as for [`glyph_at`]; `word` is the game's `std::string`; `len` is
 /// writable.
+#[called_by_game]
 pub unsafe extern "C" fn layout_char(font: usize, text: *const u8, word: usize, len: *mut usize) -> *const Glyph {
-    crate::guarded("text layout glyph", || unsafe {
+    unsafe {
         let (glyph, n) = glyph_at(font, text);
         if n > 1 {
             crate::game_string::append(word, std::slice::from_raw_parts(text.add(1), n - 1));
         }
         *len = n;
         glyph
-    })
+    }
 }
 
 /// For layout passes that copy each byte into a fixed word buffer (`word`,
@@ -110,6 +110,7 @@ pub unsafe extern "C" fn layout_char(font: usize, text: *const u8, word: usize, 
 ///
 /// # Safety
 /// As for [`glyph_in`]; `word` has `capacity` writable bytes.
+#[called_by_game]
 pub unsafe extern "C" fn layout_char_in(
     font: usize,
     text: *const u8,
@@ -120,14 +121,12 @@ pub unsafe extern "C" fn layout_char_in(
     capacity: u32,
     len: *mut usize,
 ) -> *const Glyph {
-    crate::guarded("text layout glyph", || {
-        let glyph = glyph_in(font, text, index, end, len);
-        let extra = unsafe { *len } - 1;
-        if extra > 0 && word_at as usize + extra <= capacity as usize {
-            unsafe { std::ptr::copy_nonoverlapping(text.add(index as usize + 1), word.add(word_at as usize), extra) };
-        }
-        glyph
-    })
+    let glyph = glyph_in(font, text, index, end, len);
+    let extra = unsafe { *len } - 1;
+    if extra > 0 && word_at as usize + extra <= capacity as usize {
+        unsafe { std::ptr::copy_nonoverlapping(text.add(index as usize + 1), word.add(word_at as usize), extra) };
+    }
+    glyph
 }
 
 #[cfg(test)]

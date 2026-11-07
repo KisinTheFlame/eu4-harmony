@@ -20,6 +20,7 @@ mod analysis;
 pub mod loudness;
 pub mod music;
 
+use crate::called_by_game;
 use crate::points::{Function, Point};
 use music::{Choices, Track};
 use std::collections::HashMap;
@@ -153,6 +154,7 @@ pub fn points() -> Vec<Point> {
 
 /// The gains of the master (times the factor beside it), music and effects
 /// volumes, the last times 100 for the game's 0.01 after.
+#[called_by_game]
 extern "C" fn volumes(master: f32, factor: f32, music: f32, effects: f32, out: *mut [f32; 3]) {
     unsafe { *out = [gain(master) * factor / 100.0, gain(music), gain(effects) * 100.0] };
 }
@@ -175,6 +177,7 @@ extern "C" fn volumes_stub() {
 }
 
 /// The gain of the map's ambient sound, as the bits of an `f32`.
+#[called_by_game]
 extern "C" fn ambient(ambient: f32, master: f32) -> u32 {
     (gain(ambient) * gain(master)).to_bits()
 }
@@ -191,6 +194,7 @@ extern "C" fn ambient_stub() {
 
 /// The gains of the master volume and of the music with it, before the
 /// main theme first plays.
+#[called_by_game]
 extern "C" fn theme(master: f32, music: f32, out: *mut [f32; 2]) {
     unsafe { *out = [gain(master), gain(master) * gain(music)] };
 }
@@ -235,10 +239,12 @@ fn mix(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i3
     })
 }
 
+#[called_by_game]
 unsafe extern "C" fn mix_first(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32) {
     mix(device, source, format, bytes, volume, voice, gain, true);
 }
 
+#[called_by_game]
 unsafe extern "C" fn mix_rest(device: *mut i16, source: *const i16, format: u32, bytes: u32, volume: i32, voice: usize, gain: f32) {
     mix(device, source, format, bytes, volume, voice, gain, false);
 }

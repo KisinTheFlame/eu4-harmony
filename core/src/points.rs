@@ -5,7 +5,7 @@
 //! every point or none, and [`Memory::at`] gives the address of only what a
 //! point checks.
 use crate::{
-    hooks::{self, Callback},
+    hooks::{self, Observer},
     memory::Memory,
     Result,
 };
@@ -121,7 +121,7 @@ pub enum Action {
     /// Relies on it only: calls it, reads it or continues there.
     Keep,
     /// Runs `before` and `after` around every call of the function there.
-    Observe { argc: u32, before: Option<Callback>, after: Option<Callback> },
+    Observe { argc: u32, before: Option<Observer>, after: Option<Observer> },
     /// Sends calls to `with`; the original stays callable through `original`.
     Replace { with: usize, original: &'static AtomicUsize },
     /// Jumps from inside a function to `stub`, which does what the point's
@@ -156,7 +156,7 @@ impl Point {
         Self::new(place, bytes, what, Action::Keep)
     }
 
-    pub fn observe(place: impl Into<Place>, bytes: &'static str, what: &'static str, argc: u32, before: Option<Callback>, after: Option<Callback>) -> Self {
+    pub fn observe(place: impl Into<Place>, bytes: &'static str, what: &'static str, argc: u32, before: Option<Observer>, after: Option<Observer>) -> Self {
         Self::new(place, bytes, what, Action::Observe { argc, before, after })
     }
 
@@ -431,7 +431,7 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
         let made = |r: Result<()>| r.map_err(|e| format!("{}: {e}", describe(point)));
         match &point.action {
             Action::Keep | Action::Write(_) => continue,
-            Action::Observe { argc, before, after } => made(hooks::observe(at, *argc, *before, *after))?,
+            Action::Observe { argc, before, after } => made(hooks::observe(at, *argc, m, point.what, *before, *after))?,
             Action::Replace { with, original } => made(hooks::create(at, *with).map(|t| original.store(t, Ordering::Release)))?,
             Action::Jump { stub, resume } => {
                 made(hooks::create(at, *stub).map(|_| ()))?;
@@ -474,7 +474,7 @@ pub fn install(m: Memory, points: &[Point]) -> Result<Installed> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hooks::HookFrame;
+    use crate::hooks::Call;
     use std::sync::Mutex;
     use windows_sys::Win32::System::Memory::{VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_READWRITE};
 
@@ -521,8 +521,8 @@ mod tests {
     }
 
     static SEEN: AtomicUsize = AtomicUsize::new(0);
-    extern "C" fn remember(frame: *mut HookFrame) {
-        SEEN.store(unsafe { (*frame).args[0] }, Ordering::SeqCst);
+    fn remember(call: &mut Call) {
+        SEEN.store(call.arg(0), Ordering::SeqCst);
     }
 
     type Adder = extern "C" fn(usize) -> usize;

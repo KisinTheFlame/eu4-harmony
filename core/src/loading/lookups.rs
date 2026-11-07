@@ -16,6 +16,7 @@
 //! the framework cannot answer for certain (another folder, the framework's
 //! own folder, a name Windows would read otherwise), goes to the game's stat
 //! as before.
+use crate::called_by_game;
 use crate::points::{Function, Point};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
@@ -78,6 +79,7 @@ pub fn set_roots(game_dir: &Path) {
     let _ = ROOTS.set((roots, own));
 }
 
+#[called_by_game]
 extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
     let missing =
         !path.is_null() && !super::game_loads() && crate::guarded("PhysFS stat", || missing(unsafe { CStr::from_ptr(path) }.to_bytes()) == Some(true));

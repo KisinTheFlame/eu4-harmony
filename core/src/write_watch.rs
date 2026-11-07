@@ -28,7 +28,8 @@
 //! runs many times slower while watched: the watch is for finding out, not
 //! for play.
 use crate::analysis;
-use crate::hooks::{self, HookFrame};
+use crate::called_by_game;
+use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -450,6 +451,7 @@ const CONTINUE_EXECUTION: i32 = -1;
 const CONTINUE_SEARCH: i32 = 0;
 const TRAP_FLAG: u32 = 0x100;
 
+#[called_by_game]
 unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     let Some(a) = ARENA.get() else { return CONTINUE_SEARCH };
     let (record_, context) = (&*(*info).ExceptionRecord, &mut *(*info).ContextRecord);
@@ -600,49 +602,43 @@ fn report(call: usize) {
     }
 }
 
-extern "C" fn before(frame: *mut HookFrame) {
-    crate::guarded("write watch", || {
-        let frame = unsafe { &*frame };
-        let (Some(w), Some(m)) = (WATCHED.get(), crate::memory()) else { return };
-        if hooks::observed(frame.slot) != Some(w.address) || crate::thread_id() != crate::main_thread() {
-            return;
+fn before(call: &mut Call) {
+    let Some(w) = WATCHED.get() else { return };
+    if call.observed() != Some(w.address) || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    if DEPTH.fetch_add(1, Ordering::SeqCst) > 0 {
+        return;
+    }
+    let number = CALLS.fetch_add(1, Ordering::SeqCst);
+    if number >= w.calls {
+        return;
+    }
+    match start(&call.memory()) {
+        // Logged with the report: the log's lock may be a held thread's.
+        Ok(what) => *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = what,
+        Err(e) => {
+            stop();
+            log!("write watch {:#x} #{number}: not watched: {e}", w.rva);
         }
-        if DEPTH.fetch_add(1, Ordering::SeqCst) > 0 {
-            return;
-        }
-        let call = CALLS.fetch_add(1, Ordering::SeqCst);
-        if call >= w.calls {
-            return;
-        }
-        match start(m) {
-            // Logged with the report: the log's lock may be a held thread's.
-            Ok(what) => *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = what,
-            Err(e) => {
-                stop();
-                log!("write watch {:#x} #{call}: not watched: {e}", w.rva);
-            }
-        }
-    })
+    }
 }
 
-extern "C" fn after(frame: *mut HookFrame) {
+fn after(call: &mut Call) {
     // Before anything else, so that the framework's own work here is not
     // watched.
     let watching = ACTIVE.load(Ordering::Acquire);
     if watching {
         stop();
     }
-    crate::guarded("write watch", || {
-        let frame = unsafe { &*frame };
-        let Some(w) = WATCHED.get() else { return };
-        if hooks::observed(frame.slot) != Some(w.address) || crate::thread_id() != crate::main_thread() {
-            return;
-        }
-        if DEPTH.fetch_sub(1, Ordering::SeqCst) != 1 || !watching {
-            return;
-        }
-        report(CALLS.load(Ordering::SeqCst) - 1);
-    })
+    let Some(w) = WATCHED.get() else { return };
+    if call.observed() != Some(w.address) || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    if DEPTH.fetch_sub(1, Ordering::SeqCst) != 1 || !watching {
+        return;
+    }
+    report(CALLS.load(Ordering::SeqCst) - 1);
 }
 
 /// The observe point for the function dev.toml names, if any.

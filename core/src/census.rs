@@ -18,6 +18,8 @@
 //! Blocks allocated before the framework started are not counted, nor are
 //! blocks of other modules' heaps and allocators.
 use crate::game_heap;
+use crate::hooks::Call;
+#[cfg(test)]
 use crate::hooks::HookFrame;
 use crate::points::Point;
 use eu4_harmony_remote::memory::{
@@ -145,17 +147,15 @@ fn site_of(site: usize) -> SiteKey {
     }
 }
 
-extern "C" fn malloc_after(frame: *mut HookFrame) {
-    let h = unsafe { &*frame };
-    if h.fault == 0 && !in_new(h.return_address) {
-        add(h.result, rva(h.return_address) as SiteKey, h.args[0]);
+fn malloc_after(call: &mut Call) {
+    if let Some(block) = call.result().filter(|_| !in_new(call.caller())) {
+        add(block, rva(call.caller()) as SiteKey, call.arg(0));
     }
 }
 
-extern "C" fn calloc_after(frame: *mut HookFrame) {
-    let h = unsafe { &*frame };
-    if h.fault == 0 {
-        add(h.result, rva(h.return_address) as SiteKey, h.args[0].saturating_mul(h.args[1]));
+fn calloc_after(call: &mut Call) {
+    if let Some(block) = call.result() {
+        add(block, rva(call.caller()) as SiteKey, call.arg(0).saturating_mul(call.arg(1)));
     }
 }
 
@@ -169,9 +169,8 @@ thread_local! {
 /// C runtime has let it go, another thread can be given its address. One
 /// `realloc` lets go to no size it lets go through `free`, whose observer
 /// takes it off.
-extern "C" fn realloc_before(frame: *mut HookFrame) {
-    let h = unsafe { &*frame };
-    let (block, size) = (h.args[0], h.args[1]);
+fn realloc_before(call: &mut Call) {
+    let (block, size) = (call.arg(0), call.arg(1));
     if size != 0 {
         MOVING.set(remove(block, None).map(|gone| (block, gone)));
     }
@@ -179,11 +178,10 @@ extern "C" fn realloc_before(frame: *mut HookFrame) {
 
 /// The block `realloc` returned goes on the census; when it returned none,
 /// the block it was given is still the caller's, and goes back as it was.
-extern "C" fn realloc_after(frame: *mut HookFrame) {
-    let h = unsafe { &*frame };
-    let moving = MOVING.take().filter(|(block, _)| *block == h.args[0]);
-    if h.fault == 0 && h.result != 0 {
-        add(h.result, rva(h.return_address) as SiteKey, h.args[1]);
+fn realloc_after(call: &mut Call) {
+    let moving = MOVING.take().filter(|(block, _)| *block == call.arg(0));
+    if let Some(moved) = call.result().filter(|&r| r != 0) {
+        add(moved, rva(call.caller()) as SiteKey, call.arg(1));
     } else if let Some((block, kept)) = moving {
         shard(block).get_or_insert_with(Shard::default).blocks.insert(block, kept);
         if watch::watches(kept.site) {
@@ -195,15 +193,14 @@ extern "C" fn realloc_after(frame: *mut HookFrame) {
 /// A block is let go: off the census; read first while sites are watched;
 /// and kept instead of freed while a repair lets it go with the quarantine
 /// on, `free` then given null.
-extern "C" fn free_before(frame: *mut HookFrame) {
-    let h = unsafe { &mut *frame };
-    let (block, by) = (h.args[0], h.return_address);
+fn free_before(call: &mut Call) {
+    let (block, by) = (call.arg(0), call.caller());
     if let Some(gone) = remove(block, Some(by)) {
-        let m = crate::memory::Memory { base: BASE.load(Ordering::Relaxed) };
+        let m = call.memory();
         watch::letting_go(block, gone.size, gone.site, rva(by), |offset, out| m.read_into(block + offset, out).is_ok());
         if let Some(repair) = quarantine::releasing() {
             if quarantine::keep(block, gone.size, gone.site, repair, gone.generation, free_now) {
-                h.args[0] = 0;
+                call.set_arg(0, 0);
             }
         }
     }
@@ -214,10 +211,9 @@ fn free_now(block: usize) {
     unsafe { windows_sys::Win32::System::Memory::HeapFree(crate::memory_account::game_heap() as _, 0, block as _) };
 }
 
-extern "C" fn new_after(frame: *mut HookFrame) {
-    let h = unsafe { &*frame };
-    if h.fault == 0 {
-        add(h.result, site_of(h.return_address), h.args[0]);
+fn new_after(call: &mut Call) {
+    if let Some(block) = call.result() {
+        add(block, site_of(call.caller()), call.arg(0));
     }
 }
 
@@ -736,9 +732,12 @@ mod tests {
     }
 
     fn call(args: [usize; 2], return_address: usize) -> HookFrame {
-        let mut all = [0; 12];
-        all[..2].copy_from_slice(&args);
-        HookFrame { args: all, result: 0, return_address, slot: 0, fault: 0 }
+        HookFrame::new(&args).from(return_address)
+    }
+
+    /// Runs an observer of the census on a call, as the seam does.
+    fn run(observer: fn(&mut Call), frame: &mut HookFrame) {
+        observer(&mut Call::new(frame, crate::memory::Memory { base: 0 }));
     }
 
     #[test]
@@ -746,11 +745,11 @@ mod tests {
         let (old, moved) = (0x7a00_1000, 0x7a00_2000);
         add(old, 0x10, 16);
         let mut frame = call([old, 32], 0x50);
-        realloc_before(&mut frame);
+        run(realloc_before, &mut frame);
         // While realloc runs, another thread's malloc gets the address it let go.
         add(old, 0x20, 8);
-        frame.result = moved;
-        realloc_after(&mut frame);
+        let mut frame = frame.returned(moved);
+        run(realloc_after, &mut frame);
         assert_eq!(live_block(old).map(|b| (b.site, b.size)), Some((0x20, 8)));
         assert_eq!(live_block(moved).map(|b| (b.site, b.size)), Some((0x50, 32)));
     }
@@ -761,8 +760,8 @@ mod tests {
         add(block, 0x10, 16);
         let before = live_block(block).unwrap().generation;
         let mut frame = call([block, 1 << 40], 0x50);
-        realloc_before(&mut frame);
-        realloc_after(&mut frame);
+        run(realloc_before, &mut frame);
+        run(realloc_after, &mut frame);
         assert_eq!(live_block(block).map(|b| (b.site, b.size, b.generation)), Some((0x10, 16, before)));
     }
 
@@ -772,10 +771,10 @@ mod tests {
         let block = 0x7a00_4000;
         add(block, 0x10, 16);
         let mut frame = call([block, 0], 0x50);
-        realloc_before(&mut frame);
+        run(realloc_before, &mut frame);
         assert!(live_block(block).is_some());
-        free_before(&mut call([block, 0], 0x60));
-        realloc_after(&mut frame);
+        run(free_before, &mut call([block, 0], 0x60));
+        run(realloc_after, &mut frame);
         assert!(live_block(block).is_none());
     }
 

@@ -36,9 +36,10 @@
 //! The steps are laid out and taken as a whole by `super::course`, over what
 //! each does in the game; here are the game's own steps and the hooks that
 //! hand them over (`super`'s `InGame`).
+use crate::called_by_game;
 use crate::{
     game_string,
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     notice::Message,
     objects::{
@@ -126,12 +127,9 @@ pub(super) fn ironman(m: &Memory) -> bool {
 /// How many saves the game wrote, and what the last one answered.
 static WRITTEN: Mutex<(u64, u32)> = Mutex::new((0, 0));
 
-extern "C" fn save_written(frame: *mut HookFrame) {
-    crate::guarded("save written", || {
-        let h = unsafe { &*frame };
-        let mut written = WRITTEN.lock().unwrap_or_else(|e| e.into_inner());
-        *written = (written.0 + 1, if h.fault == 0 { h.result as u32 } else { u32::MAX });
-    });
+fn save_written(call: &mut Call) {
+    let mut written = WRITTEN.lock().unwrap_or_else(|e| e.into_inner());
+    *written = (written.0 + 1, call.result_as::<u32>().unwrap_or(u32::MAX));
 }
 
 /// Writes the ironman exit save, and says why when it was not written.
@@ -261,6 +259,7 @@ pub(super) fn save_failed() {
 }
 
 /// Every in-game load: its steps, around the game's own (`super::course`).
+#[called_by_game]
 unsafe extern "C" fn in_game_load(request: usize) -> u32 {
     let Some(m) = crate::memory().copied() else { return ORIGINAL.get()(request) };
     crate::guarded("in-game load", || {
@@ -272,28 +271,27 @@ unsafe extern "C" fn in_game_load(request: usize) -> u32 {
 /// The load question's text: the game's, unless the ironman exit save comes
 /// before the load, which the framework's says. `name` is the save's name,
 /// a C string of game text.
+#[called_by_game]
 extern "C" fn question_text(out: usize, key: usize, values: usize, name: usize) {
-    crate::guarded("load question", || {
-        let m = crate::hooked_memory();
-        if let Err(e) = crate::game_string::localize_into(&m, out, key, values, 1) {
-            log!("leave: the load question's text: {e}");
-            return;
-        }
-        if !(ironman(&m) && Rules::now().save_ironman_before_load) {
-            return;
-        }
-        let saved = (|| {
-            let end = (0..1024).find(|&i| m.u8(name + i).is_ok_and(|b| b == 0)).ok_or("the save's name has no end")?;
-            let name: String = game_text::chars(&m.bytes(name, end)?).map(|(c, _)| c).collect();
-            let words = crate::loc::framework(crate::lang::player(), "EU4HARMONY_CONFIRM_LOAD_IRONMAN", &[("NAME", &name)]);
-            game_string::read(&m, out)?;
-            unsafe { game_string::truncate(out as *mut u8, 0) };
-            game_string::append_checked(&m, out, &game_text::from_str(&words))
-        })();
-        if let Err(e) = saved {
-            log!("leave: the load question keeps the game's text: {e}");
-        }
-    });
+    let m = crate::hooked_memory();
+    if let Err(e) = crate::game_string::localize_into(&m, out, key, values, 1) {
+        log!("leave: the load question's text: {e}");
+        return;
+    }
+    if !(ironman(&m) && Rules::now().save_ironman_before_load) {
+        return;
+    }
+    let saved = (|| {
+        let end = (0..1024).find(|&i| m.u8(name + i).is_ok_and(|b| b == 0)).ok_or("the save's name has no end")?;
+        let name: String = game_text::chars(&m.bytes(name, end)?).map(|(c, _)| c).collect();
+        let words = crate::loc::framework(crate::lang::player(), "EU4HARMONY_CONFIRM_LOAD_IRONMAN", &[("NAME", &name)]);
+        game_string::read(&m, out)?;
+        unsafe { game_string::truncate(out as *mut u8, 0) };
+        game_string::append_checked(&m, out, &game_text::from_str(&words))
+    })();
+    if let Err(e) = saved {
+        log!("leave: the load question keeps the game's text: {e}");
+    }
 }
 
 crate::resume!(QUESTION_RESUME: QUESTION_NEXT = QUESTION_TEXT_DONE);
@@ -335,12 +333,11 @@ pub(super) fn load_in_game(m: &Memory, name: &str) -> Result<u32, String> {
 
 /// In the map manager's frame, where it writes the ironman exit save as it
 /// returns to the main menu: the steps up to the restart it asks for next.
+#[called_by_game]
 extern "C" fn returning() {
-    crate::guarded("return to the main menu", || {
-        crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
-        let m = crate::hooked_memory();
-        COURSE.returning(&mut InGame::new(&m));
-    });
+    crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
+    let m = crate::hooked_memory();
+    COURSE.returning(&mut InGame::new(&m));
 }
 
 crate::resume!(RETURN_RESUME: RETURN_NEXT = RETURN_EXIT_SAVE_DONE);
@@ -356,6 +353,7 @@ static ORIGINAL_RESTART: Function<Restart> = Function::new();
 
 /// The return's restart: with the rest [`returning`] left, the game
 /// restarts, or returns in process, or stays in the session.
+#[called_by_game]
 unsafe extern "C" fn restart(app: usize, argument: usize) -> usize {
     let Some(m) = crate::memory().copied() else { return ORIGINAL_RESTART.get()(app, argument) };
     crate::guarded("return to the main menu", || COURSE.restart(&mut InGame { app, argument, ..InGame::new(&m) }))
@@ -427,47 +425,42 @@ static RETURNED: AtomicBool = AtomicBool::new(false);
 /// As a main menu takes over: one an in-process return made presents the
 /// loading screen as at startup, which is held back, so the still notice
 /// stays until the main menu's first frame.
-extern "C" fn taking_over(_frame: *mut HookFrame) {
-    crate::guarded("main menu taking over", || {
-        if RETURNED.load(Ordering::Relaxed) {
-            crate::framework_ui::hold();
-        }
-    });
+fn taking_over(_: &mut Call) {
+    if RETURNED.load(Ordering::Relaxed) {
+        crate::framework_ui::hold();
+    }
 }
 
-extern "C" fn took_over(_frame: *mut HookFrame) {
-    crate::guarded("main menu taking over", || {
-        if RETURNED.swap(false, Ordering::Relaxed) {
-            log!("leave: the main menu took over, {} of its presents held back", crate::framework_ui::let_go());
-        }
-    });
+fn took_over(_: &mut Call) {
+    if RETURNED.swap(false, Ordering::Relaxed) {
+        log!("leave: the main menu took over, {} of its presents held back", crate::framework_ui::let_go());
+    }
 }
 
 /// The single player setup's back button, about to ask for the restart:
 /// with "return without restarting" on, the world is reset with the history
 /// instead, as the setup may have changed it, and a new main menu takes
 /// over; answers whether it did.
+#[called_by_game]
 extern "C" fn setup_back(app: usize) -> bool {
-    crate::guarded("single player setup back", || {
-        if !Rules::now().return_without_restart {
-            return false;
+    if !Rules::now().return_without_restart {
+        return false;
+    }
+    crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
+    let m = crate::hooked_memory();
+    let took = Took::begin();
+    let back = m.call(m.at(RESET_GAME), &[app, 0]).and_then(|_| {
+        log!("leave: the single player setup was left; the world reset with the history, {}", took.end());
+        sessions::reset_with_history();
+        main_menu(&m, app)
+    });
+    match back {
+        Ok(()) => true,
+        Err(why) => {
+            log!("leave: no in-process return from the single player setup ({why}); the game restarts");
+            false
         }
-        crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
-        let m = crate::hooked_memory();
-        let took = Took::begin();
-        let back = m.call(m.at(RESET_GAME), &[app, 0]).and_then(|_| {
-            log!("leave: the single player setup was left; the world reset with the history, {}", took.end());
-            sessions::reset_with_history();
-            main_menu(&m, app)
-        });
-        match back {
-            Ok(()) => true,
-            Err(why) => {
-                log!("leave: no in-process return from the single player setup ({why}); the game restarts");
-                false
-            }
-        }
-    })
+    }
 }
 
 crate::resume!(SETUP_BACK_RESUME: SETUP_BACK_NEXT = SETUP_BACK_RESTART_DONE);
