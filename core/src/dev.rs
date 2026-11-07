@@ -126,6 +126,13 @@ pub struct TestSwitches {
     /// one, so that whether an agent's day depends on another's can be tried
     /// in a game started with `-seed` (`core/src/agents_order.rs`).
     pub agents_order: AgentsOrder,
+    /// The searches of an AI country's armies are the game's own, one after
+    /// another, so that what the framework's searches on its threads give
+    /// can be measured against it (`core/src/army_search.rs`).
+    pub game_searches_armies: bool,
+    /// Every army search the framework worked out ahead is worked out again
+    /// as the game does when taken, and a difference counted in the log.
+    pub check_army_searches: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
@@ -199,7 +206,7 @@ impl Options {
             let on = |on: bool| if on { "on" } else { "off" };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, agents-order {}, game-searches-armies {}, check-army-searches {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
@@ -209,6 +216,8 @@ impl Options {
                 on(switches.game_loads),
                 on(switches.game_ends_dependencies),
                 format!("{:?}", switches.agents_order).to_lowercase(),
+                on(switches.game_searches_armies),
+                on(switches.check_army_searches),
                 switches.post.len()
             ));
         }

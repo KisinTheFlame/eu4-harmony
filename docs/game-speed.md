@@ -1,6 +1,6 @@
 # Game speed plan
 
-Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
+Status: decided (2026-11-04). S0, the sampler, is built and was used for the measurements in [research/main-thread.md](research/main-thread.md); S1 to S4 are built, and S7 researched, in one pull request; S5 and S6 are set aside. S9, the armies' searches on idle threads, is built (2026-11-08) under the ADR that allows reasoned differences. S8, a save's stall made shorter, was asked for by the owner afterwards (2026-11-04): built in one pull request, its three steps as far as the research found them worth doing (2026-11-05): the file's own steps after the zip stay the game's. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Dependency point, Frame inside a day, Framework settings, Choice bar, Info mark). The bar a change must meet is [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md). What the framework itself costs the game is in [performance.md](performance.md).
 
 ## Goal and scope
 
@@ -22,7 +22,7 @@ Status: decided (2026-11-04). S0, the sampler, is built and was used for the mea
 | --- | --- | --- | --- |
 | **A. Outside the game state** | Code that writes no game state: the online client, compressing and writing a save, the framework's own work, drawing | Only how long things take | By reading the code: the part's research note names what the changed code writes, and none of it is game state |
 | **B. The pace of frames** | Frames inside a day, which execute no commands and draw no random numbers | How often the screen is drawn, and so how soon the player's input is read; only when the player chooses it | By reading the code (the frame's flags), and in the game: the game's own choice gives the game's own pace |
-| **C. Inside the day** | The simulation's own code: the heap, the parallel stages, the daily and monthly updates | Only how long things take | Only on a bench that makes runs repeat (S5), which is set aside: no change of kind C is made |
+| **C. Inside the day** | The simulation's own code: the heap, the parallel stages, the daily and monthly updates | Only how long things take, or, since [ADR the-game-may-be-made-faster-with-reasoned-differences](adr/the-game-may-be-made-faster-with-reasoned-differences.md), what it computes with a stated reason (S9) | A bench that makes runs repeat (S5) is set aside; a change with reasoned differences shows them as its ADR says |
 
 ## Where the time goes
 
@@ -179,6 +179,10 @@ Set aside with S5, which it needs. A faster allocator changes where blocks lie, 
 Research with the sampler and the call trace: the GUI (`0x14dd010`, `0x14dd540`) and the map (`0x10a59a0`) were each about a third of the drawing, and the rest of the in-game frame (`0xdf5860`, `0x10a6d00`, `0x6ea380`, `0x128cd30`) unnamed. Then changes that draw the same frame for less, such as skipping what is hidden, each checked by screenshots of the same scenes before and after.
 
 Researched, nothing built ([research/main-thread.md](research/main-thread.md), "Drawing"): the main thread's drawing is mostly the game's draw calls, inside `d3d9.dll`, up to three map views a frame and the GUI's objects; the GUI already leaves out what is clipped away. No work was found that draws nothing the player sees, so no change is shown to leave the frame as it is; fewer draw calls would be a change to the renderer, a plan of its own.
+
+### S9 The armies' searches on idle threads
+
+Built (2026-11-08) under [ADR the-game-may-be-made-faster-with-reasoned-differences](adr/the-game-may-be-made-faster-with-reasoned-differences.md), the first change inside the day: a country's armies' searches worked out on threads of the framework's while its King's day goes on, taken by each army's think when its arguments and its army are unchanged. Its difference is of the first kind, when: 4.3% of the searches taken give another result than the game's would at the think. It took the search from about 5 ms of the main thread's wait in the AI stage to about 1.5 ms a game day late in a game ([research/late-game.md](research/late-game.md), "The armies' searches on idle threads"). Always on; the developer build's `game-searches-armies` leaves the searches to the game, and `check-army-searches` counts the differences.
 
 ## Order
 

@@ -165,6 +165,28 @@ Against the bar of [ADR making-the-game-faster-leaves-what-it-computes-as-it-is]
 
 So the late game's AI cannot be made much faster without changing what it computes or the order it computes it in. The largest gain, a country's agents running apart, is of kind C, and it would change the AI's decisions: not only through the random generator, but through what each agent reads of the others' day. Within the bar, what is left is small (repeated routes, about 2 ms a day). A game started with `-seed` repeats its days, all but a rare admiral ("Whether a game repeats its days"): a bench that compares builds by their saves can be made on it.
 
+## The armies' searches on idle threads
+
+The bar above was the old one. Since [ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/the-game-may-be-made-faster-with-reasoned-differences.md) a change may differ from the game's code when it says why; the first is this one, of the first kind there, when the work is done (`core/src/army_search.rs`).
+
+**What it does.** Once a country's King has thought (`0x14b622` in `0x14b370`), the framework finds the army agents that think today and will search, works out the arguments each think will give the search, and hands the searches to a pool of its own threads (up to 8). When a think calls the search, it takes the result worked out for it if its arguments and the agent's and army's state are the same, and otherwise searches itself. A search worked out ahead reads the world as it stood when the King had thought, before its ministers and the armies before it did their day; the game's own threads already read other countries' state at such moments.
+
+**Which armies.** A think ends before its search on many paths of `0xeab50`, and a search prepared for one of those is worked out for nothing, while it holds a thread the others wait for. Counted in the game, 48% of the searches prepared were never called for. Most of them were armies at peace: an army whose country is in no war, not hired and not a navy over its size goes on to its search on one think in ten, by a random draw, or once 15 thinks have passed without one (`+0xbf0`, `0xeb475`..`0xeb572`). Those are now left to the think, since the draw cannot be read without taking it; so are those that never searched in 140,000 prepared: a target over the sea, a battle, a retreat, `+0x218`, a friendly army to follow in the province (`0xf70d0`, `0xeb64b`), a move locked or the unit's flag (`0xeae58`). A think whose route check fails still searches, deep and without the score of where it goes (`0xeb8e3`, `0xebaa2`).
+
+**The country's access cache.** The search's fourth argument is the agent's day's, the country's access cache (`AI+0x60`, [ai.md](ai.md)), and its steps add to it (`0x96f860` → `0x1a2280` → `0x374c50` → `0x415b00`). Searches of one country on several threads added to that map at once and corrupted the heap: the game ended with `0xc0000374`, no crash folder and nothing in the logs, or crashed in the cache's insert (`0x435c10`). The pool's searches are now given no cache, and look access up each time; the answers are the same, an access query without a cache only counts a global miss (`0x2458e70`).
+
+Measured on 2026-11-08 with the developer build at speed 5 from the 1780.7.1 save in observe mode, 120 s a run, the main thread's waits shared out (`cargo xtask profile --threads --waiting-in 0x179e90`, [dev-tools.md](../dev-tools.md)), alternate runs with the searches the game's (`game-searches-armies`):
+
+| | The game's searches (2 runs) | The framework's (2 runs) |
+| --- | --- | --- |
+| The search (`0x1022b0`) in the main thread's wait in the AI stage | 4.9, 5.5 ms a game day | 1.3, 1.6 ms |
+| The AI stage's whole wait | 15.4, 16.4 ms | 15.8, 19.8 ms |
+
+- **The search leaves the wait**: 3.5 to 3.9 ms a game day less of it in the AI stage's wait, in every run. The whole wait does not show it: these runs went to wars, with route queries (`0x96c520`) from 4.6 to 12.1 ms a day, the runs of one save parting from each other within days ([prototype-log.md](../prototype-log.md), 2026-11-08). Whole-game speed is for a benchmark of many runs, not for a change's runs.
+- **Of 40,000 searches prepared** (one run): 84% taken; 2% prepared for a think that did not search; 14% not begun when their think came, and searched by the think; 17% under way, the think waiting 1 to 2 ms for them on average. 8% of the searches the thinks made had none prepared, mostly armies at peace on their one think in ten.
+- **The difference**: with `check-army-searches` every search taken was worked out again as the game does at the think: 4.3% of them gave another result (1,527 of 35,145), from what the King's ministers and the armies before it changed in between.
+- Not verified: other saves and years, a game a player plays; how much of the King's thread preparing takes on the stage's longest task (2.7 to 3.1 s for 40,000 searches, all countries together).
+
 ## The whole day, late in a game
 
 Measured on 2026-11-07 on the same game, in the Ottomans' view at speed 5: every thread sampled (`cargo xtask profile --threads`) from 1721.1.1 for 300 s and from 1759.7.1 to 1821.1.3 for 1,500 s in stretches of 300 s; and the day's phases timed with the call trace's `times` from 1780.7.1 for 306 s, 4,745 days.
@@ -269,3 +291,4 @@ A claim's release removes what a run added to the save games folder, so a copy t
 - One game only, as the AI played it; a game a player plays, with the player's country out of the AI, and other great powers.
 - The game's own pace (frames inside a day) over a long run, and a vanilla game without the framework.
 - How near the wait shared out by ticks comes to the stage's longest task: it was not sampled beside the tasks' timing.
+- What the thinks of armies at peace decide on their nine thinks in ten without a search, and whether more of an army's think could run ahead ("The armies' searches on idle threads").
