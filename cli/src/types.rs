@@ -115,18 +115,40 @@ pub fn definitions() -> String {
 
 fn handlers(out: &mut String) {
     let _ = writeln!(out, "--- The table main.lua returns: a handler for each event the mod hears.\n---@class eu4.Handlers");
-    for h in lua::HANDLERS {
+    for h in lua::handlers() {
         let args: Vec<String> = std::iter::once("game: eu4.Game".to_string()).chain(h.args.iter().map(handler_arg)).collect();
-        let returns = h.returns.map_or(String::new(), |r| format!(": {}", r.ty));
+        let returns = h.returns.as_ref().map_or(String::new(), |r| format!(": {}", arg_type(r)));
         let _ = writeln!(out, "---@field {}? fun({}){returns} {}", h.name, args.join(", "), h.about);
     }
     out.push('\n');
 }
 
 /// A handler's argument; one that may be nil says so, but for `any`.
-fn handler_arg(a: &lua::Value) -> String {
-    let nil = if a.optional && a.ty != "any" { "|nil" } else { "" };
-    format!("{}: {}{nil}", a.name, a.ty)
+fn handler_arg(a: &lua::Arg) -> String {
+    let ty = arg_type(a);
+    let nil = if a.optional && ty != "any" { "|nil" } else { "" };
+    format!("{}: {ty}{nil}", a.name)
+}
+
+/// The type of a handler's argument.
+fn arg_type(a: &lua::Arg) -> String {
+    match &a.ty {
+        lua::Ty::Written(ty) => ty.to_string(),
+        lua::Ty::Shaped(shape) => shape_type(shape),
+    }
+}
+
+/// The shapes of the handlers' arguments, whose classes are written with
+/// the results'.
+fn handler_shapes() -> Vec<Shape> {
+    lua::handlers()
+        .into_iter()
+        .flat_map(|h| h.args)
+        .filter_map(|a| match a.ty {
+            lua::Ty::Shaped(shape) => Some(shape),
+            lua::Ty::Written(_) => None,
+        })
+        .collect()
 }
 
 fn game(out: &mut String) {
@@ -216,13 +238,16 @@ fn classes(shape: &Shape, found: &mut Vec<Shape>) {
     }
 }
 
-/// The classes of the capabilities' results.
+/// The classes of the capabilities' results and the handlers' arguments.
 fn results(out: &mut String) {
     let mut found = Vec::new();
     for c in game_capabilities() {
         if let Some(shape) = result_shape(&c.name()) {
             classes(&shape, &mut found);
         }
+    }
+    for shape in handler_shapes() {
+        classes(&shape, &mut found);
     }
     for class in found {
         let Shape::Object { class, about, fields } = class else { continue };
@@ -306,7 +331,7 @@ mod tests {
         for c in game_capabilities() {
             assert!(text.contains(&format!("function eu4_game_{}.{}(", c.group, c.action)), "{}", c.name());
         }
-        for h in lua::HANDLERS {
+        for h in lua::handlers() {
             assert!(text.contains(&format!("---@field {}? fun(game: eu4.Game", h.name)), "{}", h.name);
         }
         for g in lua::GLOBALS.iter().filter(|g| **g != "require") {
@@ -335,6 +360,12 @@ mod tests {
         // A handler's argument that may be nil says so.
         assert!(text.contains("province: integer, from: string|nil, to: string|nil)"), "{text}");
         assert!(text.contains("saved: any)"));
+        // Its types are its event's fields'; an event given as one table is
+        // a class of its own.
+        assert!(text.contains("reason: \"return\"|\"load\"|\"new_game\"|\"country\")"), "{text}");
+        assert!(text.contains("attackers: string[], defenders: string[], ended: boolean)"), "{text}");
+        assert!(text.contains("on_battle? fun(game: eu4.Game, battle: eu4.Battle)"), "{text}");
+        assert!(text.contains("---@class eu4.Battle\n---@field province integer"), "{text}");
     }
 
     #[test]
@@ -395,6 +426,9 @@ mod tests {
             if let Some(shape) = result_shape(&c.name()) {
                 every_object(&shape, &mut found);
             }
+        }
+        for shape in handler_shapes() {
+            every_object(&shape, &mut found);
         }
         let mut differing = Vec::new();
         for (i, a) in found.iter().enumerate() {
