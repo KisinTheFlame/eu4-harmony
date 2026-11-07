@@ -84,9 +84,17 @@ pub fn build(feature: Option<&str>) -> Result<()> {
     run(build, "cargo build --release")
 }
 
-/// Copies the files as last built into the game folder `root`, with the
-/// game closed and within the claim.
-pub fn install_built(root: &Path) -> Result<()> {
+/// Installs the files as last built into the game folder `root`, within
+/// `owner`'s claim, with the game closed, as `cargo xtask install` does.
+pub fn install_as(owner: &str, root: &Path) -> Result<()> {
+    crate::claim::held_by(owner)?;
+    game::not_running()?;
+    install_built(root)
+}
+
+/// Copies the files as last built into the game folder `root`, which the
+/// caller found closed and within the claim.
+fn install_built(root: &Path) -> Result<()> {
     let harmony = root.join("eu4-harmony");
     let proxy = root.join("version.dll");
     let backup = harmony.join("backup").join("version.dll");
