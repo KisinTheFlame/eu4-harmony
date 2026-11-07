@@ -443,15 +443,10 @@ impl Settings {
     /// Reads `key="value"` lines; anything unknown or malformed keeps its default.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
-        // Notepad can save the file with a byte order mark, which would
-        // otherwise be part of the first key.
-        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         // A weight may come before its font.
         let mut families: [Option<String>; 4] = Default::default();
         let mut weights: [Option<u16>; 4] = Default::default();
-        for line in text.lines() {
-            let Some((key, value)) = line.split_once('=') else { continue };
-            let (key, value) = (key.trim(), value.trim().trim_matches('"'));
+        for (key, value) in eu4_harmony_manifest::line_entries(text) {
             if let Some(i) = Role::ALL.iter().position(|r| key.strip_prefix(r.key()) == Some("_font")) {
                 if !value.is_empty() {
                     families[i] = Some(value.to_string());

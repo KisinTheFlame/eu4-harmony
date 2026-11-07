@@ -12,6 +12,7 @@
 //! Qizhen". Generals' and advisors' names are made once, as one string, when
 //! they are created, and keep the game's order, as do names that localisation
 //! puts together itself (`[Root.Monarch.GetName]` is the given name only).
+use crate::called_by_game;
 use crate::game_string;
 use crate::lang;
 use crate::loc;
@@ -82,6 +83,7 @@ static ORIGINAL_FULL_NAME: Function<FullName> = Function::new();
 
 /// A ruler's, heir's or consort's full name (0xa4b2c0): the game's, then
 /// reordered.
+#[called_by_game]
 extern "C" fn full_name(person: usize, out: *mut u8) -> *mut u8 {
     let original = ORIGINAL_FULL_NAME.get();
     let out = unsafe { original(person, out) };
@@ -105,8 +107,9 @@ extern "C" fn full_name(person: usize, out: *mut u8) -> *mut u8 {
 /// Where the heir's given name in the `std::string` `name` gets `suffix` (a
 /// space and the dynasty): the heir's name in family-first order when their
 /// culture writes it so, else the suffix appended as the game does.
+#[called_by_game]
 extern "C" fn heir_name(name: *mut u8, suffix: *const u8, len: usize, heir: usize) {
-    crate::guarded("heir name", || unsafe {
+    unsafe {
         let suffix = std::slice::from_raw_parts(suffix, len);
         let family_first_name = || -> Option<Vec<u8>> {
             let m = crate::memory()?;
@@ -121,7 +124,7 @@ extern "C" fn heir_name(name: *mut u8, suffix: *const u8, len: usize, heir: usiz
             Some(text) => game_string::assign(name, &text),
             None => game_string::append(name as usize, suffix),
         }
-    })
+    }
 }
 
 macro_rules! heir_stub {

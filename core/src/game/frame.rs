@@ -50,7 +50,7 @@ impl Recall {
         let in_view = view_changed(std::mem::replace(&mut self.in_view, now), now);
         let previous = self.day;
         let new_day = visibility_current && self.day.replace(world.date) != Some(world.date);
-        let (new_month, new_year) = turned(previous.filter(|_| new_day), world.date);
+        let (new_month, new_year) = eu4_harmony_checks::Date(world.date).turned(previous.filter(|_| new_day).map(eu4_harmony_checks::Date));
         let (new_month, new_year) = (new_month && listened(Kind::Month), new_year && listened(Kind::Year));
         let wars = if new_day { wars(&world) } else { Vec::new() };
         Frame { world, session: seen.session, new_session: seen.new_session, in_view, changes, new_day, new_month, new_year, wars }
@@ -176,14 +176,6 @@ fn view_changed(before: Option<Option<Tag>>, now: Option<Option<Tag>>) -> Option
         (Some(before), Some(now)) if before != now => Some(now),
         _ => None,
     }
-}
-
-/// Whether the day `now`, heard after the day `before`, is in a new month,
-/// and in a new year. The first day heard in a session is in neither.
-fn turned(before: Option<i32>, now: i32) -> (bool, bool) {
-    let Some(before) = before else { return (false, false) };
-    let ((y0, m0, _), (y1, m1, _)) = (eu4_harmony_checks::Date(before).ymd(), eu4_harmony_checks::Date(now).ymd());
-    ((y0, m0) != (y1, m1), y0 != y1)
 }
 
 #[cfg(test)]

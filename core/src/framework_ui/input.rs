@@ -8,6 +8,7 @@
 //! Remote control's input (`crate::game::input`) comes through here too, as
 //! the messages Windows would send ([`inject`]); a message Windows sends
 //! itself is first asked whether it hands the cursor back to the player.
+use crate::called_by_game;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -68,6 +69,7 @@ fn position(lparam: LPARAM) -> (f32, f32) {
     ((lparam & 0xffff) as i16 as f32, ((lparam >> 16) & 0xffff) as i16 as f32)
 }
 
+#[called_by_game]
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if !INJECTING.load(Ordering::Relaxed) && crate::guarded("input from Windows", || crate::game::input::real(message)) {
         return 0;
@@ -133,6 +135,7 @@ unsafe fn of_game_class(window: HWND) -> bool {
 
 /// The game's window: a window of this process without an owner, which is
 /// shown, or, in a hidden start, of the game's class.
+#[called_by_game]
 unsafe extern "system" fn find(window: HWND, found: LPARAM) -> BOOL {
     let mut process = 0;
     GetWindowThreadProcessId(window, &mut process);

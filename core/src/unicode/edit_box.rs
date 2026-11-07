@@ -21,8 +21,9 @@
 //! - keys (0x15366c0): plain Home and End move instead of selecting, and
 //!   Shift with Left or Right selects a character.
 use super::{breaks, game_text};
+use crate::called_by_game;
 use crate::game_string;
-use crate::hooks::HookFrame;
+use crate::hooks::Call;
 use crate::objects::gui::{
     editor::{CARET_MOVED, COLUMN, LINE, SELECT_LEFT, SELECT_RIGHT, TEXT},
     functions::{EDITOR_SELECT_LEFT, EDITOR_SELECT_RIGHT},
@@ -172,86 +173,84 @@ fn erase(inner: usize, at: usize, count: usize) -> crate::Result<()> {
 }
 
 /// The column Left moves to from a column that is not 0.
+#[called_by_game]
 extern "C" fn left_column(inner: usize) -> u32 {
-    crate::guarded("edit box left", || {
-        let (line, column) = unsafe { caret(inner) };
-        let line_start = index_of(inner, line, 0).unwrap_or_else(|e| crate::fatal(&format!("edit box left: {e}")));
-        left_column_in(unsafe { text(inner) }, line_start, column) as u32
-    })
+    let (line, column) = unsafe { caret(inner) };
+    let line_start = index_of(inner, line, 0).unwrap_or_else(|e| crate::fatal(&format!("edit box left: {e}")));
+    left_column_in(unsafe { text(inner) }, line_start, column) as u32
 }
 
 /// The index Right moves to from `index`.
+#[called_by_game]
 extern "C" fn right_index(inner: usize, index: u32) -> u32 {
-    crate::guarded("edit box right", || right_index_in(unsafe { text(inner) }, index as usize) as u32)
+    right_index_in(unsafe { text(inner) }, index as usize) as u32
 }
 
 /// Before Backspace erases the byte before `index` and calls Left: erases
 /// the rest of the character that byte ends and moves the caret back by as
 /// many bytes. Returns where the game's own erase then goes.
+#[called_by_game]
 extern "C" fn backspace_prepare(inner: usize, index: u32) -> u32 {
-    crate::guarded("edit box backspace", || {
-        let (start, len) = backspace_in(unsafe { text(inner) }, index as usize);
-        if len > 1 {
-            if let Err(e) = erase(inner, start, len - 1) {
-                crate::fatal(&format!("edit box backspace: {e}"));
-            }
-            let column = unsafe { &mut *((inner + COLUMN) as *mut u16) };
-            *column = column.saturating_sub(len as u16 - 1);
+    let (start, len) = backspace_in(unsafe { text(inner) }, index as usize);
+    if len > 1 {
+        if let Err(e) = erase(inner, start, len - 1) {
+            crate::fatal(&format!("edit box backspace: {e}"));
         }
-        start as u32
-    })
+        let column = unsafe { &mut *((inner + COLUMN) as *mut u16) };
+        *column = column.saturating_sub(len as u16 - 1);
+    }
+    start as u32
 }
 
 /// Before Delete erases the byte at `index`: erases the rest of the
 /// character it starts. Returns `index`.
+#[called_by_game]
 extern "C" fn delete_prepare(inner: usize, index: u32) -> u32 {
-    crate::guarded("edit box delete", || {
-        let len = delete_in(unsafe { text(inner) }, index as usize);
-        if len > 1 {
-            if let Err(e) = erase(inner, index as usize + 1, len - 1) {
-                crate::fatal(&format!("edit box delete: {e}"));
-            }
+    let len = delete_in(unsafe { text(inner) }, index as usize);
+    if len > 1 {
+        if let Err(e) = erase(inner, index as usize + 1, len - 1) {
+            crate::fatal(&format!("edit box delete: {e}"));
         }
-        index
-    })
+    }
+    index
 }
 
 /// A click's byte column in a line (`std::string*`), moved back to the start
 /// of the character it falls in.
+#[called_by_game]
 extern "C" fn line_column(line: *const u8, column: u32) -> u32 {
-    crate::guarded("edit box click", || game_text::floor_boundary(unsafe { game_string::text(line) }, column as usize) as u32)
+    game_text::floor_boundary(unsafe { game_string::text(line) }, column as usize) as u32
 }
 
 /// Up and Down kept the byte column; the caret goes back to the start of the
 /// character it fell in.
-extern "C" fn snap_caret(frame: *mut HookFrame) {
-    crate::guarded("edit box caret", || {
-        // Up or Down faulted: no caret to snap.
-        if unsafe { (*frame).fault } != 0 {
-            return;
+fn snap_caret(call: &mut Call) {
+    // Up or Down faulted: no caret to snap.
+    if call.faulted() {
+        return;
+    }
+    let inner = call.arg(0);
+    let result = (|| -> crate::Result<()> {
+        let (line, column) = unsafe { caret(inner) };
+        let at = index_of(inner, line, column)?;
+        let start = game_text::floor_boundary(unsafe { text(inner) }, at);
+        if start != at {
+            let m = call.memory();
+            m.call(m.at(SET_CARET), &[inner, start])?;
+            // The editor's own "caret moved" method, as Up and Down end.
+            m.call(m.vslot(inner, CARET_MOVED)?, &[inner])?;
         }
-        let inner = unsafe { (*frame).args[0] };
-        let result = (|| -> crate::Result<()> {
-            let (line, column) = unsafe { caret(inner) };
-            let at = index_of(inner, line, column)?;
-            let start = game_text::floor_boundary(unsafe { text(inner) }, at);
-            if start != at {
-                let m = crate::hooked_memory();
-                m.call(m.at(SET_CARET), &[inner, start])?;
-                // The editor's own "caret moved" method, as Up and Down end.
-                m.call(m.vslot(inner, CARET_MOVED)?, &[inner])?;
-            }
-            Ok(())
-        })();
-        if let Err(e) = result {
-            crate::fatal(&format!("edit box caret: {e}"));
-        }
-    })
+        Ok(())
+    })();
+    if let Err(e) = result {
+        crate::fatal(&format!("edit box caret: {e}"));
+    }
 }
 
 /// How many bytes of a `std::string` to keep when it is cut to `count`.
+#[called_by_game]
 extern "C" fn cut(string: *const u8, count: u32) -> u32 {
-    crate::guarded("edit box cut", || game_text::floor_boundary(unsafe { game_string::text(string) }, count as usize) as u32)
+    game_text::floor_boundary(unsafe { game_string::text(string) }, count as usize) as u32
 }
 
 type Fit = unsafe extern "C" fn(usize, usize) -> i32;
@@ -261,6 +260,7 @@ type RemoveChars = unsafe extern "C" fn(*mut u8, *const u8) -> u8;
 /// ([`fit_in`]). The caller (0x1537480) breaks a line at the last space before
 /// them, and with no space, as in Chinese, right at them, which cut Latin
 /// names in two (the country history window lays its text out in such a box).
+#[called_by_game]
 unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
     let original = ORIGINAL_FIT.get();
     let count = original(inner, line);
@@ -269,16 +269,15 @@ unsafe extern "C" fn fit_prefix(inner: usize, line: usize) -> i32 {
 
 /// Removes from `text` (`std::string*`) every character found in `chars`
 /// (`std::string*`). Returns whether the text got shorter.
+#[called_by_game]
 unsafe extern "C" fn remove_chars(text: *mut u8, chars: *const u8) -> u8 {
-    crate::guarded("edit box filter", || {
-        let bytes = game_string::text_mut(text);
-        let len = remove_in(bytes, game_string::text(chars));
-        let shorter = len < bytes.len();
-        if shorter {
-            game_string::truncate(text, len);
-        }
-        shorter as u8
-    })
+    let bytes = game_string::text_mut(text);
+    let len = remove_in(bytes, game_string::text(chars));
+    let shorter = len < bytes.len();
+    if shorter {
+        game_string::truncate(text, len);
+    }
+    shorter as u8
 }
 
 thread_local! {
@@ -292,8 +291,9 @@ type SetText = unsafe extern "C" fn(*const u8) -> i32;
 type Free = unsafe extern "C" fn(*mut u8);
 
 /// SDL's clipboard text in the game's encoding, NUL-terminated.
+#[called_by_game]
 extern "C" fn paste_text() -> *const u8 {
-    crate::guarded("edit box paste", || unsafe {
+    unsafe {
         let (get, free) = (GET_CLIPBOARD.get(), SDL_FREE.get());
         let utf8 = get();
         let mut converted = if utf8.is_null() { Vec::new() } else { game_text::from_str(&String::from_utf8_lossy(game_text::up_to_nul(utf8, 1 << 20))) };
@@ -305,17 +305,18 @@ extern "C" fn paste_text() -> *const u8 {
             *p.borrow_mut() = converted;
             p.borrow().as_ptr()
         })
-    })
+    }
 }
 
 /// Puts the selection (`text`, in the game's encoding) on SDL's clipboard.
+#[called_by_game]
 extern "C" fn copy_text(text: *const u8) -> i32 {
-    crate::guarded("edit box copy", || unsafe {
+    unsafe {
         let set = SET_CLIPBOARD.get();
         let mut utf8 = game_text::to_utf8(game_text::up_to_nul(text, 1 << 20)).into_bytes();
         utf8.push(0);
         set(utf8.as_ptr())
-    })
+    }
 }
 
 /// Replaces `movzx eax, word [rcx+0x54]; mov rdi, rcx; test ax, ax; je;

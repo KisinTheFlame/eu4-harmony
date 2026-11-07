@@ -17,7 +17,7 @@
 //! advances it to.
 use super::{context_any, fail, orders, world_context, world_context_any, GResult, InWorld, Status, Tag, World};
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::campaign::{battle, classes, list, side, unit, world},
     points::Point,
@@ -146,70 +146,62 @@ fn fog_mode(m: &Memory, ctx: &World) -> Result<u8> {
     m.u8(ctx.world + world::FOG)
 }
 
-extern "C" fn fow_before(_: *mut HookFrame) {
-    crate::guarded("fog refresh", || {
-        let Some(m) = crate::memory() else { return };
-        boundary(|b| {
-            b.depth += 1;
-            if b.depth != 1 {
-                if b.refresh_thread != crate::thread_id() {
-                    b.invalidate();
-                }
-                return;
+fn fow_before(call: &mut Call) {
+    let m = &call.memory();
+    boundary(|b| {
+        b.depth += 1;
+        if b.depth != 1 {
+            if b.refresh_thread != crate::thread_id() {
+                b.invalidate();
             }
+            return;
+        }
+        b.invalidate();
+        b.refresh_thread = crate::thread_id();
+        b.before = world_context_any(m).ok().and_then(|c| fog_mode(m, &c).ok().map(|fog| (c, fog, b.revision)));
+    });
+}
+
+fn fow_after(call: &mut Call) {
+    let m = &call.memory();
+    let fault = call.faulted();
+    boundary(|b| {
+        b.depth = b.depth.saturating_sub(1);
+        if b.depth != 0 {
+            return;
+        }
+        let before = b.before.take();
+        let thread = std::mem::take(&mut b.refresh_thread);
+        if fault {
             b.invalidate();
-            b.refresh_thread = crate::thread_id();
-            b.before = world_context_any(m).ok().and_then(|c| fog_mode(m, &c).ok().map(|fog| (c, fog, b.revision)));
-        });
+            return;
+        }
+        let Some((before, fog, revision)) = before else { return };
+        let Ok(after) = world_context_any(m) else { return };
+        if before == after && revision == b.revision && fog_mode(m, &after).ok() == Some(fog) {
+            b.proof = Some(Proof { world: after.world, date: after.date, player: after.player.seen_as().0, revision: b.revision, thread, fog });
+        }
     });
 }
 
-extern "C" fn fow_after(frame: *mut HookFrame) {
-    crate::guarded("fog refresh", || {
-        let Some(m) = crate::memory() else { return };
-        let fault = unsafe { (*frame).fault } != 0;
-        boundary(|b| {
-            b.depth = b.depth.saturating_sub(1);
-            if b.depth != 0 {
-                return;
-            }
-            let before = b.before.take();
-            let thread = std::mem::take(&mut b.refresh_thread);
-            if fault {
-                b.invalidate();
-                return;
-            }
-            let Some((before, fog, revision)) = before else { return };
-            let Ok(after) = world_context_any(m) else { return };
-            if before == after && revision == b.revision && fog_mode(m, &after).ok() == Some(fog) {
-                b.proof = Some(Proof { world: after.world, date: after.date, player: after.player.seen_as().0, revision: b.revision, thread, fog });
-            }
-        });
-    });
+fn visibility_before(_: &mut Call) {
+    boundary(|b| {
+        if b.depth == 0 || b.refresh_thread != crate::thread_id() {
+            b.invalidate();
+        }
+    })
 }
 
-extern "C" fn visibility_before(_: *mut HookFrame) {
-    crate::guarded("visibility", || {
-        boundary(|b| {
-            if b.depth == 0 || b.refresh_thread != crate::thread_id() {
-                b.invalidate();
-            }
-        })
-    });
-}
-
-extern "C" fn daily_before(_: *mut HookFrame) {
-    crate::guarded("daily update", || boundary(Boundary::invalidate));
+fn daily_before(_: &mut Call) {
+    boundary(Boundary::invalidate);
 }
 
 /// The day is over: time stops here when remote control advances it to this
 /// date (`time`).
-extern "C" fn daily_after(frame: *mut HookFrame) {
-    crate::guarded("daily update", || {
-        if let (Some(m), 0) = (crate::memory(), unsafe { (*frame).fault }) {
-            super::time::day_passed(m);
-        }
-    });
+fn daily_after(call: &mut Call) {
+    if !call.faulted() {
+        super::time::day_passed(&call.memory());
+    }
 }
 
 fn record(change: Change) {
@@ -243,49 +235,44 @@ type Watched = (u64, Option<orders::Path>);
 
 thread_local! {
     /// For each move or stop of the game's still running, innermost last:
-    /// its observer slot, and what it is watched for, or nothing when it is
+    /// the function observed, and what it is watched for, or nothing when it is
     /// not.
-    static ROUTES: RefCell<Vec<(usize, Option<Watched>)>> = const { RefCell::new(Vec::new()) };
+    static ROUTES: RefCell<Vec<(Option<usize>, Option<Watched>)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The game moves or stops an army: an own army's route is kept, to see
 /// afterwards whether the call changed it.
-extern "C" fn route_before(frame: *mut HookFrame) {
-    crate::guarded("route change", || {
-        let h = unsafe { &*frame };
-        let watched = (|| {
-            let m = crate::memory()?;
-            if orders::own_mutation_thread() == crate::thread_id() || crate::sessions::loading() {
-                return None;
-            }
-            let id = own_army_id(m, h.args[0])?;
-            Some((id, orders::read_path(m, h.args[0] + unit::PATH).ok()))
-        })();
-        ROUTES.with(|r| r.borrow_mut().push((h.slot, watched)));
-    });
+fn route_before(call: &mut Call) {
+    let (m, army) = (&call.memory(), call.arg(0));
+    let watched = (|| {
+        if orders::own_mutation_thread() == crate::thread_id() || crate::sessions::loading() {
+            return None;
+        }
+        let id = own_army_id(m, army)?;
+        Some((id, orders::read_path(m, army + unit::PATH).ok()))
+    })();
+    ROUTES.with(|r| r.borrow_mut().push((call.observed(), watched)));
 }
 
 /// An order is heard when the call left the army on another route, not when
 /// the game takes it: the player's order is carried out here, a frame after
 /// the game took it, and one the game takes but cannot carry out (a move onto
 /// the sea with no fleet there) changes nothing (docs/research/army-orders.md).
-extern "C" fn route_after(frame: *mut HookFrame) {
-    crate::guarded("route change", || {
-        let h = unsafe { &*frame };
-        let entry = ROUTES.with(|r| {
-            let mut r = r.borrow_mut();
-            if r.last().is_some_and(|(slot, _)| *slot == h.slot) {
-                r.pop()
-            } else {
-                None
-            }
-        });
-        let Some((_, Some((id, before)))) = entry else { return };
-        let after = (h.fault == 0).then(crate::memory).flatten().and_then(|m| orders::read_path(m, h.args[0] + unit::PATH).ok());
-        if route_changed(before.as_ref(), after.as_ref()) {
-            record(Change::Ordered(id));
+fn route_after(call: &mut Call) {
+    let observed = call.observed();
+    let entry = ROUTES.with(|r| {
+        let mut r = r.borrow_mut();
+        if r.last().is_some_and(|(function, _)| *function == observed) {
+            r.pop()
+        } else {
+            None
         }
     });
+    let Some((_, Some((id, before)))) = entry else { return };
+    let after = call.result().and_then(|_| orders::read_path(&call.memory(), call.arg(0) + unit::PATH).ok());
+    if route_changed(before.as_ref(), after.as_ref()) {
+        record(Change::Ordered(id));
+    }
 }
 
 /// Which kinds of event someone listens to: those an extension has a
@@ -333,68 +320,63 @@ fn route_changed(before: Option<&orders::Path>, after: Option<&orders::Path>) ->
 }
 
 /// Battle resolution: args are (battle, winner side, loser side, side index).
-extern "C" fn defeat_before(frame: *mut HookFrame) {
-    crate::guarded("battle defeat", || {
-        let Some(m) = crate::memory() else { return };
-        if crate::sessions::loading() {
-            return;
+fn defeat_before(call: &mut Call) {
+    let m = &call.memory();
+    if crate::sessions::loading() {
+        return;
+    }
+    let a = [call.arg(0), call.arg(1), call.arg(2), call.arg(3)];
+    let result = (|| -> Result<Vec<u64>> {
+        // With no country to act as, no army is the player's.
+        let Some(player) = world_context_any(m).map_err(|e| e.message)?.player.acting() else { return Ok(Vec::new()) };
+        let index = a[3] & 255;
+        if index > 1 || m.u8(a[0] + battle::SETTLED)? != 0 || m.ptr(a[0] + battle::SIDES[index])? != a[1] || m.ptr(a[0] + battle::SIDES[1 - index])? != a[2] {
+            return Ok(Vec::new());
         }
-        let a = unsafe { (*frame).args };
-        let result = (|| -> Result<Vec<u64>> {
-            // With no country to act as, no army is the player's.
-            let Some(player) = world_context_any(m).map_err(|e| e.message)?.player.acting() else { return Ok(Vec::new()) };
-            let index = a[3] & 255;
-            if index > 1 || m.u8(a[0] + battle::SETTLED)? != 0 || m.ptr(a[0] + battle::SIDES[index])? != a[1] || m.ptr(a[0] + battle::SIDES[1 - index])? != a[2]
-            {
+        let count = m.i32(a[2] + side::COUNT)?;
+        if !(0..=1024).contains(&count) {
+            return Err("defeated side roster bound".into());
+        }
+        let mut node = m.ptr(a[2] + side::UNITS)?;
+        let mut seen = BTreeSet::new();
+        let mut ids = Vec::new();
+        while node != 0 {
+            if seen.len() >= count as usize || !seen.insert(node) {
+                return Err("defeated side roster cycle".into());
+            }
+            let army = m.ptr(node + list::ITEM)?;
+            if m.ptr(army)? != m.at(classes::ARMY) {
                 return Ok(Vec::new());
             }
-            let count = m.i32(a[2] + side::COUNT)?;
-            if !(0..=1024).contains(&count) {
-                return Err("defeated side roster bound".into());
+            if Tag(m.u64(army + unit::OWNER)?) == player {
+                ids.push(m.u64(army + unit::ID)?);
             }
-            let mut node = m.ptr(a[2] + side::UNITS)?;
-            let mut seen = BTreeSet::new();
-            let mut ids = Vec::new();
-            while node != 0 {
-                if seen.len() >= count as usize || !seen.insert(node) {
-                    return Err("defeated side roster cycle".into());
-                }
-                let army = m.ptr(node + list::ITEM)?;
-                if m.ptr(army)? != m.at(classes::ARMY) {
-                    return Ok(Vec::new());
-                }
-                if Tag(m.u64(army + unit::OWNER)?) == player {
-                    ids.push(m.u64(army + unit::ID)?);
-                }
-                node = m.ptr(node + list::NEXT)?;
-            }
-            Ok(ids)
-        })();
-        match result {
-            Ok(ids) => ids.into_iter().for_each(|id| record(Change::Defeated(id))),
-            Err(e) => log!("events: {e}"),
+            node = m.ptr(node + list::NEXT)?;
         }
-    });
+        Ok(ids)
+    })();
+    match result {
+        Ok(ids) => ids.into_iter().for_each(|id| record(Change::Defeated(id))),
+        Err(e) => log!("events: {e}"),
+    }
 }
 
 /// A combat's results: a land or naval battle decided, heard once, only
 /// while someone listens to battles.
-extern "C" fn results_before(frame: *mut HookFrame) {
-    crate::guarded("battle results", || {
-        let Some(m) = crate::memory() else { return };
-        if crate::sessions::loading() || !listened(Kind::Battle) {
-            return;
-        }
-        let (a, back) = unsafe { ((*frame).args, (*frame).return_address) };
-        if back == m.at(UNIT_TAKEN_OUT) {
-            return;
-        }
-        match super::event_costs::BATTLES.time(|| battle(m, a[0], a[1] & 255 == 0)) {
-            Ok(Some(battle)) => record(Change::Battle(battle)),
-            Ok(None) => {}
-            Err(e) => log!("events: battle: {e}"),
-        }
-    });
+fn results_before(call: &mut Call) {
+    let m = &call.memory();
+    if crate::sessions::loading() || !listened(Kind::Battle) {
+        return;
+    }
+    let (a, back) = ([call.arg(0), call.arg(1)], call.caller());
+    if back == m.at(UNIT_TAKEN_OUT) {
+        return;
+    }
+    match super::event_costs::BATTLES.time(|| battle(m, a[0], a[1] & 255 == 0)) {
+        Ok(Some(battle)) => record(Change::Battle(battle)),
+        Ok(None) => {}
+        Err(e) => log!("events: battle: {e}"),
+    }
 }
 
 /// The battle `combat`, its attacker the winner when `attacker_won`; None
@@ -427,12 +409,10 @@ fn battle(m: &Memory, combat: usize, attacker_won: bool) -> Result<Option<Battle
     }))
 }
 
-extern "C" fn manager_after(frame: *mut HookFrame) {
-    crate::guarded("frame", || {
-        if unsafe { (*frame).fault } == 0 {
-            crate::safe_point::game_frame();
-        }
-    });
+fn manager_after(call: &mut Call) {
+    if !call.faulted() {
+        crate::safe_point::game_frame();
+    }
 }
 
 /// The frame, fog, daily and command functions that drive events.
