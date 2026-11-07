@@ -108,8 +108,10 @@ pub(crate) fn hooked_memory() -> memory::Memory {
 }
 
 /// Runs framework code. A panic there is a framework bug, not something to
-/// carry on from: it is logged, the player is told, and the game ends
-/// (ADR framework-succeeds-or-fails-as-a-whole).
+/// carry on from: its thread and backtrace are logged as it happens
+/// ([`log_panics`]), then the player is told and the game ends ([`fatal`];
+/// ADR framework-succeeds-or-fails-as-a-whole). Every function the game
+/// calls runs under it, so no panic crosses into the game's code.
 pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(value) => value,
@@ -163,8 +165,10 @@ fn open_fallback_log() {
 }
 
 /// Logs every panic in framework code as it happens, with its thread and
-/// backtrace: one in a function the game calls cannot unwind into the game
-/// and ends it at once, with no crash folder and no fatal error to say why.
+/// backtrace, which only the panic itself still has: the first step of the
+/// one way a panic goes. [`guarded`], around every function the game calls
+/// (the observer seam and `#[called_by_game]`), then catches it, and
+/// [`fatal`] tells the player and ends the game.
 fn log_panics() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
