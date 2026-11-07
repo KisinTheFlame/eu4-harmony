@@ -59,6 +59,12 @@ impl Manifest {
     pub fn built_for(&self, provided: &str) -> bool {
         self.api_version == provided
     }
+
+    /// Why a framework that provides the catalogue version `provided` cannot
+    /// run the mod's extension, when it cannot.
+    pub fn unsupported(&self, provided: &str) -> Option<String> {
+        (!self.built_for(provided)).then(|| format!("written for api_version {}, this EU4 Harmony provides {provided}", self.api_version))
+    }
 }
 
 /// A host as `network` lists it and a URL names it: a name or an address
@@ -163,6 +169,41 @@ fn entries(dir: &Path) -> Vec<(String, PathBuf)> {
         std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| (e.file_name().to_string_lossy().into_owned(), e.path())).collect();
     found.sort();
     found
+}
+
+/// A Harmony mod as its folder holds it: its manifest, and where the layout
+/// puts its files. Startup, an extension reload, `eu4-harmony check` and
+/// `package` read a mod this one way.
+#[derive(Debug)]
+pub struct HarmonyMod {
+    pub manifest: Manifest,
+    pub layout: Layout,
+}
+
+/// Whether the mod folder `root` holds a Harmony mod: one with
+/// `eu4-harmony/manifest.toml`.
+pub fn is_harmony(root: &Path) -> bool {
+    root.join("eu4-harmony").join(FILE).is_file()
+}
+
+impl HarmonyMod {
+    /// The Harmony mod in the mod folder `root`; or why its manifest does not
+    /// read, as `eu4-harmony/manifest.toml: <why>`.
+    pub fn read(root: &Path) -> Result<Self, String> {
+        let harmony = root.join("eu4-harmony");
+        let manifest = std::fs::read_to_string(harmony.join(FILE)).map_err(|e| e.to_string()).and_then(|t| Manifest::parse(&t));
+        let manifest = manifest.map_err(|e| format!("eu4-harmony/{FILE}: {e}"))?;
+        Ok(Self { manifest, layout: layout(&harmony) })
+    }
+
+    /// What a framework that provides the catalogue version `provided` finds
+    /// wrong with the mod, each a line that says where: an api_version it
+    /// does not provide, files where the layout puts nothing.
+    pub fn problems(&self, provided: &str) -> Vec<String> {
+        let version = self.manifest.unsupported(provided).map(|why| format!("eu4-harmony/{FILE}: {why}"));
+        let misplaced = self.layout.misplaced.iter().map(|f| format!("eu4-harmony/{f}: not where the layout puts anything, so the game never reads it"));
+        version.into_iter().chain(misplaced).collect()
+    }
 }
 
 /// The descriptor keys that say where the mod is: the launcher writes them,
@@ -350,6 +391,36 @@ permissions = { network = [\"https://x.com\"] }"
         assert_eq!(found.misplaced, ["ui/stray.gui", "ui/topbar/notes.txt"]);
         assert_eq!(layout(&dir.join("nowhere")), Layout::default());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_mod_is_read_with_its_problems_worded_once() {
+        let root = std::env::temp_dir().join(format!("eu4h-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(!is_harmony(&root));
+        let write = |file: &str, text: &str| {
+            let path = root.join("eu4-harmony").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(FILE, "id = \"m\"");
+        assert!(is_harmony(&root));
+        let refused = HarmonyMod::read(&root).unwrap_err();
+        assert!(refused.starts_with("eu4-harmony/manifest.toml: ") && refused.contains("api_version"), "{refused}");
+        write(FILE, "id = \"m\"\napi_version = \"0.1\"");
+        write("lua/main.lua", "return {}");
+        write("ui/stray.gui", "");
+        let read = HarmonyMod::read(&root).unwrap();
+        assert_eq!(read.layout.extension.as_deref(), Some(EXTENSION));
+        assert_eq!(
+            read.problems("0.2"),
+            [
+                "eu4-harmony/manifest.toml: written for api_version 0.1, this EU4 Harmony provides 0.2",
+                "eu4-harmony/ui/stray.gui: not where the layout puts anything, so the game never reads it",
+            ]
+        );
+        assert_eq!(read.manifest.unsupported("0.1"), None);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

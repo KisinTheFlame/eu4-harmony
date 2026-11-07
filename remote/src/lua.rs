@@ -186,12 +186,19 @@ pub fn handler_call(event: &Event) -> Option<(&'static str, Vec<serde_json::Valu
     let mut table = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(event)).ok()?;
     let fields = table.as_object_mut()?;
     fields.remove("event");
-    let args = match kind.called() {
-        Called::Fields => kind.fields().iter().map(|field| fields.get(field.name).cloned().unwrap_or(serde_json::Value::Null)).collect(),
-        Called::Table => vec![table],
-        Called::Given(_) => return None,
-    };
-    Some((kind.handler(), args))
+    Some((kind.handler(), handler_args(kind, fields)?))
+}
+
+/// The arguments the handler of `kind` is called with after `game`, from
+/// the event's fields in Lua's form, as its kind says it is called; a field
+/// left out is nil. None for an event whose handler's arguments the Lua host
+/// gives itself.
+pub fn handler_args(kind: Kind, fields: &serde_json::Map<String, serde_json::Value>) -> Option<Vec<serde_json::Value>> {
+    match kind.called() {
+        Called::Fields => Some(kind.fields().iter().map(|field| fields.get(field.name).cloned().unwrap_or(serde_json::Value::Null)).collect()),
+        Called::Table => Some(vec![serde_json::Value::Object(fields.clone())]),
+        Called::Given(_) => None,
+    }
 }
 
 pub const FUNCTIONS: &[Function] = &[
