@@ -98,6 +98,27 @@ Sampled on 2026-11-07 with `cargo xtask profile --threads --slice 1` ([dev-tools
 - **A slow day is the top agent's plan.** In the slowest seconds 57% of the route queries came from `0x14b370` → `0x147660` → `0x145d50` → `0x146750`, against 2.6% in the middle half: a great power's plan asks route after route, each up to about 10 ms, while the main thread spins. The rest of the slow seconds' route queries came from army thinks (`0x106320`, `0xf3f80` → `0xf4490` → `0x109ee0`).
 - **Route queries are not asked again.** The call trace's log of 18,666 route queries from 1721.1.1 to 1721.12.27, 52 a day: the same army, origin and goal was asked again the same day 6.2% of the time from the same call site, 13.4% from any; a query took under 1 ms at the median and 11 ms at most (to the log's millisecond).
 
+## What the main thread waits on in the AI stage
+
+Sampled on 2026-11-08 with `cargo xtask profile --threads --waiting-in 0x179e90 --slice 60` ([dev-tools.md](../dev-tools.md)): the 1780.7.1 save ("Saves to test with"), in observe mode at speed 5, 180 s, 1780.10.12 to 1788.10.23, 16.3 days a second, the player build of master at `c201eac0`. Whenever the main thread spins in `0x179e90` or sleeps, the tick's wait is shared out among the threads that run at it: what runs alone, the longest tasks once the others are done, takes the whole of it, so that a function's share is what the main thread waited on it, not the CPU it took.
+
+- The AI stage was 25% of the main thread's samples, 15.3 ms a game day. The main thread waited 11.3 ms of it, and ran its own share of the tasks the rest; 0.4 ms of the wait found no other thread running.
+
+| What ran while the main thread waited in the AI stage (inclusive) | ms a game day | Share |
+| --- | --- | --- |
+| An AI country's update (`0xb0fa0`), its King's day (`0x14b370`) | 10.3 | 92% |
+| The agents' day (`0xe4890`) | 9.7 | 86% |
+| An army agent's think (`0xe9f30` → `0xea250`) | 8.2 | 73% |
+| its search (`0xeab50` → `0x1022b0`) | 5.7 | 51% |
+| the search's route edge check (`0x96f860`) | 2.8 | 25% |
+| Route queries (`0x96c520`), from every caller | 2.3 | 20% |
+| The search's score (`0xf8ea0`) | 2.1 | 18% |
+| The recruitment plan's think (`0x168070`) | 0.6 | 6% |
+
+- **Half of the main thread's wait in the AI stage is the armies' searches**, more than their share of the AI's CPU (0.40 of 1.01 cores in "Where an agent's time goes"): the tasks that end last are the great powers', which have the most armies. Searching a country's armies on idle threads would be bounded by that half, less what the country's other agents do meanwhile.
+- **The recruitment plan is little of the wait**, though its thinks were timed at 2.8 ms a day in Austria's task ([ai.md](ai.md)); why is not verified: those times went through the call trace's observer, and from another year's game.
+- Each stretch of 60 s had a third of the AI's wait (34%, 33%, 33%).
+
 ## What an army's think writes
 
 The developer build's write watch ([dev-tools.md](../dev-tools.md)) on three calls of `0xea250` on the main thread, in the stage, on 1721.1.2 to 1721.1.6: 643, 148 and 2,779 writes. What existed before the call and was written: the agent itself (the 0xbf8-byte block); the world (`CGameState`, 0x7518 bytes) at `+0x1550`; the thread pool library's own data (`tbb.dll`, through `0x178530`); small blocks of the game's allocator (`0x178xxx`, `0x179xxx`); two globals. The rest were blocks made during the call. No army, province or country object was written: those were read.
@@ -247,3 +268,4 @@ A claim's release removes what a run added to the save games folder, so a copy t
 - What `0x2f36c0` is beyond the functions it calls; whether the countries' daily updates or the month's updates read what another country's writes.
 - One game only, as the AI played it; a game a player plays, with the player's country out of the AI, and other great powers.
 - The game's own pace (frames inside a day) over a long run, and a vanilla game without the framework.
+- How near the wait shared out by ticks comes to the stage's longest task: it was not sampled beside the tasks' timing.
