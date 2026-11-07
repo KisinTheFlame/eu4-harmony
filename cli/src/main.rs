@@ -46,11 +46,12 @@ usage:
   eu4-harmony test [<mod dir>]
       Runs the mod's eu4-harmony/tests/*.lua against a fake game, with the
       game's Lua host and sandbox; eu4-harmony skills testing says how.
-  eu4-harmony reload [<mod dir>] [--watch]
+  eu4-harmony reload [<mod dir>] [--watch] [--test-game <name>]
       Reloads the mod's Lua code and texts in the running game, its state
       carried through save_data; with --watch, whenever a file under
       eu4-harmony/lua/ or eu4-harmony/localisation/ changes, until stopped.
       Interface fragments and the manifest take a restart of the game.
+      --test-game reloads it in a developer's test game, as game does.
   eu4-harmony types [<mod dir>]
       Writes the editor's type definitions for this tool's catalogue again,
       in .eu4-harmony/types/, and a .luarc.json pointing at them where the
@@ -161,10 +162,11 @@ fn main() {
 fn cmd_reload(args: &Args) -> Result<()> {
     let root = mod_root(&start_dir(args)?)?;
     let id = HarmonyMod::read(&root)?.manifest.id;
+    let name = pipe::name_of(args.value("test-game"))?;
     if args.options.contains_key("watch") {
-        reload::watch(&root, &id);
+        reload::watch(&root, &id, &name);
     }
-    println!("{}", reload::once(&id)?);
+    println!("{}", reload::once(&id, &name)?);
     Ok(())
 }
 
@@ -411,7 +413,7 @@ fn cmd_start(args: &Args) -> Result<()> {
         None => start::WAIT,
     };
     let log = user_dir(args)?.join("eu4-harmony").join("logs").join("core.log");
-    start::start(&game, &log, hidden, sound, None, wait).map(drop)
+    start::start(&game, &log, &start::Start { hidden, sound, ..Default::default() }, wait).map(drop)
 }
 
 // ---------- package ----------

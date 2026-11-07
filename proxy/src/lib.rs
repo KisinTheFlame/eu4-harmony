@@ -6,6 +6,12 @@
 //! backup in `eu4-harmony/` and never loaded, so only the framework changes the
 //! game's text code.
 //!
+//! The core is `eu4-harmony\eu4_harmony_core.dll` beside the game, or the one
+//! `-harmony_core=<path>` on the game's command line names, as a test game
+//! runs a core of its own (docs/test-games.md); a core named there that does
+//! not load ends the game, which would otherwise run without the core it was
+//! started for.
+//!
 //! DllMain runs under the loader lock, so it only loads the core and calls its
 //! bootstrap export; all further initialization is deferred by the core itself.
 use std::{
@@ -21,9 +27,11 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{GetLastError, HMODULE},
     System::{
+        Environment::GetCommandLineW,
         LibraryLoader::{DisableThreadLibraryCalls, GetModuleFileNameW, GetProcAddress, LoadLibraryExW, LOAD_WITH_ALTERED_SEARCH_PATH},
         SystemInformation::GetSystemDirectoryW,
         SystemServices::DLL_PROCESS_ATTACH,
+        Threading::{GetCurrentProcess, TerminateProcess},
     },
 };
 
@@ -127,10 +135,15 @@ fn attach(instance: HMODULE) {
         return;
     }
 
-    let core_path = harmony.join("eu4_harmony_core.dll");
+    let named = core_named(&command_line());
+    let core_path = named.clone().unwrap_or_else(|| harmony.join("eu4_harmony_core.dll"));
     let core = unsafe { LoadLibraryExW(wide(&core_path).as_ptr(), std::ptr::null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH) };
     if core.is_null() {
         report(&format!("failed to load {}: error {}", core_path.display(), unsafe { GetLastError() }));
+        if named.is_some() {
+            report("ending the game: the core -harmony_core names did not load");
+            unsafe { TerminateProcess(GetCurrentProcess(), 3) };
+        }
         return;
     }
     let Some(bootstrap) = (unsafe { GetProcAddress(core, c"eu4_harmony_bootstrap".as_ptr() as *const u8) }) else {
@@ -144,6 +157,52 @@ fn attach(instance: HMODULE) {
     }
 }
 
+/// The game's command line.
+fn command_line() -> String {
+    unsafe {
+        let line = GetCommandLineW();
+        let len = (0..).take_while(|&i| *line.add(i) != 0).count();
+        String::from_utf16_lossy(std::slice::from_raw_parts(line, len))
+    }
+}
+
+/// The core `-harmony_core=<path>` names among the command line's words, the
+/// last when there are several, split as `eu4_harmony_manifest::switch_value`
+/// splits them; the proxy does not link the manifest's crate, so as to load
+/// nothing but the core.
+fn core_named(line: &str) -> Option<PathBuf> {
+    let mut words = Vec::new();
+    let (mut word, mut quoted, mut any) = (String::new(), false, false);
+    for c in line.chars() {
+        match c {
+            '"' => (quoted, any) = (!quoted, true),
+            ' ' | '\t' if !quoted => {
+                if any {
+                    words.push(std::mem::take(&mut word));
+                }
+                any = false;
+            }
+            _ => {
+                word.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        words.push(word);
+    }
+    words
+        .into_iter()
+        .rev()
+        .find_map(|w| {
+            let (switch, value) = w.split_once('=')?;
+            let switch = switch.strip_prefix("--").or_else(|| switch.strip_prefix('-'))?;
+            switch.eq_ignore_ascii_case("harmony_core").then(|| value.to_string())
+        })
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
 #[no_mangle]
 pub extern "system" fn DllMain(instance: HMODULE, reason: u32, _reserved: *mut c_void) -> i32 {
     if reason == DLL_PROCESS_ATTACH {
@@ -155,6 +214,24 @@ pub extern "system" fn DllMain(instance: HMODULE, reason: u32, _reserved: *mut c
 
 #[cfg(test)]
 mod tests {
+    /// The core is named as the framework reads its other switches.
+    #[test]
+    fn the_core_named_is_read_as_the_manifest_reads_a_switch() {
+        for line in [
+            r#""E:\Steam\Europa Universalis IV\eu4.exe" -harmony_hidden "-harmony_core=C:\a b\core.dll" -userdir=D:\u"#,
+            r"eu4.exe -HARMONY_CORE=D:\one.dll -harmony_core=D:\two.dll",
+            "eu4.exe -harmony_core= -debug",
+            r"eu4.exe -harmony_corex=D:\x.dll",
+            r#"--E:\eu4.exe --harmony_core="E:\a b\core.dll" --harmony_hidden -skiplauncher"#,
+            r"eu4.exe harmony_core=D:\x.dll ---harmony_core=D:\y.dll",
+            "eu4.exe",
+        ] {
+            let expected = eu4_harmony_manifest::switch_value(line, "-harmony_core").filter(|v| !v.is_empty()).map(std::path::PathBuf::from);
+            assert_eq!(super::core_named(line), expected, "{line}");
+        }
+        assert_eq!(super::core_named(r"eu4.exe -harmony_core=D:\two.dll").unwrap(), std::path::Path::new(r"D:\two.dll"));
+    }
+
     /// The names and ordinals the DLL at `path` exports, read from its file.
     fn exports(path: &std::path::Path) -> Vec<(String, u32)> {
         let file = std::fs::read(path).unwrap();

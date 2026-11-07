@@ -1,6 +1,6 @@
 # Game testing plan
 
-Status: decided, G1 to G5 built and tried (2026-11-05; [prototype-log.md](prototype-log.md), "Game testing"), G6 built and tried (2026-11-06; "Watching the game a claim starts"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
+Status: replaced on 2026-11-08 by the claims of test games ([test-games.md](test-games.md), ADR test-games-run-side-by-side): the claim of the whole game, its backup and put back, `watch`, `renew` and the player's claim are gone. What follows is the design as it was, G1 to G5 built and tried (2026-11-05; [prototype-log.md](prototype-log.md), "Game testing"), G6 built and tried (2026-11-06; "Watching the game a claim starts"). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Claim, Hidden start). It builds on the hidden start ([hidden-start.md](hidden-start.md)) and on the development commands ([dev-commands.md](dev-commands.md)).
 
 ## Goal and scope
 

@@ -231,6 +231,7 @@ dependencies = [
 name = "eu4-harmony-proxy"
 version = "0.1.0"
 dependencies = [
+ "eu4-harmony-manifest",
  "windows-sys",
 ]
 

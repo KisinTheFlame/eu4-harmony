@@ -13,7 +13,7 @@
 
 - **任何文字，处处显示。** 任何文字在整个游戏里都能显示，默认用为你的语言准备的字体，也可以自己选，不用装字体 Mod。
 - **不再重启。** 几秒回到主菜单，而不是 45 秒。铁人局也能读取别的存档。
-- **更快的游戏，同一局游戏。** 更流畅，最快速度下快约一成，存档时的卡顿只剩约三分之一，启动和读档也更快，游戏本身一点没变。
+- **更快的游戏，同一局游戏。** 更流畅，最快速度下快约一成，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
 - **修好原版至今还有的 bug。** 继承人不会再一半概率重名，反侵略联盟和宗主国覆灭不再有崩溃风险，读档也不会再让你丢掉成就。
 - **成就规则由你定。** 可选：非铁人或开着 Mod 也能拿成就。
 - **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、研究、选理念和改革、贸易、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。
@@ -139,14 +139,17 @@ cargo test --release
 cargo xtask release        # 打出玩家包
 ```
 
-游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，先认领游戏：认领时备份玩家的文件，释放时放回去（[docs/game-testing.md](docs/game-testing.md)）。
+游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，就认领一局测试游戏：它从游戏目录启动，有自己的用户文件夹、核心和远程控制管道，既不碰玩家的文件，也不碰游戏目录里装好的框架，几局可以同时跑（[docs/test-games.md](docs/test-games.md)）。游戏目录里要先装一次支持测试游戏的框架，装时不能有游戏在跑（`cargo xtask install`）。
 
 ```powershell
+cargo build --release --features eu4-harmony-core/dev-test-games
 cargo xtask game claim --purpose "try my change"
-cargo xtask install        # 把构建装进游戏目录（--uninstall 卸载）
-cargo xtask game start     # 隐藏启动游戏
-cargo xtask game release   # 放回玩家的文件，交还游戏
+cargo xtask game start     # 用这个构建隐藏启动测试游戏
+eu4-harmony game --test-game <本检出的文件夹名> session get
+cargo xtask game release   # 留下日志，删掉其余
 ```
+
+框架和游戏一样，按游戏自己的 `-userdir` 找用户文件夹。
 
 `cargo xtask --help` 列出其他开发命令。
 

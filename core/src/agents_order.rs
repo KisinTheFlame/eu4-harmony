@@ -15,15 +15,17 @@
 //! with `-seed`, where each agent draws from a generator of its own, then
 //! plays the same days in either order if no agent reads what another of
 //! its country wrote that day.
-use crate::{dev::AgentsOrder, points::Point};
+use crate::{
+    army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS},
+    dev::AgentsOrder,
+    points::Point,
+};
 
-/// In the top agent's step `0x14b370`, once it has thought: `mov rbx, [rdi +
-/// 0x40]; test rbx, rbx; je`, the walk of its children (`rdi`, the top agent;
-/// `rbp`, the day's argument it hands on).
-const WALKS: usize = 0x14b622;
-/// What follows the walk of its armies' agents: `mov edx, esi; mov rcx, rdi;
-/// call`.
-const WALKED: usize = 0x14b675;
+// In the top agent's step `0x14b370`, once it has thought, the walk of its
+// children (`WALKS`: `mov rbx, [rdi + 0x40]; test rbx, rbx; je`, `rdi` the
+// top agent, `rbp` the day's argument it hands on), and what follows the
+// walk of its armies' agents (`WALKED`: `mov edx, esi; mov rcx, rdi; call`),
+// as `core/src/army_search.rs` names them.
 const CHILDREN: usize = 0x40;
 const ARMIES: usize = 0xc50;
 /// A list's last node, and a node's node before it and after it.
@@ -51,8 +53,10 @@ unsafe fn walk_list(list: usize, from: usize, step: usize, day: usize) {
     }
 }
 
-/// The two walks, in the switch's order.
+/// The two walks, in the switch's order, its armies' searches handed out
+/// first as the framework's own walk does (`core/src/army_search.rs`).
 unsafe extern "C" fn walk(top: usize, day: usize) {
+    crate::army_search::children_begin(top, day);
     let (from, step) = if order() == AgentsOrder::Reversed { (LAST, PREVIOUS) } else { (0, NEXT) };
     for list in [CHILDREN, ARMIES] {
         unsafe { walk_list(top + list, from, step, day) };
@@ -83,7 +87,7 @@ pub fn points() -> Vec<Point> {
     log!("test switch agents-order: an AI country's top agent has its agents do their day {order:?}");
     vec![
         Point::jump(WALKS, "48 8b 5f 40 48 85 db 74 1a", "top agent's walk of its agents", walks_stub as *const () as usize, &WALKED_RESUME).uses(&[CHILDREN]),
-        Point::keep(0x14b645usize, "48 8b 9f 50 0c 00 00", "top agent's walk of its armies' agents").uses(&[ARMIES]),
+        Point::keep(ARMIES_WALK, "48 8b 9f 50 0c 00 00", "top agent's walk of its armies' agents").uses(&[ARMIES]),
         Point::keep(WALKED, "8b d6 48 8b cf", "top agent's step after its walks"),
     ]
 }

@@ -1,9 +1,9 @@
-//! What a scenario is handed: the game, asked through remote control with
-//! the request and answer types of `remote/`, over one connection while the
-//! game process lasts. Every step has a time; the game ending in a step, a
-//! step taking longer, the player taking the game and a check that does not
-//! hold each end the scenario, as a [`Stop`].
-use crate::{claim, game};
+//! What a scenario is handed: the run's test game, asked through remote
+//! control on its pipe with the request and answer types of `remote/`, over
+//! one connection while the game process lasts. Every step has a time; the
+//! game ending in a step, a step taking longer, the run interrupted and a
+//! check that does not hold each end the scenario, as a [`Stop`].
+use crate::claim;
 use eu4_harmony_client::pipe::{self, Failure};
 use eu4_harmony_remote::{
     menu::{Menu, MenuRequest, Place},
@@ -13,10 +13,6 @@ use eu4_harmony_remote::{
 use serde::de::DeserializeOwned;
 use std::{
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
     time::{Duration, Instant},
 };
 
@@ -40,8 +36,6 @@ pub enum Stop {
     Crashed(String),
     /// A step took longer than its time.
     Hung(String),
-    /// The player took the game.
-    Taken,
     /// The run was interrupted, with Ctrl-C.
     Interrupted,
 }
@@ -52,17 +46,36 @@ pub type Played<T> = Result<T, Stop>;
 pub struct Game {
     owner: String,
     game_dir: PathBuf,
+    /// The test game's pipe.
+    pipe: String,
     client: Option<pipe::Client>,
-    /// Set by the runner's look at the claim.
-    taken: Arc<AtomicBool>,
+    /// The saves the scenario loads, copied into the test game's user folder
+    /// at each start.
+    saves: Vec<String>,
     /// The game ran since the scenario began: its process missing then is an
     /// end, not a game to start.
     running: bool,
 }
 
 impl Game {
-    pub fn new(owner: &str, game_dir: PathBuf, taken: Arc<AtomicBool>) -> Self {
-        Self { owner: owner.into(), game_dir, client: None, taken, running: false }
+    pub fn new(owner: &str, game_dir: PathBuf) -> crate::Result<Self> {
+        Ok(Self { owner: owner.into(), game_dir, pipe: claim::pipe_of(owner)?, client: None, saves: Vec::new(), running: false })
+    }
+
+    /// The saves the next scenario loads.
+    pub fn loads(&mut self, saves: Vec<String>) {
+        self.saves = saves;
+    }
+
+    /// Whether the test game runs.
+    pub fn runs(&self) -> bool {
+        claim::game_of(&self.owner).is_some()
+    }
+
+    /// Ends the test game, if it runs.
+    pub fn end(&mut self) {
+        self.client = None;
+        let _ = claim::stop_game_as(&self.owner);
     }
 
     /// Asks `request` and reads its answer, within [`STEP`].
@@ -82,12 +95,12 @@ impl Game {
 
     /// Sends `request` and reads its answer, or why none came.
     fn exchange<T: DeserializeOwned>(&mut self, request: &impl GroupRequest, step: Duration) -> Played<Result<Result<T, Error>, Failure>> {
-        self.not_taken()?;
+        self.not_interrupted()?;
         self.started()?;
         let deadline = Instant::now() + step;
         let mut client = match self.client.take() {
             Some(client) => client,
-            None => match pipe::connect(pipe::NAME, pipe::GAME, deadline) {
+            None => match pipe::connect(&self.pipe, pipe::GAME, deadline) {
                 Ok(client) => client,
                 Err(failure) => return Ok(Err(failure)),
             },
@@ -126,12 +139,12 @@ impl Game {
         self.client = None;
         let deadline = Instant::now() + MAIN_MENU;
         while Instant::now() < deadline {
-            self.not_taken()?;
+            self.not_interrupted()?;
             if self.gone() {
                 return Err(Stop::Crashed("the game ended on its way to the main menu".into()));
             }
             let look = Instant::now() + Duration::from_secs(10);
-            if let Ok(mut client) = pipe::connect(pipe::NAME, pipe::GAME, look) {
+            if let Ok(mut client) = pipe::connect(&self.pipe, pipe::GAME, look) {
                 if let Ok(Ok(menu)) = client.ask_for::<_, Menu>(&MenuRequest::State {}, Some(look)) {
                     if menu.place == Place::MainMenu {
                         self.client = Some(client);
@@ -158,11 +171,9 @@ impl Game {
     /// Starts the game afresh, ending it first if it runs; the seconds to its
     /// main menu.
     pub fn restart(&mut self) -> Played<f64> {
-        self.not_taken()?;
-        self.client = None;
-        if game::running() {
-            game::kill();
-            game::wait_closed().map_err(Stop::Hung)?;
+        self.not_interrupted()?;
+        if self.runs() {
+            self.end();
         }
         self.start()
     }
@@ -178,14 +189,14 @@ impl Game {
 
     /// A new scenario begins: the game, if it runs, is the one it has.
     pub fn next_scenario(&mut self) {
-        self.running = game::running();
+        self.running = self.runs();
     }
 
     /// The game for the scenario: started unless it ran, an end when it ran
     /// and is gone.
     fn started(&mut self) -> Played<()> {
         if !self.running {
-            if !game::running() {
+            if !self.runs() {
                 self.start()?;
             }
             self.running = true;
@@ -196,7 +207,8 @@ impl Game {
     }
 
     fn start(&mut self) -> Played<f64> {
-        match claim::start_game_as(&self.owner, &self.game_dir, false, None, MAIN_MENU) {
+        let starting = claim::Starting { saves: self.saves.clone(), ..Default::default() };
+        match claim::start_game_as(&self.owner, &self.game_dir, &starting, MAIN_MENU) {
             Ok(seconds) => {
                 self.running = true;
                 Ok(seconds)
@@ -206,10 +218,7 @@ impl Game {
         }
     }
 
-    fn not_taken(&self) -> Played<()> {
-        if self.taken.load(Ordering::SeqCst) {
-            return Err(Stop::Taken);
-        }
+    fn not_interrupted(&self) -> Played<()> {
         if super::interrupted() {
             return Err(Stop::Interrupted);
         }
@@ -220,7 +229,7 @@ impl Game {
     fn gone(&self) -> bool {
         let deadline = Instant::now() + BETWEEN_PROCESSES;
         while Instant::now() < deadline {
-            if game::running() {
+            if self.runs() {
                 return false;
             }
             std::thread::sleep(Duration::from_millis(500));
@@ -230,7 +239,7 @@ impl Game {
 
     /// Why asking `name` failed.
     fn why(&self, name: &str, failure: &Failure, step: Duration) -> Stop {
-        if let Err(stop) = self.not_taken() {
+        if let Err(stop) = self.not_interrupted() {
             return stop;
         }
         let ended = format!("the game ended while answering {name}");
