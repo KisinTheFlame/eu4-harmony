@@ -38,5 +38,10 @@ windows-sys = { workspace = true, features = [
     "Win32_System_WindowsProgramming",
 ] }
 
+[dev-dependencies]
+# The pipe tests' own server, which stands in for the game in the scenario
+# runner's tests.
+eu4-harmony-client = { path = "../client", features = ["testing"] }
+
 [lints]
 workspace = true

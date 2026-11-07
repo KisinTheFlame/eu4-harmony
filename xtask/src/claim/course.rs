@@ -8,6 +8,7 @@
 use super::machine::{Framework, Machine};
 use super::record::{self, Asking, Found, GameEnd, Process, Record, Seen};
 use crate::Result;
+use eu4_harmony_client::game;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -53,19 +54,13 @@ pub enum Look {
 /// What this process sees now, for a look at the record.
 fn seen<M: Machine>(m: &M) -> Seen<'_> {
     let games = m.games();
-    Seen {
-        now: m.now(),
-        game_running: games.as_ref().map_or(true, |g| !g.is_empty()),
-        games: games.unwrap_or_default(),
-        me: m.me(),
-        alive: Box::new(|p| m.alive(p)),
-    }
+    Seen { now: m.now(), game_running: game::counts_as_running(&games), games: games.unwrap_or_default(), me: m.me(), alive: Box::new(|p| m.alive(p)) }
 }
 
 /// Whether an `eu4.exe` runs, as it counts for what this guards: when it
 /// cannot be told, it does.
 fn game_running<M: Machine>(m: &M) -> bool {
-    m.games().map_or(true, |g| !g.is_empty())
+    game::counts_as_running(&m.games())
 }
 
 /// The game holds a claim of `owner`'s; the record if so.
@@ -141,8 +136,7 @@ pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, lease: u64, game
             Found::Take(holder) => {
                 m.say(&format!("the player takes the game from {}: ending the game and releasing its claim", holder.describe(m.now())));
                 put_back_for(m, &holder, || {
-                    m.kill_game();
-                    m.wait_closed()?;
+                    m.end_games()?;
                     put_back(m, &holder, game_dir, false).map(drop)
                 })?;
                 // The game is free now, and the player first.
@@ -161,8 +155,7 @@ pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, lease: u64, game
                             return Err("eu4.exe is running, and not as the gone holder's game: the player may be playing".into());
                         }
                         m.say("ending its game");
-                        m.kill_game();
-                        m.wait_closed()?;
+                        m.end_games()?;
                     }
                     put_back(m, &holder, game_dir, false).map(drop)
                 })?;
@@ -317,8 +310,7 @@ pub fn release<M: Machine>(m: &M, owner: &str, game_dir: &Path, keep_crashes: bo
             let folder = held.folder.as_deref().map(Path::new);
             folder.inspect(|f| follow_games(m, f, false));
             m.say("ending the game");
-            m.kill_game();
-            m.wait_closed()?;
+            m.end_games()?;
             folder.inspect(|f| follow_games(m, f, false));
         }
         crashed = put_back(m, &held, game_dir, keep_crashes)?;
@@ -409,6 +401,15 @@ fn follow_games<M: Machine>(m: &M, folder: &Path, say: bool) {
     }
 }
 
+/// How the games of `owner`'s claim have ended so far, those that ended
+/// since the claim last looked added to its record first; none when `owner`
+/// holds no claim.
+pub fn run_ends<M: Machine>(m: &M, owner: &str) -> Vec<GameEnd> {
+    let Some(folder) = held_by(m, owner).ok().and_then(|h| h.folder) else { return Vec::new() };
+    follow_games(m, Path::new(&folder), false);
+    m.ends(Path::new(&folder))
+}
+
 /// One look at `owner`'s claim by the process keeping it going, which keeps
 /// the lease going while the game runs.
 pub fn look<M: Machine>(m: &M, owner: &str) -> Result<Look> {
@@ -489,18 +490,16 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, sound: bool, 
     held_by(m, owner)?;
     renew(m, owner)?;
     let started = m.start_game(game_dir, sound, seed, wait);
-    if let Ok((id, _)) = started {
-        let game = m.process(id);
+    if let Ok((game, _)) = started {
         m.locked(|s| {
             if let Some(h) = s.held.as_mut().filter(|h| h.owner == owner) {
-                h.game = game;
+                h.game = Some(game);
             }
         })?;
     }
     if started.is_err() && game_running(m) {
         m.say("ending the game, which did not reach its main menu");
-        m.kill_game();
-        m.wait_closed()?;
+        m.end_games()?;
     }
     started.map(|(_, seconds)| seconds)
 }
@@ -508,8 +507,7 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, sound: bool, 
 /// Ends the game within `owner`'s claim.
 pub fn stop<M: Machine>(m: &M, owner: &str) -> Result<()> {
     held_by(m, owner)?;
-    m.kill_game();
-    m.wait_closed()?;
+    m.end_games()?;
     m.say("the game is closed");
     Ok(())
 }
@@ -549,7 +547,7 @@ pub fn hold_for_run<M: Machine>(m: &M, owner: &str, purpose: &str, wait: bool, g
 /// the game or the claim is not the run's any more.
 pub fn look_in_run<M: Machine>(m: &M, run: &Run, interrupted: bool, ended: &mut bool) -> bool {
     if interrupted && !*ended {
-        m.kill_game();
+        let _ = m.end_games();
         *ended = true;
     }
     match look(m, &run.owner) {
@@ -566,8 +564,7 @@ pub fn look_in_run<M: Machine>(m: &M, run: &Run, interrupted: bool, ended: &mut 
 /// it and puts back the run's files.
 pub fn end_run_game<M: Machine>(m: &M, taken: bool) {
     if !taken {
-        m.kill_game();
-        let _ = m.wait_closed();
+        let _ = m.end_games();
     }
 }
 
@@ -638,273 +635,9 @@ fn given_back<T>(played: std::thread::Result<Result<T>>, given: Result<()>) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::super::machine::State;
     use super::super::record::Waiting;
+    use super::super::recorded::*;
     use super::*;
-    use std::cell::{Cell, RefCell};
-
-    /// What the claim did to the computer, in order.
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    enum Did {
-        /// The record written, as [`described`] puts it.
-        Wrote(String),
-        /// The queue written, by owner.
-        Queued(Vec<String>),
-        BackUp,
-        RemoveFolder,
-        Keep,
-        RestorePlayerFiles,
-        RestoreFramework,
-        Kill,
-        WaitClosed,
-        Start,
-        Waited,
-        Said(String),
-    }
-
-    fn wrote(record: &str) -> Did {
-        Did::Wrote(record.into())
-    }
-
-    /// A record in a few words: its owner, a backup not done and the
-    /// process making it, the process putting it back, and the player
-    /// taking the game; `free` without one.
-    fn described(held: &Option<Record>) -> String {
-        let Some(h) = held else { return "free".into() };
-        let mut line = h.owner.clone();
-        if h.unfinished() {
-            line += &h.preparing.map_or(", not made".into(), |p| format!(", made by {}", p.id));
-        }
-        if let Some(p) = h.putting_back {
-            line += &format!(", put back by {}", p.id);
-        }
-        if h.taken.is_some() {
-            line += ", taken";
-        }
-        line
-    }
-
-    /// The process the tests run as, unless they say otherwise, and others.
-    const ME: Process = Process { id: 10, started: 1 };
-    const HOLDER: Process = Process { id: 20, started: 2 };
-    const DEAD: Process = Process { id: 30, started: 3 };
-    const GAME: Process = Process { id: 40, started: 4 };
-    const PLAYER: Process = Process { id: 50, started: 5 };
-    const GAME_DIR: &str = "E:\\game";
-
-    type Meanwhile = RefCell<Option<Box<dyn FnOnce(&Recorded)>>>;
-
-    /// The computer, scripted and recorded: its clock moves only when the
-    /// claim waits, the `eu4.exe` that run are those in `games`, a process
-    /// runs until it is in `ended`, and the backup, the start and putting
-    /// back the framework files fail when told to.
-    struct Recorded {
-        state: RefCell<State>,
-        did: RefCell<Vec<Did>>,
-        now: Cell<u64>,
-        me: Cell<Process>,
-        games: RefCell<Vec<Process>>,
-        ended: RefCell<Vec<Process>>,
-        back_up_fails: Option<&'static str>,
-        start_fails: bool,
-        /// The framework files a put back cannot put back, a line each.
-        lost: Vec<String>,
-        /// Done once, while the backup is made.
-        while_backing_up: Meanwhile,
-        /// Done once, while the player's files are put back.
-        while_putting_back: Meanwhile,
-        /// The ends the next look at the games sees, and those noted.
-        ending: RefCell<Vec<GameEnd>>,
-        noted: RefCell<Vec<GameEnd>>,
-    }
-
-    fn machine(now: u64, held: Option<Record>, games: &[Process]) -> Recorded {
-        Recorded {
-            state: RefCell::new(State { held, waiting: Vec::new() }),
-            did: RefCell::default(),
-            now: Cell::new(now),
-            me: Cell::new(ME),
-            games: RefCell::new(games.to_vec()),
-            ended: RefCell::default(),
-            back_up_fails: None,
-            start_fails: false,
-            lost: Vec::new(),
-            while_backing_up: RefCell::default(),
-            while_putting_back: RefCell::default(),
-            ending: RefCell::default(),
-            noted: RefCell::default(),
-        }
-    }
-
-    impl Recorded {
-        fn did(&self, did: Did) {
-            self.did.borrow_mut().push(did);
-        }
-
-        /// What it did, besides what the claim said, its waits and the
-        /// queue.
-        fn steps(&self) -> Vec<Did> {
-            self.did.borrow().iter().filter(|d| !matches!(d, Did::Said(_) | Did::Waited | Did::Queued(_))).cloned().collect()
-        }
-
-        fn said(&self) -> Vec<String> {
-            self.did.borrow().iter().filter_map(|d| if let Did::Said(line) = d { Some(line.clone()) } else { None }).collect()
-        }
-
-        fn said_line(&self, starting: &str) -> bool {
-            self.said().iter().any(|line| line.starts_with(starting))
-        }
-
-        fn held(&self) -> Option<Record> {
-            self.state.borrow().held.clone()
-        }
-
-        fn waiting(&self) -> Vec<String> {
-            self.state.borrow().waiting.iter().map(|w| w.owner.clone()).collect()
-        }
-
-        fn forget(&self) {
-            self.did.borrow_mut().clear();
-        }
-
-        /// Runs `action` as the process `p`.
-        fn as_process<T>(&self, p: Process, action: impl FnOnce() -> T) -> T {
-            let me = self.me.replace(p);
-            let value = action();
-            self.me.set(me);
-            value
-        }
-
-        fn meanwhile(hook: &Meanwhile, m: &Recorded) {
-            let action = hook.borrow_mut().take();
-            if let Some(action) = action {
-                action(m);
-            }
-        }
-    }
-
-    impl Machine for Recorded {
-        fn locked<T>(&self, action: impl FnOnce(&mut State) -> T) -> Result<T> {
-            let mut state = self.state.borrow_mut();
-            let before = state.clone();
-            let value = action(&mut state);
-            if state.held != before.held {
-                self.did(Did::Wrote(described(&state.held)));
-            }
-            if state.waiting != before.waiting {
-                self.did(Did::Queued(state.waiting.iter().map(|w| w.owner.clone()).collect()));
-            }
-            Ok(value)
-        }
-        fn claims(&self) -> Result<PathBuf> {
-            Ok(PathBuf::from("C:\\claims"))
-        }
-        fn now(&self) -> u64 {
-            self.now.get()
-        }
-        fn stamps(&self) -> (String, String) {
-            (format!("t{}", self.now.get()), self.now.get().to_string())
-        }
-        fn wait(&self, time: Duration) {
-            self.did(Did::Waited);
-            self.now.set(self.now.get() + time.as_secs());
-        }
-        fn me(&self) -> Process {
-            self.me.get()
-        }
-        fn process(&self, id: u32) -> Option<Process> {
-            self.games.borrow().iter().find(|g| g.id == id).copied()
-        }
-        fn alive(&self, p: &Process) -> bool {
-            !self.ended.borrow().contains(p)
-        }
-        fn games(&self) -> Result<Vec<u32>> {
-            Ok(self.games.borrow().iter().map(|g| g.id).collect())
-        }
-        fn kill_game(&self) {
-            self.did(Did::Kill);
-            let killed = self.games.take();
-            self.ended.borrow_mut().extend(killed);
-        }
-        fn wait_closed(&self) -> Result<()> {
-            self.did(Did::WaitClosed);
-            if self.games.borrow().is_empty() {
-                Ok(())
-            } else {
-                Err("eu4.exe did not end".into())
-            }
-        }
-        fn game_ends(&self) -> Vec<GameEnd> {
-            self.ending.take()
-        }
-        fn note_ends(&self, _: &Path, ends: &[GameEnd]) {
-            self.noted.borrow_mut().extend_from_slice(ends);
-        }
-        fn ends(&self, _: &Path) -> Vec<GameEnd> {
-            self.noted.borrow().clone()
-        }
-        fn start_game(&self, _: &Path, _: bool, _: Option<u32>, _: Duration) -> Result<(u32, f64)> {
-            self.did(Did::Start);
-            self.games.borrow_mut().push(GAME);
-            if self.start_fails {
-                Err("the game ended before its main menu".into())
-            } else {
-                Ok((GAME.id, 30.0))
-            }
-        }
-        fn back_up(&self, _: &Path, _: &Path) -> Result<()> {
-            self.did(Did::BackUp);
-            Self::meanwhile(&self.while_backing_up, self);
-            self.back_up_fails.map_or(Ok(()), |e| Err(e.into()))
-        }
-        fn remove_folder(&self, _: &Path) -> Result<()> {
-            self.did(Did::RemoveFolder);
-            Ok(())
-        }
-        fn keep_logs(&self, _: Option<&Path>, _: Option<&Path>, _: &Path) -> Result<bool> {
-            self.did(Did::Keep);
-            Ok(false)
-        }
-        fn restore_player_files(&self, _: &Path, _: &Path, _: bool) -> Result<()> {
-            self.did(Did::RestorePlayerFiles);
-            Self::meanwhile(&self.while_putting_back, self);
-            Ok(())
-        }
-        fn restore_framework_files(&self, _: &Path, _: &Path) -> Result<Framework> {
-            self.did(Did::RestoreFramework);
-            Ok(if self.lost.is_empty() { Framework::PutBack } else { Framework::Lost(self.lost.clone()) })
-        }
-        fn made_at(&self, _: &Path) -> Option<u64> {
-            None
-        }
-        fn leftovers(&self, _: Option<&Record>) -> Result<Vec<String>> {
-            Ok(Vec::new())
-        }
-        fn say(&self, line: &str) {
-            self.did(Did::Said(line.into()));
-        }
-    }
-
-    /// `owner`'s complete claim, its lease started at `renewed`.
-    fn complete(owner: &str, renewed: u64) -> Record {
-        let folder = format!("C:\\claims\\{owner}-{renewed}");
-        Record {
-            owner: owner.into(),
-            purpose: "a test".into(),
-            checkout: String::new(),
-            since: format!("t{renewed}"),
-            renewed,
-            lease_minutes: 30,
-            backup: Some(format!("{folder}\\backup")),
-            folder: Some(folder),
-            player: false,
-            taken: None,
-            preparing: None,
-            putting_back: None,
-            keeper: None,
-            game: None,
-        }
-    }
 
     /// `owner`'s claim whose backup `process` was making.
     fn unfinished(owner: &str, renewed: u64, process: Process) -> Record {
@@ -998,7 +731,7 @@ mod tests {
         let m = machine(1100, Some(complete("a", 1000)), &[GAME]);
         m.state.borrow_mut().waiting = vec![waiting("b", 1000, 1100), waiting("c", 1050, 1100)];
         assert_eq!(release_as(&m, "a"), Ok(()));
-        assert_eq!(m.steps(), steps(&[&[wrote("a, put back by 10"), Did::Kill, Did::WaitClosed], &PUT_BACK, &[wrote("free")]]));
+        assert_eq!(m.steps(), steps(&[&[wrote("a, put back by 10"), Did::EndGames], &PUT_BACK, &[wrote("free")]]));
         let said = m.said();
         let at = |line: &str| said.iter().position(|l| l.starts_with(line)).unwrap_or_else(|| panic!("{line:?} not said: {said:?}"));
         assert!(at("ending the game") < at("the game folder's framework files are as they were"));
@@ -1045,10 +778,7 @@ mod tests {
         }));
         let player = Asking { owner: "player".into(), player: true, now: true, wait: true };
         assert_eq!(claim(&m, &player, "playing", record::PLAYER_LEASE_MINUTES, Path::new(GAME_DIR)), Ok(Claimed::Now));
-        assert_eq!(
-            m.steps(),
-            steps(&[&[wrote("a, taken"), wrote("a, put back by 50, taken"), Did::Kill, Did::WaitClosed], &PUT_BACK, &[wrote("free"), wrote("player")]])
-        );
+        assert_eq!(m.steps(), steps(&[&[wrote("a, taken"), wrote("a, put back by 50, taken"), Did::EndGames], &PUT_BACK, &[wrote("free"), wrote("player")]]));
         assert_eq!(m.now(), 1000 + record::TAKEN_GRACE_SECONDS, "the holder had its grace");
         assert!(m.said_line("the player takes the game from a since t1000"));
         assert!(m.said_line("claimed for the player"));
@@ -1124,7 +854,7 @@ mod tests {
         assert_eq!(claim_as(&m, "b", false), Ok(Claimed::Now));
         assert_eq!(
             m.steps(),
-            steps(&[&[wrote("a, put back by 10"), Did::Kill, Did::WaitClosed], &PUT_BACK, &[wrote("free"), wrote("b, made by 10"), Did::BackUp, wrote("b")]])
+            steps(&[&[wrote("a, put back by 10"), Did::EndGames], &PUT_BACK, &[wrote("free"), wrote("b, made by 10"), Did::BackUp, wrote("b")]])
         );
         assert!(m.said_line("ending its game"));
     }
@@ -1238,7 +968,7 @@ mod tests {
         m.start_fails = true;
         m.forget();
         assert!(start_game(&m, "a", Path::new(GAME_DIR), false, None, Duration::from_secs(60)).is_err());
-        assert_eq!(m.steps(), [Did::Start, Did::Kill, Did::WaitClosed], "renewed already this second: nothing written");
+        assert_eq!(m.steps(), [Did::Start, Did::EndGames], "renewed already this second: nothing written");
     }
 
     fn run_as(m: &Recorded, owner: &str, wait: bool) -> Result<Run> {
@@ -1254,7 +984,7 @@ mod tests {
         m.forget();
         end_run_game(&m, false);
         assert_eq!(give_back_run(&m, &run, false, Path::new(GAME_DIR)), Ok(()));
-        assert_eq!(m.steps(), steps(&[&[Did::Kill, Did::WaitClosed, wrote("a, put back by 10")], &PUT_BACK, &[wrote("free")]]));
+        assert_eq!(m.steps(), steps(&[&[Did::EndGames, wrote("a, put back by 10")], &PUT_BACK, &[wrote("free")]]));
     }
 
     #[test]
@@ -1264,7 +994,7 @@ mod tests {
         assert_eq!(m.steps(), [], "nothing claimed");
         end_run_game(&m, false);
         assert_eq!(give_back_run(&m, &run, false, Path::new(GAME_DIR)), Ok(()));
-        assert_eq!(m.steps(), [Did::Kill, Did::WaitClosed]);
+        assert_eq!(m.steps(), [Did::EndGames]);
         assert!(held_by(&m, "a").is_ok());
     }
 
@@ -1285,7 +1015,7 @@ mod tests {
         assert!(look_in_run(&m, &run, false, &mut false), "the run is told");
         end_run_game(&m, true);
         assert_eq!(give_back_run(&m, &run, true, Path::new(GAME_DIR)), Ok(()));
-        assert!(!m.steps().iter().any(|d| matches!(d, Did::Kill | Did::WaitClosed | Did::Keep)), "{:?}", m.steps());
+        assert!(!m.steps().iter().any(|d| matches!(d, Did::EndGames | Did::Keep)), "{:?}", m.steps());
         assert_eq!(described(&m.held()), "a, taken", "the player's claim puts it back");
         assert!(m.said_line("the player took the game: their claim ends it and puts back this run's files"));
     }
@@ -1307,7 +1037,7 @@ mod tests {
         m.forget();
         assert!(!look_in_run(&m, &run, true, &mut ended));
         assert!(!look_in_run(&m, &run, true, &mut ended));
-        assert_eq!(m.steps().iter().filter(|d| **d == Did::Kill).count(), 1, "the game is ended once");
+        assert_eq!(m.steps().iter().filter(|d| **d == Did::EndGames).count(), 1, "the game is ended once");
         assert!(ended);
 
         m.state.borrow_mut().held = None;

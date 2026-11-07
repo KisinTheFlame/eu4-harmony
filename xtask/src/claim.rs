@@ -9,15 +9,18 @@
 mod course;
 mod machine;
 mod record;
+#[cfg(test)]
+pub(crate) mod recorded;
 
 use crate::{repo, Args, Result};
 use course::Claimed;
 pub use course::Run;
-use machine::ThisComputer;
+use machine::{Machine, ThisComputer};
+pub use record::GameEnd;
 use record::{Asking, Record};
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
@@ -147,6 +150,63 @@ fn step_aside() {
 /// that does not reach it ends the game. The seconds it took.
 pub fn start_game_as(owner: &str, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<f64> {
     course::start_game(&ThisComputer, owner, game_dir, sound, seed, wait)
+}
+
+/// The game as a run within a claim reaches it, the scenario runner's:
+/// through the claim's machine, so that how a run's game ends can be tried
+/// on a recorded one.
+pub trait RunGame {
+    /// The ids of the `eu4.exe` that run; an error when they cannot be told.
+    fn games(&self) -> Result<Vec<u32>>;
+    /// Ends every `eu4.exe` and waits for them to be gone.
+    fn end(&self) -> Result<()>;
+    /// Starts the game hidden within the run's claim, waiting up to `wait`
+    /// for its main menu: the seconds it took.
+    fn start(&self, wait: Duration) -> Result<f64>;
+    /// How the claim's games have ended so far, as the claim follows them.
+    fn ends(&self) -> Vec<GameEnd>;
+    /// Waits before looking again.
+    fn wait(&self, time: Duration);
+}
+
+/// The game of `owner`'s run, within their claim, on `m`.
+pub struct InClaim<'m, M> {
+    m: &'m M,
+    owner: String,
+    game_dir: PathBuf,
+}
+
+impl<M: Machine> RunGame for InClaim<'_, M> {
+    fn games(&self) -> Result<Vec<u32>> {
+        self.m.games()
+    }
+
+    fn end(&self) -> Result<()> {
+        self.m.end_games()
+    }
+
+    fn start(&self, wait: Duration) -> Result<f64> {
+        course::start_game(self.m, &self.owner, &self.game_dir, false, None, wait)
+    }
+
+    fn ends(&self) -> Vec<GameEnd> {
+        course::run_ends(self.m, &self.owner)
+    }
+
+    fn wait(&self, time: Duration) {
+        self.m.wait(time);
+    }
+}
+
+/// The game of `owner`'s run on this computer, from `game_dir`.
+pub fn run_game(owner: &str, game_dir: &Path) -> InClaim<'static, ThisComputer> {
+    InClaim { m: &ThisComputer, owner: owner.into(), game_dir: game_dir.into() }
+}
+
+/// The game of `owner`'s run on the recorded computer `m`.
+#[cfg(test)]
+pub fn recorded_run_game<'m>(m: &'m recorded::Recorded, owner: &str) -> InClaim<'m, recorded::Recorded> {
+    InClaim { m, owner: owner.into(), game_dir: recorded::GAME_DIR.into() }
 }
 
 /// `cargo xtask game start`: starts the game hidden, within this owner's

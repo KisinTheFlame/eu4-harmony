@@ -1,6 +1,6 @@
 //! The player's files: installed into the game folder as last built, and
 //! packed for players.
-use crate::{built, cargo, game, repo, run, Args, Result};
+use crate::{built, cargo, repo, run, Args, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -50,7 +50,7 @@ pub fn install(args: &Args) -> Result<()> {
     }
     // The claim puts the game folder back as it was (docs/game-testing.md).
     crate::claim::needs_claim(args)?;
-    game::not_running()?;
+    eu4_harmony_client::game::not_running()?;
 
     if args.flag("uninstall") {
         if ours(&proxy) {
@@ -99,7 +99,7 @@ pub fn build(feature: Option<&str>) -> Result<()> {
 /// `owner`'s claim, with the game closed, as `cargo xtask install` does.
 pub fn install_as(owner: &str, root: &Path) -> Result<()> {
     crate::claim::held_by(owner)?;
-    game::not_running()?;
+    eu4_harmony_client::game::not_running()?;
     install_built(root)
 }
 

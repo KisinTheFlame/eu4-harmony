@@ -15,7 +15,8 @@
 //! it was) while it is held, `kept\` (the framework's and the game's logs and
 //! the run's crash folders) after it is released.
 use super::record::{GameEnd, Process, Record, Waiting};
-use crate::{game, Result};
+use crate::Result;
+use eu4_harmony_client::game::{self, Follower};
 use eu4_harmony_folders::UserFolder;
 use std::{
     fs,
@@ -70,13 +71,13 @@ pub trait Machine {
 
     /// The ids of the `eu4.exe` that run; an error when they cannot be told.
     fn games(&self) -> Result<Vec<u32>>;
-    /// Ends every `eu4.exe` at once.
-    fn kill_game(&self);
-    /// Waits for `eu4.exe` to end, a minute at most.
-    fn wait_closed(&self) -> Result<()>;
+    /// Ends every `eu4.exe` and waits for them to be gone, a minute at most;
+    /// an error when that cannot be told, or they do not end.
+    fn end_games(&self) -> Result<()>;
     /// Follows every `eu4.exe` that runs, holding it open so that its exit
     /// code stays to be read once it ends; those it follows that have ended
-    /// since it last looked, with how.
+    /// since it last looked, with how. A game [`Machine::start_game`]
+    /// started is followed from its start.
     fn game_ends(&self) -> Vec<GameEnd>;
     /// Adds `ends` to the record of how the claim's games ended, in the
     /// claim's `folder`.
@@ -84,9 +85,9 @@ pub trait Machine {
     /// How the claim's games ended, as its `folder` records them.
     fn ends(&self, folder: &Path) -> Vec<GameEnd>;
     /// Starts the game hidden from `game_dir`, with the game's `-seed` when
-    /// `seed` gives one, waiting up to `wait` for its main menu: its process
-    /// id, and the seconds it took.
-    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)>;
+    /// `seed` gives one, waiting up to `wait` for its main menu: its process,
+    /// and the seconds it took.
+    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(Process, f64)>;
 
     /// Makes the claim's `folder`, with the player's files and the game
     /// folder's framework files in it; removes the `kept\` of claims
@@ -123,9 +124,9 @@ const KEEP_DAYS: u64 = 7;
 /// The record of how a claim's games ended, in its `kept\`, a line each.
 const ENDS: &str = "game-ends.tsv";
 
-/// The `eu4.exe` this process follows, each with the handle that keeps its
-/// exit code to be read once it ends.
-static FOLLOWED: Mutex<Vec<(Process, usize)>> = Mutex::new(Vec::new());
+/// The `eu4.exe` this process follows, each held open so that its exit code
+/// stays to be read once it ends.
+static FOLLOWED: Mutex<Follower> = Mutex::new(Follower::new());
 
 /// This computer.
 pub struct ThisComputer;
@@ -246,56 +247,22 @@ impl Machine for ThisComputer {
     }
 
     fn games(&self) -> Result<Vec<u32>> {
-        eu4_harmony_client::game_processes()
+        game::processes()
     }
 
-    fn kill_game(&self) {
-        game::kill();
-    }
-
-    fn wait_closed(&self) -> Result<()> {
-        game::wait_closed()
+    fn end_games(&self) -> Result<()> {
+        game::end()
     }
 
     fn game_ends(&self) -> Vec<GameEnd> {
-        use windows_sys::Win32::{
-            Foundation::CloseHandle,
-            System::{
-                SystemInformation::GetLocalTime,
-                Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
-            },
-        };
-        const STILL_ACTIVE: u32 = 259;
-        let mut followed = FOLLOWED.lock().unwrap_or_else(|e| e.into_inner());
-        for id in self.games().unwrap_or_default() {
-            if followed.iter().any(|(p, _)| p.id == id) {
-                continue;
-            }
-            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id) };
-            match self.process(id) {
-                Some(game) if !handle.is_null() => followed.push((game, handle as usize)),
-                _ if !handle.is_null() => unsafe {
-                    CloseHandle(handle);
-                },
-                _ => {}
-            }
-        }
+        use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+        let ended = FOLLOWED.lock().unwrap_or_else(|e| e.into_inner()).ended();
         let seen = unsafe {
             let mut t = std::mem::zeroed();
             GetLocalTime(&mut t);
             format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond)
         };
-        let mut ends = Vec::new();
-        followed.retain(|&(game, handle)| {
-            let mut code = STILL_ACTIVE;
-            if unsafe { GetExitCodeProcess(handle as _, &mut code) } == 0 || code == STILL_ACTIVE {
-                return true;
-            }
-            unsafe { CloseHandle(handle as _) };
-            ends.push(GameEnd { game, seen: seen.clone(), code });
-            false
-        });
-        ends
+        ended.into_iter().map(|e| GameEnd { game: Process { id: e.id, started: e.started }, seen: seen.clone(), code: e.code }).collect()
     }
 
     fn note_ends(&self, folder: &Path, ends: &[GameEnd]) {
@@ -313,17 +280,19 @@ impl Machine for ThisComputer {
         fs::read_to_string(folder.join("kept").join(ENDS)).map(|text| text.lines().filter_map(GameEnd::from_line).collect()).unwrap_or_default()
     }
 
-    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)> {
+    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(Process, f64)> {
         let log = UserFolder::of(game_dir)?.core_log();
         let began = std::time::Instant::now();
-        let id = eu4_harmony_client::start::start(game_dir, &log, true, sound, seed, wait)?;
-        Ok((id, began.elapsed().as_secs_f64()))
+        let started = eu4_harmony_client::start::start(game_dir, &log, true, sound, seed, wait)?;
+        let game = Process { id: started.id(), started: started.started() };
+        FOLLOWED.lock().unwrap_or_else(|e| e.into_inner()).adopt(started);
+        Ok((game, began.elapsed().as_secs_f64()))
     }
 
     fn back_up(&self, folder: &Path, game_dir: &Path) -> Result<()> {
         forget_old(&self.claims()?);
         save_framework(game_dir, &folder.join("framework"))?;
-        eu4_harmony_client::game_not_running()?;
+        game::not_running()?;
         eu4_harmony_client::backup::backup(&user_folder(game_dir)?, &folder.join("backup"))
     }
 
@@ -343,7 +312,7 @@ impl Machine for ThisComputer {
         if !backup.is_dir() {
             return Ok(());
         }
-        eu4_harmony_client::game_not_running()?;
+        game::not_running()?;
         eu4_harmony_client::backup::restore(&user_folder(game_dir)?, backup, false, keep_crashes)
     }
 

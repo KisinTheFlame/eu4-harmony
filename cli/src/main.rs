@@ -382,13 +382,13 @@ fn cmd_link(args: &Args) -> Result<()> {
 
 fn cmd_backup(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony backup <new dir>".into()) };
-    eu4_harmony_client::game_not_running()?;
+    eu4_harmony_client::game::not_running()?;
     backup::backup(&backup::user_folder(&user_dir(args)?)?, Path::new(dir))
 }
 
 fn cmd_restore(args: &Args) -> Result<()> {
     let [dir] = args.positional.as_slice() else { return Err("usage: eu4-harmony restore <dir>".into()) };
-    eu4_harmony_client::game_not_running()?;
+    eu4_harmony_client::game::not_running()?;
     let (keep, keep_crashes) = (args.options.contains_key("keep"), args.options.contains_key("keep-crashes"));
     backup::restore(&backup::user_folder(&user_dir(args)?)?, Path::new(dir), keep, keep_crashes)
 }

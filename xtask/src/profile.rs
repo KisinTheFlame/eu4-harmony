@@ -847,7 +847,7 @@ type Wait = (Option<u32>, &'static str, Vec<u64>, Option<Vec<u64>>);
 fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool, waiting_in: &[(String, u32)]) -> Result<()> {
     let waited = Instant::now();
     let id = loop {
-        match crate::game::processes().first() {
+        match eu4_harmony_client::game::processes()?.first() {
             Some(&id) => break id,
             None if wait && waited.elapsed() < Duration::from_secs(300) => std::thread::sleep(Duration::from_millis(20)),
             None => return Err("eu4.exe is not running".into()),

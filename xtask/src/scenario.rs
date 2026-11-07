@@ -15,7 +15,10 @@ mod perf;
 
 pub use game::{Game, Played, Stop};
 
-use crate::{claim, files, repo, Result};
+use crate::{
+    claim::{self, GameEnd},
+    files, repo, Result,
+};
 use eu4_harmony_folders::UserFolder;
 use serde_json::{json, Value};
 use std::{
@@ -145,6 +148,9 @@ fn find(name: &str) -> Option<&'static dyn Scenario> {
 
 /// How long a crash dump may take to read before the report goes without it.
 const READING_A_DUMP: Duration = Duration::from_secs(180);
+/// How long a game that crashed may take to end on its own, its crash
+/// handler writing its dump, before it is ended.
+const CRASH_HANDLER: Duration = Duration::from_secs(60);
 
 const USAGE: &str =
     "cargo xtask scenario [<name>... [--out <dir>] [--wait] [--owner <name>] [--game-dir <dir>] [--<name>.<parameter> <value>]...] | --from-report <dir>";
@@ -277,11 +283,11 @@ fn play_all(playing: &[(&dyn Scenario, Parameters)], owner: &str, game_dir: &Pat
     let mut played = Vec::new();
     for build in builds(playing) {
         let these: Vec<&(&dyn Scenario, Parameters)> = playing.iter().filter(|(s, _)| s.build() == build).collect();
+        let mut game = Game::new(owner, game_dir, taken.clone());
         let ready = match stopped() {
             Some(why) => Err(why.to_string()),
-            None => prepare(build, owner, game_dir),
+            None => prepare(build, owner, game_dir, &mut game),
         };
-        let mut game = Game::new(owner, game_dir.to_path_buf(), taken.clone());
         for (scenario, parameters) in these {
             let entry = match (&ready, stopped()) {
                 (Err(e), _) => not_played(*scenario, parameters, e),
@@ -327,9 +333,8 @@ fn builds(playing: &[(&dyn Scenario, Parameters)]) -> Vec<Build> {
 
 /// Builds `build` and installs it, with the game closed, within `owner`'s
 /// claim.
-fn prepare(build: Build, owner: &str, game_dir: &Path) -> Result<()> {
-    crate::game::kill();
-    crate::game::wait_closed()?;
+fn prepare(build: Build, owner: &str, game_dir: &Path, game: &mut Game) -> Result<()> {
+    game.end()?;
     println!("building the {} build", build.name());
     files::build(build.feature())?;
     files::install_as(owner, game_dir)
@@ -345,7 +350,7 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, game_
     // A game that runs is brought to its main menu; one that does not is
     // started by the scenario's first step, which a scenario that times the
     // start takes itself.
-    let at_main_menu = if crate::game::running() { game.at_main_menu() } else { Ok(()) };
+    let at_main_menu = if game.runs() { game.at_main_menu() } else { Ok(()) };
     let ended = at_main_menu.and_then(|()| scenario.play(game, parameters, &mut record));
     let (outcome, why) = match &ended {
         Ok(()) => ("passed", None),
@@ -359,12 +364,14 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, game_
     entry["minutes"] = json!((began.elapsed().as_secs_f64() / 6.0).round() / 10.0);
     match ended {
         Err(Stop::Crashed(_)) => {
-            entry["crash"] = crash(game_dir, &crashes, &out.join(format!("{}-crash.log", scenario.name())));
-            let _ = crate::game::wait_closed();
+            // A game in its crash handler ends on its own once its dump is
+            // written, with the exit code that says how it crashed.
+            game.wait_gone(CRASH_HANDLER);
+            entry["crash"] = crash(game_dir, &crashes, game.ended(), &out.join(format!("{}-crash.log", scenario.name())));
+            let _ = game.end();
         }
         Err(Stop::Hung(_)) => {
-            crate::game::kill();
-            let _ = crate::game::wait_closed();
+            let _ = game.end();
         }
         _ => {}
     }
@@ -381,12 +388,13 @@ fn not_played(scenario: &dyn Scenario, parameters: &Parameters, why: &str) -> Va
     entry(scenario, parameters, "not played", Some(why))
 }
 
-/// What the game's newest crash folder, of those not `known` when the
-/// scenario began, says: its exception, and the stack its dump gives,
-/// written to `log` too.
-fn crash(game_dir: &Path, known: &[String], log: &Path) -> Value {
-    let Ok(user) = UserFolder::of(game_dir) else { return Value::Null };
-    let Some(folder) = user.new_crash_folders(known).pop() else { return json!({ "folder": null }) };
+/// How the game ended, as the claim followed it, and what its newest crash
+/// folder, of those not `known` when the scenario began, says: its
+/// exception, and the stack its dump gives, written to `log` too.
+fn crash(game_dir: &Path, known: &[String], ended: Option<GameEnd>, log: &Path) -> Value {
+    let ended = ended.map_or(Value::Null, |end| json!({ "exit_code": format!("0x{:x}", end.code), "said": end.describe() }));
+    let Ok(user) = UserFolder::of(game_dir) else { return json!({ "folder": null, "ended": ended }) };
+    let Some(folder) = user.new_crash_folders(known).pop() else { return json!({ "folder": null, "ended": ended }) };
     let exception: Vec<String> = std::fs::read_to_string(folder.join("exception.txt")).unwrap_or_default().lines().take(12).map(String::from).collect();
     let dump = folder.join("minidump.dmp");
     let mut stack = Vec::new();
@@ -403,7 +411,7 @@ fn crash(game_dir: &Path, known: &[String], log: &Path) -> Value {
             stack = lines[lines.len().saturating_sub(24)..].iter().map(|l| l.to_string()).collect();
         }
     }
-    json!({ "folder": folder.display().to_string(), "exception": exception, "stack": stack, "log": log.display().to_string() })
+    json!({ "folder": folder.display().to_string(), "ended": ended, "exception": exception, "stack": stack, "log": log.display().to_string() })
 }
 
 /// The report: a table of the scenarios, then each one's sections.
@@ -427,6 +435,11 @@ fn markdown(report: &Value) -> String {
         let crash = &s["crash"];
         if crash.is_object() {
             md.extend([String::new(), "### The crash".into(), String::new()]);
+            match crash["ended"]["said"].as_str() {
+                Some(said) => md.push(format!("The claim followed the game to its end: {said}.")),
+                None => md.push("The claim saw no end of the game's.".into()),
+            }
+            md.push(String::new());
             if crash["folder"].is_null() {
                 md.push("No crash folder of the game's came of it.".into());
             } else {
@@ -523,14 +536,14 @@ mod tests {
             { "name": "perf", "about": "what one run costs", "build": "player", "outcome": "passed", "ended": null, "minutes": 4.5,
               "parameters": { "country": "MNG" }, "record": { "menu_seconds": 50.0 } },
             { "name": "perf", "about": "what one run costs", "build": "player", "outcome": "crashed", "ended": "the game ended", "minutes": 1.0,
-              "parameters": {}, "record": {}, "crash": { "folder": "C:\\crashes\\eu4_1", "exception": ["EXCEPTION_ACCESS_VIOLATION"], "stack": [] } },
+              "parameters": {}, "record": {}, "crash": { "folder": "C:\\crashes\\eu4_1", "ended": { "exit_code": "0xc0000005", "said": "eu4.exe 7 had ended by 03:00:00: an access violation (exit code 0xc0000005)" }, "exception": ["EXCEPTION_ACCESS_VIOLATION"], "stack": [] } },
         ] });
         let md = markdown(&report);
         assert!(md.starts_with("# Scenarios, 2026-11-05 12:00\n\n| Scenario | Build | Outcome | Ended at | Minutes |\n"), "{md}");
         assert!(md.contains("| perf | player | passed |  | 4.5 |\n| perf | player | crashed | the game ended | 1.0 |"), "{md}");
         assert!(md.contains("## perf\n\nWhat one run costs.\nParameters: country MNG.\n\n| Figure | Value |"), "{md}");
         assert!(
-            md.contains("### The crash\n\nThe game's crash folder: `C:\\crashes\\eu4_1`.\n\nIts exception:\n\n```text\nEXCEPTION_ACCESS_VIOLATION\n```"),
+            md.contains("### The crash\n\nThe claim followed the game to its end: eu4.exe 7 had ended by 03:00:00: an access violation (exit code 0xc0000005).\n\nThe game's crash folder: `C:\\crashes\\eu4_1`.\n\nIts exception:\n\n```text\nEXCEPTION_ACCESS_VIOLATION\n```"),
             "{md}"
         );
         assert!(md.contains("Its dump was not read in time."), "{md}");
