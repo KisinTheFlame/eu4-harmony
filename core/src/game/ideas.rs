@@ -8,6 +8,7 @@ use crate::{
     objects::campaign::{country, idea_group},
     points::Point,
 };
+use eu4_harmony_remote::ideas::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     ideas::IdeaGroupOption,
@@ -221,7 +222,7 @@ fn written_buy(country: Tag, index: u32, skill: u32) -> String {
 }
 
 /// Takes an idea group for the player, as its button does.
-pub fn take_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn take_group(Session { m, ctx, commands, .. }: Session, args::TakeGroup { group: key }: args::TakeGroup) -> GResult<()> {
     let group = find(m, &key)?;
     if taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has taken the idea group {key} already")));
@@ -234,7 +235,7 @@ pub fn take_group(Session { m, ctx, commands, .. }: Session, key: String) -> GRe
 }
 
 /// Buys the next idea of an idea group the player has taken.
-pub fn buy(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn buy(Session { m, ctx, commands, .. }: Session, args::Buy { group: key }: args::Buy) -> GResult<()> {
     let group = find(m, &key)?;
     let Some(&(_, bought)) = taken(m, ctx.country)?.iter().find(|&&(t, _)| t == group.at) else {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")));
@@ -250,7 +251,7 @@ pub fn buy(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()
 }
 
 /// Abandons an idea group the player has taken.
-pub fn abandon_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn abandon_group(Session { m, ctx, commands, .. }: Session, args::AbandonGroup { group: key }: args::AbandonGroup) -> GResult<()> {
     let group = find(m, &key)?;
     if !taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")));

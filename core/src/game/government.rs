@@ -4,6 +4,7 @@
 use super::content::checks;
 use super::{action, conditions, content, thousandths, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
+use eu4_harmony_remote::government::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     government::{Government, Reform, ReformTier},
@@ -191,7 +192,7 @@ fn written_rank(country: Tag, rank: i32) -> String {
 }
 
 /// Adopts a reform for the player, as its button does.
-pub fn adopt_reform(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn adopt_reform(Session { m, ctx, commands, .. }: Session, args::AdoptReform { reform: key }: args::AdoptReform) -> GResult<()> {
     let government = government(m, ctx.country)?;
     let adopted = adopted(m, government)?;
     for (tier, (_, reforms)) in tiers(m, government)?.into_iter().enumerate() {

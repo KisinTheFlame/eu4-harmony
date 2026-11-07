@@ -24,6 +24,7 @@ use eu4_harmony_lua::{
     dispatch::{self, Heard},
     fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending,
 };
+use eu4_harmony_remote::extensions::args;
 use eu4_harmony_remote::{Code, Error, Request, Response};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -282,7 +283,7 @@ pub struct Reloaded {
 /// (docs/extension-reload.md): the new code is opened first, and only when
 /// it loads is the old one asked for its save data and replaced. On the
 /// main thread, between frames.
-pub fn reload(_: Caller, id: String) -> game::GResult<Reloaded> {
+pub fn reload(_: Caller, args::Reload { id }: args::Reload) -> game::GResult<Reloaded> {
     if crate::thread_id() != crate::main_thread() {
         return Err(game::Fail { status: game::Status::WrongContext, message: "called off the game's main thread".into() });
     }

@@ -15,6 +15,7 @@ use crate::{
     },
     points::Point,
 };
+use eu4_harmony_remote::technology::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind},
     technology::TechnologyOption,
@@ -150,7 +151,7 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<TechnologyOption>
 
 /// Researches the next level of `technology`, as the view's research button
 /// does: the game's spend_power command with the category's index.
-pub fn research(Session { m, ctx, commands, .. }: Session, technology: PowerKind) -> GResult<()> {
+pub fn research(Session { m, ctx, commands, .. }: Session, args::Research { technology }: args::Research) -> GResult<()> {
     let category = category(m, ctx.country, technology)?;
     if category.level >= category.last {
         return Err(checks::last_level(key(technology)));

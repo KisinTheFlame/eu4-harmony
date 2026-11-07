@@ -4,6 +4,7 @@
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
+use eu4_harmony_remote::policies::args;
 use eu4_harmony_remote::{choices::Choice, policies::Policy};
 
 /// The policies' database, made on first use by its getter: the policies at
@@ -112,7 +113,7 @@ fn written(command: &str, country: Tag, policy: &str) -> String {
 }
 
 /// Enables a policy for the player.
-pub fn enable(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn enable(Session { m, ctx, commands, .. }: Session, args::Enable { policy: key }: args::Enable) -> GResult<()> {
     let policy = find(m, &key)?;
     let choice = choice(m, ctx.country, policy)?;
     if !choice.can {
@@ -122,7 +123,7 @@ pub fn enable(Session { m, ctx, commands, .. }: Session, key: String) -> GResult
 }
 
 /// Disables a policy the player has enabled.
-pub fn disable(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn disable(Session { m, ctx, commands, .. }: Session, args::Disable { policy: key }: args::Disable) -> GResult<()> {
     let policy = find(m, &key)?;
     if !active(m, ctx.country)?.contains(&policy) {
         return Err(checks::not_now(format!("the player has not enabled the policy {key}")));

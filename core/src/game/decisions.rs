@@ -5,6 +5,7 @@
 //! "Decisions").
 use super::{action, conditions, content, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use eu4_harmony_remote::decisions::args;
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
 
 /// The decisions' database: `+0x10` and `+0x18` the decisions in load
@@ -70,7 +71,7 @@ fn seed(date: i32, decision: &str) -> u32 {
 }
 
 /// Takes a decision the view lists for the player, as its button does.
-pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn take(Session { m, ctx, commands, .. }: Session, args::Take { decision: key }: args::Take) -> GResult<()> {
     let database = m.ptr(m.at(DATABASE))?;
     if database == 0 {
         return Err(content::checks::not_found("decision", &key));

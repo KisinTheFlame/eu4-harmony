@@ -11,6 +11,7 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
+use eu4_harmony_remote::leaders::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     leaders::{Leader, LeaderKind, LeaderOption},
@@ -268,7 +269,7 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 
 /// Recruits a leader of a kind, as the military view's button does, with the
 /// name the game picks.
-pub fn recruit(caller: Caller, word: String) -> GResult<Leader> {
+pub fn recruit(caller: Caller, args::Recruit { kind: word }: args::Recruit) -> GResult<Leader> {
     let kind = kind(&word)?;
     let Session { m, ctx, commands, .. } = Session::open(caller)?;
     let o = option(m, &ctx, kind)?;
@@ -284,7 +285,7 @@ pub fn recruit(caller: Caller, word: String) -> GResult<Leader> {
 }
 
 /// Gives a leader to one of the player's armies or fleets.
-pub fn assign(Session { m, ctx, commands, .. }: Session, id: u32, army: u64) -> GResult<()> {
+pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: id, army: ArmyId(army) }: args::Assign) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     let unit = world::own_unit(m, &ctx, army)?;
     let kind = read(m, leader)?.kind;
@@ -305,7 +306,7 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, id: u32, army: u64) -> 
 
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
-pub fn remove(Session { m, ctx, commands, .. }: Session, army: u64) -> GResult<()> {
+pub fn remove(Session { m, ctx, commands, .. }: Session, args::Remove { army: ArmyId(army) }: args::Remove) -> GResult<()> {
     let unit = world::own_unit(m, &ctx, army)?;
     let leader = m.ptr(unit + UNIT_LEADER)?;
     if leader != 0 && m.ptr(leader + leader::UNIT)? == unit {
@@ -319,7 +320,7 @@ pub fn remove(Session { m, ctx, commands, .. }: Session, army: u64) -> GResult<(
 }
 
 /// Dismisses one of the player's leaders that leads no unit.
-pub fn dismiss(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn dismiss(Session { m, ctx, commands, .. }: Session, args::Dismiss { leader: id }: args::Dismiss) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     if m.ptr(leader + leader::UNIT)? != 0 {
         return Err(checks::leads_a_unit(id));

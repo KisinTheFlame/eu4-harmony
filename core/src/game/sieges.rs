@@ -5,6 +5,8 @@
 use super::units::checks;
 use super::{power, with_state, Ctx, GResult, Session, View};
 use crate::{game_string, memory::Memory, points::Point};
+use eu4_harmony_remote::sieges::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     sieges::SiegeAction,
@@ -67,7 +69,7 @@ fn action(m: &Memory, ctx: &Ctx, siege: usize, province: u32, (name, category, m
 }
 
 /// What the siege view offers for the siege in a province.
-pub fn options(Session { m, ctx, view, .. }: Session, province: u32) -> GResult<Vec<SiegeAction>> {
+pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: ProvinceId(province) }: args::Options) -> GResult<Vec<SiegeAction>> {
     let siege = siege(m, &ctx, province, view)?;
     ACTIONS.into_iter().map(|a| action(m, &ctx, siege, province, a)).collect()
 }
@@ -82,15 +84,15 @@ fn press(Session { m, ctx, commands, .. }: Session, name: &str, province: u32) -
     super::action::carry_out(commands, &a.choice, &format!("order {name} here"), || Ok(power::written(ctx.player.letters(), entry.1, POWER, province as i32)))
 }
 
-pub fn bombard(session: Session, province: u32) -> GResult<()> {
+pub fn bombard(session: Session, args::Bombard { province: ProvinceId(province) }: args::Bombard) -> GResult<()> {
     press(session, "bombard", province)
 }
 
-pub fn naval_bombard(session: Session, province: u32) -> GResult<()> {
+pub fn naval_bombard(session: Session, args::NavalBombard { province: ProvinceId(province) }: args::NavalBombard) -> GResult<()> {
     press(session, "naval_bombard", province)
 }
 
-pub fn assault(session: Session, province: u32) -> GResult<()> {
+pub fn assault(session: Session, args::Assault { province: ProvinceId(province) }: args::Assault) -> GResult<()> {
     press(session, "assault", province)
 }
 

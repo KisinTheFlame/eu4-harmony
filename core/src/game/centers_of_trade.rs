@@ -3,6 +3,7 @@
 //! (docs/research/envoys.md, "Centers of trade").
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, points::Point};
+use eu4_harmony_remote::centers_of_trade::args;
 use eu4_harmony_remote::{
     centers_of_trade::CenterOfTradeOptions,
     choices::{Amount, Choice, Resource},
@@ -48,7 +49,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 
 /// The center of trade in province `id`, and what the province view offers
 /// the player for it.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<CenterOfTradeOptions> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<CenterOfTradeOptions> {
     read(m, &ctx, province(m, &ctx, id)?, id).map(|(options, _)| options)
 }
 

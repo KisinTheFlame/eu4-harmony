@@ -4,6 +4,7 @@
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
+use eu4_harmony_remote::missions::args;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
 
 /// The country's missions: a game array of columns from `+0x10`, 0x18-byte
@@ -97,7 +98,7 @@ fn written(country: Tag, mission: &str) -> String {
 }
 
 /// Completes one of the player's missions.
-pub fn complete(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn complete(Session { m, ctx, commands, .. }: Session, args::Complete { mission: key }: args::Complete) -> GResult<()> {
     let all: Vec<usize> = columns(m, ctx.country)?.into_iter().flatten().collect();
     for &mission in &all {
         if content::key(m, mission + KEY)? != key {

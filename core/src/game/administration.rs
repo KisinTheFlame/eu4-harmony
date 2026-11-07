@@ -13,6 +13,8 @@ use crate::{
     },
     points::Point,
 };
+use eu4_harmony_remote::provinces::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     provinces::ProvinceOption,
@@ -434,7 +436,7 @@ fn option(m: &Memory, ctx: &Ctx, place: &Place, action: Action) -> GResult<Choic
 }
 
 /// What the province view offers the player in a province now.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Vec<ProvinceOption>> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Vec<ProvinceOption>> {
     let place = place(m, &ctx, id)?;
     let mut out = Vec::new();
     for action in Action::ALL {
@@ -493,7 +495,7 @@ pub fn act(Session { m, ctx, commands, .. }: Session, id: u32, action: Action) -
 }
 
 /// Sets the edict `key` in the player's state the province is in.
-pub fn set_edict(Session { m, ctx, commands, .. }: Session, id: u32, key: String) -> GResult<()> {
+pub fn set_edict(Session { m, ctx, commands, .. }: Session, args::SetEdict { province: ProvinceId(id), edict: key }: args::SetEdict) -> GResult<()> {
     let place = place(m, &ctx, id)?;
     let Some((edict, _, index)) = edicts(m)?.into_iter().find(|(_, k, _)| *k == key) else {
         return Err(checks::no_such_edict(&key));

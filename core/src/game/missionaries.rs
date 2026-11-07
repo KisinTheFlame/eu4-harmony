@@ -8,6 +8,7 @@ use super::{
     with_state, Ctx, GResult, Session, Tag,
 };
 use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point};
+use eu4_harmony_remote::missionaries::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     missionaries::{AutomaticMissionaries, MissionaryOptions},
@@ -69,7 +70,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
 /// What the province view offers the player in province `id`; in the
 /// player's view another's missionary's progress in another country's
 /// province is left out, as `province.get` leaves it out.
-pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<MissionaryOptions> {
+pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<MissionaryOptions> {
     let p = province(m, &ctx, id)?;
     let (working, progress, send, recall) = read(m, &ctx, &p)?;
     let owner = Some(p.owner).filter(|t| t.valid());
@@ -108,7 +109,7 @@ fn written(owner: Tag, player: Tag, province: u32, recall: bool) -> String {
 }
 
 /// Sends one of the player's missionaries to province `id`.
-pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn send(Session { m, ctx, commands, .. }: Session, args::Send { province: ProvinceId(id) }: args::Send) -> GResult<()> {
     let p = province(m, &ctx, id)?;
     let (_, _, send, _) = read(m, &ctx, &p)?;
     if !send.can {
@@ -118,7 +119,7 @@ pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
 }
 
 /// Recalls the player's missionary from province `id`.
-pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn recall(Session { m, ctx, commands, .. }: Session, args::Recall { province: ProvinceId(id) }: args::Recall) -> GResult<()> {
     let p = province(m, &ctx, id)?;
     if !read(m, &ctx, &p)?.0 {
         return Err(envoys::checks::none_there("missionary"));

@@ -14,6 +14,7 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
+use eu4_harmony_remote::questions::args;
 use std::collections::BTreeSet;
 
 /// `(window, option)`: what clicking an option's button in an event window
@@ -73,7 +74,7 @@ pub fn question(Session { m, ctx, .. }: Session, id: u32) -> GResult<Question> {
 /// Answers a question with one of its options, as the player does in its
 /// event window: the game has the answer once this returns, and applies it a
 /// moment later; the window is closed, so the question is no longer listed.
-pub fn answer(Session { m, ctx, .. }: Session, question: u32, option: u32) -> GResult<()> {
+pub fn answer(Session { m, ctx, .. }: Session, args::Answer { question, option }: args::Answer) -> GResult<()> {
     let w = find(m, &ctx, question)?;
     let options = options(m, w.event)?;
     let Some(&chosen) = options.get(option as usize) else {

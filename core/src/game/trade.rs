@@ -11,6 +11,7 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
+use eu4_harmony_remote::trade::args;
 use eu4_harmony_remote::{
     trade::{Flow, Merchant, MerchantAction, NodeValue, TradeNode, TradePower},
     CountryTag,
@@ -190,7 +191,7 @@ fn incoming(m: &Memory, node: usize) -> GResult<Vec<(usize, i32)>> {
 
 /// One trade node, by its key; in the player's view one none of whose
 /// provinces the player has discovered is refused.
-pub fn node(Session { m, ctx, view, .. }: Session, key: String) -> GResult<TradeNode> {
+pub fn node(Session { m, ctx, view, .. }: Session, args::Node { node: key }: args::Node) -> GResult<TradeNode> {
     let all = nodes(m, &ctx)?;
     let mut found = None;
     for &node in &all {

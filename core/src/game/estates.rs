@@ -5,6 +5,7 @@
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
 use crate::{memory::Memory, objects::campaign::country, points::Point};
+use eu4_harmony_remote::estates::args;
 use eu4_harmony_remote::{
     choices::Choice,
     estates::{Estate, EstateInteraction, Privilege},
@@ -235,7 +236,7 @@ fn written_interaction(country: Tag, interaction: usize) -> String {
 }
 
 /// Grants an estate of the player's a privilege.
-pub fn grant_privilege(Session { m, ctx, commands, .. }: Session, estate: String, privilege: String) -> GResult<()> {
+pub fn grant_privilege(Session { m, ctx, commands, .. }: Session, args::GrantPrivilege { estate, privilege }: args::GrantPrivilege) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if has {
         return Err(checks::not_now(format!("{estate} has the privilege {privilege} already")));
@@ -248,7 +249,7 @@ pub fn grant_privilege(Session { m, ctx, commands, .. }: Session, estate: String
 }
 
 /// Revokes a privilege the player granted an estate.
-pub fn revoke_privilege(Session { m, ctx, commands, .. }: Session, estate: String, privilege: String) -> GResult<()> {
+pub fn revoke_privilege(Session { m, ctx, commands, .. }: Session, args::RevokePrivilege { estate, privilege }: args::RevokePrivilege) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if !has {
         return Err(checks::not_now(format!("{estate} does not have the privilege {privilege}")));
@@ -261,7 +262,7 @@ pub fn revoke_privilege(Session { m, ctx, commands, .. }: Session, estate: Strin
 }
 
 /// Uses one of the estates view's interactions over crown land.
-pub fn interact(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn interact(Session { m, ctx, commands, .. }: Session, args::Interact { interaction: key }: args::Interact) -> GResult<()> {
     for (index, at) in interactions(m)?.into_iter().enumerate() {
         if content::key(m, at + INTERACTION_KEY)? != key {
             continue;

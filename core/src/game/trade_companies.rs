@@ -4,6 +4,7 @@
 //! (docs/research/envoys.md, "Trade companies").
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point, unicode::game_text};
+use eu4_harmony_remote::trade_companies::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     trade_companies::{Investment, TradeCompanyOptions},
@@ -72,7 +73,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 }
 
 /// What the province view offers the player in province `id`.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<TradeCompanyOptions> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<TradeCompanyOptions> {
     read(m, &ctx, province(m, &ctx, id)?, id)
 }
 

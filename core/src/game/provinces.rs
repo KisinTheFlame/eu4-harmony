@@ -12,6 +12,8 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
+use eu4_harmony_remote::provinces::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     provinces::{Construction, StateKind},
     CountryTag, Date,
@@ -105,6 +107,37 @@ pub enum UnitKind {
     Transport,
 }
 
+/// The unit kind a remote client names.
+impl From<eu4_harmony_remote::recruiting::UnitKind> for UnitKind {
+    fn from(kind: eu4_harmony_remote::recruiting::UnitKind) -> Self {
+        use eu4_harmony_remote::recruiting::UnitKind as Named;
+        match kind {
+            Named::Infantry => Self::Infantry,
+            Named::Cavalry => Self::Cavalry,
+            Named::Artillery => Self::Artillery,
+            Named::HeavyShip => Self::HeavyShip,
+            Named::LightShip => Self::LightShip,
+            Named::Galley => Self::Galley,
+            Named::Transport => Self::Transport,
+        }
+    }
+}
+
+/// A unit kind as remote clients name it.
+impl From<UnitKind> for eu4_harmony_remote::recruiting::UnitKind {
+    fn from(kind: UnitKind) -> Self {
+        match kind {
+            UnitKind::Infantry => Self::Infantry,
+            UnitKind::Cavalry => Self::Cavalry,
+            UnitKind::Artillery => Self::Artillery,
+            UnitKind::HeavyShip => Self::HeavyShip,
+            UnitKind::LightShip => Self::LightShip,
+            UnitKind::Galley => Self::Galley,
+            UnitKind::Transport => Self::Transport,
+        }
+    }
+}
+
 impl UnitKind {
     pub const ALL: [UnitKind; country::UNIT_KINDS] =
         [Self::Infantry, Self::Cavalry, Self::Artillery, Self::HeavyShip, Self::LightShip, Self::Galley, Self::Transport];
@@ -186,7 +219,7 @@ pub struct Snapshot {
 /// out its unrest, its constructions and its missionary, and one the player
 /// has not discovered is refused as terra incognita. With no country to act
 /// as, nothing can be recruited there.
-pub fn province(WorldSession { m, world, view, .. }: WorldSession, id: u32) -> GResult<Snapshot> {
+pub fn province(WorldSession { m, world, view, .. }: WorldSession, args::Get { province: ProvinceId(id) }: args::Get) -> GResult<Snapshot> {
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
@@ -204,7 +237,7 @@ pub fn province(WorldSession { m, world, view, .. }: WorldSession, id: u32) -> G
 
 /// [`province`], for what acts as a country: failing with none to act as.
 pub fn acting_province(session: Session, id: u32) -> GResult<Snapshot> {
-    province(session.world()?, id)
+    province(session.world()?, args::Get { province: ProvinceId(id) })
 }
 
 /// The game's getters of a province's base tax, production and manpower, as

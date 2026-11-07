@@ -10,6 +10,7 @@ use crate::{
     },
     points::Point,
 };
+use eu4_harmony_remote::loans::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     loans::PlayerLoan,
@@ -101,7 +102,7 @@ fn written(country: [u8; 3], id: u32, kind: u32) -> String {
 
 /// Repays the player's loan with the ID `id`, as its repay button does once
 /// the player confirms.
-pub fn repay(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn repay(Session { m, ctx, commands, .. }: Session, args::Repay { loan: id }: args::Repay) -> GResult<()> {
     let Some(loan) = find(m, ctx.country, id)? else {
         return Err(not_found(id));
     };
@@ -166,13 +167,13 @@ mod tests {
     #[test]
     fn repaying_a_loan_posts_the_repay_button_s_command_through_the_session() {
         let france = france();
-        repay(france.session, 12).unwrap();
+        repay(france.session, args::Repay { loan: 12 }).unwrap();
         assert_eq!(record::posted(), [r#"pay_loan={ country="FRA" loan={ id=12 type=4713 } }"#]);
-        let Err(Fail { status, message }) = repay(france.session, 13) else { panic!("loan 13 was repaid") };
+        let Err(Fail { status, message }) = repay(france.session, args::Repay { loan: 13 }) else { panic!("loan 13 was repaid") };
         assert_eq!((status, message.as_str()), (Status::NotFound, "the player has no loan 13"));
         // The command's own check is the game's, and gives no reason.
         record::refuse_next(Refused::Check);
-        let Err(Fail { status, message }) = repay(france.session, 12) else { panic!("the refused command was posted") };
+        let Err(Fail { status, message }) = repay(france.session, args::Repay { loan: 12 }) else { panic!("the refused command was posted") };
         assert_eq!((status, message.as_str()), (Status::Rejected, "the game's command refuses to repay the loan, and gives no reason"));
         assert!(record::posted().is_empty());
     }

@@ -13,6 +13,7 @@ use crate::{
     objects::campaign::{construction, country, province as field},
     points::Point,
 };
+use eu4_harmony_remote::colonists::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     colonists::{ColonistOptions, Expulsion},
@@ -95,7 +96,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
 }
 
 /// What the province view offers the player in province `id`.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Box<ColonistOptions>> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Box<ColonistOptions>> {
     read(m, &ctx, &province(m, &ctx, id)?, id).map(Box::new)
 }
 
@@ -206,7 +207,7 @@ fn written(player: Tag, province: u32, work: Work) -> String {
 }
 
 /// Sends one of the player's colonists to province `id`.
-pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn send(Session { m, ctx, commands, .. }: Session, args::Send { province: ProvinceId(id) }: args::Send) -> GResult<()> {
     let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
     if !options.send.can {
         return Err(action::not_allowed("send a colonist there", &options.send.reasons));
@@ -215,7 +216,7 @@ pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
 }
 
 /// Recalls the player's colonist from province `id`.
-pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn recall(Session { m, ctx, commands, .. }: Session, args::Recall { province: ProvinceId(id) }: args::Recall) -> GResult<()> {
     if !read(m, &ctx, &province(m, &ctx, id)?, id)?.working {
         return Err(envoys::checks::none_there("colonist"));
     }
@@ -224,7 +225,10 @@ pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()>
 
 /// Sends one of the player's colonists to found a colony in province
 /// `province` with the minority expelled from the player's province `from`.
-pub fn expel(Session { m, ctx, commands, .. }: Session, province: u32, from: u32) -> GResult<()> {
+pub fn expel(
+    Session { m, ctx, commands, .. }: Session,
+    args::ExpelMinorities { province: ProvinceId(province), from: ProvinceId(from) }: args::ExpelMinorities,
+) -> GResult<()> {
     let options = read(m, &ctx, &self::province(m, &ctx, province)?, province)?;
     let Some(offered) = options.expel_from.iter().find(|e| e.from.0 == from) else {
         return Err(envoys::checks::no_minority(from));

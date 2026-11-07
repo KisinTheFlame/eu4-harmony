@@ -137,19 +137,19 @@ pub fn army() -> game::armies::Army {
 }
 
 impl session::Layer for Fake {
-    fn session(&mut self) -> GResult<game::session::Session> {
+    fn session(&mut self, _: eu4_harmony_remote::session::args::Get) -> GResult<game::session::Session> {
         self.call("session".into());
         // 1444.11.11
         let player = self.player.unwrap_or(game::player::Player::Plays(tur()));
         Ok(game::session::Session { session: 2, date: 0x035D_7710, paused: true, visibility_current: true, player })
     }
 
-    fn leave_view(&mut self) -> GResult<game::session::Session> {
+    fn leave_view(&mut self, _: eu4_harmony_remote::session::args::LeaveView) -> GResult<game::session::Session> {
         self.call("leave view".into());
         if let Some(game::player::Player::Observes { in_view, .. }) = &mut self.player {
             *in_view = None;
         }
-        session::Layer::session(self)
+        session::Layer::session(self, eu4_harmony_remote::session::args::Get {})
     }
 }
 
@@ -285,7 +285,10 @@ impl provinces::Layer for Fake {
         Ok(vec![game::provinces::Neighbor { to: 151, strait: false }, game::provinces::Neighbor { to: 316, strait: true }])
     }
 
-    fn province(&mut self, province: u32) -> GResult<game::provinces::Snapshot> {
+    fn province(
+        &mut self,
+        eu4_harmony_remote::provinces::args::Get { province: eu4_harmony_remote::ProvinceId(province) }: eu4_harmony_remote::provinces::args::Get,
+    ) -> GResult<game::provinces::Snapshot> {
         self.call(format!("province {province}"));
         if province != 151 {
             return Err(eu4_harmony_checks::provinces::not_found(province).into());
@@ -295,7 +298,10 @@ impl provinces::Layer for Fake {
 
     /// In Constantinople the player can develop tax for 50 administrative
     /// points and cannot core it; elsewhere nothing.
-    fn province_options(&mut self, province: u32) -> GResult<Vec<eu4_harmony_remote::provinces::ProvinceOption>> {
+    fn province_options(
+        &mut self,
+        eu4_harmony_remote::provinces::args::Options { province: eu4_harmony_remote::ProvinceId(province) }: eu4_harmony_remote::provinces::args::Options,
+    ) -> GResult<Vec<eu4_harmony_remote::provinces::ProvinceOption>> {
         use eu4_harmony_remote::{
             choices::{Amount, Choice, Resource},
             provinces::ProvinceOption,
@@ -324,7 +330,10 @@ impl provinces::Layer for Fake {
         }
     }
 
-    fn set_edict(&mut self, province: u32, edict: String) -> GResult<()> {
+    fn set_edict(
+        &mut self,
+        eu4_harmony_remote::provinces::args::SetEdict { province: eu4_harmony_remote::ProvinceId(province), edict }: eu4_harmony_remote::provinces::args::SetEdict,
+    ) -> GResult<()> {
         self.call(format!("set edict {edict} {province}"));
         Err(crate::game::administration::checks::no_such_edict(&edict))
     }
@@ -410,17 +419,30 @@ impl armies::Layer for Fake {
         Ok(self.route.clone())
     }
 
-    fn can_step(&mut self, id: u64, from: u32, to: u32) -> GResult<bool> {
+    fn can_step(
+        &mut self,
+        eu4_harmony_remote::armies::args::CanStep {
+            army: eu4_harmony_remote::ArmyId(id),
+            from: eu4_harmony_remote::ProvinceId(from),
+            to: eu4_harmony_remote::ProvinceId(to),
+        }: eu4_harmony_remote::armies::args::CanStep,
+    ) -> GResult<bool> {
         self.call(format!("can step {id} {from} {to}"));
         Ok(to == 151)
     }
 
-    fn can_attack(&mut self, id: u64, target: u64) -> GResult<bool> {
+    fn can_attack(
+        &mut self,
+        eu4_harmony_remote::armies::args::CanAttack { army: eu4_harmony_remote::ArmyId(id), target: eu4_harmony_remote::ArmyId(target) }: eu4_harmony_remote::armies::args::CanAttack,
+    ) -> GResult<bool> {
         self.call(format!("can attack {id} {target}"));
         Ok(target == ENEMY)
     }
 
-    fn find_route(&mut self, id: u64, goal: u32) -> GResult<Vec<u32>> {
+    fn find_route(
+        &mut self,
+        eu4_harmony_remote::armies::args::RouteTo { army: eu4_harmony_remote::ArmyId(id), province: eu4_harmony_remote::ProvinceId(goal) }: eu4_harmony_remote::armies::args::RouteTo,
+    ) -> GResult<Vec<u32>> {
         self.call(format!("find route {id} {goal}"));
         Ok(vec![150, goal])
     }
@@ -434,19 +456,22 @@ impl armies::Layer for Fake {
         Ok(())
     }
 
-    fn stop(&mut self, id: u64) -> GResult<()> {
+    fn stop(&mut self, eu4_harmony_remote::armies::args::Stop { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Stop) -> GResult<()> {
         self.call(format!("stop {id}"));
         self.route.clear();
         Ok(())
     }
 
-    fn selected(&mut self) -> GResult<u64> {
+    fn selected(&mut self, _: eu4_harmony_remote::armies::args::Selected) -> GResult<u64> {
         self.call("selected".into());
         fail(Status::NotFound, "army panel not open")
     }
 
     /// The army may split and drill; it is alone in its province.
-    fn army_options(&mut self, id: u64) -> GResult<Vec<eu4_harmony_remote::armies::ArmyAction>> {
+    fn army_options(
+        &mut self,
+        eu4_harmony_remote::armies::args::Options { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Options,
+    ) -> GResult<Vec<eu4_harmony_remote::armies::ArmyAction>> {
         use eu4_harmony_remote::{armies::ArmyAction, choices::Choice};
         self.call(format!("army options {id}"));
         Ok(vec![
@@ -455,12 +480,18 @@ impl armies::Layer for Fake {
         ])
     }
 
-    fn split(&mut self, id: u64) -> GResult<u64> {
+    fn split(
+        &mut self,
+        eu4_harmony_remote::armies::args::Split { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Split,
+    ) -> GResult<u64> {
         self.call(format!("split {id}"));
         Ok(id + 1)
     }
 
-    fn merge(&mut self, ids: Vec<eu4_harmony_remote::ArmyId>) -> GResult<()> {
+    fn merge(
+        &mut self,
+        eu4_harmony_remote::armies::args::Merge { armies: eu4_harmony_remote::ArmyList(ids) }: eu4_harmony_remote::armies::args::Merge,
+    ) -> GResult<()> {
         self.call(format!("merge {}", ids.len()));
         match ids.len() {
             0 | 1 => fail(Status::Rejected, "至少需要两支部队"),
@@ -468,32 +499,50 @@ impl armies::Layer for Fake {
         }
     }
 
-    fn disband(&mut self, id: u64) -> GResult<()> {
+    fn disband(
+        &mut self,
+        eu4_harmony_remote::armies::args::Disband { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Disband,
+    ) -> GResult<()> {
         self.call(format!("disband {id}"));
         Ok(())
     }
 
-    fn consolidate(&mut self, id: u64) -> GResult<()> {
+    fn consolidate(
+        &mut self,
+        eu4_harmony_remote::armies::args::Consolidate { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Consolidate,
+    ) -> GResult<()> {
         self.call(format!("consolidate {id}"));
         Ok(())
     }
 
-    fn drill(&mut self, id: u64) -> GResult<()> {
+    fn drill(
+        &mut self,
+        eu4_harmony_remote::armies::args::Drill { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::Drill,
+    ) -> GResult<()> {
         self.call(format!("drill {id}"));
         Ok(())
     }
 
-    fn stop_drill(&mut self, id: u64) -> GResult<()> {
+    fn stop_drill(
+        &mut self,
+        eu4_harmony_remote::armies::args::StopDrill { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::StopDrill,
+    ) -> GResult<()> {
         self.call(format!("stop drill {id}"));
         fail(Status::Rejected, "the game does not let the player stop drilling: the army does not drill now, and gives no reason")
     }
 
-    fn mission(&mut self, id: u64, mission: String, target: Option<u32>) -> GResult<()> {
+    fn mission(
+        &mut self,
+        eu4_harmony_remote::armies::args::Mission { army: eu4_harmony_remote::ArmyId(id), mission, target }: eu4_harmony_remote::armies::args::Mission,
+    ) -> GResult<()> {
         self.call(format!("mission {id} {mission} {target:?}"));
         Ok(())
     }
 
-    fn stop_mission(&mut self, id: u64) -> GResult<()> {
+    fn stop_mission(
+        &mut self,
+        eu4_harmony_remote::armies::args::StopMission { army: eu4_harmony_remote::ArmyId(id) }: eu4_harmony_remote::armies::args::StopMission,
+    ) -> GResult<()> {
         self.call(format!("stop mission {id}"));
         Ok(())
     }
@@ -552,7 +601,7 @@ impl menu::Layer for Fake {
 }
 
 impl texts::Layer for Fake {
-    fn language(&mut self) -> GResult<&'static str> {
+    fn language(&mut self, _: eu4_harmony_remote::texts::args::Language) -> GResult<&'static str> {
         self.call("language".into());
         Ok("simp_chinese")
     }
@@ -689,11 +738,14 @@ impl time::Layer for Fake {
 /// theirs, the game refuses with its reason.
 impl recruiting::Layer for Fake {
     fn province_snapshot(&mut self, province: u32) -> GResult<game::provinces::Snapshot> {
-        provinces::Layer::province(self, province)
+        provinces::Layer::province(self, eu4_harmony_remote::provinces::args::Get { province: eu4_harmony_remote::ProvinceId(province) })
     }
 
-    fn recruit(&mut self, province: u32, kind: game::provinces::UnitKind) -> GResult<()> {
-        self.call(format!("recruit {province} {}", kind.key()));
+    fn recruit(
+        &mut self,
+        eu4_harmony_remote::recruiting::args::Order { province: eu4_harmony_remote::ProvinceId(province), kind }: eu4_harmony_remote::recruiting::args::Order,
+    ) -> GResult<()> {
+        self.call(format!("recruit {province} {}", game::provinces::UnitKind::from(kind).key()));
         match province {
             149 => Ok(()),
             151 => fail(Status::Rejected, "君士坦丁堡不是我们的领土"),

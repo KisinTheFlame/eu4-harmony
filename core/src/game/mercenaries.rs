@@ -5,6 +5,8 @@
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use eu4_harmony_remote::mercenaries::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     mercenaries::Company,
@@ -99,7 +101,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Company>> {
 }
 
 /// Hires a company the view lists, raised in a province the player picks.
-pub fn hire(Session { m, ctx, commands, .. }: Session, word: String, province: u32) -> GResult<()> {
+pub fn hire(Session { m, ctx, commands, .. }: Session, args::Hire { company: word, province: ProvinceId(province) }: args::Hire) -> GResult<()> {
     let mut found = None;
     for company in addresses(m, &ctx)? {
         if key(m, company)? == word {

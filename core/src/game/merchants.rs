@@ -11,7 +11,7 @@ use super::{
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
-    merchants::{Downstream, MerchantOptions, Merchants, Mission, Placed, TradingPolicies, TradingPolicy},
+    merchants::{args, Downstream, MerchantOptions, Merchants, Mission, Placed, TradingPolicies, TradingPolicy},
 };
 
 /// The trade nodes' and their countries' fields are trade's: a node's own
@@ -303,8 +303,8 @@ pub fn recall(Session { m, ctx, commands, .. }: Session, key: &str) -> GResult<(
 
 /// Has the player's merchant steering in the node `node` steer to the node
 /// `to` downstream.
-pub fn steer_to(Session { m, ctx, commands, .. }: Session, node: &str, to: &str) -> GResult<()> {
-    let node = self::node(m, &ctx, node)?;
+pub fn steer_to(Session { m, ctx, commands, .. }: Session, args::SteerTo { node, to }: args::SteerTo) -> GResult<()> {
+    let (node, to) = (self::node(m, &ctx, &node)?, to.as_str());
     let options = read(m, &ctx, &node)?;
     let Some(along) = options.steer_to.iter().position(|d| d.node == to) else {
         return Err(envoys::checks::unknown("trade node downstream", to));
@@ -367,8 +367,8 @@ fn policy_written(player: Tag, definition: i32, policy: i32) -> String {
 }
 
 /// Chooses the trading policy `policy` for the player in the node `node`.
-pub fn set_policy(Session { m, ctx, commands, .. }: Session, node: &str, policy: &str) -> GResult<()> {
-    let node = self::node(m, &ctx, node)?;
+pub fn set_policy(Session { m, ctx, commands, .. }: Session, args::SetPolicy { node, policy }: args::SetPolicy) -> GResult<()> {
+    let (node, policy) = (self::node(m, &ctx, &node)?, policy.as_str());
     let Some(address) = all_policies(m)?.into_iter().find(|(_, k)| k == policy).map(|(a, _)| a) else {
         return Err(envoys::checks::unknown("trading policy", policy));
     };

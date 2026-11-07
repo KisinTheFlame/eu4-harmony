@@ -3,6 +3,7 @@
 //! (docs/research/power-spending.md, "National focus").
 use super::{action, power, technology::key, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point};
+use eu4_harmony_remote::focus::args;
 use eu4_harmony_remote::{
     choices::{Choice, PowerKind},
     focus::{Focus, FocusChoice},
@@ -68,7 +69,7 @@ fn written(country: [u8; 3], focus: i32) -> String {
 }
 
 /// Sets the focus on `kind`, as its button does.
-pub fn choose(Session { m, ctx, commands, .. }: Session, kind: PowerKind) -> GResult<()> {
+pub fn choose(Session { m, ctx, commands, .. }: Session, args::Choose { focus: kind }: args::Choose) -> GResult<()> {
     if focus_of(m, ctx.country)? == Some(kind) {
         return Err(checks::already(key(kind)));
     }

@@ -12,6 +12,7 @@ use crate::{
     },
     points::Point,
 };
+use eu4_harmony_remote::forts::args;
 use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
 
 /// A province's byte that says it has a fort.
@@ -76,11 +77,11 @@ fn set(Session { m, ctx, commands, .. }: Session, id: u32, mothball: bool) -> GR
     action::carry_out(commands, &fort.choice, doing, || Ok(toggle_text(ctx.player.letters(), id)))
 }
 
-pub fn mothball(session: Session, province: u32) -> GResult<()> {
+pub fn mothball(session: Session, args::Mothball { province: ProvinceId(province) }: args::Mothball) -> GResult<()> {
     set(session, province, true)
 }
 
-pub fn reopen(session: Session, province: u32) -> GResult<()> {
+pub fn reopen(session: Session, args::Reopen { province: ProvinceId(province) }: args::Reopen) -> GResult<()> {
     set(session, province, false)
 }
 

@@ -4,6 +4,8 @@
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
+use eu4_harmony_remote::parliament::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::Choice,
     parliament::{Issue, Parliament},
@@ -110,7 +112,7 @@ fn written_seat(command: &str, country: Tag, province: u32) -> String {
 }
 
 /// Brings an issue on offer to debate.
-pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn debate(Session { m, ctx, commands, .. }: Session, args::Debate { issue: key }: args::Debate) -> GResult<()> {
     let parliament = m.ptr(ctx.country + PARLIAMENT)?;
     if parliament == 0 {
         return Err(checks::not_now("the player has no parliament"));
@@ -129,12 +131,12 @@ pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult
 }
 
 /// Gives a province of the player's a seat in parliament.
-pub fn add_seat(session: Session, province: u32) -> GResult<()> {
+pub fn add_seat(session: Session, args::AddSeat { province: ProvinceId(province) }: args::AddSeat) -> GResult<()> {
     seat(session, "add_to_parliament_command", province, "give this province a seat")
 }
 
 /// Takes a province's seat in parliament away.
-pub fn remove_seat(session: Session, province: u32) -> GResult<()> {
+pub fn remove_seat(session: Session, args::RemoveSeat { province: ProvinceId(province) }: args::RemoveSeat) -> GResult<()> {
     seat(session, "remove_from_parliament_command", province, "take this province's seat away")
 }
 

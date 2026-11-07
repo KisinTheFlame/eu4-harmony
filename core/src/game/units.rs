@@ -12,6 +12,8 @@ use crate::{
     },
     points::Point,
 };
+use eu4_harmony_remote::armies::args;
+use eu4_harmony_remote::ArmyList;
 use eu4_harmony_remote::{armies::ArmyAction, choices::Choice, ArmyId};
 
 /// `(country, units, text or null, 0)`: whether the units in a game list
@@ -209,7 +211,7 @@ fn entry(action: &str, choice: Choice) -> ArmyAction {
 }
 
 /// What the panel's buttons offer for one of the player's armies or fleets.
-pub fn options(Session { m, ctx, .. }: Session, id: u64) -> GResult<Vec<ArmyAction>> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { army: ArmyId(id) }: args::Options) -> GResult<Vec<ArmyAction>> {
     let unit = world::own_unit(m, &ctx, id)?;
     let others: Vec<usize> = mergeable(m, &ctx, unit)?.into_iter().map(|(_, u)| u).collect();
     let mut out = vec![entry("split", may_split(m, unit)?), entry("merge", may_merge(m, &ctx, &others)?), entry("disband", may_disband(m, &ctx, unit)?)];
@@ -227,7 +229,7 @@ pub fn options(Session { m, ctx, .. }: Session, id: u64) -> GResult<Vec<ArmyActi
     Ok(out)
 }
 
-pub fn split(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<u64> {
+pub fn split(Session { m, ctx, commands, .. }: Session, args::Split { army: ArmyId(id) }: args::Split) -> GResult<u64> {
     let unit = world::own_unit(m, &ctx, id)?;
     action::allowed(&may_split(m, unit)?, "split this unit")?;
     let before: Vec<u64> = world::own_roster(m, &ctx)?.into_iter().map(|(i, _, _)| i).collect();
@@ -238,14 +240,14 @@ pub fn split(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<u64>
     }
 }
 
-pub fn merge(Session { m, ctx, commands, .. }: Session, ids: Vec<ArmyId>) -> GResult<()> {
+pub fn merge(Session { m, ctx, commands, .. }: Session, args::Merge { armies: ArmyList(ids) }: args::Merge) -> GResult<()> {
     let units = ids.iter().map(|id| world::own_unit(m, &ctx, id.0)).collect::<GResult<Vec<_>>>()?;
     action::allowed(&may_merge(m, &ctx, &units)?, "merge these units")?;
     action::post(commands, &merge_text(&ids.iter().map(|id| id.0).collect::<Vec<_>>()), "merge these units")?;
     Ok(())
 }
 
-pub fn disband(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> {
+pub fn disband(Session { m, ctx, commands, .. }: Session, args::Disband { army: ArmyId(id) }: args::Disband) -> GResult<()> {
     let unit = world::own_unit(m, &ctx, id)?;
     action::allowed(&may_disband(m, &ctx, unit)?, "disband this unit")?;
     action::post(commands, &disband_text(id), "disband this unit")?;
@@ -257,14 +259,14 @@ fn own_army(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     world::own_land_army(m, ctx, id)
 }
 
-pub fn consolidate(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> {
+pub fn consolidate(Session { m, ctx, commands, .. }: Session, args::Consolidate { army: ArmyId(id) }: args::Consolidate) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     action::allowed(&may_consolidate(m, unit)?, "consolidate this army")?;
     action::post(commands, &consolidate_text(id, m.ptr(unit + COMPANY)? != 0), "consolidate this army")?;
     Ok(())
 }
 
-pub fn drill(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> {
+pub fn drill(Session { m, ctx, commands, .. }: Session, args::Drill { army: ArmyId(id) }: args::Drill) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     if mission_kind(m, unit)? == DRILLING {
         return Err(checks::state("the army drills already"));
@@ -273,7 +275,7 @@ pub fn drill(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> 
     action::post(commands, &drill_text(id), "drill this army")
 }
 
-pub fn stop_drill(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> {
+pub fn stop_drill(Session { m, ctx, commands, .. }: Session, args::StopDrill { army: ArmyId(id) }: args::StopDrill) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     if mission_kind(m, unit)? != DRILLING {
         return Err(checks::state("the army does not drill"));
@@ -290,7 +292,7 @@ fn own_fleet(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     }
 }
 
-pub fn mission(Session { m, ctx, commands, .. }: Session, id: u64, mission: String, target: Option<u32>) -> GResult<()> {
+pub fn mission(Session { m, ctx, commands, .. }: Session, args::Mission { army: ArmyId(id), mission, target }: args::Mission) -> GResult<()> {
     let fleet = own_fleet(m, &ctx, id)?;
     if !MISSIONS.contains(&mission.as_str()) {
         return Err(checks::unknown("mission", &mission, &MISSIONS));
@@ -304,7 +306,7 @@ pub fn mission(Session { m, ctx, commands, .. }: Session, id: u64, mission: Stri
     Ok(())
 }
 
-pub fn stop_mission(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> {
+pub fn stop_mission(Session { m, ctx, commands, .. }: Session, args::StopMission { army: ArmyId(id) }: args::StopMission) -> GResult<()> {
     own_fleet(m, &ctx, id)?;
     action::post(commands, &stop_mission_text(id), "end this fleet's mission")?;
     Ok(())

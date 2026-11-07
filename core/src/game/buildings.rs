@@ -15,7 +15,9 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
+use eu4_harmony_remote::buildings::args;
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
+use eu4_harmony_remote::ProvinceId;
 
 /// The building database, made by its getter: its buildings by index, a
 /// vector of pointers at `+0x10`, index 0 the placeholder for none.
@@ -254,7 +256,7 @@ fn destroy_text(tag: Tag, province: u32, index: u32) -> String {
 }
 
 /// Starts building `key` in the province for the player.
-pub fn build(Session { m, ctx, commands, .. }: Session, id: u32, key: String) -> GResult<()> {
+pub fn build(Session { m, ctx, commands, .. }: Session, args::Build { province: ProvinceId(id), building: key }: args::Build) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let (building, index) = named(m, &key)?;
     let choice = can_build(m, &ctx, province, building)?;
@@ -265,7 +267,7 @@ pub fn build(Session { m, ctx, commands, .. }: Session, id: u32, key: String) ->
 }
 
 /// Cancels the building the player is building in the province.
-pub fn cancel(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn cancel(Session { m, ctx, commands, .. }: Session, args::Cancel { province: ProvinceId(id) }: args::Cancel) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let Some(construction) = construction(m, province)? else {
         return Err(refuse::not_doing("building in", id));
@@ -279,7 +281,7 @@ pub fn cancel(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()>
 }
 
 /// Destroys the building `key` in one of the player's provinces.
-pub fn destroy(Session { m, ctx, commands, .. }: Session, id: u32, key: String) -> GResult<()> {
+pub fn destroy(Session { m, ctx, commands, .. }: Session, args::Destroy { province: ProvinceId(id), building: key }: args::Destroy) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let (_, index) = named(m, &key)?;
     if Tag(m.u64(province + field::OWNER)?) != ctx.player {
