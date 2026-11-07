@@ -390,8 +390,12 @@ fn keep_going<M: Machine>(m: &M, owner: &str) -> Result<Option<Record>> {
 /// those that have ended to the record in the claim's `folder`, saying each
 /// when `say`: the game's exit code is the one sign of a crash that bypasses
 /// its crash handler, such as heap corruption, which leaves no crash folder.
+///
+/// Each process that follows a game sees its end, the holder's `watch` and
+/// a run's process both: an end the record has already is not noted again.
 fn follow_games<M: Machine>(m: &M, folder: &Path, say: bool) {
-    let ends = m.game_ends();
+    let noted = m.ends(folder);
+    let ends: Vec<GameEnd> = m.game_ends().into_iter().filter(|end| !noted.iter().any(|n| n.game == end.game)).collect();
     if ends.is_empty() {
         return;
     }
@@ -506,10 +510,21 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, sound: bool, 
 
 /// Ends the game within `owner`'s claim.
 pub fn stop<M: Machine>(m: &M, owner: &str) -> Result<()> {
-    held_by(m, owner)?;
-    m.end_games()?;
+    let held = held_by(m, owner)?;
+    end_followed(m, &held)?;
     m.say("the game is closed");
     Ok(())
+}
+
+/// Ends the games of `held`'s claim, following them before and after, so
+/// that the process ending them notes how they ended: a `watch` may not look
+/// again before the claim is released.
+fn end_followed<M: Machine>(m: &M, held: &Record) -> Result<()> {
+    let folder = held.folder.as_deref().map(Path::new);
+    folder.inspect(|f| follow_games(m, f, false));
+    let ended = m.end_games();
+    folder.inspect(|f| follow_games(m, f, true));
+    ended
 }
 
 /// The claim a run plays in, such as the scenario runner's: one the run
@@ -562,9 +577,12 @@ pub fn look_in_run<M: Machine>(m: &M, run: &Run, interrupted: bool, ended: &mut 
 
 /// Ends the game a run played, unless the player took it: their claim ends
 /// it and puts back the run's files.
-pub fn end_run_game<M: Machine>(m: &M, taken: bool) {
+pub fn end_run_game<M: Machine>(m: &M, run: &Run, taken: bool) {
     if !taken {
-        let _ = m.end_games();
+        let _ = match held_by(m, &run.owner) {
+            Ok(held) => end_followed(m, &held),
+            Err(_) => m.end_games(),
+        };
     }
 }
 
@@ -609,7 +627,7 @@ pub fn play_within<M: Machine + Sync, T>(
         });
         let played = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| play(&taken)));
         let was_taken = taken.load(Ordering::SeqCst);
-        end_run_game(m, was_taken);
+        end_run_game(m, run, was_taken);
         done.store(true, Ordering::SeqCst);
         (played, was_taken)
     });
@@ -913,6 +931,21 @@ mod tests {
         assert!(m.said().iter().any(|l| l.ends_with("the game did not crash")));
     }
 
+    /// The process that ends the claim's game notes how it ended, since the
+    /// claim may be released before a `watch` looks again; and an end two
+    /// processes saw, a `watch` and a run, is noted once.
+    #[test]
+    fn a_game_stop_ends_is_noted_by_it_and_once_however_many_saw_it() {
+        let end = GameEnd { game: GAME, seen: "03:12:41".into(), code: 1 };
+        let m = machine(100, Some(complete("a", 0)), &[GAME]);
+        m.ending.borrow_mut().push(end.clone());
+        stop(&m, "a").unwrap();
+        assert_eq!(m.noted.borrow().as_slice(), std::slice::from_ref(&end));
+        m.ending.borrow_mut().push(GameEnd { seen: "03:12:43".into(), ..end.clone() });
+        look(&m, "a").unwrap();
+        assert_eq!(*m.noted.borrow(), [end], "seen again by another process");
+    }
+
     #[test]
     fn a_watch_ends_when_the_lease_is_ending_when_the_player_takes_the_game_and_when_the_claim_is_gone() {
         let m = machine(0, Some(complete("a", 0)), &[]);
@@ -982,7 +1015,7 @@ mod tests {
         assert_eq!(m.steps(), [wrote("a, made by 10"), Did::BackUp, wrote("a")]);
         m.games.borrow_mut().push(GAME);
         m.forget();
-        end_run_game(&m, false);
+        end_run_game(&m, &run, false);
         assert_eq!(give_back_run(&m, &run, false, Path::new(GAME_DIR)), Ok(()));
         assert_eq!(m.steps(), steps(&[&[Did::EndGames, wrote("a, put back by 10")], &PUT_BACK, &[wrote("free")]]));
     }
@@ -992,7 +1025,7 @@ mod tests {
         let m = machine(1000, Some(complete("a", 1000)), &[GAME]);
         let run = run_as(&m, "a", false).unwrap();
         assert_eq!(m.steps(), [], "nothing claimed");
-        end_run_game(&m, false);
+        end_run_game(&m, &run, false);
         assert_eq!(give_back_run(&m, &run, false, Path::new(GAME_DIR)), Ok(()));
         assert_eq!(m.steps(), [Did::EndGames]);
         assert!(held_by(&m, "a").is_ok());
@@ -1013,7 +1046,7 @@ mod tests {
         m.games.borrow_mut().push(GAME);
         m.forget();
         assert!(look_in_run(&m, &run, false, &mut false), "the run is told");
-        end_run_game(&m, true);
+        end_run_game(&m, &run, true);
         assert_eq!(give_back_run(&m, &run, true, Path::new(GAME_DIR)), Ok(()));
         assert!(!m.steps().iter().any(|d| matches!(d, Did::EndGames | Did::Keep)), "{:?}", m.steps());
         assert_eq!(described(&m.held()), "a, taken", "the player's claim puts it back");
