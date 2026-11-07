@@ -174,7 +174,7 @@ fn directory(zip: &str) -> Option<Directory> {
     all.get_or_insert_with(HashMap::new)
         .entry(zip.to_string())
         .or_insert_with(|| {
-            let read = std::fs::File::open(zip).map_err(|e| e.to_string()).and_then(|mut f| crate::saves::file::zip_directory(&mut f, MOST_DIRECTORY));
+            let read = std::fs::File::open(zip).map_err(|e| e.to_string()).and_then(|mut f| crate::zip::directory(&mut f, MOST_DIRECTORY));
             match read {
                 Ok(entries) => Some(Arc::new(prints(entries))),
                 Err(e) => {
@@ -186,7 +186,7 @@ fn directory(zip: &str) -> Option<Directory> {
         .clone()
 }
 
-fn prints(entries: Vec<crate::saves::file::ZipEntry>) -> HashMap<Vec<u8>, Print> {
+fn prints(entries: Vec<crate::zip::Entry>) -> HashMap<Vec<u8>, Print> {
     entries.into_iter().map(|e| (e.name, Print::Entry { crc: e.crc, packed: e.packed as u64, unpacked: e.unpacked as u64 })).collect()
 }
 
@@ -295,10 +295,10 @@ mod tests {
 
     #[test]
     fn an_entry_is_told_by_its_name_in_any_case() {
-        let entry = |crc| crate::saves::file::ZipEntry { name: Vec::new(), method: 8, crc, packed: 5, unpacked: 9, local: 0 };
+        let entry = |crc| crate::zip::Entry { method: crate::zip::DEFLATED, crc, packed: 5, unpacked: 9, ..crate::zip::Entry::stored(b"", b"") };
         let entries = prints(vec![
-            crate::saves::file::ZipEntry { name: b"music/MainTheme.ogg".to_vec(), ..entry(1) },
-            crate::saves::file::ZipEntry { name: b"music/other.ogg".to_vec(), ..entry(2) },
+            crate::zip::Entry { name: b"music/MainTheme.ogg".to_vec(), ..entry(1) },
+            crate::zip::Entry { name: b"music/other.ogg".to_vec(), ..entry(2) },
         ]);
         assert_eq!(entry_print(&entries, b"music/MainTheme.ogg"), Some(Print::Entry { crc: 1, packed: 5, unpacked: 9 }));
         assert_eq!(entry_print(&entries, b"music/maintheme.ogg"), Some(Print::Entry { crc: 1, packed: 5, unpacked: 9 }));

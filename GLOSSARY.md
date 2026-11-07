@@ -83,12 +83,8 @@ A game a claim starts for its holder from the game folder, with a user folder, a
 _Avoid_: instance (a window's), game copy, slot, sandbox
 
 **Claim**:
-The hold a holder has on one test game, from claiming it to releasing it, which keeps the test game's logs and removes the rest of it; a few holders at a time, the others waiting in the queue. Until 2026-11-08 a claim held the whole game of the computer and put back the player's files it backed up.
+The hold a holder has on one test game, from claiming it to releasing it, which keeps the test game's logs and removes the rest of it; any number of holders at a time, none waiting for another's. Until 2026-11-08 a claim held the whole game of the computer and put back the player's files it backed up.
 _Avoid_: lock (it survives only in the name of the older claim's record, `game-lock.json`), reservation
-
-**Lease**:
-How long a claim holds its test game without a command of its holder's, 30 minutes unless the holder asks for another; once it has run out, a claim waiting with no test game free takes this one.
-_Avoid_: timeout, expiry
 
 **Memory account**:
 A development tool, the `dev-memory` feature, that splits what the game process holds by where it lies, from what Windows keeps of the process and its heaps, so that it costs the game nothing between two asks (docs/leak-finding.md).

@@ -174,14 +174,12 @@ impl Machine for Recorded {
     }
 }
 
-pub(crate) fn held(owner: &str, renewed: u64) -> Claim {
+pub(crate) fn held(owner: &str) -> Claim {
     Claim {
         owner: owner.into(),
         purpose: "a run".into(),
         checkout: String::new(),
         since: "2026-11-08 09:00".into(),
-        renewed,
-        lease_minutes: 30,
         folder: format!("C:\\claims\\{owner}-1"),
         maker: None,
         ready: true,

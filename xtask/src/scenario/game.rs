@@ -309,7 +309,7 @@ mod tests {
     /// `owner` a's claim on a recorded computer where its test game runs or
     /// not, and the game of a's run, asked down the test's own pipe.
     fn game_on(test: &str, running: bool) -> (&'static Recorded, Game, String) {
-        let mut claim = held("a", 1000);
+        let mut claim = held("a");
         claim.game = running.then_some(GAME);
         let m: &'static Recorded = Box::leak(Box::new(Recorded::new(claim::recorded::state(vec![claim]))));
         if running {

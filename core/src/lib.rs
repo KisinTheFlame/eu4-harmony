@@ -68,6 +68,7 @@ pub mod unicode;
 pub mod wording;
 #[cfg(feature = "dev-write-watch")]
 mod write_watch;
+pub mod zip;
 
 use std::sync::{
     atomic::{AtomicU32, Ordering},
