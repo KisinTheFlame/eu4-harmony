@@ -133,6 +133,7 @@ extern "C" fn world_clearing() {
         }
         super::histories::world_clearing(&m);
         super::trade_nodes::world_clearing(&m);
+        super::estates::world_clearing(&m);
     });
 }
 

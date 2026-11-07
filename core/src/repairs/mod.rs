@@ -29,6 +29,7 @@
 //! (`crate::sessions`): after the reset several of them act and all say what
 //! they did, and its first frame lets go what had to wait for it.
 mod coalitions;
+mod estates;
 mod histories;
 mod history_lists;
 mod interface_parts;
@@ -101,7 +102,7 @@ pub fn world_reset(m: &Memory, world: usize) {
         Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
     }
     log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go; {} monarchs, heirs and queens the histories left were deleted, {} kept as the game still had them; {} battles the wars' histories left were deleted; {} relations the diplomatic histories left were deleted, {} kept as the diplomacy was given them; {} records and blocks of records the countries' first histories listed alone were deleted, {} kept as their second histories held some of what they held; {} trade nodes the world's clear replaced were deleted; {} windows the session's panels and the main menu's pages left were killed with them",
+            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go; {} monarchs, heirs and queens the histories left were deleted, {} kept as the game still had them; {} battles the wars' histories left were deleted; {} relations the diplomatic histories left were deleted, {} kept as the diplomacy was given them; {} records and blocks of records the countries' first histories listed alone were deleted, {} kept as their second histories held some of what they held; {} trade nodes the world's clear replaced were deleted; {} modifiers the estates it cleared left were deleted; {} windows the session's panels and the main menu's pages left were killed with them",
             reset_leaks::LEADERS.swap(0, Ordering::Relaxed),
             reset_leaks::FACTIONS.swap(0, Ordering::Relaxed),
             reset_leaks::AGENTS.swap(0, Ordering::Relaxed),
@@ -118,6 +119,7 @@ pub fn world_reset(m: &Memory, world: usize) {
             history_lists::DELETED.swap(0, Ordering::Relaxed),
             history_lists::SHARED.swap(0, Ordering::Relaxed),
             trade_nodes::DELETED.swap(0, Ordering::Relaxed),
+            estates::DELETED.swap(0, Ordering::Relaxed),
             panels::KILLED.swap(0, Ordering::Relaxed)
         );
 }
@@ -140,6 +142,7 @@ pub fn points() -> Vec<Point> {
         text_boxes::points,
         sprite_types::points,
         trade_nodes::points,
+        estates::points,
     ] {
         all.extend(points());
     }
