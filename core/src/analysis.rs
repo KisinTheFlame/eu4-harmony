@@ -169,7 +169,11 @@ pub fn arguments(code: &[u8], rva: usize) -> u32 {
                 }
             }
         }
-        if instruction.mnemonic() == Mnemonic::Call {
+        // The stack probe, called in the prologue with the frame's size in
+        // eax, keeps every register but rax, r10 and r11: the arguments are
+        // still there after it.
+        let probe = in_prologue && probe_size.is_some() && instruction.code() == Code::Call_rel32_64;
+        if instruction.mnemonic() == Mnemonic::Call && !probe {
             before_first_call = false;
         }
         // Memory operands through rsp or the frame register.
@@ -247,5 +251,20 @@ mod tests {
         // mov [rsp + 0x18], r8b; push rbx; mov eax, [rsp + 0x30]; pop rbx; ret
         let code = [0x44, 0x88, 0x44, 0x24, 0x18, 0x53, 0x8b, 0x44, 0x24, 0x30, 0x5b, 0xc3];
         assert_eq!(arguments(&code, 0x1000), 5);
+    }
+
+    #[test]
+    fn an_argument_read_after_the_stack_probe_counts() {
+        // The AI's phase of the day 0x75b4b0: pushes, a frame of 0x10f0 bytes
+        // through the stack probe, and only then `mov r13, rcx`; ret.
+        let code = [
+            0x48, 0x89, 0x5c, 0x24, 0x08, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8d, 0xac, 0x24, 0x10, 0xf0, 0xff, 0xff,
+            0xb8, 0xf0, 0x10, 0x00, 0x00, 0xe8, 0x1e, 0x83, 0x2d, 0x01, 0x48, 0x2b, 0xe0, 0x0f, 0x29, 0xb4, 0x24, 0xe0, 0x10, 0x00, 0x00, 0x4c, 0x8b, 0xe9,
+            0xc3,
+        ];
+        assert_eq!(arguments(&code, 0x75b4b0), 1);
+        // A call that is not the probe still ends what the arguments can be:
+        // call; mov r13, rcx; ret
+        assert_eq!(arguments(&[0xe8, 0, 0, 0, 0, 0x4c, 0x8b, 0xe9, 0xc3], 0x1000), 0);
     }
 }
