@@ -4,8 +4,11 @@
 //! with a user folder, a core and a pipe of its own (docs/test-games.md),
 //! returning once remote control says the main menu is up. Steam must be
 //! running, as for any start of the game.
-use crate::pipe;
 use crate::Result;
+use crate::{
+    game::Game,
+    pipe::{self, NoMainMenu},
+};
 use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -13,8 +16,6 @@ use std::{
 
 /// How long the game may take to reach its main menu without `--timeout`.
 pub const WAIT: Duration = Duration::from_secs(300);
-/// How often to ask remote control where the game is.
-const ASK_EVERY: Duration = Duration::from_millis(500);
 
 /// How the game is started.
 #[derive(Clone, Debug, Default)]
@@ -112,11 +113,11 @@ fn framework_has(game_dir: &Path, start: &Start) -> Result<()> {
 }
 
 /// Starts `eu4.exe` from `game_dir` as `start` says and waits up to `wait`
-/// for its main menu; returns the game's process id. `log` is the
-/// framework's log, which says why when the game ends first. The player's
-/// game starts only with no game running, a test game only while its pipe
-/// is not served.
-pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<u32> {
+/// for its main menu; returns the game, held open so that its exit code
+/// stays to be read once it ends. `log` is the framework's log, which says
+/// why when the game ends first. The player's game starts only with no game
+/// running, a test game only while its pipe is not served.
+pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<Game> {
     let pipe = start.pipe()?;
     match &start.test_game {
         None => crate::game::not_running()?,
@@ -126,11 +127,11 @@ pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Resu
         Some(_) => {}
     }
     framework_has(game_dir, start)?;
-    let exe = game_dir.join("eu4.exe");
+    let exe = game_dir.join(crate::game::EXE);
     let started = Instant::now();
     let since = std::time::SystemTime::now();
     let game = Game::spawn(&exe, &start.switches(), game_dir)?;
-    let id = game.id;
+    let id = game.id();
     let how = match (start.hidden, start.sound) {
         (true, true) => ", hidden, with sound",
         (true, false) => ", hidden",
@@ -139,82 +140,22 @@ pub fn start(game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Resu
     let seed = start.seed.map_or(String::new(), |seed| format!(", -seed={seed}"));
     let test_game = start.test_game.as_ref().map_or(String::new(), |g| format!(", the test game {}", g.name));
     println!("started eu4.exe (process {id}){how}{seed}{test_game}");
-    loop {
-        if let Some(code) = game.exit_code() {
-            let why = why_it_ended(log, since).unwrap_or_else(|| format!("the framework's log of this start ({}) says nothing of it", log.display()));
-            return Err(format!("the game ended (exit code {code}) before its main menu: {why}"));
-        }
-        if at_main_menu(&pipe) {
+    let ended = || game.exit_code().map_or(Ok(()), Err);
+    match pipe::main_menu(&pipe, pipe::GAME, started + wait, ended) {
+        Ok(_) => {
             println!("at the main menu after {:.0} s", started.elapsed().as_secs_f64());
-            return Ok(id);
+            Ok(game)
         }
-        if started.elapsed() > wait {
-            if start.test_game.is_some() {
-                game.end();
-                return Err(format!("the test game (process {id}) had not reached its main menu after {} s; it was ended", wait.as_secs()));
-            }
-            return Err(format!("the game (process {id}) had not reached its main menu after {} s; it still runs", wait.as_secs()));
+        Err(NoMainMenu::Stopped(code)) => {
+            let why = why_it_ended(log, since).unwrap_or_else(|| format!("the framework's log of this start ({}) says nothing of it", log.display()));
+            Err(format!("the game ended (exit code {code}) before its main menu: {why}"))
         }
-        std::thread::sleep(ASK_EVERY);
-    }
-}
-
-/// The game's process, started with none of this command's handles: one
-/// that kept this command's output, a pipe, would keep whoever reads it
-/// waiting until the game ends, and every inheritable handle is passed on
-/// unless none is.
-struct Game {
-    process: windows_sys::Win32::Foundation::HANDLE,
-    id: u32,
-}
-
-impl Game {
-    fn spawn(exe: &Path, switches: &[String], dir: &Path) -> Result<Self> {
-        use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
-        let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
-        let mut line = wide(&std::iter::once(format!("\"{}\"", exe.display())).chain(switches.iter().cloned()).collect::<Vec<_>>().join(" "));
-        let (exe_w, dir_w) = (wide(&exe.display().to_string()), wide(&dir.display().to_string()));
-        let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
-        startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-        let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
-        let made = unsafe {
-            CreateProcessW(exe_w.as_ptr(), line.as_mut_ptr(), std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null(), dir_w.as_ptr(), &startup, &mut info)
-        };
-        if made == 0 {
-            return Err(format!("cannot start {}: {}", exe.display(), std::io::Error::last_os_error()));
+        Err(NoMainMenu::TimedOut) if start.test_game.is_some() => {
+            let _ = crate::game::end_game(id);
+            Err(format!("the test game (process {id}) had not reached its main menu after {} s; it was ended", wait.as_secs()))
         }
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(info.hThread) };
-        Ok(Self { process: info.hProcess, id: info.dwProcessId })
+        Err(NoMainMenu::TimedOut) => Err(format!("the game (process {id}) had not reached its main menu after {} s; it still runs", wait.as_secs())),
     }
-
-    /// Ends it, as `game stop` does.
-    fn end(&self) {
-        unsafe { windows_sys::Win32::System::Threading::TerminateProcess(self.process, 1) };
-    }
-
-    /// Its exit code, once it has ended.
-    fn exit_code(&self) -> Option<u32> {
-        use windows_sys::Win32::{
-            Foundation::WAIT_OBJECT_0,
-            System::Threading::{GetExitCodeProcess, WaitForSingleObject},
-        };
-        let mut code = 0;
-        (unsafe { WaitForSingleObject(self.process, 0) } == WAIT_OBJECT_0 && unsafe { GetExitCodeProcess(self.process, &mut code) } != 0).then_some(code)
-    }
-}
-
-impl Drop for Game {
-    fn drop(&mut self) {
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(self.process) };
-    }
-}
-/// Whether remote control, on the pipe `name`, answers that the main menu is
-/// up.
-fn at_main_menu(name: &str) -> bool {
-    let deadline = Instant::now() + ASK_EVERY;
-    let Ok(mut client) = pipe::connect(name, pipe::GAME, deadline) else { return false };
-    let Ok(answer) = client.ask(r#"{"capability":"menu"}"#, Some(Instant::now() + Duration::from_secs(5))) else { return false };
-    serde_json::from_str::<serde_json::Value>(&answer).is_ok_and(|v| v["result"]["place"] == "main_menu")
 }
 
 /// The framework's own word on why the game ended: the last failed startup

@@ -1,6 +1,6 @@
 //! The player's files: installed into the game folder as last built, and
 //! packed for players.
-use crate::{built, cargo, game, repo, run, Args, Result};
+use crate::{built, cargo, repo, run, Args, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -44,7 +44,7 @@ pub fn install(args: &Args) -> Result<()> {
     }
     // A loaded version.dll cannot be replaced: no game may run, the test
     // games included (docs/test-games.md).
-    game::not_running()?;
+    eu4_harmony_client::game::not_running()?;
 
     if args.flag("uninstall") {
         if ours(&proxy) {

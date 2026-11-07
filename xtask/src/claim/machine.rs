@@ -14,7 +14,8 @@
 //! `dev.toml` its start copied; `follow.exe`, which follows its games to
 //! their ends into `game-ends.tsv`; and `kept\` after the release.
 use super::record::{self, GameEnd, Process, State};
-use crate::{built, game, repo, Result};
+use crate::{built, repo, Result};
+use eu4_harmony_client::game::{self, Game};
 use eu4_harmony_client::start::Start;
 use std::{
     fs,
@@ -112,6 +113,14 @@ const RELEASED: &str = "released";
 /// How long `follow.exe` waits for the game a test game restarts in its
 /// place to open the pipe.
 const RESTART_WAIT: Duration = Duration::from_secs(90);
+/// What `follow.exe` leaves once it holds the game it follows.
+const FOLLOWING: &str = "following";
+/// How long a start waits for `follow.exe` to hold the game.
+const TAKING_OVER: Duration = Duration::from_secs(10);
+
+/// The game this process started, held open until `follow.exe` holds it
+/// too, so that its exit code cannot be lost in between.
+static STARTED: std::sync::Mutex<Option<Game>> = std::sync::Mutex::new(None);
 
 /// This computer.
 pub struct ThisComputer;
@@ -228,14 +237,7 @@ impl Machine for ThisComputer {
     }
 
     fn end_game(&self, id: u32) -> Result<()> {
-        game::kill_process(id);
-        for _ in 0..120 {
-            if !self.games()?.contains(&id) {
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        Err(format!("eu4.exe {id} did not end"))
+        game::end_game(id)
     }
 
     fn proxy_loads_cores(&self, game_dir: &Path) -> bool {
@@ -266,7 +268,9 @@ impl Machine for ThisComputer {
 
     fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<(u32, f64)> {
         let began = std::time::Instant::now();
-        let id = eu4_harmony_client::start::start(game_dir, log, start, wait)?;
+        let game = eu4_harmony_client::start::start(game_dir, log, start, wait)?;
+        let id = game.id();
+        *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
         Ok((id, began.elapsed().as_secs_f64()))
     }
 
@@ -281,8 +285,16 @@ impl Machine for ThisComputer {
         if fs::read(&follower).ok() != fs::read(&me).ok() {
             copy(&me, &follower)?;
         }
+        let _ = fs::remove_file(folder.join(FOLLOWING));
         let words = ["game".to_string(), "follow".into(), folder.display().to_string(), id.to_string(), pipe.to_string()];
-        spawn_detached(&follower, &words)
+        spawn_detached(&follower, &words)?;
+        // The game this process started is let go once the follower holds it.
+        let began = std::time::Instant::now();
+        while began.elapsed() < TAKING_OVER && !folder.join(FOLLOWING).exists() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        STARTED.lock().unwrap_or_else(|e| e.into_inner()).take();
+        Ok(())
     }
 
     fn stop_following(&self, folder: &Path) {
@@ -344,7 +356,7 @@ impl ThisComputer {
                 fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
             }
         }
-        for file in ["follow.exe", RELEASED, ENDS] {
+        for file in ["follow.exe", RELEASED, ENDS, FOLLOWING] {
             let _ = fs::remove_file(folder.join(file));
         }
         Ok(())
@@ -579,26 +591,13 @@ fn spawn_detached(program: &Path, words: &[String]) -> Result<()> {
 /// [`RESTART_WAIT`].
 pub fn follow_games(folder: &Path, first: u32, pipe: &str) -> Result<()> {
     use std::io::Write;
-    use windows_sys::Win32::{
-        Foundation::{CloseHandle, WAIT_OBJECT_0},
-        System::{
-            SystemInformation::GetLocalTime,
-            Threading::{GetExitCodeProcess, OpenProcess, WaitForSingleObject, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE},
-        },
-    };
+    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
     let mut next = Some(first);
     while let Some(id) = next.take() {
-        let Some(game) = process(id) else { return Ok(()) };
-        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, id) };
-        if handle.is_null() {
-            return Ok(());
-        }
-        let mut code = 0;
-        let ended = unsafe { WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0 && GetExitCodeProcess(handle, &mut code) != 0 };
-        unsafe { CloseHandle(handle) };
-        if !ended {
-            return Ok(());
-        }
+        let Some(held) = Game::open(id) else { return Ok(()) };
+        let _ = fs::write(folder.join(FOLLOWING), id.to_string());
+        let game = Process { id, started: held.started() };
+        let Some(code) = held.wait() else { return Ok(()) };
         let seen = unsafe {
             let mut t = std::mem::zeroed();
             GetLocalTime(&mut t);

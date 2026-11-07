@@ -1,26 +1,13 @@
-//! The installed game: its folder, and its process.
+//! The installed game: its folder, and whether Steam is ready to start it.
+//! The game's process is the client's (`eu4_harmony_client::game`).
 use crate::Result;
 use std::path::PathBuf;
-use windows_sys::Win32::{
-    Foundation::CloseHandle,
-    System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE},
-};
+use windows_sys::Win32::{Foundation::CloseHandle, System::Threading::OpenProcess};
 
 /// The game folder, as every program of EU4 Harmony finds it
 /// ([`eu4_harmony_folders::game_dir`]).
 pub fn dir() -> Result<PathBuf> {
     eu4_harmony_folders::game_dir(None)
-}
-
-/// The ids of every running `eu4.exe`; none when the list of processes
-/// cannot be read.
-pub fn processes() -> Vec<u32> {
-    eu4_harmony_client::game::processes().unwrap_or_default()
-}
-
-/// Refuses while the game runs, and when it cannot be told whether it runs.
-pub fn not_running() -> Result<()> {
-    eu4_harmony_client::game::not_running()
 }
 
 /// Whether Steam runs with a user logged in, as it must for the game to
@@ -64,15 +51,4 @@ pub fn steam_ready() -> Result<()> {
         return Err("Steam runs with no user logged in: log in, and run this again".into());
     }
     Ok(())
-}
-
-/// Ends the `eu4.exe` `id` at once.
-pub fn kill_process(id: u32) {
-    unsafe {
-        let process = OpenProcess(PROCESS_TERMINATE, 0, id);
-        if !process.is_null() {
-            TerminateProcess(process, 1);
-            CloseHandle(process);
-        }
-    }
 }

@@ -5,14 +5,14 @@
 //! be told, and one rule holds for all of this ([`counts_as_running`]): a
 //! game that cannot be told not to run is taken to run. So what guards the
 //! player's files refuses, what waits for the game to end goes on waiting,
-//! and what would end the game says it cannot instead of ending nothing.
+//! and what would end a game says it cannot instead of ending nothing.
 use crate::Result;
 use std::{path::Path, time::Duration};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, FILETIME, WAIT_OBJECT_0},
     System::Threading::{
-        GetExitCodeProcess, GetProcessTimes, OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
-        PROCESS_TERMINATE,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, TerminateProcess, WaitForSingleObject, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     },
 };
 
@@ -87,19 +87,28 @@ fn closed(found: Result<Vec<u32>>) -> Result<()> {
     }
 }
 
-/// Ends every `eu4.exe` at once and waits for them to be gone, a minute at
-/// most; an error when that cannot be told.
-pub fn end() -> Result<()> {
-    for id in processes().map_err(|e| format!("cannot end eu4.exe: {e}"))? {
-        unsafe {
-            let process = OpenProcess(PROCESS_TERMINATE, 0, id);
-            if !process.is_null() {
-                TerminateProcess(process, ENDED_HERE);
-                CloseHandle(process);
-            }
+/// Ends the `eu4.exe` `id` and waits for it to be gone, a minute at most;
+/// an error when that cannot be told. The test games are ended one by one:
+/// a game that is no test game's is the player's, which no command ends.
+pub fn end_game(id: u32) -> Result<()> {
+    unsafe {
+        let process = OpenProcess(PROCESS_TERMINATE, 0, id);
+        if !process.is_null() {
+            TerminateProcess(process, ENDED_HERE);
+            CloseHandle(process);
         }
     }
-    wait_closed()
+    let mut waited = Duration::ZERO;
+    loop {
+        match processes() {
+            Ok(games) if !games.contains(&id) => return Ok(()),
+            Ok(_) if waited >= ENDING => return Err(format!("eu4.exe {id} did not end")),
+            Ok(_) => {}
+            Err(e) => return Err(format!("cannot tell whether eu4.exe {id} has ended: {e}")),
+        }
+        std::thread::sleep(LOOK);
+        waited += LOOK;
+    }
 }
 
 /// Waits for every `eu4.exe` to end, a minute at most.
@@ -179,6 +188,12 @@ impl Game {
         self.started
     }
 
+    /// Waits for it to end; its exit code.
+    pub fn wait(&self) -> Option<u32> {
+        unsafe { WaitForSingleObject(self.handle as _, INFINITE) };
+        self.exit_code()
+    }
+
     /// Its exit code, once it has ended.
     pub fn exit_code(&self) -> Option<u32> {
         let mut code = 0;
@@ -199,54 +214,6 @@ fn start_time(handle: usize) -> Option<u64> {
     let [created, exited, kernel, user] = &mut times;
     (unsafe { GetProcessTimes(handle as _, created, exited, kernel, user) } != 0)
         .then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
-}
-
-/// A game that ended, as [`Follower`] saw it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Ended {
-    pub id: u32,
-    pub started: u64,
-    pub code: u32,
-}
-
-/// The `eu4.exe` a program follows to their ends, each held open from the
-/// moment it is given or found.
-#[derive(Debug, Default)]
-pub struct Follower {
-    games: Vec<Game>,
-}
-
-impl Follower {
-    pub const fn new() -> Self {
-        Self { games: Vec::new() }
-    }
-
-    /// Follows `game`, which this program started: it is held open from its
-    /// start, so that its exit code cannot be lost before the next look.
-    pub fn adopt(&mut self, game: Game) {
-        if !self.games.iter().any(|g| g.id == game.id && g.started == game.started) {
-            self.games.push(game);
-        }
-    }
-
-    /// Follows every `eu4.exe` that runs now as well; those it follows that
-    /// have ended since it last looked, with their exit codes.
-    pub fn ended(&mut self) -> Vec<Ended> {
-        for id in processes().unwrap_or_default() {
-            if !self.games.iter().any(|g| g.id == id) {
-                self.games.extend(Game::open(id));
-            }
-        }
-        let mut ended = Vec::new();
-        self.games.retain(|game| match game.exit_code() {
-            Some(code) => {
-                ended.push(Ended { id: game.id, started: game.started, code });
-                false
-            }
-            None => true,
-        });
-        ended
-    }
 }
 
 #[cfg(test)]
@@ -298,17 +265,8 @@ mod tests {
         let cmd = Path::new(r"C:\Windows\System32\cmd.exe");
         let game = Game::spawn(cmd, &["/c".into(), "exit".into(), "7".into()], Path::new(r"C:\Windows")).unwrap();
         assert_ne!(game.started(), 0);
-        let mut follower = Follower::new();
-        follower.adopt(game);
-        let mut ended = Vec::new();
-        for _ in 0..100 {
-            ended = follower.ended();
-            if !ended.is_empty() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert_eq!(ended.iter().map(|e| e.code).collect::<Vec<_>>(), [7]);
-        assert!(follower.ended().is_empty(), "an end is told once");
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(game.exit_code(), Some(7));
+        assert_eq!(game.wait(), Some(7));
     }
 }

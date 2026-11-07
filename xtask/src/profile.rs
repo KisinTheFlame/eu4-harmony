@@ -145,7 +145,7 @@ fn the_game(test_game: Option<&str>) -> Result<Option<u32>> {
     if let Some(id) = crate::claim::game_of(&crate::claim::owner_of(None)) {
         return Ok(Some(id));
     }
-    match crate::game::processes().as_slice() {
+    match eu4_harmony_client::game::processes()?.as_slice() {
         [] => Ok(None),
         [id] => Ok(Some(*id)),
         several => Err(format!("{} eu4.exe run; --test-game <name> names the one to sample (cargo xtask game status lists them)", several.len())),
