@@ -11,7 +11,8 @@ use std::{path::Path, time::Duration};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, FILETIME, WAIT_OBJECT_0},
     System::Threading::{
-        GetExitCodeProcess, GetProcessTimes, OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+        PROCESS_TERMINATE,
     },
 };
 
@@ -152,9 +153,10 @@ impl Game {
         Ok(Self { handle: info.hProcess as usize, id: info.dwProcessId, started })
     }
 
-    /// The process `id`, when it runs and can be opened.
+    /// The process `id`, when it runs and can be opened: for its times and
+    /// exit code, and to wait on, which [`Game::exit_code`] does.
     pub fn open(id: u32) -> Option<Self> {
-        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id) } as usize;
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, id) } as usize;
         if handle == 0 {
             return None;
         }
@@ -266,6 +268,27 @@ mod tests {
         assert!(!counts_as_running(&Ok(vec![])));
         assert!(counts_as_running(&Ok(vec![7])));
         assert!(counts_as_running(&Err("no snapshot".into())));
+    }
+
+    /// A process found by its id, as `watch` finds the games that run, is
+    /// held so that its exit code is read once it ends.
+    #[test]
+    fn a_process_found_by_its_id_is_followed_to_its_exit_code() {
+        let cmd = Path::new(r"C:\Windows\System32\cmd.exe");
+        let line = ["/c", "ping", "-n", "2", "127.0.0.1", ">nul", "&", "exit", "9"].map(String::from);
+        let started = Game::spawn(cmd, &line, Path::new(r"C:\Windows")).unwrap();
+        let found = Game::open(started.id()).expect("it runs");
+        drop(started);
+        assert_ne!(found.started(), 0);
+        let mut code = None;
+        for _ in 0..200 {
+            code = found.exit_code();
+            if code.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(code, Some(9));
     }
 
     /// A process this program starts is held from its start, so its exit
