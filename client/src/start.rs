@@ -15,15 +15,18 @@ pub const WAIT: Duration = Duration::from_secs(300);
 /// How often to ask remote control where the game is.
 const ASK_EVERY: Duration = Duration::from_millis(500);
 
-/// The game's command line switches for a start.
-pub fn switches(hidden: bool, sound: bool) -> Vec<&'static str> {
+/// The game's command line switches for a start. A `seed` is the game's own
+/// `-seed`, which seeds its random generator and gives each AI agent a
+/// generator of its own (docs/research/late-game.md).
+pub fn switches(hidden: bool, sound: bool, seed: Option<u32>) -> Vec<String> {
     let mut words = Vec::new();
     if hidden {
-        words.push("-harmony_hidden");
+        words.push("-harmony_hidden".to_string());
         if sound {
-            words.push("-harmony_sound");
+            words.push("-harmony_sound".to_string());
         }
     }
+    words.extend(seed.map(|seed| format!("-seed={seed}")));
     words
 }
 
@@ -39,7 +42,7 @@ fn hidden_start_installed(game_dir: &Path) -> bool {
 /// Starts `eu4.exe` from `game_dir` and waits up to `wait` for its main
 /// menu; returns the game's process id. `log` is the framework's log, which
 /// says why when the game ends first.
-pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, wait: Duration) -> Result<u32> {
+pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, seed: Option<u32>, wait: Duration) -> Result<u32> {
     crate::game_not_running()?;
     if hidden && !hidden_start_installed(game_dir) {
         return Err(format!(
@@ -50,10 +53,10 @@ pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, wait: Durat
     let exe = game_dir.join("eu4.exe");
     let started = Instant::now();
     let since = std::time::SystemTime::now();
-    let game = Game::spawn(&exe, &switches(hidden, sound), game_dir)?;
+    let game = Game::spawn(&exe, &switches(hidden, sound, seed), game_dir)?;
     let id = game.id;
     println!(
-        "started eu4.exe (process {id}){}",
+        "started eu4.exe (process {id}){}{}",
         if hidden {
             if sound {
                 ", hidden, with sound"
@@ -62,7 +65,8 @@ pub fn start(game_dir: &Path, log: &Path, hidden: bool, sound: bool, wait: Durat
             }
         } else {
             ""
-        }
+        },
+        seed.map_or(String::new(), |seed| format!(", -seed={seed}"))
     );
     loop {
         if let Some(code) = game.exit_code() {
@@ -90,10 +94,10 @@ struct Game {
 }
 
 impl Game {
-    fn spawn(exe: &Path, switches: &[&str], dir: &Path) -> Result<Self> {
+    fn spawn(exe: &Path, switches: &[String], dir: &Path) -> Result<Self> {
         use windows_sys::Win32::System::Threading::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
         let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
-        let mut line = wide(&std::iter::once(format!("\"{}\"", exe.display())).chain(switches.iter().map(|s| s.to_string())).collect::<Vec<_>>().join(" "));
+        let mut line = wide(&std::iter::once(format!("\"{}\"", exe.display())).chain(switches.iter().cloned()).collect::<Vec<_>>().join(" "));
         let (exe_w, dir_w) = (wide(&exe.display().to_string()), wide(&dir.display().to_string()));
         let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
         startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
@@ -154,10 +158,16 @@ mod tests {
 
     #[test]
     fn sound_is_a_switch_of_a_hidden_start_only() {
-        assert_eq!(switches(false, false), Vec::<&str>::new());
-        assert_eq!(switches(false, true), Vec::<&str>::new());
-        assert_eq!(switches(true, false), ["-harmony_hidden"]);
-        assert_eq!(switches(true, true), ["-harmony_hidden", "-harmony_sound"]);
+        assert_eq!(switches(false, false, None), Vec::<String>::new());
+        assert_eq!(switches(false, true, None), Vec::<String>::new());
+        assert_eq!(switches(true, false, None), ["-harmony_hidden"]);
+        assert_eq!(switches(true, true, None), ["-harmony_hidden", "-harmony_sound"]);
+    }
+
+    #[test]
+    fn a_seed_is_the_game_s_own_switch() {
+        assert_eq!(switches(true, false, Some(7)), ["-harmony_hidden", "-seed=7"]);
+        assert_eq!(switches(false, false, Some(0)), ["-seed=0"]);
     }
 
     #[test]

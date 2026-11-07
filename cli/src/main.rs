@@ -417,7 +417,7 @@ fn cmd_start(args: &Args) -> Result<()> {
         None => start::WAIT,
     };
     let log = user_dir(args)?.join("eu4-harmony").join("logs").join("core.log");
-    start::start(&game, &log, hidden, sound, wait).map(drop)
+    start::start(&game, &log, hidden, sound, None, wait).map(drop)
 }
 
 // ---------- package ----------
