@@ -14,11 +14,12 @@
 //! `framework\` (the game folder's framework files and `dev.toml`, each as
 //! it was) while it is held, `kept\` (the framework's and the game's logs and
 //! the run's crash folders) after it is released.
-use super::record::{Process, Record, Waiting};
+use super::record::{GameEnd, Process, Record, Waiting};
 use crate::{game, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -72,6 +73,15 @@ pub trait Machine {
     fn kill_game(&self);
     /// Waits for `eu4.exe` to end, a minute at most.
     fn wait_closed(&self) -> Result<()>;
+    /// Follows every `eu4.exe` that runs, holding it open so that its exit
+    /// code stays to be read once it ends; those it follows that have ended
+    /// since it last looked, with how.
+    fn game_ends(&self) -> Vec<GameEnd>;
+    /// Adds `ends` to the record of how the claim's games ended, in the
+    /// claim's `folder`.
+    fn note_ends(&self, folder: &Path, ends: &[GameEnd]);
+    /// How the claim's games ended, as its `folder` records them.
+    fn ends(&self, folder: &Path) -> Vec<GameEnd>;
     /// Starts the game hidden from `game_dir`, with the game's `-seed` when
     /// `seed` gives one, waiting up to `wait` for its main menu: its process
     /// id, and the seconds it took.
@@ -108,6 +118,13 @@ pub trait Machine {
 const FRAMEWORK_FILES: [&str; 5] = crate::files::GAME_FOLDER_FILES;
 /// A `kept\` older than this goes at the next claim.
 const KEEP_DAYS: u64 = 7;
+
+/// The record of how a claim's games ended, in its `kept\`, a line each.
+const ENDS: &str = "game-ends.tsv";
+
+/// The `eu4.exe` this process follows, each with the handle that keeps its
+/// exit code to be read once it ends.
+static FOLLOWED: Mutex<Vec<(Process, usize)>> = Mutex::new(Vec::new());
 
 /// This computer.
 pub struct ThisComputer;
@@ -237,6 +254,62 @@ impl Machine for ThisComputer {
 
     fn wait_closed(&self) -> Result<()> {
         game::wait_closed()
+    }
+
+    fn game_ends(&self) -> Vec<GameEnd> {
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            System::{
+                SystemInformation::GetLocalTime,
+                Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+            },
+        };
+        const STILL_ACTIVE: u32 = 259;
+        let mut followed = FOLLOWED.lock().unwrap_or_else(|e| e.into_inner());
+        for id in self.games().unwrap_or_default() {
+            if followed.iter().any(|(p, _)| p.id == id) {
+                continue;
+            }
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id) };
+            match self.process(id) {
+                Some(game) if !handle.is_null() => followed.push((game, handle as usize)),
+                _ if !handle.is_null() => unsafe {
+                    CloseHandle(handle);
+                },
+                _ => {}
+            }
+        }
+        let seen = unsafe {
+            let mut t = std::mem::zeroed();
+            GetLocalTime(&mut t);
+            format!("{:02}:{:02}:{:02}", t.wHour, t.wMinute, t.wSecond)
+        };
+        let mut ends = Vec::new();
+        followed.retain(|&(game, handle)| {
+            let mut code = STILL_ACTIVE;
+            if unsafe { GetExitCodeProcess(handle as _, &mut code) } == 0 || code == STILL_ACTIVE {
+                return true;
+            }
+            unsafe { CloseHandle(handle as _) };
+            ends.push(GameEnd { game, seen: seen.clone(), code });
+            false
+        });
+        ends
+    }
+
+    fn note_ends(&self, folder: &Path, ends: &[GameEnd]) {
+        use std::io::Write;
+        let kept = folder.join("kept");
+        let _ = fs::create_dir_all(&kept);
+        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(kept.join(ENDS)) {
+            for end in ends {
+                let _ = writeln!(file, "{}", end.to_line());
+            }
+        }
+    }
+
+    fn ends(&self, folder: &Path) -> Vec<GameEnd> {
+        fs::read_to_string(folder.join("kept").join(ENDS)).map(|text| text.lines().filter_map(GameEnd::from_line).collect()).unwrap_or_default()
     }
 
     fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)> {

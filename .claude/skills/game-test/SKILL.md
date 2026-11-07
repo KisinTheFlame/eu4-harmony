@@ -31,7 +31,7 @@ While you hold the game, every other session and the player wait for it, however
    - 4: the player takes the game, in two minutes. Stop using it, copy what you need from the user folder's logs if anything, and do not release: the player's claim ends the game and releases yours. Your run is unfinished; say so where you record it.
    - 0: you no longer hold the game.
 5. **Keep what the run produced**: release copies the framework's logs, the game's logs and the run's crash folders into the claim's `kept\`, which it prints and keeps for seven days. Read them there after the release, not with the game held, and copy what you need for longer to your scratchpad. `--keep-crashes` leaves the crash folders in the user folder too.
-6. **Release**: `cargo xtask game release`. It ends the game if it runs, puts back the player's files and the game folder's framework files and `dev.toml`, compares each, and frees the game. On a `NOT RESTORED` line it keeps the claim and stops: show the user those lines.
+6. **Release**: `cargo xtask game release`. It ends the game if it runs, puts back the player's files and the game folder's framework files and `dev.toml`, compares each, and frees the game. It says how each game the claim followed ended (an exit code that is not 0 or 1, such as `heap corruption`, is a crash, though it leaves no crash folder), so keep `watch` running while the game does. On a `NOT RESTORED` line it keeps the claim and stops: show the user those lines.
 
 Done when `release` reports `released` and `cargo xtask game status` lists no claim's folder or backup of yours. The release's summary says how long the claim was held: little more than the minutes the game was used is right.
 
