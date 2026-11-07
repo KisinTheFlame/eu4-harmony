@@ -21,6 +21,12 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 const MAP_MANAGER_DESTRUCTOR: usize = 0x80b570;
 /// `(message icon holder)`: empties it of its icons.
 const EMPTY_MESSAGE_ICONS: usize = 0xdffca0;
+/// `(message icon holder)`: its destructor, which the idler switch calls
+/// before it frees it.
+const MESSAGE_ICON_HOLDER_DESTRUCTOR: usize = 0xdf5180;
+/// `(map manager)`: the build of its interface, which an in-game load calls
+/// again.
+const INTERFACE_BUILD: usize = 0x81af10;
 /// The session's interface the map manager's destructor leaves, as an
 /// in-process return takes the session down
 /// (ADR return-to-the-main-menu-in-process).
@@ -131,8 +137,7 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
     };
     let icons = take(manager_fields::MESSAGE_ICON_HOLDER)?;
     if icons != 0 {
-        m.call(m.at(EMPTY_MESSAGE_ICONS), &[icons])?;
-        crate::game_heap::delete(m, icons, manager_fields::MESSAGE_ICON_HOLDER_SIZE)?;
+        let_message_icons_go(m, icons)?;
     }
     for field in manager_fields::SESSION_WINDOWS.iter().rev() {
         let window = take(*field)?;
@@ -154,6 +159,37 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
     Ok(gone)
 }
 
+/// A message icon holder goes as the idler switch lets it go: emptied of its
+/// icons, then destroyed, which lets its alerts' texts go, then freed.
+fn let_message_icons_go(m: &Memory, holder: usize) -> crate::Result<()> {
+    m.call(m.at(EMPTY_MESSAGE_ICONS), &[holder])?;
+    m.call(m.at(MESSAGE_ICON_HOLDER_DESTRUCTOR), &[holder])?;
+    crate::game_heap::delete(m, holder, manager_fields::MESSAGE_ICON_HOLDER_SIZE)
+}
+
+/// The map manager's interface is built again, at an in-game load: the
+/// build empties the message icon holder it made before and makes another
+/// in its place, and the one before stayed, about 10 KB with its alerts. So
+/// it goes first, and the build, finding none, makes the new one.
+extern "C" fn interface_building(frame: *mut HookFrame) {
+    crate::guarded("map manager interface build", || {
+        let manager = unsafe { (*frame).args[0] };
+        let m = crate::hooked_memory();
+        let let_go = (|| {
+            let holder = m.ptr(manager + manager_fields::MESSAGE_ICON_HOLDER)?;
+            if holder == 0 {
+                return Ok(());
+            }
+            m.write(manager + manager_fields::MESSAGE_ICON_HOLDER, &0usize.to_le_bytes())?;
+            let _letting_go = LettingGo::new("message icon holder");
+            let_message_icons_go(&m, holder)
+        })();
+        if let Err(e) = let_go {
+            log!("repair: the message icon holder the build before made was not let go: {e}");
+        }
+    });
+}
+
 pub(super) fn points() -> Vec<Point> {
     vec![
         Point::observe(
@@ -169,5 +205,24 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(EMPTY_MESSAGE_ICONS, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b f1 48 8d 59 40", "empty message icons"),
         // The rebuild empties the message icons, then makes a holder of this size.
         Point::keep(0x81d542usize, "e8 59 27 5e 00 b9 00 70 00 00", "message icon holder size"),
+        Point::keep(
+            MESSAGE_ICON_HOLDER_DESTRUCTOR,
+            "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57 41 56 41 57 48 83 ec 40",
+            "message icon holder destructor",
+        ),
+        // The idler switch destroys the holder, then frees it.
+        Point::keep(0x81ec3eusize, "48 8b bb 00 14 00 00 48 85 ff 74 15 48 8b cf e8 2e 65 5d 00", "map manager's message icon holder destroyed")
+            .uses(&[manager_fields::MESSAGE_ICON_HOLDER]),
+        Point::observe(
+            INTERFACE_BUILD,
+            "48 89 5c 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8d ac 24 c0 fa ff ff",
+            "map manager interface build",
+            1,
+            Some(interface_building),
+            None,
+        ),
+        // The build empties the holder there is, if any (MESSAGE_ICON_HOLDER).
+        Point::keep(0x81d536usize, "49 8b 8e 00 14 00 00 48 85 c9 74 05", "map manager interface build's message icon holder")
+            .uses(&[manager_fields::MESSAGE_ICON_HOLDER]),
     ]
 }
