@@ -2,11 +2,7 @@
 //! province, building, cancelling and destroying a building there through the
 //! game's own commands, and the event of a building finished
 //! (docs/research/province-view.md).
-use super::{
-    administration::MOST_CONSTRUCTIONS,
-    commands::{self, Refused},
-    context_any, events, fail, game, thousandths, with_state, Ctx, GResult, Session, Status, Tag,
-};
+use super::{action, administration::MOST_CONSTRUCTIONS, context_any, events, game, thousandths, with_state, Ctx, GResult, Session, Tag};
 use crate::{
     game_string,
     hooks::HookFrame,
@@ -240,16 +236,6 @@ pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<(Optio
     Ok((constructing, offers))
 }
 
-fn post(doing: &str, text: &str) -> GResult<()> {
-    match commands::post(text) {
-        Ok(()) => Ok(()),
-        Err(Refused::Check) => fail(Status::Rejected, format!("the game's command refuses to {doing}, and gives no reason")),
-        Err(Refused::NotTaken) => fail(Status::Rejected, "the game takes no orders from the player now"),
-        Err(Refused::Unread(how)) => fail(Status::Internal, format!("the game read the command otherwise: {how}")),
-        Err(Refused::Game(fail)) => Err(fail),
-    }
-}
-
 fn letters(tag: Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
 }
@@ -268,18 +254,18 @@ fn destroy_text(tag: Tag, province: u32, index: u32) -> String {
 }
 
 /// Starts building `key` in the province for the player.
-pub fn build(Session { m, ctx, .. }: Session, id: u32, key: String) -> GResult<()> {
+pub fn build(Session { m, ctx, commands, .. }: Session, id: u32, key: String) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let (building, index) = named(m, &key)?;
     let choice = can_build(m, &ctx, province, building)?;
     if !choice.can {
-        return Err(refuse::not_allowed("build it", &choice.reasons).into());
+        return Err(action::not_allowed("build it there", &choice.reasons));
     }
-    post("build it", &build_text(ctx.player, id, index))
+    action::post(commands, &build_text(ctx.player, id, index), "build it")
 }
 
 /// Cancels the building the player is building in the province.
-pub fn cancel(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
+pub fn cancel(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let Some(construction) = construction(m, province)? else {
         return Err(refuse::not_doing("building in", id).into());
@@ -287,13 +273,13 @@ pub fn cancel(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
     let building = m.ptr(construction + construction::MAKES)?;
     let (may, text) = game_string::written(m, |out| m.call(m.at(CAN_CANCEL), &[province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
     if may as u8 == 0 {
-        return Err(refuse::not_allowed("cancel it", &super::administration::reasons(&text)).into());
+        return Err(action::not_allowed("cancel it there", &super::administration::reasons(&text)));
     }
-    post("cancel it", &cancel_text(ctx.player, id, m.u32(building + fields::INDEX)?))
+    action::post(commands, &cancel_text(ctx.player, id, m.u32(building + fields::INDEX)?), "cancel it")
 }
 
 /// Destroys the building `key` in one of the player's provinces.
-pub fn destroy(Session { m, ctx, .. }: Session, id: u32, key: String) -> GResult<()> {
+pub fn destroy(Session { m, ctx, commands, .. }: Session, id: u32, key: String) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let (_, index) = named(m, &key)?;
     if Tag(m.u64(province + field::OWNER)?) != ctx.player {
@@ -302,7 +288,7 @@ pub fn destroy(Session { m, ctx, .. }: Session, id: u32, key: String) -> GResult
     if !stands(m, province, index)? {
         return Err(refuse::building_absent(&key, id).into());
     }
-    post("destroy it", &destroy_text(ctx.player, id, index))
+    action::post(commands, &destroy_text(ctx.player, id, index), "destroy it")
 }
 
 #[cfg(test)]

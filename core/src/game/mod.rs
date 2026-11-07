@@ -17,6 +17,7 @@
 //! addresses are RVAs in the 1.37.5 layout (see `baseline`), with the evidence
 //! in docs/research/ (provinces.md, armies.md, routes.md, army-orders.md,
 //! defeat.md, time.md, fog-of-war.md).
+pub mod action;
 pub mod administration;
 pub mod armies;
 #[cfg(test)]
@@ -204,17 +205,18 @@ fn game() -> GResult<&'static Memory> {
 }
 
 /// The session a capability reads, as its caller reads it: the game, the
-/// session at this instant ([`Ctx`]), how much of it the caller reads, and
-/// the caller. The catalogue opens it once for each request
-/// (`crate::catalogue::Live`) and hands it to the capability, which reaches
-/// the game through it alone; a test builds one over objects of its own
-/// (`buffers`).
+/// session at this instant ([`Ctx`]), how much of it the caller reads, the
+/// caller, and where its commands go. The catalogue opens it once for each
+/// request (`crate::catalogue::Live`) and hands it to the capability, which
+/// reaches the game through it alone; a test builds one over objects of its
+/// own (`buffers`), whose commands are recorded.
 #[derive(Clone, Copy, Debug)]
 pub struct Session {
     pub m: &'static Memory,
     pub ctx: Ctx,
     pub view: View,
     pub caller: Caller,
+    pub commands: commands::Commands,
 }
 
 impl Session {
@@ -227,26 +229,27 @@ impl Session {
     pub fn open(caller: Caller) -> GResult<Self> {
         let m = game()?;
         let ctx = context(m)?;
-        Ok(Self { m, ctx, view: view(caller), caller })
+        Ok(Self { m, ctx, view: view(caller), caller, commands: commands::Commands::Game })
     }
 
     /// The same session, as a capability that acts as no country reads it.
     pub fn world(self) -> GResult<WorldSession> {
-        Ok(WorldSession { m: self.m, world: world_context(self.m)?, view: self.view, caller: self.caller })
+        Ok(WorldSession { m: self.m, world: world_context(self.m)?, view: self.view, caller: self.caller, commands: self.commands })
     }
 }
 
 /// The session as a capability that acts as no country reads it: the game,
 /// the world at this instant ([`World`]) with its player, also while the
 /// player observes with no country in view, how much of it the caller reads,
-/// and the caller. The catalogue opens it for each request of such a
-/// capability, as it opens [`Session`] for the others.
+/// the caller, and where its commands go. The catalogue opens it for each
+/// request of such a capability, as it opens [`Session`] for the others.
 #[derive(Clone, Copy, Debug)]
 pub struct WorldSession {
     pub m: &'static Memory,
     pub world: World,
     pub view: View,
     pub caller: Caller,
+    pub commands: commands::Commands,
 }
 
 impl WorldSession {
@@ -254,7 +257,7 @@ impl WorldSession {
     /// for want of a country to act as.
     pub fn open(caller: Caller) -> GResult<Self> {
         let m = game()?;
-        Ok(Self { m, world: world_context(m)?, view: view(caller), caller })
+        Ok(Self { m, world: world_context(m)?, view: view(caller), caller, commands: commands::Commands::Game })
     }
 }
 

@@ -6,7 +6,7 @@
 //! says why not, or lists the allies that may take it; the window lists
 //! those, and picking one posts the transfer command for it, which asks the
 //! same check before the game carries it out.
-use super::{commands, diplomacy, with_state, GResult, Session, Tag};
+use super::{action, diplomacy, with_state, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, objects::campaign::province, points::Point};
 use eu4_harmony_checks::peace as checks;
 use eu4_harmony_remote::choices::Choice;
@@ -50,21 +50,17 @@ pub fn options(Session { m, ctx, .. }: Session, province: u32) -> GResult<Transf
 
 /// Hands `province` over to `ally`, as picking it in the window does; the
 /// country that occupies it after.
-pub fn transfer(Session { m, ctx, .. }: Session, province: u32, ally: Tag) -> GResult<Option<Tag>> {
+pub fn transfer(Session { m, ctx, commands, .. }: Session, province: u32, ally: Tag) -> GResult<Option<Tag>> {
     diplomacy::other(m, &ctx, ally)?;
     let at = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     let (allies, reasons) = check(m, ctx.country, at)?;
     let Some(allies) = allies else {
-        return Err(if reasons.is_empty() {
-            super::Fail { status: super::Status::Rejected, message: "the game does not let the player hand it over, and gives no reason".into() }
-        } else {
-            super::Fail { status: super::Status::Rejected, message: reasons.join("\n") }
-        });
+        return Err(action::not_allowed("hand it over", &reasons));
     };
     if !allies.iter().any(|a| a.index() == ally.index()) {
         return Err(checks::not_a_receiver(diplomacy::letters(ally), province).into());
     }
-    commands::post(&command(ally, province, ctx.player)).map_err(super::Fail::from)?;
+    action::post(commands, &command(ally, province, ctx.player), "hand it over")?;
     let controller = Tag(m.u64(at + province::CONTROLLER)?);
     Ok((controller.valid() && controller.normal()).then_some(controller))
 }

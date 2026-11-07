@@ -1,7 +1,7 @@
 //! Centers of trade: what the province view's center of trade button offers,
 //! and upgrading and downgrading one through the game's own command
 //! (docs/research/envoys.md, "Centers of trade").
-use super::{envoys, with_state, Ctx, GResult, Session, Tag};
+use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_remote::{
     centers_of_trade::CenterOfTradeOptions,
@@ -96,17 +96,14 @@ fn written(player: Tag, province: u32, level: u32) -> String {
 
 /// Upgrades (`up`) or downgrades the center of trade in the player's
 /// province `id` a level.
-pub fn change(Session { m, ctx, .. }: Session, id: u32, up: bool) -> GResult<()> {
+pub fn change(Session { m, ctx, commands, .. }: Session, id: u32, up: bool) -> GResult<()> {
     let (options, level) = read(m, &ctx, province(m, &ctx, id)?, id)?;
     let choice = if up { &options.upgrade } else { &options.downgrade };
     if level == 0 {
         return Err(eu4_harmony_checks::envoys::no_center_of_trade().into());
     }
-    if !choice.can {
-        let what = if up { "upgrade the center of trade" } else { "downgrade the center of trade" };
-        return Err(eu4_harmony_checks::envoys::not_allowed(what, &choice.reasons).into());
-    }
-    envoys::post(&written(ctx.player, id, if up { level + 1 } else { level - 1 }), "the center of trade command")
+    let doing = if up { "upgrade the center of trade" } else { "downgrade the center of trade" };
+    action::carry_out(commands, choice, doing, || Ok(written(ctx.player, id, if up { level + 1 } else { level - 1 })))
 }
 
 #[cfg(test)]

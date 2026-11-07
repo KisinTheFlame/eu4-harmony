@@ -2,12 +2,11 @@
 //! player through the game's own recruit command, as the recruit button in
 //! the province view orders it, so that the game's checks and costs apply
 //! (docs/research/recruiting.md). The command goes in its written form
-//! through the command layer ([`super::commands`]).
+//! through the session's commands ([`super::action`]).
 use super::{
-    commands::{self, Refused},
-    fail,
+    action,
     provinces::{can_recruit, unit_type, UnitKind},
-    with_state, GResult, Session, Status,
+    with_state, GResult, Session,
 };
 use crate::{game_string, objects::campaign::unit_type as unit_type_fields, unicode::game_text};
 
@@ -28,7 +27,7 @@ fn written(country: [u8; 3], province: u32, unit: &str) -> String {
 /// command layer has the game execute it at once (ADR commands-run-at-once), so
 /// orders given one after another are each checked against what the ones before
 /// left.
-pub fn recruit(Session { m, ctx, .. }: Session, id: u32, kind: UnitKind) -> GResult<()> {
+pub fn recruit(Session { m, ctx, commands, .. }: Session, id: u32, kind: UnitKind) -> GResult<()> {
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
@@ -38,17 +37,12 @@ pub fn recruit(Session { m, ctx, .. }: Session, id: u32, kind: UnitKind) -> GRes
     };
     let (allowed, reasons) = can_recruit(m, &ctx, address, unit_type)?;
     if !allowed {
-        return Err(eu4_harmony_checks::recruiting::not_allowed(&reasons).into());
+        return Err(action::not_allowed("recruit it there", &reasons));
     }
     let unit = game_text::to_utf8(&game_string::read(m, unit_type + unit_type_fields::NAME)?);
-    match commands::post(&written(ctx.player.letters(), id, &unit)) {
-        Ok(()) => Ok(()),
-        // What the snapshot leaves out: the command's own rule for ships.
-        Err(Refused::Check) => fail(Status::Rejected, "the game's recruit command refuses it, and gives no reason"),
-        Err(Refused::NotTaken) => fail(Status::Rejected, "the game takes no orders from the player now"),
-        Err(Refused::Unread(how)) => fail(Status::Internal, format!("the game read the recruit command otherwise: {how}")),
-        Err(Refused::Game(fail)) => Err(fail),
-    }
+    // The command's own check adds what the snapshot leaves out: its rule
+    // for ships.
+    action::post(commands, &written(ctx.player.letters(), id, &unit), "recruit it there")
 }
 
 #[cfg(test)]

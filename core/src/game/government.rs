@@ -1,7 +1,7 @@
 //! Government: the player's government reforms and rank, adopting reforms
 //! and raising the rank, through the game's own commands
 //! (docs/research/government.md, "Reforms" and "Rank").
-use super::{conditions, content, thousandths, GResult, Session, Tag};
+use super::{action, conditions, content, thousandths, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
@@ -191,7 +191,7 @@ fn written_rank(country: Tag, rank: i32) -> String {
 }
 
 /// Adopts a reform for the player, as its button does.
-pub fn adopt_reform(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn adopt_reform(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let government = government(m, ctx.country)?;
     let adopted = adopted(m, government)?;
     for (tier, (_, reforms)) in tiers(m, government)?.into_iter().enumerate() {
@@ -202,21 +202,21 @@ pub fn adopt_reform(Session { m, ctx, .. }: Session, key: String) -> GResult<()>
         let reached = reforms.iter().any(|r| adopted.contains(r));
         let choice = choice(m, ctx.country, ctx.player, government, tier, reached, reform)?;
         if !choice.can {
-            return content::refused(&choice.reasons, "adopting this reform");
+            return Err(action::not_allowed("adopt this reform", &choice.reasons));
         }
         let text = if reached { written_change(ctx.player, &key, tier) } else { written_select(ctx.player, &key) };
-        return content::post(&text, "adopting this reform");
+        return action::post(commands, &text, "adopt this reform");
     }
     Err(checks::not_found("government reform", &key).into())
 }
 
 /// Raises the player's government rank by one.
-pub fn raise_rank(Session { m, ctx, .. }: Session) -> GResult<()> {
+pub fn raise_rank(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
     let (can, reasons) = content::checked(m, |reasons| Ok(m.call(m.at(CAN_RAISE), &[ctx.country, reasons])?))?;
     if !can {
-        return content::refused(&reasons, "raising the government rank");
+        return Err(action::not_allowed("raise the government rank", &reasons));
     }
-    content::post(&written_rank(ctx.player, m.i32(ctx.country + RANK)? + 1), "raising the government rank")
+    action::post(commands, &written_rank(ctx.player, m.i32(ctx.country + RANK)? + 1), "raise the government rank")
 }
 
 #[cfg(test)]

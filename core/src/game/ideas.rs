@@ -1,7 +1,7 @@
 //! Ideas: the idea groups of the ideas view, taking one, buying its ideas
 //! and abandoning it, through the game's own commands
 //! (docs/research/government.md, "Ideas").
-use super::{conditions, content, power, GResult, Session, Tag};
+use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::{
     memory::Memory,
     objects::campaign::{country, idea_group},
@@ -221,20 +221,20 @@ fn written_buy(country: Tag, index: u32, skill: u32) -> String {
 }
 
 /// Takes an idea group for the player, as its button does.
-pub fn take_group(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn take_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     if taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has taken the idea group {key} already")).into());
     }
     let choice = take_choice(m, ctx.country, ctx.player, &group)?;
     if !choice.can {
-        return content::refused(&choice.reasons, "taking this idea group");
+        return Err(action::not_allowed("take this idea group", &choice.reasons));
     }
-    content::post(&written("add_idea_group", ctx.player, &key), "taking this idea group")
+    action::post(commands, &written("add_idea_group", ctx.player, &key), "take this idea group")
 }
 
 /// Buys the next idea of an idea group the player has taken.
-pub fn buy(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn buy(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     let Some(&(_, bought)) = taken(m, ctx.country)?.iter().find(|&&(t, _)| t == group.at) else {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")).into());
@@ -244,18 +244,18 @@ pub fn buy(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
     };
     let choice = buy_choice(m, ctx.country, ctx.player, &group, idea)?;
     if !choice.can {
-        return content::refused(&choice.reasons, "buying this idea");
+        return Err(action::not_allowed("buy this idea", &choice.reasons));
     }
-    content::post(&written_buy(ctx.player, idea_index(m, idea)?, group.category), "buying this idea")
+    action::post(commands, &written_buy(ctx.player, idea_index(m, idea)?, group.category), "buy this idea")
 }
 
 /// Abandons an idea group the player has taken.
-pub fn abandon_group(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn abandon_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     if !taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")).into());
     }
-    content::post(&written("abandon_idea_group", ctx.player, &key), "abandoning this idea group")
+    action::post(commands, &written("abandon_idea_group", ctx.player, &key), "abandon this idea group")
 }
 
 #[cfg(test)]

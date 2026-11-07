@@ -2,7 +2,7 @@
 //! player's leaders, and giving one to an army or a fleet, through the
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
-use super::{commands, modifiers, world, Caller, Ctx, GResult, Session};
+use super::{action, modifiers, world, Caller, Ctx, GResult, Session};
 use crate::{
     game_string,
     memory::Memory,
@@ -270,13 +270,13 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 /// name the game picks.
 pub fn recruit(caller: Caller, word: String) -> GResult<Leader> {
     let kind = kind(&word)?;
-    let Session { m, ctx, .. } = Session::open(caller)?;
+    let Session { m, ctx, commands, .. } = Session::open(caller)?;
     let o = option(m, &ctx, kind)?;
     if !o.choice.can {
-        return Err(checks::not_allowed(&format!("recruit a leader of the kind {word}"), &o.choice.reasons).into());
+        return Err(action::not_allowed(&format!("recruit a leader of the kind {word}"), &o.choice.reasons));
     }
     let before = addresses(m, &ctx)?;
-    commands::post(&create_text(ctx.player.letters(), kind))?;
+    action::post(commands, &create_text(ctx.player.letters(), kind), &format!("recruit a leader of the kind {word}"))?;
     let Some(new) = addresses(m, &ctx)?.into_iter().find(|a| !before.contains(a)) else {
         return Err("the game recruited no leader".to_string().into());
     };
@@ -284,7 +284,7 @@ pub fn recruit(caller: Caller, word: String) -> GResult<Leader> {
 }
 
 /// Gives a leader to one of the player's armies or fleets.
-pub fn assign(Session { m, ctx, .. }: Session, id: u32, army: u64) -> GResult<()> {
+pub fn assign(Session { m, ctx, commands, .. }: Session, id: u32, army: u64) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     let unit = world::own_unit(m, &ctx, army)?;
     let kind = read(m, leader)?.kind;
@@ -297,34 +297,34 @@ pub fn assign(Session { m, ctx, .. }: Session, id: u32, army: u64) -> GResult<()
     let (takes, text) = game_string::written(m, |t| m.call(m.at(MAY_TAKE), &[leader, unit, t]))?;
     reasons.extend(super::reasons(&text));
     if leaves as u8 == 0 || takes as u8 == 0 {
-        return Err(checks::not_allowed("give this leader to this unit", &reasons).into());
+        return Err(action::not_allowed("give this leader to this unit", &reasons));
     }
-    commands::post(&assign_text(leader_id(id), army))?;
+    action::post(commands, &assign_text(leader_id(id), army), "give this leader to this unit")?;
     Ok(())
 }
 
 /// Takes the leader from one of the player's armies or fleets, as the
 /// panel's remove button does: the command with the empty leader ID.
-pub fn remove(Session { m, ctx, .. }: Session, army: u64) -> GResult<()> {
+pub fn remove(Session { m, ctx, commands, .. }: Session, army: u64) -> GResult<()> {
     let unit = world::own_unit(m, &ctx, army)?;
     let leader = m.ptr(unit + UNIT_LEADER)?;
     if leader != 0 && m.ptr(leader + leader::UNIT)? == unit {
         let (leaves, text) = game_string::written(m, |t| m.call(m.at(MAY_LEAVE), &[leader, t]))?;
         if leaves as u8 == 0 {
-            return Err(checks::not_allowed("take the leader from this unit", &super::reasons(&text)).into());
+            return Err(action::not_allowed("take the leader from this unit", &super::reasons(&text)));
         }
     }
-    commands::post(&assign_text(0, army))?;
+    action::post(commands, &assign_text(0, army), "take the leader from this unit")?;
     Ok(())
 }
 
 /// Dismisses one of the player's leaders that leads no unit.
-pub fn dismiss(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
+pub fn dismiss(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     if m.ptr(leader + leader::UNIT)? != 0 {
         return Err(checks::leads_a_unit(id).into());
     }
-    commands::post(&dismiss_text(ctx.player.letters(), leader_id(id)))?;
+    action::post(commands, &dismiss_text(ctx.player.letters(), leader_id(id)), "dismiss this leader")?;
     Ok(())
 }
 

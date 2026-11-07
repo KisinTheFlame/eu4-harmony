@@ -1,7 +1,7 @@
 //! Missions: the player's missions as the missions view shows them, and
 //! completing one, through the game's own command
 //! (docs/research/government.md, "Missions").
-use super::{conditions, content, GResult, Session, Tag};
+use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
@@ -97,7 +97,7 @@ fn written(country: Tag, mission: &str) -> String {
 }
 
 /// Completes one of the player's missions.
-pub fn complete(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn complete(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let all: Vec<usize> = columns(m, ctx.country)?.into_iter().flatten().collect();
     for &mission in &all {
         if content::key(m, mission + KEY)? != key {
@@ -105,9 +105,9 @@ pub fn complete(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
         }
         let choice = choice(m, ctx.player, mission, completed(m, ctx.country, mission)?)?;
         if !choice.can {
-            return content::refused(&choice.reasons, "completing this mission");
+            return Err(action::not_allowed("complete this mission", &choice.reasons));
         }
-        return content::post(&written(ctx.player, &key), "completing this mission");
+        return action::post(commands, &written(ctx.player, &key), "complete this mission");
     }
     Err(checks::not_found("mission", &key).into())
 }

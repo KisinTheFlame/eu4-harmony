@@ -141,12 +141,12 @@ pub fn offer(session: Session, enemy: Tag, terms: &[Term]) -> GResult<Ticket> {
     send(session, enemy, terms, true)
 }
 
-fn send(Session { m, ctx, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Ticket> {
+fn send(Session { m, ctx, commands, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Ticket> {
     at_war(m, &ctx, enemy)?;
     let treaty = composed(m, &ctx, enemy, terms, offer)?;
     let offered = Offer::new(m, &ctx, enemy, &treaty, offer)?;
     diplomacy::verdict(m, offered.at())?;
-    diplomacy::send(m, &ctx, offered.at(), enemy, Vec::new())
+    diplomacy::send(commands, m, &ctx, offered.at(), enemy, Vec::new())
 }
 
 /// Whether `enemy` is a country the player is at war with.

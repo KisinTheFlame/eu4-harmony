@@ -3,7 +3,7 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, context, events, player::Eyes, span, thousandths, with_state, world_context, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
+use super::{commands, context, events, player::Eyes, span, thousandths, with_state, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
 use crate::{
     game_string,
     memory::Memory,
@@ -203,8 +203,8 @@ pub fn province(WorldSession { m, world, view, .. }: WorldSession, id: u32) -> G
 }
 
 /// [`province`], for what acts as a country: failing with none to act as.
-pub fn acting_province(Session { m, view, caller, .. }: Session, id: u32) -> GResult<Snapshot> {
-    province(WorldSession { m, world: world_context(m)?, view, caller }, id)
+pub fn acting_province(session: Session, id: u32) -> GResult<Snapshot> {
+    province(session.world()?, id)
 }
 
 /// The game's getters of a province's base tax, production and manpower, as

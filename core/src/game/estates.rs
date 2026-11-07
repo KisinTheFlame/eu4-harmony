@@ -2,7 +2,7 @@
 //! interactions over crown land, granting and revoking privileges and the
 //! interactions, through the game's own commands
 //! (docs/research/government.md, "Estates").
-use super::{conditions, content, modifiers, thousandths, GResult, Session, Tag};
+use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
 use crate::{memory::Memory, objects::campaign::country, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
@@ -235,42 +235,42 @@ fn written_interaction(country: Tag, interaction: usize) -> String {
 }
 
 /// Grants an estate of the player's a privilege.
-pub fn grant_privilege(Session { m, ctx, .. }: Session, estate: String, privilege: String) -> GResult<()> {
+pub fn grant_privilege(Session { m, ctx, commands, .. }: Session, estate: String, privilege: String) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if has {
         return Err(checks::not_now(format!("{estate} has the privilege {privilege} already")).into());
     }
     let choice = choice(m, ctx.player, entry, p, false)?;
     if !choice.can {
-        return content::refused(&choice.reasons, "granting this privilege");
+        return Err(action::not_allowed("grant this privilege", &choice.reasons));
     }
-    content::post(&written("grant_privilege", ctx.player, estate_index(m, at)?, privilege_index(m, p)?), "granting this privilege")
+    action::post(commands, &written("grant_privilege", ctx.player, estate_index(m, at)?, privilege_index(m, p)?), "grant this privilege")
 }
 
 /// Revokes a privilege the player granted an estate.
-pub fn revoke_privilege(Session { m, ctx, .. }: Session, estate: String, privilege: String) -> GResult<()> {
+pub fn revoke_privilege(Session { m, ctx, commands, .. }: Session, estate: String, privilege: String) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if !has {
         return Err(checks::not_now(format!("{estate} does not have the privilege {privilege}")).into());
     }
     let choice = choice(m, ctx.player, entry, p, true)?;
     if !choice.can {
-        return content::refused(&choice.reasons, "revoking this privilege");
+        return Err(action::not_allowed("revoke this privilege", &choice.reasons));
     }
-    content::post(&written("revoke_privilege", ctx.player, estate_index(m, at)?, privilege_index(m, p)?), "revoking this privilege")
+    action::post(commands, &written("revoke_privilege", ctx.player, estate_index(m, at)?, privilege_index(m, p)?), "revoke this privilege")
 }
 
 /// Uses one of the estates view's interactions over crown land.
-pub fn interact(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn interact(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     for (index, at) in interactions(m)?.into_iter().enumerate() {
         if content::key(m, at + INTERACTION_KEY)? != key {
             continue;
         }
         let choice = interaction_choice(m, ctx.country, at)?;
         if !choice.can {
-            return content::refused(&choice.reasons, "this interaction");
+            return Err(action::not_allowed("use this interaction", &choice.reasons));
         }
-        return content::post(&written_interaction(ctx.player, index), "this interaction");
+        return action::post(commands, &written_interaction(ctx.player, index), "use this interaction");
     }
     Err(checks::not_found("crown land interaction", &key).into())
 }

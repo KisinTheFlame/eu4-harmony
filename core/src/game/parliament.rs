@@ -1,7 +1,7 @@
 //! Parliament: the issues the parliament view offers, starting a debate,
 //! giving provinces seats, through the game's own commands
 //! (docs/research/government.md, "Parliament").
-use super::{conditions, content, GResult, Session, Tag};
+use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
@@ -110,7 +110,7 @@ fn written_seat(command: &str, country: Tag, province: u32) -> String {
 }
 
 /// Brings an issue on offer to debate.
-pub fn debate(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let parliament = m.ptr(ctx.country + PARLIAMENT)?;
     if parliament == 0 {
         return Err(checks::not_now("the player has no parliament").into());
@@ -121,28 +121,28 @@ pub fn debate(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
         }
         let choice = choice(m, parliament, ctx.player, issue)?;
         if !choice.can {
-            return content::refused(&choice.reasons, "debating this issue");
+            return Err(action::not_allowed("debate this issue", &choice.reasons));
         }
-        return content::post(&written_debate(ctx.player, &key), "debating this issue");
+        return action::post(commands, &written_debate(ctx.player, &key), "debate this issue");
     }
     Err(checks::not_found("parliament issue on offer", &key).into())
 }
 
 /// Gives a province of the player's a seat in parliament.
 pub fn add_seat(session: Session, province: u32) -> GResult<()> {
-    seat(session, "add_to_parliament_command", province, "giving this province a seat")
+    seat(session, "add_to_parliament_command", province, "give this province a seat")
 }
 
 /// Takes a province's seat in parliament away.
 pub fn remove_seat(session: Session, province: u32) -> GResult<()> {
-    seat(session, "remove_from_parliament_command", province, "taking this province's seat away")
+    seat(session, "remove_from_parliament_command", province, "take this province's seat away")
 }
 
-fn seat(Session { m, ctx, .. }: Session, command: &str, province: u32, what: &str) -> GResult<()> {
+fn seat(Session { m, ctx, commands, .. }: Session, command: &str, province: u32, what: &str) -> GResult<()> {
     if m.ptr(ctx.country + PARLIAMENT)? == 0 {
         return Err(checks::not_now("the player has no parliament").into());
     }
-    content::post(&written_seat(command, ctx.player, province), what)
+    action::post(commands, &written_seat(command, ctx.player, province), what)
 }
 
 #[cfg(test)]

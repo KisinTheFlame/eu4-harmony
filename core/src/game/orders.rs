@@ -1,7 +1,7 @@
 //! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
-use super::{armies::RouteSource, commands, events::Change, fail, paused, span, world, Caller, Ctx, Fail, GResult, Status, MAX_UNITS};
+use super::{armies::RouteSource, commands::Commands, events::Change, fail, paused, span, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
 use crate::{
     memory::Memory,
     objects::{
@@ -336,20 +336,11 @@ impl Orders {
     /// refused when the game finds none. To the province it is in, it stops
     /// the army, as the right click there does. Returns the player's order
     /// when the caller acts as the player.
-    #[expect(clippy::too_many_arguments, reason = "each is its own input to the order; a struct would only rename them")]
-    pub fn move_army(
-        &mut self,
-        m: &Memory,
-        ctx: &Ctx,
-        geography: &mut world::Geography,
-        army: usize,
-        id: u64,
-        goal: u32,
-        caller: Caller,
-    ) -> GResult<Option<Change>> {
+    pub fn move_army(&mut self, session: &Session, geography: &mut world::Geography, army: usize, id: u64, goal: u32) -> GResult<Option<Change>> {
+        let (m, ctx, caller) = (session.m, &session.ctx, session.caller);
         let before = preflight(m, ctx, army, caller)?;
         if goal == before.origin {
-            return self.stop_army(m, ctx, army, id, caller);
+            return self.stop_army(session, army, id);
         }
         // The route query the command makes, asked first: the command does
         // nothing, and says nothing, when it finds no route.
@@ -357,7 +348,7 @@ impl Orders {
             let sea = geography.province_address(m, ctx, goal)?;
             return Err(boarding_refused(m, ctx, army, sea, goal)?.unwrap_or_else(|| checks::no_route(goal)).into());
         }
-        order(&move_text(m.u64(army + unit::ID)?, before.origin, goal))?;
+        order(session.commands, &move_text(m.u64(army + unit::ID)?, before.origin, goal))?;
         let after = read_path(m, army + unit::PATH)?;
         if after.ids.last() != Some(&goal) {
             return Err("the game's move command left the army without a route to its goal".to_string().into());
@@ -368,10 +359,11 @@ impl Orders {
     /// Stops the army where it is, with the game's command that cancels its
     /// movement, as the player's right click on the province it is in does.
     /// Returns the player's order when the caller acts as the player.
-    pub fn stop_army(&mut self, m: &Memory, ctx: &Ctx, army: usize, id: u64, caller: Caller) -> GResult<Option<Change>> {
-        let before = preflight(m, ctx, army, caller)?;
+    pub fn stop_army(&mut self, session: &Session, army: usize, id: u64) -> GResult<Option<Change>> {
+        let (m, caller) = (session.m, session.caller);
+        let before = preflight(m, &session.ctx, army, caller)?;
         if !before.path.ids.is_empty() {
-            order(&stop_text(m.u64(army + unit::ID)?))?;
+            order(session.commands, &stop_text(m.u64(army + unit::ID)?))?;
         }
         if !read_path(m, army + unit::PATH)?.ids.is_empty() {
             return Err("army still has a route after stop".to_string().into());
@@ -433,7 +425,8 @@ pub const TRANSPORTS: usize = 0x342170;
 /// Has the player's fleets carry an own land army to `goal`, as the right
 /// click's automatic transport does once the player accepts its dialog: the
 /// fleets that may carry it, and the game's transport command for them.
-pub fn transport(m: &Memory, ctx: &Ctx, army: usize, id: u64, goal: u32) -> GResult<()> {
+pub fn transport(session: &Session, army: usize, id: u64, goal: u32) -> GResult<()> {
+    let (m, ctx) = (session.m, &session.ctx);
     let mut vector = [0u64; 3];
     let at = vector.as_mut_ptr() as usize;
     let called = m.call(m.at(TRANSPORTS), &[ctx.country, at, army]);
@@ -458,7 +451,7 @@ pub fn transport(m: &Memory, ctx: &Ctx, army: usize, id: u64, goal: u32) -> GRes
     if fleets.is_empty() {
         return Err(checks::no_transports().into());
     }
-    order(&transport_text(id, &fleets, goal))
+    order(session.commands, &transport_text(id, &fleets, goal))
 }
 
 /// The automatic transport command: the army, the fleets that carry it, and
@@ -487,17 +480,14 @@ fn unit_text(id: u64) -> String {
     format!("{{ id={} type={} }}", (id >> 32) as i32, id as u32 as i32)
 }
 
-/// Has the game carry out the army's command `text` at once, the route
-/// changes it makes the framework's own.
-fn order(text: &str) -> GResult<()> {
-    commands::post_with(text, |run| {
+/// Has the game carry out the army's command `text` through `commands` at
+/// once, the route changes it makes the framework's own.
+fn order(commands: Commands, text: &str) -> GResult<()> {
+    let posted = commands.post_with(text, |run| {
         let _own = OwnGuard::new();
         run()
-    })
-    .map_err(|refused| match refused {
-        commands::Refused::Check => Fail { status: Status::Rejected, message: "the game's command refuses it, and gives no reason".into() },
-        refused => refused.into(),
-    })
+    });
+    posted.map_err(|refused| super::action::refused(refused, "order the army there"))
 }
 
 #[cfg(test)]

@@ -122,7 +122,7 @@ pub struct Details {
 /// panel does not offer it toward that country now, or the game does not let
 /// the player send it, with its reasons; [`Status::InvalidArgument`] when
 /// the act's window needs a choice `details` does not make.
-pub fn act(Session { m, ctx, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
+pub fn act(Session { m, ctx, commands, .. }: Session, country: Tag, what: &What, details: &Details) -> GResult<Ticket> {
     other(m, &ctx, country)?;
     let panel = Panel::list(m, &ctx, country)?;
     let mut found = None;
@@ -143,7 +143,7 @@ pub fn act(Session { m, ctx, .. }: Session, country: Tag, what: &What, details: 
         fill(m, &ctx, at, country, *act, details)?;
     }
     verdict(m, at)?;
-    send(m, &ctx, at, country, Vec::new())
+    send(commands, m, &ctx, at, country, Vec::new())
 }
 
 /// The window an act opens writes what the player chooses into the action's

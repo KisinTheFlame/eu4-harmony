@@ -1,7 +1,7 @@
 //! Loans: the player's loans, as the economy view's loan window lists them,
 //! and repaying one with its repay button (docs/research/power-spending.md,
 //! "Loans").
-use super::{power, thousandths, GResult, Session, Tag};
+use super::{action, power, thousandths, GResult, Session, Tag};
 use crate::{
     memory::Memory,
     objects::{
@@ -101,15 +101,12 @@ fn written(country: [u8; 3], id: u32, kind: u32) -> String {
 
 /// Repays the player's loan with the ID `id`, as its repay button does once
 /// the player confirms.
-pub fn repay(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
+pub fn repay(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let Some(loan) = find(m, ctx.country, id)? else {
         return Err(eu4_harmony_checks::loans::not_found(id).into());
     };
     let choice = read(m, ctx.country, loan)?.repay;
-    if !choice.can {
-        return Err(eu4_harmony_checks::choices::not_allowed("repay the loan", &choice.reasons).into());
-    }
-    power::post(&written(ctx.player.letters(), id, m.u32(loan + ID_TYPE)?), "repay the loan")
+    action::carry_out(commands, &choice, "repay the loan", || Ok(written(ctx.player.letters(), id, m.u32(loan + ID_TYPE)?)))
 }
 
 fn find(m: &Memory, country: usize, id: u32) -> GResult<Option<usize>> {
@@ -123,8 +120,55 @@ fn find(m: &Memory, country: usize, id: u32) -> GResult<Option<usize>> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::{record, Refused},
+        Caller, Fail, Status,
+    };
+
     #[test]
     fn the_command_names_the_country_and_the_loan() {
         assert_eq!(super::written(*b"FRA", 12, 4713), r#"pay_loan={ country="FRA" loan={ id=12 type=4713 } }"#);
+    }
+
+    /// The fee's function: no interest left to pay, written to `out`.
+    extern "C" fn no_fee(_: usize, out: usize) -> usize {
+        unsafe { *(out as *mut i32) = 0 };
+        0
+    }
+
+    /// France, with 500 ducats and one loan of 200, its ID 12 of type 4713,
+    /// and the session of it whose commands are recorded.
+    struct France {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn france() -> France {
+        let image = Image::new();
+        image.function(FEE, no_fee as *const ());
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let loan = Object::new(fields::DUE + 4).u32(ID_TYPE, 4713).u32(ID, 12).i32(fields::AMOUNT, 200);
+        let node = Object::new(list::REMOVED + 8).points_to(list::ITEM, loan);
+        let country = Object::country(fra, country::LOANS + 8).i32(country::TREASURY, 500_000).points_to(country::LOANS + list::HEAD, node);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote);
+        France { _image: image, _objects: vec![country, countries], session }
+    }
+
+    #[test]
+    fn repaying_a_loan_posts_the_repay_button_s_command_through_the_session() {
+        let france = france();
+        repay(france.session, 12).unwrap();
+        assert_eq!(record::posted(), [r#"pay_loan={ country="FRA" loan={ id=12 type=4713 } }"#]);
+        let Err(Fail { status, message }) = repay(france.session, 13) else { panic!("loan 13 was repaid") };
+        assert_eq!((status, message.as_str()), (Status::NotFound, "the player has no loan 13"));
+        // The command's own check is the game's, and gives no reason.
+        record::refuse_next(Refused::Check);
+        let Err(Fail { status, message }) = repay(france.session, 12) else { panic!("the refused command was posted") };
+        assert_eq!((status, message.as_str()), (Status::Rejected, "the game's command refuses to repay the loan, and gives no reason"));
+        assert!(record::posted().is_empty());
     }
 }

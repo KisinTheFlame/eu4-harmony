@@ -1,7 +1,7 @@
 //! The national focus: which kind of monarch power the player's country
 //! favors, as the court view's focus buttons set it
 //! (docs/research/power-spending.md, "National focus").
-use super::{power, technology::key, GResult, Session};
+use super::{action, power, technology::key, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point};
 use eu4_harmony_remote::{
     choices::{Choice, PowerKind},
@@ -68,27 +68,21 @@ fn written(country: [u8; 3], focus: i32) -> String {
 }
 
 /// Sets the focus on `kind`, as its button does.
-pub fn choose(Session { m, ctx, .. }: Session, kind: PowerKind) -> GResult<()> {
+pub fn choose(Session { m, ctx, commands, .. }: Session, kind: PowerKind) -> GResult<()> {
     if focus_of(m, ctx.country)? == Some(kind) {
         return Err(eu4_harmony_checks::focus::already(key(kind)).into());
     }
-    let (may, why) = may_change(m, ctx.country)?;
-    if !may {
-        return Err(eu4_harmony_checks::choices::not_allowed("change the national focus", &why).into());
-    }
-    power::post(&written(ctx.player.letters(), kind as i32), "change the national focus")
+    let choice = choice(&may_change(m, ctx.country)?);
+    action::carry_out(commands, &choice, "change the national focus", || Ok(written(ctx.player.letters(), kind as i32)))
 }
 
 /// Removes the focus, as pressing the button of the focus set does.
-pub fn cancel(Session { m, ctx, .. }: Session) -> GResult<()> {
+pub fn cancel(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
     if focus_of(m, ctx.country)?.is_none() {
         return Err(eu4_harmony_checks::focus::none_set().into());
     }
-    let (may, why) = may_change(m, ctx.country)?;
-    if !may {
-        return Err(eu4_harmony_checks::choices::not_allowed("change the national focus", &why).into());
-    }
-    power::post(&written(ctx.player.letters(), NONE), "remove the national focus")
+    let choice = choice(&may_change(m, ctx.country)?);
+    action::carry_out(commands, &choice, "remove the national focus", || Ok(written(ctx.player.letters(), NONE)))
 }
 
 #[cfg(test)]

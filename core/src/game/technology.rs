@@ -2,6 +2,7 @@
 //! them, and researching the next level with its research button
 //! (docs/research/power-spending.md, "Technology").
 use super::{
+    action,
     power::{self, ADVANCE_TECH},
     GResult, Session, Tag,
 };
@@ -149,16 +150,13 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<TechnologyOption>
 
 /// Researches the next level of `technology`, as the view's research button
 /// does: the game's spend_power command with the category's index.
-pub fn research(Session { m, ctx, .. }: Session, technology: PowerKind) -> GResult<()> {
+pub fn research(Session { m, ctx, commands, .. }: Session, technology: PowerKind) -> GResult<()> {
     let category = category(m, ctx.country, technology)?;
     if category.level >= category.last {
         return Err(eu4_harmony_checks::technology::last_level(key(technology)).into());
     }
-    let choice = choice(m, ctx.player, ctx.country, ctx.date, &category)?;
-    if !choice.can {
-        return Err(eu4_harmony_checks::choices::not_allowed("research it", &choice.reasons).into());
-    }
-    power::spend(ctx.player, ADVANCE_TECH, technology, category.index, "research it")
+    action::allowed(&choice(m, ctx.player, ctx.country, ctx.date, &category)?, "research it")?;
+    power::spend(commands, ctx.player, ADVANCE_TECH, technology, category.index, "research it")
 }
 
 /// A kind of power as its argument names it.

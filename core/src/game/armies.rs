@@ -189,21 +189,23 @@ pub fn find_route(Session { m, ctx, caller, .. }: Session, id: u64, goal: u32) -
 /// is the player's, given while the game is paused as the player gives one.
 /// With `transports`, an own land army is carried there by the player's
 /// fleets, as the player's automatic transport carries it.
-pub fn move_to(Session { m, ctx, caller, .. }: Session, id: u64, goal: u32, transports: bool) -> GResult<()> {
+pub fn move_to(session: Session, id: u64, goal: u32, transports: bool) -> GResult<()> {
+    let Session { m, ctx, .. } = session;
     if transports {
         let army = world::own_land_army(m, &ctx, id)?;
-        return orders::transport(m, &ctx, army, id, goal);
+        return orders::transport(&session, army, id, goal);
     }
     let army = world::own_unit(m, &ctx, id)?;
-    let ordered = with_state(|s| s.orders.move_army(m, &ctx, &mut s.geography, army, id, goal, caller))?;
+    let ordered = with_state(|s| s.orders.move_army(&session, &mut s.geography, army, id, goal))?;
     ordered.into_iter().for_each(events::raise);
     Ok(())
 }
 
 /// Stops an own land army where it is.
-pub fn stop(Session { m, ctx, caller, .. }: Session, id: u64) -> GResult<()> {
+pub fn stop(session: Session, id: u64) -> GResult<()> {
+    let Session { m, ctx, .. } = session;
     let army = world::own_land_army(m, &ctx, id)?;
-    let ordered = with_state(|s| s.orders.stop_army(m, &ctx, army, id, caller))?;
+    let ordered = with_state(|s| s.orders.stop_army(&session, army, id))?;
     ordered.into_iter().for_each(events::raise);
     Ok(())
 }

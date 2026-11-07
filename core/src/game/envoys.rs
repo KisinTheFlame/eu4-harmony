@@ -1,11 +1,7 @@
 //! What the player's missionaries, colonists and merchants have in common:
-//! the country's pools of envoys, each kind's count and how many are free,
-//! and posting the command a panel's button posts for them
+//! the country's pools of envoys, each kind's count and how many are free
 //! (docs/research/envoys.md).
-use super::{
-    commands::{self, Refused},
-    fail, GResult, Status,
-};
+use super::GResult;
 use crate::{memory::Memory, points::Point, unicode::game_text};
 
 /// A country's envoys: a pointer to the pools, one per kind at its offset.
@@ -90,18 +86,6 @@ pub fn failing(text: &[u8]) -> Vec<String> {
 /// Game text's reasons as plain Unicode lines, a bullet left out.
 pub fn lines(text: &[u8]) -> Vec<String> {
     game_text::plain(text).lines().map(|l| l.trim()).map(|l| l.strip_prefix("- ").unwrap_or(l).trim()).filter(|l| !l.is_empty()).map(str::to_string).collect()
-}
-
-/// Has the game carry out the command `text` writes, as the button posts it;
-/// `what` names it in a refusal ("the missionary command").
-pub fn post(text: &str, what: &str) -> GResult<()> {
-    match commands::post(text) {
-        Ok(()) => Ok(()),
-        Err(Refused::Check) => fail(Status::Rejected, format!("{what} refuses it, and gives no reason")),
-        Err(Refused::NotTaken) => fail(Status::Rejected, "the game takes no orders from the player now"),
-        Err(Refused::Unread(how)) => fail(Status::Internal, format!("the game read {what} otherwise: {how}")),
-        Err(Refused::Game(fail)) => Err(fail),
-    }
 }
 
 /// A tag as a command's text writes it.
