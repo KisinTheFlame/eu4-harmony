@@ -75,6 +75,8 @@ Two games side by side, each loaded from `observer-1700.1.1.eu4` and run at spee
 
 Nothing in the game needs to change: the instance check needs no dependency point.
 
+Built on 2026-11-08 as test games ([test-games.md](../test-games.md)), with the pipe a test game's own in a developer build only.
+
 ## Open questions
 
 - Whether Steam lets the player start the game, from Steam or the Paradox launcher, while a development game runs; Steam marks the game running (_inferred_).

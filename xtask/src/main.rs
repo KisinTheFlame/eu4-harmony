@@ -26,15 +26,15 @@ usage:
       library that holds Europa Universalis IV. Every command that needs the
       game finds it so; game, install and scenario take --game-dir for
       another.
-  cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>] [--owner <name>]
+  cargo xtask game claim --purpose <text> [--wait] [--owner <name>]
   cargo xtask game start [--save <name>]... [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
   cargo xtask game stop | release | status
       Claims of test games: games started from the game folder with a user
-      folder, a core and a pipe of their own, a few at once
+      folder, a core and a pipe of their own, any number at once
       (docs/test-games.md). claim makes the claim's folder, with a user
-      folder made from the player's, and prints it; with every test game
-      held it exits with 2, or with --wait joins the queue and returns once
-      it holds one. start copies this checkout's built core, which needs
+      folder made from the player's, and prints it; while a checkout from
+      before test games holds the whole game it exits with 2, or with --wait
+      returns once it holds one. start copies this checkout's built core, which needs
       --features eu4-harmony-core/dev-test-games, and dev.toml into the test
       game, and each --save from the player's saves, then starts it hidden
       and without sound and waits for its main menu, ending a start that
@@ -42,11 +42,9 @@ usage:
       its sound, --seed passes the game its own -seed=<n>. Its pipe is the
       owner's: eu4-harmony game --test-game <owner>, or
       EU4_HARMONY_TEST_GAME. stop ends it. release ends it, keeps its logs
-      and crash folders in the claim's kept\\ and removes the rest. Every
-      command starts the lease again (30 minutes unless --lease says
-      otherwise); a claim waiting with no test game free takes one whose
-      lease ran out. status lists the test games, the queue and the eu4.exe
-      no test game's. The owner is this checkout's folder's name unless
+      and crash folders in the claim's kept\\ and removes the rest; a claim
+      holds its test game until then. status lists the test games and the
+      eu4.exe no test game's. The owner is this checkout's folder's name unless
       --owner names another.
   cargo xtask install [--uninstall] [--game-dir <dir>]
       With no game running, copies the player's files as last built, a
@@ -77,7 +75,7 @@ usage:
       by default): how each ended and what it found (docs/scenarios.md).
       With no name it lists them, with their builds and parameters. It
       needs Steam running, claims a test game unless this checkout holds
-      one (busy, it waits in the queue with --wait), builds each build the
+      one (busy, it waits with --wait), builds each build the
       scenarios need with the test games' pipes, starts the test game
       hidden with it, and releases the claim it made. --<name>.<parameter> changes a parameter for this run.
       --from-report writes report.md again from the report.json there.
