@@ -82,18 +82,9 @@ pub fn write(root: &Path) -> Result<Vec<String>, String> {
     Ok(written)
 }
 
-/// The type a value of `kind` has in Lua.
-fn lua_type(kind: Kind) -> &'static str {
-    match kind {
-        Kind::Country | Kind::Text | Kind::UnitKind | Kind::Button | Kind::Direction | Kind::Keys | Kind::PowerKind => "string",
-        Kind::Province | Kind::Integer | Kind::Army => "integer",
-        Kind::Date => "eu4.Date|string",
-        Kind::Boolean => "boolean",
-        Kind::Allies => "\"all\"|\"none\"|string[]",
-        Kind::Provinces | Kind::Armies => "integer[]",
-        Kind::Countries | Kind::Words => "string[]",
-        Kind::Terms => "{ term: string, province: integer?, country: string?, region: string?, amount: number? }[]",
-    }
+/// The type a value of `kind` has in Lua, as its shape says.
+fn lua_type(kind: Kind) -> String {
+    shape_type(&kind.shape())
 }
 
 /// The capabilities `game` has, as the Lua host builds it.
@@ -238,12 +229,16 @@ fn classes(shape: &Shape, found: &mut Vec<Shape>) {
     }
 }
 
-/// The classes of the capabilities' results and the handlers' arguments.
+/// The classes of the capabilities' results and arguments, and of the
+/// handlers' arguments.
 fn results(out: &mut String) {
     let mut found = Vec::new();
     for c in game_capabilities() {
         if let Some(shape) = result_shape(&c.name()) {
             classes(&shape, &mut found);
+        }
+        for arg in c.args {
+            classes(&arg.kind.shape(), &mut found);
         }
     }
     for shape in handler_shapes() {
@@ -350,6 +345,13 @@ mod tests {
             "{declare}"
         );
         assert!(declare.contains("function eu4_game_diplomacy.declare_war(country, casus_belli, options) end"), "{declare}");
+        // An argument's type is its own type's shape: a word of its words, an
+        // object of its class.
+        let focus = text.split("\n\n").find(|block| block.contains("function eu4_game_focus.choose(")).unwrap();
+        assert!(focus.contains("---@param focus \"adm\"|\"dip\"|\"mil\""), "{focus}");
+        let offer = text.split("\n\n").find(|block| block.contains("function eu4_game_peace.offer(")).unwrap();
+        assert!(offer.contains("---@param terms eu4.Term[]"), "{offer}");
+        assert!(text.contains("---@class eu4.Term\n---@field term string"), "{text}");
         let fetch = text.split("\n\n").find(|block| block.contains("function http.fetch(")).unwrap();
         assert!(fetch.contains("It waits") && fetch.contains("Needs permissions = { network = "), "{fetch}");
         // err is not nil-checked once the result has been (LuaLS, 2026-11-03).

@@ -31,6 +31,7 @@ extern crate self as eu4_harmony_remote;
 
 use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
+use shape::{Shape, Shaped};
 use std::fmt;
 
 /// The version of the capability catalogue (ADR one-capability-catalogue),
@@ -634,6 +635,27 @@ impl Kind {
                 .collect::<Option<Vec<_>>>()
                 .map(Value::Array),
             Self::Terms => peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok()),
+        }
+    }
+
+    /// A value of the kind as Lua passes it, which the editor's types write:
+    /// the shape of the argument's own type where it has one, so that a
+    /// term's fields, a unit kind's words, are its type's.
+    pub fn shape(self) -> Shape {
+        let list = |inner: Shape| Shape::List(Box::new(inner));
+        match self {
+            Self::Country | Self::Text | Self::Keys => Shape::Text,
+            Self::Province | Self::Integer | Self::Army => Shape::Integer,
+            Self::Date => Shape::Either(vec![Shape::Date, Shape::Text]),
+            Self::Boolean => Shape::Boolean,
+            Self::UnitKind => recruiting::UnitKind::shape(),
+            Self::Button => input::Button::shape(),
+            Self::Direction => input::Direction::shape(),
+            Self::PowerKind => choices::PowerKind::shape(),
+            Self::Allies => Shape::Either(vec![Shape::Words(vec!["all", "none"]), list(Shape::Text)]),
+            Self::Provinces | Self::Armies => list(Shape::Integer),
+            Self::Countries | Self::Words => list(Shape::Text),
+            Self::Terms => Vec::<peace::Term>::shape(),
         }
     }
 }
