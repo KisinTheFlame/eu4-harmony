@@ -41,7 +41,7 @@ Whatever ends the run, an error such as a report it cannot write, a scenario's p
 
 While it plays, it starts the lease again every minute. Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
 
-A scenario reaches the game's process only through the claim, which follows each game it starts from its start to its exit code, and remote control through the pipe by its name. So how a scenario ends, crashed, hung, failed, taken, and the wait for the main menu across a restart, is tested without the game, on the claim's recorded computer with the client's own test server for the pipe (`xtask/src/scenario/game.rs`).
+A scenario reaches its test game's process only through the claim, whose `follow.exe` follows each game to its exit code, holding it from the start on, and remote control through the test game's pipe by its name. So how a scenario ends, crashed, hung, failed, and the wait for the main menu across a restart, is tested without the game, on the claim's recorded computer with the client's own test server for the pipe (`xtask/src/scenario/game.rs`).
 
 ### How a scenario ends
 
