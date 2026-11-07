@@ -1,6 +1,8 @@
 //! The claim's course: claiming the game, keeping the claim going, starting
 //! and stopping the game within it, and releasing it, which puts back what
-//! its run changed. It reaches the computer only through [`Machine`], so
+//! its run changed; and a run, such as the scenario runner's, played within a
+//! claim from holding it to giving it back. It reaches the computer only
+//! through [`Machine`], so
 //! that the order of its writes of the record against what it does to the
 //! game and the files is what the tests below follow.
 use super::machine::{Framework, Machine};
@@ -8,6 +10,10 @@ use super::record::{self, Asking, Found, Process, Record, Seen};
 use crate::Result;
 use std::{
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -475,6 +481,128 @@ pub fn stop<M: Machine>(m: &M, owner: &str) -> Result<()> {
     m.wait_closed()?;
     m.say("the game is closed");
     Ok(())
+}
+
+/// The claim a run plays in, such as the scenario runner's: one the run
+/// made, which it releases when it ends, or one its owner held already,
+/// which stays theirs.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Run {
+    owner: String,
+    made: bool,
+}
+
+/// A run's lease is renewed when less than this is left of it: the game not
+/// running, as while a build is made, does not keep it going.
+const RENEW_BELOW: u64 = 10 * 60;
+/// How often a run looks at its claim.
+const RUN_LOOKS_EVERY: Duration = Duration::from_secs(5);
+
+/// Holds the game for a run of `owner`'s: the claim `owner` holds already,
+/// else a new one, waiting in the queue with `wait`.
+pub fn hold_for_run<M: Machine>(m: &M, owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Run> {
+    if held_by(m, owner).is_ok() {
+        return Ok(Run { owner: owner.into(), made: false });
+    }
+    let asking = Asking { owner: owner.into(), player: false, now: false, wait };
+    match claim(m, &asking, purpose, LEASE_MINUTES, game_dir)? {
+        Claimed::Busy => Err("the game is busy; --wait waits for it in the queue".into()),
+        Claimed::Now | Claimed::Already => Ok(Run { owner: owner.into(), made: true }),
+    }
+}
+
+/// One look of a run at its claim, every few seconds while it plays: keeps
+/// the claim going as `watch` does, renews the lease when little is left of
+/// it, and ends the game once the run is `interrupted`, `ended` saying it
+/// did, so that the step waiting on the game ends. Whether the player took
+/// the game or the claim is not the run's any more.
+pub fn look_in_run<M: Machine>(m: &M, run: &Run, interrupted: bool, ended: &mut bool) -> bool {
+    if interrupted && !*ended {
+        m.kill_game();
+        *ended = true;
+    }
+    match look(m, &run.owner) {
+        Ok(Look::Held(left)) if left < RENEW_BELOW => {
+            let _ = renew(m, &run.owner);
+            false
+        }
+        Ok(Look::Taken | Look::Gone) => true,
+        _ => false,
+    }
+}
+
+/// Ends the game a run played, unless the player took it: their claim ends
+/// it and puts back the run's files.
+pub fn end_run_game<M: Machine>(m: &M, taken: bool) {
+    if !taken {
+        m.kill_game();
+        let _ = m.wait_closed();
+    }
+}
+
+/// Gives back the claim of a run that ended, whatever it came to: releases
+/// one the run made, unless the player took the game, and leaves one its
+/// owner held before.
+pub fn give_back_run<M: Machine>(m: &M, run: &Run, taken: bool, game_dir: &Path) -> Result<()> {
+    if taken {
+        m.say("the player took the game: their claim ends it and puts back this run's files");
+        Ok(())
+    } else if run.made {
+        release(m, &run.owner, game_dir, false)
+    } else {
+        Ok(())
+    }
+}
+
+/// Plays `play` within `run`'s claim, which another thread looks at
+/// meanwhile ([`look_in_run`]), telling `play` through its flag once the
+/// player takes the game; then, whatever `play` comes to, an error, a panic
+/// or `interrupted`, ends the game and gives the claim back. An error comes
+/// back with the giving back's own; a panic goes on once the claim is given
+/// back.
+pub fn play_within<M: Machine + Sync, T>(
+    m: &M,
+    run: &Run,
+    game_dir: &Path,
+    interrupted: &(dyn Fn() -> bool + Sync),
+    play: impl FnOnce(&Arc<AtomicBool>) -> Result<T>,
+) -> Result<T> {
+    let taken = Arc::new(AtomicBool::new(false));
+    let done = AtomicBool::new(false);
+    let (played, was_taken) = std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut ended = false;
+            while !done.load(Ordering::SeqCst) {
+                if look_in_run(m, run, interrupted(), &mut ended) {
+                    taken.store(true, Ordering::SeqCst);
+                }
+                m.wait(RUN_LOOKS_EVERY);
+            }
+        });
+        let played = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| play(&taken)));
+        let was_taken = taken.load(Ordering::SeqCst);
+        end_run_game(m, was_taken);
+        done.store(true, Ordering::SeqCst);
+        (played, was_taken)
+    });
+    given_back(played, give_back_run(m, run, was_taken, game_dir))
+}
+
+/// What a run came to, `played`, with what giving its claim back came to,
+/// `given`: an error comes back with the giving back's own, and a panic
+/// goes on.
+fn given_back<T>(played: std::thread::Result<Result<T>>, given: Result<()>) -> Result<T> {
+    match (played, given) {
+        (Err(panic), given) => {
+            if let Err(e) = given {
+                eprintln!("{e}");
+            }
+            std::panic::resume_unwind(panic)
+        }
+        (Ok(Err(e)), Err(not_given)) => Err(format!("{e}; giving the game back: {not_given}")),
+        (Ok(_), Err(not_given)) => Err(not_given),
+        (Ok(played), Ok(())) => played,
+    }
 }
 
 #[cfg(test)]
@@ -1042,5 +1170,95 @@ mod tests {
         m.forget();
         assert!(start_game(&m, "a", Path::new(GAME_DIR), false, None, Duration::from_secs(60)).is_err());
         assert_eq!(m.steps(), [Did::Start, Did::Kill, Did::WaitClosed], "renewed already this second: nothing written");
+    }
+
+    fn run_as(m: &Recorded, owner: &str, wait: bool) -> Result<Run> {
+        hold_for_run(m, owner, "scenarios perf", wait, Path::new(GAME_DIR))
+    }
+
+    #[test]
+    fn a_run_makes_a_claim_of_its_own_and_releases_it_with_its_game_ended() {
+        let m = machine(1000, None, &[]);
+        let run = run_as(&m, "a", false).unwrap();
+        assert_eq!(m.steps(), [wrote("a, made by 10"), Did::BackUp, wrote("a")]);
+        m.games.borrow_mut().push(GAME);
+        m.forget();
+        end_run_game(&m, false);
+        assert_eq!(give_back_run(&m, &run, false, Path::new(GAME_DIR)), Ok(()));
+        assert_eq!(m.steps(), steps(&[&[Did::Kill, Did::WaitClosed, wrote("a, put back by 10")], &PUT_BACK, &[wrote("free")]]));
+    }
+
+    #[test]
+    fn a_run_within_its_owner_s_claim_ends_its_game_and_leaves_the_claim_held() {
+        let m = machine(1000, Some(complete("a", 1000)), &[GAME]);
+        let run = run_as(&m, "a", false).unwrap();
+        assert_eq!(m.steps(), [], "nothing claimed");
+        end_run_game(&m, false);
+        assert_eq!(give_back_run(&m, &run, false, Path::new(GAME_DIR)), Ok(()));
+        assert_eq!(m.steps(), [Did::Kill, Did::WaitClosed]);
+        assert!(held_by(&m, "a").is_ok());
+    }
+
+    #[test]
+    fn a_run_that_finds_the_game_busy_does_not_play_unless_it_waits() {
+        let m = machine(1000, Some(complete("b", 1000)), &[]);
+        assert_eq!(run_as(&m, "a", false), Err("the game is busy; --wait waits for it in the queue".into()));
+        assert_eq!(m.steps(), []);
+    }
+
+    #[test]
+    fn once_the_player_takes_the_game_a_run_neither_ends_it_nor_releases() {
+        let m = machine(1000, None, &[]);
+        let run = run_as(&m, "a", false).unwrap();
+        m.state.borrow_mut().held.as_mut().unwrap().taken = Some(1000);
+        m.games.borrow_mut().push(GAME);
+        m.forget();
+        assert!(look_in_run(&m, &run, false, &mut false), "the run is told");
+        end_run_game(&m, true);
+        assert_eq!(give_back_run(&m, &run, true, Path::new(GAME_DIR)), Ok(()));
+        assert!(!m.steps().iter().any(|d| matches!(d, Did::Kill | Did::WaitClosed | Did::Keep)), "{:?}", m.steps());
+        assert_eq!(described(&m.held()), "a, taken", "the player's claim puts it back");
+        assert!(m.said_line("the player took the game: their claim ends it and puts back this run's files"));
+    }
+
+    #[test]
+    fn a_run_keeps_its_claim_going_renews_a_lease_running_low_and_ends_the_game_once_interrupted() {
+        let m = machine(1000, None, &[]);
+        let run = run_as(&m, "a", false).unwrap();
+        let mut ended = false;
+        assert!(!look_in_run(&m, &run, false, &mut ended));
+        assert_eq!((m.held().unwrap().keeper, m.held().unwrap().renewed), (Some(ME), 1000));
+
+        // A build: no game runs to keep the lease going.
+        m.now.set(1000 + 21 * 60);
+        assert!(!look_in_run(&m, &run, false, &mut ended));
+        assert_eq!(m.held().unwrap().renewed, 1000 + 21 * 60);
+
+        m.games.borrow_mut().push(GAME);
+        m.forget();
+        assert!(!look_in_run(&m, &run, true, &mut ended));
+        assert!(!look_in_run(&m, &run, true, &mut ended));
+        assert_eq!(m.steps().iter().filter(|d| **d == Did::Kill).count(), 1, "the game is ended once");
+        assert!(ended);
+
+        m.state.borrow_mut().held = None;
+        assert!(look_in_run(&m, &run, false, &mut ended), "a claim gone is the run's end");
+    }
+
+    /// Whatever a run comes to, its claim is given back first: an error
+    /// comes back with the giving back's own, and a panic goes on once the
+    /// claim is given back.
+    #[test]
+    fn what_a_run_came_to_comes_back_with_its_giving_back() {
+        assert_eq!(given_back(Ok(Ok(7)), Ok(())), Ok(7));
+        assert_eq!(given_back::<()>(Ok(Err("cannot write report.json".into())), Ok(())), Err("cannot write report.json".into()));
+        assert_eq!(
+            given_back::<()>(Ok(Err("cannot write report.json".into())), Err("1 file(s) not put back".into())),
+            Err("cannot write report.json; giving the game back: 1 file(s) not put back".into())
+        );
+        assert_eq!(given_back(Ok(Ok(7)), Err("1 file(s) not put back".into())), Err("1 file(s) not put back".into()));
+        let panic = std::panic::catch_unwind(|| panic!("a scenario's bug")).unwrap_err();
+        let went_on = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| given_back::<()>(Err(panic), Ok(()))));
+        assert!(went_on.is_err());
     }
 }

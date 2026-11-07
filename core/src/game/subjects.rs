@@ -8,10 +8,7 @@
 //! their reasons as the view's tooltip shows them. The framework writes that
 //! command, has the game read it, asks its checks, and posts it through the
 //! command layer.
-use super::{
-    commands::{self, Refused},
-    country, fail, with_state, Ctx, GResult, Session, Status, Tag,
-};
+use super::{action, commands, country, fail, with_state, Ctx, GResult, Session, Status, Tag};
 use crate::{
     game_string,
     memory::Memory,
@@ -231,7 +228,7 @@ pub fn options(Session { m, ctx, .. }: Session, subject: Tag) -> GResult<Vec<Lis
 /// country may not use it, the subject's type does not allow it, or its
 /// conditions do not hold, with the reasons. `province` is the one the
 /// interaction's window has the player pick, written as the command's `index`.
-pub fn interact(Session { m, ctx, .. }: Session, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
+pub fn interact(Session { m, ctx, commands, .. }: Session, subject: Tag, interaction: &str, third_party: Option<Tag>, province: Option<u32>) -> GResult<()> {
     let country = subject_of(m, &ctx, subject)?;
     let Some(i) = INTERACTIONS.iter().find(|i| i.key == interaction) else {
         return fail(Status::InvalidArgument, format!("the game has no subject interaction {interaction}; subject.options lists them"));
@@ -252,10 +249,13 @@ pub fn interact(Session { m, ctx, .. }: Session, subject: Tag, interaction: &str
     let text = command(&ctx, subject, i, ongoing(m, country, object)?, third_party, province);
     let (can, reasons) = judge(&text)?;
     if !can {
-        return fail(Status::Rejected, if reasons.is_empty() { "the game does not allow it, and gives no reason".into() } else { reasons.join("\n") });
+        return Err(action::not_allowed(USE, &reasons));
     }
-    commands::post(&text).map_err(Into::into)
+    action::post(commands, &text, USE)
 }
+
+/// What the player does with an interaction, as its refusals say.
+const USE: &str = "use this interaction";
 
 /// The country of `subject`, one of the player's subjects.
 fn subject_of(m: &Memory, ctx: &Ctx, subject: Tag) -> GResult<usize> {
@@ -315,10 +315,7 @@ fn judge(text: &str) -> GResult<(bool, Vec<String>)> {
         let said = game_string::written(m, |s| m.call(m.at(CHECK), &[command, s]))?.1;
         Ok((false, super::diplomacy::reasons_said(&said)))
     });
-    judged.map_err(|refused| match refused {
-        Refused::Game(fail) => fail,
-        other => other.into(),
-    })
+    judged.map_err(|refused| action::refused(refused, USE))
 }
 
 fn letters(tag: Tag) -> String {

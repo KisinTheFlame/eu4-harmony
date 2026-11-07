@@ -1,12 +1,9 @@
 //! Province administration: what the province view's buttons do in a
 //! province (docs/research/province-view.md). Each action checks as its button
 //! does, with the reasons its tooltip gives, and posts the game's own command
-//! in its written form through the command layer ([`super::commands`]); the
-//! command's own check is asked again there.
-use super::{
-    commands::{self, Refused},
-    conditions, fail, with_state, Ctx, GResult, Session, Status, Tag,
-};
+//! in its written form through the session's commands ([`super::action`]);
+//! the command's own check is asked again there.
+use super::{action, conditions, fail, with_state, Ctx, GResult, Session, Status, Tag};
 use crate::{
     game_string,
     memory::Memory,
@@ -16,7 +13,6 @@ use crate::{
     },
     points::Point,
 };
-use eu4_harmony_checks::administration as refuse;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     provinces::ProvinceOption,
@@ -331,7 +327,7 @@ fn choice((may, reasons): (bool, Vec<String>), cost: Vec<Amount>) -> Choice {
 
 /// The game text of the token `token`'s name: a culture's key.
 fn token_name(m: &Memory, token: u32) -> GResult<String> {
-    commands::type_name(m, token).ok_or_else(|| format!("no token {token}").into())
+    super::commands::type_name(m, token).ok_or_else(|| format!("no token {token}").into())
 }
 
 /// The key of the player's primary culture.
@@ -457,39 +453,27 @@ pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Vec<Province
     Ok(out)
 }
 
-/// Posts `text` for `action`, saying why the game refused it.
-fn post(action: Action, text: &str) -> GResult<()> {
-    match commands::post(text) {
-        Ok(()) => Ok(()),
-        Err(Refused::Check) => fail(Status::Rejected, format!("the game's command refuses to {}, and gives no reason", action.doing())),
-        Err(Refused::NotTaken) => fail(Status::Rejected, "the game takes no orders from the player now"),
-        Err(Refused::Unread(how)) => fail(Status::Internal, format!("the game read the command otherwise: {how}")),
-        Err(Refused::Game(fail)) => Err(fail),
-    }
-}
-
 /// Takes `action` in the province for the player, as its button does:
 /// refused with the game's reasons when the button would be refused, and
 /// done once the game has carried the command out.
-pub fn act(Session { m, ctx, .. }: Session, id: u32, action: Action) -> GResult<()> {
+pub fn act(Session { m, ctx, commands, .. }: Session, id: u32, action: Action) -> GResult<()> {
     let place = place(m, &ctx, id)?;
     let choice = option(m, &ctx, &place, action)?;
     if !choice.can {
         return Err(match action {
-            Action::CancelCore => refuse::not_doing("coring", id),
-            Action::CancelCulture => refuse::not_doing("changing the culture of", id),
-            Action::CancelEdict if player_state(m, &ctx, &place)?.is_none() => refuse::not_in_a_state(id),
-            Action::CancelEdict if m.ptr(m.ptr(place.address + field::STATE)? + field::STATE_EDICT)? == 0 => refuse::no_edict_set(id),
+            Action::CancelCore => checks::not_doing("coring", id),
+            Action::CancelCulture => checks::not_doing("changing the culture of", id),
+            Action::CancelEdict if player_state(m, &ctx, &place)?.is_none() => checks::not_in_a_state(id),
+            Action::CancelEdict if m.ptr(m.ptr(place.address + field::STATE)? + field::STATE_EDICT)? == 0 => checks::no_edict_set(id),
             Action::ChangeCulture if choice.reasons.is_empty() && m.ptr(place.address + field::CULTURE)? == primary_culture(m, &ctx)?.0 => {
-                refuse::primary_culture_already(id)
+                checks::primary_culture_already(id)
             }
-            _ => refuse::not_allowed(action.doing(), &choice.reasons),
-        }
-        .into());
+            _ => action::not_allowed(&format!("{} there", action.doing()), &choice.reasons),
+        });
     }
     // The state and culture commands act for the province's owner.
     if matches!(action, Action::MakeState | Action::MakeTerritory | Action::ChangeCulture) && place.owner != Some(ctx.player) {
-        return Err(refuse::not_owned(id).into());
+        return Err(checks::not_owned(id));
     }
     let tag = ctx.player;
     let text = match action {
@@ -505,26 +489,83 @@ pub fn act(Session { m, ctx, .. }: Session, id: u32, action: Action) -> GResult<
         Action::ChangeCulture => culture(id, &primary_culture(m, &ctx)?.1),
         Action::CancelCulture => country_and("cancel_change_culture", tag, "province", id),
     };
-    post(action, &text)
+    action::post(commands, &text, action.doing())
 }
 
 /// Sets the edict `key` in the player's state the province is in.
-pub fn set_edict(Session { m, ctx, .. }: Session, id: u32, key: String) -> GResult<()> {
+pub fn set_edict(Session { m, ctx, commands, .. }: Session, id: u32, key: String) -> GResult<()> {
     let place = place(m, &ctx, id)?;
     let Some((edict, _, index)) = edicts(m)?.into_iter().find(|(_, k, _)| *k == key) else {
-        return Err(refuse::no_such_edict(&key).into());
+        return Err(checks::no_such_edict(&key));
     };
     let Some(state) = player_state(m, &ctx, &place)? else {
-        return Err(refuse::not_in_a_state(id).into());
+        return Err(checks::not_in_a_state(id));
     };
     let (may, reasons) = checked(m, |out| m.call(m.at(CAN_SET_EDICT), &[state, edict, out]))?;
     if !may {
-        return Err(refuse::not_allowed("set the edict", &reasons).into());
+        return Err(action::not_allowed("set the edict there", &reasons));
     }
-    match commands::post(&enact(ctx.player, id, index)) {
-        Ok(()) => Ok(()),
-        Err(Refused::Check) => fail(Status::Rejected, "the game's command refuses to set the edict, and gives no reason"),
-        Err(refused) => Err(refused.into()),
+    action::post(commands, &enact(ctx.player, id, index), "set the edict")
+}
+
+/// The refusals the framework words itself in the province view's actions,
+/// of administration and buildings; those the game gives reasons for are
+/// [`super::action`]'s.
+pub mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of an action on a province the player does not own.
+    pub fn not_owned(province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("the player does not own province {province}"))
+    }
+
+    /// The refusal of an edict for a province in no state of the player's.
+    pub fn not_in_a_state(province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("province {province} is in no state of the player's"))
+    }
+
+    /// The refusal of cancelling an edict where none is set.
+    pub fn no_edict_set(province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("no edict is set in the state of province {province}"))
+    }
+
+    /// The refusal of changing a province's culture to the primary culture it
+    /// has.
+    pub fn primary_culture_already(province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("the culture of province {province} is the player's primary culture already"))
+    }
+
+    /// The refusal of a content key that names no edict.
+    pub fn no_such_edict(key: &str) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("no edict {key}"))
+    }
+
+    /// The refusal of a content key that names no building.
+    pub fn no_such_building(key: &str) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("no building {key}"))
+    }
+
+    /// The refusal of destroying a building that does not stand in the province.
+    pub fn building_absent(key: &str, province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("there is no {key} in province {province}"))
+    }
+
+    /// The refusal of cancelling what the player is not doing in a province:
+    /// `what` is "building", "coring" or "changing the culture of".
+    pub fn not_doing(what: &str, province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("the player is not {what} province {province}"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn unknown_keys_are_invalid_arguments() {
+            assert_eq!(no_such_edict("edict_x").status, Status::InvalidArgument);
+            assert_eq!(no_such_building("castle").message, "no building castle");
+            assert_eq!(not_doing("coring", 151).message, "the player is not coring province 151");
+        }
     }
 }
 

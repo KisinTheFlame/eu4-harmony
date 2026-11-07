@@ -4,7 +4,7 @@
 //! their RVAs ([`Image`]). A capability then runs through its interface over
 //! a [`Session`] made of them ([`session`]), reading and calling them as it
 //! reads and calls the game's: through [`Memory`], under the same guard.
-use super::{Caller, Ctx, Session, Tag, View};
+use super::{commands::Commands, Caller, Ctx, Session, Tag, View};
 use crate::{game_string, memory::Memory, objects::campaign::country};
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
@@ -192,9 +192,10 @@ impl Drop for Image {
 
 /// The session of the player `player`, whose country is the object at
 /// `country`, among the countries' list at `countries`, in the world at
-/// `world`, as `caller` reads it in the full view.
+/// `world`, as `caller` reads it in the full view; the commands it posts are
+/// recorded (`commands::record`).
 pub fn session(m: &'static Memory, world: usize, player: Tag, country: usize, countries: usize, caller: Caller) -> Session {
-    Session { m, ctx: Ctx { world, date: 0, player, country, countries }, view: View::Full, caller }
+    Session { m, ctx: Ctx { world, date: 0, player, country, countries }, view: View::Full, caller, commands: Commands::Recorded }
 }
 
 #[cfg(test)]

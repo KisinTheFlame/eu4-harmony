@@ -337,7 +337,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         ],
     };
     let engine = Engine::new(remember);
-    engine.record(happened(&frame));
+    engine.record(happened(&frame.heard()));
     let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
     assert_eq!(
@@ -364,7 +364,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     let numbers: Vec<u64> = answer(&read)["result"]["events"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
     assert_eq!(numbers, [1, 2, 3, 4, 6, 7]);
     let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, wars: vec![], ..frame };
-    assert!(happened(&quiet).is_empty());
+    assert!(happened(&quiet.heard()).is_empty());
 }
 
 #[test]

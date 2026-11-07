@@ -3,7 +3,7 @@
 //! lists them (docs/research/triggers.md, "Decisions"); and taking one,
 //! through the game's own command (docs/research/government.md,
 //! "Decisions").
-use super::{conditions, content, GResult, Session};
+use super::{action, conditions, content, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
 
@@ -70,10 +70,10 @@ fn seed(date: i32, decision: &str) -> u32 {
 }
 
 /// Takes a decision the view lists for the player, as its button does.
-pub fn take(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
+pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let database = m.ptr(m.at(DATABASE))?;
     if database == 0 {
-        return Err(eu4_harmony_checks::government::not_found("decision", &key).into());
+        return Err(content::checks::not_found("decision", &key));
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
     for i in 0..super::span(begin, end, 8, MOST)? {
@@ -82,11 +82,11 @@ pub fn take(Session { m, ctx, .. }: Session, key: String) -> GResult<()> {
             continue;
         }
         if !conditions::holds(m, decision + ALLOW, ctx.player, 0)? {
-            return content::refused(&conditions::failing(m, decision + ALLOW, ctx.player, 0)?, "taking this decision");
+            return Err(action::not_allowed("take this decision", &conditions::failing(m, decision + ALLOW, ctx.player, 0)?));
         }
-        return content::post(&written(ctx.player, &key, seed(ctx.date, &key)), "taking this decision");
+        return action::post(commands, &written(ctx.player, &key, seed(ctx.date, &key)), "take this decision");
     }
-    Err(eu4_harmony_checks::government::not_found("decision", &key).into())
+    Err(content::checks::not_found("decision", &key))
 }
 
 fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {

@@ -2,7 +2,7 @@
 //! expansion view's button does (docs/research/power-spending.md,
 //! "Stability").
 use super::{
-    context, game,
+    action,
     power::{self, BOOST_STABILITY, CAN_INCREASE_STABILITY},
     GResult, Session,
 };
@@ -54,10 +54,6 @@ pub fn options(session: Session) -> GResult<Vec<StabilityOption>> {
 
 /// Raises stability by one, as the button does.
 pub fn raise(session: Session) -> GResult<()> {
-    let choice = choice(session)?;
-    if !choice.can {
-        return Err(eu4_harmony_checks::choices::not_allowed("raise stability", &choice.reasons).into());
-    }
-    let ctx = context(game()?)?;
-    power::spend(ctx.player, BOOST_STABILITY, PowerKind::Adm, 0, "raise stability")
+    action::allowed(&choice(session)?, "raise stability")?;
+    power::spend(session.commands, session.ctx.player, BOOST_STABILITY, PowerKind::Adm, 0, "raise stability")
 }

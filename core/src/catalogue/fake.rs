@@ -323,13 +323,13 @@ impl provinces::Layer for Fake {
         self.call(format!("province {} {province}", action.name()));
         match action {
             game::administration::Action::Develop(_) => Ok(()),
-            _ => Err(eu4_harmony_checks::administration::not_allowed("do it", &["已经是核心省份".into()]).into()),
+            _ => Err(crate::game::action::not_allowed("do it there", &["已经是核心省份".into()])),
         }
     }
 
     fn set_edict(&mut self, province: u32, edict: String) -> GResult<()> {
         self.call(format!("set edict {edict} {province}"));
-        Err(eu4_harmony_checks::administration::no_such_edict(&edict).into())
+        Err(crate::game::administration::checks::no_such_edict(&edict))
     }
 }
 

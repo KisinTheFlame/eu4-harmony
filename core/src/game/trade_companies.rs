@@ -2,7 +2,7 @@
 //! company, adding the province to it and removing it, and the trade
 //! company investments of its area, through the game's own commands
 //! (docs/research/envoys.md, "Trade companies").
-use super::{envoys, with_state, Ctx, GResult, Session, Tag};
+use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point, unicode::game_text};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
@@ -146,14 +146,11 @@ fn written(player: Tag, province: u32, add: bool) -> String {
 
 /// Adds the player's province `id` to the trade company of its region
 /// (`add`), or removes it from its trade company.
-pub fn change(Session { m, ctx, .. }: Session, id: u32, add: bool) -> GResult<()> {
+pub fn change(Session { m, ctx, commands, .. }: Session, id: u32, add: bool) -> GResult<()> {
     let options = read(m, &ctx, province(m, &ctx, id)?, id)?;
     let choice = if add { &options.add } else { &options.remove };
-    if !choice.can {
-        let what = if add { "add the province to a trade company" } else { "remove the province from its trade company" };
-        return Err(eu4_harmony_checks::envoys::not_allowed(what, &choice.reasons).into());
-    }
-    envoys::post(&written(ctx.player, id, add), "the trade company command")
+    let doing = if add { "add the province to a trade company" } else { "remove the province from its trade company" };
+    action::carry_out(commands, choice, doing, || Ok(written(ctx.player, id, add)))
 }
 
 /// The investment command the investment dialog posts: the country, the
@@ -163,19 +160,19 @@ fn invest_written(player: Tag, index: i32, province: u32) -> String {
 }
 
 /// Makes the investment `key` in the area of the player's province `id`.
-pub fn invest(Session { m, ctx, .. }: Session, id: u32, key: &str) -> GResult<()> {
+pub fn invest(Session { m, ctx, commands, .. }: Session, id: u32, key: &str) -> GResult<()> {
     let province = province(m, &ctx, id)?;
     let Some((at, _)) = database(m)?.into_iter().find(|(_, k)| k == key) else {
-        return Err(eu4_harmony_checks::envoys::unknown("trade company investment", key).into());
+        return Err(envoys::checks::unknown("trade company investment", key));
     };
     let offered = read(m, &ctx, province, id)?.investments.into_iter().find(|i| i.investment == key);
     let Some(offered) = offered else {
-        return Err(eu4_harmony_checks::envoys::not_allowed("invest there", &[]).into());
+        return Err(action::not_allowed("invest there", &[]));
     };
     if !offered.choice.can {
-        return Err(eu4_harmony_checks::envoys::not_allowed("make that investment there", &offered.choice.reasons).into());
+        return Err(action::not_allowed("make that investment there", &offered.choice.reasons));
     }
-    envoys::post(&invest_written(ctx.player, m.i32(at + INDEX)?, id), "the investment command")
+    action::post(commands, &invest_written(ctx.player, m.i32(at + INDEX)?, id), "make that investment there")
 }
 
 #[cfg(test)]

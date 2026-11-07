@@ -137,6 +137,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(map::points());
     all.extend(saves::points());
     all.extend(repairs::points());
+    all.extend(sessions::points());
     all.extend(achievements::points());
     all.extend(unicode::points());
     all.extend(wording::points());

@@ -17,7 +17,10 @@
 //! where the game's own clicks run, not at the safe point that asked for it,
 //! which is inside the frame being presented; an in-game load runs at the
 //! next game frame, after the map manager's ([`game_frame`]).
-mod launch;
+//!
+//! Each request is taken from asking to settling by [`course`], over what
+//! each step does in the game ([`InGame`]).
+mod course;
 pub mod leave;
 
 use super::{fail, game, Caller, GResult, Status, Tag};
@@ -26,7 +29,7 @@ use crate::{
     memory::Memory,
     objects::{
         application,
-        campaign::{classes as campaign_classes, countries as country_list, country as country_fields, globals, map_manager, world},
+        campaign::{classes as campaign_classes, countries as country_list, country as country_fields, globals, map_manager as manager_fields, world},
         gui::{classes as gui_classes, main_menu},
         setup,
     },
@@ -62,8 +65,8 @@ const SELECT: usize = 0x111cb80;
 /// country does once it selected it (`0x110e88c`).
 const START: usize = 0x1120280;
 
-use crate::sessions::{self, At};
-use launch::{Action, Launches, Reads, Steps};
+use crate::sessions::{self, At, End};
+use course::{Action, Course, Reads, Rules, Steps};
 
 /// Where the game is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,50 +120,45 @@ pub struct Expected {
 /// first, which may be the very save being loaded.
 pub type ExpectedProbe = Box<dyn FnMut() -> GResult<Expected> + Send>;
 
-/// The last load or start asked for, and its course.
-static LAUNCHES: Launches = Launches::new();
-
-/// Whether remote control asked for a new game from the session, which the
-/// return the map manager's frame acts on next leaves the session for.
-fn new_game_asked() -> bool {
-    LAUNCHES.new_game_asked()
-}
-
-/// The map manager's frame acted on a return ([`leave`]) and the session
-/// stays, for `why`: a new game asked for from the session does not come
-/// either.
-fn start_failed(why: &str) {
-    LAUNCHES.start_failed(why);
-}
+/// Every request made of the main menu and of a session, and its course.
+static COURSE: Course = Course::new();
 
 /// Where the game is.
 pub fn place(_: Caller) -> GResult<Place> {
     let m = game()?;
     let at = sessions::at();
-    Ok(LAUNCHES.place(at, &mut InMenu::at(m, at)))
+    Ok(COURSE.place(at, &mut InGame::at(m, at)))
 }
 
 /// Whether a game is being started from the main menu `frontend`
-/// ([`Launches::starting`]).
+/// ([`Course::starting`]).
 pub(crate) fn starting(m: &Memory, frontend: usize) -> bool {
-    LAUNCHES.starting(&mut InMenu { m, frontend })
+    COURSE.starting(&mut InGame { frontend, ..InGame::new(m) })
 }
 
-/// The main menu's and the game's own steps of starting a game, at the hook
+/// The game's own steps of a request and of leaving a session, at the hook
 /// or capability that takes them: `frontend` is the main menu object, 0
-/// outside the main menu.
-struct InMenu<'a> {
+/// outside the main menu; `request` the in-game load's, at the in-game load;
+/// `app` and `argument` the restart's, at the restart.
+struct InGame<'a> {
     m: &'a Memory,
     frontend: usize,
+    request: usize,
+    app: usize,
+    argument: usize,
 }
 
-impl<'a> InMenu<'a> {
+impl<'a> InGame<'a> {
+    fn new(m: &'a Memory) -> Self {
+        Self { m, frontend: 0, request: 0, app: 0, argument: 0 }
+    }
+
     fn at(m: &'a Memory, at: At) -> Self {
-        Self { m, frontend: if let At::MainMenu(frontend) = at { frontend } else { 0 } }
+        Self { frontend: if let At::MainMenu(frontend) = at { frontend } else { 0 }, ..Self::new(m) }
     }
 }
 
-impl launch::Menu for InMenu<'_> {
+impl course::Game for InGame<'_> {
     fn steps(&mut self) -> std::result::Result<Steps, String> {
         steps(self.m, self.frontend)
     }
@@ -193,16 +191,56 @@ impl launch::Menu for InMenu<'_> {
         let _ = self.m.write(self.frontend + main_menu::CONTINUING, &[0]);
     }
 
-    fn load_in_game(&mut self, name: &str) -> std::result::Result<(), String> {
-        leave::load_in_game(self.m, name)
-    }
-
     fn reads(&self) -> Reads {
         reads()
     }
 
     fn now(&self) -> Instant {
         Instant::now()
+    }
+
+    fn rules(&self) -> Rules {
+        Rules::now()
+    }
+
+    fn ironman(&self) -> bool {
+        leave::ironman(self.m)
+    }
+
+    fn ask_return(&mut self) -> GResult<()> {
+        ask_return(self.m)
+    }
+
+    fn load_in_game(&mut self, name: &str) -> std::result::Result<u32, String> {
+        leave::load_in_game(self.m, name)
+    }
+
+    fn exit_save(&mut self) -> std::result::Result<(), String> {
+        leave::exit_save(self.m)
+    }
+
+    fn end(&mut self, end: End) {
+        sessions::ending(end);
+    }
+
+    fn load(&mut self) -> u32 {
+        leave::load(self.m, self.request)
+    }
+
+    fn return_in_process(&mut self) -> std::result::Result<(), String> {
+        leave::return_in_process(self.m, self.app)
+    }
+
+    fn restart(&mut self) -> usize {
+        leave::restart_game(self.app, self.argument)
+    }
+
+    fn stay(&mut self) {
+        leave::stay(self.m);
+    }
+
+    fn save_failed(&mut self) {
+        leave::save_failed();
     }
 }
 
@@ -338,7 +376,7 @@ pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
     // Where the game is first: a save is refused alike wherever it cannot be loaded.
     let in_game = sessions::at() == At::Game;
     if in_game {
-        if LAUNCHES.loading_in_game() {
+        if COURSE.loading_in_game() {
             return fail(Status::Unavailable, "a save is already being loaded");
         }
     } else {
@@ -361,7 +399,7 @@ pub fn load(_: Caller, name: &str) -> GResult<ExpectedProbe> {
         );
     }
     let player = find(m, letters)?;
-    LAUNCHES.ask(if in_game { Action::LoadInGame(save_name(&file).unwrap_or(&file).to_string()) } else { Action::Load(format!("save games/{file}"), player) });
+    COURSE.ask(if in_game { Action::LoadInGame(save_name(&file).unwrap_or(&file).to_string()) } else { Action::Load(format!("save games/{file}"), player) });
     Ok(Box::new(move || {
         let header = read_header(&path)?;
         match player_of(&header) {
@@ -384,7 +422,7 @@ fn read_header(path: &Path) -> GResult<save_file::Header> {
 /// At a game frame, after the map manager's: runs the in-game load remote
 /// control asked for, if there is one; then the frame is over.
 pub(crate) fn game_frame(m: &Memory) -> bool {
-    LAUNCHES.game_frame(&mut InMenu { m, frontend: 0 })
+    COURSE.game_frame(&mut InGame::new(m))
 }
 
 /// Starts a new game as the country `letters` from the main menu, at the
@@ -401,15 +439,8 @@ pub fn start(_: Caller, country: Option<[u8; 3]>) -> GResult<()> {
     // Observe mode: a new game as the observer's tag, the player's own then.
     let letters = country.unwrap_or(save_file::OBSERVER);
     if sessions::at() == At::Game {
-        if let Err(why) = leave::plan(leave::Destination::NewGame, false, leave::Rules::now()) {
-            return fail(Status::Unavailable, why);
-        }
-        if country.is_some() {
-            find(m, letters)?;
-        }
-        ask_return(m)?;
-        log!("menu: a new game as {} from the session", String::from_utf8_lossy(&letters));
-        LAUNCHES.ask(Action::Start(letters));
+        let known = || if country.is_some() { find(m, letters).map(drop) } else { Ok(()) };
+        COURSE.new_game_from_session(&mut InGame::new(m), letters, known)?;
         return Ok(());
     }
     first_page(m)?;
@@ -420,7 +451,7 @@ pub fn start(_: Caller, country: Option<[u8; 3]>) -> GResult<()> {
             return fail(Status::Rejected, "an ironman game cannot be observed; turn ironman off in the single player setup");
         }
         log!("menu: a new game in observe mode");
-        LAUNCHES.ask(Action::Start(letters));
+        COURSE.ask(Action::Start(letters));
         return Ok(());
     }
     let tag = find(m, letters)?;
@@ -431,25 +462,25 @@ pub fn start(_: Caller, country: Option<[u8; 3]>) -> GResult<()> {
             format!("{name} has no land at the start date, so it cannot be played from it; started as {name}, the game would only be observed"),
         );
     }
-    LAUNCHES.ask(Action::Start(letters));
+    COURSE.ask(Action::Start(letters));
     Ok(())
 }
 
 /// The last load or start asked for, to ask [`launch`] about.
 pub fn last(_: Caller) -> u64 {
-    LAUNCHES.last()
+    COURSE.last()
 }
 
 /// What came of the load or start `number` ([`last`]), at a safe point
 /// outside a game's frame.
 pub fn launch(_: Caller, number: u64) -> Launch {
-    LAUNCHES.outcome(number, reads())
+    COURSE.outcome(number, reads())
 }
 
 /// At the end of the main menu's frame: runs the load or start asked for,
-/// and follows the game taking it up ([`Launches::main_menu_frame`]).
+/// and follows the game taking it up ([`Course::main_menu_frame`]).
 pub(crate) fn main_menu_frame(m: &Memory, frontend: usize) {
-    LAUNCHES.main_menu_frame(&mut InMenu { m, frontend });
+    COURSE.main_menu_frame(&mut InGame { frontend, ..InGame::new(m) });
 }
 
 /// After a load or start that did not go through: the main menu as the
@@ -486,12 +517,21 @@ fn setup(m: &Memory, frontend: usize) -> Result<usize> {
     Ok(page)
 }
 
+/// The world, when there is one.
 fn world_now(m: &Memory) -> Result<usize> {
     let world = m.ptr(m.at(globals::WORLD))?;
     if world == 0 {
         return Err("no world".into());
     }
     Ok(world)
+}
+
+/// The session's map manager, the world's, checked by its class; None when
+/// no game is going on.
+fn map_manager(m: &Memory) -> Result<Option<usize>> {
+    let world = m.ptr(m.at(globals::WORLD))?;
+    let manager = if world == 0 { 0 } else { m.ptr(world + world::MAP_MANAGER)? };
+    Ok((manager != 0 && m.ptr(manager)? == m.at(campaign_classes::MAP_MANAGER)).then_some(manager))
 }
 
 /// As the `-start_tag` launch option: the country where the single player
@@ -633,23 +673,16 @@ pub enum Returned {
 
 /// What came of the return remote control asked for as `number`.
 pub fn returned(_: Caller, number: u64) -> Returned {
-    let outcome = leave::return_outcome(number);
-    match outcome {
-        Some(Err(why)) => Returned::Failed(why),
-        Some(Ok(())) if matches!(place(Caller::Remote), Ok(Place::MainMenu)) => Returned::Done,
-        _ => Returned::Waiting,
-    }
+    COURSE.returned(number, || matches!(place(Caller::Remote), Ok(Place::MainMenu)))
 }
 
 /// Sets the flag the game's own question sets when the player confirms a
 /// return: the map manager acts on it at its next frame ([`leave`]).
 fn ask_return(m: &Memory) -> GResult<()> {
-    let world = m.ptr(m.at(globals::WORLD))?;
-    let manager = if world == 0 { 0 } else { m.ptr(world + world::MAP_MANAGER)? };
-    if manager == 0 || m.ptr(manager)? != m.at(campaign_classes::MAP_MANAGER) {
+    let Some(manager) = map_manager(m)? else {
         return fail(Status::NotInGame, "no game is going on");
-    }
-    m.write(manager + map_manager::RETURN, &[1])?;
+    };
+    m.write(manager + manager_fields::RETURN, &[1])?;
     Ok(())
 }
 
@@ -661,13 +694,7 @@ fn ask_return(m: &Memory) -> GResult<()> {
 /// manager, not a game with a player: it also works while the player only
 /// observes, say after their country was annexed.
 pub fn return_to_main_menu(_: Caller) -> GResult<Option<u64>> {
-    let m = game()?;
-    ask_return(m)?;
-    log!("menu: returning to the main menu");
-    if !leave::Rules::now().return_without_restart {
-        return Ok(None);
-    }
-    Ok(Some(leave::ask_return()))
+    COURSE.return_to_main_menu(&mut InGame::new(game()?))
 }
 
 /// The code the main menu capabilities rely on; the fields they use are in

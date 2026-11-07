@@ -2,7 +2,7 @@
 //! view's buttons do, and raising mercantilism, as the trade view's button
 //! does (docs/research/power-spending.md, "The economy").
 use super::{
-    modifiers,
+    action, modifiers,
     power::{self, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
     Ctx, GResult, Session,
 };
@@ -128,15 +128,6 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<EconomyOption>> {
     ])
 }
 
-/// Refuses `choice` with its reasons when the player cannot.
-fn allowed(choice: Choice, doing: &str) -> GResult<()> {
-    if choice.can {
-        Ok(())
-    } else {
-        Err(eu4_harmony_checks::choices::not_allowed(doing, &choice.reasons).into())
-    }
-}
-
 /// The bank loan command in its written form, as the button makes it: the
 /// country by its tag, the rest the game's defaults.
 fn written_loan(country: [u8; 3]) -> String {
@@ -144,21 +135,20 @@ fn written_loan(country: [u8; 3]) -> String {
 }
 
 /// Takes a bank loan, as the button does.
-pub fn take_bank_loan(Session { m, ctx, .. }: Session) -> GResult<()> {
-    allowed(take_loan(m, &ctx)?.choice, "take a loan")?;
-    power::post(&written_loan(ctx.player.letters()), "take a loan")
+pub fn take_bank_loan(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    action::carry_out(commands, &take_loan(m, &ctx)?.choice, "take a loan", || Ok(written_loan(ctx.player.letters())))
 }
 
 /// Reduces inflation, as the button does.
-pub fn reduce(Session { m, ctx, .. }: Session) -> GResult<()> {
-    allowed(reduce_inflation(m, &ctx)?, "reduce inflation")?;
-    power::spend(ctx.player, REDUCE_INFLATION, PowerKind::Adm, 0, "reduce inflation")
+pub fn reduce(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    action::allowed(&reduce_inflation(m, &ctx)?, "reduce inflation")?;
+    power::spend(commands, ctx.player, REDUCE_INFLATION, PowerKind::Adm, 0, "reduce inflation")
 }
 
 /// Raises mercantilism, as the trade view's button does.
-pub fn promote(Session { m, ctx, .. }: Session) -> GResult<()> {
-    allowed(raise_mercantilism(m, &ctx)?, "raise mercantilism")?;
-    power::spend(ctx.player, PROMOTE_MERCANTILISM, PowerKind::Dip, 0, "raise mercantilism")
+pub fn promote(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
+    action::allowed(&raise_mercantilism(m, &ctx)?, "raise mercantilism")?;
+    power::spend(commands, ctx.player, PROMOTE_MERCANTILISM, PowerKind::Dip, 0, "raise mercantilism")
 }
 
 #[cfg(test)]

@@ -11,10 +11,16 @@ mod machine;
 mod record;
 
 use crate::{repo, Args, Result};
-pub use course::{Claimed, Look};
+use course::Claimed;
+pub use course::Run;
 use machine::ThisComputer;
 use record::{Asking, Record};
-use std::{fs, path::Path, time::Duration};
+use std::{
+    fs,
+    path::Path,
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 
 /// The exit codes besides 0 and 1.
 pub const EXIT_BUSY: i32 = 2;
@@ -81,26 +87,28 @@ fn claim(args: &Args) -> Result<i32> {
     })
 }
 
-/// Claims the game for `owner` with the usual lease, waiting in the queue
-/// with `wait`, as `cargo xtask game claim` does.
-pub fn take(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Claimed> {
-    course::claim(&ThisComputer, &Asking { owner: owner.into(), player: false, now: false, wait }, purpose, course::LEASE_MINUTES, game_dir)
-}
-
 /// Releases `owner`'s claim, as `cargo xtask game release` does.
-pub fn give_back(owner: &str, game_dir: &Path, keep_crashes: bool) -> Result<()> {
+fn give_back(owner: &str, game_dir: &Path, keep_crashes: bool) -> Result<()> {
     course::release(&ThisComputer, owner, game_dir, keep_crashes)
 }
 
 /// Starts `owner`'s lease again.
-pub fn renew_as(owner: &str) -> Result<()> {
+fn renew_as(owner: &str) -> Result<()> {
     course::renew(&ThisComputer, owner)
 }
 
-/// One look at `owner`'s claim by the process keeping it going, which keeps
-/// the lease going while the game runs.
-pub fn look(owner: &str) -> Result<Look> {
-    course::look(&ThisComputer, owner)
+/// Holds the game for a run of `owner`'s, as the scenario runner's: the
+/// claim `owner` holds already, else a new one with the usual lease,
+/// waiting in the queue with `wait`.
+pub fn hold_for_run(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Run> {
+    course::hold_for_run(&ThisComputer, owner, purpose, wait, game_dir)
+}
+
+/// Plays `play` within `run`'s claim, kept going meanwhile, its flag set
+/// once the player takes the game; then, whatever `play` comes to, ends the
+/// game and gives back the claim the run made.
+pub fn play_within<T>(run: &Run, game_dir: &Path, interrupted: &(dyn Fn() -> bool + Sync), play: impl FnOnce(&Arc<AtomicBool>) -> Result<T>) -> Result<T> {
+    course::play_within(&ThisComputer, run, game_dir, interrupted, play)
 }
 
 /// Exits once the lease is down to `--warn` minutes (5) with

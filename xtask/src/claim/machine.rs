@@ -103,9 +103,9 @@ pub trait Machine {
     fn say(&self, line: &str);
 }
 
-/// The files of the game folder a run may change, by their path in it.
-const FRAMEWORK_FILES: [&str; 5] =
-    ["version.dll", "eu4-harmony\\eu4_harmony_core.dll", "eu4-harmony\\eu4-harmony.exe", "eu4-harmony\\dev.toml", "eu4-harmony\\backup\\version.dll"];
+/// The files of the game folder a run may change, by their path in it: what
+/// installing may create, change or move aside.
+const FRAMEWORK_FILES: [&str; 5] = crate::files::GAME_FOLDER_FILES;
 /// A `kept\` older than this goes at the next claim.
 const KEEP_DAYS: u64 = 7;
 
@@ -248,16 +248,7 @@ impl Machine for ThisComputer {
 
     fn back_up(&self, folder: &Path, game_dir: &Path) -> Result<()> {
         forget_old(&self.claims()?);
-        let framework = folder.join("framework");
-        fs::create_dir_all(&framework).map_err(|e| format!("cannot make {}: {e}", framework.display()))?;
-        for file in FRAMEWORK_FILES {
-            let from = game_dir.join(file);
-            if from.is_file() {
-                let to = framework.join(file);
-                fs::create_dir_all(to.parent().expect("a file's folder")).map_err(|e| e.to_string())?;
-                fs::copy(&from, &to).map_err(|e| format!("cannot copy {}: {e}", from.display()))?;
-            }
-        }
+        save_framework(game_dir, &folder.join("framework"))?;
         eu4_harmony_client::game_not_running()?;
         eu4_harmony_client::backup::backup(&user_folder(game_dir)?, &folder.join("backup"))
     }
@@ -301,30 +292,36 @@ impl Machine for ThisComputer {
     }
 
     fn leftovers(&self, held: Option<&Record>) -> Result<Vec<String>> {
-        let mut lines = Vec::new();
-        if let Ok(entries) = fs::read_dir(self.claims()?) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let ours = held.and_then(|h| h.folder.as_deref()).is_some_and(|f| Path::new(f) == path);
-                if !ours && (path.join("backup").exists() || path.join("framework").exists()) {
-                    lines.push(format!("a claim's folder no claim refers to, not put back: {}", path.display()));
-                }
-            }
-        }
-        if let Ok(entries) = fs::read_dir(base()?.join("backups")) {
-            for entry in entries.flatten() {
-                let path = entry.path().display().to_string();
-                if held.and_then(|h| h.backup.as_deref()) != Some(path.as_str()) {
-                    lines.push(format!("a backup no claim refers to: {path}"));
-                }
-            }
-        }
-        Ok(lines)
+        Ok(leftovers(&self.claims()?, &base()?.join("backups"), held))
     }
 
     fn say(&self, line: &str) {
         println!("{line}");
     }
+}
+
+/// The claims' folders under `claims` and the backups under `backups` that
+/// no claim refers to, a line each, besides `held`'s.
+fn leftovers(claims: &Path, backups: &Path, held: Option<&Record>) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Ok(entries) = fs::read_dir(claims) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ours = held.and_then(|h| h.folder.as_deref()).is_some_and(|f| Path::new(f) == path);
+            if !ours && (path.join("backup").exists() || path.join("framework").exists()) {
+                lines.push(format!("a claim's folder no claim refers to, not put back: {}", path.display()));
+            }
+        }
+    }
+    if let Ok(entries) = fs::read_dir(backups) {
+        for entry in entries.flatten() {
+            let path = entry.path().display().to_string();
+            if held.and_then(|h| h.backup.as_deref()) != Some(path.as_str()) {
+                lines.push(format!("a backup no claim refers to: {path}"));
+            }
+        }
+    }
+    lines
 }
 
 fn base() -> Result<PathBuf> {
@@ -408,6 +405,21 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Copies the game folder's framework files, those of them that are there,
+/// into `framework`.
+fn save_framework(game_dir: &Path, framework: &Path) -> Result<()> {
+    fs::create_dir_all(framework).map_err(|e| format!("cannot make {}: {e}", framework.display()))?;
+    for file in FRAMEWORK_FILES {
+        let from = game_dir.join(file);
+        if from.is_file() {
+            let to = framework.join(file);
+            fs::create_dir_all(to.parent().expect("a file's folder")).map_err(|e| e.to_string())?;
+            fs::copy(&from, &to).map_err(|e| format!("cannot copy {}: {e}", from.display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Puts the game folder's framework files back as `framework` has them, one
 /// that was not there removed, and compares each; what is not as it was.
 fn restore_framework(framework: &Path, game_dir: &Path) -> Vec<String> {
@@ -430,4 +442,147 @@ fn restore_framework(framework: &Path, game_dir: &Path) -> Vec<String> {
         }
     }
     lost
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    /// A folder of its own for a test, empty, which goes when it is dropped.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("eu4h-xtask-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn write(&self, path: &str, text: &str) -> PathBuf {
+            let path = self.0.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, text).unwrap();
+            path
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Every file under `dir`, by its path in it, with what it holds.
+    fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+        fn walk(dir: &Path, under: &Path, into: &mut BTreeMap<String, Vec<u8>>) {
+            for entry in fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, under, into);
+                } else {
+                    into.insert(path.strip_prefix(under).unwrap().display().to_string(), fs::read(&path).unwrap());
+                }
+            }
+        }
+        let mut found = BTreeMap::new();
+        walk(dir, dir, &mut found);
+        found
+    }
+
+    /// The build output: the player's files, the proxy marked as ours.
+    fn built(s: &Scratch) -> PathBuf {
+        s.write("out\\version.dll", "the proxy, eu4_harmony_bootstrap");
+        s.write("out\\eu4_harmony_core.dll", "the core, new");
+        s.write("out\\eu4-harmony.exe", "the tool, new");
+        s.0.join("out")
+    }
+
+    #[test]
+    fn installing_then_putting_back_leaves_the_game_folder_s_files_as_they_were() {
+        // A game folder with another's version.dll, and one with an older
+        // install of ours, whose dev.toml the repository no longer has.
+        let folders: [&[(&str, &str)]; 2] = [
+            &[("eu4.exe", "the game"), ("version.dll", "another's")],
+            &[
+                ("eu4.exe", "the game"),
+                ("version.dll", "the proxy, eu4_harmony_bootstrap, old"),
+                ("eu4-harmony\\eu4_harmony_core.dll", "the core, old"),
+                ("eu4-harmony\\dev.toml", "old options"),
+                ("eu4-harmony\\logs\\proxy.log", "the proxy's log"),
+            ],
+        ];
+        for (i, folder) in folders.iter().enumerate() {
+            let s = Scratch::new(&format!("install-{i}"));
+            for (path, text) in folder.iter() {
+                s.write(&format!("game\\{path}"), text);
+            }
+            let (game, framework) = (s.0.join("game"), s.0.join("framework"));
+            let before = files(&game);
+            let options = if i == 0 { s.write("dev.toml", "options") } else { s.0.join("no dev.toml") };
+
+            save_framework(&game, &framework).unwrap();
+            let installed = crate::files::install_from(&built(&s), &options, &game).unwrap();
+            let changed: Vec<String> = files(&game).into_iter().filter(|(path, text)| before.get(path) != Some(text)).map(|(path, _)| path).collect();
+            let gone: Vec<String> = before.keys().filter(|path| !game.join(path).exists()).cloned().collect();
+            assert!(!changed.is_empty() && (i == 0 || !gone.is_empty()), "folder {i}: installing changed {changed:?} and removed {gone:?}");
+            for path in changed.iter().chain(&gone) {
+                assert!(FRAMEWORK_FILES.contains(&path.as_str()), "installing changed {path}, which the claim does not put back");
+            }
+            assert!(installed.iter().all(|p| FRAMEWORK_FILES.contains(&&*p.strip_prefix(&game).unwrap().display().to_string())));
+
+            assert_eq!(restore_framework(&framework, &game), Vec::<String>::new());
+            assert_eq!(files(&game), before, "folder {i}");
+        }
+    }
+
+    #[test]
+    fn the_logs_are_kept_with_only_the_crash_folders_the_backup_did_not_know() {
+        let s = Scratch::new("keep");
+        s.write("user\\eu4-harmony\\logs\\core.log", "the framework's log");
+        s.write("user\\logs\\game.log", "the game's log");
+        s.write("user\\crashes\\before\\exception.txt", "a crash before the claim");
+        s.write("backup\\crashes.txt", "before\n");
+        let (user, backup, folder) = (s.0.join("user"), s.0.join("backup"), s.0.join("claim"));
+        assert!(!keep(&folder, &user, Some(&backup)), "no crash of the run's");
+
+        s.write("user\\crashes\\during\\exception.txt", "a crash of the run's");
+        assert!(keep(&folder, &user, Some(&backup)));
+        let kept: Vec<String> = files(&folder.join("kept")).into_keys().collect();
+        assert_eq!(kept, ["crashes\\during\\exception.txt", "eu4-harmony-logs\\core.log", "game-logs\\game.log"]);
+    }
+
+    #[test]
+    fn the_leftovers_are_the_folders_and_backups_no_claim_refers_to() {
+        let s = Scratch::new("leftovers");
+        s.write("claims\\a-1\\backup\\settings.txt", "");
+        s.write("claims\\b-2\\framework\\version.dll", "");
+        s.write("claims\\c-3\\kept\\game-logs\\game.log", "");
+        s.write("backups\\x\\settings.txt", "");
+        s.write("backups\\y\\settings.txt", "");
+        let record = Record {
+            owner: "a".into(),
+            purpose: String::new(),
+            checkout: String::new(),
+            since: String::new(),
+            renewed: 0,
+            lease_minutes: 30,
+            backup: Some(s.0.join("backups\\x").display().to_string()),
+            folder: Some(s.0.join("claims\\a-1").display().to_string()),
+            player: false,
+            taken: None,
+            preparing: None,
+            putting_back: None,
+            keeper: None,
+            game: None,
+        };
+        assert_eq!(
+            leftovers(&s.0.join("claims"), &s.0.join("backups"), Some(&record)),
+            [
+                format!("a claim's folder no claim refers to, not put back: {}", s.0.join("claims\\b-2").display()),
+                format!("a backup no claim refers to: {}", s.0.join("backups\\y").display()),
+            ]
+        );
+    }
 }

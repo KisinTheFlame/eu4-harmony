@@ -2,20 +2,12 @@
 //! the blocks a session leaves among them keep committed. The first frame
 //! after a world reset, of the main menu or of the session it began, has the
 //! heaps give them back.
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// A world reset was made, and no frame has run since: the heaps have free
-/// pages to give back.
-pub(super) static PAGES_TO_GIVE_BACK: AtomicBool = AtomicBool::new(false);
 
 /// The first frame after a world reset: the heaps give back the free pages
 /// the sessions they held leave, which they would keep committed. A heap
 /// keeps a page while a block on it lives, and what a session leaves is
 /// strewn among what it let go.
 pub(super) fn give_back_pages() {
-    if !PAGES_TO_GIVE_BACK.swap(false, Ordering::Relaxed) {
-        return;
-    }
     #[repr(C)]
     struct Optimize {
         version: u32,

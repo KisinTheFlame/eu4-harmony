@@ -35,7 +35,7 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+    atomic::{AtomicU32, AtomicUsize, Ordering},
     Mutex,
 };
 
@@ -92,8 +92,6 @@ enum Left {
 static WAITING: Mutex<Option<HashMap<usize, (u32, Left)>>> = Mutex::new(None);
 /// The world resets that have ended.
 static RESETS: AtomicU32 = AtomicU32::new(0);
-/// Set as a world reset ends, taken by the first frame after it.
-static TO_LET_GO: AtomicBool = AtomicBool::new(false);
 /// What the repair deleted, and what it kept waiting, for the log.
 pub(super) static PERSONS: AtomicUsize = AtomicUsize::new(0);
 pub(super) static PERSONS_KEPT: AtomicUsize = AtomicUsize::new(0);
@@ -102,7 +100,6 @@ pub(super) static BATTLES: AtomicUsize = AtomicUsize::new(0);
 /// A world reset is over.
 pub(super) fn world_reset() {
     RESETS.fetch_add(1, Ordering::Relaxed);
-    TO_LET_GO.store(true, Ordering::Relaxed);
 }
 
 /// A record of a history is being deleted: the persons it holds that are not
@@ -166,9 +163,6 @@ extern "C" fn going(frame: *mut HookFrame) {
 /// The first frame after a world reset: what waited from before its end is
 /// deleted, unless the game still has a person.
 pub(super) fn let_go(m: &Memory) {
-    if !TO_LET_GO.swap(false, Ordering::Relaxed) {
-        return;
-    }
     let resets = RESETS.load(Ordering::Relaxed);
     let due: Vec<(usize, Left)> = {
         let mut waiting = WAITING.lock().unwrap_or_else(|e| e.into_inner());

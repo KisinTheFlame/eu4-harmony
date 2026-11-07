@@ -4,7 +4,7 @@
 //! as a date is reached, for remote control's advancing; and whether a
 //! question waits for the player's answer. All of it also in observe mode
 //! with no country in view, as the game lets the player run time then too. The evidence is in docs/research/time.md.
-use super::{commands, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
+use super::{action, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
 use crate::{
     hooks::HookFrame,
     memory::Memory,
@@ -134,12 +134,12 @@ fn lets_time_run(m: &Memory, ctx: &World) -> GResult<bool> {
 /// at once.
 pub fn set_speed(caller: Caller, speed: u32) -> GResult<()> {
     eu4_harmony_checks::time::speed(speed)?;
-    let WorldSession { m, world: ctx, .. } = WorldSession::open(caller)?;
+    let WorldSession { m, world: ctx, commands, .. } = WorldSession::open(caller)?;
     let target = speed as i32 - 1;
     let now = m.i32(ctx.world + world::SPEED)?;
     let command = if target > now { "increase_game_speed={ }" } else { "decrease_game_speed={ }" };
     for _ in 0..(target - now).abs() {
-        commands::post(command)?;
+        action::post(commands, command, "change the game speed")?;
     }
     let set = m.i32(ctx.world + world::SPEED)?;
     if set != target {
