@@ -98,23 +98,28 @@ use eu4_harmony_loc::Language;
 use eu4_harmony_manifest::{descriptor_entry, Manifest, LOCATION_KEYS};
 
 /// Positional arguments and `--key value` / `--flag` options.
+#[derive(Debug)]
 struct Args {
     positional: Vec<String>,
     options: HashMap<String, Option<String>>,
 }
 
 impl Args {
-    fn parse(raw: &[String], flags: &[&str]) -> Result<Self> {
+    /// Reads `raw`, where `flags` take no value and the options in `values`
+    /// take one; any other option is refused, as cargo xtask's are.
+    fn parse(raw: &[String], flags: &[&str], values: &[&str]) -> Result<Self> {
         let mut args = Args { positional: Vec::new(), options: HashMap::new() };
         let mut i = 0;
         while i < raw.len() {
             if let Some(key) = raw[i].strip_prefix("--") {
                 if flags.contains(&key) {
                     args.options.insert(key.to_string(), None);
-                } else {
+                } else if values.contains(&key) {
                     let value = raw.get(i + 1).ok_or_else(|| format!("--{key} needs a value"))?;
                     args.options.insert(key.to_string(), Some(value.clone()));
                     i += 1;
+                } else {
+                    return Err(format!("unknown option --{key}; eu4-harmony help lists each command's"));
                 }
             } else {
                 args.positional.push(raw[i].clone());
@@ -129,19 +134,22 @@ impl Args {
     }
 }
 
+/// The options that name the game's folders.
+const FOLDERS: [&str; 2] = ["user-dir", "game-dir"];
+
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let result = match raw.first().map(String::as_str) {
-        Some("new") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_new(&a)),
-        Some("link") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_link(&a)),
-        Some("package") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_package(&a)),
-        Some("check") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_check(&a)),
-        Some("types") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_types(&a)),
-        Some("test") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_test(&a)),
-        Some("reload") => Args::parse(&raw[1..], &["watch"]).and_then(|a| cmd_reload(&a)),
-        Some("backup") => Args::parse(&raw[1..], &[]).and_then(|a| cmd_backup(&a)),
-        Some("restore") => Args::parse(&raw[1..], &["keep", "keep-crashes"]).and_then(|a| cmd_restore(&a)),
-        Some("start") => Args::parse(&raw[1..], &["hidden", "sound"]).and_then(|a| cmd_start(&a)),
+        Some("new") => Args::parse(&raw[1..], &[], &["name", "dir", "languages"]).and_then(|a| cmd_new(&a)),
+        Some("link") => Args::parse(&raw[1..], &[], &FOLDERS).and_then(|a| cmd_link(&a)),
+        Some("package") => Args::parse(&raw[1..], &[], &["out"]).and_then(|a| cmd_package(&a)),
+        Some("check") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_check(&a)),
+        Some("types") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_types(&a)),
+        Some("test") => Args::parse(&raw[1..], &[], &[]).and_then(|a| cmd_test(&a)),
+        Some("reload") => Args::parse(&raw[1..], &["watch"], &[]).and_then(|a| cmd_reload(&a)),
+        Some("backup") => Args::parse(&raw[1..], &[], &FOLDERS).and_then(|a| cmd_backup(&a)),
+        Some("restore") => Args::parse(&raw[1..], &["keep", "keep-crashes"], &FOLDERS).and_then(|a| cmd_restore(&a)),
+        Some("start") => Args::parse(&raw[1..], &["hidden", "sound"], &["timeout", "game-dir", "user-dir"]).and_then(|a| cmd_start(&a)),
         Some("game") => std::process::exit(game::run(&raw[1..])),
         Some("wiki") => wiki::page(&raw[1..]).map(|page| print!("{page}")),
         Some("skills") => skills::page(&raw[1..]).map(|page| print!("{page}")),
@@ -812,6 +820,15 @@ end)
         let text = fs::read_to_string(file).unwrap();
         assert!(text.contains("name=\"Linked\"") && text.ends_with(&format!("path=\"{}\"\n", forward_slashes(&root))));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_option_a_command_does_not_take_is_refused() {
+        let raw = |line: &str| line.split(' ').map(String::from).collect::<Vec<_>>();
+        let args = Args::parse(&raw("dir --keep --user-dir u"), &["keep"], &FOLDERS).unwrap();
+        assert_eq!((args.positional.as_slice(), args.value("user-dir"), args.options.contains_key("keep")), (&["dir".to_string()][..], Some("u"), true));
+        assert!(Args::parse(&raw("dir --keep-crash"), &["keep-crashes"], &[]).unwrap_err().contains("unknown option --keep-crash"));
+        assert_eq!(Args::parse(&raw("--out"), &[], &["out"]).err().as_deref(), Some("--out needs a value"));
     }
 
     #[test]
