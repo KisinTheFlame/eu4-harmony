@@ -13,6 +13,7 @@
 //! stretches in a row stopped by the time limit ([`watch`]) stop it. The
 //! sensitive capabilities (ADR sensitive-capabilities-are-declared) are `files`
 //! and `http.fetch`, with the clock in the sandbox.
+pub mod dispatch;
 pub mod fetch;
 mod files;
 mod sandbox;
@@ -111,9 +112,7 @@ pub enum Element {
 pub enum Arg {
     /// Any value JSON can hold; an object of year, month and day is a date.
     Json(Value),
-    Integer(i64),
     Text(String),
-    Date(eu4_harmony_checks::Date),
     Click {
         right: bool,
         shift: bool,
@@ -444,9 +443,7 @@ impl Extension {
     fn arg(&self, arg: &Arg) -> mlua::Result<LuaValue> {
         Ok(match arg {
             Arg::Json(json) => values::to_lua(&self.lua, json)?,
-            Arg::Integer(i) => LuaValue::Integer(*i),
             Arg::Text(text) => LuaValue::String(self.lua.create_string(text)?),
-            Arg::Date(date) => values::to_lua(&self.lua, &eu4_harmony_checks::form::as_lua(|| serde_json::to_value(date)).map_err(mlua::Error::external)?)?,
             Arg::Click { right, shift, ctrl } => {
                 let t = self.lua.create_table()?;
                 t.set("right", *right)?;
