@@ -95,8 +95,9 @@ pub struct Seen<'a> {
 }
 
 /// How many test games run at once at most: what a game takes in the late
-/// game, about 6 GB of memory and 1.5 GB of the graphics card's, three times
-/// over beside the player's own (docs/research/several-games.md).
+/// game, 4.2 GB of memory and 1.3 GB of the graphics card's in 1820, three
+/// times over beside the player's own and what else the computer runs
+/// (docs/prototype-log.md, "Test games").
 pub const CAPACITY: usize = 3;
 /// A waiting claim that has not said it still waits for this long has gone.
 pub const WAITING_GONE_SECONDS: u64 = 60;

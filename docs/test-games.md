@@ -20,6 +20,8 @@ A test game is started from the game folder, so that it has every DLC the player
 | `-harmony_core=<file>` | the proxy, in every build | the core to load instead of `eu4-harmony\eu4_harmony_core.dll`; its `dev.toml` is the one beside it. A core named that does not load ends the game with 3 |
 | `-harmony_test_game=<name>` | the core of a developer build with `dev-test-games` | remote control on `\\.\pipe\eu4-harmony-<name>` instead of `\\.\pipe\eu4-harmony`; a player's build passes it over and says so in `core.log` |
 
+The game restarting itself, as a return to the main menu with the in-process return off does, writes every switch again as `--name="value"` ([research/main-menu.md](research/main-menu.md)); the proxy, the framework and the game read both forms, so the game started in its place is the same test game, hidden.
+
 The test game's name is its owner's (the leaf name of the checkout's folder, or `--owner`): letters, digits, `.`, `_` and `-`. The command line tool asks it with `--test-game <name>` (`game`, `reload`) or with `EU4_HARMONY_TEST_GAME` set; without either it asks the player's pipe, as it always has.
 
 ### The commands
@@ -49,14 +51,14 @@ Each command of the holder's starts the lease again. `watch`, `renew`, `--player
 
 - `user\`: the test game's user folder. The claim copies the player's `settings.txt`, `dlc_load.json` (the playset), `dlc_signature`, `game_data.json`, `gameplaysettings.txt`, `messagetypes_custom.txt`, `pdx_settings.txt`, `shortcuts.txt` and the framework's `eu4-harmony\settings.txt`, those that are there, and makes `mod` a junction to the player's `mod` folder, where the playset's descriptors are. `start` copies the saves it is given into `user\save games\`.
 - `core\`: the core and `dev.toml` `start` copied.
-- `follow.exe`: a copy of xtask that follows the test game to its end and writes how it ended into `game-ends.tsv`, as the claim's `watch` did; it follows the game the test game restarts in its place, found by its pipe.
+- `follow.exe`: a copy of xtask that follows the test game to its end and writes how it ended into `game-ends.tsv`, as the claim's `watch` did; after an end with 0, as a restart's, it follows the game the test game restarts in its place, found by its pipe. One runs a claim: a start ends the one before.
 - `kept\`, after the release: `eu4-harmony-logs\`, `game-logs\`, `crashes\` and `game-ends.tsv`. A claim removes the `kept\` of claims released more than 7 days before.
 
 The release removes the junction before the folder, so that the player's `mod` folder is never removed through it.
 
 ### The queue and the lease
 
-- At most three test games at once (`CAPACITY`, from what a game takes in the late game: below).
+- At most three test games at once (`CAPACITY`): a game in 1820 took 4.2 GB of memory and 1.3 GB of the graphics card's ([prototype-log.md](prototype-log.md), "Test games").
 - A claim waiting joins the queue in the order it asked, says every 5 seconds that it still waits, and leaves it once it has not for a minute. A free test game goes to the first in the queue only.
 - The lease is 30 minutes, or `--lease`, from the holder's last command, the scenario runner keeping it going while it plays. A lease that ran out costs the holder nothing until a claim waits for a test game with none free: then the claim takes the test game whose lease ran out longest ago, ending its game and keeping its logs as a release does.
 
@@ -101,4 +103,3 @@ The scenario runner, `cargo xtask profile --test-game`, `cargo xtask install` wi
 
 - Whether the player can start the game from Steam or the Paradox launcher while a test game runs.
 - Whether a test game writes anything into the player's user folder.
-- How many test games fit in the late game; `CAPACITY` is three until it is measured.

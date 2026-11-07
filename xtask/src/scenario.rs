@@ -426,6 +426,9 @@ fn markdown(report: &Value) -> String {
             let written: Vec<String> = parameters.iter().map(|(k, v)| format!("{k} {}", text(v))).collect();
             md.push(format!("Parameters: {}.", written.join(", ")));
         }
+        if let Some(beside) = s["games_beside"].as_u64() {
+            md.push(format!("Other games running beside it as it began: {beside}."));
+        }
         let crash = &s["crash"];
         if crash.is_object() {
             md.extend([String::new(), "### The crash".into(), String::new()]);

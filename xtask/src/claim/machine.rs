@@ -271,6 +271,10 @@ impl Machine for ThisComputer {
     }
 
     fn follow(&self, folder: &Path, id: u32, pipe: &str) -> Result<()> {
+        // One follower a claim: the one of a game that ended may still be
+        // looking for the game a restart starts, and would follow this one
+        // too.
+        self.stop_following(folder);
         let follower = folder.join("follow.exe");
         let _ = fs::remove_file(folder.join(RELEASED));
         let me = std::env::current_exe().map_err(|e| format!("cannot find this program: {e}"))?;
@@ -378,7 +382,7 @@ fn serving(name: &str) -> Option<u32> {
 /// for trying the claims apart from the computer's own record.
 fn base() -> Result<PathBuf> {
     let base = match std::env::var_os("EU4_HARMONY_DEV_DIR").filter(|d| !d.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
+        Some(dir) => backslashed(Path::new(&dir)),
         None => PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?).join("eu4-harmony-dev"),
     };
     fs::create_dir_all(&base).map_err(|e| format!("cannot make {}: {e}", base.display()))?;
@@ -429,12 +433,18 @@ fn junction(link: &Path, target: &Path) -> Result<()> {
         .arg("/c")
         .arg("mklink")
         .arg("/J")
-        .arg(link)
-        .arg(target)
+        .arg(backslashed(link))
+        .arg(backslashed(target))
         .stdout(std::process::Stdio::null())
         .status()
         .map_err(|e| format!("cannot run mklink: {e}"))?;
     made.success().then_some(()).ok_or_else(|| format!("cannot make the junction {} to {}", link.display(), target.display()))
+}
+
+/// `path` with Windows' own separators, which `mklink` and the game's
+/// command line read.
+fn backslashed(path: &Path) -> PathBuf {
+    PathBuf::from(path.display().to_string().replace('/', "\\"))
 }
 
 /// Removes the junction `user\mod`, never what it leads to, before the
@@ -563,9 +573,10 @@ fn spawn_detached(program: &Path, words: &[String]) -> Result<()> {
 
 /// `follow.exe`'s work, `cargo xtask game follow <folder> <id> <pipe>`:
 /// follows the game `id` to its end and writes how it ended into the
-/// claim's `game-ends.tsv`; then, unless the claim is released, follows the
-/// game the test game restarts in its place, the one that opens its pipe
-/// within [`RESTART_WAIT`].
+/// claim's `game-ends.tsv`; then, when it ended with 0, as a restart does,
+/// and unless the claim is released, follows the game the test game
+/// restarts in its place, the one that opens its pipe within
+/// [`RESTART_WAIT`].
 pub fn follow_games(folder: &Path, first: u32, pipe: &str) -> Result<()> {
     use std::io::Write;
     use windows_sys::Win32::{
@@ -595,6 +606,11 @@ pub fn follow_games(folder: &Path, first: u32, pipe: &str) -> Result<()> {
         };
         if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(folder.join(ENDS)) {
             let _ = writeln!(file, "{}", GameEnd { game, seen, code }.to_line());
+        }
+        // A restart ends the game with 0; one ended by these commands, or a
+        // crash, starts nothing in its place.
+        if code != 0 {
+            break;
         }
         let began = std::time::Instant::now();
         while began.elapsed() < RESTART_WAIT && !folder.join(RELEASED).exists() {
