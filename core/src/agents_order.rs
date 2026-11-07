@@ -15,6 +15,7 @@
 //! with `-seed`, where each agent draws from a generator of its own, then
 //! plays the same days in either order if no agent reads what another of
 //! its country wrote that day.
+use crate::called_by_game;
 use crate::{
     army_search::{ARMIES_WALK, ARMIES_WALKED as WALKED, CHILDREN_WALK as WALKS},
     dev::AgentsOrder,
@@ -55,6 +56,7 @@ unsafe fn walk_list(list: usize, from: usize, step: usize, day: usize) {
 
 /// The two walks, in the switch's order, its armies' searches handed out
 /// first as the framework's own walk does (`core/src/army_search.rs`).
+#[called_by_game]
 unsafe extern "C" fn walk(top: usize, day: usize) {
     crate::army_search::children_begin(top, day);
     let (from, step) = if order() == AgentsOrder::Reversed { (LAST, PREVIOUS) } else { (0, NEXT) };
@@ -78,13 +80,18 @@ extern "C" fn walks_stub() {
     );
 }
 
-/// The points, when the switch asks for the framework's walks.
-pub fn points() -> Vec<Point> {
+/// Whether the switch asks for the framework's walks, which then installs
+/// [`points`].
+pub fn chosen() -> bool {
     let order = order();
-    if order == AgentsOrder::Game {
-        return Vec::new();
+    if order != AgentsOrder::Game {
+        log!("test switch agents-order: an AI country's top agent has its agents do their day {order:?}");
     }
-    log!("test switch agents-order: an AI country's top agent has its agents do their day {order:?}");
+    order != AgentsOrder::Game
+}
+
+/// The framework's walks.
+pub fn points() -> Vec<Point> {
     vec![
         Point::jump(WALKS, "48 8b 5f 40 48 85 db 74 1a", "top agent's walk of its agents", walks_stub as *const () as usize, &WALKED_RESUME).uses(&[CHILDREN]),
         Point::keep(ARMIES_WALK, "48 8b 9f 50 0c 00 00", "top agent's walk of its armies' agents").uses(&[ARMIES]),

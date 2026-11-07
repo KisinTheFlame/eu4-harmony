@@ -68,12 +68,21 @@ An answer is held to its capability's result (eu4-harmony wiki <group>
 a value of the wrong type, is an error at that line. Leave out the fields
 the test is not about.
 
-events, as the game raises them:
+events, as the game raises them, through the dispatch the game uses:
   mod:session(saved)   mod:session_ended(reason)   mod:day("1444.11.12")
+  mod:raise(kind, { field = value, ... })
+                       any event eu4-harmony wiki events lists, its fields as
+                       the handler gets them (a date { year, month, day }),
+                       held to the event's shape:
+                       mod:raise("war_declared", { war = "x", attacker = "CAS", defender = "GRA" })
   mod:frame()          mod:button(name, { right, shift, ctrl })
   mod:army_ordered(army)   mod:army_defeated(army)   mod:map_lost()
   mod:poll()           takes up waiting tasks whose answer came; frame does it too
   mod:save()           calls save_data: its data, or nil and why it failed
+
+A day is followed by month when it is the first heard in its month, and by
+year in a new year, as in the game; the first day of a session by neither.
+session_ended's reason is return, load, new_game or country.
 
 what the mod did:
   mod:log()            its log lines; mod:errors() those of errors

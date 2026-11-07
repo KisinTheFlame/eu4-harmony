@@ -48,6 +48,15 @@ impl Date {
         Some(Self(Self::from_ymd(year, month + 1, day)?.0.checked_add(self.0.rem_euclid(24))?))
     }
 
+    /// Whether the day `self`, heard after the day `before`, is in a new
+    /// month, and in a new year, as the `month` and `year` events tell it.
+    /// The first day heard in a session (`before` none) is in neither.
+    pub fn turned(self, before: Option<Self>) -> (bool, bool) {
+        let Some(before) = before else { return (false, false) };
+        let ((y0, m0, _), (y1, m1, _)) = (before.ymd(), self.ymd());
+        ((y0, m0) != (y1, m1), y0 != y1)
+    }
+
     pub fn parse(text: &str) -> Option<Self> {
         let mut parts = text.splitn(3, '.');
         let year = parts.next()?.parse().ok()?;

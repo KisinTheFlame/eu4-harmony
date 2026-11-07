@@ -13,6 +13,7 @@
 //! The settings are followed as they are loaded and saved; the settings window
 //! opens only in the main menu, so the next session is the first to see a
 //! change.
+use crate::called_by_game;
 use crate::{
     objects::campaign::achievements,
     points::{Function, Point},
@@ -79,6 +80,7 @@ fn taken_as_vanilla(vanilla: bool) -> bool {
 type Check = unsafe extern "C" fn(usize, usize, u8, u8) -> u8;
 static ORIGINAL_CHECK: Function<Check> = Function::new();
 
+#[called_by_game]
 unsafe extern "C" fn check(achievements: usize, reasons: usize, ignore_ironman: u8, ignore_player: u8) -> u8 {
     let ignore_ironman = ignore_ironman | OUTSIDE_IRONMAN.load(Ordering::Relaxed) as u8;
     unsafe { ORIGINAL_CHECK.get()(achievements, reasons, ignore_ironman, ignore_player) }
@@ -87,6 +89,7 @@ unsafe extern "C" fn check(achievements: usize, reasons: usize, ignore_ironman: 
 type ChecksumKnown = unsafe extern "C" fn(usize, u8) -> usize;
 static ORIGINAL_CHECKSUM_KNOWN: Function<ChecksumKnown> = Function::new();
 
+#[called_by_game]
 unsafe extern "C" fn checksum_known(achievements: usize, vanilla: u8) -> usize {
     let vanilla = vanilla != 0;
     KEPT_IN.store(achievements, Ordering::Release);

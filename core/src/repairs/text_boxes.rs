@@ -3,7 +3,7 @@
 //! animations, and the text box takes off them while it does not play. It
 //! is put back on them, owned, as the text box goes.
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     objects::gui::{classes as gui_classes, element, text_box},
     points::Point,
 };
@@ -36,29 +36,27 @@ fn since_reset() -> String {
 /// others, the text box still whole, as it deletes a playing one. The
 /// destructor lets it go, so a developer build's quarantine keeps what the
 /// whole destructor frees, until [`text_box_gone`].
-extern "C" fn text_box_going(frame: *mut HookFrame) {
+fn text_box_going(call: &mut Call) {
     #[cfg(feature = "dev-heap-census")]
     crate::census::quarantine::begin("text box's animation");
-    crate::guarded("text box destructor", || {
-        let m = crate::hooked_memory();
-        let boxed = unsafe { (*frame).args[0] };
-        let owned = (|| {
-            let animation = m.ptr(boxed + text_box::ANIMATION)?;
-            if animation != 0 {
-                m.call(m.at(OWN_ANIMATION), &[boxed, animation])?;
-                TEXT_BOX_ANIMATIONS.fetch_add(1, Ordering::Relaxed);
-            }
-            crate::Result::Ok(())
-        })();
-        if let Err(e) = owned {
-            log!("repair: a text box's animation was not handed to its element: {e}");
+    let m = call.memory();
+    let boxed = call.arg(0);
+    let owned = (|| {
+        let animation = m.ptr(boxed + text_box::ANIMATION)?;
+        if animation != 0 {
+            m.call(m.at(OWN_ANIMATION), &[boxed, animation])?;
+            TEXT_BOX_ANIMATIONS.fetch_add(1, Ordering::Relaxed);
         }
-    });
+        crate::Result::Ok(())
+    })();
+    if let Err(e) = owned {
+        log!("repair: a text box's animation was not handed to its element: {e}");
+    }
 }
 
 /// A text box's destructor is done, its animation deleted with it.
 #[cfg(feature = "dev-heap-census")]
-extern "C" fn text_box_gone(_: *mut HookFrame) {
+fn text_box_gone(_: &mut Call) {
     crate::census::quarantine::end();
 }
 

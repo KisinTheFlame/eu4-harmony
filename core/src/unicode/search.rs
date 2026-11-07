@@ -7,6 +7,7 @@
 //! single bytes the same way and leaves UTF-8 sequences whole. It runs on the
 //! province finder's worker thread too.
 use super::game_text;
+use crate::called_by_game;
 use crate::game_string;
 use crate::points::{Function, Point};
 
@@ -48,10 +49,9 @@ pub fn fold(text: &mut [u8]) {
     game_text::map_single_bytes(text, folded);
 }
 
+#[called_by_game]
 unsafe extern "C" fn fold_string(string: *mut u8) {
-    crate::guarded("search fold", || {
-        fold(game_string::text_mut(string));
-    })
+    fold(game_string::text_mut(string));
 }
 
 pub fn points() -> Vec<Point> {

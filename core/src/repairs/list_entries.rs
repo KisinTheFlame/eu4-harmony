@@ -14,7 +14,7 @@
 //! ([`super::session_interface::RETURNS`]), as the trade nodes are. An
 //! entry deleted before then, by whatever deletes it, waits no more.
 use super::LettingGo;
-use crate::{hooks::HookFrame, memory::Memory, points::Point};
+use crate::{hooks::Call, memory::Memory, points::Point};
 use std::{
     collections::HashMap,
     sync::{
@@ -81,48 +81,46 @@ fn waiting() -> std::sync::MutexGuard<'static, Option<HashMap<usize, (usize, u32
     WAITING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-extern "C" fn list_killing(frame: *mut HookFrame) {
-    crate::guarded("list kill", || {
-        let list = unsafe { (*frame).args[0] };
-        let m = crate::hooked_memory();
-        let found = (|| {
-            let mut found = Vec::new();
-            if m.u8(list + KILLED_FLAG)? != 0 {
-                return Ok(found);
-            }
-            let classes: Vec<usize> = ENTRIES.iter().map(|(class, _, _)| m.at(*class)).collect();
-            let mut node = m.ptr(list + SIGNAL + CONNECTIONS)?;
-            while node != 0 {
-                let entry = m.ptr(node + CONNECTION_ITEM)?;
-                if entry != 0 {
-                    let class = m.ptr(entry)?;
-                    if classes.contains(&class) {
-                        found.push((entry, class));
-                    }
-                }
-                node = m.ptr(node + CONNECTION_NEXT)?;
-            }
-            crate::Result::Ok(found)
-        })();
-        match found {
-            Ok(found) if found.is_empty() => {}
-            Ok(found) => {
-                let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
-                let mut waiting = waiting();
-                let waiting = waiting.get_or_insert_with(HashMap::new);
-                for (entry, class) in found {
-                    waiting.insert(entry, (class, returns));
-                }
-            }
-            Err(e) => log!("repair: the entries of a list being killed were not read: {e}"),
+fn list_killing(call: &mut Call) {
+    let list = call.arg(0);
+    let m = call.memory();
+    let found = (|| {
+        let mut found = Vec::new();
+        if m.u8(list + KILLED_FLAG)? != 0 {
+            return Ok(found);
         }
-    });
+        let classes: Vec<usize> = ENTRIES.iter().map(|(class, _, _)| m.at(*class)).collect();
+        let mut node = m.ptr(list + SIGNAL + CONNECTIONS)?;
+        while node != 0 {
+            let entry = m.ptr(node + CONNECTION_ITEM)?;
+            if entry != 0 {
+                let class = m.ptr(entry)?;
+                if classes.contains(&class) {
+                    found.push((entry, class));
+                }
+            }
+            node = m.ptr(node + CONNECTION_NEXT)?;
+        }
+        crate::Result::Ok(found)
+    })();
+    match found {
+        Ok(found) if found.is_empty() => {}
+        Ok(found) => {
+            let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
+            let mut waiting = waiting();
+            let waiting = waiting.get_or_insert_with(HashMap::new);
+            for (entry, class) in found {
+                waiting.insert(entry, (class, returns));
+            }
+        }
+        Err(e) => log!("repair: the entries of a list being killed were not read: {e}"),
+    }
 }
 
 /// A window holder is destroyed: if it was an entry waiting, it waits no
 /// more.
-extern "C" fn holder_going(frame: *mut HookFrame) {
-    let holder = unsafe { (*frame).args[0] };
+fn holder_going(call: &mut Call) {
+    let holder = call.arg(0);
     if let Some(waiting) = waiting().as_mut() {
         waiting.remove(&holder);
     }

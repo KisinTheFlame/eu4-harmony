@@ -17,7 +17,8 @@
 //! state changes with the game's; in testing it went with graphics driver
 //! hangs. So the framework draws only in frames the main thread presents: the
 //! main menu and the game.
-use crate::hooks::HookFrame;
+use crate::called_by_game;
+use crate::hooks::Call;
 use crate::objects::text::renderer::DEVICE;
 use crate::points::{Function, Point};
 use std::ffi::c_void;
@@ -29,6 +30,7 @@ type Present = unsafe extern "C" fn(usize) -> u8;
 
 static ORIGINAL_PRESENT: Function<Present> = Function::new();
 
+#[called_by_game]
 unsafe extern "C" fn present(renderer: usize) -> u8 {
     if crate::thread_id() == crate::main_thread() {
         if super::held() {
@@ -63,9 +65,9 @@ unsafe extern "C" fn present(renderer: usize) -> u8 {
     ORIGINAL_PRESENT.get()(renderer)
 }
 
-extern "C" fn before_reset(_frame: *mut HookFrame) {
-    crate::guarded("framework UI device reset", super::device_reset);
-    crate::guarded("screenshot device reset", crate::game::screenshot::device_reset);
+fn before_reset(_: &mut Call) {
+    super::device_reset();
+    crate::game::screenshot::device_reset();
 }
 
 pub fn points() -> Vec<Point> {
