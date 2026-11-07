@@ -16,6 +16,7 @@ pub mod achievements;
 mod agents_order;
 #[cfg(any(test, feature = "analysis"))]
 pub mod analysis;
+mod army_search;
 pub mod baseline;
 pub mod catalogue;
 #[cfg(feature = "dev-heap-census")]
@@ -150,6 +151,7 @@ pub(crate) fn points() -> Vec<points::Point> {
     all.extend(loading::points());
     all.extend(hidden::points());
     all.extend(sound::points());
+    all.extend(army_search::points());
     #[cfg(feature = "dev-test-switches")]
     all.extend(agents_order::points());
     all
