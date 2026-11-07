@@ -7,7 +7,7 @@
 //! from its left edge, y from its bottom edge, as `map/positions.txt` writes
 //! them. The camera's height is in the same unit, above the map's base plane
 //! (docs/research/camera.md).
-use super::{map_manager, with_state, Ctx, GResult, Session};
+use super::{map_manager, with_state, GResult, World, WorldSession};
 use crate::{
     memory::Memory,
     objects::{
@@ -16,7 +16,6 @@ use crate::{
     },
     points::Point,
 };
-use eu4_harmony_checks::camera as checks;
 
 /// The map manager looking at a province (rcx the map manager, rdx the
 /// province), at its map data's position, keeping the camera's height.
@@ -61,13 +60,13 @@ pub struct Camera {
 }
 
 /// Where the camera looks now.
-pub fn camera(Session { m, ctx, .. }: Session) -> GResult<Camera> {
+pub fn camera(WorldSession { m, world: ctx, .. }: WorldSession) -> GResult<Camera> {
     read(m, find(m, &ctx)?.1)
 }
 
 /// Turns the camera to a province, where the game looks at it from, keeping
 /// the height.
-pub fn look_at_province(Session { m, ctx, .. }: Session, province: u32) -> GResult<Camera> {
+pub fn look_at_province(WorldSession { m, world: ctx, .. }: WorldSession, province: u32) -> GResult<Camera> {
     if province == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
@@ -78,7 +77,7 @@ pub fn look_at_province(Session { m, ctx, .. }: Session, province: u32) -> GResu
 }
 
 /// Turns the camera to a map position, keeping the height.
-pub fn look_at(Session { m, ctx, .. }: Session, x: u32, y: u32) -> GResult<Camera> {
+pub fn look_at(WorldSession { m, world: ctx, .. }: WorldSession, x: u32, y: u32) -> GResult<Camera> {
     checks::position(x, y, map_size(m)?)?;
     let (manager, camera) = movable(m, &ctx)?;
     m.call(m.at(LOOK_AT_POSITION), &[manager, x as usize, y as usize])?;
@@ -86,7 +85,7 @@ pub fn look_at(Session { m, ctx, .. }: Session, x: u32, y: u32) -> GResult<Camer
 }
 
 /// Raises or lowers the camera to a height, looking at the same position.
-pub fn zoom(Session { m, ctx, .. }: Session, height: u32) -> GResult<Camera> {
+pub fn zoom(WorldSession { m, world: ctx, .. }: WorldSession, height: u32) -> GResult<Camera> {
     checks::height(height, limits(m, find(m, &ctx)?.1)?)?;
     let (_, camera) = movable(m, &ctx)?;
     let [x, _, z] = point(m, camera + fields::GOAL_LOOK_AT)?;
@@ -96,7 +95,7 @@ pub fn zoom(Session { m, ctx, .. }: Session, height: u32) -> GResult<Camera> {
 }
 
 /// The map manager and its camera, checked by its class.
-fn find(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
+fn find(m: &Memory, ctx: &World) -> GResult<(usize, usize)> {
     let manager = map_manager(m, ctx)?;
     let camera = m.ptr(manager + layout::IN_MAP_MANAGER)?;
     if camera == 0 || m.ptr(camera)? != m.at(layout::CLASS) {
@@ -106,10 +105,10 @@ fn find(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
 }
 
 /// The map manager and its camera, which must not be locked.
-fn movable(m: &Memory, ctx: &Ctx) -> GResult<(usize, usize)> {
+fn movable(m: &Memory, ctx: &World) -> GResult<(usize, usize)> {
     let (manager, camera) = find(m, ctx)?;
     if m.u8(camera + fields::LOCKED)? != 0 {
-        return Err(checks::locked().into());
+        return Err(checks::locked());
     }
     Ok((manager, camera))
 }
@@ -179,6 +178,50 @@ fn province_at(m: &Memory, x: u32, y: u32) -> GResult<Option<u32>> {
     let ids = m.ptr(map + grid::IDS)?;
     let id = m.u16(ids + 2 * (y as usize * width as usize + x as usize))? as i16;
     Ok((id > 0).then_some(id as u32))
+}
+
+/// The refusals the framework words itself of the camera's arguments.
+mod checks {
+    use crate::game::{Fail, GResult, Status};
+
+    /// Refuses a map position off a map `(width, height)` pixels large.
+    pub fn position(x: u32, y: u32, (width, height): (u32, u32)) -> GResult<()> {
+        if x >= width || y >= height {
+            return Err(Fail::new(Status::InvalidArgument, format!("{x}, {y} is off the map, which is {width} pixels across and {height} up")));
+        }
+        Ok(())
+    }
+
+    /// Refuses a height outside the camera's `(lowest, highest)`.
+    pub fn height(height: u32, (lowest, highest): (u32, u32)) -> GResult<()> {
+        if !(lowest..=highest).contains(&height) {
+            return Err(Fail::new(Status::InvalidArgument, format!("the height is from {lowest} to {highest}")));
+        }
+        Ok(())
+    }
+
+    /// The refusal of a move while the game holds the camera, asked after the
+    /// move's arguments are checked.
+    pub fn locked() -> Fail {
+        Fail::new(Status::Rejected, "the camera is locked")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_position_is_on_the_map_and_a_height_between_the_camera_s() {
+            let map = (5632, 2048);
+            assert!(position(0, 0, map).is_ok() && position(5631, 2047, map).is_ok());
+            let off = position(5632, 10, map).unwrap_err();
+            assert_eq!((off.status, off.message.as_str()), (Status::InvalidArgument, "5632, 10 is off the map, which is 5632 pixels across and 2048 up"));
+            assert!(position(10, 2048, map).is_err());
+            assert!(height(50, (50, 3000)).is_ok() && height(3000, (50, 3000)).is_ok());
+            assert_eq!(height(3001, (50, 3000)).unwrap_err().message, "the height is from 50 to 3000");
+            assert_eq!(locked().status, Status::Rejected);
+        }
+    }
 }
 
 #[cfg(test)]

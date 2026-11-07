@@ -2,6 +2,7 @@
 //! them, and researching the next level with its research button
 //! (docs/research/power-spending.md, "Technology").
 use super::{
+    action,
     power::{self, ADVANCE_TECH},
     GResult, Session, Tag,
 };
@@ -97,7 +98,7 @@ fn category(m: &Memory, country: usize, kind: PowerKind) -> GResult<Category> {
 /// lines saying so and when it will have them.
 fn choice(m: &Memory, player: Tag, country: usize, date: i32, category: &Category) -> GResult<Choice> {
     if category.level >= category.last {
-        return Ok(Choice::cannot(vec![eu4_harmony_checks::technology::last_level(key(category.kind)).message], Vec::new()));
+        return Ok(Choice::cannot(vec![checks::last_level(key(category.kind)).message], Vec::new()));
     }
     let cost = power::cost(m, player, ADVANCE_TECH, category.kind, category.index)?;
     let price = vec![Amount::new(category.kind.resource(), cost as f64)];
@@ -149,16 +150,13 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Vec<TechnologyOption>
 
 /// Researches the next level of `technology`, as the view's research button
 /// does: the game's spend_power command with the category's index.
-pub fn research(Session { m, ctx, .. }: Session, technology: PowerKind) -> GResult<()> {
+pub fn research(Session { m, ctx, commands, .. }: Session, technology: PowerKind) -> GResult<()> {
     let category = category(m, ctx.country, technology)?;
     if category.level >= category.last {
-        return Err(eu4_harmony_checks::technology::last_level(key(technology)).into());
+        return Err(checks::last_level(key(technology)));
     }
-    let choice = choice(m, ctx.player, ctx.country, ctx.date, &category)?;
-    if !choice.can {
-        return Err(eu4_harmony_checks::choices::not_allowed("research it", &choice.reasons).into());
-    }
-    power::spend(ctx.player, ADVANCE_TECH, technology, category.index, "research it")
+    action::allowed(&choice(m, ctx.player, ctx.country, ctx.date, &category)?, "research it")?;
+    power::spend(commands, ctx.player, ADVANCE_TECH, technology, category.index, "research it")
 }
 
 /// A kind of power as its argument names it.
@@ -167,5 +165,24 @@ pub fn key(kind: PowerKind) -> &'static str {
         PowerKind::Adm => "adm",
         PowerKind::Dip => "dip",
         PowerKind::Mil => "mil",
+    }
+}
+
+/// The refusals the framework words itself of research.
+mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of research in a technology at its last level, named by its
+    /// kind (`adm`, `dip`, `mil`).
+    pub fn last_level(technology: &str) -> Fail {
+        Fail::new(Status::Rejected, format!("the {technology} technology is at its last level"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn the_last_level_names_the_technology() {
+            assert_eq!(super::last_level("dip").message, "the dip technology is at its last level");
+        }
     }
 }

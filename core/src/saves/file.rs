@@ -13,11 +13,17 @@ use std::{
     path::Path,
 };
 
+/// The observer's tag, a save of observe mode's player.
+pub const OBSERVER: [u8; 3] = *b"O00";
+
 /// What the header of a save says.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Header {
-    /// The player's country tag; None for a save of an observer.
+    /// The player's country tag; None for a save of observe mode.
     pub player: Option<[u8; 3]>,
+    /// It is a save of observe mode: its player is the observer's tag,
+    /// [`OBSERVER`].
+    pub observing: bool,
     /// The game date (docs/research/dates.md).
     pub date: Option<i32>,
     /// The mods the game was played with when it was saved, in the
@@ -67,21 +73,25 @@ pub fn parse(meta: &[u8]) -> Result<Header> {
     if meta.starts_with(b"EU4txt") {
         let text = String::from_utf8_lossy(meta);
         let value = |key: &str| text.lines().find_map(|line| line.strip_prefix(key)).map(|v| v.trim().trim_matches('"').to_string());
-        let player = value("player=").and_then(|p| <[u8; 3]>::try_from(p.as_bytes()).ok()).filter(|p| p != b"---");
+        let player = value("player=").and_then(|p| <[u8; 3]>::try_from(p.as_bytes()).ok());
         let date = value("date=").and_then(|d| eu4_harmony_remote::Date::parse(&d)).map(|d| d.0);
-        return Ok(Header { player, date, mods: text_mods(&text)? });
+        return Ok(Header { player: country(player), observing: player == Some(OBSERVER), date, mods: text_mods(&text)? });
     }
     if meta.starts_with(b"EU4bin") {
         // `player = "TAG"`: the token 0x2a38, `=`, a string of length 3.
-        let player = find(meta, &[0x38, 0x2a, 0x01, 0x00, 0x0f, 0x00, 0x03, 0x00])
-            .and_then(|at| meta.get(at..at + 3))
-            .and_then(|p| <[u8; 3]>::try_from(p).ok())
-            .filter(|p| p != b"---");
+        let player =
+            find(meta, &[0x38, 0x2a, 0x01, 0x00, 0x0f, 0x00, 0x03, 0x00]).and_then(|at| meta.get(at..at + 3)).and_then(|p| <[u8; 3]>::try_from(p).ok());
         // `date = i32`: the token 0x284d, `=`, an integer.
         let date = find(meta, &[0x4d, 0x28, 0x01, 0x00, 0x0c, 0x00]).and_then(|at| meta.get(at..at + 4)).map(|d| i32::from_le_bytes(d.try_into().unwrap()));
-        return Ok(Header { player, date, mods: binary_mods(meta)? });
+        return Ok(Header { player: country(player), observing: player == Some(OBSERVER), date, mods: binary_mods(meta)? });
     }
     Err("not a save the game wrote".into())
+}
+
+/// The country a save's player tag names: none for no tag (`---`) and for
+/// the observer's.
+fn country(player: Option<[u8; 3]>) -> Option<[u8; 3]> {
+    player.filter(|p| p != b"---" && *p != OBSERVER)
 }
 
 /// The mods in a text header: `mods_enabled_names={ { filename="..."
@@ -724,14 +734,18 @@ mod tests {
     fn a_header_says_the_player_and_the_date() {
         let text = b"EU4txt\ndate=1470.3.13\nsave_game=\".eu4\"\nplayer=\"CAS\"\ndisplayed_country_name=\"x\"\n";
         let date = eu4_harmony_remote::Date::from_ymd(1470, 3, 13).unwrap().0;
-        assert_eq!(parse(text).unwrap(), Header { player: Some(*b"CAS"), date: Some(date), mods: Vec::new() });
+        assert_eq!(parse(text).unwrap(), Header { player: Some(*b"CAS"), observing: false, date: Some(date), mods: Vec::new() });
         // Binary, as an ironman save's meta begins.
         let mut binary = b"EU4bin".to_vec();
         binary.extend_from_slice(&[0x4d, 0x28, 0x01, 0x00, 0x0c, 0x00]);
         binary.extend_from_slice(&0x0360_d9f8i32.to_le_bytes());
         binary.extend_from_slice(&[0x38, 0x2a, 0x01, 0x00, 0x0f, 0x00, 0x03, 0x00]);
         binary.extend_from_slice(b"CAS");
-        assert_eq!(parse(&binary).unwrap(), Header { player: Some(*b"CAS"), date: Some(0x0360_d9f8), mods: Vec::new() });
+        assert_eq!(parse(&binary).unwrap(), Header { player: Some(*b"CAS"), observing: false, date: Some(0x0360_d9f8), mods: Vec::new() });
+        // A save of observe mode: the observer's tag, which is no country.
+        let observed = parse(b"EU4txt\ndate=1600.1.1\nplayer=\"O00\"\nnot_observer=no\n").unwrap();
+        assert_eq!((observed.player, observed.observing), (None, true));
+        assert!(!parse(b"EU4txt\ndate=1600.1.1\nplayer=\"---\"\n").unwrap().observing);
         assert_eq!(parse(b"EU4txt\ndate=1444.11.11\nplayer=\"---\"\n").unwrap().player, None);
         assert!(parse(b"PK\x03\x04").is_err());
     }

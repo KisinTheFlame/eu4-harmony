@@ -9,9 +9,9 @@
 //! command's text and post it here.
 //!
 //! The game's reader takes almost any text and says nothing of what it could
-//! not read, so [`post`] writes the command it read out again and refuses it
+//! not read, so [`Commands::post`] writes the command it read out again and refuses it
 //! unless every key given came back with the value given.
-use super::{command_session, context, game, world_context, Fail, GResult, Status};
+use super::{command_session, context, game, world_context, Fail, GResult};
 use crate::{
     game_string,
     hooks::HookFrame,
@@ -217,7 +217,7 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
-/// Why [`post`] did not post a command.
+/// Why [`Commands::post`] did not post a command.
 #[derive(Debug)]
 pub enum Refused {
     /// The game could not be read or called, as the failure says.
@@ -243,33 +243,83 @@ impl From<String> for Refused {
     }
 }
 
-/// A refusal in the layer's own words, for a caller with none of its own:
-/// [`Status::InvalidArgument`] for a text the game read otherwise,
-/// [`Status::Rejected`] for the check and the session.
-impl From<Refused> for Fail {
-    fn from(refused: Refused) -> Self {
-        let (status, message) = match refused {
-            Refused::Game(fail) => return fail,
-            Refused::Unread(how) => (Status::InvalidArgument, how),
-            Refused::Check => (Status::Rejected, "the game's command refuses it, and gives no reason".to_string()),
-            Refused::NotTaken => (Status::Rejected, "the game takes no commands now".to_string()),
-        };
-        Fail { status, message }
+/// Where a capability's commands go: the game's session, or in a test a
+/// record kept on the test's thread ([`record`]). The session a capability
+/// reads carries it (`Session::commands`), so that a capability posts
+/// through its session alone and a test of it, over a session the test
+/// builds, sees what it posted. A capability carries out a panel's action
+/// through `super::action`, which words its refusals.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Commands {
+    Game,
+    #[cfg(test)]
+    Recorded,
+}
+
+impl Commands {
+    /// Has the game execute the command `text` writes, such as
+    /// `buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }`,
+    /// at once (ADR commands-run-at-once), for whichever country the text
+    /// names: as the session's update executes a command the game's interface
+    /// posted, but now and alone. When this returns, the game has carried it
+    /// out. A key left out takes the game's default. Only on the main thread,
+    /// at a safe point.
+    pub fn post(self, text: &str) -> Result<(), Refused> {
+        self.post_with(text, |execute| execute())
+    }
+
+    /// [`Commands::post`], with `around` called to execute the command.
+    pub fn post_with(self, text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
+        match self {
+            Self::Game => post_with(text, around),
+            #[cfg(test)]
+            Self::Recorded => record::post(text, around),
+        }
     }
 }
 
-/// Has the game execute the command `text` writes, such as
-/// `buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }`,
-/// at once (ADR commands-run-at-once), for whichever country the text names: as
-/// the session's update executes a command the game's interface posted, but now
-/// and alone. When this returns, the game has carried it out. A key left out
-/// takes the game's default. Only on the main thread, at a safe point.
-pub fn post(text: &str) -> Result<(), Refused> {
-    post_with(text, |execute| execute())
+/// What a test's capabilities posted through [`Commands::Recorded`], kept on
+/// the test's own thread, and the refusals the test has them answered with.
+#[cfg(test)]
+pub mod record {
+    use super::{GResult, Refused};
+    use std::{cell::RefCell, collections::VecDeque};
+
+    #[derive(Default)]
+    struct Record {
+        posted: Vec<String>,
+        refusals: VecDeque<Refused>,
+    }
+
+    thread_local! {
+        static RECORD: RefCell<Record> = RefCell::default();
+    }
+
+    /// Records `text` as posted, `around` called as the game's execution
+    /// is, unless a refusal waits: then answers with it, and records
+    /// nothing.
+    pub(super) fn post(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
+        if let Some(refused) = RECORD.with(|r| r.borrow_mut().refusals.pop_front()) {
+            return Err(refused);
+        }
+        around(&|| Ok(()))?;
+        RECORD.with(|r| r.borrow_mut().posted.push(text.to_string()));
+        Ok(())
+    }
+
+    /// Has the next post answered with `refused`.
+    pub fn refuse_next(refused: Refused) {
+        RECORD.with(|r| r.borrow_mut().refusals.push_back(refused));
+    }
+
+    /// The texts posted since the last call, in order.
+    pub fn posted() -> Vec<String> {
+        RECORD.with(|r| std::mem::take(&mut r.borrow_mut().posted))
+    }
 }
 
-/// [`post`], with `around` called to execute the command.
-pub fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
+/// [`Commands::post_with`] for the game.
+fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GResult<()>) -> Result<(), Refused> {
     let given = Written::parse(text).map_err(Refused::Unread)?;
     let m = game()?;
     // The game's own commands, such as the speed's, go also while the player
@@ -309,7 +359,7 @@ pub fn post_with(text: &str, around: impl FnOnce(&dyn Fn() -> GResult<()>) -> GR
     Ok(())
 }
 
-/// Has the game read the command `text` writes, as [`post`] reads it, and
+/// Has the game read the command `text` writes, as [`Commands::post`] reads it, and
 /// gives it to `look` unexecuted, then destroys it: for a capability that
 /// asks a command's checks before it posts it, or without posting it.
 /// [`Refused::Unread`] for a text the game does not read as written;
@@ -329,7 +379,7 @@ pub fn with_command<T>(written: &str, look: impl FnOnce(&Memory, usize) -> GResu
 }
 
 /// Whether the command `text` writes would pass its own check now, as
-/// [`post`] asks it before executing it, without executing it: for a panel's
+/// [`Commands::post`] asks it before executing it, without executing it: for a panel's
 /// read of what its buttons would do. Refused only when the game reads the
 /// text otherwise than it is written. Only on the main thread, at a safe
 /// point.
@@ -402,7 +452,7 @@ fn execute(m: &Memory, session: usize, command: usize) -> GResult<()> {
 
 /// The command at `command`, one the game made, in its written form on one
 /// line, as the game writes it: for a capability that has the game make its
-/// command, to [`post`] it as text.
+/// command, to [`Commands::post`] it as text.
 pub fn text(m: &Memory, command: usize) -> GResult<String> {
     let token = m.call(m.vslot(command, TYPE)?, &[command])? as u32;
     Ok(one_line(&game_text::to_utf8(&written(m, command, token)?)))
@@ -413,7 +463,7 @@ pub fn text(m: &Memory, command: usize) -> GResult<String> {
 #[cfg(feature = "dev-test-switches")]
 pub fn post_test_commands() {
     for text in &crate::dev::options().test_switches.post {
-        match post(text) {
+        match Commands::Game.post(text) {
             Ok(()) => log!("test command carried out: {text}"),
             Err(refused) => log!("test command not posted ({refused:?}): {text}"),
         }

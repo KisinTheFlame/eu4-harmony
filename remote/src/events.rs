@@ -1,5 +1,6 @@
 //! The events remote control keeps: the ones extensions hear, numbered, the
 //! latest [`KEPT`] of them.
+use crate::shape::{Field, Shape, Shaped};
 use crate::{ArmyId, CountryList, CountryTag, Date, ProvinceId, Words};
 use serde::{Deserialize, Serialize};
 
@@ -82,48 +83,270 @@ pub enum SessionEnd {
     Country,
 }
 
-/// The kind of an [`Event`], one for each of its variants, which `kinds`,
-/// [`EVENTS`] and an extension's handler (`on_<kind>`) name by
-/// [`Kind::name`]. Whoever works an event out only for those who listen
-/// asks by it, so that a kind misspelled does not compile.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Kind {
-    Session,
-    SessionEnded,
-    Day,
-    Month,
-    Year,
-    ArmyOrdered,
-    ArmyDefeated,
-    WarDeclared,
-    PeaceMade,
-    ProvinceOwnerChanged,
-    BuildingFinished,
-    Battle,
+/// Declares the events from one list: [`Event`] with a variant for each, its
+/// [`Kind`] with the kind's name, [`EVENTS`], the countries each names and
+/// the handler extensions hear it with (`crate::lua::handlers`). Each event
+/// is written as
+///
+/// ```text
+/// /// What happened, and when it comes.
+/// Variant "name" { /// What the field is. field: Type, ... } called, "what extensions alone are told";
+/// ```
+///
+/// `"name"` names it in its JSON's `event`, in a read's `kinds` and in its
+/// handler, `on_<name>`. `called` is what that handler is called with after
+/// `game`: `fields`, the event's fields, one argument each by its name;
+/// `table`, the whole event as one table, named as the event; `given [...]`,
+/// arguments the Lua host gives itself. The countries an event names are
+/// those its fields of countries hold ([`Names`]).
+macro_rules! events {
+    ($(
+        $(#[doc = $doc:literal])*
+        $Kind:ident $name:literal {
+            $( $(#[doc = $field_doc:literal])* $field:ident: $Ty:ty ),* $(,)?
+        } $called:ident $([ $($given:expr),* $(,)? ])? $(, $note:literal)?;
+    )*) => {
+        /// Something that happened in the game, as extensions hear it.
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
+        #[serde(tag = "event")]
+        pub enum Event {
+            $(
+                $(#[doc = $doc])*
+                #[serde(rename = $name)]
+                $Kind { $( $(#[doc = $field_doc])* $field: $Ty, )* },
+            )*
+        }
+
+        /// The kind of an [`Event`], one for each of its variants, which
+        /// `kinds`, [`EVENTS`] and an extension's handler (`on_<kind>`) name
+        /// by [`Kind::name`]. Whoever works an event out only for those who
+        /// listen asks by it, so that a kind misspelled does not compile.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub enum Kind {
+            $( $Kind, )*
+        }
+
+        impl Kind {
+            /// Its name, as the event's `event` field gives it.
+            pub fn name(self) -> &'static str {
+                match self {
+                    $( Self::$Kind => $name, )*
+                }
+            }
+
+            /// The handler an extension hears it with, `on_<name>`.
+            pub fn handler(self) -> &'static str {
+                match self {
+                    $( Self::$Kind => concat!("on_", $name), )*
+                }
+            }
+
+            /// What its handler is called with after `game`.
+            pub fn called(self) -> crate::lua::Called {
+                match self {
+                    $( Self::$Kind => called!($called $([$($given),*])?), )*
+                }
+            }
+
+            /// What extensions alone are told of it, besides what it is;
+            /// empty for nothing.
+            pub fn note(self) -> &'static str {
+                match self {
+                    $( Self::$Kind => concat!("" $(, $note)?), )*
+                }
+            }
+
+            /// The name of its class in the editor's type definitions, for
+            /// a handler's table of it.
+            pub fn class(self) -> &'static str {
+                match self {
+                    $( Self::$Kind => stringify!($Kind), )*
+                }
+            }
+        }
+
+        /// Every kind of event, with what it is and when it comes, as its
+        /// doc comment says it ([`crate::prose`] makes that one line).
+        pub const EVENTS: &[(Kind, &str)] = &[ $( (Kind::$Kind, concat!($($doc),*)), )* ];
+
+        impl Event {
+            /// Its kind.
+            pub fn kind(&self) -> Kind {
+                match self {
+                    $( Self::$Kind { .. } => Kind::$Kind, )*
+                }
+            }
+
+            /// The countries it names: those its fields of countries hold,
+            /// in their order; none for one about the game as a whole or
+            /// about the player's own armies.
+            pub fn countries(&self) -> Vec<CountryTag> {
+                match self {
+                    $( Self::$Kind { $($field),* } => Vec::new().into_iter() $( .chain(Names::named($field)) )* .collect(), )*
+                }
+            }
+        }
+    };
+}
+
+/// What an event's handler is called with, as [`events!`] writes it.
+macro_rules! called {
+    (fields) => {
+        crate::lua::Called::Fields
+    };
+    (table) => {
+        crate::lua::Called::Table
+    };
+    (given [$($given:expr),*]) => {{
+        const GIVEN: &[crate::lua::Value] = &[$($given),*];
+        crate::lua::Called::Given(GIVEN)
+    }};
+}
+
+events! {
+    /// A session began: a save was loaded or a game started.
+    Session "session" {
+        /// Its number, as session.get answers it (number there; here the
+        /// event's own number is number).
+        session: u64,
+    } given [crate::lua::optional(
+        "saved",
+        "any",
+        "what this mod's save_data returned when the save it began from was written, or, after an extension reload, what the code before it returned; nil for a new game or a save without it",
+    )];
+
+    /// The session is being left, while its state is still there to read.
+    SessionEnded "session_ended" {
+        /// Why: return for the main menu, load for a save loaded from it,
+        /// new_game for a new game started from it, country when the
+        /// player's country changed (the game console's tag, say).
+        reason: SessionEnd,
+    } fields, "Its waiting tasks are dropped after this.";
+
+    /// In observe mode, another country was put in view, or the view taken
+    /// out, by the player, a remote client or an extension. A new session
+    /// starts with none heard: session.get says what is in view.
+    CountryInView "country_in_view" {
+        /// The country now in view; none once the view is taken out.
+        country: Option<CountryTag>,
+    } fields, "What acts as a country acts as the one in view.";
+
+    /// A new day, once visibility reflects it. With the game running fast,
+    /// days in between may be left out.
+    Day "day" {
+        /// The new day.
+        date: Date,
+    } fields;
+
+    /// A new month: the first day heard in it, after day. With the game
+    /// running fast it may be past the 1st.
+    Month "month" {
+        /// The first day heard in the month.
+        date: Date,
+    } fields;
+
+    /// A new year: the first day heard in it, after month.
+    Year "year" {
+        /// The first day heard in the year.
+        date: Date,
+    } fields;
+
+    /// The player gave one of their armies an order, by hand or through
+    /// remote control.
+    ArmyOrdered "army_ordered" {
+        /// The army's ID.
+        army: ArmyId,
+    } fields, "Not for this mod's own orders.";
+
+    /// One of the player's armies lost a battle.
+    ArmyDefeated "army_defeated" {
+        /// The army's ID.
+        army: ArmyId,
+    } fields;
+
+    /// A war began, between any two countries.
+    WarDeclared "war_declared" {
+        /// Its name, as the game shows it.
+        war: String,
+        /// The attackers' leader.
+        attacker: CountryTag,
+        /// The defenders' leader.
+        defender: CountryTag,
+    } fields;
+
+    /// Countries left a war on a day: by a peace, the whole war's or a
+    /// separate one, or by ceasing to be.
+    PeaceMade "peace_made" {
+        /// Its name, as the game shows it.
+        war: String,
+        /// The attackers that left it.
+        attackers: Vec<CountryTag>,
+        /// The defenders that left it.
+        defenders: Vec<CountryTag>,
+        /// Whether the war is over.
+        ended: bool,
+    } fields;
+
+    /// A province changed owner.
+    ProvinceOwnerChanged "province_owner_changed" {
+        /// The province's number.
+        province: ProvinceId,
+        /// The old owner; none when it had none.
+        from: Option<CountryTag>,
+        /// The new owner; none when it has none.
+        to: Option<CountryTag>,
+    } fields;
+
+    /// A building was finished in a province, any country's. Worked out
+    /// only while some mod has its handler or a remote client reads it.
+    BuildingFinished "building_finished" {
+        /// The province's number.
+        province: ProvinceId,
+        /// The building's content key.
+        building: String,
+        /// The province's owner.
+        country: CountryTag,
+    } fields;
+
+    /// A land or naval battle was decided: in the player's view one the
+    /// player sees or takes part in, in the full view every one.
+    Battle "battle" {
+        /// Where it was fought, the province's number.
+        province: ProvinceId,
+        /// Whether it was fought at sea.
+        naval: bool,
+        /// The countries on the attacking side, the leading one first.
+        attackers: Vec<CountryTag>,
+        /// The countries on the defending side, the leading one first.
+        defenders: Vec<CountryTag>,
+        /// Which side won.
+        winner: Winner,
+        /// What the attackers lost: men in a land battle, ships in a naval
+        /// one.
+        attacker_losses: i64,
+        /// What the defenders lost, as attacker_losses.
+        defender_losses: i64,
+    } table, "Extensions hear every one.";
 }
 
 impl Kind {
-    /// Its name, as the event's `event` field gives it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Session => "session",
-            Self::SessionEnded => "session_ended",
-            Self::Day => "day",
-            Self::Month => "month",
-            Self::Year => "year",
-            Self::ArmyOrdered => "army_ordered",
-            Self::ArmyDefeated => "army_defeated",
-            Self::WarDeclared => "war_declared",
-            Self::PeaceMade => "peace_made",
-            Self::ProvinceOwnerChanged => "province_owner_changed",
-            Self::BuildingFinished => "building_finished",
-            Self::Battle => "battle",
-        }
-    }
-
     /// The kind named `name`; none for a name no kind has.
     pub fn named(name: &str) -> Option<Self> {
         EVENTS.iter().map(|(kind, _)| *kind).find(|kind| kind.name() == name)
+    }
+
+    /// The fields of its events, in their order, as [`Event`]'s shape has
+    /// them.
+    pub fn fields(self) -> Vec<Field> {
+        let Shape::Either(events) = Event::shape() else { return Vec::new() };
+        let tag = Shape::Words(vec![self.name()]);
+        events
+            .into_iter()
+            .find_map(|event| match event {
+                Shape::Object { fields, .. } if fields.first().is_some_and(|first| first.shape == tag) => Some(fields[1..].to_vec()),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -140,84 +363,6 @@ impl Serialize for Kind {
     }
 }
 
-/// Every kind of event, with what it carries and when it comes.
-pub const EVENTS: &[(Kind, &str)] = &[
-    (Kind::Session, "a session began: a save was loaded or a game started; session, its number, as session.get answers it"),
-    (Kind::SessionEnded, "the session is being left, while its state is still there to read; reason: return (for the main menu), load (for a save), new_game, or country (the player's country changed)"),
-    (Kind::Day, "a new day, once visibility reflects it; date. With the game running fast, days in between may be left out"),
-    (Kind::Month, "the first day heard in a new month; date, which with the game running fast may be past the 1st"),
-    (Kind::Year, "the first day heard in a new year, after month; date"),
-    (Kind::ArmyOrdered, "the player gave one of their armies an order, by hand or through remote control; army"),
-    (Kind::ArmyDefeated, "one of the player's armies lost a battle; army"),
-    (Kind::WarDeclared, "a war began between any two countries; war, its name; attacker and defender, the leaders of its sides"),
-    (
-        Kind::PeaceMade,
-        "countries left a war, by a peace (or ceasing to be); war, its name; attackers and defenders, those that left on each side; ended, whether the war is over",
-    ),
-    (Kind::ProvinceOwnerChanged, "a province changed owner; province; from and to, the old and the new owner, null for none"),
-    (Kind::BuildingFinished, "a building was finished in a province, any country's; province, building (its content key), country (the province's owner)"),
-    (
-        Kind::Battle,
-        "a land or naval battle was decided: in the player's view one the player sees or takes part in, in the full view every one; province, naval, attackers, defenders (the countries on each side, the leading one first), winner (attackers or defenders), attacker_losses, defender_losses (men in a land battle, ships in a naval one)",
-    ),
-];
-
-/// Something that happened in the game, as extensions hear it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
-#[serde(tag = "event", rename_all = "snake_case")]
-pub enum Event {
-    /// A session began: a save was loaded or a game started. Its number, as
-    /// session.get answers it (`number` there; here the event's own number
-    /// is `number`).
-    Session { session: u64 },
-    /// The session is being left, while its state is still there to read.
-    SessionEnded { reason: SessionEnd },
-    /// A new day, once visibility reflects it; with the game running fast,
-    /// days in between may be left out.
-    Day { date: Date },
-    /// The first day heard in a new month; with the game running fast it
-    /// may be past the 1st.
-    Month { date: Date },
-    /// The first day heard in a new year, after its month.
-    Year { date: Date },
-    /// The player gave one of their armies an order, by hand or through
-    /// remote control.
-    ArmyOrdered { army: ArmyId },
-    /// One of the player's armies lost a battle.
-    ArmyDefeated { army: ArmyId },
-    /// A war began, between any two countries: its name, as the game shows
-    /// it, and the leaders of its sides.
-    WarDeclared { war: String, attacker: CountryTag, defender: CountryTag },
-    /// Countries left a war on a day: by a peace, the whole war's or a
-    /// separate one, or by ceasing to be. Those on each side that left, and
-    /// whether the war is over.
-    PeaceMade { war: String, attackers: Vec<CountryTag>, defenders: Vec<CountryTag>, ended: bool },
-    /// A province changed owner: the old and the new owner, null for none.
-    ProvinceOwnerChanged { province: ProvinceId, from: Option<CountryTag>, to: Option<CountryTag> },
-    /// A building was finished in a province, any country's.
-    BuildingFinished {
-        province: ProvinceId,
-        /// Its content key.
-        building: String,
-        /// The province's owner.
-        country: CountryTag,
-    },
-    /// A land or naval battle was decided: in the player's view one the
-    /// player sees or takes part in, in the full view every one.
-    Battle {
-        province: ProvinceId,
-        naval: bool,
-        /// The countries on each side, the leading one first.
-        attackers: Vec<CountryTag>,
-        defenders: Vec<CountryTag>,
-        winner: Winner,
-        /// What each side lost: men in a land battle, ships in a naval
-        /// one.
-        attacker_losses: i64,
-        defender_losses: i64,
-    },
-}
-
 /// Which side won a battle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, crate::shape::Shaped)]
 #[serde(rename_all = "snake_case")]
@@ -226,38 +371,42 @@ pub enum Winner {
     Defenders,
 }
 
-impl Event {
-    /// Its kind.
-    pub fn kind(&self) -> Kind {
-        match self {
-            Self::Session { .. } => Kind::Session,
-            Self::SessionEnded { .. } => Kind::SessionEnded,
-            Self::Day { .. } => Kind::Day,
-            Self::Month { .. } => Kind::Month,
-            Self::Year { .. } => Kind::Year,
-            Self::ArmyOrdered { .. } => Kind::ArmyOrdered,
-            Self::ArmyDefeated { .. } => Kind::ArmyDefeated,
-            Self::WarDeclared { .. } => Kind::WarDeclared,
-            Self::PeaceMade { .. } => Kind::PeaceMade,
-            Self::ProvinceOwnerChanged { .. } => Kind::ProvinceOwnerChanged,
-            Self::BuildingFinished { .. } => Kind::BuildingFinished,
-            Self::Battle { .. } => Kind::Battle,
-        }
-    }
-
-    /// The countries it names; none for one about the game as a whole or
-    /// about the player's own armies.
-    pub fn countries(&self) -> Vec<CountryTag> {
-        match self {
-            Self::WarDeclared { attacker, defender, .. } => vec![*attacker, *defender],
-            Self::PeaceMade { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
-            Self::ProvinceOwnerChanged { from, to, .. } => from.iter().chain(to).copied().collect(),
-            Self::BuildingFinished { country, .. } => vec![*country],
-            Self::Battle { attackers, defenders, .. } => attackers.iter().chain(defenders).copied().collect(),
-            _ => Vec::new(),
-        }
+/// The countries an event's field names ([`Event::countries`]): a country,
+/// those an option or a list of them holds, and none for a field of any
+/// other type. A new type of field says here which it is.
+trait Names {
+    fn named(&self) -> Vec<CountryTag> {
+        Vec::new()
     }
 }
+
+impl Names for CountryTag {
+    fn named(&self) -> Vec<CountryTag> {
+        vec![*self]
+    }
+}
+
+impl<T: Names> Names for Option<T> {
+    fn named(&self) -> Vec<CountryTag> {
+        self.iter().flat_map(Names::named).collect()
+    }
+}
+
+impl<T: Names> Names for Vec<T> {
+    fn named(&self) -> Vec<CountryTag> {
+        self.iter().flat_map(Names::named).collect()
+    }
+}
+
+impl Names for u64 {}
+impl Names for i64 {}
+impl Names for bool {}
+impl Names for String {}
+impl Names for Date {}
+impl Names for ArmyId {}
+impl Names for ProvinceId {}
+impl Names for SessionEnd {}
+impl Names for Winner {}
 
 /// Which events a read asks for: those of `kinds`, and among them those that
 /// name one of `countries` or none.

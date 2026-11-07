@@ -77,10 +77,10 @@ pub fn answer(Session { m, ctx, .. }: Session, question: u32, option: u32) -> GR
     let w = find(m, &ctx, question)?;
     let options = options(m, w.event)?;
     let Some(&chosen) = options.get(option as usize) else {
-        return Err(eu4_harmony_checks::questions::no_option(question, option).into());
+        return Err(checks::no_option(question, option));
     };
     if !may_choose(m, chosen, w.scope)? {
-        return Err(eu4_harmony_checks::questions::not_allowed(question, option).into());
+        return Err(checks::not_allowed(question, option));
     }
     m.call(m.at(CHOOSE), &[w.address, option as usize])?;
     if m.u8(w.address + window::OPEN)? != 0 {
@@ -164,7 +164,7 @@ fn open(m: &Memory, ctx: &Ctx) -> GResult<Vec<Window>> {
 fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Window> {
     match open(m, ctx)?.into_iter().find(|w| w.id == id) {
         Some(w) => Ok(w),
-        None => Err(eu4_harmony_checks::questions::not_found(id).into()),
+        None => Err(checks::not_found(id)),
     }
 }
 
@@ -230,6 +230,26 @@ pub fn points() -> Vec<Point> {
         Point::keep(OPTION_OPEN, "48 81 c1 a8 00 00 00 e9 c4 16 4a 00", "event option open"),
         Point::keep(0x10bb5bdusize, "49 8b d4 48 8b cf e8 68 b5 63 ff", "event option shown"),
     ]
+}
+
+/// The refusals the framework words itself of a question and its options.
+mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of a number that names no question waiting.
+    pub fn not_found(question: u32) -> Fail {
+        Fail::new(Status::NotFound, format!("no question {question}"))
+    }
+
+    /// The refusal of an option a question does not have.
+    pub fn no_option(question: u32, option: u32) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("question {question} has no option {option}"))
+    }
+
+    /// The refusal of an option of a question the player may not choose.
+    pub fn not_allowed(question: u32, option: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("the player may not choose option {option} of question {question}"))
+    }
 }
 
 #[cfg(test)]

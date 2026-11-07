@@ -82,7 +82,7 @@ impl Scenario for Perf {
         }
 
         let starting = Instant::now();
-        let _: Session = game.ask(&MenuRequest::Start { country: tag })?;
+        let _: Session = game.ask(&MenuRequest::Start { country: Some(tag) })?;
         record["start_seconds"] = rounded(starting.elapsed().as_secs_f64(), 1);
         pause(10);
         let a = process.sample()?;

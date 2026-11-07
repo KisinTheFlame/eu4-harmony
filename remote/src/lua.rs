@@ -8,15 +8,54 @@
 //! A type is written as the editor's type definitions write it (LuaLS):
 //! `string`, `integer`, `eu4.Date`, `eu4.Err`, `string[]`.
 
+use crate::events::{Event, Kind, EVENTS};
+use crate::shape::Shape;
+
 /// A handler: a function `main.lua`'s table may hold, called for an event.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Handler {
     pub name: &'static str,
     /// What follows `game`.
-    pub args: &'static [Value],
+    pub args: Vec<Arg>,
     /// What it may return, where that counts.
-    pub returns: Option<Value>,
-    pub about: &'static str,
+    pub returns: Option<Arg>,
+    pub about: String,
+}
+
+/// A handler's argument or what it returns.
+#[derive(Clone, Debug)]
+pub struct Arg {
+    pub name: &'static str,
+    pub ty: Ty,
+    pub optional: bool,
+    pub about: String,
+}
+
+/// The type of a handler's argument.
+#[derive(Clone, Debug)]
+pub enum Ty {
+    /// As the editor's type definitions write it.
+    Written(&'static str),
+    /// The shape of the event's field it is, or of the event as a whole.
+    Shaped(Shape),
+}
+
+impl From<&Value> for Arg {
+    fn from(v: &Value) -> Self {
+        Self { name: v.name, ty: Ty::Written(v.ty), optional: v.optional, about: v.about.to_string() }
+    }
+}
+
+/// What an event's handler is called with after `game`
+/// (`crate::events::Kind::called`).
+#[derive(Clone, Copy, Debug)]
+pub enum Called {
+    /// The event's fields, one argument each, by its name.
+    Fields,
+    /// The whole event as one table, named as the event.
+    Table,
+    /// Arguments the Lua host gives itself.
+    Given(&'static [Value]),
 }
 
 /// A function the sandbox has, by its full name (`files.read`).
@@ -46,7 +85,7 @@ const fn value(name: &'static str, ty: &'static str, about: &'static str) -> Val
     Value { name, ty, optional: false, about }
 }
 
-const fn optional(name: &'static str, ty: &'static str, about: &'static str) -> Value {
+pub(crate) const fn optional(name: &'static str, ty: &'static str, about: &'static str) -> Value {
     Value { name, ty, optional: true, about }
 }
 
@@ -74,124 +113,85 @@ pub struct Permission {
     pub about: &'static str,
 }
 
-pub const HANDLERS: &[Handler] = &[
-    Handler {
-        name: "on_session",
-        args: &[optional("saved", "any", "what this mod's save_data returned when the save it began from was written, or, after an extension reload, what the code before it returned; nil for a new game or a save without it")],
-        returns: None,
-        about: "A session began: a save was loaded or a game started.",
-    },
-    Handler {
-        name: "on_session_ended",
-        args: &[value(
-            "reason",
-            "\"return\"|\"load\"|\"new_game\"|\"country\"",
-            "why: for the main menu, for a save loaded, for a new game, or the player's country changed (the game console's tag, say)",
-        )],
-        returns: None,
-        about: "The session is being left, while its state is still there to read. Its waiting tasks are dropped after this.",
-    },
-    Handler {
-        name: "on_day",
-        args: &[value("date", "eu4.Date", "the new day")],
-        returns: None,
-        about: "A new day, once visibility reflects it. With the game running fast, days in between may be left out.",
-    },
-    Handler { name: "on_month", args: &[value("date", "eu4.Date", "the first day heard in the month")], returns: None, about: "A new month: the first day heard in it, after on_day. With the game running fast it may be past the 1st." },
-    Handler { name: "on_year", args: &[value("date", "eu4.Date", "the first day heard in the year")], returns: None, about: "A new year: the first day heard in it, after on_month." },
-    Handler {
-        name: "on_army_ordered",
-        args: &[value("army", "integer", "the army's ID")],
-        returns: None,
-        about: "The player gave one of their armies an order, by hand or through remote control; not for this mod's own orders.",
-    },
-    Handler { name: "on_army_defeated", args: &[value("army", "integer", "the army's ID")], returns: None, about: "One of the player's armies lost a battle." },
-    Handler {
-        name: "on_battle",
-        args: &[value(
-            "battle",
-            "table",
-            "{ province, naval, attackers, defenders, winner, attacker_losses, defender_losses }: the countries on each side, the leading one first; winner \"attackers\" or \"defenders\"; the losses in men in a land battle, in ships in a naval one",
-        )],
-        returns: None,
-        about: "A land or naval battle was decided, anywhere in the world.",
-    },
-    Handler {
-        name: "on_war_declared",
-        args: &[
-            value("war", "string", "the war's name, as the game shows it"),
-            value("attacker", "string", "the attackers' leader, a tag"),
-            value("defender", "string", "the defenders' leader, a tag"),
-        ],
-        returns: None,
-        about: "A war began, between any two countries.",
-    },
-    Handler {
-        name: "on_peace_made",
-        args: &[
-            value("war", "string", "the war's name, as the game shows it"),
-            value("attackers", "string[]", "the attackers that left it, tags"),
-            value("defenders", "string[]", "the defenders that left it, tags"),
-            value("ended", "boolean", "whether the war is over"),
-        ],
-        returns: None,
-        about: "Countries left a war on a day: by a peace, the whole war's or a separate one, or by ceasing to be.",
-    },
-    Handler {
-        name: "on_province_owner_changed",
-        args: &[
-            value("province", "integer", "the province's number"),
-            optional("from", "string", "the old owner, a tag; nil for none"),
-            optional("to", "string", "the new owner, a tag; nil for none"),
-        ],
-        returns: None,
-        about: "A province changed owner.",
-    },
-    Handler {
-        name: "on_building_finished",
-        args: &[
-            value("province", "integer", "the province's number"),
-            value("building", "string", "the building's content key"),
-            value("country", "string", "the province's owner, by its tag"),
-        ],
-        returns: None,
-        about: "A building was finished in a province, any country's. Worked out only while some mod has this handler or a remote client reads it.",
-    },
-    Handler {
-        name: "on_button",
-        args: &[value("name", "string", "the button's name in its interface fragment"), value("click", "eu4.Click", "{ right, shift, ctrl }")],
-        returns: None,
-        about: "The player clicked one of this mod's buttons.",
-    },
-    Handler { name: "on_map_lost", args: &[], returns: None, about: "Another mod, or the player changing the map mode, took the map this mod painted." },
-    Handler {
-        name: "on_frame",
-        args: &[],
-        returns: None,
-        about: "Every frame of a game, after the events above. Keep it short: it runs as often as the game draws.",
-    },
-    Handler {
-        name: "save_data",
-        args: &[],
-        returns: Some(optional("data", "any", "this mod's save data, any value JSON can hold; nil keeps nothing")),
-        about: "The framework asks for this mod's data: the game writes its world, the ironman exit save included, or the mod's code is about to be reloaded. It cannot wait.",
-    },
+/// The handlers besides the events': name, arguments, what it may return
+/// and what it is for.
+const OTHER_HANDLERS: &[(&str, &[Value], Option<Value>, &str)] = &[
+    (
+        "on_button",
+        &[value("name", "string", "the button's name in its interface fragment"), value("click", "eu4.Click", "{ right, shift, ctrl }")],
+        None,
+        "The player clicked one of this mod's buttons.",
+    ),
+    ("on_map_lost", &[], None, "Another mod, or the player changing the map mode, took the map this mod painted."),
+    ("on_frame", &[], None, "Every frame of a game, after the events above. Keep it short: it runs as often as the game draws."),
+    (
+        "save_data",
+        &[],
+        Some(optional("data", "any", "this mod's save data, any value JSON can hold; nil keeps nothing")),
+        "The framework asks for this mod's data: the game writes its world, the ironman exit save included, or the mod's code is about to be reloaded. It cannot wait.",
+    ),
 ];
 
-/// The handler `event` calls, named for its kind (`on_day` for `day`), and
-/// its arguments in Lua's form (`eu4_harmony_checks::form`): the event's
-/// field each of the handler's arguments names, in their order; for an
-/// argument that names none, the whole event as a table (`on_battle`'s).
-/// `on_session`'s argument is the mod's saved data, which the Lua host gives
-/// itself. None for an event without a handler, which a test rules out.
-pub fn handler_call(event: &crate::events::Event) -> Option<(&'static str, Vec<serde_json::Value>)> {
-    let name = format!("on_{}", event.kind());
-    let handler = HANDLERS.iter().find(|h| h.name == name)?;
+/// Every handler: one for each event ([`EVENTS`]), as its declaration says
+/// it is called (`crate::events::Kind::called`) and with what it says of the
+/// event, then the others.
+pub fn handlers() -> Vec<Handler> {
+    let events = EVENTS.iter().map(|(kind, about)| {
+        let about = match kind.note() {
+            "" => crate::prose(about),
+            note => format!("{} {note}", crate::prose(about)),
+        };
+        Handler { name: kind.handler(), args: event_args(*kind), returns: None, about }
+    });
+    let others = OTHER_HANDLERS.iter().map(|(name, args, returns, about)| Handler {
+        name,
+        args: args.iter().map(Arg::from).collect(),
+        returns: returns.as_ref().map(Arg::from),
+        about: about.to_string(),
+    });
+    events.chain(others).collect()
+}
+
+/// The arguments the handler of `kind` is called with after `game`.
+fn event_args(kind: Kind) -> Vec<Arg> {
+    match kind.called() {
+        Called::Fields => kind
+            .fields()
+            .into_iter()
+            .map(|field| {
+                let (ty, optional) = match field.shape {
+                    Shape::Optional(inner) => (*inner, true),
+                    shape => (shape, false),
+                };
+                Arg { name: field.name, ty: Ty::Shaped(ty), optional, about: field.about.to_string() }
+            })
+            .collect(),
+        Called::Table => {
+            let fields = kind.fields();
+            let names: Vec<&str> = fields.iter().map(|f| f.name).collect();
+            let about = format!("{{ {} }}, the {kind} event's fields (eu4-harmony wiki events)", names.join(", "));
+            let shape = Shape::Object { class: kind.class(), about: "", fields };
+            vec![Arg { name: kind.name(), ty: Ty::Shaped(shape), optional: false, about }]
+        }
+        Called::Given(given) => given.iter().map(Arg::from).collect(),
+    }
+}
+
+/// The handler `event` calls, `on_<kind>`, and its arguments in Lua's form
+/// (`eu4_harmony_checks::form`), as its kind says it is called. None for an
+/// event whose handler's arguments the Lua host gives itself (`on_session`'s
+/// saved data).
+pub fn handler_call(event: &Event) -> Option<(&'static str, Vec<serde_json::Value>)> {
+    let kind = event.kind();
     let mut table = eu4_harmony_checks::form::as_lua(|| serde_json::to_value(event)).ok()?;
     let fields = table.as_object_mut()?;
     fields.remove("event");
-    let args = handler.args.iter().map(|arg| fields.get(arg.name).cloned().unwrap_or_else(|| serde_json::Value::Object(fields.clone()))).collect();
-    Some((handler.name, args))
+    let args = match kind.called() {
+        Called::Fields => kind.fields().iter().map(|field| fields.get(field.name).cloned().unwrap_or(serde_json::Value::Null)).collect(),
+        Called::Table => vec![table],
+        Called::Given(_) => return None,
+    };
+    Some((kind.handler(), args))
 }
 
 pub const FUNCTIONS: &[Function] = &[

@@ -74,15 +74,13 @@ fn group_page(group: &Group) -> String {
 /// command line, its arguments and its result.
 pub fn capability_page(c: &Capability) -> String {
     let mut text = format!("{}\n\n{}\n", c.name(), prose(c.about));
-    let _ = writeln!(
-        text,
-        "{}",
-        match (c.in_game, c.observing) {
-            (true, true) => "Only while a game is going on, the player playing a country in it or observing it.",
-            (true, false) => "Only while a game is going on with a country the player plays.",
-            (false, _) => "In the main menu too.",
-        }
-    );
+    let _ = writeln!(text, "{}", if c.in_game { "Only while a game is going on." } else { "In the main menu too." });
+    if c.country {
+        let _ = writeln!(
+            text,
+            "It acts as a country: the one the player plays, or in observe mode the country in view; with none in view it fails with no_country."
+        );
+    }
     let _ = writeln!(text, "\ncalled:");
     if c.extensions {
         let _ = writeln!(text, "  Lua:          {}", lua_call(c));
@@ -148,9 +146,9 @@ handler's call, is logged, and the mod is called again with the next event.
 handlers (each gets game first):
 ",
     );
-    for h in lua::HANDLERS {
+    for h in lua::handlers() {
         let args: Vec<&str> = std::iter::once("game").chain(h.args.iter().map(|a| a.name)).collect();
-        let returns = h.returns.map_or(String::new(), |r| format!(" -> {}", r.name));
+        let returns = h.returns.as_ref().map_or(String::new(), |r| format!(" -> {}", r.name));
         let _ = writeln!(text, "  {}({}){returns}\n      {}", h.name, args.join(", "), h.about);
         for a in h.args.iter().chain(h.returns.iter()) {
             let _ = writeln!(text, "      {}: {}", a.name, a.about);
@@ -237,8 +235,11 @@ fn errors() -> String {
 
 fn events() -> String {
     let mut text = String::from("events: what extensions hear (as on_<event> handlers) and remote control numbers\n\n");
-    for (name, about) in EVENTS {
-        let _ = writeln!(text, "  {name:<20}{about}");
+    for (kind, about) in EVENTS {
+        let _ = writeln!(text, "  {kind:<24}{}", prose(about));
+        for field in kind.fields() {
+            let _ = writeln!(text, "      {}: {}", field.name, field.about);
+        }
     }
     let _ = write!(text, "\nA remote client reads them with the capability below.\n\n{}", group_page(&group("events")));
     text
@@ -288,7 +289,7 @@ mod tests {
     #[test]
     fn the_lua_and_manifest_topics_name_every_handler_global_field_and_permission() {
         let lua_page = page(&words("lua")).unwrap();
-        assert!(lua::HANDLERS.iter().all(|h| lua_page.contains(&format!("  {}(game", h.name))), "{lua_page}");
+        assert!(lua::handlers().iter().all(|h| lua_page.contains(&format!("  {}(game", h.name))), "{lua_page}");
         assert!(lua::FUNCTIONS.iter().all(|f| lua_page.contains(&format!("  {}(", f.name))), "{lua_page}");
         assert!(lua_page.contains("http.fetch(url, [options]) -> response, err  (waits; needs network)"), "{lua_page}");
         let manifest = page(&words("manifest")).unwrap();
@@ -306,6 +307,9 @@ mod tests {
     fn every_error_code_and_event_is_explained() {
         let errors = page(&words("errors")).unwrap();
         assert!(Code::ALL.iter().all(|c| errors.contains(c.name())));
-        assert!(page(&words("events")).unwrap().contains("session_ended"));
+        let events = page(&words("events")).unwrap();
+        assert!(events.contains("session_ended"));
+        // Each event's fields, with what each is.
+        assert!(events.contains("      attacker_losses: What the attackers lost"), "{events}");
     }
 }

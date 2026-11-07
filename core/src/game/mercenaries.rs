@@ -2,9 +2,9 @@
 //! hiring one with the game's recruit command, as the view and the map post
 //! it once the player has picked a company and a province
 //! (docs/research/leaders.md, "Hiring a mercenary company").
-use super::{commands, with_state, Ctx, GResult, Session};
+use super::units::checks;
+use super::{action, with_state, Ctx, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
-use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     mercenaries::Company,
@@ -99,7 +99,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Company>> {
 }
 
 /// Hires a company the view lists, raised in a province the player picks.
-pub fn hire(Session { m, ctx, .. }: Session, word: String, province: u32) -> GResult<()> {
+pub fn hire(Session { m, ctx, commands, .. }: Session, word: String, province: u32) -> GResult<()> {
     let mut found = None;
     for company in addresses(m, &ctx)? {
         if key(m, company)? == word {
@@ -108,15 +108,15 @@ pub fn hire(Session { m, ctx, .. }: Session, word: String, province: u32) -> GRe
         }
     }
     let Some(company) = found else {
-        return Err(checks::no_company(&word).into());
+        return Err(checks::no_company(&word));
     };
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_HIRE_THERE), &[company, ctx.country, address, t]))?;
+    let doing = format!("hire {word} there");
     if may as u8 == 0 {
-        return Err(checks::not_allowed(&format!("hire {word} there"), &super::reasons(&text)).into());
+        return Err(action::not_allowed(&doing, &super::reasons(&text)));
     }
-    commands::post(&hire_text(ctx.player.letters(), province, m.i32(company + NUMBER)?, m.i32(company + ID)?))?;
-    Ok(())
+    action::post(commands, &hire_text(ctx.player.letters(), province, m.i32(company + NUMBER)?, m.i32(company + ID)?), &doing)
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 //! growth, and carrying each out through the game's own commands
 //! (docs/research/envoys.md, "Colonists").
 use super::{
+    action,
     envoys::{self, quoted},
     with_state, Ctx, GResult, Session, Tag,
 };
@@ -205,50 +206,50 @@ fn written(player: Tag, province: u32, work: Work) -> String {
 }
 
 /// Sends one of the player's colonists to province `id`.
-pub fn send(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
+pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
     if !options.send.can {
-        return Err(eu4_harmony_checks::envoys::not_allowed("send a colonist there", &options.send.reasons).into());
+        return Err(action::not_allowed("send a colonist there", &options.send.reasons));
     }
-    envoys::post(&written(ctx.player, id, Work::Colonize), "the colonist command")
+    action::post(commands, &written(ctx.player, id, Work::Colonize), "send a colonist there")
 }
 
 /// Recalls the player's colonist from province `id`.
-pub fn recall(Session { m, ctx, .. }: Session, id: u32) -> GResult<()> {
+pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     if !read(m, &ctx, &province(m, &ctx, id)?, id)?.working {
-        return Err(eu4_harmony_checks::envoys::none_there("colonist").into());
+        return Err(envoys::checks::none_there("colonist"));
     }
-    envoys::post(&written(ctx.player, id, Work::Recall), "the cancel colonist command")
+    action::post(commands, &written(ctx.player, id, Work::Recall), "recall the colonist")
 }
 
 /// Sends one of the player's colonists to found a colony in province
 /// `province` with the minority expelled from the player's province `from`.
-pub fn expel(Session { m, ctx, .. }: Session, province: u32, from: u32) -> GResult<()> {
+pub fn expel(Session { m, ctx, commands, .. }: Session, province: u32, from: u32) -> GResult<()> {
     let options = read(m, &ctx, &self::province(m, &ctx, province)?, province)?;
     let Some(offered) = options.expel_from.iter().find(|e| e.from.0 == from) else {
-        return Err(eu4_harmony_checks::envoys::no_minority(from).into());
+        return Err(envoys::checks::no_minority(from));
     };
     if !offered.choice.can {
-        return Err(eu4_harmony_checks::envoys::not_allowed("expel that minority there", &offered.choice.reasons).into());
+        return Err(action::not_allowed("expel that minority there", &offered.choice.reasons));
     }
-    envoys::post(&written(ctx.player, province, Work::Expel { from }), "the colonist command")
+    action::post(commands, &written(ctx.player, province, Work::Expel { from }), "expel that minority there")
 }
 
 /// Has one of the player's colonists promote settlement growth in province
 /// `id`, or, `start` false, stops the one there.
-pub fn change_growth(Session { m, ctx, .. }: Session, id: u32, start: bool) -> GResult<()> {
+pub fn change_growth(Session { m, ctx, commands, .. }: Session, id: u32, start: bool) -> GResult<()> {
     let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
     if !start {
         // The command's own check takes any province.
         if !options.growing {
-            return Err(eu4_harmony_checks::envoys::none_there("colonist promoting settlement growth").into());
+            return Err(envoys::checks::none_there("colonist promoting settlement growth"));
         }
-        return envoys::post(&written(ctx.player, id, Work::StopGrowth), "the cancel colonist command");
+        return action::post(commands, &written(ctx.player, id, Work::StopGrowth), "stop promoting settlement growth there");
     }
     if !options.start_growth.can {
-        return Err(eu4_harmony_checks::envoys::not_allowed("promote settlement growth there", &options.start_growth.reasons).into());
+        return Err(action::not_allowed("promote settlement growth there", &options.start_growth.reasons));
     }
-    envoys::post(&written(ctx.player, id, Work::StartGrowth), "the colonist command")
+    action::post(commands, &written(ctx.player, id, Work::StartGrowth), "promote settlement growth there")
 }
 
 #[cfg(test)]

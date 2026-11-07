@@ -6,10 +6,7 @@
 //! Also what the panels' tooltips are written with: the game's localisation
 //! with values, and the conditions of `common/scripted_functions` that allow
 //! some of these buttons.
-use super::{
-    commands::{self, Refused},
-    conditions, fail, GResult, Status, Tag,
-};
+use super::{action, commands::Commands, conditions, GResult, Tag};
 use crate::{game_string, memory::Memory, objects::campaign::country, points::Point, unicode::game_text};
 use eu4_harmony_remote::choices::PowerKind;
 use std::ffi::CStr;
@@ -165,23 +162,11 @@ pub fn written(country: [u8; 3], kind: i32, skill: PowerKind, data: i32) -> Stri
     format!("spend_power_command={{ country=\"{}\" power={{ {data}category={kind} skill={} }} }}", String::from_utf8_lossy(&country), skill as i32)
 }
 
-/// Spends `player`'s points as the button does: posts the command, which
-/// the game checks and carries out at once. `doing` names the action for
-/// the refusals.
-pub fn spend(player: Tag, kind: i32, skill: PowerKind, data: i32, doing: &str) -> GResult<()> {
-    post(&written(player.letters(), kind, skill, data), doing)
-}
-
-/// Posts a command of the player's, as a button does; `doing` names the
-/// action for the refusals.
-pub fn post(text: &str, doing: &str) -> GResult<()> {
-    match commands::post(text) {
-        Ok(()) => Ok(()),
-        Err(Refused::Check) => Err(eu4_harmony_checks::choices::command_refused(doing).into()),
-        Err(Refused::NotTaken) => fail(Status::Rejected, "the game takes no orders from the player now"),
-        Err(Refused::Unread(how)) => fail(Status::Internal, format!("the game read the command otherwise: {how}")),
-        Err(Refused::Game(fail)) => Err(fail),
-    }
+/// Spends `player`'s points as the button does: posts the command through
+/// `commands`, which the game checks and carries out at once. `doing` names
+/// the action for the refusals.
+pub fn spend(commands: Commands, player: Tag, kind: i32, skill: PowerKind, data: i32, doing: &str) -> GResult<()> {
+    action::post(commands, &written(player.letters(), kind, skill, data), doing)
 }
 
 /// The game's text for the localisation key `key`, with `values` put in

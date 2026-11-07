@@ -70,9 +70,10 @@ client/                  remote control's pipe, asked with remote/'s request and
                          the hidden start; the backup and restore of the player's files
 cli/                     eu4-harmony game, start, reload, backup, restore: over client/
 xtask/src/
-  claim.rs               the claim, cargo xtask game; the runner calls the same functions
-  scenario.rs            the runner: Steam, the claim, the builds, install, start,
-                         the outcomes, the lease, the report
+  claim.rs               the claim, cargo xtask game; a run within a claim, from holding
+                         it to giving it back, which the runner plays in
+  scenario.rs            the runner: Steam, the builds, install, start, the outcomes,
+                         the report
   scenario/game.rs       what a scenario is handed: ask, the main menu, days, events,
                          checks, figures, sections
   scenario/leak.rs       leak and growth

@@ -162,7 +162,7 @@ impl Scenario for Leak {
             let _: Session = game.ask(&MenuRequest::Load { save: saves[1].clone() })?;
             game.advance(third)?;
             game.return_to_menu()?;
-            let _: Session = game.ask(&MenuRequest::Start { country: tag })?;
+            let _: Session = game.ask(&MenuRequest::Start { country: Some(tag) })?;
             game.advance(third)?;
             game.return_to_menu()?;
             std::thread::sleep(Duration::from_secs(5));

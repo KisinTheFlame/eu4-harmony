@@ -2,7 +2,7 @@
 
 Baseline 1.37.5. All addresses are RVAs into `eu4.exe`. Measured on 2026-11-06 with `cargo xtask profile --slice 60`, which writes a line for each minute of a run: its dates, days and frames a second, and the shares of the main thread's parts ([dev-tools.md](../dev-tools.md)). The parts are those of [main-thread.md](main-thread.md); the runs are in [prototype-log.md](../prototype-log.md).
 
-In short: **what grows is the AI's handling of armies, and it grows on the main thread's critical path.** In one game the AI played alone from 1444 to 1821, the day's AI stage went from 5 ms of the main thread a game day to 30 ms, as the world's regiments tripled and gathered in a few great powers (the Ottomans' from 249 to 1,575). The stage runs one task per AI country on the worker threads, and the main thread spins until the last of them is done; the largest countries' tasks are the last, while the workers sleep most of the time. The rest of the day did not grow: each country's daily update became cheaper as countries were annexed, and a frame cost the same in 1800 as in 1600. At speed 5 the days went from 19.7 a second around 1650 to 12.5 around 1800.
+In short: **what grows is the AI's handling of armies, and it grows on the main thread's critical path.** In one game the AI played alone from 1444 to 1821, the day's AI stage went from 5 ms of the main thread a game day to 30 ms, as the world's regiments tripled and gathered in a few great powers (the Ottomans' from 249 to 1,575). The stage runs one task per AI country on the worker threads, and the main thread spins until the last of them is done; timed task by task, a stage lasts exactly as long as its longest task, a great power's, which starts first and still ends last, while the workers sleep most of the time. Inside that task its army agents each search the provinces around their army, and on the slowest days its top agent plans, asking route after route. It cannot be made much faster without changing what the AI computes or the order it computes it in ("Whether it can be made faster"); a country's agents read what the agents before them did that day, so running them apart would change the AI's decisions, not only the order of its random draws, while a game started with `-seed` repeats its days well enough to compare builds on ("Whether a game repeats its days"). Over the whole late day ("The whole day, late in a game"), the main thread is what holds the game back, at 2 to 3 of 16 threads busy: the AI is 38% of its day, frames 20%, each country's daily update 18%, and the monthly update stalls the month's first day for 266 ms. The rest of the day did not grow: each country's daily update became cheaper as countries were annexed, and a frame cost the same in 1800 as in 1600. At speed 5 the days went from 19.7 a second around 1650 to 12.5 around 1800.
 
 ## Setup
 
@@ -50,6 +50,154 @@ Milliseconds of the main thread for each game day, from the shares (the sampler'
 - **The workers were idle.** In the game loaded at 1700, the sixteen worker threads ran 0.09 cores each (1.4 in all); the busiest thread of each second spent 82% of its samples asleep in the pool's condition variable (`0x1a13a58`), 7% in AI countries' updates. The stage is not short of cores: it waits for its longest tasks, the countries with the most to do.
 - **What grew inside an AI country's update**, of the tasks the main thread ran itself, the same number of game days early and late: `0xb0fa0` → `0x786150` → `0x14b370` → `0xe4890` → `0xe9f30` → `0xea250` → `0xeab50` from 543 samples to 1,858. `0xeab50` reports errors from `ai_army.cpp` ("Main army in AI army '", "' does not belong to country! ("), so it is the AI's handling of its armies; under it `0x1022b0` reads provinces by ID (`map.h`). The rest of the AI country's update grew less: `0x14acc0` 260 to 482, `0x13d4c0` 454 to 604.
 
+## Each AI country's task, timed
+
+Measured on 2026-11-07 with the call trace's `times` ([dev-tools.md](../dev-tools.md), "Call tracing"): every call of the stage (`0x77d8a0`) and of each AI country's task (`0xb0fa0`, with the country's tag, at `+0x20` of its argument, the country's AI), on whichever thread it ran. Two runs of the same game, in the Ottomans' view at speed 5: the save of 1700.1.1 played to 1725.1.1 (9,125 stages), and the game's autosave of that run's 1721.1.1 played to 1730.1.1 with the functions inside the task timed too (3,285 stages).
+
+| Years | Stage ms | Tasks | Their work ms | Longest task ms | Main thread's spin ms |
+| --- | --- | --- | --- | --- | --- |
+| 1700–1704 | 9.0 | 145 | 72 | 8.8 | 4.7 |
+| 1705–1709 | 15.1 | 138 | 102 | 14.9 | 10.2 |
+| 1710–1714 | 9.0 | 135 | 67 | 8.9 | 5.1 |
+| 1715–1719 | 13.6 | 132 | 93 | 13.5 | 8.5 |
+| 1720–1724 | 19.0 | 131 | 112 | 18.9 | 13.6 |
+| 1721–1729 (second run) | 16.9 | 129 | 113 | 16.8 | 11.0 |
+
+- **A stage lasts as long as its longest task.** The median stage was 1.00 times its longest task, and ended 0.01 ms after it. The work of all the tasks shared out among the 16 threads that ran them would have taken half as long (the median stage was 2.0 times that).
+- **The longest task does not start late.** It was the first or second task of its stage to start (the median of 135), 0.02 ms into it: the order in which the stage takes its tasks changes from day to day, and the countries that took longest come first. Starting the longest task at once would have saved 0.1 ms a stage. **The order is not what to change.**
+- **The longest tasks are the great powers'**: Austria's (2,899 stages of 9,125) and Great Britain's (2,766) from 1700 to 1725, then the Ottomans' (1,060 of 3,285), Great Britain's, France's and Austria's. One country's task varies greatly from day to day: Great Britain's took 3.4, 8.9 and 20.7 ms on 1700.1.2 to 1700.1.4.
+- **The stages have a long tail.** A stage's median was 10.1 ms, its 90th percentile 19.0, its 99th 76.5, the longest 483 ms (Great Britain's task alone). Days whose stage took over 20 ms were 8.6% of the days and 29% of the stages' time; over 50 ms, 1.8% and 16%. Such a day stands out as a stutter at speed 5.
+- **Inside a task, the time is in `0xe4890`, called once for each of the AI's items** (each call with an object of its own): 9.8 calls a task on average, 18.5 in the longest 1% of tasks, 22 to 25 in the Ottomans' and Great Britain's. `0xe4890` takes 97% of the longest task of a stage (the median), through `0xea250` → `0xeab50` (`ai_army.cpp`) for most calls and `0x13d4c0` for a few. The path `0xb0fa0` → `0x14b370` holds 92% of every task; `0x786150` comes between them only for smaller countries.
+- **One item can take most of a day.** The largest single call of `0xe4890` in a stage's longest task was 6.6 ms on average (the stage 16.9 ms); on days whose stage took over 20 ms it was 45% of the stage, over 50 ms 64%. The longest seen: 141 ms in one call (a colonial nation's, 1728.9.19), and 127 ms in one call of the Ottomans' through `0x13d4c0`.
+
+So, of the stage's 13 to 19 ms a day: if the longest task alone could be split, the next country's would bound the stage, 8.6 ms on average (1700 to 1725); if every country's items could run apart, the largest single item would, 6.6 ms (1721 to 1730); the work shared out evenly is 5.6 ms. The order of the stage's tasks gives nothing.
+
+## An AI country's agents
+
+Read from the code on 2026-11-07, with what [main-menu.md](main-menu.md) found of the agents' objects ("The AI's agents").
+
+- **A country's AI works through agents**, in a tree. Its top agent (vtable `0x1c3e9e0`, at the AI's `+0x28`) is what `0xb0fa0` steps through `0x14b370`; it keeps the agents it started on its list at `+0xc50`, the 0xbf8-byte agents (vtable `0x1c3cdb8`) that lead armies, and steps others too, such as the foreign minister (vtable `0x1c3df20`, `ai_foreignminister.cpp`).
+- **An agent's day** is `0xe4890`, slot `+0x58` of every agent's vtable: when its slot `+0x50` says so, it counts its `+0x20` down and, at 0, calls its slot `+0x60`, its think, whose result is the number of days to its next think, kept at `+0x20`; then it steps the agents on its own list at `+0x40`. The top agent does the same at `0x14b603`..`0x14b673` and then walks its list at `+0xc50`. So the items of the timed task are agents, and the costly ones those whose think comes that day: on a day few think, on another many, which is why one country's task varies so much from day to day.
+- **An army agent's think** is `0xe9f30`, which calls `0xea250`; the foreign minister's is `0x13d4c0`.
+- **The top agent's plan.** Before its agents, `0x14b370` reads its byte `+0xce0` under a lock shared by every country (`[0x2357ba0]`); when it is set and its list at `+0xcc0` is empty, it plans with `0x147660`, and otherwise, one day in twelve at random (`0x14b52c`, a draw modulo 12 equal to 1), with `0x146ee0`. Both come to `0x146750` through `0x145d50`, which asks route after route.
+
+## Where an agent's time goes
+
+Sampled on 2026-11-07 with `cargo xtask profile --threads --slice 1` ([dev-tools.md](../dev-tools.md)), which samples every thread and merges them into the whole game's CPU: the run's autosave of 1721.1.1, in the Ottomans' view at speed 5, 240 s, 1721 to about 1731. The whole game ran 2.17 cores (the main thread 0.94).
+
+| Inside | Cores |
+| --- | --- |
+| The AI countries' updates (`0xb0fa0`), on every thread | 1.01 |
+| An army agent's think (`0xea250`) | 0.62 |
+| its search (`0xeab50` → `0x1022b0`) | 0.40 |
+| Route queries (`0x96c520`, [routes.md](routes.md)), from every caller | 0.23 |
+| The stage's spin (`0x179e90`) | 0.27 |
+
+- **The search `0x1022b0`** is a best-first search out from the army's province: a heap of 0x28-byte nodes kept by `0x1128d0`, each province reached weighed by `0xf8ea0` (which takes the shared lock `[0x2357ba0]`), by the route edge check `0x96f860` (whose blocking check `0xd45250` → `0xd40ae0` reads the army's route) and by `0x102140`. It is 65% of an army's think.
+- **The slowest seconds.** Of the run's 236 seconds, the slowest tenth went at 6.1 days a second, the middle half at 15.7. Per game day, the whole game's CPU was 328 ms against 141; route queries 68 ms against 15; the stage's spin 67 against 17; the monthly update 38 against 10; an army's think 66 against 44.
+- **A slow day is the top agent's plan.** In the slowest seconds 57% of the route queries came from `0x14b370` → `0x147660` → `0x145d50` → `0x146750`, against 2.6% in the middle half: a great power's plan asks route after route, each up to about 10 ms, while the main thread spins. The rest of the slow seconds' route queries came from army thinks (`0x106320`, `0xf3f80` → `0xf4490` → `0x109ee0`).
+- **Route queries are not asked again.** The call trace's log of 18,666 route queries from 1721.1.1 to 1721.12.27, 52 a day: the same army, origin and goal was asked again the same day 6.2% of the time from the same call site, 13.4% from any; a query took under 1 ms at the median and 11 ms at most (to the log's millisecond).
+
+## What an army's think writes
+
+The developer build's write watch ([dev-tools.md](../dev-tools.md)) on three calls of `0xea250` on the main thread, in the stage, on 1721.1.2 to 1721.1.6: 643, 148 and 2,779 writes. What existed before the call and was written: the agent itself (the 0xbf8-byte block); the world (`CGameState`, 0x7518 bytes) at `+0x1550`; the thread pool library's own data (`tbb.dll`, through `0x178530`); small blocks of the game's allocator (`0x178xxx`, `0x179xxx`); two globals. The rest were blocks made during the call. No army, province or country object was written: those were read.
+
+- **`+0x1550` of the world is its random generator's place** in its state at `+0xb90`: `0x14c71b0` is a Mersenne twister (624 words, offset 397), with no lock. An agent draws from the world's generator, unless the byte `[0x23581c0]` is set; then from its own, at `+0x78` of the agent (`0xe9fd3`, `0x14b50f`, and 146 places in all). Only the command line's `-seed` sets that byte, with the seed at `[0x23581c4]` (`main`, `0x876a8b`, next to `autotest`). Without it, the AI countries' tasks, on many threads at once, draw from one generator, so which numbers a country gets depends on the threads' timing; [main-thread.md](main-thread.md) saw a day draw tens of numbers more or fewer from run to run.
+- **One lock for every country** (`[0x2357ba0]`, `0x1a139cc` / `0x1a139f0`) guards some of the AI's shared state; `0xf8ea0` in the search and the plans' `0x146ee0`, `0x1479e0`..`0x147aa0` and others take it.
+
+## Whether a game repeats its days
+
+Measured on 2026-11-07 ([prototype-log.md](../prototype-log.md)): the autosave of 1780.7.1 loaded in a new process, observed, and 185 days at speed 5 to the game's autosave of 1781.1.1, a save of 69 MB and 3.6 million lines, the runs' saves compared line by line. A load writes a `campaign_id` of its own and `campaign_length`, its time played; those are left out.
+
+- **Without `-seed` no two runs are alike.** Two runs differed in 3.4 million of their lines. A load does not keep the save's random state: the first run's `multiplayer_random_seed` was 4122684752, the second's 3961721867, the save's 4025518484. So a game loaded twice goes two ways from its first day, whatever the AI does on the threads.
+- **With `-seed` most runs are alike.** The game sets its generator's seed to the switch's and its draw count to 0 at the first load of a process; a second load in the same process keeps the save's seed and count, so only a load in a new process repeats. Each agent's own generator is seeded with the same number when the agent is made (`0xe4050`; without the switch, with the time, `0x1a49a5c`), and the AI reads no clock otherwise: the timers the game imports are read only to seed generators, and by the frame's timing (`0x1761e20`..`0x1761fd0`). Of four runs started with `-seed=1` and the AI's walks as the game's, three gave saves identical but for those two lines after the 185 days; the fourth went another way. That is not the threads repeating themselves: with `-seed` the AI stage runs the countries one after another on the main thread, sorted by their index, instead of on the parallel stage (`0x75b891`, `0x75b990`; [ai.md](ai.md), "A day of the AI").
+- **What still varies with `-seed`**: in two runs of five, Great Britain's "Royal Navy" got one of two admirals as its leader (`leader` `id=50176` against `id=49643`), and the rest of the save followed it: 6 lines of a diff after a month, about 8,000 to 10,000 after two, and a third of the save after six (monthly autosaves, five runs). Which code picks the admiral, and why it varies, was not found.
+
+So a game started with `-seed` repeats its days, with its AI on one thread, well enough for a bench (S5, [game-speed.md](../game-speed.md)) to compare two builds by their saves, as long as each is run a few times and its runs are taken in the same history as the other's, the admiral's.
+
+## Whether an AI country's agents depend on each other
+
+A country's top agent has its children (`+0x40`) and then its armies' agents (`+0xc50`) do their day one after another (`0x14b622`..`0x14b675` in `0x14b370`), each list the game's doubly linked list (its first node at `+0`, its last at `+8`; a node's agent at `+0`, the node before it at `+8` and after it at `+0x10`). The developer build's test switch `agents-order` ([dev-tools.md](../dev-tools.md), `core/src/agents_order.rs`) has the framework walk the two lists: `forward` from the first node as the game does, `reversed` from the last back, each node's neighbor read before its agent's day as the game reads it. With `-seed` each agent draws from its own generator, so the order of the agents changes nothing of what they draw: if no agent read what another of its country did that day, the runs in either order would play the same days.
+
+Five runs from the autosave of 1780.7.1 with `-seed=1` and monthly autosaves ([prototype-log.md](../prototype-log.md)), two `forward` and three `reversed`, the lines of a diff between two runs' saves:
+
+| | After a month (1780.8.1) | After two (1780.9.1) |
+| --- | --- | --- |
+| Two runs in the same order | 6, or none: the admiral above | 8,199 and 10,444 |
+| A run in one order against a run in the other | 14,947 and 14,951 | 29,397 and 32,730 |
+
+- `forward` played the same days as the game's own walk: its half-year run gave the same save as two runs of the player build, line for line. The walk replaced is the game's.
+- Reversed, the agents took other decisions within a month, about 7,500 of the save's lines changed against 2: the countries' armies and fleets (`regiment`, `ship`, `morale`, their leaders, `last_target`), their trade (`trading_policy`, `steer_power`, the nodes), their provinces, their relations (`attitude`). So an agent's day reads what the agents before it in its country did that day, beyond the random generator. The code shows which paths can carry it: units handed between agents, fleets taken from the Admiral, the armies' targets that a siege counts, the war plan ([ai.md](ai.md), "What one agent reads of another the same day"); which of them made this difference was not followed.
+- Agents running apart on several threads would read some of what the others did and not the rest, by the threads' timing. A reversed order is still one agent after another, as the game runs them, in an order its lists could have had (where their order comes from was not followed); agents run apart could also each miss the others' decisions of the day, which no order of the game's gives. A country's agents were written to run one after another: no lock is known to guard what they share but the one lock (above).
+
+## Whether it can be made faster
+
+Against the bar of [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md): the same AI, the same decisions taken by the same code.
+
+| What | What it could give | Why not, or what it needs |
+| --- | --- | --- |
+| The stage's order of tasks | 0.1 ms a stage | The heaviest already start first. |
+| Remembering route queries for the rest of the day | at most 13% of route queries, about 2 ms a day | Few are asked again; and it needs a query's answer to depend on its arguments alone within a day, not shown. |
+| A country's agents run apart | the stage bound by its largest single item, 6.6 ms a day against 16.9 (1721 to 1730) | An agent's day reads what the agents before it in its country did that day: in another order they take other decisions, with each agent's draws its own ("Whether an AI country's agents depend on each other"). Run apart, each would see some of the others' decisions and miss the rest. Kind C, and it changes what the AI decides, not only the order of its draws. |
+| The top agent's plan asking its routes on several threads | the plan's route queries, about 40 ms of CPU a slow day | Its loop decides each query from the last's answer or not, which is not known; kind C as well. |
+| The route query and the search's checks rewritten to give the same answers faster | part of 0.6 cores | Every cost, tie and order in the heap must come out the same; a rewrite of the game's AI code, with no way yet to check it but by its answers. |
+
+So the late game's AI cannot be made much faster without changing what it computes or the order it computes it in. The largest gain, a country's agents running apart, is of kind C, and it would change the AI's decisions: not only through the random generator, but through what each agent reads of the others' day. Within the bar, what is left is small (repeated routes, about 2 ms a day). A game started with `-seed` repeats its days, all but a rare admiral ("Whether a game repeats its days"): a bench that compares builds by their saves can be made on it.
+
+## The whole day, late in a game
+
+Measured on 2026-11-07 on the same game, in the Ottomans' view at speed 5: every thread sampled (`cargo xtask profile --threads`) from 1721.1.1 for 300 s and from 1759.7.1 to 1821.1.3 for 1,500 s in stretches of 300 s; and the day's phases timed with the call trace's `times` from 1780.7.1 for 306 s, 4,745 days.
+
+**The main thread is what holds the game back.** It ran 0.92 to 0.94 cores; the whole game 2.2 to 2.9 of the machine's 16 (8 cores). Of the day's phases only the AI's runs on the other threads: each country's daily update, the monthly update and the provinces' serial pass ran on the main thread alone, with no sample of them on another thread.
+
+Milliseconds of the main thread a game day, from the sampled shares:
+
+| Years | Days a second | The day and what follows | the AI | each country's daily update | the monthly update | the provinces' passes | the day, other | between days |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1721–1735 | 14.7–21.3 | 47–68 | 9.4–20.5 | 10.3–16.1 | 8.8–10.3 | 3.3–4.6 | 2.1–3.4 | 12.6–15.4 |
+| 1759–1774 | 17.8 | 56 | 15.6 | 11.9 | 9.2 | 3.2 | 2.6 | 13.5 |
+| 1774–1786 | 14.4 | 69 | 26.4 | 12.4 | 9.4 | 3.3 | 3.3 | 14.7 |
+| 1786–1797 | 13.8 | 72 | 29.8 | 12.1 | 9.5 | 3.4 | 2.9 | 14.4 |
+| 1797–1810 | 15.3 | 65 | 22.0 | 12.7 | 9.8 | 3.3 | 3.0 | 14.5 |
+
+(1810 to 1821 is left out: its last 34 s ran paused at the end of the run.)
+
+**Day by day**, timed from 1780.7.1 (a day from one day's body to the next, 64.4 ms on average):
+
+| Phase | Calls | Mean ms | Median | 99th percentile | Longest |
+| --- | --- | --- | --- | --- | --- |
+| The day's body (`0x75bbe0`) | 4,745 | 42.3 | 37.6 | 107 | 595 |
+| of it, the AI (`0x75b4b0`) | 4,745 | 24.2 | 20.2 | 76 | 576 |
+| of it, the countries (`0x75b0d0`, each country's daily update) | 4,745 | 11.9 | 10.1 | 52 | 101 |
+| of it, the provinces (`0x75b2d0`) | 4,745 | 3.2 | 3.1 | 4.7 | 12 |
+| The monthly update (`0x75d690`), after the body | 156 | 266 | 265 | 283 | 290 |
+| The yearly update (`0x75e260`) | 13 | 10.0 | 10.0 | 10.5 | 11.9 |
+| Drawing (`0x8183b0`), 1.53 frames a day | 7,256 | 4.9 | 4.4 | 16 | 132 |
+
+- **The month's first day stalls.** The monthly update took 265 to 290 ms every time, on the main thread alone, so that day took 355 ms against 55 for another (medians 323 and 50): at 15 days a second, a stall of a third of a second every two seconds. The month's days were 3.3% of the days and 18% of the time. The monthly update did not grow with the game: 9 to 11 ms a day, its share, from 1444 to 1821 (above).
+- **An average day of 64.4 ms**: the AI 24.2, each country's daily update 11.9, the monthly update 8.8 (its share), drawing 7.5, the rest between days 5.8 (the commands, the interface's update, the map's markers, the alerts), the provinces 3.2, the rest of the day's body 3.1.
+
+**What the monthly update does.** Sampled from 1759 to 1821, of its time:
+
+- `0x2f36c0`, 49%: spread over many functions, each under 8% of it (`0x18f040`, `0x327dc0` → `0x93d130` making a country's modifiers again, `0x302ee0`, `0x2f9c50`, `0x329140`, `0x4109f0`).
+- `0x763470` → `0x3bc640` → `0xd54600` → `0x8ea420`, 22%, nearly all of it in `0x8ea420`'s own code.
+- `0x9f35c0` → `0x9f9500`, 17%: `0x960330` and `0x9f95d0` ([main-menu.md](main-menu.md) names `0x9f9500` the modifiers a load works out).
+- `0xb4ba90`, 5%, again through `0xd54600` → `0x8ea420`.
+
+**`0x8ea420` adds one set of modifiers' values to another** ([main-menu.md](main-menu.md), "What points to them"): for each (modifier, value) of the set added, when the receiving set keeps its values by modifier (its byte `+0x10` set, a modifier below 0x286), it adds at that place; otherwise it looks for the modifier among the receiving set's pairs one by one (`0x8ea4e0`) and adds there, or appends a pair, growing the array (`0x1a33310`) as it fills. So adding to a set kept as pairs costs the product of the two sets' sizes. Its own code was 4.9% of the main thread over the 25 minutes, about 3.3 ms a day on average; 64% of that was in the monthly update through `0xd54600`, 11% in the day's body through `0x22c080` → `0x221750`, and about 10% where a country's modifiers are made again (`0x327dc0` → `0x93d130`), in its daily and monthly updates.
+
+**Between days**, 1.53 frames a game day at "Faster time" (the frame count against the days): drawing 4.9 ms a frame, 7.5 ms a day; the rest of what runs between days 5.8 ms ([main-thread.md](main-thread.md), "Drawing", found no drawing left out that the player does not see).
+
+### Where the late day could be shorter
+
+| What | Its time late | What a change could give | Of which kind ([game-speed.md](../game-speed.md)) |
+| --- | --- | --- | --- |
+| The AI | 24 ms a day, 38% | Above, "Whether it can be made faster": little without changing the AI | C |
+| The monthly update | 266 ms a month, 8.8 ms a day | `0x8ea420` looking its pairs up through an index made for the call instead of one by one: the same pairs, in the same order, with the same sums, so that each call's result can be compared with the game's own; up to its share of the month, about 60 ms of the 266, and about 3 ms a day in all. The rest of the month is many countries' and provinces' updates one after another, nothing alone large | C: the simulation's own code. Whether a check call by call stands for the bench (S5) is the owner's to decide |
+| Each country's daily update | 12 ms a day | One country after another, spread over many functions (units, armies, diplomacy's caches `0x93fe30`, modifiers); none found alone large | C |
+| Drawing between days | 7.5 ms a day | Drawing fewer frames at speed 5, as "Faster time" leaves out those inside a day; not researched | A or B, the player's choice |
+| Running the countries' or the month's updates on the idle threads | up to the most of 21 ms a day and 266 ms a month | Changes the order the game does its work in, as running the AI's agents apart would | C |
+
 ## What the world gathers
 
 Counted in the game's autosaves of the run (a script of the run's own):
@@ -76,7 +224,7 @@ Counted in the game's autosaves of the run (a script of the run's own):
 ## What this means
 
 - Later in a game the day is slower because the AI countries that are left have more armies to handle, and the largest of them set how long the AI stage lasts. A player's own country has no AI, so a player's own armies do not count here; the AI great powers' do.
-- More cores would not help: the stage already leaves most of them idle. What would is the largest countries' tasks taking less time, or being split, which changes the AI's own code and the order its work is done in: a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../game-speed.md), S5 and S6, set aside).
+- More cores would not help: the stage already leaves most of them idle, and the stage already starts its longest tasks first. What would is the largest countries' tasks taking less time, or their agents running apart, and on the worst days a great power's plan, which asks route after route, taking less time. Each changes the AI's own code and the order its work is done in, and the agents' order changes what they decide ("Whether an AI country's agents depend on each other"): a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../game-speed.md), S5 and S6, set aside); "Whether it can be made faster" above weighs each.
 - A late game the player feels to be slow can also be slow for reasons of the session, not of the date: the windows left open, or (with the game's own pace instead of "Faster time") the frames inside a day.
 
 ## Saves to test with
@@ -90,7 +238,12 @@ A claim's release removes what a run added to the save games folder, so a copy t
 
 ## Not verified
 
-- How long each AI country's task takes, and that the largest countries' are the last: inferred from the spin, the idle workers and the growth of the army handling, not timed task by task.
-- What else in the AI country's update `0xe4890` and `0xea250` do, beyond `ai_army.cpp`'s error texts.
+- Which of the paths by which an agent reads what the agents before it did that day ([ai.md](ai.md)) made the reversed order's difference.
+- What the top agent's plan decides, and whether its route queries depend on each other.
+- That the AI countries' draws from the world's generator race between threads without `-seed`: read from the code (no lock in `0x14c71b0`), not seen apart from a load's new seed, which makes runs differ anyway. What picks the Royal Navy's admiral, which varies with `-seed`; whether `-seed` repeats other saves, earlier years, or longer than half a year as well; whether the agents' order matters in the children's list, the armies' list or both.
+- The write watch saw three army thinks on the main thread, short ones; not a plan, nor one of the long thinks.
+- The tasks timed in one game from 1700 to 1730 only; the route queries counted over one year; the day's phases timed for 306 s from 1780.
+- How large the sets of modifiers `0x8ea420` adds to are, and how much of its own time is the search one by one rather than the adding: inferred from its code and its self time, not measured.
+- What `0x2f36c0` is beyond the functions it calls; whether the countries' daily updates or the month's updates read what another country's writes.
 - One game only, as the AI played it; a game a player plays, with the player's country out of the AI, and other great powers.
 - The game's own pace (frames inside a day) over a long run, and a vanilla game without the framework.

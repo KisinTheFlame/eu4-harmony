@@ -9,7 +9,7 @@ group! {
     /// developers may run, or almost any command in an ironman or
     /// multiplayer game, is refused, and so is one the game console does not
     /// know or that fails; the error is `rejected`, with what it printed.
-    game Run "run" {
+    world Run "run" {
         /// The command and its arguments, such as `cash 100`; `help` lists
         /// the commands. A `|`, after which the console window writes the
         /// output to a file, is refused: the answer holds the output.

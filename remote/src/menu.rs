@@ -34,13 +34,15 @@ group! {
     /// add them to the playset and start the game again; and rejected when
     /// the game does not take the load up, cannot read the save (it then
     /// starts a game from what it read), begins another game than the
-    /// save's, or begins one the player cannot play.
+    /// save's, or begins one the player cannot play. A save of observe mode
+    /// loads into observe mode.
     remote_anywhere Load "load" {
         /// The save's name, as menu.saves lists it.
         save: String,
     } -> Session, "the session of the loaded game, as session answers it, its player and date the save's";
-    /// Starts a new game at the default start date as a country, as the
-    /// single player setup does: from the main menu's first page (at
+    /// Starts a new game at the default start date as a country, or in
+    /// observe mode with no country given, as the single player setup and
+    /// its observe button do: from the main menu's first page (at
     /// startup, once menu says main_menu), or from a game, which is left
     /// first as menu.return leaves it (an ironman game saved), when the
     /// framework settings return without restarting. Answers once the game is ready.
@@ -49,14 +51,16 @@ group! {
     /// only be observed); and rejected when the game does not take the start
     /// up or begins a game the player cannot play.
     remote_anywhere Start "start" {
-        /// The country to play.
-        country: CountryTag,
+        /// The country to play; none for observe mode, the AI playing every
+        /// country and none in view, rejected with ironman chosen in the
+        /// single player setup, which the game does not let observe.
+        country: Option<CountryTag>,
     } -> Session, "the session of the new game, as session answers it";
     /// Returns to the main menu, without the game's question or its summary,
     /// as the player would; an ironman game is saved first, and rejected,
     /// the game going on, when that save fails. Whenever a game is going on,
-    /// also while the player only observes (when capabilities that need a
-    /// game are refused); not_in_game where none is. With the framework
+    /// also where capabilities that need a game are refused; not_in_game
+    /// where none is. With the framework
     /// settings returning without restarting (the default), this process
     /// answers once its main menu is up, place main_menu. Otherwise the game
     /// returns by starting eu4.exe again, and the answer comes from this
@@ -88,7 +92,7 @@ pub enum Place {
     /// remote client or by the player), or neither the main menu nor a
     /// game's frame runs, as at startup until the main menu shows.
     Starting,
-    /// A game is going on (also while the player only observes).
+    /// A game is going on (also in observe mode).
     Game,
     /// The game is returning to the main menu: this process ends.
     Ending,
@@ -113,7 +117,7 @@ pub struct Save {
     /// When it was last written, in seconds since 1970.
     pub modified: u64,
     /// The country it is played as, as its header says; null when that
-    /// cannot be read, or for an observer's save.
+    /// cannot be read, or for a save of observe mode.
     pub player: Option<CountryTag>,
     /// Its date, as its header says.
     pub date: Option<Date>,

@@ -142,14 +142,14 @@ fn every_capability_runs_where_its_kind_says() {
         assert!(ran(&game, request) && !answer(reply).is_null(), "{} did not run at a game's frame", request.name());
     }
 
-    // At a game's frame the player cannot play, what needs a country the
-    // player plays is answered why, and what needs only the game runs.
+    // At a game's frame the player cannot play, what needs a game is
+    // answered why, and the rest runs.
     let engine = Engine::new(fake::quiet);
     let mut game = Scripted::default();
     let replies: Vec<Reply> = all.iter().map(|r| engine.submit(r.clone())).collect();
-    engine.run(&mut game, &Place::Unplayable(Error::new(Code::NotInGame, "no controllable player")), PLENTY);
+    engine.run(&mut game, &Place::Unplayable(Error::new(Code::NotInGame, "no player")), PLENTY);
     for (request, reply) in all.iter().zip(&replies) {
-        assert_eq!(ran(&game, request), !request.in_game() || request.observing(), "{}", request.name());
+        assert_eq!(ran(&game, request), !request.in_game(), "{}", request.name());
         assert!(!answer(reply).is_null(), "{} was not answered", request.name());
     }
 }
@@ -307,9 +307,10 @@ fn requests_from_other_threads_are_answered_on_the_one_that_runs_the_engine() {
 #[test]
 fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     let frame = game::Frame {
-        ctx: game::Ctx { world: 0, date: 0x035D_7710, player: fake::tur(), country: 0, countries: 0 },
+        world: game::World { world: 0, date: 0x035D_7710, countries: 0, player: game::player::Player::Plays(fake::tur()) },
         session: 3,
         new_session: true,
+        in_view: None,
         visibility_current: true,
         // A battle the player neither sees nor takes part in, which remote
         // control, reading the player's view, does not hear.
@@ -336,7 +337,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
         ],
     };
     let engine = Engine::new(remember);
-    engine.record(happened(&frame));
+    engine.record(happened(&frame.heard()));
     let read = engine.submit(Request::Events(EventsRequest::Read { since: None, wait_ms: None, process: None, kinds: None, countries: None }));
     engine.run(&mut Scripted::default(), &Place::Game, PLENTY);
     assert_eq!(
@@ -363,7 +364,7 @@ fn what_a_game_frame_tells_extensions_is_kept_as_events() {
     let numbers: Vec<u64> = answer(&read)["result"]["events"].as_array().unwrap().iter().map(|e| e["number"].as_u64().unwrap()).collect();
     assert_eq!(numbers, [1, 2, 3, 4, 6, 7]);
     let quiet = game::Frame { new_session: false, changes: vec![], new_day: false, new_month: false, wars: vec![], ..frame };
-    assert!(happened(&quiet).is_empty());
+    assert!(happened(&quiet.heard()).is_empty());
 }
 
 #[test]

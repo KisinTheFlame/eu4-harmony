@@ -1,10 +1,7 @@
 //! What the groups over the game's script content share: reading a content
-//! key and its name, the game's arrays its databases keep, and posting a
-//! panel's command with the game's reasons (docs/player-actions.md).
-use super::{
-    commands::{self, Refused},
-    fail, Fail, GResult, Status,
-};
+//! key and its name, the game's arrays its databases keep, and a check's
+//! reasons (docs/player-actions.md).
+use super::GResult;
 use crate::{game_string, memory::Memory, unicode::game_text};
 
 /// The game's array type: its data at `+8`, its count (i32) at `+0x14`.
@@ -76,25 +73,41 @@ pub fn checked(m: &Memory, check: impl FnOnce(usize) -> GResult<usize>) -> GResu
     Ok((allowed & 0xff != 0, reasons.filter(|l| !l.is_empty()).collect()))
 }
 
-/// Posts a panel's command, refusing as the game's own check does: with
-/// `reasons` when the check found some, otherwise saying that the game
-/// refuses `what` and gives no reason.
-pub fn post(text: &str, what: &str) -> GResult<()> {
-    match commands::post(text) {
-        Ok(()) => Ok(()),
-        Err(Refused::Check) => fail(Status::Rejected, format!("the game's command refuses {what}, and gives no reason")),
-        Err(refused) => Err(Fail::from(refused)),
-    }
-}
-
-/// The refusal of an action the game does not allow, with its `reasons`.
-pub fn refused<T>(reasons: &[String], what: &str) -> GResult<T> {
-    Err(eu4_harmony_checks::government::not_allowed(reasons, what).into())
-}
-
 /// A country tag's letters, as commands write it.
 pub fn letters(tag: super::Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
+}
+
+/// The refusals the framework words itself in the groups over script
+/// content: ideas, policies, reforms, the rank, estates, parliament,
+/// decisions and missions; those the game gives reasons for are
+/// [`super::action`]'s.
+pub mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of a content key that names nothing of `kind` (such as "idea
+    /// group") the player has or is offered.
+    pub fn not_found(kind: &str, key: &str) -> Fail {
+        Fail::new(Status::NotFound, format!("no {kind} {key:?} for the player"))
+    }
+
+    /// The refusal of an action on something of the player's in a state it is
+    /// not in: `why`, such as "the player has not taken the idea group
+    /// defensive_ideas".
+    pub fn not_now(why: impl Into<String>) -> Fail {
+        Fail::new(Status::Rejected, why)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn an_unknown_key_is_not_found() {
+            let refusal = not_found("idea group", "flying_ideas");
+            assert_eq!((refusal.status, refusal.message.as_str()), (Status::NotFound, "no idea group \"flying_ideas\" for the player"));
+        }
+    }
 }
 
 #[cfg(test)]

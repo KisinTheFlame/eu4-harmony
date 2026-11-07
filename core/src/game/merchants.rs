@@ -3,6 +3,7 @@
 //! policy through the game's own commands (docs/research/envoys.md,
 //! "Merchants").
 use super::{
+    action,
     envoys::{self, quoted, Kind},
     trade::{self, DEFINITION, ENTRIES, ENTRY_SIZE, HAS_MERCHANT, HOME, KEY, LINKS, LINK_SIZE, LINK_TO, MOST, NAME, STEER_LINK},
     Ctx, GResult, Session, Tag,
@@ -101,7 +102,7 @@ fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<Node>> {
 }
 
 fn node(m: &Memory, ctx: &Ctx, key: &str) -> GResult<Node> {
-    nodes(m, ctx)?.into_iter().find(|n| n.key == key).ok_or_else(|| eu4_harmony_checks::envoys::unknown("trade node", key).into())
+    nodes(m, ctx)?.into_iter().find(|n| n.key == key).ok_or_else(|| envoys::checks::unknown("trade node", key))
 }
 
 fn name(m: &Memory, definition: usize) -> GResult<String> {
@@ -268,7 +269,7 @@ fn send_written(player: Tag, location: i32, merchant: i32, mission: Mission) -> 
 
 /// Sends a merchant to the node `key` for `mission`, or has the one there
 /// take it up.
-pub fn send(Session { m, ctx, .. }: Session, key: &str, mission: Mission) -> GResult<()> {
+pub fn send(Session { m, ctx, commands, .. }: Session, key: &str, mission: Mission) -> GResult<()> {
     let node = node(m, &ctx, key)?;
     let options = read(m, &ctx, &node)?;
     let choice = match mission {
@@ -280,40 +281,40 @@ pub fn send(Session { m, ctx, .. }: Session, key: &str, mission: Mission) -> GRe
         Mission::Steer => "send a merchant to steer trade there",
     };
     if !choice.can {
-        return Err(eu4_harmony_checks::envoys::not_allowed(what, &choice.reasons).into());
+        return Err(action::not_allowed(what, &choice.reasons));
     }
     let Some(merchant) = merchant(m, &ctx, &node)? else {
-        return Err(eu4_harmony_checks::envoys::not_allowed(what, &[]).into());
+        return Err(action::not_allowed(what, &[]));
     };
-    envoys::post(&send_written(ctx.player, m.i32(node.definition + LOCATION)?, merchant, mission), "the merchant command")
+    action::post(commands, &send_written(ctx.player, m.i32(node.definition + LOCATION)?, merchant, mission), what)
 }
 
 /// Recalls the player's merchant from the node `key`.
-pub fn recall(Session { m, ctx, .. }: Session, key: &str) -> GResult<()> {
+pub fn recall(Session { m, ctx, commands, .. }: Session, key: &str) -> GResult<()> {
     let node = node(m, &ctx, key)?;
     match present(m, &ctx, &node)? {
-        None => return Err(eu4_harmony_checks::envoys::none_there("merchant").into()),
-        Some(p) if p.arriving => return Err(eu4_harmony_checks::envoys::on_its_way("merchant").into()),
+        None => return Err(envoys::checks::none_there("merchant")),
+        Some(p) if p.arriving => return Err(envoys::checks::on_its_way("merchant")),
         Some(_) => {}
     }
     let text = format!("cancel_merchant={{ node={} country={} }}", m.i32(node.definition + LOCATION)?, quoted(ctx.player));
-    envoys::post(&text, "the recall merchant command")
+    action::post(commands, &text, "recall the merchant")
 }
 
 /// Has the player's merchant steering in the node `node` steer to the node
 /// `to` downstream.
-pub fn steer_to(Session { m, ctx, .. }: Session, node: &str, to: &str) -> GResult<()> {
+pub fn steer_to(Session { m, ctx, commands, .. }: Session, node: &str, to: &str) -> GResult<()> {
     let node = self::node(m, &ctx, node)?;
     let options = read(m, &ctx, &node)?;
     let Some(along) = options.steer_to.iter().position(|d| d.node == to) else {
-        return Err(eu4_harmony_checks::envoys::unknown("trade node downstream", to).into());
+        return Err(envoys::checks::unknown("trade node downstream", to));
     };
     let choice = &options.steer_to[along].choice;
     if !choice.can {
-        return Err(eu4_harmony_checks::envoys::not_allowed("steer trade there", &choice.reasons).into());
+        return Err(action::not_allowed("steer trade there", &choice.reasons));
     }
     let text = format!("steer_command={{ country={} to={along} trade={} }}", quoted(ctx.player), m.i32(node.address + INDEX)?);
-    envoys::post(&text, "the steer command")
+    action::post(commands, &text, "steer trade there")
 }
 
 /// The trading policies of the game's, each its address and content key, in
@@ -366,23 +367,23 @@ fn policy_written(player: Tag, definition: i32, policy: i32) -> String {
 }
 
 /// Chooses the trading policy `policy` for the player in the node `node`.
-pub fn set_policy(Session { m, ctx, .. }: Session, node: &str, policy: &str) -> GResult<()> {
+pub fn set_policy(Session { m, ctx, commands, .. }: Session, node: &str, policy: &str) -> GResult<()> {
     let node = self::node(m, &ctx, node)?;
     let Some(address) = all_policies(m)?.into_iter().find(|(_, k)| k == policy).map(|(a, _)| a) else {
-        return Err(eu4_harmony_checks::envoys::unknown("trading policy", policy).into());
+        return Err(envoys::checks::unknown("trading policy", policy));
     };
     let offered = read_policies(m, &ctx, &node)?.policies.into_iter().find(|p| p.policy == policy);
     match offered {
-        Some(p) if p.current => return Err(eu4_harmony_checks::envoys::policy_followed(policy).into()),
-        Some(p) if !p.choice.can => return Err(eu4_harmony_checks::envoys::not_allowed("choose that trading policy there", &p.choice.reasons).into()),
+        Some(p) if p.current => return Err(envoys::checks::policy_followed(policy)),
+        Some(p) if !p.choice.can => return Err(action::not_allowed("choose that trading policy there", &p.choice.reasons)),
         _ => {}
     }
     // The command changes the policy only where the player's merchant is.
     if m.u8(entry(m, &ctx, &node)? + HAS_MERCHANT)? == 0 {
-        return Err(eu4_harmony_checks::envoys::none_there("merchant").into());
+        return Err(envoys::checks::none_there("merchant"));
     }
     let text = policy_written(ctx.player, m.i32(node.definition + trade::INDEX)?, m.i32(address + POLICY_INDEX)?);
-    envoys::post(&text, "the trading policy command")
+    action::post(commands, &text, "choose that trading policy there")
 }
 
 #[cfg(test)]

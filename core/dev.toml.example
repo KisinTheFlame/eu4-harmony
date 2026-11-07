@@ -11,6 +11,14 @@
 functions = []
 # How many of each function's first calls are logged.
 calls = 20
+# Every call of each function is timed too, into call-times.tsv next to the
+# log: its thread, start and end in microseconds, the game's date and its first
+# argument.
+times = false
+# For a function whose first argument points at an object, an offset into it
+# whose eight bytes the times record with each call, as
+# { "0xb0fa0" = "0x20" }. None by default.
+fields = {}
 
 # Answers remote control's memory: what the process holds, by where it lies,
 # at no cost between two asks (docs/leak-finding.md). No options.
@@ -57,6 +65,11 @@ game-loads = false
 # so that the defect can be tried; with the heap census's quarantine on, the
 # walk then reads the freed list filled with 0xdd and fails at once.
 game-ends-dependencies = false
+# The order in which an AI country's top agent has its agents do their day:
+# "game" leaves the game's walks; "forward" and "reversed" are the framework's,
+# in the game's order or the opposite one, so that whether an agent's day
+# depends on another's can be tried in a game started with -seed.
+agents-order = "game"
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.

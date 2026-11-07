@@ -3,13 +3,14 @@
 //! told to every part of the core that keeps something of one, in one order.
 //!
 //! The hooks that see a session begin or end call in here, and only here:
-//! the safe points (`crate::safe_point`) with each game frame and where the
+//! the safe points (`crate::safe_point`) with each frame and where the
 //! safe point is, the save loader (`crate::saves`) as it begins and ends to
-//! read a save, leaving a session (`crate::game::menu::leave`) as the session
-//! ends and as the world is reset, and the game's restart
-//! (`crate::game::time`). A [`Lifecycle`] keeps the state and says what
-//! happened ([`Happening`]); [`tell`] hands each happening to those that hear
-//! it, outside the lock, as their handlers may ask where the game is:
+//! read a save, the world's own reset (observed here), leaving a session
+//! (`crate::game::menu::leave`) as the session ends and as the world is reset
+//! with its history, and the game's restart (`crate::game::time`). A
+//! [`Lifecycle`] keeps the state and says what happened ([`Happening`]);
+//! [`tell`] hands each happening to those that hear it, outside the lock, as
+//! their handlers may ask where the game is:
 //!
 //! - A game frame shows another session than the last frame did: a save
 //!   was read, the world reset, or the frame shows another world or player
@@ -23,21 +24,34 @@
 //!   hear it at that frame with the rest of what happened, in its order
 //!   (`game::Frame::heard`).
 //! - The session ended, while its state is still the game's: remote control
-//!   keeps it as an event, and its requests sent from then on belong to the
-//!   next session, then every extension hears it (`crate::lua`). A
-//!   session ends once: a second end of the same is not told, and a session
-//!   that begins while another is going on ends that one first, for another
-//!   country when nothing was read or reset since (the game console's `tag`).
+//!   and the extensions hear it, in the order and at the time
+//!   `crate::safe_point` says. A session ends once: a second end of the same
+//!   is not told, and a session that begins while another is going on ends
+//!   that one first, for another country when nothing was read or reset since
+//!   (the game console's `tag`).
 //! - The campaign changes, as a save begins to be read: the capability
 //!   layer forgets the old one (`game::events`), routes turned off for the
 //!   old world come back (`game::orders`), and remote control's requests
 //!   sent from then on belong to the next session.
-//! - The world was reset, without a save: the capability layer forgets the
-//!   old session and routes come back, as at a load, and what the game's
-//!   history leaves of the old session is put right (`crate::repairs`).
+//! - The world reset, every time the game resets it: at startup, before every
+//!   in-game load, before a new game, and as the framework leaves a session in
+//!   process. What it leaks or leaves of the session is put right
+//!   (`crate::repairs`), and a developer build's heap census ends its
+//!   generation (`crate::census`).
+//! - The first safe frame after a world reset, of the main menu or of a game:
+//!   what the reset left for later is let go (`crate::repairs`).
+//! - The world was reset with its history, without a save (an in-process
+//!   return, the single player setup left): the next game begun on it is a
+//!   new session though nothing is read for it; the capability layer forgets
+//!   the old session and routes come back, as at a load, and what the game's
+//!   history leaves of the old session is put right (`crate::repairs`). The
+//!   world's own reset cannot tell this: it comes inside the game's reset,
+//!   before the history is read, and also at every load, which is told as
+//!   the campaign's change; so leaving a session tells it, once the game's
+//!   reset is done.
 //! - The game restarts: the saves compressed in the background are put in
 //!   their place, and remote control answers every request while it can.
-use crate::game;
+use crate::{game, hooks::HookFrame, points::Point};
 use std::{
     sync::Mutex,
     time::{Duration, Instant},
@@ -52,8 +66,9 @@ pub enum End {
     Load,
     /// For a new game started from the session.
     NewGame,
-    /// The player's country changed, on the same world: the game console's
-    /// `tag`, say. The next session begins at once.
+    /// The player's own country changed, on the same world: the game
+    /// console's `tag` or `observe`, say, but not a change of the country in
+    /// view. The next session begins at once.
     Country,
 }
 
@@ -78,7 +93,7 @@ impl End {
 /// Where the safe point that is about to run remote control is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum At {
-    /// A game's frame (also while the player only observes).
+    /// A game's frame (also in observe mode).
     Game,
     /// The main menu's frame ran since the last frame was presented; the
     /// main menu object.
@@ -99,15 +114,21 @@ pub enum Happening {
     Ended(u64, End),
     /// A save began to be read: the next game frame is of another campaign.
     CampaignChanges,
-    /// The world was put back as a new start has it, without a save.
-    WorldReset,
+    /// The game reset this world, as it does at startup, before every load
+    /// and every new game, and as the framework leaves a session in process.
+    WorldReset(usize),
+    /// The first safe frame after a world reset ran.
+    FirstFrameAfterReset,
+    /// The world was put back as a new start has it, with its history,
+    /// without a save.
+    ResetWithHistory,
     /// The game is about to start `eu4.exe` again, which ends this process.
     Restarting,
 }
 
 /// How long a game's frames must have failed to read, as no game the player
-/// can play, before they count as such. Observing lasts; but a game's first
-/// frames may fail for a moment as it settles (the player's country read
+/// can play, before they count as such. A game's first frames may fail for a
+/// moment as it settles (the player's country read
 /// before its tag matches, say), and a load or start waiting for its first
 /// frame must not be refused for one of those, nor an advance be ended.
 pub const UNPLAYABLE_AFTER: Duration = Duration::from_secs(1);
@@ -129,7 +150,7 @@ pub struct Lifecycle {
     /// read, a world reset, or a frame of another world or player than the
     /// last begins another.
     number: u64,
-    /// The world and the player's country the last game frame showed.
+    /// The world and the player's own tag the last game frame showed.
     identity: Option<(usize, u64)>,
     /// The number of the session the last game frame showed.
     framed: u64,
@@ -148,14 +169,28 @@ pub struct Lifecycle {
     /// Whether a save was begun to be read or the world reset since the
     /// session going on began.
     replaced: bool,
+    /// The world reset, and no safe frame has run since.
+    reset_unframed: bool,
 }
 
 impl Lifecycle {
     pub const fn new() -> Self {
-        Self { number: 0, identity: None, framed: 0, going_on: None, at: At::Elsewhere, reading: 0, loads: 0, last_read: false, failing: None, replaced: false }
+        Self {
+            number: 0,
+            identity: None,
+            framed: 0,
+            going_on: None,
+            at: At::Elsewhere,
+            reading: 0,
+            loads: 0,
+            last_read: false,
+            failing: None,
+            replaced: false,
+            reset_unframed: false,
+        }
     }
 
-    /// A game's safe frame of the world and the player's country `identity`
+    /// A game's safe frame of the world and the player's own tag `identity`
     /// was read: what it shows of sessions. A session begins when it is a
     /// new one, what was kept of the last frame's let go first and the one
     /// going on ended, if any. That one was not left by a way out, which
@@ -220,10 +255,22 @@ impl Lifecycle {
         self.reading = self.reading.saturating_sub(1);
     }
 
-    pub fn world_reset(&mut self) -> Vec<Happening> {
+    /// The game reset the world `world`.
+    pub fn world_reset(&mut self, world: usize) -> Vec<Happening> {
+        self.reset_unframed = true;
+        vec![Happening::WorldReset(world)]
+    }
+
+    /// A safe frame ran, of the main menu or of a game.
+    pub fn frame_ran(&mut self) -> Vec<Happening> {
+        std::mem::take(&mut self.reset_unframed).then_some(Happening::FirstFrameAfterReset).into_iter().collect()
+    }
+
+    /// The game reset the world with its history, outside a load.
+    pub fn reset_with_history(&mut self) -> Vec<Happening> {
         self.number += 1;
         self.replaced = true;
-        vec![Happening::WorldReset]
+        vec![Happening::ResetWithHistory]
     }
 
     pub fn restarting(&mut self) -> Vec<Happening> {
@@ -256,17 +303,23 @@ fn tell(happened: Vec<Happening>) {
             Happening::Ended(session, end) => {
                 log!("session {session} ending ({end:?})");
                 game::event_costs::log_session();
-                crate::remote::session_ended(end);
-                crate::lua::session_ended(end);
+                crate::safe_point::session_ended(end);
             }
             Happening::CampaignChanges => {
                 game::events::load_begin();
                 game::orders::world_replaced();
                 crate::remote::campaign_changes();
             }
-            Happening::WorldReset => {
+            Happening::WorldReset(world) => {
+                crate::repairs::world_reset(&crate::hooked_memory(), world);
+                #[cfg(feature = "dev-heap-census")]
+                crate::census::world_reset();
+            }
+            Happening::FirstFrameAfterReset => crate::repairs::first_frame_after_reset(&crate::hooked_memory()),
+            Happening::ResetWithHistory => {
                 game::events::world_reset();
                 game::orders::world_replaced();
+                crate::repairs::after_history(&crate::hooked_memory());
             }
             Happening::Restarting => {
                 crate::saves::background::wait();
@@ -276,10 +329,12 @@ fn tell(happened: Vec<Happening>) {
     }
 }
 
-/// A game's safe frame of the campaign `ctx` was read, before what
-/// happened in it is collected: what it shows of sessions.
-pub fn frame_read(ctx: &game::Ctx) -> Seen {
-    let (seen, happened) = lifecycle(|l| l.frame_read((ctx.world, ctx.player.0)));
+/// A game's safe frame of the game `world` was read, before what happened
+/// in it is collected: what it shows of sessions. A session is the world and
+/// the player's own tag: a change of the country in view leaves it going on
+/// (ADR observe-mode-acts-as-the-country-in-view).
+pub fn frame_read(world: &game::World) -> Seen {
+    let (seen, happened) = lifecycle(|l| l.frame_read((world.world, world.player.own().0)));
     tell(happened);
     seen
 }
@@ -310,14 +365,39 @@ pub fn load_ended() {
     lifecycle(Lifecycle::load_ended);
 }
 
-/// The world was put back as a new start has it, with its history (an
-/// in-process return, the single player setup left): the next game begun on
-/// it is a new session, though the game reads nothing for it. What the
-/// history leaves of the old session is put right with it
-/// (`repairs::after_history`), so that no reset is told without it.
-pub fn world_reset(m: &crate::memory::Memory) {
-    tell(lifecycle(Lifecycle::world_reset));
-    crate::repairs::after_history(m);
+/// A safe frame ran, of the main menu or of a game whose frame was read: the
+/// first after a world reset lets go what the reset left for it.
+pub fn frame_ran() {
+    tell(lifecycle(Lifecycle::frame_ran));
+}
+
+/// The game reset the world with its history, outside a load (an in-process
+/// return, the single player setup left), and its reset is done: the next
+/// game begun on it is a new session, though the game reads nothing for it.
+pub fn reset_with_history() {
+    tell(lifecycle(Lifecycle::reset_with_history));
+}
+
+/// `(world)`: the world's own reset, inside the game's and at startup.
+const WORLD_RESET: usize = 0x749020;
+
+/// After every world reset.
+extern "C" fn world_reset(frame: *mut HookFrame) {
+    crate::guarded("world reset", || {
+        let world = unsafe { (*frame).args[0] };
+        tell(lifecycle(|l| l.world_reset(world)));
+    });
+}
+
+pub fn points() -> Vec<Point> {
+    vec![Point::observe(
+        WORLD_RESET,
+        "48 89 5c 24 10 48 89 74 24 18 55 57 41 56 48 8b ec 48 83 ec 60 48 8b f1",
+        "world's own reset",
+        1,
+        None,
+        Some(world_reset),
+    )]
 }
 
 /// Before the game starts `eu4.exe` again, whoever asked for it.
@@ -373,7 +453,7 @@ mod tests {
     use super::*;
     use Happening::*;
 
-    /// A world and the player's country, as a frame shows them.
+    /// A world and the player's own tag, as a frame shows them.
     const SPAIN: (usize, u64) = (0x1000, 1);
     const FRANCE: (usize, u64) = (0x1000, 2);
     const OTHER_WORLD: (usize, u64) = (0x2000, 1);
@@ -396,7 +476,7 @@ mod tests {
         // session was told it ended already. (An ironman exit save that
         // fails comes before the end, which is then not told at all.)
         assert_eq!(l.ending(End::Load), vec![]);
-        assert_eq!(l.world_reset(), vec![WorldReset]);
+        assert_eq!(l.reset_with_history(), vec![ResetWithHistory]);
         assert_eq!(began(&mut l, SPAIN), vec![Forgotten(3), Began(3)]);
     }
 
@@ -407,7 +487,7 @@ mod tests {
         l.load_began();
         l.load_ended();
         assert_eq!(began(&mut l, SPAIN), vec![Forgotten(2), Ended(1, End::Load), Began(2)]);
-        l.world_reset();
+        l.reset_with_history();
         assert_eq!(began(&mut l, OTHER_WORLD), vec![Forgotten(4), Ended(2, End::Load), Began(4)]);
     }
 
@@ -436,7 +516,7 @@ mod tests {
         l.load_began();
         l.load_ended();
         assert_eq!(l.frame_read(OTHER_WORLD).0, Seen { session: 4, new_session: true });
-        l.world_reset();
+        l.reset_with_history();
         assert_eq!(l.number, 5);
         assert_eq!(l.frame_read(OTHER_WORLD).0, Seen { session: 5, new_session: true });
         assert_eq!(l.frame_read(OTHER_WORLD).0, Seen { session: 5, new_session: false });
@@ -472,5 +552,29 @@ mod tests {
         assert!(!l.frame_failed(start + UNPLAYABLE_AFTER * 4));
         assert!(!l.frame_failed(start + UNPLAYABLE_AFTER * 4 + UNPLAYABLE_AFTER / 2));
         assert!(l.frame_failed(start + UNPLAYABLE_AFTER * 5));
+    }
+
+    #[test]
+    fn the_first_frame_after_a_world_reset_is_told_once_and_the_reset_numbers_no_session() {
+        let mut l = Lifecycle::new();
+        assert_eq!(l.frame_ran(), vec![]);
+        // At startup, then a frame of the main menu.
+        assert_eq!(l.world_reset(0x1000), vec![WorldReset(0x1000)]);
+        assert_eq!(l.frame_ran(), vec![FirstFrameAfterReset]);
+        assert_eq!(l.frame_ran(), vec![]);
+        // An in-game load resets the world before it reads the save: the load
+        // alone gives the next session its number.
+        began(&mut l, SPAIN);
+        l.load_began();
+        l.world_reset(0x1000);
+        l.world_reset(0x1000);
+        l.load_ended();
+        assert_eq!(l.number, 2);
+        assert_eq!(l.frame_ran(), vec![FirstFrameAfterReset]);
+        assert_eq!(began(&mut l, SPAIN), vec![Forgotten(2), Ended(1, End::Load), Began(2)]);
+        // An in-process return: the game's reset, then the history read.
+        l.world_reset(0x1000);
+        assert_eq!(l.reset_with_history(), vec![ResetWithHistory]);
+        assert_eq!(l.number, 3);
     }
 }

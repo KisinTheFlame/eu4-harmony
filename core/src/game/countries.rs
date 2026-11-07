@@ -1,6 +1,6 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/research/countries.md).
-use super::{commands, country, modifiers, span, thousandths, world, Ctx, GResult, Session, Tag, View};
+use super::{commands, country, modifiers, player::Eyes, span, thousandths, world, GResult, InWorld, Tag, View, World, WorldSession};
 use crate::{
     game_string,
     memory::Memory,
@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 
 /// The country whose tag is these three letters (for example `CAS`);
 /// [`super::Status::NotFound`] when there is none.
-pub fn find(Session { m, ctx, .. }: Session, letters: [u8; 3]) -> GResult<Tag> {
+pub fn find(WorldSession { m, world: ctx, .. }: WorldSession, letters: [u8; 3]) -> GResult<Tag> {
     match world::countries(m, &ctx)?.into_iter().find(|t| t.letters() == letters) {
         Some(tag) => Ok(tag),
         None => Err(eu4_harmony_checks::countries::not_found(&String::from_utf8_lossy(&letters)).into()),
@@ -27,13 +27,13 @@ pub fn find(Session { m, ctx, .. }: Session, letters: [u8; 3]) -> GResult<Tag> {
 }
 
 /// The three letters of a country's tag (for example `CAS`).
-pub fn tag(Session { m, ctx, .. }: Session, country_id: Tag) -> GResult<[u8; 3]> {
+pub fn tag(WorldSession { m, world: ctx, .. }: WorldSession, country_id: Tag) -> GResult<[u8; 3]> {
     country(m, &ctx, country_id)?;
     Ok(country_id.letters())
 }
 
 /// Whether the two countries are at war, or either is a rebel faction.
-pub fn hostile(Session { m, ctx, .. }: Session, a: Tag, b: Tag) -> GResult<bool> {
+pub fn hostile(WorldSession { m, world: ctx, .. }: WorldSession, a: Tag, b: Tag) -> GResult<bool> {
     world::hostile(m, &ctx, a, b)
 }
 
@@ -254,16 +254,16 @@ const EXPENSE_KEYS: [&str; fields::EXPENSE_CATEGORIES] = [
 ];
 
 /// Whether a caller reading `view` sees what the panels show only to the
-/// country `tag` itself: in the full view, or of the player's own country.
-fn sees_all_of(view: View, ctx: &Ctx, tag: Tag) -> bool {
-    view == View::Full || tag.index() == ctx.player.index()
+/// country `tag` itself: in the full view, or of the country acted as.
+fn sees_all_of(view: View, ctx: &World, tag: Tag) -> bool {
+    Eyes::of(view, ctx.player).sees_all_of(tag)
 }
 
 /// One read of a country: its treasury, manpower, stability, prestige,
 /// monarch points, wars, diplomatic relations, technology and ideas, and
 /// what only it sees of itself ([`Own`]). In the player's view another
 /// country's treasury, monarch points and [`Own`] are left out.
-pub fn snapshot(Session { m, ctx, view, .. }: Session, tag: Tag) -> GResult<Country> {
+pub fn snapshot(WorldSession { m, world: ctx, view, .. }: WorldSession, tag: Tag) -> GResult<Country> {
     let c = country(m, &ctx, tag)?;
     let all = sees_all_of(view, &ctx, tag);
     let fixed = |at: usize| m.i32(c + at);
@@ -330,7 +330,7 @@ fn ideas_of(m: &Memory, c: usize) -> GResult<Vec<IdeaGroup>> {
     Ok(out)
 }
 
-fn own_of(m: &Memory, ctx: &Ctx, c: usize) -> GResult<Own> {
+fn own_of(m: &Memory, ctx: &impl InWorld, c: usize) -> GResult<Own> {
     let loans = loans_of(m, ctx, c)?;
     Ok(Own {
         governing_capacity: governing_capacity(m, c)?,
@@ -354,7 +354,7 @@ fn governing_capacity(m: &Memory, c: usize) -> GResult<GoverningCapacity> {
 }
 
 /// The country's loans, in the order it keeps them.
-fn loans_of(m: &Memory, ctx: &Ctx, c: usize) -> GResult<Vec<Loan>> {
+fn loans_of(m: &Memory, ctx: &impl InWorld, c: usize) -> GResult<Vec<Loan>> {
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     let mut node = m.ptr(c + fields::LOANS + list::HEAD)?;
@@ -421,7 +421,7 @@ fn faction_kind(m: &Memory, faction: usize) -> GResult<String> {
 /// A country's budget as the economy view shows it: this month's income and
 /// expenses by category, and its loans; in the player's view another
 /// country's are left out.
-pub fn budget(Session { m, ctx, view, .. }: Session, tag: Tag) -> GResult<Budget> {
+pub fn budget(WorldSession { m, world: ctx, view, .. }: WorldSession, tag: Tag) -> GResult<Budget> {
     let c = country(m, &ctx, tag)?;
     let letters = CountryTag(tag.letters());
     if !sees_all_of(view, &ctx, tag) {
@@ -484,7 +484,7 @@ fn subject_of(m: &Memory, country: usize) -> GResult<Option<(Tag, String)>> {
 }
 
 /// The tags, each checked to be a country.
-fn checked(m: &Memory, ctx: &Ctx, tags: Vec<Tag>) -> GResult<Vec<Tag>> {
+fn checked(m: &Memory, ctx: &impl InWorld, tags: Vec<Tag>) -> GResult<Vec<Tag>> {
     for &tag in &tags {
         if !tag.normal() {
             return Err(format!("{:#x} is no country's tag", tag.0).into());
@@ -532,9 +532,9 @@ fn chain(m: &Memory, first: usize, tag: usize, next: usize) -> GResult<Vec<Tag>>
 /// is no war or whose sides cannot be read is left out, as the country is on
 /// neither side of it that can be seen; one with a tag that is no country's
 /// fails the snapshot only when it is the country's.
-fn wars_of(m: &Memory, ctx: &Ctx, country: Tag) -> GResult<Vec<War>> {
-    let data = m.ptr(ctx.world + world_fields::WARS)?;
-    let count = m.i32(ctx.world + world_fields::WAR_COUNT)?;
+fn wars_of(m: &Memory, ctx: &impl InWorld, country: Tag) -> GResult<Vec<War>> {
+    let data = m.ptr(ctx.world() + world_fields::WARS)?;
+    let count = m.i32(ctx.world() + world_fields::WAR_COUNT)?;
     if !(0..=MOST as i32).contains(&count) {
         return Err("war array bound".to_string().into());
     }
@@ -589,7 +589,7 @@ mod tests {
         let not_a_war = Object::new(war::DEFENDERS + 16);
         let wars = Object::new(32).u64(0, first.at() as u64).u64(8, bad.at() as u64).u64(16, not_a_war.at() as u64);
         let world = Object::new(world_fields::WAR_COUNT + 4).points_to(world_fields::WARS, wars).i32(world_fields::WAR_COUNT, 4);
-        let ctx = Ctx { world: world.at(), date: 0, player: a, country: 0, countries: countries.at() };
+        let ctx = super::super::Ctx { world: world.at(), date: 0, player: a, country: 0, countries: countries.at() };
         let first_war = War { name: String::new(), attackers: vec![a, c], defenders: vec![b] };
         assert_eq!(wars_of(&m, &ctx, a).unwrap(), std::slice::from_ref(&first_war));
         assert_eq!(wars_of(&m, &ctx, c).unwrap(), [first_war]);

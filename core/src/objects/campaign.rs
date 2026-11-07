@@ -100,13 +100,17 @@ pub mod world {
     pub const DAILY_UPDATE: usize = 0x1e10;
     /// The game speed, i32: 0 for speed 1 to 4 for speed 5.
     pub const SPEED: usize = 0x1e08;
-    /// The player's country tag; while [`PLAYER_MODE`] is [`SWITCHED`] and
-    /// [`PLAYER_SWITCHED`] is nonzero (u8 each), [`SWITCHED_PLAYER`] instead.
+    /// The player's own tag: the country they play, or in observe mode the
+    /// observer's tag, whose kind ([`PLAYER_KIND`], u8) is [`OBSERVE`].
     pub const PLAYER: usize = 0x1e60;
-    pub const SWITCHED_PLAYER: usize = 0x1e68;
-    pub const PLAYER_MODE: usize = 0x1e66;
-    pub const PLAYER_SWITCHED: usize = 0x1e6f;
-    pub const SWITCHED: u8 = 7;
+    pub const PLAYER_KIND: usize = PLAYER + 6;
+    /// The kind of the observer's tag `O00`, the rebels' kind
+    /// ([`super::tag::REBELS`]).
+    pub const OBSERVE: u8 = 7;
+    /// The country in view in observe mode, a tag, when its last byte
+    /// ([`IN_VIEW_VALID`], u8) is nonzero (GLOSSARY: Country in view).
+    pub const IN_VIEW: usize = 0x1e68;
+    pub const IN_VIEW_VALID: usize = IN_VIEW + 7;
     /// The provinces, [`super::province::SIZE`] bytes each, by ID.
     pub const PROVINCES: usize = 0x1ca8;
     /// Nonzero while there is fog of war, u8.
@@ -833,7 +837,7 @@ pub fn points() -> Vec<Point> {
              48 8b 80 60 1e 00 00 48 89 02 48 8b c2 c3",
             "player country",
         )
-        .uses(&[WORLD, world::PLAYER_MODE, world::SWITCHED as usize, world::PLAYER_SWITCHED, world::SWITCHED_PLAYER, world::PLAYER]),
+        .uses(&[WORLD, world::PLAYER_KIND, world::OBSERVE as usize, world::IN_VIEW_VALID, world::IN_VIEW, world::PLAYER]),
         Point::keep(0x9c376usize, "48 8b 0d fb 3a 2a 02 8b 44 24 60 39 81 d0 1d 00 00", "world date").uses(&[WORLD, world::DATE]),
         Point::keep(0x10a5213usize, "48 8b 05 5e ac 29 01 80 b8 10 1e 00 00 00", "daily update flag").uses(&[WORLD, world::DAILY_UPDATE]),
         Point::keep(0xa3595usize, "48 8b 05 dc c8 29 02 48 8b 88 00 1e 00 00", "world map manager").uses(&[WORLD, world::MAP_MANAGER]),
@@ -1233,7 +1237,7 @@ pub fn points() -> Vec<Point> {
             "80 bf 66 1e 00 00 07 75 12 80 bf 6f 1e 00 00 00 74 09 0f b6 87 6f 1e 00 00 eb 07 0f b6 87 67 1e 00 00 84 c0 75 0c              38 87 dc 74 00 00 0f 84 f3 01 00 00",
             "resume with no country",
         )
-        .uses(&[world::PLAYER_MODE, world::SWITCHED as usize, world::PLAYER_SWITCHED, world::PLAYER + 7, world::OBSERVER_RUNS_TIME]),
+        .uses(&[world::PLAYER_KIND, world::OBSERVE as usize, world::IN_VIEW_VALID, world::PLAYER + 7, world::OBSERVER_RUNS_TIME]),
         // A province's snapshot (docs/research/provinces.md). The province
         // writer in saves: its name.
         Point::keep(0x9d6fb0usize, "49 8b 5f 28 48 83 c3 10", "province name").uses(&[province::GEOMETRY, geometry::NAME]),

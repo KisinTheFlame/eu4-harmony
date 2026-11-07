@@ -3,7 +3,7 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, events, span, thousandths, with_state, Ctx, GResult, Session, Tag, View};
+use super::{commands, context, events, player::Eyes, span, thousandths, with_state, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
 use crate::{
     game_string,
     memory::Memory,
@@ -39,46 +39,39 @@ pub struct Neighbor {
 /// Every province, indexed by ID; index 0 is a placeholder with nothing set.
 /// In the player's view a province the player has not discovered has no
 /// owner or controller, as the map shows it.
-pub fn provinces(Session { m, ctx, view, .. }: Session) -> GResult<Vec<Province>> {
-    let visible = events::visibility_current(m, &ctx);
-    let provinces = with_state(|s| s.geography.provinces(m, &ctx, visible))?;
-    discovered(m, &ctx, view, provinces)
+pub fn provinces(WorldSession { m, world, view, .. }: WorldSession) -> GResult<Vec<Province>> {
+    let visible = events::visibility_current(m, &world);
+    let provinces = with_state(|s| s.geography.provinces(m, &world, visible))?;
+    discovered(m, &world, Eyes::of(view, world.player), provinces)
 }
 
 /// The provinces numbered in `ids` that there are, in their order, as
 /// [`provinces`] has them.
-pub fn named(Session { m, ctx, view, .. }: Session, ids: Vec<u32>) -> GResult<Vec<Province>> {
-    let visible = events::visibility_current(m, &ctx);
-    let provinces = with_state(|s| s.geography.named_provinces(m, &ctx, visible, &ids))?;
-    discovered(m, &ctx, view, provinces)
+pub fn named(WorldSession { m, world, view, .. }: WorldSession, ids: Vec<u32>) -> GResult<Vec<Province>> {
+    let visible = events::visibility_current(m, &world);
+    let provinces = with_state(|s| s.geography.named_provinces(m, &world, visible, &ids))?;
+    discovered(m, &world, Eyes::of(view, world.player), provinces)
 }
 
-/// `provinces` with the owner and controller of those the player has not
-/// discovered left out, in the player's view.
-fn discovered(m: &Memory, ctx: &Ctx, view: View, mut provinces: Vec<Province>) -> GResult<Vec<Province>> {
-    if view == View::Full {
+/// `provinces` with the owner and controller of those `eyes` see as terra
+/// incognita left out.
+fn discovered(m: &Memory, world: &World, eyes: Eyes, mut provinces: Vec<Province>) -> GResult<Vec<Province>> {
+    if eyes.discovering().is_none() {
         return Ok(provinces);
     }
     for p in provinces.iter_mut().filter(|p| p.id != 0) {
-        let address = with_state(|s| s.geography.province_address(m, ctx, p.id))?;
-        if super::world::undiscovered(m, ctx, address)? {
+        let address = with_state(|s| s.geography.province_address(m, world, p.id))?;
+        if super::world::undiscovered(m, eyes, address)? {
             (p.owner, p.controller) = (None, None);
         }
     }
     Ok(provinces)
 }
 
-/// Whether `view` sees what the province view shows only of the player's
-/// own provinces, in a province owned by `owner`: in the full view, of the
-/// player's own, and of one no country owns.
-pub fn sees_inside(view: View, ctx: &Ctx, owner: Option<Tag>) -> bool {
-    view == View::Full || owner.is_none_or(|o| o.index() == ctx.player.index())
-}
-
 /// The passable land provinces next to a province; none for a province an
 /// army cannot stand on.
-pub fn neighbors(Session { m, ctx, .. }: Session, province: u32) -> GResult<Vec<Neighbor>> {
-    with_state(|s| s.geography.neighbors(m, &ctx, province))
+pub fn neighbors(WorldSession { m, world, .. }: WorldSession, province: u32) -> GResult<Vec<Neighbor>> {
+    with_state(|s| s.geography.neighbors(m, &world, province))
 }
 
 // ---------- the snapshot ----------
@@ -191,16 +184,27 @@ pub struct Snapshot {
 /// A province's snapshot; [`Status::NotFound`] for a number that names no
 /// province. In the player's view a province another country owns leaves
 /// out its unrest, its constructions and its missionary, and one the player
-/// has not discovered is refused as terra incognita.
-pub fn province(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<Snapshot> {
+/// has not discovered is refused as terra incognita. With no country to act
+/// as, nothing can be recruited there.
+pub fn province(WorldSession { m, world, view, .. }: WorldSession, id: u32) -> GResult<Snapshot> {
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
-    let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
-    if view == View::Player && super::world::undiscovered(m, &ctx, address)? {
+    let address = with_state(|s| s.geography.province_address(m, &world, id))?;
+    let eyes = Eyes::of(view, world.player);
+    if super::world::undiscovered(m, eyes, address)? {
         return Err(eu4_harmony_checks::provinces::not_discovered(id).into());
     }
-    snapshot(m, &ctx, address, view)
+    let acting = match world.player.acting() {
+        Some(_) => Some(context(m)?),
+        None => None,
+    };
+    snapshot(m, &world, acting.as_ref(), address, eyes)
+}
+
+/// [`province`], for what acts as a country: failing with none to act as.
+pub fn acting_province(session: Session, id: u32) -> GResult<Snapshot> {
+    province(session.world()?, id)
 }
 
 /// The game's getters of a province's base tax, production and manpower, as
@@ -323,13 +327,13 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
-fn snapshot(m: &Memory, ctx: &Ctx, address: usize, view: View) -> GResult<Snapshot> {
+fn snapshot(m: &Memory, ctx: &World, acting: Option<&Ctx>, address: usize, eyes: Eyes) -> GResult<Snapshot> {
     let geometry = m.ptr(address + field::GEOMETRY)?;
     let tag_at = |at: usize| -> GResult<Option<Tag>> { Ok(Some(Tag(m.u64(address + at)?)).filter(|t| t.valid())) };
     let mothballed = m.u8(address + field::MOTHBALL)? == field::MOTHBALLED;
     let owner = tag_at(field::OWNER)?;
     // The province view shows another country's province without these.
-    let all = sees_inside(view, ctx, owner);
+    let all = eyes.sees_inside(owner);
     let flags = m.u8(address + field::HIDDEN)?;
     let (state, edict) = state_of(m, address, owner)?;
     let constructions = constructions(m, ctx, address)?;
@@ -348,7 +352,10 @@ fn snapshot(m: &Memory, ctx: &Ctx, address: usize, view: View) -> GResult<Snapsh
         terrain: terrain_of(m, geometry)?,
         fort: Fort { level: m.i32(address + if mothballed { field::FORT_LEVEL_MOTHBALLED } else { field::FORT_LEVEL })?, mothballed },
         buildings: buildings(m, address)?,
-        recruit: recruit(m, ctx, address)?,
+        recruit: match acting {
+            Some(acting) => recruit(m, acting, address)?,
+            None => Vec::new(),
+        },
         autonomy: shown(m, AUTONOMY, address)?,
         culture: token_key(m, address, field::CULTURE, field::CULTURE_TOKEN, true)?,
         religion: token_key(m, address, field::RELIGION, field::RELIGION_TOKEN, true)?,
@@ -422,7 +429,7 @@ fn state_of(m: &Memory, province: usize, owner: Option<Tag>) -> GResult<(Option<
 }
 
 /// The tags in a vector (begin, end) of tags at `vector`, each a country's.
-fn vector_tags(m: &Memory, ctx: &Ctx, vector: usize) -> GResult<Vec<CountryTag>> {
+fn vector_tags(m: &Memory, ctx: &impl InWorld, vector: usize) -> GResult<Vec<CountryTag>> {
     let begin = m.ptr(vector)?;
     let count = span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
     (0..count).map(|i| country_tag(m, ctx, Tag(m.u64(begin + i * 8)?))).collect()
@@ -443,13 +450,13 @@ fn list_items(m: &Memory, at: usize) -> GResult<Vec<usize>> {
 }
 
 /// A tag the game keeps, checked to be a country's.
-fn country_tag(m: &Memory, ctx: &Ctx, tag: Tag) -> GResult<CountryTag> {
+fn country_tag(m: &Memory, ctx: &impl InWorld, tag: Tag) -> GResult<CountryTag> {
     super::country(m, ctx, tag)?;
     Ok(CountryTag(tag.letters()))
 }
 
 /// The constructions in the province, each with its kind's key.
-fn constructions(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Construction>> {
+fn constructions(m: &Memory, ctx: &impl InWorld, province: usize) -> GResult<Vec<Construction>> {
     let mut out = Vec::new();
     for c in list_items(m, province + field::CONSTRUCTIONS)? {
         let token = m.u32(c + construction::KIND)?;

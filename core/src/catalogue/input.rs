@@ -1,11 +1,11 @@
 //! Input at screen positions. An input is answered once it is taken; the
 //! engine runs a request that comes after it once the game has had it
 //! (`crate::remote::Engine::run`).
+use crate::game::input::checks;
 use crate::game::{
     self,
     input::{Action, Taken},
 };
-use eu4_harmony_checks::input as checks;
 use eu4_harmony_remote::{
     input::{Button, Cursor, InputAnswer, InputRequest, Key, Keys},
     Error,
@@ -42,7 +42,7 @@ pub fn bindings() -> super::Bindings {
 }
 
 fn one(keys: &Keys) -> Result<Key, Error> {
-    checks::one_key(&keys.0.iter().map(|k| k.name).collect::<Vec<_>>()).map_err(game::Fail::from)?;
+    checks::one_key(&keys.0.iter().map(|k| k.name).collect::<Vec<_>>())?;
     Ok(keys.0[0])
 }
 

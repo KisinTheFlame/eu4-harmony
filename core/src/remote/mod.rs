@@ -256,9 +256,6 @@ impl Engine {
                         continue;
                     }
                     Place::Game => {}
-                    // The game goes on with no country the player plays:
-                    // what needs only the game runs.
-                    Place::Unplayable(_) if q.request.observing() => {}
                     Place::Outside(None) => {
                         kept.push_back(q);
                         continue;
@@ -414,21 +411,33 @@ pub fn submit(request: Request) -> Reply {
 /// the order they hear it, as remote control keeps it: in the player's view
 /// unless the setting gives it the full view, so that a battle the player
 /// neither sees nor takes part in is left out.
-fn happened(frame: &game::Frame) -> Vec<eu4_harmony_remote::events::Event> {
+fn happened(heard: &[game::Heard]) -> Vec<eu4_harmony_remote::events::Event> {
     let full = game::view(game::Caller::Remote) == game::View::Full;
-    frame.heard().into_iter().filter(|heard| full || heard.seen).map(|heard| heard.event).collect()
+    heard.iter().filter(|heard| full || heard.seen).map(|heard| heard.event.clone()).collect()
 }
 
-/// The session is being left, for `end`, as extensions hear it.
-pub(crate) fn session_ended(end: crate::sessions::End) {
-    ENGINE.session_ended(end.reason());
-}
+/// Remote control, as it hears the sessions' ends and the game's safe frames
+/// (`crate::safe_point`).
+pub(crate) struct Remote;
 
-/// At a game's safe frame: keeps what extensions just heard, then runs.
-pub(crate) fn run_in_game(frame: &game::Frame) {
-    ENGINE.record(game::event_costs::REMOTE.time(|| happened(frame)));
-    ENGINE.enter(frame.session);
-    ENGINE.run(&mut Live(game::Caller::Remote), &Place::Game, BUDGET);
+impl crate::safe_point::Listener for Remote {
+    fn name(&self) -> &'static str {
+        "remote control"
+    }
+
+    /// Kept as an event; the requests sent from now on belong to the next
+    /// session.
+    fn ended(&self, end: crate::sessions::End) {
+        ENGINE.session_ended(end.reason());
+    }
+
+    /// Keeps what extensions just heard, then runs at the game's frame.
+    fn frame(&self, session: u64, heard: &[game::Heard]) {
+        ENGINE.record(happened(heard));
+        ENGINE.enter(session);
+        crate::sessions::set_at(crate::sessions::At::Game);
+        ENGINE.run(&mut Live(game::Caller::Remote), &Place::Game, BUDGET);
+    }
 }
 
 /// The campaign changes (a save begins to load): requests that need a game

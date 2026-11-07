@@ -126,6 +126,7 @@ fn every_event() -> Vec<events::Event> {
     vec![
         Event::Session { session: 1 },
         Event::SessionEnded { reason: SessionEnd::Return },
+        Event::CountryInView { country: Some(CountryTag(*b"TUR")) },
         Event::Day { date },
         Event::Month { date },
         Event::Year { date },
@@ -147,13 +148,20 @@ fn every_event() -> Vec<events::Event> {
     ]
 }
 
-/// The events described are those there are, by the names JSON gives them.
+/// The events described are those there are, by the names JSON gives them,
+/// each with what it is and what each of its fields is.
 #[test]
 fn every_event_is_described() {
     use events::EVENTS;
     let all = every_event();
-    // A battle names the countries on both sides, for a read's countries.
-    assert_eq!(all.iter().find(|e| e.kind() == events::Kind::Battle).unwrap().countries(), vec![CountryTag(*b"TUR"), CountryTag(*b"BYZ"), CountryTag(*b"VEN")]);
+    // The countries an event names are those its fields of countries hold,
+    // in their order, for a read's countries.
+    let named = |kind| all.iter().find(|e| e.kind() == kind).unwrap().countries();
+    let tags = |tags: &[&[u8; 3]]| tags.iter().map(|t| CountryTag(**t)).collect::<Vec<_>>();
+    assert_eq!(named(events::Kind::Battle), tags(&[b"TUR", b"BYZ", b"VEN"]));
+    assert_eq!(named(events::Kind::ProvinceOwnerChanged), tags(&[b"BYZ", b"TUR"]));
+    assert_eq!(named(events::Kind::CountryInView), tags(&[b"TUR"]));
+    assert_eq!(named(events::Kind::Day), tags(&[]));
     // An event is flattened beside its own number: none of its fields may
     // be named so.
     for event in &all {
@@ -168,20 +176,28 @@ fn every_event_is_described() {
         assert_eq!(events::Kind::named(event.kind().name()), Some(event.kind()));
     }
     assert_eq!(events::Kind::named("months"), None);
+    for (kind, about) in EVENTS {
+        assert!(!prose(about).is_empty(), "{kind} says not what it is");
+        let fields = kind.fields();
+        assert!(!fields.is_empty(), "{kind} has no fields");
+        for field in fields {
+            assert!(!field.about.is_empty(), "{kind}'s {} says not what it is", field.name);
+        }
+    }
 }
 
-/// Each event calls the handler of its kind, with the fields the handler
-/// names, as Lua has them; each handler but those of no event is an event's.
+/// Each event calls the handler of its kind, with its fields, or with
+/// itself as one table, as Lua has them; on_session's arguments the Lua host
+/// gives.
 #[test]
 fn every_event_calls_its_handler() {
-    use events::EVENTS;
-    let calls: Vec<_> = every_event().iter().map(|e| lua::handler_call(e).unwrap_or_else(|| panic!("{e:?} has no handler"))).collect();
+    let calls: Vec<_> = every_event().iter().filter_map(lua::handler_call).collect();
     let date = json!({"year": 1444, "month": 11, "day": 11});
     assert_eq!(
         calls.iter().map(|(name, args)| (*name, Value::Array(args.clone()))).collect::<Vec<_>>(),
         [
-            ("on_session", json!([{"session": 1}])),
             ("on_session_ended", json!(["return"])),
+            ("on_country_in_view", json!(["TUR"])),
             ("on_day", json!([date])),
             ("on_month", json!([date])),
             ("on_year", json!([date])),
@@ -197,19 +213,31 @@ fn every_event_calls_its_handler() {
             ),
         ]
     );
-    // An argument that names none of its event's fields is the event as a
-    // table, or on_session's saved data, which the Lua host gives.
-    for event in every_event() {
-        let fields = serde_json::to_value(&event).unwrap();
-        let handler = lua::HANDLERS.iter().find(|h| h.name == format!("on_{}", event.kind())).unwrap();
-        for arg in handler.args {
-            let whole = handler.args.len() == 1 && arg.ty == "table";
-            assert!(fields.get(arg.name).is_some() || whole || handler.name == "on_session", "{}'s {} is none of {event:?}'s fields", handler.name, arg.name);
-        }
-    }
-    let of_events: Vec<String> = EVENTS.iter().map(|(kind, _)| format!("on_{kind}")).collect();
-    let others: Vec<&str> = lua::HANDLERS.iter().map(|h| h.name).filter(|name| !of_events.iter().any(|e| e == name)).collect();
-    assert_eq!(others, ["on_button", "on_map_lost", "on_frame", "save_data"]);
+    // Each handler, with the names of its arguments after game, as mods
+    // write them.
+    let handlers: Vec<(&str, Vec<&str>)> = lua::handlers().iter().map(|h| (h.name, h.args.iter().map(|a| a.name).collect())).collect();
+    assert_eq!(
+        handlers,
+        [
+            ("on_session", vec!["saved"]),
+            ("on_session_ended", vec!["reason"]),
+            ("on_country_in_view", vec!["country"]),
+            ("on_day", vec!["date"]),
+            ("on_month", vec!["date"]),
+            ("on_year", vec!["date"]),
+            ("on_army_ordered", vec!["army"]),
+            ("on_army_defeated", vec!["army"]),
+            ("on_war_declared", vec!["war", "attacker", "defender"]),
+            ("on_peace_made", vec!["war", "attackers", "defenders", "ended"]),
+            ("on_province_owner_changed", vec!["province", "from", "to"]),
+            ("on_building_finished", vec!["province", "building", "country"]),
+            ("on_battle", vec!["battle"]),
+            ("on_button", vec!["name", "click"]),
+            ("on_map_lost", vec![]),
+            ("on_frame", vec![]),
+            ("save_data", vec![]),
+        ]
+    );
 }
 
 #[test]
@@ -266,7 +294,7 @@ fn descriptions_in_json() {
             "capability": "country.hostile",
             "about": "Whether two countries are at war with each other, or either is a rebel faction.",
             "in_game": true,
-            "observing": false,
+            "country": false,
             "extensions": true,
             "args": [
                 {"name": "country", "kind": "country", "optional": false, "about": "One country."},
@@ -371,13 +399,9 @@ fn binaries_in_json() {
     }
 }
 
-/// Every event extensions hear has its handler, and every permission a
-/// function needs is one the manifest may declare.
+/// Every permission a function needs is one the manifest may declare.
 #[test]
-fn the_lua_descriptions_agree_with_the_events_and_permissions() {
-    for (event, _) in events::EVENTS {
-        assert!(lua::HANDLERS.iter().any(|h| h.name == format!("on_{event}")), "no handler for {event}");
-    }
+fn the_lua_descriptions_agree_with_the_permissions() {
     for f in lua::FUNCTIONS {
         if let Some(p) = f.permission {
             assert!(lua::PERMISSIONS.iter().any(|q| q.name == p), "{} needs {p}, which is no permission", f.name);

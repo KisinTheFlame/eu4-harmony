@@ -196,7 +196,7 @@ impl Game {
     }
 
     fn start(&mut self) -> Played<f64> {
-        match claim::start_game_as(&self.owner, &self.game_dir, false, MAIN_MENU) {
+        match claim::start_game_as(&self.owner, &self.game_dir, false, None, MAIN_MENU) {
             Ok(seconds) => {
                 self.running = true;
                 Ok(seconds)

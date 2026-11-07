@@ -19,6 +19,17 @@ const PLAYER_FILES: [(&str, &str); 3] = [
     ("eu4-harmony.exe", "eu4-harmony\\eu4-harmony.exe"),
 ];
 
+/// The developer build's options, copied from the repository.
+const DEV_OPTIONS: &str = "eu4-harmony\\dev.toml";
+/// Where a `version.dll` not ours, found in the game folder, is kept aside.
+const KEPT_PROXY: &str = "eu4-harmony\\backup\\version.dll";
+
+/// Every file of the game folder that installing may create, change or move
+/// aside, by its path in it: the player's files, the developer build's
+/// options and a `version.dll` kept aside. The claim backs these up and puts
+/// them back (docs/game-testing.md).
+pub const GAME_FOLDER_FILES: [&str; 5] = [PLAYER_FILES[0].1, PLAYER_FILES[1].1, PLAYER_FILES[2].1, DEV_OPTIONS, KEPT_PROXY];
+
 /// The packages that build them.
 const PLAYER_PACKAGES: [&str; 3] = ["eu4-harmony-proxy", "eu4-harmony-core", "eu4-harmony-cli"];
 
@@ -33,7 +44,7 @@ pub fn install(args: &Args) -> Result<()> {
     let root = args.game_dir()?;
     let harmony = root.join("eu4-harmony");
     let proxy = root.join("version.dll");
-    let backup = harmony.join("backup").join("version.dll");
+    let backup = root.join(KEPT_PROXY);
     if !root.join("eu4.exe").is_file() {
         return Err(format!("no eu4.exe in {}", root.display()));
     }
@@ -84,19 +95,35 @@ pub fn build(feature: Option<&str>) -> Result<()> {
     run(build, "cargo build --release")
 }
 
-/// Copies the files as last built into the game folder `root`, with the
-/// game closed and within the claim.
-pub fn install_built(root: &Path) -> Result<()> {
-    let harmony = root.join("eu4-harmony");
+/// Installs the files as last built into the game folder `root`, within
+/// `owner`'s claim, with the game closed, as `cargo xtask install` does.
+pub fn install_as(owner: &str, root: &Path) -> Result<()> {
+    crate::claim::held_by(owner)?;
+    game::not_running()?;
+    install_built(root)
+}
+
+/// Copies the files as last built into the game folder `root`, which the
+/// caller found closed and within the claim.
+fn install_built(root: &Path) -> Result<()> {
+    let installed = install_from(&built(), &repo().join("dev.toml"), root)?;
+    println!("installed:");
+    installed.iter().for_each(|path| println!("  {}", path.display()));
+    Ok(())
+}
+
+/// Copies the player's files from the build output `out`, and the options
+/// `options` if there are any, into the game folder `root`, keeping aside a
+/// `version.dll` not ours; the files it copied.
+pub fn install_from(out: &Path, options: &Path, root: &Path) -> Result<Vec<PathBuf>> {
     let proxy = root.join("version.dll");
-    let backup = harmony.join("backup").join("version.dll");
-    let out = built();
+    let backup = root.join(KEPT_PROXY);
     for (name, _) in PLAYER_FILES {
         if !out.join(name).is_file() {
             return Err(format!("missing {}; run cargo build --release", out.join(name).display()));
         }
     }
-    create_dir(&harmony)?;
+    create_dir(&root.join("eu4-harmony"))?;
     if proxy.exists() && !ours(&proxy) {
         if backup.exists() {
             return Err(format!("both {} and {} exist and neither is ours", proxy.display(), backup.display()));
@@ -111,18 +138,15 @@ pub fn install_built(root: &Path) -> Result<()> {
         copy(&out.join(name), &to)?;
         installed.push(to);
     }
-    let options = repo().join("dev.toml");
-    let options_installed = harmony.join("dev.toml");
+    let options_installed = root.join(DEV_OPTIONS);
     if options.is_file() {
-        copy(&options, &options_installed)?;
+        copy(options, &options_installed)?;
         installed.push(options_installed);
     } else if options_installed.exists() {
         remove_file(&options_installed)?;
         println!("removed {}: the repository has no dev.toml", options_installed.display());
     }
-    println!("installed:");
-    installed.iter().for_each(|path| println!("  {}", path.display()));
-    Ok(())
+    Ok(installed)
 }
 
 pub fn release(args: &Args) -> Result<()> {
