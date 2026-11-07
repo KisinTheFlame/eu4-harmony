@@ -2296,6 +2296,16 @@ What each round still left after the session's panels' windows went (research/ma
 - **Not verified**: the exit code of a game that quits by itself (taken for 0: the console's `quit` answered `not_in_game` at the main menu), of the framework's fatal error (3, read from its code), and of a game ended by its own crash handler, which writes a crash folder; a real heap corruption seen through the claim rather than the code set from outside; a game that ends while no `watch` runs, which has no line.
 - **Cleanup**: the release put back the player's files and found the game folder's framework files as they were.
 
+## 2026-11-08 The armies' searches on idle threads (tested by me)
+
+The developer build with the test switches of `claude/parallel-army-search`, from the 1780.7.1 save in observe mode at speed 5, 120 s a run with the main thread's waits shared out (`cargo xtask profile --threads --waiting-in 0x179e90`); eight claims of 2 to 15 minutes, the game started hidden. What came of it is in [research/late-game.md](research/late-game.md), "The armies' searches on idle threads".
+
+- **The game ended with no crash folder**: three runs of the framework's searches ended within seconds to minutes, eu4.exe gone, nothing in the logs, no event in Windows' log; the release reported that the game did not crash. A watcher of its exit code read `0xc0000374`, heap corruption. A run that handed the searches out after the King's children crashed with a folder, in the pool's search: `0x1022b0` → `0x96f860` → `0x1a2280` → `0xd447d0` → `0x374c50` → `0x415b00` → `0x435c10`, a write into the country's access cache, which several of the country's searches added to at once. With no cache given to the pool's searches, 14 runs ended as `cargo xtask game stop` ends them (exit code 1).
+- **The searches prepared for nothing**: 48% of those prepared (53,228 of 140,000) were for thinks that did not search, and 25% were not begun when their think came. Counted by what the army was when prepared, then by whether the think came to its main army's decision (98% did), then read in `0xeab50`: armies at peace search on one think in ten. With those left to the think, 2% were prepared for nothing, 11 to 14% not begun.
+- **Measured**: the search's share of the main thread's wait in the AI stage went from 4.9 and 5.5 ms a game day (the game's) to 1.3 and 1.6 (the framework's); with `check-army-searches`, 4.3% of the searches taken gave another result than the game's at the think. The whole wait and the days a second varied with each run's wars, 7.5 to 19.5 days a second across the runs, and say nothing of the change.
+- **Not verified**: other saves and years; a player's game; the build without the test switches in the game (built and checked offline).
+- **Cleanup**: `dev.toml` removed; the releases put back the player's files and the framework files; the profiles and logs deleted from the scratchpad.
+
 ## How the implementation differs from the final design
 
 - Binding the notice window again after its host window is rebuilt (for example by `reload`) is not tested yet; the top bar binds, but how notices look in the top bar has not been confirmed on its own.
