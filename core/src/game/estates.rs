@@ -2,9 +2,9 @@
 //! interactions over crown land, granting and revoking privileges and the
 //! interactions, through the game's own commands
 //! (docs/research/government.md, "Estates").
+use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
 use crate::{memory::Memory, objects::campaign::country, points::Point};
-use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
     choices::Choice,
     estates::{Estate, EstateInteraction, Privilege},
@@ -219,9 +219,9 @@ fn find(m: &Memory, country: usize, estate: &str, privilege: &str) -> GResult<(u
                 return Ok((entry, at, p, has));
             }
         }
-        return Err(checks::not_found("privilege", privilege).into());
+        return Err(checks::not_found("privilege", privilege));
     }
-    Err(checks::not_found("estate", estate).into())
+    Err(checks::not_found("estate", estate))
 }
 
 /// The grant and revoke commands: the country, the estate and the privilege
@@ -238,7 +238,7 @@ fn written_interaction(country: Tag, interaction: usize) -> String {
 pub fn grant_privilege(Session { m, ctx, commands, .. }: Session, estate: String, privilege: String) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if has {
-        return Err(checks::not_now(format!("{estate} has the privilege {privilege} already")).into());
+        return Err(checks::not_now(format!("{estate} has the privilege {privilege} already")));
     }
     let choice = choice(m, ctx.player, entry, p, false)?;
     if !choice.can {
@@ -251,7 +251,7 @@ pub fn grant_privilege(Session { m, ctx, commands, .. }: Session, estate: String
 pub fn revoke_privilege(Session { m, ctx, commands, .. }: Session, estate: String, privilege: String) -> GResult<()> {
     let (entry, at, p, has) = find(m, ctx.country, &estate, &privilege)?;
     if !has {
-        return Err(checks::not_now(format!("{estate} does not have the privilege {privilege}")).into());
+        return Err(checks::not_now(format!("{estate} does not have the privilege {privilege}")));
     }
     let choice = choice(m, ctx.player, entry, p, true)?;
     if !choice.can {
@@ -272,7 +272,7 @@ pub fn interact(Session { m, ctx, commands, .. }: Session, key: String) -> GResu
         }
         return action::post(commands, &written_interaction(ctx.player, index), "use this interaction");
     }
-    Err(checks::not_found("crown land interaction", &key).into())
+    Err(checks::not_found("crown land interaction", &key))
 }
 
 #[cfg(test)]

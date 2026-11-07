@@ -38,7 +38,7 @@ pub fn offers(Session { m, ctx, .. }: Session) -> GResult<Vec<Offer>> {
 pub fn offer(Session { m, ctx, .. }: Session, id: u32) -> GResult<Offer> {
     match listed(m, &ctx)?.into_iter().find(|w| w.id == id) {
         Some(w) => read(m, &w),
-        None => Err(eu4_harmony_checks::offers::not_found(id).into()),
+        None => Err(checks::not_found(id)),
     }
 }
 
@@ -57,7 +57,7 @@ pub fn offer(Session { m, ctx, .. }: Session, id: u32) -> GResult<Offer> {
 /// ([`in_time`]).
 pub fn answer(Session { m, ctx, .. }: Session, id: u32, accept: bool) -> GResult<()> {
     let Some(w) = held(m, &ctx)?.into_iter().find(|w| w.id == id) else {
-        return Err(eu4_harmony_checks::offers::not_found(id).into());
+        return Err(checks::not_found(id));
     };
     let open = m.call(m.vslot(w.dialog, dialog::VALID)?, &[w.dialog])? as u8 != 0;
     if open {
@@ -172,6 +172,16 @@ fn text(m: &Memory, window: usize, name: &str) -> GResult<String> {
         return Ok(String::new());
     }
     Ok(game_text::plain(&game_string::read(m, found + text_box::TEXT)?))
+}
+
+/// The refusals the framework words itself of an offer.
+mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of a number that names no offer waiting.
+    pub fn not_found(offer: u32) -> Fail {
+        Fail::new(Status::NotFound, format!("no offer {offer}"))
+    }
 }
 
 #[cfg(test)]

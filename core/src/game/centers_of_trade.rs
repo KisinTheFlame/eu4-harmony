@@ -100,7 +100,7 @@ pub fn change(Session { m, ctx, commands, .. }: Session, id: u32, up: bool) -> G
     let (options, level) = read(m, &ctx, province(m, &ctx, id)?, id)?;
     let choice = if up { &options.upgrade } else { &options.downgrade };
     if level == 0 {
-        return Err(eu4_harmony_checks::envoys::no_center_of_trade().into());
+        return Err(envoys::checks::no_center_of_trade());
     }
     let doing = if up { "upgrade the center of trade" } else { "downgrade the center of trade" };
     action::carry_out(commands, choice, doing, || Ok(written(ctx.player, id, if up { level + 1 } else { level - 1 })))

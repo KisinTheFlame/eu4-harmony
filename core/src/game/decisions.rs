@@ -73,7 +73,7 @@ fn seed(date: i32, decision: &str) -> u32 {
 pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let database = m.ptr(m.at(DATABASE))?;
     if database == 0 {
-        return Err(eu4_harmony_checks::government::not_found("decision", &key).into());
+        return Err(content::checks::not_found("decision", &key));
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
     for i in 0..super::span(begin, end, 8, MOST)? {
@@ -86,7 +86,7 @@ pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<(
         }
         return action::post(commands, &written(ctx.player, &key, seed(ctx.date, &key)), "take this decision");
     }
-    Err(eu4_harmony_checks::government::not_found("decision", &key).into())
+    Err(content::checks::not_found("decision", &key))
 }
 
 fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {

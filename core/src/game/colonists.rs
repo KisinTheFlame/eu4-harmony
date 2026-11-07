@@ -217,7 +217,7 @@ pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
 /// Recalls the player's colonist from province `id`.
 pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     if !read(m, &ctx, &province(m, &ctx, id)?, id)?.working {
-        return Err(eu4_harmony_checks::envoys::none_there("colonist").into());
+        return Err(envoys::checks::none_there("colonist"));
     }
     action::post(commands, &written(ctx.player, id, Work::Recall), "recall the colonist")
 }
@@ -227,7 +227,7 @@ pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()>
 pub fn expel(Session { m, ctx, commands, .. }: Session, province: u32, from: u32) -> GResult<()> {
     let options = read(m, &ctx, &self::province(m, &ctx, province)?, province)?;
     let Some(offered) = options.expel_from.iter().find(|e| e.from.0 == from) else {
-        return Err(eu4_harmony_checks::envoys::no_minority(from).into());
+        return Err(envoys::checks::no_minority(from));
     };
     if !offered.choice.can {
         return Err(action::not_allowed("expel that minority there", &offered.choice.reasons));
@@ -242,7 +242,7 @@ pub fn change_growth(Session { m, ctx, commands, .. }: Session, id: u32, start: 
     if !start {
         // The command's own check takes any province.
         if !options.growing {
-            return Err(eu4_harmony_checks::envoys::none_there("colonist promoting settlement growth").into());
+            return Err(envoys::checks::none_there("colonist promoting settlement growth"));
         }
         return action::post(commands, &written(ctx.player, id, Work::StopGrowth), "stop promoting settlement growth there");
     }

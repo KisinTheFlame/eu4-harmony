@@ -24,7 +24,6 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
-use eu4_harmony_checks::peace as checks;
 use eu4_harmony_remote::choices::{Acceptance, Amount, Choice, Resource};
 
 /// The peace offer's constructor: (action, from, to, demand, treaty, date),
@@ -154,7 +153,7 @@ fn at_war(m: &Memory, ctx: &Ctx, enemy: Tag) -> GResult<()> {
     diplomacy::other(m, ctx, enemy)?;
     country(m, ctx, enemy)?;
     if !super::world::at_war(m, ctx, ctx.player, enemy)? {
-        return Err(checks::not_at_war(diplomacy::letters(enemy)).into());
+        return Err(checks::not_at_war(diplomacy::letters(enemy)));
     }
     Ok(())
 }
@@ -170,15 +169,15 @@ fn composed<'a>(m: &'a Memory, ctx: &Ctx, enemy: Tag, terms: &[Term], offer: boo
     for asked in terms {
         let matching: Vec<&(usize, Read)> = offered.iter().filter(|(_, r)| r.matches(asked)).collect();
         let Some(&&(at, ref read)) = matching.iter().find(|(at, _)| !chosen.contains(at)) else {
-            return Err(if matching.is_empty() { checks::no_such_term(described(asked)) } else { checks::term_twice(described(asked)) }.into());
+            return Err(if matching.is_empty() { checks::no_such_term(described(asked)) } else { checks::term_twice(described(asked)) });
         };
         let gold = read.kind == term::KIND_GOLD;
         if gold && asked.amount.is_none() {
-            return Err(checks::no_such_term(format!("{}: gold needs an amount", described(asked))).into());
+            return Err(checks::no_such_term(format!("{}: gold needs an amount", described(asked))));
         }
         let (can, reasons) = allowed(m, treaty.at(), at)?;
         if !can {
-            return Err(checks::term_refused(described(asked), &reasons).into());
+            return Err(checks::term_refused(described(asked), &reasons));
         }
         m.call(m.at(TERM_CHOOSE), &[treaty.at(), at, 0, 0])?;
         chosen.push(at);
@@ -186,7 +185,7 @@ fn composed<'a>(m: &'a Memory, ctx: &Ctx, enemy: Tag, terms: &[Term], offer: boo
             let most = gold_most(m, treaty.at())?;
             let wanted = (amount * 1000.0 / GOLD_STEP as f64).round() * GOLD_STEP as f64;
             if !(0.0..=most as f64).contains(&wanted) {
-                return Err(checks::gold_out_of_range(amount, most as f64 / 1000.0).into());
+                return Err(checks::gold_out_of_range(amount, most as f64 / 1000.0));
             }
             set_gold(m, treaty.at(), at, wanted as i32)?;
         }
@@ -397,6 +396,72 @@ pub fn points() -> Vec<Point> {
         Point::keep(0x1311869usize, "c7 44 24 58 a0 86 01 00", "peace view gold most").uses(&[ALL_THE_WAR_SCORE as usize]),
         Point::keep(0x13118a5usize, "41 b8 32 00 00 00", "peace view gold step").uses(&[(GOLD_STEP / 2) as usize]),
     ]
+}
+
+/// Peace, the transfer of occupation and calls to arms: the refusals the
+/// framework words itself. The game's own reasons are passed through as its
+/// tooltips give them, one a line.
+pub mod checks {
+    use crate::game::{Fail, Status};
+
+    use std::fmt::Display;
+
+    /// The refusal of a country the player is not at war with, where the peace
+    /// view needs one they are.
+    pub fn not_at_war(enemy: impl Display) -> Fail {
+        Fail::new(Status::Rejected, format!("the player is not at war with {enemy}"))
+    }
+
+    /// The refusal of a term the peace view does not offer: `term` as the
+    /// request names it.
+    pub fn no_such_term(term: impl Display) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("the peace view offers no term {term}; peace.terms lists those it offers"))
+    }
+
+    /// The refusal of the same term given twice.
+    pub fn term_twice(term: impl Display) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("the term {term} is given twice"))
+    }
+
+    /// The refusal of a term the peace view does not let the player add, with
+    /// its tooltip's `reasons`, one a line.
+    pub fn term_refused(term: impl Display, reasons: &[String]) -> Fail {
+        let refused = format!("the peace view does not let the player add {term}");
+        Fail::new(Status::Rejected, if reasons.is_empty() { format!("{refused}, and gives no reason") } else { format!("{refused}:\n{}", reasons.join("\n")) })
+    }
+
+    /// The refusal of an amount of gold the peace view does not let the player
+    /// set: below nothing, or above `most`, in ducats.
+    pub fn gold_out_of_range(amount: f64, most: f64) -> Fail {
+        Fail::new(Status::Rejected, format!("the peace view lets the player set from 0 to {most:.1} ducats, not {amount}"))
+    }
+
+    /// The refusal of an ally the transfer occupation window does not list for
+    /// a province.
+    pub fn not_a_receiver(ally: impl Display, province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("the transfer occupation window does not list {ally} to take province {province}"))
+    }
+
+    /// The refusal of a call to arms the diplomacy panel does not offer.
+    pub fn no_call_to_arms(ally: impl Display) -> Fail {
+        Fail::new(Status::Rejected, format!("the diplomacy panel offers no call to arms to {ally}"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_term_refused_gives_the_view_s_reasons() {
+            assert_eq!(
+                term_refused("humiliate", &["Already humiliated".into()]).message,
+                "the peace view does not let the player add humiliate:\nAlready humiliated"
+            );
+            assert_eq!(term_refused("humiliate", &[]).message, "the peace view does not let the player add humiliate, and gives no reason");
+            assert_eq!(no_such_term("demand_provinces 236").status, Status::InvalidArgument);
+            assert_eq!(gold_out_of_range(500.0, 123.44).message, "the peace view lets the player set from 0 to 123.4 ducats, not 500");
+        }
+    }
 }
 
 #[cfg(test)]

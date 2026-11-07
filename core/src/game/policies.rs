@@ -1,9 +1,9 @@
 //! Policies: those the policies view offers, enabling and disabling them,
 //! through the game's own commands (docs/research/government.md,
 //! "Policies").
+use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
-use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{choices::Choice, policies::Policy};
 
 /// The policies' database, made on first use by its getter: the policies at
@@ -103,7 +103,7 @@ fn find(m: &Memory, key: &str) -> GResult<usize> {
             return Ok(policy);
         }
     }
-    Err(checks::not_found("policy", key).into())
+    Err(checks::not_found("policy", key))
 }
 
 /// The enable and disable commands: the policy by its key and the country.
@@ -125,7 +125,7 @@ pub fn enable(Session { m, ctx, commands, .. }: Session, key: String) -> GResult
 pub fn disable(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let policy = find(m, &key)?;
     if !active(m, ctx.country)?.contains(&policy) {
-        return Err(checks::not_now(format!("the player has not enabled the policy {key}")).into());
+        return Err(checks::not_now(format!("the player has not enabled the policy {key}")));
     }
     action::post(commands, &written("disable_unlockable", ctx.player, &key), "disable this policy")
 }

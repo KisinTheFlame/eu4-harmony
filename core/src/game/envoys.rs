@@ -99,6 +99,75 @@ pub fn localized(m: &Memory, key: &str) -> GResult<String> {
     Ok(game_text::plain(&crate::game_string::localized(m, key.as_ptr() as usize)?))
 }
 
+/// The refusals the framework words itself in the actions of missionaries,
+/// colonists, merchants, trade companies and centers of trade (part A8 of
+/// docs/player-actions.md); those the game gives reasons for are
+/// [`super::action`]'s.
+pub mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of recalling an envoy of a `kind` ("missionary") from where
+    /// the player has none.
+    pub fn none_there(kind: &str) -> Fail {
+        Fail::new(Status::Rejected, format!("the player has no {kind} there"))
+    }
+
+    /// The refusal of recalling an envoy of a `kind` ("merchant") that is
+    /// still on its way.
+    pub fn on_its_way(kind: &str) -> Fail {
+        Fail::new(Status::Rejected, format!("the player's {kind} is still on its way there"))
+    }
+
+    /// The refusal of changing a center of trade in a province that has none.
+    pub fn no_center_of_trade() -> Fail {
+        Fail::new(Status::Rejected, "the province has no center of trade")
+    }
+
+    /// The refusal of raising the automatic missionaries when the game already
+    /// sends all of the player's `missionaries`.
+    pub fn all_automatic(missionaries: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("the game already sends all of the player's {missionaries} missionaries by itself"))
+    }
+
+    /// The refusal of lowering the automatic missionaries when the game sends
+    /// none.
+    pub fn none_automatic() -> Fail {
+        Fail::new(Status::Rejected, "the game sends none of the player's missionaries by itself")
+    }
+
+    /// The refusal of choosing the trading policy the player already follows in
+    /// the node.
+    pub fn policy_followed(policy: &str) -> Fail {
+        Fail::new(Status::Rejected, format!("the player already follows {policy} there"))
+    }
+
+    /// The refusal of expelling a minority from a province the colonize button
+    /// does not list for it: not the player's, or with no minority to expel.
+    pub fn no_minority(from: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("the colonize button lists no minority to expel from province {from}"))
+    }
+
+    /// The refusal of a content key `key` that names no `kind` ("trade company
+    /// investment", "trade node").
+    pub fn unknown(kind: &str, key: &str) -> Fail {
+        Fail::new(Status::NotFound, format!("no {kind} is named {key}"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn the_framework_s_own_refusals_name_what_is_missing() {
+            assert_eq!(none_there("colonist").message, "the player has no colonist there");
+            assert_eq!(all_automatic(3).message, "the game already sends all of the player's 3 missionaries by itself");
+            assert_eq!(unknown("trade node", "nowhere").status, Status::NotFound);
+            assert_eq!(policy_followed("maximize_profit").message, "the player already follows maximize_profit there");
+            assert_eq!(no_minority(151).message, "the colonize button lists no minority to expel from province 151");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

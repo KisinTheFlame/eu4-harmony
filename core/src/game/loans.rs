@@ -1,7 +1,7 @@
 //! Loans: the player's loans, as the economy view's loan window lists them,
 //! and repaying one with its repay button (docs/research/power-spending.md,
 //! "Loans").
-use super::{action, power, thousandths, GResult, Session, Tag};
+use super::{action, power, thousandths, Fail, GResult, Session, Status, Tag};
 use crate::{
     memory::Memory,
     objects::{
@@ -103,7 +103,7 @@ fn written(country: [u8; 3], id: u32, kind: u32) -> String {
 /// the player confirms.
 pub fn repay(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let Some(loan) = find(m, ctx.country, id)? else {
-        return Err(eu4_harmony_checks::loans::not_found(id).into());
+        return Err(not_found(id));
     };
     let choice = read(m, ctx.country, loan)?.repay;
     action::carry_out(commands, &choice, "repay the loan", || Ok(written(ctx.player.letters(), id, m.u32(loan + ID_TYPE)?)))
@@ -116,6 +116,11 @@ fn find(m: &Memory, country: usize, id: u32) -> GResult<Option<usize>> {
         }
     }
     Ok(None)
+}
+
+/// The refusal of a loan ID that is none of the player's loans.
+fn not_found(loan: u32) -> Fail {
+    Fail::new(Status::NotFound, format!("the player has no loan {loan}"))
 }
 
 #[cfg(test)]

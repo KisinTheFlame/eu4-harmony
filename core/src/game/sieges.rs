@@ -2,9 +2,9 @@
 //! barrage and the assault, each the game's spending of military points,
 //! posted as the view posts it, with the game's own answer of whether the
 //! player can and why not (docs/research/sieges.md).
+use super::units::checks;
 use super::{power, with_state, Ctx, GResult, Session, View};
 use crate::{game_string, memory::Memory, points::Point};
-use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     sieges::SiegeAction,
@@ -45,10 +45,10 @@ const ACTIONS: [(&str, i32, usize); 3] = [("bombard", 37, MAY_BOMBARD), ("naval_
 fn siege(m: &Memory, ctx: &Ctx, id: u32, view: View) -> GResult<usize> {
     let address = with_state(|s| s.geography.province_address(m, ctx, id))?;
     if view == View::Player && super::world::hidden(m, address)? {
-        return Err(checks::no_siege(id).into());
+        return Err(checks::no_siege(id));
     }
     match m.ptr(address + SIEGE)? {
-        0 => Err(checks::no_siege(id).into()),
+        0 => Err(checks::no_siege(id)),
         siege => Ok(siege),
     }
 }

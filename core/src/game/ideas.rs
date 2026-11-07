@@ -1,13 +1,13 @@
 //! Ideas: the idea groups of the ideas view, taking one, buying its ideas
 //! and abandoning it, through the game's own commands
 //! (docs/research/government.md, "Ideas").
+use super::content::checks;
 use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::{
     memory::Memory,
     objects::campaign::{country, idea_group},
     points::Point,
 };
-use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     ideas::IdeaGroupOption,
@@ -204,7 +204,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<IdeaGroupOption>> {
 fn find(m: &Memory, key: &str) -> GResult<Group> {
     match groups(m)?.into_iter().find(|g| g.key == key && m.u8(g.at + idea_group::FREE).is_ok_and(|free| free == 0)) {
         Some(group) => Ok(group),
-        None => Err(checks::not_found("idea group", key).into()),
+        None => Err(checks::not_found("idea group", key)),
     }
 }
 
@@ -224,7 +224,7 @@ fn written_buy(country: Tag, index: u32, skill: u32) -> String {
 pub fn take_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     if taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
-        return Err(checks::not_now(format!("the player has taken the idea group {key} already")).into());
+        return Err(checks::not_now(format!("the player has taken the idea group {key} already")));
     }
     let choice = take_choice(m, ctx.country, ctx.player, &group)?;
     if !choice.can {
@@ -237,10 +237,10 @@ pub fn take_group(Session { m, ctx, commands, .. }: Session, key: String) -> GRe
 pub fn buy(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     let Some(&(_, bought)) = taken(m, ctx.country)?.iter().find(|&&(t, _)| t == group.at) else {
-        return Err(checks::not_now(format!("the player has not taken the idea group {key}")).into());
+        return Err(checks::not_now(format!("the player has not taken the idea group {key}")));
     };
     let Some(&idea) = group.ideas.get(bought as usize) else {
-        return Err(checks::not_now(format!("every idea of {key} is bought")).into());
+        return Err(checks::not_now(format!("every idea of {key} is bought")));
     };
     let choice = buy_choice(m, ctx.country, ctx.player, &group, idea)?;
     if !choice.can {
@@ -253,7 +253,7 @@ pub fn buy(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()
 pub fn abandon_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let group = find(m, &key)?;
     if !taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
-        return Err(checks::not_now(format!("the player has not taken the idea group {key}")).into());
+        return Err(checks::not_now(format!("the player has not taken the idea group {key}")));
     }
     action::post(commands, &written("abandon_idea_group", ctx.player, &key), "abandon this idea group")
 }

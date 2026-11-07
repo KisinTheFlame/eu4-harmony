@@ -78,6 +78,38 @@ pub fn letters(tag: super::Tag) -> String {
     String::from_utf8_lossy(&tag.letters()).into_owned()
 }
 
+/// The refusals the framework words itself in the groups over script
+/// content: ideas, policies, reforms, the rank, estates, parliament,
+/// decisions and missions; those the game gives reasons for are
+/// [`super::action`]'s.
+pub mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of a content key that names nothing of `kind` (such as "idea
+    /// group") the player has or is offered.
+    pub fn not_found(kind: &str, key: &str) -> Fail {
+        Fail::new(Status::NotFound, format!("no {kind} {key:?} for the player"))
+    }
+
+    /// The refusal of an action on something of the player's in a state it is
+    /// not in: `why`, such as "the player has not taken the idea group
+    /// defensive_ideas".
+    pub fn not_now(why: impl Into<String>) -> Fail {
+        Fail::new(Status::Rejected, why)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn an_unknown_key_is_not_found() {
+            let refusal = not_found("idea group", "flying_ideas");
+            assert_eq!((refusal.status, refusal.message.as_str()), (Status::NotFound, "no idea group \"flying_ideas\" for the player"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

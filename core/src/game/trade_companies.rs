@@ -163,7 +163,7 @@ fn invest_written(player: Tag, index: i32, province: u32) -> String {
 pub fn invest(Session { m, ctx, commands, .. }: Session, id: u32, key: &str) -> GResult<()> {
     let province = province(m, &ctx, id)?;
     let Some((at, _)) = database(m)?.into_iter().find(|(_, k)| k == key) else {
-        return Err(eu4_harmony_checks::envoys::unknown("trade company investment", key).into());
+        return Err(envoys::checks::unknown("trade company investment", key));
     };
     let offered = read(m, &ctx, province, id)?.investments.into_iter().find(|i| i.investment == key);
     let Some(offered) = offered else {

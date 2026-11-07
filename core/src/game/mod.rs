@@ -158,12 +158,20 @@ pub enum Status {
 }
 
 /// A failed capability call.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fail {
     pub status: Status,
     pub message: String,
 }
 pub type GResult<T> = std::result::Result<T, Fail>;
+
+impl Fail {
+    /// A failure with `status`, in the words `message`: a refusal the
+    /// capability words itself.
+    pub fn new(status: Status, message: impl Into<String>) -> Self {
+        Self { status, message: message.into() }
+    }
+}
 
 impl From<String> for Fail {
     fn from(message: String) -> Self {

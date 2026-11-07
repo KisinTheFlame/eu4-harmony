@@ -121,7 +121,7 @@ pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
 pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let p = province(m, &ctx, id)?;
     if !read(m, &ctx, &p)?.0 {
-        return Err(eu4_harmony_checks::envoys::none_there("missionary").into());
+        return Err(envoys::checks::none_there("missionary"));
     }
     action::post(commands, &written(p.owner, ctx.player, id, true), "recall the missionary")
 }
@@ -139,10 +139,10 @@ pub fn automatic(Session { m, ctx, .. }: Session) -> GResult<AutomaticMissionari
 pub fn set_automatic(session: Session, raise: bool) -> GResult<()> {
     let now = automatic(session)?;
     if raise && now.automatic >= now.missionaries {
-        return Err(eu4_harmony_checks::envoys::all_automatic(now.missionaries).into());
+        return Err(envoys::checks::all_automatic(now.missionaries));
     }
     if !raise && now.automatic == 0 {
-        return Err(eu4_harmony_checks::envoys::none_automatic().into());
+        return Err(envoys::checks::none_automatic());
     }
     let text = format!("automate_missionary_command={{ country={}{} }}", quoted(session.ctx.player), if raise { " value=yes" } else { "" });
     action::post(session.commands, &text, if raise { "have the game send one more missionary" } else { "have the game send one fewer missionary" })

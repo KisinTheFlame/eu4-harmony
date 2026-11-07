@@ -6,9 +6,9 @@
 //! says why not, or lists the allies that may take it; the window lists
 //! those, and picking one posts the transfer command for it, which asks the
 //! same check before the game carries it out.
+use super::peace::checks;
 use super::{action, diplomacy, with_state, GResult, Session, Tag};
 use crate::{game_string, memory::Memory, objects::campaign::province, points::Point};
-use eu4_harmony_checks::peace as checks;
 use eu4_harmony_remote::choices::Choice;
 
 /// The check: (country, province, allies, reasons), the allies a list the
@@ -58,7 +58,7 @@ pub fn transfer(Session { m, ctx, commands, .. }: Session, province: u32, ally: 
         return Err(action::not_allowed("hand it over", &reasons));
     };
     if !allies.iter().any(|a| a.index() == ally.index()) {
-        return Err(checks::not_a_receiver(diplomacy::letters(ally), province).into());
+        return Err(checks::not_a_receiver(diplomacy::letters(ally), province));
     }
     action::post(commands, &command(ally, province, ctx.player), "hand it over")?;
     let controller = Tag(m.u64(at + province::CONTROLLER)?);

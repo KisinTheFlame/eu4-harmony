@@ -2,6 +2,7 @@
 //! province, building, cancelling and destroying a building there through the
 //! game's own commands, and the event of a building finished
 //! (docs/research/province-view.md).
+use super::administration::checks as refuse;
 use super::{action, administration::MOST_CONSTRUCTIONS, context_any, events, game, thousandths, with_state, Ctx, GResult, Session, Tag};
 use crate::{
     game_string,
@@ -14,7 +15,6 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
-use eu4_harmony_checks::administration as refuse;
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
 
 /// The building database, made by its getter: its buildings by index, a
@@ -130,7 +130,7 @@ fn named(m: &Memory, wanted: &str) -> GResult<(usize, u32)> {
             return Ok((building, index as u32));
         }
     }
-    Err(refuse::no_such_building(wanted).into())
+    Err(refuse::no_such_building(wanted))
 }
 
 /// Whether the building stands in the province.
@@ -268,7 +268,7 @@ pub fn build(Session { m, ctx, commands, .. }: Session, id: u32, key: String) ->
 pub fn cancel(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let province = province_address(m, &ctx, id)?;
     let Some(construction) = construction(m, province)? else {
-        return Err(refuse::not_doing("building in", id).into());
+        return Err(refuse::not_doing("building in", id));
     };
     let building = m.ptr(construction + construction::MAKES)?;
     let (may, text) = game_string::written(m, |out| m.call(m.at(CAN_CANCEL), &[province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
@@ -283,10 +283,10 @@ pub fn destroy(Session { m, ctx, commands, .. }: Session, id: u32, key: String) 
     let province = province_address(m, &ctx, id)?;
     let (_, index) = named(m, &key)?;
     if Tag(m.u64(province + field::OWNER)?) != ctx.player {
-        return Err(refuse::not_owned(id).into());
+        return Err(refuse::not_owned(id));
     }
     if !stands(m, province, index)? {
-        return Err(refuse::building_absent(&key, id).into());
+        return Err(refuse::building_absent(&key, id));
     }
     action::post(commands, &destroy_text(ctx.player, id, index), "destroy it")
 }

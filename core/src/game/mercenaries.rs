@@ -2,9 +2,9 @@
 //! hiring one with the game's recruit command, as the view and the map post
 //! it once the player has picked a company and a province
 //! (docs/research/leaders.md, "Hiring a mercenary company").
+use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
-use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     mercenaries::Company,
@@ -108,7 +108,7 @@ pub fn hire(Session { m, ctx, commands, .. }: Session, word: String, province: u
         }
     }
     let Some(company) = found else {
-        return Err(checks::no_company(&word).into());
+        return Err(checks::no_company(&word));
     };
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
     let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_HIRE_THERE), &[company, ctx.country, address, t]))?;

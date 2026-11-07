@@ -12,7 +12,6 @@ use crate::{
     },
     points::Point,
 };
-use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{armies::ArmyAction, choices::Choice, ArmyId};
 
 /// `(country, units, text or null, 0)`: whether the units in a game list
@@ -268,7 +267,7 @@ pub fn consolidate(Session { m, ctx, commands, .. }: Session, id: u64) -> GResul
 pub fn drill(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     if mission_kind(m, unit)? == DRILLING {
-        return Err(checks::state("the army drills already").into());
+        return Err(checks::state("the army drills already"));
     }
     action::allowed(&may_drill(m, unit)?, "drill this army")?;
     action::post(commands, &drill_text(id), "drill this army")
@@ -277,7 +276,7 @@ pub fn drill(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> 
 pub fn stop_drill(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult<()> {
     let unit = own_army(m, &ctx, id)?;
     if mission_kind(m, unit)? != DRILLING {
-        return Err(checks::state("the army does not drill").into());
+        return Err(checks::state("the army does not drill"));
     }
     action::post(commands, &drill_text(id), "stop drilling this army")
 }
@@ -286,7 +285,7 @@ pub fn stop_drill(Session { m, ctx, commands, .. }: Session, id: u64) -> GResult
 fn own_fleet(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
     let unit = world::own_unit(m, ctx, id)?;
     match is_army(m, unit)? {
-        true => Err(checks::not_fleet(id).into()),
+        true => Err(checks::not_fleet(id)),
         false => Ok(unit),
     }
 }
@@ -294,12 +293,12 @@ fn own_fleet(m: &Memory, ctx: &Ctx, id: u64) -> GResult<usize> {
 pub fn mission(Session { m, ctx, commands, .. }: Session, id: u64, mission: String, target: Option<u32>) -> GResult<()> {
     let fleet = own_fleet(m, &ctx, id)?;
     if !MISSIONS.contains(&mission.as_str()) {
-        return Err(checks::unknown("mission", &mission, &MISSIONS).into());
+        return Err(checks::unknown("mission", &mission, &MISSIONS));
     }
     let text = mission_text(&mission, id, world::location(m, fleet)?, target).map_err(|needs| checks::needs_target(&mission, needs))?;
     // The evade button stops evading instead, when the fleet evades.
     if mission == "evade" && mission_kind(m, fleet)? == EVADING {
-        return Err(checks::state("the fleet evades already").into());
+        return Err(checks::state("the fleet evades already"));
     }
     action::post(commands, &text, &format!("give this fleet the mission {mission}"))?;
     Ok(())
@@ -309,6 +308,87 @@ pub fn stop_mission(Session { m, ctx, commands, .. }: Session, id: u64) -> GResu
     own_fleet(m, &ctx, id)?;
     action::post(commands, &stop_mission_text(id), "end this fleet's mission")?;
     Ok(())
+}
+
+/// The refusals the framework words itself in the military panels'
+/// actions, of armies and fleets, leaders, mercenaries, sieges and forts
+/// (docs/player-actions.md, A4); those the game gives reasons for are
+/// [`super::action`]'s.
+pub mod checks {
+    use crate::game::{Fail, Status};
+
+    /// The refusal of an action the unit's state makes pointless, in the
+    /// words `why`, as the panel shows the other button instead.
+    pub fn state(why: &str) -> Fail {
+        Fail::new(Status::Rejected, why)
+    }
+
+    /// The refusal of a word that names none of `known`, for the argument
+    /// `argument`.
+    pub fn unknown(argument: &str, word: &str, known: &[&str]) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("{argument} {word:?} is none of {}", known.join(", ")))
+    }
+
+    /// The refusal of a leader the player does not have.
+    pub fn no_leader(id: u32) -> Fail {
+        Fail::new(Status::NotFound, format!("the player has no leader {id}"))
+    }
+
+    /// The refusal of a leader given to a unit of the other kind: a general or a
+    /// conquistador leads an army, an admiral or an explorer a fleet.
+    pub fn wrong_unit(kind: &str, land: bool) -> Fail {
+        let (leads, not) = if land { ("a fleet", "an army") } else { ("an army", "a fleet") };
+        Fail::new(Status::Rejected, format!("a leader of the kind {kind} leads {leads}, not {not}"))
+    }
+
+    /// The refusal of dismissing a leader that still leads an army or a fleet,
+    /// which the game's command refuses: the leader is taken from it first.
+    pub fn leads_a_unit(id: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("leader {id} leads an army or a fleet; take it from there first (leader.remove)"))
+    }
+
+    /// The refusal of a fleet's action for an army.
+    pub fn not_fleet(id: u64) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("{id} is an army, not a fleet"))
+    }
+
+    /// The refusal of a mission given without the target it needs (`needs`,
+    /// such as "a trade node's number").
+    pub fn needs_target(mission: &str, needs: &str) -> Fail {
+        Fail::new(Status::InvalidArgument, format!("the mission {mission} needs {needs} as its target"))
+    }
+
+    /// The refusal of a mercenary company the mercenary view does not list.
+    pub fn no_company(key: &str) -> Fail {
+        Fail::new(Status::NotFound, format!("the mercenary view lists no company {key:?}"))
+    }
+
+    /// The refusal of a province with no siege for the siege view's buttons.
+    pub fn no_siege(province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("there is no siege in province {province}"))
+    }
+
+    /// The refusal of a fort action on a province with no fort of the player's.
+    pub fn no_fort(province: u32) -> Fail {
+        Fail::new(Status::Rejected, format!("province {province} has no fort of the player's"))
+    }
+
+    /// The refusal of mothballing a fort already mothballed, or reopening one
+    /// that is not.
+    pub fn fort_already(province: u32, mothballed: bool) -> Fail {
+        Fail::new(Status::Rejected, format!("the fort in province {province} is {} already", if mothballed { "mothballed" } else { "open" }))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_word_names_one_of_those_known_and_a_leader_its_kind_of_unit() {
+            assert_eq!(unknown("kind", "captain", &["general", "admiral"]).status, Status::InvalidArgument);
+            assert_eq!(wrong_unit("general", false).message, "a leader of the kind general leads an army, not a fleet");
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 //! Forts: the player's forts, and mothballing and reopening them with the
 //! game's command that the province view's fort maintenance box posts
 //! (docs/research/sieges.md, "Mothballing and reopening a fort").
+use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
 use crate::{
     game_string,
@@ -11,7 +12,6 @@ use crate::{
     },
     points::Point,
 };
-use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{choices::Choice, forts::PlayerFort, ProvinceId};
 
 /// A province's byte that says it has a fort.
@@ -66,11 +66,11 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<PlayerFort>> {
 fn set(Session { m, ctx, commands, .. }: Session, id: u32, mothball: bool) -> GResult<()> {
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     if m.u8(address + HAS_FORT)? == 0 || m.u64(address + crate::objects::campaign::province::OWNER)? != ctx.player.0 {
-        return Err(checks::no_fort(id).into());
+        return Err(checks::no_fort(id));
     }
     let fort = read(m, &ctx, id, address)?;
     if fort.mothballed == mothball {
-        return Err(checks::fort_already(id, mothball).into());
+        return Err(checks::fort_already(id, mothball));
     }
     let doing = if mothball { "mothball this fort" } else { "reopen this fort" };
     action::carry_out(commands, &fort.choice, doing, || Ok(toggle_text(ctx.player.letters(), id)))

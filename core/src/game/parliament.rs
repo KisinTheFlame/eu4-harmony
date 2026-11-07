@@ -1,9 +1,9 @@
 //! Parliament: the issues the parliament view offers, starting a debate,
 //! giving provinces seats, through the game's own commands
 //! (docs/research/government.md, "Parliament").
+use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
-use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{
     choices::Choice,
     parliament::{Issue, Parliament},
@@ -113,7 +113,7 @@ fn written_seat(command: &str, country: Tag, province: u32) -> String {
 pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
     let parliament = m.ptr(ctx.country + PARLIAMENT)?;
     if parliament == 0 {
-        return Err(checks::not_now("the player has no parliament").into());
+        return Err(checks::not_now("the player has no parliament"));
     }
     for issue in offered(m, parliament)? {
         if content::key(m, issue + ISSUE_KEY)? != key {
@@ -125,7 +125,7 @@ pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult
         }
         return action::post(commands, &written_debate(ctx.player, &key), "debate this issue");
     }
-    Err(checks::not_found("parliament issue on offer", &key).into())
+    Err(checks::not_found("parliament issue on offer", &key))
 }
 
 /// Gives a province of the player's a seat in parliament.
@@ -140,7 +140,7 @@ pub fn remove_seat(session: Session, province: u32) -> GResult<()> {
 
 fn seat(Session { m, ctx, commands, .. }: Session, command: &str, province: u32, what: &str) -> GResult<()> {
     if m.ptr(ctx.country + PARLIAMENT)? == 0 {
-        return Err(checks::not_now("the player has no parliament").into());
+        return Err(checks::not_now("the player has no parliament"));
     }
     action::post(commands, &written_seat(command, ctx.player, province), what)
 }

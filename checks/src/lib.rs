@@ -1,36 +1,22 @@
-//! The checks the framework makes of a capability's call itself, before it
-//! asks the game or besides the game's own checks, each with the status and
-//! the words it refuses in. The core makes them; the fakes that stand in for
-//! the core in tests, the fake game of `eu4-harmony test` and the remote
-//! control engine's, make the same ones through here, so that a fake refuses
-//! what the core refuses, in the core's words. A refusal whose reasons the
-//! game gives is not here: only the game has those.
+//! The checks the framework makes of a capability's call itself that a
+//! stand-in for the core makes too, each with the status and the words it
+//! refuses in: the core makes them, and the fakes that stand in for it
+//! outside the core, the fake game of `eu4-harmony test`, the Lua host's own
+//! and remote control's, make the same ones through here, so that a fake
+//! refuses what the core refuses, in the core's words
+//! (ADR refusals-live-with-their-capabilities). A refusal no fake makes lives
+//! with its capability in the core.
 //!
-//! One module per group of capabilities, as in the core's capability layer,
-//! and the game's calendar ([`Date`]), which the refusals, remote control's
-//! JSON and the core's own wording write dates in.
-pub mod administration;
+//! One module per group of capabilities, as in the core's capability layer;
+//! the Lua form of answers ([`form`]); and the game's calendar ([`Date`]),
+//! which the refusals, remote control's JSON and the core's own wording write
+//! dates in.
 pub mod armies;
-pub mod camera;
-pub mod choices;
-pub mod console;
 pub mod countries;
 mod date;
-pub mod diplomacy;
-pub mod envoys;
-pub mod focus;
 pub mod form;
-pub mod government;
-pub mod input;
-pub mod loans;
-pub mod military;
-pub mod offers;
-pub mod peace;
 pub mod provinces;
-pub mod questions;
-pub mod recruiting;
 pub mod save_data;
-pub mod technology;
 pub mod texts;
 pub mod time;
 

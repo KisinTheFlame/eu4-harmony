@@ -2,6 +2,7 @@
 //! player's leaders, and giving one to an army or a fleet, through the
 //! game's own commands, as the military view and the unit panels post them
 //! (docs/research/leaders.md).
+use super::units::checks;
 use super::{action, modifiers, world, Caller, Ctx, GResult, Session};
 use crate::{
     game_string,
@@ -10,7 +11,6 @@ use crate::{
     points::Point,
     unicode::game_text,
 };
-use eu4_harmony_checks::military as checks;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     leaders::{Leader, LeaderKind, LeaderOption},
@@ -110,7 +110,7 @@ fn naval(kind: LeaderKind) -> bool {
 
 /// The kind `word` names, or the refusal.
 pub fn kind(word: &str) -> GResult<LeaderKind> {
-    KINDS.into_iter().find(|k| key(*k) == word).ok_or_else(|| checks::unknown("kind", word, &KINDS.map(key)).into())
+    KINDS.into_iter().find(|k| key(*k) == word).ok_or_else(|| checks::unknown("kind", word, &KINDS.map(key)))
 }
 
 /// The recruit command: the kind by its number, and no name, so that the
@@ -263,7 +263,7 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
             return Ok(address);
         }
     }
-    Err(checks::no_leader(id).into())
+    Err(checks::no_leader(id))
 }
 
 /// Recruits a leader of a kind, as the military view's button does, with the
@@ -290,7 +290,7 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, id: u32, army: u64) -> 
     let kind = read(m, leader)?.kind;
     let land = m.ptr(unit)? == m.at(crate::objects::campaign::classes::ARMY);
     if naval(kind) == land {
-        return Err(checks::wrong_unit(key(kind), land).into());
+        return Err(checks::wrong_unit(key(kind), land));
     }
     let (leaves, text) = game_string::written(m, |t| m.call(m.at(MAY_LEAVE), &[leader, t]))?;
     let mut reasons = super::reasons(&text);
@@ -322,7 +322,7 @@ pub fn remove(Session { m, ctx, commands, .. }: Session, army: u64) -> GResult<(
 pub fn dismiss(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
     let leader = find(m, &ctx, id)?;
     if m.ptr(leader + leader::UNIT)? != 0 {
-        return Err(checks::leads_a_unit(id).into());
+        return Err(checks::leads_a_unit(id));
     }
     action::post(commands, &dismiss_text(ctx.player.letters(), leader_id(id)), "dismiss this leader")?;
     Ok(())

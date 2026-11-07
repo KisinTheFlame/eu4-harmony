@@ -6,7 +6,7 @@
 use super::{
     action,
     provinces::{can_recruit, unit_type, UnitKind},
-    with_state, GResult, Session,
+    with_state, Fail, GResult, Session, Status,
 };
 use crate::{game_string, objects::campaign::unit_type as unit_type_fields, unicode::game_text};
 
@@ -33,7 +33,7 @@ pub fn recruit(Session { m, ctx, commands, .. }: Session, id: u32, kind: UnitKin
     }
     let address = with_state(|s| s.geography.province_address(m, &ctx, id))?;
     let Some(unit_type) = unit_type(m, ctx.country, kind)? else {
-        return Err(eu4_harmony_checks::recruiting::no_unit_type(kind.key()).into());
+        return Err(no_unit_type(kind.key()));
     };
     let (allowed, reasons) = can_recruit(m, &ctx, address, unit_type)?;
     if !allowed {
@@ -43,6 +43,12 @@ pub fn recruit(Session { m, ctx, commands, .. }: Session, id: u32, kind: UnitKin
     // The command's own check adds what the snapshot leaves out: its rule
     // for ships.
     action::post(commands, &written(ctx.player.letters(), id, &unit), "recruit it there")
+}
+
+/// The refusal of a kind, by its key (`infantry`, `heavy_ship`), the player
+/// has no unit type of.
+fn no_unit_type(kind: &str) -> Fail {
+    Fail::new(Status::Rejected, format!("the player has no unit type of the kind {kind}"))
 }
 
 #[cfg(test)]

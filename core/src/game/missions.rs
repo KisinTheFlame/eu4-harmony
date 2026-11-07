@@ -1,9 +1,9 @@
 //! Missions: the player's missions as the missions view shows them, and
 //! completing one, through the game's own command
 //! (docs/research/government.md, "Missions").
+use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
 use crate::{memory::Memory, points::Point};
-use eu4_harmony_checks::government as checks;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
 
 /// The country's missions: a game array of columns from `+0x10`, 0x18-byte
@@ -109,7 +109,7 @@ pub fn complete(Session { m, ctx, commands, .. }: Session, key: String) -> GResu
         }
         return action::post(commands, &written(ctx.player, &key), "complete this mission");
     }
-    Err(checks::not_found("mission", &key).into())
+    Err(checks::not_found("mission", &key))
 }
 
 #[cfg(test)]
