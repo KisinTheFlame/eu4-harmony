@@ -3,11 +3,8 @@
 //! pipe: the layer's answers for a small made-up campaign, the Ottomans at
 //! the start, and a record of the calls. A capability of a group it does not
 //! script fails (`unscripted`).
-use super::{
-    armies, buildings, camera, centers_of_trade, colonists, console, countries, decisions, desktop, diplomacy, economy, estates, extensions, focus, forts,
-    government, ideas, input, leaders, loans, menu, mercenaries, merchants, missionaries, missions, occupation, offers, parliament, peace, policies, provinces,
-    questions, recruiting, screenshot, session, sieges, stability, subjects, technology, texts, time, trade, trade_companies,
-};
+// Every group's module, by its name.
+use super::*;
 use crate::game::{
     self, fail,
     menu::{Expected, ExpectedProbe, Launch},

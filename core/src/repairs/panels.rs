@@ -19,7 +19,16 @@ use crate::{hooks::HookFrame, memory::Memory, objects::gui::window as gui_window
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The windows killed so since the last world reset, for the log.
-pub(super) static KILLED: AtomicUsize = AtomicUsize::new(0);
+static KILLED: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!("{} windows the session's panels and the main menu's pages left were killed with them", KILLED.swap(0, Ordering::Relaxed))
+}
 
 /// Kills the window at `owner + field`, if there is one, and forgets it there.
 fn kill_field(m: &Memory, owner: usize, field: usize) -> crate::Result<()> {

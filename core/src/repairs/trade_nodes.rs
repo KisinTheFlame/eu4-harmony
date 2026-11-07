@@ -37,7 +37,16 @@ const NODE_DELETE: usize = 0xb50d60;
 /// been as it began to wait.
 static WAITING: Mutex<Vec<(usize, u32)>> = Mutex::new(Vec::new());
 /// The nodes deleted since the last world reset, for the log.
-pub(super) static DELETED: AtomicUsize = AtomicUsize::new(0);
+static DELETED: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!("{} trade nodes the world's clear replaced were deleted", DELETED.swap(0, Ordering::Relaxed))
+}
 
 extern "C" fn replacing(_frame: *mut HookFrame) {
     crate::guarded("trade nodes replaced", || {

@@ -19,7 +19,16 @@ const OWN_ANIMATION: usize = 0x15529e0;
 
 /// The text boxes' animations handed to their elements since the last world
 /// reset, for the log.
-pub(super) static TEXT_BOX_ANIMATIONS: AtomicUsize = AtomicUsize::new(0);
+static TEXT_BOX_ANIMATIONS: AtomicUsize = AtomicUsize::new(0);
+
+/// The repair as the world reset sees it ([`super::REPAIRS`]).
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+
+/// What the repair let go since the last world reset, for the log; its
+/// counts start again.
+fn since_reset() -> String {
+    format!("{} text boxes' animations were deleted with what owned them", TEXT_BOX_ANIMATIONS.swap(0, Ordering::Relaxed))
+}
 
 /// A text box's destructor begins: its animation, which its element deletes
 /// only from its animations, is put on them owned, as the text box puts it

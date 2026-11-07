@@ -50,7 +50,6 @@ pub use new_start::after_history;
 pub use session_interface::SessionInterface;
 
 use crate::{memory::Memory, points::Point};
-use std::sync::atomic::Ordering;
 
 /// While it lives, `repair` lets the game's memory go on this thread: a
 /// developer build's quarantine keeps what is freed then, while it is on
@@ -100,48 +99,43 @@ pub fn world_reset(m: &Memory, world: usize) {
         Ok(found) => log!("repair: the world reset left {found}; put back as a new start has them"),
         Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
     }
-    log!(
-            "repair: since the last world reset, {} mercenary companies' leaders, {} rebel factions, {} agents of the AI and {} sets of modifiers ({} of them once the modifiers that listed them went) and {} text boxes' animations were deleted with what owned them; {} sets of modifiers wait for the modifiers that list them; {:.1} MB of transparency masks were let go; {} monarchs, heirs and queens the histories left were deleted, {} kept as the game still had them; {} battles the wars' histories left were deleted; {} relations the diplomatic histories left were deleted, {} kept as the diplomacy was given them; {} records and blocks of records the countries' first histories listed alone were deleted, {} kept as their second histories held some of what they held; {} trade nodes the world's clear replaced were deleted; {} windows the session's panels and the main menu's pages left were killed with them",
-            reset_leaks::LEADERS.swap(0, Ordering::Relaxed),
-            reset_leaks::FACTIONS.swap(0, Ordering::Relaxed),
-            reset_leaks::AGENTS.swap(0, Ordering::Relaxed),
-            modifiers::MODIFIER_SETS.swap(0, Ordering::Relaxed),
-            modifiers::MODIFIER_SETS_WAITED.swap(0, Ordering::Relaxed),
-            text_boxes::TEXT_BOX_ANIMATIONS.swap(0, Ordering::Relaxed),
-            modifiers::MODIFIER_SETS_WAITING_COUNT.load(Ordering::Relaxed),
-            masks::MASK_BYTES.swap(0, Ordering::Relaxed) as f64 / (1024.0 * 1024.0),
-            histories::PERSONS.swap(0, Ordering::Relaxed),
-            histories::PERSONS_KEPT.swap(0, Ordering::Relaxed),
-            histories::BATTLES.swap(0, Ordering::Relaxed),
-            histories::RELATIONS.swap(0, Ordering::Relaxed),
-            histories::RELATIONS_KEPT.swap(0, Ordering::Relaxed),
-            history_lists::DELETED.swap(0, Ordering::Relaxed),
-            history_lists::SHARED.swap(0, Ordering::Relaxed),
-            trade_nodes::DELETED.swap(0, Ordering::Relaxed),
-            panels::KILLED.swap(0, Ordering::Relaxed)
-        );
+    log!("repair: since the last world reset, {}", since_reset());
+}
+
+/// A repair as the world reset and startup see it, which its own file
+/// declares as its `REPAIR`: its dependency points, and what it says it let
+/// go since the last world reset, taking its counts, if it counts any.
+struct Repair {
+    points: fn() -> Vec<Point>,
+    since_reset: Option<fn() -> String>,
+}
+
+/// The repairs with dependency points; [`new_start`] and [`pages`] have none
+/// and count nothing.
+const REPAIRS: &[Repair] = &[
+    save_checksum::REPAIR,
+    masks::REPAIR,
+    coalitions::REPAIR,
+    names::REPAIR,
+    supporters::REPAIR,
+    reset_leaks::REPAIR,
+    modifiers::REPAIR,
+    histories::REPAIR,
+    history_lists::REPAIR,
+    session_interface::REPAIR,
+    interface_parts::REPAIR,
+    panels::REPAIR,
+    text_boxes::REPAIR,
+    sprite_types::REPAIR,
+    trade_nodes::REPAIR,
+];
+
+/// What every repair that counts let go since the last world reset, one
+/// after another; their counts start again.
+fn since_reset() -> String {
+    REPAIRS.iter().filter_map(|r| r.since_reset).map(|said| said()).collect::<Vec<_>>().join("; ")
 }
 
 pub fn points() -> Vec<Point> {
-    let mut all = Vec::new();
-    for points in [
-        save_checksum::points,
-        masks::points,
-        coalitions::points,
-        names::points,
-        supporters::points,
-        reset_leaks::points,
-        modifiers::points,
-        histories::points,
-        history_lists::points,
-        session_interface::points,
-        interface_parts::points,
-        panels::points,
-        text_boxes::points,
-        sprite_types::points,
-        trade_nodes::points,
-    ] {
-        all.extend(points());
-    }
-    all
+    REPAIRS.iter().flat_map(|r| (r.points)()).collect()
 }

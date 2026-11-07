@@ -55,6 +55,10 @@ extern "C" fn coalition_changed(_frame: *mut HookFrame) {
     }
 }
 
+/// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
+/// nothing.
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+
 pub(super) fn points() -> Vec<Point> {
     vec![
         // Leaving and joining a coalition change its list; the AI leaves on
