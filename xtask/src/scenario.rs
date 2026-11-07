@@ -6,7 +6,7 @@
 //! a test game unless this checkout holds one, builds each build the
 //! scenarios named need, with the test games' pipes, which its test game's
 //! next start takes up, starts it hidden, hands each scenario the game at
-//! its main menu, tells how it ended, keeps the lease going, and releases
+//! its main menu, tells how it ended, and releases
 //! the claim it made, whatever ends the run: an error, a panic or Ctrl-C
 //! (docs/test-games.md). Only cargo, for the builds, and the game run as
 //! programs of their own.

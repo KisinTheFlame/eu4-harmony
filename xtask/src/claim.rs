@@ -1,5 +1,5 @@
-//! `cargo xtask game`: claims of test games (GLOSSARY), a few holders at a
-//! time, each with a test game of its own, and starting and stopping it
+//! `cargo xtask game`: claims of test games (GLOSSARY), each holder with a
+//! test game of its own until it releases it, and starting and stopping it
 //! within the claim (docs/test-games.md).
 //!
 //! The claim's course is `course.rs`, over the computer as `machine.rs`
@@ -81,9 +81,9 @@ pub fn run(raw: &[String]) -> Result<i32> {
         "status" => course::status(&ThisComputer).map(|()| 0),
         "start" => start(&args).map(|_| 0),
         "stop" => course::stop(&ThisComputer, &owner(&args)).map(|()| 0),
-        "watch" | "renew" => Err(format!(
-            "game {command} is gone: a test game keeps nothing to put back, and every command of its holder starts the lease again (docs/test-games.md)"
-        )),
+        "watch" | "renew" => {
+            Err(format!("game {command} is gone: a test game keeps nothing to put back, and a claim holds it until it is released (docs/test-games.md)"))
+        }
         other => Err(format!("unknown command game {other:?}; cargo xtask --help lists them")),
     }
 }
@@ -92,10 +92,12 @@ fn claim(args: &Args) -> Result<i32> {
     if args.flag("player") || args.flag("now") {
         return Err("the player's claim is gone: the player's game touches no test game's files (docs/test-games.md)".into());
     }
+    if args.value("lease").is_some() {
+        return Err("--lease is gone: a claim holds its test game until it is released (docs/test-games.md)".into());
+    }
     let asking = Asking { owner: owner(args), wait: args.flag("wait") };
-    let lease = args.value("lease").map_or(Ok(course::LEASE_MINUTES), |v| v.parse().map_err(|_| format!("--lease {v}: minutes")))?;
     let purpose = args.value("purpose").unwrap_or("").to_string();
-    Ok(match course::claim(&ThisComputer, &asking, &purpose, lease, &args.game_dir()?)? {
+    Ok(match course::claim(&ThisComputer, &asking, &purpose, &args.game_dir()?)? {
         Claimed::Busy => EXIT_BUSY,
         Claimed::Now | Claimed::Already => 0,
     })
@@ -110,15 +112,14 @@ fn follow(rest: &[String]) -> Result<()> {
 }
 
 /// Holds a test game for a run of `owner`'s, as the scenario runner's: the
-/// claim `owner` holds already, else a new one with the usual lease,
-/// waiting in the queue with `wait`.
+/// claim `owner` holds already, else a new one, waiting with `wait` while
+/// it is busy.
 pub fn hold_for_run(owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Run> {
     course::hold_for_run(&ThisComputer, owner, purpose, wait, game_dir)
 }
 
-/// Plays `play` within `run`'s claim, its lease kept going meanwhile; then,
-/// whatever `play` comes to, ends the test game and releases the claim the
-/// run made.
+/// Plays `play` within `run`'s claim; then, whatever `play` comes to, ends
+/// the test game and releases the claim the run made.
 pub fn play_within<T>(run: &Run, interrupted: &(dyn Fn() -> bool + Sync), play: impl FnOnce() -> Result<T>) -> Result<T> {
     course::play_within(&ThisComputer, run, interrupted, play)
 }
