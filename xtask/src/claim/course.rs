@@ -14,9 +14,7 @@ use std::{
     time::Duration,
 };
 
-/// The lease of a claim, in minutes, without `--lease`.
-pub const LEASE_MINUTES: u64 = 30;
-/// How often a waiting claim looks again, and says it still waits.
+/// How often a waiting claim looks again.
 const WAIT_EVERY: Duration = Duration::from_secs(5);
 
 /// What a claim came to.
@@ -26,7 +24,8 @@ pub enum Claimed {
     Now,
     /// This owner held one already.
     Already,
-    /// Every test game is held, and the claim did not wait.
+    /// A checkout from before test games holds the whole game, or the
+    /// owner's claim is being made, and the claim did not wait.
     Busy,
 }
 
@@ -41,7 +40,7 @@ pub struct Starting {
 
 /// What this process sees now, for a look at the record.
 fn seen<M: Machine>(m: &M) -> Seen<'_> {
-    Seen { now: m.now(), me: m.me(), alive: Box::new(|p| m.alive(p)) }
+    Seen { me: m.me(), alive: Box::new(|p| m.alive(p)) }
 }
 
 /// The pipe of `owner`'s test game.
@@ -69,11 +68,10 @@ fn game_of<M: Machine>(m: &M, claim: &Claim) -> Option<u32> {
     claim.game.filter(|g| m.alive(g)).map(|g| g.id).or_else(|| m.serving(&pipe_of(&claim.owner).ok()?))
 }
 
-/// Claims a test game as `asking` asks, with a lease of `lease` minutes: the
-/// record names the claim's folder and the process making it, then the
-/// folder is made, and only then is the claim ready. A claim taken from a
-/// holder whose lease ran out has its game ended and its logs kept first.
-pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, lease: u64, game_dir: &Path) -> Result<Claimed> {
+/// Claims a test game as `asking` asks: the record names the claim's folder
+/// and the process making it, then the folder is made, and only then is the
+/// claim ready. It holds the test game until it is released.
+pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, game_dir: &Path) -> Result<Claimed> {
     if !m.proxy_loads_cores(game_dir) {
         return Err(format!(
             "the framework's proxy in {} cannot load a test game's core: install a build from test games on (cargo xtask install, with no game running)",
@@ -87,7 +85,7 @@ pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, lease: u64, game
         let mut folder = PathBuf::new();
         let (found, cut) = m.locked(|s| {
             let (found, cut) = record::look(asking, s, &seen);
-            if matches!(found, Found::Free | Found::Take(_)) {
+            if found == Found::Free {
                 let (since, stamp) = m.stamps();
                 folder = claims.join(format!("{}-{stamp}", asking.owner));
                 s.claims.push(Claim {
@@ -95,8 +93,6 @@ pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, lease: u64, game
                     purpose: purpose.to_string(),
                     checkout: crate::repo().display().to_string(),
                     since,
-                    renewed: m.now(),
-                    lease_minutes: lease,
                     folder: folder.display().to_string(),
                     maker: Some(m.me()),
                     ready: false,
@@ -111,7 +107,7 @@ pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, lease: u64, game
         }
         match found {
             Found::Held => {
-                m.say(&format!("already held: {}", held_by(m, &asking.owner)?.describe(m.now())));
+                m.say(&format!("already held: {}", held_by(m, &asking.owner)?.describe()));
                 return Ok(Claimed::Already);
             }
             Found::Busy(who) if !asking.wait => {
@@ -124,11 +120,6 @@ pub fn claim<M: Machine>(m: &M, asking: &Asking, purpose: &str, lease: u64, game
                     said = who;
                 }
                 m.wait(WAIT_EVERY);
-            }
-            Found::Take(taken) => {
-                m.say(&format!("taking the test game of {}, whose lease ran out {} min ago", taken.owner, m.now().saturating_sub(taken.lease_ends()) / 60));
-                end_and_keep(m, &taken)?;
-                return make(m, &asking.owner, &folder, game_dir);
             }
             Found::Free => return make(m, &asking.owner, &folder, game_dir),
         }
@@ -154,8 +145,7 @@ fn make<M: Machine>(m: &M, owner: &str, folder: &Path, game_dir: &Path) -> Resul
     Ok(Claimed::Now)
 }
 
-/// Ends the game of a claim no longer in the record and keeps its logs, as
-/// a release does: what a claim taken over, or released, comes to.
+/// Ends the game of a claim being released and keeps its logs.
 fn end_and_keep<M: Machine>(m: &M, claim: &Claim) -> Result<(Vec<GameEnd>, bool)> {
     let folder = Path::new(&claim.folder);
     if let Some(id) = game_of(m, claim) {
@@ -167,18 +157,11 @@ fn end_and_keep<M: Machine>(m: &M, claim: &Claim) -> Result<(Vec<GameEnd>, bool)
     Ok((ends, crashed))
 }
 
-/// Starts `owner`'s lease again.
-pub fn renew<M: Machine>(m: &M, owner: &str) -> Result<()> {
-    let now = m.now();
-    m.locked(|s| s.of_mut(owner).map(|c| c.renewed = now))?.ok_or_else(|| format!("{owner} holds no test game"))
-}
-
 /// Starts `owner`'s test game hidden, with this checkout's built core and
 /// the saves `starting` names, waiting up to `wait` for its main menu, and
 /// names it in the record, followed by `follow.exe`. The seconds it took.
 pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &Starting, wait: Duration) -> Result<f64> {
     let claim = held_by(m, owner)?;
-    renew(m, owner)?;
     if let Some(id) = game_of(m, &claim) {
         return Err(format!("{owner}'s test game runs already (eu4.exe {id}); cargo xtask game stop ends it"));
     }
@@ -200,7 +183,6 @@ pub fn start_game<M: Machine>(m: &M, owner: &str, game_dir: &Path, starting: &St
 /// Ends `owner`'s test game.
 pub fn stop<M: Machine>(m: &M, owner: &str) -> Result<()> {
     let claim = held_by(m, owner)?;
-    renew(m, owner)?;
     match game_of(m, &claim) {
         Some(id) => {
             m.end_game(id)?;
@@ -228,20 +210,17 @@ pub fn release<M: Machine>(m: &M, owner: &str) -> Result<()> {
     Ok(())
 }
 
-/// Says which test games are held, who waits, which `eu4.exe` are no test
-/// game's, and what no claim refers to.
+/// Says which test games are held, which `eu4.exe` are no test game's, and
+/// what no claim refers to.
 pub fn status<M: Machine>(m: &M) -> Result<()> {
     let state: State = m.locked(|s| s.clone())?;
-    let now = m.now();
-    let mut waiting = state.waiting.clone();
-    record::tidy(&mut waiting, now);
     if let Some(old) = &state.old {
         m.say(old);
     }
-    m.say(&format!("{} of {} test games held", state.claims.len(), record::CAPACITY));
+    m.say(&format!("{} test games held", state.claims.len()));
     let mut theirs = Vec::new();
     for c in &state.claims {
-        m.say(&format!("  {}", c.describe(now)));
+        m.say(&format!("  {}", c.describe()));
         m.say(&format!("    folder: {}", c.folder));
         match game_of(m, c) {
             Some(id) => {
@@ -251,9 +230,6 @@ pub fn status<M: Machine>(m: &M) -> Result<()> {
             None if c.ready => m.say("    not running"),
             None => m.say("    being made"),
         }
-    }
-    for (i, w) in waiting.iter().enumerate() {
-        m.say(&format!("waiting {}: {}", i + 1, w.owner));
     }
     match m.games() {
         Ok(games) => {
@@ -277,20 +253,18 @@ pub struct Run {
     made: bool,
 }
 
-/// How often a run starts its lease again.
-const RUN_RENEWS_EVERY: Duration = Duration::from_secs(60);
 /// How often a run looks whether it is interrupted.
 const RUN_LOOKS_EVERY: Duration = Duration::from_secs(1);
 
 /// Holds a test game for a run of `owner`'s: the claim `owner` holds
-/// already, else a new one, waiting in the queue with `wait`.
+/// already, else a new one, waiting with `wait` while it is busy.
 pub fn hold_for_run<M: Machine>(m: &M, owner: &str, purpose: &str, wait: bool, game_dir: &Path) -> Result<Run> {
     if held_by(m, owner).is_ok() {
         return Ok(Run { owner: owner.into(), made: false });
     }
     let asking = Asking { owner: owner.into(), wait };
-    match claim(m, &asking, purpose, LEASE_MINUTES, game_dir)? {
-        Claimed::Busy => Err("every test game is held; --wait waits for one in the queue".into()),
+    match claim(m, &asking, purpose, game_dir)? {
+        Claimed::Busy => Err("no test game can be claimed now; --wait waits until one can".into()),
         Claimed::Now | Claimed::Already => Ok(Run { owner: owner.into(), made: true }),
     }
 }
@@ -304,9 +278,9 @@ pub fn end_run_game<M: Machine>(m: &M, run: &Run) {
     }
 }
 
-/// Plays `play` within `run`'s claim, whose lease another thread starts
-/// again meanwhile, and which ends the test game once the run is
-/// `interrupted`, so that the step waiting on it ends; then, whatever `play`
+/// Plays `play` within `run`'s claim, while another thread ends the test
+/// game once the run is `interrupted`, so that the step waiting on it ends;
+/// then, whatever `play`
 /// comes to, an error, a panic or `interrupted`, ends the test game and
 /// releases a claim the run made. An error comes back with the release's
 /// own; a panic goes on once the claim is released.
@@ -314,18 +288,13 @@ pub fn play_within<M: Machine + Sync, T>(m: &M, run: &Run, interrupted: &(dyn Fn
     let done = AtomicBool::new(false);
     let played = std::thread::scope(|s| {
         s.spawn(|| {
-            let (mut ended, mut since) = (false, Duration::ZERO);
+            let mut ended = false;
             while !done.load(Ordering::SeqCst) {
                 if interrupted() && !ended {
                     end_run_game(m, run);
                     ended = true;
                 }
-                if since >= RUN_RENEWS_EVERY {
-                    let _ = renew(m, &run.owner);
-                    since = Duration::ZERO;
-                }
                 m.wait(RUN_LOOKS_EVERY);
-                since += RUN_LOOKS_EVERY;
             }
         });
         let played = std::panic::catch_unwind(std::panic::AssertUnwindSafe(play));
@@ -519,14 +488,12 @@ mod tests {
         }
     }
 
-    fn held(owner: &str, renewed: u64) -> Claim {
+    fn held(owner: &str) -> Claim {
         Claim {
             owner: owner.into(),
             purpose: "a run".into(),
             checkout: String::new(),
             since: "2026-11-08 09:00".into(),
-            renewed,
-            lease_minutes: 30,
             folder: format!("C:\\claims\\{owner}-1"),
             maker: None,
             ready: true,
@@ -549,7 +516,7 @@ mod tests {
     #[test]
     fn a_claim_s_course_from_claiming_to_releasing() {
         let m = Recorded::new(State::default());
-        assert_eq!(claim(&m, &asking("a", false), "a run", 30, game_dir()).unwrap(), Claimed::Now);
+        assert_eq!(claim(&m, &asking("a", false), "a run", game_dir()).unwrap(), Claimed::Now);
         start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap();
         assert!(start_game(&m, "a", game_dir(), &Starting::default(), Duration::from_secs(300)).unwrap_err().contains("runs already"));
         release(&m, "a").unwrap();
@@ -577,7 +544,7 @@ mod tests {
     fn a_folder_that_cannot_be_made_gives_the_test_game_back() {
         let mut m = Recorded::new(State::default());
         m.fail_folder = true;
-        assert!(claim(&m, &asking("a", false), "", 30, game_dir()).unwrap_err().contains("the disk is full"));
+        assert!(claim(&m, &asking("a", false), "", game_dir()).unwrap_err().contains("the disk is full"));
         assert_eq!(m.state.lock().unwrap().claims.len(), 0);
         assert!(m.did().contains(&Did::RemoveFolder("C:\\claims\\a-1000".into())));
     }
@@ -588,43 +555,38 @@ mod tests {
     fn a_proxy_from_before_test_games_is_refused() {
         let mut m = Recorded::new(State::default());
         m.proxy = false;
-        assert!(claim(&m, &asking("a", true), "", 30, game_dir()).unwrap_err().contains("cargo xtask install"));
+        assert!(claim(&m, &asking("a", true), "", game_dir()).unwrap_err().contains("cargo xtask install"));
         assert_eq!(m.did(), []);
     }
 
-    /// With every test game held, a claim waits; once a lease has run out,
-    /// it takes that test game, its game ended and its logs kept first.
+    /// However many test games are held, a claim gets one at once, and no
+    /// other's game is ended for it.
     #[test]
-    fn a_waiting_claim_takes_a_test_game_whose_lease_ran_out() {
-        let claims = (0..record::CAPACITY).map(|i| held(&format!("h{i}"), 10_000)).collect();
+    fn a_claim_gets_a_test_game_however_many_are_held() {
+        let claims = (0..10).map(|i| held(&format!("h{i}"))).collect();
         let m = Recorded::new(State { claims, ..State::default() });
-        m.state.lock().unwrap().claims[1].renewed = 0;
-        *m.now.lock().unwrap() = 5000;
         m.serving.lock().unwrap().push((pipe_of("h1").unwrap(), 77));
-        assert_eq!(claim(&m, &asking("a", false), "", 30, game_dir()).unwrap(), Claimed::Now);
-        let did = m.did();
-        let at = |d: &Did| did.iter().position(|x| x == d).unwrap();
-        assert!(at(&Did::End(77)) < at(&Did::Keep("C:\\claims\\h1-1".into())));
-        assert!(at(&Did::Keep("C:\\claims\\h1-1".into())) < at(&Did::MakeFolder("C:\\claims\\a-5000".into())));
-        assert!(m.said().contains("taking the test game of h1"));
+        assert_eq!(claim(&m, &asking("a", false), "", game_dir()).unwrap(), Claimed::Now);
+        assert_eq!(m.state.lock().unwrap().claims.len(), 11);
+        assert!(!m.did().iter().any(|d| matches!(d, Did::End(_) | Did::Keep(_) | Did::Waited)));
     }
 
-    /// A claim waits in the queue until a test game is released.
+    /// A claim waits while a checkout from before test games holds the whole
+    /// game.
     #[test]
-    fn a_claim_waits_until_a_test_game_is_free() {
-        let claims = (0..record::CAPACITY).map(|i| held(&format!("h{i}"), 10_000)).collect();
-        let m = Recorded::new(State { claims, ..State::default() });
-        assert_eq!(claim(&m, &asking("a", false), "", 30, game_dir()).unwrap(), Claimed::Busy);
-        *m.meanwhile.lock().unwrap() = Some(Box::new(|s: &mut State| s.claims.remove(0).owner.clear()));
-        assert_eq!(claim(&m, &asking("a", true), "", 30, game_dir()).unwrap(), Claimed::Now);
+    fn a_claim_waits_while_an_older_checkout_holds_the_whole_game() {
+        let m = Recorded::new(State { old: Some("checkout holds the whole game".into()), ..State::default() });
+        assert_eq!(claim(&m, &asking("a", false), "", game_dir()).unwrap(), Claimed::Busy);
+        *m.meanwhile.lock().unwrap() = Some(Box::new(|s: &mut State| s.old = None));
+        assert_eq!(claim(&m, &asking("a", true), "", game_dir()).unwrap(), Claimed::Now);
         assert!(m.did().contains(&Did::Waited));
-        assert!(m.said().contains("waiting: all"));
+        assert!(m.said().contains("waiting: checkout holds the whole game"));
     }
 
     /// Only the claim's own game is ended, never another's.
     #[test]
     fn stopping_ends_only_the_claim_s_own_game() {
-        let m = Recorded::new(State { claims: vec![held("a", 1000), held("b", 1000)], ..State::default() });
+        let m = Recorded::new(State { claims: vec![held("a"), held("b")], ..State::default() });
         m.serving.lock().unwrap().extend([(pipe_of("a").unwrap(), 1), (pipe_of("b").unwrap(), 2), (eu4_harmony_remote::PIPE.into(), 3)]);
         stop(&m, "a").unwrap();
         assert_eq!(m.did(), [Did::End(1)]);
@@ -642,7 +604,7 @@ mod tests {
         assert_eq!(failed.unwrap_err(), "a check failed");
         assert!(m.state.lock().unwrap().claims.is_empty());
 
-        let m = Recorded::new(State { claims: vec![held("a", 1000)], ..State::default() });
+        let m = Recorded::new(State { claims: vec![held("a")], ..State::default() });
         let run = hold_for_run(&m, "a", "scenarios", false, game_dir()).unwrap();
         play_within(&m, &run, &|| false, || Ok(())).unwrap();
         assert_eq!(m.state.lock().unwrap().claims.len(), 1);
