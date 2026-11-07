@@ -80,7 +80,7 @@ usage:
       build the scenarios need, starts the game hidden, and releases the
       claim it made. --<name>.<parameter> changes a parameter for this run.
       --from-report writes report.md again from the report.json there.
-  cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads]
+  cargo xtask profile <out> [--seconds 60] [--hz 50] [--slice <seconds>] [--wait] [--threads] [--waiting-in <functions>]
   cargo xtask profile <out>.folded --tree [--root <frame>] [--depth 6] [--min 1]
       Samples the running game's main thread, its call stack at a steady
       rate, and writes where its time went into <out>.txt, and its stacks
@@ -89,7 +89,11 @@ usage:
       thread about 0.1 ms, for its registers and a copy of its stack.
       --threads samples every thread that runs at each tick too, into
       <out>.threads.folded (a root frame per thread) and <out>.game.folded
-      (the threads merged), counting a thread only while it runs. --slice
+      (the threads merged), counting a thread only while it runs, and
+      <out>.waited.folded: what the other threads ran while the main thread
+      waited, each tick's wait shared out among them, in microseconds. The
+      main thread waits asleep in the kernel, or in a function that
+      --waiting-in names as the stacks do (0x179e90,ntdll.dll+0x1234). --slice
       counts the samples of each stretch of that many seconds apart too, and
       --wait waits for eu4.exe to start: for the game's startup or a load.
       --tree prints a .folded file's stacks as a call tree, or the tree
@@ -203,7 +207,9 @@ fn main() {
         ),
         Some("offline-check") => with_game(&["test", "--release", "-p", "eu4-harmony-core", "--", "--ignored"], rest, "the offline checks"),
         Some("scenario") => scenario::run(rest),
-        Some("profile") => Args::parse(rest, &["tree", "wait", "threads"], &["seconds", "hz", "slice", "root", "depth", "min"]).and_then(|a| profile::run(&a)),
+        Some("profile") => {
+            Args::parse(rest, &["tree", "wait", "threads"], &["seconds", "hz", "slice", "root", "depth", "min", "waiting-in"]).and_then(|a| profile::run(&a))
+        }
         // Debugger commands are words of their own, which may start with --.
         Some("crash-dump") => crash_dump::run(rest),
         None | Some("-h" | "--help" | "help") => {

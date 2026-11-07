@@ -24,7 +24,19 @@
 //!   not by the time it slept, and a function's samples over the ticks are
 //!   the cores it ran on;
 //! - with `--threads`, `<out>.game.folded`: the same with the threads
-//!   merged, the whole game's CPU by where it went.
+//!   merged, the whole game's CPU by where it went;
+//! - with `--threads`, `<out>.waited.folded`: what the other threads ran
+//!   while the main thread waited, the threads merged, each stack's root
+//!   the part the main thread waited in (`[day]: the AI`). A tick's wait,
+//!   its interval in microseconds, is shared out evenly among the threads
+//!   that ran at it, so that a stack's count is the time the main thread
+//!   waited on it: while many threads run each counts for little, and one
+//!   that runs alone, as the last of a parallel stage's tasks does, counts
+//!   for all; `[nothing ran]` is a wait with no other thread running. A
+//!   thread waits when its sample finds it in the kernel, or with its
+//!   innermost frame in a function `--waiting-in` names as the stacks name
+//!   it (`0x179e90,ntdll.dll+0x1234`): a wait that spins, such as the
+//!   engine's run-and-wait for a parallel stage's parts.
 //!
 //! Each main-thread stack's root is where in the game's time it fell:
 //! `[day]`, `[frame inside a day]` or `[between days]`, and with `--slice
@@ -118,7 +130,24 @@ pub fn run(args: &Args) -> Result<()> {
         return tree(out, args.value("root"), args.number("depth", 6)?, decimal(args, "min", 1.0)?);
     }
     let slice = args.value("slice").map(|_| decimal(args, "slice", 0.0)).transpose()?.filter(|s| *s > 0.0);
-    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"))
+    let waiting_in = args.value("waiting-in").map(waiting_functions).transpose()?.unwrap_or_default();
+    sample(out, decimal(args, "seconds", 60.0)?, decimal(args, "hz", 50.0)?, slice, args.flag("wait"), args.flag("threads"), &waiting_in)
+}
+
+/// The functions `--waiting-in` names, as the stacks name them: `0x179e90`
+/// in eu4.exe, `ntdll.dll+0x1234` in another module; each its module and
+/// RVA.
+fn waiting_functions(text: &str) -> Result<Vec<(String, u32)>> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .map(|f| {
+            let (module, rva) = f.split_once('+').unwrap_or(("eu4.exe", f));
+            let rva = u32::from_str_radix(rva.trim_start_matches("0x"), 16)
+                .map_err(|_| format!("--waiting-in takes functions as 0x179e90 or ntdll.dll+0x1234; {f:?} is not one"))?;
+            Ok((module.to_lowercase(), rva))
+        })
+        .collect()
 }
 
 /// The number `--key` gives, or `default`.
@@ -673,6 +702,25 @@ fn running(modules: &[Module], pcs: &[u64]) -> bool {
     rva < 2 || module.image.at(rva - 2, 2) != Some(&[0x0f, 0x05][..])
 }
 
+/// Whether a running thread's innermost frame lies in one of `waiting_in`,
+/// functions in which a thread waits without sleeping.
+fn spins(modules: &[Module], pcs: &[u64], waiting_in: &[(String, u32)]) -> bool {
+    let Some(&rip) = pcs.first() else { return false };
+    let Some(module) = modules.iter().find(|m| m.base <= rip && rip < m.end) else { return false };
+    let Some(function) = module.functions.of((rip - module.base) as u32) else { return false };
+    waiting_in.iter().any(|(m, f)| *m == module.name && *f == function)
+}
+
+/// A tick's wait shared out evenly among the stacks that ran at it; with
+/// none, the whole of it to none.
+fn share_out<K>(tick: f64, ran: Vec<K>) -> Vec<(Option<K>, f64)> {
+    if ran.is_empty() {
+        return vec![(None, tick)];
+    }
+    let each = tick / ran.len() as f64;
+    ran.into_iter().map(|k| (Some(k), each)).collect()
+}
+
 /// The CPU cycles the thread ran.
 fn cycles(thread: HANDLE) -> u64 {
     let mut n = 0;
@@ -791,7 +839,12 @@ fn thread_frame(id: u32, main: bool, name: &str) -> String {
     }
 }
 
-fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool) -> Result<()> {
+/// A wait of the main thread's: the stretch of the run, where in the game's
+/// time, the main thread's stack, and the stack of a thread that ran
+/// meanwhile, or none.
+type Wait = (Option<u32>, &'static str, Vec<u64>, Option<Vec<u64>>);
+
+fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all: bool, waiting_in: &[(String, u32)]) -> Result<()> {
     let waited = Instant::now();
     let id = loop {
         match crate::game::processes().first() {
@@ -821,6 +874,10 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
     // With --threads, every thread's samples taken as it ran, and each
     // stretch's ticks.
     let (mut thread_samples, mut stretch_ticks, mut waiting) = (Tally::new(), HashMap::new(), 0u64);
+    // With --threads, the microseconds the main thread waited, by its stack
+    // and the stack of each thread that ran meanwhile (none: no thread ran).
+    let mut waited: HashMap<Wait, f64> = HashMap::new();
+    let tick = 1e6 / hz;
     // With --slice, each stretch's first and last sample.
     let mut stretches: BTreeMap<u32, (Mark, Mark)> = BTreeMap::new();
     let interval = Duration::from_secs_f64(1.0 / hz);
@@ -872,10 +929,12 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
             if let Some(stretch) = stretch {
                 *stretch_ticks.entry(stretch).or_insert(0u64) += 1;
             }
-            match running(&modules, &pcs) {
+            let main_runs = running(&modules, &pcs);
+            match main_runs {
                 true => thread_samples.add((stretch, main_id, tag(state), pcs.clone()), 1),
                 false => waiting += 1,
             }
+            let mut ran = Vec::new();
             others.retain_mut(|other| {
                 let now = cycles(other.handle);
                 if now <= other.cycles {
@@ -893,12 +952,22 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
                 held_count += 1;
                 let pcs = captured.map(|(registers, stack)| frames(&modules, registers, &stack)).unwrap_or_default();
                 match running(&modules, &pcs) {
-                    true => thread_samples.add((stretch, other.id, tag(state), pcs), 1),
+                    true => {
+                        if !spins(&modules, &pcs, waiting_in) {
+                            ran.push(pcs.clone());
+                        }
+                        thread_samples.add((stretch, other.id, tag(state), pcs), 1);
+                    }
                     false => waiting += 1,
                 }
                 other.cycles = now;
                 true
             });
+            if !main_runs || spins(&modules, &pcs, waiting_in) {
+                for (other, us) in share_out(tick, ran) {
+                    *waited.entry((stretch, tag(state), pcs.clone(), other)).or_insert(0.0) += us;
+                }
+            }
         }
         samples.add((tag(state), stretch, pcs), 1);
     }
@@ -943,6 +1012,20 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
         thread_stacks.add(frames, *n);
         game_stacks.add(game, *n);
     }
+    // What the other threads ran while the main thread waited, rooted in
+    // the part it waited in.
+    let (mut waited_stacks, mut waited_parts): (HashMap<Vec<String>, f64>, HashMap<String, f64>) = (HashMap::new(), HashMap::new());
+    for ((stretch, tag, main_pcs, other), us) in &waited {
+        let mut main_frames = frames_of(main_pcs);
+        main_frames.push(tag.to_string());
+        let mut frames = other.as_ref().map_or_else(|| vec!["[nothing ran]".to_string()], |pcs| frames_of(pcs));
+        frames.push(part(&main_frames));
+        if let (Some(stretch), Some(slice)) = (stretch, slice) {
+            frames.push(format!("[{}]", seconds_of(*stretch, slice)));
+        }
+        *waited_stacks.entry(frames).or_insert(0.0) += us;
+        *waited_parts.entry(part(&main_frames)).or_insert(0.0) += us;
+    }
     for (_, thread) in threads.iter().chain(&ended) {
         unsafe { CloseHandle(*thread) };
     }
@@ -974,6 +1057,10 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
                 .collect();
             std::fs::write(format!("{out}.{file}.folded"), folded).map_err(|e| format!("cannot write {out}.{file}.folded: {e}"))?;
         }
+        let mut stacks: Vec<_> = waited_stacks.iter().map(|(frames, us)| (frames, us.round() as u64)).filter(|(_, us)| *us > 0).collect();
+        stacks.sort_by_key(|(_, us)| std::cmp::Reverse(*us));
+        let folded: String = stacks.iter().map(|(frames, us)| format!("{} {us}\n", frames.iter().rev().cloned().collect::<Vec<_>>().join(";"))).collect();
+        std::fs::write(format!("{out}.waited.folded"), folded).map_err(|e| format!("cannot write {out}.waited.folded: {e}"))?;
     }
 
     let (mut inclusive, mut own, mut parts, mut stretch_parts) = (Tally::new(), Tally::new(), HashMap::new(), HashMap::new());
@@ -1059,6 +1146,30 @@ fn sample(out: &str, seconds: f64, hz: f64, slice: Option<f64>, wait: bool, all:
         lines.extend(inclusive.most().iter().take(60).map(|(f, n)| format!("  {:5.2}  {f}", cores(*n))));
         lines.extend(["".into(), "The whole game's CPU in each function's own code, in cores (self):".into()]);
         lines.extend(own.most().iter().take(60).map(|(f, n)| format!("  {:5.2}  {f}", cores(*n))));
+        // While the main thread waited: where, and on what, in milliseconds
+        // a second of the run.
+        let ms = |us: u64| us as f64 / 1000.0 / wall;
+        let mut parts = Tally::new();
+        for (p, us) in &waited_parts {
+            parts.add(p.clone(), us.round() as u64);
+        }
+        lines.extend(["".into(), "The main thread's waits, by the part it waited in, in ms a second of the run:".into()]);
+        lines.extend(parts.most().iter().map(|(p, us)| format!("  {:6.1}  {p}", ms(*us))));
+        let (mut inclusive, mut own) = (Tally::new(), Tally::new());
+        for (frames, us) in &waited_stacks {
+            let us = us.round() as u64;
+            own.add(frames[0].clone(), us);
+            let mut seen = std::collections::HashSet::new();
+            for frame in frames.iter().filter(|f| !f.starts_with('[') || *f == "[nothing ran]") {
+                if seen.insert(frame) {
+                    inclusive.add(frame.clone(), us);
+                }
+            }
+        }
+        lines.extend(["".into(), "What ran while the main thread waited, each wait shared out among the threads that ran, in ms a second (inclusive):".into()]);
+        lines.extend(inclusive.most().iter().take(60).map(|(f, us)| format!("  {:6.1}  {f}", ms(*us))));
+        lines.extend(["".into(), "The same in each function's own code (self):".into()]);
+        lines.extend(own.most().iter().take(40).map(|(f, us)| format!("  {:6.1}  {f}", ms(*us))));
     }
     std::fs::write(format!("{out}.txt"), lines.join("\n") + "\n").map_err(|e| format!("cannot write {out}.txt: {e}"))?;
     println!("{}", lines[..lines.len().min(40)].join("\n"));
@@ -1242,6 +1353,25 @@ mod tests {
         assert_eq!(thread_frame(1, true, "SDL"), "[main 1]");
         assert_eq!(thread_frame(2, false, "LoadingThread"), "[LoadingThread 2]");
         assert_eq!(thread_frame(3, false, ""), "[thread 3]");
+    }
+
+    #[test]
+    fn a_wait_is_shared_out_among_the_threads_that_ran() {
+        assert_eq!(share_out(20_000.0, vec!["a", "b"]), [(Some("a"), 10_000.0), (Some("b"), 10_000.0)]);
+        assert_eq!(share_out(20_000.0, vec!["a"]), [(Some("a"), 20_000.0)]);
+        assert_eq!(share_out::<&str>(20_000.0, vec![]), [(None, 20_000.0)]);
+    }
+
+    #[test]
+    fn waiting_functions_are_named_as_the_stacks_name_them() {
+        assert_eq!(waiting_functions("0x179e90, ntdll.dll+0x1234").unwrap(), [("eu4.exe".to_string(), 0x179e90), ("ntdll.dll".to_string(), 0x1234)]);
+        assert!(waiting_functions("SwitchToThread").is_err());
+        let modules = [module()];
+        let waiting_in = [("eu4.exe".to_string(), 0x100)];
+        // In the first function, in the second, and in no function.
+        assert!(spins(&modules, &[BASE + 0x120], &waiting_in));
+        assert!(!spins(&modules, &[BASE + 0x320], &waiting_in));
+        assert!(!spins(&modules, &[BASE + 0x250], &waiting_in));
     }
 
     #[test]
