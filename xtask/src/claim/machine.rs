@@ -373,9 +373,14 @@ fn serving(name: &str) -> Option<u32> {
     pipe::connect(name, pipe::GAME, deadline).ok()?.process().ok()
 }
 
+/// The folder of the record and the claims' folders:
+/// `%LOCALAPPDATA%\eu4-harmony-dev`, or the one `EU4_HARMONY_DEV_DIR` names,
+/// for trying the claims apart from the computer's own record.
 fn base() -> Result<PathBuf> {
-    let local = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?;
-    let base = PathBuf::from(local).join("eu4-harmony-dev");
+    let base = match std::env::var_os("EU4_HARMONY_DEV_DIR").filter(|d| !d.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?).join("eu4-harmony-dev"),
+    };
     fs::create_dir_all(&base).map_err(|e| format!("cannot make {}: {e}", base.display()))?;
     Ok(base)
 }

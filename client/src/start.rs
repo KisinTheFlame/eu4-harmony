@@ -97,7 +97,8 @@ fn framework_has(game_dir: &Path, start: &Start) -> Result<()> {
                 game_dir.display()
             ));
         }
-        if !knows(&game.core, "-harmony_test_game") {
+        // Only a core with the test games' pipes has this line of its log.
+        if !knows(&game.core, "serving the test game's own pipe") {
             return Err(format!("{} has no test games' pipes: build it with --features eu4-harmony-core/dev-test-games", game.core.display()));
         }
     }

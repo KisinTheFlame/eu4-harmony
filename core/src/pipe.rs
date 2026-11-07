@@ -90,16 +90,26 @@ pub fn name() -> String {
     NAMED.get_or_init(choose).clone()
 }
 
+#[cfg(not(feature = "dev-test-games"))]
+fn choose() -> String {
+    if let Some(game) = test_game() {
+        log!("remote pipe: -harmony_test_game={game} passed over: this build has no test games' pipes");
+    }
+    NAME.to_string()
+}
+
+/// In a build with the test games' pipes only, where the words of its line
+/// tell the build so to whoever starts a test game (`client/src/start.rs`).
+#[cfg(feature = "dev-test-games")]
 fn choose() -> String {
     let named = test_game();
-    if !cfg!(feature = "dev-test-games") {
-        if let Some(game) = named {
-            log!("remote pipe: -harmony_test_game={game} passed over: this build has no test games' pipes");
-        }
-        return NAME.to_string();
-    }
     match eu4_harmony_remote::pipe_of(named.as_deref()) {
-        Ok(name) => name,
+        Ok(name) => {
+            if named.is_some() {
+                log!("remote pipe: serving the test game's own pipe, {name}");
+            }
+            name
+        }
         Err(e) => {
             log!("remote pipe: -harmony_test_game: {e}; serving {NAME}");
             NAME.to_string()

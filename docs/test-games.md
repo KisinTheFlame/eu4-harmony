@@ -45,7 +45,7 @@ Each command of the holder's starts the lease again. `watch`, `renew`, `--player
 
 ### The claim's folder
 
-`%LOCALAPPDATA%\eu4-harmony-dev\claims\<owner>-<yyyyMMdd-HHmmss>\`:
+`%LOCALAPPDATA%\eu4-harmony-dev\claims\<owner>-<yyyyMMdd-HHmmss>\` (`EU4_HARMONY_DEV_DIR` names another folder for the record and the claims' folders, to try the claims apart from the computer's own):
 
 - `user\`: the test game's user folder. The claim copies the player's `settings.txt`, `dlc_load.json` (the playset), `dlc_signature`, `game_data.json`, `gameplaysettings.txt`, `messagetypes_custom.txt`, `pdx_settings.txt`, `shortcuts.txt` and the framework's `eu4-harmony\settings.txt`, those that are there, and makes `mod` a junction to the player's `mod` folder, where the playset's descriptors are. `start` copies the saves it is given into `user\save games\`.
 - `core\`: the core and `dev.toml` `start` copied.
