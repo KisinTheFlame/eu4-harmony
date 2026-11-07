@@ -8,13 +8,18 @@
 //! same check before the game carries it out.
 use super::peace::checks;
 use super::{action, diplomacy, with_state, GResult, Session, Tag};
-use crate::{game_string, memory::Memory, objects::campaign::province, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::province,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::choices::Choice;
 
 /// The check: (country, province, allies, reasons), the allies a list the
 /// check fills ([`receivers`]), `reasons` a `std::string` or null, which
 /// gets the button's tooltip when the check says no.
-const CHECK: usize = 0x3dbce0;
+const CHECK: GameFunction<4> = GameFunction::at(0x3dbce0);
 
 /// The list of allies the check fills: the first node, and in each node the
 /// ally's tag and the next node; a node is [`NODE_SIZE`] bytes.
@@ -77,7 +82,7 @@ fn command(ally: Tag, province: u32, player: Tag) -> String {
 fn check(m: &Memory, country: usize, province: usize) -> GResult<(Option<Vec<super::Tag>>, Vec<String>)> {
     let mut list = [0u64; receivers::SIZE / 8];
     let list_at = list.as_mut_ptr() as usize;
-    let checked = game_string::written(m, |s| m.call(m.at(CHECK), &[country, province, list_at, s]));
+    let checked = game_string::written(m, |s| CHECK.call(m, [country, province, list_at, s]));
     let first = unsafe { std::ptr::read_volatile(&list) }[receivers::FIRST / 8] as usize;
     let allies = nodes(m, first);
     let (can, text) = checked?;

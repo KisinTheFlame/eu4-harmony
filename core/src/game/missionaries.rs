@@ -7,7 +7,12 @@ use super::{
     envoys::{self, quoted, Kind},
     with_state, Ctx, GResult, Session, Tag,
 };
-use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::province as province_fields,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::missionaries::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
@@ -17,15 +22,15 @@ use eu4_harmony_remote::{
 
 /// Whether the country may send a missionary to the province:
 /// `(country, province) -> bool`.
-const MAY_SEND: usize = 0x3546b0;
+const MAY_SEND: GameFunction<2> = GameFunction::at(0x3546b0);
 /// Why not, as the province view's tooltip says: `(country, out, province)`,
 /// writing nothing when every rule holds.
-const WHY_NOT: usize = 0x354a00;
+const WHY_NOT: GameFunction<3> = GameFunction::at(0x354a00);
 /// The yearly upkeep of a missionary the country sends there, before its
 /// multiplier: `(country, out i32*, province) -> out`.
-const UPKEEP: usize = 0x34c730;
+const UPKEEP: GameFunction<3> = GameFunction::at(0x34c730);
 /// The province's missionary construction, or null: `(province)`.
-const CONSTRUCTION: usize = 0xa1a360;
+const CONSTRUCTION: GameFunction<1> = GameFunction::at(0xa1a360);
 /// The missionary construction's country.
 const SENDER: usize = 0x80;
 /// The country's multiplier of the upkeep, thousandths.
@@ -81,12 +86,12 @@ pub fn options(Session { m, ctx, view, .. }: Session, args::Options { province: 
 /// Whether the player's missionary works there, the conversion's progress,
 /// and the send and recall choices.
 fn read(m: &Memory, ctx: &Ctx, p: &Province) -> GResult<(bool, Option<f64>, Choice, Choice)> {
-    let construction = m.call(m.at(CONSTRUCTION), &[p.address])?;
+    let construction = CONSTRUCTION.call(m, [p.address])?;
     let working = construction != 0 && m.u64(construction + SENDER)? == ctx.player.0;
     let progress = (construction != 0).then(|| m.i32(p.address + PROGRESS).map(|v| v as f64 / 1000.0)).transpose()?;
-    let (_, text) = game_string::written(m, |out| m.call(m.at(WHY_NOT), &[ctx.country, out, p.address]))?;
+    let (_, text) = game_string::written(m, |out| WHY_NOT.call(m, [ctx.country, out, p.address]))?;
     let reasons = envoys::lines(&text);
-    let may = m.call(m.at(MAY_SEND), &[ctx.country, p.address])? as u8 != 0;
+    let may = MAY_SEND.call(m, [ctx.country, p.address])? as u8 != 0;
     let cost = vec![Amount::new(Resource::Missionary, 1.0), Amount::new(Resource::MonthlyDucats, monthly_upkeep(m, ctx, p.address)?)];
     let send = if construction == 0 && may && reasons.is_empty() { Choice::can(cost) } else { Choice::cannot(reasons, cost) };
     let recall = if working { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
@@ -97,7 +102,7 @@ fn read(m: &Memory, ctx: &Ctx, p: &Province) -> GResult<(bool, Option<f64>, Choi
 /// ducats, as the send missionary tooltip shows it.
 fn monthly_upkeep(m: &Memory, ctx: &Ctx, province: usize) -> GResult<f64> {
     let mut yearly = 0i32;
-    m.call(m.at(UPKEEP), &[ctx.country, &mut yearly as *mut i32 as usize, province])?;
+    UPKEEP.call(m, [ctx.country, &mut yearly as *mut i32 as usize, province])?;
     let factor = m.i32(ctx.country + UPKEEP_FACTOR)? as i64;
     Ok((yearly as i64 * factor / 1000) as f64 / 1000.0 / 12.0)
 }

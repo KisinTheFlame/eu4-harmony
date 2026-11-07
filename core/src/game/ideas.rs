@@ -6,7 +6,7 @@ use super::{action, conditions, content, power, GResult, Session, Tag};
 use crate::{
     memory::Memory,
     objects::campaign::{country, idea_group},
-    points::Point,
+    points::{GameFunction, Point},
 };
 use eu4_harmony_remote::ideas::args;
 use eu4_harmony_remote::{
@@ -35,10 +35,10 @@ mod group {
 /// An idea's key (an idea is of class `0x1cbaa30`).
 const IDEA_KEY: usize = 0x158;
 /// `(country) -> bool`: whether the country has an idea group slot free.
-const SLOT_FREE: usize = 0x32e2d0;
+const SLOT_FREE: GameFunction<1> = GameFunction::at(0x32e2d0);
 /// `(group, tag) -> bool`, whether the country may take the group, its
 /// `trigger`: what every group's vtable holds at `+0x10`.
-const GROUP_ALLOWED: usize = 0x84f1c0;
+const GROUP_ALLOWED: GameFunction<2> = GameFunction::at(0x84f1c0);
 /// The spending's kind for buying an idea.
 const BUY_IDEA: i32 = 0;
 const MOST: usize = 10_000;
@@ -161,9 +161,9 @@ fn buy_choice(m: &Memory, country: usize, player: Tag, group: &Group, idea: usiz
 
 /// Whether the player can take `group`, and why not.
 fn take_choice(m: &Memory, country: usize, player: Tag, group: &Group) -> GResult<Choice> {
-    let allowed = m.call(m.at(GROUP_ALLOWED), &[group.at, player.0 as usize])? & 0xff != 0;
+    let allowed = GROUP_ALLOWED.call(m, [group.at, player.0 as usize])? & 0xff != 0;
     let mut reasons = if allowed { Vec::new() } else { conditions::failing(m, group.at + group::TRIGGER, player, 0)? };
-    if m.call(m.at(SLOT_FREE), &[country])? & 0xff == 0 {
+    if SLOT_FREE.call(m, [country])? & 0xff == 0 {
         reasons.push("the player has no free idea group slot".to_string());
     }
     Ok(match reasons.is_empty() && allowed {

@@ -8,7 +8,7 @@ use crate::{
         campaign::{country, loan as fields},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use eu4_harmony_remote::loans::args;
 use eu4_harmony_remote::{
@@ -25,7 +25,7 @@ const ID: usize = 0x14;
 const ESTATE: usize = 0x36;
 /// The interest left to pay on a loan repaid now: `(loan, &out)`, in
 /// thousandths of ducats, answering where it wrote it.
-const FEE: usize = 0x86b4b0;
+const FEE: GameFunction<2> = GameFunction::at(0x86b4b0);
 /// The most loans believed.
 const MOST: usize = 10_000;
 
@@ -63,7 +63,7 @@ fn loans_of(m: &Memory, country: usize) -> GResult<Vec<usize>> {
 /// amount and the interest left.
 fn price(m: &Memory, loan: usize) -> GResult<i64> {
     let mut fee = 0i32;
-    let at = m.call(m.at(FEE), &[loan, &mut fee as *mut i32 as usize])?;
+    let at = FEE.call(m, [loan, &mut fee as *mut i32 as usize])?;
     let fee = if at == 0 { fee } else { m.i32(at)? };
     Ok(m.i32(loan + fields::AMOUNT)? as i64 * 1000 + fee as i64)
 }
@@ -154,7 +154,7 @@ mod tests {
 
     fn france() -> France {
         let image = Image::new();
-        image.function(FEE, no_fee as *const ());
+        image.function(FEE.rva(), no_fee as *const ());
         let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         let loan = Object::new(fields::DUE + 4).u32(ID_TYPE, 4713).u32(ID, 12).i32(fields::AMOUNT, 200);
         let node = Object::new(list::REMOVED + 8).points_to(list::ITEM, loan);

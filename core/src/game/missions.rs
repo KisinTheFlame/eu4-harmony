@@ -3,7 +3,10 @@
 //! (docs/research/government.md, "Missions").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
-use crate::{memory::Memory, points::Point};
+use crate::{
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::missions::args;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
 
@@ -19,8 +22,8 @@ const KEY: usize = 0x10;
 const TRIGGER: usize = 0x70;
 /// `(country, mission) -> bool`, whether the country has completed it;
 /// `(mission, tag) -> bool`, whether it can complete it now.
-const COMPLETED: usize = 0x1796c0;
-const CAN_COMPLETE: usize = 0x8d4fc0;
+const COMPLETED: GameFunction<2> = GameFunction::at(0x1796c0);
+const CAN_COMPLETE: GameFunction<2> = GameFunction::at(0x8d4fc0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -53,7 +56,7 @@ fn columns(m: &Memory, country: usize) -> GResult<Vec<Vec<usize>>> {
 }
 
 fn completed(m: &Memory, country: usize, mission: usize) -> GResult<bool> {
-    Ok(m.call(m.at(COMPLETED), &[country, mission])? & 0xff != 0)
+    Ok(COMPLETED.call(m, [country, mission])? & 0xff != 0)
 }
 
 /// Whether the player can complete `mission`, and why not: its conditions
@@ -63,7 +66,7 @@ fn choice(m: &Memory, player: Tag, mission: usize, done: bool) -> GResult<Choice
     if done {
         return Ok(Choice::cannot(vec!["the mission is completed".to_string()], Vec::new()));
     }
-    if m.call(m.at(CAN_COMPLETE), &[mission, player.0 as usize])? & 0xff != 0 {
+    if CAN_COMPLETE.call(m, [mission, player.0 as usize])? & 0xff != 0 {
         return Ok(Choice::can(Vec::new()));
     }
     let mut reasons = conditions::failing(m, mission + TRIGGER, player, 0)?;

@@ -14,7 +14,11 @@
 //! ([`super::session_interface::RETURNS`]), as the trade nodes are. An
 //! entry deleted before then, by whatever deletes it, waits no more.
 use super::LettingGo;
-use crate::{hooks::HookFrame, memory::Memory, points::Point};
+use crate::{
+    hooks::HookFrame,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use std::{
     collections::HashMap,
     sync::{
@@ -38,7 +42,7 @@ const CONNECTION_ITEM: usize = 0;
 const CONNECTION_NEXT: usize = 0x10;
 /// `(holder)`: a window holder's destructor, which every entry's runs, and
 /// the holder's window, which the list's kill killed and forgot.
-const HOLDER_DESTRUCTOR: usize = 0x152e030;
+const HOLDER_DESTRUCTOR: GameFunction<1> = GameFunction::at(0x152e030);
 const HOLDER_WINDOW: usize = 0x40;
 
 /// The classes of the entries left, each with its deleting destructor: the
@@ -155,7 +159,7 @@ pub(super) fn world_clearing(m: &Memory) {
                     for text in *texts {
                         crate::game_string::destroy_checked(m, entry + text)?;
                     }
-                    m.call(m.at(HOLDER_DESTRUCTOR), &[entry])?;
+                    HOLDER_DESTRUCTOR.call(m, [entry])?;
                     crate::game_heap::delete(m, entry, *size)?;
                 }
                 None => {

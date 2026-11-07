@@ -6,7 +6,7 @@
 //! append, so the game frees them as usual.
 use crate::{
     memory::Memory,
-    points::{Function, Point},
+    points::{Function, GameFunction, Point},
     Result,
 };
 
@@ -26,16 +26,16 @@ type Append = unsafe extern "C" fn(usize, *const u8, usize) -> usize;
 static APPEND: Function<Append> = Function::new();
 const APPEND_AT: usize = 0x932f0;
 /// The game's destructor, which frees the text when it is not inline.
-pub(crate) const DESTROY_AT: usize = 0x95660;
+pub(crate) const DESTROY_AT: GameFunction<1> = GameFunction::at(0x95660);
 /// The game's localisation lookup: (out, key, values, count); out is a
 /// `std::string` slot it constructs, key a C string.
-const LOCALIZE_AT: usize = 0x14b34a0;
+const LOCALIZE_AT: GameFunction<4> = GameFunction::at(0x14b34a0);
 /// A value the lookup puts into a text where `$NAME$` stands, 0x68 bytes:
 /// the name (a C string) at `+0`, its kind at `+0x28` (1 for text), the
 /// text a `std::string` at `+0x30`. The game's constructor and destructor
 /// of one, as its callers build an array of them on the stack.
-const VALUE_NEW: usize = 0x8f670;
-const VALUE_DESTROY: usize = 0x8ee90;
+const VALUE_NEW: GameFunction<1> = GameFunction::at(0x8f670);
+const VALUE_DESTROY: GameFunction<1> = GameFunction::at(0x8ee90);
 const VALUE: usize = 0x68;
 const VALUE_KIND: usize = 0x28;
 const VALUE_TEXT: usize = 0x30;
@@ -44,7 +44,7 @@ const TEXT_KIND: u64 = 1;
 /// The localisation, and its lookup `(table, hash)` of a key's text, which
 /// [`LOCALIZE_AT`] calls first.
 const LOCALISATION: usize = 0x2357b20;
-const FIND_TEXT: usize = 0x16fb030;
+const FIND_TEXT: GameFunction<2> = GameFunction::at(0x16fb030);
 
 pub fn points() -> Vec<Point> {
     // The append itself: the size and capacity, the inline test, the text.
@@ -170,7 +170,7 @@ pub fn append_checked(m: &Memory, string: usize, text: &[u8]) -> Result<()> {
 
 /// Destroys the string at `string` as the game does, guarded.
 pub fn destroy_checked(m: &Memory, string: usize) -> Result<()> {
-    m.call(m.at(DESTROY_AT), &[string]).map(|_| ())
+    DESTROY_AT.call(m, [string]).map(|_| ())
 }
 
 /// Has the game write text into a `std::string` of the framework's: `write`
@@ -190,13 +190,13 @@ pub fn written<T, E: From<String>>(m: &Memory, write: impl FnOnce(usize) -> std:
 /// constructs: the text of the key at `key`, a C string, with the `count`
 /// values at `values`.
 pub fn localize_into(m: &Memory, out: usize, key: usize, values: usize, count: usize) -> Result<()> {
-    m.call(m.at(LOCALIZE_AT), &[out, key, values, count]).map(|_| ())
+    LOCALIZE_AT.call(m, [out, key, values, count]).map(|_| ())
 }
 
 /// The game's text for a localisation key, as its lookup writes it, with no
 /// values: `key` is the address of the key, a C string.
 pub fn localized(m: &Memory, key: usize) -> Result<Vec<u8>> {
-    Ok(written(m, |out| m.call(m.at(LOCALIZE_AT), &[out, key, 0, 0]))?.1)
+    Ok(written(m, |out| LOCALIZE_AT.call(m, [out, key, 0, 0]))?.1)
 }
 
 /// The game's text for a localisation key with values, as its lookup writes
@@ -209,7 +209,7 @@ pub fn localized_with(m: &Memory, key: usize, values: &[(&std::ffi::CStr, &[u8])
     let mut built = Ok(());
     for (slot, (name, text)) in slots.iter_mut().zip(values) {
         let at = slot.as_mut_ptr() as usize;
-        if let Err(e) = m.call(m.at(VALUE_NEW), &[at]) {
+        if let Err(e) = VALUE_NEW.call(m, [at]) {
             built = Err(e);
             break;
         }
@@ -221,9 +221,9 @@ pub fn localized_with(m: &Memory, key: usize, values: &[(&std::ffi::CStr, &[u8])
             break;
         }
     }
-    let text = built.and_then(|()| written(m, |out| m.call(m.at(LOCALIZE_AT), &[out, key, slots.as_mut_ptr() as usize, values.len()])));
+    let text = built.and_then(|()| written(m, |out| LOCALIZE_AT.call(m, [out, key, slots.as_mut_ptr() as usize, values.len()])));
     for slot in &mut slots[..made] {
-        m.call(m.at(VALUE_DESTROY), &[slot.as_mut_ptr() as usize])?;
+        VALUE_DESTROY.call(m, [slot.as_mut_ptr() as usize])?;
     }
     Ok(text?.1)
 }
@@ -235,7 +235,7 @@ pub fn localized_with(m: &Memory, key: usize, values: &[(&std::ffi::CStr, &[u8])
 pub fn unformatted(m: &Memory, key: &str) -> Result<Vec<u8>> {
     let hash = key.bytes().fold(0x811c_9dc5u32, |h, b| (h.wrapping_mul(0x0100_0193)) ^ (b as i8 as i32 as u32));
     let table = m.ptr(m.ptr(m.at(LOCALISATION))?)?;
-    let text = m.call(m.at(FIND_TEXT), &[table, hash as usize])?;
+    let text = FIND_TEXT.call(m, [table, hash as usize])?;
     if text == 0 {
         return Ok(Vec::new());
     }

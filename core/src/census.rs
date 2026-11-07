@@ -124,7 +124,7 @@ fn remove(block: usize, by: Option<usize>) -> Option<Block> {
 /// Whether `site` is inside `operator new`, which counts its own blocks.
 fn in_new(site: usize) -> bool {
     let base = BASE.load(Ordering::Relaxed);
-    (base + game_heap::NEW..base + NEW_END).contains(&site)
+    (base + game_heap::NEW.rva()..base + NEW_END).contains(&site)
 }
 
 /// The site of a block `operator new` returned to `site`: the site itself,

@@ -13,16 +13,16 @@ use crate::{
         adjacency, classes, countries as country_list, country as country_fields, functions, geometry, globals, list, map, province, route_options, tag, task,
         unit, world,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::collections::BTreeSet;
 
-const CAN_ENTER: usize = 0x1a2280;
-const MILITARY_TAG: usize = 0x1a8d20;
-const STRAIT_BLOCKED: usize = 0x96f650;
-const CAN_ATTACK: usize = 0xd54a60;
+const CAN_ENTER: GameFunction<9> = GameFunction::at(0x1a2280);
+const MILITARY_TAG: GameFunction<2> = GameFunction::at(0x1a8d20);
+const STRAIT_BLOCKED: GameFunction<2> = GameFunction::at(0x96f650);
+const CAN_ATTACK: GameFunction<2> = GameFunction::at(0xd54a60);
 /// The game's lookup of an object by its ID (the type, u32, then the number).
-pub(crate) const FIND_ID: usize = 0x14cf730;
+pub(crate) const FIND_ID: GameFunction<1> = GameFunction::at(0x14cf730);
 /// Where the unit constructor registers the unit's ID.
 const REGISTER_UNIT: usize = 0xd3b0f8;
 /// What the idle task answers: no task kind, and false.
@@ -47,8 +47,8 @@ pub fn points() -> Vec<Point> {
             "army put aboard a fleet",
         )
         .uses(&[unit::FLEET, unit::ABOARD + list::TAIL, unit::ABOARD + list::COUNT, list::PREVIOUS, list::NEXT, list::REMOVED]),
-        Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER, "army access method"),
-        Point::method(classes::ARMY, unit::MILITARY_TAG, MILITARY_TAG, "army military tag method"),
+        Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER.rva(), "army access method"),
+        Point::method(classes::ARMY, unit::MILITARY_TAG, MILITARY_TAG.rva(), "army military tag method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[0], IDLE_ANSWERS[0], "idle task method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[1], IDLE_ANSWERS[1], "idle task method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[2], IDLE_ANSWERS[2], "idle task method"),
@@ -293,7 +293,7 @@ impl Geography {
             }
         }
         let military = military_tag(m, ctx, army)?;
-        Ok(m.call(m.at(STRAIT_BLOCKED), &[military.0 as usize, edge.address])? as u8 == 0)
+        Ok(STRAIT_BLOCKED.call(m, [military.0 as usize, edge.address])? as u8 == 0)
     }
 
     pub fn clear_if_changed(&mut self, m: &Memory, ctx: &impl InWorld) {
@@ -347,7 +347,7 @@ fn military_tag(m: &Memory, ctx: &Ctx, army: usize) -> GResult<Tag> {
     check_army_vtable(m, army)?;
     let mut out = 0u64;
     let ptr = &mut out as *mut u64 as usize;
-    if m.call(m.at(MILITARY_TAG), &[army, ptr])? != ptr {
+    if MILITARY_TAG.call(m, [army, ptr])? != ptr {
         return Err("military tag getter returned an unexpected pointer".to_string().into());
     }
     let tag = Tag(out);
@@ -360,19 +360,19 @@ fn military_tag(m: &Memory, ctx: &Ctx, army: usize) -> GResult<Tag> {
 
 pub fn can_enter(m: &Memory, army: usize, province: usize) -> GResult<bool> {
     check_army_vtable(m, army)?;
-    Ok(m.call(m.at(CAN_ENTER), &[army, province, 0, 0, 0, route_options::NO_TAG as usize, 0, 0, 0])? as u8 != 0)
+    Ok(CAN_ENTER.call(m, [army, province, 0, 0, 0, route_options::NO_TAG as usize, 0, 0, 0])? as u8 != 0)
 }
 
 pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
     check_army_vtable(m, army)?;
-    Ok(m.call(m.at(CAN_ATTACK), &[army, target])? as u8 != 0)
+    Ok(CAN_ATTACK.call(m, [army, target])? as u8 != 0)
 }
 
 /// The army or fleet the game has under `id`, found by the game's own
 /// lookup; none when there is no unit with it.
 pub fn unit_by_id(m: &Memory, id: u64) -> GResult<Option<usize>> {
     let key = id;
-    let holder = m.call(m.at(FIND_ID), &[&key as *const u64 as usize])?;
+    let holder = FIND_ID.call(m, [&key as *const u64 as usize])?;
     if holder == 0 {
         return Ok(None);
     }

@@ -3,7 +3,10 @@
 //! "Policies").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
-use crate::{memory::Memory, points::Point};
+use crate::{
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::policies::args;
 use eu4_harmony_remote::{choices::Choice, policies::Policy};
 
@@ -25,7 +28,7 @@ const ACTIVE_STRIDE: usize = 0x30;
 const ACTIVE_POLICY: usize = 0x10;
 /// `(country + ACTIVE, policy, reasons) -> bool`: whether the country may
 /// enable the policy, writing why not into the `std::string` reasons.
-const CHECK: usize = 0x958e10;
+const CHECK: GameFunction<3> = GameFunction::at(0x958e10);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -73,7 +76,7 @@ fn category(category: u32) -> &'static str {
 /// Whether the player can enable `policy`, and why not, as the game's check
 /// writes it.
 fn choice(m: &Memory, country: usize, policy: usize) -> GResult<Choice> {
-    let (can, reasons) = content::checked(m, |reasons| Ok(m.call(m.at(CHECK), &[country + ACTIVE, policy, reasons])?))?;
+    let (can, reasons) = content::checked(m, |reasons| Ok(CHECK.call(m, [country + ACTIVE, policy, reasons])?))?;
     Ok(if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
 

@@ -12,7 +12,7 @@ use crate::{
         campaign::{building as fields, construction, country, province as field},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::buildings::args;
@@ -27,11 +27,11 @@ const BY_INDEX: usize = 0x10;
 /// building, province, reasons, 0, 0, 0), as the build command asks it but
 /// with the reasons; and its price, (country, out, building, province), the
 /// out fixed-point ducats.
-const CAN_BUILD: usize = 0x32acb0;
-const PRICE: usize = 0x32a420;
+const CAN_BUILD: GameFunction<7> = GameFunction::at(0x32acb0);
+const PRICE: GameFunction<4> = GameFunction::at(0x32a420);
 /// Whether a country may cancel the building being built: (province,
 /// building, tag, reasons).
-const CAN_CANCEL: usize = 0xa1b540;
+const CAN_CANCEL: GameFunction<4> = GameFunction::at(0xa1b540);
 /// A building construction's kind, and its fields besides a
 /// [`construction`]'s: its builder's tag and its province.
 const BUILDING_CONSTRUCTION: u32 = 0x28c7;
@@ -191,9 +191,9 @@ fn province_address(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 /// reasons why not, and the price. The build command's check also wants the
 /// price in the treasury.
 fn can_build(m: &Memory, ctx: &Ctx, province: usize, building: usize) -> GResult<Choice> {
-    let (may, text) = game_string::written(m, |out| m.call(m.at(CAN_BUILD), &[ctx.country, building, province, out, 0, 0, 0]).map_err(super::Fail::from))?;
+    let (may, text) = game_string::written(m, |out| CAN_BUILD.call(m, [ctx.country, building, province, out, 0, 0, 0]).map_err(super::Fail::from))?;
     let mut price = 0i32;
-    m.call(m.at(PRICE), &[ctx.country, &mut price as *mut i32 as usize, building, province])?;
+    PRICE.call(m, [ctx.country, &mut price as *mut i32 as usize, building, province])?;
     let cost = vec![Amount::new(Resource::Ducats, thousandths(price))];
     let affordable = price <= m.i32(ctx.country + country::TREASURY)?;
     Ok(if may as u8 != 0 && affordable { Choice::can(cost) } else { Choice::cannot(super::administration::reasons(&text), cost) })
@@ -213,8 +213,7 @@ pub fn options(Session { m, ctx, view, .. }: Session, id: u32) -> GResult<(Optio
         Some(construction) => {
             let building = m.ptr(construction + construction::MAKES)?;
             let builder = Tag(m.u64(construction + BUILDER)?);
-            let (may, text) =
-                game_string::written(m, |out| m.call(m.at(CAN_CANCEL), &[province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
+            let (may, text) = game_string::written(m, |out| CAN_CANCEL.call(m, [province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
             let choice = if may as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(super::administration::reasons(&text), Vec::new()) };
             let key = key(m, building)?;
             offers.push(Offer { action: "cancel", building: key.clone(), choice });
@@ -273,7 +272,7 @@ pub fn cancel(Session { m, ctx, commands, .. }: Session, args::Cancel { province
         return Err(refuse::not_doing("building in", id));
     };
     let building = m.ptr(construction + construction::MAKES)?;
-    let (may, text) = game_string::written(m, |out| m.call(m.at(CAN_CANCEL), &[province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
+    let (may, text) = game_string::written(m, |out| CAN_CANCEL.call(m, [province, building, ctx.player.0 as usize, out]).map_err(super::Fail::from))?;
     if may as u8 == 0 {
         return Err(action::not_allowed("cancel it there", &super::administration::reasons(&text)));
     }

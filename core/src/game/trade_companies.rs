@@ -3,7 +3,13 @@
 //! company investments of its area, through the game's own commands
 //! (docs/research/envoys.md, "Trade companies").
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
-use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::province as province_fields,
+    points::{GameFunction, Point},
+    unicode::game_text,
+};
 use eu4_harmony_remote::trade_companies::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
@@ -13,10 +19,10 @@ use eu4_harmony_remote::{
 
 /// Whether the country may add the province to its trade company, and why
 /// not: `(country, province, reasons) -> bool`, appending to `reasons`.
-const MAY_ADD: usize = 0x3ba790;
+const MAY_ADD: GameFunction<3> = GameFunction::at(0x3ba790);
 /// Whether the country may remove the province from its trade company:
 /// `(country, province, text) -> bool`.
-const MAY_REMOVE: usize = 0x3ba830;
+const MAY_REMOVE: GameFunction<3> = GameFunction::at(0x3ba830);
 /// The province's flags, and the one of a province in a trade company.
 const FLAGS: usize = 0x958;
 const IN_TRADE_COMPANY: u8 = 0x04;
@@ -31,13 +37,13 @@ const KEY: usize = 0x20;
 /// Whether the country may make the investment in the province's area, and
 /// why not: `(tag, investment, province, made out, reasons) -> bool`,
 /// appending to `reasons`.
-const MAY_INVEST: usize = 0xb40520;
+const MAY_INVEST: GameFunction<5> = GameFunction::at(0xb40520);
 /// What the investment costs the country: `(investment, out i32*, tag,
 /// area or null, text or null) -> out`, thousandths of ducats.
-const COST: usize = 0xb3f580;
+const COST: GameFunction<5> = GameFunction::at(0xb3f580);
 /// The investment's name for the country, as the panel writes it:
 /// `(investment, out, tag)`, constructing `out`.
-const NAME: usize = 0xb3ddc0;
+const NAME: GameFunction<3> = GameFunction::at(0xb3ddc0);
 /// The province's area, in its map data.
 const AREA: usize = 0x40;
 /// The most investments read.
@@ -83,14 +89,14 @@ fn read(m: &Memory, ctx: &Ctx, province: usize, id: u32) -> GResult<TradeCompany
         Choice::cannot(Vec::new(), Vec::new())
     } else {
         // Allowed, it writes what adding does instead of reasons.
-        let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_ADD), &[ctx.country, province, out]))?;
+        let (may, text) = game_string::written(m, |out| MAY_ADD.call(m, [ctx.country, province, out]))?;
         if may as u8 != 0 {
             Choice::can(Vec::new())
         } else {
             Choice::cannot(envoys::lines(&text), Vec::new())
         }
     };
-    let remove = if in_trade_company && m.call(m.at(MAY_REMOVE), &[ctx.country, province, 0])? as u8 != 0 {
+    let remove = if in_trade_company && MAY_REMOVE.call(m, [ctx.country, province, 0])? as u8 != 0 {
         Choice::can(Vec::new())
     } else {
         Choice::cannot(Vec::new(), Vec::new())
@@ -125,13 +131,12 @@ fn investments(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Investment
         .into_iter()
         .map(|(at, key)| {
             let mut made = 0u8;
-            let (may, text) =
-                game_string::written(m, |out| m.call(m.at(MAY_INVEST), &[ctx.player.0 as usize, at, province, &mut made as *mut u8 as usize, out]))?;
+            let (may, text) = game_string::written(m, |out| MAY_INVEST.call(m, [ctx.player.0 as usize, at, province, &mut made as *mut u8 as usize, out]))?;
             let mut cost = 0i32;
-            m.call(m.at(COST), &[at, &mut cost as *mut i32 as usize, ctx.player.0 as usize, area, 0])?;
+            COST.call(m, [at, &mut cost as *mut i32 as usize, ctx.player.0 as usize, area, 0])?;
             let cost = vec![Amount::new(Resource::Ducats, super::thousandths(cost))];
             let choice = if may as u8 != 0 { Choice::can(cost) } else { Choice::cannot(envoys::failing(&text), cost) };
-            let (_, name) = game_string::written(m, |out| m.call(m.at(NAME), &[at, out, ctx.player.0 as usize]))?;
+            let (_, name) = game_string::written(m, |out| NAME.call(m, [at, out, ctx.player.0 as usize]))?;
             let name = game_text::plain(&name);
             Ok(Investment { investment: key, name, made: made != 0, choice })
         })

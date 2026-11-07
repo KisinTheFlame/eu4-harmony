@@ -110,6 +110,44 @@ impl<F: Copy> Function<F> {
     }
 }
 
+/// A function of the game's that the framework calls, at its RVA, and how
+/// many arguments it takes: the dependency point that checks it names it
+/// (`Point::keep(FUNCTION, ...)`), and calling it through it passes exactly
+/// that many, so that a call with one too few does not compile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GameFunction<const ARGS: usize>(usize);
+
+impl<const ARGS: usize> GameFunction<ARGS> {
+    pub const fn at(rva: usize) -> Self {
+        Self(rva)
+    }
+
+    pub const fn rva(self) -> usize {
+        self.0
+    }
+
+    /// Calls it with integer or pointer arguments inside an SEH guard; a
+    /// point must check it ([`Memory::at`]).
+    pub fn call(self, m: &Memory, args: [usize; ARGS]) -> Result<usize> {
+        let address = m.at(self.0);
+        m.call(address, &args)
+    }
+}
+
+impl<const ARGS: usize> From<GameFunction<ARGS>> for Place {
+    fn from(function: GameFunction<ARGS>) -> Self {
+        Self::Rva(function.0)
+    }
+}
+
+/// Its RVA, for what compares an address with the function's or names it
+/// as a vtable's method.
+impl<const ARGS: usize> From<GameFunction<ARGS>> for usize {
+    fn from(function: GameFunction<ARGS>) -> Self {
+        function.0
+    }
+}
+
 /// The address of the function `f`, a function pointer.
 fn address<F: Copy>(f: F) -> usize {
     assert_eq!(std::mem::size_of::<F>(), std::mem::size_of::<usize>(), "not a function pointer");
@@ -687,6 +725,16 @@ mod tests {
         let mut constants = std::collections::HashMap::new();
         let mut named = std::collections::BTreeSet::new();
         for line in text.lines().map(str::trim).filter(|l| !l.starts_with("//")) {
+            // A game function, wherever it is declared: its RVA.
+            for (at, _) in line.match_indices("GameFunction::at(") {
+                let value = line[at + "GameFunction::at(".len()..].split(')').next().and_then(hex);
+                if let Some(value) = value {
+                    named.insert(value);
+                    if let Some((name, _)) = line.split_once("const ").and_then(|(_, rest)| rest.split_once(": GameFunction<")) {
+                        constants.insert(name.to_string(), value);
+                    }
+                }
+            }
             let Some((_, rest)) = line.split_once("const ") else { continue };
             // An array of them: each of its numbers.
             if let Some((_, values)) = rest.split_once("] = [").filter(|(kind, _)| kind.contains(": [usize; ")) {
@@ -729,19 +777,7 @@ mod tests {
     /// not reach.
     #[test]
     fn every_game_address_is_named_in_one_file() {
-        fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            for entry in std::fs::read_dir(dir).unwrap().map(std::result::Result::unwrap) {
-                let path = entry.path();
-                if path.is_dir() {
-                    sources(&path, out);
-                } else if path.extension().is_some_and(|e| e == "rs") {
-                    out.push(path);
-                }
-            }
-        }
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut files = Vec::new();
-        sources(&root, &mut files);
+        let (root, files) = sources();
         let mut by_address: std::collections::BTreeMap<usize, Vec<String>> = std::collections::BTreeMap::new();
         for file in &files {
             let name = file.strip_prefix(&root).unwrap().display().to_string();
@@ -753,11 +789,50 @@ mod tests {
         assert!(twice.is_empty(), "{twice:#?}");
     }
 
+    /// The core's source files, and the folder they are in.
+    fn sources() -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
+        fn under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap().map(std::result::Result::unwrap) {
+                let path = entry.path();
+                if path.is_dir() {
+                    under(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        under(&root, &mut files);
+        (root, files)
+    }
+
+    /// A game function is called through its [`GameFunction`], which says
+    /// how many arguments it takes, never at its address: what is called at
+    /// an address is a method or a pointer the game keeps.
+    #[test]
+    fn game_functions_are_called_through_their_handles() {
+        let (root, files) = sources();
+        let mut found = Vec::new();
+        for file in &files {
+            let text = std::fs::read_to_string(file).unwrap();
+            for (i, _) in text.match_indices(".call(") {
+                let first = text[i + ".call(".len()..].split([',', ')']).next().unwrap_or("");
+                if first.contains(".at(") {
+                    found.push(format!("{}: {}", file.strip_prefix(&root).unwrap().display(), text[i..].lines().next().unwrap()));
+                }
+            }
+        }
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
     #[test]
     fn addresses_are_read_from_constants_and_points() {
         let text = "const FIELD: usize = 0x28c0;\nconst F: usize = 0x93d750;\n// const OLD: usize = 0x200000;\n\
-                    const SITE: usize = 0x9a1f0;\nconst BOTH: [usize; 2] = [0x300000, 0x300010];\nPoint::keep(SITE, \"c3\", \"x\");\nPoint::keep(\n    0xcd1db1usize, \"c3\", \"y\");\nPoint::keep(FIELD + 1, \"c3\", \"z\");";
-        assert_eq!(addresses_named(text), [0x28c1, 0x9a1f0, 0x93d750, 0xcd1db1, 0x300000, 0x300010].into());
+                    const SITE: usize = 0x9a1f0;\nconst BOTH: [usize; 2] = [0x300000, 0x300010];\nPoint::keep(SITE, \"c3\", \"x\");\nPoint::keep(\n    0xcd1db1usize, \"c3\", \"y\");\nPoint::keep(FIELD + 1, \"c3\", \"z\");\n\
+                    const CALLED: GameFunction<2> = GameFunction::at(0x500000);\nPoint::keep(CALLED, \"c3\", \"w\");\n\
+                    const TABLE: [(usize, GameFunction<1>); 1] = [(0x10, GameFunction::at(0x600000))];";
+        assert_eq!(addresses_named(text), [0x28c1, 0x9a1f0, 0x93d750, 0xcd1db1, 0x300000, 0x300010, 0x500000, 0x600000].into());
     }
 
     #[test]
@@ -782,7 +857,7 @@ mod tests {
     #[should_panic(expected = "the framework used 0x100000000, which no dependency point checks")]
     fn an_address_no_point_checks_is_refused() {
         // Past the end of the game image.
-        Memory { base: 0 }.at(0x1_0000_0000);
+        Memory { base: 0 }.at(0x1_0000_0000usize);
     }
 
     #[test]

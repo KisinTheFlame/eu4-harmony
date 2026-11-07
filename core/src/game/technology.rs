@@ -13,7 +13,7 @@ use crate::{
         campaign::{country, technology as levels},
         gui::functions::ADD_MONTHS,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use eu4_harmony_remote::technology::args;
 use eu4_harmony_remote::{
@@ -33,7 +33,7 @@ const KIND: usize = 0x78;
 /// How many months until a country has `cost` points of a kind, at its
 /// monthly gain: `(country, &cost in thousandths, kind)`; 0 or less when it
 /// gains none.
-const MONTHS_UNTIL: usize = 0x380910;
+const MONTHS_UNTIL: GameFunction<3> = GameFunction::at(0x380910);
 /// The most categories and levels believed.
 const MOST: usize = 1000;
 
@@ -128,12 +128,12 @@ fn power_name(kind: PowerKind) -> &'static std::ffi::CStr {
 /// of `kind`: the date at its monthly gain, or that it gains none.
 fn when(m: &Memory, country: usize, date: i32, cost: i32, kind: PowerKind) -> GResult<Vec<String>> {
     let thousandths = cost.saturating_mul(1000);
-    let months = m.call(m.at(MONTHS_UNTIL), &[country, &thousandths as *const i32 as usize, kind as usize])? as i32;
+    let months = MONTHS_UNTIL.call(m, [country, &thousandths as *const i32 as usize, kind as usize])? as i32;
     if months <= 0 {
         return power::tooltip(m, c"RESEARCH_NEVER", &[]);
     }
     let mut day = date;
-    m.call(m.at(ADD_MONTHS), &[&mut day as *mut i32 as usize, months as usize])?;
+    ADD_MONTHS.call(m, [&mut day as *mut i32 as usize, months as usize])?;
     power::tooltip(m, c"RESEARCH_WHEN", &[(c"DATE", power::date_text(m, day)?)])
 }
 

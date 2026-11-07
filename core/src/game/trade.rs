@@ -8,7 +8,7 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{globals, province},
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::trade::args;
@@ -66,8 +66,8 @@ pub(super) const STEER_LINK: usize = 0xa8;
 pub(super) const HOME: usize = 0xad;
 /// The game's share of a country in a node: (node, out, tag), thousandths;
 /// whether a country collects there: (node, tag).
-const SHARE: usize = 0xb573a0;
-const COLLECTS: usize = 0xb58e00;
+const SHARE: GameFunction<3> = GameFunction::at(0xb573a0);
+const COLLECTS: GameFunction<2> = GameFunction::at(0xb58e00);
 /// The most nodes, links or flows believed.
 pub(super) const MOST: usize = 10_000;
 
@@ -132,7 +132,7 @@ pub(super) fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
 
 /// Whether the country `tag` collects in the node at `node`.
 pub(super) fn collects(m: &Memory, node: usize, tag: Tag) -> GResult<bool> {
-    Ok(m.call(m.at(COLLECTS), &[node, tag.0 as usize])? as u8 != 0)
+    Ok(COLLECTS.call(m, [node, tag.0 as usize])? as u8 != 0)
 }
 
 fn text(m: &Memory, string: usize) -> GResult<String> {
@@ -271,7 +271,7 @@ fn countries_in(m: &Memory, ctx: &Ctx, node: usize, links: &[usize]) -> GResult<
         };
         let mut share = 0i32;
         let out_at = &mut share as *mut i32 as usize;
-        m.call(m.at(SHARE), &[node, out_at, tag.0 as usize])?;
+        SHARE.call(m, [node, out_at, tag.0 as usize])?;
         let collects = collects(m, node, tag)?;
         out.push(TradePower { country: CountryTag(tag.letters()), power: thousandths(power), share: share as f64 / 10.0, collects, home, merchant });
     }

@@ -6,26 +6,24 @@ use super::LettingGo;
 use crate::{
     hooks::HookFrame,
     objects::{
-        campaign::{classes, map_modes, outliner, unit_view},
+        campaign::{
+            classes,
+            map_manager::{LET_MAP_MODES_GO, LET_OUTLINER_GO},
+            map_modes, outliner, unit_view,
+        },
         gui::window as gui_window,
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-/// `(map modes' panel)`, `(outliner)`: let the map manager's map modes'
-/// panel and its outliner go, which its interface rebuild does before it
-/// makes them again, and the framework as the map manager goes.
-const LET_MAP_MODES_GO: usize = 0x81de20;
-const LET_OUTLINER_GO: usize = 0x81dc30;
 
 /// `(unit view, flags)`: the unit view's deleting destructor, its vtable's
 /// first slot, which the interface rebuild calls before it makes it again,
 /// and the framework as the map manager goes. `(map manager, window)`:
 /// takes a window off the map manager's windows.
 const UNIT_VIEW_DELETE: usize = 0x14719b0;
-pub(super) const TAKE_WINDOW_OFF: usize = 0x6ecc80;
+pub(super) const TAKE_WINDOW_OFF: GameFunction<2> = GameFunction::at(0x6ecc80);
 /// Where the unit view, making its selection's bar again, lets the old one
 /// go: off the map manager's windows, then killed.
 const SELECTION_BAR_MADE_AGAIN: usize = 0x1471540;
@@ -76,7 +74,7 @@ extern "C" fn unit_view_going(frame: *mut HookFrame) {
                 return Ok(());
             }
             m.write(view + unit_view::SELECTION_BAR, &0usize.to_le_bytes())?;
-            m.call(m.at(TAKE_WINDOW_OFF), &[m.ptr(view + unit_view::MAP_MANAGER)?, bar])?;
+            TAKE_WINDOW_OFF.call(&m, [m.ptr(view + unit_view::MAP_MANAGER)?, bar])?;
             m.call(m.vslot(bar, gui_window::KILL)?, &[bar])?;
             crate::Result::Ok(())
         })();

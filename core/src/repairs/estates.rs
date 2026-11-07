@@ -17,7 +17,7 @@ use super::LettingGo;
 use crate::{
     memory::Memory,
     objects::campaign::{countries as country_list, globals},
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::{
     collections::HashSet,
@@ -35,7 +35,7 @@ const ESTATE: usize = 0x1c56838;
 const MODIFIERS: [usize; 2] = [0x58, 0x70];
 /// An estate's modifier's class, and its deleting destructor.
 const MODIFIER: usize = 0x1cacf28;
-const MODIFIER_DELETE: usize = 0x7158b0;
+const MODIFIER_DELETE: GameFunction<2> = GameFunction::at(0x7158b0);
 
 /// The modifiers of the estates cleared, each with the returns there had
 /// been as it began to wait.
@@ -69,7 +69,7 @@ pub(super) fn world_clearing(m: &Memory) {
                 continue;
             }
             let _letting_go = LettingGo::new("estate's modifier");
-            m.call(m.at(MODIFIER_DELETE), &[modifier, 1])?;
+            MODIFIER_DELETE.call(m, [modifier, 1])?;
             DELETED.fetch_add(1, Ordering::Relaxed);
         }
         crate::Result::Ok(())

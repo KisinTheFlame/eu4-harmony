@@ -8,7 +8,7 @@ use crate::{
         classes, country as fields, country_diplomacy, idea_group, loan, rebel_faction, subject_relation, subject_type, technology, war, world as world_fields,
     },
     objects::list,
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::{
@@ -127,7 +127,7 @@ pub struct Relation {
 const MOST: usize = 4096;
 
 /// The maximum governing capacity: (country, out, modifier values, text).
-const MAX_GOVERNING_CAPACITY: usize = 0x3f2e10;
+const MAX_GOVERNING_CAPACITY: GameFunction<4> = GameFunction::at(0x3f2e10);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -347,7 +347,7 @@ fn governing_capacity(m: &Memory, c: usize) -> GResult<GoverningCapacity> {
     let values = modifiers::values(m, c)?;
     let mut max = 0i32;
     let out = &mut max as *mut i32 as usize;
-    if m.call(m.at(MAX_GOVERNING_CAPACITY), &[c, out, values, 0])? != out {
+    if MAX_GOVERNING_CAPACITY.call(m, [c, out, values, 0])? != out {
         return Err("governing capacity getter returned an unexpected pointer".to_string().into());
     }
     Ok(GoverningCapacity { used: thousandths(m.i32(c + fields::USED_GOVERNING_CAPACITY)?), max: thousandths(max) })

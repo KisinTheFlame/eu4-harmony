@@ -4,7 +4,12 @@
 //! (docs/research/leaders.md, "Hiring a mercenary company").
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
-use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    points::{GameFunction, Point},
+    unicode::game_text,
+};
 use eu4_harmony_remote::mercenaries::args;
 use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
@@ -24,15 +29,15 @@ const TEMPLATE_KEY: usize = 0x20;
 /// `(company, text)`: its name; `(company, int[3], country)`: its
 /// regiments by kind; `(company, int*, country, text or null)`: what hiring
 /// it costs and what it costs a month, in thousandths of a ducat.
-const NAME: usize = 0x8ffcb0;
-const REGIMENTS: usize = 0x900100;
-const HIRING_COST: usize = 0x900cb0;
-const UPKEEP: usize = 0x900660;
+const NAME: GameFunction<2> = GameFunction::at(0x8ffcb0);
+const REGIMENTS: GameFunction<3> = GameFunction::at(0x900100);
+const HIRING_COST: GameFunction<4> = GameFunction::at(0x900cb0);
+const UPKEEP: GameFunction<4> = GameFunction::at(0x900660);
 /// `(company, country, 1, text or null)`: whether the view lets the player
 /// hire it, anywhere, with the reasons; `(company, country, province, text
 /// or null)`: whether the player may hire it in that province.
-const MAY_HIRE: usize = 0x8ff0f0;
-const MAY_HIRE_THERE: usize = 0x8ff7b0;
+const MAY_HIRE: GameFunction<4> = GameFunction::at(0x8ff0f0);
+const MAY_HIRE_THERE: GameFunction<4> = GameFunction::at(0x8ff7b0);
 /// The most companies read.
 const MOST: i32 = 1000;
 
@@ -74,18 +79,18 @@ fn key(m: &Memory, company: usize) -> GResult<String> {
 }
 
 /// Thousandths the game writes into an int of the framework's.
-fn thousandths(m: &Memory, f: usize, company: usize, ctx: &Ctx) -> GResult<f64> {
+fn thousandths(m: &Memory, f: GameFunction<4>, company: usize, ctx: &Ctx) -> GResult<f64> {
     let mut out = 0i32;
-    m.call(m.at(f), &[company, &mut out as *mut i32 as usize, ctx.country, 0])?;
+    f.call(m, [company, &mut out as *mut i32 as usize, ctx.country, 0])?;
     Ok(out as f64 / 1000.0)
 }
 
 fn read(m: &Memory, ctx: &Ctx, company: usize) -> GResult<Company> {
-    let (_, name) = game_string::written(m, |t| m.call(m.at(NAME), &[company, t]))?;
+    let (_, name) = game_string::written(m, |t| NAME.call(m, [company, t]))?;
     let mut regiments = [0i32; 3];
-    m.call(m.at(REGIMENTS), &[company, regiments.as_mut_ptr() as usize, ctx.country])?;
+    REGIMENTS.call(m, [company, regiments.as_mut_ptr() as usize, ctx.country])?;
     let cost = vec![Amount::new(Resource::Ducats, thousandths(m, HIRING_COST, company, ctx)?)];
-    let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_HIRE), &[company, ctx.country, 1, t]))?;
+    let (may, text) = game_string::written(m, |t| MAY_HIRE.call(m, [company, ctx.country, 1, t]))?;
     Ok(Company {
         company: key(m, company)?,
         name: game_text::plain(&name),
@@ -113,7 +118,7 @@ pub fn hire(Session { m, ctx, commands, .. }: Session, args::Hire { company: wor
         return Err(checks::no_company(&word));
     };
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_HIRE_THERE), &[company, ctx.country, address, t]))?;
+    let (may, text) = game_string::written(m, |t| MAY_HIRE_THERE.call(m, [company, ctx.country, address, t]))?;
     let doing = format!("hire {word} there");
     if may as u8 == 0 {
         return Err(action::not_allowed(&doing, &super::reasons(&text)));

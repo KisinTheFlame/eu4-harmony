@@ -9,7 +9,7 @@ use crate::{
     memory::Memory,
     objects::campaign::{building, classes, construction, country, geometry, globals, map, province as field, terrain, unit_type},
     objects::list,
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::provinces::args;
@@ -242,27 +242,27 @@ pub fn acting_province(session: Session, id: u32) -> GResult<Snapshot> {
 
 /// The game's getters of a province's base tax, production and manpower, as
 /// triggers and the province window read them: (unused, out, province).
-const BASE_TAX: usize = 0x6de7a0;
-const BASE_PRODUCTION: usize = 0x6de830;
-const BASE_MANPOWER: usize = 0x6de8c0;
+const BASE_TAX: GameFunction<3> = GameFunction::at(0x6de7a0);
+const BASE_PRODUCTION: GameFunction<3> = GameFunction::at(0x6de830);
+const BASE_MANPOWER: GameFunction<3> = GameFunction::at(0x6de8c0);
 /// Whether a country can recruit a unit type in a province: (country,
 /// province, unit type, special kind, any province, check resources,
 /// reasons, ...), with the reasons appended to a `std::string`.
-const CAN_RECRUIT: usize = 0x346570;
+const CAN_RECRUIT: GameFunction<10> = GameFunction::at(0x346570);
 /// What the recruit command checks after it: (province, unit type); ships
 /// need the province's port.
-const RECRUIT_PLACE: usize = 0xa1fe50;
+const RECRUIT_PLACE: GameFunction<2> = GameFunction::at(0xa1fe50);
 /// The game's local autonomy and unrest as it shows them: (unused, out,
 /// province), as the scope values "local_autonomy" and "unrest".
-const AUTONOMY: usize = 0x6de950;
-const UNREST: usize = 0x6de660;
+const AUTONOMY: GameFunction<3> = GameFunction::at(0x6de950);
+const UNREST: GameFunction<3> = GameFunction::at(0x6de660);
 
 /// The most kinds of terrain or building believed.
 const MOST_KINDS: usize = 10_000;
 
 pub fn points() -> Vec<Point> {
     use crate::objects::campaign::countries;
-    let getter = |rva: usize, bytes: &'static str, what: &'static str, value: &'static [usize]| Point::keep(rva, bytes, what).uses(value);
+    let getter = |function: GameFunction<3>, bytes: &'static str, what: &'static str, value: &'static [usize]| Point::keep(function, bytes, what).uses(value);
     vec![
         getter(
             BASE_TAX,
@@ -409,7 +409,7 @@ fn snapshot(m: &Memory, ctx: &World, acting: Option<&Ctx>, address: usize, eyes:
 
 /// One of the province's scope values the game computes as it shows them:
 /// (unused, out, province), as [`base`].
-fn shown(m: &Memory, getter: usize, province: usize) -> GResult<i32> {
+fn shown(m: &Memory, getter: GameFunction<3>, province: usize) -> GResult<i32> {
     base(m, getter, province)
 }
 
@@ -526,10 +526,10 @@ fn text_at(m: &Memory, string: usize) -> GResult<String> {
 }
 
 /// One of the base development getters.
-fn base(m: &Memory, getter: usize, province: usize) -> GResult<i32> {
+fn base(m: &Memory, getter: GameFunction<3>, province: usize) -> GResult<i32> {
     let mut out = 0i32;
     let ptr = &mut out as *mut i32 as usize;
-    if m.call(m.at(getter), &[0, ptr, province])? != ptr {
+    if getter.call(m, [0, ptr, province])? != ptr {
         return Err("development getter returned an unexpected pointer".to_string().into());
     }
     Ok(out)
@@ -589,8 +589,8 @@ pub fn unit_type(m: &Memory, country_address: usize, kind: UnitKind) -> GResult<
 pub fn can_recruit(m: &Memory, ctx: &Ctx, province: usize, unit_type: usize) -> GResult<(bool, Vec<String>)> {
     // A regular unit (special kind 0), in a province of the country's own,
     // with its money, manpower and sailors checked.
-    let (checked, text) = game_string::written(m, |reasons| m.call(m.at(CAN_RECRUIT), &[ctx.country, province, unit_type, 0, 0, 1, reasons, 0, 0, 0]))?;
-    let allowed = checked as u8 != 0 && m.call(m.at(RECRUIT_PLACE), &[province, unit_type])? as u8 != 0;
+    let (checked, text) = game_string::written(m, |reasons| CAN_RECRUIT.call(m, [ctx.country, province, unit_type, 0, 0, 1, reasons, 0, 0, 0]))?;
+    let allowed = checked as u8 != 0 && RECRUIT_PLACE.call(m, [province, unit_type])? as u8 != 0;
     let reasons = game_text::plain(&text).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
     Ok((allowed, reasons))
 }

@@ -212,9 +212,9 @@ mod tests {
         let image = Image::new();
         let m = image.memory();
         // A global and a function of the game's, at RVAs points check.
-        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED, twice as *const ());
+        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED.rva(), twice as *const ());
         assert_eq!(m.i32(m.at(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0])).unwrap(), 7);
-        assert_eq!(m.call(m.at(super::super::IS_PAUSED), &[21]).unwrap(), 42);
+        assert_eq!(super::super::IS_PAUSED.call(m, [21]).unwrap(), 42);
     }
 
     #[test]

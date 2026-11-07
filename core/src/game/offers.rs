@@ -162,13 +162,13 @@ fn text(m: &Memory, window: usize, name: &str) -> GResult<String> {
         return Err("a dialog window with an unexpected lookup method".to_string().into());
     }
     let c = format!("{name}\0");
-    let found = m.call(m.at(gui_functions::FIND_TEXT), &[window, c.as_ptr() as usize])?;
+    let found = gui_functions::FIND_TEXT.call(m, [window, c.as_ptr() as usize])?;
     // A miss can come back as a shared fallback object: only a text box of
     // this name is it.
     if found == 0 || m.ptr(found)? != m.at(gui_classes::TEXT_BOX) || m.vslot(found, element::NAME)? != m.at(gui_functions::ELEMENT_NAME) {
         return Ok(String::new());
     }
-    if game_string::read(m, m.call(m.at(gui_functions::ELEMENT_NAME), &[found])?)? != name.as_bytes() {
+    if game_string::read(m, gui_functions::ELEMENT_NAME.call(m, [found])?)? != name.as_bytes() {
         return Ok(String::new());
     }
     Ok(game_text::plain(&game_string::read(m, found + text_box::TEXT)?))

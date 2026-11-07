@@ -19,7 +19,7 @@ use crate::{
         gui::{army_panel, button, callback, classes, element, event, functions, main_menu, signal, window},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
     splice::{Element, ElementKind},
     Result,
 };
@@ -37,12 +37,12 @@ const WINDOW_KILL: usize = 0x1547520;
 const WINDOW_DELETE: usize = 0x1546510;
 const MENU_FRAME: usize = 0x10d2e80;
 const TOOLTIP: usize = 0x1453b70;
-const TEXT_SET: usize = 0x152ae10;
-const SUBSCRIBE: usize = 0xfbe3f0;
-const SET_RIGHT_CLICK: usize = 0x1593860;
+const TEXT_SET: GameFunction<3> = GameFunction::at(0x152ae10);
+const SUBSCRIBE: GameFunction<2> = GameFunction::at(0xfbe3f0);
+const SET_RIGHT_CLICK: GameFunction<2> = GameFunction::at(0x1593860);
 const SHOW: usize = 0x15aeb30;
 const HIDE: usize = 0x15aead0;
-const SET_ENABLED: usize = 0xfaab30;
+const SET_ENABLED: GameFunction<2> = GameFunction::at(0xfaab30);
 
 /// A callback the framework subscribes to a button's signal (see
 /// [`callback`]).
@@ -139,21 +139,20 @@ pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
 
 /// The element of `name` in the window at `root`, through its method at
 /// `offset`, which must be `function`.
-fn lookup(m: &Memory, root: usize, (offset, function): (usize, usize), name: &str) -> Result<usize> {
+fn lookup(m: &Memory, root: usize, (offset, function): (usize, GameFunction<2>), name: &str) -> Result<usize> {
     if m.vslot(root, offset)? != m.at(function) {
         return Err("window has an unexpected lookup method".into());
     }
     let c = format!("{name}\0");
-    m.call(m.at(function), &[root, c.as_ptr() as usize])
+    function.call(m, [root, c.as_ptr() as usize])
 }
 
 /// Name an element reports, through the getter shared by all GUI element classes.
 fn element_name(m: &Memory, object: usize) -> Result<Vec<u8>> {
-    let getter = m.at(functions::ELEMENT_NAME);
-    if m.vslot(object, element::NAME)? != getter {
+    if m.vslot(object, element::NAME)? != m.at(functions::ELEMENT_NAME) {
         return Err("element has an unexpected name getter".into());
     }
-    game_string::read(m, m.call(getter, &[object])?)
+    game_string::read(m, functions::ELEMENT_NAME.call(m, [object])?)
 }
 
 fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Option<Bound>> {
@@ -233,12 +232,12 @@ fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<(
                 if m.ptr(b.signal)? != m.at(classes::SIGNAL) || m.u8(b.signal + signal::LISTENERS + list::CHANGING)? != 0 {
                     return Err("cannot unsubscribe from a changed or dispatching signal".to_string());
                 }
-                m.call(m.at(functions::UNSUBSCRIBE), &[b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
+                functions::UNSUBSCRIBE.call(m, [b.signal, b.wrapper.as_ref().unwrap().as_ptr() as usize])?;
                 if subscribed(m, b)? {
                     return Err("observer still subscribed after unsubscribe".into());
                 }
                 b.linked = false;
-                m.call(m.at(SET_RIGHT_CLICK), &[b.object, b.old_right_click as usize])?;
+                SET_RIGHT_CLICK.call(m, [b.object, b.old_right_click as usize])?;
             }
             Ok(())
         })();
@@ -279,11 +278,11 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
     for b in &mut binding.bound {
         if let Some(wrapper) = &b.wrapper {
             b.linked = true;
-            m.call(m.at(SUBSCRIBE), &[b.signal, wrapper.as_ptr() as usize])?;
+            SUBSCRIBE.call(m, [b.signal, wrapper.as_ptr() as usize])?;
             if !subscribed(m, b)? {
                 return Err("subscription did not register".into());
             }
-            m.call(m.at(SET_RIGHT_CLICK), &[b.object, 1])?;
+            SET_RIGHT_CLICK.call(m, [b.object, 1])?;
         }
     }
     log!("ui: bound {} element(s) in {host:?} {holder:#x}", binding.bound.len());
@@ -297,7 +296,7 @@ fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {
     if !bytes.is_empty() {
         game_string::append_checked(m, string.as_mut_ptr() as usize, bytes)?;
     }
-    m.call(m.at(TEXT_SET), &[object, string.as_mut_ptr() as usize, 0])?;
+    TEXT_SET.call(m, [object, string.as_mut_ptr() as usize, 0])?;
     Ok(())
 }
 
@@ -333,7 +332,7 @@ fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
                     if m.vslot(b.object, element::ENABLE)? != m.at(SET_ENABLED) {
                         return Err("button enable method changed".into());
                     }
-                    m.call(m.at(SET_ENABLED), &[b.object, enabled as usize])?;
+                    SET_ENABLED.call(m, [b.object, enabled as usize])?;
                     b.applied_enabled = Some(enabled);
                 }
             }
@@ -545,10 +544,10 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::WINDOW, window::KILL, WINDOW_KILL, "window kill method"),
         Point::method(classes::BUTTON, element::SHOW, SHOW, "button show method"),
         Point::method(classes::BUTTON, element::HIDE, HIDE, "button hide method"),
-        Point::method(classes::BUTTON, element::ENABLE, SET_ENABLED, "button enable method"),
-        Point::method(classes::BUTTON, button::SET_RIGHT_CLICK, SET_RIGHT_CLICK, "button right-click method"),
-        Point::method(classes::SIGNAL, signal::SUBSCRIBE, SUBSCRIBE, "signal subscribe method"),
-        Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, functions::UNSUBSCRIBE, "signal unsubscribe method"),
+        Point::method(classes::BUTTON, element::ENABLE, SET_ENABLED.rva(), "button enable method"),
+        Point::method(classes::BUTTON, button::SET_RIGHT_CLICK, SET_RIGHT_CLICK.rva(), "button right-click method"),
+        Point::method(classes::SIGNAL, signal::SUBSCRIBE, SUBSCRIBE.rva(), "signal subscribe method"),
+        Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, functions::UNSUBSCRIBE.rva(), "signal unsubscribe method"),
     ]
 }
 

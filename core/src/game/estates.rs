@@ -4,7 +4,11 @@
 //! (docs/research/government.md, "Estates").
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
-use crate::{memory::Memory, objects::campaign::country, points::Point};
+use crate::{
+    memory::Memory,
+    objects::campaign::country,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::estates::args;
 use eu4_harmony_remote::{
     choices::Choice,
@@ -45,19 +49,19 @@ const IS_VALID: usize = 0x588;
 /// `(entry, &tag, privilege, reasons) -> bool` and `(entry, tag, privilege,
 /// 0, reasons) -> bool`: whether the country may grant and revoke the
 /// privilege, writing why not into the `std::string` reasons.
-const CAN_GRANT: usize = 0x71edf0;
-const CAN_REVOKE: usize = 0x71f430;
+const CAN_GRANT: GameFunction<4> = GameFunction::at(0x71edf0);
+const CAN_REVOKE: GameFunction<5> = GameFunction::at(0x71f430);
 /// `(entry, out, modifier values) -> out`: the estate's influence, in
 /// thousandths, from the country's modifiers.
-const INFLUENCE: usize = 0x71a520;
+const INFLUENCE: GameFunction<3> = GameFunction::at(0x71a520);
 /// The crown land's interactions: `() -> object`, whose `+0x60` is their
 /// game array of 0x128-byte entries, each with its key; `(country,
 /// interaction, reasons) -> bool`, whether the country may use it.
-const CROWN_LAND: usize = 0x728430;
+const CROWN_LAND: GameFunction<0> = GameFunction::at(0x728430);
 const INTERACTIONS: usize = 0x58;
 const INTERACTION: usize = 0x128;
 const INTERACTION_KEY: usize = 0x18;
-const CAN_INTERACT: usize = 0x4128b0;
+const CAN_INTERACT: GameFunction<3> = GameFunction::at(0x4128b0);
 const MOST: usize = 10_000;
 
 pub fn points() -> Vec<Point> {
@@ -140,7 +144,7 @@ fn privilege_index(m: &Memory, privilege: usize) -> GResult<usize> {
 fn influence(m: &Memory, country: usize, entry: usize) -> GResult<i32> {
     let values = modifiers::values(m, country)?;
     let mut out = 0i32;
-    m.call(m.at(INFLUENCE), &[entry, &mut out as *mut i32 as usize, values])?;
+    INFLUENCE.call(m, [entry, &mut out as *mut i32 as usize, values])?;
     Ok(out)
 }
 
@@ -149,8 +153,8 @@ fn influence(m: &Memory, country: usize, entry: usize) -> GResult<i32> {
 fn choice(m: &Memory, player: Tag, entry: usize, privilege: usize, granted: bool) -> GResult<Choice> {
     let tag = player.0;
     let (can, reasons) = content::checked(m, |reasons| match granted {
-        false => Ok(m.call(m.at(CAN_GRANT), &[entry, &tag as *const u64 as usize, privilege, reasons])?),
-        true => Ok(m.call(m.at(CAN_REVOKE), &[entry, tag as usize, privilege, 0, reasons])?),
+        false => Ok(CAN_GRANT.call(m, [entry, &tag as *const u64 as usize, privilege, reasons])?),
+        true => Ok(CAN_REVOKE.call(m, [entry, tag as usize, privilege, 0, reasons])?),
     })?;
     Ok(if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
@@ -185,13 +189,13 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Estate>> {
 
 /// The crown land's interactions, by their entries.
 fn interactions(m: &Memory) -> GResult<Vec<usize>> {
-    let crown = m.call(m.at(CROWN_LAND), &[])?;
+    let crown = CROWN_LAND.call(m, [])?;
     let (data, count) = (m.ptr(crown + INTERACTIONS + content::ARRAY_DATA)?, content::bounded(m.i32(crown + INTERACTIONS + content::ARRAY_COUNT)?)?);
     Ok((0..count).map(|i| data + i * INTERACTION).collect())
 }
 
 fn interaction_choice(m: &Memory, country: usize, interaction: usize) -> GResult<Choice> {
-    let (can, reasons) = content::checked(m, |reasons| Ok(m.call(m.at(CAN_INTERACT), &[country, interaction, reasons])?))?;
+    let (can, reasons) = content::checked(m, |reasons| Ok(CAN_INTERACT.call(m, [country, interaction, reasons])?))?;
     Ok(if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) })
 }
 

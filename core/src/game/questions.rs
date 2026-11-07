@@ -11,7 +11,7 @@ use crate::{
         campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::questions::args;
@@ -19,17 +19,17 @@ use std::collections::BTreeSet;
 
 /// `(window, option)`: what clicking an option's button in an event window
 /// does: sends the game the command that chooses it and closes the window.
-const CHOOSE: usize = 0x10bc2d0;
+const CHOOSE: GameFunction<2> = GameFunction::at(0x10bc2d0);
 /// `(result, scope, key, tag)`: the text of a localisation key, with the
 /// scope's names filled in, as the event window shows it. Returns a
 /// `std::string` in `result`; takes `key`, a `std::string`, by value and
 /// destroys it; `tag` is [`NO_TAG`] wherever the game calls it.
-const LOCALIZE: usize = 0x10bc860;
+const LOCALIZE: GameFunction<4> = GameFunction::at(0x10bc860);
 /// `(event, result, scope)`: the localisation key of the event's description
 /// in the scope, a `std::string` in `result`.
-const DESCRIPTION_KEY: usize = 0x6edfb0;
+const DESCRIPTION_KEY: GameFunction<3> = GameFunction::at(0x6edfb0);
 /// `(option, scope)`: whether the player may choose the option, u8.
-const OPTION_OPEN: usize = 0x6f6b30;
+const OPTION_OPEN: GameFunction<2> = GameFunction::at(0x6f6b30);
 /// The map manager's method that shows one of the game's events to the
 /// player ([`campaign::map_manager::SHOW_EVENT`]): the window it makes is
 /// added to the popups, where questions are read from.
@@ -83,7 +83,7 @@ pub fn answer(Session { m, ctx, .. }: Session, args::Answer { question, option }
     if !may_choose(m, chosen, w.scope)? {
         return Err(checks::not_allowed(question, option));
     }
-    m.call(m.at(CHOOSE), &[w.address, option as usize])?;
+    CHOOSE.call(m, [w.address, option as usize])?;
     if m.u8(w.address + window::OPEN)? != 0 {
         return Err(format!("the event window of question {question} stayed open").into());
     }
@@ -176,7 +176,7 @@ fn options(m: &Memory, event: usize) -> GResult<Vec<usize>> {
 }
 
 fn may_choose(m: &Memory, option: usize, scope: usize) -> GResult<bool> {
-    Ok(m.call(m.at(OPTION_OPEN), &[option, scope])? as u8 != 0)
+    Ok(OPTION_OPEN.call(m, [option, scope])? as u8 != 0)
 }
 
 fn read(m: &Memory, w: &Window) -> GResult<Question> {
@@ -197,7 +197,7 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
 }
 
 fn description(m: &Memory, w: &Window) -> GResult<String> {
-    let (_, key) = game_string::written(m, |slot| m.call(m.at(DESCRIPTION_KEY), &[w.event, slot, w.scope]))?;
+    let (_, key) = game_string::written(m, |slot| DESCRIPTION_KEY.call(m, [w.event, slot, w.scope]))?;
     localize(m, w.scope, &key)
 }
 
@@ -209,7 +209,7 @@ fn localize(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     if !key.is_empty() {
         game_string::append_checked(m, argument.as_mut_ptr() as usize, key)?;
     }
-    let (_, text) = game_string::written(m, |slot| m.call(m.at(LOCALIZE), &[slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize]))?;
+    let (_, text) = game_string::written(m, |slot| LOCALIZE.call(m, [slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize]))?;
     Ok(game_text::plain(&text))
 }
 

@@ -7,7 +7,7 @@ use crate::{
     hooks::HookFrame,
     memory::Memory,
     objects::campaign::{classes, globals, map, map_manager, province},
-    points::Point,
+    points::{GameFunction, Point},
     Result,
 };
 use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
@@ -15,7 +15,7 @@ use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 const FILL: usize = 0x12fd9b0;
 const SECONDARY: usize = 0x12fdcb0;
 const RENDERER: usize = 0x10a8c30;
-const REFRESH: usize = 0x821ff0;
+const REFRESH: GameFunction<4> = GameFunction::at(0x821ff0);
 const PAINT_MODE: i32 = 12;
 const PAINT_OPTION: u32 = 26;
 
@@ -162,7 +162,7 @@ pub fn points() -> Vec<Point> {
         Point::observe(SECONDARY, "48 8b c4 89 50 10 55 53 56 57 41 54 41 55 41 56", "map secondary colors", 2, None, Some(secondary_after)),
         Point::observe(RENDERER, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "map renderer", 3, None, Some(renderer_after)),
         Point::keep(REFRESH, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 48", "map mode refresh"),
-        Point::method(classes::MAP_MANAGER, map_manager::REFRESH, REFRESH, "map mode refresh method"),
+        Point::method(classes::MAP_MANAGER, map_manager::REFRESH, REFRESH.rva(), "map mode refresh method"),
     ]
 }
 
@@ -177,7 +177,7 @@ fn manager(m: &Memory, ctx: &game::Ctx) -> GResult<usize> {
 /// Switches the map mode and confirms the hooks saw the full color pass.
 fn refresh(m: &Memory, manager: usize, mode: i32, require_color: bool) -> GResult<()> {
     with_state(|s| s.ticket = Some(Ticket { mode, ..Default::default() }));
-    let call = m.call(m.at(REFRESH), &[manager, mode as usize, 0, 1]);
+    let call = REFRESH.call(m, [manager, mode as usize, 0, 1]);
     let ticket = with_state(|s| s.ticket.take()).unwrap_or_default();
     call?;
     if m.i32(manager + map_manager::MODE)? != mode || !ticket.validated || !ticket.rendered || (require_color && !ticket.applied) || ticket.error.is_some() {

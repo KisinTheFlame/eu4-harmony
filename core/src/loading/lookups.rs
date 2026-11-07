@@ -16,7 +16,7 @@
 //! the framework cannot answer for certain (another folder, the framework's
 //! own folder, a name Windows would read otherwise), goes to the game's stat
 //! as before.
-use crate::points::{Function, Point};
+use crate::points::{Function, GameFunction, Point};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::Path;
@@ -30,7 +30,7 @@ const STAT: usize = 0x1a061d0;
 /// `PHYSFS_ERR_NOT_FOUND`) and set (`0x19f8510`).
 const STAT_FAILS: usize = 0x1a062a3;
 const NOT_FOUND_MADE: usize = 0x1a06a00;
-const SET_ERROR: usize = 0x19f8510;
+const SET_ERROR: GameFunction<1> = GameFunction::at(0x19f8510);
 const NOT_FOUND: usize = 0xb;
 
 pub fn points() -> Vec<Point> {
@@ -92,7 +92,7 @@ extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
         return game;
     }
     let m = crate::hooked_memory();
-    let _ = m.call(m.at(SET_ERROR), &[NOT_FOUND]);
+    let _ = SET_ERROR.call(&m, [NOT_FOUND]);
     let n = ANSWERED.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() && n >= 1024 {
         log!("lookups: {n} paths answered missing from the folders' listings");

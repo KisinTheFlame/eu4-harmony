@@ -6,7 +6,12 @@ use super::{
     power::{self, CAN_REDUCE_INFLATION, PROMOTE_MERCANTILISM, REDUCE_INFLATION},
     Ctx, GResult, Session,
 };
-use crate::{game_string, memory::Memory, objects::campaign::country, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::country,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     economy::{EconomyAction, EconomyOption},
@@ -14,22 +19,22 @@ use eu4_harmony_remote::{
 
 /// Whether the country may take a bank loan now: `(country, text)`, the
 /// text, when not null, given why not.
-const MAY_TAKE_LOAN: usize = 0x33e060;
+const MAY_TAKE_LOAN: GameFunction<2> = GameFunction::at(0x33e060);
 /// Whether the host's rule against ruining a nation keeps the country from
 /// loans now: `(country)`; until the date at [`RUIN_BLOCKED_UNTIL`].
-const RUIN_BLOCKED: usize = 0x3ed490;
+const RUIN_BLOCKED: GameFunction<1> = GameFunction::at(0x3ed490);
 const RUIN_BLOCKED_UNTIL: usize = 0x2738;
 /// A bank loan's size: how many months' income (a byte) times the income,
 /// in thousandths of ducats; at least 1000.
 const LOAN_SIZE: usize = 0x1105;
 const ESTIMATED_LOAN: usize = 0xe3c;
 /// Whether the country may reduce inflation now: `(country)`.
-const MAY_REDUCE_INFLATION: usize = 0x38d5a0;
+const MAY_REDUCE_INFLATION: GameFunction<2> = GameFunction::at(0x38d5a0);
 /// The modifier `may_not_reduce_inflation`.
 const MAY_NOT_REDUCE_INFLATION: usize = 0xf0;
 /// Whether the country may raise mercantilism now, and why not:
 /// `(country, text, cost text)`.
-const MAY_PROMOTE_MERCANTILISM: usize = 0x3f47a0;
+const MAY_PROMOTE_MERCANTILISM: GameFunction<3> = GameFunction::at(0x3f47a0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -71,13 +76,13 @@ fn loan_amount(m: &Memory, country: usize) -> GResult<i32> {
 fn take_loan(m: &Memory, ctx: &Ctx) -> GResult<EconomyOption> {
     let gives = vec![Amount::new(Resource::Ducats, loan_amount(m, ctx.country)? as f64)];
     let option = |choice| Ok(EconomyOption { action: EconomyAction::TakeLoan, choice, gives: gives.clone() });
-    let (may, why) = game_string::written(m, |out| m.call(m.at(MAY_TAKE_LOAN), &[ctx.country, out]))?;
+    let (may, why) = game_string::written(m, |out| MAY_TAKE_LOAN.call(m, [ctx.country, out]))?;
     if may & 0xff == 0 {
         let mut reasons = power::tooltip(m, c"NO_MORE_BANKLOANS", &[])?;
         reasons.extend(super::reasons(&why));
         return option(Choice::cannot(reasons, Vec::new()));
     }
-    if m.call(m.at(RUIN_BLOCKED), &[ctx.country])? & 0xff != 0 {
+    if RUIN_BLOCKED.call(m, [ctx.country])? & 0xff != 0 {
         let rule = crate::unicode::game_text::to_utf8(&game_string::localized(m, c"FE_BLOCK_NATION_RUINING".as_ptr() as usize)?);
         let until = power::date_text(m, m.i32(ctx.country + RUIN_BLOCKED_UNTIL)?)?;
         return option(Choice::cannot(power::tooltip(m, c"NO_NATION_RUINING_LOANS", &[(c"DATE", until), (c"OPTION", rule)])?, Vec::new()));
@@ -90,7 +95,7 @@ fn take_loan(m: &Memory, ctx: &Ctx) -> GResult<EconomyOption> {
 fn reduce_inflation(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
     let cost = power::cost(m, ctx.player, REDUCE_INFLATION, PowerKind::Adm, 0)?;
     let price = vec![Amount::new(Resource::Adm, cost as f64)];
-    if m.call(m.at(MAY_REDUCE_INFLATION), &[ctx.country, 0])? & 0xff != 0 {
+    if MAY_REDUCE_INFLATION.call(m, [ctx.country, 0])? & 0xff != 0 {
         return Ok(Choice::can(price));
     }
     let mut reasons = Vec::new();
@@ -114,7 +119,7 @@ fn reduce_inflation(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
 fn raise_mercantilism(m: &Memory, ctx: &Ctx) -> GResult<Choice> {
     let cost = power::cost(m, ctx.player, PROMOTE_MERCANTILISM, PowerKind::Dip, 0)?;
     let price = vec![Amount::new(Resource::Dip, cost as f64)];
-    let (may, why) = game_string::written(m, |out| m.call(m.at(MAY_PROMOTE_MERCANTILISM), &[ctx.country, out, 0]))?;
+    let (may, why) = game_string::written(m, |out| MAY_PROMOTE_MERCANTILISM.call(m, [ctx.country, out, 0]))?;
     Ok(if may & 0xff != 0 { Choice::can(price) } else { Choice::cannot(power::plain_lines(&why), price) })
 }
 

@@ -8,7 +8,7 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{country as country_fields, unit},
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::leaders::args;
@@ -20,16 +20,16 @@ use eu4_harmony_remote::{
 
 /// `(country, kind)`: whether the country may recruit a leader of the kind
 /// now, the check of the recruit command; no reasons.
-const CAN_RECRUIT: usize = 0x307370;
+const CAN_RECRUIT: GameFunction<2> = GameFunction::at(0x307370);
 /// `(tag by value, spending, 0, text or null)`: what a spending costs in
 /// whole monarch points; a leader's spending is 3 plus its kind.
-const POWER_COST: usize = 0x951980;
+const POWER_COST: GameFunction<4> = GameFunction::at(0x951980);
 const LEADER_SPENDING: usize = 3;
 /// `(leader, text)`: whether the leader may leave the unit it leads, with
 /// the tooltip's reasons; `(leader, unit, text)`: whether the unit may take
 /// it.
-const MAY_LEAVE: usize = 0x862a70;
-const MAY_TAKE: usize = 0x862fa0;
+const MAY_LEAVE: GameFunction<2> = GameFunction::at(0x862a70);
+const MAY_TAKE: GameFunction<3> = GameFunction::at(0x862fa0);
 /// The country's leaders, an intrusive list: head, its count; a node holds
 /// the leader at `+0`, the next node at `+0x10`.
 const LEADERS: usize = 0x1468;
@@ -139,7 +139,7 @@ fn dismiss_text(country: [u8; 3], leader: u64) -> String {
 
 /// What a kind of leader costs, in whole points of the power it is paid in.
 fn cost(m: &Memory, ctx: &Ctx, kind: LeaderKind) -> GResult<Amount> {
-    let points = m.call(m.at(POWER_COST), &[ctx.player.0 as usize, LEADER_SPENDING + index(kind), 0, 0])? as i32;
+    let points = POWER_COST.call(m, [ctx.player.0 as usize, LEADER_SPENDING + index(kind), 0, 0])? as i32;
     Ok(Amount::new(if naval(kind) { Resource::Dip } else { Resource::Mil }, points as f64))
 }
 
@@ -184,7 +184,7 @@ fn given(text: &str, name: &str, value: &str) -> String {
 fn option(m: &Memory, ctx: &Ctx, kind: LeaderKind) -> GResult<LeaderOption> {
     let amount = cost(m, ctx, kind)?;
     let cost = vec![amount];
-    if m.call(m.at(CAN_RECRUIT), &[ctx.country, index(kind)])? as u8 != 0 {
+    if CAN_RECRUIT.call(m, [ctx.country, index(kind)])? as u8 != 0 {
         return Ok(LeaderOption { kind, choice: Choice::can(cost) });
     }
     let field = if naval(kind) { country_fields::POWER_DIP } else { country_fields::POWER_MIL };
@@ -293,9 +293,9 @@ pub fn assign(Session { m, ctx, commands, .. }: Session, args::Assign { leader: 
     if naval(kind) == land {
         return Err(checks::wrong_unit(key(kind), land));
     }
-    let (leaves, text) = game_string::written(m, |t| m.call(m.at(MAY_LEAVE), &[leader, t]))?;
+    let (leaves, text) = game_string::written(m, |t| MAY_LEAVE.call(m, [leader, t]))?;
     let mut reasons = super::reasons(&text);
-    let (takes, text) = game_string::written(m, |t| m.call(m.at(MAY_TAKE), &[leader, unit, t]))?;
+    let (takes, text) = game_string::written(m, |t| MAY_TAKE.call(m, [leader, unit, t]))?;
     reasons.extend(super::reasons(&text));
     if leaves as u8 == 0 || takes as u8 == 0 {
         return Err(action::not_allowed("give this leader to this unit", &reasons));
@@ -310,7 +310,7 @@ pub fn remove(Session { m, ctx, commands, .. }: Session, args::Remove { army: Ar
     let unit = world::own_unit(m, &ctx, army)?;
     let leader = m.ptr(unit + UNIT_LEADER)?;
     if leader != 0 && m.ptr(leader + leader::UNIT)? == unit {
-        let (leaves, text) = game_string::written(m, |t| m.call(m.at(MAY_LEAVE), &[leader, t]))?;
+        let (leaves, text) = game_string::written(m, |t| MAY_LEAVE.call(m, [leader, t]))?;
         if leaves as u8 == 0 {
             return Err(action::not_allowed("take the leader from this unit", &super::reasons(&text)));
         }

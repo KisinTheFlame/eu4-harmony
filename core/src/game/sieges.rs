@@ -4,7 +4,11 @@
 //! player can and why not (docs/research/sieges.md).
 use super::units::checks;
 use super::{power, with_state, Ctx, GResult, Session, View};
-use crate::{game_string, memory::Memory, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::sieges::args;
 use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
@@ -16,9 +20,9 @@ use eu4_harmony_remote::{
 const SIEGE: usize = 0x388;
 /// `(country, siege, text or null)`: whether the country may order each,
 /// appending the tooltip's reasons, or its explanation when it may.
-const MAY_BOMBARD: usize = 0x4032f0;
-const MAY_NAVAL_BOMBARD: usize = 0x4038c0;
-const MAY_ASSAULT: usize = 0x381070;
+const MAY_BOMBARD: GameFunction<3> = GameFunction::at(0x4032f0);
+const MAY_NAVAL_BOMBARD: GameFunction<3> = GameFunction::at(0x4038c0);
+const MAY_ASSAULT: GameFunction<3> = GameFunction::at(0x381070);
 /// The siege view's buttons spend military points, with the province as
 /// the spending's first value.
 const POWER: PowerKind = PowerKind::Mil;
@@ -40,7 +44,7 @@ pub fn points() -> Vec<Point> {
 
 /// The siege view's three buttons: the capability, the spending's category,
 /// and the game's answer.
-const ACTIONS: [(&str, i32, usize); 3] = [("bombard", 37, MAY_BOMBARD), ("naval_bombard", 40, MAY_NAVAL_BOMBARD), ("assault", 9, MAY_ASSAULT)];
+const ACTIONS: [(&str, i32, GameFunction<3>); 3] = [("bombard", 37, MAY_BOMBARD), ("naval_bombard", 40, MAY_NAVAL_BOMBARD), ("assault", 9, MAY_ASSAULT)];
 
 /// The siege in a province, or the refusal; in the player's view none in a
 /// province fog of war hides.
@@ -61,9 +65,9 @@ fn cost(m: &Memory, ctx: &Ctx, category: i32, province: u32) -> GResult<Amount> 
     Ok(Amount::new(Resource::Mil, points as f64))
 }
 
-fn action(m: &Memory, ctx: &Ctx, siege: usize, province: u32, (name, category, may): (&str, i32, usize)) -> GResult<SiegeAction> {
+fn action(m: &Memory, ctx: &Ctx, siege: usize, province: u32, (name, category, may): (&str, i32, GameFunction<3>)) -> GResult<SiegeAction> {
     let cost = vec![cost(m, ctx, category, province)?];
-    let (can, text) = game_string::written(m, |t| m.call(m.at(may), &[ctx.country, siege, t]))?;
+    let (can, text) = game_string::written(m, |t| may.call(m, [ctx.country, siege, t]))?;
     let choice = if can as u8 != 0 { Choice::can(cost) } else { Choice::cannot(super::reasons(&text), cost) };
     Ok(SiegeAction { action: name.into(), choice })
 }

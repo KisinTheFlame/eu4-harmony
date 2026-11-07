@@ -300,7 +300,7 @@ pub(super) fn let_go(m: &Memory) {
                 continue;
             }
             let id = m.u64(person + ID)?;
-            if m.call(m.at(FIND_ID), &[&id as *const u64 as usize])? == person {
+            if FIND_ID.call(m, [&id as *const u64 as usize])? == person {
                 PERSONS_KEPT.fetch_add(1, Ordering::Relaxed);
                 continue;
             }

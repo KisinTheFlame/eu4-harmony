@@ -46,7 +46,7 @@ use crate::{
         campaign::{load_request, map_manager as manager_fields, world},
         gui,
     },
-    points::{Function, Point},
+    points::{Function, GameFunction, Point},
     repairs, sessions,
     unicode::game_text,
 };
@@ -61,18 +61,18 @@ use super::{
 };
 
 /// `(request) -> u32`: the in-game load (see [`Loaded`]).
-const IN_GAME_LOAD: usize = 0x5d0580;
+const IN_GAME_LOAD: GameFunction<1> = GameFunction::at(0x5d0580);
 /// `(map manager, save)`: the world reset of an in-game load; with `save`
 /// set it writes the ironman exit save first.
-const RESET: usize = 0x826c20;
+const RESET: GameFunction<2> = GameFunction::at(0x826c20);
 /// `()`: the ironman exit save, of an ironman session only.
-const EXIT_SAVE: usize = 0x5cc160;
+const EXIT_SAVE: GameFunction<0> = GameFunction::at(0x5cc160);
 /// `(save request) -> u32`: writes a save, 0 when it was written.
 const WRITE_SAVE: usize = 0x5cbde0;
 /// `(map manager)`: what the load question does once the load returned.
-const AFTER_LOAD: usize = 0x824810;
+const AFTER_LOAD: GameFunction<1> = GameFunction::at(0x824810);
 /// `()`: what the load question puts in [`load_request::CONTEXT`].
-const LOAD_CONTEXT: usize = 0x8bf160;
+const LOAD_CONTEXT: GameFunction<0> = GameFunction::at(0x8bf160);
 /// Where the load question looks its text up, `CONFIRMLOADSAVETEXT` with
 /// the save's name, which `rdi` points at; and what follows.
 const QUESTION_TEXT: usize = 0x11be26e;
@@ -96,22 +96,22 @@ const RETURN_EXIT_SAVE_DONE: usize = 0x815cc8;
 const RESTART: usize = 0x14c2500;
 /// `(memory, application::MAIN_MENU_ARGS, application)`: makes the main
 /// menu, of this size.
-const MAIN_MENU: usize = 0x10d23c0;
+const MAIN_MENU: GameFunction<4> = GameFunction::at(0x10d23c0);
 const MAIN_MENU_SIZE: usize = 0xb48;
 /// `(application, &idler, keep)`: the application's idler switch, at its
 /// next frame; with `keep` clear it lets the idler it leaves go.
-const SWITCH_IDLER: usize = 0x14c2530;
+const SWITCH_IDLER: GameFunction<3> = GameFunction::at(0x14c2530);
 /// `(main menu)`: the main menu taking over at the idler switch, its method
 /// at `+0x30`. As at startup, it presents a frame of the loading screen, a
 /// painting over the whole screen (docs/research/main-menu.md).
 const TAKE_OVER: usize = 0x10d5bc0;
 /// `(task)`: waits for a task of the game's to be done.
-const WAIT_TASK: usize = 0x17139c0;
+const WAIT_TASK: GameFunction<1> = GameFunction::at(0x17139c0);
 /// `(application)`: the continue information from the newest save.
-const CONTINUE: usize = 0x212810;
+const CONTINUE: GameFunction<1> = GameFunction::at(0x212810);
 /// `(application, without history)`: the world reset as a new start finds
 /// it; it reads the game's history unless told not to.
-const RESET_GAME: usize = 0x210000;
+const RESET_GAME: GameFunction<2> = GameFunction::at(0x210000);
 /// The single player setup's back button, where it asks for the restart
 /// itself (`mov word ptr [application + 0x83], 0x101`, the application in
 /// `rbx`); and what follows.
@@ -137,7 +137,7 @@ extern "C" fn save_written(frame: *mut HookFrame) {
 /// Writes the ironman exit save, and says why when it was not written.
 pub(super) fn exit_save(m: &Memory) -> Result<(), String> {
     let before = WRITTEN.lock().unwrap_or_else(|e| e.into_inner()).0;
-    m.call(m.at(EXIT_SAVE), &[]).map_err(|e| format!("the ironman exit save faulted: {e}"))?;
+    EXIT_SAVE.call(m, []).map_err(|e| format!("the ironman exit save faulted: {e}"))?;
     let (count, result) = *WRITTEN.lock().unwrap_or_else(|e| e.into_inner());
     match (count > before, result) {
         (true, 0) => Ok(()),
@@ -219,7 +219,7 @@ pub(super) fn load(m: &Memory, request: usize) -> u32 {
     log!("leave: the in-game load answered {:?}, {}; {}", Loaded::of(code), took.end(), crate::heap::split());
     if SETUP_SAVE_WAITED.swap(false, Ordering::Relaxed) {
         log!("leave: the save the game makes as it sets the loaded ironman session up, now that the load let its file go");
-        if let Err(e) = m.call(m.at(EXIT_SAVE), &[]) {
+        if let Err(e) = EXIT_SAVE.call(m, []) {
             log!("leave: that save faulted: {e}");
         }
     }
@@ -318,12 +318,12 @@ pub(super) fn load_in_game(m: &Memory, name: &str) -> Result<u32, String> {
     let at = request.as_mut_ptr() as usize;
     game_string::append_checked(m, at + load_request::NAME, name.as_bytes())?;
     request[load_request::MAP_MANAGER / 8] = manager;
-    let context = m.call(m.at(LOAD_CONTEXT), &[]);
+    let context = LOAD_CONTEXT.call(m, []);
     let loaded = context.and_then(|context| {
         request[load_request::CONTEXT / 8] = context;
-        m.call(m.at(IN_GAME_LOAD), &[at])
+        IN_GAME_LOAD.call(m, [at])
     });
-    let after = loaded.is_ok().then(|| m.call(m.at(AFTER_LOAD), &[manager]));
+    let after = loaded.is_ok().then(|| AFTER_LOAD.call(m, [manager]));
     let destroyed = game_string::destroy_checked(m, at + load_request::NAME);
     let code = loaded?;
     after.transpose()?;
@@ -372,7 +372,7 @@ fn in_process_return(m: &Memory, app: usize) -> crate::Result<()> {
     // written already. It still uses the session's interface, which goes
     // with the map manager.
     let took = Took::begin();
-    m.call(m.at(RESET), &[manager, 0])?;
+    RESET.call(m, [manager, 0])?;
     log!("leave: the world reset with the history, {}", took.end());
     sessions::reset_with_history();
     interface.let_go_with_map_manager(m)?;
@@ -405,16 +405,16 @@ fn main_menu(m: &Memory, app: usize) -> crate::Result<()> {
     if memory == 0 {
         return Err("no memory for the main menu".into());
     }
-    m.call(m.at(MAIN_MENU), &[memory, first, second, app])?;
+    MAIN_MENU.call(m, [memory, first, second, app])?;
     let mut idler = memory;
-    m.call(m.at(SWITCH_IDLER), &[app, &mut idler as *mut usize as usize, 0])?;
+    SWITCH_IDLER.call(m, [app, &mut idler as *mut usize as usize, 0])?;
     RETURNED.store(true, Ordering::Relaxed);
     // The continue box offers the save the game wrote last, as after a restart.
     let task = m.ptr(app + application::CONTINUE_TASK)?;
     if task != 0 {
-        m.call(m.at(WAIT_TASK), &[task])?;
+        WAIT_TASK.call(m, [task])?;
     }
-    m.call(m.at(CONTINUE), &[app])?;
+    CONTINUE.call(m, [app])?;
     Ok(())
 }
 
@@ -453,7 +453,7 @@ extern "C" fn setup_back(app: usize) -> bool {
         crate::framework_ui::still("EU4HARMONY_STILL_RETURN");
         let m = crate::hooked_memory();
         let took = Took::begin();
-        let back = m.call(m.at(RESET_GAME), &[app, 0]).and_then(|_| {
+        let back = RESET_GAME.call(&m, [app, 0]).and_then(|_| {
             log!("leave: the single player setup was left; the world reset with the history, {}", took.end());
             sessions::reset_with_history();
             main_menu(&m, app)

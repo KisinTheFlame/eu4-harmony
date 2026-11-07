@@ -14,7 +14,11 @@
 //! return has taken the session's interface down after they began to wait
 //! ([`super::session_interface::RETURNS`]).
 use super::LettingGo;
-use crate::{hooks::HookFrame, memory::Memory, points::Point};
+use crate::{
+    hooks::HookFrame,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Mutex,
@@ -31,7 +35,7 @@ const NODES: usize = 0;
 const NO_NODE: usize = 0x2462c90;
 /// A node's class, and its deleting destructor, which deletes its routes.
 const NODE: usize = 0x1ce9460;
-const NODE_DELETE: usize = 0xb50d60;
+const NODE_DELETE: GameFunction<2> = GameFunction::at(0xb50d60);
 
 /// The nodes of the databases replaced, each with the returns there had
 /// been as it began to wait.
@@ -87,7 +91,7 @@ pub(super) fn world_clearing(m: &Memory) {
                 continue;
             }
             let _letting_go = LettingGo::new("trade node");
-            m.call(m.at(NODE_DELETE), &[node, 1])?;
+            NODE_DELETE.call(m, [node, 1])?;
             DELETED.fetch_add(1, Ordering::Relaxed);
         }
         crate::Result::Ok(())
@@ -111,7 +115,7 @@ pub(super) fn points() -> Vec<Point> {
         // It lets the vector of nodes go, at the database's start (NODES), not
         // the nodes.
         Point::keep(0xb6832dusize, "48 8b cb e8 8b 67 52 ff", "trade node database's nodes let go"),
-        Point::method(NODE, 0, NODE_DELETE, "trade node deleting destructor"),
+        Point::method(NODE, 0, NODE_DELETE.rva(), "trade node deleting destructor"),
         Point::keep(0xb60aa0usize, "48 8d 05 e9 21 90 01", "the trade node that is none").uses(&[NO_NODE]),
     ]
 }

@@ -82,7 +82,7 @@ pub mod world;
 use crate::{
     memory::Memory,
     objects::campaign::{self, countries as country_list, country as country_fields, globals, map_manager, pause, tag},
-    points::Point,
+    points::{GameFunction, Point},
 };
 use eu4_harmony_remote::events::Kind;
 use std::sync::Mutex;
@@ -354,7 +354,7 @@ fn named(tag: Tag) -> eu4_harmony_remote::CountryTag {
     eu4_harmony_remote::CountryTag(tag.letters())
 }
 
-const IS_PAUSED: usize = 0x7e01b0;
+const IS_PAUSED: GameFunction<1> = GameFunction::at(0x7e01b0);
 
 pub const MAX_PROVINCES: usize = 50_000;
 pub const MAX_UNITS: usize = 100_000;
@@ -582,7 +582,7 @@ pub fn paused(m: &Memory, ctx: &impl InWorld) -> GResult<bool> {
     if m.ptr(pause + pause::MANAGER)? != manager {
         return Err("unexpected pause owner".to_string().into());
     }
-    Ok(m.call(m.at(IS_PAUSED), &[pause])? as u8 != 0)
+    Ok(IS_PAUSED.call(m, [pause])? as u8 != 0)
 }
 
 /// The world's map manager, checked by its class.
@@ -598,7 +598,7 @@ pub fn map_manager(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
 /// buttons find it: the map manager's method answers it
 /// (`objects::session`).
 pub fn command_session(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
-    let session = m.call(m.at(crate::objects::session::OF_MAP_MANAGER), &[map_manager(m, ctx)?])?;
+    let session = crate::objects::session::OF_MAP_MANAGER.call(m, [map_manager(m, ctx)?])?;
     if session == 0 || m.ptr(session)? != m.at(crate::objects::session::CLASS) {
         return Err("the map manager has no session".to_string().into());
     }

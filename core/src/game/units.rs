@@ -10,7 +10,7 @@ use crate::{
         campaign::{classes, unit},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use eu4_harmony_remote::armies::args;
 use eu4_harmony_remote::ArmyList;
@@ -19,13 +19,13 @@ use eu4_harmony_remote::{armies::ArmyAction, choices::Choice, ArmyId};
 /// `(country, units, text or null, 0)`: whether the units in a game list
 /// (head, tail, count; nodes with the unit at `+0`) may merge, with the
 /// tooltip's reasons.
-const MAY_MERGE: usize = 0x342f60;
+const MAY_MERGE: GameFunction<4> = GameFunction::at(0x342f60);
 /// `(country, unit, text or null)`: whether the unit may be disbanded.
-const MAY_DISBAND: usize = 0x3428c0;
+const MAY_DISBAND: GameFunction<3> = GameFunction::at(0x3428c0);
 /// `(army, text or null, u8*)`: whether the army may drill.
-const MAY_DRILL: usize = 0xd40ce0;
+const MAY_DRILL: GameFunction<3> = GameFunction::at(0xd40ce0);
 /// `(unit, _)`: whether the unit may be split; no reasons.
-const MAY_SPLIT: usize = 0xd63fc0;
+const MAY_SPLIT: GameFunction<2> = GameFunction::at(0xd63fc0);
 /// A unit's method `(unit, leave empty ones, text or null)`: whether it may
 /// consolidate its regiments.
 const MAY_CONSOLIDATE: usize = 0x148;
@@ -177,16 +177,16 @@ fn may_merge(m: &Memory, ctx: &Ctx, units: &[usize]) -> GResult<Choice> {
     m.write(h + list::HEAD, &(addresses.first().copied().unwrap_or(0) as u64).to_le_bytes())?;
     m.write(h + list::TAIL, &(addresses.last().copied().unwrap_or(0) as u64).to_le_bytes())?;
     m.write(h + list::COUNT, &(units.len() as i32).to_le_bytes())?;
-    answered(m, |t| m.call(m.at(MAY_MERGE), &[ctx.country, h, t, 0]))
+    answered(m, |t| MAY_MERGE.call(m, [ctx.country, h, t, 0]))
 }
 
 fn may_split(m: &Memory, unit: usize) -> GResult<Choice> {
-    let can = m.call(m.at(MAY_SPLIT), &[unit, 0])? as u8 != 0 && regiments(m, unit)? > 1;
+    let can = MAY_SPLIT.call(m, [unit, 0])? as u8 != 0 && regiments(m, unit)? > 1;
     Ok(if can { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) })
 }
 
 fn may_disband(m: &Memory, ctx: &Ctx, unit: usize) -> GResult<Choice> {
-    answered(m, |t| m.call(m.at(MAY_DISBAND), &[ctx.country, unit, t]))
+    answered(m, |t| MAY_DISBAND.call(m, [ctx.country, unit, t]))
 }
 
 fn may_consolidate(m: &Memory, unit: usize) -> GResult<Choice> {
@@ -196,7 +196,7 @@ fn may_consolidate(m: &Memory, unit: usize) -> GResult<Choice> {
 
 fn may_drill(m: &Memory, unit: usize) -> GResult<Choice> {
     let mut out = 0u8;
-    answered(m, |t| m.call(m.at(MAY_DRILL), &[unit, t, &mut out as *mut u8 as usize]))
+    answered(m, |t| MAY_DRILL.call(m, [unit, t, &mut out as *mut u8 as usize]))
 }
 
 /// Whether a command the panel posts would pass the game's check now, as a

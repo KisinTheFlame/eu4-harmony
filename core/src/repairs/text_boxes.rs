@@ -5,7 +5,7 @@
 use crate::{
     hooks::HookFrame,
     objects::gui::{classes as gui_classes, element, text_box},
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// by their first slots. `(element, animation)`: puts an animation on an
 /// element's animations, owned by it, or marks it owned there.
 const TEXT_BOX_DESTRUCTOR: usize = 0x152aaf0;
-const OWN_ANIMATION: usize = 0x15529e0;
+const OWN_ANIMATION: GameFunction<2> = GameFunction::at(0x15529e0);
 
 /// The text boxes' animations handed to their elements since the last world
 /// reset, for the log.
@@ -45,7 +45,7 @@ extern "C" fn text_box_going(frame: *mut HookFrame) {
         let owned = (|| {
             let animation = m.ptr(boxed + text_box::ANIMATION)?;
             if animation != 0 {
-                m.call(m.at(OWN_ANIMATION), &[boxed, animation])?;
+                OWN_ANIMATION.call(&m, [boxed, animation])?;
                 TEXT_BOX_ANIMATIONS.fetch_add(1, Ordering::Relaxed);
             }
             crate::Result::Ok(())

@@ -15,7 +15,12 @@
 //! the game (prototype-log.md, "Which holders keep the windows killed at a
 //! return"); here only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
-use crate::{hooks::HookFrame, memory::Memory, objects::gui::window as gui_window, points::Point};
+use crate::{
+    hooks::HookFrame,
+    memory::Memory,
+    objects::gui::window as gui_window,
+    points::{GameFunction, Point},
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The windows killed so since the last world reset, for the log.
@@ -73,10 +78,10 @@ fn this(frame: *mut HookFrame) -> usize {
 const SETUP_DESTRUCTOR: usize = 0x110cdf0;
 const SETUP_START_PANEL: usize = 0x2ca8;
 const START_PANEL: usize = 0x1d7ff70;
-const START_PANEL_DELETE: usize = 0x13b68e0;
+const START_PANEL_DELETE: GameFunction<2> = GameFunction::at(0x13b68e0);
 const START_PANEL_IRONMAN_CHOOSER: usize = 0x298;
 const IRONMAN_CHOOSER: usize = 0x1d7ff88;
-const IRONMAN_CHOOSER_DELETE: usize = 0x13b7910;
+const IRONMAN_CHOOSER_DELETE: GameFunction<2> = GameFunction::at(0x13b7910);
 
 extern "C" fn setup_going(frame: *mut HookFrame) {
     let setup = this(frame);
@@ -92,10 +97,10 @@ extern "C" fn setup_going(frame: *mut HookFrame) {
         let chooser = m.ptr(panel + START_PANEL_IRONMAN_CHOOSER)?;
         if chooser != 0 && m.ptr(chooser)? == m.at(IRONMAN_CHOOSER) {
             m.write(panel + START_PANEL_IRONMAN_CHOOSER, &0usize.to_le_bytes())?;
-            m.call(m.at(IRONMAN_CHOOSER_DELETE), &[chooser, 1])?;
+            IRONMAN_CHOOSER_DELETE.call(m, [chooser, 1])?;
             KILLED.fetch_add(1, Ordering::Relaxed);
         }
-        m.call(m.at(START_PANEL_DELETE), &[panel, 1])?;
+        START_PANEL_DELETE.call(m, [panel, 1])?;
         KILLED.fetch_add(1, Ordering::Relaxed);
         Ok(())
     });
@@ -150,12 +155,12 @@ const LIST_BOX_ENTRIES: usize = 0xe0;
 const LIST_BOX_NODE_NEXT: usize = 0x10;
 const ENTRY_PART: usize = 0x38;
 const LIST_BOX_DETACH_SLOT: usize = 0x48;
-const LIST_BOX_DETACH: usize = 0x1530640;
+const LIST_BOX_DETACH: GameFunction<1> = GameFunction::at(0x1530640);
 const LIST_BOX_PART: usize = 8;
 const LIST_BOX_PART_CLASS: usize = 0x1d90840;
 const LIST_BOX_TOLD: usize = 0x60;
 const SET_TOLD_SLOT: usize = 0x220;
-const SET_TOLD: usize = 0xfbf490;
+const SET_TOLD: GameFunction<2> = GameFunction::at(0xfbf490);
 
 extern "C" fn build_interface_going(frame: *mut HookFrame) {
     let interface = this(frame);
@@ -185,11 +190,11 @@ extern "C" fn build_interface_going(frame: *mut HookFrame) {
                     node = m.ptr(node + LIST_BOX_NODE_NEXT)?;
                 }
                 if theirs {
-                    m.call(m.at(LIST_BOX_DETACH), &[list_box])?;
+                    LIST_BOX_DETACH.call(m, [list_box])?;
                 }
                 let part = list_box + LIST_BOX_PART;
                 if within(m.ptr(list_box + LIST_BOX_TOLD)?) && m.vslot(part, SET_TOLD_SLOT)? == m.at(SET_TOLD) {
-                    m.call(m.at(SET_TOLD), &[part, 0])?;
+                    SET_TOLD.call(m, [part, 0])?;
                 }
             }
         }
@@ -264,7 +269,7 @@ const GOVERNMENT_VIEW_DELETE: usize = 0xf33470;
 const GOVERNMENT_VIEW: usize = 0x1d41a48;
 const GOVERNMENT_REFORM_SELECT: usize = 0x500;
 const REFORM_SELECT: usize = 0x1d52598;
-const REFORM_SELECT_DELETE: usize = 0x1056d90;
+const REFORM_SELECT_DELETE: GameFunction<2> = GameFunction::at(0x1056d90);
 const REFORM_SELECT_DELETE_SLOT: usize = 8;
 const REFORM_SELECT_WINDOW: usize = 0x10;
 /// `(lobby, flags)`: the in-game lobby's deleting destructor; its window's
@@ -305,7 +310,7 @@ extern "C" fn government_view_going(frame: *mut HookFrame) {
         }
         m.write(view + GOVERNMENT_REFORM_SELECT, &0usize.to_le_bytes())?;
         kill_field(m, select, REFORM_SELECT_WINDOW)?;
-        m.call(m.at(REFORM_SELECT_DELETE), &[select, 1])?;
+        REFORM_SELECT_DELETE.call(m, [select, 1])?;
         Ok(())
     });
 }
@@ -326,7 +331,7 @@ extern "C" fn hot_join_going(frame: *mut HookFrame) {
         let request = m.ptr(hot_join + HOT_JOIN_REQUEST)?;
         if request != 0 {
             m.write(hot_join + HOT_JOIN_REQUEST, &0usize.to_le_bytes())?;
-            m.call(m.at(TAKE_WINDOW_OFF), &[m.ptr(hot_join + HOT_JOIN_MAP_MANAGER)?, request])?;
+            TAKE_WINDOW_OFF.call(m, [m.ptr(hot_join + HOT_JOIN_MAP_MANAGER)?, request])?;
             kill(m, request)?;
         }
         Ok(())
@@ -347,7 +352,7 @@ extern "C" fn hot_join_gone(_frame: *mut HookFrame) {
 const PROVINCE_VIEW_DELETE: usize = 0x1343bd0;
 const PROVINCE_VIEW: usize = 0x1d79470;
 const PROVINCE_VIEW_COLONISATION: usize = 0x2f0;
-const COLONISATION_DELETE: usize = 0xe31150;
+const COLONISATION_DELETE: GameFunction<2> = GameFunction::at(0xe31150);
 const COLONISATION: usize = 0x1d2a028;
 const COLONISATION_WINDOW: usize = 0x558;
 
@@ -368,7 +373,7 @@ extern "C" fn province_view_going(frame: *mut HookFrame) {
             return Err(format!("{panel:#x} is not a colonisation panel"));
         }
         m.write(view + PROVINCE_VIEW_COLONISATION, &0usize.to_le_bytes())?;
-        m.call(m.at(COLONISATION_DELETE), &[panel, 1])?;
+        COLONISATION_DELETE.call(m, [panel, 1])?;
         Ok(())
     });
 }
@@ -395,7 +400,7 @@ const SUMMARY_DELETE: usize = 0x1088cc0;
 const SUMMARY: usize = 0x1d562b0;
 const SUMMARY_STATS: usize = 0x1b8;
 const STATS: usize = 0x1d284c8;
-const STATS_DELETE: usize = 0xe25030;
+const STATS_DELETE: GameFunction<2> = GameFunction::at(0xe25030);
 const STATS_WINDOW: usize = 0x28;
 
 extern "C" fn summary_going(frame: *mut HookFrame) {
@@ -413,7 +418,7 @@ extern "C" fn summary_going(frame: *mut HookFrame) {
         }
         m.write(summary + SUMMARY_STATS, &0usize.to_le_bytes())?;
         kill_field(m, stats, STATS_WINDOW)?;
-        m.call(m.at(STATS_DELETE), &[stats, 1])?;
+        STATS_DELETE.call(m, [stats, 1])?;
         Ok(())
     });
 }
@@ -431,9 +436,9 @@ extern "C" fn summary_going(frame: *mut HookFrame) {
 /// (`+0x1448`), shortcut picker (`+0x1460`, its window at `+8`) and
 /// flagship designer (`+0x1430`, its window at `+0x570`).
 const COUNTRY_HISTORY: usize = 0x12b8;
-const CLOSE_COUNTRY_HISTORY: usize = 0x1045640;
+const CLOSE_COUNTRY_HISTORY: GameFunction<1> = GameFunction::at(0x1045640);
 const PAPACY: usize = 0x1298;
-const CLOSE_PAPACY: usize = 0x12d0a80;
+const CLOSE_PAPACY: GameFunction<1> = GameFunction::at(0x12d0a80);
 const RIGHT_CLICK_MENU: usize = 0x1448;
 /// The diplomatic message icons' window, among the map manager's windows.
 const MESSAGE_ICONS_WINDOW: usize = 0x1410;
@@ -449,14 +454,14 @@ pub(super) fn map_manager_going(manager: usize) {
         for (field, close) in [(COUNTRY_HISTORY, CLOSE_COUNTRY_HISTORY), (PAPACY, CLOSE_PAPACY)] {
             let panel = m.ptr(manager + field)?;
             if panel != 0 && m.ptr(panel)? != 0 {
-                m.call(m.at(close), &[panel])?;
+                close.call(m, [panel])?;
                 kill_field(m, panel, 0)?;
             }
         }
         let icons = m.ptr(manager + MESSAGE_ICONS_WINDOW)?;
         if icons != 0 {
             m.write(manager + MESSAGE_ICONS_WINDOW, &0usize.to_le_bytes())?;
-            m.call(m.at(TAKE_WINDOW_OFF), &[manager, icons])?;
+            TAKE_WINDOW_OFF.call(m, [manager, icons])?;
             kill(m, icons)?;
         }
         let designer = m.ptr(manager + FLAGSHIP_DESIGNER)?;
@@ -486,13 +491,13 @@ pub(super) fn points() -> Vec<Point> {
         )
         .uses(&[SETUP_START_PANEL]),
         Point::keep(0x13b6860usize, "e8 bb 0d 00 00 90 48 89 87 98 02 00 00", "the start panel's ironman save chooser").uses(&[START_PANEL_IRONMAN_CHOOSER]),
-        Point::method(START_PANEL, 0, START_PANEL_DELETE, "start panel deleting destructor"),
+        Point::method(START_PANEL, 0, START_PANEL_DELETE.rva(), "start panel deleting destructor"),
         Point::keep(
             START_PANEL_DELETE,
             "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 8b f2 48 8b f9 48 8d 05 75 96 9c 00 48 89 01 48 8b 89 90 02 00",
             "start panel deleting destructor",
         ),
-        Point::method(IRONMAN_CHOOSER, 0, IRONMAN_CHOOSER_DELETE, "ironman save chooser deleting destructor"),
+        Point::method(IRONMAN_CHOOSER, 0, IRONMAN_CHOOSER_DELETE.rva(), "ironman save chooser deleting destructor"),
         Point::keep(
             IRONMAN_CHOOSER_DELETE,
             "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 8b f2 48 8b f9 48 8d 05 5d 86 9c 00 48 89 01 48 8b 49 38 48 85",
@@ -559,13 +564,13 @@ pub(super) fn points() -> Vec<Point> {
         Point::keep(0x1530c9fusize, "4c 8b d0 4c 8d 4e 38 33 c0 48 85 f6 49 89 42 10 4c 0f 44 c8 41 88 42 18 4d 89 0a 49 89 7a 08", "list box's entry added")
             .uses(&[ENTRY_PART, LIST_BOX_NODE_NEXT]),
         Point::keep(0x1200c05usize, "48 8b 43 20 48 8b 80 e0 00 00 00 48 85 c0 74 25 41 b8 41 00 00 00", "tab's list box's entries").uses(&[LIST_BOX_ENTRIES]),
-        Point::method(LIST_BOX, LIST_BOX_DETACH_SLOT, LIST_BOX_DETACH, "list box detaches its entries"),
+        Point::method(LIST_BOX, LIST_BOX_DETACH_SLOT, LIST_BOX_DETACH.rva(), "list box detaches its entries"),
         Point::keep(
             LIST_BOX_DETACH,
             "40 57 48 83 ec 20 48 8b f9 48 81 c1 f8 00 00 00 48 8b 01 ff 50 48 48 8b 8f e0 00 00 00 48 85 c9 74 29",
             "list box detaches its entries",
         ),
-        Point::method(LIST_BOX_PART_CLASS, SET_TOLD_SLOT, SET_TOLD, "list box part sets what it tells"),
+        Point::method(LIST_BOX_PART_CLASS, SET_TOLD_SLOT, SET_TOLD.rva(), "list box part sets what it tells"),
         Point::keep(SET_TOLD, "48 89 51 58 c3", "list box part sets what it tells").uses(&[LIST_BOX_TOLD - LIST_BOX_PART]),
         Point::observe(
             TRADE_INTERFACE_DELETE,
@@ -632,7 +637,7 @@ pub(super) fn points() -> Vec<Point> {
         Point::method(GOVERNMENT_VIEW, 0, GOVERNMENT_VIEW_DELETE, "government view deleting destructor method"),
         Point::keep(0xf34603usize, "e8 e8 21 12 00 90 48 89 86 00 05 00 00 48 8b 48 18", "government view's reform chooser").uses(&[GOVERNMENT_REFORM_SELECT]),
         Point::keep(0x1056718usize, "48 8b 4a 58 48 8b 01 49 8b d0 ff 50 48 49 89 46 10", "reform chooser's window").uses(&[REFORM_SELECT_WINDOW]),
-        Point::method(REFORM_SELECT, REFORM_SELECT_DELETE_SLOT, REFORM_SELECT_DELETE, "reform chooser deleting destructor"),
+        Point::method(REFORM_SELECT, REFORM_SELECT_DELETE_SLOT, REFORM_SELECT_DELETE.rva(), "reform chooser deleting destructor"),
         Point::keep(
             REFORM_SELECT_DELETE,
             "48 89 5c 24 08 57 48 83 ec 20 48 8b f9 8b da 48 81 c1 e0 00 00 00 e8 35 00 00 00",
@@ -683,7 +688,7 @@ pub(super) fn points() -> Vec<Point> {
             Some(colonisation_going),
             Some(colonisation_gone),
         ),
-        Point::method(COLONISATION, 0, COLONISATION_DELETE, "colonisation panel deleting destructor method"),
+        Point::method(COLONISATION, 0, COLONISATION_DELETE.rva(), "colonisation panel deleting destructor method"),
         // It takes its window off the map manager's windows, and kills it not.
         Point::keep(0xe31191usize, "48 8b 96 58 05 00 00 48 8b 8e 50 05 00 00 e8 dc ba 8b ff", "colonisation panel's window taken off")
             .uses(&[COLONISATION_WINDOW]),
@@ -698,7 +703,7 @@ pub(super) fn points() -> Vec<Point> {
         Point::method(SUMMARY, 0, SUMMARY_DELETE, "summary deleting destructor method"),
         Point::keep(0x10888c6usize, "ff 50 48 48 8b c8 48 89 47 28 48 8b 00 48 8d 15 3e 08 c3 00 ff 50 68", "summary statistics' window").uses(&[STATS_WINDOW]),
         Point::keep(0x10888eeusize, "90 48 89 be b8 01 00 00", "summary's statistics").uses(&[SUMMARY_STATS]),
-        Point::method(STATS, 0, STATS_DELETE, "summary statistics deleting destructor"),
+        Point::method(STATS, 0, STATS_DELETE.rva(), "summary statistics deleting destructor"),
         Point::keep(STATS_DELETE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 8b fa 48 8b f1 48 81 c1 a8 00 00 00", "summary statistics deleting destructor"),
         // The map manager's, let go as it goes.
         Point::keep(
