@@ -307,27 +307,9 @@ fn descriptions_in_json() {
 
 #[test]
 fn kinds_from_text() {
-    let all = [
-        Kind::Country,
-        Kind::Province,
-        Kind::Army,
-        Kind::Date,
-        Kind::Integer,
-        Kind::Boolean,
-        Kind::Text,
-        Kind::UnitKind,
-        Kind::Provinces,
-        Kind::Button,
-        Kind::Direction,
-        Kind::Keys,
-        Kind::Countries,
-        Kind::Words,
-        Kind::PowerKind,
-        Kind::Armies,
-        Kind::Terms,
-    ];
-    for kind in all {
+    for &kind in Kind::ALL {
         assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
+        assert!(kind.json(kind.example()).is_some(), "{}'s example {} is not one", kind.name(), kind.example());
     }
     assert_eq!(sample(Kind::Province), json!(151));
     assert_eq!(sample(Kind::Army), json!("4294967377"));

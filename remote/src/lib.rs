@@ -502,162 +502,139 @@ pub fn capability(name: &str) -> Option<&'static Capability> {
     INDEX.get_or_init(|| capabilities().into_iter().map(|c| (c.name(), c)).collect()).get(name)
 }
 
-/// What kind of value an argument is, which says how to write it in JSON.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Kind {
+/// Declares every kind of argument once, one line each: its name as a
+/// description writes it, an example as text, the Rust types that are
+/// arguments of it, the shape Lua passes it in, and how text such as a
+/// command line's becomes its JSON. [`Kind`], its methods, [`Kind::ALL`] and
+/// each type's [`ArgKind`] come from these lines.
+macro_rules! kinds {
+    ($( $(#[doc = $doc:literal])* $Kind:ident $name:literal $example:literal ($($ty:ty),*) => $shape:expr, $json:expr; )*) => {
+        /// What kind of value an argument is, which says how to write it in JSON.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+        pub enum Kind {
+            $( $(#[doc = $doc])* #[serde(rename = $name)] $Kind, )*
+        }
+
+        impl Kind {
+            /// Every kind.
+            pub const ALL: &[Kind] = &[$(Kind::$Kind),*];
+
+            /// Its name, as a description writes it.
+            pub fn name(self) -> &'static str {
+                match self {
+                    $( Self::$Kind => $name, )*
+                }
+            }
+
+            /// A value of the kind, as text.
+            pub fn example(self) -> &'static str {
+                match self {
+                    $( Self::$Kind => $example, )*
+                }
+            }
+
+            /// A value of the kind written as text, such as on a command line, in
+            /// JSON: a number for a province or an integer, `true` or `false` for a
+            /// boolean, the text itself for the rest. None when the text cannot be
+            /// one; whether it names something that exists is the request's to say.
+            pub fn json(self, text: &str) -> Option<Value> {
+                match self {
+                    $( Self::$Kind => {
+                        let json: fn(&str) -> Option<Value> = $json;
+                        json(text)
+                    } )*
+                }
+            }
+
+            /// A value of the kind as Lua passes it, which the editor's types write:
+            /// the shape of the argument's own type where it has one, so that a
+            /// term's fields, a unit kind's words, are its type's.
+            pub fn shape(self) -> Shape {
+                match self {
+                    $( Self::$Kind => $shape, )*
+                }
+            }
+        }
+
+        $( $( impl ArgKind for $ty { const KIND: Kind = Kind::$Kind; } )* )*
+    };
+}
+
+kinds! {
     /// A country tag, such as `"FRA"`.
-    Country,
+    Country "country" "FRA" (CountryTag) => Shape::Text, text;
     /// A province number.
-    Province,
+    Province "province" "151" (ProvinceId) => Shape::Integer, integer;
     /// An army ID as a decimal string.
-    Army,
+    Army "army" "4294967377" (ArmyId) => Shape::Integer, text;
     /// A date, such as `"1444.11.11"`.
-    Date,
-    Integer,
-    Boolean,
-    Text,
+    Date "date" "1444.11.11" (Date) => Shape::Either(vec![Shape::Date, Shape::Text]), text;
+    Integer "integer" "3" (u32, u64, i32) => Shape::Integer, integer;
+    Boolean "boolean" "true" (bool) => Shape::Boolean, |text| text.parse().ok().map(Value::Bool);
+    Text "text" "text" (String) => Shape::Text, text;
     /// A kind of regiment or ship, such as `"infantry"` (see
     /// [`recruiting::UnitKind`]).
-    UnitKind,
+    UnitKind "unit_kind" "infantry" (recruiting::UnitKind) => recruiting::UnitKind::shape(), word::<recruiting::UnitKind>;
     /// Allies to call to arms: `"all"`, `"none"` or a list of tags, such as
     /// `["DUL", "CND"]`, which a command line writes `DUL,CND` (see
     /// [`diplomacy::CallAllies`]).
-    Allies,
+    Allies "allies" "DUL,CND" (diplomacy::CallAllies) => Shape::Either(vec![Shape::Words(vec!["all", "none"]), list(Shape::Text)]),
+        |text| diplomacy::CallAllies::parse(text).ok().and_then(|allies| serde_json::to_value(allies).ok());
     /// Province numbers, such as `[151, 152]`, which a command line writes
     /// `151,152` (see [`ProvinceList`]).
-    Provinces,
+    Provinces "provinces" "151,152" (ProvinceList) => list(Shape::Integer), |text| listed(text, |word| word.parse::<u32>().ok().map(Value::from));
     /// A mouse button: `"left"`, `"right"` or `"middle"` (see
     /// [`input::Button`]).
-    Button,
+    Button "button" "left" (input::Button) => input::Button::shape(), word::<input::Button>;
     /// Which way the mouse wheel turns: `"up"`, `"down"`, `"left"` or
     /// `"right"` (see [`input::Direction`]).
-    Direction,
+    Direction "direction" "up" (input::Direction) => input::Direction::shape(), word::<input::Direction>;
     /// A key, or keys pressed together joined with `+`, such as `"ctrl+s"`
     /// (see [`input::Keys`]).
-    Keys,
+    Keys "keys" "ctrl+s" (input::Keys) => Shape::Text, |text| input::Keys::parse(text).ok().map(|keys| Value::String(keys.to_string()));
     /// Country tags, such as `["FRA", "ENG"]`, which a command line writes
     /// `FRA,ENG` (see [`CountryList`]).
-    Countries,
+    Countries "countries" "FRA,ENG" (CountryList) => list(Shape::Text), |text| listed(text, |word| CountryTag::parse(word).map(|tag| Value::String(tag.to_string())));
     /// Words, such as content keys or the names of events, `["day",
     /// "month"]`, which a command line writes `day,month` (see [`Words`]).
-    Words,
+    Words "words" "day,month" (Words) => list(Shape::Text), |text| listed(text, |word| Some(word).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())));
     /// A kind of monarch power: `"adm"`, `"dip"` or `"mil"` (see
     /// [`choices::PowerKind`]).
-    PowerKind,
+    PowerKind "power_kind" "adm" (choices::PowerKind) => choices::PowerKind::shape(), word::<choices::PowerKind>;
     /// Army IDs, such as `["4294967377", "4294967378"]`, which a command
     /// line writes `4294967377,4294967378` (see [`ArmyList`]).
-    Armies,
+    Armies "armies" "4294967377,4294967378" (ArmyList) => list(Shape::Integer),
+        |text| listed(text, |word| Some(word).filter(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit())).map(|w| Value::String(w.into())));
     /// Peace treaty terms, a list of objects such as
     /// `[{"term":"demand_provinces","province":236}]`, which a command line
     /// writes as that JSON text (see [`peace::Terms`]).
-    Terms,
+    Terms "terms" r#"[{"term":"humiliate"}]"# (peace::Terms) => Vec::<peace::Term>::shape(),
+        |text| peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok());
 }
 
-impl Kind {
-    /// Its name, as a description writes it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Country => "country",
-            Self::Province => "province",
-            Self::Army => "army",
-            Self::Date => "date",
-            Self::Integer => "integer",
-            Self::Boolean => "boolean",
-            Self::Text => "text",
-            Self::UnitKind => "unit_kind",
-            Self::Allies => "allies",
-            Self::Provinces => "provinces",
-            Self::Button => "button",
-            Self::Direction => "direction",
-            Self::Keys => "keys",
-            Self::Countries => "countries",
-            Self::Words => "words",
-            Self::PowerKind => "power_kind",
-            Self::Armies => "armies",
-            Self::Terms => "terms",
-        }
-    }
+/// The text itself, as JSON.
+fn text(text: &str) -> Option<Value> {
+    Some(Value::String(text.into()))
+}
 
-    /// A value of the kind, as text.
-    pub fn example(self) -> &'static str {
-        match self {
-            Self::Country => "FRA",
-            Self::Province => "151",
-            Self::Army => "4294967377",
-            Self::Date => "1444.11.11",
-            Self::Integer => "3",
-            Self::Boolean => "true",
-            Self::Text => "text",
-            Self::UnitKind => "infantry",
-            Self::Allies => "DUL,CND",
-            Self::Provinces => "151,152",
-            Self::Button => "left",
-            Self::Direction => "up",
-            Self::Keys => "ctrl+s",
-            Self::Countries => "FRA,ENG",
-            Self::Words => "day,month",
-            Self::PowerKind => "adm",
-            Self::Armies => "4294967377,4294967378",
-            Self::Terms => r#"[{"term":"humiliate"}]"#,
-        }
-    }
+/// A whole number, as JSON.
+fn integer(text: &str) -> Option<Value> {
+    serde_json::from_str::<serde_json::Number>(text).ok().filter(|n| n.is_i64() || n.is_u64()).map(Value::Number)
+}
 
-    /// A value of the kind written as text, such as on a command line, in
-    /// JSON: a number for a province or an integer, `true` or `false` for a
-    /// boolean, the text itself for the rest. None when the text cannot be
-    /// one; whether it names something that exists is the request's to say.
-    pub fn json(self, text: &str) -> Option<Value> {
-        match self {
-            Self::Province | Self::Integer => serde_json::from_str::<serde_json::Number>(text).ok().filter(|n| n.is_i64() || n.is_u64()).map(Value::Number),
-            Self::Boolean => text.parse().ok().map(Value::Bool),
-            Self::Country | Self::Army | Self::Date | Self::Text => Some(Value::String(text.into())),
-            Self::UnitKind => serde_json::from_value::<recruiting::UnitKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
-            Self::Allies => diplomacy::CallAllies::parse(text).ok().and_then(|allies| serde_json::to_value(allies).ok()),
-            Self::Provinces => text.split(',').map(|word| word.trim().parse::<u32>().ok().map(Value::from)).collect::<Option<Vec<_>>>().map(Value::Array),
-            Self::Button => serde_json::from_value::<input::Button>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
-            Self::Direction => serde_json::from_value::<input::Direction>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
-            Self::Keys => input::Keys::parse(text).ok().map(|keys| Value::String(keys.to_string())),
-            Self::Countries => text
-                .split(',')
-                .map(|word| CountryTag::parse(word.trim()).map(|tag| Value::String(tag.to_string())))
-                .collect::<Option<Vec<_>>>()
-                .map(Value::Array),
-            Self::Words => text
-                .split(',')
-                .map(|word| Some(word.trim()).filter(|w| !w.is_empty()).map(|w| Value::String(w.into())))
-                .collect::<Option<Vec<_>>>()
-                .map(Value::Array),
-            Self::PowerKind => serde_json::from_value::<choices::PowerKind>(Value::String(text.into())).ok().map(|_| Value::String(text.into())),
-            Self::Armies => text
-                .split(',')
-                .map(|word| Some(word.trim()).filter(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit())).map(|w| Value::String(w.into())))
-                .collect::<Option<Vec<_>>>()
-                .map(Value::Array),
-            Self::Terms => peace::Terms::parse(text).ok().and_then(|terms| serde_json::to_value(terms).ok()),
-        }
-    }
+/// The text, when it is one of the words `T` is written as.
+fn word<T: de::DeserializeOwned>(text: &str) -> Option<Value> {
+    serde_json::from_value::<T>(Value::String(text.into())).ok().map(|_| Value::String(text.into()))
+}
 
-    /// A value of the kind as Lua passes it, which the editor's types write:
-    /// the shape of the argument's own type where it has one, so that a
-    /// term's fields, a unit kind's words, are its type's.
-    pub fn shape(self) -> Shape {
-        let list = |inner: Shape| Shape::List(Box::new(inner));
-        match self {
-            Self::Country | Self::Text | Self::Keys => Shape::Text,
-            Self::Province | Self::Integer | Self::Army => Shape::Integer,
-            Self::Date => Shape::Either(vec![Shape::Date, Shape::Text]),
-            Self::Boolean => Shape::Boolean,
-            Self::UnitKind => recruiting::UnitKind::shape(),
-            Self::Button => input::Button::shape(),
-            Self::Direction => input::Direction::shape(),
-            Self::PowerKind => choices::PowerKind::shape(),
-            Self::Allies => Shape::Either(vec![Shape::Words(vec!["all", "none"]), list(Shape::Text)]),
-            Self::Provinces | Self::Armies => list(Shape::Integer),
-            Self::Countries | Self::Words => list(Shape::Text),
-            Self::Terms => Vec::<peace::Term>::shape(),
-        }
-    }
+/// Words joined with commas, each as `each` writes it.
+fn listed(text: &str, each: impl Fn(&str) -> Option<Value>) -> Option<Value> {
+    text.split(',').map(|word| each(word.trim())).collect::<Option<Vec<_>>>().map(Value::Array)
+}
+
+/// A list of `inner`.
+fn list(inner: Shape) -> Shape {
+    Shape::List(Box::new(inner))
 }
 
 /// The kind of a Rust type used as an argument.
@@ -668,34 +645,6 @@ pub trait ArgKind {
     fn absent(&self) -> bool {
         false
     }
-}
-
-macro_rules! arg_kind {
-    ($($ty:ty => $kind:ident),* $(,)?) => {
-        $( impl ArgKind for $ty { const KIND: Kind = Kind::$kind; } )*
-    };
-}
-arg_kind! {
-    CountryTag => Country,
-    ProvinceId => Province,
-    ArmyId => Army,
-    Date => Date,
-    u32 => Integer,
-    u64 => Integer,
-    i32 => Integer,
-    bool => Boolean,
-    String => Text,
-    recruiting::UnitKind => UnitKind,
-    diplomacy::CallAllies => Allies,
-    ProvinceList => Provinces,
-    input::Button => Button,
-    input::Direction => Direction,
-    input::Keys => Keys,
-    CountryList => Countries,
-    Words => Words,
-    choices::PowerKind => PowerKind,
-    ArmyList => Armies,
-    peace::Terms => Terms,
 }
 
 impl<T: ArgKind> ArgKind for Option<T> {
