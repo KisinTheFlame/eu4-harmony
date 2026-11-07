@@ -72,9 +72,10 @@ pub trait Machine {
     fn kill_game(&self);
     /// Waits for `eu4.exe` to end, a minute at most.
     fn wait_closed(&self) -> Result<()>;
-    /// Starts the game hidden from `game_dir`, waiting up to `wait` for its
-    /// main menu: its process id, and the seconds it took.
-    fn start_game(&self, game_dir: &Path, sound: bool, wait: Duration) -> Result<(u32, f64)>;
+    /// Starts the game hidden from `game_dir`, with the game's `-seed` when
+    /// `seed` gives one, waiting up to `wait` for its main menu: its process
+    /// id, and the seconds it took.
+    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)>;
 
     /// Makes the claim's `folder`, with the player's files and the game
     /// folder's framework files in it; removes the `kept\` of claims
@@ -238,10 +239,10 @@ impl Machine for ThisComputer {
         game::wait_closed()
     }
 
-    fn start_game(&self, game_dir: &Path, sound: bool, wait: Duration) -> Result<(u32, f64)> {
+    fn start_game(&self, game_dir: &Path, sound: bool, seed: Option<u32>, wait: Duration) -> Result<(u32, f64)> {
         let log = eu4_harmony_manifest::user_dir(Some(game_dir))?.join("eu4-harmony").join("logs").join("core.log");
         let began = std::time::Instant::now();
-        let id = eu4_harmony_client::start::start(game_dir, &log, true, sound, wait)?;
+        let id = eu4_harmony_client::start::start(game_dir, &log, true, sound, seed, wait)?;
         Ok((id, began.elapsed().as_secs_f64()))
     }
 

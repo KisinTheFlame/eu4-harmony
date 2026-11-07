@@ -28,7 +28,7 @@ usage:
       another.
   cargo xtask game claim --purpose <text> [--wait] [--lease <minutes>] [--owner <name>]
   cargo xtask game claim --player [--now]
-  cargo xtask game start [--visible] [--sound] [--timeout <seconds>]
+  cargo xtask game start [--visible] [--sound] [--seed <n>] [--timeout <seconds>]
   cargo xtask game stop | release [--keep-crashes] | renew | watch [--warn 5] | status
       The claim: one holder of this computer's game at a time
       (docs/game-testing.md). claim backs up the player's files and copies
@@ -37,7 +37,7 @@ usage:
       and returns once it holds the game. start starts the game hidden and
       without sound and waits for its main menu, ending a start that does
       not get there; --visible shows its window there, --sound keeps its
-      sound. stop ends it. release ends the game, keeps the logs and the run's crash
+      sound, --seed passes the game its own -seed=<n>. stop ends it. release ends the game, keeps the logs and the run's crash
       folders in the claim's kept\\, puts back the player's files and the
       game folder's, and frees the game. watch, run in the background by the
       holder, exits with 3 when the lease (30 minutes unless --lease says
