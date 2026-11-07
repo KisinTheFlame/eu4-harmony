@@ -29,9 +29,11 @@
 //! (`crate::sessions`): after the reset several of them act and all say what
 //! they did, and its first frame lets go what had to wait for it.
 mod coalitions;
+mod estates;
 mod histories;
 mod history_lists;
 mod interface_parts;
+mod list_entries;
 mod masks;
 mod modifiers;
 mod names;
@@ -128,6 +130,8 @@ const REPAIRS: &[Repair] = &[
     text_boxes::REPAIR,
     sprite_types::REPAIR,
     trade_nodes::REPAIR,
+    estates::REPAIR,
+    list_entries::REPAIR,
 ];
 
 /// What every repair that counts let go since the last world reset, one
