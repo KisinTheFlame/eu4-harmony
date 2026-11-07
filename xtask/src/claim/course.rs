@@ -6,7 +6,7 @@
 //! that the order of its writes of the record against what it does to the
 //! game and the files is what the tests below follow.
 use super::machine::{Framework, Machine};
-use super::record::{self, Asking, Found, Process, Record, Seen};
+use super::record::{self, Asking, Found, GameEnd, Process, Record, Seen};
 use crate::Result;
 use std::{
     path::{Path, PathBuf},
@@ -313,9 +313,13 @@ pub fn release<M: Machine>(m: &M, owner: &str, game_dir: &Path, keep_crashes: bo
             if held.player {
                 return Err("eu4.exe is running; close it first".into());
             }
+            // Followed before it is ended, so that its end is seen.
+            let folder = held.folder.as_deref().map(Path::new);
+            folder.inspect(|f| follow_games(m, f, false));
             m.say("ending the game");
             m.kill_game();
             m.wait_closed()?;
+            folder.inspect(|f| follow_games(m, f, false));
         }
         crashed = put_back(m, &held, game_dir, keep_crashes)?;
         Ok(())
@@ -325,6 +329,14 @@ pub fn release<M: Machine>(m: &M, owner: &str, game_dir: &Path, keep_crashes: bo
         return Ok(());
     }
     m.say("released: the game is free");
+    let mut ends: Vec<GameEnd> = Vec::new();
+    for end in held.folder.as_deref().map(|f| m.ends(Path::new(f))).unwrap_or_default() {
+        if !ends.iter().any(|e| e.game == end.game) {
+            ends.push(end);
+        }
+    }
+    ends.iter().for_each(|end| m.say(&end.describe()));
+    crashed |= ends.iter().any(GameEnd::crashed);
     if !held.player {
         let since = held.folder.as_deref().and_then(|f| m.made_at(Path::new(f))).unwrap_or(held.renewed);
         let minutes = m.now().saturating_sub(since) / 60;
@@ -375,7 +387,26 @@ fn keep(owner: &str, held: &mut Option<Record>, seen: &Seen, started: impl Fn(u3
 /// is still `owner`'s.
 fn keep_going<M: Machine>(m: &M, owner: &str) -> Result<Option<Record>> {
     let seen = seen(m);
-    m.locked(|s| keep(owner, &mut s.held, &seen, |id| m.process(id)))
+    let held = m.locked(|s| keep(owner, &mut s.held, &seen, |id| m.process(id)))?;
+    if let Some(folder) = held.as_ref().and_then(|h| h.folder.as_deref()) {
+        follow_games(m, Path::new(folder), true);
+    }
+    Ok(held)
+}
+
+/// Follows the games that run, so that how each ends can be told, and adds
+/// those that have ended to the record in the claim's `folder`, saying each
+/// when `say`: the game's exit code is the one sign of a crash that bypasses
+/// its crash handler, such as heap corruption, which leaves no crash folder.
+fn follow_games<M: Machine>(m: &M, folder: &Path, say: bool) {
+    let ends = m.game_ends();
+    if ends.is_empty() {
+        return;
+    }
+    m.note_ends(folder, &ends);
+    if say {
+        ends.iter().for_each(|end| m.say(&end.describe()));
+    }
 }
 
 /// One look at `owner`'s claim by the process keeping it going, which keeps
@@ -682,6 +713,9 @@ mod tests {
         while_backing_up: Meanwhile,
         /// Done once, while the player's files are put back.
         while_putting_back: Meanwhile,
+        /// The ends the next look at the games sees, and those noted.
+        ending: RefCell<Vec<GameEnd>>,
+        noted: RefCell<Vec<GameEnd>>,
     }
 
     fn machine(now: u64, held: Option<Record>, games: &[Process]) -> Recorded {
@@ -697,6 +731,8 @@ mod tests {
             lost: Vec::new(),
             while_backing_up: RefCell::default(),
             while_putting_back: RefCell::default(),
+            ending: RefCell::default(),
+            noted: RefCell::default(),
         }
     }
 
@@ -797,6 +833,15 @@ mod tests {
             } else {
                 Err("eu4.exe did not end".into())
             }
+        }
+        fn game_ends(&self) -> Vec<GameEnd> {
+            self.ending.take()
+        }
+        fn note_ends(&self, _: &Path, ends: &[GameEnd]) {
+            self.noted.borrow_mut().extend_from_slice(ends);
+        }
+        fn ends(&self, _: &Path) -> Vec<GameEnd> {
+            self.noted.borrow().clone()
         }
         fn start_game(&self, _: &Path, _: bool, _: Option<u32>, _: Duration) -> Result<(u32, f64)> {
             self.did(Did::Start);
@@ -1112,6 +1157,30 @@ mod tests {
         m.state.borrow_mut().held.as_mut().unwrap().taken = Some(100);
         assert_eq!(look(&m, "a"), Ok(Look::Taken));
         assert_eq!(look(&m, "b"), Ok(Look::Gone));
+    }
+
+    #[test]
+    fn a_game_seen_to_end_badly_is_noted_and_its_release_says_the_game_crashed() {
+        let end = |id, code| GameEnd { game: Process { id, started: 4 }, seen: "03:12:41".into(), code };
+        let m = machine(100, Some(complete("a", 0)), &[GAME]);
+        m.ending.borrow_mut().push(end(40, 0xc000_0374));
+        look(&m, "a").unwrap();
+        assert!(m.said_line("eu4.exe 40 had ended by 03:12:41: heap corruption"));
+        // The release ends the game it started next, and sees that end too;
+        // the watch's seeing the first again is said once.
+        m.noted.borrow_mut().push(end(40, 0xc000_0374));
+        m.ending.borrow_mut().push(end(41, 1));
+        m.forget();
+        release_as(&m, "a").unwrap();
+        let said = m.said();
+        assert_eq!(said.iter().filter(|l| l.starts_with("eu4.exe 40 ")).count(), 1);
+        assert!(m.said_line("eu4.exe 41 had ended by 03:12:41: ended by game stop"));
+        assert!(said.iter().any(|l| l.ends_with("the game crashed")), "{said:?}");
+
+        let m = machine(100, Some(complete("a", 0)), &[GAME]);
+        m.ending.borrow_mut().push(end(40, 1));
+        release_as(&m, "a").unwrap();
+        assert!(m.said().iter().any(|l| l.ends_with("the game did not crash")));
     }
 
     #[test]

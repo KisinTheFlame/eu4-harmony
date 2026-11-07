@@ -30,6 +30,61 @@ impl Process {
     }
 }
 
+/// How one of a claim's games ended, as a process that followed it saw:
+/// when it saw it had ended, and the game's exit code.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameEnd {
+    pub game: Process,
+    /// The local time, `HH:MM:SS`.
+    pub seen: String,
+    pub code: u32,
+}
+
+impl GameEnd {
+    /// What the exit code says, and whether it is a crash: the game exits
+    /// with 0 when it quits, these commands end it with 1, the framework
+    /// after a fatal error with 3; Windows ends a process that faults with
+    /// the fault's code, which a fault that bypasses the game's crash
+    /// handler leaves no crash folder for.
+    pub fn meaning(&self) -> (&'static str, bool) {
+        match self.code {
+            0 => ("it quit", false),
+            1 => ("ended by game stop, a release or a run", false),
+            3 => ("the framework ended it after a fatal error, which core.log names", true),
+            0xc000_0005 => ("an access violation", true),
+            0xc000_0374 => ("heap corruption", true),
+            0xc000_0409 => ("a fast fail: a failed check, or a stack buffer overrun", true),
+            0xc000_00fd => ("a stack overflow", true),
+            _ => ("an exit code these commands do not know", true),
+        }
+    }
+
+    pub fn crashed(&self) -> bool {
+        self.meaning().1
+    }
+
+    /// `eu4.exe 1234 had ended by 03:12:41: heap corruption (exit code
+    /// 0xc0000374)`.
+    pub fn describe(&self) -> String {
+        format!("eu4.exe {} had ended by {}: {} (exit code 0x{:x})", self.game.id, self.seen, self.meaning().0, self.code)
+    }
+
+    /// Its line in the claim's record of its games' ends: the process's id
+    /// and start, when it was seen ended, and the exit code.
+    pub fn to_line(&self) -> String {
+        format!("{}\t{}\t{}\t0x{:x}", self.game.id, self.game.started, self.seen, self.code)
+    }
+
+    pub fn from_line(line: &str) -> Option<Self> {
+        let mut fields = line.split('\t');
+        let id = fields.next()?.parse().ok()?;
+        let started = fields.next()?.parse().ok()?;
+        let seen = fields.next()?.to_string();
+        let code = u32::from_str_radix(fields.next()?.trim().trim_start_matches("0x"), 16).ok()?;
+        Some(Self { game: Process { id, started }, seen, code })
+    }
+}
+
 /// What a look knows of the computer besides the record and the queue.
 pub struct Seen<'a> {
     pub now: u64,
@@ -332,6 +387,16 @@ fn wait_in(queue: &mut Vec<Waiting>, asking: &Asking, now: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_game_end_says_its_exit_code_and_whether_it_crashed() {
+        let end = |code| GameEnd { game: Process { id: 1234, started: 99 }, seen: "03:12:41".into(), code };
+        assert_eq!(end(0xc000_0374).describe(), "eu4.exe 1234 had ended by 03:12:41: heap corruption (exit code 0xc0000374)");
+        assert!(end(0xc000_0374).crashed() && end(3).crashed() && end(0x1234).crashed());
+        assert!(!end(0).crashed() && !end(1).crashed());
+        assert_eq!(GameEnd::from_line(&end(0xc000_0005).to_line()), Some(end(0xc000_0005)));
+        assert_eq!(GameEnd::from_line("not a line"), None);
+    }
 
     fn record(owner: &str, renewed: u64) -> Record {
         Record {
