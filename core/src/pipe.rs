@@ -2,7 +2,10 @@
 //! named pipe `\\.\pipe\eu4-harmony`, open to the Windows user running the game
 //! and nobody else (ADR remote-control-is-always-on), with one JSON request per
 //! line in and one JSON response per line out (`request_from_json`,
-//! `response_json`).
+//! `response_json`). A developer build with the test games' pipes serves a
+//! test game's own instead, `\\.\pipe\eu4-harmony-<name>`, when
+//! `-harmony_test_game=<name>` is on the command line (docs/test-games.md); a
+//! player's build passes the switch over.
 //!
 //! Every remote client has a pipe instance and a thread of its own, so
 //! several are served at once. A client's requests are handled one after
@@ -69,8 +72,38 @@ const BUFFER: u32 = 64 * 1024;
 /// Opens the pipe for the game's remote control, from now on, on threads of
 /// its own.
 pub fn start() {
-    if let Err(e) = serve(NAME, crate::remote::submit, |line| log!("{line}")) {
-        log!("remote pipe: cannot open {NAME}: {e}");
+    let name = name();
+    if let Err(e) = serve(&name, crate::remote::submit, |line| log!("{line}")) {
+        log!("remote pipe: cannot open {name}: {e}");
+    }
+}
+
+/// The test game `-harmony_test_game` names on the command line, if any.
+pub fn test_game() -> Option<String> {
+    eu4_harmony_manifest::switch_value(crate::paths::command_line(), "-harmony_test_game")
+}
+
+/// The pipe this game serves: the test game's own in a build with the test
+/// games' pipes, else [`NAME`].
+pub fn name() -> String {
+    static NAMED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAMED.get_or_init(choose).clone()
+}
+
+fn choose() -> String {
+    let named = test_game();
+    if !cfg!(feature = "dev-test-games") {
+        if let Some(game) = named {
+            log!("remote pipe: -harmony_test_game={game} passed over: this build has no test games' pipes");
+        }
+        return NAME.to_string();
+    }
+    match eu4_harmony_remote::pipe_of(named.as_deref()) {
+        Ok(name) => name,
+        Err(e) => {
+            log!("remote pipe: -harmony_test_game: {e}; serving {NAME}");
+            NAME.to_string()
+        }
     }
 }
 

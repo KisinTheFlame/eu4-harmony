@@ -52,13 +52,8 @@ static HIDDEN: AtomicBool = AtomicBool::new(false);
 /// starts, and turns the sound off for a hidden start without
 /// `-harmony_sound`.
 pub fn read_switches() {
-    use windows_sys::Win32::System::Environment::{GetCommandLineW, SetEnvironmentVariableW};
-    let line = unsafe {
-        let line = GetCommandLineW();
-        let len = (0..).take_while(|&i| *line.add(i) != 0).count();
-        String::from_utf16_lossy(std::slice::from_raw_parts(line, len))
-    };
-    let switches = Switches::of(&line);
+    use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+    let switches = Switches::of(crate::paths::command_line());
     let _ = SWITCHES.set(switches);
     if !switches.hidden {
         return;
