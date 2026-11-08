@@ -8,7 +8,7 @@ description = "The repository's development commands, run as cargo xtask: instal
 
 [dependencies]
 eu4-harmony-client = { path = "../client" }
-eu4-harmony-manifest = { path = "../manifest" }
+eu4-harmony-folders = { path = "../folders" }
 eu4-harmony-remote = { path = "../remote" }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -37,6 +37,11 @@ windows-sys = { workspace = true, features = [
     # The profiler: the CPU cycles each thread ran.
     "Win32_System_WindowsProgramming",
 ] }
+
+[dev-dependencies]
+# The pipe tests' own server, which stands in for the game in the scenario
+# runner's tests.
+eu4-harmony-client = { path = "../client", features = ["testing"] }
 
 [lints]
 workspace = true

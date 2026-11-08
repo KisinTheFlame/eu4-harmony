@@ -9,6 +9,7 @@
 //! `$KIND$`, that word, and `$PLACE$`) word the name instead. The
 //! war overview's battle rows put their names together elsewhere and keep the
 //! game's order.
+use crate::called_by_game;
 use crate::game_string;
 use crate::lang;
 use crate::loc;
@@ -48,6 +49,7 @@ type BattleName = unsafe extern "C" fn(usize, *mut u8) -> *mut u8;
 static ORIGINAL_BATTLE_NAME: Function<BattleName> = Function::new();
 
 /// A battle's name (0x23a900): the game's, then reworded.
+#[called_by_game]
 extern "C" fn battle_name(combat: usize, out: *mut u8) -> *mut u8 {
     let original = ORIGINAL_BATTLE_NAME.get();
     let out = unsafe { original(combat, out) };

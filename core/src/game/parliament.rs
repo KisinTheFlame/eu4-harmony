@@ -3,7 +3,11 @@
 //! (docs/research/government.md, "Parliament").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::containers;
+use crate::game_string;
 use crate::{memory::Memory, points::Point};
+use eu4_harmony_remote::parliament::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::Choice,
     parliament::{Issue, Parliament},
@@ -44,14 +48,15 @@ pub fn points() -> Vec<Point> {
 /// The issues of the database.
 fn issues(m: &Memory) -> GResult<Vec<usize>> {
     let database = m.at(DATABASE);
-    let (data, count) = (m.ptr(database + content::ARRAY_DATA)?, content::bounded(m.i32(database + content::ARRAY_COUNT)?)?);
+    let (data, count) = (m.ptr(database + containers::ARRAY_DATA)?, containers::bounded(m.i32(database + containers::ARRAY_COUNT)?, containers::MOST)?);
     Ok((0..count).map(|i| data + i * ISSUE).collect())
 }
 
 /// The issues the player's parliament offers.
 fn offered(m: &Memory, parliament: usize) -> GResult<Vec<usize>> {
     let issues = issues(m)?;
-    let (data, count) = (m.ptr(parliament + OFFER + content::ARRAY_DATA)?, content::bounded(m.i32(parliament + OFFER + content::ARRAY_COUNT)?)?);
+    let (data, count) =
+        (m.ptr(parliament + OFFER + containers::ARRAY_DATA)?, containers::bounded(m.i32(parliament + OFFER + containers::ARRAY_COUNT)?, containers::MOST)?);
     (0..count)
         .map(|i| match issues.get(m.i32(data + i * 4)? as usize) {
             Some(&issue) => Ok(issue),
@@ -79,13 +84,13 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Parliament> {
     let enacted = m.ptr(parliament + ENACTED)?;
     let mut issues = Vec::new();
     for issue in offered(m, parliament)? {
-        let key = content::key(m, issue + ISSUE_KEY)?;
+        let key = game_string::key(m, issue + ISSUE_KEY)?;
         issues.push(Issue { name: content::name(m, &key)?, issue: key, choice: choice(m, parliament, ctx.player, issue)? });
     }
     Ok(Parliament {
         parliament: true,
         debating: debating(m, parliament)?,
-        enacted: if enacted == 0 { None } else { Some(content::key(m, enacted + ISSUE_KEY)?) },
+        enacted: if enacted == 0 { None } else { Some(game_string::key(m, enacted + ISSUE_KEY)?) },
         issues,
     })
 }
@@ -98,7 +103,7 @@ fn debating(m: &Memory, parliament: usize) -> GResult<Option<String>> {
         return Ok(None);
     }
     let issue = m.ptr(debate + ISSUE_KEY)?;
-    Ok(if issues(m)?.contains(&issue) { Some(content::key(m, issue + ISSUE_KEY)?) } else { None })
+    Ok(if issues(m)?.contains(&issue) { Some(game_string::key(m, issue + ISSUE_KEY)?) } else { None })
 }
 
 fn written_debate(country: Tag, issue: &str) -> String {
@@ -110,13 +115,13 @@ fn written_seat(command: &str, country: Tag, province: u32) -> String {
 }
 
 /// Brings an issue on offer to debate.
-pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn debate(Session { m, ctx, commands, .. }: Session, args::Debate { issue: key }: args::Debate) -> GResult<()> {
     let parliament = m.ptr(ctx.country + PARLIAMENT)?;
     if parliament == 0 {
         return Err(checks::not_now("the player has no parliament"));
     }
     for issue in offered(m, parliament)? {
-        if content::key(m, issue + ISSUE_KEY)? != key {
+        if game_string::key(m, issue + ISSUE_KEY)? != key {
             continue;
         }
         let choice = choice(m, parliament, ctx.player, issue)?;
@@ -129,12 +134,12 @@ pub fn debate(Session { m, ctx, commands, .. }: Session, key: String) -> GResult
 }
 
 /// Gives a province of the player's a seat in parliament.
-pub fn add_seat(session: Session, province: u32) -> GResult<()> {
+pub fn add_seat(session: Session, args::AddSeat { province: ProvinceId(province) }: args::AddSeat) -> GResult<()> {
     seat(session, "add_to_parliament_command", province, "give this province a seat")
 }
 
 /// Takes a province's seat in parliament away.
-pub fn remove_seat(session: Session, province: u32) -> GResult<()> {
+pub fn remove_seat(session: Session, args::RemoveSeat { province: ProvinceId(province) }: args::RemoveSeat) -> GResult<()> {
     seat(session, "remove_from_parliament_command", province, "take this province's seat away")
 }
 

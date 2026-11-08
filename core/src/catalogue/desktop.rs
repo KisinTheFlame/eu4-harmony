@@ -2,12 +2,13 @@
 //! (`crate::hidden`).
 use crate::game;
 use eu4_harmony_remote::desktop::{Desktop, DesktopAnswer, DesktopRequest};
+use eu4_harmony_remote::desktop::args;
 
 layer! {
     run DesktopRequest => DesktopAnswer;
-    Get => fn desktop() -> Desktop = caller desktop;
-    Show => fn show() -> Desktop = caller show;
-    Hide => fn hide() -> Desktop = caller hide;
+    Get => fn desktop -> Desktop = caller desktop;
+    Show => fn show -> Desktop = caller show;
+    Hide => fn hide -> Desktop = caller hide;
 }
 
 fn now() -> Desktop {

@@ -2,14 +2,16 @@
 //! and repaying one with its repay button (docs/research/power-spending.md,
 //! "Loans").
 use super::{action, power, thousandths, Fail, GResult, Session, Status, Tag};
+use crate::containers;
 use crate::{
     memory::Memory,
     objects::{
         campaign::{country, loan as fields},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::loans::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     loans::PlayerLoan,
@@ -24,7 +26,7 @@ const ID: usize = 0x14;
 const ESTATE: usize = 0x36;
 /// The interest left to pay on a loan repaid now: `(loan, &out)`, in
 /// thousandths of ducats, answering where it wrote it.
-const FEE: usize = 0x86b4b0;
+const FEE: GameFunction<2> = GameFunction::at(0x86b4b0);
 /// The most loans believed.
 const MOST: usize = 10_000;
 
@@ -44,25 +46,14 @@ pub fn points() -> Vec<Point> {
 
 /// The player's loans, in the list's order: each loan's address.
 fn loans_of(m: &Memory, country: usize) -> GResult<Vec<usize>> {
-    let mut out = Vec::new();
-    let mut node = m.ptr(country + country::LOANS + list::HEAD)?;
-    while node != 0 {
-        if out.len() >= MOST {
-            return Err("too many loans".to_string().into());
-        }
-        if m.u8(node + list::REMOVED)? == 0 {
-            out.push(m.ptr(node + list::ITEM)?);
-        }
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Ok(out)
+    Ok(containers::items(m, country + country::LOANS, MOST)?)
 }
 
 /// What repaying the loan at `loan` costs now, in thousandths of ducats: its
 /// amount and the interest left.
 fn price(m: &Memory, loan: usize) -> GResult<i64> {
     let mut fee = 0i32;
-    let at = m.call(m.at(FEE), &[loan, &mut fee as *mut i32 as usize])?;
+    let at = FEE.call(m, [loan, &mut fee as *mut i32 as usize])?;
     let fee = if at == 0 { fee } else { m.i32(at)? };
     Ok(m.i32(loan + fields::AMOUNT)? as i64 * 1000 + fee as i64)
 }
@@ -101,7 +92,7 @@ fn written(country: [u8; 3], id: u32, kind: u32) -> String {
 
 /// Repays the player's loan with the ID `id`, as its repay button does once
 /// the player confirms.
-pub fn repay(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn repay(Session { m, ctx, commands, .. }: Session, args::Repay { loan: id }: args::Repay) -> GResult<()> {
     let Some(loan) = find(m, ctx.country, id)? else {
         return Err(not_found(id));
     };
@@ -153,7 +144,7 @@ mod tests {
 
     fn france() -> France {
         let image = Image::new();
-        image.function(FEE, no_fee as *const ());
+        image.function(FEE.rva(), no_fee as *const ());
         let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         let loan = Object::new(fields::DUE + 4).u32(ID_TYPE, 4713).u32(ID, 12).i32(fields::AMOUNT, 200);
         let node = Object::new(list::REMOVED + 8).points_to(list::ITEM, loan);
@@ -166,13 +157,13 @@ mod tests {
     #[test]
     fn repaying_a_loan_posts_the_repay_button_s_command_through_the_session() {
         let france = france();
-        repay(france.session, 12).unwrap();
+        repay(france.session, args::Repay { loan: 12 }).unwrap();
         assert_eq!(record::posted(), [r#"pay_loan={ country="FRA" loan={ id=12 type=4713 } }"#]);
-        let Err(Fail { status, message }) = repay(france.session, 13) else { panic!("loan 13 was repaid") };
+        let Err(Fail { status, message }) = repay(france.session, args::Repay { loan: 13 }) else { panic!("loan 13 was repaid") };
         assert_eq!((status, message.as_str()), (Status::NotFound, "the player has no loan 13"));
         // The command's own check is the game's, and gives no reason.
         record::refuse_next(Refused::Check);
-        let Err(Fail { status, message }) = repay(france.session, 12) else { panic!("the refused command was posted") };
+        let Err(Fail { status, message }) = repay(france.session, args::Repay { loan: 12 }) else { panic!("the refused command was posted") };
         assert_eq!((status, message.as_str()), (Status::Rejected, "the game's command refuses to repay the loan, and gives no reason"));
         assert!(record::posted().is_empty());
     }

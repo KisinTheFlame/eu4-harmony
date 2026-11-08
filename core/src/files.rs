@@ -42,105 +42,27 @@ pub fn mount() {
 
 /// The files packed as a zip archive, each stored as it is.
 fn zip(files: &[File]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut directory = Vec::new();
-    for file in files {
-        let offset = out.len() as u32;
-        let (crc, size, name) = (crc32(&file.data), file.data.len() as u32, file.path.as_bytes());
-        // version needed, flags, method (stored), time, date, crc, sizes,
-        // name length, extra length
-        let fields = |out: &mut Vec<u8>| {
-            for half in [10u16, 0, 0, 0, 0x21] {
-                out.extend(half.to_le_bytes());
-            }
-            for word in [crc, size, size] {
-                out.extend(word.to_le_bytes());
-            }
-            out.extend((name.len() as u16).to_le_bytes());
-            out.extend(0u16.to_le_bytes());
-        };
-        out.extend(0x0403_4b50u32.to_le_bytes());
-        fields(&mut out);
-        out.extend(name);
-        out.extend(&file.data);
-        directory.extend(0x0201_4b50u32.to_le_bytes());
-        directory.extend(10u16.to_le_bytes());
-        fields(&mut directory);
-        // comment length, disk, internal and external attributes, offset
-        for half in [0u16, 0, 0] {
-            directory.extend(half.to_le_bytes());
-        }
-        directory.extend(0u32.to_le_bytes());
-        directory.extend(offset.to_le_bytes());
-        directory.extend(name);
-    }
-    let (start, size) = (out.len() as u32, directory.len() as u32);
-    out.extend(directory);
-    out.extend(0x0605_4b50u32.to_le_bytes());
-    for half in [0u16, 0, files.len() as u16, files.len() as u16] {
-        out.extend(half.to_le_bytes());
-    }
-    out.extend(size.to_le_bytes());
-    out.extend(start.to_le_bytes());
-    out.extend(0u16.to_le_bytes());
-    out
-}
-
-fn crc32(data: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &byte in data {
-        crc ^= byte as u32;
-        for _ in 0..8 {
-            crc = if crc & 1 != 0 { crc >> 1 ^ 0xedb8_8320 } else { crc >> 1 };
-        }
-    }
-    !crc
+    let entries: Vec<_> = files.iter().map(|f| crate::zip::Entry::stored(f.path.as_bytes(), &f.data)).collect();
+    crate::zip::write(entries.iter().zip(files).map(|(e, f)| (e, f.data.as_slice())))
 }
 
 pub fn points() -> Vec<Point> {
     vec![Point::keep(c"PHYSFS_mountMemory", "48 89 6c 24 18 56 57 41 56 48 83 ec 20 49 8b f9", "PhysFS mount from memory").recorded(MOUNT_MEMORY.slot())]
 }
 
-/// For tests: a file of the archive, by its path, as a zip reader finds it
-/// through the central directory.
-#[cfg(test)]
-fn unzip<'a>(archive: &'a [u8], path: &str) -> crate::Result<&'a [u8]> {
-    let u16_at = |at: usize| u16::from_le_bytes([archive[at], archive[at + 1]]) as usize;
-    let u32_at = |at: usize| u32::from_le_bytes(archive[at..at + 4].try_into().unwrap()) as usize;
-    let end = archive.len() - 22;
-    if u32_at(end) != 0x0605_4b50 {
-        return Err("no end of central directory".into());
-    }
-    let mut at = u32_at(end + 16);
-    for _ in 0..u16_at(end + 10) {
-        let (size, name_len, local) = (u32_at(at + 24), u16_at(at + 28), u32_at(at + 42));
-        if &archive[at + 46..at + 46 + name_len] == path.as_bytes() {
-            let data = local + 30 + u16_at(local + 26) + u16_at(local + 28);
-            let found = &archive[data..data + size];
-            return if crc32(found) as usize == u32_at(at + 16) { Ok(found) } else { Err("bad crc".into()) };
-        }
-        at += 46 + name_len + u16_at(at + 30) + u16_at(at + 32);
-    }
-    Err(format!("{path} not found"))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{crc32, unzip, zip, File};
-
-    #[test]
-    fn crc_is_zip_s() {
-        assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
-        assert_eq!(crc32(b""), 0);
-    }
+    use super::{zip, File};
+    use std::io::Cursor;
 
     #[test]
     fn files_come_back_out_of_the_archive() {
         let files =
             vec![File { path: "interface/a.gfx".into(), data: b"bitmapfonts = {}".to_vec() }, File { path: "gfx/fonts/b.tga".into(), data: vec![0; 50] }];
         let archive = zip(&files);
-        assert_eq!(unzip(&archive, "interface/a.gfx").unwrap(), b"bitmapfonts = {}");
-        assert_eq!(unzip(&archive, "gfx/fonts/b.tga").unwrap(), &[0u8; 50][..]);
-        assert!(unzip(&archive, "c").is_err());
+        let find = |path: &str| crate::zip::find(&mut Cursor::new(&archive), path.as_bytes(), archive.len());
+        assert_eq!(find("interface/a.gfx").unwrap(), b"bitmapfonts = {}");
+        assert_eq!(find("gfx/fonts/b.tga").unwrap(), [0u8; 50]);
+        assert!(find("c").is_err());
     }
 }

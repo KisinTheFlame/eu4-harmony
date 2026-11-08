@@ -21,31 +21,31 @@ use crate::{
         campaign::province,
         diplomacy::{action, region, scripted, term, treaty},
     },
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::choices::{Acceptance, Amount, Choice, Resource};
 
 /// The peace offer's constructor: (action, from, to, demand, treaty, date),
 /// the treaty copied, so it holds one of its own.
-const PEACE_NEW: usize = 0x598af0;
+const PEACE_NEW: GameFunction<6> = GameFunction::at(0x598af0);
 /// A peace treaty's constructor and destructor: (treaty, actor, other,
 /// demand), every term the peace view offers in it and none chosen;
 /// (treaty).
-const TREATY_NEW: usize = 0x975d40;
-const TREATY_DESTROY: usize = 0x9761c0;
+const TREATY_NEW: GameFunction<4> = GameFunction::at(0x975d40);
+const TREATY_DESTROY: GameFunction<1> = GameFunction::at(0x9761c0);
 /// Whether the player may choose a term of a treaty: (treaty, term, list,
 /// 0, reasons), `list` a `std::vector` the check fills and the caller frees,
 /// `reasons` a `std::string` or null, which gets the term's tooltip.
-const TERM_ALLOWED: usize = 0x97a1c0;
+const TERM_ALLOWED: GameFunction<5> = GameFunction::at(0x97a1c0);
 /// Chooses a term: (treaty, term, 0, 0).
-const TERM_CHOOSE: usize = 0x97a790;
+const TERM_CHOOSE: GameFunction<4> = GameFunction::at(0x97a790);
 /// A treaty's war score cost, whole points: (treaty, 1).
-const TREATY_COST: usize = 0x979060;
+const TREATY_COST: GameFunction<2> = GameFunction::at(0x979060);
 /// The most gold war score buys: (treaty, out, &war score in thousandths of
 /// a point), in thousandths of a ducat, as the peace view's gold buttons
 /// take it.
-const GOLD_FOR: usize = 0x97b530;
+const GOLD_FOR: GameFunction<3> = GameFunction::at(0x97b530);
 /// What the peace view lets the gold reach: what all the war score buys,
 /// in thousandths; and its step, a tenth of a ducat.
 const ALL_THE_WAR_SCORE: i32 = 100_000;
@@ -121,7 +121,7 @@ pub fn terms(Session { m, ctx, .. }: Session, enemy: Tag, offer: bool) -> GResul
 pub fn evaluate(Session { m, ctx, .. }: Session, enemy: Tag, terms: &[Term], offer: bool) -> GResult<Evaluation> {
     at_war(m, &ctx, enemy)?;
     let treaty = composed(m, &ctx, enemy, terms, offer)?;
-    let cost = vec![Amount::new(Resource::WarScore, m.call(m.at(TREATY_COST), &[treaty.at(), 1])? as i32 as f64)];
+    let cost = vec![Amount::new(Resource::WarScore, TREATY_COST.call(m, [treaty.at(), 1])? as i32 as f64)];
     let offered = Offer::new(m, &ctx, enemy, &treaty, offer)?;
     let choice = match diplomacy::refusals(m, offered.at())? {
         None => Choice::can(cost),
@@ -179,7 +179,7 @@ fn composed<'a>(m: &'a Memory, ctx: &Ctx, enemy: Tag, terms: &[Term], offer: boo
         if !can {
             return Err(checks::term_refused(described(asked), &reasons));
         }
-        m.call(m.at(TERM_CHOOSE), &[treaty.at(), at, 0, 0])?;
+        TERM_CHOOSE.call(m, [treaty.at(), at, 0, 0])?;
         chosen.push(at);
         if let (true, Some(amount)) = (gold, asked.amount) {
             let most = gold_most(m, treaty.at())?;
@@ -229,7 +229,7 @@ fn set_gold(m: &Memory, treaty_at: usize, at: usize, amount: i32) -> GResult<()>
 fn gold_most(m: &Memory, treaty: usize) -> GResult<i32> {
     let mut most = 0i32;
     let all = ALL_THE_WAR_SCORE;
-    m.call(m.at(GOLD_FOR), &[treaty, &mut most as *mut i32 as usize, &all as *const i32 as usize])?;
+    GOLD_FOR.call(m, [treaty, &mut most as *mut i32 as usize, &all as *const i32 as usize])?;
     Ok(unsafe { std::ptr::read_volatile(&most) })
 }
 
@@ -238,7 +238,7 @@ fn gold_most(m: &Memory, treaty: usize) -> GResult<i32> {
 fn allowed(m: &Memory, treaty: usize, at: usize) -> GResult<(bool, Vec<String>)> {
     let mut list = [0usize; 3];
     let list_at = list.as_mut_ptr() as usize;
-    let (can, text) = game_string::written(m, |s| m.call(m.at(TERM_ALLOWED), &[treaty, at, list_at, 0, s]))?;
+    let (can, text) = game_string::written(m, |s| TERM_ALLOWED.call(m, [treaty, at, list_at, 0, s]))?;
     crate::game_heap::free_vector(m, unsafe { std::ptr::read_volatile(&list) })?;
     Ok((can as u8 != 0, if can as u8 != 0 { Vec::new() } else { diplomacy::text_lines(&text) }))
 }
@@ -275,7 +275,7 @@ fn read_term(m: &Memory, at: usize) -> GResult<Read> {
     let mut out = [0u64; 2];
     let kind = m.call(m.vslot(at, term::KIND)?, &[at, out.as_mut_ptr() as usize])?;
     let kind = m.i32(kind)?;
-    let text = |at: usize| -> GResult<String> { Ok(game_text::to_utf8(&game_string::read(m, at)?)) };
+    let text = |at: usize| -> GResult<String> { Ok(game_string::key(m, at)?) };
     let key = if kind == term::KIND_SCRIPTED {
         text(m.ptr(at + term::SCRIPTED)? + scripted::KEY)?
     } else {
@@ -322,7 +322,7 @@ impl<'a> Treaty<'a> {
     pub(super) fn new(m: &'a Memory, ctx: &Ctx, enemy: Tag, offer: bool) -> GResult<Self> {
         let mut treaty = Self { m, object: vec![0; treaty::SIZE / 8], built: false };
         let (actor, other, demand) = if offer { (enemy, ctx.player, 0) } else { (ctx.player, enemy, 1) };
-        m.call(m.at(TREATY_NEW), &[treaty.at(), actor.0 as usize, other.0 as usize, demand])?;
+        TREATY_NEW.call(m, [treaty.at(), actor.0 as usize, other.0 as usize, demand])?;
         treaty.built = true;
         Ok(treaty)
     }
@@ -347,7 +347,7 @@ impl Drop for Treaty<'_> {
         if !self.built {
             return;
         }
-        if let Err(e) = self.m.call(self.m.at(TREATY_DESTROY), &[self.at()]) {
+        if let Err(e) = TREATY_DESTROY.call(self.m, [self.at()]) {
             log!("peace: destroying a treaty: {e}");
         }
     }
@@ -362,7 +362,7 @@ impl<'a> Offer<'a> {
     pub(super) fn new(m: &'a Memory, ctx: &Ctx, enemy: Tag, treaty: &Treaty, offer: bool) -> GResult<Self> {
         let mut made = Made::new(m, action::PEACE_SIZE);
         let demand = usize::from(!offer);
-        m.call(m.at(PEACE_NEW), &[made.at(), ctx.player.0 as usize, enemy.0 as usize, demand, treaty.at(), ctx.date as u32 as usize])?;
+        PEACE_NEW.call(m, [made.at(), ctx.player.0 as usize, enemy.0 as usize, demand, treaty.at(), ctx.date as u32 as usize])?;
         made.built = true;
         Ok(Self(made))
     }

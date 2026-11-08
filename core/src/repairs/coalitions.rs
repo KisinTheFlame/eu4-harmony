@@ -2,7 +2,7 @@
 //! lock, in vanilla too: a country's coalition, which the AI of the
 //! countries in it leaves in parallel. Leaving and joining a coalition take
 //! turns.
-use crate::{hooks::HookFrame, objects::campaign::country, points::Point};
+use crate::{hooks::Call, objects::campaign::country, points::Point};
 use std::sync::atomic::Ordering;
 
 /// `(country, …, other)`: a country's AI weighs leaving the coalition
@@ -31,7 +31,7 @@ static COALITION_TURNS: Turns = Turns {
 /// A country's coalition is about to change: wait for the turn. Several
 /// countries' AI take countries off the same coalition at once, on worker
 /// threads, and its list is not made for it.
-extern "C" fn coalition_changing(_frame: *mut HookFrame) {
+fn coalition_changing(_: &mut Call) {
     let turns = &COALITION_TURNS;
     let me = crate::thread_id();
     if turns.holder.load(Ordering::Acquire) != me {
@@ -42,7 +42,7 @@ extern "C" fn coalition_changing(_frame: *mut HookFrame) {
 }
 
 /// The change is made, or the function faulted: the turn is over.
-extern "C" fn coalition_changed(_frame: *mut HookFrame) {
+fn coalition_changed(_: &mut Call) {
     let turns = &COALITION_TURNS;
     if turns.holder.load(Ordering::Acquire) != crate::thread_id() {
         return;
@@ -57,7 +57,7 @@ extern "C" fn coalition_changed(_frame: *mut HookFrame) {
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
 /// nothing.
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+pub(super) const REPAIR: super::Repair = super::Repair { points, ..super::Repair::NONE };
 
 pub(super) fn points() -> Vec<Point> {
     vec![

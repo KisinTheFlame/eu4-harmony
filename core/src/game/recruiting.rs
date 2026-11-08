@@ -8,7 +8,9 @@ use super::{
     provinces::{can_recruit, unit_type, UnitKind},
     with_state, Fail, GResult, Session, Status,
 };
-use crate::{game_string, objects::campaign::unit_type as unit_type_fields, unicode::game_text};
+use crate::{game_string, objects::campaign::unit_type as unit_type_fields};
+use eu4_harmony_remote::recruiting::args;
+use eu4_harmony_remote::ProvinceId;
 
 /// The recruit command in its written form: the country by its tag, the
 /// province by its ID, the unit type by its key (`common/units`), as the
@@ -27,7 +29,8 @@ fn written(country: [u8; 3], province: u32, unit: &str) -> String {
 /// command layer has the game execute it at once (ADR commands-run-at-once), so
 /// orders given one after another are each checked against what the ones before
 /// left.
-pub fn recruit(Session { m, ctx, commands, .. }: Session, id: u32, kind: UnitKind) -> GResult<()> {
+pub fn recruit(Session { m, ctx, commands, .. }: Session, args::Order { province: ProvinceId(id), kind }: args::Order) -> GResult<()> {
+    let kind = UnitKind::from(kind);
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
@@ -39,7 +42,7 @@ pub fn recruit(Session { m, ctx, commands, .. }: Session, id: u32, kind: UnitKin
     if !allowed {
         return Err(action::not_allowed("recruit it there", &reasons));
     }
-    let unit = game_text::to_utf8(&game_string::read(m, unit_type + unit_type_fields::NAME)?);
+    let unit = game_string::key(m, unit_type + unit_type_fields::NAME)?;
     // The command's own check adds what the snapshot leaves out: its rule
     // for ships.
     action::post(commands, &written(ctx.player.letters(), id, &unit), "recruit it there")

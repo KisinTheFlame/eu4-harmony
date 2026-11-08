@@ -1,6 +1,7 @@
 //! Notices to the player: problems the framework detects, such as an
-//! extension that failed and was stopped, or a mod that was skipped. Each kind
-//! is shown at most once per session.
+//! extension that failed and was stopped, or a mod that was skipped. A
+//! notice is shown once while the game runs, once in each session, or every
+//! time, as whoever posts it says ([`Repeat`]).
 //!
 //! Notices wait in a queue for the notice window of the framework UI
 //! (`framework_ui`), which shows them one at a time, over the main menu and
@@ -14,7 +15,7 @@
 //! words, in the player language, when it is shown.
 use crate::{lang, loc};
 use eu4_harmony_loc::Language;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::{LazyLock, Mutex};
 
 /// What a notice says: a key of the framework's localisation
@@ -41,6 +42,17 @@ impl Message {
     }
 }
 
+/// How often the player is told of notices of one key.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Repeat {
+    /// Once while the game runs.
+    Run,
+    /// Once in each session.
+    Session,
+    /// Every time.
+    Always,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Mode {
     /// The notice window takes them.
@@ -50,7 +62,8 @@ enum Mode {
 
 struct Notices {
     mode: Mode,
-    shown: HashSet<String>,
+    /// The keys told of, each with the session it was last told in.
+    shown: HashMap<String, u64>,
     /// The notices waiting, each with its number.
     queue: VecDeque<(u64, Message)>,
     /// On screen in the notice window until the player closes it.
@@ -60,17 +73,35 @@ struct Notices {
 }
 
 static NOTICES: LazyLock<Mutex<Notices>> =
-    LazyLock::new(|| Mutex::new(Notices { mode: Mode::Window, shown: HashSet::new(), queue: VecDeque::new(), current: None, next: 1 }));
+    LazyLock::new(|| Mutex::new(Notices { mode: Mode::Window, shown: HashMap::new(), queue: VecDeque::new(), current: None, next: 1 }));
 
 fn notices() -> std::sync::MutexGuard<'static, Notices> {
     NOTICES.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Tells the player about a problem once per `once`, without blocking the game.
-pub fn post(once: &str, message: Message) {
+impl Notices {
+    /// Whether a notice of `key` posted in the session `session` is told, as
+    /// `repeat` says; it then counts as told.
+    fn tells(&mut self, key: &str, repeat: Repeat, session: u64) -> bool {
+        let told = match (repeat, self.shown.get(key)) {
+            (Repeat::Always, _) | (_, None) => true,
+            (Repeat::Run, Some(_)) => false,
+            (Repeat::Session, Some(&in_session)) => in_session != session,
+        };
+        if told && repeat != Repeat::Always {
+            self.shown.insert(key.to_string(), session);
+        }
+        told
+    }
+}
+
+/// Tells the player about a problem, without blocking the game: of the
+/// notices of one `key`, as often as `repeat` says.
+pub fn post(key: &str, repeat: Repeat, message: Message) {
     log!("notice: {}", message.words(Language::English).replace('\n', " "));
+    let session = crate::sessions::number();
     let mut n = notices();
-    if !n.shown.insert(once.to_string()) {
+    if !n.tells(key, repeat, session) {
         return;
     }
     match n.mode {
@@ -140,9 +171,6 @@ fn show(message: &Message, style: u32) {
 }
 
 fn message_box(message: &Message) {
-    if crate::hidden::hidden() {
-        return;
-    }
     let message = Message { key: message.key, args: message.args.clone() };
     std::thread::spawn(move || show(&message, windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONWARNING));
 }
@@ -164,10 +192,10 @@ mod tests {
     /// counts them; the next one shown has another.
     #[test]
     fn a_notice_keeps_its_number_while_more_wait() {
-        post("test:first", Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "1").arg("DETAIL", "d"));
+        post("test:first", Repeat::Run, Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "1").arg("DETAIL", "d"));
         let first = current().unwrap();
-        post("test:second", Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "2").arg("DETAIL", "d"));
-        post("test:second", Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "2").arg("DETAIL", "d"));
+        post("test:second", Repeat::Run, Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "2").arg("DETAIL", "d"));
+        post("test:second", Repeat::Run, Message::new("EU4HARMONY_NOT_LOADED").arg("MOD", "2").arg("DETAIL", "d"));
         let again = current().unwrap();
         assert_eq!((again.number, &again.text), (first.number, &first.text));
         assert_ne!(again.title, first.title, "the title counts the notice waiting");
@@ -176,5 +204,20 @@ mod tests {
         assert!(second.number > first.number && second.text.contains('2'), "{second:?}");
         dismiss();
         assert_eq!(current(), None);
+    }
+
+    /// A notice of a key is told once in the run, once in each session, or
+    /// every time.
+    #[test]
+    fn a_notice_is_told_as_often_as_it_repeats() {
+        let mut n = Notices { mode: Mode::Window, shown: HashMap::new(), queue: VecDeque::new(), current: None, next: 1 };
+        assert!(n.tells("run", Repeat::Run, 1));
+        assert!(!n.tells("run", Repeat::Run, 1));
+        assert!(!n.tells("run", Repeat::Run, 2));
+        assert!(n.tells("session", Repeat::Session, 1));
+        assert!(!n.tells("session", Repeat::Session, 1));
+        assert!(n.tells("session", Repeat::Session, 2));
+        assert!(n.tells("always", Repeat::Always, 1));
+        assert!(n.tells("always", Repeat::Always, 1));
     }
 }

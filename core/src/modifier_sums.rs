@@ -18,6 +18,7 @@
 //! build's `check-modifier-sums` searches as the game does as well and
 //! counts any answer that differs, and `game-sums-modifiers` leaves the
 //! game's code as it is.
+use crate::called_by_game;
 use crate::points::{Function, Point};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -168,16 +169,19 @@ unsafe fn find(set: usize, modifier: i32) -> isize {
     found.map_or(-1, |p| p as isize)
 }
 
+#[called_by_game]
 unsafe extern "C" fn add(set: usize, added: usize) -> usize {
     CALL.with(|c| c.set(c.get() + 1));
     unsafe { ORIGINAL_ADD.get()(set, added) }
 }
 
+#[called_by_game]
 unsafe extern "C" fn take_away(set: usize, added: usize) -> usize {
     CALL.with(|c| c.set(c.get() + 1));
     unsafe { ORIGINAL_TAKE_AWAY.get()(set, added) }
 }
 
+#[called_by_game]
 extern "C" fn find_for_stub(set: usize, modifier: i32) -> isize {
     unsafe { find(set, modifier) }
 }

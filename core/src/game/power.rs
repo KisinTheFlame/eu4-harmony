@@ -7,7 +7,13 @@
 //! with values, and the conditions of `common/scripted_functions` that allow
 //! some of these buttons.
 use super::{action, commands::Commands, conditions, GResult, Tag};
-use crate::{game_string, memory::Memory, objects::campaign::country, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::country,
+    points::{GameFunction, Point},
+    unicode::game_text,
+};
 use eu4_harmony_remote::choices::PowerKind;
 use std::ffi::CStr;
 
@@ -30,14 +36,14 @@ const ABOUT_ID: usize = 0x28;
 /// The ID of none, which the game copies into each spending it builds.
 const NO_ID: usize = 0x233fea8;
 /// A spending's cost in whole monarch points: `(spending, tag, text, 0)`.
-const COST: usize = 0x9526d0;
+const COST: GameFunction<4> = GameFunction::at(0x9526d0);
 /// Whether the spend_power command's check lets the country spend it:
 /// `(spending, tag)`.
-const CHECK: usize = 0x94f250;
+const CHECK: GameFunction<2> = GameFunction::at(0x94f250);
 /// The game's constructor of a spending about a province, `(spending, kind,
 /// province, power)`, which reads the province's ID as its first value. A
 /// spending needs no destructor: its vtable's slot `+0x28` is `ret`.
-const ABOUT_PROVINCE: usize = 0x94ee80;
+const ABOUT_PROVINCE: GameFunction<4> = GameFunction::at(0x94ee80);
 /// The kinds of spending this part uses (`0x94e1d0` names them).
 pub const ADVANCE_TECH: i32 = 1;
 pub const BOOST_STABILITY: i32 = 2;
@@ -123,7 +129,7 @@ impl Spending {
     /// and coring.
     pub fn about_province(m: &Memory, kind: usize, province: usize, power: usize) -> GResult<Self> {
         let mut spending = Self([0; ROOM]);
-        m.call(m.at(ABOUT_PROVINCE), &[spending.at(), kind, province, power])?;
+        ABOUT_PROVINCE.call(m, [spending.at(), kind, province, power])?;
         Ok(spending)
     }
 
@@ -133,12 +139,12 @@ impl Spending {
 
     /// What it costs `player` now, in whole points, as the panel shows it.
     pub fn cost(&mut self, m: &Memory, player: Tag) -> GResult<i32> {
-        Ok(m.call(m.at(COST), &[self.at(), player.0 as usize, 0, 0])? as i32)
+        Ok(COST.call(m, [self.at(), player.0 as usize, 0, 0])? as i32)
     }
 
     /// Whether the spend_power command's check lets `player` spend it now.
     pub fn allowed(&mut self, m: &Memory, player: Tag) -> GResult<bool> {
-        Ok(m.call(m.at(CHECK), &[self.at(), player.0 as usize])? & 0xff != 0)
+        Ok(CHECK.call(m, [self.at(), player.0 as usize])? & 0xff != 0)
     }
 }
 
@@ -215,7 +221,7 @@ pub fn scripted(m: &Memory, function: usize, player: Tag) -> GResult<(bool, Vec<
 /// the first of the next month ([`crate::wording::dates`]), in the player
 /// language.
 pub fn date_text(m: &Memory, date: i32) -> GResult<String> {
-    let (_, text) = game_string::written(m, |out| m.call(m.at(crate::wording::dates::NEXT_MONTH_YEAR), &[&date as *const i32 as usize, out]))?;
+    let (_, text) = game_string::written(m, |out| crate::wording::dates::NEXT_MONTH_YEAR.call(m, [&date as *const i32 as usize, out]))?;
     Ok(game_text::to_utf8(&text))
 }
 

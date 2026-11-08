@@ -170,7 +170,7 @@ impl Args {
 
     /// `--game-dir`, else the game folder `game::dir` finds.
     fn game_dir(&self) -> Result<PathBuf> {
-        self.value("game-dir").map_or_else(game::dir, |d| Ok(PathBuf::from(d)))
+        eu4_harmony_folders::game_dir(self.value("game-dir").map(Path::new))
     }
 }
 

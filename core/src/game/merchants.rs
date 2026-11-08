@@ -8,10 +8,15 @@ use super::{
     trade::{self, DEFINITION, ENTRIES, ENTRY_SIZE, HAS_MERCHANT, HOME, KEY, LINKS, LINK_SIZE, LINK_TO, MOST, NAME, STEER_LINK},
     Ctx, GResult, Session, Tag,
 };
-use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use crate::containers;
+use crate::{
+    game_string,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
-    merchants::{Downstream, MerchantOptions, Merchants, Mission, Placed, TradingPolicies, TradingPolicy},
+    merchants::{args, Downstream, MerchantOptions, Merchants, Mission, Placed, TradingPolicies, TradingPolicy},
 };
 
 /// The trade nodes' and their countries' fields are trade's: a node's own
@@ -21,10 +26,10 @@ const LOCATION: usize = 0xdc;
 /// Whether the country may send a merchant to the node, and the rules, the
 /// ones that hold too: `(country, location, text, already there counts,
 /// needs a free one, _) -> bool`.
-const MAY_SEND: usize = 0x3532c0;
+const MAY_SEND: GameFunction<6> = GameFunction::at(0x3532c0);
 /// Whether the country's merchant may steer there, and why not: `(node, tag,
 /// reasons) -> bool`.
-const MAY_STEER: usize = 0xb5b290;
+const MAY_STEER: GameFunction<3> = GameFunction::at(0xb5b290);
 /// An envoy's ID, i32, and its mission; a mission's trade node, and its
 /// phase, i32, [`RETURNING`] once the merchant is recalled.
 const ENVOY_ID: usize = 0x44;
@@ -36,7 +41,7 @@ const RETURNING: i32 = 2;
 const MISSION_KIND: usize = 0x9c;
 /// The trading policies: `() -> database`, its policies an array of
 /// pointers and their count, i32.
-const POLICIES: usize = 0xd38b60;
+const POLICIES: GameFunction<0> = GameFunction::at(0xd38b60);
 const POLICY_LIST: usize = 0x48;
 const POLICY_COUNT: usize = 0x54;
 /// A policy's key (`std::string`) and its index, i32.
@@ -46,7 +51,7 @@ const POLICY_INDEX: usize = 0x50;
 const POLICY: usize = 0xb0;
 /// Whether the country may choose the policy in the node, and why not:
 /// `(node, tag, policy, reasons) -> bool`, appending to `reasons`.
-const MAY_CHOOSE: usize = 0xb5c6a0;
+const MAY_CHOOSE: GameFunction<4> = GameFunction::at(0xb5c6a0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -96,7 +101,7 @@ fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<Node>> {
         .into_iter()
         .map(|address| {
             let definition = m.ptr(address + DEFINITION)?;
-            Ok(Node { address, definition, key: game_text::to_utf8(&game_string::read(m, definition + KEY)?) })
+            Ok(Node { address, definition, key: game_string::key(m, definition + KEY)? })
         })
         .collect()
 }
@@ -106,7 +111,7 @@ fn node(m: &Memory, ctx: &Ctx, key: &str) -> GResult<Node> {
 }
 
 fn name(m: &Memory, definition: usize) -> GResult<String> {
-    Ok(game_text::plain(&game_string::read(m, definition + NAME)?))
+    Ok(game_string::shown(m, definition + NAME)?)
 }
 
 /// The player's entry in the node.
@@ -117,7 +122,7 @@ fn entry(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<usize> {
 /// The definitions of the nodes downstream, in the links' order.
 fn downstream(m: &Memory, definition: usize) -> GResult<Vec<usize>> {
     let (begin, end) = (m.ptr(definition + LINKS)?, m.ptr(definition + LINKS + 8)?);
-    (0..super::span(begin, end, LINK_SIZE, MOST)?).map(|i| Ok(m.ptr(begin + i * LINK_SIZE + LINK_TO)?)).collect()
+    (0..containers::span(begin, end, LINK_SIZE, MOST)?).map(|i| Ok(m.ptr(begin + i * LINK_SIZE + LINK_TO)?)).collect()
 }
 
 /// The player's merchant in the node, or on its way there: what it does,
@@ -171,7 +176,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Merchants> {
     let mut placed = Vec::new();
     for node in nodes(m, &ctx)? {
         if let Some(p) = present(m, &ctx, &node)? {
-            let steer_to = p.steers_to.map(|d| game_string::read(m, d + KEY).map(|k| game_text::to_utf8(&k))).transpose()?;
+            let steer_to = p.steers_to.map(|d| game_string::key(m, d + KEY)).transpose()?;
             placed.push(Placed { name: name(m, node.definition)?, node: node.key, mission: p.mission, arriving: p.arriving, steer_to });
         }
     }
@@ -199,7 +204,7 @@ fn read(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<MerchantOptions> {
         Some(Mission::Steer) => (Choice::can(Vec::new()), refused(m, "TRADE_MERCHANT_ALREADY_TRANSFERRING")?),
         None => {
             let location = with_province(m, ctx, m.i32(node.definition + LOCATION)?)?;
-            let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_SEND), &[ctx.country, location, out, 0, 1, 0]))?;
+            let (may, text) = game_string::written(m, |out| MAY_SEND.call(m, [ctx.country, location, out, 0, 1, 0]))?;
             let cost = vec![Amount::new(Resource::Merchant, 1.0)];
             let send = if may as u8 == 0 {
                 Choice::cannot(envoys::failing(&text), cost.clone())
@@ -216,13 +221,13 @@ fn read(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<MerchantOptions> {
     };
     // The recall command takes only a merchant that arrived.
     let recall = if now.is_some_and(|p| !p.arriving) { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
-    let (may_steer, text) = game_string::written(m, |out| m.call(m.at(MAY_STEER), &[node.address, ctx.player.0 as usize, out]))?;
+    let (may_steer, text) = game_string::written(m, |out| MAY_STEER.call(m, [node.address, ctx.player.0 as usize, out]))?;
     let steering_to = now.and_then(|p| p.steers_to);
     let steer_to = downstream(m, node.definition)?
         .into_iter()
         .map(|d| {
             let choice = if may_steer as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(envoys::failing(&text), Vec::new()) };
-            Ok(Downstream { node: game_text::to_utf8(&game_string::read(m, d + KEY)?), name: name(m, d)?, current: steering_to == Some(d), choice })
+            Ok(Downstream { node: game_string::key(m, d + KEY)?, name: name(m, d)?, current: steering_to == Some(d), choice })
         })
         .collect::<GResult<_>>()?;
     Ok(MerchantOptions {
@@ -303,8 +308,8 @@ pub fn recall(Session { m, ctx, commands, .. }: Session, key: &str) -> GResult<(
 
 /// Has the player's merchant steering in the node `node` steer to the node
 /// `to` downstream.
-pub fn steer_to(Session { m, ctx, commands, .. }: Session, node: &str, to: &str) -> GResult<()> {
-    let node = self::node(m, &ctx, node)?;
+pub fn steer_to(Session { m, ctx, commands, .. }: Session, args::SteerTo { node, to }: args::SteerTo) -> GResult<()> {
+    let (node, to) = (self::node(m, &ctx, &node)?, to.as_str());
     let options = read(m, &ctx, &node)?;
     let Some(along) = options.steer_to.iter().position(|d| d.node == to) else {
         return Err(envoys::checks::unknown("trade node downstream", to));
@@ -320,7 +325,7 @@ pub fn steer_to(Session { m, ctx, commands, .. }: Session, node: &str, to: &str)
 /// The trading policies of the game's, each its address and content key, in
 /// the game's order.
 fn all_policies(m: &Memory) -> GResult<Vec<(usize, String)>> {
-    let database = m.call(m.at(POLICIES), &[])?;
+    let database = POLICIES.call(m, [])?;
     let (list, count) = (m.ptr(database + POLICY_LIST)?, m.i32(database + POLICY_COUNT)?);
     if list == 0 || !(0..=MOST as i32).contains(&count) {
         return Ok(Vec::new());
@@ -328,7 +333,7 @@ fn all_policies(m: &Memory) -> GResult<Vec<(usize, String)>> {
     (0..count as usize)
         .map(|i| {
             let policy = m.ptr(list + i * 8)?;
-            Ok((policy, game_text::to_utf8(&game_string::read(m, policy + POLICY_KEY)?)))
+            Ok((policy, game_string::key(m, policy + POLICY_KEY)?))
         })
         .collect()
 }
@@ -348,7 +353,7 @@ fn read_policies(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<TradingPolicies>
             current = Some(key.clone());
             Choice::cannot(Vec::new(), Vec::new())
         } else {
-            let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_CHOOSE), &[node.address, ctx.player.0 as usize, policy, out]))?;
+            let (may, text) = game_string::written(m, |out| MAY_CHOOSE.call(m, [node.address, ctx.player.0 as usize, policy, out]))?;
             if may as u8 != 0 {
                 Choice::can(Vec::new())
             } else {
@@ -367,8 +372,8 @@ fn policy_written(player: Tag, definition: i32, policy: i32) -> String {
 }
 
 /// Chooses the trading policy `policy` for the player in the node `node`.
-pub fn set_policy(Session { m, ctx, commands, .. }: Session, node: &str, policy: &str) -> GResult<()> {
-    let node = self::node(m, &ctx, node)?;
+pub fn set_policy(Session { m, ctx, commands, .. }: Session, args::SetPolicy { node, policy }: args::SetPolicy) -> GResult<()> {
+    let (node, policy) = (self::node(m, &ctx, &node)?, policy.as_str());
     let Some(address) = all_policies(m)?.into_iter().find(|(_, k)| k == policy).map(|(a, _)| a) else {
         return Err(envoys::checks::unknown("trading policy", policy));
     };

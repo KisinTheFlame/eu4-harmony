@@ -11,10 +11,14 @@
 //! the country in view and, in observe mode, refreshes the fog of war and
 //! the map.
 use super::{fail, GResult, Status, Tag, View, World};
-use crate::{memory::Memory, objects::campaign::world, points::Point};
+use crate::{
+    memory::Memory,
+    objects::campaign::world,
+    points::{GameFunction, Point},
+};
 
 /// The game's setter of the country in view: (world, tag), the tag by value.
-const SET_IN_VIEW: usize = 0x763a20;
+const SET_IN_VIEW: GameFunction<2> = GameFunction::at(0x763a20);
 /// The menubar's button taking the view out, which passes `---` with no
 /// valid byte.
 const LEAVE_VIEW_CALL: usize = 0x817036;
@@ -129,7 +133,7 @@ pub fn put_in_view(m: &Memory, world: &World, country: Tag) -> GResult<()> {
     if !country.normal() || super::world::owned_provinces(m, world.world, country)? == 0 {
         return fail(Status::Rejected, format!("{} owns no province to put in view", super::named(country)));
     }
-    m.call(m.at(SET_IN_VIEW), &[world.world, country.0 as usize])?;
+    SET_IN_VIEW.call(m, [world.world, country.0 as usize])?;
     Ok(())
 }
 
@@ -138,7 +142,7 @@ pub fn put_in_view(m: &Memory, world: &World, country: Tag) -> GResult<()> {
 pub fn leave_view(m: &Memory, world: &World) -> GResult<()> {
     observing(world)?;
     if world.player.acting().is_some() {
-        m.call(m.at(SET_IN_VIEW), &[world.world, NO_COUNTRY as usize])?;
+        SET_IN_VIEW.call(m, [world.world, NO_COUNTRY as usize])?;
     }
     Ok(())
 }

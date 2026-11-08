@@ -3,9 +3,11 @@
 //! framework does there, and that one declaration drives checking, hooking and
 //! undoing (ADR framework-succeeds-or-fails-as-a-whole). [`install`] applies
 //! every point or none, and [`Memory::at`] gives the address of only what a
-//! point checks.
+//! point checks. [`this_build`] gathers every point of a build.
+pub mod this_build;
+
 use crate::{
-    hooks::{self, Callback},
+    hooks::{self, Observer},
     memory::Memory,
     Result,
 };
@@ -110,6 +112,44 @@ impl<F: Copy> Function<F> {
     }
 }
 
+/// A function of the game's that the framework calls, at its RVA, and how
+/// many arguments it takes: the dependency point that checks it names it
+/// (`Point::keep(FUNCTION, ...)`), and calling it through it passes exactly
+/// that many, so that a call with one too few does not compile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GameFunction<const ARGS: usize>(usize);
+
+impl<const ARGS: usize> GameFunction<ARGS> {
+    pub const fn at(rva: usize) -> Self {
+        Self(rva)
+    }
+
+    pub const fn rva(self) -> usize {
+        self.0
+    }
+
+    /// Calls it with integer or pointer arguments inside an SEH guard; a
+    /// point must check it ([`Memory::at`]).
+    pub fn call(self, m: &Memory, args: [usize; ARGS]) -> Result<usize> {
+        let address = m.at(self.0);
+        m.call(address, &args)
+    }
+}
+
+impl<const ARGS: usize> From<GameFunction<ARGS>> for Place {
+    fn from(function: GameFunction<ARGS>) -> Self {
+        Self::Rva(function.0)
+    }
+}
+
+/// Its RVA, for what compares an address with the function's or names it
+/// as a vtable's method.
+impl<const ARGS: usize> From<GameFunction<ARGS>> for usize {
+    fn from(function: GameFunction<ARGS>) -> Self {
+        function.0
+    }
+}
+
 /// The address of the function `f`, a function pointer.
 fn address<F: Copy>(f: F) -> usize {
     assert_eq!(std::mem::size_of::<F>(), std::mem::size_of::<usize>(), "not a function pointer");
@@ -121,7 +161,7 @@ pub enum Action {
     /// Relies on it only: calls it, reads it or continues there.
     Keep,
     /// Runs `before` and `after` around every call of the function there.
-    Observe { argc: u32, before: Option<Callback>, after: Option<Callback> },
+    Observe { argc: u32, before: Option<Observer>, after: Option<Observer> },
     /// Sends calls to `with`; the original stays callable through `original`.
     Replace { with: usize, original: &'static AtomicUsize },
     /// Jumps from inside a function to `stub`, which does what the point's
@@ -156,7 +196,7 @@ impl Point {
         Self::new(place, bytes, what, Action::Keep)
     }
 
-    pub fn observe(place: impl Into<Place>, bytes: &'static str, what: &'static str, argc: u32, before: Option<Callback>, after: Option<Callback>) -> Self {
+    pub fn observe(place: impl Into<Place>, bytes: &'static str, what: &'static str, argc: u32, before: Option<Observer>, after: Option<Observer>) -> Self {
         Self::new(place, bytes, what, Action::Observe { argc, before, after })
     }
 
@@ -230,10 +270,10 @@ impl Checked {
 static CHECKED: OnceLock<Checked> = OnceLock::new();
 
 /// Whether a dependency point checks the game's bytes at `rva`, or a point's
-/// bytes use it: one of [`crate::points`], which startup installs all of or
-/// none.
+/// bytes use it: one of the points this build declares ([`this_build::declared`]),
+/// which the offline checks check.
 pub(crate) fn checks(rva: usize) -> bool {
-    CHECKED.get_or_init(|| Checked::of(&crate::points())).contains(rva)
+    CHECKED.get_or_init(|| Checked::of(&this_build::declared())).contains(rva)
 }
 
 /// What [`install`] did, for the log and the startup report.
@@ -431,7 +471,7 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
         let made = |r: Result<()>| r.map_err(|e| format!("{}: {e}", describe(point)));
         match &point.action {
             Action::Keep | Action::Write(_) => continue,
-            Action::Observe { argc, before, after } => made(hooks::observe(at, *argc, *before, *after))?,
+            Action::Observe { argc, before, after } => made(hooks::observe(at, *argc, m, point.what, *before, *after))?,
             Action::Replace { with, original } => made(hooks::create(at, *with).map(|t| original.store(t, Ordering::Release)))?,
             Action::Jump { stub, resume } => {
                 made(hooks::create(at, *stub).map(|_| ()))?;
@@ -474,7 +514,7 @@ pub fn install(m: Memory, points: &[Point]) -> Result<Installed> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hooks::HookFrame;
+    use crate::hooks::Call;
     use std::sync::Mutex;
     use windows_sys::Win32::System::Memory::{VirtualAlloc, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_READWRITE};
 
@@ -521,8 +561,8 @@ mod tests {
     }
 
     static SEEN: AtomicUsize = AtomicUsize::new(0);
-    extern "C" fn remember(frame: *mut HookFrame) {
-        SEEN.store(unsafe { (*frame).args[0] }, Ordering::SeqCst);
+    fn remember(call: &mut Call) {
+        SEEN.store(call.arg(0), Ordering::SeqCst);
     }
 
     type Adder = extern "C" fn(usize) -> usize;
@@ -603,7 +643,7 @@ mod tests {
     /// change the same bytes.
     #[test]
     fn every_point_is_well_formed() {
-        let points = crate::points();
+        let points = this_build::declared();
         let problems: Vec<String> = points.iter().flat_map(malformed).collect();
         assert!(problems.is_empty(), "{problems:#?}");
         // Exports are far from the image and from each other.
@@ -624,7 +664,7 @@ mod tests {
     /// bytes, or right after them, where the jump's own bytes end.
     #[test]
     fn every_jump_resumes_at_code_a_point_checks() {
-        let points = crate::points();
+        let points = this_build::declared();
         let checked: Vec<(usize, usize)> = points
             .iter()
             .filter(|p| p.method.is_none())
@@ -648,11 +688,7 @@ mod tests {
     /// build with it, leave slots over, for tracing.
     #[test]
     fn the_observers_leave_slots_over() {
-        #[cfg_attr(not(feature = "dev-heap-census"), expect(unused_mut, reason = "only the heap census adds observers"))]
-        let mut points = crate::points();
-        #[cfg(feature = "dev-heap-census")]
-        points.extend(crate::census::points(&crate::memory::Memory { base: 0 }));
-        let observers = points.iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
+        let observers = this_build::declared().iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
         assert!(observers < hooks::observer_slots(), "{observers} observers for {} slots", hooks::observer_slots());
     }
 
@@ -662,7 +698,7 @@ mod tests {
     #[test]
     fn every_point_uses_what_it_names() {
         let mut wrong = Vec::new();
-        for point in crate::points().iter().filter(|p| !p.uses.is_empty()) {
+        for point in this_build::declared().iter().filter(|p| !p.uses.is_empty()) {
             let Place::Rva(rva) = point.place else { continue };
             let code = crate::analysis::instructions(&hex(point.bytes).unwrap(), rva);
             let carried: Vec<u64> = code.iter().flat_map(crate::analysis::values).collect();
@@ -687,6 +723,16 @@ mod tests {
         let mut constants = std::collections::HashMap::new();
         let mut named = std::collections::BTreeSet::new();
         for line in text.lines().map(str::trim).filter(|l| !l.starts_with("//")) {
+            // A game function, wherever it is declared: its RVA.
+            for (at, _) in line.match_indices("GameFunction::at(") {
+                let value = line[at + "GameFunction::at(".len()..].split(')').next().and_then(hex);
+                if let Some(value) = value {
+                    named.insert(value);
+                    if let Some((name, _)) = line.split_once("const ").and_then(|(_, rest)| rest.split_once(": GameFunction<")) {
+                        constants.insert(name.to_string(), value);
+                    }
+                }
+            }
             let Some((_, rest)) = line.split_once("const ") else { continue };
             // An array of them: each of its numbers.
             if let Some((_, values)) = rest.split_once("] = [").filter(|(kind, _)| kind.contains(": [usize; ")) {
@@ -729,19 +775,7 @@ mod tests {
     /// not reach.
     #[test]
     fn every_game_address_is_named_in_one_file() {
-        fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            for entry in std::fs::read_dir(dir).unwrap().map(std::result::Result::unwrap) {
-                let path = entry.path();
-                if path.is_dir() {
-                    sources(&path, out);
-                } else if path.extension().is_some_and(|e| e == "rs") {
-                    out.push(path);
-                }
-            }
-        }
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut files = Vec::new();
-        sources(&root, &mut files);
+        let (root, files) = sources();
         let mut by_address: std::collections::BTreeMap<usize, Vec<String>> = std::collections::BTreeMap::new();
         for file in &files {
             let name = file.strip_prefix(&root).unwrap().display().to_string();
@@ -753,11 +787,50 @@ mod tests {
         assert!(twice.is_empty(), "{twice:#?}");
     }
 
+    /// The core's source files, and the folder they are in.
+    fn sources() -> (std::path::PathBuf, Vec<std::path::PathBuf>) {
+        fn under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap().map(std::result::Result::unwrap) {
+                let path = entry.path();
+                if path.is_dir() {
+                    under(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        under(&root, &mut files);
+        (root, files)
+    }
+
+    /// A game function is called through its [`GameFunction`], which says
+    /// how many arguments it takes, never at its address: what is called at
+    /// an address is a method or a pointer the game keeps.
+    #[test]
+    fn game_functions_are_called_through_their_handles() {
+        let (root, files) = sources();
+        let mut found = Vec::new();
+        for file in &files {
+            let text = std::fs::read_to_string(file).unwrap();
+            for (i, _) in text.match_indices(".call(") {
+                let first = text[i + ".call(".len()..].split([',', ')']).next().unwrap_or("");
+                if first.contains(".at(") {
+                    found.push(format!("{}: {}", file.strip_prefix(&root).unwrap().display(), text[i..].lines().next().unwrap()));
+                }
+            }
+        }
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
     #[test]
     fn addresses_are_read_from_constants_and_points() {
         let text = "const FIELD: usize = 0x28c0;\nconst F: usize = 0x93d750;\n// const OLD: usize = 0x200000;\n\
-                    const SITE: usize = 0x9a1f0;\nconst BOTH: [usize; 2] = [0x300000, 0x300010];\nPoint::keep(SITE, \"c3\", \"x\");\nPoint::keep(\n    0xcd1db1usize, \"c3\", \"y\");\nPoint::keep(FIELD + 1, \"c3\", \"z\");";
-        assert_eq!(addresses_named(text), [0x28c1, 0x9a1f0, 0x93d750, 0xcd1db1, 0x300000, 0x300010].into());
+                    const SITE: usize = 0x9a1f0;\nconst BOTH: [usize; 2] = [0x300000, 0x300010];\nPoint::keep(SITE, \"c3\", \"x\");\nPoint::keep(\n    0xcd1db1usize, \"c3\", \"y\");\nPoint::keep(FIELD + 1, \"c3\", \"z\");\n\
+                    const CALLED: GameFunction<2> = GameFunction::at(0x500000);\nPoint::keep(CALLED, \"c3\", \"w\");\n\
+                    const TABLE: [(usize, GameFunction<1>); 1] = [(0x10, GameFunction::at(0x600000))];";
+        assert_eq!(addresses_named(text), [0x28c1, 0x9a1f0, 0x93d750, 0xcd1db1, 0x300000, 0x300010, 0x500000, 0x600000].into());
     }
 
     #[test]
@@ -782,7 +855,7 @@ mod tests {
     #[should_panic(expected = "the framework used 0x100000000, which no dependency point checks")]
     fn an_address_no_point_checks_is_refused() {
         // Past the end of the game image.
-        Memory { base: 0 }.at(0x1_0000_0000);
+        Memory { base: 0 }.at(0x1_0000_0000usize);
     }
 
     #[test]
@@ -869,7 +942,7 @@ mod tests {
     fn every_point_matches_the_installed_game() {
         with_game(|m, lookup| {
             assert_eq!(crate::baseline::recognize(&m).unwrap(), "1.37.5");
-            let points = crate::points();
+            let points = this_build::declared();
             let addresses = check(m, &points, lookup).unwrap();
             assert_eq!(addresses.len(), points.len());
         });
@@ -881,9 +954,9 @@ mod tests {
     #[ignore]
     fn observers_forward_every_argument_their_function_reads() {
         let mut found = None;
-        with_game(|m, lookup| found = Some((m, check(m, &crate::points(), lookup).unwrap())));
+        with_game(|m, lookup| found = Some((m, check(m, &this_build::declared(), lookup).unwrap())));
         let (m, addresses) = found.unwrap();
-        let points = crate::points();
+        let points = this_build::declared();
         let image = unsafe { crate::analysis::loaded(m.base) };
         let mut short = Vec::new();
         for (point, &at) in points.iter().zip(&addresses) {

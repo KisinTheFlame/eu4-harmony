@@ -15,6 +15,7 @@
 //! the part before it ended with, beside the guess, until the two agree,
 //! after which they are the same. The sum is the game's to the bit.
 use super::parallel;
+use crate::called_by_game;
 use crate::memory::Memory;
 use crate::points::{Function, Point};
 use crate::Result;
@@ -64,6 +65,7 @@ pub fn points() -> Vec<Point> {
 type Sum = extern "C" fn(usize, i32) -> u32;
 static ORIGINAL_SUM: Function<Sum> = Function::new();
 
+#[called_by_game]
 extern "C" fn sum(stream: usize, count: i32) -> u32 {
     let m = crate::hooked_memory();
     let count = match counted(m, stream, count) {

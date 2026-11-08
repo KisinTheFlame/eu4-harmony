@@ -15,6 +15,7 @@
 //! and the walk's end does it once: the list stays whole under the walk, and
 //! the caches end as the game's last refresh in the walk leaves them. Every
 //! other refresh, and every other thread's, is the game's.
+use crate::called_by_game;
 use crate::{
     objects::campaign::country,
     points::{Function, Point},
@@ -42,7 +43,7 @@ static ORIGINAL_REFRESH: Function<Refresh> = Function::new();
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
 /// nothing.
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+pub(super) const REPAIR: super::Repair = super::Repair { points, ..super::Repair::NONE };
 
 pub(super) fn points() -> Vec<Point> {
     vec![
@@ -90,6 +91,7 @@ thread_local! {
 
 /// A refresh of a country: put off while a walk of that country goes on on
 /// this thread, the game's otherwise.
+#[called_by_game]
 unsafe extern "C" fn refresh(country: usize, label: usize) {
     let waits = WALKS.with(|walks| match walks.borrow_mut().iter_mut().rev().find(|walk| walk.subject == country) {
         Some(walk) => {
@@ -107,6 +109,7 @@ unsafe extern "C" fn refresh(country: usize, label: usize) {
 /// test switch `game-ends-dependencies` its refreshes are the game's, and
 /// with the heap census's quarantine on, what the walk frees is kept and
 /// filled, so that a walk reading the freed list fails there at once.
+#[called_by_game]
 extern "C" fn walk_begins(subject: usize) {
     #[cfg(feature = "dev-heap-census")]
     crate::census::quarantine::begin("subject relation's end");
@@ -119,6 +122,7 @@ extern "C" fn walk_begins(subject: usize) {
 }
 
 /// The walk is over: the subject's refresh that waited is done.
+#[called_by_game]
 extern "C" fn walk_ended() {
     #[cfg(feature = "dev-heap-census")]
     crate::census::quarantine::end();

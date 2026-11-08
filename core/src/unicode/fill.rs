@@ -39,7 +39,7 @@ use super::outline::Outline;
 use super::system_font::{Face, SystemFonts};
 use super::tone::Tone;
 use crate::game_string;
-use crate::hooks::HookFrame;
+use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::objects::text::{self as objects, font::OWN_GLYPHS, texture_description, texture_level, textures};
 use crate::points::Point;
@@ -641,10 +641,9 @@ pub fn loading(font: usize) {
     LOADING.with(|l| l.borrow_mut().begin(font));
 }
 
-extern "C" fn create_before(frame: *mut HookFrame) {
-    crate::guarded("font page pixels", || unsafe {
-        let args = &(*frame).args;
-        let (description, levels, count) = (args[2] as *const u8, args[3] as *const u8, args[4] as u32);
+fn create_before(call: &mut Call) {
+    let (description, levels, count) = (call.arg_as::<*const u8>(2), call.arg_as::<*const u8>(3), call.arg_as::<u32>(4));
+    unsafe {
         let at = |base: *const u8, offset: usize| *(base.add(offset) as *const u32);
         LOADING.with(|l| {
             let mut l = l.borrow_mut();
@@ -668,7 +667,7 @@ extern "C" fn create_before(frame: *mut HookFrame) {
             let size = height as usize / if compressed { 4 } else { 1 } * row_bytes(compressed, width);
             l.give(Own { width, height, compressed, data: std::slice::from_raw_parts(data, size).to_vec() });
         });
-    })
+    }
 }
 
 /// A font's load ended in a fault: nothing is filled in for it.
@@ -751,13 +750,11 @@ pub fn loaded(font: usize) -> bool {
     })
 }
 
-extern "C" fn destroy_before(frame: *mut HookFrame) {
-    crate::guarded("font page release", || {
-        let wrapper = unsafe { (*frame).args[0] };
-        if lock(&PAGES).remove(&wrapper).is_some() {
-            lock(&OWNERS).retain(|_, (w, _)| *w != wrapper);
-        }
-    })
+fn destroy_before(call: &mut Call) {
+    let wrapper = call.arg(0);
+    if lock(&PAGES).remove(&wrapper).is_some() {
+        lock(&OWNERS).retain(|_, (w, _)| *w != wrapper);
+    }
 }
 
 /// The font is being destroyed.

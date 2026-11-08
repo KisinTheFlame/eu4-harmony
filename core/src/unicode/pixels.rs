@@ -25,6 +25,7 @@
 use super::buttons;
 use super::fill;
 use super::glyphs::Glyph;
+use crate::called_by_game;
 use crate::objects::text::text_texture;
 use crate::points::Point;
 use crate::resume;
@@ -161,24 +162,24 @@ thread_local! {
 }
 
 /// Main text with `font` begins.
+#[called_by_game]
 extern "C" fn main_text_begins(font: usize) {
-    crate::guarded("text pixels", || MAIN.set(fill::device_of(font).and_then(|device| Transform::of(&device))))
+    MAIN.set(fill::device_of(font).and_then(|device| Transform::of(&device)))
 }
 
 /// Main text's glyph `glyph`: its corners, `left` and `bottom` and the
 /// `right` and `top` after them, snapped in place; the origin at `origin`.
+#[called_by_game]
 unsafe extern "C" fn main_text_quad(glyph: usize, left: *mut f32, bottom: *mut f32, right_top: *mut [f32; 2], origin: *const [f32; 3]) {
-    crate::guarded("text pixels", || {
-        let Some(t) = MAIN.get() else { return };
-        let g = record(glyph);
-        let (o, [right, top]) = unsafe { (*origin, *right_top) };
-        let exact = Quad { left: unsafe { *left }, right, bottom: unsafe { *bottom }, top };
-        if let Some(q) = snap(t, (o[0], o[1]), exact, g.width, g.height) {
-            unsafe {
-                (*left, *bottom, *right_top) = (q.left, q.bottom, [q.right, q.top]);
-            }
+    let Some(t) = MAIN.get() else { return };
+    let g = record(glyph);
+    let (o, [right, top]) = unsafe { (*origin, *right_top) };
+    let exact = Quad { left: unsafe { *left }, right, bottom: unsafe { *bottom }, top };
+    if let Some(q) = snap(t, (o[0], o[1]), exact, g.width, g.height) {
+        unsafe {
+            (*left, *bottom, *right_top) = (q.left, q.bottom, [q.right, q.top]);
         }
-    })
+    }
 }
 
 /// Replaces `movsx eax, word [rdx]; movd xmm0, [r14+0x978]`, with the glyph
@@ -232,23 +233,22 @@ extern "C" fn main_text_begin_stub() {
 /// `ints` holds the game's left and right (`r10d`, `r11d`) and `top` its top
 /// (the game's `[rbp+0x2c]`); all three are replaced by their floats' bits,
 /// and the bottom's bits are returned.
+#[called_by_game]
 unsafe extern "C" fn button_quad(font: usize, glyph: usize, ints: *mut [u64; 2], top: *mut i32, bottom: u32, pen: u32, scale: u32, ox: u32, oy: u32) -> u32 {
-    crate::guarded("button text pixels", || {
-        let (bottom, pen, scale) = (f32::from_bits(bottom), f32::from_bits(pen), f32::from_bits(scale));
-        let g = record(glyph);
-        let left = pen + g.x_offset as f32 * scale;
-        let exact = Quad { left, right: left + g.width as f32 * scale, bottom, top: bottom + g.height as f32 * scale };
-        let snapped = fill::device_of(font)
-            .and_then(|device| Transform::of(&device))
-            .and_then(|t| snap(t, (f32::from_bits(ox), f32::from_bits(oy)), exact, g.width, g.height));
-        // Without pixels to snap to, the game's own whole units.
-        let q = snapped.unwrap_or(Quad { left: exact.left.trunc(), right: exact.right.trunc(), bottom: exact.bottom.trunc(), top: exact.top.trunc() });
-        unsafe {
-            *ints = [q.left.to_bits() as u64, q.right.to_bits() as u64];
-            *top = q.top.to_bits() as i32;
-        }
-        q.bottom.to_bits()
-    })
+    let (bottom, pen, scale) = (f32::from_bits(bottom), f32::from_bits(pen), f32::from_bits(scale));
+    let g = record(glyph);
+    let left = pen + g.x_offset as f32 * scale;
+    let exact = Quad { left, right: left + g.width as f32 * scale, bottom, top: bottom + g.height as f32 * scale };
+    let snapped = fill::device_of(font)
+        .and_then(|device| Transform::of(&device))
+        .and_then(|t| snap(t, (f32::from_bits(ox), f32::from_bits(oy)), exact, g.width, g.height));
+    // Without pixels to snap to, the game's own whole units.
+    let q = snapped.unwrap_or(Quad { left: exact.left.trunc(), right: exact.right.trunc(), bottom: exact.bottom.trunc(), top: exact.top.trunc() });
+    unsafe {
+        *ints = [q.left.to_bits() as u64, q.right.to_bits() as u64];
+        *top = q.top.to_bits() as i32;
+    }
+    q.bottom.to_bits()
 }
 
 /// Replaces `cvttss2si eax, xmm1; movd xmm2, eax`: the glyph's exact bottom
@@ -283,8 +283,9 @@ extern "C" fn button_quad_stub() {
 
 /// The text texture of `element` is shown with `matrix`, which goes to the
 /// vertex shader's constants next.
+#[called_by_game]
 unsafe extern "C" fn texture_shown(element: usize, matrix: *mut [f32; 16]) {
-    crate::guarded("text texture pixels", || unsafe {
+    unsafe {
         let wrapper = *((element + text_texture::TEXTURE) as *const usize);
         // A texture a power of two across shows only the part of it the text
         // takes.
@@ -309,7 +310,7 @@ unsafe extern "C" fn texture_shown(element: usize, matrix: *mut [f32; 16]) {
         if let Some(shown) = show(t, (cx, cy), (ex, ey), size, [desc.Width, desc.Height]) {
             shown.write(m, &viewport);
         }
-    })
+    }
 }
 
 /// Replaces `mov r9d, -1; lea r8, [rbp-0x40]` as a text texture is shown:

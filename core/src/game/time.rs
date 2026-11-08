@@ -6,13 +6,13 @@
 //! with no country in view, as the game lets the player run time then too. The evidence is in docs/research/time.md.
 use super::{action, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::campaign::{
         globals::{END_DATE, WORLD},
         map_manager as manager, pause as pause_state, world,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::sync::Mutex;
 
@@ -25,7 +25,7 @@ const SPEED_UP: usize = 0xb79970;
 /// nothing holds the game paused, it sets the player's pause; paused for any
 /// reason, it resumes and lets go of every window holding the game paused, as
 /// the player's resuming does.
-const TOGGLE_PAUSE: usize = 0x7e0250;
+const TOGGLE_PAUSE: GameFunction<1> = GameFunction::at(0x7e0250);
 /// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when
 /// the game returns to the main menu.
 const RESTART: usize = 0x14c3a10;
@@ -309,7 +309,7 @@ fn pause_state_of(m: &Memory, ctx: &World) -> GResult<usize> {
 }
 
 fn toggle(m: &Memory, state: usize) -> GResult<()> {
-    m.call(m.at(TOGGLE_PAUSE), &[state])?;
+    TOGGLE_PAUSE.call(m, [state])?;
     Ok(())
 }
 
@@ -336,11 +336,9 @@ fn pause_game(m: &Memory, ctx: &World) -> GResult<()> {
 /// Before the game starts `eu4.exe` again, whoever asked for it: the
 /// sessions are told (`crate::sessions::restarting`), so that remote control
 /// answers every request while this process can still write the answers.
-extern "C" fn restart_before(_: *mut HookFrame) {
-    crate::guarded("restart", || {
-        log!("the game starts eu4.exe again");
-        crate::sessions::restarting();
-    });
+fn restart_before(_: &mut Call) {
+    log!("the game starts eu4.exe again");
+    crate::sessions::restarting();
 }
 
 /// The speed, the pause toggle and the restart.

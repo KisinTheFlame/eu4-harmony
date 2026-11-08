@@ -7,6 +7,9 @@
 //! hooked; a thread of its own writes the report and tells the player.
 pub type Result<T> = std::result::Result<T, String>;
 
+/// Marks a function the game's code calls, which runs under [`guarded`].
+pub(crate) use eu4_harmony_core_macros::called_by_game;
+
 #[macro_use]
 pub mod log;
 #[macro_use]
@@ -23,6 +26,7 @@ pub mod catalogue;
 pub mod census;
 #[cfg(feature = "dev-command-log")]
 mod command_log;
+pub mod containers;
 #[cfg(any(test, dev_build))]
 pub mod dev;
 pub mod files;
@@ -69,6 +73,7 @@ pub mod unicode;
 pub mod wording;
 #[cfg(feature = "dev-write-watch")]
 mod write_watch;
+pub mod zip;
 
 use std::sync::{
     atomic::{AtomicU32, Ordering},
@@ -106,8 +111,10 @@ pub(crate) fn hooked_memory() -> memory::Memory {
 }
 
 /// Runs framework code. A panic there is a framework bug, not something to
-/// carry on from: it is logged, the player is told, and the game ends
-/// (ADR framework-succeeds-or-fails-as-a-whole).
+/// carry on from: its thread and backtrace are logged as it happens
+/// ([`log_panics`]), then the player is told and the game ends ([`fatal`];
+/// ADR framework-succeeds-or-fails-as-a-whole). Every function the game
+/// calls runs under it, so no panic crosses into the game's code.
 pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(value) => value,
@@ -120,6 +127,7 @@ pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
 
 /// Ends the game after an unexpected error in framework code
 /// (ADR framework-succeeds-or-fails-as-a-whole).
+#[cfg(not(test))]
 pub(crate) fn fatal(detail: &str) -> ! {
     log!("fatal error, ending the game: {detail}");
     notice::tell_and_wait(&notice::Message::new("EU4HARMONY_FATAL").arg("DETAIL", detail));
@@ -127,36 +135,11 @@ pub(crate) fn fatal(detail: &str) -> ! {
     unreachable!("the process was terminated")
 }
 
-/// Every dependency point, in one declaration list.
-pub(crate) fn points() -> Vec<points::Point> {
-    let mut all = physfs::points();
-    all.extend(files::points());
-    all.extend(objects::points());
-    all.extend(game_string::points());
-    all.extend(game_heap::points());
-    all.extend(game::points());
-    all.extend(ui::points());
-    all.extend(map::points());
-    all.extend(saves::points());
-    all.extend(repairs::points());
-    all.extend(sessions::points());
-    all.extend(achievements::points());
-    all.extend(unicode::points());
-    all.extend(wording::points());
-    all.extend(framework_ui::hook::points());
-    all.extend(speed::points());
-    all.extend(saves::background::points());
-    all.extend(saves::parallel::points());
-    all.extend(saves::sum::points());
-    all.extend(saves::update_thread::points());
-    all.extend(loading::points());
-    all.extend(hidden::points());
-    all.extend(sound::points());
-    all.extend(army_search::points());
-    all.extend(modifier_sums::points());
-    #[cfg(feature = "dev-test-switches")]
-    all.extend(agents_order::points());
-    all
+/// In a test, the fatal path panics with the detail instead, so a test can
+/// see that a panic reached it.
+#[cfg(test)]
+pub(crate) fn fatal(detail: &str) -> ! {
+    panic!("fatal: {detail}")
 }
 
 fn start(m: memory::Memory) -> Result<String> {
@@ -168,23 +151,7 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(
-        not(any(feature = "dev-memory", feature = "dev-call-trace", feature = "dev-write-watch")),
-        expect(unused_mut, reason = "only the development tools add points")
-    )]
-    let mut all = points();
-    #[cfg(feature = "dev-memory")]
-    all.extend(memory_account::points(&m));
-    #[cfg(feature = "dev-heap-census")]
-    all.extend(census::points(&m));
-    #[cfg(feature = "dev-write-watch")]
-    all.extend(write_watch::points(&m));
-    #[cfg(feature = "dev-call-trace")]
-    {
-        let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
-        all.extend(trace::points(&m, hooks::observer_slots().saturating_sub(observers)));
-    }
-    let installed = points::install(m, &all)?;
+    let installed = points::install(m, &points::this_build::installed(m))?;
     #[cfg(feature = "dev-command-log")]
     command_log::start();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
@@ -201,8 +168,10 @@ fn open_fallback_log() {
 }
 
 /// Logs every panic in framework code as it happens, with its thread and
-/// backtrace: one in a function the game calls cannot unwind into the game
-/// and ends it at once, with no crash folder and no fatal error to say why.
+/// backtrace, which only the panic itself still has: the first step of the
+/// one way a panic goes. [`guarded`], around every function the game calls
+/// (the observer seam and `#[called_by_game]`), then catches it, and
+/// [`fatal`] tells the player and ends the game.
 fn log_panics() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -232,13 +201,13 @@ fn bootstrap() -> Result<()> {
 /// Opens the log and the report in the user directory's `eu4-harmony\logs`,
 /// or the fallback log when the folder cannot be written; returns the folder.
 fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
-    let logs = user_dir.join("eu4-harmony").join("logs");
-    if let Err(e) = log::open(&logs.join("core.log")) {
+    let user = eu4_harmony_folders::UserFolder::new(user_dir);
+    if let Err(e) = log::open(&user.core_log()) {
         open_fallback_log();
-        log!("cannot open {}: {e}", logs.join("core.log").display());
+        log!("cannot open {}: {e}", user.core_log().display());
     }
-    report::open(logs.join("report.txt"));
-    logs
+    report::open(user.report());
+    user.logs()
 }
 
 /// What this core is, after its version: its api, and in a developer build
@@ -308,7 +277,7 @@ fn tell_missing_fonts(chosen: &settings::Settings) {
     for (font, role) in chosen.missing_fonts(installed) {
         let default = settings::default_face(chosen.language(), role, installed).family;
         log!("settings: the font {font:?} is not installed; {default} draws instead");
-        notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
+        notice::post(&format!("font:{font}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
     }
     for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {
         if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
@@ -333,14 +302,14 @@ fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec
     for note in &notes {
         log!("discovery: {}", note.text);
         if let Some(message) = &note.notice {
-            notice::post(&format!("skipped:{}", note.text), message.clone());
+            notice::post(&format!("skipped:{}", note.text), notice::Repeat::Run, message.clone());
         }
     }
     // Lets the notice window be tried without a broken mod.
     #[cfg(feature = "dev-test-switches")]
     if dev::options().test_switches.test_notice {
         for number in ["1", "2"] {
-            notice::post(&format!("test:{number}"), notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
+            notice::post(&format!("test:{number}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
         }
     }
     for m in &mods {

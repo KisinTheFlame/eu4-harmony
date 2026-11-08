@@ -1,6 +1,7 @@
 //! The game console: a command run as the player would type it.
 use crate::game::{self};
 use eu4_harmony_remote::console::{ConsoleAnswer, ConsoleRequest};
+use eu4_harmony_remote::console::args;
 
 layer! {
     run ConsoleRequest => ConsoleAnswer;

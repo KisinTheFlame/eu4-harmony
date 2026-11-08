@@ -2,12 +2,16 @@
 //! the game frees or that the framework frees as the game made them. Every
 //! part of the framework that allocates or frees the game's memory does it
 //! through here.
-use crate::{memory::Memory, points::Point, Result};
+use crate::{
+    memory::Memory,
+    points::{GameFunction, Point},
+    Result,
+};
 
 /// `(size)`: the game's `operator new`.
-pub const NEW: usize = 0x1a332d4;
+pub const NEW: GameFunction<1> = GameFunction::at(0x1a332d4);
 /// `(block, size)`: the game's `operator delete`.
-const DELETE: usize = 0x17394f0;
+const DELETE: GameFunction<2> = GameFunction::at(0x17394f0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -18,12 +22,12 @@ pub fn points() -> Vec<Point> {
 
 /// A block of `size` bytes from the game's heap; 0 when it has none.
 pub fn new(m: &Memory, size: usize) -> Result<usize> {
-    m.call(m.at(NEW), &[size])
+    NEW.call(m, [size])
 }
 
 /// Frees `block`, of `size` bytes, as the game frees one.
 pub fn delete(m: &Memory, block: usize, size: usize) -> Result<()> {
-    m.call(m.at(DELETE), &[block, size]).map(|_| ())
+    DELETE.call(m, [block, size]).map(|_| ())
 }
 
 /// Frees the buffer of a `std::vector` the game grew, (start, end, end of
