@@ -17,7 +17,7 @@ use crate::{
     notice,
     objects::{
         campaign::{self, unit},
-        gui::{army_panel, button, callback, classes, element, event, functions, main_menu, signal, window},
+        gui::{army_panel, button, callback, classes, element, functions, main_menu, signal, window},
         list,
     },
     points::{GameFunction, Point},
@@ -41,6 +41,7 @@ const TOOLTIP: usize = 0x1453b70;
 const TEXT_SET: GameFunction<3> = GameFunction::at(0x152ae10);
 const SUBSCRIBE: GameFunction<2> = GameFunction::at(0xfbe3f0);
 const SET_RIGHT_CLICK: GameFunction<2> = GameFunction::at(0x1593860);
+const SET_DOUBLE_CLICK: GameFunction<2> = GameFunction::at(0x1593870);
 const SHOW: usize = 0x15aeb30;
 const HIDE: usize = 0x15aead0;
 const SET_ENABLED: GameFunction<2> = GameFunction::at(0xfaab30);
@@ -126,6 +127,7 @@ struct Bound {
     wrapper: Option<Callback>,
     linked: bool,
     old_right_click: u8,
+    old_double_click: u8,
     applied_text: Option<Vec<u8>>,
     applied_enabled: Option<bool>,
 }
@@ -230,7 +232,8 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
     if element_name(m, object)? != d.element.prefixed.as_bytes() {
         return Err(format!("{} lookup returned another element", d.element.prefixed));
     }
-    let mut bound = Bound { index, object, signal: 0, wrapper: None, linked: false, old_right_click: 0, applied_text: None, applied_enabled: None };
+    let mut bound =
+        Bound { index, object, signal: 0, wrapper: None, linked: false, old_right_click: 0, old_double_click: 0, applied_text: None, applied_enabled: None };
     if d.element.kind == ElementKind::Button {
         let signal = object + button::SIGNAL;
         if m.ptr(signal)? != m.at(classes::SIGNAL)
@@ -238,6 +241,7 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
             || m.vslot(signal, signal::SUBSCRIBE)? != m.at(SUBSCRIBE)
             || m.vslot(signal, signal::UNSUBSCRIBE)? != m.at(functions::UNSUBSCRIBE)
             || m.vslot(object, button::SET_RIGHT_CLICK)? != m.at(SET_RIGHT_CLICK)
+            || m.vslot(object, button::SET_DOUBLE_CLICK)? != m.at(SET_DOUBLE_CLICK)
         {
             return Err(format!("{} has an unexpected click signal", d.element.prefixed));
         }
@@ -245,9 +249,13 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
         wrapper[0] = m.at(classes::CALLBACK);
         wrapper[callback::CONTEXT / 8] = wrapper.as_ptr() as usize;
         wrapper[callback::RIGHT_CLICK / 8] = right_click as *const () as usize;
-        wrapper[callback::LEFT_CLICK / 8] = left_click as *const () as usize;
+        // Called for a quick second press too, which the game sends as a
+        // double click, unlike the click function the army panel's own
+        // callbacks use.
+        wrapper[callback::CLICKED / 8] = left_click as *const () as usize;
         bound.signal = signal;
         bound.old_right_click = m.u8(object + button::RIGHT_CLICK)?;
+        bound.old_double_click = m.u8(object + button::DOUBLE_CLICK)?;
         bound.wrapper = Some(wrapper);
     }
     Ok(Some(bound))
@@ -279,6 +287,7 @@ fn detach(m: &Memory, ui: &mut Ui, which: impl Fn(&Binding) -> bool) -> Result<(
                 }
                 b.linked = false;
                 SET_RIGHT_CLICK.call(m, [b.object, b.old_right_click as usize])?;
+                SET_DOUBLE_CLICK.call(m, [b.object, b.old_double_click as usize])?;
             }
             Ok(())
         })();
@@ -324,6 +333,7 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
                 return Err("subscription did not register".into());
             }
             SET_RIGHT_CLICK.call(m, [b.object, 1])?;
+            SET_DOUBLE_CLICK.call(m, [b.object, 1])?;
         }
     }
     log!("ui: bound {} element(s) in {host:?} {holder:#x}", binding.bound.len());
@@ -500,15 +510,10 @@ fn enqueue(context: usize, button: usize, click: u32) {
 }
 
 #[called_by_game]
-extern "system" fn left_click(context: usize, event: usize) {
-    let Some(m) = crate::memory().copied() else { return };
-    if event == 0 {
-        return;
-    }
-    let Ok(button) = m.ptr(event) else { return };
-    enqueue(context, button, CLICK_LEFT);
-    // Mark the click consumed so it does not fall through to the map.
-    let _ = m.write(event + event::CONSUMED, &[1]);
+extern "system" fn left_click(context: usize, button: usize) {
+    // The button takes the input whatever the listeners do, so the click
+    // does not go on to the map.
+    enqueue(context, button, CLICK_LEFT)
 }
 
 #[called_by_game]
@@ -568,6 +573,7 @@ pub fn points() -> Vec<Point> {
         Point::keep(TEXT_SET, "48 89 5c 24 08 48 89 6c 24 10 48 89 74 24 18 57", "text box setter"),
         Point::keep(SUBSCRIBE, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 80", "signal subscribe"),
         Point::keep(SET_RIGHT_CLICK, "88 91 61 01 00 00 c3", "button right-click enable").uses(&[button::RIGHT_CLICK]),
+        Point::keep(SET_DOUBLE_CLICK, "88 91 62 01 00 00 c3", "button double-click enable").uses(&[button::DOUBLE_CLICK]),
         Point::keep(SHOW, "40 53 48 83 ec 20 80 b9 00 01 00 00 00 48 8b d9", "element show"),
         Point::keep(HIDE, "40 53 48 83 ec 20 c6 81 c5 00 00 00 00 48 8b d9", "element hide").uses(&[element::VISIBLE]),
         Point::keep(SET_ENABLED, "48 8b 01 84 d2 74 07 48 ff a0 68 02 00 00 48 ff", "button enable"),
@@ -576,6 +582,7 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::BUTTON, element::HIDE, HIDE, "button hide method"),
         Point::method(classes::BUTTON, element::ENABLE, SET_ENABLED.rva(), "button enable method"),
         Point::method(classes::BUTTON, button::SET_RIGHT_CLICK, SET_RIGHT_CLICK.rva(), "button right-click method"),
+        Point::method(classes::BUTTON, button::SET_DOUBLE_CLICK, SET_DOUBLE_CLICK.rva(), "button double-click method"),
         Point::method(classes::SIGNAL, signal::SUBSCRIBE, SUBSCRIBE.rva(), "signal subscribe method"),
         Point::method(classes::SIGNAL, signal::UNSUBSCRIBE, functions::UNSUBSCRIBE.rva(), "signal unsubscribe method"),
     ]

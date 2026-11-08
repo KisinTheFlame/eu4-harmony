@@ -70,6 +70,9 @@ pub mod button {
     /// Whether it reports right clicks, u8, and the method that sets it.
     pub const RIGHT_CLICK: usize = 0x161;
     pub const SET_RIGHT_CLICK: usize = 0x170;
+    /// Whether it reports double clicks, u8, and the method that sets it.
+    pub const DOUBLE_CLICK: usize = 0x162;
+    pub const SET_DOUBLE_CLICK: usize = 0x160;
 }
 
 /// A signal: the callbacks subscribed to it, a list (see
@@ -85,15 +88,19 @@ pub mod signal {
 }
 
 /// What a signal calls, [`SIZE`] bytes: [`classes::CALLBACK`], the context
-/// its functions get, then function pointers; the left click's is called
-/// with (context, event) through the method [`LEFT`], the right click's with
-/// (context, button) through [`RIGHT`].
+/// its functions get, then function pointers. [`CLICKED`] is called with
+/// (context, button) through the method [`CLICKED_METHOD`], for a left click
+/// and, when [`DOUBLE_CLICKED`] is null, for a double click too (through
+/// [`DOUBLE_CLICK_METHOD`]); the right click's with (context, button)
+/// through [`RIGHT`].
 pub mod callback {
     pub const SIZE: usize = 0x78;
     pub const CONTEXT: usize = 8;
-    pub const LEFT_CLICK: usize = 0x70;
+    pub const CLICKED: usize = 0x40;
+    pub const DOUBLE_CLICKED: usize = 0x50;
     pub const RIGHT_CLICK: usize = 0x48;
-    pub const LEFT: usize = 8;
+    pub const CLICKED_METHOD: usize = 0x10;
+    pub const DOUBLE_CLICK_METHOD: usize = 0x58;
     pub const RIGHT: usize = 0x68;
 }
 
@@ -103,12 +110,6 @@ pub mod callback {
 pub mod events {
     pub const RECORD: usize = 0x20;
     pub const POST: usize = 0x18;
-}
-
-/// A click event.
-pub mod event {
-    /// Set when a callback took the click, u8.
-    pub const CONSUMED: usize = 0x10;
 }
 
 /// A window, [`classes::WINDOW`].
@@ -306,7 +307,8 @@ pub mod functions {
     pub const FIND_TEXT: GameFunction<2> = GameFunction::at(0x1548d30);
     pub const FIND_ICON: GameFunction<2> = GameFunction::at(0x15492e0);
     pub const ELEMENT_NAME: GameFunction<1> = GameFunction::at(0xfbf480);
-    pub const LEFT_CLICK: usize = 0x836550;
+    pub const CLICKED: usize = 0x836570;
+    pub const DOUBLE_CLICKED: usize = 0x836590;
     pub const RIGHT_CLICK: usize = 0x836530;
     pub const SELECTED_ARMY: usize = 0x129270;
     pub const EDIT_BOX_PLACE: usize = 0x15357a0;
@@ -359,9 +361,23 @@ pub fn points() -> Vec<Point> {
             "signal listeners",
         )
         .uses(&[signal::LISTENERS, super::list::NEXT, signal::LISTENERS + super::list::CHANGING]),
-        Point::keep(LEFT_CLICK, "48 8b 41 70 48 85 c0 74 07 48 8b 49 08 48 ff e0", "callback left click").uses(&[callback::LEFT_CLICK, callback::CONTEXT]),
+        Point::keep(CLICKED, "48 8b 41 40 48 85 c0 74 07 48 8b 49 08 48 ff e0", "callback clicked").uses(&[callback::CLICKED, callback::CONTEXT]),
+        // A double click falls back to the click when it has no function of
+        // its own.
+        Point::keep(DOUBLE_CLICKED, "48 8b 41 50 48 85 c0 74 07 48 8b 49 08 48 ff e0 48 8b 01 48 ff 60 10", "callback double click").uses(&[
+            callback::DOUBLE_CLICKED,
+            callback::CONTEXT,
+            callback::CLICKED_METHOD,
+        ]),
         Point::keep(RIGHT_CLICK, "48 8b 41 48 48 85 c0 74 07 48 8b 49 08 48 ff e0", "callback right click").uses(&[callback::RIGHT_CLICK, callback::CONTEXT]),
-        Point::keep(0x1411cd7usize, "48 8b 03 48 8b cb ff 50 10 c6 47 10 01", "click consumed").uses(&[event::CONSUMED]),
+        // A left click hands each listener the button, the click's first
+        // field; a double click, which the game sends in place of a quick
+        // second press, hands it the button too, when the button reports
+        // double clicks.
+        Point::keep(0x1594244usize, "48 8b 02 48 8b 51 08 48 8b c8 4c 8b 00 48 8b 12 41 ff 50 10", "signal click listener").uses(&[callback::CLICKED_METHOD]),
+        Point::keep(0x1592d2busize, "83 f8 05 75 75 80 bf 62 01 00 00 00", "button double click").uses(&[button::DOUBLE_CLICK]),
+        Point::keep(0x1592d85usize, "48 8b d7 48 8d 8f c8 00 00 00 e8 bc 07 00 00", "button double click signal").uses(&[button::SIGNAL]),
+        Point::keep(0x1593590usize, "48 8b 0b 48 8b d7 48 8b 5b 10 48 8b 01 ff 50 58", "signal double click listener").uses(&[callback::DOUBLE_CLICK_METHOD]),
         // A window opening: its interface, then open.
         Point::keep(0x1547cdfusize, "48 8b 41 30 48 83 c1 30 b2 01 ff 90 10 02 00 00 48 8b 8b 20 05 00 00 c6 83 f5 00 00 00 01", "window open")
             .uses(&[window::GUI, window::OPEN]),
@@ -405,7 +421,8 @@ pub fn points() -> Vec<Point> {
         Point::method(classes::WINDOW, window::FIND_ICON, FIND_ICON.rva(), "window icon method"),
         Point::method(classes::BUTTON, element::NAME, ELEMENT_NAME.rva(), "button name method"),
         Point::method(classes::TEXT_BOX, element::NAME, ELEMENT_NAME.rva(), "text box name method"),
-        Point::method(classes::CALLBACK, callback::LEFT, LEFT_CLICK, "callback left click method"),
+        Point::method(classes::CALLBACK, callback::CLICKED_METHOD, CLICKED, "callback clicked method"),
+        Point::method(classes::CALLBACK, callback::DOUBLE_CLICK_METHOD, DOUBLE_CLICKED, "callback double click method"),
         Point::method(classes::CALLBACK, callback::RIGHT, RIGHT_CLICK, "callback right click method"),
         Point::method(classes::ARMY_PANEL, army_panel::SELECTED_ARMY, SELECTED_ARMY, "army panel army method"),
         Point::method(classes::EDIT_BOX, edit_box::PLACE, EDIT_BOX_PLACE, "edit box place method"),
