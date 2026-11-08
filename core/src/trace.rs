@@ -204,9 +204,8 @@ const MOST_ARGUMENTS: u32 = 12;
 pub struct Chosen(Vec<(Traced, &'static str)>);
 
 /// The functions dev.toml names that can be traced. A function whose argument count cannot be told is left out, as
-/// are one that reads more arguments than an observer forwards and those past the `room` observer slots the
-/// framework leaves.
-pub fn chosen(m: &Memory, room: usize) -> Chosen {
+/// is one that reads more arguments than an observer forwards.
+pub fn chosen(m: &Memory) -> Chosen {
     let options = &crate::dev::options().call_trace;
     if options.functions.is_empty() {
         return Chosen(Vec::new());
@@ -231,10 +230,6 @@ pub fn chosen(m: &Memory, room: usize) -> Chosen {
         if argc > MOST_ARGUMENTS {
             // Forwarding fewer would hand the function garbage for the rest.
             log!("trace: {rva:#x} left out: it reads {argc} arguments, and an observer forwards at most {MOST_ARGUMENTS}");
-            continue;
-        }
-        if traced.len() == room {
-            log!("trace: {rva:#x} left out: only {room} functions can be traced besides the framework's own");
             continue;
         }
         let field = match options.fields.iter().find(|(f, _)| hex(f) == Some(rva)) {
