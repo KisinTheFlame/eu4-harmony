@@ -127,7 +127,7 @@ Remote control is open only to the Windows user playing, only on this computer, 
 | [docs/prototype-log/](docs/prototype-log/) | What was tested in the running game, and what came out, one file per run |
 | [docs/dev-tools.md](docs/dev-tools.md) | The development tools |
 
-Each larger piece of work has a plan of its own in [docs/](docs/), listed in [docs/README.md](docs/README.md) with every other document.
+Each larger piece of work has a plan of its own in [docs/plans/](docs/plans/), listed in [docs/README.md](docs/README.md) with every other document.
 
 ## Building from source
 

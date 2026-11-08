@@ -15,7 +15,7 @@ What is written down about the framework, and where. Terms are in [GLOSSARY.md](
 
 ## Plans
 
-Each larger piece of work has a plan of its own: what it is for, its parts, and a status line at its top that says what was built and tried. A new plan gets a row here.
+Each larger piece of work has a plan of its own in [plans/](plans/), written as [plans/README.md](plans/README.md) says. A new plan gets a row here.
 
 ### In progress
 
