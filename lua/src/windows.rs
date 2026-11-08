@@ -293,7 +293,7 @@ mod tests {
             "items": [
                 { "type": "text", "name": "status", "size": [100, 20] },
                 { "type": "button", "name": "pick", "sprite": "GFX_pick", "size": [30, 30] },
-                { "type": "list", "name": "countries", "size": [300, 280], "row": { "size": [300, 140], "items": [
+                { "type": "list", "name": "countries", "size": [300, 280], "row": { "size": [300, 150], "items": [
                     { "type": "flag", "name": "flag" }, { "type": "progress", "name": "share" }, { "type": "text", "name": "name", "size": [100, 20] },
                 ]}},
             ],

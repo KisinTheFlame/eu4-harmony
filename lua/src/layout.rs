@@ -34,7 +34,7 @@ pub const PROGRESS_SIZE: (i32, i32) = (288, 18);
 /// The flag a `flag` game widget is unless it names its sprite, and its
 /// size.
 pub const FLAG_SPRITE: &str = "GFX_shield_thin";
-pub const FLAG_SIZE: (i32, i32) = (64, 84);
+pub const FLAG_SIZE: (i32, i32) = (92, 92);
 /// The room between the items of a column or a row, unless it says.
 const SPACING: i32 = 6;
 
@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn a_list_lays_its_row_out_from_the_row_s_corner() {
         let windows = json!({ "electors": { "size": [400, 420], "items": [
-            { "type": "list", "name": "countries", "size": [352, 300], "row": { "size": [340, 90], "items": [
+            { "type": "list", "name": "countries", "size": [352, 300], "row": { "size": [340, 96], "items": [
                 { "type": "row", "items": [
                     { "type": "flag", "name": "flag" },
                     { "type": "text", "name": "name", "size": [200, 20] },
@@ -662,8 +662,8 @@ mod tests {
         ]}});
         let window = &read(&windows, &every).unwrap()[0];
         let Kind::List { row, .. } = &window.widget("countries").unwrap().kind else { panic!() };
-        assert_eq!(row.widget("flag").map(|w| (w.x, w.y, w.width)), Some((0, 0, 64)));
-        assert_eq!(row.widget("name").map(|w| (w.x, w.y)), Some((64 + SPACING, 0)));
+        assert_eq!(row.widget("flag").map(|w| (w.x, w.y, w.width)), Some((0, 0, 92)));
+        assert_eq!(row.widget("name").map(|w| (w.x, w.y)), Some((92 + SPACING, 0)));
     }
 
     #[test]
