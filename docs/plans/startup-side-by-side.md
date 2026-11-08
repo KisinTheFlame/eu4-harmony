@@ -1,6 +1,6 @@
 # The startup's stretches side by side
 
-Status: decided 2026-11-09, after [research/loading.md](../research/loading.md) ("Which stretches can run side by side"); B1 asked for by the owner the same day, built and tried the same day ([the run](../prototype-log/2026-11-09-mesh-types-beside-the-databases.md)). It follows [loading.md](loading.md), a record, and meets the same bar ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
+Status: decided 2026-11-09, after [research/loading.md](../research/loading.md) ("Which stretches can run side by side"); B1 asked for by the owner the same day, built and tried the same day ([the run](../prototype-log/2026-11-09-mesh-types-beside-the-databases.md)), and taken out again that night, after two starts crashed in the map logic while its thread read a file ([the crashes](../prototype-log/2026-11-09-mesh-types-crash-in-the-map-logic.md)). It follows [loading.md](loading.md), a record, and meets the same bar ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
 
 ## Goal and scope
 
@@ -27,6 +27,7 @@ At the end of the gfx stage the LoadingThread spends about 2.2 s in the meshes (
 - A later call, such as after the device's reset, loads the mesh types on its caller's thread, as the game does.
 - The mesh types loaded, in the same order, and every other step stay what they were; only the time changes: `setup.log`'s "Loading Animated Map-Sprites" line counts only what is left on the LoadingThread.
 - Shown: three starts each way, the part on and left to the game (`game-paths`): InitGame began 2.21, 2.13 and 1.73 s after the gfx stage did, against 3.83, 3.12 and 3.19 s; the databases took 4.95, 4.91 and 4.56 s against 4.93, 4.20 and 4.62 s, and ended after the mesh types each time. An ironman save loaded each way and written by the game after its load: `gamestate` the same but for the 4 bytes at 510, `meta` but for its UUID and its closing checksum, `ai` the same; the units' models drawn alike ([research/loading.md](../research/loading.md), "The startup with B1").
+- Taken out (2026-11-09): two of about twelve starts of a test game on a busy machine crashed on the LoadingThread in the map logic, which the databases run, while the mesh types' thread read a `.mesh` file ([the crashes](../prototype-log/2026-11-09-mesh-types-crash-in-the-map-logic.md)). Until what the two share is known, the mesh types load on the LoadingThread again, as the game does.
 
 ### Not planned yet
 
@@ -34,4 +35,4 @@ What [research/loading.md](../research/loading.md) found possible beyond B1, eac
 
 ## How it fits together
 
-`loading::meshes` in the core is B1, a speed-up of `crate::speed` (`meshes`, the group `loading`), as [loading.md](loading.md)'s parts are: a developer build's `game-paths` leaves it to the game. It has nothing to check against the game's own: the mesh types are the game's, loaded by the game's code, only on another thread.
+`loading::meshes` in the core was B1, until it was taken out: a speed-up of `crate::speed` (`meshes`, the group `loading`), as [loading.md](loading.md)'s parts are: a developer build's `game-paths` leaves it to the game. It has nothing to check against the game's own: the mesh types are the game's, loaded by the game's code, only on another thread.
