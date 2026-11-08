@@ -45,6 +45,9 @@ test-notice = false
 # The game crashes at the first frame of a game, so that what follows a crash
 # can be tried.
 crash = false
+# Framework code panics at the first frame of a game, so that what follows a
+# panic can be tried: the log, the notice and the game ended with exit code 3.
+panic = false
 # The speed-ups left to the game, so that its own code can be measured against
 # them: their points are not installed. Each is named by its name, its group or
 # "all": pops-polling, fastest-pace and modifier-sums (group "frames"); music,

@@ -98,6 +98,10 @@ pub struct TestSwitches {
     /// The game crashes at the first frame of a game, so that what follows a
     /// crash can be tried.
     pub crash: bool,
+    /// Framework code panics at the first frame of a game, so that what
+    /// follows a panic, under the guard every function the game calls runs
+    /// in, can be tried.
+    pub panic: bool,
     /// The speed-ups left to the game, by name, group or `all`: their points
     /// are not installed, so that the game's own code can be measured against
     /// them (`core/src/speed.rs`).
@@ -191,10 +195,11 @@ impl Options {
             let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, game-paths {}, checked {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, panic {}, game-paths {}, checked {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
+                on(switches.panic),
                 list(&switches.game_paths),
                 list(&switches.checked),
                 on(switches.game_ends_dependencies),
