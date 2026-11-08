@@ -497,13 +497,50 @@ fn apply(m: Memory, points: &[Point], addresses: &[usize], undo: &mut Undo) -> R
     hooks::enable(&undo.hooks)
 }
 
+/// How many jump stubs [`JUMP_STUBS`] can name.
+const JUMP_STUBS_KEPT: usize = 256;
+
+/// The jump stubs installed, each with the place in the game that jumps to
+/// it, for a profiler outside the process: a stub has no unwind data, and
+/// was jumped into rather than called, so that the stack above it is
+/// walked from the place in the game function that jumped to it
+/// (`cargo xtask profile`). `count` entries are filled, each the stub's
+/// address and the place's.
+#[repr(C)]
+pub struct JumpStubs {
+    count: AtomicUsize,
+    stubs: [[AtomicUsize; 2]; JUMP_STUBS_KEPT],
+}
+
+#[unsafe(export_name = "eu4h_jump_stubs")]
+pub static JUMP_STUBS: JumpStubs = JumpStubs { count: AtomicUsize::new(0), stubs: [const { [const { AtomicUsize::new(0) }; 2] }; JUMP_STUBS_KEPT] };
+
+/// Names the jump stubs of `points`, installed at `addresses`, in
+/// [`JUMP_STUBS`], as many as it keeps.
+fn name_jump_stubs(points: &[Point], addresses: &[usize]) {
+    for (point, &at) in points.iter().zip(addresses) {
+        if let Action::Jump { stub, .. } = point.action {
+            let i = JUMP_STUBS.count.load(Ordering::Relaxed);
+            if i == JUMP_STUBS_KEPT {
+                return;
+            }
+            JUMP_STUBS.stubs[i][0].store(stub, Ordering::Relaxed);
+            JUMP_STUBS.stubs[i][1].store(at, Ordering::Relaxed);
+            JUMP_STUBS.count.store(i + 1, Ordering::Release);
+        }
+    }
+}
+
 /// Checks every point, then hooks and writes all of them and enables the
 /// hooks. If anything fails, nothing stays changed and the error says why.
 pub fn install(m: Memory, points: &[Point]) -> Result<Installed> {
     let addresses = check(m, points, &Lookup { export: &game_export, module: &game_module })?;
     let mut undo = Undo::default();
     match apply(m, points, &addresses, &mut undo) {
-        Ok(()) => Ok(Installed { checked: points.len(), hooks: undo.hooks.len(), writes: undo.writes.len() }),
+        Ok(()) => {
+            name_jump_stubs(points, &addresses);
+            Ok(Installed { checked: points.len(), hooks: undo.hooks.len(), writes: undo.writes.len() })
+        }
         Err(e) => {
             undo.run(m);
             Err(e)
