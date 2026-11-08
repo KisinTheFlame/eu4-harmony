@@ -158,10 +158,37 @@ Timed 2026-11-08 with [L5](../loading.md) on, three starts each way, as "The sta
 
 - The LoadingThread's path is now about 3.6 s to the gfx, 3.5 s of gfx and meshes, 4.8 s of databases and 6.5 s of events, flags and the rest of InitGame: the events and what follows them are now its longest part.
 
+## The startup after L5, broken down
+
+Timed 2026-11-08 on master with L5 merged, as "The startup with L5" was but with the stretches after the events timed too, and one of the starts sampled on every thread (`cargo xtask profile --threads`, 85 samples a second); two other test games ran beside it ([the run](../prototype-log/2026-11-08-startup-after-l5.md)). Seconds from the framework's bootstrap, the mean of three starts, which reached the main menu at 26 to 27 s from the game's start:
+
+| Stretch | Function | Thread | From, to | s |
+| --- | --- | --- | --- | --- |
+| `main` up to the engine's Init | | main | 0, 2.6 | 2.6 |
+| The engine's Init | `0x14c02b0` | main | 2.6, 2.9 | 0.3 |
+| `.gfx`, the map, `shortcuts.txt`, `.gui`, the meshes' before | `0x202850` | LoadingThread | 3.0, 5.3 | 2.2 |
+| Meshes and particles | `0x14dc5d0` | LoadingThread | 5.3, 7.5 | 2.2 |
+| The databases | `0x208620` | LoadingThread | 7.7, 13.7 | 6.0 |
+| The data checksum, beside them | `0x171cdf0` | a pool thread | 7.7, 12.7 | 3.5 to 7.0 |
+| The events | `0x6f3250` | LoadingThread | 13.7, 17.6 | 3.9 |
+| Flags and loading screens | `0x10b2b70` | LoadingThread | 17.6, 18.2 | 0.6 |
+| The trade nodes, the checksum's start, the bookmarks | `0x2043a0` | LoadingThread | 18.2, 18.7 | 0.5 |
+| The triggers' optimization profile | `0xb9b4e0` | LoadingThread | 18.7, 19.8 | 1.1 |
+| The rest of InitGame (the effects' validation) | `0x2043a0` | LoadingThread | 19.8, 20.6 | 0.8 |
+| The main menu's part `0x206260` | `0x206260` | main | 20.6, 25.1 | 4.5 |
+| of that, the map's graphics | `0x10a2e40` | main | 20.6, 22.7 | 2.1 |
+
+- **The LoadingThread hardly waits now.** In the sampled start it was found running at 66 to 94 ticks of each second from 7 to 17 s, of the 85 to 100 the sampler took a second, against 25 to 75% after L1 to L3; it waited mostly in the gfx (13 samples from 4 to 5 s). The main thread waits for it from 2.9 to 20.6 s, 17.7 s of the 26.
+- **The databases' 6 s**, by the loader the samples were under: the decisions (`0x4882c0`) 30%, `customizable_localization` (`0x46fab0`) 19%, the map logic (`0x87b9e0`) 11%, the missions (`0x8d5bd0`) 11%, the rest below 4% each; 74% of the samples in the game's own code, 17% in `ntdll.dll` (the heap among it).
+- **The events' 3.9 s**: 96% of the samples in the script reader (`0x17068b0`) under `0x6f3250`, the events' files read on the one thread.
+- **What follows the flags**, 2.4 s: InitGame's own code 30%, `0xb89690` 17% and `0xb89560` 11% (which `0x2043a0` calls before and after the triggers' optimization profile), `0xdd4330` 10%, `0xb980a0` 7%, `0x7e8470` 6%. `0xb9b4e0` itself is called 2.3 million times, recursively.
+- **The main menu's part**: of the main thread's samples under `0x206260`, 44% under `0x10af270` → `0xfd58b0` → `0xfd5b70` → `0x159e510`, nearly all of them in the framework's drawing of glyphs with DirectWrite; 39% in the map's graphics (`0x10a2e40`, mostly `0x12db850`). The framework's log counted 4,234 to 4,255 glyphs drawn in 2.0 to 2.6 s, twice what it took in "The startup with L4". From 20 s on, 35% of the main thread's samples waited in the kernel under Direct3D 9 and the graphics driver (`NtWaitForSingleObject`, from `0x16d4db0` and the window's shared surface).
+- So the startup's path is now the LoadingThread's 17.6 s from 3.0 to 20.6 s, of which the script reader's databases and events are 9.9 s, then the main thread's 4.5 s, of which the glyphs are about 2 s.
+
 ## Not looked into
 
 - Which thread held the open's lock while the LoadingThread waited on it from 10 to 18 s; with L4 the opens to read no longer take it.
-- What is left of the LoadingThread's waits with L5.
+- Why the framework's glyphs took twice as long after L5 as with L4.
 - What a mesh's load writes, and whether the databases read it.
 - Vanilla's startup and load, without the framework, on the same machine.
 - What `0x1806bf0` keeps of a music file, and whether the game reads every file again when it plays.
