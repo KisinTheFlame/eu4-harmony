@@ -296,8 +296,14 @@ pub fn points() -> Vec<crate::points::Point> {
 /// The framework files the definitions are read from, empty until
 /// extensions declare windows (ADR framework-files-in-the-game-file-system).
 pub fn files() -> Vec<crate::files::File> {
-    [live::WINDOWS_FILE, live::POPUPS_FILE].into_iter().map(|path| crate::files::File { path: path.into(), data: gui::file(&[]).into_bytes() }).collect()
+    let mut files: Vec<crate::files::File> =
+        [live::WINDOWS_FILE, live::POPUPS_FILE].into_iter().map(|path| crate::files::File { path: path.into(), data: gui::file(&[]).into_bytes() }).collect();
+    files.push(crate::files::File { path: SPRITES_FILE.into(), data: gui::SPRITES.as_bytes().to_vec() });
+    files
 }
+
+/// The framework file of the sprites the definitions use.
+const SPRITES_FILE: &str = "interface/eu4harmony_windows.gfx";
 
 /// The panel button strip's file and window, where entry buttons are
 /// spliced as the game reads it.

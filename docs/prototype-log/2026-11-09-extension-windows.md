@@ -18,6 +18,7 @@ Whether extension windows and pop-ups ([docs/extension-windows.md](../extension-
 - **Entry buttons (W4).** The entry button stood left of the Empire's and the papacy's buttons, in the strip's round background, as Austria and as Castile. After the return to the main menu and the new game it opened the panel again: the framework bound it to the strip the new game made.
 - **Extension reload.** `extension reload --id windows-demo` closed the windows, read the definitions again under new names, and the new code's tracker and pop-ups were built.
 - **The session's end.** At the return to the main menu every window and pop-up went; the extension's three waiting tasks were dropped as a session's end drops them.
+- **The blue background.** The game's dialog background is near black; asked for the blue of the game's panels, the windows and pop-ups were given a sprite of the framework's own over the religion view's background, which stretched to the panel (460 by 560), the tracker and the pop-ups with its gold edge whole, and the game's `error.log` had nothing about it.
 - **The log.** `startup: baseline 1.37.5: 1774 dependency points match`; no panic. `release` reported every start ended by the release or a stop, and no crash.
 
 ## Not verified

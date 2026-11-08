@@ -19,8 +19,22 @@ pub const CLOSE: &str = "eu4h_close";
 /// A pop-up's text, and its buttons, `eu4h_button_<n>` from 1.
 pub const TEXT: &str = "eu4h_text";
 
-/// The background that stretches to a window's size: the game's dialogs'.
-const BACKGROUND_SPRITE: &str = "SandboxFloaterBackground";
+/// The background that stretches to a window's size: the framework's own
+/// sprite ([`SPRITES`]) of the game's blue panel, the religion view's, its
+/// gold edge kept at every size.
+pub const BACKGROUND_SPRITE: &str = "GFX_eu4harmony_window_background";
+
+/// The framework's sprites the definitions use, a `.gfx` the game reads
+/// at startup among the framework files.
+pub const SPRITES: &str = "spriteTypes = {
+	corneredTileSpriteType = {
+		name = \"GFX_eu4harmony_window_background\"
+		size = { x = 531 y = 310 }
+		textureFile = \"gfx/interface/country_religion_view_allreligion_bg_large.dds\"
+		borderSize = { x = 12 y = 12 }
+	}
+}
+";
 const CLOSE_SPRITE: &str = "GFX_closebutton2";
 
 /// A pop-up's size, and where its texts stand.
@@ -272,7 +286,7 @@ mod tests {
         assert!(text.starts_with("\twindowType = {\n\t\tname = \"eu4harmony_m_reforms\"\n\t\tbackGround = \"eu4h_background\"\n"), "{text}");
         assert!(text.contains("size = { x = 400 y = 300 }") && text.contains("moveable = 1"));
         assert!(text.contains(&format!("backGround = \"{BACKGROUND}\"")));
-        assert!(text.contains(&format!("guiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"SandboxFloaterBackground\" }}")));
+        assert!(text.contains(&format!("guiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"GFX_eu4harmony_window_background\" }}")));
         assert!(text.contains("name = \"eu4h_title\"") && text.contains("text = \"[TITLE]\""), "{text}");
         assert!(text.contains("name = \"eu4h_close\" position = { x = 352 y = 12 }") && text.contains("shortcut = \"ESCAPE\""));
         assert!(text.contains("name = \"w_status\" position = { x = 24 y = 56 }") && text.contains("format = centre"), "{text}");

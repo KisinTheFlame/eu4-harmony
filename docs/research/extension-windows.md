@@ -156,7 +156,7 @@ An entry button after `n` used slots: the button at `(-360 - 45n, -58)`, its bac
 
 ## A window's background (found in the running game)
 
-A `windowType` takes no `background = { … }` block: that is a `containerWindowType`'s, and in a `windowType` the game's reading stops at it ("Unexpected token", in the game's `error.log`), leaving the definitions after it unread. A `windowType` names its background with `backGround = "<element>"`, an element of its own, as the game's dialogs do: a `guiButtonType` of the corner-tiled `SandboxFloaterBackground`, which the window stretches to its size ([prototype log 2026-11-09](../prototype-log/2026-11-09-extension-windows.md)).
+A `windowType` takes no `background = { … }` block: that is a `containerWindowType`'s, and in a `windowType` the game's reading stops at it ("Unexpected token", in the game's `error.log`), leaving the definitions after it unread. A `windowType` names its background with `backGround = "<element>"`, an element of its own, as the game's dialogs do: a `guiButtonType` of a corner-tiled sprite, which the window stretches to its size. The game's own corner-tiled dialog backgrounds are near black (`SandboxFloaterBackground`) or red; the framework defines one of its own over the religion view's blue panel texture, `GFX_eu4harmony_window_background` (`borderSize` 12, its gold edge) ([prototype log 2026-11-09](../prototype-log/2026-11-09-extension-windows.md)).
 
 ## What needs verifying at run time
 
