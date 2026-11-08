@@ -57,12 +57,65 @@ struct Desired {
     tooltip: Option<Vec<u8>>,
 }
 
+impl Desired {
+    /// The text a text box is to show, if any: none while it is hidden, as a
+    /// text box is hidden by emptying it (its show and hide methods are
+    /// unverified on this build).
+    fn text_box(&self) -> Option<Vec<u8>> {
+        if self.visible == Some(false) {
+            Some(Vec::new())
+        } else {
+            self.text.clone()
+        }
+    }
+}
+
 struct Declared {
     element: Element,
     host: Host,
     /// Index of the extension that receives this element's clicks.
     extension: Option<usize>,
     desired: Desired,
+}
+
+/// The elements spliced this run and what their extensions want of them,
+/// apart from the windows that show them: what the hosts' updates apply.
+#[derive(Default)]
+struct Elements {
+    declared: Vec<Declared>,
+}
+
+impl Elements {
+    /// The elements spliced this run, with the extension that owns each.
+    fn declare(&mut self, elements: Vec<(Element, Option<usize>)>) {
+        self.declared =
+            elements.into_iter().map(|(element, extension)| Declared { host: element.host, element, extension, desired: Desired::default() }).collect();
+    }
+
+    /// Changes what `extension` wants of its element `name`.
+    fn want(&mut self, extension: usize, name: &str, change: impl FnOnce(&mut Desired)) -> GResult<()> {
+        match self.declared.iter_mut().find(|d| d.extension == Some(extension) && d.element.name == name) {
+            Some(d) => {
+                change(&mut d.desired);
+                Ok(())
+            }
+            None => fail(Status::NotFound, format!("no element {name:?} declared by this mod")),
+        }
+    }
+
+    /// Forgets what `extension` wanted of its elements.
+    fn forget(&mut self, extension: usize) {
+        for d in self.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
+            d.desired = Desired::default();
+        }
+    }
+
+    /// Hides every element of `extension`'s.
+    fn hide(&mut self, extension: usize) {
+        for d in self.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
+            d.desired.visible = Some(false);
+        }
+    }
 }
 
 struct Bound {
@@ -102,7 +155,7 @@ pub struct Click {
 
 #[derive(Default)]
 struct Ui {
-    declared: Vec<Declared>,
+    elements: Elements,
     bindings: Vec<Binding>,
     /// Wrappers of detached bindings; the game may still hold pointers to them.
     retired: Vec<Callback>,
@@ -132,10 +185,7 @@ fn report_once(ui: &mut Ui, message: String) {
 
 /// Elements spliced this run, with the extension index that owns each.
 pub fn set_elements(elements: Vec<(Element, Option<usize>)>) {
-    with_ui(|ui| {
-        ui.declared =
-            elements.into_iter().map(|(element, extension)| Declared { host: element.host, element, extension, desired: Desired::default() }).collect();
-    });
+    with_ui(|ui| ui.elements.declare(elements));
 }
 
 /// The element of `name` in the window at `root`, through its method at
@@ -243,7 +293,7 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
         return Ok(());
     }
     detach(m, ui, |b| b.host == host)?;
-    if root == 0 || !ui.declared.iter().any(|d| d.host == host) {
+    if root == 0 || !ui.elements.declared.iter().any(|d| d.host == host) {
         return Ok(());
     }
     // Teardown is noticed through the kill hook, so it must be this window's.
@@ -251,7 +301,7 @@ fn bind(m: &Memory, ui: &mut Ui, host: Host, holder: usize, root: usize) -> Resu
         return Err(format!("{host:?} window has an unexpected kill method"));
     }
     let mut binding = Binding { host, holder, root, bound: Vec::new() };
-    for (index, d) in ui.declared.iter().enumerate().filter(|(_, d)| d.host == host) {
+    for (index, d) in ui.elements.declared.iter().enumerate().filter(|(_, d)| d.host == host) {
         match bind_one(m, root, index, d) {
             Ok(Some(b)) => binding.bound.push(b),
             Ok(None) => {}
@@ -294,12 +344,11 @@ fn write_text(m: &Memory, object: usize, bytes: &[u8]) -> Result<()> {
 fn apply(m: &Memory, ui: &mut Ui, host: Host) -> Result<()> {
     let Some(binding) = ui.bindings.iter_mut().find(|b| b.host == host) else { return Ok(()) };
     for b in &mut binding.bound {
-        let d = &ui.declared[b.index];
+        let d = &ui.elements.declared[b.index];
         // Text boxes' show/hide methods are unverified on this build; a hidden
         // text box is emulated by an empty text instead.
         if d.element.kind == ElementKind::Text {
-            let wanted = if d.desired.visible == Some(false) { Some(Vec::new()) } else { d.desired.text.clone() };
-            if let Some(text) = wanted {
+            if let Some(text) = d.desired.text_box() {
                 if b.applied_text.as_ref() != Some(&text) {
                     write_text(m, b.object, &text)?;
                     b.applied_text = Some(text);
@@ -443,7 +492,7 @@ fn enqueue(context: usize, button: usize, click: u32) {
     else {
         return;
     };
-    let d = &ui.declared[b.index];
+    let d = &ui.elements.declared[b.index];
     let Some(extension) = d.extension else { return };
     if ui.clicks.len() < 64 {
         ui.clicks.push(Click { extension, name: d.element.name.clone(), click, modifiers: modifiers() });
@@ -478,7 +527,7 @@ fn tooltip_after(call: &mut Call) {
     let Some(ui) = guard.as_ref() else { return };
     let Some(binding) = ui.bindings.iter().find(|b| b.host == Host::ArmyPanel && b.holder == call.arg(0)) else { return };
     let Some(b) = binding.bound.iter().find(|b| b.object == call.arg(2) && b.wrapper.is_some()) else { return };
-    let Some(text) = ui.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
+    let Some(text) = ui.elements.declared[b.index].desired.tooltip.clone().filter(|t| !t.is_empty()) else { return };
     drop(guard);
     let output = call.arg(1);
     let empty = |offset: usize| game_string::untouched(&m, output + offset);
@@ -537,13 +586,7 @@ pub fn take_clicks() -> Vec<Click> {
 }
 
 fn desired(extension: usize, name: &str, f: impl FnOnce(&mut Desired)) -> GResult<()> {
-    with_ui(|ui| match ui.declared.iter_mut().find(|d| d.extension == Some(extension) && d.element.name == name) {
-        Some(d) => {
-            f(&mut d.desired);
-            Ok(())
-        }
-        None => fail(Status::NotFound, format!("no element {name:?} declared by this mod")),
-    })
+    with_ui(|ui| ui.elements.want(extension, name, f))
 }
 
 pub fn set_visible(extension: usize, name: &str, visible: bool) -> GResult<()> {
@@ -562,20 +605,12 @@ pub fn set_tooltip(extension: usize, name: &str, text: Vec<u8>) -> GResult<()> {
 /// Forgets what a reloaded extension set on its elements: its new code sets
 /// them again.
 pub fn forget_extension(extension: usize) {
-    with_ui(|ui| {
-        for d in ui.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
-            d.desired = Desired::default();
-        }
-    });
+    with_ui(|ui| ui.elements.forget(extension));
 }
 
 /// Hides everything a stopped extension added.
 pub fn hide_extension(extension: usize) {
-    with_ui(|ui| {
-        for d in ui.declared.iter_mut().filter(|d| d.extension == Some(extension)) {
-            d.desired.visible = Some(false);
-        }
-    });
+    with_ui(|ui| ui.elements.hide(extension));
 }
 
 /// The own land army shown in the open single-army panel.
@@ -594,4 +629,36 @@ pub fn selected_army(m: &Memory, ctx: &game::Ctx) -> GResult<u64> {
         return Err(eu4_harmony_checks::armies::none_selected().into());
     }
     Ok(m.u64(army + unit::ID)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(name: &str, kind: ElementKind) -> Element {
+        Element { owner: 0, window: "unitpanel".into(), host: Host::ArmyPanel, name: name.into(), prefixed: format!("mod_{name}"), kind }
+    }
+
+    #[test]
+    fn an_extension_changes_only_its_own_elements() {
+        let mut elements = Elements::default();
+        elements.declare(vec![(element("go", ElementKind::Button), Some(0)), (element("label", ElementKind::Text), Some(1))]);
+        elements.want(0, "go", |d| d.enabled = Some(false)).unwrap();
+        assert_eq!(elements.want(0, "label", |d| d.visible = Some(true)).unwrap_err().status, Status::NotFound, "extension 1's");
+        assert_eq!(elements.want(0, "stop", |_| ()).unwrap_err().status, Status::NotFound, "none declared");
+        assert_eq!(elements.declared[0].desired.enabled, Some(false));
+        elements.forget(0);
+        assert_eq!(elements.declared[0].desired.enabled, None);
+        elements.hide(1);
+        assert_eq!((elements.declared[0].desired.visible, elements.declared[1].desired.visible), (None, Some(false)));
+    }
+
+    #[test]
+    fn a_hidden_text_box_shows_no_text() {
+        let mut desired = Desired { text: Some(b"12".to_vec()), ..Desired::default() };
+        assert_eq!(desired.text_box(), Some(b"12".to_vec()));
+        desired.visible = Some(false);
+        assert_eq!(desired.text_box(), Some(Vec::new()));
+        assert_eq!(Desired::default().text_box(), None, "nothing asked, nothing written");
+    }
 }
