@@ -488,4 +488,50 @@ mod tests {
         assert_eq!(described(&asked(Some(236), Some(eng))), "demand_provinces (province 236, country ENG)");
         assert_eq!(described(&Term { term: "humiliate".into(), ..Default::default() }), "humiliate");
     }
+
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::{byz, tur};
+        use crate::game::{
+            buffers::{self, Image, Object},
+            commands::record,
+            Caller, Fail, Status,
+        };
+        use crate::objects::campaign::{country as country_fields, globals};
+
+        /// Turkey and Byzantium at peace. Runs `action` over Turkey's
+        /// session.
+        fn turkey<T>(action: impl FnOnce(Session) -> GResult<T>) -> GResult<T> {
+            let image = Image::new();
+            for (n, rva) in globals::SPECIAL_COUNTRIES.into_iter().enumerate() {
+                image.i32(rva, 1000 + n as i32);
+            }
+            let turkey = Object::country(tur(), country_fields::HOSTILE_COUNT + 4);
+            let byzantium = Object::country(byz(), country_fields::HOSTILE_COUNT + 4);
+            let countries = Object::countries(&[&turkey, &byzantium]);
+            let result = action(buffers::session(image.memory(), 0, tur(), turkey.at(), countries.at(), Caller::Remote));
+            drop((turkey, byzantium, countries, image));
+            result
+        }
+
+        fn refused<T: std::fmt::Debug>(result: GResult<T>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the action was carried out: {result:?}") };
+            (status, message)
+        }
+
+        #[test]
+        fn a_treaty_is_with_another_country_the_player_is_at_war_with() {
+            let humiliate = [Term { term: "humiliate".into(), ..Default::default() }];
+            let not_at_war = (Status::Rejected, "the player is not at war with BYZ".to_string());
+            let with_byzantium = [
+                refused(turkey(|s| terms(s, byz(), false))),
+                refused(turkey(|s| evaluate(s, byz(), &humiliate, false))),
+                refused(turkey(|s| demand(s, byz(), &humiliate))),
+                refused(turkey(|s| offer(s, byz(), &humiliate))),
+            ];
+            assert!(with_byzantium.iter().all(|r| *r == not_at_war), "{with_byzantium:?}");
+            assert_eq!(refused(turkey(|s| demand(s, tur(), &humiliate))), (Status::InvalidArgument, "the player's own country".into()));
+            assert!(record::posted().is_empty());
+        }
+    }
 }
