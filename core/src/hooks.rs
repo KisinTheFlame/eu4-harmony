@@ -4,8 +4,9 @@
 //! the game process.
 //!
 //! [`create`] installs a plain detour (used for replacements and jumps).
-//! [`observe`] installs a C++ observer thunk that calls Rust before/after the
-//! original game function without a Rust frame on the stack while it runs.
+//! [`observe`] installs an observer, the native code's, that calls Rust
+//! before/after the original game function without a Rust frame on the stack
+//! while it runs. There can be any number of them.
 //!
 //! An observer is the seam's: a plain Rust function given a [`Call`], the
 //! observed call's arguments and result and the game's memory. The seam runs
@@ -15,10 +16,7 @@
 //! game calls is marked `#[called_by_game]`, which does the same.
 use crate::called_by_game;
 use crate::{memory::Memory, Result};
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Mutex, OnceLock,
-};
+use std::sync::Mutex;
 
 extern "C" {
     fn MH_Initialize() -> i32;
@@ -26,34 +24,32 @@ extern "C" {
     fn MH_RemoveHook(target: *mut u8) -> i32;
     fn MH_QueueEnableHook(target: *mut u8) -> i32;
     fn MH_ApplyQueued() -> i32;
-    fn eu4h_observer_thunk(slot: u32, argc: u32) -> usize;
-    fn eu4h_observer_setup(slot: u32, original: usize, before: Option<Native>, after: Option<Native>);
-    fn eu4h_observer_slots() -> usize;
+    fn eu4h_observer_new(argc: u32, observers: usize, thunk: *mut usize) -> *mut Slot;
+    fn eu4h_observer_setup(slot: *mut Slot, original: usize, before: Option<Native>, after: Option<Native>);
+    fn eu4h_observer_seal();
     #[cfg(test)]
     fn eu4h_hook_frame_layout(out: *mut usize);
 }
 const MH_OK: i32 = 0;
 const MH_ERROR_ALREADY_INITIALIZED: i32 = 1;
 
-/// The native code's observer slots (`kSlots`), which are never reused.
-const SLOTS: usize = 96;
-
-/// How many functions can be observed in all: the native code's observer
-/// slots, which are never reused.
-pub fn observer_slots() -> usize {
-    unsafe { eu4h_observer_slots() }
+/// The native code's slot of one observed function.
+#[repr(C)]
+struct Slot {
+    _private: [u8; 0],
 }
 
 /// Arguments and result of an observed call, as the native code fills them
 /// in; `fault` is 1 when the original left through an exception, in which
 /// case `result` is meaningless. The original is called with `args` as the
-/// "before" observer leaves them.
+/// "before" observer leaves them. `observers` is the `Observers` of the
+/// observed function, 0 in a test's frame.
 #[repr(C)]
 pub struct HookFrame {
     args: [usize; 12],
     result: usize,
     return_address: usize,
-    slot: usize,
+    observers: usize,
     fault: usize,
 }
 
@@ -62,7 +58,7 @@ impl HookFrame {
     pub fn new(args: &[usize]) -> Self {
         let mut all = [0; 12];
         all[..args.len()].copy_from_slice(args);
-        Self { args: all, result: 0, return_address: 0, slot: 0, fault: 0 }
+        Self { args: all, result: 0, return_address: 0, observers: 0, fault: 0 }
     }
 
     /// The same call, returned from the original with `result`.
@@ -180,7 +176,7 @@ impl<'a> Call<'a> {
 
     /// The function observed, by its address.
     pub fn observed(&self) -> Option<usize> {
-        observed(self.frame.slot)
+        self.frame.observers().map(|o| o.target)
     }
 }
 
@@ -191,51 +187,48 @@ pub type Observer = fn(&mut Call);
 /// What the native code calls: the seam's own two functions.
 type Native = extern "C" fn(*mut HookFrame);
 
-/// The observers of one slot, the game they observe, and what they are for
-/// the log.
+/// The observers of one function, the function, the game it is in, and what
+/// they are for the log. Never freed, as the native code's slot is not.
 struct Observers {
-    before: AtomicUsize,
-    after: AtomicUsize,
-    base: AtomicUsize,
-    what: OnceLock<&'static str>,
+    before: Option<Observer>,
+    after: Option<Observer>,
+    target: usize,
+    base: usize,
+    what: &'static str,
 }
 
-static OBSERVERS: [Observers; SLOTS] =
-    [const { Observers { before: AtomicUsize::new(0), after: AtomicUsize::new(0), base: AtomicUsize::new(0), what: OnceLock::new() } }; SLOTS];
+impl HookFrame {
+    fn observers(&self) -> Option<&'static Observers> {
+        unsafe { (self.observers as *const Observers).as_ref() }
+    }
+}
 
 /// Runs `observer` on one call, guarded.
 pub fn run(what: &str, frame: &mut HookFrame, memory: Memory, observer: Observer) {
     crate::guarded(what, || observer(&mut Call::new(frame, memory)));
 }
 
-fn dispatch(frame: *mut HookFrame, which: fn(&Observers) -> &AtomicUsize) {
+fn dispatch(frame: *mut HookFrame, which: fn(&Observers) -> Option<Observer>) {
     let frame = unsafe { &mut *frame };
-    let Some(slot) = OBSERVERS.get(frame.slot) else { return };
-    let observer = which(slot).load(Ordering::Acquire);
-    if observer == 0 {
-        return;
-    }
-    let observer = unsafe { std::mem::transmute::<usize, Observer>(observer) };
-    let memory = Memory { base: slot.base.load(Ordering::Relaxed) };
-    run(slot.what.get().copied().unwrap_or("observer"), frame, memory, observer);
+    let Some(observers) = frame.observers() else { return };
+    let Some(observer) = which(observers) else { return };
+    run(observers.what, frame, Memory { base: observers.base }, observer);
 }
 
 #[called_by_game]
 extern "C" fn before(frame: *mut HookFrame) {
-    dispatch(frame, |o| &o.before);
+    dispatch(frame, |o| o.before);
 }
 
 #[called_by_game]
 extern "C" fn after(frame: *mut HookFrame) {
-    dispatch(frame, |o| &o.after);
+    dispatch(frame, |o| o.after);
 }
 
 struct Registry {
     targets: Vec<usize>,
-    /// The function each observer slot observes, by slot.
-    observed: Vec<usize>,
 }
-static REGISTRY: Mutex<Registry> = Mutex::new(Registry { targets: Vec::new(), observed: Vec::new() });
+static REGISTRY: Mutex<Registry> = Mutex::new(Registry { targets: Vec::new() });
 
 fn registry() -> std::sync::MutexGuard<'static, Registry> {
     REGISTRY.lock().unwrap_or_else(|e| e.into_inner())
@@ -269,27 +262,27 @@ pub fn create(target: usize, detour: usize) -> Result<usize> {
 /// Observes a game function taking `argc` integer/pointer arguments, in the
 /// game whose image is `memory`; `what` names it in the log.
 pub fn observe(target: usize, argc: u32, memory: Memory, what: &'static str, before: Option<Observer>, after: Option<Observer>) -> Result<()> {
-    let mut registry = registry();
-    let slot = registry.observed.len();
-    if slot >= observer_slots() || argc > 12 {
-        return Err("observer slots exhausted or too many arguments".into());
+    if argc > 12 {
+        return Err(format!("an observer forwards at most 12 arguments, not {argc}"));
     }
-    let thunk = unsafe { eu4h_observer_thunk(slot as u32, argc) };
+    let mut registry = registry();
+    let observers: &'static Observers = Box::leak(Box::new(Observers { before, after, target, base: memory.base, what }));
+    let mut thunk = 0;
+    let slot = unsafe { eu4h_observer_new(argc, observers as *const Observers as usize, &mut thunk) };
+    if slot.is_null() {
+        return Err("cannot make an observer's stub".into());
+    }
     let original = create_locked(&mut registry, target, thunk)?;
-    let observers = &OBSERVERS[slot];
-    observers.base.store(memory.base, Ordering::Relaxed);
-    let _ = observers.what.set(what);
-    observers.before.store(before.map_or(0, |f| f as usize), Ordering::Release);
-    observers.after.store(after.map_or(0, |f| f as usize), Ordering::Release);
     let native = |observer: Option<Observer>, seam: Native| observer.map(|_| seam);
-    unsafe { eu4h_observer_setup(slot as u32, original, native(before, self::before), native(after, self::after)) };
-    registry.observed.push(target);
+    unsafe { eu4h_observer_setup(slot, original, native(before, self::before), native(after, self::after)) };
     Ok(())
 }
 
 /// Enables the hooks on `targets` in one step, with the game's threads
-/// suspended once.
+/// suspended once. The observers' stubs may run from then on, so no more
+/// are written beside them.
 pub fn enable(targets: &[usize]) -> Result<()> {
+    unsafe { eu4h_observer_seal() };
     for &target in targets {
         let code = unsafe { MH_QueueEnableHook(target as *mut u8) };
         if code != MH_OK {
@@ -302,14 +295,9 @@ pub fn enable(targets: &[usize]) -> Result<()> {
     }
 }
 
-/// The function observer slot `slot` observes.
-pub fn observed(slot: usize) -> Option<usize> {
-    registry().observed.get(slot).copied()
-}
-
 /// Removes a hook created by [`create`] or [`observe`], disabling it first if
-/// it is enabled, which restores the original code. An observer's slot is not
-/// reused.
+/// it is enabled, which restores the original code. An observer's slot and
+/// stub are not freed: a thread may still be in them.
 pub fn remove(target: usize) {
     let mut registry = registry();
     let code = unsafe { MH_RemoveHook(target as *mut u8) };
@@ -333,11 +321,10 @@ mod tests {
             size_of::<HookFrame>(),
             offset_of!(HookFrame, result),
             offset_of!(HookFrame, return_address),
-            offset_of!(HookFrame, slot),
+            offset_of!(HookFrame, observers),
             offset_of!(HookFrame, fault),
         ];
         assert_eq!(native, ours);
-        assert_eq!(observer_slots(), SLOTS);
     }
 
     fn reads(call: &mut Call) {

@@ -631,6 +631,97 @@ mod tests {
         assert_eq!(RECORDED.load(Ordering::SeqCst), observed.base + 15);
     }
 
+    static OBSERVED: AtomicUsize = AtomicUsize::new(0);
+    static ELSEWHERE: AtomicUsize = AtomicUsize::new(0);
+    /// Counts a call of a function given its own address.
+    fn counts(call: &mut Call) {
+        let counter = if call.observed() == Some(call.arg(0)) { &OBSERVED } else { &ELSEWHERE };
+        counter.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// There is no limit on how many functions are observed, and each
+    /// observer knows its own.
+    #[test]
+    fn any_number_of_functions_can_be_observed() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        const FUNCTIONS: usize = 600;
+        let pages: Vec<Memory> = (0..FUNCTIONS.div_ceil(256)).map(|_| code(&[ADDER; 256].join(" "), PAGE_EXECUTE_READWRITE)).collect();
+        let functions: Vec<usize> = (0..FUNCTIONS).map(|i| pages[i / 256].base + 16 * (i % 256)).collect();
+        let points: Vec<Point> = functions.iter().map(|&f| Point::observe(f, "48 89 c8 48 83 c0 01", "counted", 1, Some(counts), None)).collect();
+        assert_eq!(install(ANYWHERE, &points).unwrap(), Installed { checked: FUNCTIONS, hooks: FUNCTIONS, writes: 0 });
+        for &f in &functions {
+            assert_eq!(call(Memory { base: f }, f), f + 7);
+        }
+        assert_eq!((OBSERVED.load(Ordering::SeqCst), ELSEWHERE.load(Ordering::SeqCst)), (FUNCTIONS, 0));
+    }
+
+    static FIRST_AND_LAST: Mutex<Option<(usize, usize)>> = Mutex::new(None);
+    static RESULT_AND_CALLER: Mutex<Option<(Option<usize>, usize)>> = Mutex::new(None);
+    fn sees_twelve(call: &mut Call) {
+        *FIRST_AND_LAST.lock().unwrap() = Some((call.arg(0), call.arg(11)));
+        call.set_arg(11, call.arg(11) + 1000);
+    }
+    fn sees_the_result(call: &mut Call) {
+        *RESULT_AND_CALLER.lock().unwrap() = Some((call.result(), call.caller()));
+    }
+
+    /// An observer is given the arguments passed on the stack as well as in
+    /// registers, and its change reaches the original.
+    #[test]
+    fn an_observer_forwards_twelve_arguments() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        // mov rax, [rsp + 0x60]; add rax, [rsp + 0x28]; ret: the twelfth argument and the fifth.
+        let m = code("48 8b 44 24 60 48 03 44 24 28 c3", PAGE_EXECUTE_READWRITE);
+        let point = Point::observe(0usize, "48 8b 44 24 60", "twelve", 12, Some(sees_twelve), Some(sees_the_result));
+        install(m, &[point]).unwrap();
+        let args: Vec<usize> = (1..=12).map(|i| i * 10).collect();
+        assert_eq!(m.call(m.base, &args).unwrap(), 50 + 1120);
+        assert_eq!(*FIRST_AND_LAST.lock().unwrap(), Some((10, 120)));
+        let (result, caller) = RESULT_AND_CALLER.lock().unwrap().unwrap();
+        assert_eq!(result, Some(1170));
+        assert_ne!(caller, 0);
+    }
+
+    /// A caller that knows the function it calls leaves r10 and r11 alone,
+    /// as the game's code compiled as a whole may, finds them as they were.
+    #[test]
+    fn an_observer_leaves_the_caller_s_registers() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let m = code(ADDER, PAGE_EXECUTE_READWRITE);
+        // mov r10, 0x1111; mov r11, 0x2222; sub rsp, 0x28; mov rax, <the adder>; call rax;
+        // add rsp, 0x28; lea rax, [r10 + r11]; ret
+        let mut caller = hex("49 c7 c2 11 11 00 00 49 c7 c3 22 22 00 00 48 83 ec 28 48 b8").unwrap();
+        caller.extend(m.base.to_le_bytes());
+        caller.extend(hex("ff d0 48 83 c4 28 4b 8d 04 1a c3").unwrap());
+        write_code(m, m.base + 0x20, &caller).unwrap();
+        let point = Point::observe(0usize, "48 89 c8 48 83 c0 01", "adder", 1, Some(remember), Some(remember));
+        install(m, &[point]).unwrap();
+        assert_eq!(call(Memory { base: m.base + 0x20 }, 6), 0x3333);
+        assert_eq!(SEEN.load(Ordering::SeqCst), 6);
+    }
+
+    static FAULTED: AtomicUsize = AtomicUsize::new(0);
+    fn sees_the_fault(call: &mut Call) {
+        FAULTED.store(usize::from(call.faulted()) + 1, Ordering::SeqCst);
+    }
+
+    /// A fault in the original passes through the observer, which sees it,
+    /// to the code that called it.
+    #[test]
+    fn a_fault_passes_through_an_observer() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        // mov rax, [rcx]; nop; nop; ret
+        let m = code("48 8b 01 90 90 c3", PAGE_EXECUTE_READWRITE);
+        let point = Point::observe(0usize, "48 8b 01 90 90", "faulting", 1, None, Some(sees_the_fault));
+        install(m, &[point]).unwrap();
+        let value = 41usize;
+        assert_eq!(m.call(m.base, &[&value as *const usize as usize]).unwrap(), 41);
+        assert_eq!(FAULTED.load(Ordering::SeqCst), 1);
+        let err = m.call(m.base, &[8]).unwrap_err();
+        assert!(err.contains("faulted: 0xc0000005"), "{err}");
+        assert_eq!(FAULTED.load(Ordering::SeqCst), 2);
+    }
+
     #[test]
     fn mismatch_changes_nothing_and_names_every_point() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -719,14 +810,6 @@ mod tests {
             }
         }
         assert!(loose.is_empty(), "{loose:#?}");
-    }
-
-    /// The framework's own observers, and the heap census's in a developer
-    /// build with it, leave slots over, for tracing.
-    #[test]
-    fn the_observers_leave_slots_over() {
-        let observers = this_build::declared().iter().filter(|p| matches!(p.action, Action::Observe { .. })).count();
-        assert!(observers < hooks::observer_slots(), "{observers} observers for {} slots", hooks::observer_slots());
     }
 
     /// Every point carries in its own bytes, decoded where they lie, the

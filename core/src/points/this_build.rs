@@ -81,8 +81,7 @@ pub(crate) fn installed(m: Memory) -> Vec<Point> {
     }
     #[cfg(feature = "dev-call-trace")]
     {
-        let observers = all.iter().filter(|p| matches!(p.action, super::Action::Observe { .. })).count();
-        let trace = crate::trace::chosen(&m, crate::hooks::observer_slots().saturating_sub(observers));
+        let trace = crate::trace::chosen(&m);
         all.extend(trace.points());
         trace.start();
     }
