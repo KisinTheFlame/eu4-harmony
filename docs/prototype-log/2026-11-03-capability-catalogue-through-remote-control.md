@@ -1,6 +1,6 @@
 # 2026-11-03 The capability catalogue through remote control (tested by me)
 
-L1 of [lua-extensions.md](../lua-extensions.md): remote control under the catalogue's names and shapes. Two runs of `eu4.exe`, started directly with the player's playset and framework settings, driven by `eu4-harmony game` from a script: the main menu, `menu.start CAS`, the capabilities, `menu.return`. The game was claimed with the game-lock skill, which backed up the player's files first.
+L1 of [lua-extensions.md](../plans/lua-extensions.md): remote control under the catalogue's names and shapes. Two runs of `eu4.exe`, started directly with the player's playset and framework settings, driven by `eu4-harmony game` from a script: the main menu, `menu.start CAS`, the capabilities, `menu.return`. The game was claimed with the game-lock skill, which backed up the player's files first.
 
 - **Startup**: 707 dependency points match; 120 hooks, 10 writes. No crash.
 - **Answered as the catalogue has it**:

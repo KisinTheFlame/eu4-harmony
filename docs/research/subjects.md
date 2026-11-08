@@ -1,6 +1,6 @@
 # Subjects (for `game::subjects`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 for part A6 of [player-actions.md](../player-actions.md); what was checked in the running game is in [Player actions A6](../prototype-log/2026-11-05-player-actions-a6-diplomacy.md) and [its follow-ups](../prototype-log/2026-11-05-player-actions-follow-ups.md). Annexing and integrating a subject, and the other subject actions of the diplomacy panel (`vassalaction`, `designate_march`, `tributary_state_action`, `abandon_union`), are diplomatic actions ([diplomacy.md](diplomacy.md#the-diplomacy-panel)).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 for part A6 of [player-actions.md](../plans/player-actions.md); what was checked in the running game is in [Player actions A6](../prototype-log/2026-11-05-player-actions-a6-diplomacy.md) and [its follow-ups](../prototype-log/2026-11-05-player-actions-follow-ups.md). Annexing and integrating a subject, and the other subject actions of the diplomacy panel (`vassalaction`, `designate_march`, `tributary_state_action`, `abandon_union`), are diplomatic actions ([diplomacy.md](diplomacy.md#the-diplomacy-panel)).
 
 ## The interactions
 

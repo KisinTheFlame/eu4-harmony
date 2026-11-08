@@ -1,4 +1,4 @@
--- QA looping, a test mod of the extensions scenario (docs/whole-game.md):
+-- QA looping, a test mod of the extensions scenario (docs/plans/whole-game.md):
 -- loops without end in every on_month, which the time limit stops; after
 -- three such stops in a row the framework stops it for good.
 return {

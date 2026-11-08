@@ -1,5 +1,5 @@
 //! `sessions`: every way into and out of a session, round after round, on
-//! the player build (docs/whole-game.md). Each round, from the main menu:
+//! the player build (docs/plans/whole-game.md). Each round, from the main menu:
 //! 1. loads the first save, lets days run, loads the second in the game, lets
 //!    days run;
 //! 2. returns; starts a new game as the country, lets days run, writes the

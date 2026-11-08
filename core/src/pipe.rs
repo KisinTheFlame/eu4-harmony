@@ -4,7 +4,7 @@
 //! line in and one JSON response per line out (`request_from_json`,
 //! `response_json`). A developer build with the test games' pipes serves a
 //! test game's own instead, `\\.\pipe\eu4-harmony-<name>`, when
-//! `-harmony_test_game=<name>` is on the command line (docs/test-games.md); a
+//! `-harmony_test_game=<name>` is on the command line (docs/plans/test-games.md); a
 //! player's build passes the switch over.
 //!
 //! Every remote client has a pipe instance and a thread of its own, so

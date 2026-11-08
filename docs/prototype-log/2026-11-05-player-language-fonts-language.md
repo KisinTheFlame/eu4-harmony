@@ -1,6 +1,6 @@
 # 2026-11-05 The player language and fonts by language (tested by me)
 
-L2 and L3 of [player-language.md](../player-language.md), the player build of this branch, with the player's playset (a Chinese language mod, the game in English) in a borderless 3840x2160 window, hidden, on a Windows that displays Simplified Chinese. The framework settings named no language and chose the three FZ fonts for body text, headings and the map, as the player had.
+L2 and L3 of [player-language.md](../plans/player-language.md), the player build of this branch, with the player's playset (a Chinese language mod, the game in English) in a borderless 3840x2160 window, hidden, on a Windows that displays Simplified Chinese. The framework settings named no language and chose the three FZ fonts for body text, headings and the map, as the player had.
 
 - **The first start**: the settings got `language="simp_chinese"`, the log said "the language is simp_chinese, as Windows displays it", and the report "language: simp_chinese (chosen in the framework settings); the game runs in english". The three FZ fonts were kept and drew; the console, never chosen, drew in Consolas and was not written into the file. The old `text_appearance` line was dropped, as before.
 - **The settings window**: 语言 简体中文 at the top; its list showed the twelve by what each calls itself. In FZPingXianYaSongS-R-GB, Русский, the ê of Português and the ü of Türkçe came out wide apart: the font has them as full-width GB2312 glyphs. In Segoe UI they were drawn as they should be.

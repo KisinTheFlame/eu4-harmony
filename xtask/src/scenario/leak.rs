@@ -1,5 +1,5 @@
 //! `leak` and `growth`: rounds of sessions, and what the game's memory keeps
-//! of them (docs/leak-finding.md). Each round, from the main menu:
+//! of them (docs/plans/leak-finding.md). Each round, from the main menu:
 //! 1. loads the first save, and lets the days run;
 //! 2. loads the second save from that game, and lets a third of them run;
 //! 3. returns to the main menu;

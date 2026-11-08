@@ -1,6 +1,6 @@
 # 2026-11-08 Letting go after a return in one module (tested by me)
 
-What waits to be let go until a return or a world reset has passed, gathered from four repairs into `core/src/repairs/waiting.rs`, and the moments of the sessions each repair acts on declared in its `Repair` ([deepening.md](../deepening.md), D2), on the deepening branch with master's one-file-per-run log merged in. `cargo xtask scenario growth leak --growth.rounds 3 --leak.rounds 3` in a test game of my own, started hidden, 9 minutes in all.
+What waits to be let go until a return or a world reset has passed, gathered from four repairs into `core/src/repairs/waiting.rs`, and the moments of the sessions each repair acts on declared in its `Repair` ([deepening.md](../plans/deepening.md), D2), on the deepening branch with master's one-file-per-run log merged in. `cargo xtask scenario growth leak --growth.rounds 3 --leak.rounds 3` in a test game of my own, started hidden, 9 minutes in all.
 
 - **growth** (memory account build), three rounds of a load, an in-game load, a return, a new game as France and a return: passed. The game's heap held 1,753.9, 1,754.4 and 1,754.5 MB after each round, +0.19 MB a round over rounds 2 to 3.
 - **leak** (heap census build), three rounds: passed. The game's heap held 1,752.6, 1,756.1 and 1,756.2 MB.

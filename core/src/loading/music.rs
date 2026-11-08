@@ -1,4 +1,4 @@
-//! Music the game knows at startup without reading it (docs/loading.md).
+//! Music the game knows at startup without reading it (docs/plans/loading.md).
 //!
 //! For each music asset, `0x16a4930` adds the music and calls `0x16a9a40`
 //! with its sound: that opens the file, reads all of it into memory, opens it

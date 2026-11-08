@@ -1,5 +1,5 @@
 //! What the game holds in memory, and what the heap census found: a
-//! developer build's, with the `dev-memory` feature (docs/leak-finding.md).
+//! developer build's, with the `dev-memory` feature (docs/plans/leak-finding.md).
 //! A player's build has none of it; memory.leftovers and memory.generation
 //! need the heap census built in too.
 //!

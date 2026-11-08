@@ -1,4 +1,4 @@
-//! Games let run long, on the player build unless said (docs/whole-game.md):
+//! Games let run long, on the player build unless said (docs/plans/whole-game.md):
 //! - `late`: each of the late game's saves loaded, observed, a year let run,
 //!   the autosave written and loaded, a month more, and a return;
 //! - `long`: a game in observe mode from 1444 to the end of the game, a

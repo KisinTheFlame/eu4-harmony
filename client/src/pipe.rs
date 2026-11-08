@@ -11,7 +11,7 @@
 //!
 //! When the game restarts, as a return to the main menu with the in-process
 //! return turned off does, the old process's pipe breaks, and the new one
-//! opens the pipe a few seconds later (docs/remote-control.md, F3). So the
+//! opens the pipe a few seconds later (docs/plans/remote-control.md, F3). So the
 //! client waits for the pipe to appear,
 //! and a pipe that breaks is an error at once, never a wait.
 use eu4_harmony_remote::{Error, GroupRequest};
@@ -41,7 +41,7 @@ use windows_sys::Win32::{
 /// The pipe the game serves.
 pub const NAME: &str = eu4_harmony_remote::PIPE;
 /// The environment variable that names the test game to ask when the
-/// command does not (docs/test-games.md).
+/// command does not (docs/plans/test-games.md).
 pub const TEST_GAME_VARIABLE: &str = "EU4_HARMONY_TEST_GAME";
 /// The game's executable, the only one trusted to serve the pipe.
 pub const GAME: &str = "eu4.exe";

@@ -9,7 +9,7 @@
 //! and the default diplomacy window send it, with what the game chooses for
 //! it there; an action whose window has the player choose more (a province,
 //! an amount) is sent with the game's own choice, as in
-//! docs/player-actions.md, part A6.
+//! docs/plans/player-actions.md, part A6.
 //!
 //! A refusal is `rejected`, with the game's reasons, one a line. An action
 //! the game lets the player send is answered once the game has done with

@@ -1,6 +1,6 @@
 # 2026-11-04 What still points at the leftovers (tested by me)
 
-M2 of [leak-finding.md](../leak-finding.md): `memory.leftovers` with `holders`, which `tools/leak-run.ps1` asks after its last round. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. The developer build with the heap census, `eu4.exe` started by the script, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days, four rounds.
+M2 of [leak-finding.md](../plans/leak-finding.md): `memory.leftovers` with `holders`, which `tools/leak-run.ps1` asks after its last round. One process under the game lock, which backed up and restored the player's files; the framework files in the game folder copied aside first. The developer build with the heap census, `eu4.exe` started by the script, the saves England-1 and 英格兰1444_11_11, new games as France, 30 days, four rounds.
 
 - **The run**: every answer right, no crash, each round 37 to 39 s; private bytes 4,338 MB at startup, 4,604 MB after four rounds.
 - **The scan**, after the fourth round: 1,065,409 leftovers of the 40 sites looked for, 1,671 MB of the game's data and live blocks read, 1,549 ms with the census locked.

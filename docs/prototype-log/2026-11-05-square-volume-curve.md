@@ -1,6 +1,6 @@
 # 2026-11-05 The square volume curve, and what a short hearing keeps (tested by me)
 
-[music-volume.md](../music-volume.md) after the volume curve became the square of the position, a developer build with the call trace on `SDL_MixAudioFormat`'s body (`0x17458b0`), every voice but the music. Hidden starts without sound, five within one claim.
+[music-volume.md](../plans/music-volume.md) after the volume curve became the square of the position, a developer build with the call trace on `SDL_MixAudioFormat`'s body (`0x17458b0`), every voice but the music. Hidden starts without sound, five within one claim.
 
 - **The curve**: master 12 and music 67.32 gave the music a gain of 0.0065 while loading, the square's 0.00653; master 100 and music 50 gave 0.25, and 0.1887 in a new game as France, that times the game's own voice volume of 0.755. The first sound at the main menu went to SDL at 57 with effects at 77 (0.77² × 128 × 0.75 is 57; the first curve gave 33).
 - **What it found**: the second start recognized the main theme at -35.6 LUFS, which the first start had kept from only 20 s of its quiet opening, and raised it by the most, 12 dB, for all of its 260 s, while that hearing measured it at -11.0. Three changes followed: a hearing is kept only once it is a minute long; a first hearing is raised only once a minute is measured (it is lowered from 3 s, as before); and a track that plays longer than what was kept of it follows what this hearing measures.

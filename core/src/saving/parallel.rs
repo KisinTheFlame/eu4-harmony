@@ -1,5 +1,5 @@
 //! The countries and the provinces of a save written on several threads at
-//! once (docs/game-speed.md, S8).
+//! once (docs/plans/game-speed.md, S8).
 //!
 //! Writing the game state into memory is most of a save's stop, and the
 //! countries' loop and the provinces' loop are most of that

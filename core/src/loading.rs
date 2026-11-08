@@ -1,4 +1,4 @@
-//! A shorter startup and load, the game's data the same (docs/loading.md,
+//! A shorter startup and load, the game's data the same (docs/plans/loading.md,
 //! docs/research/loading.md). Each part is a speed-up of its own
 //! (`crate::speed`).
 //!

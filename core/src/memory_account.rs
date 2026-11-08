@@ -1,6 +1,6 @@
 //! What the process holds in memory, split by where it lies, for remote
 //! control's `memory` (the `dev-memory` feature: a player's build has none
-//! of this; docs/leak-finding.md). It reads only what Windows keeps of the
+//! of this; docs/plans/leak-finding.md). It reads only what Windows keeps of the
 //! process and its heaps, so it costs the game nothing between two asks:
 //! a run can measure without the heap census, which slows the game and holds
 //! hundreds of megabytes of its own.

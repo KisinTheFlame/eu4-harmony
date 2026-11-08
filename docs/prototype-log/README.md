@@ -12,4 +12,4 @@ Refer to a run by a link to its file, as [the extension reload](2026-11-04-exten
 
 ## The baseline
 
-Unless a run says otherwise, it was on vanilla 1.37.5 (`9ad3efe1…`), the baseline of [docs/research/](../research/). The runs before the first version was built checked the items under "Order of work" in [v1.md](../v1.md); what the implementation came to differ from that design is at the end of v1.md.
+Unless a run says otherwise, it was on vanilla 1.37.5 (`9ad3efe1…`), the baseline of [docs/research/](../research/). The runs before the first version was built checked the items under "Order of work" in [v1.md](../plans/v1.md); what the implementation came to differ from that design is at the end of v1.md.

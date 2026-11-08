@@ -1,5 +1,5 @@
 //! What the game's panels say of each thing the player could do there
-//! (docs/player-actions.md): whether the player can, why not, what it costs,
+//! (docs/plans/player-actions.md): whether the player can, why not, what it costs,
 //! and whether another country would accept it. Shared by every group whose
 //! `options` or `list` read answers them.
 use serde::{Deserialize, Serialize};

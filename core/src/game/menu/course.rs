@@ -1,5 +1,5 @@
 //! What remote control asks of the main menu and of a session, and every way
-//! of leaving a session, as a whole (docs/sessions.md): a save loaded or a
+//! of leaving a session, as a whole (docs/plans/sessions.md): a save loaded or a
 //! new game started from the main menu, a save loaded in a session's place,
 //! a return to the main menu, a new game from a session; and the player's own
 //! returns and in-game loads, which take the same steps.
@@ -326,7 +326,7 @@ struct State {
 /// execute them on a world the return let go (seen in the game: an
 /// economic command of the AI executed in the main menu's frame, and the
 /// unit manager's queue of a day of the last session, each ending the game,
-/// docs/whole-game.md). The player's ways out pause the game first.
+/// docs/plans/whole-game.md). The player's ways out pause the game first.
 pub(super) const STILL_FRAMES: u32 = 3;
 
 impl State {

@@ -1,5 +1,5 @@
 //! Occupation: handing a province the player occupies over to an ally, as
-//! the province view's transfer occupation window does (docs/player-actions.md,
+//! the province view's transfer occupation window does (docs/plans/player-actions.md,
 //! part A5).
 use crate::{choices::Choice, CountryTag, ProvinceId};
 use serde::{Deserialize, Serialize};

@@ -8,7 +8,7 @@
 //!
 //! The core is `eu4-harmony\eu4_harmony_core.dll` beside the game, or the one
 //! `-harmony_core=<path>` on the game's command line names, as a test game
-//! runs a core of its own (docs/test-games.md); a core named there that does
+//! runs a core of its own (docs/plans/test-games.md); a core named there that does
 //! not load ends the game, which would otherwise run without the core it was
 //! started for.
 //!

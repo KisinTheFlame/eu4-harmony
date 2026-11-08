@@ -1,4 +1,4 @@
-//! What keeps the heap's free pages committed (docs/leak-finding.md, M5): a
+//! What keeps the heap's free pages committed (docs/plans/leak-finding.md, M5): a
 //! walk of the game's heap gives its committed pages and every busy block on
 //! them, the small blocks of its low-fragmentation heap one by one; a page
 //! that holds blocks stays committed however little of it they use, so its

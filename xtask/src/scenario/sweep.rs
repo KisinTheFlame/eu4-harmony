@@ -1,5 +1,5 @@
 //! `sweep`: every capability remote control has, asked in every place, on
-//! the player build (docs/whole-game.md). The places: the main menu; a game
+//! the player build (docs/plans/whole-game.md). The places: the main menu; a game
 //! as the country, paused; the same at speed; observe mode with no country
 //! in view; and with the country in view.
 //!

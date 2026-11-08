@@ -1,6 +1,6 @@
 //! `cargo xtask game`: claims of test games (GLOSSARY), each holder with a
 //! test game of its own until it releases it, and starting and stopping it
-//! within the claim (docs/test-games.md).
+//! within the claim (docs/plans/test-games.md).
 //!
 //! The claim's course is `course.rs`, over the computer as `machine.rs`
 //! reaches it; its record and the decisions over it are `record.rs`. This
@@ -82,7 +82,7 @@ pub fn run(raw: &[String]) -> Result<i32> {
         "start" => start(&args).map(|_| 0),
         "stop" => course::stop(&ThisComputer, &owner(&args)).map(|()| 0),
         "watch" | "renew" => {
-            Err(format!("game {command} is gone: a test game keeps nothing to put back, and a claim holds it until it is released (docs/test-games.md)"))
+            Err(format!("game {command} is gone: a test game keeps nothing to put back, and a claim holds it until it is released (docs/plans/test-games.md)"))
         }
         other => Err(format!("unknown command game {other:?}; cargo xtask --help lists them")),
     }
@@ -90,10 +90,10 @@ pub fn run(raw: &[String]) -> Result<i32> {
 
 fn claim(args: &Args) -> Result<i32> {
     if args.flag("player") || args.flag("now") {
-        return Err("the player's claim is gone: the player's game touches no test game's files (docs/test-games.md)".into());
+        return Err("the player's claim is gone: the player's game touches no test game's files (docs/plans/test-games.md)".into());
     }
     if args.value("lease").is_some() {
-        return Err("--lease is gone: a claim holds its test game until it is released (docs/test-games.md)".into());
+        return Err("--lease is gone: a claim holds its test game until it is released (docs/plans/test-games.md)".into());
     }
     let asking = Asking { owner: owner(args), wait: args.flag("wait") };
     let purpose = args.value("purpose").unwrap_or("").to_string();

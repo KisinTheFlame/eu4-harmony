@@ -1,6 +1,6 @@
 # 2026-11-08 Files opened and looked up side by side (tested by me)
 
-[L4](../loading.md) on a test game: a developer build of this branch with the test games' pipes, the test switches and `dev-call-trace`, the player's playset, every DLC, the music kept (a first start after the claim to keep it); other sessions' test games held the machine's processor at about 70%. Each start timed the databases (`0x208620`), the history (`0x7ea2c0`), the data checksum (`0x171cdf0`) and the events (`0x6f3250`) with `times`, and alternated the part on with `game-paths = ["opens"]`, which the startup report confirmed as "speed-ups left to the game: opens".
+[L4](../plans/loading.md) on a test game: a developer build of this branch with the test games' pipes, the test switches and `dev-call-trace`, the player's playset, every DLC, the music kept (a first start after the claim to keep it); other sessions' test games held the machine's processor at about 70%. Each start timed the databases (`0x208620`), the history (`0x7ea2c0`), the data checksum (`0x171cdf0`) and the events (`0x6f3250`) with `times`, and alternated the part on with `game-paths = ["opens"]`, which the startup report confirmed as "speed-ups left to the game: opens".
 
 | Start | The main menu | Databases | History | Checksum | Events |
 | --- | --- | --- | --- | --- | --- |
