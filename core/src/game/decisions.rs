@@ -170,7 +170,10 @@ mod tests {
     fn a_decision_is_taken_by_the_view_s_command() {
         take(decisions(&SOME).session, args::Take { decision: "move_capital".into() }).unwrap();
         let seed = super::seed(0, "move_capital");
-        assert_eq!(record::posted(), [format!(r#"execute_decision_command={{ decision="move_capital" scope={{ country="TUR" scope_is_valid=yes seed={seed} random={seed} }} }}"#)]);
+        assert_eq!(
+            record::posted(),
+            [format!(r#"execute_decision_command={{ decision="move_capital" scope={{ country="TUR" scope_is_valid=yes seed={seed} random={seed} }} }}"#)]
+        );
     }
 
     #[test]

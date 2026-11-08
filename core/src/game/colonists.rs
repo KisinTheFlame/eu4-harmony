@@ -306,12 +306,20 @@ mod tests {
 
     extern "C" fn construction(province: usize) -> usize {
         let (at, construction) = game().working;
-        if province == at { construction } else { 0 }
+        if province == at {
+            construction
+        } else {
+            0
+        }
     }
 
     extern "C" fn construction_of(province: usize, kind: usize) -> usize {
         let (at, construction) = game().growing;
-        if province == at && kind == GROWTH { construction } else { 0 }
+        if province == at && kind == GROWTH {
+            construction
+        } else {
+            0
+        }
     }
 
     extern "C" fn may_send() -> usize {

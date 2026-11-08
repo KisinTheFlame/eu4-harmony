@@ -383,7 +383,10 @@ mod tests {
         assert_eq!(constructing, Some(Constructing { building: "workshop".into(), progress: 500, ends: 7, builder: tur() }));
         let summary: Vec<_> = offers.iter().map(|o| (o.action, o.building.as_str(), o.choice.can)).collect();
         assert_eq!(summary, [("cancel", "workshop", true), ("destroy", "marketplace", true), ("build", "temple", false), ("build", "workshop", true)]);
-        assert_eq!((offers[2].choice.reasons.clone(), offers[2].choice.cost.clone()), (vec!["needs a tech".to_string()], vec![Amount::new(Resource::Ducats, 100.0)]));
+        assert_eq!(
+            (offers[2].choice.reasons.clone(), offers[2].choice.cost.clone()),
+            (vec!["needs a tech".to_string()], vec![Amount::new(Resource::Ducats, 100.0)])
+        );
         // Another country's building is not the player's to destroy.
         let (_, theirs) = options(player.session, 2).unwrap();
         assert_eq!((theirs[0].action, theirs[0].choice.can), ("destroy", false));
@@ -410,10 +413,19 @@ mod tests {
         let player = ottomans(500_000);
         let session = player.session;
         assert_eq!(refused(build(session, args::Build { province: ProvinceId(3), building: "temple".into() })), (Status::Rejected, "needs a tech".into()));
-        assert_eq!(refused(build(session, args::Build { province: ProvinceId(3), building: "palace".into() })), (Status::InvalidArgument, "no building palace".into()));
+        assert_eq!(
+            refused(build(session, args::Build { province: ProvinceId(3), building: "palace".into() })),
+            (Status::InvalidArgument, "no building palace".into())
+        );
         assert_eq!(refused(cancel(session, args::Cancel { province: ProvinceId(3) })), (Status::Rejected, "the player is not building in province 3".into()));
-        assert_eq!(refused(destroy(session, args::Destroy { province: ProvinceId(2), building: "marketplace".into() })), (Status::Rejected, "the player does not own province 2".into()));
-        assert_eq!(refused(destroy(session, args::Destroy { province: ProvinceId(1), building: "temple".into() })), (Status::Rejected, "there is no temple in province 1".into()));
+        assert_eq!(
+            refused(destroy(session, args::Destroy { province: ProvinceId(2), building: "marketplace".into() })),
+            (Status::Rejected, "the player does not own province 2".into())
+        );
+        assert_eq!(
+            refused(destroy(session, args::Destroy { province: ProvinceId(1), building: "temple".into() })),
+            (Status::Rejected, "there is no temple in province 1".into())
+        );
         assert_eq!(refused(build(session, args::Build { province: ProvinceId(0), building: "workshop".into() })).0, Status::NotFound);
         let poor = ottomans(50_000);
         assert_eq!(

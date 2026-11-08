@@ -285,7 +285,11 @@ mod tests {
         provinces.map().set(grid::IDS, &(ids.at() as u64).to_le_bytes());
         provinces.map().set(grid::WIDTH, &4i32.to_le_bytes());
         provinces.map().set(grid::HEIGHT, &2i32.to_le_bytes());
-        let camera = Object::new(fields::WRAPS + 8).u64(0, m.at(layout::CLASS) as u64).i32(fields::MIN_HEIGHT, 100).i32(fields::MAX_HEIGHT, 1000).u8(fields::LOCKED, locked.into());
+        let camera = Object::new(fields::WRAPS + 8)
+            .u64(0, m.at(layout::CLASS) as u64)
+            .i32(fields::MIN_HEIGHT, 100)
+            .i32(fields::MAX_HEIGHT, 1000)
+            .u8(fields::LOCKED, locked.into());
         put(camera.at(), fields::LOOK_AT, [2.0, 0.0, 1.0]);
         put(camera.at(), fields::POSITION, [2.0, 500.0, 1.0]);
         put(camera.at(), fields::GOAL_LOOK_AT, [2.0, 0.0, 1.0]);

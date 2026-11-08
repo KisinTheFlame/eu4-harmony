@@ -167,7 +167,10 @@ mod tests {
         assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(2) })), (Status::Rejected, "province 2 has no fort of the player's".into()));
         assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(5) })), (Status::Rejected, "province 5 has no fort of the player's".into()));
         assert_eq!(refused(reopen(session, args::Reopen { province: ProvinceId(1) })), (Status::Rejected, "the fort in province 1 is open already".into()));
-        assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(3) })), (Status::Rejected, "the fort in province 3 is mothballed already".into()));
+        assert_eq!(
+            refused(mothball(session, args::Mothball { province: ProvinceId(3) })),
+            (Status::Rejected, "the fort in province 3 is mothballed already".into())
+        );
         assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(4) })), (Status::Rejected, "at war".into()));
         assert_eq!(refused(mothball(session, args::Mothball { province: ProvinceId(9) })).0, Status::NotFound);
         assert!(record::posted().is_empty());

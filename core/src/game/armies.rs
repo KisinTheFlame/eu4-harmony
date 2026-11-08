@@ -295,7 +295,7 @@ mod tests {
         let summary: Vec<_> = all.iter().map(|a| (a.id, a.land, a.province, a.regiments, a.route_len, a.route_source)).collect();
         assert_eq!(summary, [(11, true, 1, 2, 0, RouteSource::None), (12, false, 1, 1, 0, RouteSource::None)]);
         assert_eq!(army(units.session, 11).unwrap(), all[0]);
-        assert_eq!(Fail::from(army(units.session, 21).unwrap_err()).message, "no own army 21");
+        assert_eq!(army(units.session, 21).unwrap_err().message, "no own army 21");
     }
 
     #[test]

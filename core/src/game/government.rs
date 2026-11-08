@@ -301,9 +301,15 @@ mod tests {
             .function(SELECT_COST.rva(), select_cost as *const ())
             .function(CAN_RAISE.rva(), may_raise as *const ())
             .i32(CHANGE_COST, 100_000);
-        let [adopted, crown, secret, courts, merchants] =
-            [reform("noble_rule", true, true), reform("ok_crown", true, true), reform("secret_one", false, true), reform("ok_courts", true, true), reform("merchant_rule", true, false)];
-        let power = Object::new(TIER_REFORMS + 0x18).string(TIER_KEY, "power").game_array(TIER_REFORMS, &[adopted.at() as u64, crown.at() as u64, secret.at() as u64]);
+        let [adopted, crown, secret, courts, merchants] = [
+            reform("noble_rule", true, true),
+            reform("ok_crown", true, true),
+            reform("secret_one", false, true),
+            reform("ok_courts", true, true),
+            reform("merchant_rule", true, false),
+        ];
+        let power =
+            Object::new(TIER_REFORMS + 0x18).string(TIER_KEY, "power").game_array(TIER_REFORMS, &[adopted.at() as u64, crown.at() as u64, secret.at() as u64]);
         let law = Object::new(TIER_REFORMS + 0x18).string(TIER_KEY, "law").game_array(TIER_REFORMS, &[courts.at() as u64, merchants.at() as u64]);
         let kind = Object::new(TIERS + 0x18).string(TYPE_KEY, "monarchy").game_array(TIERS, &[power.at() as u64, law.at() as u64]);
         let block = Object::new(16).u64(0, adopted.at() as u64);
@@ -318,7 +324,11 @@ mod tests {
         let country = Object::country(fra(), REFORM_PROGRESS + 4).u64(GOVERNMENT, government.at() as u64).i32(RANK, rank).i32(REFORM_PROGRESS, 30_000);
         let countries = Object::countries(&[&country]);
         let session = buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote);
-        France { _image: image, _objects: vec![adopted, crown, secret, courts, merchants, power, law, kind, block, map, government, country, countries], session }
+        France {
+            _image: image,
+            _objects: vec![adopted, crown, secret, courts, merchants, power, law, kind, block, map, government, country, countries],
+            session,
+        }
     }
 
     fn refused(result: GResult<()>) -> (Status, String) {
@@ -375,7 +385,10 @@ mod tests {
     #[test]
     fn a_reform_adopted_unknown_or_not_allowed_and_a_rank_too_high_are_refused() {
         let france = france(3);
-        assert_eq!(refused(adopt_reform(france.session, args::AdoptReform { reform: "noble_rule".into() })), (Status::Rejected, "the player has adopted the reform noble_rule already".into()));
+        assert_eq!(
+            refused(adopt_reform(france.session, args::AdoptReform { reform: "noble_rule".into() })),
+            (Status::Rejected, "the player has adopted the reform noble_rule already".into())
+        );
         assert_eq!(
             refused(adopt_reform(france.session, args::AdoptReform { reform: "merchant_rule".into() })),
             (Status::Rejected, "unmet\nthe reform progress is 30, and this costs 50".into())

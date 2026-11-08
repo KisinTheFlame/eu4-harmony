@@ -168,7 +168,10 @@ mod tests {
     fn the_options_offer_every_other_focus_and_cancelling_the_one_set() {
         let focus = options(ottomans(1, may).session).unwrap();
         assert_eq!(focus.focus, Some(PowerKind::Dip));
-        assert_eq!(focus.choose.iter().map(|c| (c.focus, c.choice.can)).collect::<Vec<_>>(), [(PowerKind::Adm, true), (PowerKind::Dip, false), (PowerKind::Mil, true)]);
+        assert_eq!(
+            focus.choose.iter().map(|c| (c.focus, c.choice.can)).collect::<Vec<_>>(),
+            [(PowerKind::Adm, true), (PowerKind::Dip, false), (PowerKind::Mil, true)]
+        );
         assert!(focus.cancel.can);
         let none = options(ottomans(NONE, may_not).session).unwrap();
         assert_eq!((none.focus, none.cancel.can), (None, false));
@@ -185,7 +188,10 @@ mod tests {
 
     #[test]
     fn the_focus_set_already_none_to_cancel_or_a_change_too_soon_is_refused() {
-        assert_eq!(refused(choose(ottomans(1, may).session, args::Choose { focus: PowerKind::Dip })), (Status::Rejected, "the national focus is on dip already".into()));
+        assert_eq!(
+            refused(choose(ottomans(1, may).session, args::Choose { focus: PowerKind::Dip })),
+            (Status::Rejected, "the national focus is on dip already".into())
+        );
         assert_eq!(refused(cancel(ottomans(NONE, may).session)), (Status::Rejected, "no national focus is set".into()));
         assert_eq!(refused(choose(ottomans(NONE, may_not).session, args::Choose { focus: PowerKind::Adm })), (Status::Rejected, "Wait until 1450".into()));
         assert_eq!(refused(cancel(ottomans(0, may_not).session)), (Status::Rejected, "Wait until 1450".into()));
