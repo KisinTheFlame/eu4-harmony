@@ -35,13 +35,14 @@ pub struct SpeedUp {
 }
 
 /// Every speed-up, in the order the report names them.
-pub static ALL: [&SpeedUp; 13] = [
+pub static ALL: [&SpeedUp; 14] = [
     &pops::SPEED_UP,
     &pace::SPEED_UP,
     &crate::loading::music::SPEED_UP,
     &crate::loading::lookups::SPEED_UP,
     &crate::loading::children::SPEED_UP,
     &crate::loading::opens::SPEED_UP,
+    &crate::loading::listed::SPEED_UP,
     &crate::saving::background::SPEED_UP,
     &crate::saving::stored::SPEED_UP,
     &crate::saving::parallel::SPEED_UP,
@@ -146,7 +147,7 @@ pub fn checked(speed_up: &SpeedUp) -> bool {
 }
 
 /// Answers checked and answers that differed, for each speed-up.
-static COUNTS: [[AtomicU64; 2]; 13] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 13];
+static COUNTS: [[AtomicU64; 2]; 14] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 14];
 /// A speed-up's first differences are each logged; after these, only when
 /// their count reaches a power of two.
 const LOGGED: u64 = 20;
@@ -238,9 +239,9 @@ mod tests {
     #[test]
     fn only_what_can_be_checked_is_and_the_game_s_path_comes_first() {
         let all = Chosen::of(&[], &strings(&["all"])).unwrap();
-        assert_eq!(all.checked, ["music", "lookups", "parallel-saves", "army-searches", "modifier-sums"].iter().fold(0, |b, n| b | bit(n)));
+        assert_eq!(all.checked, ["music", "lookups", "listed-folders", "parallel-saves", "army-searches", "modifier-sums"].iter().fold(0, |b, n| b | bit(n)));
         let both = Chosen::of(&strings(&["music"]), &strings(&["loading"])).unwrap();
-        assert_eq!((both.game_paths, both.checked), (bit("music"), bit("lookups")));
+        assert_eq!((both.game_paths, both.checked), (bit("music"), bit("lookups") | bit("listed-folders")));
         assert!(Chosen::of(&[], &strings(&["children"])).unwrap_err().contains("cannot be checked"));
         assert!(Chosen::of(&strings(&["muisc"]), &[]).unwrap_err().contains("no speed-up"));
     }

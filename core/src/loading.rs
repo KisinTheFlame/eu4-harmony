@@ -11,9 +11,12 @@
 //!   its list for them first.
 //! - `opens`: files opened, looked up and closed by several threads at once,
 //!   instead of one at a time under two global locks.
+//! - `listed`: every folder of the search path answered from its listing,
+//!   which a watch of the folder keeps up to date.
 use std::path::Path;
 
 pub mod children;
+pub mod listed;
 pub mod lookups;
 pub mod music;
 pub mod opens;
