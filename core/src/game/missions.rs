@@ -3,7 +3,13 @@
 //! (docs/research/government.md, "Missions").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
-use crate::{memory::Memory, points::Point};
+use crate::containers;
+use crate::game_string;
+use crate::{
+    memory::Memory,
+    points::{GameFunction, Point},
+};
+use eu4_harmony_remote::missions::args;
 use eu4_harmony_remote::{choices::Choice, missions::Mission};
 
 /// The country's missions: a game array of columns from `+0x10`, 0x18-byte
@@ -18,8 +24,8 @@ const KEY: usize = 0x10;
 const TRIGGER: usize = 0x70;
 /// `(country, mission) -> bool`, whether the country has completed it;
 /// `(mission, tag) -> bool`, whether it can complete it now.
-const COMPLETED: usize = 0x1796c0;
-const CAN_COMPLETE: usize = 0x8d4fc0;
+const COMPLETED: GameFunction<2> = GameFunction::at(0x1796c0);
+const CAN_COMPLETE: GameFunction<2> = GameFunction::at(0x8d4fc0);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -39,12 +45,12 @@ pub fn points() -> Vec<Point> {
 /// The player's missions, column by column.
 fn columns(m: &Memory, country: usize) -> GResult<Vec<Vec<usize>>> {
     let missions = country + MISSIONS + COLUMNS;
-    let (data, count) = (m.ptr(missions + content::ARRAY_DATA)?, content::bounded(m.i32(missions + content::ARRAY_COUNT)?)?);
+    let (data, count) = (m.ptr(missions + containers::ARRAY_DATA)?, containers::bounded(m.i32(missions + containers::ARRAY_COUNT)?, containers::MOST)?);
     (0..count)
         .map(|i| {
             let mut missions = Vec::new();
-            for series in content::pointers(m, data + i * COLUMN)? {
-                missions.extend(content::pointers(m, series + SERIES_MISSIONS)?);
+            for series in containers::array(m, data + i * COLUMN, containers::MOST)? {
+                missions.extend(containers::array(m, series + SERIES_MISSIONS, containers::MOST)?);
             }
             Ok(missions)
         })
@@ -52,7 +58,7 @@ fn columns(m: &Memory, country: usize) -> GResult<Vec<Vec<usize>>> {
 }
 
 fn completed(m: &Memory, country: usize, mission: usize) -> GResult<bool> {
-    Ok(m.call(m.at(COMPLETED), &[country, mission])? & 0xff != 0)
+    Ok(COMPLETED.call(m, [country, mission])? & 0xff != 0)
 }
 
 /// Whether the player can complete `mission`, and why not: its conditions
@@ -62,7 +68,7 @@ fn choice(m: &Memory, player: Tag, mission: usize, done: bool) -> GResult<Choice
     if done {
         return Ok(Choice::cannot(vec!["the mission is completed".to_string()], Vec::new()));
     }
-    if m.call(m.at(CAN_COMPLETE), &[mission, player.0 as usize])? & 0xff != 0 {
+    if CAN_COMPLETE.call(m, [mission, player.0 as usize])? & 0xff != 0 {
         return Ok(Choice::can(Vec::new()));
     }
     let mut reasons = conditions::failing(m, mission + TRIGGER, player, 0)?;
@@ -78,7 +84,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Mission>> {
     let mut listed = Vec::new();
     for (column, missions) in columns.iter().enumerate() {
         for &mission in missions {
-            let key = content::key(m, mission + KEY)?;
+            let key = game_string::key(m, mission + KEY)?;
             let done = completed(m, ctx.country, mission)?;
             listed.push(Mission {
                 name: content::name(m, &format!("{key}_title"))?,
@@ -97,10 +103,10 @@ fn written(country: Tag, mission: &str) -> String {
 }
 
 /// Completes one of the player's missions.
-pub fn complete(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn complete(Session { m, ctx, commands, .. }: Session, args::Complete { mission: key }: args::Complete) -> GResult<()> {
     let all: Vec<usize> = columns(m, ctx.country)?.into_iter().flatten().collect();
     for &mission in &all {
-        if content::key(m, mission + KEY)? != key {
+        if game_string::key(m, mission + KEY)? != key {
             continue;
         }
         let choice = choice(m, ctx.player, mission, completed(m, ctx.country, mission)?)?;

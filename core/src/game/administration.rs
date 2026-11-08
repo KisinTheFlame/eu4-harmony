@@ -4,6 +4,7 @@
 //! in its written form through the session's commands ([`super::action`]);
 //! the command's own check is asked again there.
 use super::{action, conditions, fail, with_state, Ctx, GResult, Session, Status, Tag};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -11,8 +12,10 @@ use crate::{
         campaign::{construction, country, province as field},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::provinces::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     provinces::ProvinceOption,
@@ -121,27 +124,27 @@ impl Action {
 /// Whether a country may develop a province: (country, province, kind,
 /// reasons, describe), the reasons appended to a `std::string`; when it may,
 /// the string gets the effect instead.
-const CAN_DEVELOP: usize = 0x3e6ec0;
+const CAN_DEVELOP: GameFunction<5> = GameFunction::at(0x3e6ec0);
 /// Whether a country may exploit a province's development: (country, kind,
 /// province, reasons).
-const CAN_EXPLOIT: usize = 0x407350;
+const CAN_EXPLOIT: GameFunction<4> = GameFunction::at(0x407350);
 /// The raise and lower autonomy buttons' tooltips: (country, province,
 /// reasons), whether it may, with the reason why not, or the effect.
-const CAN_RAISE_AUTONOMY: usize = 0x3dc1c0;
-const CAN_LOWER_AUTONOMY: usize = 0x3dca00;
+const CAN_RAISE_AUTONOMY: GameFunction<3> = GameFunction::at(0x3dc1c0);
+const CAN_LOWER_AUTONOMY: GameFunction<3> = GameFunction::at(0x3dca00);
 /// Whether a country may make the province's area a state, and abandon its
 /// state there: (country, province, reasons).
-const CAN_MAKE_STATE: usize = 0x3f34f0;
-const CAN_MAKE_TERRITORY: usize = 0x3f3bd0;
+const CAN_MAKE_STATE: GameFunction<3> = GameFunction::at(0x3f34f0);
+const CAN_MAKE_TERRITORY: GameFunction<3> = GameFunction::at(0x3f3bd0);
 /// Whether a country state may take an edict, or none to cancel it: (state,
 /// edict or 0, reasons), the reasons, or the effect.
-const CAN_SET_EDICT: usize = 0xabcbb0;
+const CAN_SET_EDICT: GameFunction<3> = GameFunction::at(0xabcbb0);
 /// Whether a country may core a province: (country, province, reasons, 0,
 /// 0, 1), as the core button asks it.
-const CAN_CORE: usize = 0x382930;
+const CAN_CORE: GameFunction<6> = GameFunction::at(0x382930);
 /// Whether a country may change a province's culture: (country, province,
 /// reasons).
-const CAN_CHANGE_CULTURE: usize = 0x38ba40;
+const CAN_CHANGE_CULTURE: GameFunction<3> = GameFunction::at(0x38ba40);
 
 // ---------- prices ----------
 
@@ -153,11 +156,11 @@ const CORING: usize = 17;
 /// country tag, culture, explanation or 0, primary or 0). The culture button
 /// says so when the player has fewer, with this text, its `$COST$` and
 /// `$VAL$` the price and the points.
-const CULTURE_PRICE: usize = 0xa14e60;
+const CULTURE_PRICE: GameFunction<5> = GameFunction::at(0xa14e60);
 const NO_POINTS: &std::ffi::CStr = c"NOCHA_NO_POINTS";
 /// The game's lookup of a localisation with two values: (out, key, name,
 /// value, name, value), each value a `std::string`.
-const LOCALIZE_TWO: usize = 0x8edc0;
+const LOCALIZE_TWO: GameFunction<6> = GameFunction::at(0x8edc0);
 
 // ---------- objects ----------
 
@@ -307,7 +310,7 @@ fn localized_with(m: &Memory, key: &std::ffi::CStr, values: [(&std::ffi::CStr, S
             game_string::append_checked(m, *string, value.as_bytes())?;
         }
         let names = [values[0].0.as_ptr() as usize, values[1].0.as_ptr() as usize];
-        let call = |out| m.call(m.at(LOCALIZE_TWO), &[out, key.as_ptr() as usize, names[0], at[0], names[1], at[1]]).map_err(super::Fail::from);
+        let call = |out| LOCALIZE_TWO.call(m, [out, key.as_ptr() as usize, names[0], at[0], names[1], at[1]]).map_err(super::Fail::from);
         Ok(game_string::written(m, call)?.1)
     })();
     for string in at {
@@ -352,7 +355,7 @@ pub fn edicts(m: &Memory) -> GResult<Vec<(usize, String, u32)>> {
         return Ok(Vec::new());
     }
     let begin = m.ptr(database + EDICTS_LIST)?;
-    let count = super::span(begin, m.ptr(database + EDICTS_LIST + 8)?, 8, MOST_EDICTS)?;
+    let count = containers::span(begin, m.ptr(database + EDICTS_LIST + 8)?, 8, MOST_EDICTS)?;
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let edict = m.ptr(begin + i * 8)?;
@@ -360,7 +363,7 @@ pub fn edicts(m: &Memory) -> GResult<Vec<(usize, String, u32)>> {
         if index as usize != i {
             return Err(format!("edict {i} has the index {index}").into());
         }
-        out.push((edict, String::from_utf8_lossy(&game_string::read(m, edict + field::EDICT_KEY)?).into_owned(), index));
+        out.push((edict, game_string::key(m, edict + field::EDICT_KEY)?, index));
     }
     Ok(out)
 }
@@ -373,18 +376,13 @@ fn player_state(m: &Memory, ctx: &Ctx, place: &Place) -> GResult<Option<usize>> 
 
 /// Whether the player is building a construction of `kind` in the province.
 fn doing(m: &Memory, ctx: &Ctx, place: &Place, kind: u32) -> GResult<bool> {
-    let mut node = m.ptr(place.address + field::CONSTRUCTIONS)?;
-    for _ in 0..MOST_CONSTRUCTIONS {
-        if node == 0 {
-            return Ok(false);
-        }
+    for node in containers::chain(m, m.ptr(place.address + field::CONSTRUCTIONS)?, list::NEXT, MOST_CONSTRUCTIONS)? {
         let construction = m.ptr(node)?;
         if m.u32(construction + construction::KIND)? == kind && m.u64(construction + construction::COUNTRY)? == ctx.player.0 {
             return Ok(true);
         }
-        node = m.ptr(node + list::NEXT)?;
     }
-    Err("a province's constructions do not end".to_string().into())
+    Ok(false)
 }
 
 /// Whether the player can take `action` in the province now, with the
@@ -394,32 +392,32 @@ fn option(m: &Memory, ctx: &Ctx, place: &Place, action: Action) -> GResult<Choic
     Ok(match action {
         Action::Develop(kind) => {
             let cost = spending_price(m, ctx, DEVELOPING, province, kind.index())?;
-            choice(checked(m, |out| m.call(m.at(CAN_DEVELOP), &[country, province, kind.index(), out, 0]))?, vec![Amount::new(kind.power(), cost)])
+            choice(checked(m, |out| CAN_DEVELOP.call(m, [country, province, kind.index(), out, 0]))?, vec![Amount::new(kind.power(), cost)])
         }
-        Action::Exploit(kind) => choice(checked(m, |out| m.call(m.at(CAN_EXPLOIT), &[country, kind.index(), province, out]))?, Vec::new()),
-        Action::RaiseAutonomy => choice(checked(m, |out| m.call(m.at(CAN_RAISE_AUTONOMY), &[country, province, out]))?, Vec::new()),
-        Action::LowerAutonomy => choice(checked(m, |out| m.call(m.at(CAN_LOWER_AUTONOMY), &[country, province, out]))?, Vec::new()),
-        Action::MakeState => choice(checked(m, |out| m.call(m.at(CAN_MAKE_STATE), &[country, province, out]))?, Vec::new()),
-        Action::MakeTerritory => choice(checked(m, |out| m.call(m.at(CAN_MAKE_TERRITORY), &[country, province, out]))?, Vec::new()),
+        Action::Exploit(kind) => choice(checked(m, |out| CAN_EXPLOIT.call(m, [country, kind.index(), province, out]))?, Vec::new()),
+        Action::RaiseAutonomy => choice(checked(m, |out| CAN_RAISE_AUTONOMY.call(m, [country, province, out]))?, Vec::new()),
+        Action::LowerAutonomy => choice(checked(m, |out| CAN_LOWER_AUTONOMY.call(m, [country, province, out]))?, Vec::new()),
+        Action::MakeState => choice(checked(m, |out| CAN_MAKE_STATE.call(m, [country, province, out]))?, Vec::new()),
+        Action::MakeTerritory => choice(checked(m, |out| CAN_MAKE_TERRITORY.call(m, [country, province, out]))?, Vec::new()),
         Action::CancelEdict => match player_state(m, ctx, place)? {
-            Some(state) => choice(checked(m, |out| m.call(m.at(CAN_SET_EDICT), &[state, 0, out]))?, Vec::new()),
+            Some(state) => choice(checked(m, |out| CAN_SET_EDICT.call(m, [state, 0, out]))?, Vec::new()),
             None => Choice::cannot(Vec::new(), Vec::new()),
         },
         Action::Core => {
             let cost = spending_price(m, ctx, CORING, province, 0)?;
-            choice(checked(m, |out| m.call(m.at(CAN_CORE), &[country, province, out, 0, 0, 1]))?, vec![Amount::new(Resource::Adm, cost)])
+            choice(checked(m, |out| CAN_CORE.call(m, [country, province, out, 0, 0, 1]))?, vec![Amount::new(Resource::Adm, cost)])
         }
         // The province view shows no button where the culture is the
         // primary one already; the game's check does not ask it.
         Action::ChangeCulture => {
             let (culture, _) = primary_culture(m, ctx)?;
-            let cost = vec![Amount::new(Resource::Dip, m.call(m.at(CULTURE_PRICE), &[province, ctx.player.0 as usize, culture, 0, 0])? as i32 as f64)];
+            let cost = vec![Amount::new(Resource::Dip, CULTURE_PRICE.call(m, [province, ctx.player.0 as usize, culture, 0, 0])? as i32 as f64)];
             let price = cost[0].amount;
             let points = m.i32(ctx.country + country::POWER_DIP)?;
             if m.ptr(province + field::CULTURE)? == culture {
                 Choice::cannot(Vec::new(), cost)
             } else {
-                match checked(m, |out| m.call(m.at(CAN_CHANGE_CULTURE), &[country, province, out]))? {
+                match checked(m, |out| CAN_CHANGE_CULTURE.call(m, [country, province, out]))? {
                     (true, _) if (points as f64) < price => {
                         let text = localized_with(m, NO_POINTS, [(c"COST", format!("{price}")), (c"VAL", points.to_string())])?;
                         Choice::cannot(reasons(&text), cost)
@@ -434,7 +432,7 @@ fn option(m: &Memory, ctx: &Ctx, place: &Place, action: Action) -> GResult<Choic
 }
 
 /// What the province view offers the player in a province now.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Vec<ProvinceOption>> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Vec<ProvinceOption>> {
     let place = place(m, &ctx, id)?;
     let mut out = Vec::new();
     for action in Action::ALL {
@@ -443,7 +441,7 @@ pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Vec<Province
             let state = player_state(m, &ctx, &place)?;
             for (edict, key, _) in edicts(m)? {
                 let choice = match state {
-                    Some(state) => choice(checked(m, |out| m.call(m.at(CAN_SET_EDICT), &[state, edict, out]))?, Vec::new()),
+                    Some(state) => choice(checked(m, |out| CAN_SET_EDICT.call(m, [state, edict, out]))?, Vec::new()),
                     None => Choice::cannot(Vec::new(), Vec::new()),
                 };
                 out.push(ProvinceOption { action: "set_edict".into(), edict: Some(key), choice });
@@ -493,7 +491,7 @@ pub fn act(Session { m, ctx, commands, .. }: Session, id: u32, action: Action) -
 }
 
 /// Sets the edict `key` in the player's state the province is in.
-pub fn set_edict(Session { m, ctx, commands, .. }: Session, id: u32, key: String) -> GResult<()> {
+pub fn set_edict(Session { m, ctx, commands, .. }: Session, args::SetEdict { province: ProvinceId(id), edict: key }: args::SetEdict) -> GResult<()> {
     let place = place(m, &ctx, id)?;
     let Some((edict, _, index)) = edicts(m)?.into_iter().find(|(_, k, _)| *k == key) else {
         return Err(checks::no_such_edict(&key));
@@ -501,7 +499,7 @@ pub fn set_edict(Session { m, ctx, commands, .. }: Session, id: u32, key: String
     let Some(state) = player_state(m, &ctx, &place)? else {
         return Err(checks::not_in_a_state(id));
     };
-    let (may, reasons) = checked(m, |out| m.call(m.at(CAN_SET_EDICT), &[state, edict, out]))?;
+    let (may, reasons) = checked(m, |out| CAN_SET_EDICT.call(m, [state, edict, out]))?;
     if !may {
         return Err(action::not_allowed("set the edict there", &reasons));
     }

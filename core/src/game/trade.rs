@@ -3,14 +3,15 @@
 //! merchants in any node the player has discovered, so the player's view
 //! leaves out only the nodes none of whose provinces the player has
 //! discovered, which the trade map leaves out.
-use super::{span, thousandths, with_state, world, Ctx, GResult, Session, Status, Tag, View};
+use super::{thousandths, with_state, world, Ctx, GResult, Session, Status, Tag, View};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{globals, province},
-    points::Point,
-    unicode::game_text,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::trade::args;
 use eu4_harmony_remote::{
     trade::{Flow, Merchant, MerchantAction, NodeValue, TradeNode, TradePower},
     CountryTag,
@@ -65,8 +66,8 @@ pub(super) const STEER_LINK: usize = 0xa8;
 pub(super) const HOME: usize = 0xad;
 /// The game's share of a country in a node: (node, out, tag), thousandths;
 /// whether a country collects there: (node, tag).
-const SHARE: usize = 0xb573a0;
-const COLLECTS: usize = 0xb58e00;
+const SHARE: GameFunction<3> = GameFunction::at(0xb573a0);
+const COLLECTS: GameFunction<2> = GameFunction::at(0xb58e00);
 /// The most nodes, links or flows believed.
 pub(super) const MOST: usize = 10_000;
 
@@ -131,11 +132,11 @@ pub(super) fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<usize>> {
 
 /// Whether the country `tag` collects in the node at `node`.
 pub(super) fn collects(m: &Memory, node: usize, tag: Tag) -> GResult<bool> {
-    Ok(m.call(m.at(COLLECTS), &[node, tag.0 as usize])? as u8 != 0)
+    Ok(COLLECTS.call(m, [node, tag.0 as usize])? as u8 != 0)
 }
 
 fn text(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, string)?))
+    Ok(game_string::key(m, string)?)
 }
 
 fn key_of(m: &Memory, definition: usize) -> GResult<String> {
@@ -172,11 +173,7 @@ pub fn list(Session { m, ctx, view, .. }: Session) -> GResult<Vec<NodeValue>> {
     out.into_iter()
         .map(|node| {
             let definition = m.ptr(node + DEFINITION)?;
-            Ok(NodeValue {
-                node: key_of(m, definition)?,
-                name: game_text::plain(&game_string::read(m, definition + NAME)?),
-                value: thousandths(m.i32(node + VALUE)?),
-            })
+            Ok(NodeValue { node: key_of(m, definition)?, name: game_string::shown(m, definition + NAME)?, value: thousandths(m.i32(node + VALUE)?) })
         })
         .collect()
 }
@@ -184,13 +181,13 @@ pub fn list(Session { m, ctx, view, .. }: Session) -> GResult<Vec<NodeValue>> {
 /// The incoming items of a node: (from definition, value).
 fn incoming(m: &Memory, node: usize) -> GResult<Vec<(usize, i32)>> {
     let begin = m.ptr(node + INCOMING)?;
-    let count = span(begin, m.ptr(node + INCOMING + 8)?, INCOMING_SIZE, MOST)?;
+    let count = containers::span(begin, m.ptr(node + INCOMING + 8)?, INCOMING_SIZE, MOST)?;
     (0..count).map(|i| begin + i * INCOMING_SIZE).map(|item| Ok((m.ptr(item + INCOMING_FROM)?, m.i32(item + INCOMING_VALUE)?))).collect()
 }
 
 /// One trade node, by its key; in the player's view one none of whose
 /// provinces the player has discovered is refused.
-pub fn node(Session { m, ctx, view, .. }: Session, key: String) -> GResult<TradeNode> {
+pub fn node(Session { m, ctx, view, .. }: Session, args::Node { node: key }: args::Node) -> GResult<TradeNode> {
     let all = nodes(m, &ctx)?;
     let mut found = None;
     for &node in &all {
@@ -222,7 +219,7 @@ pub fn node(Session { m, ctx, view, .. }: Session, key: String) -> GResult<Trade
     countries.sort_by(|a, b| b.power.total_cmp(&a.power));
     Ok(TradeNode {
         node: key,
-        name: game_text::plain(&game_string::read(m, definition + NAME)?),
+        name: game_string::shown(m, definition + NAME)?,
         value: thousandths(m.i32(node + VALUE)?),
         local_value: thousandths(m.i32(node + LOCAL_VALUE)?),
         incoming: incoming_flows,
@@ -234,7 +231,7 @@ pub fn node(Session { m, ctx, view, .. }: Session, key: String) -> GResult<Trade
 /// The definitions a node's links lead to, in their order.
 fn links(m: &Memory, definition: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(definition + LINKS)?;
-    let count = span(begin, m.ptr(definition + LINKS + 8)?, LINK_SIZE, MOST)?;
+    let count = containers::span(begin, m.ptr(definition + LINKS + 8)?, LINK_SIZE, MOST)?;
     (0..count).map(|i| Ok(m.ptr(begin + i * LINK_SIZE + LINK_TO)?)).collect()
 }
 
@@ -270,7 +267,7 @@ fn countries_in(m: &Memory, ctx: &Ctx, node: usize, links: &[usize]) -> GResult<
         };
         let mut share = 0i32;
         let out_at = &mut share as *mut i32 as usize;
-        m.call(m.at(SHARE), &[node, out_at, tag.0 as usize])?;
+        SHARE.call(m, [node, out_at, tag.0 as usize])?;
         let collects = collects(m, node, tag)?;
         out.push(TradePower { country: CountryTag(tag.letters()), power: thousandths(power), share: share as f64 / 10.0, collects, home, merchant });
     }

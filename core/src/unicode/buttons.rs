@@ -24,6 +24,7 @@
 //! and columns of them. Everything else keeps the size in GUI units: the
 //! projection, the layout and the size the game keeps for the texture.
 use super::{breaks, text_loops};
+use crate::called_by_game;
 use crate::objects::text::font::{OWN_GLYPHS, SCALE};
 use crate::points::Point;
 use crate::resume;
@@ -73,16 +74,16 @@ pub fn powers_of_two() -> bool {
 
 /// The pixels the texture of `font`'s text of `width` × `height` GUI units
 /// takes, as width | height << 32.
+#[called_by_game]
 extern "C" fn texture_for(font: usize, width: i32, height: i32) -> u64 {
-    crate::guarded("button text texture", || {
-        let scale = unsafe { *((font + SCALE) as *const f32) };
-        let [w, h] = texture_pixels(scale, [width, height], powers_of_two());
-        w as u32 as u64 | (h as u32 as u64) << 32
-    })
+    let scale = unsafe { *((font + SCALE) as *const f32) };
+    let [w, h] = texture_pixels(scale, [width, height], powers_of_two());
+    w as u32 as u64 | (h as u32 as u64) << 32
 }
 
 /// Whether the texture a button kept, `kept` pixels, is the one `font`'s
 /// text of `wanted` GUI units takes.
+#[called_by_game]
 unsafe extern "C" fn texture_fits(font: usize, wanted: *const [i32; 2], kept: *const [i32; 2]) -> bool {
     let ([width, height], kept) = unsafe { (*wanted, *kept) };
     let pixels = texture_for(font, width, height);

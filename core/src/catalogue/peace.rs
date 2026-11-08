@@ -22,10 +22,10 @@ layer! {
 
 pub fn run(request: PeaceRequest, game: &mut (impl Layer + countries::Layer + ?Sized), now: Instant) -> Ran {
     let sent = match request {
-        PeaceRequest::Terms { country, offer } => {
+        PeaceRequest::TermOptions { country, offer } => {
             return Ran::Done((|| {
                 let enemy = game.country(country)?;
-                Ok(Answered::Peace(PeaceAnswer::Terms(game.peace_terms(enemy, offer.unwrap_or(false))?.into_iter().map(option).collect())))
+                Ok(Answered::Peace(PeaceAnswer::TermOptions(game.peace_terms(enemy, offer.unwrap_or(false))?.into_iter().map(option).collect())))
             })())
         }
         PeaceRequest::Evaluate { country, terms, offer } => {

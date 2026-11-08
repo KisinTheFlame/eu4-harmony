@@ -4,7 +4,9 @@
 //! through the game's own command (docs/research/government.md,
 //! "Decisions").
 use super::{action, conditions, content, GResult, Session};
+use crate::containers;
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use eu4_harmony_remote::decisions::args;
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
 
 /// The decisions' database: `+0x10` and `+0x18` the decisions in load
@@ -42,7 +44,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Decision>> {
         return Ok(Vec::new());
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
-    let count = super::span(begin, end, 8, MOST)?;
+    let count = containers::span(begin, end, 8, MOST)?;
     let mut listed = Vec::new();
     for i in 0..count {
         let decision = m.ptr(begin + i * 8)?;
@@ -70,15 +72,15 @@ fn seed(date: i32, decision: &str) -> u32 {
 }
 
 /// Takes a decision the view lists for the player, as its button does.
-pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn take(Session { m, ctx, commands, .. }: Session, args::Take { decision: key }: args::Take) -> GResult<()> {
     let database = m.ptr(m.at(DATABASE))?;
     if database == 0 {
         return Err(content::checks::not_found("decision", &key));
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
-    for i in 0..super::span(begin, end, 8, MOST)? {
+    for i in 0..containers::span(begin, end, 8, MOST)? {
         let decision = m.ptr(begin + i * 8)?;
-        if content::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
+        if game_string::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
             continue;
         }
         if !conditions::holds(m, decision + ALLOW, ctx.player, 0)? {
@@ -90,7 +92,7 @@ pub fn take(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<(
 }
 
 fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {
-    let key = game_text::to_utf8(&game_string::read(m, decision + KEY)?);
+    let key = game_string::key(m, decision + KEY)?;
     let title = std::ffi::CString::new(format!("{key}_title")).map_err(|e| e.to_string())?;
     let name = game_text::plain(&game_string::localized(m, title.as_ptr() as usize)?);
     let choice = if conditions::holds(m, decision + ALLOW, player, 0)? {

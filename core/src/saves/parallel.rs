@@ -34,9 +34,10 @@
 //! The pool takes other work as well: the save checksum's sum
 //! (`super::sum`).
 use super::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
+use crate::called_by_game;
 use crate::game::commands::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
 use crate::memory::Memory;
-use crate::points::{Function, Point};
+use crate::points::{Function, GameFunction, Point};
 use crate::Result;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -72,12 +73,12 @@ const COUNTRY_TAG: usize = 0x20;
 /// `(string, &tag)`: a tag as a `std::string`, which
 /// `game_string::destroy_checked` lets go; `(writer, &key, country)`: a
 /// country under its tag.
-const TAG_STRING: usize = 0x95240;
-const WRITE_COUNTRY: usize = 0x1707a20;
+const TAG_STRING: GameFunction<2> = GameFunction::at(0x95240);
+const WRITE_COUNTRY: GameFunction<3> = GameFunction::at(0x1707a20);
 
 /// Makes the token table (`game::commands`' [`TOKEN_NAMES`], the writer's
 /// texts of its token types) the first time one is needed.
-const MAKE_TOKEN_TEXTS: usize = 0x170d250;
+const MAKE_TOKEN_TEXTS: GameFunction<0> = GameFunction::at(0x170d250);
 
 /// The save's writer (made on `0x14e3f00`'s stack): its vtable is
 /// `game::commands`' [`WRITER_VTABLE`]; its stream, and its size.
@@ -175,6 +176,7 @@ type Holder = extern "C" fn(usize) -> usize;
 static ORIGINAL_VALUE_HOLDER: Function<Holder> = Function::new();
 static ORIGINAL_OTHER_HOLDER: Function<Holder> = Function::new();
 
+#[called_by_game]
 extern "C" fn value_holder(value: usize) -> usize {
     match HOLDERS.with(Cell::get) {
         0 => ORIGINAL_VALUE_HOLDER.get()(value),
@@ -186,6 +188,7 @@ extern "C" fn value_holder(value: usize) -> usize {
     }
 }
 
+#[called_by_game]
 extern "C" fn other_holder(value: usize) -> usize {
     match HOLDERS.with(Cell::get) {
         0 => ORIGINAL_OTHER_HOLDER.get()(value),
@@ -200,6 +203,7 @@ extern "C" fn other_holder(value: usize) -> usize {
 /// `0x15bf70`'s object for this thread: its copy on a thread of the pool, the
 /// game's on any other. The stubs of the five places with the function's
 /// code inline call it.
+#[called_by_game]
 extern "C" fn value_object() -> usize {
     match HOLDERS.with(Cell::get) {
         0 => match GAME_VALUE_OBJECT.load(Ordering::Relaxed) {
@@ -401,12 +405,14 @@ extern "C" fn countries_stub() {
     );
 }
 
+#[called_by_game]
 extern "C" fn write_provinces(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || begin(world, writer))
+    begin(world, writer)
 }
 
+#[called_by_game]
 extern "C" fn write_countries(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || countries(world, writer))
+    countries(world, writer)
 }
 
 /// Writes a loop's items on several threads into the writer's stream, and
@@ -744,7 +750,7 @@ impl Writing {
         // What is made the first time it is needed is made now, on this
         // thread: the writer's texts, and the two static objects.
         if m.u8(m.at(TOKENS_READY))? == 0 {
-            m.call(m.at(MAKE_TOKEN_TEXTS), &[])?;
+            MAKE_TOKEN_TEXTS.call(&m, [])?;
         }
         if m.i32(m.at(VALUE_OBJECT_GUARD))? == 0 {
             ORIGINAL_VALUE_HOLDER.get()(0);
@@ -848,16 +854,16 @@ impl Writing {
                     return Ok(());
                 }
                 let key = GameToken::new(NUMBER, &id.wrapping_neg().to_string());
-                m.call(m.at(WRITE_TOKEN), &[writer, &key as *const _ as usize])?;
+                WRITE_TOKEN.call(&m, [writer, &key as *const _ as usize])?;
                 let equals = GameToken::from_bytes(EQUALS, &self.equals);
-                m.call(m.at(WRITE_TOKEN), &[writer, &equals as *const _ as usize])?;
+                WRITE_TOKEN.call(&m, [writer, &equals as *const _ as usize])?;
                 m.call(m.vslot(item, WRITE_ITSELF)?, &[item, writer])?;
             }
             Loop::Countries => {
                 let tag = m.u64(item + COUNTRY_TAG)?;
                 let mut key = Object::<0x20>([0; 0x20]);
-                m.call(m.at(TAG_STRING), &[key.address(), &tag as *const u64 as usize])?;
-                let written = m.call(m.at(WRITE_COUNTRY), &[writer, key.address(), item]);
+                TAG_STRING.call(&m, [key.address(), &tag as *const u64 as usize])?;
+                let written = WRITE_COUNTRY.call(&m, [writer, key.address(), item]);
                 crate::game_string::destroy_checked(&m, key.address())?;
                 written?;
             }
@@ -1131,15 +1137,14 @@ mod compare {
     use super::*;
 
     /// Where the game's loop ends, `writer` in rsi: where the stream stands.
+    #[called_by_game]
     extern "C" fn end(writer: usize, which: usize) {
-        crate::guarded("parallel save comparison", || {
-            let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(p) = pending.as_mut().filter(|p| p.writer == writer && p.at[which].is_some()) else { return };
-            match position(crate::hooked_memory(), p.ahead.writings[which].stream) {
-                Ok(at) => p.ended[which] = Some(at),
-                Err(e) => log!("saves: compare-saves: {e}"),
-            }
-        });
+        let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(p) = pending.as_mut().filter(|p| p.writer == writer && p.at[which].is_some()) else { return };
+        match position(crate::hooked_memory(), p.ahead.writings[which].stream) {
+            Ok(at) => p.ended[which] = Some(at),
+            Err(e) => log!("saves: compare-saves: {e}"),
+        }
     }
 
     /// The pool's bytes of each loop against the game's.
@@ -1359,14 +1364,14 @@ mod tests {
             TOKEN_NAMES,
             TOKENS_LAST,
             TOKENS_READY,
-            MAKE_TOKEN_TEXTS,
+            MAKE_TOKEN_TEXTS.rva(),
             VALUE_OBJECT,
             VALUE_OBJECT_GUARD,
             OTHER_OBJECT,
             OTHER_OBJECT_GUARD,
-            WRITE_TOKEN,
-            TAG_STRING,
-            WRITE_COUNTRY,
+            WRITE_TOKEN.rva(),
+            TAG_STRING.rva(),
+            WRITE_COUNTRY.rva(),
         ];
         for rva in taken {
             assert!(crate::points::checks(rva), "{rva:#x}");

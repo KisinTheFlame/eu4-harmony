@@ -25,6 +25,7 @@
 //! input method alone. Elsewhere they still reach the game, so its shortcuts
 //! keep working with a Chinese input method switched on.
 use super::game_text;
+use crate::called_by_game;
 use crate::objects::{
     gui::{self, edit_box, editor, events, manager},
     text::font,
@@ -65,8 +66,9 @@ type Record = unsafe extern "C" fn(usize, u32, u32, usize) -> usize;
 
 /// For SDL's text event at `event` (the text at +0xc): records it as the game
 /// did, then posts each character to `receiver`.
+#[called_by_game]
 extern "C" fn post_text(receiver: usize, recorder: usize, event: *const u8) {
-    crate::guarded("text input", || unsafe {
+    unsafe {
         let record: Record = std::mem::transmute(*(*(recorder as *const *const usize)).add(events::RECORD / 8));
         record(recorder, 0x303, *(event.add(0x14) as *const u32), 0);
         let post: Post = std::mem::transmute(*(*(receiver as *const *const usize)).add(events::POST / 8));
@@ -80,7 +82,7 @@ extern "C" fn post_text(receiver: usize, recorder: usize, event: *const u8) {
             e.0[0x50..0x54].copy_from_slice(&2u32.to_le_bytes());
             post(receiver, &e);
         }
-    })
+    }
 }
 
 /// SDL's typed text as one character event each, in the game's encoding.
@@ -99,10 +101,11 @@ fn typed_char(typed: &[u8]) -> &[u8] {
 }
 
 /// Makes the inline `std::string` at `string` the character at `from`.
+#[called_by_game]
 extern "C" fn copy_char(from: *const u8, string: *mut u8) {
-    crate::guarded("text input character", || unsafe {
+    unsafe {
         crate::game_string::set_inline(string, typed_char(game_text::up_to_nul(from, 4)));
-    })
+    }
 }
 
 type ImeMessage = unsafe extern "C" fn(HWND, u32, usize, *mut isize, usize) -> i32;
@@ -134,6 +137,7 @@ fn taken_by_input_method(message: u32, wparam: usize) -> bool {
 /// SDL's handling, then what Windows needs to draw its own windows. Returns
 /// non-zero when SDL's window procedure must stop there: neither SDL nor
 /// DefWindowProc then sees the message.
+#[called_by_game]
 unsafe extern "C" fn ime_message(window: HWND, message: u32, wparam: usize, lparam: *mut isize, video: usize) -> i32 {
     if taken_by_input_method(message, wparam) && crate::memory().is_some_and(edit_box_focused) {
         return 1;
@@ -185,8 +189,9 @@ fn caret_pixels((x, y): (i32, i32), line: i32, (across, down): (f32, f32)) -> (i
 /// The caret of edit box `edit_box` is at `offset` in its text (x low, y
 /// high, GUI units); puts the input method's windows there when the box has
 /// the keyboard.
+#[called_by_game]
 extern "C" fn caret_at(edit_box: usize, offset: u32) {
-    crate::guarded("input method position", || unsafe {
+    unsafe {
         if *((edit_box + edit_box::FOCUSED) as *const u8) == 0 {
             return;
         }
@@ -219,7 +224,7 @@ extern "C" fn caret_at(edit_box: usize, offset: u32) {
         };
         ImmSetCandidateWindow(context, &candidates);
         ImmReleaseContext(window, context);
-    })
+    }
 }
 
 /// Replaces `mov eax, [rbp-0x44]; xor bl, bl`, the start of the text event's

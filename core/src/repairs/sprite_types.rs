@@ -2,6 +2,7 @@
 //! makes the main menu only at startup: a sprite type shown sprites still
 //! count, which the main menu, made again, would unload with the game's
 //! graphics, stays loaded.
+use crate::called_by_game;
 use crate::{
     objects::gui::{classes as gui_classes, sprite_type},
     points::{Function, Point},
@@ -22,6 +23,7 @@ static ORIGINAL_SPRITE_TYPE_UNLOAD: Function<SpriteTypeUnload> = Function::new()
 /// return, sprites the session left still count, and a sprite of the type
 /// shown later, finding the count above 0, does not load the texture, and is
 /// drawn from one let go (docs/research/main-menu.md).
+#[called_by_game]
 unsafe extern "C" fn sprite_type_unloading(kind: usize) {
     let stays = crate::guarded("sprite type unload", || {
         let m = crate::hooked_memory();
@@ -35,7 +37,7 @@ unsafe extern "C" fn sprite_type_unloading(kind: usize) {
         match kept {
             Ok(0) => false,
             Ok(shown) => {
-                let name = crate::game_string::read(&m, kind + sprite_type::NAME).map(|b| crate::unicode::game_text::to_utf8(&b)).unwrap_or_default();
+                let name = crate::game_string::key(&m, kind + sprite_type::NAME).unwrap_or_default();
                 log!("repair: the sprite type {name} stays loaded with its group: {shown} shown sprite(s) show it");
                 true
             }
@@ -52,7 +54,7 @@ unsafe extern "C" fn sprite_type_unloading(kind: usize) {
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
 /// nothing.
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+pub(super) const REPAIR: super::Repair = super::Repair { points, ..super::Repair::NONE };
 
 pub(super) fn points() -> Vec<Point> {
     vec![

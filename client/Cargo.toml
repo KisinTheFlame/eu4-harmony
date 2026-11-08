@@ -9,6 +9,7 @@ description = "Reaching the running game from outside it: remote control's pipe,
 name = "eu4_harmony_client"
 
 [dependencies]
+eu4-harmony-folders = { path = "../folders" }
 eu4-harmony-remote = { path = "../remote" }
 serde = { workspace = true }
 serde_json = { workspace = true }

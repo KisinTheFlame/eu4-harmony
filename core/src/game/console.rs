@@ -14,16 +14,16 @@ use crate::{
     game_string,
     memory::Memory,
     objects::console::{result, GLOBAL as CONSOLE},
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 
 /// `console() -> console`: the game console ([`CONSOLE`]), made if there is
 /// none.
-const GET: usize = 0x6e74c0;
+const GET: GameFunction<0> = GameFunction::at(0x6e74c0);
 /// `run(console, &result, &words) -> &result`: runs the command the first
 /// word names with the words after it, and fills in the [`result`].
-const RUN: usize = 0x1721320;
+const RUN: GameFunction<3> = GameFunction::at(0x1721320);
 
 pub fn points() -> Vec<Point> {
     vec![
@@ -62,14 +62,14 @@ pub fn run(WorldSession { m, .. }: WorldSession, command: &str) -> GResult<Strin
 /// Runs the words through the game's own function: whether the command
 /// succeeded, and what it printed.
 fn run_words(m: &Memory, words: &Words) -> GResult<(bool, Vec<u8>)> {
-    let console = m.call(m.at(GET), &[])?;
+    let console = GET.call(m, [])?;
     if console == 0 {
         return fail(Status::Unavailable, "the game has no game console");
     }
     let mut answer = [0u64; result::SIZE / 8];
     let at = answer.as_mut_ptr() as usize;
     let vector = words.vector();
-    m.call(m.at(RUN), &[console, at, vector.as_ptr() as usize]).map_err(|e| format!("the game console failed: {e}"))?;
+    RUN.call(m, [console, at, vector.as_ptr() as usize]).map_err(|e| format!("the game console failed: {e}"))?;
     let succeeded = m.u8(at + result::SUCCEEDED)? != 0;
     let printed = game_string::read(m, at + result::TEXT);
     game_string::destroy_checked(m, at + result::TEXT)?;

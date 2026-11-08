@@ -3,32 +3,30 @@
 //! answered as the player does, by choosing an option in the window.
 //! [`count`] says how many wait, for advancing time too. The evidence is in
 //! docs/research/questions-and-offers.md.
-use super::{map_manager, span, Ctx, GResult, Session};
+use super::{map_manager, Ctx, GResult, Session};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
-    objects::{
-        campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world},
-        list,
-    },
-    points::Point,
+    objects::campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world},
+    points::{GameFunction, Point},
     unicode::game_text,
 };
-use std::collections::BTreeSet;
+use eu4_harmony_remote::questions::args;
 
 /// `(window, option)`: what clicking an option's button in an event window
 /// does: sends the game the command that chooses it and closes the window.
-const CHOOSE: usize = 0x10bc2d0;
+const CHOOSE: GameFunction<2> = GameFunction::at(0x10bc2d0);
 /// `(result, scope, key, tag)`: the text of a localisation key, with the
 /// scope's names filled in, as the event window shows it. Returns a
 /// `std::string` in `result`; takes `key`, a `std::string`, by value and
 /// destroys it; `tag` is [`NO_TAG`] wherever the game calls it.
-const LOCALIZE: usize = 0x10bc860;
+const LOCALIZE: GameFunction<4> = GameFunction::at(0x10bc860);
 /// `(event, result, scope)`: the localisation key of the event's description
 /// in the scope, a `std::string` in `result`.
-const DESCRIPTION_KEY: usize = 0x6edfb0;
+const DESCRIPTION_KEY: GameFunction<3> = GameFunction::at(0x6edfb0);
 /// `(option, scope)`: whether the player may choose the option, u8.
-const OPTION_OPEN: usize = 0x6f6b30;
+const OPTION_OPEN: GameFunction<2> = GameFunction::at(0x6f6b30);
 /// The map manager's method that shows one of the game's events to the
 /// player ([`campaign::map_manager::SHOW_EVENT`]): the window it makes is
 /// added to the popups, where questions are read from.
@@ -73,7 +71,7 @@ pub fn question(Session { m, ctx, .. }: Session, id: u32) -> GResult<Question> {
 /// Answers a question with one of its options, as the player does in its
 /// event window: the game has the answer once this returns, and applies it a
 /// moment later; the window is closed, so the question is no longer listed.
-pub fn answer(Session { m, ctx, .. }: Session, question: u32, option: u32) -> GResult<()> {
+pub fn answer(Session { m, ctx, .. }: Session, args::Answer { question, option }: args::Answer) -> GResult<()> {
     let w = find(m, &ctx, question)?;
     let options = options(m, w.event)?;
     let Some(&chosen) = options.get(option as usize) else {
@@ -82,7 +80,7 @@ pub fn answer(Session { m, ctx, .. }: Session, question: u32, option: u32) -> GR
     if !may_choose(m, chosen, w.scope)? {
         return Err(checks::not_allowed(question, option));
     }
-    m.call(m.at(CHOOSE), &[w.address, option as usize])?;
+    CHOOSE.call(m, [w.address, option as usize])?;
     if m.u8(w.address + window::OPEN)? != 0 {
         return Err(format!("the event window of question {question} stayed open").into());
     }
@@ -104,25 +102,6 @@ struct Window {
     event: usize,
     scope: usize,
     deadline: i32,
-}
-
-/// The items of the game's list whose header is at `header`, skipping nodes
-/// removed while the list was being walked.
-pub(crate) fn items(m: &Memory, header: usize) -> GResult<Vec<usize>> {
-    let mut node = m.ptr(header + list::HEAD)?;
-    let mut seen = BTreeSet::new();
-    let mut out = Vec::new();
-    while node != 0 {
-        if seen.len() >= MOST || !seen.insert(node) {
-            return Err("list cycle".to_string().into());
-        }
-        let item = m.ptr(node + list::ITEM)?;
-        if m.u8(node + list::REMOVED)? == 0 && item != 0 {
-            out.push(item);
-        }
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Ok(out)
 }
 
 /// The world's pending events: id, event, deadline.
@@ -148,7 +127,7 @@ fn open(m: &Memory, ctx: &Ctx) -> GResult<Vec<Window>> {
     let manager = map_manager(m, ctx)?;
     let pending = pending(m, ctx)?;
     let mut out = Vec::new();
-    for address in items(m, manager + campaign::map_manager::POPUPS)? {
+    for address in containers::items(m, manager + campaign::map_manager::POPUPS, MOST)? {
         if m.ptr(address)? != m.at(classes::EVENT_WINDOW) || m.u8(address + window::OPEN)? == 0 {
             continue;
         }
@@ -170,12 +149,12 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Window> {
 
 fn options(m: &Memory, event: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(event + event::OPTIONS)?;
-    let count = span(begin, m.ptr(event + event::OPTIONS + 8)?, 8, MOST_OPTIONS)?;
+    let count = containers::span(begin, m.ptr(event + event::OPTIONS + 8)?, 8, MOST_OPTIONS)?;
     (0..count).map(|i| m.ptr(begin + i * 8)).collect::<crate::Result<_>>().map_err(Into::into)
 }
 
 fn may_choose(m: &Memory, option: usize, scope: usize) -> GResult<bool> {
-    Ok(m.call(m.at(OPTION_OPEN), &[option, scope])? as u8 != 0)
+    Ok(OPTION_OPEN.call(m, [option, scope])? as u8 != 0)
 }
 
 fn read(m: &Memory, w: &Window) -> GResult<Question> {
@@ -187,7 +166,7 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
     }
     Ok(Question {
         id: w.id,
-        event: game_text::to_utf8(&game_string::read(m, w.event + event::NAME)?),
+        event: game_string::key(m, w.event + event::NAME)?,
         title: localize(m, w.scope, &game_string::read(m, w.event + event::TITLE)?)?,
         description: description(m, w)?,
         deadline: w.deadline,
@@ -196,7 +175,7 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
 }
 
 fn description(m: &Memory, w: &Window) -> GResult<String> {
-    let (_, key) = game_string::written(m, |slot| m.call(m.at(DESCRIPTION_KEY), &[w.event, slot, w.scope]))?;
+    let (_, key) = game_string::written(m, |slot| DESCRIPTION_KEY.call(m, [w.event, slot, w.scope]))?;
     localize(m, w.scope, &key)
 }
 
@@ -208,7 +187,7 @@ fn localize(m: &Memory, scope: usize, key: &[u8]) -> GResult<String> {
     if !key.is_empty() {
         game_string::append_checked(m, argument.as_mut_ptr() as usize, key)?;
     }
-    let (_, text) = game_string::written(m, |slot| m.call(m.at(LOCALIZE), &[slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize]))?;
+    let (_, text) = game_string::written(m, |slot| LOCALIZE.call(m, [slot, scope, argument.as_mut_ptr() as usize, NO_TAG as usize]))?;
     Ok(game_text::plain(&text))
 }
 
@@ -249,32 +228,5 @@ mod checks {
     /// The refusal of an option of a question the player may not choose.
     pub fn not_allowed(question: u32, option: u32) -> Fail {
         Fail::new(Status::Rejected, format!("the player may not choose option {option} of question {question}"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_list_s_removed_nodes_are_skipped() {
-        let m = Memory { base: 0 };
-        let things = [11u64, 22, 33];
-        let mut nodes = [[0u64; 4]; 3];
-        for (i, node) in nodes.iter_mut().enumerate() {
-            node[0] = &things[i] as *const u64 as u64;
-        }
-        nodes[1][3] = 1;
-        let addresses: Vec<u64> = nodes.iter_mut().map(|n| n.as_mut_ptr() as u64).collect();
-        // The list is read through `m`, so its links are written through it.
-        let link = |from: usize, to: usize| m.write(addresses[from] as usize + list::NEXT, &addresses[to].to_le_bytes()).unwrap();
-        link(0, 1);
-        link(1, 2);
-        let header = [addresses[0], addresses[2], 3];
-        let got = items(&m, header.as_ptr() as usize).unwrap();
-        assert_eq!(got, [&things[0] as *const u64 as usize, &things[2] as *const u64 as usize]);
-        // A cycle is an error, not a hang.
-        link(2, 0);
-        assert!(items(&m, header.as_ptr() as usize).is_err());
     }
 }

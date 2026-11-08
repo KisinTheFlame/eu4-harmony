@@ -5,24 +5,25 @@ use super::{
     country, fail,
     player::Eyes,
     provinces::{Neighbor, Province},
-    span, special_countries, Ctx, GResult, InWorld, Status, Tag, View, MAX_PROVINCES, MAX_UNITS,
+    special_countries, Ctx, GResult, InWorld, Status, Tag, View, MAX_PROVINCES, MAX_UNITS,
 };
 use crate::{
+    containers,
     memory::Memory,
     objects::campaign::{
         adjacency, classes, countries as country_list, country as country_fields, functions, geometry, globals, list, map, province, route_options, tag, task,
         unit, world,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::collections::BTreeSet;
 
-const CAN_ENTER: usize = 0x1a2280;
-const MILITARY_TAG: usize = 0x1a8d20;
-const STRAIT_BLOCKED: usize = 0x96f650;
-const CAN_ATTACK: usize = 0xd54a60;
+const CAN_ENTER: GameFunction<9> = GameFunction::at(0x1a2280);
+const MILITARY_TAG: GameFunction<2> = GameFunction::at(0x1a8d20);
+const STRAIT_BLOCKED: GameFunction<2> = GameFunction::at(0x96f650);
+const CAN_ATTACK: GameFunction<2> = GameFunction::at(0xd54a60);
 /// The game's lookup of an object by its ID (the type, u32, then the number).
-pub(crate) const FIND_ID: usize = 0x14cf730;
+pub(crate) const FIND_ID: GameFunction<1> = GameFunction::at(0x14cf730);
 /// Where the unit constructor registers the unit's ID.
 const REGISTER_UNIT: usize = 0xd3b0f8;
 /// What the idle task answers: no task kind, and false.
@@ -47,8 +48,8 @@ pub fn points() -> Vec<Point> {
             "army put aboard a fleet",
         )
         .uses(&[unit::FLEET, unit::ABOARD + list::TAIL, unit::ABOARD + list::COUNT, list::PREVIOUS, list::NEXT, list::REMOVED]),
-        Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER, "army access method"),
-        Point::method(classes::ARMY, unit::MILITARY_TAG, MILITARY_TAG, "army military tag method"),
+        Point::method(classes::ARMY, unit::CAN_ENTER, CAN_ENTER.rva(), "army access method"),
+        Point::method(classes::ARMY, unit::MILITARY_TAG, MILITARY_TAG.rva(), "army military tag method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[0], IDLE_ANSWERS[0], "idle task method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[1], IDLE_ANSWERS[1], "idle task method"),
         Point::method(classes::IDLE_TASK, task::IDLE_METHODS[2], IDLE_ANSWERS[2], "idle task method"),
@@ -177,7 +178,7 @@ fn province_array(m: &Memory, world: usize) -> GResult<(usize, usize)> {
     let map = m.ptr(m.at(globals::MAP))?;
     let first = m.ptr(map + map::PROVINCES)?;
     let end = m.ptr(map + map::PROVINCES + 8)?;
-    let count = span(first, end, province::SIZE, MAX_PROVINCES)?;
+    let count = containers::span(first, end, province::SIZE, MAX_PROVINCES)?;
     if count == 0 || m.ptr(world + world::PROVINCES)? != first {
         return Err("world and map province arrays differ".to_string().into());
     }
@@ -293,7 +294,7 @@ impl Geography {
             }
         }
         let military = military_tag(m, ctx, army)?;
-        Ok(m.call(m.at(STRAIT_BLOCKED), &[military.0 as usize, edge.address])? as u8 == 0)
+        Ok(STRAIT_BLOCKED.call(m, [military.0 as usize, edge.address])? as u8 == 0)
     }
 
     pub fn clear_if_changed(&mut self, m: &Memory, ctx: &impl InWorld) {
@@ -347,7 +348,7 @@ fn military_tag(m: &Memory, ctx: &Ctx, army: usize) -> GResult<Tag> {
     check_army_vtable(m, army)?;
     let mut out = 0u64;
     let ptr = &mut out as *mut u64 as usize;
-    if m.call(m.at(MILITARY_TAG), &[army, ptr])? != ptr {
+    if MILITARY_TAG.call(m, [army, ptr])? != ptr {
         return Err("military tag getter returned an unexpected pointer".to_string().into());
     }
     let tag = Tag(out);
@@ -360,19 +361,19 @@ fn military_tag(m: &Memory, ctx: &Ctx, army: usize) -> GResult<Tag> {
 
 pub fn can_enter(m: &Memory, army: usize, province: usize) -> GResult<bool> {
     check_army_vtable(m, army)?;
-    Ok(m.call(m.at(CAN_ENTER), &[army, province, 0, 0, 0, route_options::NO_TAG as usize, 0, 0, 0])? as u8 != 0)
+    Ok(CAN_ENTER.call(m, [army, province, 0, 0, 0, route_options::NO_TAG as usize, 0, 0, 0])? as u8 != 0)
 }
 
 pub fn can_attack(m: &Memory, army: usize, target: usize) -> GResult<bool> {
     check_army_vtable(m, army)?;
-    Ok(m.call(m.at(CAN_ATTACK), &[army, target])? as u8 != 0)
+    Ok(CAN_ATTACK.call(m, [army, target])? as u8 != 0)
 }
 
 /// The army or fleet the game has under `id`, found by the game's own
 /// lookup; none when there is no unit with it.
 pub fn unit_by_id(m: &Memory, id: u64) -> GResult<Option<usize>> {
     let key = id;
-    let holder = m.call(m.at(FIND_ID), &[&key as *const u64 as usize])?;
+    let holder = FIND_ID.call(m, [&key as *const u64 as usize])?;
     if holder == 0 {
         return Ok(None);
     }
@@ -387,14 +388,9 @@ pub fn unit_by_id(m: &Memory, id: u64) -> GResult<Option<usize>> {
 /// Every own army and fleet: (id, address, land).
 pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
     let head = m.ptr(ctx.country + country_fields::UNITS)?;
-    let mut node = head;
-    let mut nodes = BTreeSet::new();
     let mut ids = BTreeSet::new();
     let mut out = Vec::new();
-    while node != 0 {
-        if nodes.len() >= MAX_UNITS || !nodes.insert(node) {
-            return Err("own unit list cycle".to_string().into());
-        }
+    for node in containers::chain(m, head, list::NEXT, MAX_UNITS)? {
         let army = m.ptr(node + list::ITEM)?;
         let vt = m.ptr(army)?;
         let id = m.u64(army + unit::ID)?;
@@ -405,7 +401,6 @@ pub fn own_roster(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u64, usize, bool)>> {
             return Err("unknown own unit class".to_string().into());
         }
         out.push((id, army, vt == m.at(classes::ARMY)));
-        node = m.ptr(node + list::NEXT)?;
     }
     if m.ptr(ctx.country + country_fields::UNITS)? != head {
         return Err("own unit list changed while reading".to_string().into());
@@ -467,7 +462,7 @@ pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<Army
     // Of a fleet: where it is and its ships; what stops it moving is its
     // move command's to check.
     if !land {
-        let ships = span(m.ptr(army + unit::REGIMENTS)?, m.ptr(army + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32;
+        let ships = containers::span(m.ptr(army + unit::REGIMENTS)?, m.ptr(army + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32;
         let carrying = aboard(m, army)?.into_iter().map(|a| regiments(m, a)).sum::<GResult<u32>>()?;
         return Ok(Army {
             id,
@@ -505,7 +500,7 @@ pub fn army_record(m: &Memory, specials: &[i32; 3], army: usize) -> GResult<Army
 
 /// A unit's regiments, or a fleet's ships.
 pub fn regiments(m: &Memory, unit: usize) -> GResult<u32> {
-    Ok(span(m.ptr(unit + unit::REGIMENTS)?, m.ptr(unit + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32)
+    Ok(containers::span(m.ptr(unit + unit::REGIMENTS)?, m.ptr(unit + unit::REGIMENTS + 8)?, 8, MAX_UNITS)? as u32)
 }
 
 /// The armies aboard a fleet.
@@ -538,18 +533,11 @@ pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize, view: View) -> GR
     }
     let specials = special_countries(m)?;
     let head = m.ptr(province + province::UNITS)?;
-    let mut node = head;
-    let mut seen = BTreeSet::new();
     let mut out = Vec::new();
-    while node != 0 {
-        if seen.len() >= MAX_UNITS || !seen.insert(node) {
-            return Err("province unit list cycle".to_string().into());
-        }
+    for node in containers::chain(m, head, list::NEXT, MAX_UNITS)? {
         let item = m.ptr(node + list::ITEM)?;
-        let next = m.ptr(node + list::NEXT)?;
         let vt = m.ptr(item)?;
         if vt == m.at(classes::FLEET) {
-            node = next;
             continue;
         }
         if vt != m.at(classes::ARMY) || m.ptr(item + unit::LOCATION)? != province {
@@ -557,7 +545,6 @@ pub fn province_armies(m: &Memory, ctx: &Ctx, province: usize, view: View) -> GR
         }
         country(m, ctx, Tag(m.u64(item + unit::OWNER)?))?;
         out.push((army_record(m, &specials, item)?, item));
-        node = next;
     }
     if m.ptr(province + province::UNITS)? != head || hidden(m, province)? {
         return Err("province units changed while reading".to_string().into());

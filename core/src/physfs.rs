@@ -5,8 +5,9 @@
 //!
 //! The detours run on whichever thread the game reads files from (GUI
 //! definitions load on the game's LoadingThread) and never call extension code.
+use crate::called_by_game;
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     points::{Function, Point},
     splice::{self, Plan},
     Result,
@@ -86,6 +87,7 @@ pub fn normalize(path: &str) -> String {
     s
 }
 
+#[called_by_game]
 unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     let result = ORIG_INIT.get()(argv0);
     if result != 0 {
@@ -95,6 +97,7 @@ unsafe extern "C" fn init_detour(argv0: *const c_char) -> i32 {
     result
 }
 
+#[called_by_game]
 unsafe extern "C" fn open_read_detour(path: *const c_char) -> File {
     let handle = ORIG_OPEN_READ.get()(path);
     crate::guarded("PHYSFS_openRead", || {
@@ -198,6 +201,7 @@ pub(crate) fn read(path: &str) -> Result<Vec<u8>> {
     Ok(data)
 }
 
+#[called_by_game]
 unsafe extern "C" fn file_length_detour(handle: File) -> i64 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return s.data.len() as i64;
@@ -205,6 +209,7 @@ unsafe extern "C" fn file_length_detour(handle: File) -> i64 {
     ORIG_FILE_LENGTH.get()(handle)
 }
 
+#[called_by_game]
 unsafe extern "C" fn read_bytes_detour(handle: File, buf: *mut c_void, len: u64) -> i64 {
     {
         let mut st = state();
@@ -221,6 +226,7 @@ unsafe extern "C" fn read_bytes_detour(handle: File, buf: *mut c_void, len: u64)
     ORIG_READ_BYTES.get()(handle, buf, len)
 }
 
+#[called_by_game]
 unsafe extern "C" fn seek_detour(handle: File, pos: u64) -> i32 {
     {
         let mut st = state();
@@ -235,6 +241,7 @@ unsafe extern "C" fn seek_detour(handle: File, pos: u64) -> i32 {
     ORIG_SEEK.get()(handle, pos)
 }
 
+#[called_by_game]
 unsafe extern "C" fn tell_detour(handle: File) -> i64 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return s.cursor as i64;
@@ -242,6 +249,7 @@ unsafe extern "C" fn tell_detour(handle: File) -> i64 {
     ORIG_TELL.get()(handle)
 }
 
+#[called_by_game]
 unsafe extern "C" fn eof_detour(handle: File) -> i32 {
     if let Some(s) = state().open.get(&(handle as usize)) {
         return (s.cursor >= s.data.len()) as i32;
@@ -251,11 +259,9 @@ unsafe extern "C" fn eof_detour(handle: File) -> i32 {
 
 /// `PHYSFS_close` is only observed: a spliced copy is dropped as its file
 /// closes.
-extern "C" fn close_before(frame: *mut HookFrame) {
-    crate::guarded("PHYSFS_close", || {
-        let handle = unsafe { (*frame).args[0] };
-        state().open.remove(&handle);
-    });
+fn close_before(call: &mut Call) {
+    let handle = call.arg(0);
+    state().open.remove(&handle);
 }
 
 /// Every PhysFS function the core detours, observes or calls, by export name.

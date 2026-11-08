@@ -11,8 +11,9 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{construction, country, province as field},
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::colonists::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     colonists::{ColonistOptions, Expulsion},
@@ -21,37 +22,37 @@ use eu4_harmony_remote::{
 
 /// Whether the country may send a colonist to the province:
 /// `(country, province) -> bool`.
-const MAY_SEND: usize = 0x34e7f0;
+const MAY_SEND: GameFunction<2> = GameFunction::at(0x34e7f0);
 /// Why not, as the province view's tooltip says: `(country, out, province,
 /// _)`, constructing `out`.
-const WHY_NOT: usize = 0x34e890;
+const WHY_NOT: GameFunction<4> = GameFunction::at(0x34e890);
 /// The province's colonist construction, or null: `(province)`.
-const CONSTRUCTION: usize = 0xa1ba30;
+const CONSTRUCTION: GameFunction<1> = GameFunction::at(0xa1ba30);
 /// The province's construction of a kind, or null: `(province, kind)`.
-const CONSTRUCTION_OF: usize = 0xa1ba90;
+const CONSTRUCTION_OF: GameFunction<2> = GameFunction::at(0xa1ba90);
 /// The kind of a colonist promoting settlement growth.
 const GROWTH: usize = 0x38a2;
 /// The colonial upkeep a month of the country's colonies and of the provinces
 /// a vector names, in thousandths of ducats before the country's factor:
 /// `(country, i32* out, text or null, i32* factor in thousandths, vector of
 /// provinces or null) -> out`.
-const UPKEEP: usize = 0x34b7a0;
+const UPKEEP: GameFunction<5> = GameFunction::at(0x34b7a0);
 /// The country's factor of the colonial upkeep, thousandths.
 const UPKEEP_FACTOR: usize = 0xe14;
 /// Whether the country may have a colonist promote settlement growth in the
 /// province, and why not: `(country, province, reasons or null) -> bool`,
 /// appending to `reasons`.
-const MAY_GROW: usize = 0x262060;
+const MAY_GROW: GameFunction<3> = GameFunction::at(0x262060);
 /// Whether the country may expel minorities at all: `(tag by value) ->
 /// bool`; whether a province may take expelled minorities: `(province) ->
 /// bool`; whether the colonize button lists a province of the player's to
 /// expel from: `(province) -> bool`; and whether its minority may be
 /// expelled now, and why not: `(province, reasons or null) -> bool`,
 /// appending to `reasons`.
-const MAY_EXPEL_ANY: usize = 0x264ec0;
-const TAKES_EXPELLED: usize = 0x264fb0;
-const LISTED: usize = 0x264f50;
-const MAY_EXPEL: usize = 0x264ff0;
+const MAY_EXPEL_ANY: GameFunction<1> = GameFunction::at(0x264ec0);
+const TAKES_EXPELLED: GameFunction<1> = GameFunction::at(0x264fb0);
+const LISTED: GameFunction<1> = GameFunction::at(0x264f50);
+const MAY_EXPEL: GameFunction<2> = GameFunction::at(0x264ff0);
 /// The most provinces believed.
 const MOST: i32 = 10_000;
 
@@ -95,7 +96,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Province> {
 }
 
 /// What the province view offers the player in province `id`.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<Box<ColonistOptions>> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<Box<ColonistOptions>> {
     read(m, &ctx, &province(m, &ctx, id)?, id).map(Box::new)
 }
 
@@ -107,7 +108,7 @@ fn upkeep(m: &Memory, ctx: &Ctx, extra: usize) -> GResult<i64> {
     let range = provinces.as_ptr_range();
     let vector = [range.start as usize, range.end as usize, range.end as usize];
     let list = if extra == 0 { 0 } else { vector.as_ptr() as usize };
-    m.call(m.at(UPKEEP), &[ctx.country, &mut out as *mut i32 as usize, 0, &factor as *const i32 as usize, list])?;
+    UPKEEP.call(m, [ctx.country, &mut out as *mut i32 as usize, 0, &factor as *const i32 as usize, list])?;
     Ok(i64::from(out) * i64::from(m.i32(ctx.country + UPKEEP_FACTOR)?) / 1000)
 }
 
@@ -119,21 +120,21 @@ fn cost(m: &Memory, ctx: &Ctx, p: &Province) -> GResult<Vec<Amount>> {
 }
 
 fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions> {
-    let construction = m.call(m.at(CONSTRUCTION), &[p.address])?;
+    let construction = CONSTRUCTION.call(m, [p.address])?;
     let working = construction != 0 && Tag(m.u64(construction + construction::COUNTRY)?) == ctx.player;
     let size = m.i32(p.address + field::COLONY_SIZE)?;
     let colony = size > 0 && m.u8(p.address + field::HIDDEN)? & field::CITY_BIT == 0;
     let cost = cost(m, ctx, p)?;
-    let send = if m.call(m.at(MAY_SEND), &[ctx.country, p.address])? as u8 != 0 {
+    let send = if MAY_SEND.call(m, [ctx.country, p.address])? as u8 != 0 {
         Choice::can(cost.clone())
     } else {
-        let (_, text) = game_string::written(m, |out| m.call(m.at(WHY_NOT), &[ctx.country, out, p.address, 0]))?;
+        let (_, text) = game_string::written(m, |out| WHY_NOT.call(m, [ctx.country, out, p.address, 0]))?;
         Choice::cannot(envoys::lines(&text), cost.clone())
     };
     let recall = if working { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
-    let growth = m.call(m.at(CONSTRUCTION_OF), &[p.address, GROWTH])?;
+    let growth = CONSTRUCTION_OF.call(m, [p.address, GROWTH])?;
     let growing = growth != 0 && Tag(m.u64(growth + construction::COUNTRY)?) == ctx.player;
-    let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_GROW), &[ctx.country, p.address, out]))?;
+    let (may, text) = game_string::written(m, |out| MAY_GROW.call(m, [ctx.country, p.address, out]))?;
     let start_growth = if may as u8 != 0 { Choice::can(cost.clone()) } else { Choice::cannot(envoys::lines(&text), cost.clone()) };
     let stop_growth = if growing { Choice::can(Vec::new()) } else { Choice::cannot(Vec::new(), Vec::new()) };
     Ok(ColonistOptions {
@@ -153,7 +154,7 @@ fn read(m: &Memory, ctx: &Ctx, p: &Province, id: u32) -> GResult<ColonistOptions
 /// minority into the province, each with whether the player can now: as
 /// sending a colonist there, and the province's own rules.
 fn expulsions(m: &Memory, ctx: &Ctx, p: &Province, send: &Choice) -> GResult<Vec<Expulsion>> {
-    if m.call(m.at(MAY_EXPEL_ANY), &[ctx.player.0 as usize])? as u8 == 0 || m.call(m.at(TAKES_EXPELLED), &[p.address])? as u8 == 0 {
+    if MAY_EXPEL_ANY.call(m, [ctx.player.0 as usize])? as u8 == 0 || TAKES_EXPELLED.call(m, [p.address])? as u8 == 0 {
         return Ok(Vec::new());
     }
     let count = m.i32(ctx.country + country::OWNED_COUNT)?;
@@ -166,13 +167,13 @@ fn expulsions(m: &Memory, ctx: &Ctx, p: &Province, send: &Choice) -> GResult<Vec
         let address = with_state(|s| s.geography.province_address(m, ctx, from))?;
         let minority = m.ptr(address + field::CULTURE)? != m.ptr(ctx.country + country::PRIMARY_CULTURE)?
             || m.ptr(address + field::RELIGION)? != m.ptr(ctx.country + country::STATE_RELIGION)?;
-        if !minority || m.call(m.at(LISTED), &[address])? as u8 == 0 {
+        if !minority || LISTED.call(m, [address])? as u8 == 0 {
             continue;
         }
         let choice = if !send.can {
             send.clone()
         } else {
-            let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_EXPEL), &[address, out]))?;
+            let (may, text) = game_string::written(m, |out| MAY_EXPEL.call(m, [address, out]))?;
             if may as u8 != 0 {
                 send.clone()
             } else {
@@ -206,7 +207,7 @@ fn written(player: Tag, province: u32, work: Work) -> String {
 }
 
 /// Sends one of the player's colonists to province `id`.
-pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn send(Session { m, ctx, commands, .. }: Session, args::Send { province: ProvinceId(id) }: args::Send) -> GResult<()> {
     let options = read(m, &ctx, &province(m, &ctx, id)?, id)?;
     if !options.send.can {
         return Err(action::not_allowed("send a colonist there", &options.send.reasons));
@@ -215,7 +216,7 @@ pub fn send(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
 }
 
 /// Recalls the player's colonist from province `id`.
-pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()> {
+pub fn recall(Session { m, ctx, commands, .. }: Session, args::Recall { province: ProvinceId(id) }: args::Recall) -> GResult<()> {
     if !read(m, &ctx, &province(m, &ctx, id)?, id)?.working {
         return Err(envoys::checks::none_there("colonist"));
     }
@@ -224,7 +225,10 @@ pub fn recall(Session { m, ctx, commands, .. }: Session, id: u32) -> GResult<()>
 
 /// Sends one of the player's colonists to found a colony in province
 /// `province` with the minority expelled from the player's province `from`.
-pub fn expel(Session { m, ctx, commands, .. }: Session, province: u32, from: u32) -> GResult<()> {
+pub fn expel(
+    Session { m, ctx, commands, .. }: Session,
+    args::ExpelMinorities { province: ProvinceId(province), from: ProvinceId(from) }: args::ExpelMinorities,
+) -> GResult<()> {
     let options = read(m, &ctx, &self::province(m, &ctx, province)?, province)?;
     let Some(offered) = options.expel_from.iter().find(|e| e.from.0 == from) else {
         return Err(envoys::checks::no_minority(from));

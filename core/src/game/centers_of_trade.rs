@@ -2,7 +2,12 @@
 //! and upgrading and downgrading one through the game's own command
 //! (docs/research/envoys.md, "Centers of trade").
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
-use crate::{game_string, memory::Memory, points::Point};
+use crate::{
+    game_string,
+    memory::Memory,
+    points::{GameFunction, Point},
+};
+use eu4_harmony_remote::centers_of_trade::args;
 use eu4_harmony_remote::{
     centers_of_trade::CenterOfTradeOptions,
     choices::{Amount, Choice, Resource},
@@ -16,12 +21,12 @@ const LEVELS: usize = 0x8;
 const LEVEL: usize = 0x14;
 /// The rules of both ways, the upgrade's and the downgrade's: each
 /// `(center, tag, reasons or null) -> bool`, writing every line.
-const MAY_CHANGE: usize = 0x476ac0;
-const MAY_UPGRADE: usize = 0x476260;
-const MAY_DOWNGRADE: usize = 0x4760a0;
+const MAY_CHANGE: GameFunction<3> = GameFunction::at(0x476ac0);
+const MAY_UPGRADE: GameFunction<3> = GameFunction::at(0x476260);
+const MAY_DOWNGRADE: GameFunction<3> = GameFunction::at(0x4760a0);
 /// The upgrade's cost: `(center, out i32*, tag) -> out`, thousandths of
 /// ducats.
-const UPGRADE_COST: usize = 0x476d60;
+const UPGRADE_COST: GameFunction<3> = GameFunction::at(0x476d60);
 /// The prestige a downgrade costs, whole points, which the downgrade's
 /// execute takes.
 const DOWNGRADE_PRESTIGE: usize = 0x233e138;
@@ -48,7 +53,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 
 /// The center of trade in province `id`, and what the province view offers
 /// the player for it.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<CenterOfTradeOptions> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<CenterOfTradeOptions> {
     read(m, &ctx, province(m, &ctx, id)?, id).map(|(options, _)| options)
 }
 
@@ -61,7 +66,7 @@ fn read(m: &Memory, ctx: &Ctx, province: usize, id: u32) -> GResult<(CenterOfTra
     }
     let level = m.i32(m.ptr(center + LEVELS)? + LEVEL)?.max(0) as u32;
     let mut cost = 0i32;
-    m.call(m.at(UPGRADE_COST), &[center, &mut cost as *mut i32 as usize, ctx.player.0 as usize])?;
+    UPGRADE_COST.call(m, [center, &mut cost as *mut i32 as usize, ctx.player.0 as usize])?;
     let upgrade = choice(m, center, ctx.player, MAY_UPGRADE, vec![Amount::new(Resource::Ducats, super::thousandths(cost))])?;
     let prestige = m.i32(m.at(DOWNGRADE_PRESTIGE))?.unsigned_abs() as f64;
     let downgrade = choice(m, center, ctx.player, MAY_DOWNGRADE, vec![Amount::new(Resource::Prestige, prestige)])?;
@@ -70,9 +75,9 @@ fn read(m: &Memory, ctx: &Ctx, province: usize, id: u32) -> GResult<(CenterOfTra
 
 /// Whether the player may change the center one way (`check`): the rules of
 /// both ways, then that way's, each line the game writes for them.
-fn choice(m: &Memory, center: usize, player: Tag, check: usize, cost: Vec<Amount>) -> GResult<Choice> {
-    let (both, first) = game_string::written(m, |out| m.call(m.at(MAY_CHANGE), &[center, player.0 as usize, out]))?;
-    let (way, second) = game_string::written(m, |out| m.call(m.at(check), &[center, player.0 as usize, out]))?;
+fn choice(m: &Memory, center: usize, player: Tag, check: GameFunction<3>, cost: Vec<Amount>) -> GResult<Choice> {
+    let (both, first) = game_string::written(m, |out| MAY_CHANGE.call(m, [center, player.0 as usize, out]))?;
+    let (way, second) = game_string::written(m, |out| check.call(m, [center, player.0 as usize, out]))?;
     if both as u8 != 0 && way as u8 != 0 {
         return Ok(Choice::can(cost));
     }
