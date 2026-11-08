@@ -334,6 +334,20 @@ pub fn conditions(image: &Image, lines: *const ()) {
     image.function(SCOPE.rva(), answers_no as *const ()).function(SCOPE_DESTROY.rva(), answers_no as *const ()).function(LINES.rva(), lines);
 }
 
+/// A country's pools of envoys ([`super::envoys`]), for its field
+/// `envoys::POOLS`: of each kind, its envoys, each with whether it is away.
+pub fn envoys(kinds: &[(super::envoys::Kind, &[bool])]) -> Object {
+    use super::envoys::{AWAY, ENVOYS};
+    let mut pools = Object::new(0x18);
+    for &(kind, away) in kinds {
+        let envoys: Vec<Object> = away.iter().map(|&a| Object::new(AWAY + 8).u8(AWAY, a.into())).collect();
+        let mut pool = Object::new(ENVOYS + 0x10).vector(ENVOYS, &envoys.iter().map(|e| e.at() as u64).collect::<Vec<_>>());
+        pool.kept.extend(envoys);
+        pools = pools.points_to(kind as usize, pool);
+    }
+    pools
+}
+
 /// Writes `text`, at most [`game_string::INLINE`] bytes, into the empty
 /// `std::string` at `string`, as a game function writes its reasons.
 pub fn write_inline(string: usize, text: &str) {

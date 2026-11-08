@@ -164,4 +164,98 @@ mod tests {
         assert_eq!(written(eng, fra, 236, false), r#"send_missionary={ country="ENG" owned_by="FRA" location=236 }"#);
         assert_eq!(written(eng, fra, 236, true), r#"send_missionary={ country="ENG" owned_by="FRA" location=236 cancel=yes }"#);
     }
+
+    use crate::game::{
+        buffers::{self, answers_no, answers_yes, write_inline, Image, Object, Provinces},
+        commands::record,
+        envoys::POOLS,
+        Caller, Fail, Status,
+    };
+
+    /// A province of the test's: its missionary construction, and whether
+    /// the game's tooltip says the player may not send one there; read by
+    /// the game's functions below, in bytes the province leaves unused.
+    const BUILDING: usize = 0x10;
+    const BARRED: usize = 0x18;
+
+    extern "C" fn construction(province: usize) -> usize {
+        unsafe { *((province + BUILDING) as *const usize) }
+    }
+
+    extern "C" fn why_not(_: usize, out: usize, province: usize) -> usize {
+        if unsafe { *((province + BARRED) as *const u8) } != 0 {
+            write_inline(out, "- not heretic");
+        }
+        0
+    }
+
+    /// France, with two missionaries of which the game sends `automatic` by
+    /// itself, in a world of English provinces 1 to 3: France's missionary
+    /// works in 2, the tooltip bars 3.
+    struct France {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn france(automatic: i32) -> France {
+        let image = Image::new();
+        image
+            .function(CONSTRUCTION.rva(), construction as *const ())
+            .function(WHY_NOT.rva(), why_not as *const ())
+            .function(MAY_SEND.rva(), answers_yes as *const ())
+            .function(UPKEEP.rva(), answers_no as *const ())
+            .function(game_string::DESTROY_AT.rva(), answers_no as *const ());
+        let (fra, eng) = (Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0")), Tag(u64::from_le_bytes(*b"ENG\0\0\0\0\0")));
+        let provinces = Provinces::new(&image, 4);
+        for id in 1..4 {
+            provinces.u64(id, province_fields::OWNER, eng.0);
+        }
+        let missionary = Object::new(SENDER + 8).u64(SENDER, fra.0);
+        provinces.u64(2, BUILDING, missionary.at() as u64).u8(3, BARRED, 1);
+        let france = Object::country(fra, AUTOMATIC + 4).points_to(POOLS, buffers::envoys(&[(Kind::Missionary, &[true, false])])).i32(AUTOMATIC, automatic);
+        let countries = Object::countries(&[&france]);
+        let session = buffers::session(image.memory(), provinces.world(), fra, france.at(), countries.at(), Caller::Remote);
+        France { _image: image, _provinces: provinces, _objects: vec![missionary, france, countries], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the missionary went") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_missionary_is_sent_and_recalled_by_the_province_view_s_command() {
+        let france = france(0);
+        send(france.session, args::Send { province: ProvinceId(1) }).unwrap();
+        recall(france.session, args::Recall { province: ProvinceId(2) }).unwrap();
+        assert_eq!(
+            record::posted(),
+            [r#"send_missionary={ country="ENG" owned_by="FRA" location=1 }"#, r#"send_missionary={ country="ENG" owned_by="FRA" location=2 cancel=yes }"#]
+        );
+    }
+
+    #[test]
+    fn a_missionary_the_province_view_does_not_offer_is_refused() {
+        let france = france(0);
+        assert_eq!(refused(send(france.session, args::Send { province: ProvinceId(3) })), (Status::Rejected, "not heretic".into()));
+        // One works in 2 already.
+        assert_eq!(refused(send(france.session, args::Send { province: ProvinceId(2) })).0, Status::Rejected);
+        assert_eq!(refused(recall(france.session, args::Recall { province: ProvinceId(1) })), (Status::Rejected, "the player has no missionary there".into()));
+        assert_eq!(refused(send(france.session, args::Send { province: ProvinceId(0) })).0, Status::NotFound);
+        assert_eq!(refused(send(france.session, args::Send { province: ProvinceId(4) })).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
+
+    #[test]
+    fn the_game_sends_one_more_or_one_fewer_missionary_within_the_player_s() {
+        set_automatic(france(1).session, true).unwrap();
+        set_automatic(france(1).session, false).unwrap();
+        assert_eq!(record::posted(), [r#"automate_missionary_command={ country="FRA" value=yes }"#, r#"automate_missionary_command={ country="FRA" }"#]);
+        let rejected = |why: &str| (Status::Rejected, why.to_string());
+        assert_eq!(refused(set_automatic(france(2).session, true)), rejected("the game already sends all of the player's 2 missionaries by itself"));
+        assert_eq!(refused(set_automatic(france(0).session, false)), rejected("the game sends none of the player's missionaries by itself"));
+        assert!(record::posted().is_empty());
+    }
 }
