@@ -11,17 +11,14 @@
 //! So as such a list is killed, its entries of those classes wait, and are
 //! deleted as the world's clear begins once a return has taken the
 //! session's interface down after they began to wait
-//! ([`super::session_interface::RETURNS`]), as the trade nodes are. An
-//! entry deleted before then, by whatever deletes it, waits no more.
-use super::LettingGo;
-use crate::{hooks::Call, memory::Memory, points::Point};
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Mutex,
-    },
+//! ([`super::waiting`]), as the trade nodes are. An entry deleted before
+//! then, by whatever deletes it, waits no more.
+use super::{
+    waiting::{self, Moment, Waiting},
+    LettingGo,
 };
+use crate::{hooks::Call, memory::Memory, points::Point};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// `(list)`: a list's kill, the method its window's kill calls on it.
 const LIST_KILL: usize = 0x163d6f0;
@@ -62,23 +59,18 @@ const ENTRIES: [(usize, usize, &str); 6] = [
 /// first.
 const SHIELDS: [(usize, usize, &[usize]); 2] = [(0x1d3a778, 0x198, &[0x88, 0x68]), (0x1d3a648, 0x1d8, &[0x1b8, 0x198, 0x88, 0x68])];
 
-/// The entries the kills left, each with its class and the returns there
-/// had been as it began to wait.
-static WAITING: Mutex<Option<HashMap<usize, (usize, u32)>>> = Mutex::new(None);
+/// The entries the kills left, each with its class.
+static WAITING: Waiting<usize> = Waiting::new();
 /// The entries deleted since the last world reset, for the log.
 static DELETED: AtomicUsize = AtomicUsize::new(0);
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset), world_clearing: Some(world_clearing), ..super::Repair::NONE };
 
 /// What the repair let go since the last world reset, for the log; its
 /// counts start again.
 fn since_reset() -> String {
     format!("{} entries the lists' kills left were deleted", DELETED.swap(0, Ordering::Relaxed))
-}
-
-fn waiting() -> std::sync::MutexGuard<'static, Option<HashMap<usize, (usize, u32)>>> {
-    WAITING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn list_killing(call: &mut Call) {
@@ -104,13 +96,9 @@ fn list_killing(call: &mut Call) {
         crate::Result::Ok(found)
     })();
     match found {
-        Ok(found) if found.is_empty() => {}
         Ok(found) => {
-            let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
-            let mut waiting = waiting();
-            let waiting = waiting.get_or_insert_with(HashMap::new);
             for (entry, class) in found {
-                waiting.insert(entry, (class, returns));
+                WAITING.wait(entry, class, Moment::Return);
             }
         }
         Err(e) => log!("repair: the entries of a list being killed were not read: {e}"),
@@ -120,45 +108,28 @@ fn list_killing(call: &mut Call) {
 /// A window holder is destroyed: if it was an entry waiting, it waits no
 /// more.
 fn holder_going(call: &mut Call) {
-    let holder = call.arg(0);
-    if let Some(waiting) = waiting().as_mut() {
-        waiting.remove(&holder);
-    }
+    WAITING.withdraw(call.arg(0));
 }
 
 /// The world's clear begins: the entries that waited from before the last
 /// return are deleted.
-pub(super) fn world_clearing(m: &Memory) {
-    let returns = super::session_interface::RETURNS.load(Ordering::Relaxed);
-    // Taken out before they are deleted: each deletion runs the holder's
-    // destructor, whose observer takes the lock.
-    let due: Vec<(usize, usize)> = {
-        let mut waiting = waiting();
-        let Some(waiting) = waiting.as_mut() else {
-            return;
-        };
-        let due = waiting.iter().filter(|(_, (_, since))| *since < returns).map(|(entry, (class, _))| (*entry, *class)).collect();
-        waiting.retain(|_, (_, since)| *since >= returns);
-        due
-    };
-    for (entry, class) in due {
+fn world_clearing(m: &Memory) {
+    for (entry, class) in WAITING.take_due(Moment::Return) {
         let deleted = (|| {
             if m.ptr(entry)? != class || m.ptr(entry + HOLDER_WINDOW)? != 0 {
                 log!("repair: a list's entry left was no longer one, {entry:#x}; kept");
                 return Ok(());
             }
-            let _letting_go = LettingGo::new("list entry");
             match SHIELDS.iter().find(|(shield, _, _)| m.at(*shield) == class) {
                 Some((_, size, texts)) => {
+                    let _letting_go = LettingGo::new("list entry");
                     for text in *texts {
                         crate::game_string::destroy_checked(m, entry + text)?;
                     }
                     m.call(m.at(HOLDER_DESTRUCTOR), &[entry])?;
                     crate::game_heap::delete(m, entry, *size)?;
                 }
-                None => {
-                    m.call(m.vslot(entry, 0)?, &[entry, 1])?;
-                }
+                None => waiting::delete_by_its_class(m, entry, "list entry")?,
             }
             DELETED.fetch_add(1, Ordering::Relaxed);
             crate::Result::Ok(())

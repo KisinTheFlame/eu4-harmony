@@ -1,33 +1,14 @@
 //! Repairs (GLOSSARY): the game's own defects the framework puts right, each
 //! where the game goes wrong, so that they hold in vanilla's paths too
-//! (docs/research/main-menu.md). One file each:
+//! (docs/research/main-menu.md). One file each, which says what it puts
+//! right and declares the repair as its `REPAIR`; [`REPAIRS`] holds them all.
 //!
-//! - [`reset_leaks`]: what a world reset leaks.
-//! - [`modifiers`]: what a country's modifiers leak as they go or are made
-//!   again.
-//! - [`histories`]: what the records of the histories leave: the monarchs,
-//!   heirs and queens of the countries' histories, the battles of the wars'.
-//! - [`new_start`]: what a world reset leaves of a session.
-//! - [`session_interface`]: what of the session's interface the game never
-//!   lets go.
-//! - [`interface_parts`]: what of its interface the game leaves as it lets a
-//!   part of it go.
-//! - [`text_boxes`]: what a text box leaves as it goes.
-//! - [`sprite_types`]: what the game unloads while it is shown.
-//! - [`pages`]: what the game's heap keeps of the sessions it let go.
-//! - [`masks`]: what the textures' transparency masks keep.
-//! - [`coalitions`]: what the game's AI changes on several worker threads at
-//!   once without a lock.
-//! - [`names`]: what the game's pick of a name from a list overflows.
-//! - [`save_checksum`]: what the save checksum of a save loaded in a session
-//!   reads.
-//! - [`supporters`]: what a subject relation's end frees under its walk of
-//!   the subject's supporters.
-//!
-//! Here is what they share: letting the game's memory go, and the world's
-//! own reset and the first frame after it, which the sessions tell
-//! (`crate::sessions`): after the reset several of them act and all say what
-//! they did, and its first frame lets go what had to wait for it.
+//! Here is what they share: letting the game's memory go ([`LettingGo`]),
+//! what waits to be let go until the game can no longer use it
+//! ([`waiting`]), and the moments of the sessions a repair acts on, which the
+//! sessions tell (`crate::sessions`) and a repair declares: the world's
+//! clear, the world's reset, after which all say what they did, and the first
+//! frame after it.
 mod coalitions;
 mod estates;
 mod histories;
@@ -47,6 +28,7 @@ mod sprite_types;
 mod supporters;
 mod text_boxes;
 mod trade_nodes;
+mod waiting;
 
 pub use new_start::after_history;
 pub use session_interface::SessionInterface;
@@ -77,12 +59,14 @@ impl Drop for LettingGo {
 }
 
 /// The first safe frame after a world reset (`crate::sessions`), of the main
-/// menu or of the session it began: lets go the persons the histories left
-/// ([`histories::let_go`]) and gives back free pages
-/// ([`pages::give_back_pages`]).
+/// menu or of the session it began: each repair lets go what had to wait
+/// for it.
 pub fn first_frame_after_reset(m: &Memory) {
-    histories::let_go(m);
-    pages::give_back_pages();
+    for repair in REPAIRS {
+        if let Some(act) = repair.first_frame_after_reset {
+            act(m);
+        }
+    }
 }
 
 /// The main menu showed: the first time, the Empire's religions as the
@@ -91,29 +75,52 @@ pub fn main_menu_shown(m: &Memory) {
     new_start::main_menu_shown(m);
 }
 
-/// After every world reset (`crate::sessions`), of the world `world`: what it
-/// leaves of the session is put back as a new start has it
-/// ([`new_start::as_a_new_start`]). A load sets it again from its save.
+/// The world's own reset begins to clear the world, before any country is
+/// cleared (`reset_leaks`): each repair acts on it in turn.
+fn world_clearing(m: &Memory) {
+    for repair in REPAIRS {
+        if let Some(act) = repair.world_clearing {
+            act(m);
+        }
+    }
+}
+
+/// After every world reset (`crate::sessions`), of the world `world`: what
+/// waited for it to end is due, each repair acts on it, and all say what
+/// they let go since the last.
 pub fn world_reset(m: &Memory, world: usize) {
-    histories::world_reset();
-    match new_start::as_a_new_start(m, world, true) {
-        Ok(found) if found.is_empty() => {}
-        Ok(found) => log!("repair: the world reset left {found}; put back as a new start has them"),
-        Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
+    waiting::Moment::Reset.passed();
+    for repair in REPAIRS {
+        if let Some(act) = repair.world_reset {
+            act(m, world);
+        }
     }
     log!("repair: since the last world reset, {}", since_reset());
 }
 
-/// A repair as the world reset and startup see it, which its own file
-/// declares as its `REPAIR`: its dependency points, and what it says it let
-/// go since the last world reset, taking its counts, if it counts any.
+/// A repair as the sessions and startup see it, which its own file declares
+/// as its `REPAIR`: its dependency points, what it says it let go since the
+/// last world reset, taking its counts, if it counts any, and the moments of
+/// the sessions it acts on.
 struct Repair {
     points: fn() -> Vec<Point>,
     since_reset: Option<fn() -> String>,
+    /// As the world's own reset begins to clear the world, before any
+    /// country is cleared.
+    world_clearing: Option<fn(&Memory)>,
+    /// After every world reset, of the world given.
+    world_reset: Option<fn(&Memory, usize)>,
+    /// The first safe frame after a world reset.
+    first_frame_after_reset: Option<fn(&Memory)>,
 }
 
-/// The repairs with dependency points; [`new_start`] and [`pages`] have none
-/// and count nothing.
+impl Repair {
+    /// A repair with no points that counts nothing and acts at no moment, to
+    /// declare one from.
+    const NONE: Repair = Repair { points: Vec::new, since_reset: None, world_clearing: None, world_reset: None, first_frame_after_reset: None };
+}
+
+/// Every repair, in the order they act at each moment.
 const REPAIRS: &[Repair] = &[
     save_checksum::REPAIR,
     masks::REPAIR,
@@ -132,6 +139,8 @@ const REPAIRS: &[Repair] = &[
     trade_nodes::REPAIR,
     estates::REPAIR,
     list_entries::REPAIR,
+    new_start::REPAIR,
+    pages::REPAIR,
 ];
 
 /// What every repair that counts let go since the last world reset, one
@@ -142,4 +151,22 @@ fn since_reset() -> String {
 
 pub fn points() -> Vec<Point> {
     REPAIRS.iter().flat_map(|r| (r.points)()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    /// Each repair's file is among [`super::REPAIRS`], which alone gives it
+    /// its moments and its points: one left out would neither act nor be
+    /// hooked.
+    #[test]
+    fn every_repair_is_among_the_repairs() {
+        let text = include_str!("mod.rs");
+        let repairs = &text[text.find("const REPAIRS").unwrap()..];
+        let repairs = &repairs[..repairs.find("];").unwrap()];
+        let modules: Vec<&str> = text.lines().filter_map(|l| l.strip_prefix("mod ").and_then(|r| r.strip_suffix(';'))).collect();
+        assert!(modules.len() > 10, "the repairs' modules were not found");
+        for module in modules.into_iter().filter(|&m| m != "waiting") {
+            assert!(repairs.contains(&format!("{module}::REPAIR,")), "the repair {module} is not among REPAIRS");
+        }
+    }
 }

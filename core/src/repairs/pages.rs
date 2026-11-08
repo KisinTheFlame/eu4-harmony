@@ -3,11 +3,15 @@
 //! after a world reset, of the main menu or of the session it began, has the
 //! heaps give them back.
 
+/// The repair as the sessions see it ([`super::REPAIRS`]): last of all at the
+/// first frame, once the others let go what they had to; it has no points.
+pub(super) const REPAIR: super::Repair = super::Repair { first_frame_after_reset: Some(give_back_pages), ..super::Repair::NONE };
+
 /// The first frame after a world reset: the heaps give back the free pages
 /// the sessions they held leave, which they would keep committed. A heap
 /// keeps a page while a block on it lives, and what a session leaves is
 /// strewn among what it let go.
-pub(super) fn give_back_pages() {
+fn give_back_pages(_: &crate::memory::Memory) {
     #[repr(C)]
     struct Optimize {
         version: u32,
