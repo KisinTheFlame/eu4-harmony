@@ -266,8 +266,11 @@ fn open_window(out: &mut String, name: &str, (w, h): (i32, i32), moveable: bool,
     let _ = writeln!(out, "\t\tverticalBorder = \"\"");
     let _ = writeln!(out, "\t\tfullScreen = no");
     let _ = writeln!(out, "\t\tOrientation = \"UPPER_LEFT\"");
+    // A title's ribbon only shows: clicks pass through it, so that it is
+    // never pressed.
     if let Some(sprite) = background {
-        let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"{sprite}\" }}");
+        let shows_only = if name == RIBBON { " alwaystransparent = yes" } else { "" };
+        let _ = writeln!(out, "\t\tguiButtonType = {{ name = \"{BACKGROUND}\" quadTextureSprite = \"{sprite}\"{shows_only} }}");
     }
 }
 
