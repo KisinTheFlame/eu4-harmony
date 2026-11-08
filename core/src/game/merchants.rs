@@ -8,6 +8,7 @@ use super::{
     trade::{self, DEFINITION, ENTRIES, ENTRY_SIZE, HAS_MERCHANT, HOME, KEY, LINKS, LINK_SIZE, LINK_TO, MOST, NAME, STEER_LINK},
     Ctx, GResult, Session, Tag,
 };
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -121,7 +122,7 @@ fn entry(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<usize> {
 /// The definitions of the nodes downstream, in the links' order.
 fn downstream(m: &Memory, definition: usize) -> GResult<Vec<usize>> {
     let (begin, end) = (m.ptr(definition + LINKS)?, m.ptr(definition + LINKS + 8)?);
-    (0..super::span(begin, end, LINK_SIZE, MOST)?).map(|i| Ok(m.ptr(begin + i * LINK_SIZE + LINK_TO)?)).collect()
+    (0..containers::span(begin, end, LINK_SIZE, MOST)?).map(|i| Ok(m.ptr(begin + i * LINK_SIZE + LINK_TO)?)).collect()
 }
 
 /// The player's merchant in the node, or on its way there: what it does,

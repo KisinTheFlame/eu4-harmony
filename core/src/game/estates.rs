@@ -4,6 +4,7 @@
 //! (docs/research/government.md, "Estates").
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
+use crate::containers;
 use crate::game_string;
 use crate::{
     memory::Memory,
@@ -96,7 +97,7 @@ pub fn points() -> Vec<Point> {
 /// The player's estates, by their entries.
 fn entries(m: &Memory, country: usize) -> GResult<Vec<usize>> {
     let (begin, end) = (m.ptr(country + ESTATES)?, m.ptr(country + ESTATES + 8)?);
-    Ok((0..super::span(begin, end, ENTRY, MOST)?).map(|i| begin + i * ENTRY).collect())
+    Ok((0..containers::span(begin, end, ENTRY, MOST)?).map(|i| begin + i * ENTRY).collect())
 }
 
 /// The privileges a `std::map` with its head at `head` holds, in order.
@@ -122,13 +123,13 @@ fn privilege_database(m: &Memory) -> GResult<(usize, usize)> {
     if database == 0 {
         return Err("the privileges are not read yet".to_string().into());
     }
-    Ok((m.ptr(database + content::ARRAY_DATA)?, content::bounded(m.i32(database + content::ARRAY_COUNT)?)?))
+    Ok((m.ptr(database + containers::ARRAY_DATA)?, containers::bounded(m.i32(database + containers::ARRAY_COUNT)?, containers::MOST)?))
 }
 
 /// The index of an estate in its database, and of a privilege in its own.
 fn estate_index(m: &Memory, estate: usize) -> GResult<usize> {
     let database = m.ptr(m.at(ESTATE_DATABASE))?;
-    match content::vector(m, database)?.iter().position(|&e| e == estate) {
+    match containers::pointers(m, database, containers::MOST)?.iter().position(|&e| e == estate) {
         Some(i) => Ok(i),
         None => Err("an estate not in the database".to_string().into()),
     }
@@ -168,7 +169,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Estate>> {
         let key = game_string::key(m, estate + ESTATE_KEY)?;
         let granted = granted(m, m.ptr(entry + ENTRY_GRANTED)?)?;
         let mut privileges = Vec::new();
-        for privilege in content::pointers(m, estate + ESTATE_PRIVILEGES)? {
+        for privilege in containers::array(m, estate + ESTATE_PRIVILEGES, containers::MOST)? {
             let has = granted.contains(&privilege);
             if !has && !conditions::holds(m, privilege + IS_VALID, ctx.player, 0)? {
                 continue;
@@ -191,7 +192,8 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Estate>> {
 /// The crown land's interactions, by their entries.
 fn interactions(m: &Memory) -> GResult<Vec<usize>> {
     let crown = CROWN_LAND.call(m, [])?;
-    let (data, count) = (m.ptr(crown + INTERACTIONS + content::ARRAY_DATA)?, content::bounded(m.i32(crown + INTERACTIONS + content::ARRAY_COUNT)?)?);
+    let (data, count) =
+        (m.ptr(crown + INTERACTIONS + containers::ARRAY_DATA)?, containers::bounded(m.i32(crown + INTERACTIONS + containers::ARRAY_COUNT)?, containers::MOST)?);
     Ok((0..count).map(|i| data + i * INTERACTION).collect())
 }
 
@@ -219,7 +221,7 @@ fn find(m: &Memory, country: usize, estate: &str, privilege: &str) -> GResult<(u
         if game_string::key(m, at + ESTATE_KEY)? != estate {
             continue;
         }
-        for p in content::pointers(m, at + ESTATE_PRIVILEGES)? {
+        for p in containers::array(m, at + ESTATE_PRIVILEGES, containers::MOST)? {
             if game_string::key(m, p + PRIVILEGE_KEY)? == privilege {
                 let has = granted(m, m.ptr(entry + ENTRY_GRANTED)?)?.contains(&p);
                 return Ok((entry, at, p, has));

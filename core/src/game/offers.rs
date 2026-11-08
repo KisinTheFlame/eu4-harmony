@@ -2,7 +2,8 @@
 //! for an answer, read from the diplomacy dialogs the game holds for the
 //! player, and answered as the player does, with the dialog's accept or
 //! decline button. The evidence is in docs/research/questions-and-offers.md.
-use super::{map_manager, questions, Ctx, GResult, Session, Status, Tag};
+use super::{map_manager, Ctx, GResult, Session, Status, Tag};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -109,14 +110,14 @@ fn held(m: &Memory, ctx: &Ctx) -> GResult<Vec<Held>> {
     let mut dialogs = Vec::new();
     let holder = m.ptr(manager + campaign::map_manager::MESSAGE_ICON_HOLDER)?;
     if holder != 0 {
-        for icon in questions::items(m, holder + message_icon_holder::ICONS)? {
+        for icon in containers::items(m, holder + message_icon_holder::ICONS, containers::MOST)? {
             let dialog = m.ptr(icon + icon::DIALOG)?;
             if m.u8(icon + icon::DONE)? == 0 && dialog != 0 {
                 dialogs.push((dialog, Some(icon)));
             }
         }
     }
-    dialogs.extend(questions::items(m, manager + campaign::map_manager::OPEN_DIALOGS)?.into_iter().map(|dialog| (dialog, None)));
+    dialogs.extend(containers::items(m, manager + campaign::map_manager::OPEN_DIALOGS, containers::MOST)?.into_iter().map(|dialog| (dialog, None)));
     let mut out: Vec<Held> = Vec::new();
     for (dialog, icon) in dialogs {
         if m.u8(dialog + dialog::DONE)? != 0 || !is_about_action(m, dialog)? {

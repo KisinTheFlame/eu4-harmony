@@ -7,10 +7,7 @@ use crate::called_by_game;
 use crate::{
     hooks::Call,
     memory::Memory,
-    objects::{
-        campaign::{ai_king, classes, countries as country_list, country, functions, globals, leader, mercenary_company, world},
-        list,
-    },
+    objects::campaign::{ai_king, classes, country, functions, leader, mercenary_company, world},
     points::Point,
 };
 use std::sync::{
@@ -119,13 +116,7 @@ fn company_going(call: &mut Call) {
 extern "C" fn world_clearing() {
     let m = crate::hooked_memory();
     let deleted = (|| {
-        let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-        let list = m.ptr(manager + country_list::LIST)?;
-        for index in 0..m.i32(manager + country_list::COUNT)?.max(0) as usize {
-            let country = m.ptr(list + index * 8)?;
-            if country == 0 {
-                continue;
-            }
+        for country in crate::containers::countries(&m)? {
             let vector = country + country::REBEL_FACTIONS;
             let (begin, end) = (m.ptr(vector)?, m.ptr(vector + 8)?);
             let factions = (begin..end).step_by(8).map(|at| m.ptr(at)).collect::<crate::Result<Vec<_>>>()?;
@@ -150,13 +141,7 @@ extern "C" fn world_clearing() {
 
 /// The items of one of the game's lists.
 fn list_items(m: &Memory, header: usize) -> crate::Result<Vec<usize>> {
-    let mut items = Vec::new();
-    let mut node = m.ptr(header + list::HEAD)?;
-    while node != 0 {
-        items.push(m.ptr(node + list::ITEM)?);
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Ok(items)
+    crate::containers::items(m, header, crate::containers::MOST)
 }
 
 /// The agent at the top of a country's AI is being deleted: the agents it

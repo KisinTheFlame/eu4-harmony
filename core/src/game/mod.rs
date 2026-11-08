@@ -605,15 +605,6 @@ pub fn command_session(m: &Memory, ctx: &impl InWorld) -> GResult<usize> {
     Ok(session)
 }
 
-/// Bounded element count of a `[begin, end)` vector of `stride`-byte items.
-pub fn span(begin: usize, end: usize, stride: usize, maximum: usize) -> GResult<usize> {
-    let bytes = end.checked_sub(begin).ok_or_else(|| "reversed vector".to_string())?;
-    if bytes % stride != 0 || bytes / stride > maximum {
-        return Err("vector bound or alignment".to_string().into());
-    }
-    Ok(bytes / stride)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{view_of, Caller, Tag, View};

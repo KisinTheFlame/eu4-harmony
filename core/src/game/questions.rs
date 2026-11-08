@@ -3,19 +3,16 @@
 //! answered as the player does, by choosing an option in the window.
 //! [`count`] says how many wait, for advancing time too. The evidence is in
 //! docs/research/questions-and-offers.md.
-use super::{map_manager, span, Ctx, GResult, Session};
+use super::{map_manager, Ctx, GResult, Session};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
-    objects::{
-        campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world},
-        list,
-    },
+    objects::campaign::{self, classes, event, event_option, event_window as window, pending_event as pending, route_options::NO_TAG, world},
     points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::questions::args;
-use std::collections::BTreeSet;
 
 /// `(window, option)`: what clicking an option's button in an event window
 /// does: sends the game the command that chooses it and closes the window.
@@ -107,25 +104,6 @@ struct Window {
     deadline: i32,
 }
 
-/// The items of the game's list whose header is at `header`, skipping nodes
-/// removed while the list was being walked.
-pub(crate) fn items(m: &Memory, header: usize) -> GResult<Vec<usize>> {
-    let mut node = m.ptr(header + list::HEAD)?;
-    let mut seen = BTreeSet::new();
-    let mut out = Vec::new();
-    while node != 0 {
-        if seen.len() >= MOST || !seen.insert(node) {
-            return Err("list cycle".to_string().into());
-        }
-        let item = m.ptr(node + list::ITEM)?;
-        if m.u8(node + list::REMOVED)? == 0 && item != 0 {
-            out.push(item);
-        }
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Ok(out)
-}
-
 /// The world's pending events: id, event, deadline.
 fn pending(m: &Memory, ctx: &Ctx) -> GResult<Vec<(u32, usize, i32)>> {
     let count = m.i32(ctx.world + world::PENDING_EVENT_COUNT)?;
@@ -149,7 +127,7 @@ fn open(m: &Memory, ctx: &Ctx) -> GResult<Vec<Window>> {
     let manager = map_manager(m, ctx)?;
     let pending = pending(m, ctx)?;
     let mut out = Vec::new();
-    for address in items(m, manager + campaign::map_manager::POPUPS)? {
+    for address in containers::items(m, manager + campaign::map_manager::POPUPS, MOST)? {
         if m.ptr(address)? != m.at(classes::EVENT_WINDOW) || m.u8(address + window::OPEN)? == 0 {
             continue;
         }
@@ -171,7 +149,7 @@ fn find(m: &Memory, ctx: &Ctx, id: u32) -> GResult<Window> {
 
 fn options(m: &Memory, event: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(event + event::OPTIONS)?;
-    let count = span(begin, m.ptr(event + event::OPTIONS + 8)?, 8, MOST_OPTIONS)?;
+    let count = containers::span(begin, m.ptr(event + event::OPTIONS + 8)?, 8, MOST_OPTIONS)?;
     (0..count).map(|i| m.ptr(begin + i * 8)).collect::<crate::Result<_>>().map_err(Into::into)
 }
 
@@ -250,32 +228,5 @@ mod checks {
     /// The refusal of an option of a question the player may not choose.
     pub fn not_allowed(question: u32, option: u32) -> Fail {
         Fail::new(Status::Rejected, format!("the player may not choose option {option} of question {question}"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_list_s_removed_nodes_are_skipped() {
-        let m = Memory { base: 0 };
-        let things = [11u64, 22, 33];
-        let mut nodes = [[0u64; 4]; 3];
-        for (i, node) in nodes.iter_mut().enumerate() {
-            node[0] = &things[i] as *const u64 as u64;
-        }
-        nodes[1][3] = 1;
-        let addresses: Vec<u64> = nodes.iter_mut().map(|n| n.as_mut_ptr() as u64).collect();
-        // The list is read through `m`, so its links are written through it.
-        let link = |from: usize, to: usize| m.write(addresses[from] as usize + list::NEXT, &addresses[to].to_le_bytes()).unwrap();
-        link(0, 1);
-        link(1, 2);
-        let header = [addresses[0], addresses[2], 3];
-        let got = items(&m, header.as_ptr() as usize).unwrap();
-        assert_eq!(got, [&things[0] as *const u64 as usize, &things[2] as *const u64 as usize]);
-        // A cycle is an error, not a hang.
-        link(2, 0);
-        assert!(items(&m, header.as_ptr() as usize).is_err());
     }
 }

@@ -3,7 +3,8 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, context, events, player::Eyes, span, thousandths, with_state, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
+use super::{commands, context, events, player::Eyes, thousandths, with_state, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -464,22 +465,13 @@ fn state_of(m: &Memory, province: usize, owner: Option<Tag>) -> GResult<(Option<
 /// The tags in a vector (begin, end) of tags at `vector`, each a country's.
 fn vector_tags(m: &Memory, ctx: &impl InWorld, vector: usize) -> GResult<Vec<CountryTag>> {
     let begin = m.ptr(vector)?;
-    let count = span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
+    let count = containers::span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
     (0..count).map(|i| country_tag(m, ctx, Tag(m.u64(begin + i * 8)?))).collect()
 }
 
 /// The items of a [`list`] at `at`, in its order.
 fn list_items(m: &Memory, at: usize) -> GResult<Vec<usize>> {
-    let mut out = Vec::new();
-    let mut node = m.ptr(at + list::HEAD)?;
-    while node != 0 {
-        if out.len() >= MOST_KINDS {
-            return Err("province list bound".to_string().into());
-        }
-        out.push(m.ptr(node + list::ITEM)?);
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Ok(out)
+    Ok(containers::items(m, at, MOST_KINDS)?)
 }
 
 /// A tag the game keeps, checked to be a country's.
@@ -543,7 +535,7 @@ fn terrain_of(m: &Memory, geometry: usize) -> GResult<Option<String>> {
     }
     let map = m.ptr(m.at(globals::MAP))?;
     let first = m.ptr(map + map::TERRAINS)?;
-    let count = span(first, m.ptr(map + map::TERRAINS + 8)?, 8, MOST_KINDS)?;
+    let count = containers::span(first, m.ptr(map + map::TERRAINS + 8)?, 8, MOST_KINDS)?;
     if !(0..count).any(|i| m.ptr(first + i * 8).ok() == Some(terrain)) {
         return Err("the province's terrain is not one of the map's".to_string().into());
     }
@@ -554,7 +546,7 @@ fn terrain_of(m: &Memory, geometry: usize) -> GResult<Option<String>> {
 /// each at its building's index.
 fn buildings(m: &Memory, province: usize) -> GResult<Vec<String>> {
     let first = m.ptr(province + field::BUILDINGS)?;
-    let count = span(first, m.ptr(province + field::BUILDINGS + 8)?, field::BUILDING_SLOT, MOST_KINDS)?;
+    let count = containers::span(first, m.ptr(province + field::BUILDINGS + 8)?, field::BUILDING_SLOT, MOST_KINDS)?;
     let mut out = Vec::new();
     for slot in 0..count {
         let building = m.ptr(first + slot * field::BUILDING_SLOT)?;

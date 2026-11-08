@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Missions").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::containers;
 use crate::game_string;
 use crate::{
     memory::Memory,
@@ -44,12 +45,12 @@ pub fn points() -> Vec<Point> {
 /// The player's missions, column by column.
 fn columns(m: &Memory, country: usize) -> GResult<Vec<Vec<usize>>> {
     let missions = country + MISSIONS + COLUMNS;
-    let (data, count) = (m.ptr(missions + content::ARRAY_DATA)?, content::bounded(m.i32(missions + content::ARRAY_COUNT)?)?);
+    let (data, count) = (m.ptr(missions + containers::ARRAY_DATA)?, containers::bounded(m.i32(missions + containers::ARRAY_COUNT)?, containers::MOST)?);
     (0..count)
         .map(|i| {
             let mut missions = Vec::new();
-            for series in content::pointers(m, data + i * COLUMN)? {
-                missions.extend(content::pointers(m, series + SERIES_MISSIONS)?);
+            for series in containers::array(m, data + i * COLUMN, containers::MOST)? {
+                missions.extend(containers::array(m, series + SERIES_MISSIONS, containers::MOST)?);
             }
             Ok(missions)
         })

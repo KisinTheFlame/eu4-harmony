@@ -37,13 +37,7 @@
 //! held it, as it does with one the diplomacy would not take, is not waited
 //! for.
 use super::LettingGo;
-use crate::{
-    game::world::FIND_ID,
-    hooks::Call,
-    memory::Memory,
-    objects::campaign::{countries as country_list, globals},
-    points::Point,
-};
+use crate::{game::world::FIND_ID, hooks::Call, memory::Memory, points::Point};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -323,14 +317,9 @@ fn in_use(m: &Memory) -> crate::Result<HashSet<usize>> {
     for at in (begin..end).step_by(8) {
         found.insert(m.ptr(at)?);
     }
-    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    let list = m.ptr(manager + country_list::LIST)?;
-    for index in 0..m.i32(manager + country_list::COUNT)?.max(0) as usize {
-        let country = m.ptr(list + index * 8)?;
-        if country != 0 {
-            for field in COUNTRY_PERSONS {
-                found.insert(m.ptr(country + field)?);
-            }
+    for country in crate::containers::countries(m)? {
+        for field in COUNTRY_PERSONS {
+            found.insert(m.ptr(country + field)?);
         }
     }
     Ok(found)

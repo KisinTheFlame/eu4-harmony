@@ -3,7 +3,8 @@
 //! merchants in any node the player has discovered, so the player's view
 //! leaves out only the nodes none of whose provinces the player has
 //! discovered, which the trade map leaves out.
-use super::{span, thousandths, with_state, world, Ctx, GResult, Session, Status, Tag, View};
+use super::{thousandths, with_state, world, Ctx, GResult, Session, Status, Tag, View};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -180,7 +181,7 @@ pub fn list(Session { m, ctx, view, .. }: Session) -> GResult<Vec<NodeValue>> {
 /// The incoming items of a node: (from definition, value).
 fn incoming(m: &Memory, node: usize) -> GResult<Vec<(usize, i32)>> {
     let begin = m.ptr(node + INCOMING)?;
-    let count = span(begin, m.ptr(node + INCOMING + 8)?, INCOMING_SIZE, MOST)?;
+    let count = containers::span(begin, m.ptr(node + INCOMING + 8)?, INCOMING_SIZE, MOST)?;
     (0..count).map(|i| begin + i * INCOMING_SIZE).map(|item| Ok((m.ptr(item + INCOMING_FROM)?, m.i32(item + INCOMING_VALUE)?))).collect()
 }
 
@@ -230,7 +231,7 @@ pub fn node(Session { m, ctx, view, .. }: Session, args::Node { node: key }: arg
 /// The definitions a node's links lead to, in their order.
 fn links(m: &Memory, definition: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(definition + LINKS)?;
-    let count = span(begin, m.ptr(definition + LINKS + 8)?, LINK_SIZE, MOST)?;
+    let count = containers::span(begin, m.ptr(definition + LINKS + 8)?, LINK_SIZE, MOST)?;
     (0..count).map(|i| Ok(m.ptr(begin + i * LINK_SIZE + LINK_TO)?)).collect()
 }
 

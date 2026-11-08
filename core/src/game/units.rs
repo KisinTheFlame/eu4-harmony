@@ -3,6 +3,7 @@
 //! commands as the panels post them, with the game's own answers of whether
 //! the player can and why not (docs/research/units.md).
 use super::{action, commands, world, Ctx, GResult, Session};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -139,7 +140,7 @@ fn is_army(m: &Memory, unit: usize) -> GResult<bool> {
 }
 
 fn regiments(m: &Memory, unit: usize) -> GResult<usize> {
-    super::span(m.ptr(unit + unit::REGIMENTS)?, m.ptr(unit + unit::REGIMENTS + 8)?, 8, super::MAX_UNITS)
+    Ok(containers::span(m.ptr(unit + unit::REGIMENTS)?, m.ptr(unit + unit::REGIMENTS + 8)?, 8, super::MAX_UNITS)?)
 }
 
 fn mission_kind(m: &Memory, unit: usize) -> GResult<u32> {

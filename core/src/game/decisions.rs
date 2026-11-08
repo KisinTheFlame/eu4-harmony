@@ -4,6 +4,7 @@
 //! through the game's own command (docs/research/government.md,
 //! "Decisions").
 use super::{action, conditions, content, GResult, Session};
+use crate::containers;
 use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
 use eu4_harmony_remote::decisions::args;
 use eu4_harmony_remote::{choices::Choice, decisions::Decision};
@@ -43,7 +44,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Decision>> {
         return Ok(Vec::new());
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
-    let count = super::span(begin, end, 8, MOST)?;
+    let count = containers::span(begin, end, 8, MOST)?;
     let mut listed = Vec::new();
     for i in 0..count {
         let decision = m.ptr(begin + i * 8)?;
@@ -77,7 +78,7 @@ pub fn take(Session { m, ctx, commands, .. }: Session, args::Take { decision: ke
         return Err(content::checks::not_found("decision", &key));
     }
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
-    for i in 0..super::span(begin, end, 8, MOST)? {
+    for i in 0..containers::span(begin, end, 8, MOST)? {
         let decision = m.ptr(begin + i * 8)?;
         if game_string::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
             continue;

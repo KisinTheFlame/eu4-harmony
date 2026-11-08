@@ -26,6 +26,7 @@ pub mod catalogue;
 pub mod census;
 #[cfg(feature = "dev-command-log")]
 mod command_log;
+pub mod containers;
 #[cfg(any(test, dev_build))]
 pub mod dev;
 pub mod files;

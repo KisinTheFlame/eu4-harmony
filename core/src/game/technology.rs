@@ -6,6 +6,7 @@ use super::{
     power::{self, ADVANCE_TECH},
     GResult, Session, Tag,
 };
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -66,10 +67,10 @@ fn categories(m: &Memory, country: usize) -> GResult<Vec<Category>> {
         return Err("no technology categories".to_string().into());
     }
     let begin = m.ptr(database + CATEGORY_LIST)?;
-    let count = super::span(begin, m.ptr(database + CATEGORY_LIST + 8)?, 8, MOST)?;
+    let count = containers::span(begin, m.ptr(database + CATEGORY_LIST + 8)?, 8, MOST)?;
     let technology = m.ptr(country + country::TECHNOLOGY)?;
     let level_of = m.ptr(technology + levels::LEVELS)?;
-    let known = super::span(level_of, m.ptr(technology + levels::LEVELS + 8)?, 4, MOST)?;
+    let known = containers::span(level_of, m.ptr(technology + levels::LEVELS + 8)?, 4, MOST)?;
     let mut found = Vec::new();
     for i in 0..count {
         let category = m.ptr(begin + i * 8)?;
@@ -83,7 +84,7 @@ fn categories(m: &Memory, country: usize) -> GResult<Vec<Category>> {
         if index < 0 || index as usize >= known {
             return Err(format!("technology category {index} has no level").into());
         }
-        let last = super::span(m.ptr(category + CATEGORY_LEVELS)?, m.ptr(category + CATEGORY_LEVELS_END)?, 8, MOST)? as i32 - 1;
+        let last = containers::span(m.ptr(category + CATEGORY_LEVELS)?, m.ptr(category + CATEGORY_LEVELS_END)?, 8, MOST)? as i32 - 1;
         found.push(Category { kind, index, level: m.i32(level_of + index as usize * 4)?, last });
     }
     Ok(found)

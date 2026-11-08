@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Parliament").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::containers;
 use crate::game_string;
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_remote::parliament::args;
@@ -47,14 +48,15 @@ pub fn points() -> Vec<Point> {
 /// The issues of the database.
 fn issues(m: &Memory) -> GResult<Vec<usize>> {
     let database = m.at(DATABASE);
-    let (data, count) = (m.ptr(database + content::ARRAY_DATA)?, content::bounded(m.i32(database + content::ARRAY_COUNT)?)?);
+    let (data, count) = (m.ptr(database + containers::ARRAY_DATA)?, containers::bounded(m.i32(database + containers::ARRAY_COUNT)?, containers::MOST)?);
     Ok((0..count).map(|i| data + i * ISSUE).collect())
 }
 
 /// The issues the player's parliament offers.
 fn offered(m: &Memory, parliament: usize) -> GResult<Vec<usize>> {
     let issues = issues(m)?;
-    let (data, count) = (m.ptr(parliament + OFFER + content::ARRAY_DATA)?, content::bounded(m.i32(parliament + OFFER + content::ARRAY_COUNT)?)?);
+    let (data, count) =
+        (m.ptr(parliament + OFFER + containers::ARRAY_DATA)?, containers::bounded(m.i32(parliament + OFFER + containers::ARRAY_COUNT)?, containers::MOST)?);
     (0..count)
         .map(|i| match issues.get(m.i32(data + i * 4)? as usize) {
             Some(&issue) => Ok(issue),

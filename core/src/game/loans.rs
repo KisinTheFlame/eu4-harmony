@@ -2,6 +2,7 @@
 //! and repaying one with its repay button (docs/research/power-spending.md,
 //! "Loans").
 use super::{action, power, thousandths, Fail, GResult, Session, Status, Tag};
+use crate::containers;
 use crate::{
     memory::Memory,
     objects::{
@@ -45,18 +46,7 @@ pub fn points() -> Vec<Point> {
 
 /// The player's loans, in the list's order: each loan's address.
 fn loans_of(m: &Memory, country: usize) -> GResult<Vec<usize>> {
-    let mut out = Vec::new();
-    let mut node = m.ptr(country + country::LOANS + list::HEAD)?;
-    while node != 0 {
-        if out.len() >= MOST {
-            return Err("too many loans".to_string().into());
-        }
-        if m.u8(node + list::REMOVED)? == 0 {
-            out.push(m.ptr(node + list::ITEM)?);
-        }
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Ok(out)
+    Ok(containers::items(m, country + country::LOANS, MOST)?)
 }
 
 /// What repaying the loan at `loan` costs now, in thousandths of ducats: its

@@ -1,13 +1,13 @@
 //! Countries: finding one by its tag, its tag, whether two are hostile, one
 //! read of a country and its budget (docs/research/countries.md).
-use super::{commands, country, modifiers, player::Eyes, span, thousandths, world, GResult, InWorld, Tag, View, World, WorldSession};
+use super::{commands, country, modifiers, player::Eyes, thousandths, world, GResult, InWorld, Tag, View, World, WorldSession};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{
         classes, country as fields, country_diplomacy, idea_group, loan, rebel_faction, subject_relation, subject_type, technology, war, world as world_fields,
     },
-    objects::list,
     points::{GameFunction, Point},
     unicode::game_text,
 };
@@ -15,7 +15,6 @@ use eu4_harmony_remote::{
     countries::{Budget, Entry, GoverningCapacity, IdeaGroup, Loan, Loans, Rebels, Technology},
     CountryTag, Date,
 };
-use std::collections::BTreeSet;
 
 /// The country whose tag is these three letters (for example `CAS`);
 /// [`super::Status::NotFound`] when there is none.
@@ -305,7 +304,7 @@ pub fn snapshot(WorldSession { m, world: ctx, view, .. }: WorldSession, tag: Tag
 fn technology_of(m: &Memory, c: usize) -> GResult<Technology> {
     let technology = m.ptr(c + fields::TECHNOLOGY)?;
     let begin = m.ptr(technology + technology::LEVELS)?;
-    let count = span(begin, m.ptr(technology + technology::LEVELS + 8)?, 4, MOST)?;
+    let count = containers::span(begin, m.ptr(technology + technology::LEVELS + 8)?, 4, MOST)?;
     let level = |kind: usize| -> GResult<i32> {
         let index = m.i32(m.at(kind))?;
         if !(0..count as i32).contains(&index) {
@@ -319,7 +318,7 @@ fn technology_of(m: &Memory, c: usize) -> GResult<Technology> {
 /// The idea groups the country has taken, each named by its token's name.
 fn ideas_of(m: &Memory, c: usize) -> GResult<Vec<IdeaGroup>> {
     let begin = m.ptr(c + fields::IDEA_GROUPS)?;
-    let count = span(begin, m.ptr(c + fields::IDEA_GROUPS + 8)?, fields::IDEA_GROUP_SIZE, MOST)?;
+    let count = containers::span(begin, m.ptr(c + fields::IDEA_GROUPS + 8)?, fields::IDEA_GROUP_SIZE, MOST)?;
     let mut out = Vec::with_capacity(count);
     for item in (0..count).map(|i| begin + i * fields::IDEA_GROUP_SIZE) {
         let group = m.ptr(item)?;
@@ -355,20 +354,13 @@ fn governing_capacity(m: &Memory, c: usize) -> GResult<GoverningCapacity> {
 
 /// The country's loans, in the order it keeps them.
 fn loans_of(m: &Memory, ctx: &impl InWorld, c: usize) -> GResult<Vec<Loan>> {
-    let mut seen = BTreeSet::new();
     let mut out = Vec::new();
-    let mut node = m.ptr(c + fields::LOANS + list::HEAD)?;
-    while node != 0 {
-        if seen.len() >= MOST || !seen.insert(node) {
-            return Err("loan list cycle".to_string().into());
-        }
-        let l = m.ptr(node + list::ITEM)?;
+    for l in containers::items(m, c + fields::LOANS, MOST)? {
         let lender = Tag(m.u64(l + loan::LENDER)?);
         // A lender that is no country now, as one gone since, leaves the loan
         // with none rather than the whole read failing.
         let lender = (lender.normal() && country(m, ctx, lender).is_ok()).then(|| CountryTag(lender.letters()));
         out.push(Loan { lender, ducats: m.i32(l + loan::AMOUNT)? as f64, interest: thousandths(m.i32(l + loan::INTEREST)?), due: Date(m.i32(l + loan::DUE)?) });
-        node = m.ptr(node + list::NEXT)?;
     }
     Ok(out)
 }
@@ -401,7 +393,7 @@ fn rebels_of(m: &Memory, c: usize) -> GResult<Vec<Rebels>> {
 /// The country's rebel factions' objects.
 fn factions(m: &Memory, c: usize) -> GResult<Vec<usize>> {
     let begin = m.ptr(c + fields::REBEL_FACTIONS)?;
-    let count = span(begin, m.ptr(c + fields::REBEL_FACTIONS + 8)?, 8, MOST)?;
+    let count = containers::span(begin, m.ptr(c + fields::REBEL_FACTIONS + 8)?, 8, MOST)?;
     (0..count)
         .map(|i| {
             let faction = m.ptr(begin + i * 8)?;
@@ -497,14 +489,14 @@ fn checked(m: &Memory, ctx: &impl InWorld, tags: Vec<Tag>) -> GResult<Vec<Tag>> 
 /// The tags in a vector (begin, end) of tags at `vector`.
 fn vector_tags(m: &Memory, vector: usize) -> GResult<Vec<Tag>> {
     let begin = m.ptr(vector)?;
-    let count = span(begin, m.ptr(vector + 8)?, 8, MOST)?;
+    let count = containers::span(begin, m.ptr(vector + 8)?, 8, MOST)?;
     let bytes = if count == 0 { Vec::new() } else { m.bytes(begin, count * 8)? };
     Ok(bytes.chunks_exact(8).map(|b| Tag(u64::from_le_bytes(b.try_into().unwrap()))).collect())
 }
 
 /// The tags in a [`list`] of tags at `at`.
 fn list_tags(m: &Memory, at: usize) -> GResult<Vec<Tag>> {
-    chain(m, m.ptr(at + list::HEAD)?, list::ITEM, list::NEXT)
+    Ok(containers::nodes(m, at, MOST)?.into_iter().map(|node| Tag(node.item as u64)).collect())
 }
 
 fn rival_tags(m: &Memory, country: usize) -> GResult<Vec<Tag>> {
@@ -514,17 +506,7 @@ fn rival_tags(m: &Memory, country: usize) -> GResult<Vec<Tag>> {
 /// The tags in a chain of nodes from `first`, each with a tag at `tag` and
 /// the next node at `next`.
 fn chain(m: &Memory, first: usize, tag: usize, next: usize) -> GResult<Vec<Tag>> {
-    let mut seen = BTreeSet::new();
-    let mut out = Vec::new();
-    let mut node = first;
-    while node != 0 {
-        if seen.len() >= MOST || !seen.insert(node) {
-            return Err("country list cycle".to_string().into());
-        }
-        out.push(Tag(m.u64(node + tag)?));
-        node = m.ptr(node + next)?;
-    }
-    Ok(out)
+    containers::chain(m, first, next, MOST)?.into_iter().map(|node| Ok(Tag(m.u64(node + tag)?))).collect()
 }
 
 /// The wars going on that `country` takes part in, on either side. Only

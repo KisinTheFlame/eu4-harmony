@@ -1,7 +1,8 @@
 //! Route queries, moving and stopping own land armies with the game's move
 //! command (ADR commands-run-at-once), and the record of which extension set
 //! which route.
-use super::{armies::RouteSource, commands::Commands, events::Change, fail, paused, span, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use super::{armies::RouteSource, commands::Commands, events::Change, fail, paused, world, Caller, Ctx, GResult, Session, Status, MAX_UNITS};
+use crate::containers;
 use crate::{
     memory::Memory,
     objects::{
@@ -144,7 +145,7 @@ fn preflight(m: &Memory, ctx: &Ctx, army: usize, caller: Caller) -> GResult<Orde
     }
     let begin = m.ptr(army + unit::REGIMENTS)?;
     let end = m.ptr(army + unit::REGIMENTS + 8)?;
-    span(begin, end, 8, MAX_UNITS)?;
+    containers::span(begin, end, 8, MAX_UNITS)?;
     Ok(OrderState {
         origin,
         path: read_path(m, army + unit::PATH)?,
@@ -389,13 +390,11 @@ fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -
         return Ok(None);
     }
     let mut fleets = Vec::new();
-    let mut node = m.ptr(sea + province::UNITS)?;
-    while node != 0 && fleets.len() < MAX_UNITS {
+    for node in containers::chain(m, m.ptr(sea + province::UNITS)?, list::NEXT, MAX_UNITS)? {
         let unit = m.ptr(node + list::ITEM)?;
         if m.ptr(unit)? == m.at(classes::FLEET) && m.u64(unit + unit::OWNER)? == ctx.player.0 {
             fleets.push(unit);
         }
-        node = m.ptr(node + list::NEXT)?;
     }
     let mut most = 0;
     for &fleet in &fleets {
@@ -404,7 +403,7 @@ fn boarding_refused(m: &Memory, ctx: &Ctx, army: usize, sea: usize, goal: u32) -
         }
         let (begin, end) = (m.ptr(fleet + unit::REGIMENTS)?, m.ptr(fleet + unit::REGIMENTS + 8)?);
         let mut room = 0i64;
-        for i in 0..span(begin, end, 8, MAX_UNITS)? {
+        for i in 0..containers::span(begin, end, 8, MAX_UNITS)? {
             room += SHIP_ROOM.call(m, [m.ptr(begin + i * 8)?])? as i32 as i64;
         }
         for aboard in world::aboard(m, fleet)? {
@@ -433,7 +432,7 @@ pub fn transport(session: &Session, army: usize, id: u64, goal: u32) -> GResult<
     let (begin, end, capacity) = (vector[0] as usize, vector[1] as usize, vector[2] as usize);
     let fleets = (|| -> GResult<Vec<u64>> {
         called?;
-        let count = span(begin, end, 8, MAX_UNITS)?;
+        let count = containers::span(begin, end, 8, MAX_UNITS)?;
         let mut ids = Vec::new();
         for i in 0..count {
             let fleet = m.ptr(begin + i * 8)?;

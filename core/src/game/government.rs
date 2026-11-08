@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Reforms" and "Rank").
 use super::content::checks;
 use super::{action, conditions, content, thousandths, GResult, Session, Tag};
+use crate::containers;
 use crate::game_string;
 use crate::{
     memory::Memory,
@@ -103,9 +104,9 @@ fn adopted(m: &Memory, government: usize) -> GResult<Vec<usize>> {
 /// The government type's tiers, each with its key and reforms.
 fn tiers(m: &Memory, government: usize) -> GResult<Vec<(String, Vec<usize>)>> {
     let kind = m.ptr(government + TYPE)?;
-    content::pointers(m, kind + TIERS)?
+    containers::array(m, kind + TIERS, containers::MOST)?
         .into_iter()
-        .map(|tier| Ok((game_string::key(m, tier + TIER_KEY)?, content::pointers(m, tier + TIER_REFORMS)?)))
+        .map(|tier| Ok((game_string::key(m, tier + TIER_KEY)?, containers::array(m, tier + TIER_REFORMS, containers::MOST)?)))
         .collect()
 }
 

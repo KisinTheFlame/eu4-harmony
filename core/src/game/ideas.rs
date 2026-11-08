@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Ideas").
 use super::content::checks;
 use super::{action, conditions, content, power, GResult, Session, Tag};
+use crate::containers;
 use crate::game_string;
 use crate::{
     memory::Memory,
@@ -99,10 +100,15 @@ fn database(m: &Memory) -> GResult<usize> {
 const NONE: &str = "none";
 
 fn groups(m: &Memory) -> GResult<Vec<Group>> {
-    content::vector(m, database(m)? + GROUPS)?
+    containers::pointers(m, database(m)? + GROUPS, containers::MOST)?
         .into_iter()
         .map(|at| {
-            Ok(Group { at, key: game_string::key(m, at + group::KEY)?, category: m.u32(at + group::CATEGORY)?, ideas: content::vector(m, at + group::IDEAS)? })
+            Ok(Group {
+                at,
+                key: game_string::key(m, at + group::KEY)?,
+                category: m.u32(at + group::CATEGORY)?,
+                ideas: containers::pointers(m, at + group::IDEAS, containers::MOST)?,
+            })
         })
         .filter(|g: &GResult<Group>| g.as_ref().map_or(true, |g| g.key != NONE))
         .collect()
@@ -112,7 +118,7 @@ fn groups(m: &Memory) -> GResult<Vec<Group>> {
 /// ideas bought in each.
 fn taken(m: &Memory, country: usize) -> GResult<Vec<(usize, u32)>> {
     let (begin, end) = (m.ptr(country + country::IDEA_GROUPS)?, m.ptr(country + country::IDEA_GROUPS + 8)?);
-    (0..super::span(begin, end, country::IDEA_GROUP_SIZE, MOST)?)
+    (0..containers::span(begin, end, country::IDEA_GROUP_SIZE, MOST)?)
         .map(|i| Ok((m.ptr(begin + i * country::IDEA_GROUP_SIZE)?, m.i32(begin + i * country::IDEA_GROUP_SIZE + country::IDEA_GROUP_COUNT)?.max(0) as u32)))
         .collect()
 }
@@ -137,7 +143,7 @@ fn power_of(category: u32) -> PowerKind {
 /// The index of `idea` in the database's ideas, which the spend command
 /// names it by.
 fn idea_index(m: &Memory, idea: usize) -> GResult<u32> {
-    let ideas = content::vector(m, database(m)? + IDEAS)?;
+    let ideas = containers::pointers(m, database(m)? + IDEAS, containers::MOST)?;
     match ideas.iter().position(|&i| i == idea) {
         Some(i) => Ok(i as u32),
         None => Err("an idea not in the database".to_string().into()),

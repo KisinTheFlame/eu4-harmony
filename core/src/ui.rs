@@ -206,17 +206,7 @@ fn bind_one(m: &Memory, root: usize, index: usize, d: &Declared) -> Result<Optio
 fn subscribed(m: &Memory, b: &Bound) -> Result<bool> {
     let Some(wrapper) = &b.wrapper else { return Ok(false) };
     let wrapper = wrapper.as_ptr() as usize;
-    let mut node = m.ptr(b.signal + signal::LISTENERS + list::HEAD)?;
-    for _ in 0..512 {
-        if node == 0 {
-            return Ok(false);
-        }
-        if m.ptr(node + list::ITEM)? == wrapper {
-            return Ok(true);
-        }
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Err("signal listener list too long".into())
+    Ok(crate::containers::items(m, b.signal + signal::LISTENERS, 512)?.contains(&wrapper))
 }
 
 /// Detaches every binding `which` selects; their objects must still be alive.

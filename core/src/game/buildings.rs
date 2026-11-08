@@ -4,6 +4,7 @@
 //! (docs/research/province-view.md).
 use super::administration::checks as refuse;
 use super::{action, administration::MOST_CONSTRUCTIONS, context_any, events, game, thousandths, with_state, Ctx, GResult, Session, Tag};
+use crate::containers;
 use crate::{
     game_string,
     hooks::Call,
@@ -102,7 +103,7 @@ fn database(m: &Memory) -> GResult<Vec<usize>> {
         return Ok(Vec::new());
     }
     let begin = m.ptr(database + BY_INDEX)?;
-    let count = super::span(begin, m.ptr(database + BY_INDEX + 8)?, 8, MOST_BUILDINGS)?;
+    let count = containers::span(begin, m.ptr(database + BY_INDEX + 8)?, 8, MOST_BUILDINGS)?;
     (0..count).map(|i| Ok(m.ptr(begin + i * 8)?)).collect()
 }
 
@@ -135,7 +136,7 @@ fn named(m: &Memory, wanted: &str) -> GResult<(usize, u32)> {
 /// Whether the building stands in the province.
 fn stands(m: &Memory, province: usize, index: u32) -> GResult<bool> {
     let first = m.ptr(province + field::BUILDINGS)?;
-    let count = super::span(first, m.ptr(province + field::BUILDINGS + 8)?, field::BUILDING_SLOT, MOST_BUILDINGS)?;
+    let count = containers::span(first, m.ptr(province + field::BUILDINGS + 8)?, field::BUILDING_SLOT, MOST_BUILDINGS)?;
     if index as usize >= count {
         return Ok(false);
     }
@@ -145,18 +146,13 @@ fn stands(m: &Memory, province: usize, index: u32) -> GResult<bool> {
 
 /// The building being built in the province: the construction.
 fn construction(m: &Memory, province: usize) -> GResult<Option<usize>> {
-    let mut node = m.ptr(province + field::CONSTRUCTIONS)?;
-    for _ in 0..MOST_CONSTRUCTIONS {
-        if node == 0 {
-            return Ok(None);
-        }
+    for node in containers::chain(m, m.ptr(province + field::CONSTRUCTIONS)?, list::NEXT, MOST_CONSTRUCTIONS)? {
         let construction = m.ptr(node)?;
         if m.u32(construction + construction::KIND)? == BUILDING_CONSTRUCTION {
             return Ok(Some(construction));
         }
-        node = m.ptr(node + list::NEXT)?;
     }
-    Err("a province's constructions do not end".to_string().into())
+    Ok(None)
 }
 
 /// A building being built, as the framework reads it.

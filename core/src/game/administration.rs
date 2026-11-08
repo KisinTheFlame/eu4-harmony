@@ -4,6 +4,7 @@
 //! in its written form through the session's commands ([`super::action`]);
 //! the command's own check is asked again there.
 use super::{action, conditions, fail, with_state, Ctx, GResult, Session, Status, Tag};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
@@ -354,7 +355,7 @@ pub fn edicts(m: &Memory) -> GResult<Vec<(usize, String, u32)>> {
         return Ok(Vec::new());
     }
     let begin = m.ptr(database + EDICTS_LIST)?;
-    let count = super::span(begin, m.ptr(database + EDICTS_LIST + 8)?, 8, MOST_EDICTS)?;
+    let count = containers::span(begin, m.ptr(database + EDICTS_LIST + 8)?, 8, MOST_EDICTS)?;
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let edict = m.ptr(begin + i * 8)?;
@@ -375,18 +376,13 @@ fn player_state(m: &Memory, ctx: &Ctx, place: &Place) -> GResult<Option<usize>> 
 
 /// Whether the player is building a construction of `kind` in the province.
 fn doing(m: &Memory, ctx: &Ctx, place: &Place, kind: u32) -> GResult<bool> {
-    let mut node = m.ptr(place.address + field::CONSTRUCTIONS)?;
-    for _ in 0..MOST_CONSTRUCTIONS {
-        if node == 0 {
-            return Ok(false);
-        }
+    for node in containers::chain(m, m.ptr(place.address + field::CONSTRUCTIONS)?, list::NEXT, MOST_CONSTRUCTIONS)? {
         let construction = m.ptr(node)?;
         if m.u32(construction + construction::KIND)? == kind && m.u64(construction + construction::COUNTRY)? == ctx.player.0 {
             return Ok(true);
         }
-        node = m.ptr(node + list::NEXT)?;
     }
-    Err("a province's constructions do not end".to_string().into())
+    Ok(false)
 }
 
 /// Whether the player can take `action` in the province now, with the

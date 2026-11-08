@@ -2,6 +2,7 @@
 //! the country's pools of envoys, each kind's count and how many are free
 //! (docs/research/envoys.md).
 use super::GResult;
+use crate::containers;
 use crate::{memory::Memory, points::Point, unicode::game_text};
 
 /// A country's envoys: a pointer to the pools, one per kind at its offset.
@@ -39,7 +40,7 @@ pub fn all(m: &Memory, country: usize, kind: Kind) -> GResult<Vec<usize>> {
         return Ok(Vec::new());
     }
     let (begin, end) = (m.ptr(pool + ENVOYS)?, m.ptr(pool + ENVOYS + 8)?);
-    (0..super::span(begin, end, 8, MOST)?).map(|i| Ok(m.ptr(begin + i * 8)?)).collect()
+    (0..containers::span(begin, end, 8, MOST)?).map(|i| Ok(m.ptr(begin + i * 8)?)).collect()
 }
 
 /// Whether an envoy is free to send: neither on its way nor at work.

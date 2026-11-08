@@ -248,7 +248,7 @@ fn fill(m: &Memory, ctx: &Ctx, at: usize, recipient: Tag, act: Act, details: &De
                 return Err(invalid(format!("province {id} is not controlled by {}, and the window lists only those it controls", letters(recipient))));
             }
             let cores = m.ptr(address + province_fields::CORES)?;
-            let count = crate::game::span(cores, m.ptr(address + province_fields::CORES + 8)?, 8, MOST_CORES)?;
+            let count = crate::containers::span(cores, m.ptr(address + province_fields::CORES + 8)?, 8, MOST_CORES)?;
             let mut held = false;
             for i in 0..count {
                 held |= Tag(m.u64(cores + i * 8)?) == ctx.player;
@@ -401,7 +401,7 @@ fn acceptance(m: &Memory, at: usize, token: u32) -> GResult<Option<Acceptance>> 
 
 fn read_factors(m: &Memory, factors: usize) -> GResult<Vec<Factor>> {
     let (begin, end) = (m.ptr(factors)?, m.ptr(factors + 8)?);
-    let count = crate::game::span(begin, end, breakdown::SIZE, MOST_FACTORS)?;
+    let count = crate::containers::span(begin, end, breakdown::SIZE, MOST_FACTORS)?;
     (0..count)
         .map(|i| {
             let item = begin + i * breakdown::SIZE;

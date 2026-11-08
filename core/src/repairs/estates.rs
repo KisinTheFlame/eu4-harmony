@@ -16,7 +16,6 @@
 use super::LettingGo;
 use crate::{
     memory::Memory,
-    objects::campaign::{countries as country_list, globals},
     points::{GameFunction, Point},
 };
 use std::{
@@ -89,15 +88,9 @@ pub(super) fn world_clearing(m: &Memory) {
 
 /// Every country's estates' modifiers, each once.
 fn modifiers(m: &Memory) -> crate::Result<Vec<usize>> {
-    let manager = m.ptr(m.at(globals::COUNTRY_MANAGER))?;
-    let list = m.ptr(manager + country_list::LIST)?;
     let mut found = Vec::new();
     let mut seen = HashSet::new();
-    for index in 0..m.i32(manager + country_list::COUNT)?.max(0) as usize {
-        let country = m.ptr(list + index * 8)?;
-        if country == 0 {
-            continue;
-        }
+    for country in crate::containers::countries(m)? {
         let (begin, end) = (m.ptr(country + ESTATES)?, m.ptr(country + ESTATES + 8)?);
         for estate in (begin..end).step_by(ESTATE_SIZE) {
             if m.ptr(estate)? != m.at(ESTATE) {

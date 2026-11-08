@@ -5,7 +5,11 @@
 //! a [`Session`] made of them ([`session`]), reading and calling them as it
 //! reads and calls the game's: through [`Memory`], under the same guard.
 use super::{commands::Commands, Caller, Ctx, Session, Tag, View};
-use crate::{game_string, memory::Memory, objects::campaign::country};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::{campaign::country, list},
+};
 use windows_sys::Win32::System::{
     Diagnostics::Debug::FlushInstructionCache,
     Memory::{VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE, PAGE_NOACCESS},
@@ -96,6 +100,25 @@ impl Object {
     pub fn points_to(mut self, offset: usize, object: Object) -> Self {
         self = self.u64(offset, object.at() as u64);
         self.kept.push(object);
+        self
+    }
+
+    /// One of the game's lists at `offset` (`objects::list`), holding
+    /// `items` in order, each with whether the game removed its node while
+    /// walking the list; the nodes and the items are kept.
+    pub fn list(mut self, offset: usize, items: Vec<(Object, bool)>) -> Self {
+        let count = items.len();
+        let nodes: Vec<Object> =
+            items.into_iter().map(|(item, removed)| Object::new(list::NODE_SIZE).u8(list::REMOVED, removed.into()).points_to(list::ITEM, item)).collect();
+        for i in 0..count {
+            let previous = if i == 0 { 0 } else { nodes[i - 1].at() as u64 };
+            let next = nodes.get(i + 1).map_or(0, |n| n.at() as u64);
+            nodes[i].set(list::PREVIOUS, &previous.to_le_bytes());
+            nodes[i].set(list::NEXT, &next.to_le_bytes());
+        }
+        let (head, tail) = (nodes.first().map_or(0, |n| n.at() as u64), nodes.last().map_or(0, |n| n.at() as u64));
+        self = self.u64(offset + list::HEAD, head).u64(offset + list::TAIL, tail).i32(offset + list::COUNT, count as i32);
+        self.kept.extend(nodes);
         self
     }
 

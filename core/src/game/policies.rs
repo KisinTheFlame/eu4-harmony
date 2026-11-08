@@ -3,6 +3,7 @@
 //! "Policies").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::containers;
 use crate::game_string;
 use crate::{
     memory::Memory,
@@ -59,7 +60,7 @@ fn database(m: &Memory) -> GResult<usize> {
 fn active(m: &Memory, country: usize) -> GResult<Vec<usize>> {
     let mut active = Vec::new();
     for list in 0..3 {
-        for item in content::pointers(m, country + ACTIVE + ACTIVE_LISTS + list * ACTIVE_STRIDE - content::ARRAY_DATA)? {
+        for item in containers::array(m, country + ACTIVE + ACTIVE_LISTS + list * ACTIVE_STRIDE - containers::ARRAY_DATA, containers::MOST)? {
             active.push(m.ptr(item + ACTIVE_POLICY)?);
         }
     }
@@ -85,7 +86,7 @@ fn choice(m: &Memory, country: usize, policy: usize) -> GResult<Choice> {
 pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Policy>> {
     let active = active(m, ctx.country)?;
     let mut listed = Vec::new();
-    for policy in content::vector(m, database(m)? + POLICIES)? {
+    for policy in containers::pointers(m, database(m)? + POLICIES, containers::MOST)? {
         let enabled = active.contains(&policy);
         if !enabled && !conditions::holds(m, policy + POTENTIAL, ctx.player, 0)? {
             continue;
@@ -103,7 +104,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Policy>> {
 }
 
 fn find(m: &Memory, key: &str) -> GResult<usize> {
-    for policy in content::vector(m, database(m)? + POLICIES)? {
+    for policy in containers::pointers(m, database(m)? + POLICIES, containers::MOST)? {
         if game_string::key(m, policy + KEY)? == key {
             return Ok(policy);
         }

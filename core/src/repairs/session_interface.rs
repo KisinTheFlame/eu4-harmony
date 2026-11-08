@@ -55,7 +55,7 @@ impl SessionInterface {
     /// in-game load marks as closed, go first, unless open, which go with
     /// the other popups.
     pub fn before_reset(m: &Memory, manager: usize) -> crate::Result<Self> {
-        let popups = crate::game::questions::items(m, manager + manager_fields::POPUPS).map_err(|e| e.message)?;
+        let popups = crate::containers::items(m, manager + manager_fields::POPUPS, crate::containers::MOST)?;
         let mut node = m.ptr(manager + manager_fields::MESSAGE_WINDOWS + list::HEAD)?;
         while node != 0 {
             let window = m.ptr(node + list::ITEM)?;
