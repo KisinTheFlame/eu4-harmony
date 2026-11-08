@@ -26,6 +26,7 @@
 //! The game's deflate at level 0 is the framework's copy (`super::stored`).
 use crate::hooks::Call;
 use crate::points::Point;
+use crate::speed::SpeedUp;
 use crate::zip::{self, DEFLATED, STORED};
 use crate::Result;
 use std::path::{Path, PathBuf};
@@ -64,7 +65,11 @@ const TMP_SUFFIX: &str = ".eu4harmony-tmp";
 // Where the game keeps its saves, in the user folder.
 use eu4_harmony_folders::SAVE_GAMES;
 
-pub fn points() -> Vec<Point> {
+/// Left to the game, a local save's entries are deflated at the game's level
+/// on the main thread, as before.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "background-compression", group: "saving", points, checkable: false };
+
+fn points() -> Vec<Point> {
     vec![
         Point::observe(LOCAL_SAVE, "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55", "local save", 1, Some(save_before), Some(save_after)),
         Point::observe(IRONMAN_SAVE, "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55", "local ironman save", 1, Some(save_before), Some(save_after)),

@@ -11,6 +11,7 @@
 //! where the main thread tells the game's thread.
 use crate::called_by_game;
 use crate::points::{Function, Point};
+use crate::speed::SpeedUp;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
@@ -33,7 +34,10 @@ const STOP_NEXT: usize = 0x5ce536;
 static STOPS: AtomicU64 = AtomicU64::new(0);
 static WAKE: (Mutex<()>, Condvar) = (Mutex::new(()), Condvar::new());
 
-pub fn points() -> Vec<Point> {
+/// Left to the game, its update thread sleeps 50 ms between updates.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "update-thread", group: "saving", points, checkable: false };
+
+fn points() -> Vec<Point> {
     vec![
         Point::replace(
             UPDATE,
@@ -61,9 +65,6 @@ static ORIGINAL_UPDATE: Function<Update> = Function::new();
 
 #[called_by_game]
 extern "C" fn update(arg: usize) -> bool {
-    if crate::saves::game_writes_saves() {
-        return ORIGINAL_UPDATE.get()(arg);
-    }
     crate::guarded("save's update thread", || {
         let stops = STOPS.load(Ordering::SeqCst);
         let m = crate::hooked_memory();

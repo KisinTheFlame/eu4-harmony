@@ -85,15 +85,6 @@ static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
 /// Current data of every extension, written with every save.
 static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
 
-/// A developer build's test switch `game-writes-saves`: the game writes
-/// saves by its own code, as before S8, so that the two can be measured.
-pub(crate) fn game_writes_saves() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.game_writes_saves;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
-}
-
 /// Says which extensions loaded, once they have.
 pub fn keep_for(ids: impl IntoIterator<Item = String>) {
     let _ = EXTENSIONS.set(ids.into_iter().collect());

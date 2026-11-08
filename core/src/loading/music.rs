@@ -18,6 +18,7 @@
 //! what is new or changed.
 use crate::called_by_game;
 use crate::points::Point;
+use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::{Path, PathBuf};
@@ -40,7 +41,11 @@ const SOUND_RATE: usize = 0xdc;
 /// Where the numbers are kept, in the framework's folder of the user folder.
 const CACHE: &str = "music.txt";
 
-pub fn points() -> Vec<Point> {
+/// Checked, every file is read whole as well, its numbers compared with
+/// those kept and the game's kept.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "music", group: "loading", points, checkable: true };
+
+fn points() -> Vec<Point> {
     vec![
         Point::jump(READ_WHOLE, "b2 01 48 8d 4b 10 e8 d3 4d 00 00", "music read whole at startup", read_whole_stub as *const () as usize, &READ_WHOLE_RESUME),
         Point::keep(READ, "48 89 5c 24 08 48 89 74 24 20 55 57 41 54 41 56", "music read"),
@@ -111,24 +116,19 @@ extern "C" fn read_whole(sound: usize) -> usize {
     let read = || m.call(m.at(READ), &[sound, 1]).unwrap_or(0);
     crate::guarded("music", || {
         let name = unsafe { CStr::from_ptr((sound + SOUND_NAME) as *const c_char) };
-        if super::game_loads() {
-            return read();
-        }
         let Some((place, print)) = place_of(name) else { return read() };
         let key = (place, name.to_string_lossy().into_owned());
         let mut all = KEPT_MUSIC.lock().unwrap_or_else(|e| e.into_inner());
         let kept = all.get_or_insert_with(load);
         if let Some(k) = kept.get(&key).filter(|k| k.print == print).cloned() {
-            if !super::checking() {
+            if !speed::checked(&SPEED_UP) {
                 put(sound, &k);
                 return 0;
             }
             drop(all);
             let decoder = read();
             let game = taken(sound, print);
-            if game.as_ref() != Some(&k) {
-                log!("music: check-loading: {:?} kept as {k:?}, read as {game:?}", key.1);
-            }
+            speed::compared(&SPEED_UP, game.as_ref() == Some(&k), || format!("{:?} kept as {k:?}, read as {game:?}", key.1));
             return decoder;
         }
         drop(all);

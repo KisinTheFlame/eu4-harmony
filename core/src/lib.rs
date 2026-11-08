@@ -150,6 +150,7 @@ fn start(m: memory::Memory) -> Result<String> {
     if dev::options().test_switches.fail_startup {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
+    speed::check_switches()?;
     let installed = points::install(m, &points::this_build::installed(m))?;
     #[cfg(feature = "dev-command-log")]
     command_log::start();
@@ -227,6 +228,9 @@ fn report_header(game_dir: Option<&std::path::Path>) {
     }
     #[cfg(dev_build)]
     for line in dev::report_lines() {
+        report::line(line);
+    }
+    for line in speed::report_lines() {
         report::line(line);
     }
 }

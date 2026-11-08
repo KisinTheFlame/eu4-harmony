@@ -12,6 +12,7 @@ use super::background::COPY_LEVEL;
 use crate::called_by_game;
 use crate::memory::Memory;
 use crate::points::{Function, Point};
+use crate::speed::SpeedUp;
 use crate::zip::{crc32, crc32_combine};
 use crate::Result;
 
@@ -33,7 +34,10 @@ const STREAM_WRITE: usize = 0x50;
 pub(super) const STORED_BLOCK: usize = 0xffff;
 const STORED_BATCH: usize = 16 * STORED_BLOCK;
 
-pub fn points() -> Vec<Point> {
+/// Left to the game, its deflate copies at level 0, through zlib.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "stored-copy", group: "saving", points, checkable: false };
+
+fn points() -> Vec<Point> {
     vec![
         Point::replace(DEFLATE, "48 8b c4 48 89 58 10 48 89 68 18 48 89 70 20 48", "zip deflate", deflate as Deflate, &ORIGINAL_DEFLATE),
         Point::keep(
@@ -54,7 +58,7 @@ static ORIGINAL_DEFLATE: Function<Deflate> = Function::new();
 /// copies, the framework's copy into stored blocks.
 #[called_by_game]
 extern "C" fn deflate(zip: usize, data: usize, buffer: usize, size: usize, crc: *mut u32, level: i32) -> u32 {
-    if level != COPY_LEVEL as i32 || crate::saves::game_writes_saves() {
+    if level != COPY_LEVEL as i32 {
         return ORIGINAL_DEFLATE.get()(zip, data, buffer, size, crc, level);
     }
     crate::guarded("zip deflate", || match store(crate::hooked_memory(), zip, data, crc) {

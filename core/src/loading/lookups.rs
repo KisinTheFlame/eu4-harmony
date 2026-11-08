@@ -18,6 +18,7 @@
 //! as before.
 use crate::called_by_game;
 use crate::points::{Function, Point};
+use crate::speed::{self, SpeedUp};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::path::Path;
@@ -34,7 +35,11 @@ const NOT_FOUND_MADE: usize = 0x1a06a00;
 const SET_ERROR: usize = 0x19f8510;
 const NOT_FOUND: usize = 0xb;
 
-pub fn points() -> Vec<Point> {
+/// Checked, the game's stat answers every path the listings answer missing
+/// as well, and the game's answer is kept.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "lookups", group: "loading", points, checkable: true };
+
+fn points() -> Vec<Point> {
     vec![
         Point::replace(STAT, "40 55 57 41 54 41 56 41 57 48 81 ec b0 02 00 00", "PhysFS stat", stat as Stat, &ORIGINAL_STAT),
         Point::keep(
@@ -81,16 +86,13 @@ pub fn set_roots(game_dir: &Path) {
 
 #[called_by_game]
 extern "C" fn stat(path: *const c_char, st: usize, follow: i32) -> i32 {
-    let missing =
-        !path.is_null() && !super::game_loads() && crate::guarded("PhysFS stat", || missing(unsafe { CStr::from_ptr(path) }.to_bytes()) == Some(true));
+    let missing = !path.is_null() && crate::guarded("PhysFS stat", || missing(unsafe { CStr::from_ptr(path) }.to_bytes()) == Some(true));
     if !missing {
         return ORIGINAL_STAT.get()(path, st, follow);
     }
-    if super::checking() {
+    if speed::checked(&SPEED_UP) {
         let game = ORIGINAL_STAT.get()(path, st, follow);
-        if game != 0 {
-            log!("lookups: check-loading: {:?} found by the game, missing from the listings", unsafe { CStr::from_ptr(path) });
-        }
+        speed::compared(&SPEED_UP, game == 0, || format!("{:?} found by the game, missing from the listings", unsafe { CStr::from_ptr(path) }));
         return game;
     }
     let m = crate::hooked_memory();
