@@ -229,4 +229,78 @@ mod tests {
             assert!(fail.message.contains(says), "{command:?}: {}", fail.message);
         }
     }
+
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::tur;
+        use crate::game::{
+            buffers::{self, Image},
+            Caller, Fail,
+        };
+        use std::cell::RefCell;
+
+        thread_local! {
+            /// The words the game console was given, each as its text.
+            static GIVEN: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
+        }
+
+        extern "C" fn console() -> usize {
+            0x1000
+        }
+
+        extern "C" fn no_console() -> usize {
+            0
+        }
+
+        /// The game console's run: `cash` succeeds and prints that it did,
+        /// `quiet` fails and prints nothing, anything else fails and says it
+        /// is unknown.
+        extern "C" fn run(_: usize, result: usize, words: *const [usize; 3]) -> usize {
+            let m = Memory { base: 0 };
+            let [begin, end, _] = unsafe { *words };
+            let given: Vec<Vec<u8>> = (begin..end).step_by(game_string::OBJECT).map(|at| game_string::read(&m, at).unwrap()).collect();
+            let (succeeded, printed) = match given[0].as_slice() {
+                b"cash" => (true, "Cash added"),
+                b"quiet" => (false, ""),
+                _ => (false, "Unknown command"),
+            };
+            GIVEN.with(|g| *g.borrow_mut() = given);
+            let text = result + result::TEXT;
+            unsafe {
+                *(result as *mut u8) = succeeded as u8;
+                *((text + game_string::CAPACITY) as *mut u64) = game_string::INLINE as u64;
+                buffers::write_string(text, printed);
+            }
+            result
+        }
+
+        /// Runs `command` in a game with a game console when `has`.
+        fn running(has: bool, command: &str) -> GResult<String> {
+            let image = Image::new();
+            let get = if has { console as *const () } else { no_console as *const () };
+            buffers::strings_kept(&image).function(GET.rva(), get).function(RUN.rva(), run as *const ());
+            let result = super::super::run(buffers::world_session(image.memory(), 0, 0, tur(), 0, Caller::Remote), command);
+            drop(image);
+            result
+        }
+
+        fn refused(result: GResult<String>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the command ran: {result:?}") };
+            (status, message)
+        }
+
+        #[test]
+        fn a_command_runs_with_its_words_and_answers_what_it_printed() {
+            assert_eq!(running(true, " cash 100\n").unwrap(), "Cash added");
+            assert_eq!(GIVEN.with(|g| g.borrow().clone()), [b"cash".to_vec(), b"100".to_vec()]);
+            assert_eq!(refused(running(true, "nonsense")), (Status::Rejected, "Unknown command".into()));
+            assert_eq!(refused(running(true, "quiet")), (Status::Rejected, "the command failed and printed nothing".into()));
+        }
+
+        #[test]
+        fn no_command_runs_without_a_game_console_or_as_the_window_would_not_run_it() {
+            assert_eq!(refused(running(false, "cash 100")), (Status::Unavailable, "the game has no game console".into()));
+            assert_eq!(refused(running(true, "")).0, Status::InvalidArgument);
+        }
+    }
 }
