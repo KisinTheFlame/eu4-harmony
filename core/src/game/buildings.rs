@@ -188,8 +188,16 @@ fn can_build(m: &Memory, ctx: &Ctx, province: usize, building: usize) -> GResult
     let mut price = 0i32;
     PRICE.call(m, [ctx.country, &mut price as *mut i32 as usize, building, province])?;
     let cost = vec![Amount::new(Resource::Ducats, thousandths(price))];
-    let affordable = price <= m.i32(ctx.country + country::TREASURY)?;
-    Ok(if may as u8 != 0 && affordable { Choice::can(cost) } else { Choice::cannot(super::administration::reasons(&text), cost) })
+    let treasury = m.i32(ctx.country + country::TREASURY)?;
+    if may as u8 != 0 && price <= treasury {
+        return Ok(Choice::can(cost));
+    }
+    let mut reasons = super::administration::reasons(&text);
+    // The check leaves the price to the command's, which says nothing.
+    if price > treasury {
+        reasons.push(format!("the treasury has {} ducats, and this costs {}", thousandths(treasury), thousandths(price)));
+    }
+    Ok(Choice::cannot(reasons, cost))
 }
 
 /// What the building panel offers the player in a province now, and what is
@@ -410,7 +418,7 @@ mod tests {
         let poor = ottomans(50_000);
         assert_eq!(
             refused(build(poor.session, args::Build { province: ProvinceId(3), building: "workshop".into() })),
-            (Status::Rejected, "the game does not let the player build it there now, and gives no reason".into())
+            (Status::Rejected, "the treasury has 50 ducats, and this costs 100".into())
         );
         assert!(record::posted().is_empty());
     }
