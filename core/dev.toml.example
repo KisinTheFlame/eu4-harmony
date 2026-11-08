@@ -80,5 +80,17 @@ post = []
 [write-watch]
 # An RVA in hex, such as "0x74ff30"; none by default.
 function = ""
-# How many of its first calls on the main thread are watched.
+# How many of its first calls on the main thread are watched (with
+# reads-before, how many rounds).
 calls = 1
+# The game days that are to pass one after another before the watch begins.
+after-days = 0
+# Functions, as RVAs, whose next call before each watched call is watched for
+# its reads too; the watched call's writes to what they read are marked.
+reads-before = []
+# Modules, by file name, whose threads are not held while a call is watched,
+# such as the graphics driver's "nvd3dumx.dll".
+let-run = []
+# The seconds a watched call may go with nothing watched before the watch is
+# given up and where the main thread waits is logged; 0 waits for ever.
+give-up-after = 30
