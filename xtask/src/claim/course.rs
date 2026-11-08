@@ -39,6 +39,9 @@ pub struct Starting {
     /// The developer tools' options to start the core with, in place of this
     /// checkout's `dev.toml`.
     pub options: Option<String>,
+    /// Test mods, folders of Harmony mods, put in the test game's playset
+    /// (docs/whole-game.md); a start with none takes them out.
+    pub mods: Vec<PathBuf>,
 }
 
 /// What this process sees now, for a look at the record.

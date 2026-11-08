@@ -249,17 +249,17 @@ fn rounded(value: f64, decimals: i32) -> Value {
 }
 
 /// The game's process.
-struct Process {
+pub(super) struct Process {
     handle: windows_sys::Win32::Foundation::HANDLE,
 }
 
 /// What the process has used: CPU seconds, and its working set, private
 /// bytes and peak working set in MB.
-struct Sample {
-    cpu: f64,
-    ws: u64,
-    private: u64,
-    peak: u64,
+pub(super) struct Sample {
+    pub cpu: f64,
+    pub ws: u64,
+    pub private: u64,
+    pub peak: u64,
 }
 
 impl Sample {
@@ -269,7 +269,7 @@ impl Sample {
 }
 
 impl Process {
-    fn find(game: &Game) -> Played<Self> {
+    pub fn find(game: &Game) -> Played<Self> {
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ};
         let id = game.process()?;
         let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, id) };
@@ -279,7 +279,7 @@ impl Process {
         Ok(Self { handle })
     }
 
-    fn sample(&self) -> Played<Sample> {
+    pub fn sample(&self) -> Played<Sample> {
         use windows_sys::Win32::{
             Foundation::FILETIME,
             System::{

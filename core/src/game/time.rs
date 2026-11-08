@@ -318,7 +318,7 @@ fn toggle(m: &Memory, state: usize) -> GResult<()> {
 /// when nothing holds the game, and resumes a game that windows hold; so then
 /// it toggles twice: the windows are let go (they stay open, as when the
 /// player resumes), and the player's pause holds the game.
-fn pause_game(m: &Memory, ctx: &World) -> GResult<()> {
+pub(crate) fn pause_game(m: &Memory, ctx: &World) -> GResult<()> {
     let state = pause_state_of(m, ctx)?;
     if m.u8(state + pause_state::PLAYER_PAUSED)? != 0 {
         return Ok(());

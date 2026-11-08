@@ -106,4 +106,4 @@ The claim starts its test game with `client/`, the library under the command lin
 
 ### Later
 
-Each its own part when it is wanted: the other runs [prototype-log/](prototype-log/) records again and again as scenarios (a session's round trip, an extension reload, extension save data through a save, ironman, input); reference figures, to compare a run's figures with earlier ones.
+Each its own part when it is wanted: the other runs [prototype-log/](prototype-log/) records again and again as scenarios (input); reference figures, to compare a run's figures with earlier ones. A session's round trip, an extension reload, extension save data through a save and ironman became scenarios of the set `whole`, with the sweep of every capability and the long games ([whole-game.md](whole-game.md)), which also added sets, the check of the framework's log after each scenario, the developers' saves folder and test mods.

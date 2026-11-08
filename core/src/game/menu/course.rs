@@ -221,6 +221,8 @@ pub(super) trait Game {
     /// setup, whose page stays.
     fn not_continuing(&mut self);
     fn reads(&self) -> Reads;
+    /// Whether a session is going on.
+    fn going_on(&self) -> bool;
     fn now(&self) -> Instant;
     /// The framework settings now.
     fn rules(&self) -> Rules;
@@ -229,6 +231,10 @@ pub(super) trait Game {
     /// Sets the flag the game's own question sets when the player confirms
     /// a return: the map manager acts on it at its next frame.
     fn ask_return(&mut self) -> GResult<()>;
+    /// Pauses the game with the player's pause; whether time ran.
+    fn pause(&mut self) -> GResult<bool>;
+    /// Whether the game is still: paused, with no day under way.
+    fn still(&mut self) -> bool;
     /// Asks the game for its in-game load of the save `name`, in the
     /// session's place, as the load question does: what it answered, which
     /// passes [`Course::in_game_load`] on the way; or why it was not asked.
@@ -303,7 +309,25 @@ struct State {
     rest: Option<Rest>,
     /// Why the course stopped the last in-game load, if it did.
     stopped: Option<String>,
+    /// A return asked for while time ran, waiting for the game to be still
+    /// ([`STILL_FRAMES`]) before the map manager is asked for it.
+    return_held: bool,
+    /// The same for an in-game load.
+    load_held: bool,
+    /// The game frames in a row the game was still at.
+    still: u32,
 }
+
+/// The game frames in a row a session must be still at, paused with no day
+/// under way, before a return or an in-game load asked while time ran
+/// leaves it. A day's commands are queued as it runs, the AI's among them,
+/// and executed at the session's update of the next frame; left before
+/// that, the next update, the new main menu's or the next session's, would
+/// execute them on a world the return let go (seen in the game: an
+/// economic command of the AI executed in the main menu's frame, and the
+/// unit manager's queue of a day of the last session, each ending the game,
+/// docs/whole-game.md). The player's ways out pause the game first.
+pub(super) const STILL_FRAMES: u32 = 3;
 
 impl State {
     fn number(&mut self) -> u64 {
@@ -352,7 +376,17 @@ pub(super) const UNREAD: &str = "the game could not read the save: it starts a g
 
 impl Course {
     pub const fn new() -> Self {
-        Self(Mutex::new(State { numbered: 0, launch: None, return_asked: None, returned: None, rest: None, stopped: None }))
+        Self(Mutex::new(State {
+            numbered: 0,
+            launch: None,
+            return_asked: None,
+            returned: None,
+            rest: None,
+            stopped: None,
+            return_held: false,
+            load_held: false,
+            still: 0,
+        }))
     }
 
     fn with<T>(&self, f: impl FnOnce(&mut State) -> T) -> T {
@@ -379,9 +413,22 @@ impl Course {
             return fail(Status::Unavailable, why);
         }
         known()?;
-        game.ask_return()?;
+        self.leave_when_still(game)?;
         log!("menu: a new game as {} from the session", String::from_utf8_lossy(&letters));
         Ok(self.ask(Action::Start(letters)))
+    }
+
+    /// Asks the map manager for a return now when time does not run, or
+    /// pauses the game and asks for it once it was still for
+    /// [`STILL_FRAMES`] game frames ([`Course::game_frame`]).
+    fn leave_when_still(&self, game: &mut impl Game) -> GResult<()> {
+        if game.pause()? {
+            log!("menu: time ran: paused, the session is left once it is still");
+            self.with(|s| (s.return_held, s.still) = (true, 0));
+            Ok(())
+        } else {
+            game.ask_return()
+        }
     }
 
     /// Asks for a return to the main menu, as the game's own question does
@@ -390,7 +437,7 @@ impl Course {
     /// same for every request made before the map manager's frame acts on
     /// it; otherwise the game's next frame starts `eu4.exe` again (None).
     pub fn return_to_main_menu(&self, game: &mut impl Game) -> GResult<Option<u64>> {
-        game.ask_return()?;
+        self.leave_when_still(game)?;
         log!("menu: returning to the main menu");
         if !game.rules().return_without_restart {
             return Ok(None);
@@ -437,12 +484,16 @@ impl Course {
     }
 
     /// Where the game is, at the safe point `at` (`game` being at the main
-    /// menu there, if it is).
+    /// menu there, if it is). A frame that is no game's frame while a
+    /// session goes on, with no save being read and no load or start asked
+    /// for, is one that frame was not ready in, as while its daily update
+    /// runs at speed: that is the game.
     pub fn place(&self, at: At, game: &mut impl Game) -> Place {
         match at {
             At::Game if self.loading_in_game() => Place::Starting,
             At::Game => Place::Game,
             At::MainMenu(_) if !self.starting(game) => Place::MainMenu,
+            At::Elsewhere if game.going_on() && !game.reads().reading && !self.with(|s| s.asked(|_| true)) => Place::Game,
             At::MainMenu(_) | At::Elsewhere => Place::Starting,
         }
     }
@@ -470,6 +521,31 @@ impl Course {
     /// remote control asked for, if there is one; then the frame is over. A
     /// load or start that ran in the main menu was taken over by the game.
     pub fn game_frame(&self, game: &mut impl Game) -> bool {
+        let still = game.still();
+        let (held, still) = self.with(|s| {
+            s.still = if still { s.still + 1 } else { 0 };
+            (s.return_held, s.still >= STILL_FRAMES)
+        });
+        if held && still {
+            self.with(|s| s.return_held = false);
+            if let Err(why) = game.ask_return() {
+                log!("menu: the return held until the session was still could not be asked for: {}", why.message);
+            }
+        }
+        // An in-game load asked while time ran waits for the session to be
+        // still too.
+        if self.loading_in_game() {
+            match game.pause() {
+                Ok(true) => {
+                    log!("menu: time ran: paused, the save is loaded once the session is still");
+                    self.with(|s| (s.load_held, s.still) = (true, 0));
+                    return false;
+                }
+                Ok(false) if self.with(|s| s.load_held) && !still => return false,
+                Ok(false) => self.with(|s| s.load_held = false),
+                Err(why) => log!("menu: the in-game load could not pause the session: {}", why.message),
+            }
+        }
         let Some((number, name)) = self.with(|s| match &mut s.launch {
             Some(Attempt { number, action: Action::LoadInGame(name), stage: Stage::Asked }) => Some((*number, name.clone())),
             Some(Attempt { stage, .. }) => {
@@ -836,6 +912,8 @@ mod tests {
         ironman: bool,
         /// Whether a game is going on, with its map manager.
         in_game: bool,
+        /// Time runs in the session.
+        running: bool,
         /// What the game's in-game load answers.
         loaded: u32,
         save_fails: bool,
@@ -857,6 +935,7 @@ mod tests {
                 rules: ALL,
                 ironman: false,
                 in_game: false,
+                running: false,
                 loaded: 0,
                 save_fails: false,
                 return_fails: false,
@@ -914,6 +993,9 @@ mod tests {
         fn reads(&self) -> Reads {
             self.reads
         }
+        fn going_on(&self) -> bool {
+            self.in_game
+        }
         fn now(&self) -> Instant {
             self.start + self.clock
         }
@@ -929,6 +1011,14 @@ mod tests {
             }
             self.did.push(Did::AskReturn);
             Ok(())
+        }
+        fn pause(&mut self) -> GResult<bool> {
+            let ran = self.running;
+            self.running = false;
+            Ok(ran)
+        }
+        fn still(&mut self) -> bool {
+            !self.running
         }
         fn load_in_game(&mut self, name: &str) -> Result<u32, String> {
             self.did.push(Did::LoadInGame(name.into()));
@@ -1114,6 +1204,11 @@ mod tests {
         let mut game = Recorded::new(&course);
         assert_eq!(course.place(At::MainMenu(1), &mut game), Place::MainMenu);
         assert_eq!(course.place(At::Elsewhere, &mut game), Place::Starting);
+        // A frame a session's game was not ready in, as at speed.
+        let mut playing = Recorded::in_game(&course);
+        assert_eq!(course.place(At::Elsewhere, &mut playing), Place::Game);
+        playing.reads.reading = true;
+        assert_eq!(course.place(At::Elsewhere, &mut playing), Place::Starting);
         // A save being read, whoever loads it.
         game.reads.reading = true;
         assert_eq!(course.place(At::MainMenu(1), &mut game), Place::Starting);
@@ -1219,6 +1314,45 @@ mod tests {
         // Set off, and answered once the main menu is up.
         assert_eq!(course.returned(number, || false), Returned::Waiting);
         assert_eq!(course.returned(number, || true), Returned::Done);
+    }
+
+    /// A return asked for while time runs pauses the game, and the map
+    /// manager is asked for it only once the session was still for some
+    /// frames, its last day's commands executed.
+    #[test]
+    fn a_return_asked_while_time_runs_waits_until_the_session_is_still() {
+        let course = Course::new();
+        let mut game = Recorded { running: true, ..Recorded::in_game(&course) };
+        let number = course.return_to_main_menu(&mut game).unwrap().unwrap();
+        assert!(!game.running, "paused");
+        assert!(game.did.is_empty(), "not asked for yet");
+        for _ in 1..STILL_FRAMES {
+            assert!(!course.game_frame(&mut game));
+        }
+        assert!(game.did.is_empty());
+        course.game_frame(&mut game);
+        assert_eq!(game.did, [Did::AskReturn]);
+        course.game_frame(&mut game);
+        assert_eq!(game.did, [Did::AskReturn], "asked for once");
+        course.returning(&mut game);
+        assert_eq!(course.restart(&mut game), 0);
+        assert_eq!(course.returned(number, || true), Returned::Done);
+    }
+
+    /// The same holds for an in-game load: one asked while time runs is
+    /// taken at the game frame the session has been still at for long
+    /// enough; one asked while paused at once.
+    #[test]
+    fn an_in_game_load_asked_while_time_runs_waits_until_the_session_is_still() {
+        let course = Course::new();
+        let mut game = Recorded { running: true, ..Recorded::in_game(&course) };
+        course.ask(Action::LoadInGame("Aragon".into()));
+        for _ in 0..STILL_FRAMES {
+            assert!(!course.game_frame(&mut game));
+            assert!(game.did.is_empty());
+        }
+        assert!(course.game_frame(&mut game));
+        assert_eq!(game.did[0], Did::LoadInGame("Aragon".into()));
     }
 
     #[test]

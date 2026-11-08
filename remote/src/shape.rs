@@ -51,11 +51,35 @@ pub trait Shaped {
     fn shape() -> Shape;
 }
 
-/// Puts a flattened object's fields among `fields`.
+/// Puts a flattened object's fields among `fields`. A flattened enum, an
+/// object of one of several shapes, is kept in its place as a field with no
+/// name, which [`object`] makes into one object for each.
 pub fn flatten(fields: &mut Vec<Field>, inner: Shape) {
-    if let Shape::Object { fields: more, .. } = inner {
-        fields.extend(more);
+    match inner {
+        Shape::Object { fields: more, .. } => fields.extend(more),
+        either @ Shape::Either(_) => fields.push(Field { name: "", about: "", shape: either, may_be_left_out: false }),
+        _ => {}
     }
+}
+
+/// The object of a struct of `fields`: one object, or where it flattens an
+/// enum (a field with no name, from [`flatten`]), one for each of the
+/// enum's objects, its fields in the enum's place.
+pub fn object(class: &'static str, about: &'static str, fields: Vec<Field>) -> Shape {
+    let Some(at) = fields.iter().position(|f| f.name.is_empty()) else {
+        return Shape::Object { class, about, fields };
+    };
+    let Shape::Either(shapes) = fields[at].shape.clone() else { unreachable!("flatten keeps only an Either unnamed") };
+    let objects = shapes
+        .into_iter()
+        .map(|shape| {
+            let mut these = fields[..at].to_vec();
+            flatten(&mut these, shape);
+            these.extend(fields[at + 1..].iter().cloned());
+            object(class, about, these)
+        })
+        .collect();
+    Shape::Either(objects)
 }
 
 /// A variant of an internally tagged enum: its object, with the tag first.
@@ -119,16 +143,24 @@ impl Shape {
     /// Whether `value` (JSON in Lua's form) has this shape, or why not; a
     /// field left out is allowed, a field the shape does not have is not.
     pub fn check(&self, value: &Value) -> Result<(), String> {
-        self.check_at(value, "")
+        self.check_at(value, "", Form::Lua)
     }
 
-    fn check_at(&self, value: &Value, at: &str) -> Result<(), String> {
+    /// Whether `value`, JSON as remote control answers it, has this shape,
+    /// or why not: a date is its text, `"1444.11.11"`, and an integer may be
+    /// a decimal text, as an army's ID is.
+    pub fn check_json(&self, value: &Value) -> Result<(), String> {
+        self.check_at(value, "", Form::Json)
+    }
+
+    fn check_at(&self, value: &Value, at: &str, form: Form) -> Result<(), String> {
         let wrong = |what: &str| Err(format!("{}{what}, not {}", if at.is_empty() { String::new() } else { format!("{at}: ") }, kind(value)));
         match (self, value) {
             (Shape::Any, _) => Ok(()),
             (Shape::Optional(_), Value::Null) | (Shape::Nothing, Value::Null | Value::Bool(true)) => Ok(()),
-            (Shape::Optional(inner), _) => inner.check_at(value, at),
+            (Shape::Optional(inner), _) => inner.check_at(value, at, form),
             (Shape::Integer, Value::Number(n)) if n.is_i64() || n.is_u64() => Ok(()),
+            (Shape::Integer, Value::String(s)) if form == Form::Json && !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => Ok(()),
             (Shape::Integer, _) => wrong("an integer"),
             (Shape::Number, Value::Number(_)) => Ok(()),
             (Shape::Number, _) => wrong("a number"),
@@ -138,18 +170,21 @@ impl Shape {
             (Shape::Text, _) => wrong("a string"),
             (Shape::Words(words), Value::String(s)) if words.contains(&s.as_str()) => Ok(()),
             (Shape::Words(words), _) => wrong(&format!("one of {}", words.join(", "))),
-            (Shape::List(inner), Value::Array(items)) => items.iter().enumerate().try_for_each(|(i, item)| inner.check_at(item, &format!("{at}[{}]", i + 1))),
+            (Shape::List(inner), Value::Array(items)) => {
+                items.iter().enumerate().try_for_each(|(i, item)| inner.check_at(item, &format!("{at}[{}]", i + 1), form))
+            }
             (Shape::List(_), _) => wrong("a list"),
-            (Shape::Map(inner), Value::Object(fields)) => fields.iter().try_for_each(|(k, v)| inner.check_at(v, &join(at, k))),
+            (Shape::Map(inner), Value::Object(fields)) => fields.iter().try_for_each(|(k, v)| inner.check_at(v, &join(at, k), form)),
             (Shape::Map(_), _) => wrong("a table"),
             (Shape::Date, Value::Object(fields)) if ["year", "month", "day"].iter().all(|k| fields.get(*k).is_some_and(Value::is_i64)) && fields.len() == 3 => {
                 Ok(())
             }
+            (Shape::Date, Value::String(s)) if form == Form::Json && crate::Date::parse(s).is_some() => Ok(()),
             (Shape::Date, _) => wrong("a date { year, month, day }"),
             (Shape::Object { class, fields, .. }, Value::Object(given)) => {
                 for (name, value) in given {
                     match fields.iter().find(|f| f.name == name) {
-                        Some(field) => field.shape.check_at(value, &join(at, name))?,
+                        Some(field) => field.shape.check_at(value, &join(at, name), form)?,
                         None => {
                             let names: Vec<&str> = fields.iter().map(|f| f.name).collect();
                             return Err(format!("{} is no field of eu4.{class}, which has {}", join(at, name), names.join(", ")));
@@ -162,7 +197,7 @@ impl Shape {
             (Shape::Either(shapes), _) => {
                 let mut why = Vec::new();
                 for shape in shapes {
-                    match shape.check_at(value, at) {
+                    match shape.check_at(value, at, form) {
                         Ok(()) => return Ok(()),
                         Err(e) => why.push(e),
                     }
@@ -172,6 +207,14 @@ impl Shape {
             (Shape::Nothing, _) => wrong("nothing (true)"),
         }
     }
+}
+
+/// The form of the JSON a shape is checked against: Lua's, or remote
+/// control's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Form {
+    Lua,
+    Json,
 }
 
 fn join(at: &str, name: &str) -> String {
@@ -252,6 +295,31 @@ mod tests {
         // No result: true, or nothing.
         let moved = crate::result_shape("army.move").unwrap();
         assert_eq!((moved.check(&json!(true)), moved.check(&json!(null))), (Ok(()), Ok(())));
+    }
+
+    /// Remote control writes a date as its text and an army's ID as a
+    /// decimal text, which Lua has as a table and an integer.
+    #[test]
+    fn an_answer_in_remote_control_s_form_is_checked_as_remote_control_writes_it() {
+        let session = crate::result_shape("session.get").unwrap();
+        assert_eq!(session.check_json(&json!({"number": 1, "player": "FRA", "observing": false, "date": "1444.11.11"})), Ok(()));
+        assert!(session.check_json(&json!({"date": "the eleventh"})).unwrap_err().contains("a date"));
+        let army = crate::result_shape("army.get").unwrap();
+        assert_eq!(army.check_json(&json!({"id": "545460846646", "province": 151})), Ok(()));
+        assert_eq!(army.check_json(&json!({"id": "x"})), Err("id: an integer, not a string".into()));
+        assert!(army.check(&json!({"id": "545460846646"})).is_err(), "Lua's form has the ID as an integer");
+    }
+
+    /// An event flattened into its number is one of the events' objects,
+    /// each with the number beside its own fields (the sweep found the
+    /// events' fields missing from the shape).
+    #[test]
+    fn a_flattened_enum_gives_an_object_for_each_of_its_variants() {
+        let events = crate::result_shape("events").unwrap();
+        let day = json!({"process": 1, "events": [{"number": 3, "event": "day", "date": "1444.11.12"}], "last": 3, "missed": false});
+        assert_eq!(events.check_json(&day), Ok(()));
+        let wrong = json!({"events": [{"number": 3, "event": "day", "no_such_field": 1}]});
+        assert!(events.check_json(&wrong).is_err());
     }
 
     #[test]

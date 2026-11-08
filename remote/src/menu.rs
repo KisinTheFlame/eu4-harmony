@@ -57,7 +57,10 @@ group! {
         country: Option<CountryTag>,
     } -> Session, "the session of the new game, as session answers it";
     /// Returns to the main menu, without the game's question or its summary,
-    /// as the player would; an ironman game is saved first, and rejected,
+    /// as the player would; asked while time runs, the game is paused first
+    /// and the session left once it is still, a few frames later, as a new
+    /// game and an in-game load from a session are; an ironman game is saved
+    /// first, and rejected,
     /// the game going on, when that save fails. Whenever a game is going on,
     /// also where capabilities that need a game are refused; not_in_game
     /// where none is. With the framework

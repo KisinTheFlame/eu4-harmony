@@ -195,6 +195,10 @@ impl course::Game for InGame<'_> {
         reads()
     }
 
+    fn going_on(&self) -> bool {
+        sessions::going_on()
+    }
+
     fn now(&self) -> Instant {
         Instant::now()
     }
@@ -209,6 +213,21 @@ impl course::Game for InGame<'_> {
 
     fn ask_return(&mut self) -> GResult<()> {
         ask_return(self.m)
+    }
+
+    fn pause(&mut self) -> GResult<bool> {
+        let world = super::world_context_any(self.m)?;
+        let ran = !super::paused(self.m, &world)?;
+        if ran {
+            super::time::pause_game(self.m, &world)?;
+        }
+        Ok(ran)
+    }
+
+    fn still(&mut self) -> bool {
+        let Ok(world) = super::world_context_any(self.m) else { return false };
+        let busy = !self.m.u8(world.world + world::DAILY_UPDATE).is_ok_and(|b| b == 0);
+        super::paused(self.m, &world).unwrap_or(false) && !busy
     }
 
     fn load_in_game(&mut self, name: &str) -> std::result::Result<u32, String> {
