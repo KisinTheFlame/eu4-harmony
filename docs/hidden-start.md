@@ -1,6 +1,6 @@
 # Hidden start plan
 
-Status: H1 to H4 done (2026-11-04). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Hidden start). What the game does when it is not seen, what could still reach the player's desktop and what the hidden start relies on is in [research/headless.md](research/headless.md); the runs are in [prototype-log.md](prototype-log.md), "The game unseen" and "The hidden start".
+Status: H1 to H4 done (2026-11-04). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Hidden start). What the game does when it is not seen, what could still reach the player's desktop and what the hidden start relies on is in [research/headless.md](research/headless.md); the runs are [The game unseen](prototype-log/2026-11-04-game-unseen.md) and [The hidden start](prototype-log/2026-11-04-hidden-start.md).
 
 ## Goal and scope
 
@@ -20,7 +20,7 @@ Status: H1 to H4 done (2026-11-04). Terms are in [GLOSSARY.md](../GLOSSARY.md) (
 
 ### What a hidden game does
 
-- **No window on the desktop.** The game's window is made hidden, and where the game would show it, it is shown cloaked, as a tool window and without the focus: DWM draws nothing of it and lets no click on its place reach it, and it has no taskbar button and is not in Alt+Tab. Nothing of it is seen, not even for a moment: no splash, and the focus stays with the program the player is in. For the rest of Windows the window is shown, which matters: while it is not, NVIDIA's Direct3D 9 driver keeps blocks of the game's heap at most frames, 20 MB a minute and more ([prototype-log.md](prototype-log.md), "What grows outside the census, and the hidden window concealed").
+- **No window on the desktop.** The game's window is made hidden, and where the game would show it, it is shown cloaked, as a tool window and without the focus: DWM draws nothing of it and lets no click on its place reach it, and it has no taskbar button and is not in Alt+Tab. Nothing of it is seen, not even for a moment: no splash, and the focus stays with the program the player is in. For the rest of Windows the window is shown, which matters: while it is not, NVIDIA's Direct3D 9 driver keeps blocks of the game's heap at most frames, 20 MB a minute and more ([What grows outside the census, and the hidden window concealed](prototype-log/2026-11-05-growth-outside-census-window-cloaked.md)).
 - **The size the player plays at.** The frame is the size the game's settings give it. With full screen in the settings the game made its window and its device windowed, at the settings' resolution, and the display was left alone (tried, below); should the window ever be made full screen, which would take the display, the hidden start ends the game instead.
 - **Drawing goes on.** Every frame is drawn and presented as with the window shown; the window is never minimized, which would slow the game to about ten frames a second.
 - **Windows' cursor and keys are the player's.** Remote control holds the game's cursor from the start, in the middle of the window, where it does not scroll the map, until the first input moves it; where the game would move Windows' cursor, it moves remote control's instead. What the player types and clicks in other programs never reaches the game.
@@ -60,7 +60,7 @@ Sound needs none: before SDL's audio starts, the framework sets `SDL_AUDIODRIVER
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and with `dev`, and so do the offline checks against `eu4.exe`;
-- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md), saying as plainly what was not verified;
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/), saying as plainly what was not verified;
 - docs/research holds what was found in the game's code, every new place in it is a dependency point, and README.md and README.zh-CN.md say what changed for players.
 
 ### H1 What a hidden game needs (done)

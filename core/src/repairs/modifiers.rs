@@ -28,7 +28,7 @@ static MODIFIER_SETS_WAITING_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MODIFIER_SETS_WAITED: AtomicUsize = AtomicUsize::new(0);
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset), ..super::Repair::NONE };
 
 /// What the repair let go since the last world reset, for the log; its
 /// counts start again.

@@ -50,4 +50,4 @@ Each part is one module, or one module made deeper. The parts run in two waves, 
 
 ## Done when
 
-Each part has replaced what it gathers, not added beside it; its tests go through its interface; the workspace builds, tests and passes both clippy runs; the offline checks pass; and the game, tried through the scenarios, behaves as before ([prototype-log.md](prototype-log.md)).
+Each part has replaced what it gathers, not added beside it; its tests go through its interface; the workspace builds, tests and passes both clippy runs; the offline checks pass; and the game, tried through the scenarios, behaves as before ([prototype-log/](prototype-log/README.md)).

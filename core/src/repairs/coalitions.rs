@@ -57,7 +57,7 @@ fn coalition_changed(_: &mut Call) {
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
 /// nothing.
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+pub(super) const REPAIR: super::Repair = super::Repair { points, ..super::Repair::NONE };
 
 pub(super) fn points() -> Vec<Point> {
     vec![

@@ -1,6 +1,6 @@
 # Extension reload plan
 
-Status: decided (2026-11-04); R1 to R3 built and tried in the game the same day ([prototype-log.md](prototype-log.md)).
+Status: decided (2026-11-04); R1 to R3 built and tried in the game the same day ([Extension reload](prototype-log/2026-11-04-extension-reload.md)).
 
 ## Goal and scope
 

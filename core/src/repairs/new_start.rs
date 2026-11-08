@@ -11,6 +11,21 @@ use std::sync::Mutex;
 /// any session.
 static DEFINED_RELIGIONS: Mutex<Option<(usize, usize)>> = Mutex::new(None);
 
+/// The repair as the sessions see it ([`super::REPAIRS`]); it has no points
+/// of its own.
+pub(super) const REPAIR: super::Repair = super::Repair { world_reset: Some(world_reset), ..super::Repair::NONE };
+
+/// After every world reset, of the world `world`: what it leaves of the
+/// session is put back as a new start has it ([`as_a_new_start`]). A load
+/// sets it again from its save.
+fn world_reset(m: &Memory, world: usize) {
+    match as_a_new_start(m, world, true) {
+        Ok(found) if found.is_empty() => {}
+        Ok(found) => log!("repair: the world reset left {found}; put back as a new start has them"),
+        Err(e) => log!("repair: what the world reset leaves was not put back: {e}"),
+    }
+}
+
 /// The main menu showed: the first time, the Empire's religions as the
 /// definitions give them are kept, for [`as_a_new_start`].
 pub(super) fn main_menu_shown(m: &Memory) {

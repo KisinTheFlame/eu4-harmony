@@ -137,7 +137,7 @@ The patrol and evade buttons are not toolbar actions but handlers of the single 
 
 ## What the framework does, and what the game showed
 
-`game::units`, `game::orders` and `game::armies`; tried on 2026-11-05 ([prototype-log.md](../prototype-log.md), "Player actions A4").
+`game::units`, `game::orders` and `game::armies`; tried on 2026-11-05 ([Player actions A4](../prototype-log/2026-11-05-player-actions-a4-armies-fleets.md)).
 
 - **The can-do functions** answered as the panel's tooltips: `0x342f60` with a list the framework builds of its own nodes (the game's list: head, tail, count; nodes with the unit, previous and next), `0x3428c0`, `0xd40ce0` (its third argument a byte of the framework's), and the army's method `+0x148`. Their text starts each line with `-`, which the framework leaves out.
 - **Every command read back as written** and ran: `split_unit` with `value` (14 regiments to 7 and 7; 32 ships to 16 and 16), `merge_units` with two `unit` keys, `disband_unit`, `consolidate` without `empty` (14 regiments to 12 after a battle), `drill_army_mission` (started and stopped), `move_order` for a fleet, `patrol`, `trade_mission`, `naval_region_mission`, `stop_unit_mission`, `start_auto_fleet_transport` with the fleets `0x342170(country, std::vector*, army)` answered (a vector of pointers, freed with `0x17394f0`), which carried an army from London to Calais.

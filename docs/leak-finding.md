@@ -1,6 +1,6 @@
 # Leak finding plan
 
-Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day, M6 on 2026-11-05 ([prototype-log.md](prototype-log.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
+Status: decided (2026-11-04); M1 to M5 built and tried in the game the same day, M6 on 2026-11-05 ([prototype-log/](prototype-log/), from [The heap census through remote control](prototype-log/2026-11-04-heap-census-through-remote-control.md) to [What grows outside the census](prototype-log/2026-11-05-growth-outside-census-window-cloaked.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Developer build). What the game leaks of a session, and what the repairs let go, is in [sessions.md](sessions.md#known-leaks) and [research/main-menu.md](research/main-menu.md).
 
 ## Goal and scope
 
@@ -100,7 +100,7 @@ A repair lets go memory the game forgot; if the game, or anything else, still us
 
 With the census built in, `memory.quarantine` turns the quarantine on and off at run time, off by default, as `memory.watch` does watching: a separate feature would be on in every developer build (`dev` builds them all in), and the quarantine keeps memory a leak run measures. While it is on:
 
-- every block freed on a thread where a repair is letting memory go is kept instead of freed: the census's `free` hook gives `free` null instead (an observer's "before" may change the arguments). A repair marks where it lets memory go (`LettingGo` in `core/src/repairs/mod.rs`, or from a destructor's start to its end where the game deletes what the repair handed over, as for the text boxes' animations), so the blocks that freeing frees in turn are kept too. What the game frees later, a window a repair killed and the GUI's sweep frees, is not;
+- every block freed on a thread where a repair is letting memory go is kept instead of freed: the census's `free` hook gives `free` null instead (an observer's "before" may change the arguments). A repair marks where it lets memory go (`LettingGo` in `core/src/repairs/mod.rs`, around every deletion of what waited for a return or a world reset in `core/src/repairs/waiting.rs` too, or from a destructor's start to its end where the game deletes what the repair handed over, as for the text boxes' animations), so the blocks that freeing frees in turn are kept too. What the game frees later, a window a repair killed and the GUI's sweep frees, is not;
 - each block kept is filled with `0xdd`. A read of it then gives those bytes, and a call through them faults at once, in the code that read it, with a crash dump that names it;
 - every two seconds, on a thread of its own, every block kept is compared with the pattern, and the first write to each is kept: the repair, the block's site and size, the first byte changed and the bytes from it, and the generations it was kept in and found in;
 - past 512 MB the oldest blocks are freed again, and turning it off frees all of them.
@@ -134,7 +134,7 @@ The memory account's game heap is every block of the process's default heap but 
 ### Every part is done when
 
 - `cargo fmt`, the build, the tests and clippy pass, for the player build and the developer build;
-- what it delivers was tried in the game, with the run recorded in [prototype-log.md](prototype-log.md).
+- what it delivers was tried in the game, with the run recorded in a file of its own in [prototype-log/](prototype-log/).
 
 ### M1 The census answers through remote control
 

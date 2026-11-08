@@ -23,7 +23,7 @@ A part that brings a framework setting declares it once, as a row of `SETTINGS` 
 
 - Claim a test game and start it with your build as [.claude/skills/game-test](../.claude/skills/game-test/SKILL.md) says, and drive it with `eu4-harmony game --test-game <owner> <group> <capability> …`; release it when done.
 - Try each capability as the player would use it, and each of its refusals, comparing with what the game's panel shows; read back what changed. A capability only extensions have is tried from a test mod.
-- Record the run in [prototype-log.md](prototype-log.md), one dated section, saying as plainly what was not tried.
+- Record the run in a file of its own in [prototype-log/](prototype-log/), named by its day, saying as plainly what was not tried.
 
 ## Before it is merged
 

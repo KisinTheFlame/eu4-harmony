@@ -1,6 +1,6 @@
 # Achievements (for `achievements`)
 
-Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-11-04, for the achievement rules of ADR achievement-rules-can-be-relaxed; what was checked in the running game is in prototype-log.md (2026-11-04).
+Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-11-04, for the achievement rules of ADR achievement-rules-can-be-relaxed; what was checked in the running game is in [Achievement rules, and the save checksum of an in-game load](../prototype-log/2026-11-04-achievement-rules-load-checksum.md) (2026-11-04).
 
 ## The campaign's achievements
 

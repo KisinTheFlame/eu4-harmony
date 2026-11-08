@@ -1,6 +1,6 @@
 # Map modes: switching them and coloring provinces (for `map`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, and the shaders from the game's `gfx/FX`. What was seen in the running game on 2026-10-26, before this framework existed, is marked "seen (2026-10-26)"; it is not in [prototype-log.md](../prototype-log.md). The framework's own coloring was tested there (2026-10-29, remote control F1: the coloring showed, and cancelling restored the map mode).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, and the shaders from the game's `gfx/FX`. What was seen in the running game on 2026-10-26, before this framework existed, is marked "seen (2026-10-26)"; it is not in [prototype-log/](../prototype-log/). The framework's own coloring was tested there (2026-10-29, remote control F1: the coloring showed, and cancelling restored the map mode).
 
 ## The map mode
 

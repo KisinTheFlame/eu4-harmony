@@ -1,6 +1,6 @@
 # Saves: how the game writes and reads them (for `saves`)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, 2026-11-01 and 2026-11-02, for extension save data in the save (ADR extension-save-data-in-the-save). What was tried in the running game is in [prototype-log.md](../prototype-log.md). The save request, the writing of the file and the loader were first read while regional-combat was developed (2026-10-26) and checked again on 2026-11-03. The ironman exit save and the in-game load, which go through these, are in [main-menu.md](main-menu.md).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples/disasm.rs`, 2026-11-01 and 2026-11-02, for extension save data in the save (ADR extension-save-data-in-the-save). What was tried in the running game is in [prototype-log/](../prototype-log/). The save request, the writing of the file and the loader were first read while regional-combat was developed (2026-10-26) and checked again on 2026-11-03. The ironman exit save and the in-game load, which go through these, are in [main-menu.md](main-menu.md).
 
 ## The save file
 
@@ -33,7 +33,7 @@ Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` with `core/examples
 
 ## What writing the game state writes
 
-For writing the countries and the provinces on several threads (docs/game-speed.md, S8). Watched with the write watch (`dev-write-watch`, [dev-tools.md](../dev-tools.md)) over the world write `0x74ff30` of one ironman save, 2026-11-04: Austria-37_4-1 from 1724, the save the game makes as the loaded game starts, the other threads held ([prototype-log.md](../prototype-log.md)). Writes to the stack and to blocks made during the call are not counted; what is below is every write to memory that was there when the call began, the process heap's blocks and `eu4.exe`'s data.
+For writing the countries and the provinces on several threads (docs/game-speed.md, S8). Watched with the write watch (`dev-write-watch`, [dev-tools.md](../dev-tools.md)) over the world write `0x74ff30` of one ironman save, 2026-11-04: Austria-37_4-1 from 1724, the save the game makes as the loaded game starts, the other threads held ([What writing the game state writes](../prototype-log/2026-11-04-writing-game-state.md)). Writes to the stack and to blocks made during the call are not counted; what is below is every write to memory that was there when the call began, the process heap's blocks and `eu4.exe`'s data.
 
 - **Where the game state's time goes**: the countries are the loop at `0x75179a` (each `0x1707a20(writer, tag, country)`, the tag as the key), the provinces the loop at `0x75170c` (each the key `-id` as two tokens, `0x1708870`, then the province's method `+8`); the other sections are small beside them.
 - **The output**: the writer writes through the memory stream (`0x171f33d` in its write `0x171f290`) into one buffer, 0x8c00000 bytes, that was there before: the stream is kept from one save to the next. 22 million of the call's 25.8 million writes went there.
@@ -49,7 +49,7 @@ For writing the countries and the provinces on several threads (docs/game-speed.
 
 ## Where a save's zip goes
 
-Read 2026-11-05 for S8 (docs/game-speed.md), with the times of one ironman save of 1724 (Austria-37_4-1) whose countries and provinces were written on threads, from the framework log and a call trace ([prototype-log.md](../prototype-log.md)).
+Read 2026-11-05 for S8 (docs/game-speed.md), with the times of one ironman save of 1724 (Austria-37_4-1) whose countries and provinces were written on threads, from the framework log and a call trace ([A save's countries and provinces on threads](../prototype-log/2026-11-05-save-countries-provinces-threads.md)).
 
 - **`0x5ce5f0(args)`**, under `0x74ba20` → `0x5cde60`: `args` holds the world (`+0`), the output stream (`+8`, the `.tmp` file's stream the local save opened with `0x1718300(path, 1, 0x20000)`, vtable `0x1dbfa98`), whether the save is zipped (`+0x10`) and where the result goes (`+0x18`). Its memory streams are of the class `0x1dc0358` over slices of one buffer the game keeps, `[[0x242bf50] + 0x338]`, 0x5a00000 bytes, each with a growing part (`+0x38`) for what does not fit.
 - **Zipped**: `gamestate` first (`0x14e3f00` at `0x5ce8e2`, the stream named `gamestate`), then `meta` (`0x5ce9ed`, 16 KB of the buffer) and `ai` (`0x5ceadb`); each `0x14e3f00` ends with the save checksum, whose sum (`0x171f3f0`) took 44 ms for the game state's 55 MB and under 3 ms for the other two together. Then a zip of its own (`0x153c9b0` at `0x5cec2c`) into a fourth stream, 10 MB of the buffer and a growing part: `gamestate` and `meta` through `0x153b9a0` (method 8, level 3), `ai` with its local header written here and its data through `0x153c790` at level 3, and `rnw.zip` when the world has one (`[[world] + 0x2260] + 0xb0` not negative); `0x153c350` ends the zip. The zip's bytes, both parts, then go to the output stream with its write (`+0x50`, `0x5cf184` and `0x5cf1ab`), and its `+0x58` ends it. Plain: the one stream named after the file goes to the output stream instead (`0x5cf262`, `0x5cf287`).

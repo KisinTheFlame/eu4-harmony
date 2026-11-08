@@ -12,8 +12,8 @@
 //! again: as the owner's destructor begins, or, for those never deleted, as
 //! the map manager an in-process return lets go is going. Killing the
 //! windows the session's builds made without knowing their owners crashed
-//! the game (prototype-log.md, "Which holders keep the windows killed at a
-//! return"); here only what owns a window kills it.
+//! the game (docs/prototype-log/2026-11-07-holders-of-windows-killed.md); here
+//! only what owns a window kills it.
 use super::{interface_parts::TAKE_WINDOW_OFF, LettingGo};
 use crate::{hooks::Call, memory::Memory, objects::gui::window as gui_window, points::Point};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 static KILLED: AtomicUsize = AtomicUsize::new(0);
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]).
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset) };
+pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: Some(since_reset), ..super::Repair::NONE };
 
 /// What the repair let go since the last world reset, for the log; its
 /// counts start again.

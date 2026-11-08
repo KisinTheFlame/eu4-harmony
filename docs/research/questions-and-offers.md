@@ -1,6 +1,6 @@
 # Questions and offers (for `game::questions` and `game::offers`)
 
-Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29; what was checked in the running game is marked "tested" (prototype-log.md, 2026-10-29, remote control C7). Terms are in the GLOSSARY: a question is one of the game's events waiting for the player's answer, an offer another country's proposal waiting for it.
+Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29; what was checked in the running game is marked "tested" ([Questions and offers](../prototype-log/2026-10-29-questions-offers.md), 2026-10-29, remote control C7). Terms are in the GLOSSARY: a question is one of the game's events waiting for the player's answer, an offer another country's proposal waiting for it.
 
 ## Questions
 

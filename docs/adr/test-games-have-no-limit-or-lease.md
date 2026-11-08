@@ -11,6 +11,6 @@ The limit kept a session waiting while the computer had room, and the lease let 
 
 ## Consequences
 
-- Nothing bounds what the test games take of the memory and the graphics card: a game in 1820 took 4.2 GB and 1.3 GB (prototype-log.md, "Test games"). Whoever starts one sees in `cargo xtask game status` how many are held.
+- Nothing bounds what the test games take of the memory and the graphics card: a game in 1820 took 4.2 GB and 1.3 GB ([Test games](../prototype-log/2026-11-08-test-games.md)). Whoever starts one sees in `cargo xtask game status` how many are held.
 - A claim not released stays until its holder, or whoever cleans up, runs `cargo xtask game release --owner <name>`; `status` lists it with its holder and purpose.
 - `claim --lease` and the queue are gone; `claims.json` keeps no queue, and older records read as they are. Each claim is still written with a lease, of a hundred years from 1970, since a checkout from before this decision drops a claim with none from the record and takes one whose lease ran out.

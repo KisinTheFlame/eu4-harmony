@@ -131,7 +131,7 @@ A hired company is an army: the unit view disbands it with the ordinary `disband
 
 ## What the framework does, and what the game showed
 
-`game::leaders` and `game::mercenaries`; tried on 2026-11-05 ([prototype-log.md](../prototype-log.md), "Player actions A4").
+`game::leaders` and `game::mercenaries`; tried on 2026-11-05 ([Player actions A4](../prototype-log/2026-11-05-player-actions-a4-armies-fleets.md)).
 
 - **Recruiting**: `create_leader={ country="ENG" leader=1 }`, no `name`: the game picked the name and the sex ("安东尼 德 克利福德"), took the cost and added the leader at the end of the list. Whether the player may is `0x307370`; the reasons are the tooltip's keys for the conditions it tests, in its order: `RECRUIT_NO_IDEA` when the country's modifier `0xe3` is not set, `CAN_NOT_BUILD_COLONIES` when `0` is (asked as the check asks them, `0x93d750(country+0x28c0)+8` then `0x8e7b60`), the points against `0x951980`'s cost, and an admiral's force limit when nothing else explains a refusal.
 - **A localisation text with values**: the game's lookup `0x14b34a0(out, key, null, 0)` leaves `$COST$` out of `RECRUIT_CANT_AFFORD_M` ("你需要至少mil。"). The lookup first finds the key's text by a hash of its bytes, `h = 0x811c9dc5`, then for each byte `h = h * 0x1000193 ^ (signed byte)`, through `0x16fb030(table, h)`, the table `[[0x2357b20]]`; that answers the text as its file has it. The framework reads it so (`game_string::unformatted`) and fills `$COST$` or `$COST|Y$` itself: "你需要至少50mil。".
