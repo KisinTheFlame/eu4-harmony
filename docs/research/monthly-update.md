@@ -44,7 +44,7 @@ Besides: messages to the player, a leader dismissed ("DISMISSLEADER"), the Treat
 - **Random draws.** `0x14c7420` and `0x14c74c0` draw from the game's one generator (`0x2325220`, a Mersenne twister `0x14c71b0`), which the game keeps the same on every machine of a multiplayer game. By direct calls a country's month reaches 2,988 functions, 74 of which draw; a province's 2,821, 70 of which draw. Each country takes the numbers after the countries before it, as many as its own state calls for: on several threads, a country would draw others' numbers.
 - **Other objects changed.** The same paths change a province's owner (`0xa00270`, which goes on to the countries, `0x3663b0`, `0x364f10`), run effects and events (`0x76c1a0`), and refresh other countries' knowledge; a later country's month reads what an earlier one changed.
 
-So the two loops cannot run on several threads with the same results; any change to their order is a change to what the game computes, of kind C, and would change every draw after it. Since [ADR random-draws-may-change-hands](../adr/random-draws-may-change-hands.md) (2026-11-08) the draws no longer stop it, drawn from a stream for each task ([random.md](random.md)); what each country's or province's month changes of the others still does.
+So the two loops cannot run on several threads with the same results; any change to their order is a change to what the game computes, of kind C, and would change every draw after it. Since [ADR random-draws-may-change-hands](../adr/2026-11-08-random-draws-may-change-hands.md) (2026-11-08) the draws no longer stop it, drawn from a stream for each task ([random.md](random.md)); what each country's or province's month changes of the others still does.
 
 ## The parts that could
 

@@ -1,6 +1,6 @@
 # Input plan
 
-Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the game ([Input](prototype-log/2026-11-04-input.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Input, Screen position). The decision and its reasons are in [ADR remote-clients-give-the-players-input](adr/remote-clients-give-the-players-input.md). How the game reads its input is in [research/input.md](research/input.md); how the framework UI takes its own is in `core/src/framework_ui/input.rs`.
+Status: decided (2026-11-04); I1 to I4 built the same day, I1 to I3 tried in the game ([Input](prototype-log/2026-11-04-input.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Input, Screen position). The decision and its reasons are in [ADR remote-clients-give-the-players-input](adr/2026-11-04-remote-clients-give-the-players-input.md). How the game reads its input is in [research/input.md](research/input.md); how the framework UI takes its own is in `core/src/framework_ui/input.rs`.
 
 ## Goal and scope
 

@@ -1,6 +1,6 @@
 # Player actions plan
 
-Status: built (2026-11-05), every part; what each did not verify is in its section below and in its run in [prototype-log/](prototype-log/). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Content key, Player's view, Full view, Capability, Command). The decisions and their reasons are in [ADR remote-control-reads-the-players-view](adr/remote-control-reads-the-players-view.md), and build on [ADR one-capability-catalogue](adr/one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/one-command-layer-in-written-form.md) and [ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md). How a capability is added, layer by layer, is [adding-a-capability.md](adding-a-capability.md).
+Status: built (2026-11-05), every part; what each did not verify is in its section below and in its run in [prototype-log/](prototype-log/). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Content key, Player's view, Full view, Capability, Command). The decisions and their reasons are in [ADR remote-control-reads-the-players-view](adr/2026-11-05-remote-control-reads-the-players-view.md), and build on [ADR one-capability-catalogue](adr/2026-11-03-one-capability-catalogue.md), [ADR one-command-layer-in-written-form](adr/2026-11-03-one-command-layer-in-written-form.md) and [ADR remote-control-uses-capabilities](adr/2026-10-29-remote-control-uses-capabilities.md). How a capability is added, layer by layer, is [adding-a-capability.md](adding-a-capability.md).
 
 ## Goal and scope
 

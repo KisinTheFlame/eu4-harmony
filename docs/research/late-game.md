@@ -153,7 +153,7 @@ Five runs from the autosave of 1780.7.1 with `-seed=1` and monthly autosaves ([t
 
 ## Whether it can be made faster
 
-Against the bar of [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md): the same AI, the same decisions taken by the same code.
+Against the bar of [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md): the same AI, the same decisions taken by the same code.
 
 | What | What it could give | Why not, or what it needs |
 | --- | --- | --- |
@@ -167,7 +167,7 @@ So the late game's AI cannot be made much faster without changing what it comput
 
 ## The armies' searches on idle threads
 
-The bar above was the old one. Since [ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/the-game-may-be-made-faster-with-reasoned-differences.md) a change may differ from the game's code when it says why; the first is this one, of the first kind there, when the work is done (`core/src/army_search.rs`).
+The bar above was the old one. Since [ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/2026-11-07-the-game-may-be-made-faster-with-reasoned-differences.md) a change may differ from the game's code when it says why; the first is this one, of the first kind there, when the work is done (`core/src/army_search.rs`).
 
 **What it does.** Once a country's King has thought (`0x14b622` in `0x14b370`), the framework finds the army agents that think today and will search, works out the arguments each think will give the search, and hands the searches to a pool of its own threads (up to 8). When a think calls the search, it takes the result worked out for it if its arguments and the agent's and army's state are the same, and otherwise searches itself. A search worked out ahead reads the world as it stood when the King had thought, before its ministers and the armies before it did their day; the game's own threads already read other countries' state at such moments.
 
@@ -233,7 +233,7 @@ Milliseconds of the main thread a game day, from the sampled shares:
 
 ### Adding sets of modifiers
 
-`0x8ea420(set, added)` and its twin `0x8ea730`, which takes the values away, search a set kept as pairs for each modifier added, pair by pair from the first (`0x8ea4d0`, `0x8ea7e2`: the set's pairs at `+0x58`, their count at `+0x64`). The framework replaces those two searches alone (`core/src/modifier_sums.rs`): after four searches in one call of a set of 16 pairs or more, it puts the set's pairs in an index of its thread's, takes up the pairs the game appends as the call goes on, and answers each search from it. Every answer is the first pair holding the modifier, as the game's search gives it; the adding, the appending, the set's growth and the record of the sets added stay the game's code. A set kept by modifier (`+0x10`) writes modifiers into its places as the call goes on, and is searched pair by pair as before. A difference of the second kind, the same answer ([ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/the-game-may-be-made-faster-with-reasoned-differences.md)).
+`0x8ea420(set, added)` and its twin `0x8ea730`, which takes the values away, search a set kept as pairs for each modifier added, pair by pair from the first (`0x8ea4d0`, `0x8ea7e2`: the set's pairs at `+0x58`, their count at `+0x64`). The framework replaces those two searches alone (`core/src/modifier_sums.rs`): after four searches in one call of a set of 16 pairs or more, it puts the set's pairs in an index of its thread's, takes up the pairs the game appends as the call goes on, and answers each search from it. Every answer is the first pair holding the modifier, as the game's search gives it; the adding, the appending, the set's growth and the record of the sets added stay the game's code. A set kept by modifier (`+0x10`) writes modifiers into its places as the call goes on, and is searched pair by pair as before. A difference of the second kind, the same answer ([ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/2026-11-07-the-game-may-be-made-faster-with-reasoned-differences.md)).
 
 Measured on 2026-11-08 in a test game ([the run](../prototype-log/2026-11-08-modifier-sets-through-an-index.md)), the developer build, the 1780.7.1 save in observe mode at speed 5, 120 s a run, the main thread sampled (`cargo xtask profile --test-game`):
 
@@ -277,7 +277,7 @@ Counted in the game's autosaves of the run (a script of the run's own):
 ## What this means
 
 - Later in a game the day is slower because the AI countries that are left have more armies to handle, and the largest of them set how long the AI stage lasts. A player's own country has no AI, so a player's own armies do not count here; the AI great powers' do.
-- More cores would not help: the stage already leaves most of them idle, and the stage already starts its longest tasks first. What would is the largest countries' tasks taking less time, or their agents running apart, and on the worst days a great power's plan, which asks route after route, taking less time. Each changes the AI's own code and the order its work is done in, and the agents' order changes what they decide ("Whether an AI country's agents depend on each other"): a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../game-speed.md), S5 and S6, set aside); "Whether it can be made faster" above weighs each.
+- More cores would not help: the stage already leaves most of them idle, and the stage already starts its longest tasks first. What would is the largest countries' tasks taking less time, or their agents running apart, and on the worst days a great power's plan, which asks route after route, taking less time. Each changes the AI's own code and the order its work is done in, and the agents' order changes what they decide ("Whether an AI country's agents depend on each other"): a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../game-speed.md), S5 and S6, set aside); "Whether it can be made faster" above weighs each.
 - A late game the player feels to be slow can also be slow for reasons of the session, not of the date: the windows left open, or (with the game's own pace instead of "Faster time") the frames inside a day.
 
 ## Saves to test with

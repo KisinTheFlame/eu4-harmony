@@ -1,6 +1,6 @@
 # Lua extensions plan
 
-Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 and 2026-11-04 ([Regional combat in Lua](prototype-log/2026-11-03-regional-combat-lua.md), [Regional combat's cost](prototype-log/2026-11-03-regional-combat-cost.md), [Where the slow stretches went](prototype-log/2026-11-04-slow-stretches-went.md)), its cost target met but for the frame a task is turned on (L6, "Where it stands"). Reloading an extension in the running game came after it ([extension-reload.md](extension-reload.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR extensions-are-lua-in-a-sandbox](adr/extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR sensitive-capabilities-are-declared](adr/sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR one-capability-catalogue](adr/one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR an-error-does-not-stop-an-extension](adr/an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR save-data-is-what-on-save-returns](adr/save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns; superseded by [ADR save-data-is-asked-for-by-save-data](adr/save-data-is-asked-for-by-save-data.md), `save_data`), [ADR manifest-in-toml-layout-by-convention](adr/manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR handlers-run-as-tasks-that-can-wait](adr/handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
+Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 and 2026-11-04 ([Regional combat in Lua](prototype-log/2026-11-03-regional-combat-lua.md), [Regional combat's cost](prototype-log/2026-11-03-regional-combat-cost.md), [Where the slow stretches went](prototype-log/2026-11-04-slow-stretches-went.md)), its cost target met but for the frame a task is turned on (L6, "Where it stands"). Reloading an extension in the running game came after it ([extension-reload.md](extension-reload.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md). The decisions and their reasons are in [ADR extensions-are-lua-in-a-sandbox](adr/2026-11-03-extensions-are-lua-in-a-sandbox.md) (Lua in a sandbox in place of native DLLs), [ADR sensitive-capabilities-are-declared](adr/2026-11-03-sensitive-capabilities-are-declared.md) (sensitive capabilities are declared and shown), [ADR one-capability-catalogue](adr/2026-11-03-one-capability-catalogue.md) (one capability catalogue, a stable abstraction), [ADR an-error-does-not-stop-an-extension](adr/2026-11-03-an-error-does-not-stop-an-extension.md) (an error does not stop an extension; the time limit does), [ADR save-data-is-what-on-save-returns](adr/2026-11-03-save-data-is-what-on-save-returns.md) (extension save data is what `on_save` returns; superseded by [ADR save-data-is-asked-for-by-save-data](adr/2026-11-04-save-data-is-asked-for-by-save-data.md), `save_data`), [ADR manifest-in-toml-layout-by-convention](adr/2026-11-03-manifest-in-toml-layout-by-convention.md) (the manifest in TOML, the rest of a mod's layout by convention) and [ADR handlers-run-as-tasks-that-can-wait](adr/2026-11-03-handlers-run-as-tasks-that-can-wait.md) (handlers run as tasks that can wait).
 
 ## Goal and scope
 
@@ -40,7 +40,7 @@ Status: decided (2026-11-03); L1 to L6 built, L6 tried in the game 2026-11-03 an
 
 ### Tasks
 
-Every handler call runs as a task ([ADR handlers-run-as-tasks-that-can-wait](adr/handlers-run-as-tasks-that-can-wait.md)), so a handler can wait for something, such as an answer from the network, written as plain sequential code, as an `await` would be in TypeScript, but with no keyword:
+Every handler call runs as a task ([ADR handlers-run-as-tasks-that-can-wait](adr/2026-11-03-handlers-run-as-tasks-that-can-wait.md)), so a handler can wait for something, such as an answer from the network, written as plain sequential code, as an `await` would be in TypeScript, but with no keyword:
 
 ```lua
 on_day = function(game, date)
@@ -64,7 +64,7 @@ end
 
 - A capability that fails as the game may make it fail (the object is gone, the game refused the command, the state cannot be read yet) returns `nil, err`, where `err` is `{ code = "...", message = "..." }`. The codes are the framework's statuses (`not_ready`, `not_found`, `rejected`, `invalid_argument`); the message is the game's reason where it gave one, in the player language where the framework has the words.
 - A capability called wrongly (an argument of the wrong type, an element this mod does not have, a path that leaves its root, a sensitive capability not declared) raises an error.
-- An error raised in a handler, by the script or by a capability, does not stop the extension ([ADR an-error-does-not-stop-an-extension](adr/an-error-does-not-stop-an-extension.md)): the handler's call ends there, the error is written to the extension's log with its traceback, and the next event calls the extension as before. What the handler changed before the error stays changed.
+- An error raised in a handler, by the script or by a capability, does not stop the extension ([ADR an-error-does-not-stop-an-extension](adr/2026-11-03-an-error-does-not-stop-an-extension.md)): the handler's call ends there, the error is written to the extension's log with its traceback, and the next event calls the extension as before. What the handler changed before the error stays changed.
 - The same error at the same place is written in full the first three times in a session, then only counted; the count is written when the session ends.
 - The first error of each extension in a session raises one notice: the mod's name and that its log has the details.
 
@@ -86,7 +86,7 @@ end
 
 ### Sensitive capabilities
 
-A sensitive capability reaches beyond the game. An extension can use one only when its manifest declares it; using one it did not declare raises an error that says what to add to the manifest. Its functions are there either way, so a mod reads the same with or without the declaration. The player sees what each mod declares in the mods window and cannot refuse it in this version; the manifest calls these declarations `permissions`, which the player is to confirm in a later version ([ADR sensitive-capabilities-are-declared](adr/sensitive-capabilities-are-declared.md)).
+A sensitive capability reaches beyond the game. An extension can use one only when its manifest declares it; using one it did not declare raises an error that says what to add to the manifest. Its functions are there either way, so a mod reads the same with or without the declaration. The player sees what each mod declares in the mods window and cannot refuse it in this version; the manifest calls these declarations `permissions`, which the player is to confirm in a later version ([ADR sensitive-capabilities-are-declared](adr/2026-11-03-sensitive-capabilities-are-declared.md)).
 
 - **`clock`**: the real date and time, `os.time` and `os.date`.
 - **`files`**: the extension's data folder, `Documents\Paradox Interactive\Europa Universalis IV\eu4-harmony\data\<id>\`, made the first time the extension writes to it, kept across mod updates and never cleaned up by the framework:
@@ -113,18 +113,18 @@ Reading the mod's own files needs no declaration: `mod_files.read("data/units.js
 
 ### Extension save data
 
-- `save_data(game)` is called whenever the game writes its world, the ironman exit save included, and what it returns is this extension's save data in that save; it is also called before an extension reload, and the new code's `on_session` gets what it returned ([ADR save-data-is-asked-for-by-save-data](adr/save-data-is-asked-for-by-save-data.md), [extension-reload.md](extension-reload.md)). Returning `nil` keeps nothing. Until api_version 0.3 it was `on_save` ([ADR save-data-is-what-on-save-returns](adr/save-data-is-what-on-save-returns.md)).
+- `save_data(game)` is called whenever the game writes its world, the ironman exit save included, and what it returns is this extension's save data in that save; it is also called before an extension reload, and the new code's `on_session` gets what it returned ([ADR save-data-is-asked-for-by-save-data](adr/2026-11-04-save-data-is-asked-for-by-save-data.md), [extension-reload.md](extension-reload.md)). Returning `nil` keeps nothing. Until api_version 0.3 it was `on_save` ([ADR save-data-is-what-on-save-returns](adr/2026-11-03-save-data-is-what-on-save-returns.md)).
 - When a session begins from a save, `on_session(game, saved)` gets back what that save holds for the extension, or `nil`.
 - The data is any value JSON can hold: a table whose keys are all strings is an object, a sequence is an array, integers stay 64-bit. A function, a userdata, a table with mixed keys or a cycle fails: that save holds no data for the extension, the error is logged and raises a notice as other errors do. At most 16 MiB of JSON.
-- Where and how it is written into the save does not change ([ADR extension-save-data-in-the-save](adr/extension-save-data-in-the-save.md)); a save written by a native extension is read by its Lua rewrite when the data's shape is the same.
+- Where and how it is written into the save does not change ([ADR extension-save-data-in-the-save](adr/2026-11-02-extension-save-data-in-the-save.md)); a save written by a native extension is read by its Lua rewrite when the data's shape is the same.
 - `on_session_ended` keeps its place, for an extension to finish what it was doing; it no longer decides what goes into the ironman exit save, which calls `save_data` like any other. A session that ends inside an extension's own call (its `console.run` loading a save) is heard once that call is done, at the start or end of a game's safe frame, as no extension is called inside another's call; the session's state is gone by then.
 
 ### The capability catalogue
 
-- Every capability is described once, in one catalogue: its group, name, arguments, result and failures, and which side has it ([ADR one-capability-catalogue](adr/one-capability-catalogue.md)). Extensions and remote control expose it, each with its own form (a Lua call, a JSON request), the same names and the same meanings.
+- Every capability is described once, in one catalogue: its group, name, arguments, result and failures, and which side has it ([ADR one-capability-catalogue](adr/2026-11-03-one-capability-catalogue.md)). Extensions and remote control expose it, each with its own form (a Lua call, a JSON request), the same names and the same meanings.
 - The catalogue is the framework's stable abstraction. Capabilities are named and shaped after what a player sees and does, not after the game's internals: no internal indices, fixed-point numbers or state bits. When the game's code changes, the capability layer takes it up and the catalogue stays.
 - Adding a capability, a handler or a field of a result changes no version; changing what one that exists means or how it is shaped raises `api_version`. An extension tests for a capability added after it was written with `if game.recruit then`.
-- Which side has which capability stays as [ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md) has it. Remote control's capabilities are reshaped with the rest; the names `eu4-harmony game` takes change with them, as 0.x allows. Remote clients read `api_version` from `describe`.
+- Which side has which capability stays as [ADR remote-control-uses-capabilities](adr/2026-10-29-remote-control-uses-capabilities.md) has it. Remote control's capabilities are reshaped with the rest; the names `eu4-harmony game` takes change with them, as 0.x allows. Remote clients read `api_version` from `describe`.
 
 ### The manifest and a mod's files
 
@@ -147,13 +147,13 @@ description = "TEMPLATE_MOD_DESCRIPTION"   # a key in the mod's localisation
 permissions = { clock = true, files = true, network = ["api.example.com", "192.168.1.10:8080"] }
 ```
 
-- `id` and `api_version` mean what they meant ([ADR abi-grows-by-appending](adr/abi-grows-by-appending.md)'s versioning, now of the catalogue): an extension whose `api_version` is not the framework's is not loaded, and the player is told which version it was written for and which the framework provides.
+- `id` and `api_version` mean what they meant ([ADR abi-grows-by-appending](adr/2026-10-28-abi-grows-by-appending.md)'s versioning, now of the catalogue): an extension whose `api_version` is not the framework's is not loaded, and the player is told which version it was written for and which the framework provides.
 - Fragments are taken in file name order within a mod, and mods in playset order, as before. A file where the layout has no place for it is recorded in the startup report.
 - A mod with a manifest is a Harmony mod, with or without `lua/main.lua`.
 
 ### The mods window
 
-- A second button in the main menu's corner, next to the settings button, opens the mods window; it is framework UI ([ADR framework-draws-its-own-ui](adr/framework-draws-its-own-ui.md)).
+- A second button in the main menu's corner, next to the settings button, opens the mods window; it is framework UI ([ADR framework-draws-its-own-ui](adr/2026-10-27-framework-draws-its-own-ui.md)).
 - On the left, the Harmony mods of this start, in playset order. On the right, the one selected: its name and version from `descriptor.mod`, its description in the player language, and the sensitive capabilities it declares, each in a sentence a player understands, with the hosts for `network`.
 - It shows; it decides nothing.
 
@@ -175,7 +175,7 @@ permissions = { clock = true, files = true, network = ["api.example.com", "192.1
 
 ## How it fits together
 
-The capability layer (`core/src/game/`) is the module everything rests on: it holds every capability once and hides the game behind it ([ADR remote-control-uses-capabilities](adr/remote-control-uses-capabilities.md)). Two adapters sit on its seam: the Lua host (`lua/`, `core/src/lua/`), which took the place of the C ABI for native extensions, and remote control (`core/src/remote/`, `remote/`); the catalogue says what both expose.
+The capability layer (`core/src/game/`) is the module everything rests on: it holds every capability once and hides the game behind it ([ADR remote-control-uses-capabilities](adr/2026-10-29-remote-control-uses-capabilities.md)). Two adapters sit on its seam: the Lua host (`lua/`, `core/src/lua/`), which took the place of the C ABI for native extensions, and remote control (`core/src/remote/`, `remote/`); the catalogue says what both expose.
 
 ```text
  extension (Lua)           remote client
@@ -248,14 +248,14 @@ Reviewed 2026-11-03 against what the native extensions' Rust SDK gave mod author
 2. **A fake world**: `mod:world{ player, date, countries, hostile, provinces, armies, selected }` describes a small world once, and the fake game answers from it: `session.get`; `country.get` and `country.hostile`; `province.get`, `province.list` and `province.neighbors`; `army.get`, `army.list`, `army.at` and `army.selected`; `army.route_to` as the shortest route over passable land, `army.can_step` as a neighbor that can be passed, `army.can_attack` as a hostile country's army. `army.move` and `army.stop` are recorded and set or clear the army's route, `route_by` this mod; armies do not move as days pass. The world refuses through the same checks as the core, in the same words (`eu4_harmony_checks`). Recruiting, diplomacy, questions, offers, the camera and the console are answered one by one as before, and an answer given for a capability goes before the world's. A test file may `require` helper modules from `eu4-harmony/tests/`, so tests share a world.
 ### L6 Acceptance
 
-The regional combat mod rewritten in Lua, in its own repository ([ADR ports-live-outside-framework-repo](adr/ports-live-outside-framework-repo.md)):
+The regional combat mod rewritten in Lua, in its own repository ([ADR ports-live-outside-framework-repo](adr/2026-10-27-ports-live-outside-framework-repo.md)):
 
 1. **The same mod**: the button, the radius settings, the range preview, the automatic decisions, and a task turned off by a hand-given order or a defeat, as the native extension does them.
 2. **Its saves**: a save written with the native extension, loaded with the Lua one, restores the tasks it held.
 3. **Its tests**: the decision core's C++ tests and the extension's Rust tests, as `eu4-harmony test` tests.
-4. **Its cost**: in a normal game, no stretch of a task over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the cause is measured first, and the framework makes the capabilities the mod calls cheaper; the mod's own logic, such as its range, stays in Lua, and native code is not the answer ([ADR mods-hold-the-logic](adr/mods-hold-the-logic.md)). Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms. A capability call, measured later the same day with the test host, cost 5.8 µs before it reached the game (the name looked up in the whole catalogue, the request written as JSON text and read back) and 1.4 µs once that was gone; the 30 to 60 ns first written here was not that path.
+4. **Its cost**: in a normal game, no stretch of a task over 5 ms, and less than 0.5 ms per frame on average. Where it is more, the cause is measured first, and the framework makes the capabilities the mod calls cheaper; the mod's own logic, such as its range, stays in Lua, and native code is not the answer ([ADR mods-hold-the-logic](adr/2026-11-03-mods-hold-the-logic.md)). Measured 2026-11-03 (Lua 5.4.8 through mlua 0.11.6, Ryzen 7 9700X): a handler call costs about 40 ns, a snapshot of ten fields 0.5 to 0.9 µs, a fresh Lua state 17 KB; Lua computes 40 to 110 times slower than Rust, a breadth-first search of 2,700 provinces taking 0.2 to 0.65 ms. A capability call, measured later the same day with the test host, cost 5.8 µs before it reached the game (the name looked up in the whole catalogue, the request written as JSON text and read back) and 1.4 µs once that was gone; the 30 to 60 ns first written here was not that path.
 
-Capabilities the rewrite finds missing are added to the catalogue as general capabilities ([ADR extensions-use-capabilities-only](adr/extensions-use-capabilities-only.md)).
+Capabilities the rewrite finds missing are added to the catalogue as general capabilities ([ADR extensions-use-capabilities-only](adr/2026-10-27-extensions-use-capabilities-only.md)).
 
 #### Where it stands
 

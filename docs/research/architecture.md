@@ -530,7 +530,7 @@ The framework's dependency points sit in each layer:
 
 | Layer | Where | The framework's use |
 | --- | --- | --- |
-| Engine: files | PhysFS's `PHYSFS_init`, `PHYSFS_openRead` and the rest | `physfs.rs`: splices elements into `.gui` and `.gfx` files as they are read ([ADR inject-ui-at-runtime](../adr/inject-ui-at-runtime.md)) |
+| Engine: files | PhysFS's `PHYSFS_init`, `PHYSFS_openRead` and the rest | `physfs.rs`: splices elements into `.gui` and `.gfx` files as they are read ([ADR inject-ui-at-runtime](../adr/2026-10-27-inject-ui-at-runtime.md)) |
 | Engine: script | The text tokenizer's next token `0x170e700` | `unicode/scripts.rs` |
 | Engine: localisation | `pdx_localize`'s import `0x16fd650` | `unicode/localisation.rs` |
 | Engine: input | SDL's input method messages `0x1764940` | `unicode/input.rs` |

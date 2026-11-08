@@ -38,7 +38,7 @@
 
 ### 设置
 
-**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、游戏速度、远程控制能看到什么，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/player-language.md](docs/player-language.md)、[docs/sessions.md](docs/sessions.md)、[docs/game-speed.md](docs/game-speed.md)、[docs/music-volume.md](docs/music-volume.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/remote-control-reads-the-players-view.md)。
+**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、游戏速度、远程控制能看到什么，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/player-language.md](docs/player-language.md)、[docs/sessions.md](docs/sessions.md)、[docs/game-speed.md](docs/game-speed.md)、[docs/music-volume.md](docs/music-volume.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md)。
 
 装上框架后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大；原版在最后一成会陡降到静音。原来低于 100 的音量会比以前轻，需要重新调一次。
 

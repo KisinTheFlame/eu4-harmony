@@ -1,6 +1,6 @@
 # A shorter startup and load
 
-Status: built (2026-11-05), in one pull request: L1 to L3; the faster inflate set aside by the owner. L4, files opened and looked up side by side, and L5, every folder of the search path answered from its listing, asked for and built on 2026-11-08. Where the time went is in [research/loading.md](research/loading.md). The bar is the one the game speed plan meets ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
+Status: built (2026-11-05), in one pull request: L1 to L3; the faster inflate set aside by the owner. L4, files opened and looked up side by side, and L5, every folder of the search path answered from its listing, asked for and built on 2026-11-08. Where the time went is in [research/loading.md](research/loading.md). The bar is the one the game speed plan meets ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
 
 ## Goal and scope
 

@@ -1,6 +1,6 @@
 # Music volume plan
 
-Status: decided with the owner (2026-11-05); V1 to V3 built in one pull request. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Volume curve, Loudness normalization, Music leveling, Framework settings). The decision is [ADR the-framework-sets-the-sound-volumes](adr/the-framework-sets-the-sound-volumes.md).
+Status: decided with the owner (2026-11-05); V1 to V3 built in one pull request. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Volume curve, Loudness normalization, Music leveling, Framework settings). The decision is [ADR the-framework-sets-the-sound-volumes](adr/2026-11-05-the-framework-sets-the-sound-volumes.md).
 
 ## Goal and scope
 

@@ -1,6 +1,6 @@
 # Player language plan
 
-Status: L1 to L4 built (2026-11-05); L2 and L3 tried in the game for Simplified Chinese and English ([The player language and fonts by language](prototype-log/2026-11-05-player-language-fonts-language.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Player language, Framework settings, System font). The decision and its reasons are in [ADR player-language-in-the-settings](adr/player-language-in-the-settings.md).
+Status: L1 to L4 built (2026-11-05); L2 and L3 tried in the game for Simplified Chinese and English ([The player language and fonts by language](prototype-log/2026-11-05-player-language-fonts-language.md)). Terms are in [GLOSSARY.md](../GLOSSARY.md) (Player language, Framework settings, System font). The decision and its reasons are in [ADR player-language-in-the-settings](adr/2026-11-05-player-language-in-the-settings.md).
 
 ## Goal and scope
 
