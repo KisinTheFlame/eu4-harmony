@@ -216,6 +216,21 @@ impl Outcome {
             && (self.a, self.b, self.c, self.d) == (other.a, other.b, other.c, other.d)
             && self.out == other.out
     }
+
+    /// What differs from `other`: the province, the score, the four values
+    /// beside it, the output.
+    fn differences(&self, other: &Outcome) -> Vec<&'static str> {
+        [
+            ("the province", self.province == other.province),
+            ("the score", self.score.to_bits() == other.score.to_bits()),
+            ("the values beside the score", (self.a, self.b, self.c, self.d) == (other.a, other.b, other.c, other.d)),
+            ("the output", self.out == other.out),
+        ]
+        .into_iter()
+        .filter(|(_, same)| !same)
+        .map(|(what, _)| what)
+        .collect()
+    }
 }
 
 const PENDING: u8 = 0;
@@ -729,8 +744,12 @@ unsafe extern "C" fn search(
         let game = unsafe { search_as_the_game(agent, &given, argument) };
         speed::compared(&SPEED_UP, game.same(&outcome), || {
             format!(
-                "an army's search worked out ahead gave province {} at {}, the game's province {} at {}",
-                outcome.province, outcome.score, game.province, game.score
+                "an army's search worked out ahead differs in {}: province {} at {}, the game's {} at {}",
+                outcome.differences(&game).join(", "),
+                outcome.province,
+                outcome.score,
+                game.province,
+                game.score
             )
         });
     }
