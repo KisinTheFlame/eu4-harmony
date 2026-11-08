@@ -442,6 +442,10 @@ _Avoid_: titles (a ruler's title is a game concept), large text
 A font the framework defines among its framework files, for text of the game's that draws in a system font of its own, such as the game console's window. The game's windows that draw in it are given it as their files are read.
 _Avoid_: custom font, own font, console font on its own
 
+**Distance field**:
+What the page of the map's font holds for each glyph instead of its pixels' colors: at each texel, the distance from the glyph's ink's edge, inside or out, from which the map's shader draws the ink and the outline at any zoom.
+_Avoid_: SDF on its own, distance map
+
 **Legacy escape**:
 The escape byte sequences language mods for Chinese, Japanese and Korean, and the saves played with them, use to stand for a character in the game's single-byte text. The mods for each of these languages share one way of writing them.
 _Avoid_: double-byte encoding, mojibake

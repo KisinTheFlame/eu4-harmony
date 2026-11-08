@@ -1,0 +1,13 @@
+# 2026-11-09 The mesh types loaded beside the databases (tested by me)
+
+[B1](../plans/startup-side-by-side.md) on a test game: a developer build of this branch (master at `f7f4b983` merged) with the test games' pipes, the test switches and `dev-call-trace` timing the stretches (`0x14c02b0`, `0x202850`, `0x14dc5d0`, `0x14dc390`, `0x2043a0`, `0x208620`, `0x6f3250`, `0x10b2b70`, `0x171cdf0`, `0x206260`, `0x10a2e40`), the player's playset, every DLC, the music kept by a first start; another session's test game was held but not running.
+
+- **Timed**: six starts alternating the part on and `game-paths = ["meshes"]`. On, the meshes took 0.20, 0.21 and 0.17 s of the LoadingThread and the mesh types 1.72, 1.92 and 1.66 s on the framework's thread; left to the game, the meshes took 1.74, 1.53 and 1.55 s, the mesh types 1.53, 1.35 and 1.37 s of it. From the gfx stage's start to InitGame's: 2.21, 2.13 and 1.73 s against 3.83, 3.12 and 3.19 s. The databases: 4.95, 4.91 and 4.56 s against 4.93, 4.20 and 4.62 s. The main menu after 20, 21 and 17 s against 23, 19 and 19 s, as `game start` counts. The stretches are in [research/loading.md](../research/loading.md), "The startup with B1".
+- **The wait**: in every start with the part on the log said "the end of the databases waited for none of it": the mesh types had loaded before the databases ended.
+- **The same data**: Austria-37_4-1 (an ironman save of 1724) copied into the test game and loaded with `menu.load`, once each way, and the two saves the game wrote as it loaded it compared entry by entry: `gamestate` (55,051,381 bytes) differed in the 4 bytes at 510-513, `meta` (2,235 bytes) in its UUID (1029 to 1063) and its closing checksum (2205 to 2234), `ai` (65,711 bytes) not at all; as for L4 and L5.
+- **Drawn**: after each load the camera on Vienna (`camera.look_at 134`, `camera.zoom 150`) and a screenshot: the units', ships' and cities' models drawn alike either way; a few moving models on the map (merchants, envoys) at other places in the two.
+- **Played**: with the part on, the save loaded and 30 days run (`time.advance`, to 1724.6.12), then back to the main menu in the same process.
+- Tests, both clippies and the offline checks pass; the offline checks matched the part's five points against `eu4.exe`.
+- Eleven starts, no crash; the release said each game ended by `game stop` or the release.
+- **Not verified**: a lost device during the startup, the one other place the LoadingThread waits for the thread (`0x16d8e20`); the machine otherwise idle; a playset with mods that add meshes.
+- **Cleanup**: `dev.toml` removed; the release kept the logs; the call times, saves and screenshots deleted from the scratchpad.

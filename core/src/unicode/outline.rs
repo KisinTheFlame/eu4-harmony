@@ -5,6 +5,7 @@
 //! colors as they are. The band is read from the font's own page, as its
 //! color and how opaque it is at each distance from the ink, and drawn
 //! around a system glyph by each pixel's distance from that glyph's ink.
+use super::distance::distances;
 use super::system_font::Bitmap;
 
 /// The farthest from the ink an outline is read, in pixels.
@@ -57,6 +58,12 @@ impl Outline {
         let reach = alpha.iter().position(|&a| (a as u32) < LEAST_ALPHA).unwrap_or(MOST_REACH);
         alpha.truncate(reach);
         (reach > 0).then_some(Outline { color, alpha })
+    }
+
+    /// How opaque the outline is one pixel from the ink, two pixels, and so
+    /// on, out to its reach.
+    pub fn alpha(&self) -> &[u8] {
+        &self.alpha
     }
 
     /// How many pixels beyond the ink the outline reaches.
@@ -116,68 +123,6 @@ fn over(ink: u32, coverage: u8, color: u32, under: f32) -> u32 {
     ((alpha * 255.0).round() as u32) << 24 | channel(16) << 16 | channel(8) << 8 | channel(0)
 }
 
-/// Far from everything, for [`distances`].
-const FAR: f32 = 1e20;
-
-/// The distance from each pixel's center to the nearest ink pixel's, in
-/// pixels (`width` to a row); 0 on the ink, [`FAR`] or more with no ink at
-/// all. Exact: squared distances across each row, then down each column
-/// (Felzenszwalb and Huttenlocher's distance transform).
-fn distances(ink: &[bool], width: u32, height: u32) -> Vec<f32> {
-    let (width, height) = (width as usize, height as usize);
-    let mut squared: Vec<f32> = ink.iter().map(|&i| if i { 0.0 } else { FAR }).collect();
-    let mut line = Vec::new();
-    for y in 0..height {
-        line.clear();
-        line.extend_from_slice(&squared[y * width..(y + 1) * width]);
-        squared[y * width..(y + 1) * width].copy_from_slice(&along(&line));
-    }
-    for x in 0..width {
-        line.clear();
-        line.extend((0..height).map(|y| squared[y * width + x]));
-        for (y, d) in along(&line).into_iter().enumerate() {
-            squared[y * width + x] = d;
-        }
-    }
-    squared.into_iter().map(f32::sqrt).collect()
-}
-
-/// For each place on a line, the least of `f[q] + (p - q)²` over every `q`:
-/// the lower envelope of the parabolas rooted at each place.
-fn along(f: &[f32]) -> Vec<f32> {
-    let n = f.len();
-    if n == 0 {
-        return Vec::new();
-    }
-    // The parabolas on the envelope, and where each starts to be lowest.
-    let (mut roots, mut starts) = (vec![0usize; n], vec![0f32; n + 1]);
-    let mut k = 0;
-    starts[0] = -FAR;
-    starts[1] = FAR;
-    for q in 1..n {
-        let meets = |r: usize| ((f[q] + (q * q) as f32) - (f[r] + (r * r) as f32)) / (2 * q - 2 * r) as f32;
-        let mut s = meets(roots[k]);
-        while s <= starts[k] {
-            k -= 1;
-            s = meets(roots[k]);
-        }
-        k += 1;
-        roots[k] = q;
-        starts[k] = s;
-        starts[k + 1] = FAR;
-    }
-    k = 0;
-    (0..n)
-        .map(|p| {
-            while starts[k + 1] < p as f32 {
-                k += 1;
-            }
-            let r = roots[k];
-            (p as f32 - r as f32).powi(2) + f[r]
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,20 +145,6 @@ mod tests {
             }
         }
         pixels
-    }
-
-    #[test]
-    fn distances_are_euclidean() {
-        // One ink pixel in the middle of a 7×5 grid.
-        let mut ink = vec![false; 35];
-        ink[2 * 7 + 3] = true;
-        let d = distances(&ink, 7, 5);
-        assert_eq!(d[2 * 7 + 3], 0.0);
-        assert_eq!(d[2 * 7 + 6], 3.0);
-        assert!((d[0] - 13f32.sqrt()).abs() < 1e-5, "{}", d[0]);
-        assert!((d[4 * 7 + 5] - 8f32.sqrt()).abs() < 1e-5);
-        // No ink at all: everything far.
-        assert!(distances(&[false; 6], 3, 2).iter().all(|&d| d >= 1e9));
     }
 
     #[test]

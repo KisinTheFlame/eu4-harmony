@@ -150,6 +150,7 @@ pub(crate) fn run(game_dir: PathBuf, installed: &str) {
         log!("ui: {note}");
     }
     unicode::framework_fonts::plan(&mut plan);
+    unicode::map_field::plan(&mut plan);
     log!("splice plan ready: {} mod element(s), {} button slot(s)", plan.elements.len(), plan.slots);
     let notes: Vec<String> = discovery_notes
         .iter()

@@ -185,6 +185,24 @@ Timed 2026-11-08 on master with L5 merged, as "The startup with L5" was but with
 - **The main menu's part**: of the main thread's samples under `0x206260`, 44% under `0x10af270` → `0xfd58b0` → `0xfd5b70` → `0x159e510`, nearly all of them in the framework's drawing of glyphs with DirectWrite; 39% in the map's graphics (`0x10a2e40`, mostly `0x12db850`). The framework's log counted 4,234 to 4,255 glyphs drawn in 2.0 to 2.6 s, twice what it took in "The startup with L4". From 20 s on, 35% of the main thread's samples waited in the kernel under Direct3D 9 and the graphics driver (`NtWaitForSingleObject`, from `0x16d4db0` and the window's shared surface).
 - So the startup's path is now the LoadingThread's 17.6 s from 3.0 to 20.6 s, of which the script reader's databases and events are 9.9 s, then the main thread's 4.5 s, of which the glyphs are about 2 s.
 
+## The startup with B1
+
+Timed 2026-11-09 with [B1](../plans/startup-side-by-side.md) on, the mesh types loaded on a thread of the framework's beside the databases, three starts each way, as "The startup after L5, broken down" was ([the run](../prototype-log/2026-11-09-mesh-types-beside-the-databases.md)); no other test game ran. Seconds, B1 on against left to the game:
+
+| Stretch | Function | B1 on | Left to the game |
+| --- | --- | --- | --- |
+| The gfx stage | `0x202850` | 2.11, 2.02, 1.64 | 3.69, 3.03, 3.07 |
+| of that, the meshes on the LoadingThread | `0x14dc5d0` | 0.20, 0.21, 0.17 | 1.74, 1.53, 1.55 |
+| The mesh types | `0x14dc390` | 1.72, 1.92, 1.66, beside | 1.53, 1.35, 1.37 |
+| From the gfx stage's start to InitGame's | | 2.21, 2.13, 1.73 | 3.83, 3.12, 3.19 |
+| The databases | `0x208620` | 4.95, 4.91, 4.56 | 4.93, 4.20, 4.62 |
+| The events | `0x6f3250` | 3.22, 3.05, 2.41 | 3.12, 2.48, 2.52 |
+| The main menu's part ends | `0x206260` | 18.88, 19.64, 16.05 | 21.46, 17.91, 18.28 |
+
+- InitGame begins 1.0 to 1.6 s sooner: the meshes' time left on the LoadingThread is their mesh objects and shaders, about 0.2 s. The mesh types take 0.2 to 0.5 s longer beside the databases than alone; the databases' times overlap either way.
+- The databases ended after the mesh types in every start, so the LoadingThread never waited for them.
+- The stretches after InitGame's start moved by 1 to 2 s from start to start either way, more than B1's gain, so the main menu's own time does not show it in three starts.
+
 ## Which stretches can run side by side
 
 Read 2026-11-09 from the game's code, for which of the stretches of "The startup after L5, broken down" could run beside each other instead of one after another: what each reads, writes and shares with the others. Nothing here was tried in the game. The direct calls of every function and the globals each reads and writes were indexed from the exception directory and the code (capstone, over the whole of `.text`); a function reached only through a vtable was followed by hand.
@@ -211,7 +229,8 @@ Read 2026-11-09 from the game's code, for which of the stretches of "The startup
 - **What the meshes read**: the mesh types the gfx stage registered, their files, the defines; nothing a database writes. The skeleton's builder does not use the context it is given (`[[0x242bf50]+0x348]+8`); the texture loader's and the mesh types' globals (`[0x242b830]`, `[0x2358a00]`, `[0x2358a30]`, the shaders' cache `[0x242b820]`) are used by graphics code only; `[0x2358a18]` is read. The meshes make no token, dynamic or not, and no timer.
 - **What they make, and who reads it**: their objects, buffers, shaders and globals are read by drawing code only. The databases reach the graphics object twice, both unrelated: the loading screen's text (`0x20878b`, `0x11bb4f0`) and the map's size after the map logic (`0x20c3c7`, `0x14dfb30`, which writes `+0x534` to `+0x540`, which the meshes do not read). The one lookup of a mesh type by name the databases can reach (`0x14db870`) is the map's message text (`0x8c07b0` → `0x6e9860`), which returns at once without a player country (`[[0x233fe78]+0x1e00]`), as at startup.
 - **The loading screen meanwhile**: its window is made before the gfx stage (`0x2024d2` → `0x11bb850`) and drawn before the meshes too (`0x203821`), so it needs nothing of theirs; the meshes' own functions only make resources (vertex and index buffers), and the loading screen's drawing changes the device's state, which a multithreaded device keeps apart.
-- **So**: the mesh types' and mesh objects' loads can run on a thread of their own beside the databases, if (1) the meshes' end (their shaders, the sprites' declaration, their device resource's registration) stays on the LoadingThread after it has waited for that thread, before anything draws a mesh or a particle (the flags do, through `0x10c7280` → `0xde7480` → `0x14dcd30`), and (2) no device reset runs while that thread runs.
+- **In the game it crashed** (2026-11-09, [the crashes](../prototype-log/2026-11-09-mesh-types-crash-in-the-map-logic.md)): two of about twelve starts with B1 on, on a busy machine, met an access violation on the LoadingThread in the map logic (`0x87b9e0`), one reading a 16-bit province grid's entry as `0x9200`, while the mesh types' thread read a file through `0x17279f0` and `PHYSFS_read`. So something the two share is missing from what is said here, or a read is not as safe from two threads as the table above says; which was not found.
+- **So** (as read before the crashes): the mesh types' and mesh objects' loads can run on a thread of their own beside the databases, if (1) the meshes' end (their shaders, the sprites' declaration, their device resource's registration) stays on the LoadingThread after it has waited for that thread, before anything draws a mesh or a particle (the flags do, through `0x10c7280` → `0xde7480` → `0x14dcd30`), and (2) no device reset runs while that thread runs.
 
 ### The events beside the databases: cannot
 

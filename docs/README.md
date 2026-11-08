@@ -47,6 +47,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [dev-commands.md](plans/dev-commands.md) | The development tools as commands of `cargo xtask` and the command line tool instead of scripts |
 | [hidden-start.md](plans/hidden-start.md) | Starting the game with nothing of it on the player's desktop |
 | [loading.md](plans/loading.md) | A shorter startup and load, the data loaded the same |
+| [startup-side-by-side.md](plans/startup-side-by-side.md) | The startup's stretches run beside each other where nothing one makes is read by the other, the data loaded the same |
 | [player-actions.md](plans/player-actions.md) | Extensions and remote clients doing in the game's panels what the player does |
 | [scenarios.md](plans/scenarios.md) | Scenarios: runs of the real game that one runner plays and reports on |
 | [player-language.md](plans/player-language.md) | The player language chosen out of twelve, and fonts that follow it |
@@ -56,6 +57,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [deepening.md](plans/deepening.md) | Knowledge written out in several places gathered into one module each |
 | [whole-game.md](plans/whole-game.md) | The framework played through the real game from end to end before a release |
 | [extension-windows.md](plans/extension-windows.md) | Pop-ups and windows of extensions' own in the game's look, laid out in Lua and opened from the panel button strip |
+| [map-names-distance-fields.md](plans/map-names-distance-fields.md) | The names on the map drawn from distance fields, sharp at every zoom, with the outline drawn by the map's shader |
 
 ### Replaced
 
