@@ -261,7 +261,7 @@ pub fn press(number: u32, pressed: Pressed) {
         let look = crate::game::WorldSession::open(crate::game::Caller::Remote).and_then(|session| {
             crate::game::camera::look_at(
                 session,
-                eu4_harmony_remote::camera::args::LookAt { province: Some(eu4_harmony_remote::ProvinceId(province)), x: None, y: None },
+                eu4_harmony_remote::camera::args::LookAt { province: Some(eu4_harmony_remote::ProvinceId(province)), x: None, y: None, glide: Some(true) },
             )
         });
         if let Err(e) = look {

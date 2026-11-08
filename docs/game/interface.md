@@ -61,7 +61,7 @@ What the player sees and touches: the windows with their buttons and text, the t
 ## The camera
 
 - **Map positions** are pixels of the province map (`map/provinces.bmp`, 5632 by 2048), x across and up the map, as `map/positions.txt` writes them; a grid gives the province at every pixel ([research/camera.md](../research/camera.md), "Where the map is in the camera's world").
-- **The camera glides.** It has where it is and where it looks, and where it is going to be; each frame it moves a little towards the goal. Looking at a province takes the province's own position on the map ([research/camera.md](../research/camera.md), "The camera", "Moving it").
+- **The camera glides.** It has where it is and where it looks, and where it is going to be; each frame it moves a little towards the goal. Looking at a province takes the province's own position on the map ([research/camera.md](../research/camera.md), "The camera", "Moving it"). A message pop-up's Go to is that glide and nothing after it ([research/message-pop-up-actions.md](../research/message-pop-up-actions.md)); `camera.look_at` glides when asked and otherwise puts the camera there at once.
 - **It stays on the map**, between the heights the defines give (`CAMERA_MIN_HEIGHT` 50 and `CAMERA_MAX_HEIGHT` 3000) and above the ground; the map wraps from its right edge to its left; the game locks the camera now and then, and while it is locked nothing moves it ([research/camera.md](../research/camera.md), "The camera").
 
 ## The frame
