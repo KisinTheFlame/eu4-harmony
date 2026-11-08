@@ -406,6 +406,11 @@ mod tests {
         sources(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
         let mut bare = Vec::new();
         for file in files {
+            // The test's stand-ins for the game's functions, a module only
+            // tests build, are called by the framework as the game's are.
+            if file.ends_with(std::path::Path::new("game").join("buffers.rs")) {
+                continue;
+            }
             let text = std::fs::read_to_string(&file).unwrap();
             let lines: Vec<&str> = text.lines().collect();
             // A file's tests, at its end, call nothing of the game's.

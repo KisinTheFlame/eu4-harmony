@@ -241,47 +241,6 @@ pub fn session(m: &'static Memory, world: usize, player: Tag, country: usize, co
     Session { m, ctx: Ctx { world, date: 0, player, country, countries }, view: View::Full, caller, commands: Commands::Recorded }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::catalogue::fake::{byz, tur};
-
-    extern "C" fn twice(value: usize) -> usize {
-        value * 2
-    }
-
-    #[test]
-    fn an_image_s_globals_and_functions_are_at_their_rvas() {
-        let image = Image::new();
-        let m = image.memory();
-        // A global and a function of the game's, at RVAs points check.
-        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED.rva(), twice as *const ());
-        assert_eq!(m.i32(m.at(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0])).unwrap(), 7);
-        assert_eq!(super::super::IS_PAUSED.call(m, [21]).unwrap(), 42);
-    }
-
-    #[test]
-    fn countries_are_listed_at_their_tags_indices_and_found_by_them() {
-        let (player, other) = (Object::country(tur(), 0), Object::country(byz(), 0));
-        let list = Object::countries(&[&player, &other]);
-        let m = Image::new().memory();
-        let session = session(m, 0, tur(), player.at(), list.at(), Caller::Remote);
-        assert_eq!(super::super::country(m, &session.ctx, byz()).unwrap(), other.at());
-        assert_eq!(super::super::country(m, &session.ctx, tur()).unwrap(), player.at());
-        assert!(super::super::country(m, &session.ctx, crate::catalogue::fake::wal()).is_err());
-    }
-
-    #[test]
-    fn an_object_keeps_what_it_points_to_and_its_vectors() {
-        let object = Object::new(0x40).points_to(0, Object::new(8).u64(0, 5)).vector(0x10, &[1, 2, 3]).string(0x20, "march");
-        let m = Memory { base: 0 };
-        assert_eq!(m.u64(m.ptr(object.at()).unwrap()).unwrap(), 5);
-        let (begin, end) = (m.ptr(object.at() + 0x10).unwrap(), m.ptr(object.at() + 0x18).unwrap());
-        assert_eq!((end - begin, m.u64(begin + 16).unwrap()), (24, 3));
-        assert_eq!(game_string::read(&m, object.at() + 0x20).unwrap(), b"march");
-    }
-}
-
 // Batch one's shapes: a world's provinces, and the game's functions a
 // panel's check calls, answering as the test says.
 
@@ -504,5 +463,46 @@ impl Image {
             .function(game_string::LOCALIZE_AT.rva(), localize as *const ())
             .function(game_string::VALUE_NEW.rva(), new_value as *const ())
             .function(game_string::VALUE_DESTROY.rva(), destroy_string as *const ())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalogue::fake::{byz, tur};
+
+    extern "C" fn twice(value: usize) -> usize {
+        value * 2
+    }
+
+    #[test]
+    fn an_image_s_globals_and_functions_are_at_their_rvas() {
+        let image = Image::new();
+        let m = image.memory();
+        // A global and a function of the game's, at RVAs points check.
+        image.i32(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0], 7).function(super::super::IS_PAUSED.rva(), twice as *const ());
+        assert_eq!(m.i32(m.at(crate::objects::campaign::globals::SPECIAL_COUNTRIES[0])).unwrap(), 7);
+        assert_eq!(super::super::IS_PAUSED.call(m, [21]).unwrap(), 42);
+    }
+
+    #[test]
+    fn countries_are_listed_at_their_tags_indices_and_found_by_them() {
+        let (player, other) = (Object::country(tur(), 0), Object::country(byz(), 0));
+        let list = Object::countries(&[&player, &other]);
+        let m = Image::new().memory();
+        let session = session(m, 0, tur(), player.at(), list.at(), Caller::Remote);
+        assert_eq!(super::super::country(m, &session.ctx, byz()).unwrap(), other.at());
+        assert_eq!(super::super::country(m, &session.ctx, tur()).unwrap(), player.at());
+        assert!(super::super::country(m, &session.ctx, crate::catalogue::fake::wal()).is_err());
+    }
+
+    #[test]
+    fn an_object_keeps_what_it_points_to_and_its_vectors() {
+        let object = Object::new(0x40).points_to(0, Object::new(8).u64(0, 5)).vector(0x10, &[1, 2, 3]).string(0x20, "march");
+        let m = Memory { base: 0 };
+        assert_eq!(m.u64(m.ptr(object.at()).unwrap()).unwrap(), 5);
+        let (begin, end) = (m.ptr(object.at() + 0x10).unwrap(), m.ptr(object.at() + 0x18).unwrap());
+        assert_eq!((end - begin, m.u64(begin + 16).unwrap()), (24, 3));
+        assert_eq!(game_string::read(&m, object.at() + 0x20).unwrap(), b"march");
     }
 }
