@@ -30,7 +30,6 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | | |
 | --- | --- |
 | [game-speed.md](plans/game-speed.md) | Making the game faster without changing the game it plays; how a part is chosen, and which comes next |
-| [startup-side-by-side.md](plans/startup-side-by-side.md) | The startup's stretches run beside each other where nothing one makes is read by the other, the data loaded the same |
 
 ### Built
 
@@ -48,6 +47,7 @@ Each larger piece of work has a plan of its own in [plans/](plans/), written as 
 | [dev-commands.md](plans/dev-commands.md) | The development tools as commands of `cargo xtask` and the command line tool instead of scripts |
 | [hidden-start.md](plans/hidden-start.md) | Starting the game with nothing of it on the player's desktop |
 | [loading.md](plans/loading.md) | A shorter startup and load, the data loaded the same |
+| [startup-side-by-side.md](plans/startup-side-by-side.md) | The startup's stretches run beside each other where nothing one makes is read by the other, the data loaded the same |
 | [player-actions.md](plans/player-actions.md) | Extensions and remote clients doing in the game's panels what the player does |
 | [scenarios.md](plans/scenarios.md) | Scenarios: runs of the real game that one runner plays and reports on |
 | [player-language.md](plans/player-language.md) | The player language chosen out of twelve, and fonts that follow it |

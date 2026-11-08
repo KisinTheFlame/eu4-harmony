@@ -1,6 +1,6 @@
 # The startup's stretches side by side
 
-Status: decided 2026-11-09, after [research/loading.md](../research/loading.md) ("Which stretches can run side by side"); B1 asked for by the owner the same day. It follows [loading.md](loading.md), a record, and meets the same bar ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
+Status: decided 2026-11-09, after [research/loading.md](../research/loading.md) ("Which stretches can run side by side"); B1 asked for by the owner the same day, built and tried the same day ([the run](../prototype-log/2026-11-09-mesh-types-beside-the-databases.md)). It follows [loading.md](loading.md), a record, and meets the same bar ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
 
 ## Goal and scope
 
@@ -26,6 +26,7 @@ At the end of the gfx stage the LoadingThread spends about 2.2 s in the meshes (
 - The LoadingThread waits for that thread as the databases end, at the DLC's metadata (`0x2060f0`), which InitGame calls next: the events, the flags and what follows them, the main menu and every drawing of a mesh or a particle come after it, as they do now. A check of the device (`0x16d8e20`) that finds it lost waits for it too, before the game lets every device object go and makes it again.
 - A later call, such as after the device's reset, loads the mesh types on its caller's thread, as the game does.
 - The mesh types loaded, in the same order, and every other step stay what they were; only the time changes: `setup.log`'s "Loading Animated Map-Sprites" line counts only what is left on the LoadingThread.
+- Shown: three starts each way, the part on and left to the game (`game-paths`): InitGame began 2.21, 2.13 and 1.73 s after the gfx stage did, against 3.83, 3.12 and 3.19 s; the databases took 4.95, 4.91 and 4.56 s against 4.93, 4.20 and 4.62 s, and ended after the mesh types each time. An ironman save loaded each way and written by the game after its load: `gamestate` the same but for the 4 bytes at 510, `meta` but for its UUID and its closing checksum, `ai` the same; the units' models drawn alike ([research/loading.md](../research/loading.md), "The startup with B1").
 
 ### Not planned yet
 
