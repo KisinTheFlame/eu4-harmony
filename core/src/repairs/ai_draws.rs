@@ -84,6 +84,13 @@ impl Stream {
         stream
     }
 
+    /// A number as the game's step gives one: below 2^31, which its callers
+    /// take as a non-negative `i32` (its tempering ends in an arithmetic
+    /// shift, `sar eax, 0x12; xor eax, r8d`, so its top bit is always 0).
+    fn draw(&mut self) -> u32 {
+        self.next() >> 1
+    }
+
     fn next(&mut self) -> u32 {
         let old = self.state;
         self.state = old.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(self.increment);
@@ -108,7 +115,7 @@ thread_local! {
 fn drawn_apart() -> Option<u32> {
     let from_task = TASK_STREAMS
         .try_with(|streams| match streams.borrow_mut().last_mut() {
-            Some(Some(stream)) => Some(Some(stream.next())),
+            Some(Some(stream)) => Some(Some(stream.draw())),
             Some(None) => Some(None),
             None => None,
         })
@@ -124,7 +131,7 @@ fn drawn_apart() -> Option<u32> {
         None => OWN
             .try_with(|own| {
                 let mut stream = own.get().unwrap_or_else(|| Stream::of(STAGE_SEED.load(Ordering::Relaxed), u64::from(crate::thread_id()) | 1 << 48));
-                let n = stream.next();
+                let n = stream.draw();
                 own.set(Some(stream));
                 OWN_DRAWS.fetch_add(1, Ordering::Relaxed);
                 n
@@ -246,7 +253,11 @@ pub(super) fn points() -> Vec<Point> {
             0xe9fd3usize,
             "80 3d e6 e1 26 02 00 74 06 48 8d 4d 78 eb 0e 48 8b 0d 8f 5e 25 02 48 81 c1 90 0b 00 00 e8",
             "army agent draws from the world's or its own generator",
-        ),
+        )
+        .uses(&[SEEDED, globals::WORLD, WORLD_GENERATOR]),
+        // `mov r8, [rsi + 0x20]; mov r9, r8; shr r9, 0x20`: the task reads its
+        // country's tag, and of it the index.
+        Point::keep(0xb1028usize, "4c 8b 46 20 4d 8b c8 49 c1 e9 20", "AI country's task reads its tag").uses(&[AI_TAG]),
     ]
 }
 
@@ -288,6 +299,15 @@ mod tests {
         for count in bits {
             assert!((f64::from(count) / f64::from(n / 2) - 1.0).abs() < 0.01, "{bits:?}");
         }
+    }
+
+    #[test]
+    fn a_draw_is_never_negative_as_the_games_are() {
+        let mut s = Stream::of(1, 2);
+        let draws: Vec<u32> = (0..100_000).map(|_| s.draw()).collect();
+        assert!(draws.iter().all(|&x| (x as i32) >= 0));
+        // And it reaches near the top of its range, as the game's does.
+        assert!(draws.iter().any(|&x| x > 0x7ff0_0000));
     }
 
     #[test]
