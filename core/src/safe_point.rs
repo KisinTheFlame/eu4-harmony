@@ -175,7 +175,7 @@ pub fn game_frame() {
             #[cfg(feature = "dev-test-switches")]
             if frame.new_session() {
                 game::commands::post_test_commands();
-                if crate::dev::options().test_switches.crash {
+                if test_switch!(crash) {
                     log!("test switch crash: crashing the game");
                     // An access violation, which the game's crash handling takes.
                     unsafe { std::ptr::read_volatile(8 as *const u8) };

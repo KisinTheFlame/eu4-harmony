@@ -166,10 +166,7 @@ fn listed(country: usize) -> String {
 /// A developer build's test switch `game-ends-dependencies`: a subject
 /// relation's end is the game's own, so that the defect can be tried.
 fn game_ends_dependencies() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.game_ends_dependencies;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
+    test_switch!(game_ends_dependencies)
 }
 
 crate::resume!(WALK_RESUME: WALK_EMPTY_AT = PAST_WALK, WALK_FIRST_AT = WALK_FIRST);

@@ -10,6 +10,20 @@ pub type Result<T> = std::result::Result<T, String>;
 /// Marks a function the game's code calls, which runs under [`guarded`].
 pub(crate) use eu4_harmony_core_macros::called_by_game;
 
+/// A developer build's test switch, `test_switch!(crash)`: as dev.toml's
+/// `[test-switches]` has it, and off in a build without the test switches,
+/// which has no dev.toml to read. The speed-ups' switches are read through
+/// `speed`.
+macro_rules! test_switch {
+    ($switch:ident) => {{
+        #[cfg(feature = "dev-test-switches")]
+        let on = crate::dev::options().test_switches.$switch;
+        #[cfg(not(feature = "dev-test-switches"))]
+        let on = false;
+        on
+    }};
+}
+
 #[macro_use]
 pub mod log;
 #[macro_use]
@@ -146,8 +160,7 @@ fn start(m: memory::Memory) -> Result<String> {
     icu::load()?;
     #[cfg(dev_build)]
     dev::load(&paths::core_dir()?)?;
-    #[cfg(feature = "dev-test-switches")]
-    if dev::options().test_switches.fail_startup {
+    if test_switch!(fail_startup) {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
     speed::check_switches()?;
@@ -309,8 +322,7 @@ fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec
         }
     }
     // Lets the notice window be tried without a broken mod.
-    #[cfg(feature = "dev-test-switches")]
-    if dev::options().test_switches.test_notice {
+    if test_switch!(test_notice) {
         for number in ["1", "2"] {
             notice::post(&format!("test:{number}"), notice::Repeat::Run, notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
         }
