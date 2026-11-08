@@ -54,7 +54,7 @@ use crate::points::Point;
 use crate::settings;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard};
@@ -123,6 +123,10 @@ struct Fill {
     /// How many pixels of the page a GUI unit takes (see [`density`]).
     density: f32,
     drawn: HashMap<(u32, Tone), Option<Glyph>>,
+    /// Glyphs that found no room, drawn once the page has grown. While a
+    /// game loads, the main thread presents no frame for long: the names on
+    /// the map ask for thousands meanwhile, each asked for many times.
+    waiting: HashSet<(u32, Tone)>,
     /// The tones its fonts have drawn in so far, for the log.
     tones: Vec<Tone>,
     full: bool,
@@ -425,7 +429,12 @@ fn glyph_of(fill: &mut Fill, scalar: u32, tone: Tone) -> Result<Option<Glyph>, N
     if let Some(found) = fill.drawn.get(&(scalar, tone)) {
         return Ok(*found);
     }
-    let glyph = costs::GLYPHS.time(|| draw(fill, scalar, tone))?;
+    if fill.waiting.contains(&(scalar, tone)) {
+        return Err(NoRoom);
+    }
+    let glyph = costs::GLYPHS.time(|| draw(fill, scalar, tone)).inspect_err(|_| {
+        fill.waiting.insert((scalar, tone));
+    })?;
     fill.drawn.insert((scalar, tone), glyph);
     Ok(glyph)
 }
@@ -689,6 +698,7 @@ fn make_page(m: &Memory, font: usize, device: &IDirect3DDevice9, own: Option<&Ow
         base,
         density,
         drawn: HashMap::new(),
+        waiting: HashSet::new(),
         tones: Vec::new(),
         full: false,
     })
@@ -878,6 +888,7 @@ fn grow(m: &Memory, wrapper: usize, fill: &mut Fill) -> crate::Result<()> {
     }
     fill.texture = texture;
     fill.atlas.grow(width, height);
+    fill.waiting.clear();
     if fill.kind == Kind::Map {
         MAP_NAMES_STALE.store(true, Ordering::Release);
     }
