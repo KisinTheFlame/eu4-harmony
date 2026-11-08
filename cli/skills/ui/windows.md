@@ -74,7 +74,8 @@ steps:
    text, and one or two buttons. agree stands on the right, pressed by c
    and Return, the game's own OK when left out; decline on the left, pressed
    by z and Esc. In place of decline, province = 151 puts the game's Go to
-   on the left, which glides the camera there. answer is "agree", "decline",
+   on the left, which glides the camera there. A click on a shield opens
+   the diplomacy view on its country. answer is "agree", "decline",
    "goto", or "closed" when it closed with none: game.popup.close("ask"),
    the session's end, or the mod stopped. Several may be open at once, and
    remote clients list and answer them (popup.list, popup.answer).

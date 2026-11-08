@@ -50,6 +50,15 @@ pub const POPUPS_FILE: &str = "interface/eu4harmony_popups.gui";
 /// The idler's: close the views over the map, and every big panel.
 const CLOSE_VIEWS: GameFunction<1> = GameFunction::at(0x818080);
 const CLOSE_PANELS: GameFunction<1> = GameFunction::at(0x80c6e0);
+/// The idler's opening of one of its views by number `(idler, view)`, which
+/// closes the others in a loop of its own, not through [`CLOSE_PANELS`]: the
+/// diplomacy view from a country's shield or the map
+/// (docs/research/message-pop-up-actions.md §3).
+const OPEN_VIEW: usize = 0x820990;
+/// The idler's opening of the diplomacy view on a country `(idler, tag)`,
+/// as a click on one of the game's shields does
+/// (docs/research/message-pop-up-actions.md §3).
+const OPEN_DIPLOMACY: GameFunction<2> = GameFunction::at(0x821420);
 /// The idler's tooltip of an element under the pointer `(idler, out, element)`.
 const TOOLTIP: usize = 0xb81870;
 /// The idler's laying out of the panel button strip `(idler)`.
@@ -554,6 +563,7 @@ fn clicks(m: &Memory) {
         Widget(usize, String, String, Option<u32>, bool),
         Close(usize, String),
         Popup(u32, super::Pressed),
+        Shield(u32, usize),
         Entry(usize, String),
     }
     let found: Vec<Was> = with_live(|live| {
@@ -565,7 +575,10 @@ fn clicks(m: &Memory) {
                         continue;
                     };
                     return match &built.key {
-                        Key::Popup(n) => super::Pressed::of(&b.name).map(|pressed| Was::Popup(*n, pressed)),
+                        Key::Popup(n) => match gui::SHIELDS.iter().position(|s| *s == b.name) {
+                            Some(side) => Some(Was::Shield(*n, side)),
+                            None => super::Pressed::of(&b.name).map(|pressed| Was::Popup(*n, pressed)),
+                        },
                         Key::Window(e, w) if b.name == gui::CLOSE => Some(Was::Close(*e, w.clone())),
                         Key::Window(e, w) => Some(Was::Widget(*e, w.clone(), b.name.clone(), b.row.as_ref().map(|(_, r)| *r), right)),
                     };
@@ -577,7 +590,6 @@ fn clicks(m: &Memory) {
             })
             .collect()
     });
-    let _ = m;
     for was in found {
         match was {
             Was::Widget(extension, window, widget, row, right) => with(|all| {
@@ -588,6 +600,11 @@ fn clicks(m: &Memory) {
             Was::Close(extension, window) => with(|all| all.show(extension, &window, false)),
             Was::Popup(number, pressed) => {
                 super::press(number, pressed);
+            }
+            Was::Shield(number, side) => {
+                if let Err(e) = open_diplomacy(m, number, side) {
+                    log!("windows: pop-up {number}'s shield: {e}");
+                }
             }
             Was::Entry(extension, window) => with(|all| {
                 let open = all.wanted.get(&(extension, window.clone())).is_some_and(|w| w.open);
@@ -736,22 +753,42 @@ fn build_popup(m: &Memory, mgr: usize, number: u32, popup: &Popup, name: &str, (
     let text = find(m, root, Some(&Kind::Text { text: None, font: layout::Font::Body, align: layout::Align::Start }), gui::TEXT)?;
     write_text(m, text, &game_text::from_str(&popup.text))?;
     // The shields: the countries named, the player's where none is, and
-    // none to show in observe mode with no country in view.
-    let player = game::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned());
+    // none to show in observe mode with no country in view. A click on one
+    // opens the diplomacy view on its country, as on the game's.
+    let mut elements = Vec::new();
     for (element, tag) in gui::SHIELDS.iter().zip(&popup.shields) {
-        let Some(tag) = tag.clone().or_else(|| player.clone()) else { continue };
+        let Some(tag) = tag.clone().or_else(|| player_letters(m)) else { continue };
         let shield = find(m, root, None, element)?;
         if let Err(e) = set_country(m, shield, &tag) {
             log!("windows: pop-up {number}'s shield {tag}: {e}");
+            continue;
         }
+        elements.push(Bound { name: element.to_string(), object: shield, kind: None, subscription: Some(subscribe(m, shield)?), row: None });
     }
-    let mut elements = Vec::new();
     for (name, _) in gui::shown(popup) {
         let object = find(m, root, None, &name)?;
         elements.push(Bound { name, object, kind: None, subscription: Some(subscribe(m, object)?), row: None });
     }
     show_window(m, root, true)?;
     Ok(Built { key: Key::Popup(number), root, placed: (x, y), moveable: true, elements, applied: HashMap::new(), rows: BTreeMap::new() })
+}
+
+/// The letters of the player's country, none in observe mode with no
+/// country in view.
+fn player_letters(m: &Memory) -> Option<String> {
+    game::context(m).ok().map(|ctx| String::from_utf8_lossy(&ctx.player.letters()).into_owned())
+}
+
+/// Opens the diplomacy view on the country of a pop-up's shield, on the
+/// `side` of [`gui::SHIELDS`], as a click on the game's own shields does.
+fn open_diplomacy(m: &Memory, number: u32, side: usize) -> Result<()> {
+    let named = with(|all| all.popups.iter().find(|p| p.number == number).map(|p| p.popup.shields[side].clone()));
+    let Some(letters) = named.flatten().or_else(|| player_letters(m)) else { return Ok(()) };
+    let session = WorldSession::open(Caller::Remote).map_err(|e| e.message)?;
+    let bytes: [u8; 3] = letters.as_bytes().try_into().map_err(|_| format!("{letters:?} is not a tag"))?;
+    let tag = game::countries::find(session, bytes).map_err(|e| e.message)?;
+    OPEN_DIPLOMACY.call(m, [idler(m)?, tag.0 as usize])?;
+    Ok(())
 }
 
 /// The game is killing the window `root`: when it is one the framework
@@ -785,8 +822,9 @@ pub(crate) fn session_ended() {
 
 // ---------- the game's big panels and tooltips ----------
 
-/// The game closes its big panels: the extension windows that are ones
-/// close too, but when the framework itself closes them to open one.
+/// The game closes its big panels, or opens one of its views: the extension
+/// windows that are big panels close too, but when the framework itself
+/// closes them to open one.
 fn panels_closing(_: &mut Call) {
     if !OPENING.load(Ordering::Relaxed) {
         with(|all| all.close_panels(None));
@@ -949,7 +987,16 @@ fn place_entries(m: &Memory, live: &mut Live, idler: usize, entries: &[EntryWant
 pub fn points() -> Vec<Point> {
     vec![
         Point::keep(CLOSE_VIEWS, "48 89 5c 24 10 57 48 83 ec 20 48 8b 99 80 1b 00 00 48 8b f9", "closing the views over the map"),
+        Point::keep(OPEN_DIPLOMACY, "48 89 5c 24 08 48 89 74 24 10 57 48 83 ec 20 48 8b 81 10 11", "opening the diplomacy view on a country"),
         Point::observe(CLOSE_PANELS, "48 89 5c 24 10 57 48 83 ec 20 48 8b 99 b8 10 00 00 48 8b f9", "closing the big panels", 1, Some(panels_closing), None),
+        Point::observe(
+            OPEN_VIEW,
+            "40 53 55 57 48 83 ec 20 4c 89 7c 24 58 48 8b d9 44 8b fa e8",
+            "opening one of the idler's views",
+            2,
+            Some(panels_closing),
+            None,
+        ),
         Point::observe(TOOLTIP, "48 89 5c 24 08 48 89 54 24 10 55 56 57 41 54 41", "the map manager's tooltip", 3, None, Some(tooltip_after)),
         Point::observe(
             STRIP_LAYOUT,
