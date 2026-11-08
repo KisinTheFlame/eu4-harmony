@@ -211,6 +211,117 @@ pub fn points() -> Vec<Point> {
     ]
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        Caller, Fail, Status, Tag,
+    };
+    use std::cell::RefCell;
+
+    /// An option the game does not let the player choose, and an event
+    /// window that stays open when an option is chosen in it, in bytes
+    /// neither uses, read by the game's functions below.
+    const CLOSED: usize = 8;
+    const STICKS: usize = 8;
+
+    thread_local! {
+        /// The options chosen, each with its window.
+        static CHOSEN: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    extern "C" fn choose(window: usize, option: usize) -> usize {
+        CHOSEN.with(|c| c.borrow_mut().push((window, option)));
+        if unsafe { *((window + STICKS) as *const u8) } == 0 {
+            unsafe { *((window + window::OPEN) as *mut u8) = 0 };
+        }
+        0
+    }
+
+    extern "C" fn option_open(option: usize) -> usize {
+        (unsafe { *((option + CLOSED) as *const u8) } == 0).into()
+    }
+
+    /// France's questions: 3 (`flavor.1`, whose second option is closed)
+    /// and 5 (its window stays open when chosen in), shown in event windows;
+    /// and the window of 4, whose pending event no longer waits.
+    struct France {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+        windows: [usize; 3],
+    }
+
+    fn france() -> France {
+        let image = Image::new();
+        let m = image.memory();
+        image.function(CHOOSE.rva(), choose as *const ()).function(OPTION_OPEN.rva(), option_open as *const ());
+        let options = [Object::new(CLOSED + 8), Object::new(CLOSED + 8).u8(CLOSED, 1)];
+        let event = Object::new(event::OPTIONS + 0x10).vector(event::OPTIONS, &options.iter().map(|o| o.at() as u64).collect::<Vec<_>>());
+        let window = |pending: u32, sticks: bool| {
+            Object::new(window::OPEN + 8)
+                .u64(0, m.at(classes::EVENT_WINDOW) as u64)
+                .u64(window::EVENT, event.at() as u64)
+                .u32(window::PENDING, pending)
+                .u8(window::OPEN, 1)
+                .u8(STICKS, sticks.into())
+        };
+        let windows = [window(3, false), window(4, false), window(5, true)];
+        let at = [windows[0].at(), windows[1].at(), windows[2].at()];
+        let manager = Object::new(campaign::map_manager::POPUPS + 0x18)
+            .u64(0, m.at(classes::MAP_MANAGER) as u64)
+            .list(campaign::map_manager::POPUPS, windows.into_iter().map(|w| (w, false)).collect());
+        let records = Object::new(2 * pending::SIZE);
+        for (i, id) in [3u32, 5].into_iter().enumerate() {
+            let at = i * pending::SIZE;
+            records.set(at + pending::EVENT, &(event.at() as u64).to_le_bytes());
+            records.set(at + pending::ID, &id.to_le_bytes());
+            records.set(at + pending::DEADLINE, &100i32.to_le_bytes());
+        }
+        let world = Object::new(world::PENDING_EVENT_COUNT + 4)
+            .points_to(world::MAP_MANAGER, manager)
+            .u64(world::PENDING_EVENTS, records.at() as u64)
+            .i32(world::PENDING_EVENT_COUNT, 2);
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let country = Object::country(fra, 0);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(m, world.at(), fra, country.at(), countries.at(), Caller::Remote);
+        let mut objects = vec![event, records, world, country, countries];
+        objects.extend(options);
+        France { _image: image, _objects: objects, session, windows: at }
+    }
+
+    fn answering(france: &France, question: u32, option: u32) -> GResult<()> {
+        answer(france.session, args::Answer { question, option })
+    }
+
+    #[test]
+    fn a_question_is_answered_by_choosing_the_option_in_its_window() {
+        let france = france();
+        answering(&france, 3, 0).unwrap();
+        assert_eq!(CHOSEN.with(|c| c.take()), [(france.windows[0], 0)]);
+        // Its window is closed: the question is no longer listed.
+        assert_eq!(count(france.session.m, &france.session.ctx).unwrap(), 1);
+    }
+
+    #[test]
+    fn a_question_or_an_option_the_window_does_not_offer_is_refused() {
+        let france = france();
+        let refused = |question, option| {
+            let Err(Fail { status, message }) = answering(&france, question, option) else { panic!("question {question} was answered") };
+            (status, message)
+        };
+        assert_eq!(refused(3, 1), (Status::Rejected, "the player may not choose option 1 of question 3".into()));
+        assert_eq!(refused(3, 2), (Status::InvalidArgument, "question 3 has no option 2".into()));
+        // Something else answered 4: its window is left alone.
+        assert_eq!(refused(4, 0), (Status::NotFound, "no question 4".into()));
+        assert_eq!(refused(9, 0), (Status::NotFound, "no question 9".into()));
+        assert!(CHOSEN.with(|c| c.take()).is_empty());
+        assert_eq!(refused(5, 0), (Status::Internal, "the event window of question 5 stayed open".into()));
+    }
+}
+
 /// The refusals the framework words itself of a question and its options.
 mod checks {
     use crate::game::{Fail, Status};
