@@ -73,9 +73,19 @@ So the recounts of two provinces write nothing the other writes: run at once, th
 ## What this means for making the game faster
 
 - **The loops as they are cannot run on several threads**: their random draws and their changes to other objects are in order.
-- **A province's modifiers recounted ahead, on the idle threads**, is the largest part that could: about 48 ms of the month's 255, a fifth of the month's stall, writing only its own province. The way to know whether the result is the game's: a prototype that works every recount out before the loop on the idle threads, keeps it, and at each province's own call, in a developer build, works it out as the game does and compares the two (`checked`), counting the differences; where there are none, it takes the result ahead in a player's build. Its bound: the 48 ms, less what the threads take, on a month's first day.
+- **A province's modifiers recounted ahead, on the idle threads**, looked the largest part that could: about 48 ms of the month's 255, writing only its own province. It was set aside on 2026-11-08 ("Why a province's recount cannot be worked out before its month", below): its own month changes what it reads just before it, every month, so a recount worked out before the loop is not the game's for many provinces, and a recount checked and taken only where nothing changed gives less than its small bound, for a check of a 9 KB structure.
 - **The AI's budget** (about 25 ms) and `0x3bc640` (about 18 ms) are the next of that kind, their reads and writes not watched yet.
 - How many threads such a part should use, against the game's own workers (15 short-task threads on this computer's 16 logical processors) and the framework's (S9's 8), is to be decided with it: every pool counts logical processors, none counts cores.
+
+## Why a province's recount cannot be worked out before its month
+
+Read on 2026-11-08, before a prototype. In a province's month (`0x9f35c0`, the province in `r13`), the steps just before its recount (`0x9f38d4`) change what the recount reads, the province's own fields, each month:
+
+- **Its gold** (`0xa12460`, "GOLD_DEPLETE_CHANCE", and `0xa12ab0`, "GOLDDEPLETED"), with a random draw, and **its recovery from looting** (`0x9f7a80`, "ProvinceNoMoreLootText", when bit 8 of `[+0x28]+0x228` is set).
+- **A progress at `+0x8c8`**, raised each month by the define at `[0x233f16c]` up to 1000 once the date has passed `[0x233f178]` × 24 after `+0x8cc` (`0x9f387f`..`0x9f38c2`); what it is was not followed.
+- **Its autonomy's bounds** (`0x715920`, at `0x9f38cc`): `+0x2df0` the least autonomy, from `0xa1a9a0`, and `+0x2df4` the most, 100000 or the define at `[0x233dd24]` when the province is its owner's capital (`+0x14b8`), and `+0x2df8` set ([provinces.md](provinces.md): the shown autonomy is the stored one clamped between them).
+
+So a recount worked out before the loop reads them as they were before the month: for every province whose progress, bounds, gold or loot moved, it differs from the game's, every month, not now and then; and a province before it in the loop can change it as well (an owner, by `0xa00270`). Taking a recount made ahead only where none of those changed would save only those provinces, a share not counted, of a bound of 1.6 ms a day (about 2%), and checking it needs the recount's 9 KB structure compared (from `+0x988` to the province's end: two containers, a string and about twenty sets of 0x178 bytes, their vectors moved from the recount's own each time, `0x9f95d0`, `0x329f70`). The owner set it aside.
 
 ## Not verified
 
