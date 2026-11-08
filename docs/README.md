@@ -47,6 +47,7 @@ Each larger piece of work has a plan of its own: what it is for, its parts, and 
 | [test-games.md](test-games.md) | Test games: several at once, each with a user folder, a core and a pipe of its own |
 | [deepening.md](deepening.md) | Knowledge written out in several places gathered into one module each |
 | [whole-game.md](whole-game.md) | The framework played through the real game from end to end before a release |
+| [extension-windows.md](extension-windows.md) | Pop-ups and windows of extensions' own in the game's look, laid out in Lua and opened from the panel button strip |
 
 ### Replaced
 

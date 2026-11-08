@@ -324,20 +324,40 @@ _Avoid_: GUI patch, overlay, injected window
 A region the framework reserves on a vanilla panel, where the extensions' buttons are laid out automatically.
 _Avoid_: toolbar, slot
 
+**Extension window**:
+A window an extension lays out in Lua out of game widgets, which the framework builds in the game's own interface, in the look of the game's panels; its game widgets are fixed when the extension loads, and what they show changes while it is open.
+_Avoid_: mod window, custom window, framework UI (that is the framework's own)
+
+**Game widget**:
+A building block of an extension window's layout, such as a title, a text, a button or a list, made of the game's own elements in the game's look.
+_Avoid_: widget alone, part, component; element (one of the game's `.gui`, which a game widget is made of)
+
+**Panel button strip**:
+The row of round buttons left of the minimap, against the bottom of the screen, that opens the papacy, the Holy Roman Empire, the Celestial Empire and the game's other such panels; the game shows only the buttons that apply to the player's country.
+_Avoid_: menubar (the game's name for the window it is in), floating buttons, bottom bar
+
+**Entry button**:
+An extension window's button on the panel button strip, left of the game's own, which opens and closes that window as the game's buttons there do theirs.
+_Avoid_: entry alone, launcher, shortcut
+
+**Pop-up**:
+A window an extension shows the player with a title, a text and buttons, in the look of the game's own dialogs, answered by pressing one of its buttons; several may be open at once.
+_Avoid_: notice (that is the framework's own, in the notice window), dialog, message box, alert
+
 **Framework UI**:
 The interface the framework draws on top of the game's picture, without using the game's interface system.
 _Avoid_: overlay (that is how it is drawn), HUD
 
-**Widget**:
+**Framework widget**:
 A building block of the framework UI, such as a button or a drop-down list.
-_Avoid_: element (that means a button, text box and so on in the game's `.gui`)
+_Avoid_: widget alone; element (that means a button, text box and so on in the game's `.gui`)
 
 **Toggle**:
-A widget that is either on or off, switched by a click.
-_Avoid_: checkbox, switch, radio button (a different widget: one choice among several)
+A framework widget that is either on or off, switched by a click.
+_Avoid_: checkbox, switch, radio button (a different framework widget: one choice among several)
 
 **Choice bar**:
-A widget of a few named options side by side in one bar; the chosen one sits under a highlight, which slides to another when it is clicked.
+A framework widget of a few named options side by side in one bar; the chosen one sits under a highlight, which slides to another when it is clicked.
 _Avoid_: slider (that sets a number on a scale), radio buttons, segmented control
 
 **Info mark**:
