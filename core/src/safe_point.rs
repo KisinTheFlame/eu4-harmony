@@ -180,6 +180,10 @@ pub fn game_frame() {
                     // An access violation, which the game's crash handling takes.
                     unsafe { std::ptr::read_volatile(8 as *const u8) };
                 }
+                if test_switch!(panic) {
+                    log!("test switch panic: panicking in framework code");
+                    panic!("the test switch panic is on");
+                }
             }
             let heard = game::event_costs::EVENTS.time(|| frame.heard());
             LISTENERS.frame(frame.session(), &heard);
