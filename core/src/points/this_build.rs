@@ -26,10 +26,11 @@ fn framework() -> Vec<Point> {
     all.extend(crate::wording::points());
     all.extend(crate::framework_ui::hook::points());
     all.extend(crate::speed::points());
-    all.extend(crate::saves::background::points());
-    all.extend(crate::saves::parallel::points());
-    all.extend(crate::saves::sum::points());
-    all.extend(crate::saves::update_thread::points());
+    all.extend(crate::saving::background::points());
+    all.extend(crate::saving::stored::points());
+    all.extend(crate::saving::parallel::points());
+    all.extend(crate::saving::sum::points());
+    all.extend(crate::saving::update_thread::points());
     all.extend(crate::loading::points());
     all.extend(crate::hidden::points());
     all.extend(crate::sound::points());

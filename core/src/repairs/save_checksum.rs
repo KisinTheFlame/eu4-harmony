@@ -5,7 +5,7 @@
 //! The file is summed as the save was.
 use crate::called_by_game;
 use crate::points::Point;
-use crate::saves::sum::SaveSum;
+use crate::saving::sum::SaveSum;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// In the save checksum (`0x14e3390(out, stream, cut, salt, salt length)`),

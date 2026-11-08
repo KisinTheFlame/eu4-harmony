@@ -69,7 +69,7 @@ static ORIGINAL_SUM: Function<Sum> = Function::new();
 extern "C" fn sum(stream: usize, count: i32) -> u32 {
     let m = crate::hooked_memory();
     let count = match counted(m, stream, count) {
-        Ok(count) if count > 0 && count as usize >= FEWEST && !super::game_writes_saves() => count,
+        Ok(count) if count > 0 && count as usize >= FEWEST && !crate::saves::game_writes_saves() => count,
         _ => return ORIGINAL_SUM.get()(stream, count),
     };
     crate::guarded("save checksum sum", || match take(m, stream, count) {

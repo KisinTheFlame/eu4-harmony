@@ -61,7 +61,7 @@ static ORIGINAL_UPDATE: Function<Update> = Function::new();
 
 #[called_by_game]
 extern "C" fn update(arg: usize) -> bool {
-    if super::game_writes_saves() {
+    if crate::saves::game_writes_saves() {
         return ORIGINAL_UPDATE.get()(arg);
     }
     crate::guarded("save's update thread", || {

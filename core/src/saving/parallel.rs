@@ -33,11 +33,11 @@
 //!
 //! The pool takes other work as well: the save checksum's sum
 //! (`super::sum`).
-use super::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
 use crate::called_by_game;
 use crate::game::commands::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
 use crate::memory::Memory;
 use crate::points::{Function, Point};
+use crate::saves::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
 use crate::Result;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -84,7 +84,7 @@ const MAKE_TOKEN_TEXTS: usize = 0x170d250;
 /// `game::commands`' [`WRITER_VTABLE`]; its stream, and its size.
 const WRITER_STREAM: usize = 0x10;
 const WRITER_SIZE: usize = 0x20;
-const WRITER_DEPTH: usize = super::WRITER_DEPTH;
+const WRITER_DEPTH: usize = crate::saves::WRITER_DEPTH;
 
 /// The game's memory stream (vtables `0x1d92200` and `0x1dc0358`, whose write
 /// is `0x171f290`): with no growing part (`+0x38` null) it writes into the
@@ -418,7 +418,7 @@ extern "C" fn write_countries(world: usize, writer: usize) -> bool {
 /// Writes a loop's items on several threads into the writer's stream, and
 /// says whether it did; when it did not, the game's loop writes them.
 fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
-    if super::game_writes_saves() {
+    if crate::saves::game_writes_saves() {
         return false;
     }
     let m = crate::hooked_memory();
@@ -506,7 +506,7 @@ static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
 /// At the provinces' loop: both loops go to the pool, and the game writes on
 /// past the provinces; or the game writes them itself, as it says.
 fn begin(world: usize, writer: usize) -> bool {
-    if super::game_writes_saves() {
+    if crate::saves::game_writes_saves() {
         return false;
     }
     let began = Instant::now();
@@ -577,7 +577,7 @@ fn countries(world: usize, writer: usize) -> bool {
 /// Where the world has written its game state: the main thread takes the
 /// runs left and waits for the pool, and each loop's bytes go into the stream
 /// where the loop began.
-pub(super) fn join(writer: usize) {
+pub(crate) fn join(writer: usize) {
     let Some(p) = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
     if p.writer != writer {
         crate::fatal("saves: the world wrote its game state with another writer than its loops'");
@@ -1210,7 +1210,7 @@ mod compare {
         vec![
             Point::jump(PROVINCES_END, "48 8b ce e8 a9 70 fb 00", "provinces written", provinces_end_stub as *const () as usize, &PROVINCES_END_RESUME),
             Point::jump(COUNTRIES_END, "48 8b ce e8 24 70 fb 00", "countries written", countries_end_stub as *const () as usize, &COUNTRIES_END_RESUME),
-            Point::keep(super::super::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (compare-saves)")
+            Point::keep(crate::saves::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (compare-saves)")
                 .recorded(&CLOSE),
         ]
     }

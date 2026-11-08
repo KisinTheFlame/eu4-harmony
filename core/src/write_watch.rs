@@ -2,7 +2,7 @@
 //! build has none of this). dev.toml's `[write-watch]` names a function by
 //! its RVA; during its first `calls` calls on the main thread, the process's
 //! other threads are suspended, but for the threads that write a save's
-//! countries and provinces with the main thread (`saves::parallel`), whose
+//! countries and provinces with the main thread (`saving::parallel`), whose
 //! writes are recorded too, and every page of the process heap that
 //! holds a block, and every writable page of `eu4.exe`, is read-only. Each
 //! write to one stops at an exception handler, which records the
@@ -152,7 +152,7 @@ fn open_threads(a: &Arena) -> usize {
     while more && n < HELD {
         // The threads that write a save's countries and provinces with the
         // main thread go on, and their writes are watched too.
-        let writes_saves = crate::saves::parallel::threads().contains(&entry.th32ThreadID);
+        let writes_saves = crate::saving::parallel::threads().contains(&entry.th32ThreadID);
         if entry.th32OwnerProcessID == process && entry.th32ThreadID != me && !writes_saves {
             let h = unsafe { OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, 0, entry.th32ThreadID) };
             if !h.is_null() {
