@@ -120,4 +120,98 @@ mod tests {
         let ven = Tag(u64::from_le_bytes(*b"VEN\0\0\0\0\0"));
         assert_eq!(written(ven, 112, 3), r#"modify_center_of_trade={ members={ dummy=112 dummy=3 dummy="VEN" } }"#);
     }
+
+    use crate::catalogue::fake::tur;
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object, Provinces},
+        commands::record,
+        Caller, Fail, Status,
+    };
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Whether the rules of both ways hold, in this test's thread.
+        static BOTH: Cell<bool> = const { Cell::new(true) };
+    }
+
+    /// The rules of both ways: they hold, or refuse as the game writes it.
+    extern "C" fn may_change(_: usize, _: usize, out: usize) -> usize {
+        if BOTH.with(Cell::get) {
+            return 1;
+        }
+        unsafe { write_reason(out, b"- at war") };
+        0
+    }
+
+    /// The upgrade's rules, which hold, and the downgrade's, which refuse.
+    extern "C" fn may_downgrade(_: usize, _: usize, out: usize) -> usize {
+        unsafe { write_reason(out, b"- too young") };
+        0
+    }
+
+    extern "C" fn upgrade_cost(_: usize, out: *mut i32) -> usize {
+        unsafe { *out = 250_000 };
+        0
+    }
+
+    /// The Ottomans' province 1 with a center of trade of level 1, and their
+    /// province 2 with none; a downgrade costs 20 prestige.
+    struct Ottomans {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn ottomans(both: bool) -> Ottomans {
+        BOTH.with(|b| b.set(both));
+        let image = Image::new();
+        image
+            .strings()
+            .function(MAY_CHANGE.rva(), may_change as *const ())
+            .function(MAY_UPGRADE.rva(), buffers::yes as *const ())
+            .function(MAY_DOWNGRADE.rva(), may_downgrade as *const ())
+            .function(UPGRADE_COST.rva(), upgrade_cost as *const ())
+            .i32(DOWNGRADE_PRESTIGE, -20);
+        let provinces = Provinces::new(&image, 3);
+        let levels = Object::new(LEVEL + 4).i32(LEVEL, 1);
+        let center = Object::new(LEVELS + 8).points_to(LEVELS, levels);
+        provinces.owner(1, tur()).u64(1, CENTER, center.at() as u64).owner(2, tur());
+        let player = Object::country(tur(), 0);
+        let countries = Object::countries(&[&player]);
+        let session = buffers::session(image.memory(), provinces.world(), tur(), player.at(), countries.at(), Caller::Remote);
+        Ottomans { _image: image, _provinces: provinces, _objects: vec![center, player, countries], session }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_button_offers_an_upgrade_for_ducats_and_a_downgrade_for_prestige() {
+        let ottomans = ottomans(true);
+        let center = options(ottomans.session, args::Options { province: ProvinceId(1) }).unwrap();
+        assert_eq!(center.level, 1);
+        assert_eq!((center.upgrade.can, center.upgrade.cost.clone()), (true, vec![Amount::new(Resource::Ducats, 250.0)]));
+        assert_eq!((center.downgrade.can, center.downgrade.reasons.clone()), (false, vec!["too young".to_string()]));
+        assert_eq!(center.downgrade.cost, [Amount::new(Resource::Prestige, 20.0)]);
+        let none = options(ottomans.session, args::Options { province: ProvinceId(2) }).unwrap();
+        assert_eq!((none.level, none.upgrade.can, none.downgrade.can), (0, false, false));
+    }
+
+    #[test]
+    fn a_center_is_upgraded_by_the_dialog_s_command_to_the_next_level() {
+        change(ottomans(true).session, 1, true).unwrap();
+        assert_eq!(record::posted(), [r#"modify_center_of_trade={ members={ dummy=1 dummy=2 dummy="TUR" } }"#]);
+    }
+
+    #[test]
+    fn no_center_and_the_game_s_rules_refuse_a_change() {
+        assert_eq!(refused(change(ottomans(true).session, 2, true)), (Status::Rejected, "the province has no center of trade".into()));
+        assert_eq!(refused(change(ottomans(true).session, 1, false)), (Status::Rejected, "too young".into()));
+        assert_eq!(refused(change(ottomans(false).session, 1, true)), (Status::Rejected, "at war".into()));
+        assert_eq!(refused(change(ottomans(true).session, 0, true)).0, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
 }
