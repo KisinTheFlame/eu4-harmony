@@ -1,6 +1,6 @@
 # The whole game plan
 
-Status: decided (2026-11-08), at the owner's request for stability before the framework is given to players: "a large scenario that tests the whole game once". Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Scenario set, Sweep, Test mod). It builds on the scenarios ([scenarios.md](scenarios.md)) and test games ([test-games.md](test-games.md)), and adds no decision of its own that is hard to reverse.
+Status: decided (2026-11-08), at the owner's request for stability before the framework is given to players: "a large scenario that tests the whole game once". W1 to W6 built, and the set played to its end the same night ([The whole game played through](prototype-log/2026-11-08-the-whole-game.md)): it found three defects of the framework, an answer's shape that lost fields, `menu` answering `starting` in a game at speed, and leaving a session while time ran, which crashed the game; all three are fixed. Terms are in [GLOSSARY.md](../GLOSSARY.md) (Scenario, Scenario set, Sweep, Test mod). It builds on the scenarios ([scenarios.md](scenarios.md)) and test games ([test-games.md](test-games.md)), and adds no decision of its own that is hard to reverse.
 
 ## Goal and scope
 
@@ -69,7 +69,7 @@ From the main menu: a new game as `country`, `days` (120) days at speed 5; the c
 
 ### `late`: the late game
 
-On the player build. For each save of `saves` (the AI's own game in 1700, 1760, 1780, 1800 and 1820): load it, observe (the console's `observe`), let `days` (365) days run at speed 5, write an `autosave` and load it in the game, let 30 days run, return. Checks: every load and run answered, the date went on. Its sections: days a minute and the game's memory for each.
+On the player build. For each save of `saves` (the AI's own game in 1700, 1760, 1780, 1800 and 1820): load it, observe (the console's `observe`), let `days` (365) days run at speed 5, or up to a month before the game's end on 1821.1.2, write an `autosave` and load it in the game, let 30 days run, return. Checks: every load and run answered, the date went on. Its sections: days a minute and the game's memory for each.
 
 ### `long`: a game from 1444 to its end
 
@@ -77,7 +77,7 @@ On the player build. A new game in observe mode, at speed 5 for `years` (376, to
 
 ### `checked`: the speed-ups checked against the game
 
-On the developer build with the test switches, its core started with `checked = ["all"]`: every speed-up that can, works out the game's own answer too and keeps that, and counts whether the two agreed. A new game in observe mode, at speed 5 for `years` (20), an `autosave` and its load every 5 years; then the startup report's count of answers checked and differing, speed-up by speed-up. Check: no speed-up differed. It is the long-run form of what each speed-up's own run checked once.
+On the developer build with the test switches, its core started with `checked = ["all"]`: every speed-up that can, works out the game's own answer too and keeps that, and counts whether the two agreed. A new game in observe mode, at speed 5 for `years` (20), an `autosave` and its load every 5 years; then the startup report's count of answers checked and differing, speed-up by speed-up. Check: no speed-up whose answers must be the game's differed, in a single answer; those `may_differ` names (`army-searches`, whose differences have their reasons under [ADR the-game-may-be-made-faster-with-reasoned-differences](adr/the-game-may-be-made-faster-with-reasoned-differences.md)) are counted and not failed. It is the long-run form of what each speed-up's own run checked once.
 
 ## How it fits together
 

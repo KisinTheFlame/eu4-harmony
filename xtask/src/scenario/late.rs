@@ -79,6 +79,10 @@ impl Scenario for Late {
             }
             let session = game.session()?;
             game.check(session.observing, format!("the console's observe left {save}'s game played as {:?}", session.player))?;
+            // The game ends on 1821.1.2: a late save runs no further than a
+            // month before it, leaving the month after its autosave.
+            let room = days_between(session.date, Date::from_ymd(1821, 1, 1).expect("a date")) - 31;
+            let days = days.min(room.max(1) as u32);
             let stretch = Stretch::run(game, days, &format!("{save}: {days} days"))?;
             record["stretches"].as_array_mut().expect("stretches").push(stretch);
             let at = game.session()?.date;
@@ -139,10 +143,15 @@ impl Scenario for Long {
             Parameter { name: "save_every", default: "50", about: "the years between two autosaves loaded in the game" },
             Parameter { name: "memory_mb", default: "8000", about: "the game's private bytes, in MB, it must stay under" },
         ];
-        const CHECKED: [Parameter; 3] = [
+        const CHECKED: [Parameter; 4] = [
             Parameter { name: "years", default: "20", about: "the years to run, from 1444.11.11" },
             Parameter { name: "save_every", default: "5", about: "the years between two autosaves loaded in the game" },
             Parameter { name: "memory_mb", default: "8000", about: "the game's private bytes, in MB, it must stay under" },
+            Parameter {
+                name: "may_differ",
+                default: "army-searches",
+                about: "the speed-ups whose differences have their reasons (ADR the-game-may-be-made-faster-with-reasoned-differences), by commas: counted, not failed",
+            },
         ];
         if self.checked {
             &CHECKED
@@ -186,12 +195,22 @@ impl Scenario for Long {
                 .map(|l| l.trim().to_string())
                 .take_while(|l| !l.is_empty())
                 .collect();
+            // A speed-up whose differences have their reasons may differ; the
+            // others must not, in a single answer.
+            let may_differ = listed(&parameters.text("may_differ"));
+            let of = |line: &str| line.split("speed-up ").nth(1).and_then(|rest| rest.split(':').next()).unwrap_or("").to_string();
+            let wrong: Vec<&String> = differences.iter().filter(|l| !may_differ.contains(&of(l))).collect();
             record["checks"] = json!(checks);
-            record["differences"] = json!(differences.iter().take(20).collect::<Vec<_>>());
+            record["may_differ"] = json!(may_differ);
+            record["differences"] = json!(wrong.iter().take(20).collect::<Vec<_>>());
             game.check(!checks.is_empty(), "the startup report says nothing of the speed-ups checked")?;
             game.check(
-                differences.is_empty(),
-                format!("{} answers of the speed-ups differed from the game's; the first: {}", differences.len(), differences.first().map_or("", |l| l)),
+                wrong.is_empty(),
+                format!(
+                    "{} answers of the speed-ups that must not differ differed from the game's; the first: {}",
+                    wrong.len(),
+                    wrong.first().map_or("", |l| l)
+                ),
             )?;
         }
         Ok(())
@@ -215,6 +234,10 @@ impl Scenario for Long {
         if let Some(checks) = record["checks"].as_array() {
             md.extend([String::new(), "### The speed-ups checked against the game".into(), String::new()]);
             md.extend(checks.iter().map(|c| format!("- {}", text(c))));
+            let may: Vec<String> = record["may_differ"].as_array().into_iter().flatten().map(text).collect();
+            if !may.is_empty() {
+                md.extend([String::new(), format!("Differences counted, not failed, of {}, whose differences have their reasons.", may.join(", "))]);
+            }
             for d in record["differences"].as_array().into_iter().flatten() {
                 md.push(format!("- differed: `{}`", text(d)));
             }
