@@ -9,11 +9,14 @@
 //!   Windows each time.
 //! - `children`: a save's dated nodes added to their parent without walking
 //!   its list for them first.
+//! - `opens`: files opened, looked up and closed by several threads at once,
+//!   instead of one at a time under two global locks.
 use std::path::Path;
 
 pub mod children;
 pub mod lookups;
 pub mod music;
+pub mod opens;
 
 /// Where the game and the player's files are, once known; before the game
 /// reads its music.

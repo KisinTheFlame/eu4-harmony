@@ -1,11 +1,11 @@
 # A shorter startup and load
 
-Status: built (2026-11-05), in one pull request: L1 to L3; the faster inflate set aside by the owner. Where the time went is in [research/loading.md](research/loading.md). The bar is the one the game speed plan meets ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
+Status: built (2026-11-05), in one pull request: L1 to L3; the faster inflate set aside by the owner. L4, files opened and looked up side by side, asked for and built on 2026-11-08. Where the time went is in [research/loading.md](research/loading.md). The bar is the one the game speed plan meets ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)): what the game loads stays what it loads, only sooner.
 
 ## Goal and scope
 
 - **Goal**: the game reaches its main menu sooner from its start, and a game sooner from a load, with the same data loaded.
-- **In scope**: the startup's music, the lookups of files in the game's folders, a save's lists as they are read.
+- **In scope**: the startup's music, the lookups of files in the game's folders, a save's lists as they are read, the threads that open and look up files waiting for each other.
 - **Out of scope**:
   - the databases' own parsing on the LoadingThread, the largest part of the startup, which is the game's script reader on one thread; reading them on several would need each database's order of loading shown not to matter;
   - the pictures' lock;
@@ -40,6 +40,32 @@ A node's add (`0x7e7cd0`) walks the node's whole list for the child before it ad
 - Built (`loading::children`): where `0xda66a0` calls the add (`0xda69e5`), the framework marks the thread; the add, on that thread, clears the mark and goes past the walk, as it does when the walk does not find the child. The child is one `0xda66a0` made itself, in no list yet. Every other add, and the adds the add makes, walk as before.
 - Shown: a save written after a load with the framework's adds and one with the game's (`game-loads`), the same load of the same save: the same entries but for what every save changes ([The startup and a load sampled](prototype-log/2026-11-05-startup-load-sampled.md)).
 
+### L4 Files opened and looked up side by side
+
+Asked for by the owner on 2026-11-08, after [research/loading.md](research/loading.md) ("The databases") found the LoadingThread spending about 6.5 s of the databases' 14 s opening files, most of it waiting for the threads that open and look up files beside it: the data checksum's, the picture checks', the pool threads that read the history. Two global locks let one of them in at a time:
+
+- the game's own, a byte spin lock (the global at `0x242b9c0`, taken by `0x1581820`) around every PhysFS open in `0x1718300` and every close;
+- PhysFS's (`stateLock`, `[0x2339238]`, a critical section taken by `0x1a05e60` and given back by `0x1a06150`), held through each open's and each lookup's walk of the search path, which asks every folder and zip in turn and may wait on Windows for each folder.
+
+What the walks read nothing changes while they run but a mount, an unmount or the write folder's change, which are rare and stay alone. What they write:
+
+- an open links its new file into the list of open files (`[0x23391f8]`), and a close takes it out;
+- a zip's lookup of a name (`0x19f9280`, PhysFS's tree) moves the entry it finds to the front of its bucket, so that the next lookup of it is quicker;
+- the first open or stat of an entry of a zip reads the entry's local header through the zip's own file (`0x1a0b420`), which every open of that zip shares, and keeps where its data starts.
+
+So the part makes PhysFS's lock one that many may hold to read, and one alone to change, and makes each of the three writes safe among readers:
+
+- The game's lock is not taken for an open to read (`0x1718300` with its mode 0); an open to write or append, and every close, take it as before.
+- An open to read (`PHYSFS_openRead`), a lookup (`0x19fad70`, under `PHYSFS_exists` and `PHYSFS_getRealDir`) and a close (`PHYSFS_close`) hold PhysFS's lock shared; every other PhysFS call that takes it holds it alone, as before. A thread that holds it alone and opens, looks up or closes holds it alone still.
+- The list of open files is changed under a small lock of its own: an open's link and a close's walk of the list.
+- A lookup in a zip leaves the entries where they are: it finds the same entry, without the move.
+- An entry of a zip is read under a lock of its own the first time; once read (or known as a folder) it is answered as the game answers it, without the lock.
+
+The files the game opens, what it reads from them and what each lookup answers stay what they were; only threads that waited for each other's opens and lookups no longer do. Under the ADR the part is of the kind that leaves what the game computes as it is.
+
+- Built (`loading::opens`): where the game's open takes and gives back its lock (`0x1718346`, `0x17183a8`), for a mode other than reading only; PhysFS's grab and release of a mutex (`0x1a05e60`, `0x1a06150`) replaced, its lock held alone through an SRW lock of the framework's as well; where the open, the lookup and the close grab and release it, held shared instead; the open's link and the close's walk under the list's lock; the tree's move to the front left out (`0x19f93a4`, `je` made `jmp`); the entry's read (`0x1a0b420`) under a lock that the thread holding it may take again.
+- Shown: three starts each way, the part on and left to the game (`game-paths`), with the machine's processor about 70% busy with other test games: the databases (`0x208620`) took 10.2, 12.1 and 8.3 s against 18.0, 17.3 and 13.9 s, the history 0.7 to 1.0 s against 1.7 to 2.1 s, the data checksum 4.1 to 5.7 s against 11.7 to 16.5 s, and the main menu came 5 to 8 s sooner. An ironman save loaded each way and written by the game after its load: `gamestate` the same but for the 4 bytes at 510 that every save changes, `meta` but for its UUID, `ai` the same ([the run](prototype-log/2026-11-08-opens-side-by-side.md)).
+
 ### Set aside
 
 - **A faster inflate**: PhysFS's `tinfl_decompress`, replaced by miniz_oxide's port of the same function in the game's own decompressor memory, about half again as fast. With the music kept (L1) what is left to inflate at startup is the textures and meshes, a second or two and off the main thread, so the owner set it aside (2026-11-05); zlib-rs, faster still, would need its own memory for each open file and the game's frees to let it go.
@@ -47,4 +73,4 @@ A node's add (`0x7e7cd0`) walks the node's whole list for the child before it ad
 
 ## How it fits together
 
-`loading` is a module of the core: `set_folders(game_dir, user_dir)`, which the core calls before the game reads its music, and its three parts, each a speed-up of `crate::speed` (`music`, `lookups` and `children`, the group `loading`). A developer build's `game-paths` leaves any of them to the game, and `checked` has the game's own answer taken as well and compared, for `music` and `lookups` (the switches `game-loads` and `check-loading` before them did both for all three at once).
+`loading` is a module of the core: `set_folders(game_dir, user_dir)`, which the core calls before the game reads its music, and its four parts, each a speed-up of `crate::speed` (`music`, `lookups`, `children` and `opens`, the group `loading`). A developer build's `game-paths` leaves any of them to the game, and `checked` has the game's own answer taken as well and compared, for `music` and `lookups` (the switches `game-loads` and `check-loading` before them did both for all three at once).
