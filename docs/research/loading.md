@@ -141,11 +141,27 @@ Read 2026-11-08 for whether the meshes could load beside the databases.
 - Timed with L4 on: 4.6 and 5.5 s. Sampled, the LoadingThread ran at 139 of about 460 ticks (30%): 39% of those inflating (the zips), 28% opening and looking up files, 9% in the heap, 7% in Direct3D. The meshes' textures are looked up on the pool's threads (`0x15cce80`), whose 97 samples were all in lookups.
 - Of the databases, only the graphical unit types (`0x114a7a0`) is about graphics: it reads `gfx/sprite_packs` and `gfx/sprite_packs_order` (`0x114aa10`, `0x114b160`), 0.03 s; nothing found reads the mesh objects. Not followed: what each mesh's load writes besides its object, and whether the databases read any of it.
 
+## The startup with L5
+
+Timed 2026-11-08 with [L5](../loading.md) on, three starts each way, as "The startup with L4" was ([the run](../prototype-log/2026-11-08-listed-folders.md)); seconds, L5 on against left to the game:
+
+| Stretch | Function | L5 on | Left to the game |
+| --- | --- | --- | --- |
+| `.gfx`, the map, `shortcuts.txt`, `.gui` | `0x202850` | 3.5, 3.4, 3.8 | 6.1, 8.6, 7.6 |
+| of that, meshes and particles | `0x14dc5d0` | 1.7, 1.7, 1.9 | 4.0, 6.2, 5.1 |
+| InitGame | `0x2043a0` | 11.3, 11.2, 12.5 | 15.4, 21.6, 18.6 |
+| of that, the databases | `0x208620` | 4.6, 4.7, 5.1 | 7.4, 12.4, 9.5 |
+| of those, the wait for the picture checks | `0x8f0350` | 0.00, 0.00, 0.00 | 1.85, 4.67, 3.03 |
+| of that, the events | `0x6f3250` | 3.0, 2.9, 3.3 | 3.0, 3.7, 3.6 |
+| The main menu's part `0x206260` | `0x206260` | 2.1, 2.1, 1.9 | 2.2, 2.7, 2.1 |
+| The main menu | | 19.6, 19.4, 21.1 | 27.5, 37.0, 32.7 |
+
+- The LoadingThread's path is now about 3.6 s to the gfx, 3.5 s of gfx and meshes, 4.8 s of databases and 6.5 s of events, flags and the rest of InitGame: the events and what follows them are now its longest part.
+
 ## Not looked into
 
 - Which thread held the open's lock while the LoadingThread waited on it from 10 to 18 s; with L4 the opens to read no longer take it.
-- What is left of the LoadingThread's waits with L4 besides the picture checks.
-- Which folders' stats are the user folder's and which the local mod's.
+- What is left of the LoadingThread's waits with L5.
 - What a mesh's load writes, and whether the databases read it.
 - Vanilla's startup and load, without the framework, on the same machine.
 - What `0x1806bf0` keeps of a music file, and whether the game reads every file again when it plays.
