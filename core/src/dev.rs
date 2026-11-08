@@ -115,6 +115,11 @@ pub struct TestSwitches {
     /// walks, so that the defect can be tried (with the heap census's
     /// quarantine on, the walk then reads what it freed filled with `0xdd`).
     pub game_ends_dependencies: bool,
+    /// Every AI country draws from the world's one random generator as the
+    /// game's do, on several threads at once, instead of from a stream of its
+    /// own, so that the repair can be measured against it
+    /// (`core/src/repairs/ai_draws.rs`).
+    pub game_shares_ai_draws: bool,
     /// The order in which an AI country's top agent has its agents do their
     /// day: `game` leaves the game's walks, `forward` and
     /// `reversed` are the framework's, in the game's order or the opposite
@@ -214,7 +219,7 @@ impl Options {
             let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, panic {}, game-paths {}, checked {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post, grow-pages {}",
+                "test switches: fail-startup {}, test-notice {}, crash {}, panic {}, game-paths {}, checked {}, game-ends-dependencies {}, game-shares-ai-draws {}, agents-order {}, {} command(s) to post, grow-pages {}",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
@@ -222,6 +227,7 @@ impl Options {
                 list(&switches.game_paths),
                 list(&switches.checked),
                 on(switches.game_ends_dependencies),
+                on(switches.game_shares_ai_draws),
                 format!("{:?}", switches.agents_order).to_lowercase(),
                 switches.post.len(),
                 on(switches.grow_pages)
@@ -326,7 +332,7 @@ mod tests {
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\nafter-days = 30\nreads-before = [\"0x10a59a0\"]\nlet-run = [\"nvd3dumx.dll\"]\ngive-up-after = 10\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\ngame-shares-ai-draws = true\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\nafter-days = 30\nreads-before = [\"0x10a59a0\"]\nlet-run = [\"nvd3dumx.dll\"]\ngive-up-after = 10\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
@@ -335,6 +341,7 @@ mod tests {
         assert!(options.test_switches.fail_startup && options.test_switches.test_notice);
         assert_eq!(options.test_switches.game_paths, ["saving"]);
         assert_eq!(options.test_switches.checked, ["music", "lookups"]);
+        assert!(options.test_switches.game_shares_ai_draws);
         assert_eq!(options.test_switches.agents_order, AgentsOrder::Reversed);
         assert_eq!(options.test_switches.post, ["a={ }"]);
         assert_eq!(

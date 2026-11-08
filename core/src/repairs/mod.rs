@@ -9,6 +9,7 @@
 //! sessions tell (`crate::sessions`) and a repair declares: the world's
 //! clear, the world's reset, after which all say what they did, and the first
 //! frame after it.
+mod ai_draws;
 mod coalitions;
 mod estates;
 mod histories;
@@ -125,6 +126,7 @@ const REPAIRS: &[Repair] = &[
     save_checksum::REPAIR,
     masks::REPAIR,
     coalitions::REPAIR,
+    ai_draws::REPAIR,
     names::REPAIR,
     supporters::REPAIR,
     reset_leaks::REPAIR,

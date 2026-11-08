@@ -65,6 +65,10 @@ checked = []
 # so that the defect can be tried; with the heap census's quarantine on, the
 # walk then reads the freed list filled with 0xdd and fails at once.
 game-ends-dependencies = false
+# Every AI country draws from the world's one random generator as the game's
+# do, on several threads at once, instead of from a stream of its own, so
+# that the repair can be measured against it.
+game-shares-ai-draws = false
 # The order in which an AI country's top agent has its agents do their day:
 # "game" leaves the game's walks; "forward" and "reversed" are the framework's,
 # in the game's order or the opposite one, so that whether an agent's day
