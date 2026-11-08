@@ -391,7 +391,7 @@ fn rebels_of(m: &Memory, c: usize) -> GResult<Vec<Rebels>> {
         .map(|faction| {
             Ok(Rebels {
                 kind: faction_kind(m, faction)?,
-                name: game_text::plain(&game_string::read(m, faction + rebel_faction::NAME)?),
+                name: game_string::shown(m, faction + rebel_faction::NAME)?,
                 progress: thousandths(m.i32(faction + rebel_faction::PROGRESS)?),
             })
         })
@@ -478,7 +478,7 @@ fn subject_of(m: &Memory, country: usize) -> GResult<Option<(Tag, String)>> {
         if kind == 0 {
             break;
         }
-        return Ok(Some((overlord, game_text::to_utf8(&game_string::read(m, kind + subject_type::KEY)?))));
+        return Ok(Some((overlord, game_string::key(m, kind + subject_type::KEY)?)));
     }
     Err(format!("no subject relation to its overlord {:#x}", overlord.0).into())
 }
@@ -545,7 +545,7 @@ fn wars_of(m: &Memory, ctx: &impl InWorld, country: Tag) -> GResult<Vec<War>> {
         if !attackers.iter().chain(&defenders).any(|t| t.valid() && t.index() == country.index()) {
             continue;
         }
-        let name = game_text::to_utf8(&game_string::read(m, w + war::NAME)?);
+        let name = game_string::shown(m, w + war::NAME)?;
         out.push(War { name, attackers: checked(m, ctx, attackers)?, defenders: checked(m, ctx, defenders)? });
     }
     Ok(out)

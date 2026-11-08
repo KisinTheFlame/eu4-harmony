@@ -13,7 +13,6 @@ use crate::{
         list,
     },
     points::{GameFunction, Point},
-    unicode::game_text,
 };
 use eu4_harmony_remote::buildings::args;
 use eu4_harmony_remote::choices::{Amount, Choice, Resource};
@@ -110,7 +109,7 @@ fn database(m: &Memory) -> GResult<Vec<usize>> {
 }
 
 fn key(m: &Memory, building: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, building + fields::NAME)?))
+    Ok(game_string::key(m, building + fields::NAME)?)
 }
 
 /// The key of the building with index `index`.

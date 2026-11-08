@@ -12,7 +12,7 @@ const MOST: usize = 100_000;
 
 /// The text of the `std::string` at `string`, a content key.
 pub fn key(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, string)?))
+    Ok(game_string::key(m, string)?)
 }
 
 /// The game's text for the localisation key `key`, in the player language,

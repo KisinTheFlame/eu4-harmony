@@ -522,7 +522,7 @@ fn constructions(m: &Memory, ctx: &impl InWorld, province: usize) -> GResult<Vec
 /// The game text of the `std::string` at `string`, as Unicode: a name or a
 /// key.
 fn text_at(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, string)?))
+    Ok(game_string::key(m, string)?)
 }
 
 /// One of the base development getters.

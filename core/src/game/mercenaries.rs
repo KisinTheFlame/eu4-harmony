@@ -75,7 +75,7 @@ fn key(m: &Memory, company: usize) -> GResult<String> {
     if template == 0 {
         return Ok(String::new());
     }
-    Ok(game_text::to_utf8(&game_string::read(m, template + TEMPLATE_KEY)?))
+    Ok(game_string::key(m, template + TEMPLATE_KEY)?)
 }
 
 /// Thousandths the game writes into an int of the framework's.

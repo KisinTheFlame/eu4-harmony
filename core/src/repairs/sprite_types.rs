@@ -35,7 +35,7 @@ unsafe extern "C" fn sprite_type_unloading(kind: usize) {
         match kept {
             Ok(0) => false,
             Ok(shown) => {
-                let name = crate::game_string::read(&m, kind + sprite_type::NAME).map(|b| crate::unicode::game_text::to_utf8(&b)).unwrap_or_default();
+                let name = crate::game_string::key(&m, kind + sprite_type::NAME).unwrap_or_default();
                 log!("repair: the sprite type {name} stays loaded with its group: {shown} shown sprite(s) show it");
                 true
             }

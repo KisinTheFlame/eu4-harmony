@@ -342,7 +342,7 @@ pub(super) fn acceptance(m: &Memory, at: usize) -> GResult<choices::Acceptance> 
         }
         let mut read = Vec::new();
         for item in (factors[0]..factors[1]).step_by(factor::SIZE) {
-            let text = game_text::plain(&game_string::read(m, item + factor::TEXT)?).trim().to_string();
+            let text = game_string::shown(m, item + factor::TEXT)?.trim().to_string();
             read.push(choices::Factor { text, value: m.i32(item + factor::VALUE)? as f64 });
         }
         Ok((accepts as u8 != 0, read))
@@ -959,7 +959,7 @@ fn read_goal(m: &Memory, goal: usize) -> GResult<(WarGoal, bool)> {
         if object == 0 {
             return Ok(None);
         }
-        Ok(Some(game_text::to_utf8(&game_string::read(m, object + at)?)))
+        Ok(Some(game_string::key(m, object + at)?))
     };
     let cb = m.ptr(goal + war_goal::CASUS_BELLI)?;
     let province = m.i32(goal + war_goal::PROVINCE)?;

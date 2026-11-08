@@ -4,6 +4,7 @@
 //! (docs/research/government.md, "Estates").
 use super::content::checks;
 use super::{action, conditions, content, modifiers, thousandths, GResult, Session, Tag};
+use crate::game_string;
 use crate::{
     memory::Memory,
     objects::campaign::country,
@@ -164,7 +165,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Estate>> {
     let mut listed = Vec::new();
     for entry in entries(m, ctx.country)? {
         let estate = m.ptr(entry + ENTRY_ESTATE)?;
-        let key = content::key(m, estate + ESTATE_KEY)?;
+        let key = game_string::key(m, estate + ESTATE_KEY)?;
         let granted = granted(m, m.ptr(entry + ENTRY_GRANTED)?)?;
         let mut privileges = Vec::new();
         for privilege in content::pointers(m, estate + ESTATE_PRIVILEGES)? {
@@ -172,7 +173,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Estate>> {
             if !has && !conditions::holds(m, privilege + IS_VALID, ctx.player, 0)? {
                 continue;
             }
-            let name = content::key(m, privilege + PRIVILEGE_KEY)?;
+            let name = game_string::key(m, privilege + PRIVILEGE_KEY)?;
             privileges.push(Privilege { name: content::name(m, &name)?, privilege: name, granted: has, choice: choice(m, ctx.player, entry, privilege, has)? });
         }
         listed.push(Estate {
@@ -204,7 +205,7 @@ pub fn interactions_list(Session { m, ctx, .. }: Session) -> GResult<Vec<EstateI
     interactions(m)?
         .into_iter()
         .map(|at| {
-            let key = content::key(m, at + INTERACTION_KEY)?;
+            let key = game_string::key(m, at + INTERACTION_KEY)?;
             Ok(EstateInteraction { name: content::name(m, &key)?, interaction: key, choice: interaction_choice(m, ctx.country, at)? })
         })
         .collect()
@@ -215,11 +216,11 @@ pub fn interactions_list(Session { m, ctx, .. }: Session) -> GResult<Vec<EstateI
 fn find(m: &Memory, country: usize, estate: &str, privilege: &str) -> GResult<(usize, usize, usize, bool)> {
     for entry in entries(m, country)? {
         let at = m.ptr(entry + ENTRY_ESTATE)?;
-        if content::key(m, at + ESTATE_KEY)? != estate {
+        if game_string::key(m, at + ESTATE_KEY)? != estate {
             continue;
         }
         for p in content::pointers(m, at + ESTATE_PRIVILEGES)? {
-            if content::key(m, p + PRIVILEGE_KEY)? == privilege {
+            if game_string::key(m, p + PRIVILEGE_KEY)? == privilege {
                 let has = granted(m, m.ptr(entry + ENTRY_GRANTED)?)?.contains(&p);
                 return Ok((entry, at, p, has));
             }
@@ -268,7 +269,7 @@ pub fn revoke_privilege(Session { m, ctx, commands, .. }: Session, args::RevokeP
 /// Uses one of the estates view's interactions over crown land.
 pub fn interact(Session { m, ctx, commands, .. }: Session, args::Interact { interaction: key }: args::Interact) -> GResult<()> {
     for (index, at) in interactions(m)?.into_iter().enumerate() {
-        if content::key(m, at + INTERACTION_KEY)? != key {
+        if game_string::key(m, at + INTERACTION_KEY)? != key {
             continue;
         }
         let choice = interaction_choice(m, ctx.country, at)?;

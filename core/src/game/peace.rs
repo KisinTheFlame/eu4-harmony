@@ -275,7 +275,7 @@ fn read_term(m: &Memory, at: usize) -> GResult<Read> {
     let mut out = [0u64; 2];
     let kind = m.call(m.vslot(at, term::KIND)?, &[at, out.as_mut_ptr() as usize])?;
     let kind = m.i32(kind)?;
-    let text = |at: usize| -> GResult<String> { Ok(game_text::to_utf8(&game_string::read(m, at)?)) };
+    let text = |at: usize| -> GResult<String> { Ok(game_string::key(m, at)?) };
     let key = if kind == term::KIND_SCRIPTED {
         text(m.ptr(at + term::SCRIPTED)? + scripted::KEY)?
     } else {

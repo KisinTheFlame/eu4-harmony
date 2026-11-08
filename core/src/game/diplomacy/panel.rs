@@ -405,7 +405,7 @@ fn read_factors(m: &Memory, factors: usize) -> GResult<Vec<Factor>> {
     (0..count)
         .map(|i| {
             let item = begin + i * breakdown::SIZE;
-            let text = game_text::plain(&game_string::read(m, item + breakdown::TEXT)?).trim().to_string();
+            let text = game_string::shown(m, item + breakdown::TEXT)?.trim().to_string();
             Ok(Factor { text, value: m.i32(item + breakdown::VALUE)? as f64 })
         })
         .collect()

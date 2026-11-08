@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Reforms" and "Rank").
 use super::content::checks;
 use super::{action, conditions, content, thousandths, GResult, Session, Tag};
+use crate::game_string;
 use crate::{
     memory::Memory,
     points::{GameFunction, Point},
@@ -102,7 +103,10 @@ fn adopted(m: &Memory, government: usize) -> GResult<Vec<usize>> {
 /// The government type's tiers, each with its key and reforms.
 fn tiers(m: &Memory, government: usize) -> GResult<Vec<(String, Vec<usize>)>> {
     let kind = m.ptr(government + TYPE)?;
-    content::pointers(m, kind + TIERS)?.into_iter().map(|tier| Ok((content::key(m, tier + TIER_KEY)?, content::pointers(m, tier + TIER_REFORMS)?))).collect()
+    content::pointers(m, kind + TIERS)?
+        .into_iter()
+        .map(|tier| Ok((game_string::key(m, tier + TIER_KEY)?, content::pointers(m, tier + TIER_REFORMS)?)))
+        .collect()
 }
 
 /// Whether the player can adopt `reform` in tier `tier`, which they have
@@ -144,10 +148,10 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Government> {
     let government = government(m, ctx.country)?;
     let (can, reasons) = content::checked(m, |reasons| Ok(CAN_RAISE.call(m, [ctx.country, reasons])?))?;
     Ok(Government {
-        government: content::key(m, m.ptr(government + TYPE)? + TYPE_KEY)?,
+        government: game_string::key(m, m.ptr(government + TYPE)? + TYPE_KEY)?,
         rank: m.i32(ctx.country + RANK)?.max(0) as u32,
         reform_progress: thousandths(m.i32(ctx.country + REFORM_PROGRESS)?),
-        reforms_adopted: adopted(m, government)?.into_iter().map(|r| content::key(m, r + REFORM_KEY)).collect::<GResult<_>>()?,
+        reforms_adopted: adopted(m, government)?.into_iter().map(|r| Ok(game_string::key(m, r + REFORM_KEY)?)).collect::<GResult<_>>()?,
         raise_rank: if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) },
     })
 }
@@ -165,7 +169,7 @@ pub fn reforms(Session { m, ctx, .. }: Session) -> GResult<Vec<ReformTier>> {
             if !has && !conditions::holds(m, reform + POTENTIAL, ctx.player, 0)? {
                 continue;
             }
-            let name = content::key(m, reform + REFORM_KEY)?;
+            let name = game_string::key(m, reform + REFORM_KEY)?;
             offered.push(Reform {
                 name: content::name(m, &name)?,
                 reform: name,
@@ -199,7 +203,7 @@ pub fn adopt_reform(Session { m, ctx, commands, .. }: Session, args::AdoptReform
     let government = government(m, ctx.country)?;
     let adopted = adopted(m, government)?;
     for (tier, (_, reforms)) in tiers(m, government)?.into_iter().enumerate() {
-        let Some(&reform) = reforms.iter().find(|&&r| content::key(m, r + REFORM_KEY).is_ok_and(|k| k == key)) else { continue };
+        let Some(&reform) = reforms.iter().find(|&&r| game_string::key(m, r + REFORM_KEY).is_ok_and(|k| k == key)) else { continue };
         if adopted.contains(&reform) {
             return Err(checks::not_now(format!("the player has adopted the reform {key} already")));
         }

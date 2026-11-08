@@ -188,7 +188,7 @@ fn read(m: &Memory, w: &Window) -> GResult<Question> {
     }
     Ok(Question {
         id: w.id,
-        event: game_text::to_utf8(&game_string::read(m, w.event + event::NAME)?),
+        event: game_string::key(m, w.event + event::NAME)?,
         title: localize(m, w.scope, &game_string::read(m, w.event + event::TITLE)?)?,
         description: description(m, w)?,
         deadline: w.deadline,

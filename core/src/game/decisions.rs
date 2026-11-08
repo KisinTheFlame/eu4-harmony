@@ -79,7 +79,7 @@ pub fn take(Session { m, ctx, commands, .. }: Session, args::Take { decision: ke
     let (begin, end) = (m.ptr(database + ORDER)?, m.ptr(database + ORDER + 8)?);
     for i in 0..super::span(begin, end, 8, MOST)? {
         let decision = m.ptr(begin + i * 8)?;
-        if content::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
+        if game_string::key(m, decision + KEY)? != key || !conditions::holds(m, decision + POTENTIAL, ctx.player, 0)? {
             continue;
         }
         if !conditions::holds(m, decision + ALLOW, ctx.player, 0)? {
@@ -91,7 +91,7 @@ pub fn take(Session { m, ctx, commands, .. }: Session, args::Take { decision: ke
 }
 
 fn read(m: &Memory, decision: usize, player: super::Tag) -> GResult<Decision> {
-    let key = game_text::to_utf8(&game_string::read(m, decision + KEY)?);
+    let key = game_string::key(m, decision + KEY)?;
     let title = std::ffi::CString::new(format!("{key}_title")).map_err(|e| e.to_string())?;
     let name = game_text::plain(&game_string::localized(m, title.as_ptr() as usize)?);
     let choice = if conditions::holds(m, decision + ALLOW, player, 0)? {

@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Missions").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::game_string;
 use crate::{
     memory::Memory,
     points::{GameFunction, Point},
@@ -82,7 +83,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Mission>> {
     let mut listed = Vec::new();
     for (column, missions) in columns.iter().enumerate() {
         for &mission in missions {
-            let key = content::key(m, mission + KEY)?;
+            let key = game_string::key(m, mission + KEY)?;
             let done = completed(m, ctx.country, mission)?;
             listed.push(Mission {
                 name: content::name(m, &format!("{key}_title"))?,
@@ -104,7 +105,7 @@ fn written(country: Tag, mission: &str) -> String {
 pub fn complete(Session { m, ctx, commands, .. }: Session, args::Complete { mission: key }: args::Complete) -> GResult<()> {
     let all: Vec<usize> = columns(m, ctx.country)?.into_iter().flatten().collect();
     for &mission in &all {
-        if content::key(m, mission + KEY)? != key {
+        if game_string::key(m, mission + KEY)? != key {
             continue;
         }
         let choice = choice(m, ctx.player, mission, completed(m, ctx.country, mission)?)?;

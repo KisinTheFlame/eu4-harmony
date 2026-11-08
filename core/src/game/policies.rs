@@ -3,6 +3,7 @@
 //! "Policies").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::game_string;
 use crate::{
     memory::Memory,
     points::{GameFunction, Point},
@@ -89,7 +90,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Policy>> {
         if !enabled && !conditions::holds(m, policy + POTENTIAL, ctx.player, 0)? {
             continue;
         }
-        let key = content::key(m, policy + KEY)?;
+        let key = game_string::key(m, policy + KEY)?;
         listed.push(Policy {
             name: content::name(m, &key)?,
             policy: key,
@@ -103,7 +104,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Policy>> {
 
 fn find(m: &Memory, key: &str) -> GResult<usize> {
     for policy in content::vector(m, database(m)? + POLICIES)? {
-        if content::key(m, policy + KEY)? == key {
+        if game_string::key(m, policy + KEY)? == key {
             return Ok(policy);
         }
     }

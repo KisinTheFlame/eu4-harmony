@@ -242,7 +242,7 @@ fn read(m: &Memory, address: usize) -> GResult<Leader> {
     let unit = m.ptr(address + leader::UNIT)?;
     Ok(Leader {
         id: m.u32(address + leader::NUMBER)?,
-        name: game_text::to_utf8(&game_string::read(m, address + leader::NAME)?),
+        name: game_string::shown(m, address + leader::NAME)?,
         kind,
         fire: m.i32(address + leader::FIRE)?,
         shock: m.i32(address + leader::SHOCK)?,

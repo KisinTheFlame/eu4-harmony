@@ -4,6 +4,7 @@
 //! by a NUL inside the capacity. The framework reads and changes the game's
 //! strings only through here, and grows them only through the game's own
 //! append, so the game frees them as usual.
+use crate::unicode::game_text;
 use crate::{
     memory::Memory,
     points::{Function, GameFunction, Point},
@@ -88,6 +89,19 @@ pub fn read(m: &Memory, string: usize) -> Result<Vec<u8>> {
         return Ok(Vec::new());
     }
     m.bytes(text_address(m, string)?, size)
+}
+
+/// The content key in the string at `string`: the name the game's or a
+/// mod's script files give a thing, as they write it.
+pub fn key(m: &Memory, string: usize) -> Result<String> {
+    Ok(game_text::to_utf8(&read(m, string)?))
+}
+
+/// The text in the string at `string` as the player sees it in the game's
+/// interface: without its color codes, an icon by its name
+/// ([`game_text::plain`]).
+pub fn shown(m: &Memory, string: usize) -> Result<String> {
+    Ok(game_text::plain(&read(m, string)?))
 }
 
 /// Where the text of the string at `string` is: in the string itself, or
@@ -302,6 +316,20 @@ mod tests {
         let mut broken = inline(b"hi");
         broken[CAPACITY..CAPACITY + 8].copy_from_slice(&1usize.to_le_bytes());
         assert!(read(&m, broken.as_ptr() as usize).is_err());
+    }
+
+    /// A content key comes back as the scripts write it; text the player
+    /// sees comes back as the interface shows it, its color codes gone and
+    /// an icon by its name; both as Unicode.
+    #[test]
+    fn a_string_is_read_as_a_key_or_as_the_player_sees_it() {
+        let m = Memory { base: 0 };
+        let nobles = inline(b"estate_nobles");
+        assert_eq!(key(&m, nobles.as_ptr() as usize).unwrap(), "estate_nobles");
+        let text = game_text::from_str("§RÎle £icon_tax£§!");
+        let name = on_heap(&text);
+        assert_eq!(shown(&m, name.as_ptr() as usize).unwrap(), "Île tax");
+        assert_eq!(key(&m, name.as_ptr() as usize).unwrap(), "§RÎle £icon_tax£§!");
     }
 
     #[test]

@@ -12,7 +12,6 @@ use crate::{
     game_string,
     memory::Memory,
     points::{GameFunction, Point},
-    unicode::game_text,
 };
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
@@ -101,7 +100,7 @@ fn nodes(m: &Memory, ctx: &Ctx) -> GResult<Vec<Node>> {
         .into_iter()
         .map(|address| {
             let definition = m.ptr(address + DEFINITION)?;
-            Ok(Node { address, definition, key: game_text::to_utf8(&game_string::read(m, definition + KEY)?) })
+            Ok(Node { address, definition, key: game_string::key(m, definition + KEY)? })
         })
         .collect()
 }
@@ -111,7 +110,7 @@ fn node(m: &Memory, ctx: &Ctx, key: &str) -> GResult<Node> {
 }
 
 fn name(m: &Memory, definition: usize) -> GResult<String> {
-    Ok(game_text::plain(&game_string::read(m, definition + NAME)?))
+    Ok(game_string::shown(m, definition + NAME)?)
 }
 
 /// The player's entry in the node.
@@ -176,7 +175,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Merchants> {
     let mut placed = Vec::new();
     for node in nodes(m, &ctx)? {
         if let Some(p) = present(m, &ctx, &node)? {
-            let steer_to = p.steers_to.map(|d| game_string::read(m, d + KEY).map(|k| game_text::to_utf8(&k))).transpose()?;
+            let steer_to = p.steers_to.map(|d| game_string::key(m, d + KEY)).transpose()?;
             placed.push(Placed { name: name(m, node.definition)?, node: node.key, mission: p.mission, arriving: p.arriving, steer_to });
         }
     }
@@ -227,7 +226,7 @@ fn read(m: &Memory, ctx: &Ctx, node: &Node) -> GResult<MerchantOptions> {
         .into_iter()
         .map(|d| {
             let choice = if may_steer as u8 != 0 { Choice::can(Vec::new()) } else { Choice::cannot(envoys::failing(&text), Vec::new()) };
-            Ok(Downstream { node: game_text::to_utf8(&game_string::read(m, d + KEY)?), name: name(m, d)?, current: steering_to == Some(d), choice })
+            Ok(Downstream { node: game_string::key(m, d + KEY)?, name: name(m, d)?, current: steering_to == Some(d), choice })
         })
         .collect::<GResult<_>>()?;
     Ok(MerchantOptions {
@@ -333,7 +332,7 @@ fn all_policies(m: &Memory) -> GResult<Vec<(usize, String)>> {
     (0..count as usize)
         .map(|i| {
             let policy = m.ptr(list + i * 8)?;
-            Ok((policy, game_text::to_utf8(&game_string::read(m, policy + POLICY_KEY)?)))
+            Ok((policy, game_string::key(m, policy + POLICY_KEY)?))
         })
         .collect()
 }

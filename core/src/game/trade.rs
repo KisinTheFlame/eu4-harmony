@@ -9,7 +9,6 @@ use crate::{
     memory::Memory,
     objects::campaign::{globals, province},
     points::{GameFunction, Point},
-    unicode::game_text,
 };
 use eu4_harmony_remote::trade::args;
 use eu4_harmony_remote::{
@@ -136,7 +135,7 @@ pub(super) fn collects(m: &Memory, node: usize, tag: Tag) -> GResult<bool> {
 }
 
 fn text(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, string)?))
+    Ok(game_string::key(m, string)?)
 }
 
 fn key_of(m: &Memory, definition: usize) -> GResult<String> {
@@ -173,11 +172,7 @@ pub fn list(Session { m, ctx, view, .. }: Session) -> GResult<Vec<NodeValue>> {
     out.into_iter()
         .map(|node| {
             let definition = m.ptr(node + DEFINITION)?;
-            Ok(NodeValue {
-                node: key_of(m, definition)?,
-                name: game_text::plain(&game_string::read(m, definition + NAME)?),
-                value: thousandths(m.i32(node + VALUE)?),
-            })
+            Ok(NodeValue { node: key_of(m, definition)?, name: game_string::shown(m, definition + NAME)?, value: thousandths(m.i32(node + VALUE)?) })
         })
         .collect()
 }
@@ -223,7 +218,7 @@ pub fn node(Session { m, ctx, view, .. }: Session, args::Node { node: key }: arg
     countries.sort_by(|a, b| b.power.total_cmp(&a.power));
     Ok(TradeNode {
         node: key,
-        name: game_text::plain(&game_string::read(m, definition + NAME)?),
+        name: game_string::shown(m, definition + NAME)?,
         value: thousandths(m.i32(node + VALUE)?),
         local_value: thousandths(m.i32(node + LOCAL_VALUE)?),
         incoming: incoming_flows,

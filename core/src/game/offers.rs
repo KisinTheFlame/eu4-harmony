@@ -14,7 +14,6 @@ use crate::{
             text_box, window as gui_window,
         },
     },
-    unicode::game_text,
 };
 use eu4_harmony_remote::Date;
 
@@ -171,7 +170,7 @@ fn text(m: &Memory, window: usize, name: &str) -> GResult<String> {
     if game_string::read(m, gui_functions::ELEMENT_NAME.call(m, [found])?)? != name.as_bytes() {
         return Ok(String::new());
     }
-    Ok(game_text::plain(&game_string::read(m, found + text_box::TEXT)?))
+    Ok(game_string::shown(m, found + text_box::TEXT)?)
 }
 
 /// The refusals the framework words itself of an offer.

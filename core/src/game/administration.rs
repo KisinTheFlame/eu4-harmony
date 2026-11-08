@@ -362,7 +362,7 @@ pub fn edicts(m: &Memory) -> GResult<Vec<(usize, String, u32)>> {
         if index as usize != i {
             return Err(format!("edict {i} has the index {index}").into());
         }
-        out.push((edict, String::from_utf8_lossy(&game_string::read(m, edict + field::EDICT_KEY)?).into_owned(), index));
+        out.push((edict, game_string::key(m, edict + field::EDICT_KEY)?, index));
     }
     Ok(out)
 }

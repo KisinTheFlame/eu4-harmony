@@ -120,7 +120,7 @@ fn database(m: &Memory) -> GResult<Vec<(usize, String)>> {
     (0..count as usize)
         .map(|i| {
             let at = m.ptr(begin + i * 8)?;
-            Ok((at, game_text::to_utf8(&game_string::read(m, at + KEY)?)))
+            Ok((at, game_string::key(m, at + KEY)?))
         })
         .collect()
 }

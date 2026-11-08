@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Parliament").
 use super::content::checks;
 use super::{action, conditions, content, GResult, Session, Tag};
+use crate::game_string;
 use crate::{memory::Memory, points::Point};
 use eu4_harmony_remote::parliament::args;
 use eu4_harmony_remote::ProvinceId;
@@ -81,13 +82,13 @@ pub fn options(Session { m, ctx, .. }: Session) -> GResult<Parliament> {
     let enacted = m.ptr(parliament + ENACTED)?;
     let mut issues = Vec::new();
     for issue in offered(m, parliament)? {
-        let key = content::key(m, issue + ISSUE_KEY)?;
+        let key = game_string::key(m, issue + ISSUE_KEY)?;
         issues.push(Issue { name: content::name(m, &key)?, issue: key, choice: choice(m, parliament, ctx.player, issue)? });
     }
     Ok(Parliament {
         parliament: true,
         debating: debating(m, parliament)?,
-        enacted: if enacted == 0 { None } else { Some(content::key(m, enacted + ISSUE_KEY)?) },
+        enacted: if enacted == 0 { None } else { Some(game_string::key(m, enacted + ISSUE_KEY)?) },
         issues,
     })
 }
@@ -100,7 +101,7 @@ fn debating(m: &Memory, parliament: usize) -> GResult<Option<String>> {
         return Ok(None);
     }
     let issue = m.ptr(debate + ISSUE_KEY)?;
-    Ok(if issues(m)?.contains(&issue) { Some(content::key(m, issue + ISSUE_KEY)?) } else { None })
+    Ok(if issues(m)?.contains(&issue) { Some(game_string::key(m, issue + ISSUE_KEY)?) } else { None })
 }
 
 fn written_debate(country: Tag, issue: &str) -> String {
@@ -118,7 +119,7 @@ pub fn debate(Session { m, ctx, commands, .. }: Session, args::Debate { issue: k
         return Err(checks::not_now("the player has no parliament"));
     }
     for issue in offered(m, parliament)? {
-        if content::key(m, issue + ISSUE_KEY)? != key {
+        if game_string::key(m, issue + ISSUE_KEY)? != key {
             continue;
         }
         let choice = choice(m, parliament, ctx.player, issue)?;

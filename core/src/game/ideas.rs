@@ -3,6 +3,7 @@
 //! (docs/research/government.md, "Ideas").
 use super::content::checks;
 use super::{action, conditions, content, power, GResult, Session, Tag};
+use crate::game_string;
 use crate::{
     memory::Memory,
     objects::campaign::{country, idea_group},
@@ -101,7 +102,7 @@ fn groups(m: &Memory) -> GResult<Vec<Group>> {
     content::vector(m, database(m)? + GROUPS)?
         .into_iter()
         .map(|at| {
-            Ok(Group { at, key: content::key(m, at + group::KEY)?, category: m.u32(at + group::CATEGORY)?, ideas: content::vector(m, at + group::IDEAS)? })
+            Ok(Group { at, key: game_string::key(m, at + group::KEY)?, category: m.u32(at + group::CATEGORY)?, ideas: content::vector(m, at + group::IDEAS)? })
         })
         .filter(|g: &GResult<Group>| g.as_ref().map_or(true, |g| g.key != NONE))
         .collect()
@@ -195,7 +196,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<IdeaGroupOption>> {
                 ideas: bought.unwrap_or(0),
                 of: g.ideas.len() as u32,
                 button: button.map(str::to_string),
-                next: next.map(|idea| content::key(m, idea + IDEA_KEY)).transpose()?,
+                next: next.map(|idea| game_string::key(m, idea + IDEA_KEY)).transpose()?,
                 choice,
             })
         })
