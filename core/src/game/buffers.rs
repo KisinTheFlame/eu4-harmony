@@ -465,6 +465,16 @@ impl Image {
             .function(LINES.rva(), unmet as *const ())
     }
 
+    /// The game's tokens, the names `names` numbered from 0, as a command's
+    /// type and a culture's key are named by theirs; the names kept in what
+    /// it answers.
+    pub fn tokens(&self, names: &[&str]) -> Object {
+        use super::commands::{TOKENS_LAST, TOKENS_READY, TOKEN_NAMES};
+        let table = names.iter().enumerate().fold(Object::new(names.len() * game_string::OBJECT), |t, (i, name)| t.string(i * game_string::OBJECT, name));
+        self.u64(TOKENS_READY, 1).i32(TOKENS_LAST, names.len() as i32 - 1).u64(TOKEN_NAMES, table.at() as u64);
+        table
+    }
+
     /// The game's function a check that writes its reasons has called: the
     /// destructor of the `std::string` it wrote them to.
     pub fn strings(&self) -> &Self {

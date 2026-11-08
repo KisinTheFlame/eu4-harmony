@@ -43,7 +43,7 @@ pub(super) const CHECK: GameFunction<2> = GameFunction::at(0x94f250);
 /// The game's constructor of a spending about a province, `(spending, kind,
 /// province, power)`, which reads the province's ID as its first value. A
 /// spending needs no destructor: its vtable's slot `+0x28` is `ret`.
-const ABOUT_PROVINCE: GameFunction<4> = GameFunction::at(0x94ee80);
+pub(super) const ABOUT_PROVINCE: GameFunction<4> = GameFunction::at(0x94ee80);
 /// The kinds of spending this part uses (`0x94e1d0` names them).
 pub const ADVANCE_TECH: i32 = 1;
 pub const BOOST_STABILITY: i32 = 2;
