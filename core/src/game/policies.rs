@@ -143,4 +143,40 @@ mod tests {
         let fra = super::Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
         assert_eq!(super::written("enable_unlockable", fra, "the_spy_discovery_act"), r#"enable_unlockable={ policy="the_spy_discovery_act" country="FRA" }"#);
     }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// France, of the policies `spy_act` and `land_act`, with the first
+    /// enabled; the policies' database a global of the game's.
+    fn disabling(key: &str) -> GResult<()> {
+        let image = Image::new();
+        let fra = Tag(u64::from_le_bytes(*b"FRA\0\0\0\0\0"));
+        let (spy, land) = (Object::new(KEY + 0x20).string(KEY, "spy_act"), Object::new(KEY + 0x20).string(KEY, "land_act"));
+        let database = Object::new(POLICIES + 0x10).vector(POLICIES, &[spy.at() as u64, land.at() as u64]);
+        image.u64(DATABASE, database.at() as u64);
+        let enabled = Object::new(ACTIVE_POLICY + 8).u64(ACTIVE_POLICY, spy.at() as u64);
+        let country = Object::country(fra, ACTIVE + ACTIVE_LISTS + 3 * ACTIVE_STRIDE)
+            .vector(ACTIVE + ACTIVE_LISTS, &[enabled.at() as u64])
+            .i32(ACTIVE + ACTIVE_LISTS - containers::ARRAY_DATA + containers::ARRAY_COUNT, 1);
+        let countries = Object::countries(&[&country]);
+        let result = disable(buffers::session(image.memory(), 0, fra, country.at(), countries.at(), Caller::Remote), args::Disable { policy: key.into() });
+        drop((spy, land, database, enabled, country, countries, image));
+        result
+    }
+
+    #[test]
+    fn a_policy_is_disabled_only_when_enabled() {
+        disabling("spy_act").unwrap();
+        assert_eq!(record::posted(), [r#"disable_unlockable={ policy="spy_act" country="FRA" }"#]);
+        let Err(Fail { status, message }) = disabling("land_act") else { panic!("a policy not enabled was disabled") };
+        assert_eq!((status, message.as_str()), (Status::Rejected, "the player has not enabled the policy land_act"));
+        let Err(Fail { status, .. }) = disabling("war_act") else { panic!("an unknown policy was disabled") };
+        assert_eq!(status, Status::NotFound);
+        assert!(record::posted().is_empty());
+    }
 }
