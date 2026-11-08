@@ -195,6 +195,10 @@ impl course::Game for InGame<'_> {
         reads()
     }
 
+    fn going_on(&self) -> bool {
+        sessions::going_on()
+    }
+
     fn now(&self) -> Instant {
         Instant::now()
     }

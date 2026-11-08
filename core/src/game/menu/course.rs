@@ -221,6 +221,8 @@ pub(super) trait Game {
     /// setup, whose page stays.
     fn not_continuing(&mut self);
     fn reads(&self) -> Reads;
+    /// Whether a session is going on.
+    fn going_on(&self) -> bool;
     fn now(&self) -> Instant;
     /// The framework settings now.
     fn rules(&self) -> Rules;
@@ -437,12 +439,16 @@ impl Course {
     }
 
     /// Where the game is, at the safe point `at` (`game` being at the main
-    /// menu there, if it is).
+    /// menu there, if it is). A frame that is no game's frame while a
+    /// session goes on, with no save being read and no load or start asked
+    /// for, is one that frame was not ready in, as while its daily update
+    /// runs at speed: that is the game.
     pub fn place(&self, at: At, game: &mut impl Game) -> Place {
         match at {
             At::Game if self.loading_in_game() => Place::Starting,
             At::Game => Place::Game,
             At::MainMenu(_) if !self.starting(game) => Place::MainMenu,
+            At::Elsewhere if game.going_on() && !game.reads().reading && !self.with(|s| s.asked(|_| true)) => Place::Game,
             At::MainMenu(_) | At::Elsewhere => Place::Starting,
         }
     }
@@ -914,6 +920,9 @@ mod tests {
         fn reads(&self) -> Reads {
             self.reads
         }
+        fn going_on(&self) -> bool {
+            self.in_game
+        }
         fn now(&self) -> Instant {
             self.start + self.clock
         }
@@ -1114,6 +1123,11 @@ mod tests {
         let mut game = Recorded::new(&course);
         assert_eq!(course.place(At::MainMenu(1), &mut game), Place::MainMenu);
         assert_eq!(course.place(At::Elsewhere, &mut game), Place::Starting);
+        // A frame a session's game was not ready in, as at speed.
+        let mut playing = Recorded::in_game(&course);
+        assert_eq!(course.place(At::Elsewhere, &mut playing), Place::Game);
+        playing.reads.reading = true;
+        assert_eq!(course.place(At::Elsewhere, &mut playing), Place::Starting);
         // A save being read, whoever loads it.
         game.reads.reading = true;
         assert_eq!(course.place(At::MainMenu(1), &mut game), Place::Starting);
