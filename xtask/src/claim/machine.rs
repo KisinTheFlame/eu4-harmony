@@ -270,7 +270,9 @@ impl Machine for ThisComputer {
             remove_file(&core.join("dev.toml"))?;
         }
         let player = eu4_harmony_folders::user_dir(Some(game_dir))?;
-        copy_saves(&UserFolder::new(player).save_games(), &UserFolder::new(folder.join("user")).save_games(), &starting.saves)?;
+        let from = [UserFolder::new(player).save_games(), base()?.join(SAVES)];
+        copy_saves(&from, &UserFolder::new(folder.join("user")).save_games(), &starting.saves)?;
+        place_test_mods(folder, &starting.mods)?;
         Ok(dll)
     }
 
@@ -491,19 +493,58 @@ fn is_junction(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
 }
 
+/// The developers' own saves, made for testing and kept apart from the
+/// player's, in the folder of the claims' record (docs/whole-game.md).
+const SAVES: &str = "saves";
+
 /// Copies each save of `saves`, by its name as `menu.saves` gives it or its
-/// file's, from `from` into `to`.
-fn copy_saves(from: &Path, to: &Path, saves: &[String]) -> Result<()> {
+/// file's, from the first folder of `from` that has it into `to`.
+fn copy_saves(from: &[PathBuf], to: &Path, saves: &[String]) -> Result<()> {
     if saves.is_empty() {
         return Ok(());
     }
     fs::create_dir_all(to).map_err(|e| format!("cannot make {}: {e}", to.display()))?;
     for save in saves {
-        let file = [from.join(save), from.join(format!("{save}.eu4"))].into_iter().find(|f| f.is_file());
-        let file = file.ok_or_else(|| format!("no save {save:?} in {}", from.display()))?;
+        let file = from.iter().flat_map(|dir| [dir.join(save), dir.join(format!("{save}.eu4"))]).find(|f| f.is_file());
+        let looked: Vec<String> = from.iter().map(|d| d.display().to_string()).collect();
+        let file = file.ok_or_else(|| format!("no save {save:?} in {}", looked.join(" or ")))?;
         copy(&file, &to.join(file.file_name().expect("a file")))?;
     }
     Ok(())
+}
+
+/// The folder of a claim's test mods, beside its user folder.
+const TEST_MODS: &str = "test-mods";
+
+/// Puts the test mods `mods` in the playset of the test game of the claim
+/// in `folder`: each copied into its `test-mods\`, with a descriptor that
+/// names it by its full path, which the test game's own `dlc_load.json`
+/// names by its full path in turn. Nothing goes into the player's `mod`
+/// folder, which the user folder reaches through its junction; the test
+/// mods of an earlier start are taken out first.
+fn place_test_mods(folder: &Path, mods: &[PathBuf]) -> Result<()> {
+    let dir = folder.join(TEST_MODS);
+    if dir.exists() {
+        fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
+    }
+    let playset = folder.join("user").join("dlc_load.json");
+    let mut load = read_json(&playset).unwrap_or_else(|| serde_json::json!({ "enabled_mods": [], "disabled_dlcs": [] }));
+    let prefix = backslashed(&dir).display().to_string();
+    let mut enabled: Vec<serde_json::Value> = load["enabled_mods"].as_array().cloned().unwrap_or_default();
+    enabled.retain(|entry| !entry.as_str().is_some_and(|e| e.replace('/', "\\").starts_with(&prefix)));
+    for source in mods {
+        let name = source.file_name().ok_or_else(|| format!("{} names no folder", source.display()))?;
+        let to = dir.join(name);
+        copy_tree(source, &to).map_err(|e| format!("cannot copy the test mod {} to {}: {e}", source.display(), to.display()))?;
+        let own = fs::read_to_string(source.join("descriptor.mod")).map_err(|e| format!("the test mod {} has no descriptor.mod: {e}", source.display()))?;
+        let kept: Vec<&str> = own.lines().filter(|l| !l.trim_start().starts_with("path")).collect();
+        let descriptor = dir.join(format!("{}.mod", name.to_string_lossy()));
+        let text = format!("{}\npath=\"{}\"\n", kept.join("\n"), backslashed(&to).display().to_string().replace('\\', "/"));
+        fs::write(&descriptor, text).map_err(|e| format!("cannot write {}: {e}", descriptor.display()))?;
+        enabled.push(serde_json::Value::String(backslashed(&descriptor).display().to_string()));
+    }
+    load["enabled_mods"] = serde_json::Value::Array(enabled);
+    write_json(&playset, &load)
 }
 
 /// Removes the claims' folders whose `kept\` is older than [`KEEP_DAYS`]
@@ -675,6 +716,29 @@ mod tests {
         }
     }
 
+    /// A test mod is copied beside the user folder and put in the test
+    /// game's playset by its descriptor's full path, the player's mods kept
+    /// there; a start with none takes it out again.
+    #[test]
+    fn test_mods_join_the_test_game_s_playset_and_leave_it() {
+        let s = Scratch::new("test-mods");
+        s.write("claim\\user\\dlc_load.json", r#"{"enabled_mods":["mod/ugc_1.mod"],"disabled_dlcs":[]}"#);
+        s.write("mods\\qa-steady\\descriptor.mod", "name=\"QA steady\"\npath=\"somewhere\"\n");
+        s.write("mods\\qa-steady\\eu4-harmony\\manifest.toml", "id = \"qa-steady\"");
+        let folder = s.0.join("claim");
+        place_test_mods(&folder, &[s.0.join("mods\\qa-steady")]).unwrap();
+        let descriptor = folder.join("test-mods\\qa-steady.mod");
+        let text = fs::read_to_string(&descriptor).unwrap();
+        assert!(text.contains("name=\"QA steady\"") && !text.contains("somewhere"), "{text}");
+        assert!(text.contains(&format!("path=\"{}\"", folder.join("test-mods\\qa-steady").display().to_string().replace('\\', "/"))), "{text}");
+        assert!(folder.join("test-mods\\qa-steady\\eu4-harmony\\manifest.toml").is_file());
+        let enabled = |folder: &Path| read_json(&folder.join("user\\dlc_load.json")).unwrap()["enabled_mods"].clone();
+        assert_eq!(enabled(&folder), serde_json::json!(["mod/ugc_1.mod", descriptor.display().to_string()]));
+        place_test_mods(&folder, &[]).unwrap();
+        assert_eq!(enabled(&folder), serde_json::json!(["mod/ugc_1.mod"]));
+        assert!(!folder.join("test-mods").exists());
+    }
+
     /// The test game's user folder starts with the player's settings and
     /// playset and reaches their mods through a junction; the release keeps
     /// its logs and crash folders and removes the rest, the player's mods
@@ -696,9 +760,12 @@ mod tests {
         assert_eq!(fs::read_to_string(user.join("eu4-harmony\\settings.txt")).unwrap(), "the language");
         assert_eq!(fs::read_to_string(user.join("mod\\a.mod")).unwrap(), "a descriptor");
         assert!(!user.join("pdx_login_cache.txt").exists());
-        copy_saves(&player.join("save games"), &user.join("save games"), &["England-1".into()]).unwrap();
+        s.write("dev\\saves\\observer-1700.1.1.eu4", "a developer's save");
+        let from = [player.join("save games"), s.0.join("dev\\saves")];
+        copy_saves(&from, &user.join("save games"), &["England-1".into(), "observer-1700.1.1".into()]).unwrap();
         assert!(user.join("save games\\England-1.eu4").is_file() && !user.join("save games\\other.eu4").exists());
-        assert!(copy_saves(&player.join("save games"), &user.join("save games"), &["none".into()]).unwrap_err().contains("no save \"none\""));
+        assert_eq!(fs::read_to_string(user.join("save games\\observer-1700.1.1.eu4")).unwrap(), "a developer's save");
+        assert!(copy_saves(&from, &user.join("save games"), &["none".into()]).unwrap_err().contains("no save \"none\""));
 
         s.write("claim\\user\\eu4-harmony\\logs\\core.log", "the core's log");
         s.write("claim\\user\\crashes\\eu4_1\\exception.txt", "a crash");

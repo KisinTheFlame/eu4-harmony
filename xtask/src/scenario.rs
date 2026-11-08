@@ -10,9 +10,14 @@
 //! the claim it made, whatever ends the run: an error, a panic or Ctrl-C
 //! (docs/test-games.md). Only cargo, for the builds, and the game run as
 //! programs of their own.
+mod extensions;
 mod game;
+mod late;
 mod leak;
+mod logs;
 mod perf;
+mod sessions;
+mod sweep;
 
 pub use game::{Game, Played, Stop};
 
@@ -150,16 +155,46 @@ pub trait Scenario: Sync {
     fn saves(&self, _parameters: &Parameters) -> Vec<String> {
         Vec::new()
     }
+    /// The test mods it puts in its test game's playset: folders of Harmony
+    /// mods (docs/whole-game.md).
+    fn mods(&self, _parameters: &Parameters) -> Vec<PathBuf> {
+        Vec::new()
+    }
     /// Its sections of the report, from its record; headings from `###`.
     fn report(&self, record: &Value) -> Vec<String>;
 }
 
 fn all() -> Vec<&'static dyn Scenario> {
-    vec![&perf::Perf, &leak::GROWTH, &leak::LEAK]
+    vec![&perf::Perf, &leak::GROWTH, &leak::LEAK, &sweep::Sweep, &sessions::Sessions, &extensions::Extensions, &late::Late, &late::LONG, &late::CHECKED]
 }
 
 fn find(name: &str) -> Option<&'static dyn Scenario> {
     all().into_iter().find(|s| s.name() == name)
+}
+
+/// A name for several scenarios played together, as if named one by one.
+pub struct Set {
+    pub name: &'static str,
+    pub about: &'static str,
+    pub scenarios: &'static [&'static str],
+}
+
+/// The sets, in `cargo xtask scenario`'s list after the scenarios.
+const SETS: &[Set] = &[Set {
+    name: "whole",
+    about: "the framework through the real game from end to end, before a release (docs/whole-game.md)",
+    scenarios: &["sweep", "sessions", "extensions", "late", "long", "checked", "growth", "perf"],
+}];
+
+/// The names asked for, each set's in its place by the scenarios it names.
+fn expanded(names: &[String]) -> Vec<String> {
+    names
+        .iter()
+        .flat_map(|name| match SETS.iter().find(|set| set.name == name) {
+            Some(set) => set.scenarios.iter().map(|s| s.to_string()).collect(),
+            None => vec![name.clone()],
+        })
+        .collect()
 }
 
 /// How long a crash dump may take to read before the report goes without it.
@@ -219,12 +254,13 @@ pub fn run(raw: &[String]) -> Result<()> {
         list();
         return Ok(());
     }
+    let names = expanded(&asked.names);
     let mut playing = Vec::new();
-    for name in &asked.names {
+    for name in &names {
         let scenario = find(name).ok_or_else(|| format!("no scenario {name}; cargo xtask scenario lists them"))?;
         playing.push((scenario, Parameters::of(scenario, &asked.parameters)?));
     }
-    if let Some((name, parameter, _)) = asked.parameters.iter().find(|(name, _, _)| !asked.names.contains(name)) {
+    if let Some((name, parameter, _)) = asked.parameters.iter().find(|(name, _, _)| !names.contains(name)) {
         return Err(format!("--{name}.{parameter} is for a scenario this run does not play"));
     }
     let game_dir = match &asked.game_dir {
@@ -327,6 +363,16 @@ fn list() {
             println!("      --{}.{} {}: {}", s.name(), p.name, p.default, p.about);
         }
     }
+    if !SETS.is_empty() {
+        println!(
+            "
+sets:"
+        );
+    }
+    for set in SETS {
+        let minutes: u32 = set.scenarios.iter().filter_map(|n| find(n)).map(|s| s.minutes()).sum();
+        println!("  {} (about {} min): {}; plays {}", set.name, minutes, set.about, set.scenarios.join(", "));
+    }
 }
 
 /// The builds the scenarios need, in the order they are first named.
@@ -352,11 +398,14 @@ fn prepare(build: Build, owner: &str) -> Result<()> {
 fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner: &str, out: &Path) -> Value {
     println!("playing {}", scenario.name());
     let began = Instant::now();
-    let crashes = claim::user_dir(owner).and_then(|user| UserFolder::new(user).crash_folders()).unwrap_or_default();
+    let user = claim::user_dir(owner).map(UserFolder::new);
+    let crashes = user.as_ref().ok().and_then(|user| user.crash_folders().ok()).unwrap_or_default();
+    let logs_before = user.as_ref().ok().map(logs::Mark::of);
     let mut record = json!({});
-    game.next_scenario();
     game.loads(scenario.saves(parameters));
     game.options(scenario.options(parameters));
+    game.mods(scenario.mods(parameters));
+    game.next_scenario();
     // The games that run beside it, which take some of the computer it
     // measures.
     let beside = eu4_harmony_client::game::processes().unwrap_or_default().len().saturating_sub(usize::from(game.runs()));
@@ -364,7 +413,15 @@ fn play(scenario: &dyn Scenario, parameters: &Parameters, game: &mut Game, owner
     // started by the scenario's first step, which a scenario that times the
     // start takes itself.
     let at_main_menu = if game.runs() { game.at_main_menu() } else { Ok(()) };
-    let ended = at_main_menu.and_then(|()| scenario.play(game, parameters, &mut record));
+    let ended = at_main_menu.and_then(|()| scenario.play(game, parameters, &mut record)).and_then(|()| match (&user, &logs_before) {
+        // The framework's logs since the scenario began hold no panic and
+        // no fatal error.
+        (Ok(user), Some(mark)) => match mark.troubles(user).first() {
+            Some(line) => Err(Stop::Failed(format!("the framework logged: {line}"))),
+            None => Ok(()),
+        },
+        _ => Ok(()),
+    });
     let (outcome, why) = match &ended {
         Ok(()) => ("passed", None),
         Err(Stop::Failed(why)) => ("failed", Some(why.clone())),

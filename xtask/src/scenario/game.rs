@@ -10,14 +10,19 @@
 //! recorded computer, with the client's own test server for the pipe.
 use crate::claim::{self, GameEnd, RunGame, Starting};
 use eu4_harmony_client::pipe::{self, Failure, NoMainMenu};
+use eu4_harmony_folders::UserFolder;
 use eu4_harmony_remote::{
-    menu::{Menu, MenuRequest, Place},
-    time::{Advanced, TimeRequest},
-    Error, GroupRequest,
+    console::ConsoleRequest,
+    input::{InputRequest, Keys},
+    menu::{Menu, MenuRequest, Place, Save},
+    questions::{Question, QuestionRequest},
+    session::{Session, SessionRequest},
+    time::{Advanced, Stop as AdvanceStop, Time, TimeRequest},
+    Code, Date, Error, GroupRequest,
 };
 use serde::de::DeserializeOwned;
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -27,6 +32,14 @@ pub const STEP: Duration = Duration::from_secs(600);
 /// How long the game may take to reach its main menu, from a start or a
 /// return.
 pub const MAIN_MENU: Duration = Duration::from_secs(300);
+/// How long the autosave may take to be written once the console asked
+/// for it.
+const SAVE_WRITTEN: Duration = Duration::from_secs(180);
+/// How many times time may stop on its way to a date, for questions and
+/// pauses, before running it fails.
+const RUN_STOPS: u32 = 500;
+/// The autosave's name, as `menu.saves` gives it.
+const AUTOSAVE: &str = "autosave";
 /// How long a game process may be missing before it counts as ended: a
 /// return to the main menu ends the process, and the framework starts the
 /// next.
@@ -52,6 +65,8 @@ pub type Played<T> = Result<T, Stop>;
 
 pub struct Game {
     run: Box<dyn RunGame>,
+    /// The test game's user folder; none in the tests of this module.
+    user: Option<UserFolder>,
     /// The test game's pipe, and the executable trusted to serve it.
     pipe: (String, String),
     client: Option<pipe::Client>,
@@ -61,6 +76,10 @@ pub struct Game {
     /// The developer tools' options each start gives the core, in place of
     /// the checkout's `dev.toml`.
     options: Option<String>,
+    /// The test mods each start puts in the test game's playset.
+    mods: Vec<PathBuf>,
+    /// The saves, options and test mods the running game was started with.
+    started_with: Option<(Vec<String>, Option<String>, Vec<PathBuf>)>,
     /// The game ran since the scenario began: its process missing then is an
     /// end, not a game to start.
     running: bool,
@@ -73,7 +92,9 @@ pub struct Game {
 
 impl Game {
     pub fn new(owner: &str, game_dir: &Path) -> crate::Result<Self> {
-        Ok(Self::with(Box::new(claim::run_game(owner, game_dir)), &claim::pipe_of(owner)?, pipe::GAME))
+        let mut game = Self::with(Box::new(claim::run_game(owner, game_dir)), &claim::pipe_of(owner)?, pipe::GAME);
+        game.user = Some(UserFolder::new(claim::user_dir(owner)?));
+        Ok(game)
     }
 
     /// The test game `run` reaches, asked down the pipe `name` served by
@@ -81,10 +102,13 @@ impl Game {
     fn with(run: Box<dyn RunGame>, name: &str, exe: &str) -> Self {
         Self {
             run,
+            user: None,
             pipe: (name.into(), exe.into()),
             client: None,
             saves: Vec::new(),
             options: None,
+            mods: Vec::new(),
+            started_with: None,
             running: false,
             ends_before: 0,
             step: STEP,
@@ -101,6 +125,11 @@ impl Game {
     /// of the checkout's `dev.toml`.
     pub fn options(&mut self, options: Option<String>) {
         self.options = options;
+    }
+
+    /// The test mods the next start puts in the test game's playset.
+    pub fn mods(&mut self, mods: Vec<PathBuf>) {
+        self.mods = mods;
     }
 
     /// Whether the test game runs.
@@ -153,6 +182,16 @@ impl Game {
         }
     }
 
+    /// Asks `request` and reads its answer within `step`, the game's refusal
+    /// as it came: a refusal is an answer here, not the scenario's end.
+    pub fn try_ask<T: DeserializeOwned>(&mut self, request: &impl GroupRequest, step: Duration) -> Played<Result<T, Error>> {
+        let name = request.full_name();
+        match self.exchange(request, step)? {
+            Ok(answer) => Ok(answer),
+            Err(failure) => Err(self.why(&name, &failure, step)),
+        }
+    }
+
     /// Sends `request` and reads its answer, or why none came.
     fn exchange<T: DeserializeOwned>(&mut self, request: &impl GroupRequest, step: Duration) -> Played<Result<Result<T, Error>, Failure>> {
         self.not_interrupted()?;
@@ -175,6 +214,94 @@ impl Game {
     /// Lets `days` days run at speed 5.
     pub fn advance(&mut self, days: u32) -> Played<Advanced> {
         self.ask(&TimeRequest::Advance { days, speed: Some(5) })
+    }
+
+    /// Lets `days` days run at speed 5, as the player would: each question
+    /// that stops the time answered with its first option, a pause let go
+    /// on, and a window that keeps pausing it, such as the game menu a load
+    /// may leave open, closed with Escape; the date then. Another session or
+    /// the main menu coming instead fails it.
+    pub fn run(&mut self, days: u32) -> Played<Date> {
+        let time: Time = self.ask(&TimeRequest::Get {})?;
+        let goal = time.date.0 + days as i32 * 24;
+        let mut stuck = 0;
+        for _ in 0..RUN_STOPS {
+            let before = time_now(self)?;
+            let left = (goal - before.0).div_euclid(24);
+            if left <= 0 {
+                return Ok(before);
+            }
+            let advanced = self.advance(left as u32)?;
+            match advanced.stopped {
+                AdvanceStop::Date => {}
+                AdvanceStop::Paused if advanced.date != before => stuck = 0,
+                AdvanceStop::Paused => {
+                    stuck += 1;
+                    if stuck % 2 == 0 {
+                        let keys = Keys::parse("escape").map_err(Stop::Failed)?;
+                        let () = self.ask(&InputRequest::Key { keys, repeat: None })?;
+                    }
+                }
+                AdvanceStop::Question => {
+                    let questions: Vec<Question> = self.ask(&QuestionRequest::List {})?;
+                    for q in questions {
+                        if let Some(first) = q.options.first() {
+                            let () = self.ask(&QuestionRequest::Answer { question: q.id, option: first.option })?;
+                        }
+                    }
+                }
+                AdvanceStop::Session | AdvanceStop::MainMenu => {
+                    return Err(Stop::Failed(format!("time stopped on {} for another place: {}", advanced.date, advanced.reason)))
+                }
+            }
+        }
+        Err(Stop::Failed(format!("time stopped {RUN_STOPS} times before {days} days had run")))
+    }
+
+    /// The session, read again when the one the request was sent in ended
+    /// before it ran (`session_changed`), as after the console's `observe`.
+    pub fn session(&mut self) -> Played<Session> {
+        for _ in 0..5 {
+            match self.try_ask::<Session>(&SessionRequest::Get {}, self.step)? {
+                Ok(session) => return Ok(session),
+                Err(e) if e.code == Code::SessionChanged => continue,
+                Err(e) => return Err(Stop::Failed(format!("session.get: {e}"))),
+            }
+        }
+        Err(Stop::Failed("session.get: the session changed five times over".into()))
+    }
+
+    /// Runs `command` in the game console; what it printed.
+    pub fn console(&mut self, command: &str) -> Played<String> {
+        self.ask(&ConsoleRequest::Run { command: command.into() })
+    }
+
+    /// Writes the game's autosave with the console's `autosave`, waits until
+    /// its file is written, which a save written in the background finishes
+    /// after the command, and loads it in the game; the session it began.
+    pub fn autosave_and_load(&mut self) -> Played<Session> {
+        let asked = seconds_now().saturating_sub(2);
+        self.console("autosave")?;
+        let deadline = Instant::now() + SAVE_WRITTEN;
+        let mut last = None;
+        loop {
+            let saves: Vec<Save> = self.ask(&MenuRequest::Saves {})?;
+            let now = saves.iter().find(|s| s.name == AUTOSAVE && s.modified >= asked).map(|s| s.bytes);
+            if now.is_some() && now == last {
+                break;
+            }
+            if Instant::now() > deadline {
+                return Err(Stop::Hung(format!("the autosave was not written in {} s", SAVE_WRITTEN.as_secs())));
+            }
+            last = now;
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        self.ask(&MenuRequest::Load { save: AUTOSAVE.into() })
+    }
+
+    /// The test game's user folder.
+    pub fn user(&self) -> Played<UserFolder> {
+        self.user.clone().ok_or_else(|| Stop::Failed("the test game has no user folder".into()))
     }
 
     /// Returns to the main menu, and waits for it.
@@ -243,8 +370,18 @@ impl Game {
         }
     }
 
-    /// A new scenario begins: the game, if it runs, is the one it has.
+    /// A new scenario begins, its saves, options and test mods set: the
+    /// game, if it runs and was started with what it needs, is the one it
+    /// has; one started with other options or test mods, or without its
+    /// saves, is ended, for its first step to start it as it needs.
     pub fn next_scenario(&mut self) {
+        let fits = self
+            .started_with
+            .as_ref()
+            .is_some_and(|(saves, options, mods)| self.saves.iter().all(|s| saves.contains(s)) && *options == self.options && *mods == self.mods);
+        if self.runs() && !fits {
+            self.end();
+        }
         self.running = self.runs();
         self.ends_before = self.run.ends().len();
     }
@@ -265,7 +402,8 @@ impl Game {
 
     fn start(&mut self) -> Played<f64> {
         self.client = None;
-        let starting = Starting { saves: self.saves.clone(), options: self.options.clone(), ..Default::default() };
+        let starting = Starting { saves: self.saves.clone(), options: self.options.clone(), mods: self.mods.clone(), ..Default::default() };
+        self.started_with = Some((self.saves.clone(), self.options.clone(), self.mods.clone()));
         match self.run.start(&starting, self.menu_wait) {
             Ok(seconds) => {
                 self.running = true;
@@ -315,6 +453,21 @@ impl Game {
     }
 }
 
+/// The whole days from `from` to `to`; a date counts hours.
+pub fn days_between(from: Date, to: Date) -> i32 {
+    (to.0 - from.0).div_euclid(24)
+}
+
+/// The game's date.
+fn time_now(game: &mut Game) -> Played<Date> {
+    game.ask::<Time>(&TimeRequest::Get {}).map(|t| t.date)
+}
+
+/// Seconds since 1970, as `menu.saves` gives a save's time.
+fn seconds_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,8 +490,21 @@ mod tests {
         let name = pipe_name(test);
         let mut game = Game::with(Box::new(claim::recorded_run_game(m, "a")), &name, &this_program());
         (game.step, game.menu_wait) = (SHORT, Duration::from_secs(5));
+        game.started_with = Some(Default::default());
         game.next_scenario();
         (m, game, name)
+    }
+
+    /// A game started without what the next scenario needs is ended, for
+    /// that scenario's first step to start it with it.
+    #[test]
+    fn a_game_started_for_other_options_or_test_mods_is_ended_for_the_next_scenario() {
+        let (m, mut game, _) = game_on("other-start", true);
+        game.next_scenario();
+        assert!(!m.did().iter().any(|d| matches!(d, Did::End(_))), "the same start's game is kept");
+        game.mods(vec![PathBuf::from("qa-steady")]);
+        game.next_scenario();
+        assert!(m.did().contains(&Did::End(GAME.id)));
     }
 
     #[test]

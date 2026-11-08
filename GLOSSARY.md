@@ -105,6 +105,18 @@ _Avoid_: leak (for one block; a leak is what a site's leftovers add up to, sessi
 A course of play in the real game on one build, driven through remote control from the main menu, with the checks that decide whether it passed and the figures it measures; several are played in turn, in one claim's test game.
 _Avoid_: integration test, game test (a test is a mod's, against the fake game)
 
+**Scenario set**:
+A name for several scenarios played together in one run, as if named one by one, each with its own outcome in the report: `whole` plays the framework through the real game from end to end (docs/whole-game.md).
+_Avoid_: suite, test plan
+
+**Sweep**:
+The scenario that asks every capability of the catalogue in every place, with a player's arguments and with values at the edge of their kinds, and checks that each answer is of the capability's shape or a refusal the catalogue has.
+_Avoid_: fuzzing (its values are chosen, not random)
+
+**Test mod**:
+A Harmony mod of the repository's, under `xtask/src/scenario/mods/`, that a scenario puts in its test game's playset, such as the ones whose extensions go wrong on purpose; it is copied into the claim's folder, never into the player's `mod` folder.
+_Avoid_: fixture mod, dummy mod
+
 **Leak run**:
 The scenario that plays rounds of sessions on a developer build with the heap census, and the report it writes of what the game's memory kept. The growth scenario plays the same rounds with the memory account only, to measure how much the game grows a round without the census slowing it.
 
