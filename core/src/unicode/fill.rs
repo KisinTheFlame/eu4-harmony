@@ -139,6 +139,9 @@ static PAGES: LazyLock<Mutex<HashMap<usize, Fill>>> = LazyLock::new(Default::def
 static OWNERS: LazyLock<Mutex<HashMap<usize, (usize, Tone)>>> = LazyLock::new(Default::default);
 /// Some page is to grow at the next safe point.
 static ROOM_WANTED: AtomicBool = AtomicBool::new(false);
+/// A map font's page grew since the names on the map were last built: they
+/// are built again at the next safe point in a game.
+static MAP_NAMES_STALE: AtomicBool = AtomicBool::new(false);
 
 /// How much of a page may be claimed before it grows: a page that grows
 /// before it is full leaves no character without a glyph until then.
@@ -844,11 +847,11 @@ pub fn loaded(font: usize) -> bool {
 /// Gives the page at `wrapper` its next size: a new texture, with the glyphs
 /// drawn so far copied to where they were, which the game's page and every
 /// font drawing from it take; and those fonts drop the text they keep laid
-/// out, which holds glyphs' places in fractions of the page's old size.
-/// Returns whether it grew.
-fn grow(m: &Memory, wrapper: usize, fill: &mut Fill) -> crate::Result<bool> {
+/// out, which holds glyphs' places in fractions of the page's old size, as
+/// do the names on the map, for a map font.
+fn grow(m: &Memory, wrapper: usize, fill: &mut Fill) -> crate::Result<()> {
     fill.wants_room = false;
-    let Some((width, height)) = fill.next_size() else { return Ok(false) };
+    let Some((width, height)) = fill.next_size() else { return Ok(()) };
     let (old_width, old_height) = fill.size();
     let fonts: Vec<usize> = lock(&OWNERS).iter().filter(|(_, (w, _))| *w == wrapper).map(|(&font, _)| font).collect();
     let &first = fonts.first().ok_or("no font draws from the page")?;
@@ -875,27 +878,33 @@ fn grow(m: &Memory, wrapper: usize, fill: &mut Fill) -> crate::Result<bool> {
     }
     fill.texture = texture;
     fill.atlas.grow(width, height);
+    if fill.kind == Kind::Map {
+        MAP_NAMES_STALE.store(true, Ordering::Release);
+    }
     log!("fill: the page of font {:?} grew from {old_width}x{old_height} to {width}x{height}, for {} fonts: {}", fill.name, fonts.len(), growing.end());
-    Ok(true)
+    Ok(())
 }
 
 /// The names on the map are built again from the map's fonts' pages as they
-/// are now, when a game is going on: the map draws no names elsewhere, and
-/// builds them for each game.
-fn rebuild_map_names(m: &Memory) -> crate::Result<()> {
+/// are now, when a game is going on; returns whether they were. Outside a
+/// game the map shows no names, but a game started from the main menu draws
+/// those it built there (tested: a page grown at the main menu left a new
+/// game's country names out).
+fn rebuild_map_names(m: &Memory) -> crate::Result<bool> {
     use crate::objects::{application, campaign, text::map};
     let world = m.ptr(m.at(campaign::globals::WORLD))?;
     let manager = if world == 0 { 0 } else { m.ptr(world + campaign::world::MAP_MANAGER)? };
     if manager == 0 || m.ptr(manager)? != m.at(campaign::classes::MAP_MANAGER) {
-        return Ok(());
+        return Ok(false);
     }
     let map = m.ptr(m.ptr(manager + campaign::map_manager::APPLICATION)? + application::MAP)?;
-    if map != 0 {
-        let building = std::time::Instant::now();
-        map::REBUILD_NAMES.call(m, [map])?;
-        log!("fill: the names on the map built again in {:.1?}", building.elapsed());
+    if map == 0 {
+        return Ok(false);
     }
-    Ok(())
+    let building = std::time::Instant::now();
+    map::REBUILD_NAMES.call(m, [map])?;
+    log!("fill: the names on the map built again in {:.1?}", building.elapsed());
+    Ok(true)
 }
 
 /// Every page asks for room (the test switch `grow-pages`).
@@ -909,24 +918,24 @@ pub fn want_room_everywhere() {
 /// framework drew a glyph for is kept with only some of its glyphs on the
 /// page's new size. A page that cannot grow keeps its size from then on.
 pub fn grow_pages() {
-    if !ROOM_WANTED.swap(false, Ordering::Acquire) {
-        return;
-    }
     let m = crate::hooked_memory();
-    let mut map_grew = false;
-    for (&wrapper, fill) in lock(&PAGES).iter_mut().filter(|(_, fill)| fill.wants_room) {
-        match costs::GROWN.time(|| grow(&m, wrapper, fill)) {
-            Ok(grew) => map_grew |= grew && fill.kind == Kind::Map,
-            Err(e) => {
+    if ROOM_WANTED.swap(false, Ordering::Acquire) {
+        for (&wrapper, fill) in lock(&PAGES).iter_mut().filter(|(_, fill)| fill.wants_room) {
+            if let Err(e) = costs::GROWN.time(|| grow(&m, wrapper, fill)) {
                 log!("fill: the page of font {:?} keeps its size: {e}", fill.name);
                 fill.max = None;
             }
         }
     }
     // With the pages free: building the names draws their glyphs.
-    if map_grew {
-        if let Err(e) = rebuild_map_names(&m) {
-            log!("fill: the names on the map were not built again: {e}");
+    if MAP_NAMES_STALE.load(Ordering::Acquire) {
+        match rebuild_map_names(&m) {
+            Ok(false) => {}
+            Ok(true) => MAP_NAMES_STALE.store(false, Ordering::Release),
+            Err(e) => {
+                log!("fill: the names on the map were not built again: {e}");
+                MAP_NAMES_STALE.store(false, Ordering::Release);
+            }
         }
     }
 }
