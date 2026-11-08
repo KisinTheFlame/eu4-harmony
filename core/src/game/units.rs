@@ -542,7 +542,8 @@ mod tests {
 
     #[test]
     fn a_fleet_s_mission_is_one_of_those_known_with_the_target_it_needs() {
-        let mission = |kind: u32, name: &str, target| turkey(0, kind, |s| super::mission(s, args::Mission { army: ArmyId(FLEET), mission: name.into(), target }));
+        let mission =
+            |kind: u32, name: &str, target| turkey(0, kind, |s| super::mission(s, args::Mission { army: ArmyId(FLEET), mission: name.into(), target }));
         assert_eq!(refused(mission(0, "raid", None)).0, Status::InvalidArgument);
         assert_eq!(refused(mission(0, "blockade", None)), (Status::InvalidArgument, "the mission blockade needs a sea region's number as its target".into()));
         assert_eq!(refused(mission(EVADING, "evade", None)), (Status::Rejected, "the fleet evades already".into()));

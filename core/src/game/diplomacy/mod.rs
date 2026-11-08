@@ -1491,7 +1491,8 @@ mod tests {
             }
             let hostile = Object::new(country_fields::HOSTILE_SIZE).i32(0, byz().index().into());
             let count = if at_war { 1 } else { 0 };
-            let turkey = Object::country(tur(), country_fields::HOSTILE_COUNT + 4).points_to(country_fields::HOSTILE, hostile).i32(country_fields::HOSTILE_COUNT, count);
+            let turkey =
+                Object::country(tur(), country_fields::HOSTILE_COUNT + 4).points_to(country_fields::HOSTILE, hostile).i32(country_fields::HOSTILE_COUNT, count);
             let byzantium = Object::country(byz(), country_fields::HOSTILE_COUNT + 4);
             let countries = Object::countries(&[&turkey, &byzantium]);
             let result = action(buffers::session(image.memory(), 0, tur(), turkey.at(), countries.at(), Caller::Remote));
@@ -1525,7 +1526,10 @@ mod tests {
         #[test]
         fn a_declaration_names_its_casus_belli_and_a_white_peace_needs_a_war() {
             let none = Choice { casus_belli: Some(String::new()), ..Choice::default() };
-            assert_eq!(refused(turkey(false, |s| declare_war(s, byz(), &none, &Calls::All))), (Status::InvalidArgument, "no casus belli: name one by its key, or none".into()));
+            assert_eq!(
+                refused(turkey(false, |s| declare_war(s, byz(), &none, &Calls::All))),
+                (Status::InvalidArgument, "no casus belli: name one by its key, or none".into())
+            );
             assert_eq!(refused(turkey(false, |s| offer_peace(s, byz()))), (Status::Rejected, "the player is not at war with BYZ".into()));
             assert!(record::posted().is_empty());
         }

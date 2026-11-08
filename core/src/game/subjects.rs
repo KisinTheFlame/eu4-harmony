@@ -367,7 +367,10 @@ mod tests {
             let image = Image::new();
             let m = image.memory();
             for i in INTERACTIONS {
-                image.u64(i.object, m.at(i.class) as u64).i32(i.object + 8, i.token as i32).u64(i.class + FOR_OVERLORD, not_for_the_overlord as *const () as u64);
+                image
+                    .u64(i.object, m.at(i.class) as u64)
+                    .i32(i.object + 8, i.token as i32)
+                    .u64(i.class + FOR_OVERLORD, not_for_the_overlord as *const () as u64);
             }
             let size = OVERLORD_VALID + 1;
             let (turkey, wallachia) = (Object::country(tur(), size), Object::country(wal(), size));
