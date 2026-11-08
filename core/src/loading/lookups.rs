@@ -32,8 +32,8 @@ const STAT: usize = 0x1a061d0;
 /// `PHYSFS_ERR_NOT_FOUND`) and set (`0x19f8510`).
 const STAT_FAILS: usize = 0x1a062a3;
 const NOT_FOUND_MADE: usize = 0x1a06a00;
-const SET_ERROR: GameFunction<1> = GameFunction::at(0x19f8510);
-const NOT_FOUND: usize = 0xb;
+pub(super) const SET_ERROR: GameFunction<1> = GameFunction::at(0x19f8510);
+pub(super) const NOT_FOUND: usize = 0xb;
 
 /// Checked, the game's stat answers every path the listings answer missing
 /// as well, and the game's answer is kept.
