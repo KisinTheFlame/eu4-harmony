@@ -48,6 +48,7 @@ The Rust version is the one [rust-toolchain.toml](rust-toolchain.toml) names, wh
 - Design capabilities for any mod. The regional combat port lives in its own repository and must not shape the framework's interface ([ADR ports-live-outside-framework-repo](docs/adr/ports-live-outside-framework-repo.md), [ADR extensions-use-capabilities-only](docs/adr/extensions-use-capabilities-only.md)).
 - Every place in the game the framework relies on is a dependency point, with the bytes expected there: a game function, a hook site, a field offset (checked against an instruction that uses it). A different game build then fails at startup instead of misbehaving, and startup succeeds or fails as a whole ([ADR framework-succeeds-or-fails-as-a-whole](docs/adr/framework-succeeds-or-fails-as-a-whole.md)).
 - Work things out from the game itself. Do not copy code from other EU4 patches or plugins, and do not name them in this repository.
+- Understand the game's code before reasoning about changing it: what a function works out in the game's terms and why, what it reads and writes, who calls it and how often; read it to its end and through its callees, and write that into [docs/research/](docs/research/). Whether two stretches of the game can run side by side is argued from what each reads, writes and shares, not from runtime tricks. Where the tools at hand cannot answer a question, say so and why.
 
 ## Testing in the game
 

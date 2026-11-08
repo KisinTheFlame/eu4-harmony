@@ -56,6 +56,8 @@ Every part goes through the same steps, in this order; a step is not skipped bec
 
 A question about one way (such as whether the drawing can run apart from the day) is answered within these steps: its bound and its standing against the others first, its research only if it is chosen.
 
+A part is shown to work by a gain that is certain on its own target (step 6), not by days a second over the whole game: runs of the AI's late game go apart from each other, so a few runs' days a second swing by twice and hide a gain of a few ms a day. The whole game's speed is measured in large benchmarks of many runs, now and then, apart from any one part.
+
 ## Which part comes next
 
 As of 2026-11-08, from the 1780.7.1 save in observe mode at speed 5 with "Faster time", S9 built and S10 not yet: 14.5 days a second, 69 ms of the main thread a day, the day 78% and between days 22% ([a late frame's drawing and the driver](prototype-log/2026-11-08-a-late-frames-drawing-and-the-driver.md); [research/late-game.md](research/late-game.md)).
