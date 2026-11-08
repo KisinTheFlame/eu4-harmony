@@ -13,11 +13,14 @@
 //!   instead of one at a time under two global locks.
 //! - `listed`: every folder of the search path answered from its listing,
 //!   which a watch of the folder keeps up to date.
+//! - `meshes`: the mesh types loaded on a thread of their own beside the
+//!   databases.
 use std::path::Path;
 
 pub mod children;
 pub mod listed;
 pub mod lookups;
+pub mod meshes;
 pub mod music;
 pub mod opens;
 
