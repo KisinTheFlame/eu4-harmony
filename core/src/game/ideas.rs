@@ -284,4 +284,60 @@ mod tests {
         assert_eq!(written_buy(fra(), 89, 2), r#"spend_power_command={ country="FRA" power={ data=89 category=0 skill=2 } }"#);
         assert_eq!(written_buy(fra(), 0, 0), r#"spend_power_command={ country="FRA" power={ category=0 skill=0 } }"#);
     }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// France, of the idea groups `defensive_ideas` and `trade_ideas`, of
+    /// two ideas each, the first taken with `bought` of them bought; the
+    /// groups' database a global of the game's. Runs `action` over its
+    /// session.
+    fn france(bought: i32, action: impl FnOnce(Session) -> GResult<()>) -> GResult<()> {
+        let image = Image::new();
+        let group = |key: &str| Object::new(0x600).string(group::KEY, key).vector(group::IDEAS, &[1, 2]);
+        let (defensive, trade) = (group("defensive_ideas"), group("trade_ideas"));
+        let database = Object::new(GROUPS + 0x10).vector(GROUPS, &[defensive.at() as u64, trade.at() as u64]);
+        image.u64(DATABASE, database.at() as u64);
+        let entry = Object::new(country::IDEA_GROUP_SIZE).u64(0, defensive.at() as u64).i32(country::IDEA_GROUP_COUNT, bought);
+        let end = (entry.at() + country::IDEA_GROUP_SIZE) as u64;
+        let country = Object::country(fra(), country::IDEA_GROUPS + 0x10).points_to(country::IDEA_GROUPS, entry).u64(country::IDEA_GROUPS + 8, end);
+        let countries = Object::countries(&[&country]);
+        let result = action(buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote));
+        drop((defensive, trade, database, country, countries, image));
+        result
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the action was carried out") };
+        (status, message)
+    }
+
+    #[test]
+    fn an_idea_group_is_abandoned_only_when_taken_and_refusals_say_why() {
+        let group = |key: &str| key.to_string();
+        france(0, |s| abandon_group(s, args::AbandonGroup { group: group("defensive_ideas") })).unwrap();
+        assert_eq!(record::posted(), [r#"abandon_idea_group={ country="FRA" idea_group="defensive_ideas" }"#]);
+        let refusals = [
+            refused(france(0, |s| abandon_group(s, args::AbandonGroup { group: group("trade_ideas") }))),
+            refused(france(0, |s| take_group(s, args::TakeGroup { group: group("defensive_ideas") }))),
+            refused(france(0, |s| buy(s, args::Buy { group: group("trade_ideas") }))),
+            refused(france(2, |s| buy(s, args::Buy { group: group("defensive_ideas") }))),
+            refused(france(0, |s| take_group(s, args::TakeGroup { group: group("flying_ideas") }))),
+        ];
+        assert_eq!(
+            refusals,
+            [
+                (Status::Rejected, "the player has not taken the idea group trade_ideas".into()),
+                (Status::Rejected, "the player has taken the idea group defensive_ideas already".into()),
+                (Status::Rejected, "the player has not taken the idea group trade_ideas".into()),
+                (Status::Rejected, "every idea of defensive_ideas is bought".into()),
+                (Status::NotFound, "no idea group \"flying_ideas\" for the player".into()),
+            ]
+        );
+        assert!(record::posted().is_empty());
+    }
 }
