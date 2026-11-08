@@ -4,7 +4,7 @@ Date 2026-11-09. Subject: vanilla 1.37.5 `eu4.exe` (SHA-256 `9ad3efe1af169f40ee5
 
 Method: static analysis only; the game was not started and no process was attached. Ghidra 12.1.4 headless, opened with `-readOnly -noanalysis`, decompiled only selected functions; disassembly with capstone, `.pdata` function bounds, RIP-relative references and `E8` calls scanned with scripts written for this study; the vanilla `interface/menubar.gui` read as text. What is marked **verified** was seen in the decompilation or the bytes; what is marked **inferred** is a judgement drawn from structure. All prototypes are tentative.
 
-It builds on [ui-injection.md](ui-injection.md) (how `.gui` files are read), [notice-window.md](notice-window.md) (CreateWindow, the idler, Kill and the sweep, the window holder) and [interface-bindings.md](interface-bindings.md) (elements, clicks, text, tooltips), and does not repeat them. It is the research for [docs/extension-windows.md](../extension-windows.md), W1, W2 and W4.
+It builds on [ui-injection.md](ui-injection.md) (how `.gui` files are read), [notice-window.md](notice-window.md) (CreateWindow, the idler, Kill and the sweep, the window holder) and [interface-bindings.md](interface-bindings.md) (elements, clicks, text, tooltips), and does not repeat them. It is the research for [docs/plans/extension-windows.md](../plans/extension-windows.md), W1, W2 and W4.
 
 ## Conclusion
 

@@ -1,6 +1,6 @@
 //! Which of some blocks a word of memory points into: the one rule what still
 //! points at a leftover (M2) and who let a watched block's owner go (M3)
-//! both read memory by (docs/leak-finding.md). Eight bytes point into a block
+//! both read memory by (docs/plans/leak-finding.md). Eight bytes point into a block
 //! when they hold an address in its first [`INTO`] bytes, where an object's
 //! bases and a large buffer's alignment lie.
 //!

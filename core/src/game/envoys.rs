@@ -102,7 +102,7 @@ pub fn localized(m: &Memory, key: &str) -> GResult<String> {
 
 /// The refusals the framework words itself in the actions of missionaries,
 /// colonists, merchants, trade companies and centers of trade (part A8 of
-/// docs/player-actions.md); those the game gives reasons for are
+/// docs/plans/player-actions.md); those the game gives reasons for are
 /// [`super::action`]'s.
 pub mod checks {
     use crate::game::{Fail, Status};

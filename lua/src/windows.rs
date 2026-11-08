@@ -1,4 +1,4 @@
-//! `game.window` and `game.popup` (docs/extension-windows.md): what an
+//! `game.window` and `game.popup` (docs/plans/extension-windows.md): what an
 //! extension sets on its windows, checked against their layouts, and the
 //! pop-ups it shows, put into words in the player language, before the host
 //! has either. The running game and the fake game take them the same.

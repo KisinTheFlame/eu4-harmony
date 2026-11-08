@@ -1,5 +1,5 @@
 //! Pop-ups: the extensions' pop-ups open in the game, and pressing one of
-//! their buttons as the player does (docs/extension-windows.md). What they
+//! their buttons as the player does (docs/plans/extension-windows.md). What they
 //! are is `crate::windows`'; a pop-up is the extensions' and the player's
 //! alike, so remote control's view leaves nothing of them out.
 use super::{GResult, WorldSession};

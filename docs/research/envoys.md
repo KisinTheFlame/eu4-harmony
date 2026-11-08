@@ -1,6 +1,6 @@
 # Missionaries, colonists, merchants, trade companies and centers of trade
 
-Baseline 1.37.5. All addresses are RVAs. Read from eu4.exe on 2026-11-05 for part A8 of [player-actions.md](../player-actions.md); what was tried in the running game is in [Player actions A8](../prototype-log/2026-11-05-player-actions-a8-missionaries.md). What `core/src/game/` keeps of it is in `envoys.rs`, `missionaries.rs`, `colonists.rs`, `trade_companies.rs`, `centers_of_trade.rs` and `merchants.rs`, each address a dependency point there. Commands are posted as text through the command layer ([commands.md](commands.md)); keys left out take the command's defaults.
+Baseline 1.37.5. All addresses are RVAs. Read from eu4.exe on 2026-11-05 for part A8 of [player-actions.md](../plans/player-actions.md); what was tried in the running game is in [Player actions A8](../prototype-log/2026-11-05-player-actions-a8-missionaries.md). What `core/src/game/` keeps of it is in `envoys.rs`, `missionaries.rs`, `colonists.rs`, `trade_companies.rs`, `centers_of_trade.rs` and `merchants.rs`, each address a dependency point there. Commands are posted as text through the command layer ([commands.md](commands.md)); keys left out take the command's defaults.
 
 ## The commands
 

@@ -7,8 +7,8 @@ In short: **what grows is the AI's handling of armies, and it grows on the main 
 ## Setup
 
 - The machine and screen of [performance.md](../performance.md): Ryzen 7 9700X (8 cores, 16 threads), 3840×2160 borderless, vsync at 144 Hz. The player's playset, the game hidden, the framework's player build of this branch.
-- The player's own settings: "Faster time" (`fastest_speed="faster"`, no frames inside a day at speed 5, [game-speed.md](../game-speed.md)) and half-yearly autosaves, uncompressed. So at speed 5 a day is the day's work and, between days, about one frame.
-- **The game**: a new game as Castile, `console run observe` at once, so that the AI plays every country; `time.advance` a year at a time at speed 5, which runs while the player observes ([remote-control.md](../remote-control.md)).
+- The player's own settings: "Faster time" (`fastest_speed="faster"`, no frames inside a day at speed 5, [game-speed.md](../plans/game-speed.md)) and half-yearly autosaves, uncompressed. So at speed 5 a day is the day's work and, between days, about one frame.
+- **The game**: a new game as Castile, `console run observe` at once, so that the AI plays every country; `time.advance` a year at a time at speed 5, which runs while the player observes ([remote-control.md](../plans/remote-control.md)).
   - 1444 to 1608 observing, no country viewed;
   - then the game's autosave of 1600.1.1 loaded again, played as the first great power then, the Ottomans, observed at once, and viewed as the Ottomans (Ctrl and a click on one of their provinces, which makes the game show the observer that country's top bar, outliner and alerts while the AI plays it), on the political map (W), to 1821.1.3. The windows the game opened for the Ottomans' view (the ages' windows) were closed as they came, as a player closes them.
 - The profiler ran through both, 9,420 s at 50 samples a second, which slows the game by about 7% throughout.
@@ -134,7 +134,7 @@ Measured on 2026-11-07 ([Whether a game repeats its days with -seed](../prototyp
 - **With `-seed` most runs are alike.** The game sets its generator's seed to the switch's and its draw count to 0 at the first load of a process; a second load in the same process keeps the save's seed and count, so only a load in a new process repeats. Each agent's own generator is seeded with the same number when the agent is made (`0xe4050`; without the switch, with the time, `0x1a49a5c`), and the AI reads no clock otherwise: the timers the game imports are read only to seed generators, and by the frame's timing (`0x1761e20`..`0x1761fd0`). Of four runs started with `-seed=1` and the AI's walks as the game's, three gave saves identical but for those two lines after the 185 days; the fourth went another way. That is not the threads repeating themselves: with `-seed` the AI stage runs the countries one after another on the main thread, sorted by their index, instead of on the parallel stage (`0x75b891`, `0x75b990`; [ai.md](ai.md), "A day of the AI").
 - **What still varies with `-seed`**: in two runs of five, Great Britain's "Royal Navy" got one of two admirals as its leader (`leader` `id=50176` against `id=49643`), and the rest of the save followed it: 6 lines of a diff after a month, about 8,000 to 10,000 after two, and a third of the save after six (monthly autosaves, five runs). Which code picks the admiral, and why it varies, was not found.
 
-So a game started with `-seed` repeats its days, with its AI on one thread, well enough for a bench (S5, [game-speed.md](../game-speed.md)) to compare two builds by their saves, as long as each is run a few times and its runs are taken in the same history as the other's, the admiral's.
+So a game started with `-seed` repeats its days, with its AI on one thread, well enough for a bench (S5, [game-speed.md](../plans/game-speed.md)) to compare two builds by their saves, as long as each is run a few times and its runs are taken in the same history as the other's, the admiral's.
 
 ## Whether an AI country's agents depend on each other
 
@@ -153,7 +153,7 @@ Five runs from the autosave of 1780.7.1 with `-seed=1` and monthly autosaves ([t
 
 ## Whether it can be made faster
 
-Against the bar of [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md): the same AI, the same decisions taken by the same code.
+Against the bar of [ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md): the same AI, the same decisions taken by the same code.
 
 | What | What it could give | Why not, or what it needs |
 | --- | --- | --- |
@@ -167,7 +167,7 @@ So the late game's AI cannot be made much faster without changing what it comput
 
 ## The armies' searches on idle threads
 
-The bar above was the old one. Since [ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/the-game-may-be-made-faster-with-reasoned-differences.md) a change may differ from the game's code when it says why; the first is this one, of the first kind there, when the work is done (`core/src/army_search.rs`).
+The bar above was the old one. Since [ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/2026-11-07-the-game-may-be-made-faster-with-reasoned-differences.md) a change may differ from the game's code when it says why; the first is this one, of the first kind there, when the work is done (`core/src/army_search.rs`).
 
 **What it does.** Once a country's King has thought (`0x14b622` in `0x14b370`), the framework finds the army agents that think today and will search, works out the arguments each think will give the search, and hands the searches to a pool of its own threads (up to 8). When a think calls the search, it takes the result worked out for it if its arguments and the agent's and army's state are the same, and otherwise searches itself. A search worked out ahead reads the world as it stood when the King had thought, before its ministers and the armies before it did their day; the game's own threads already read other countries' state at such moments.
 
@@ -233,7 +233,7 @@ Milliseconds of the main thread a game day, from the sampled shares:
 
 ### Adding sets of modifiers
 
-`0x8ea420(set, added)` and its twin `0x8ea730`, which takes the values away, search a set kept as pairs for each modifier added, pair by pair from the first (`0x8ea4d0`, `0x8ea7e2`: the set's pairs at `+0x58`, their count at `+0x64`). The framework replaces those two searches alone (`core/src/modifier_sums.rs`): after four searches in one call of a set of 16 pairs or more, it puts the set's pairs in an index of its thread's, takes up the pairs the game appends as the call goes on, and answers each search from it. Every answer is the first pair holding the modifier, as the game's search gives it; the adding, the appending, the set's growth and the record of the sets added stay the game's code. A set kept by modifier (`+0x10`) writes modifiers into its places as the call goes on, and is searched pair by pair as before. A difference of the second kind, the same answer ([ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/the-game-may-be-made-faster-with-reasoned-differences.md)).
+`0x8ea420(set, added)` and its twin `0x8ea730`, which takes the values away, search a set kept as pairs for each modifier added, pair by pair from the first (`0x8ea4d0`, `0x8ea7e2`: the set's pairs at `+0x58`, their count at `+0x64`). The framework replaces those two searches alone (`core/src/modifier_sums.rs`): after four searches in one call of a set of 16 pairs or more, it puts the set's pairs in an index of its thread's, takes up the pairs the game appends as the call goes on, and answers each search from it. Every answer is the first pair holding the modifier, as the game's search gives it; the adding, the appending, the set's growth and the record of the sets added stay the game's code. A set kept by modifier (`+0x10`) writes modifiers into its places as the call goes on, and is searched pair by pair as before. A difference of the second kind, the same answer ([ADR the-game-may-be-made-faster-with-reasoned-differences](../adr/2026-11-07-the-game-may-be-made-faster-with-reasoned-differences.md)).
 
 Measured on 2026-11-08 in a test game ([the run](../prototype-log/2026-11-08-modifier-sets-through-an-index.md)), the developer build, the 1780.7.1 save in observe mode at speed 5, 120 s a run, the main thread sampled (`cargo xtask profile --test-game`):
 
@@ -243,7 +243,7 @@ Measured on 2026-11-08 in a test game ([the run](../prototype-log/2026-11-08-mod
 
 ### Where the late day could be shorter
 
-| What | Its time late | What a change could give | Of which kind ([game-speed.md](../game-speed.md)) |
+| What | Its time late | What a change could give | Of which kind ([game-speed.md](../plans/game-speed.md)) |
 | --- | --- | --- | --- |
 | The AI | 24 ms a day, 38% | Above, "Whether it can be made faster": little without changing the AI | C |
 | The monthly update | 266 ms a month, 8.8 ms a day | `0x8ea420` looking its pairs up through an index made for the call instead of one by one: built, about 60 ms a month of 104 ("Adding sets of modifiers"). The rest of the month is many countries' and provinces' updates one after another, nothing alone large | C: the simulation's own code, the same answers checked call by call |
@@ -277,14 +277,14 @@ Counted in the game's autosaves of the run (a script of the run's own):
 ## What this means
 
 - Later in a game the day is slower because the AI countries that are left have more armies to handle, and the largest of them set how long the AI stage lasts. A player's own country has no AI, so a player's own armies do not count here; the AI great powers' do.
-- More cores would not help: the stage already leaves most of them idle, and the stage already starts its longest tasks first. What would is the largest countries' tasks taking less time, or their agents running apart, and on the worst days a great power's plan, which asks route after route, taking less time. Each changes the AI's own code and the order its work is done in, and the agents' order changes what they decide ("Whether an AI country's agents depend on each other"): a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../game-speed.md), S5 and S6, set aside); "Whether it can be made faster" above weighs each.
+- More cores would not help: the stage already leaves most of them idle, and the stage already starts its longest tasks first. What would is the largest countries' tasks taking less time, or their agents running apart, and on the worst days a great power's plan, which asks route after route, taking less time. Each changes the AI's own code and the order its work is done in, and the agents' order changes what they decide ("Whether an AI country's agents depend on each other"): a change of kind C ([ADR making-the-game-faster-leaves-what-it-computes-as-it-is](../adr/2026-11-04-making-the-game-faster-leaves-what-it-computes-as-it-is.md)), which needs the bench that repeats ([game-speed.md](../plans/game-speed.md), S5 and S6, set aside); "Whether it can be made faster" above weighs each.
 - A late game the player feels to be slow can also be slow for reasons of the session, not of the date: the windows left open, or (with the game's own pace instead of "Faster time") the frames inside a day.
 
 ## Saves to test with
 
 The game's autosaves of the run are kept outside the game's folders, for runs that need a mid or late game, at `%LOCALAPPDATA%\eu4-harmony-dev\saves\` on the machine that made them:
 
-- `observer-1600.1.1.eu4`, observing (`player="O00"`). `menu.load` refuses it ("no country O00"): copy it into a test game's save games folder (`user\save games\` in the claim's folder, [test-games.md](../test-games.md)) with its header's `player` set to a country (`"TUR"`) and `not_observer=yes`, load that, and observe.
+- `observer-1600.1.1.eu4`, observing (`player="O00"`). `menu.load` refuses it ("no country O00"): copy it into a test game's save games folder (`user\save games\` in the claim's folder, [test-games.md](../plans/test-games.md)) with its header's `player` set to a country (`"TUR"`) and `not_observer=yes`, load that, and observe.
 - `observer-1700.1.1.eu4`, written while the Ottomans were viewed, so `player="TUR"`: `menu.load` loads it as the Ottomans; observe, and view them again.
 
 A claim's release removes what a run added to the save games folder, so a copy there goes with it.

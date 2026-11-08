@@ -1,5 +1,5 @@
 //! Whether a file is in a folder of the game's, answered from the folder's
-//! listing (docs/loading.md).
+//! listing (docs/plans/loading.md).
 //!
 //! Every lookup of a file asks each folder of PhysFS's search path in turn,
 //! and for a folder PhysFS asks Windows (`0x1a061d0`, its platform's stat:

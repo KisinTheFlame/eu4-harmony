@@ -1,6 +1,6 @@
 # 2026-11-08 Every folder answered from its watched listing (tested by me)
 
-[L5](../loading.md) on a test game: a developer build of this branch with the test games' pipes, the test switches and `dev-call-trace`, the player's playset (five workshop mods and the local Regional Combat), every DLC, the music kept by a first start; other test games held the processor at about 45%.
+[L5](../plans/loading.md) on a test game: a developer build of this branch with the test games' pipes, the test switches and `dev-call-trace`, the player's playset (five workshop mods and the local Regional Combat), every DLC, the music kept by a first start; other test games held the processor at about 45%.
 
 - **Before it, the folders' stats by folder**: two starts with the folder archive's stat (`0x1a07080`) traced, the second reading 8 bytes of each root's path (`fields`), with another test game's write watch and the player's game running beside them (134 and 156 s to the main menu, so the times are long): the user folder 86,923 stats at 247 µs, the game folder 127,961 at 83 µs, the five workshop mods 343,444 at 4 to 83 µs, the local mod 85,483 at 71 µs; called from the path's check (`0x19fb7f8`) and the lookup (`0x19fae80`), and a few from `PHYSFS_enumerate` and `PHYSFS_mkdir`.
 - **Checked**: `checked = ["listed-folders"]`, a start, Austria-37_4-1 loaded with `menu.load` and 20 days played: the report counted 702,736 answers to the main menu, none differing; the log named no difference after; every root was watched.

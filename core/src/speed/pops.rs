@@ -1,4 +1,4 @@
-//! POPS without sleeping (docs/game-speed.md).
+//! POPS without sleeping (docs/plans/game-speed.md).
 //!
 //! Paradox's client (`pops_api.dll`) is served twice a frame on the main
 //! thread, and its event loop waits 1 ms for its sockets, sleeping that long

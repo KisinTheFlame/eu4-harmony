@@ -1,6 +1,6 @@
 # 2026-11-09 Extension windows, pop-ups and entry buttons (tested by me)
 
-Whether extension windows and pop-ups ([docs/extension-windows.md](../extension-windows.md), W1 to W4) are built in the game's own interface, look like the game's, and do what the plan says, in the running game.
+Whether extension windows and pop-ups ([docs/plans/extension-windows.md](../plans/extension-windows.md), W1 to W4) are built in the game's own interface, look like the game's, and do what the plan says, in the running game.
 
 ## Setup
 

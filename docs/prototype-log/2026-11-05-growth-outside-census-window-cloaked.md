@@ -1,6 +1,6 @@
 # 2026-11-05 What grows outside the census, and the hidden window concealed (tested by me)
 
-`growth` and `leak` with ten rounds each on master (f29ab09), then M6 of [leak-finding.md](../leak-finding.md), `memory.uncounted`, on this branch. Each run within a claim, the game started hidden; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
+`growth` and `leak` with ten rounds each on master (f29ab09), then M6 of [leak-finding.md](../plans/leak-finding.md), `memory.uncounted`, on this branch. Each run within a claim, the game started hidden; the saves England-1 and 英格兰1444_11_11, new games as France, 30 days.
 
 - **Ten rounds**: both scenarios passed, `leak` with `watch 10`; the runner renewed its lease at each build, and the run of 18 minutes needed no renewal in between. Over rounds 2 to 10, `growth` grew 40.6 MB of private bytes a round, 23.9 MB of it the game's heap, 11.6 MB free pages in the heaps and 5.1 MB outside them; `leak` 46.8, 22.4, 14.4 and 7.2. On 2026-11-04 the memory account had measured 15.5 MB a round, 7.45 MB of it the game's heap ("The text boxes' animations let go").
 - **The census did not see it**: the census's leftovers grew 7.7 MB a round (1,235.8 MB after round 1, 1,305.0 MB after round 10), as before, and the sites that leave the most were those of earlier runs (`0x299db7`, `0x155c294`, `0x156acc9`, `0x299e03`, `0x10b59fe`). About 15 MB a round of the game's heap was blocks no site has.

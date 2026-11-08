@@ -10,13 +10,13 @@ fn sample(kind: Kind) -> Value {
     kind.json(kind.example()).unwrap_or_else(|| panic!("the example of {kind:?} is not one"))
 }
 
-/// Each code is named as JSON writes it, and the documentation explains it.
+/// Each code is named as JSON writes it, and says what it means, which
+/// `eu4-harmony wiki remote` shows.
 #[test]
 fn every_code_is_named_and_explained() {
-    let documented = include_str!("../../docs/remote-control.md");
     for code in Code::ALL {
         assert_eq!(serde_json::to_value(code).unwrap(), json!(code.name()));
-        assert!(documented.contains(&format!("`{}`", code.name())), "docs/remote-control.md does not explain {}", code.name());
+        assert!(!code.about().is_empty(), "{} says nothing of what it means", code.name());
     }
 }
 

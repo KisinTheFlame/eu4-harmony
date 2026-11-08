@@ -16,7 +16,7 @@
 - **更快的游戏，同一局游戏。** 更流畅，最快速度下快约一成，存档时的卡顿只剩约三分之一，启动和读档也更快；游戏后期，AI 的军队在空闲的核心上规划路线。游戏的规则和数据都保持原样。
 - **修好原版至今还有的 bug。** 继承人不会再一半概率重名，反侵略联盟和宗主国覆灭不再有崩溃风险，读档也不会再让你丢掉成就。
 - **成就规则由你定。** 可选：非铁人或开着 Mod 也能拿成就。
-- **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、研究、选理念和改革、贸易、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。Mod 还能弹出弹窗，打开自己的窗口，样式与游戏原生一致，布局用 Lua 写，入口按钮就在小地图左侧，和教廷、神罗的按钮排在一起（[docs/extension-windows.md](docs/extension-windows.md)）。
+- **Mod 能做更多。** 几行 Lua，Mod 就能读取游戏、添加按钮，并在游戏的各个面板里做你能做的事（建造、发展、研究、选理念和改革、贸易、宣战与议和、每一种外交行动），不允许时给出游戏自己的原因。Mod 还能弹出弹窗，打开自己的窗口，样式与游戏原生一致，布局用 Lua 写，入口按钮就在小地图左侧，和教廷、神罗的按钮排在一起（[docs/plans/extension-windows.md](docs/plans/extension-windows.md)）。
 - **让 AI 来玩。** 程序可以像你一样替你玩完整局游戏，甚至在后台隐藏着玩。
 
 ## 安装（玩家）
@@ -38,7 +38,7 @@
 
 ### 设置
 
-**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、游戏速度、远程控制能看到什么，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/player-language.md](docs/player-language.md)、[docs/sessions.md](docs/sessions.md)、[docs/game-speed.md](docs/game-speed.md)、[docs/music-volume.md](docs/music-volume.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/remote-control-reads-the-players-view.md)。
+**EU4 Harmony settings** 里可以设置玩家语言和字体、返回主菜单时不重启游戏、成就规则、游戏速度、远程控制能看到什么，以及音乐的响度是否统一；每一项在窗口里都有说明。细节见 [docs/plans/player-language.md](docs/plans/player-language.md)、[docs/plans/sessions.md](docs/plans/sessions.md)、[docs/plans/game-speed.md](docs/plans/game-speed.md)、[docs/plans/music-volume.md](docs/plans/music-volume.md) 和 [ADR remote-control-reads-the-players-view](docs/adr/2026-11-05-remote-control-reads-the-players-view.md)。
 
 装上框架后，游戏自己的音量滑块按位置的平方变化，每一格听起来变化差不多大；原版在最后一成会陡降到静音。原来低于 100 的音量会比以前轻，需要重新调一次。
 
@@ -95,7 +95,7 @@ my-mod/
 
 - `eu4-harmony wiki`：每项能力的参数和结果、事件函数和全局函数（`wiki lua`）、清单（`wiki manifest`）。不需要游戏运行。
 - `eu4-harmony skills`：每类工作的分步指南（`skills mod` 讲做一个 Mod，还有 `skills ui`、`skills testing` 等），写给 coding agent，人也能读。
-- [docs/lua-extensions.md](docs/lua-extensions.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
+- [docs/plans/lua-extensions.md](docs/plans/lua-extensions.md)：扩展如何工作，包括出错、时间与内存限制和存档数据。
 
 ## 远程控制
 
@@ -111,23 +111,24 @@ eu4-harmony game screenshot --out shot.png
 eu4-harmony game menu return               # 回到主菜单
 ```
 
-观察模式下 AI 操控所有国家：`menu start` 不带国家就开这样一局，`session view FRA` 把法兰西设为所看国家，`session leave_view` 退出视角；这时以国家身份行事的能力作用于所看国家，AI 照常操控它，没有所看国家时返回 `no_country`（[docs/observe-mode.md](docs/observe-mode.md)）。
+观察模式下 AI 操控所有国家：`menu start` 不带国家就开这样一局，`session view FRA` 把法兰西设为所看国家，`session leave_view` 退出视角；这时以国家身份行事的能力作用于所看国家，AI 照常操控它，没有所看国家时返回 `no_country`（[docs/plans/observe-mode.md](docs/plans/observe-mode.md)）。
 
-远程控制只对正在玩的 Windows 用户开放、只限本机，玩家做不到的它也做不到。没有能力覆盖的地方，它可以用玩家的鼠标和键盘。`eu4-harmony wiki remote` 讲一局怎么进行、每个退出码的含义；设计见 [docs/remote-control.md](docs/remote-control.md) 和 [docs/hidden-start.md](docs/hidden-start.md)。
+远程控制只对正在玩的 Windows 用户开放、只限本机，玩家做不到的它也做不到。没有能力覆盖的地方，它可以用玩家的鼠标和键盘。`eu4-harmony wiki remote` 讲一局怎么进行、每个退出码的含义；设计见 [docs/plans/remote-control.md](docs/plans/remote-control.md) 和 [docs/plans/hidden-start.md](docs/plans/hidden-start.md)。
 
 ## 文档
 
 | | |
 | --- | --- |
-| [docs/v1.md](docs/v1.md) | 第一版的设计 |
+| [docs/plans/v1.md](docs/plans/v1.md) | 第一版的设计 |
 | [GLOSSARY.md](GLOSSARY.md) | 项目用的术语 |
 | [docs/adr/](docs/adr/) | 难以撤回的决定，以及做出它们的理由 |
-| [docs/research/](docs/research/) | 对游戏代码的了解 |
+| [docs/game/](docs/game/) | 对游戏的认识，每个系统一页 |
+| [docs/research/](docs/research/) | 这些页面所依据的、对游戏代码的调研 |
 | [docs/performance.md](docs/performance.md) | 框架给游戏带来的开销，实测 |
 | [docs/prototype-log/](docs/prototype-log/) | 在运行中的游戏里试过什么、结果如何，每次一个文件 |
 | [docs/dev-tools.md](docs/dev-tools.md) | 开发工具 |
 
-每项较大的工作在 [docs/](docs/) 里有自己的方案，和其他文档一起列在 [docs/README.md](docs/README.md) 里。
+每项较大的工作在 [docs/plans/](docs/plans/) 里有自己的方案，和其他文档一起列在 [docs/README.md](docs/README.md) 里。
 
 ## 从源码构建
 
@@ -139,7 +140,7 @@ cargo test --release
 cargo xtask release        # 打出玩家包
 ```
 
-游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，就认领一局测试游戏：它从游戏目录启动，有自己的用户文件夹、核心和远程控制管道，既不碰玩家的文件，也不碰游戏目录里装好的框架，几局可以同时跑（[docs/test-games.md](docs/test-games.md)）。游戏目录里要先装一次支持测试游戏的框架，装时不能有游戏在跑（`cargo xtask install`）。
+游戏通过 `EU4_GAME_DIR` 或 Steam 找到。要在游戏里试构建，就认领一局测试游戏：它从游戏目录启动，有自己的用户文件夹、核心和远程控制管道，既不碰玩家的文件，也不碰游戏目录里装好的框架，几局可以同时跑（[docs/plans/test-games.md](docs/plans/test-games.md)）。游戏目录里要先装一次支持测试游戏的框架，装时不能有游戏在跑（`cargo xtask install`）。
 
 ```powershell
 cargo build --release --features eu4-harmony-core/dev-test-games

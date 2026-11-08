@@ -1,6 +1,6 @@
 # 2026-11-04 Extension reload (tested by me)
 
-[extension-reload.md](../extension-reload.md) R1 to R3: regional combat at api_version 0.3 with `save_data`, France from 1444.11.11, war on England in December, the Paris army's task on; the mod's files changed by a script for each step and put back with git afterwards. Two runs of `eu4.exe`, started directly.
+[extension-reload.md](../plans/extension-reload.md) R1 to R3: regional combat at api_version 0.3 with `save_data`, France from 1444.11.11, war on England in December, the Paris army's task on; the mod's files changed by a script for each step and put back with git afterwards. Two runs of `eu4.exe`, started directly.
 
 - **Startup**: "Regional Combat (EU4 Harmony) (id regional-combat, api 0.3): extension lua/main.lua loaded".
 - **In a session**: the title text changed in both localisation files and a log line added to `on_session`; `eu4-harmony reload` printed "reloaded regional-combat; on_session got what save_data gave"; the mod's log had the new title ("区域战斗 v2") and "saved tasks 1", then "session 1: restored 1 task(s)", and the task went on deciding.

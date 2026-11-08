@@ -21,7 +21,7 @@ Player builds of `claude/player-actions-fu-cost-view-4c4534`, after the build, t
 | `building.options`, `missionary.options` 735 | no construction, no progress | the same here: none was going on | not compared |
 | `siege.options` | no siege anywhere asked | the same | no siege going on |
 
-The other reads of the list in [player-actions.md](../player-actions.md#the-players-view-and-the-full-view) answered the same in both views, but for what the game rolled.
+The other reads of the list in [player-actions.md](../plans/player-actions.md#the-players-view-and-the-full-view) answered the same in both views, but for what the game rolled.
 
 - **Fixed here**: `building.options` gave what is being built in another's province and `missionary.options` another's missionary's progress, which `province.get` leaves out; `siege.options` told of a siege fog of war hides; `province.get` and `province.list` gave terra incognita as the game keeps it; the trade reads gave every node. The first build of the trade fix took a node as seen when its location province was discovered, and left out Siberia, Samarkand and Alexandria, which the trade map shows: a node is seen once one of its provinces is discovered.
 - **After the run**, from reading the code: `army.at` gave another country's army the game's own state (busy, attached, movement locked) among what blocks it, which no panel shows; the player's view now gives only fighting, besieging and retreating. Not tried in the game.

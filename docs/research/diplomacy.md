@@ -49,7 +49,7 @@ Baseline 1.37.5. All addresses are RVAs. Found by reading eu4.exe on 2026-10-29;
 
 ## The diplomacy panel
 
-Read from `eu4.exe` on 2026-11-05 for part A6 of [player-actions.md](../player-actions.md).
+Read from `eu4.exe` on 2026-11-05 for part A6 of [player-actions.md](../plans/player-actions.md).
 
 - **What the panel offers.** The panel's update (`0xf0bdc0`) makes a list of class `0x1d3a470` on its stack (`+8` the items, `+0x10` room, i32, `+0x14` count, i32, room for 100 inline from `+0x18`), has `0x35c230`(the player's country, the other country's tag, list) fill it, compares it with the actions it shows (type `+0x98`, name `+0xe8`, both countries, the offer byte `+0x38`), and rebuilds its entries (`diploactionentry`, `0xef1db0`) when they differ; it destroys each action of the list with its `+0` and flag 1 (`0xf0c105`).
 - **The list maker** `0x35c230` calls `0x35c150`(country, type, other, relation, offer, extra, list) for each type in a fixed order (below), with the offer byte 1 and, for the types that both start and end something, again with 0. `0x35c150` asks `0x35a8f0` whether the panel shows that action toward that country now, and if so makes it with `0x35a880`(country, type, other, offer, extra): the factory `0x35d210`(type, extra) makes an empty action of the type, `0x35a880` sets the maker and actor (`+0x10`, `+0x18`), the other country (`+0x20`) and the offer byte (`+0xe0`). Scripted actions come first: `0x5b6b80` answers the vector of `common/new_diplomatic_actions`, and each is made with type `0x3662` (`scriptable_diplomatic_action`, class `0x1ce1e28`, `0x48` bytes) holding the script at `+0x40`; its `+0xe8` answers the script's key (the `std::string` at script `+0x10`), so the framework names it by that content key.

@@ -4,7 +4,7 @@ Date 2026-11-09. Subject: vanilla 1.37.5 `eu4.exe`, image base `0x140000000`. Al
 
 Method: static analysis only. The game was not started and no process was attached. Ghidra 12.1.4 headless, opened with `-readOnly -noanalysis`, decompiled the selected functions. Vtables, RIP-relative references, `E8` calls, the interface keyword table and `.pdata` function bounds were read with scripts written for this study. The vanilla `interface/*.gui` and `*.gfx` files were read as text. What is marked **verified** was seen in the decompilation or the bytes. What is marked **inferred** is a judgement drawn from structure. Prototypes are tentative. Nothing here has been tried in the running game.
 
-This continues [interface-bindings.md](interface-bindings.md), which covers finding elements by name, button clicks, text, show and hide, enabling and the army panel's tooltip. The windows themselves are covered in [notice-window.md](notice-window.md) (CreateWindow, Kill, the sweep), and how definitions get in is in [ui-injection.md](ui-injection.md). The plan this serves is [extension-windows.md](../extension-windows.md), W3.
+This continues [interface-bindings.md](interface-bindings.md), which covers finding elements by name, button clicks, text, show and hide, enabling and the army panel's tooltip. The windows themselves are covered in [notice-window.md](notice-window.md) (CreateWindow, Kill, the sweep), and how definitions get in is in [ui-injection.md](ui-injection.md). The plan this serves is [extension-windows.md](../plans/extension-windows.md), W3.
 
 ## Conclusion
 

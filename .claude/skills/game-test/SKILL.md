@@ -31,4 +31,4 @@ Nothing takes your test game from you, and nothing limits how many are held: it 
 - **Status**: `cargo xtask game status` prints each test game's holder, purpose and process, the `eu4.exe` that are no test game's (the player's, or an older checkout's), and folders no claim refers to.
 - **The player** plays from Steam as always, beside the test games: their game is no claim's, and no command ends it.
 - **Installing into the game folder** (`cargo xtask install`) changes the player's own framework, and is refused while any `eu4.exe` runs, test games included: do it only when the user asks.
-- The record is `%LOCALAPPDATA%\eu4-harmony-dev\claims.json`, the claims' folders under `claims\`; `game-lock.json` beside it names `test-games` while any is held, so that checkouts from before test games wait. The design is [docs/test-games.md](../../../docs/test-games.md).
+- The record is `%LOCALAPPDATA%\eu4-harmony-dev\claims.json`, the claims' folders under `claims\`; `game-lock.json` beside it names `test-games` while any is held, so that checkouts from before test games wait. The design is [docs/plans/test-games.md](../../../docs/plans/test-games.md).

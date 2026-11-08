@@ -1,6 +1,6 @@
 # 2026-11-04 Development commands (tested by me)
 
-The commands of [dev-commands.md](../dev-commands.md), which replace the scripts of `tools/`, each tried once in one claim of the game, which backed up and restored the player's files; the framework files in the game folder copied aside first. With `EU4_GAME_DIR` unset throughout.
+The commands of [dev-commands.md](../plans/dev-commands.md), which replace the scripts of `tools/`, each tried once in one claim of the game, which backed up and restored the player's files; the framework files in the game folder copied aside first. With `EU4_GAME_DIR` unset throughout.
 
 - **`cargo xtask game-dir`** printed the game folder from the Steam library, `E:\SteamLibrary\…`, and every command below found the game the same way.
 - **`cargo xtask install`**: installed the last build and the repository's `dev.toml`; with a `version.dll` not ours in the game folder it moved that one to `eu4-harmony\backup\`, and `--uninstall` put it back; a `dev.toml` installed before was removed when the repository had none.

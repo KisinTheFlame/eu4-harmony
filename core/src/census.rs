@@ -1,6 +1,6 @@
 //! Counts the game's live heap blocks by where they were allocated and when,
 //! for finding what keeps the game's memory growing (the `dev-heap-census`
-//! feature: a player's build has none of this; docs/leak-finding.md). The C
+//! feature: a player's build has none of this; docs/plans/leak-finding.md). The C
 //! runtime's allocation functions in `eu4.exe` are observed, and each live
 //! block is kept with its site, the code that allocated it, and its
 //! generation, the number of generations ended before it was allocated. A

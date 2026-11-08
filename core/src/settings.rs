@@ -53,13 +53,13 @@ pub struct Settings {
     /// that is not vanilla's (ADR achievement-rules-can-be-relaxed).
     pub achievements_with_changed_checksum: bool,
     /// Whether the game draws frames inside a day at the fastest speed
-    /// (docs/game-speed.md, S4).
+    /// (docs/plans/game-speed.md, S4).
     pub fastest_speed: Pace,
     /// Whether remote control reads the full view rather than the player's
     /// view (GLOSSARY; ADR remote-control-reads-the-players-view).
     pub remote_full_view: bool,
     /// Whether every track is brought to the same loudness (GLOSSARY:
-    /// Loudness normalization; docs/music-volume.md).
+    /// Loudness normalization; docs/plans/music-volume.md).
     pub music_loudness: bool,
     /// Whether quiet and loud passages of the music are brought closer
     /// (GLOSSARY: Music leveling).

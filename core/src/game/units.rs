@@ -315,7 +315,7 @@ pub fn stop_mission(Session { m, ctx, commands, .. }: Session, args::StopMission
 
 /// The refusals the framework words itself in the military panels'
 /// actions, of armies and fleets, leaders, mercenaries, sieges and forts
-/// (docs/player-actions.md, A4); those the game gives reasons for are
+/// (docs/plans/player-actions.md, A4); those the game gives reasons for are
 /// [`super::action`]'s.
 pub mod checks {
     use crate::game::{Fail, Status};

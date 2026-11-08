@@ -1,7 +1,7 @@
 //! Starting the game from its folder, for `eu4-harmony start` and the claim
 //! of `cargo xtask game`: hidden or shown (the framework's switch
-//! `-harmony_hidden`, docs/hidden-start.md), the player's game or a test game
-//! with a user folder, a core and a pipe of its own (docs/test-games.md),
+//! `-harmony_hidden`, docs/plans/hidden-start.md), the player's game or a test game
+//! with a user folder, a core and a pipe of its own (docs/plans/test-games.md),
 //! returning once remote control says the main menu is up. Steam must be
 //! running, as for any start of the game.
 use crate::Result;

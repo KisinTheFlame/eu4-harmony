@@ -1,4 +1,4 @@
-//! The game's heap's blocks the census does not count (docs/leak-finding.md):
+//! The game's heap's blocks the census does not count (docs/plans/leak-finding.md):
 //! a walk of the heap gives every busy block, and those the census has no
 //! record of are other modules', the game's own made before the framework
 //! started or not through its C runtime, and the framework's. Each ask

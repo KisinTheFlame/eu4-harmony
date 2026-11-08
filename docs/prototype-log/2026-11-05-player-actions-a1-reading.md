@@ -1,6 +1,6 @@
 # 2026-11-05 Player actions A1: reading countries, provinces and trade (tested by me)
 
-A1 of [player-actions.md](../player-actions.md), a player build of this branch, within a claim, started hidden; the player's playset, a 3840x2160 window. Two new games as France at 1444.11.11, the first with the setting "Remote control sees everything" off, the second with `remote_full_view=yes` written into the framework settings before the start. Every read went through `eu4-harmony game`.
+A1 of [player-actions.md](../plans/player-actions.md), a player build of this branch, within a claim, started hidden; the player's playset, a 3840x2160 window. Two new games as France at 1444.11.11, the first with the setting "Remote control sees everything" off, the second with `remote_full_view=yes` written into the framework settings before the start. Every read went through `eu4-harmony game`.
 
 - **`country.get FRA`**: technology 3/3/3; `FRA_ideas` with 0 ideas, national; governing capacity 198.54 of 400; inflation 0; mercantilism 10; no loans; one rebel faction, `noble_rebels`, with an empty name and progress 0; treasury 66.487 and manpower 11798, as the top bar showed (66, 11,798).
 - **Another country, the player's view**: `country.get ENG` gave technology, ideas, manpower, prestige, stability and relations, and null for treasury, power, governing capacity, inflation, mercantilism, loans and rebels. England's diplomacy view on screen showed its technology 3/3/3, ideas 0, stability 0 and manpower 27k, and no treasury or monarch points. `country.budget ENG` gave nulls.

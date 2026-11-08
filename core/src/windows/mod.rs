@@ -1,4 +1,4 @@
-//! Extension windows and pop-ups (docs/extension-windows.md,
+//! Extension windows and pop-ups (docs/plans/extension-windows.md,
 //! ADR extension-windows-are-game-windows): windows of the game's own
 //! interface, built from definitions the framework writes out of the
 //! extensions' layouts ([`gui`]).

@@ -79,7 +79,7 @@ A build of the framework with development tools built in, such as the call trace
 _Avoid_: trace build (an older name, kept in notes written then), debug build (a build without optimizations), test build
 
 **Test game**:
-A game a claim starts for its holder from the game folder, with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder; several run side by side (docs/test-games.md). Not a mod's test, which runs against the fake game.
+A game a claim starts for its holder from the game folder, with a user folder, a core and a remote control pipe of its own, so that it touches neither the player's files nor the framework installed in the game folder; several run side by side (docs/plans/test-games.md). Not a mod's test, which runs against the fake game.
 _Avoid_: instance (a window's), game copy, slot, sandbox
 
 **Claim**:
@@ -87,11 +87,11 @@ The hold a holder has on one test game, from claiming it to releasing it, which 
 _Avoid_: lock (it survives only in the name of the older claim's record, `game-lock.json`), reservation
 
 **Memory account**:
-A development tool, the `dev-memory` feature, that splits what the game process holds by where it lies, from what Windows keeps of the process and its heaps, so that it costs the game nothing between two asks (docs/leak-finding.md).
+A development tool, the `dev-memory` feature, that splits what the game process holds by where it lies, from what Windows keeps of the process and its heaps, so that it costs the game nothing between two asks (docs/plans/leak-finding.md).
 _Avoid_: memory profiler, heap census (that counts the heap's blocks)
 
 **Heap census**:
-A development tool that counts every live block of the game's heap by its site, the code that allocated it, and its generation, so that what the game keeps of its sessions can be found (docs/leak-finding.md).
+A development tool that counts every live block of the game's heap by its site, the code that allocated it, and its generation, so that what the game keeps of its sessions can be found (docs/plans/leak-finding.md).
 _Avoid_: memory profiler, allocation tracker
 
 **Generation**:
@@ -106,7 +106,7 @@ A course of play in the real game on one build, driven through remote control fr
 _Avoid_: integration test, game test (a test is a mod's, against the fake game)
 
 **Scenario set**:
-A name for several scenarios played together in one run, as if named one by one, each with its own outcome in the report: `whole` plays the framework through the real game from end to end (docs/whole-game.md).
+A name for several scenarios played together in one run, as if named one by one, each with its own outcome in the report: `whole` plays the framework through the real game from end to end (docs/plans/whole-game.md).
 _Avoid_: suite, test plan
 
 **Sweep**:
@@ -121,7 +121,7 @@ _Avoid_: fixture mod, dummy mod
 The scenario that plays rounds of sessions on a developer build with the heap census, and the report it writes of what the game's memory kept. The growth scenario plays the same rounds with the memory account only, to measure how much the game grows a round without the census slowing it.
 
 **Quarantine**:
-A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/leak-finding.md).
+A developer build's keeping of what the framework's repairs let go, filled with a pattern instead of freed, so that the game writing to it or reading it shows the repair let go memory still in use (docs/plans/leak-finding.md).
 _Avoid_: guard, sandbox
 
 **Startup**:

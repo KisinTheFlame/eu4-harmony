@@ -1,5 +1,5 @@
 //! `eu4-harmony reload`: reloads a mod's extension in the running game
-//! through remote control (docs/extension-reload.md), once, or whenever a
+//! through remote control (docs/plans/extension-reload.md), once, or whenever a
 //! file of its code or texts changes.
 use crate::pipe;
 use eu4_harmony_remote::{

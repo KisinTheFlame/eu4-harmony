@@ -1,4 +1,4 @@
-//! Extension windows' layouts (docs/extension-windows.md): the `windows` an
+//! Extension windows' layouts (docs/plans/extension-windows.md): the `windows` an
 //! extension's `main.lua` returns, read, checked and laid out, the same for
 //! the running game and the fake game.
 //!

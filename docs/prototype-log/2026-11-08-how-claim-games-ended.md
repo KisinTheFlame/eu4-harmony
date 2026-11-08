@@ -1,6 +1,6 @@
 # 2026-11-08 How the claim's games ended (tested by me)
 
-`cargo xtask game watch` following each `eu4.exe` and `release` saying how each ended, by its exit code ([game-testing.md](../game-testing.md)); one claim of 2 minutes, the player build of this branch installed, the games started hidden, `watch` running throughout.
+`cargo xtask game watch` following each `eu4.exe` and `release` saying how each ended, by its exit code ([game-testing.md](../plans/game-testing.md)); one claim of 2 minutes, the player build of this branch installed, the games started hidden, `watch` running throughout.
 
 - **Runs**: three games. The first ended with `game stop`: exit code 1, seen by `watch` within its 5 s and said by `release` as ended by game stop. The second was ended from outside with `TerminateProcess` and the code `0xc0000374`, as Windows ends a game whose heap is corrupt: `watch` said `eu4.exe 46924 had ended by 04:26:44: heap corruption (exit code 0xc0000374)`, and `release` said it again and summed up "the game crashed", with no crash folder. The third was running at the release, which followed it before ending it and said its exit code 1. Each game was said once though `watch` and the release both saw the last.
 - **Why**: in the parallel army searches' runs the same day, the game ended at once three times with `0xc0000374`, heap corruption, which bypasses the game's crash handler: no crash folder, nothing in the logs, and the release said "the game did not crash".

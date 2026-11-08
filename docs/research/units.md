@@ -1,6 +1,6 @@
 # Units and fleets: merging, splitting, disbanding, missions, transport (for the player actions, A4)
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `core/examples/disasm.rs` and capstone scripts (scratchpad `work_units\`). Nothing here was tried in the game. What is marked _inferred_ was concluded from the shape of the code. How commands are written, read and posted is in [commands.md](commands.md); the right click and `move_order` in [army-orders.md](army-orders.md); the route query in [routes.md](routes.md).
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `core/examples/disasm.rs` and capstone scripts (scratchpad `work_units\`). The sections up to the last were not tried in the game; what was tried afterwards is in the last, "What the framework does, and what the game showed". What is marked _inferred_ was concluded from the shape of the code. How commands are written, read and posted is in [commands.md](commands.md); the right click and `move_order` in [army-orders.md](army-orders.md); the route query in [routes.md](routes.md).
 
 ## The unit panel's actions
 

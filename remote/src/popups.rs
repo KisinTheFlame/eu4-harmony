@@ -1,6 +1,6 @@
 //! Pop-ups (GLOSSARY): the windows extensions show the player with a
 //! title, a text and buttons, and answering one as the player does, by
-//! pressing one of its buttons (docs/extension-windows.md).
+//! pressing one of its buttons (docs/plans/extension-windows.md).
 use serde::{Deserialize, Serialize};
 
 group! {

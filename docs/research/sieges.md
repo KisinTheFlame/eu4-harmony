@@ -1,6 +1,6 @@
 # Sieges and forts: barrage, assault, mothballing
 
-Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `core/examples/disasm.rs` and capstone scripts over the PE file; nothing here was tried in the game. What is marked _inferred_ was concluded from the shape of the code. Bytes are given as `disasm bytes:RVA:12`.
+Baseline 1.37.5. All addresses are RVAs. Read from `eu4.exe` on 2026-11-05 with `core/examples/disasm.rs` and capstone scripts over the PE file; the sections up to the last were not tried in the game, and what was tried afterwards is in the last, "What the framework does, and what the game showed". What is marked _inferred_ was concluded from the shape of the code. Bytes are given as `disasm bytes:RVA:12`.
 
 A battle fought is in [battles.md](battles.md).
 
@@ -119,7 +119,6 @@ So the framework can call `0x4032f0`, `0x4038c0` and `0x381070` with the country
 - The NDefines names of `0x233e51c`, `0x233f65c`, `0x233f660`, `0x233f678`, `0x233fe0c`, `0x233e3f4`; the modifier IDs' names are from the localisation only.
 - What the switches `[0x233ff2c]`/`[0x233ff34]` with `[0x233fed6]` and the thread-local byte are (without them both barrage answers say no without a reason).
 - The assault's extra rule `0xacccf0`; what `0x23c960` does besides setting `+0x74`.
-- Nothing was tried in the game.
 
 ## What the framework does, and what the game showed
 
