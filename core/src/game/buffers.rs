@@ -241,6 +241,37 @@ pub fn session(m: &'static Memory, world: usize, player: Tag, country: usize, co
     Session { m, ctx: Ctx { world, date: 0, player, country, countries }, view: View::Full, caller, commands: Commands::Recorded }
 }
 
+// ---------- the units, diplomacy, peace, time, console, subjects and
+// trade companies' layer tests ----------
+
+/// The world session of the player `player` in the world at `world` on
+/// `date`, among the countries' list at `countries`, as `caller` reads it in
+/// the full view; the commands it posts are recorded.
+pub fn world_session(m: &'static Memory, world: usize, date: i32, player: Tag, countries: usize, caller: Caller) -> super::WorldSession {
+    let world = super::World { world, date, countries, player: super::player::Player::Plays(player) };
+    super::WorldSession { m, world, view: View::Full, caller, commands: Commands::Recorded }
+}
+
+/// The game's string destructor in `image`, as one that frees nothing: the
+/// strings a test's game functions write into hold their text in themselves.
+pub fn strings_kept(image: &Image) -> &Image {
+    extern "C" fn kept(_: usize) -> usize {
+        0
+    }
+    image.function(game_string::DESTROY_AT.rva(), kept as *const ())
+}
+
+/// Writes `text` into the empty `std::string` at `out`, held in itself, as
+/// a test's game function writes its reasons.
+///
+/// # Safety
+/// `out` is a `std::string` the framework gave the game's function to write.
+pub unsafe fn write_string(out: usize, text: &str) {
+    assert!(text.len() <= game_string::INLINE, "{text:?} is longer than a string holds in itself");
+    std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, text.len());
+    *((out + game_string::SIZE) as *mut u64) = text.len() as u64;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
