@@ -98,23 +98,14 @@ pub struct TestSwitches {
     /// The game crashes at the first frame of a game, so that what follows a
     /// crash can be tried.
     pub crash: bool,
-    /// Every save's countries and provinces are written by the game's own
-    /// loops as well as on several threads, the two compared in the log, and
-    /// the game's bytes kept, so that the threads can be checked.
-    pub compare_saves: bool,
-    /// Saves are written by the game's own code: its loops on the main
-    /// thread, its save checksum's sum, its deflate at level 0 and its update
-    /// thread's sleep, so that what the framework's take can be measured
-    /// against it.
-    pub game_writes_saves: bool,
-    /// What the framework answers at startup and in loads from what it
-    /// keeps (music's numbers, files missing from folders) is checked against
-    /// the game's own answer, which is kept, and a difference logged.
-    pub check_loading: bool,
-    /// The startup and loads are the game's own: music read whole, every
-    /// file asked of Windows, every list walked, so that what the framework's
-    /// take can be measured against it.
-    pub game_loads: bool,
+    /// The speed-ups left to the game, by name, group or `all`: their points
+    /// are not installed, so that the game's own code can be measured against
+    /// them (`core/src/speed.rs`).
+    pub game_paths: Vec<String>,
+    /// The speed-ups whose answers are checked against the game's, by name,
+    /// group or `all`: each difference logged and both counted in the
+    /// startup report.
+    pub checked: Vec<String>,
     /// A subject relation's end is the game's own: its walk of the subject's
     /// supporters refreshes the subject as it goes, freeing the list it
     /// walks, so that the defect can be tried (with the heap census's
@@ -126,21 +117,6 @@ pub struct TestSwitches {
     /// one, so that whether an agent's day depends on another's can be tried
     /// in a game started with `-seed` (`core/src/agents_order.rs`).
     pub agents_order: AgentsOrder,
-    /// The searches of an AI country's armies are the game's own, one after
-    /// another, so that what the framework's searches on its threads give
-    /// can be measured against it (`core/src/army_search.rs`).
-    pub game_searches_armies: bool,
-    /// Every army search the framework worked out ahead is worked out again
-    /// as the game does when taken, and a difference counted in the log.
-    pub check_army_searches: bool,
-    /// Every search of a set of modifiers made through the framework's
-    /// index is made as the game's too, and a difference counted in the
-    /// log.
-    pub check_modifier_sums: bool,
-    /// The searches of sets of modifiers are the game's own, pair by pair,
-    /// so that the framework's index can be measured against them
-    /// (`core/src/modifier_sums.rs`).
-    pub game_sums_modifiers: bool,
     /// Commands in their written form, posted through the command layer at
     /// the first frame of every game, so that the game's commands can be
     /// tried.
@@ -212,22 +188,17 @@ impl Options {
         }
         if built("test-switches") {
             let on = |on: bool| if on { "on" } else { "off" };
+            let list = |names: &[String]| if names.is_empty() { "none".to_string() } else { names.join(", ") };
             let switches = &self.test_switches;
             lines.push(format!(
-                "test switches: fail-startup {}, test-notice {}, crash {}, compare-saves {}, game-writes-saves {}, check-loading {}, game-loads {}, game-ends-dependencies {}, agents-order {}, game-searches-armies {}, check-army-searches {}, check-modifier-sums {}, game-sums-modifiers {}, {} command(s) to post",
+                "test switches: fail-startup {}, test-notice {}, crash {}, game-paths {}, checked {}, game-ends-dependencies {}, agents-order {}, {} command(s) to post",
                 on(switches.fail_startup),
                 on(switches.test_notice),
                 on(switches.crash),
-                on(switches.compare_saves),
-                on(switches.game_writes_saves),
-                on(switches.check_loading),
-                on(switches.game_loads),
+                list(&switches.game_paths),
+                list(&switches.checked),
                 on(switches.game_ends_dependencies),
                 format!("{:?}", switches.agents_order).to_lowercase(),
-                on(switches.game_searches_armies),
-                on(switches.check_army_searches),
-                on(switches.check_modifier_sums),
-                on(switches.game_sums_modifiers),
                 switches.post.len()
             ));
         }
@@ -309,18 +280,15 @@ mod tests {
 
     #[test]
     fn every_option_is_read() {
-        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ncompare-saves = true\ngame-writes-saves = true\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
+        let text = "[call-trace]\nfunctions = [\"0x15988e0\", \"0x159c600:3\"]\ncalls = 5\ntimes = true\nfields = { \"0x15988e0\" = \"0x20\" }\n\n[heap-census]\n\n[test-switches]\nfail-startup = true\ntest-notice = true\ngame-paths = [\"saving\"]\nchecked = [\"music\", \"lookups\"]\nagents-order = \"reversed\"\npost = [\"a={ }\"]\n\n[write-watch]\nfunction = \"0x74ff30\"\ncalls = 3\n";
         let options = Options::parse(text).unwrap();
         assert_eq!(options.call_trace.functions, ["0x15988e0", "0x159c600:3"]);
         assert_eq!(options.call_trace.calls, 5);
         assert!(options.call_trace.times);
         assert_eq!(options.call_trace.fields, BTreeMap::from([("0x15988e0".to_string(), "0x20".to_string())]));
-        assert!(
-            options.test_switches.fail_startup
-                && options.test_switches.test_notice
-                && options.test_switches.compare_saves
-                && options.test_switches.game_writes_saves
-        );
+        assert!(options.test_switches.fail_startup && options.test_switches.test_notice);
+        assert_eq!(options.test_switches.game_paths, ["saving"]);
+        assert_eq!(options.test_switches.checked, ["music", "lookups"]);
         assert_eq!(options.test_switches.agents_order, AgentsOrder::Reversed);
         assert_eq!(options.test_switches.post, ["a={ }"]);
         assert_eq!(options.write_watch, WriteWatch { function: "0x74ff30".into(), calls: 3 });

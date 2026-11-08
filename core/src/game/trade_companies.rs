@@ -3,7 +3,14 @@
 //! company investments of its area, through the game's own commands
 //! (docs/research/envoys.md, "Trade companies").
 use super::{action, envoys, with_state, Ctx, GResult, Session, Tag};
-use crate::{game_string, memory::Memory, objects::campaign::province as province_fields, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    objects::campaign::province as province_fields,
+    points::{GameFunction, Point},
+    unicode::game_text,
+};
+use eu4_harmony_remote::trade_companies::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     trade_companies::{Investment, TradeCompanyOptions},
@@ -12,10 +19,10 @@ use eu4_harmony_remote::{
 
 /// Whether the country may add the province to its trade company, and why
 /// not: `(country, province, reasons) -> bool`, appending to `reasons`.
-const MAY_ADD: usize = 0x3ba790;
+const MAY_ADD: GameFunction<3> = GameFunction::at(0x3ba790);
 /// Whether the country may remove the province from its trade company:
 /// `(country, province, text) -> bool`.
-const MAY_REMOVE: usize = 0x3ba830;
+const MAY_REMOVE: GameFunction<3> = GameFunction::at(0x3ba830);
 /// The province's flags, and the one of a province in a trade company.
 const FLAGS: usize = 0x958;
 const IN_TRADE_COMPANY: u8 = 0x04;
@@ -30,13 +37,13 @@ const KEY: usize = 0x20;
 /// Whether the country may make the investment in the province's area, and
 /// why not: `(tag, investment, province, made out, reasons) -> bool`,
 /// appending to `reasons`.
-const MAY_INVEST: usize = 0xb40520;
+const MAY_INVEST: GameFunction<5> = GameFunction::at(0xb40520);
 /// What the investment costs the country: `(investment, out i32*, tag,
 /// area or null, text or null) -> out`, thousandths of ducats.
-const COST: usize = 0xb3f580;
+const COST: GameFunction<5> = GameFunction::at(0xb3f580);
 /// The investment's name for the country, as the panel writes it:
 /// `(investment, out, tag)`, constructing `out`.
-const NAME: usize = 0xb3ddc0;
+const NAME: GameFunction<3> = GameFunction::at(0xb3ddc0);
 /// The province's area, in its map data.
 const AREA: usize = 0x40;
 /// The most investments read.
@@ -72,7 +79,7 @@ fn province(m: &Memory, ctx: &Ctx, id: u32) -> GResult<usize> {
 }
 
 /// What the province view offers the player in province `id`.
-pub fn options(Session { m, ctx, .. }: Session, id: u32) -> GResult<TradeCompanyOptions> {
+pub fn options(Session { m, ctx, .. }: Session, args::Options { province: ProvinceId(id) }: args::Options) -> GResult<TradeCompanyOptions> {
     read(m, &ctx, province(m, &ctx, id)?, id)
 }
 
@@ -82,14 +89,14 @@ fn read(m: &Memory, ctx: &Ctx, province: usize, id: u32) -> GResult<TradeCompany
         Choice::cannot(Vec::new(), Vec::new())
     } else {
         // Allowed, it writes what adding does instead of reasons.
-        let (may, text) = game_string::written(m, |out| m.call(m.at(MAY_ADD), &[ctx.country, province, out]))?;
+        let (may, text) = game_string::written(m, |out| MAY_ADD.call(m, [ctx.country, province, out]))?;
         if may as u8 != 0 {
             Choice::can(Vec::new())
         } else {
             Choice::cannot(envoys::lines(&text), Vec::new())
         }
     };
-    let remove = if in_trade_company && m.call(m.at(MAY_REMOVE), &[ctx.country, province, 0])? as u8 != 0 {
+    let remove = if in_trade_company && MAY_REMOVE.call(m, [ctx.country, province, 0])? as u8 != 0 {
         Choice::can(Vec::new())
     } else {
         Choice::cannot(Vec::new(), Vec::new())
@@ -113,7 +120,7 @@ fn database(m: &Memory) -> GResult<Vec<(usize, String)>> {
     (0..count as usize)
         .map(|i| {
             let at = m.ptr(begin + i * 8)?;
-            Ok((at, game_text::to_utf8(&game_string::read(m, at + KEY)?)))
+            Ok((at, game_string::key(m, at + KEY)?))
         })
         .collect()
 }
@@ -124,13 +131,12 @@ fn investments(m: &Memory, ctx: &Ctx, province: usize) -> GResult<Vec<Investment
         .into_iter()
         .map(|(at, key)| {
             let mut made = 0u8;
-            let (may, text) =
-                game_string::written(m, |out| m.call(m.at(MAY_INVEST), &[ctx.player.0 as usize, at, province, &mut made as *mut u8 as usize, out]))?;
+            let (may, text) = game_string::written(m, |out| MAY_INVEST.call(m, [ctx.player.0 as usize, at, province, &mut made as *mut u8 as usize, out]))?;
             let mut cost = 0i32;
-            m.call(m.at(COST), &[at, &mut cost as *mut i32 as usize, ctx.player.0 as usize, area, 0])?;
+            COST.call(m, [at, &mut cost as *mut i32 as usize, ctx.player.0 as usize, area, 0])?;
             let cost = vec![Amount::new(Resource::Ducats, super::thousandths(cost))];
             let choice = if may as u8 != 0 { Choice::can(cost) } else { Choice::cannot(envoys::failing(&text), cost) };
-            let (_, name) = game_string::written(m, |out| m.call(m.at(NAME), &[at, out, ctx.player.0 as usize]))?;
+            let (_, name) = game_string::written(m, |out| NAME.call(m, [at, out, ctx.player.0 as usize]))?;
             let name = game_text::plain(&name);
             Ok(Investment { investment: key, name, made: made != 0, choice })
         })
@@ -185,5 +191,127 @@ mod tests {
         assert_eq!(written(por, 1234, true), r#"add_to_trade_company={ country="POR" province=1234 }"#);
         assert_eq!(written(por, 1234, false), r#"remove_from_trade_company={ country="POR" province=1234 }"#);
         assert_eq!(invest_written(por, 3, 1234), r#"make_trade_company_investment={ members={ dummy="POR" dummy=3 dummy=1234 } }"#);
+    }
+
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::tur;
+        use crate::game::{
+            buffers::{self, Image, Object, Provinces},
+            commands::record,
+            Caller, Fail, Status,
+        };
+        use std::cell::Cell;
+
+        thread_local! {
+            /// Whether the game's checks let the player add, remove and
+            /// invest.
+            static MAY: Cell<bool> = const { Cell::new(true) };
+        }
+
+        fn may(text: usize, reason: &[u8]) -> usize {
+            let may = MAY.get();
+            if !may && text != 0 {
+                buffers::write_inline(text, reason);
+            }
+            may as usize
+        }
+
+        extern "C" fn may_add(_: usize, _: usize, text: usize) -> usize {
+            may(text, b"- Not a coast")
+        }
+
+        extern "C" fn may_remove(_: usize, _: usize, _: usize) -> usize {
+            may(0, b"")
+        }
+
+        /// The game's check of an investment, its failing condition marked
+        /// as the game marks it.
+        extern "C" fn may_invest(_: usize, _: usize, _: usize, _: usize, text: usize) -> usize {
+            may(text, b"\xa3no Too poor")
+        }
+
+        extern "C" fn cost(_: usize, out: *mut i32, _: usize, _: usize, _: usize) -> usize {
+            unsafe { *out = 300_000 };
+            out as usize
+        }
+
+        extern "C" fn name(_: usize, out: usize, _: usize) -> usize {
+            buffers::write_inline(out, "Local Quarter");
+            out
+        }
+
+        /// Turkey's province 1, in a trade company when `in_company`, among
+        /// provinces 0 and 1, with the investment `local_quarter`, of index
+        /// 3. Runs `action` over Turkey's session.
+        fn turkey(in_company: bool, action: impl FnOnce(Session) -> GResult<()>) -> GResult<()> {
+            let image = Image::new();
+            image.strings().function(MAY_ADD.rva(), may_add as *const ()).function(MAY_REMOVE.rva(), may_remove as *const ());
+            image.function(MAY_INVEST.rva(), may_invest as *const ()).function(COST.rva(), cost as *const ()).function(NAME.rva(), name as *const ());
+            let provinces = Provinces::new(&image, 2);
+            provinces.set(1, FLAGS, &[if in_company { IN_TRADE_COMPANY } else { 0 }]);
+            let quarter = Object::new(KEY + 0x20).i32(INDEX, 3).string(KEY, "local_quarter");
+            let database = Object::new(INVESTMENT_COUNT + 4).vector(INVESTMENTS, &[quarter.at() as u64]).i32(INVESTMENT_COUNT, 1);
+            image.u64(DATABASE, database.at() as u64);
+            let country = Object::country(tur(), 0);
+            let countries = Object::countries(&[&country]);
+            let result = action(buffers::session(image.memory(), provinces.world(), tur(), country.at(), countries.at(), Caller::Remote));
+            drop((quarter, database, provinces, country, countries, image));
+            result
+        }
+
+        fn refused(result: GResult<()>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the action was carried out") };
+            (status, message)
+        }
+
+        #[test]
+        fn a_province_is_added_and_removed_as_the_game_lets_the_player() {
+            turkey(false, |s| change(s, 1, true)).unwrap();
+            turkey(true, |s| change(s, 1, false)).unwrap();
+            assert_eq!(record::posted(), [written(tur(), 1, true), written(tur(), 1, false)]);
+            let no_reason = |doing: &str| format!("the game does not let the player {doing} now, and gives no reason");
+            assert_eq!(refused(turkey(true, |s| change(s, 1, true))), (Status::Rejected, no_reason("add the province to a trade company")));
+            assert_eq!(refused(turkey(false, |s| change(s, 1, false))), (Status::Rejected, no_reason("remove the province from its trade company")));
+            MAY.set(false);
+            assert_eq!(refused(turkey(false, |s| change(s, 1, true))), (Status::Rejected, "Not a coast".into()));
+            assert_eq!(refused(turkey(true, |s| change(s, 1, false))), (Status::Rejected, no_reason("remove the province from its trade company")));
+            assert_eq!(refused(turkey(false, |s| change(s, 0, true))).0, Status::NotFound);
+            assert!(record::posted().is_empty());
+        }
+
+        #[test]
+        fn an_investment_is_one_of_the_game_s_made_in_a_province_of_a_trade_company() {
+            turkey(true, |s| invest(s, 1, "local_quarter")).unwrap();
+            assert_eq!(record::posted(), [invest_written(tur(), 3, 1)]);
+            assert_eq!(refused(turkey(true, |s| invest(s, 1, "harbor"))), (Status::NotFound, "no trade company investment is named harbor".into()));
+            assert_eq!(
+                refused(turkey(false, |s| invest(s, 1, "local_quarter"))),
+                (Status::Rejected, "the game does not let the player invest there now, and gives no reason".into())
+            );
+            MAY.set(false);
+            assert_eq!(refused(turkey(true, |s| invest(s, 1, "local_quarter"))), (Status::Rejected, "Too poor".into()));
+            assert!(record::posted().is_empty());
+        }
+
+        #[test]
+        fn the_options_show_the_investments_only_in_a_trade_company() {
+            let read = |in_company| {
+                let mut read = None;
+                turkey(in_company, |s| {
+                    read = Some(options(s, args::Options { province: ProvinceId(1) })?);
+                    Ok(())
+                })
+                .unwrap();
+                read.unwrap()
+            };
+            let outside = read(false);
+            assert!(!outside.in_trade_company && outside.add.can && !outside.remove.can && outside.investments.is_empty());
+            let inside = read(true);
+            assert!(inside.in_trade_company && !inside.add.can && inside.remove.can);
+            let [quarter] = inside.investments.as_slice() else { panic!("{:?}", inside.investments) };
+            assert_eq!((quarter.investment.as_str(), quarter.name.as_str(), quarter.choice.can), ("local_quarter", "Local Quarter", true));
+            assert_eq!(quarter.choice.cost, vec![Amount::new(Resource::Ducats, 300.0)]);
+        }
     }
 }

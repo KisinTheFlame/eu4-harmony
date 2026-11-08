@@ -13,9 +13,12 @@
 //! player's with a junction to their `mod` folder; `core\`, the core and
 //! `dev.toml` its start copied; `follow.exe`, which follows its games to
 //! their ends into `game-ends.tsv`; and `kept\` after the release.
+use super::course::Starting;
 use super::record::{self, GameEnd, Process, State};
-use crate::{built, game, repo, Result};
+use crate::{built, repo, Result};
+use eu4_harmony_client::game::{self, Game};
 use eu4_harmony_client::start::Start;
+use eu4_harmony_folders::UserFolder;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -59,10 +62,10 @@ pub trait Machine {
     /// player's user folder of `game_dir`; removes the `kept\` of claims
     /// released long ago.
     fn make_folder(&self, folder: &Path, game_dir: &Path) -> Result<()>;
-    /// Copies this checkout's built core and `dev.toml` into the claim's
-    /// `folder`, and the saves `saves` names from the player's; the core's
-    /// path.
-    fn prepare_start(&self, folder: &Path, game_dir: &Path, saves: &[String]) -> Result<PathBuf>;
+    /// Copies this checkout's built core and `dev.toml`, or the options
+    /// `starting` gives in its place, into the claim's `folder`, and the
+    /// saves it names from the player's; the core's path.
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, starting: &Starting) -> Result<PathBuf>;
     /// Starts the game from `game_dir` as `start` says, waiting up to `wait`
     /// for its main menu, `log` being the framework's log: its process id,
     /// and the seconds it took. A test game that does not reach it is ended.
@@ -112,6 +115,14 @@ const RELEASED: &str = "released";
 /// How long `follow.exe` waits for the game a test game restarts in its
 /// place to open the pipe.
 const RESTART_WAIT: Duration = Duration::from_secs(90);
+/// What `follow.exe` leaves once it holds the game it follows.
+const FOLLOWING: &str = "following";
+/// How long a start waits for `follow.exe` to hold the game.
+const TAKING_OVER: Duration = Duration::from_secs(10);
+
+/// The game this process started, held open until `follow.exe` holds it
+/// too, so that its exit code cannot be lost in between.
+static STARTED: std::sync::Mutex<Option<Game>> = std::sync::Mutex::new(None);
 
 /// This computer.
 pub struct ThisComputer;
@@ -220,7 +231,7 @@ impl Machine for ThisComputer {
     }
 
     fn games(&self) -> Result<Vec<u32>> {
-        eu4_harmony_client::game_processes()
+        eu4_harmony_client::game::processes()
     }
 
     fn serving(&self, name: &str) -> Option<u32> {
@@ -228,14 +239,7 @@ impl Machine for ThisComputer {
     }
 
     fn end_game(&self, id: u32) -> Result<()> {
-        game::kill_process(id);
-        for _ in 0..120 {
-            if !self.games()?.contains(&id) {
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        Err(format!("eu4.exe {id} did not end"))
+        game::end_game(id)
     }
 
     fn proxy_loads_cores(&self, game_dir: &Path) -> bool {
@@ -244,29 +248,33 @@ impl Machine for ThisComputer {
 
     fn make_folder(&self, folder: &Path, game_dir: &Path) -> Result<()> {
         forget_old(&self.claims()?);
-        let player = eu4_harmony_manifest::user_dir(Some(game_dir))?;
+        let player = eu4_harmony_folders::user_dir(Some(game_dir))?;
         make_user_folder(&player, &folder.join("user"))
     }
 
-    fn prepare_start(&self, folder: &Path, game_dir: &Path, saves: &[String]) -> Result<PathBuf> {
+    fn prepare_start(&self, folder: &Path, game_dir: &Path, starting: &Starting) -> Result<PathBuf> {
         let core = folder.join("core");
         fs::create_dir_all(&core).map_err(|e| format!("cannot make {}: {e}", core.display()))?;
         let dll = core.join("eu4_harmony_core.dll");
         copy(&built().join("eu4_harmony_core.dll"), &dll)?;
         let options = repo().join("dev.toml");
-        if options.is_file() {
+        if let Some(text) = &starting.options {
+            fs::write(core.join("dev.toml"), text).map_err(|e| format!("cannot write {}: {e}", core.join("dev.toml").display()))?;
+        } else if options.is_file() {
             copy(&options, &core.join("dev.toml"))?;
         } else {
             remove_file(&core.join("dev.toml"))?;
         }
-        let player = eu4_harmony_manifest::user_dir(Some(game_dir))?;
-        copy_saves(&player.join("save games"), &folder.join("user").join("save games"), saves)?;
+        let player = eu4_harmony_folders::user_dir(Some(game_dir))?;
+        copy_saves(&UserFolder::new(player).save_games(), &UserFolder::new(folder.join("user")).save_games(), &starting.saves)?;
         Ok(dll)
     }
 
     fn start_game(&self, game_dir: &Path, log: &Path, start: &Start, wait: Duration) -> Result<(u32, f64)> {
         let began = std::time::Instant::now();
-        let id = eu4_harmony_client::start::start(game_dir, log, start, wait)?;
+        let game = eu4_harmony_client::start::start(game_dir, log, start, wait)?;
+        let id = game.id();
+        *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = Some(game);
         Ok((id, began.elapsed().as_secs_f64()))
     }
 
@@ -281,8 +289,16 @@ impl Machine for ThisComputer {
         if fs::read(&follower).ok() != fs::read(&me).ok() {
             copy(&me, &follower)?;
         }
+        let _ = fs::remove_file(folder.join(FOLLOWING));
         let words = ["game".to_string(), "follow".into(), folder.display().to_string(), id.to_string(), pipe.to_string()];
-        spawn_detached(&follower, &words)
+        spawn_detached(&follower, &words)?;
+        // The game this process started is let go once the follower holds it.
+        let began = std::time::Instant::now();
+        while began.elapsed() < TAKING_OVER && !folder.join(FOLLOWING).exists() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        STARTED.lock().unwrap_or_else(|e| e.into_inner()).take();
+        Ok(())
     }
 
     fn stop_following(&self, folder: &Path) {
@@ -344,7 +360,7 @@ impl ThisComputer {
                 fs::remove_dir_all(&dir).map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
             }
         }
-        for file in ["follow.exe", RELEASED, ENDS] {
+        for file in ["follow.exe", RELEASED, ENDS, FOLLOWING] {
             let _ = fs::remove_file(folder.join(file));
         }
         Ok(())
@@ -501,14 +517,14 @@ fn forget_old(claims: &Path) {
 /// the record of its games' ends, into the claim's `kept\`; whether there
 /// was a crash folder.
 fn keep(folder: &Path) -> bool {
-    let (user, kept) = (folder.join("user"), folder.join("kept"));
-    let _ = copy_tree(&user.join("eu4-harmony").join("logs"), &kept.join("eu4-harmony-logs"));
-    let _ = copy_tree(&user.join("logs"), &kept.join("game-logs"));
-    let _ = copy_tree(&user.join("crashes"), &kept.join("crashes"));
+    let (user, kept) = (UserFolder::new(folder.join("user")), folder.join("kept"));
+    let _ = copy_tree(&user.logs(), &kept.join("eu4-harmony-logs"));
+    let _ = copy_tree(&user.game_logs(), &kept.join("game-logs"));
+    let _ = copy_tree(&user.crashes(), &kept.join("crashes"));
     if folder.join(ENDS).is_file() {
         let _ = fs::create_dir_all(&kept).and_then(|()| fs::copy(folder.join(ENDS), kept.join(ENDS)));
     }
-    fs::read_dir(user.join("crashes")).is_ok_and(|mut entries| entries.any(|e| e.is_ok_and(|e| e.path().is_dir())))
+    user.crash_folders().is_ok_and(|crashes| !crashes.is_empty())
 }
 
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -579,26 +595,13 @@ fn spawn_detached(program: &Path, words: &[String]) -> Result<()> {
 /// [`RESTART_WAIT`].
 pub fn follow_games(folder: &Path, first: u32, pipe: &str) -> Result<()> {
     use std::io::Write;
-    use windows_sys::Win32::{
-        Foundation::{CloseHandle, WAIT_OBJECT_0},
-        System::{
-            SystemInformation::GetLocalTime,
-            Threading::{GetExitCodeProcess, OpenProcess, WaitForSingleObject, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE},
-        },
-    };
+    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
     let mut next = Some(first);
     while let Some(id) = next.take() {
-        let Some(game) = process(id) else { return Ok(()) };
-        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, id) };
-        if handle.is_null() {
-            return Ok(());
-        }
-        let mut code = 0;
-        let ended = unsafe { WaitForSingleObject(handle, INFINITE) == WAIT_OBJECT_0 && GetExitCodeProcess(handle, &mut code) != 0 };
-        unsafe { CloseHandle(handle) };
-        if !ended {
-            return Ok(());
-        }
+        let Some(held) = Game::open(id) else { return Ok(()) };
+        let _ = fs::write(folder.join(FOLLOWING), id.to_string());
+        let game = Process { id, started: held.started() };
+        let Some(code) = held.wait() else { return Ok(()) };
         let seen = unsafe {
             let mut t = std::mem::zeroed();
             GetLocalTime(&mut t);

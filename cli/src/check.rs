@@ -1,8 +1,10 @@
 //! `eu4-harmony check`: what the framework reads of a mod, read as it reads
 //! it, without the game: the manifest, the Lua files, the localisation and
 //! where the files are. A mod that passes loads without these problems;
-//! `package` checks the same first.
-use eu4_harmony_manifest::{Layout, Manifest};
+//! `package` checks the same first. The mod is read as the framework reads
+//! it (`eu4_harmony_manifest::HarmonyMod`) and its Lua compiled as the Lua
+//! host loads it (`eu4_harmony_lua::compile`).
+use eu4_harmony_manifest::{HarmonyMod, Layout, Manifest};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -24,43 +26,21 @@ pub struct Checked {
 pub fn check(root: &Path) -> Checked {
     let harmony = root.join("eu4-harmony");
     let mut problems = Vec::new();
-    let manifest_file = harmony.join(eu4_harmony_manifest::FILE);
-    let manifest = match fs::read_to_string(&manifest_file).map_err(|e| e.to_string()).and_then(|t| Manifest::parse(&t)) {
-        Ok(m) => {
-            let provided = eu4_harmony_remote::API_VERSION;
-            if !m.built_for(provided) {
-                problems.push(format!(
-                    "eu4-harmony/{}: api_version {} is not what this EU4 Harmony provides ({provided})",
-                    eu4_harmony_manifest::FILE,
-                    m.api_version
-                ));
-            }
-            Some(m)
+    let (manifest, layout) = match HarmonyMod::read(root) {
+        Ok(read) => {
+            problems.extend(read.problems(eu4_harmony_remote::API_VERSION));
+            (Some(read.manifest), read.layout)
         }
         Err(e) => {
-            problems.push(format!("eu4-harmony/{}: {e}", eu4_harmony_manifest::FILE));
-            None
+            problems.push(e);
+            (None, eu4_harmony_manifest::layout(&harmony))
         }
     };
-    let lua_dir = harmony.join("lua");
-    let scripts = files(&lua_dir, "lua");
-    let lua = mlua::Lua::new();
-    for path in &scripts {
-        let name = format!("@{}", crate::forward_slashes(path.strip_prefix(&lua_dir).unwrap_or(path)));
-        match fs::read(path) {
-            Ok(source) => {
-                if let Err(e) = lua.load(source).set_name(name).set_mode(mlua::ChunkMode::Text).into_function() {
-                    problems.push(format!("eu4-harmony/lua: {e}"));
-                }
-            }
-            Err(e) => problems.push(format!("{}: {e}", path.display())),
-        }
-    }
+    let (scripts, script_problems) = eu4_harmony_lua::compile(&harmony);
+    problems.extend(script_problems.into_iter().map(|p| format!("eu4-harmony/lua: {p}")));
     let (_, text_problems) = eu4_harmony_loc::load_dir(&harmony.join("localisation"));
     problems.extend(text_problems.into_iter().map(|p| format!("eu4-harmony/localisation/{p}")));
     let texts = files(&harmony.join("localisation"), "yml").into_iter().filter(|p| p.parent() == Some(&harmony.join("localisation"))).collect();
-    let layout = eu4_harmony_manifest::layout(&harmony);
-    problems.extend(layout.misplaced.iter().map(|f| format!("eu4-harmony/{f}: not where the layout puts anything, so the game never reads it")));
     Checked { manifest, layout, scripts, texts, problems }
 }
 
@@ -104,7 +84,7 @@ mod tests {
         let problems = checked.problems.join("\n");
         assert_eq!(checked.problems.len(), 4, "{problems}");
         for part in
-            ["api_version 0.1 is not what this EU4 Harmony provides", "deep/broken.lua", "m_l_english.yml: line 2", "eu4-harmony/ui/stray.gui: not where"]
+            ["written for api_version 0.1, this EU4 Harmony provides", "deep/broken.lua", "m_l_english.yml: line 2", "eu4-harmony/ui/stray.gui: not where"]
         {
             assert!(problems.contains(part), "{part} in {problems}");
         }

@@ -9,11 +9,14 @@
 mod course;
 mod machine;
 mod record;
+#[cfg(test)]
+pub(crate) mod recorded;
 
 use crate::{Args, Result};
 use course::Claimed;
 pub use course::{Run, Starting};
 use machine::ThisComputer;
+pub use record::GameEnd;
 use record::{Asking, Claim};
 use std::{path::Path, time::Duration};
 
@@ -55,10 +58,7 @@ pub fn user_dir(owner: &str) -> Result<std::path::PathBuf> {
 
 /// The process of `owner`'s test game while it runs.
 pub fn game_of(owner: &str) -> Option<u32> {
-    let claim = held_by(owner).ok()?;
-    let pipe = pipe_of(owner).ok()?;
-    use machine::Machine as _;
-    claim.game.filter(|g| ThisComputer.alive(g)).map(|g| g.id).or_else(|| ThisComputer.serving(&pipe))
+    course::game_of_owner(&ThisComputer, owner)
 }
 
 /// The `eu4.exe` serving the test game `name`'s pipe, if any.
@@ -124,6 +124,63 @@ pub fn play_within<T>(run: &Run, interrupted: &(dyn Fn() -> bool + Sync), play: 
     course::play_within(&ThisComputer, run, interrupted, play)
 }
 
+/// The test game of a run within a claim, the scenario runner's, as the run
+/// reaches its process: through the claim's machine, so that how a run's
+/// game ends can be tried on a recorded one.
+pub trait RunGame {
+    /// The test game's process while it runs.
+    fn game(&self) -> Option<u32>;
+    /// Starts the test game hidden, waiting up to `wait` for its main menu:
+    /// the seconds it took.
+    fn start(&self, starting: &Starting, wait: Duration) -> Result<f64>;
+    /// Ends the test game, if it runs.
+    fn stop(&self) -> Result<()>;
+    /// How its games have ended so far, as the claim follows them.
+    fn ends(&self) -> Vec<GameEnd>;
+    /// Waits before looking again.
+    fn wait(&self, time: Duration);
+}
+
+/// The test game of `owner`'s run on `m`.
+pub struct InClaim<'m, M> {
+    m: &'m M,
+    owner: String,
+    game_dir: std::path::PathBuf,
+}
+
+impl<M: machine::Machine> RunGame for InClaim<'_, M> {
+    fn game(&self) -> Option<u32> {
+        course::game_of_owner(self.m, &self.owner)
+    }
+
+    fn start(&self, starting: &Starting, wait: Duration) -> Result<f64> {
+        course::start_game(self.m, &self.owner, &self.game_dir, starting, wait)
+    }
+
+    fn stop(&self) -> Result<()> {
+        course::stop(self.m, &self.owner)
+    }
+
+    fn ends(&self) -> Vec<GameEnd> {
+        course::ends_of(self.m, &self.owner)
+    }
+
+    fn wait(&self, time: Duration) {
+        self.m.wait(time);
+    }
+}
+
+/// The test game of `owner`'s run on this computer, started from `game_dir`.
+pub fn run_game(owner: &str, game_dir: &Path) -> InClaim<'static, ThisComputer> {
+    InClaim { m: &ThisComputer, owner: owner.into(), game_dir: game_dir.into() }
+}
+
+/// The test game of `owner`'s run on the recorded computer `m`.
+#[cfg(test)]
+pub fn recorded_run_game<'m>(m: &'m recorded::Recorded, owner: &str) -> InClaim<'m, recorded::Recorded> {
+    InClaim { m, owner: owner.into(), game_dir: recorded::GAME_DIR.into() }
+}
+
 /// Ends `owner`'s test game, if it runs.
 pub fn stop_game_as(owner: &str) -> Result<()> {
     course::stop(&ThisComputer, owner)
@@ -147,7 +204,7 @@ fn start(args: &Args) -> Result<f64> {
         .map_or(Ok(eu4_harmony_client::start::WAIT), |v| v.parse().map(Duration::from_secs).map_err(|_| format!("--timeout {v}: seconds")))?;
     let seed = args.value("seed").map(|v| v.parse::<u32>().map_err(|_| format!("--seed {v}: a whole number below 2^32"))).transpose()?;
     let owner = owner(args);
-    let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save") };
+    let starting = Starting { sound: args.flag("sound"), seed, saves: args.values("save"), options: None };
     let took = start_game_as(&owner, &args.game_dir()?, &starting, wait)?;
     if args.flag("visible") {
         show(&pipe_of(&owner)?).map_err(|why| format!("the game runs hidden at its main menu, not shown: {why}; eu4-harmony game desktop show shows it"))?;

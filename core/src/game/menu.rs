@@ -33,7 +33,7 @@ use crate::{
         gui::{classes as gui_classes, main_menu},
         setup,
     },
-    points::Point,
+    points::{GameFunction, Point},
     saves::file as save_file,
     Result,
 };
@@ -44,26 +44,26 @@ use std::{
 };
 
 /// `(main menu, page, animate)`: shows a page of the main menu.
-const SHOW_PAGE: usize = 0x10daf60;
+const SHOW_PAGE: GameFunction<3> = GameFunction::at(0x10daf60);
 /// `(setup)`: loads the save [`setup::SAVE_PATH`] names into the setup (by
 /// a command, at a later frame) and selects [`setup::SAVE_PLAYER`]'s
 /// country, or the world's player for an ironman save.
-const CHOOSE_SAVE: usize = 0x1130f40;
+const CHOOSE_SAVE: GameFunction<1> = GameFunction::at(0x1130f40);
 /// `(setup, true)`: starts the game as the continue box does.
-const CONTINUE: usize = 0x1120740;
+const CONTINUE: GameFunction<2> = GameFunction::at(0x1120740);
 /// `(world, tag)`: makes the country the player's.
-const SET_PLAYER: usize = 0x763840;
+const SET_PLAYER: GameFunction<2> = GameFunction::at(0x763840);
 /// `(world, &tag, kind)`: the tag of that kind for the letters, made when
 /// there is none; the setup's observe button (`0x11374d0`) asks it for
 /// `---` of the observer's kind, and makes the player the tag it points to.
-const KIND_TAG: usize = 0x76ee40;
+const KIND_TAG: GameFunction<3> = GameFunction::at(0x76ee40);
 /// `(setup, &tag, false)`: selects the country in the setup, posting the
 /// command that makes it the player's, as entering the setup with a
 /// `-start_tag` country does (`0x110e871`).
-const SELECT: usize = 0x111cb80;
+const SELECT: GameFunction<3> = GameFunction::at(0x111cb80);
 /// `(setup)`: starts the game, as entering the setup with a `-start_tag`
 /// country does once it selected it (`0x110e88c`).
-const START: usize = 0x1120280;
+const START: GameFunction<1> = GameFunction::at(0x1120280);
 
 use crate::sessions::{self, At, End};
 use course::{Action, Course, Reads, Rules, Steps};
@@ -271,7 +271,7 @@ static SAVE_GAMES: OnceLock<std::result::Result<PathBuf, String>> = OnceLock::ne
 
 /// The save games folder, in the user directory.
 fn save_games() -> GResult<PathBuf> {
-    let dir = SAVE_GAMES.get_or_init(|| Ok(crate::paths::user_dir(&crate::paths::game_dir()?)?.join("save games")));
+    let dir = SAVE_GAMES.get_or_init(|| Ok(eu4_harmony_folders::UserFolder::new(crate::paths::user_dir(&crate::paths::game_dir()?)?).save_games()));
     dir.clone().map_err(|e| format!("the user directory: {e}").into())
 }
 
@@ -500,7 +500,7 @@ fn back_to_first_page(m: &Memory, frontend: usize) {
         let _ = m.write(frontend + main_menu::LAUNCH_ACCEPTED, &[0]);
     }
     if m.u32(frontend + main_menu::PAGE).is_ok_and(|page| page == main_menu::SETUP_PAGE) {
-        let _ = m.call(m.at(SHOW_PAGE), &[frontend, main_menu::FIRST_PAGE as usize, 1]);
+        let _ = SHOW_PAGE.call(m, [frontend, main_menu::FIRST_PAGE as usize, 1]);
     }
 }
 
@@ -546,7 +546,7 @@ fn start_now(m: &Memory, frontend: usize, letters: [u8; 3]) -> Result<()> {
     let start_tag = m.at(setup::START_TAG);
     set_text(m, start_tag, &letters)?;
     // Without the setup's animation, as the continue box shows it.
-    let shown = m.call(m.at(SHOW_PAGE), &[frontend, main_menu::SETUP_PAGE as usize, 0]);
+    let shown = SHOW_PAGE.call(m, [frontend, main_menu::SETUP_PAGE as usize, 0]);
     let left = game_string::read(m, start_tag);
     if left.as_ref().map_or(true, |text| !text.is_empty()) {
         let _ = set_text(m, start_tag, b"");
@@ -571,17 +571,17 @@ fn observe_now(m: &Memory, frontend: usize) -> Result<()> {
     if !game_string::read(m, start_tag)?.is_empty() {
         set_text(m, start_tag, b"")?;
     }
-    m.call(m.at(SHOW_PAGE), &[frontend, main_menu::SETUP_PAGE as usize, 0])?;
+    SHOW_PAGE.call(m, [frontend, main_menu::SETUP_PAGE as usize, 0])?;
     let page = setup(m, frontend)?;
     let world = world_now(m)?;
     let none = u64::from_le_bytes(*b"---\0\0\0\0\0");
-    let observer = m.call(m.at(KIND_TAG), &[world, &none as *const u64 as usize, world::OBSERVE as usize])?;
+    let observer = KIND_TAG.call(m, [world, &none as *const u64 as usize, world::OBSERVE as usize])?;
     let observer = Tag(m.u64(observer)?);
     if observer.kind() != world::OBSERVE || !observer.valid() {
         return Err(format!("the game gave {:#x} for the observer's tag", observer.0));
     }
-    m.call(m.at(SELECT), &[page, &observer.0 as *const u64 as usize, 0])?;
-    m.call(m.at(START), &[page])?;
+    SELECT.call(m, [page, &observer.0 as *const u64 as usize, 0])?;
+    START.call(m, [page])?;
     if m.u8(page + setup::STARTED)? == 0 {
         return Err("the single player setup did not start the game".into());
     }
@@ -607,16 +607,16 @@ fn load_now(m: &Memory, frontend: usize, path: &str, player: Tag) -> Result<()> 
     m.write(world + world::MULTIPLAYER, &0i32.to_le_bytes())?;
     m.write(world + world::SETUP, &1i32.to_le_bytes())?;
     m.write(frontend + main_menu::CONTINUING, &[1])?;
-    m.call(m.at(SHOW_PAGE), &[frontend, main_menu::SETUP_PAGE as usize, 0])?;
+    SHOW_PAGE.call(m, [frontend, main_menu::SETUP_PAGE as usize, 0])?;
     let page = setup(m, frontend)?;
     m.write(page + setup::SAVE_INDEX, &(-1i32).to_le_bytes())?;
     set_text(m, page + setup::SAVE_PATH, path.as_bytes())?;
     m.write(page + setup::CLOUD_SAVE, &[0])?;
     m.write(page + setup::SAVE_PLAYER, &player.0.to_le_bytes())?;
-    m.call(m.at(CHOOSE_SAVE), &[page])?;
+    CHOOSE_SAVE.call(m, [page])?;
     let chosen = |why: String| format!("{why}; the game still reads the save into the main menu's world, which starts no game");
-    m.call(m.at(SET_PLAYER), &[world, player.0 as usize]).map_err(chosen)?;
-    m.call(m.at(CONTINUE), &[page, 1]).map_err(chosen)?;
+    SET_PLAYER.call(m, [world, player.0 as usize]).map_err(chosen)?;
+    CONTINUE.call(m, [page, 1]).map_err(chosen)?;
     if m.u8(page + setup::STARTED).map_err(chosen)? == 0 {
         return Err(chosen("the single player setup did not start the game".into()));
     }

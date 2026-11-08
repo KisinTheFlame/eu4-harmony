@@ -3,7 +3,13 @@
 //! (docs/research/government.md, "Reforms" and "Rank").
 use super::content::checks;
 use super::{action, conditions, content, thousandths, GResult, Session, Tag};
-use crate::{memory::Memory, points::Point};
+use crate::containers;
+use crate::game_string;
+use crate::{
+    memory::Memory,
+    points::{GameFunction, Point},
+};
+use eu4_harmony_remote::government::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     government::{Government, Reform, ReformTier},
@@ -36,15 +42,15 @@ const TRIGGER: usize = 0x228;
 /// `(country, key) -> bool`, whether the country may enact the reform with
 /// that key in its next tier; `(country, key, free) -> bool`, whether it may
 /// change a tier's reform to it, paying reform progress unless `free`.
-const CAN_SELECT: usize = 0x40a9d0;
-const CAN_CHANGE: usize = 0x40ade0;
+const CAN_SELECT: GameFunction<2> = GameFunction::at(0x40a9d0);
+const CAN_CHANGE: GameFunction<3> = GameFunction::at(0x40ade0);
 /// `(government, out, tier)`: the reform progress enacting a reform in that
 /// tier costs, in thousandths; the define of what changing one costs.
-const SELECT_COST: usize = 0x79ead0;
+const SELECT_COST: GameFunction<3> = GameFunction::at(0x79ead0);
 const CHANGE_COST: usize = 0x233e4cc;
 /// `(country, reasons) -> bool`: whether the country may raise its rank,
 /// writing why not into the `std::string` reasons.
-const CAN_RAISE: usize = 0x3167b0;
+const CAN_RAISE: GameFunction<2> = GameFunction::at(0x3167b0);
 const MOST: usize = 1_000;
 
 pub fn points() -> Vec<Point> {
@@ -98,7 +104,10 @@ fn adopted(m: &Memory, government: usize) -> GResult<Vec<usize>> {
 /// The government type's tiers, each with its key and reforms.
 fn tiers(m: &Memory, government: usize) -> GResult<Vec<(String, Vec<usize>)>> {
     let kind = m.ptr(government + TYPE)?;
-    content::pointers(m, kind + TIERS)?.into_iter().map(|tier| Ok((content::key(m, tier + TIER_KEY)?, content::pointers(m, tier + TIER_REFORMS)?))).collect()
+    containers::array(m, kind + TIERS, containers::MOST)?
+        .into_iter()
+        .map(|tier| Ok((game_string::key(m, tier + TIER_KEY)?, containers::array(m, tier + TIER_REFORMS, containers::MOST)?)))
+        .collect()
 }
 
 /// Whether the player can adopt `reform` in tier `tier`, which they have
@@ -106,11 +115,11 @@ fn tiers(m: &Memory, government: usize) -> GResult<Vec<(String, Vec<usize>)>> {
 fn choice(m: &Memory, country: usize, player: Tag, government: usize, tier: usize, reached: bool, reform: usize) -> GResult<Choice> {
     let key = reform + REFORM_KEY;
     let (can, cost) = if reached {
-        (m.call(m.at(CAN_CHANGE), &[country, key, 0])? & 0xff != 0, m.i32(m.at(CHANGE_COST))?)
+        (CAN_CHANGE.call(m, [country, key, 0])? & 0xff != 0, m.i32(m.at(CHANGE_COST))?)
     } else {
         let mut cost = 0i32;
-        m.call(m.at(SELECT_COST), &[government, &mut cost as *mut i32 as usize, tier])?;
-        (m.call(m.at(CAN_SELECT), &[country, key])? & 0xff != 0, cost)
+        SELECT_COST.call(m, [government, &mut cost as *mut i32 as usize, tier])?;
+        (CAN_SELECT.call(m, [country, key])? & 0xff != 0, cost)
     };
     let cost = vec![Amount::new(Resource::ReformProgress, thousandths(cost))];
     if can {
@@ -138,12 +147,12 @@ fn cost_thousandths(cost: &[Amount]) -> i32 {
 /// they can raise the rank.
 pub fn options(Session { m, ctx, .. }: Session) -> GResult<Government> {
     let government = government(m, ctx.country)?;
-    let (can, reasons) = content::checked(m, |reasons| Ok(m.call(m.at(CAN_RAISE), &[ctx.country, reasons])?))?;
+    let (can, reasons) = content::checked(m, |reasons| Ok(CAN_RAISE.call(m, [ctx.country, reasons])?))?;
     Ok(Government {
-        government: content::key(m, m.ptr(government + TYPE)? + TYPE_KEY)?,
+        government: game_string::key(m, m.ptr(government + TYPE)? + TYPE_KEY)?,
         rank: m.i32(ctx.country + RANK)?.max(0) as u32,
         reform_progress: thousandths(m.i32(ctx.country + REFORM_PROGRESS)?),
-        reforms_adopted: adopted(m, government)?.into_iter().map(|r| content::key(m, r + REFORM_KEY)).collect::<GResult<_>>()?,
+        reforms_adopted: adopted(m, government)?.into_iter().map(|r| Ok(game_string::key(m, r + REFORM_KEY)?)).collect::<GResult<_>>()?,
         raise_rank: if can { Choice::can(Vec::new()) } else { Choice::cannot(reasons, Vec::new()) },
     })
 }
@@ -161,7 +170,7 @@ pub fn reforms(Session { m, ctx, .. }: Session) -> GResult<Vec<ReformTier>> {
             if !has && !conditions::holds(m, reform + POTENTIAL, ctx.player, 0)? {
                 continue;
             }
-            let name = content::key(m, reform + REFORM_KEY)?;
+            let name = game_string::key(m, reform + REFORM_KEY)?;
             offered.push(Reform {
                 name: content::name(m, &name)?,
                 reform: name,
@@ -191,11 +200,11 @@ fn written_rank(country: Tag, rank: i32) -> String {
 }
 
 /// Adopts a reform for the player, as its button does.
-pub fn adopt_reform(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn adopt_reform(Session { m, ctx, commands, .. }: Session, args::AdoptReform { reform: key }: args::AdoptReform) -> GResult<()> {
     let government = government(m, ctx.country)?;
     let adopted = adopted(m, government)?;
     for (tier, (_, reforms)) in tiers(m, government)?.into_iter().enumerate() {
-        let Some(&reform) = reforms.iter().find(|&&r| content::key(m, r + REFORM_KEY).is_ok_and(|k| k == key)) else { continue };
+        let Some(&reform) = reforms.iter().find(|&&r| game_string::key(m, r + REFORM_KEY).is_ok_and(|k| k == key)) else { continue };
         if adopted.contains(&reform) {
             return Err(checks::not_now(format!("the player has adopted the reform {key} already")));
         }
@@ -212,7 +221,7 @@ pub fn adopt_reform(Session { m, ctx, commands, .. }: Session, key: String) -> G
 
 /// Raises the player's government rank by one.
 pub fn raise_rank(Session { m, ctx, commands, .. }: Session) -> GResult<()> {
-    let (can, reasons) = content::checked(m, |reasons| Ok(m.call(m.at(CAN_RAISE), &[ctx.country, reasons])?))?;
+    let (can, reasons) = content::checked(m, |reasons| Ok(CAN_RAISE.call(m, [ctx.country, reasons])?))?;
     if !can {
         return Err(action::not_allowed("raise the government rank", &reasons));
     }
@@ -239,5 +248,153 @@ mod tests {
     #[test]
     fn raising_the_rank_names_the_rank_reached() {
         assert_eq!(written_rank(fra(), 2), r#"government_rank_command={ country="FRA" value=2 prestige=yes }"#);
+    }
+
+    use crate::game::{
+        buffers::{self, write_reason, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// Whether the country may enact or change to the reform whose key is at
+    /// `key`: those whose key starts with `ok`.
+    extern "C" fn may(_: usize, key: usize) -> usize {
+        game_string::key(&Memory { base: 0 }, key).unwrap().starts_with("ok").into()
+    }
+
+    /// What enacting a reform in the next tier costs: 50 progress.
+    extern "C" fn select_cost(_: usize, out: *mut i32) -> usize {
+        unsafe { *out = 50_000 };
+        0
+    }
+
+    /// Whether the country may raise its rank: below rank 3.
+    extern "C" fn may_raise(country: usize, reasons: usize) -> usize {
+        if unsafe { *((country + RANK) as *const i32) } < 3 {
+            return 1;
+        }
+        unsafe { write_reason(reasons, b"- highest rank") };
+        0
+    }
+
+    /// A reform with `key`, its `potential` and `trigger` holding or not.
+    fn reform(key: &str, potential: bool, trigger: bool) -> Object {
+        Object::new(TRIGGER + 8).string(REFORM_KEY, key).u8(POTENTIAL, potential.into()).u8(TRIGGER, trigger.into())
+    }
+
+    /// France at `rank` with 30 reform progress, a monarchy of two tiers:
+    /// `power`, where it has adopted `noble_rule` and may change to
+    /// `ok_crown` but is not offered `secret_one`; and `law`, not reached,
+    /// of `ok_courts`, and `merchant_rule`, which it may not enact.
+    struct France {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn france(rank: i32) -> France {
+        let image = Image::new();
+        image.conditions().localisation();
+        image
+            .function(CAN_SELECT.rva(), may as *const ())
+            .function(CAN_CHANGE.rva(), may as *const ())
+            .function(SELECT_COST.rva(), select_cost as *const ())
+            .function(CAN_RAISE.rva(), may_raise as *const ())
+            .i32(CHANGE_COST, 100_000);
+        let [adopted, crown, secret, courts, merchants] = [
+            reform("noble_rule", true, true),
+            reform("ok_crown", true, true),
+            reform("secret_one", false, true),
+            reform("ok_courts", true, true),
+            reform("merchant_rule", true, false),
+        ];
+        let power =
+            Object::new(TIER_REFORMS + 0x18).string(TIER_KEY, "power").game_array(TIER_REFORMS, &[adopted.at() as u64, crown.at() as u64, secret.at() as u64]);
+        let law = Object::new(TIER_REFORMS + 0x18).string(TIER_KEY, "law").game_array(TIER_REFORMS, &[courts.at() as u64, merchants.at() as u64]);
+        let kind = Object::new(TIERS + 0x18).string(TYPE_KEY, "monarchy").game_array(TIERS, &[power.at() as u64, law.at() as u64]);
+        let block = Object::new(16).u64(0, adopted.at() as u64);
+        let map = Object::new(8).u64(0, block.at() as u64);
+        let stack = STACK;
+        let government = Object::new(STACK + STACK_COUNT + 8)
+            .u64(TYPE, kind.at() as u64)
+            .u64(stack + STACK_MAP, map.at() as u64)
+            .u64(stack + STACK_MAP_SIZE, 1)
+            .u64(stack + STACK_FIRST, 0)
+            .u64(stack + STACK_COUNT, 1);
+        let country = Object::country(fra(), REFORM_PROGRESS + 4).u64(GOVERNMENT, government.at() as u64).i32(RANK, rank).i32(REFORM_PROGRESS, 30_000);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote);
+        France {
+            _image: image,
+            _objects: vec![adopted, crown, secret, courts, merchants, power, law, kind, block, map, government, country, countries],
+            session,
+        }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("{result:?} was posted") };
+        (status, message)
+    }
+
+    #[test]
+    fn the_government_says_its_type_rank_progress_reforms_and_rank_choice() {
+        let government = options(france(2).session).unwrap();
+        assert_eq!((government.government.as_str(), government.rank, government.reform_progress), ("monarchy", 2, 30.0));
+        assert_eq!(government.reforms_adopted, ["noble_rule"]);
+        assert!(government.raise_rank.can);
+        let highest = options(france(3).session).unwrap();
+        assert_eq!(highest.raise_rank.reasons, ["highest rank"]);
+    }
+
+    #[test]
+    fn the_view_offers_each_tier_s_potential_reforms_with_their_costs_and_reasons() {
+        let tiers = reforms(france(2).session).unwrap();
+        let summary: Vec<_> = tiers
+            .iter()
+            .map(|t| (t.tier.as_str(), t.reached, t.reforms.iter().map(|r| (r.reform.as_str(), r.adopted, r.choice.can)).collect::<Vec<_>>()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("power", true, vec![("noble_rule", true, false), ("ok_crown", false, true)]),
+                ("law", false, vec![("ok_courts", false, true), ("merchant_rule", false, false)]),
+            ]
+        );
+        assert_eq!(tiers[0].reforms[1].choice.cost, [Amount::new(Resource::ReformProgress, 100.0)]);
+        assert_eq!(tiers[1].reforms[0].choice.cost, [Amount::new(Resource::ReformProgress, 50.0)]);
+        assert_eq!(tiers[1].reforms[1].choice.reasons, ["unmet", "the reform progress is 30, and this costs 50"]);
+        assert_eq!(tiers[0].reforms[1].name, "ok_crown");
+    }
+
+    #[test]
+    fn a_reform_is_enacted_in_the_next_tier_or_changed_to_in_a_reached_one() {
+        let france = france(2);
+        adopt_reform(france.session, args::AdoptReform { reform: "ok_crown".into() }).unwrap();
+        adopt_reform(france.session, args::AdoptReform { reform: "ok_courts".into() }).unwrap();
+        raise_rank(france.session).unwrap();
+        assert_eq!(
+            record::posted(),
+            [
+                r#"change_to_government_reform={ members={ dummy="FRA" dummy="ok_crown" dummy=0 dummy=no } }"#,
+                r#"select_government_reform={ members={ dummy="FRA" dummy="ok_courts" } }"#,
+                r#"government_rank_command={ country="FRA" value=3 prestige=yes }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_reform_adopted_unknown_or_not_allowed_and_a_rank_too_high_are_refused() {
+        let france = france(3);
+        assert_eq!(
+            refused(adopt_reform(france.session, args::AdoptReform { reform: "noble_rule".into() })),
+            (Status::Rejected, "the player has adopted the reform noble_rule already".into())
+        );
+        assert_eq!(
+            refused(adopt_reform(france.session, args::AdoptReform { reform: "merchant_rule".into() })),
+            (Status::Rejected, "unmet\nthe reform progress is 30, and this costs 50".into())
+        );
+        assert_eq!(refused(adopt_reform(france.session, args::AdoptReform { reform: "no_such".into() })).0, Status::NotFound);
+        assert_eq!(refused(raise_rank(france.session)), (Status::Rejected, "highest rank".into()));
+        assert!(record::posted().is_empty());
     }
 }

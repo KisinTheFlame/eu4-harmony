@@ -7,13 +7,15 @@
 //!
 //! The save loader is observed as well, which tells the sessions
 //! (`crate::sessions`) when a save is being read and whether it was.
-pub mod background;
 pub mod file;
-pub mod parallel;
-pub mod sum;
-pub mod update_thread;
 
-use crate::{hooks::HookFrame, memory::Memory, points::Point, Result};
+use crate::called_by_game;
+use crate::{
+    hooks::Call,
+    memory::Memory,
+    points::{GameFunction, Point},
+    Result,
+};
 use eu4_harmony_remote::binary as base64;
 use serde_json::Value;
 use std::{
@@ -32,12 +34,12 @@ const NO_AI: usize = 0x751c98;
 /// The game's writer: one token as given; `{` and `}`, each with a line
 /// break; a quoted string, with a line break; a line break; a line's indent.
 /// Line breaks and indents are written in text saves only.
-const WRITE_TOKEN: usize = 0x1708870;
-const WRITE_OPEN: usize = 0x1708750;
-const WRITE_CLOSE: usize = 0x17087e0;
-const WRITE_QUOTED: usize = 0x1707d90;
-const WRITE_LINE_BREAK: usize = 0x17084a0;
-const WRITE_INDENT: usize = 0x1708560;
+pub(crate) const WRITE_TOKEN: GameFunction<2> = GameFunction::at(0x1708870);
+const WRITE_OPEN: GameFunction<1> = GameFunction::at(0x1708750);
+pub(crate) const WRITE_CLOSE: GameFunction<1> = GameFunction::at(0x17087e0);
+const WRITE_QUOTED: GameFunction<4> = GameFunction::at(0x1707d90);
+const WRITE_LINE_BREAK: GameFunction<1> = GameFunction::at(0x17084a0);
+const WRITE_INDENT: GameFunction<1> = GameFunction::at(0x1708560);
 /// In the world's handler of top-level entries (`0x751cd0`), the branch for an
 /// entry it has no case for begins by calling the content registry, then asks
 /// it about the entry's key; the handler returns at `ENTRY_HANDLED`.
@@ -52,7 +54,7 @@ const SKIP_BLOCK: usize = 0x170a4e6;
 const LOAD: usize = 0x5cdc60;
 
 /// The writer's depth of blocks: 0 inside the world's own entries.
-const WRITER_DEPTH: usize = 0x8;
+pub(crate) const WRITER_DEPTH: usize = 0x8;
 /// The reader of a save: its tokenizer, the key of the entry it stands in,
 /// and the type of the value after the key's `=`.
 const READER_TOKENIZER: usize = 0x28;
@@ -66,10 +68,10 @@ const TOKEN_TEXT: usize = TOKEN_TYPE + 4;
 
 /// Token types, the same for what the writer takes and what the tokenizer
 /// reads: `=`, `{`, `}`, a number, and a string with no id of its own.
-const EQUALS: u32 = 1;
+pub(crate) const EQUALS: u32 = 1;
 const OPEN: u32 = 3;
 const CLOSE: u32 = 4;
-const NUMBER: u32 = 0xc;
+pub(crate) const NUMBER: u32 = 0xc;
 const STRING: u32 = 0xf;
 /// The text a token holds, its NUL included.
 const TOKEN_TEXT_LEN: usize = 512;
@@ -87,15 +89,6 @@ static READ: Mutex<Option<Result<BTreeMap<String, Value>>>> = Mutex::new(None);
 static LOADED: Mutex<Option<BTreeMap<String, Value>>> = Mutex::new(None);
 /// Current data of every extension, written with every save.
 static CURRENT: Mutex<BTreeMap<String, Value>> = Mutex::new(BTreeMap::new());
-
-/// A developer build's test switch `game-writes-saves`: the game writes
-/// saves by its own code, as before S8, so that the two can be measured.
-fn game_writes_saves() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.game_writes_saves;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
-}
 
 /// Says which extensions loaded, once they have.
 pub fn keep_for(ids: impl IntoIterator<Item = String>) {
@@ -229,21 +222,21 @@ fn loaded(read: bool, data: Result<BTreeMap<String, Value>>, extensions: &BTreeS
 /// A token as the game's writer takes it: its type, then its text up to a
 /// NUL; the byte after the text stays 0, as the game's own callers leave it.
 #[repr(C)]
-struct GameToken {
+pub(crate) struct GameToken {
     kind: u32,
     text: [u8; TOKEN_TEXT_LEN],
     rest: u32,
 }
 
 impl GameToken {
-    fn new(kind: u32, text: &str) -> Self {
+    pub(crate) fn new(kind: u32, text: &str) -> Self {
         let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
         token.text[..text.len()].copy_from_slice(text.as_bytes());
         token
     }
 
     /// A token of text the game keeps, its NUL included.
-    fn from_bytes(kind: u32, text: &[u8]) -> Self {
+    pub(crate) fn from_bytes(kind: u32, text: &[u8]) -> Self {
         let mut token = Self { kind, text: [0; TOKEN_TEXT_LEN], rest: 0 };
         let len = text.len().min(TOKEN_TEXT_LEN);
         token.text[..len].copy_from_slice(&text[..len]);
@@ -273,15 +266,15 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
     let writes = entry(&data);
     for write in &writes {
         match write {
-            Write::Token(kind, text) => m.call(m.at(WRITE_TOKEN), &[writer, &GameToken::new(*kind, text) as *const _ as usize])?,
-            Write::Open => m.call(m.at(WRITE_OPEN), &[writer])?,
-            Write::Close => m.call(m.at(WRITE_CLOSE), &[writer])?,
+            Write::Token(kind, text) => WRITE_TOKEN.call(&m, [writer, &GameToken::new(*kind, text) as *const _ as usize])?,
+            Write::Open => WRITE_OPEN.call(&m, [writer])?,
+            Write::Close => WRITE_CLOSE.call(&m, [writer])?,
             Write::Quoted(text) => {
                 let text: Vec<u8> = text.bytes().chain([0]).collect();
-                m.call(m.at(WRITE_QUOTED), &[writer, text.as_ptr() as usize, 0, 0])?
+                WRITE_QUOTED.call(&m, [writer, text.as_ptr() as usize, 0, 0])?
             }
-            Write::LineBreak => m.call(m.at(WRITE_LINE_BREAK), &[writer])?,
-            Write::Indent => m.call(m.at(WRITE_INDENT), &[writer])?,
+            Write::LineBreak => WRITE_LINE_BREAK.call(&m, [writer])?,
+            Write::Indent => WRITE_INDENT.call(&m, [writer])?,
         };
     }
     let chunks = writes.iter().filter(|w| matches!(w, Write::Quoted(_))).count();
@@ -289,8 +282,9 @@ fn write_entry(m: Memory, writer: usize) -> Result<()> {
     Ok(())
 }
 
+#[called_by_game]
 extern "C" fn game_state_written(writer: usize) {
-    crate::guarded("parallel save", || parallel::join(writer));
+    crate::guarded("parallel save", || crate::saving::parallel::join(writer));
     crate::guarded("save data writer", || {
         if let Err(e) = write_entry(crate::hooked_memory(), writer) {
             log!("saves: {e}");
@@ -363,29 +357,28 @@ fn block_tokens(m: Memory, reader: usize) -> Result<Vec<Token>> {
 
 /// Reads the framework's entry, when the reader (`rsi`) stands in it, and
 /// says whether it did; the game then goes on as if it had read it itself.
+#[called_by_game]
 extern "C" fn take_entry(reader: usize) -> bool {
-    crate::guarded("save data reader", || {
-        let m = crate::hooked_memory();
-        let read = match our_entry(m, reader) {
-            Ok(false) => return false,
-            Ok(true) => block_tokens(m, reader).and_then(|tokens| decode(&tokens)),
-            // The game skips the entry, as one it does not know.
-            Err(e) if !crate::sessions::loading() => {
-                log!("saves: {e}");
-                return false;
-            }
-            Err(e) => {
-                *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(Err(e));
-                return false;
-            }
-        };
-        if crate::sessions::loading() {
-            *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
-        } else {
-            log!("saves: read a {KEY} entry outside a load, and left it");
+    let m = crate::hooked_memory();
+    let read = match our_entry(m, reader) {
+        Ok(false) => return false,
+        Ok(true) => block_tokens(m, reader).and_then(|tokens| decode(&tokens)),
+        // The game skips the entry, as one it does not know.
+        Err(e) if !crate::sessions::loading() => {
+            log!("saves: {e}");
+            return false;
         }
-        true
-    })
+        Err(e) => {
+            *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(Err(e));
+            return false;
+        }
+    };
+    if crate::sessions::loading() {
+        *READ.lock().unwrap_or_else(|e| e.into_inner()) = Some(read);
+    } else {
+        log!("saves: read a {KEY} entry outside a load, and left it");
+    }
+    true
 }
 
 crate::resume!(ENTRY_RESUME: ENTRY_UNKNOWN = UNKNOWN_ENTRY_NEXT, ENTRY_DONE = ENTRY_HANDLED);
@@ -428,17 +421,16 @@ fn world_state(m: &Memory) -> Result<(usize, u8)> {
     Ok((at, m.u8(at + world::DAILY_UPDATE)?))
 }
 
-extern "C" fn load_before(frame: *mut HookFrame) {
+fn load_before(call: &mut Call) {
     // A save compressed in the background is in its place before any is read.
-    background::wait();
+    crate::saving::background::wait();
     *LOADED.lock().unwrap_or_else(|e| e.into_inner()) = None;
     *READ.lock().unwrap_or_else(|e| e.into_inner()) = None;
     crate::sessions::load_began();
-    let h = unsafe { &*frame };
-    LOADING.with(|l| l.borrow_mut().push(Load { world: h.args[2], success: h.args[1] }));
+    LOADING.with(|l| l.borrow_mut().push(Load { world: call.arg(2), success: call.arg(1) }));
 }
 
-extern "C" fn load_after(frame: *mut HookFrame) {
+fn load_after(call: &mut Call) {
     struct Exit;
     impl Drop for Exit {
         fn drop(&mut self) {
@@ -446,30 +438,27 @@ extern "C" fn load_after(frame: *mut HookFrame) {
         }
     }
     let _exit = Exit;
-    crate::guarded("save loader", || {
-        let h = unsafe { &*frame };
-        let Some(load) = LOADING.with(|l| l.borrow_mut().pop()) else { return };
-        let outcome = (|| {
-            if h.fault != 0 {
-                return Err("the loader unwound".to_string());
-            }
-            let m = crate::hooked_memory();
-            let (world, daily) = world_state(&m)?;
-            let read = h.result == load.success && m.u8(load.success)? == 1 && world == load.world && daily == 0;
-            crate::sessions::load_read(read);
-            let data = READ.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_else(|| Ok(BTreeMap::new()));
-            if read {
-                match &data {
-                    Ok(d) => log!("saves: loaded a save with data for {} extension(s)", d.len()),
-                    Err(e) => log!("saves: loaded a save whose data cannot be read, so no extension has any: {e}"),
-                }
-            }
-            loaded(read, data, EXTENSIONS.get().unwrap_or(&BTreeSet::new()))
-        })();
-        if let Err(e) = outcome {
-            log!("saves: {e}");
+    let Some(load) = LOADING.with(|l| l.borrow_mut().pop()) else { return };
+    let outcome = (|| {
+        if call.faulted() {
+            return Err("the loader unwound".to_string());
         }
-    });
+        let m = call.memory();
+        let (world, daily) = world_state(&m)?;
+        let read = call.result() == Some(load.success) && m.u8(load.success)? == 1 && world == load.world && daily == 0;
+        crate::sessions::load_read(read);
+        let data = READ.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_else(|| Ok(BTreeMap::new()));
+        if read {
+            match &data {
+                Ok(d) => log!("saves: loaded a save with data for {} extension(s)", d.len()),
+                Err(e) => log!("saves: loaded a save whose data cannot be read, so no extension has any: {e}"),
+            }
+        }
+        loaded(read, data, EXTENSIONS.get().unwrap_or(&BTreeSet::new()))
+    })();
+    if let Err(e) = outcome {
+        log!("saves: {e}");
+    }
 }
 
 /// Where the data is written and read, and the loader.

@@ -53,7 +53,7 @@
 //!   reset is done.
 //! - The game restarts: the saves compressed in the background are put in
 //!   their place, and remote control answers every request while it can.
-use crate::{game, hooks::HookFrame, points::Point};
+use crate::{game, hooks::Call, points::Point};
 use std::{
     sync::Mutex,
     time::{Duration, Instant},
@@ -324,7 +324,7 @@ fn tell(happened: Vec<Happening>) {
                 crate::repairs::after_history(&crate::hooked_memory());
             }
             Happening::Restarting => {
-                crate::saves::background::wait();
+                crate::saving::background::wait();
                 crate::remote::restarting();
             }
         }
@@ -384,11 +384,9 @@ pub fn reset_with_history() {
 const WORLD_RESET: usize = 0x749020;
 
 /// After every world reset.
-extern "C" fn world_reset(frame: *mut HookFrame) {
-    crate::guarded("world reset", || {
-        let world = unsafe { (*frame).args[0] };
-        tell(lifecycle(|l| l.world_reset(world)));
-    });
+fn world_reset(call: &mut Call) {
+    let world = call.arg(0);
+    tell(lifecycle(|l| l.world_reset(world)));
 }
 
 pub fn points() -> Vec<Point> {

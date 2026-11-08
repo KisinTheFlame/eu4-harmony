@@ -14,13 +14,14 @@
 //! as before. After a few searches in one call, the set's pairs are put in
 //! an index of this thread's, which takes up the pairs the game appends as
 //! the call goes on. Each answer is what the game's search gives, so the
-//! sums, their order and the set's growth are the game's own; the developer
-//! build's `check-modifier-sums` searches as the game does as well and
-//! counts any answer that differs, and `game-sums-modifiers` leaves the
-//! game's code as it is.
+//! sums, their order and the set's growth are the game's own. It is the
+//! speed-up `modifier-sums` (`crate::speed`): checked, it searches as the
+//! game does as well and counts any answer that differs; left to the game,
+//! the game's code stays as it is.
+use crate::called_by_game;
 use crate::points::{Function, Point};
+use crate::speed::{self, SpeedUp};
 use std::cell::{Cell, RefCell};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 /// The two functions, `(set, added) -> set`.
 const ADD: usize = 0x8ea420;
@@ -162,59 +163,28 @@ unsafe fn find(set: usize, modifier: i32) -> isize {
         unsafe { index.take_up(pairs, count) };
         index.get(modifier)
     });
-    if checking() {
-        note_check(found == unsafe { search(pairs, count, modifier) });
+    if speed::checked(&SPEED_UP) {
+        let game = unsafe { search(pairs, count, modifier) };
+        speed::compared(&SPEED_UP, found == game, || format!("modifier {modifier}: the index found pair {found:?}, the game's search {game:?}"));
     }
     found.map_or(-1, |p| p as isize)
 }
 
+#[called_by_game]
 unsafe extern "C" fn add(set: usize, added: usize) -> usize {
     CALL.with(|c| c.set(c.get() + 1));
     unsafe { ORIGINAL_ADD.get()(set, added) }
 }
 
+#[called_by_game]
 unsafe extern "C" fn take_away(set: usize, added: usize) -> usize {
     CALL.with(|c| c.set(c.get() + 1));
     unsafe { ORIGINAL_TAKE_AWAY.get()(set, added) }
 }
 
+#[called_by_game]
 extern "C" fn find_for_stub(set: usize, modifier: i32) -> isize {
     unsafe { find(set, modifier) }
-}
-
-/// A developer build's test switch `check-modifier-sums`: every search
-/// made through the index is made as the game's too, and a difference
-/// counted in the log.
-fn checking() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.check_modifier_sums;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
-}
-
-/// A developer build's test switch `game-sums-modifiers`: the searches are
-/// the game's own code, the framework's points left out.
-fn left_to_the_game() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.game_sums_modifiers;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
-}
-
-static CHECKED: AtomicU64 = AtomicU64::new(0);
-static DIFFERENT: AtomicU64 = AtomicU64::new(0);
-static LOGGED: AtomicUsize = AtomicUsize::new(0);
-const LOG_EVERY: u64 = 1_000_000;
-const MOST_LOGGED: usize = 100;
-
-fn note_check(same: bool) {
-    if !same {
-        DIFFERENT.fetch_add(1, Ordering::Relaxed);
-    }
-    let checked = CHECKED.fetch_add(1, Ordering::Relaxed) + 1;
-    if checked.is_multiple_of(LOG_EVERY) && LOGGED.fetch_add(1, Ordering::Relaxed) < MOST_LOGGED {
-        log!("modifier sums: {checked} searches through the index checked, {} differing from the game's", DIFFERENT.load(Ordering::Relaxed));
-    }
 }
 
 crate::resume!(ADD_RESUME: ADD_FOUND_AT = ADD_FOUND, ADD_NOT_FOUND_AT = ADD_NOT_FOUND);
@@ -254,11 +224,10 @@ extern "C" fn take_away_search_stub() {
     );
 }
 
-pub fn points() -> Vec<Point> {
-    if left_to_the_game() {
-        log!("test switch game-sums-modifiers: sets of modifiers are searched by the game's own code");
-        return Vec::new();
-    }
+/// Checked, every search made through the index is made as the game's too.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "modifier-sums", group: "frames", points, checkable: true };
+
+fn points() -> Vec<Point> {
     vec![
         Point::replace(ADD, "40 55 41 55 48 83 ec 48 4c 63 4a 64 45 33 c0 4c", "modifiers added to a set", add as Sum, &ORIGINAL_ADD),
         Point::replace(TAKE_AWAY, "40 55 41 55 48 83 ec 48 4c 63 4a 64 45 33 c0 4c", "modifiers taken from a set", take_away as Sum, &ORIGINAL_TAKE_AWAY),

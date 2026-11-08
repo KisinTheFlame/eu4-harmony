@@ -14,6 +14,7 @@
 //! Any other add, the adds the add itself makes and every other thread's
 //! walk the list as before.
 use crate::points::Point;
+use crate::speed::SpeedUp;
 use std::sync::atomic::AtomicU32;
 
 /// In `0xda66a0`: `call qword ptr [rax + 0x98]`, the parent's add of the
@@ -30,7 +31,12 @@ const WALKED: usize = 0x7e7d0e;
 /// The child `0xda66a0` makes: `new(0x40)` and the class's vtable.
 const MADE: usize = 0xda6905;
 
-pub fn points() -> Vec<Point> {
+/// Left to the game, every add walks its list: the walk finds what the
+/// game's finds, so the saves written after a load hold the lists the same
+/// either way.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "children", group: "loading", points, checkable: false };
+
+fn points() -> Vec<Point> {
     vec![
         Point::keep(
             MADE,
@@ -76,8 +82,6 @@ extern "C" fn walk_stub() {
         "cmp eax, dword ptr [rip + {marked}]",
         "jne 2f",
         "mov dword ptr [rip + {marked}], 0",
-        "cmp byte ptr [rip + {checking}], 0",
-        "jne 2f",
         "mov rdi, rdx",
         "mov rsi, rcx",
         "jmp qword ptr [rip + {walked}]",
@@ -91,18 +95,7 @@ extern "C" fn walk_stub() {
         "3:",
         "jmp qword ptr [rip + {walked}]",
         marked = sym MARKED,
-        checking = sym CHECKING,
         walk = sym LOOP_AT,
         walked = sym WALKED_AT,
     );
-}
-
-/// With `check-loading` or `game-loads`, every add walks as the game's does:
-/// the walk then finds what the game finds, and the saves written after a
-/// load show the lists the same either way.
-static CHECKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Called once the developer build's switches are read.
-pub fn set_checking() {
-    CHECKING.store(super::checking() || super::game_loads(), std::sync::atomic::Ordering::Relaxed);
 }

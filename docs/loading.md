@@ -47,4 +47,4 @@ A node's add (`0x7e7cd0`) walks the node's whole list for the child before it ad
 
 ## How it fits together
 
-`loading` is a module of the core: its points, and `set_folders(game_dir, user_dir)`, which the core calls before the game reads its music. A developer build's `game-loads` leaves all three to the game, and `check-loading` has the game's own answer taken as well and compared.
+`loading` is a module of the core: `set_folders(game_dir, user_dir)`, which the core calls before the game reads its music, and its three parts, each a speed-up of `crate::speed` (`music`, `lookups` and `children`, the group `loading`). A developer build's `game-paths` leaves any of them to the game, and `checked` has the game's own answer taken as well and compared, for `music` and `lookups` (the switches `game-loads` and `check-loading` before them did both for all three at once).

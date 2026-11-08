@@ -4,7 +4,14 @@
 //! (docs/research/leaders.md, "Hiring a mercenary company").
 use super::units::checks;
 use super::{action, with_state, Ctx, GResult, Session};
-use crate::{game_string, memory::Memory, points::Point, unicode::game_text};
+use crate::{
+    game_string,
+    memory::Memory,
+    points::{GameFunction, Point},
+    unicode::game_text,
+};
+use eu4_harmony_remote::mercenaries::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, Resource},
     mercenaries::Company,
@@ -22,15 +29,15 @@ const TEMPLATE_KEY: usize = 0x20;
 /// `(company, text)`: its name; `(company, int[3], country)`: its
 /// regiments by kind; `(company, int*, country, text or null)`: what hiring
 /// it costs and what it costs a month, in thousandths of a ducat.
-const NAME: usize = 0x8ffcb0;
-const REGIMENTS: usize = 0x900100;
-const HIRING_COST: usize = 0x900cb0;
-const UPKEEP: usize = 0x900660;
+const NAME: GameFunction<2> = GameFunction::at(0x8ffcb0);
+const REGIMENTS: GameFunction<3> = GameFunction::at(0x900100);
+const HIRING_COST: GameFunction<4> = GameFunction::at(0x900cb0);
+const UPKEEP: GameFunction<4> = GameFunction::at(0x900660);
 /// `(company, country, 1, text or null)`: whether the view lets the player
 /// hire it, anywhere, with the reasons; `(company, country, province, text
 /// or null)`: whether the player may hire it in that province.
-const MAY_HIRE: usize = 0x8ff0f0;
-const MAY_HIRE_THERE: usize = 0x8ff7b0;
+const MAY_HIRE: GameFunction<4> = GameFunction::at(0x8ff0f0);
+const MAY_HIRE_THERE: GameFunction<4> = GameFunction::at(0x8ff7b0);
 /// The most companies read.
 const MOST: i32 = 1000;
 
@@ -68,22 +75,22 @@ fn key(m: &Memory, company: usize) -> GResult<String> {
     if template == 0 {
         return Ok(String::new());
     }
-    Ok(game_text::to_utf8(&game_string::read(m, template + TEMPLATE_KEY)?))
+    Ok(game_string::key(m, template + TEMPLATE_KEY)?)
 }
 
 /// Thousandths the game writes into an int of the framework's.
-fn thousandths(m: &Memory, f: usize, company: usize, ctx: &Ctx) -> GResult<f64> {
+fn thousandths(m: &Memory, f: GameFunction<4>, company: usize, ctx: &Ctx) -> GResult<f64> {
     let mut out = 0i32;
-    m.call(m.at(f), &[company, &mut out as *mut i32 as usize, ctx.country, 0])?;
+    f.call(m, [company, &mut out as *mut i32 as usize, ctx.country, 0])?;
     Ok(out as f64 / 1000.0)
 }
 
 fn read(m: &Memory, ctx: &Ctx, company: usize) -> GResult<Company> {
-    let (_, name) = game_string::written(m, |t| m.call(m.at(NAME), &[company, t]))?;
+    let (_, name) = game_string::written(m, |t| NAME.call(m, [company, t]))?;
     let mut regiments = [0i32; 3];
-    m.call(m.at(REGIMENTS), &[company, regiments.as_mut_ptr() as usize, ctx.country])?;
+    REGIMENTS.call(m, [company, regiments.as_mut_ptr() as usize, ctx.country])?;
     let cost = vec![Amount::new(Resource::Ducats, thousandths(m, HIRING_COST, company, ctx)?)];
-    let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_HIRE), &[company, ctx.country, 1, t]))?;
+    let (may, text) = game_string::written(m, |t| MAY_HIRE.call(m, [company, ctx.country, 1, t]))?;
     Ok(Company {
         company: key(m, company)?,
         name: game_text::plain(&name),
@@ -99,7 +106,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<Company>> {
 }
 
 /// Hires a company the view lists, raised in a province the player picks.
-pub fn hire(Session { m, ctx, commands, .. }: Session, word: String, province: u32) -> GResult<()> {
+pub fn hire(Session { m, ctx, commands, .. }: Session, args::Hire { company: word, province: ProvinceId(province) }: args::Hire) -> GResult<()> {
     let mut found = None;
     for company in addresses(m, &ctx)? {
         if key(m, company)? == word {
@@ -111,7 +118,7 @@ pub fn hire(Session { m, ctx, commands, .. }: Session, word: String, province: u
         return Err(checks::no_company(&word));
     };
     let address = with_state(|s| s.geography.province_address(m, &ctx, province))?;
-    let (may, text) = game_string::written(m, |t| m.call(m.at(MAY_HIRE_THERE), &[company, ctx.country, address, t]))?;
+    let (may, text) = game_string::written(m, |t| MAY_HIRE_THERE.call(m, [company, ctx.country, address, t]))?;
     let doing = format!("hire {word} there");
     if may as u8 == 0 {
         return Err(action::not_allowed(&doing, &super::reasons(&text)));
@@ -124,5 +131,69 @@ mod tests {
     #[test]
     fn the_command_names_the_company_by_its_id() {
         assert_eq!(super::hire_text(*b"CAS", 219, 4321, 59), r#"buildunit={ country="CAS" province=219 mercenary={ id=4321 type=59 } category=1 }"#);
+    }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, no, write_inline, yes, Image, Object, Provinces},
+        commands::record,
+        Caller, Fail, Status, Tag,
+    };
+
+    /// The game's answer of whether the player may hire a company there:
+    /// no, the province not the player's.
+    extern "C" fn not_owned(_: usize, _: usize, _: usize, text: usize) -> usize {
+        write_inline(text, "- not owned");
+        0
+    }
+
+    /// Castile, whose mercenary view lists the companies `swiss_guard` (ID
+    /// 4321 of type 59) and `free_company`, in a world of provinces 0 to 2;
+    /// the game lets the player hire there as `may_there` answers.
+    struct Castile {
+        _image: Image,
+        _provinces: Provinces,
+        _objects: Vec<Object>,
+        session: Session,
+    }
+
+    fn castile(may_there: *const ()) -> Castile {
+        let image = Image::new();
+        image.function(MAY_HIRE_THERE.rva(), may_there).function(game_string::DESTROY_AT.rva(), no as *const ());
+        let provinces = Provinces::new(&image, 3);
+        let company = |key: &str, number, kind| {
+            Object::new(TEMPLATE + 8).i32(ID, kind).i32(NUMBER, number).points_to(TEMPLATE, Object::new(TEMPLATE_KEY + 0x20).string(TEMPLATE_KEY, key))
+        };
+        let (swiss, free) = (company("swiss_guard", 4321, 59), company("free_company", 7, 59));
+        let cas = Tag(u64::from_le_bytes(*b"CAS\0\0\0\0\0"));
+        let castile = Object::country(cas, COMPANIES_COUNT + 4).vector(COMPANIES, &[free.at() as u64, swiss.at() as u64]).i32(COMPANIES_COUNT, 2);
+        let countries = Object::countries(&[&castile]);
+        let session = buffers::session(image.memory(), provinces.world(), cas, castile.at(), countries.at(), Caller::Remote);
+        Castile { _image: image, _provinces: provinces, _objects: vec![swiss, free, castile, countries], session }
+    }
+
+    fn hiring(company: &str, province: u32) -> args::Hire {
+        args::Hire { company: company.into(), province: ProvinceId(province) }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the company was hired") };
+        (status, message)
+    }
+
+    #[test]
+    fn a_listed_company_is_hired_by_its_id_in_the_province() {
+        let castile = castile(yes as *const ());
+        hire(castile.session, hiring("swiss_guard", 2)).unwrap();
+        assert_eq!(record::posted(), [r#"buildunit={ country="CAS" province=2 mercenary={ id=4321 type=59 } category=1 }"#]);
+    }
+
+    #[test]
+    fn a_company_not_listed_or_not_hired_there_is_refused() {
+        let castile = castile(not_owned as *const ());
+        assert_eq!(refused(hire(castile.session, hiring("swiss_guard", 2))), (Status::Rejected, "not owned".into()));
+        assert_eq!(refused(hire(castile.session, hiring("black_army", 2))), (Status::NotFound, r#"the mercenary view lists no company "black_army""#.into()));
+        assert_eq!(refused(hire(castile.session, hiring("swiss_guard", 3))).0, Status::NotFound);
+        assert!(record::posted().is_empty());
     }
 }

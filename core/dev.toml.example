@@ -45,21 +45,17 @@ test-notice = false
 # The game crashes at the first frame of a game, so that what follows a crash
 # can be tried.
 crash = false
-# Every save's countries and provinces are written by the game's own loops as
-# well as on several threads, the two compared in the log, and the game's
-# bytes kept.
-compare-saves = false
-# Saves are written by the game's own code, as before S8: its loops, its
-# save checksum's sum, its zip's deflate and its update thread's sleep, so
-# that the two can be measured.
-game-writes-saves = false
-# What the framework answers at startup and in loads from what it keeps,
-# music's numbers and files missing from folders, is checked against the
-# game's own answer, which the game keeps, and a difference logged.
-check-loading = false
-# The startup and loads are the game's own, music read whole, every file asked
-# of Windows, every list walked, so that the two can be measured.
-game-loads = false
+# The speed-ups left to the game, so that its own code can be measured against
+# them: their points are not installed. Each is named by its name, its group or
+# "all": pops-polling, fastest-pace and modifier-sums (group "frames"); music,
+# lookups and children ("loading"); background-compression, stored-copy,
+# parallel-saves, save-sum and update-thread ("saving"); army-searches ("ai").
+game-paths = []
+# The speed-ups whose answers are checked against the game's own, named the
+# same way; those that can be are music, lookups, parallel-saves, army-searches
+# and modifier-sums. Each difference is logged, and the startup report counts
+# the answers checked and those that differed.
+checked = []
 # A subject relation's end is the game's own: its walk of the subject's
 # supporters refreshes the subject as it goes, which frees the list it walks,
 # so that the defect can be tried; with the heap census's quarantine on, the
@@ -70,18 +66,6 @@ game-ends-dependencies = false
 # in the game's order or the opposite one, so that whether an agent's day
 # depends on another's can be tried in a game started with -seed.
 agents-order = "game"
-# The searches of an AI country's armies are the game's own, one after another,
-# instead of the framework's on its threads, to measure those against.
-game-searches-armies = false
-# Every army search the framework worked out ahead is worked out again as the
-# game does when taken, and a difference counted in the log.
-check-army-searches = false
-# Every search of a set of modifiers made through the framework's index is made
-# as the game's too, and a difference counted in the log.
-check-modifier-sums = false
-# The searches of sets of modifiers are the game's own, pair by pair, to measure
-# the framework's index against.
-game-sums-modifiers = false
 # Commands in the game's written form, posted through the command layer at the
 # first frame of every game, each with what came of it in the log, such as
 # 'buildunit={ country="FRA" province=183 unit="western_medieval_infantry" }'.

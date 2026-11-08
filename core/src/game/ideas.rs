@@ -3,11 +3,14 @@
 //! (docs/research/government.md, "Ideas").
 use super::content::checks;
 use super::{action, conditions, content, power, GResult, Session, Tag};
+use crate::containers;
+use crate::game_string;
 use crate::{
     memory::Memory,
     objects::campaign::{country, idea_group},
-    points::Point,
+    points::{GameFunction, Point},
 };
+use eu4_harmony_remote::ideas::args;
 use eu4_harmony_remote::{
     choices::{Amount, Choice, PowerKind, Resource},
     ideas::IdeaGroupOption,
@@ -34,10 +37,10 @@ mod group {
 /// An idea's key (an idea is of class `0x1cbaa30`).
 const IDEA_KEY: usize = 0x158;
 /// `(country) -> bool`: whether the country has an idea group slot free.
-const SLOT_FREE: usize = 0x32e2d0;
+const SLOT_FREE: GameFunction<1> = GameFunction::at(0x32e2d0);
 /// `(group, tag) -> bool`, whether the country may take the group, its
 /// `trigger`: what every group's vtable holds at `+0x10`.
-const GROUP_ALLOWED: usize = 0x84f1c0;
+const GROUP_ALLOWED: GameFunction<2> = GameFunction::at(0x84f1c0);
 /// The spending's kind for buying an idea.
 const BUY_IDEA: i32 = 0;
 const MOST: usize = 10_000;
@@ -97,10 +100,15 @@ fn database(m: &Memory) -> GResult<usize> {
 const NONE: &str = "none";
 
 fn groups(m: &Memory) -> GResult<Vec<Group>> {
-    content::vector(m, database(m)? + GROUPS)?
+    containers::pointers(m, database(m)? + GROUPS, containers::MOST)?
         .into_iter()
         .map(|at| {
-            Ok(Group { at, key: content::key(m, at + group::KEY)?, category: m.u32(at + group::CATEGORY)?, ideas: content::vector(m, at + group::IDEAS)? })
+            Ok(Group {
+                at,
+                key: game_string::key(m, at + group::KEY)?,
+                category: m.u32(at + group::CATEGORY)?,
+                ideas: containers::pointers(m, at + group::IDEAS, containers::MOST)?,
+            })
         })
         .filter(|g: &GResult<Group>| g.as_ref().map_or(true, |g| g.key != NONE))
         .collect()
@@ -110,7 +118,7 @@ fn groups(m: &Memory) -> GResult<Vec<Group>> {
 /// ideas bought in each.
 fn taken(m: &Memory, country: usize) -> GResult<Vec<(usize, u32)>> {
     let (begin, end) = (m.ptr(country + country::IDEA_GROUPS)?, m.ptr(country + country::IDEA_GROUPS + 8)?);
-    (0..super::span(begin, end, country::IDEA_GROUP_SIZE, MOST)?)
+    (0..containers::span(begin, end, country::IDEA_GROUP_SIZE, MOST)?)
         .map(|i| Ok((m.ptr(begin + i * country::IDEA_GROUP_SIZE)?, m.i32(begin + i * country::IDEA_GROUP_SIZE + country::IDEA_GROUP_COUNT)?.max(0) as u32)))
         .collect()
 }
@@ -135,7 +143,7 @@ fn power_of(category: u32) -> PowerKind {
 /// The index of `idea` in the database's ideas, which the spend command
 /// names it by.
 fn idea_index(m: &Memory, idea: usize) -> GResult<u32> {
-    let ideas = content::vector(m, database(m)? + IDEAS)?;
+    let ideas = containers::pointers(m, database(m)? + IDEAS, containers::MOST)?;
     match ideas.iter().position(|&i| i == idea) {
         Some(i) => Ok(i as u32),
         None => Err("an idea not in the database".to_string().into()),
@@ -160,9 +168,9 @@ fn buy_choice(m: &Memory, country: usize, player: Tag, group: &Group, idea: usiz
 
 /// Whether the player can take `group`, and why not.
 fn take_choice(m: &Memory, country: usize, player: Tag, group: &Group) -> GResult<Choice> {
-    let allowed = m.call(m.at(GROUP_ALLOWED), &[group.at, player.0 as usize])? & 0xff != 0;
+    let allowed = GROUP_ALLOWED.call(m, [group.at, player.0 as usize])? & 0xff != 0;
     let mut reasons = if allowed { Vec::new() } else { conditions::failing(m, group.at + group::TRIGGER, player, 0)? };
-    if m.call(m.at(SLOT_FREE), &[country])? & 0xff == 0 {
+    if SLOT_FREE.call(m, [country])? & 0xff == 0 {
         reasons.push("the player has no free idea group slot".to_string());
     }
     Ok(match reasons.is_empty() && allowed {
@@ -194,7 +202,7 @@ pub fn list(Session { m, ctx, .. }: Session) -> GResult<Vec<IdeaGroupOption>> {
                 ideas: bought.unwrap_or(0),
                 of: g.ideas.len() as u32,
                 button: button.map(str::to_string),
-                next: next.map(|idea| content::key(m, idea + IDEA_KEY)).transpose()?,
+                next: next.map(|idea| game_string::key(m, idea + IDEA_KEY)).transpose()?,
                 choice,
             })
         })
@@ -221,7 +229,7 @@ fn written_buy(country: Tag, index: u32, skill: u32) -> String {
 }
 
 /// Takes an idea group for the player, as its button does.
-pub fn take_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn take_group(Session { m, ctx, commands, .. }: Session, args::TakeGroup { group: key }: args::TakeGroup) -> GResult<()> {
     let group = find(m, &key)?;
     if taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has taken the idea group {key} already")));
@@ -234,7 +242,7 @@ pub fn take_group(Session { m, ctx, commands, .. }: Session, key: String) -> GRe
 }
 
 /// Buys the next idea of an idea group the player has taken.
-pub fn buy(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn buy(Session { m, ctx, commands, .. }: Session, args::Buy { group: key }: args::Buy) -> GResult<()> {
     let group = find(m, &key)?;
     let Some(&(_, bought)) = taken(m, ctx.country)?.iter().find(|&&(t, _)| t == group.at) else {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")));
@@ -250,7 +258,7 @@ pub fn buy(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()
 }
 
 /// Abandons an idea group the player has taken.
-pub fn abandon_group(Session { m, ctx, commands, .. }: Session, key: String) -> GResult<()> {
+pub fn abandon_group(Session { m, ctx, commands, .. }: Session, args::AbandonGroup { group: key }: args::AbandonGroup) -> GResult<()> {
     let group = find(m, &key)?;
     if !taken(m, ctx.country)?.iter().any(|&(t, _)| t == group.at) {
         return Err(checks::not_now(format!("the player has not taken the idea group {key}")));
@@ -275,5 +283,61 @@ mod tests {
     fn buying_an_idea_spends_power_on_it_by_its_index() {
         assert_eq!(written_buy(fra(), 89, 2), r#"spend_power_command={ country="FRA" power={ data=89 category=0 skill=2 } }"#);
         assert_eq!(written_buy(fra(), 0, 0), r#"spend_power_command={ country="FRA" power={ category=0 skill=0 } }"#);
+    }
+
+    use super::*;
+    use crate::game::{
+        buffers::{self, Image, Object},
+        commands::record,
+        Caller, Fail, Status,
+    };
+
+    /// France, of the idea groups `defensive_ideas` and `trade_ideas`, of
+    /// two ideas each, the first taken with `bought` of them bought; the
+    /// groups' database a global of the game's. Runs `action` over its
+    /// session.
+    fn france(bought: i32, action: impl FnOnce(Session) -> GResult<()>) -> GResult<()> {
+        let image = Image::new();
+        let group = |key: &str| Object::new(0x600).string(group::KEY, key).vector(group::IDEAS, &[1, 2]);
+        let (defensive, trade) = (group("defensive_ideas"), group("trade_ideas"));
+        let database = Object::new(GROUPS + 0x10).vector(GROUPS, &[defensive.at() as u64, trade.at() as u64]);
+        image.u64(DATABASE, database.at() as u64);
+        let entry = Object::new(country::IDEA_GROUP_SIZE).u64(0, defensive.at() as u64).i32(country::IDEA_GROUP_COUNT, bought);
+        let end = (entry.at() + country::IDEA_GROUP_SIZE) as u64;
+        let country = Object::country(fra(), country::IDEA_GROUPS + 0x10).points_to(country::IDEA_GROUPS, entry).u64(country::IDEA_GROUPS + 8, end);
+        let countries = Object::countries(&[&country]);
+        let result = action(buffers::session(image.memory(), 0, fra(), country.at(), countries.at(), Caller::Remote));
+        drop((defensive, trade, database, country, countries, image));
+        result
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the action was carried out") };
+        (status, message)
+    }
+
+    #[test]
+    fn an_idea_group_is_abandoned_only_when_taken_and_refusals_say_why() {
+        let group = |key: &str| key.to_string();
+        france(0, |s| abandon_group(s, args::AbandonGroup { group: group("defensive_ideas") })).unwrap();
+        assert_eq!(record::posted(), [r#"abandon_idea_group={ country="FRA" idea_group="defensive_ideas" }"#]);
+        let refusals = [
+            refused(france(0, |s| abandon_group(s, args::AbandonGroup { group: group("trade_ideas") }))),
+            refused(france(0, |s| take_group(s, args::TakeGroup { group: group("defensive_ideas") }))),
+            refused(france(0, |s| buy(s, args::Buy { group: group("trade_ideas") }))),
+            refused(france(2, |s| buy(s, args::Buy { group: group("defensive_ideas") }))),
+            refused(france(0, |s| take_group(s, args::TakeGroup { group: group("flying_ideas") }))),
+        ];
+        assert_eq!(
+            refusals,
+            [
+                (Status::Rejected, "the player has not taken the idea group trade_ideas".into()),
+                (Status::Rejected, "the player has taken the idea group defensive_ideas already".into()),
+                (Status::Rejected, "the player has not taken the idea group trade_ideas".into()),
+                (Status::Rejected, "every idea of defensive_ideas is bought".into()),
+                (Status::NotFound, "no idea group \"flying_ideas\" for the player".into()),
+            ]
+        );
+        assert!(record::posted().is_empty());
     }
 }

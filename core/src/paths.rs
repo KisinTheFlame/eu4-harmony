@@ -18,9 +18,9 @@ pub fn game_dir() -> Result<PathBuf> {
 
 /// The game's data directory: the folder `-userdir` on its command line
 /// names, as the game takes it, else the one the command line tool finds too
-/// ([`eu4_harmony_manifest::user_dir`]).
+/// ([`eu4_harmony_folders::user_dir`]).
 pub fn user_dir(game_dir: &Path) -> Result<PathBuf> {
-    eu4_harmony_manifest::user_dir_of(command_line(), Some(game_dir))
+    eu4_harmony_folders::user_dir_of(command_line(), Some(game_dir))
 }
 
 /// The game's command line, read once.

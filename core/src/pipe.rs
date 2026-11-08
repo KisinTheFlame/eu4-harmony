@@ -80,7 +80,7 @@ pub fn start() {
 
 /// The test game `-harmony_test_game` names on the command line, if any.
 pub fn test_game() -> Option<String> {
-    eu4_harmony_manifest::switch_value(crate::paths::command_line(), "-harmony_test_game")
+    eu4_harmony_folders::switch_value(crate::paths::command_line(), "-harmony_test_game")
 }
 
 /// The pipe this game serves: the test game's own in a build with the test

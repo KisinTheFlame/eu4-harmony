@@ -13,7 +13,7 @@ use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{country as country_fields, functions, tag},
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
 use eu4_harmony_remote::{choices::Choice, subjects::SubjectInteraction as Listed};
@@ -85,11 +85,11 @@ const ONGOING: usize = 0x38;
 /// The `subject` command's check of an interaction, (command, reasons): the
 /// subject is the overlord's, its type allows the interaction, the command
 /// stops it only while it goes on, then the interaction's own conditions.
-const CHECK: usize = 0xaf3e70;
+const CHECK: GameFunction<2> = GameFunction::at(0xaf3e70);
 /// Whether a subject type allows an interaction, (the type's interactions,
 /// interaction); a subject's type is the game's own getter's
 /// ([`functions::SUBJECT_TYPE`]).
-const TYPE_ALLOWS: usize = 0xb22910;
+const TYPE_ALLOWS: GameFunction<2> = GameFunction::at(0xb22910);
 /// A country's overlord's valid byte, the tag's last; the subject's
 /// interactions going on, a bit set of u32 words.
 const OVERLORD_VALID: usize = country_fields::OVERLORD + tag::VALID / 8;
@@ -282,8 +282,8 @@ fn offered(m: &Memory, ctx: &Ctx, subject: usize, object: usize) -> GResult<bool
     if m.call(m.vslot(object, FOR_OVERLORD)?, &[object, ctx.player.0 as usize])? as u8 == 0 {
         return Ok(false);
     }
-    let kind = m.call(m.at(functions::SUBJECT_TYPE), &[subject])?;
-    Ok(kind != 0 && m.call(m.at(TYPE_ALLOWS), &[kind, object])? as u8 != 0)
+    let kind = functions::SUBJECT_TYPE.call(m, [subject])?;
+    Ok(kind != 0 && TYPE_ALLOWS.call(m, [kind, object])? as u8 != 0)
 }
 
 /// Whether the interaction goes on with the subject, as the check reads it.
@@ -309,10 +309,10 @@ fn command(ctx: &Ctx, subject: Tag, i: &Interaction, stop: bool, third_party: Op
 /// reasons when not, as the view's tooltip gives them.
 fn judge(text: &str) -> GResult<(bool, Vec<String>)> {
     let judged = commands::with_command(text, |m, command| {
-        if m.call(m.at(CHECK), &[command, 0])? as u8 != 0 {
+        if CHECK.call(m, [command, 0])? as u8 != 0 {
             return Ok((true, Vec::new()));
         }
-        let said = game_string::written(m, |s| m.call(m.at(CHECK), &[command, s]))?.1;
+        let said = game_string::written(m, |s| CHECK.call(m, [command, s]))?.1;
         Ok((false, super::diplomacy::reasons_said(&said)))
     });
     judged.map_err(|refused| action::refused(refused, USE))
@@ -341,6 +341,64 @@ mod tests {
             command(&ctx, game_tag(b"SER", 2), grant, false, None, Some(149)),
             format!("subject={{ overlord=\"TUR\" subject=\"SER\" interaction={} index=149 }}", grant.token)
         );
+    }
+
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::{game_tag, tur, wal};
+        use crate::game::{
+            buffers::{self, Image, Object},
+            commands::record,
+            Caller, Fail,
+        };
+
+        extern "C" fn not_for_the_overlord(_: usize, _: usize) -> usize {
+            0
+        }
+
+        fn ser() -> Tag {
+            game_tag(b"SER", 2)
+        }
+
+        /// Turkey, its subject Serbia and Wallachia, a country of its own,
+        /// with every interaction where the game keeps it, none for the
+        /// player's country. Runs `action` over Turkey's session.
+        fn turkey(action: impl FnOnce(Session) -> GResult<()>) -> GResult<()> {
+            let image = Image::new();
+            let m = image.memory();
+            for i in INTERACTIONS {
+                image
+                    .u64(i.object, m.at(i.class) as u64)
+                    .i32(i.object + 8, i.token as i32)
+                    .u64(i.class + FOR_OVERLORD, not_for_the_overlord as *const () as u64);
+            }
+            let size = OVERLORD_VALID + 1;
+            let (turkey, wallachia) = (Object::country(tur(), size), Object::country(wal(), size));
+            let serbia = Object::country(ser(), size).u64(country_fields::OVERLORD, tur().0);
+            let countries = Object::countries(&[&turkey, &serbia, &wallachia]);
+            let result = action(buffers::session(m, 0, tur(), turkey.at(), countries.at(), Caller::Remote));
+            drop((turkey, serbia, wallachia, countries, image));
+            result
+        }
+
+        fn refused(result: GResult<()>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the interaction was carried out") };
+            (status, message)
+        }
+
+        #[test]
+        fn an_interaction_is_one_of_the_game_s_with_a_subject_of_the_player_s_that_the_game_offers() {
+            let interact = |subject, interaction: &str, third, province| refused(turkey(|s| super::super::interact(s, subject, interaction, third, province)));
+            assert_eq!(interact(wal(), "scutage", None, None), (Status::Rejected, "WAL is not a subject of the player's".into()));
+            assert_eq!(
+                interact(ser(), "tribute", None, None),
+                (Status::InvalidArgument, "the game has no subject interaction tribute; subject.options lists them".into())
+            );
+            assert_eq!(interact(ser(), "scutage", Some(game_tag(b"HUN", 160)), None).0, Status::NotFound);
+            assert_eq!(interact(ser(), "grant_province", None, Some(0)).0, Status::NotFound);
+            assert_eq!(interact(ser(), "scutage", None, None), (Status::Rejected, "the game does not offer scutage toward SER".into()));
+            assert!(record::posted().is_empty());
+        }
     }
 
     #[test]

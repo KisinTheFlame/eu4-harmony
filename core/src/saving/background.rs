@@ -23,16 +23,11 @@
 //! file it was writing, if any, is removed at the next start. Cloud saves take
 //! another path (`0x5c8ba0`) and keep the game's compression.
 //!
-//! The game's deflate at level 0 still passes the data through zlib and takes
-//! its CRC a byte at a time, a quarter of an autosave's stop
-//! (docs/research/saves.md, "Where a save's zip goes"). So at level 0 the
-//! framework copies an entry's data into the zip's stored blocks itself: the
-//! same entry, framed in blocks of its own, its CRC taken in parts by the
-//! threads that write the game state (`super::parallel`) and combined.
-use super::file::{crc32, crc32_combine};
-use crate::hooks::HookFrame;
-use crate::memory::Memory;
-use crate::points::{Function, Point};
+//! The game's deflate at level 0 is the framework's copy (`super::stored`).
+use crate::hooks::Call;
+use crate::points::Point;
+use crate::speed::SpeedUp;
+use crate::zip::{self, DEFLATED, STORED};
 use crate::Result;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,29 +43,11 @@ const ADD_ENTRY: usize = 0x153b9a0;
 /// `(from, to) -> bool`: the game's file move, both paths in the folder the
 /// game writes to.
 const MOVE_FILE: usize = 0x1715bb0;
-/// `(zip, data stream, buffer, its size, &crc, level) -> bytes written`: an
-/// entry's data deflated into the zip's stream (`[zip]`), from the start of
-/// the data stream to its size, its CRC carried in the register at `crc`
-/// (`!0` at the start), which it leaves inverted. Where it reads the stream's
-/// size, moves to a place in it and reads it, and where it writes.
-const DEFLATE: usize = 0x153c790;
-const DEFLATE_READS: usize = 0x153c834;
-const DEFLATE_WRITES: usize = 0x153c8f2;
-/// A stream's methods: its size, a move to a place, a read, a write.
-const STREAM_SIZE: usize = 0x88;
-const STREAM_SEEK: usize = 0x60;
-const STREAM_READ: usize = 0x20;
-const STREAM_WRITE: usize = 0x50;
-/// A stored block holds at most this many bytes; the framework reads and
-/// writes sixteen at a time.
-const STORED_BLOCK: usize = 0xffff;
-const STORED_BATCH: usize = 16 * STORED_BLOCK;
 
-const STORED: u16 = 0;
-const DEFLATED: u16 = 8;
-/// The level the save asks for, and the one it gets during a local save.
+/// The level the save asks for, and the one it gets during a local save,
+/// which the game's deflate copies at (`super::stored`).
 const GAME_LEVEL: usize = 3;
-const COPY_LEVEL: usize = 0;
+pub(super) const COPY_LEVEL: usize = 0;
 
 /// How hard the thread compresses: zlib's default, a smaller file than the
 /// game's level 3 in a little more time, which the main thread does not wait
@@ -85,106 +62,20 @@ const HEADER: &[u8] = b"EU4";
 /// What the thread adds to a save's name for the file it writes before
 /// moving it into the save's place.
 const TMP_SUFFIX: &str = ".eu4harmony-tmp";
-/// Where the game keeps its saves, in the user folder.
-const SAVE_GAMES: &str = "save games";
+// Where the game keeps its saves, in the user folder.
+use eu4_harmony_folders::SAVE_GAMES;
 
-pub fn points() -> Vec<Point> {
+/// Left to the game, a local save's entries are deflated at the game's level
+/// on the main thread, as before.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "background-compression", group: "saving", points, checkable: false };
+
+fn points() -> Vec<Point> {
     vec![
         Point::observe(LOCAL_SAVE, "48 89 5c 24 10 48 89 74 24 18 57 41 54 41 55", "local save", 1, Some(save_before), Some(save_after)),
         Point::observe(IRONMAN_SAVE, "48 89 5c 24 18 48 89 74 24 20 57 41 54 41 55", "local ironman save", 1, Some(save_before), Some(save_after)),
         Point::observe(ADD_ENTRY, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 18", "zip entry", 5, Some(entry_before), None),
         Point::observe(MOVE_FILE, "48 89 5c 24 08 48 89 74 24 10 48 89 7c 24 20", "file move", 2, None, Some(moved)),
-        Point::replace(DEFLATE, "48 8b c4 48 89 58 10 48 89 68 18 48 89 70 20 48", "zip deflate", deflate as Deflate, &ORIGINAL_DEFLATE),
-        Point::keep(
-            DEFLATE_READS,
-            "49 8b 1e 49 8b ce ff 93 88 00 00 00 2b c7 49 8b ce 8b d0 ff 53 60 49 8b 06 41 3b fc 41 8b dc 48 8b d5 0f 4c df 49 8b ce 44 8b c3 ff 50 20",
-            "zip deflate reads its data",
-        )
-        .uses(&[STREAM_SIZE, STREAM_SEEK, STREAM_READ]),
-        Point::keep(DEFLATE_WRITES, "48 8b 84 24 d0 00 00 00 49 8d 14 2c 03 f3 4c 63 c3 48 8b 08 48 8b 01 ff 50 50", "zip deflate writes")
-            .uses(&[STREAM_WRITE]),
     ]
-}
-
-type Deflate = extern "C" fn(usize, usize, usize, usize, *mut u32, i32) -> u32;
-static ORIGINAL_DEFLATE: Function<Deflate> = Function::new();
-
-/// The game's deflate, but at the level a local save's entries get, which
-/// copies, the framework's copy into stored blocks.
-extern "C" fn deflate(zip: usize, data: usize, buffer: usize, size: usize, crc: *mut u32, level: i32) -> u32 {
-    if level != COPY_LEVEL as i32 || crate::saves::game_writes_saves() {
-        return ORIGINAL_DEFLATE.get()(zip, data, buffer, size, crc, level);
-    }
-    crate::guarded("zip deflate", || match store(crate::hooked_memory(), zip, data, crc) {
-        Ok(written) => written,
-        Err(e) => {
-            // What the game's deflate answers when zlib fails.
-            log!("saves: an entry could not be stored: {e}");
-            0
-        }
-    })
-}
-
-/// Copies the data stream into the zip's stream as stored blocks; the bytes
-/// written.
-fn store(m: Memory, zip: usize, data: usize, crc: *mut u32) -> Result<u32> {
-    let size = m.call(m.vslot(data, STREAM_SIZE)?, &[data])? as u32 as usize;
-    m.call(m.vslot(data, STREAM_SEEK)?, &[data, 0])?;
-    let out = m.ptr(zip)?;
-    let (read, write) = (m.vslot(data, STREAM_READ)?, m.vslot(out, STREAM_WRITE)?);
-    let mut all = vec![0u8; size];
-    for batch in all.chunks_mut(STORED_BATCH) {
-        m.call(read, &[data, batch.as_mut_ptr() as usize, batch.len()])?;
-    }
-    // The register carried in, as the CRC of what came before.
-    unsafe { *crc = crc32_combine(!*crc, crc_on_threads(&all), size) };
-    let mut output = Vec::with_capacity(STORED_BATCH + STORED_BATCH / STORED_BLOCK * 5 + 5);
-    let mut written = 0usize;
-    let batches = all.chunks(STORED_BATCH).count().max(1);
-    for (i, batch) in all.chunks(STORED_BATCH).chain(all.is_empty().then_some(&[][..])).enumerate() {
-        output.clear();
-        stored_blocks(batch, i + 1 == batches, &mut output);
-        m.call(write, &[out, output.as_ptr() as usize, output.len()])?;
-        written += output.len();
-    }
-    u32::try_from(written).map_err(|_| "an entry of 4 GB or more".to_string())
-}
-
-/// The CRC of `data`, its parts taken by the pool's threads and this one
-/// and combined.
-fn crc_on_threads(data: &[u8]) -> u32 {
-    const FEWEST: usize = 4 << 20;
-    const PARTS: usize = 32;
-    if data.len() < FEWEST {
-        return crc32(data);
-    }
-    let (at, len) = (data.as_ptr() as usize, data.len());
-    let part = move |i: usize| i * len / PARTS..(i + 1) * len / PARTS;
-    // `data` stays as it is until `each` returns.
-    let crcs = super::parallel::each(PARTS, move |i| crc32(unsafe { std::slice::from_raw_parts((at + part(i).start) as *const u8, part(i).len()) }));
-    match crcs {
-        Some(crcs) => crcs.iter().enumerate().fold(0, |all, (i, &c)| crc32_combine(all, c, part(i).len())),
-        None => crc32(data),
-    }
-}
-
-/// `data` as deflate's stored blocks, the last of them marked final when
-/// `last`.
-fn stored_blocks(data: &[u8], last: bool, out: &mut Vec<u8>) {
-    if data.is_empty() {
-        if last {
-            out.extend_from_slice(&[1, 0, 0, 0xff, 0xff]);
-        }
-        return;
-    }
-    let mut blocks = data.chunks(STORED_BLOCK).peekable();
-    while let Some(block) = blocks.next() {
-        let len = block.len() as u16;
-        out.push(u8::from(last && blocks.peek().is_none()));
-        out.extend_from_slice(&len.to_le_bytes());
-        out.extend_from_slice(&(!len).to_le_bytes());
-        out.extend_from_slice(block);
-    }
 }
 
 /// A local save is under way on the main thread.
@@ -214,54 +105,46 @@ fn remove_leftovers(dir: &Path) -> usize {
     entries.flatten().filter(|e| e.file_name().to_string_lossy().ends_with(TMP_SUFFIX)).filter(|e| std::fs::remove_file(e.path()).is_ok()).count()
 }
 
-extern "C" fn save_before(_: *mut HookFrame) {
-    crate::guarded("local save", || {
-        wait();
-        MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
-        *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
-    });
+fn save_before(_: &mut Call) {
+    wait();
+    MOVED.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    SAVING.store(crate::thread_id() == crate::main_thread(), Ordering::SeqCst);
+    *BEGAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
 }
 
-extern "C" fn save_after(_: *mut HookFrame) {
-    crate::guarded("local save", || {
-        if !SAVING.swap(false, Ordering::SeqCst) {
-            return;
-        }
-        if let Some(began) = BEGAN.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
-        }
-        let moved = std::mem::take(&mut *MOVED.lock().unwrap_or_else(|e| e.into_inner()));
-        let Some(folder) = FOLDER.get() else { return };
-        for path in moved {
-            hand_over(folder.join(path));
-        }
-    });
-}
-
-extern "C" fn entry_before(frame: *mut HookFrame) {
-    let h = unsafe { &mut *frame };
-    if SAVING.load(Ordering::SeqCst)
-        && h.args[3] as u32 == DEFLATED as u32
-        && h.args[4] as u32 == GAME_LEVEL as u32
-        && crate::thread_id() == crate::main_thread()
-    {
-        h.args[4] = COPY_LEVEL;
+fn save_after(_: &mut Call) {
+    if !SAVING.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    if let Some(began) = BEGAN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        log!("saves: a local save stopped the game for {:.0} ms", began.elapsed().as_secs_f64() * 1000.0);
+    }
+    let moved = std::mem::take(&mut *MOVED.lock().unwrap_or_else(|e| e.into_inner()));
+    let Some(folder) = FOLDER.get() else { return };
+    for path in moved {
+        hand_over(folder.join(path));
     }
 }
 
-extern "C" fn moved(frame: *mut HookFrame) {
-    crate::guarded("file move", || {
-        let h = unsafe { &*frame };
-        if !SAVING.load(Ordering::SeqCst) || h.fault != 0 || h.result as u8 == 0 || h.args[1] == 0 {
-            return;
-        }
-        let to = unsafe { std::ffi::CStr::from_ptr(h.args[1] as *const std::ffi::c_char) };
-        match to.to_str() {
-            Ok(to) => MOVED.lock().unwrap_or_else(|e| e.into_inner()).push(to.to_string()),
-            Err(_) => log!("saves: a file moved to a path that is not UTF-8 stays uncompressed"),
-        }
-    });
+fn entry_before(call: &mut Call) {
+    if SAVING.load(Ordering::SeqCst)
+        && call.arg(3) as u32 == DEFLATED as u32
+        && call.arg(4) as u32 == GAME_LEVEL as u32
+        && crate::thread_id() == crate::main_thread()
+    {
+        call.set_arg(4, COPY_LEVEL);
+    }
+}
+
+fn moved(call: &mut Call) {
+    if !SAVING.load(Ordering::SeqCst) || call.result_as::<u8>().unwrap_or(0) == 0 || call.arg(1) == 0 {
+        return;
+    }
+    let to = unsafe { std::ffi::CStr::from_ptr(call.arg(1) as *const std::ffi::c_char) };
+    match to.to_str() {
+        Ok(to) => MOVED.lock().unwrap_or_else(|e| e.into_inner()).push(to.to_string()),
+        Err(_) => log!("saves: a file moved to a path that is not UTF-8 stays uncompressed"),
+    }
 }
 
 /// The game waits for the thread: a file another program holds is not tried
@@ -379,129 +262,44 @@ fn compact_file(path: &Path) -> Result<Option<(usize, usize)>> {
     written.map(|()| Some((bytes.len(), packed.len())))
 }
 
-/// An entry of a zip file, as its central directory has it.
+/// An entry of a zip file and its data as the file holds it: stored, or
+/// deflated.
 #[derive(Clone, Debug, PartialEq)]
 struct Entry {
-    name: Vec<u8>,
-    method: u16,
-    time: u16,
-    date: u16,
-    crc: u32,
-    unpacked: u32,
-    /// Its data as the file holds it: stored, or deflated.
+    entry: zip::Entry,
     data: Vec<u8>,
-    attributes: u32,
-}
-
-fn u16_at(data: &[u8], at: usize) -> Result<u16> {
-    data.get(at..at + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(|| "zip file cut short".to_string())
-}
-
-fn u32_at(data: &[u8], at: usize) -> Result<u32> {
-    data.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(|| "zip file cut short".to_string())
 }
 
 /// The entries of a zip file, through its central directory; None when the
 /// bytes are no zip file.
-fn entries(zip: &[u8]) -> Result<Option<Vec<Entry>>> {
-    if !zip.starts_with(b"PK\x03\x04") {
+fn entries(bytes: &[u8]) -> Result<Option<Vec<Entry>>> {
+    if !bytes.starts_with(zip::LOCAL) {
         return Ok(None);
     }
-    let tail = zip.len().saturating_sub(66_000);
-    let end = tail + zip[tail..].windows(4).rposition(|w| w == b"PK\x05\x06").ok_or("no zip directory")?;
-    let (count, at) = (u16_at(zip, end + 10)? as usize, u32_at(zip, end + 16)? as usize);
-    let mut at = at;
-    let mut out = Vec::with_capacity(count);
-    for _ in 0..count {
-        if u32_at(zip, at)? != 0x0201_4b50 {
-            return Err("bad zip directory entry".into());
-        }
-        let flags = u16_at(zip, at + 8)?;
-        if flags & 1 != 0 {
-            return Err("an encrypted zip entry".into());
-        }
-        let (name_len, extra_len, comment_len) = (u16_at(zip, at + 28)? as usize, u16_at(zip, at + 30)? as usize, u16_at(zip, at + 32)? as usize);
-        let packed = u32_at(zip, at + 20)? as usize;
-        let local = u32_at(zip, at + 42)? as usize;
-        let data_at = local + 30 + u16_at(zip, local + 26)? as usize + u16_at(zip, local + 28)? as usize;
-        out.push(Entry {
-            name: zip.get(at + 46..at + 46 + name_len).ok_or("zip file cut short")?.to_vec(),
-            method: u16_at(zip, at + 10)?,
-            time: u16_at(zip, at + 12)?,
-            date: u16_at(zip, at + 14)?,
-            crc: u32_at(zip, at + 16)?,
-            unpacked: u32_at(zip, at + 24)?,
-            data: zip.get(data_at..data_at + packed).ok_or("zip file cut short")?.to_vec(),
-            attributes: u32_at(zip, at + 38)?,
-        });
-        at += 46 + name_len + extra_len + comment_len;
-    }
-    Ok(Some(out))
+    let mut file = std::io::Cursor::new(bytes);
+    let entries = zip::directory(&mut file, bytes.len())?;
+    let read = entries.into_iter().map(|entry| Ok(Entry { data: zip::packed(&mut file, &entry)?, entry }));
+    read.collect::<Result<_>>().map(Some)
 }
 
 /// A zip file of `entries`, in their order.
-fn zip(entries: &[Entry]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(entries.iter().map(|e| e.data.len() + 128).sum());
-    let mut directory = Vec::new();
-    let common = |out: &mut Vec<u8>, e: &Entry| {
-        for v in [20u16, 0, e.method, e.time, e.date] {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        for v in [e.crc, e.data.len() as u32, e.unpacked] {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(&(e.name.len() as u16).to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes());
-    };
-    for e in entries {
-        let local = out.len() as u32;
-        out.extend_from_slice(b"PK\x03\x04");
-        common(&mut out, e);
-        out.extend_from_slice(&e.name);
-        out.extend_from_slice(&e.data);
-        directory.extend_from_slice(b"PK\x01\x02");
-        directory.extend_from_slice(&20u16.to_le_bytes());
-        common(&mut directory, e);
-        for v in [0u16, 0, 0] {
-            directory.extend_from_slice(&v.to_le_bytes());
-        }
-        directory.extend_from_slice(&e.attributes.to_le_bytes());
-        directory.extend_from_slice(&local.to_le_bytes());
-        directory.extend_from_slice(&e.name);
-    }
-    let at = out.len() as u32;
-    out.extend_from_slice(&directory);
-    out.extend_from_slice(b"PK\x05\x06");
-    for v in [0u16, 0, entries.len() as u16, entries.len() as u16] {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out.extend_from_slice(&(directory.len() as u32).to_le_bytes());
-    out.extend_from_slice(&at.to_le_bytes());
-    out.extend_from_slice(&0u16.to_le_bytes());
-    out
+fn write(entries: &[Entry]) -> Vec<u8> {
+    zip::write(entries.iter().map(|e| (&e.entry, e.data.as_slice())))
 }
 
 /// Whether an entry's data is not compressed: stored, or deflated at level 0,
 /// whose first block (like all its blocks) copies the data: block type 0,
 /// in bits 1 and 2 of its first byte.
 fn uncompressed(e: &Entry) -> bool {
-    e.method == STORED || (e.method == DEFLATED && e.data.first().is_some_and(|b| (b >> 1) & 3 == 0))
+    e.entry.method == STORED || (e.entry.method == DEFLATED && e.data.first().is_some_and(|b| (b >> 1) & 3 == 0))
 }
 
 /// What an entry holds, checked against its CRC and, for a save's own
 /// entries, against the header the game begins them with.
 fn contents(e: &Entry) -> Result<Vec<u8>> {
-    let name = String::from_utf8_lossy(&e.name);
-    let data = match e.method {
-        STORED => e.data.clone(),
-        DEFLATED => super::file::inflate(&e.data, e.unpacked as usize)?,
-        method => return Err(format!("{name}: zip method {method}")),
-    };
-    if data.len() != e.unpacked as usize || super::file::crc32(&data) != e.crc {
-        return Err(format!("{name} does not match its CRC"));
-    }
-    if SAVE_ENTRIES.contains(&e.name.as_slice()) && !data.starts_with(HEADER) {
-        return Err(format!("{name} does not begin as a save does"));
+    let data = zip::unpack(&e.entry, &e.data, usize::MAX)?;
+    if SAVE_ENTRIES.contains(&e.entry.name.as_slice()) && !data.starts_with(HEADER) {
+        return Err(format!("{} does not begin as a save does", String::from_utf8_lossy(&e.entry.name)));
     }
     Ok(data)
 }
@@ -519,9 +317,10 @@ fn compact(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
     }
     for e in entries.iter_mut().filter(|e| uncompressed(e)) {
         e.data = miniz_oxide::deflate::compress_to_vec(&contents(e)?, LEVEL);
-        e.method = DEFLATED;
+        e.entry.method = DEFLATED;
+        e.entry.packed = e.data.len();
     }
-    let packed = zip(&entries);
+    let packed = write(&entries);
     // Every entry read back, as the game will read it.
     let read = self::entries(&packed)?.ok_or("the zip written is no zip")?;
     if read.len() != entries.len() {
@@ -536,19 +335,11 @@ fn compact(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::saves::file::crc32;
+    use crate::saving::stored::{stored_blocks, STORED_BLOCK};
 
     fn stored(name: &str, data: &[u8]) -> Entry {
-        Entry {
-            name: name.into(),
-            method: STORED,
-            time: 0x6a2b,
-            date: 0x5b64,
-            crc: crc32(data),
-            unpacked: data.len() as u32,
-            data: data.to_vec(),
-            attributes: 0x20,
-        }
+        let entry = zip::Entry { time: 0x6a2b, date: 0x5b64, attributes: 0x20, ..zip::Entry::stored(name.as_bytes(), data) };
+        Entry { entry, data: data.to_vec() }
     }
 
     fn texts() -> Vec<(&'static str, Vec<u8>)> {
@@ -560,20 +351,21 @@ mod tests {
     #[test]
     fn a_stored_save_is_deflated_and_reads_back_whole() {
         let entries: Vec<Entry> = texts().iter().map(|(n, d)| stored(n, d)).collect();
-        let packed = compact(&zip(&entries)).unwrap().unwrap();
-        assert!(packed.len() < zip(&entries).len() / 4);
+        let packed = compact(&write(&entries)).unwrap().unwrap();
+        assert!(packed.len() < write(&entries).len() / 4);
         let read = super::entries(&packed).unwrap().unwrap();
         assert_eq!(read.len(), 3);
         for ((name, data), e) in texts().iter().zip(&read) {
-            assert_eq!((e.name.as_slice(), e.method, e.time, e.date, e.attributes), (name.as_bytes(), DEFLATED, 0x6a2b, 0x5b64, 0x20));
-            assert_eq!(&crate::saves::file::inflate(&e.data, data.len()).unwrap(), data);
+            let z = &e.entry;
+            assert_eq!((z.name.as_slice(), z.method, z.time, z.date, z.attributes), (name.as_bytes(), DEFLATED, 0x6a2b, 0x5b64, 0x20));
+            assert_eq!(&zip::inflate(&e.data, data.len()).unwrap(), data);
         }
     }
 
     #[test]
     fn the_frameworks_reader_reads_what_was_compressed() {
         let entries: Vec<Entry> = texts().iter().map(|(n, d)| stored(n, d)).collect();
-        let packed = compact(&zip(&entries)).unwrap().unwrap();
+        let packed = compact(&write(&entries)).unwrap().unwrap();
         let dir = std::env::temp_dir().join(format!("eu4harmony-background-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.eu4");
@@ -585,14 +377,16 @@ mod tests {
 
     /// An entry deflated at level 0, as the game writes it during a local save.
     fn copied(name: &str, data: &[u8]) -> Entry {
-        Entry { method: DEFLATED, data: miniz_oxide::deflate::compress_to_vec(data, 0), ..stored(name, data) }
+        let packed = miniz_oxide::deflate::compress_to_vec(data, 0);
+        let entry = zip::Entry { method: DEFLATED, packed: packed.len(), ..stored(name, data).entry };
+        Entry { entry, data: packed }
     }
 
     #[test]
     fn entries_deflated_at_level_0_are_deflated_again() {
         let entries: Vec<Entry> = texts().iter().map(|(n, d)| copied(n, d)).collect();
         assert!(entries.iter().all(uncompressed));
-        let packed = compact(&zip(&entries)).unwrap().unwrap();
+        let packed = compact(&write(&entries)).unwrap().unwrap();
         let read = super::entries(&packed).unwrap().unwrap();
         assert!(!read.iter().any(uncompressed));
         for ((_, data), e) in texts().iter().zip(&read) {
@@ -609,8 +403,8 @@ mod tests {
             let (a, b) = data[..len].split_at(len / 2);
             stored_blocks(a, false, &mut out);
             stored_blocks(b, true, &mut out);
-            assert_eq!(crate::saves::file::inflate(&out, len).unwrap(), &data[..len], "{len} bytes");
-            let entry = Entry { method: DEFLATED, data: out, ..stored("gamestate", &data[..len]) };
+            assert_eq!(zip::inflate(&out, len).unwrap(), &data[..len], "{len} bytes");
+            let entry = Entry { entry: zip::Entry { method: DEFLATED, ..stored("gamestate", &data[..len]).entry }, data: out };
             assert!(uncompressed(&entry));
         }
     }
@@ -620,24 +414,24 @@ mod tests {
         // What the game's stored method wrote when it was tried.
         let zeros = vec![0u8; 50_000];
         let entries = [copied("meta", &zeros), copied("gamestate", &zeros), copied("ai", &zeros)];
-        assert!(compact(&zip(&entries)).unwrap_err().contains("does not begin as a save does"));
+        assert!(compact(&write(&entries)).unwrap_err().contains("does not begin as a save does"));
     }
 
     #[test]
     fn a_compressed_zip_and_a_plain_save_are_left_as_they_are() {
         let mut deflated = stored("meta", b"EU4txt\n");
         deflated.data = miniz_oxide::deflate::compress_to_vec(&deflated.data, 3);
-        deflated.method = DEFLATED;
-        assert_eq!(compact(&zip(&[deflated])).unwrap(), None);
+        deflated.entry.method = DEFLATED;
+        assert_eq!(compact(&write(&[deflated])).unwrap(), None);
         assert_eq!(compact(b"EU4txt\ndate=1444.11.11\n").unwrap(), None);
     }
 
     #[test]
     fn a_damaged_entry_is_refused() {
         let mut e = copied("gamestate", b"EU4txt\nprovinces={ }\n");
-        e.crc ^= 1;
-        assert!(compact(&zip(&[e])).is_err());
-        let mut cut = zip(&[stored("meta", b"EU4txt\n")]);
+        e.entry.crc ^= 1;
+        assert!(compact(&write(&[e])).is_err());
+        let mut cut = write(&[stored("meta", b"EU4txt\n")]);
         cut.truncate(cut.len() - 10);
         assert!(compact(&cut).is_err());
     }
@@ -648,7 +442,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("autosave.eu4");
         let entries: Vec<Entry> = texts().iter().map(|(n, d)| stored(n, d)).collect();
-        std::fs::write(&path, zip(&entries)).unwrap();
+        std::fs::write(&path, write(&entries)).unwrap();
         let (before, after) = compact_file(&path).unwrap().unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().len() as usize, after);
         assert!(after < before);

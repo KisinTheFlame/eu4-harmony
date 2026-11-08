@@ -41,13 +41,15 @@ Whatever ends the run, an error such as a report it cannot write, a scenario's p
 
 Of the processes it runs, only cargo, for the builds, and the game are programs of their own; everything else it does in its own process.
 
+A scenario reaches its test game's process only through the claim, whose `follow.exe` follows each game to its exit code, holding it from the start on, and remote control through the test game's pipe by its name. So how a scenario ends, crashed, hung, failed, and the wait for the main menu across a restart, is tested without the game, on the claim's recorded computer with the client's own test server for the pipe (`xtask/src/scenario/game.rs`).
+
 ### How a scenario ends
 
 | Outcome | When | Then |
 | --- | --- | --- |
 | Passed | Every check held | The next scenario |
 | Failed | A check did not hold | The scenario ends there, with the figures it recorded until then; the game returns to the main menu, and the next one plays |
-| Crashed | The game ended | The report has what the crash dump says; the game is started again for the next one |
+| Crashed | The game ended | The report has how the game ended, its exit code as the claim followed it, and what its crash folder and dump say; the game is started again for the next one |
 | Hung | A step took longer than its time: an answer, the main menu, the days to run | The report says which step; the game is ended and started again for the next one |
 | Not played | Its build could not be built, or the run was interrupted before it began | The report says why; the scenarios of the next build are played |
 | Unfinished | Ctrl-C | The game is ended and the scenarios left are not played; the runner writes the report as far as it got and releases a claim it made |
@@ -60,7 +62,7 @@ One folder a run, with `report.json`, every answer and figure, and `report.md`: 
 
 - **`leak`**: the leak run on the build with the heap census: rounds of a load, an in-game load, a return, a new game and a return; after each, the memory account and the leftovers; after the last, what holds them and what keeps the free pages; with its parameters, the watch and the quarantine. The sections are those `leak-run` wrote.
 - **`growth`**: the same rounds on the build with the memory account only, which slows nothing, for where each round's growth goes, part by part and heap by heap, with a bound on it per round once the recorded runs settle one.
-- **`perf`**: what `perf-run` measured, on the player build: the seconds to the main menu, memory at it, a new game as Ming and the seconds it takes, CPU and memory paused for 30 s and at speed 5 for 120 s; and game days a minute at speed 5, from the dates. Its check is that it played to its end; its figures go into [performance.md](performance.md) when they measure what the framework costs, as `perf-run`'s did.
+- **`perf`**: what `perf-run` measured, on the player build: the seconds to the main menu, memory at it, a new game as Ming and the seconds it takes, CPU and memory paused for 30 s and at speed 5 for 120 s; and game days a minute at speed 5, from the dates. Its check is that it played to its end; its figures go into [performance.md](performance.md) when they measure what the framework costs, as `perf-run`'s did. With `--perf.game_paths`, the speed-ups it names (by name, group or `all`, by commas) are left to the game: it plays a developer build with the test switches, its core started with those in its own `dev.toml`, so that the same run measures the game's own code ([game-speed.md](game-speed.md), "How it fits together").
 
 ## How it fits together
 

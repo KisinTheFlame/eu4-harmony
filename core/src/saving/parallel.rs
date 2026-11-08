@@ -33,10 +33,12 @@
 //!
 //! The pool takes other work as well: the save checksum's sum
 //! (`super::sum`).
-use super::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
+use crate::called_by_game;
 use crate::game::commands::{STREAM_VTABLE, TOKENS_LAST, TOKENS_READY, TOKEN_NAMES, WRITER_VTABLE};
 use crate::memory::Memory;
-use crate::points::{Function, Point};
+use crate::points::{Function, GameFunction, Point};
+use crate::saves::{GameToken, EQUALS, NUMBER, WRITE_TOKEN};
+use crate::speed::{self, SpeedUp};
 use crate::Result;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -72,18 +74,18 @@ const COUNTRY_TAG: usize = 0x20;
 /// `(string, &tag)`: a tag as a `std::string`, which
 /// `game_string::destroy_checked` lets go; `(writer, &key, country)`: a
 /// country under its tag.
-const TAG_STRING: usize = 0x95240;
-const WRITE_COUNTRY: usize = 0x1707a20;
+const TAG_STRING: GameFunction<2> = GameFunction::at(0x95240);
+const WRITE_COUNTRY: GameFunction<3> = GameFunction::at(0x1707a20);
 
 /// Makes the token table (`game::commands`' [`TOKEN_NAMES`], the writer's
 /// texts of its token types) the first time one is needed.
-const MAKE_TOKEN_TEXTS: usize = 0x170d250;
+const MAKE_TOKEN_TEXTS: GameFunction<0> = GameFunction::at(0x170d250);
 
 /// The save's writer (made on `0x14e3f00`'s stack): its vtable is
 /// `game::commands`' [`WRITER_VTABLE`]; its stream, and its size.
 const WRITER_STREAM: usize = 0x10;
 const WRITER_SIZE: usize = 0x20;
-const WRITER_DEPTH: usize = super::WRITER_DEPTH;
+const WRITER_DEPTH: usize = crate::saves::WRITER_DEPTH;
 
 /// The game's memory stream (vtables `0x1d92200` and `0x1dc0358`, whose write
 /// is `0x171f290`): with no growing part (`+0x38` null) it writes into the
@@ -175,6 +177,7 @@ type Holder = extern "C" fn(usize) -> usize;
 static ORIGINAL_VALUE_HOLDER: Function<Holder> = Function::new();
 static ORIGINAL_OTHER_HOLDER: Function<Holder> = Function::new();
 
+#[called_by_game]
 extern "C" fn value_holder(value: usize) -> usize {
     match HOLDERS.with(Cell::get) {
         0 => ORIGINAL_VALUE_HOLDER.get()(value),
@@ -186,6 +189,7 @@ extern "C" fn value_holder(value: usize) -> usize {
     }
 }
 
+#[called_by_game]
 extern "C" fn other_holder(value: usize) -> usize {
     match HOLDERS.with(Cell::get) {
         0 => ORIGINAL_OTHER_HOLDER.get()(value),
@@ -200,6 +204,7 @@ extern "C" fn other_holder(value: usize) -> usize {
 /// `0x15bf70`'s object for this thread: its copy on a thread of the pool, the
 /// game's on any other. The stubs of the five places with the function's
 /// code inline call it.
+#[called_by_game]
 extern "C" fn value_object() -> usize {
     match HOLDERS.with(Cell::get) {
         0 => match GAME_VALUE_OBJECT.load(Ordering::Relaxed) {
@@ -401,20 +406,19 @@ extern "C" fn countries_stub() {
     );
 }
 
+#[called_by_game]
 extern "C" fn write_provinces(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || begin(world, writer))
+    begin(world, writer)
 }
 
+#[called_by_game]
 extern "C" fn write_countries(world: usize, writer: usize) -> bool {
-    crate::guarded("parallel save", || countries(world, writer))
+    countries(world, writer)
 }
 
 /// Writes a loop's items on several threads into the writer's stream, and
 /// says whether it did; when it did not, the game's loop writes them.
 fn write_loop(which: Loop, world: usize, writer: usize) -> bool {
-    if super::game_writes_saves() {
-        return false;
-    }
     let m = crate::hooked_memory();
     let start = Instant::now();
     let writing = match Writing::new(m, which, world, writer) {
@@ -488,7 +492,7 @@ struct Pending {
     /// Where each loop's bytes go: where the stream stood when the loop
     /// began, once it was reached and left to the pool.
     at: [Option<u32>; 2],
-    /// With `compare-saves`, where the stream stood when the game's own loop
+    /// Checked, where the stream stood when the game's own loop
     /// ended.
     #[cfg(feature = "dev-test-switches")]
     ended: [Option<u32>; 2],
@@ -500,9 +504,6 @@ static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
 /// At the provinces' loop: both loops go to the pool, and the game writes on
 /// past the provinces; or the game writes them itself, as it says.
 fn begin(world: usize, writer: usize) -> bool {
-    if super::game_writes_saves() {
-        return false;
-    }
     let began = Instant::now();
     let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
     if pending.is_some() {
@@ -571,7 +572,7 @@ fn countries(world: usize, writer: usize) -> bool {
 /// Where the world has written its game state: the main thread takes the
 /// runs left and waits for the pool, and each loop's bytes go into the stream
 /// where the loop began.
-pub(super) fn join(writer: usize) {
+pub(crate) fn join(writer: usize) {
     let Some(p) = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
     if p.writer != writer {
         crate::fatal("saves: the world wrote its game state with another writer than its loops'");
@@ -677,13 +678,10 @@ fn read(m: Memory, stream: usize, from: u32, to: u32) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// A developer build's test switch `compare-saves`: the game's own loops
-/// write as well, beside the pool, and their bytes stay in the save.
+/// Checked (`crate::speed`): the game's own loops write as well, beside the
+/// pool, and their bytes stay in the save.
 fn comparing() -> bool {
-    #[cfg(feature = "dev-test-switches")]
-    return crate::dev::options().test_switches.compare_saves;
-    #[cfg(not(feature = "dev-test-switches"))]
-    false
+    speed::checked(&SPEED_UP)
 }
 
 /// A loop to write: its items, cut into runs, and what each run needs.
@@ -744,7 +742,7 @@ impl Writing {
         // What is made the first time it is needed is made now, on this
         // thread: the writer's texts, and the two static objects.
         if m.u8(m.at(TOKENS_READY))? == 0 {
-            m.call(m.at(MAKE_TOKEN_TEXTS), &[])?;
+            MAKE_TOKEN_TEXTS.call(&m, [])?;
         }
         if m.i32(m.at(VALUE_OBJECT_GUARD))? == 0 {
             ORIGINAL_VALUE_HOLDER.get()(0);
@@ -848,16 +846,16 @@ impl Writing {
                     return Ok(());
                 }
                 let key = GameToken::new(NUMBER, &id.wrapping_neg().to_string());
-                m.call(m.at(WRITE_TOKEN), &[writer, &key as *const _ as usize])?;
+                WRITE_TOKEN.call(&m, [writer, &key as *const _ as usize])?;
                 let equals = GameToken::from_bytes(EQUALS, &self.equals);
-                m.call(m.at(WRITE_TOKEN), &[writer, &equals as *const _ as usize])?;
+                WRITE_TOKEN.call(&m, [writer, &equals as *const _ as usize])?;
                 m.call(m.vslot(item, WRITE_ITSELF)?, &[item, writer])?;
             }
             Loop::Countries => {
                 let tag = m.u64(item + COUNTRY_TAG)?;
                 let mut key = Object::<0x20>([0; 0x20]);
-                m.call(m.at(TAG_STRING), &[key.address(), &tag as *const u64 as usize])?;
-                let written = m.call(m.at(WRITE_COUNTRY), &[writer, key.address(), item]);
+                TAG_STRING.call(&m, [key.address(), &tag as *const u64 as usize])?;
+                let written = WRITE_COUNTRY.call(&m, [writer, key.address(), item]);
                 crate::game_string::destroy_checked(&m, key.address())?;
                 written?;
             }
@@ -1122,24 +1120,23 @@ impl<T: Send> Task for Each<T> {
     fn abandon(&self) {}
 }
 
-/// A developer build's test switch `compare-saves`: the game's own loops
-/// write into the save as always, beside the pool, and where the world has
-/// written its game state the pool's bytes are compared with what each loop
-/// wrote.
+/// Checked, the game's own loops write into the save as always, beside the
+/// pool, and where the world has written its game state the pool's bytes are
+/// compared with what each loop wrote. Where the game's loops end is observed
+/// in a build with the test switches only.
 #[cfg(feature = "dev-test-switches")]
 mod compare {
     use super::*;
 
     /// Where the game's loop ends, `writer` in rsi: where the stream stands.
+    #[called_by_game]
     extern "C" fn end(writer: usize, which: usize) {
-        crate::guarded("parallel save comparison", || {
-            let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(p) = pending.as_mut().filter(|p| p.writer == writer && p.at[which].is_some()) else { return };
-            match position(crate::hooked_memory(), p.ahead.writings[which].stream) {
-                Ok(at) => p.ended[which] = Some(at),
-                Err(e) => log!("saves: compare-saves: {e}"),
-            }
-        });
+        let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(p) = pending.as_mut().filter(|p| p.writer == writer && p.at[which].is_some()) else { return };
+        match position(crate::hooked_memory(), p.ahead.writings[which].stream) {
+            Ok(at) => p.ended[which] = Some(at),
+            Err(e) => log!("saves: where the game's loop ended: {e}"),
+        }
     }
 
     /// The pool's bytes of each loop against the game's.
@@ -1147,25 +1144,23 @@ mod compare {
         for (i, writing) in p.ahead.writings.iter().enumerate() {
             let name = writing.which.name();
             let (Some(at), Some(ended)) = (p.at[i], p.ended[i]) else {
-                log!("saves: compare-saves: the game's loop of the {name} was not seen");
+                log!("saves: the game's loop of the {name} was not seen, so it is not compared");
                 continue;
             };
-            let compared = (|| {
-                let game = read(m, writing.stream, at, ended)?;
-                let parallel = writing.outputs()?.concat();
-                Ok::<_, String>(match game.iter().zip(&parallel).position(|(a, b)| a != b) {
-                    None if game.len() == parallel.len() => format!("the {name} the same, {} bytes", game.len()),
-                    at => format!(
-                        "the {name} differ at byte {}, the game wrote {} bytes and the threads {}",
-                        at.unwrap_or(game.len().min(parallel.len())),
-                        game.len(),
-                        parallel.len()
-                    ),
-                })
-            })();
-            match compared {
-                Ok(line) => log!("saves: compare-saves: {line}"),
-                Err(e) => log!("saves: compare-saves: the {name}: {e}"),
+            let bytes = (|| Ok::<_, String>((read(m, writing.stream, at, ended)?, writing.outputs()?.concat())))();
+            match bytes {
+                Ok((game, parallel)) => {
+                    let differs = game.iter().zip(&parallel).position(|(a, b)| a != b);
+                    speed::compared(&SPEED_UP, differs.is_none() && game.len() == parallel.len(), || {
+                        format!(
+                            "the {name} differ at byte {}, the game wrote {} bytes and the threads {}",
+                            differs.unwrap_or(game.len().min(parallel.len())),
+                            game.len(),
+                            parallel.len()
+                        )
+                    });
+                }
+                Err(e) => log!("saves: the {name} could not be compared: {e}"),
             }
         }
     }
@@ -1205,14 +1200,18 @@ mod compare {
         vec![
             Point::jump(PROVINCES_END, "48 8b ce e8 a9 70 fb 00", "provinces written", provinces_end_stub as *const () as usize, &PROVINCES_END_RESUME),
             Point::jump(COUNTRIES_END, "48 8b ce e8 24 70 fb 00", "countries written", countries_end_stub as *const () as usize, &COUNTRIES_END_RESUME),
-            Point::keep(super::super::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (compare-saves)")
-                .recorded(&CLOSE),
+            Point::keep(crate::saves::WRITE_CLOSE, "40 53 48 81 ec 30 02 00 00 ff 49 08 48 8b d9", "save writer closes a block (checked)").recorded(&CLOSE),
         ]
     }
 }
 
-pub fn points() -> Vec<Point> {
-    #[cfg_attr(not(feature = "dev-test-switches"), expect(unused_mut, reason = "only compare-saves changes them"))]
+/// Checked, the game's own loops write into the save as always, beside the
+/// pool, and where the world has written its game state the pool's bytes
+/// are compared with what each loop wrote.
+pub const SPEED_UP: SpeedUp = SpeedUp { name: "parallel-saves", group: "saving", points, checkable: true };
+
+fn points() -> Vec<Point> {
+    #[cfg_attr(not(feature = "dev-test-switches"), expect(unused_mut, reason = "only a build with the test switches, which checks the loops, changes them"))]
     let mut points = vec![
         Point::jump(PROVINCES, "41 8b fd 49 8b 86 98 1c 00 00", "provinces' loop", provinces_stub as *const () as usize, &PROVINCES_RESUME)
             .uses(&[PROVINCE_LAST]),
@@ -1359,14 +1358,14 @@ mod tests {
             TOKEN_NAMES,
             TOKENS_LAST,
             TOKENS_READY,
-            MAKE_TOKEN_TEXTS,
+            MAKE_TOKEN_TEXTS.rva(),
             VALUE_OBJECT,
             VALUE_OBJECT_GUARD,
             OTHER_OBJECT,
             OTHER_OBJECT_GUARD,
-            WRITE_TOKEN,
-            TAG_STRING,
-            WRITE_COUNTRY,
+            WRITE_TOKEN.rva(),
+            TAG_STRING.rva(),
+            WRITE_COUNTRY.rva(),
         ];
         for rva in taken {
             assert!(crate::points::checks(rva), "{rva:#x}");

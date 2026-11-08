@@ -6,13 +6,13 @@
 //! with no country in view, as the game lets the player run time then too. The evidence is in docs/research/time.md.
 use super::{action, context, context_any, fail, map_manager, paused, questions, world_context_any, Caller, GResult, Status, World, WorldSession};
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::campaign::{
         globals::{END_DATE, WORLD},
         map_manager as manager, pause as pause_state, world,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
 use std::sync::Mutex;
 
@@ -25,7 +25,7 @@ const SPEED_UP: usize = 0xb79970;
 /// nothing holds the game paused, it sets the player's pause; paused for any
 /// reason, it resumes and lets go of every window holding the game paused, as
 /// the player's resuming does.
-const TOGGLE_PAUSE: usize = 0x7e0250;
+const TOGGLE_PAUSE: GameFunction<1> = GameFunction::at(0x7e0250);
 /// `(app)`: starts `eu4.exe` again, at the end of the game's main loop, when
 /// the game returns to the main menu.
 const RESTART: usize = 0x14c3a10;
@@ -309,7 +309,7 @@ fn pause_state_of(m: &Memory, ctx: &World) -> GResult<usize> {
 }
 
 fn toggle(m: &Memory, state: usize) -> GResult<()> {
-    m.call(m.at(TOGGLE_PAUSE), &[state])?;
+    TOGGLE_PAUSE.call(m, [state])?;
     Ok(())
 }
 
@@ -336,11 +336,9 @@ fn pause_game(m: &Memory, ctx: &World) -> GResult<()> {
 /// Before the game starts `eu4.exe` again, whoever asked for it: the
 /// sessions are told (`crate::sessions::restarting`), so that remote control
 /// answers every request while this process can still write the answers.
-extern "C" fn restart_before(_: *mut HookFrame) {
-    crate::guarded("restart", || {
-        log!("the game starts eu4.exe again");
-        crate::sessions::restarting();
-    });
+fn restart_before(_: &mut Call) {
+    log!("the game starts eu4.exe again");
+    crate::sessions::restarting();
 }
 
 /// The speed, the pause toggle and the restart.
@@ -357,6 +355,88 @@ pub fn points() -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod through_the_layer {
+        use super::super::*;
+        use crate::catalogue::fake::tur;
+        use crate::game::{
+            buffers::{self, Image, Object},
+            Fail,
+        };
+        use crate::objects::campaign::classes;
+        use std::cell::Cell;
+
+        thread_local! {
+            /// What holds the game paused: the player's pause and a window.
+            static HELD: Cell<(bool, bool)> = const { Cell::new((false, false)) };
+        }
+
+        extern "C" fn is_paused(_: usize) -> usize {
+            let (player, window) = HELD.get();
+            (player || window) as usize
+        }
+
+        /// The game's toggle: resumes a game anything holds, letting go of
+        /// the windows, and sets the player's pause otherwise.
+        extern "C" fn toggle(state: usize) -> usize {
+            let (player, window) = HELD.get();
+            let player = !(player || window);
+            HELD.set((player, false));
+            unsafe { *((state + pause_state::PLAYER_PAUSED) as *mut u8) = player as u8 };
+            0
+        }
+
+        /// The world on the date `date`, of which the game ends on 100, its
+        /// player playing a country when `plays`, held paused by the
+        /// player's pause and a window as `held` says. Runs `action` over
+        /// its world session, and answers what then holds it paused.
+        fn world<T>(date: i32, plays: bool, held: (bool, bool), action: impl FnOnce(WorldSession) -> GResult<T>) -> (GResult<T>, (bool, bool)) {
+            let image = Image::new();
+            let m = image.memory();
+            image.function(super::super::super::IS_PAUSED.rva(), is_paused as *const ()).function(TOGGLE_PAUSE.rva(), toggle as *const ());
+            image.i32(END_DATE, 100);
+            HELD.set(held);
+            let manager = Object::new(manager::PAUSE + 8).u64(0, m.at(classes::MAP_MANAGER) as u64);
+            let state = Object::new(pause_state::MANAGER + 8).u64(pause_state::MANAGER, manager.at() as u64).u8(pause_state::PLAYER_PAUSED, held.0.into());
+            manager.set(manager::PAUSE, &(state.at() as u64).to_le_bytes());
+            let world = Object::new(world::OBSERVER_RUNS_TIME + 8).points_to(world::MAP_MANAGER, manager).u8(world::PLAYER + 7, plays.into());
+            let result = action(buffers::world_session(m, world.at(), date, tur(), 0, Caller::Remote));
+            drop((state, world, image));
+            (result, HELD.get())
+        }
+
+        fn refused<T: std::fmt::Debug>(result: GResult<T>) -> (Status, String) {
+            let Err(Fail { status, message }) = result else { panic!("the action was carried out: {result:?}") };
+            (status, message)
+        }
+
+        #[test]
+        fn pausing_sets_the_player_s_pause_whatever_else_holds_the_game() {
+            for held in [(false, false), (true, false), (false, true), (true, true)] {
+                let (paused, now) = world(10, true, held, pause);
+                paused.unwrap();
+                assert!(now.0, "held {held:?}");
+            }
+        }
+
+        #[test]
+        fn resuming_lets_go_of_what_holds_the_game_unless_the_game_is_over_or_has_no_one_to_play() {
+            for held in [(false, false), (true, false), (false, true), (true, true)] {
+                let (resumed, now) = world(10, true, held, resume);
+                resumed.unwrap();
+                assert_eq!(now, (false, false), "held {held:?}");
+            }
+            let (over, now) = world(110, true, (true, false), resume);
+            let refusal: Fail = eu4_harmony_checks::time::over(eu4_harmony_checks::Date(100)).into();
+            assert_eq!(refused(over), (refusal.status, refusal.message));
+            assert_eq!(now, (true, false));
+            let (nobody, now) = world(10, false, (false, true), resume);
+            assert_eq!(refused(nobody), (Status::Rejected, "the game does not let time run with no country to play".into()));
+            assert_eq!(now, (false, true));
+            // Running, it is not asked whether the game is over.
+            world(110, false, (false, false), resume).0.unwrap();
+        }
+    }
 
     #[test]
     fn a_stop_is_reached_once_and_forgotten_when_released() {

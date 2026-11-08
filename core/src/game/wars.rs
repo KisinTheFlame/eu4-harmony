@@ -11,7 +11,7 @@
 //! listening again starts from that day without telling of what came
 //! between.
 use super::{countries, GResult, InWorld, Tag};
-use crate::{game_string, memory::Memory, objects::campaign::world as world_fields, unicode::game_text};
+use crate::{game_string, memory::Memory, objects::campaign::world as world_fields};
 
 /// The most wars the game is believed to keep.
 const MOST_WARS: usize = 10_000;
@@ -92,7 +92,7 @@ fn wars_now(m: &Memory, ctx: &impl InWorld) -> GResult<Vec<Seen>> {
     for i in 0..count as usize {
         let at = m.ptr(data + i * 8)?;
         let Some((attackers, defenders)) = countries::sides(m, at) else { continue };
-        let name = game_text::to_utf8(&game_string::read(m, at + crate::objects::campaign::war::NAME)?);
+        let name = game_string::shown(m, at + crate::objects::campaign::war::NAME)?;
         let valid = |tags: Vec<Tag>| tags.into_iter().filter(|t| t.valid() && t.normal()).collect();
         out.push(Seen { at, name, attackers: valid(attackers), defenders: valid(defenders) });
     }

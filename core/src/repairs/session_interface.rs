@@ -2,28 +2,29 @@
 //! never meets, as it restarts instead: the popups its message windows
 //! hold, let go before an in-process return takes the interface down, and
 //! what the map manager's destructor leaves, let go as it goes. The returns
-//! it is gone after are counted, for what its interface may show until then.
+//! it is gone after pass for what its interface may show until then
+//! ([`super::waiting`]).
 use super::LettingGo;
 use crate::{
-    hooks::HookFrame,
+    hooks::Call,
     memory::Memory,
     objects::{
         campaign::{map_manager as manager_fields, message_window},
         list,
     },
-    points::Point,
+    points::{GameFunction, Point},
 };
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// `(map manager)`: the map manager's destructor, which its deleting
 /// destructor (its vtable's first slot) calls as the application's idler
 /// switch lets it go.
 const MAP_MANAGER_DESTRUCTOR: usize = 0x80b570;
 /// `(message icon holder)`: empties it of its icons.
-const EMPTY_MESSAGE_ICONS: usize = 0xdffca0;
+const EMPTY_MESSAGE_ICONS: GameFunction<1> = GameFunction::at(0xdffca0);
 /// `(message icon holder)`: its destructor, which the idler switch calls
 /// before it frees it.
-const MESSAGE_ICON_HOLDER_DESTRUCTOR: usize = 0xdf5180;
+const MESSAGE_ICON_HOLDER_DESTRUCTOR: GameFunction<1> = GameFunction::at(0xdf5180);
 /// `(map manager)`: the build of its interface, which an in-game load calls
 /// again.
 const INTERFACE_BUILD: usize = 0x81af10;
@@ -42,10 +43,6 @@ static LEAVING: AtomicUsize = AtomicUsize::new(0);
 /// The map manager that return lets go is gone ([`map_manager_gone`]).
 static GONE: AtomicBool = AtomicBool::new(false);
 
-/// The returns whose session's interface is gone: what the session's
-/// interface may still have shown can go after one.
-pub static RETURNS: AtomicU32 = AtomicU32::new(0);
-
 impl SessionInterface {
     /// Before an in-process return takes the session's interface down. A
     /// message window holds the popup it was made with and never lets it go,
@@ -55,7 +52,7 @@ impl SessionInterface {
     /// in-game load marks as closed, go first, unless open, which go with
     /// the other popups.
     pub fn before_reset(m: &Memory, manager: usize) -> crate::Result<Self> {
-        let popups = crate::game::questions::items(m, manager + manager_fields::POPUPS).map_err(|e| e.message)?;
+        let popups = crate::containers::items(m, manager + manager_fields::POPUPS, crate::containers::MOST)?;
         let mut node = m.ptr(manager + manager_fields::MESSAGE_WINDOWS + list::HEAD)?;
         while node != 0 {
             let window = m.ptr(node + list::ITEM)?;
@@ -90,32 +87,31 @@ impl SessionInterface {
 /// it never lets go of the session's interface goes first
 /// ([`let_session_interface_go`]). Not before: until the idler switch has
 /// switched the map manager out, it uses that interface.
-extern "C" fn map_manager_going(frame: *mut HookFrame) {
-    crate::guarded("map manager destructor", || {
-        let manager = unsafe { (*frame).args[0] };
-        if LEAVING.compare_exchange(manager, 0, Ordering::Relaxed, Ordering::Relaxed).is_err() {
-            return;
-        }
-        let m = crate::hooked_memory();
-        match let_session_interface_go(&m, manager) {
-            Ok(gone) => log!("repair: {gone} parts of the session's interface the map manager leaves were let go"),
-            Err(e) => log!("repair: the session's interface was not let go: {e}"),
-        }
-        super::panels::map_manager_going(manager);
-        GONE.store(true, Ordering::Relaxed);
-    });
+fn map_manager_going(call: &mut Call) {
+    let manager = call.arg(0);
+    if LEAVING.compare_exchange(manager, 0, Ordering::Relaxed, Ordering::Relaxed).is_err() {
+        return;
+    }
+    let m = call.memory();
+    match let_session_interface_go(&m, manager) {
+        Ok(gone) => log!("repair: {gone} parts of the session's interface the map manager leaves were let go"),
+        Err(e) => log!("repair: the session's interface was not let go: {e}"),
+    }
+    super::panels::map_manager_going(m, manager);
+    GONE.store(true, Ordering::Relaxed);
 }
 
-/// The map manager that return lets go is gone, and its interface with it.
+/// The map manager that return lets go is gone, and its interface with it:
+/// a return has passed for what waits for one ([`super::waiting`]).
 ///
 /// Killing the windows its builds made that nothing killed, which stay in the
 /// GUI, was tried (2026-11-06) and taken out: one of the GUI's objects keeps
 /// windows of them in its lists, and its destructor, at a later return, called
 /// into one the GUI's sweep had freed (a pure call), about once in ten rounds
 /// (docs/prototype-log/2026-11-07-windows-killed-at-return-taken-out.md).
-extern "C" fn map_manager_gone(_frame: *mut HookFrame) {
+fn map_manager_gone(_: &mut Call) {
     if GONE.swap(false, Ordering::Relaxed) {
-        RETURNS.fetch_add(1, Ordering::Relaxed);
+        super::waiting::Moment::Return.passed();
     }
 }
 
@@ -148,7 +144,7 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
     for (field, let_go) in manager_fields::SESSION_OBJECTS.iter().rev() {
         let object = take(*field)?;
         if object != 0 {
-            m.call(m.at(*let_go), &[object])?;
+            let_go.call(m, [object])?;
         }
     }
     // Its minimap, which its destructor leaves too.
@@ -162,8 +158,8 @@ fn let_session_interface_go(m: &Memory, manager: usize) -> crate::Result<usize> 
 /// A message icon holder goes as the idler switch lets it go: emptied of its
 /// icons, then destroyed, which lets its alerts' texts go, then freed.
 fn let_message_icons_go(m: &Memory, holder: usize) -> crate::Result<()> {
-    m.call(m.at(EMPTY_MESSAGE_ICONS), &[holder])?;
-    m.call(m.at(MESSAGE_ICON_HOLDER_DESTRUCTOR), &[holder])?;
+    EMPTY_MESSAGE_ICONS.call(m, [holder])?;
+    MESSAGE_ICON_HOLDER_DESTRUCTOR.call(m, [holder])?;
     crate::game_heap::delete(m, holder, manager_fields::MESSAGE_ICON_HOLDER_SIZE)
 }
 
@@ -171,28 +167,26 @@ fn let_message_icons_go(m: &Memory, holder: usize) -> crate::Result<()> {
 /// build empties the message icon holder it made before and makes another
 /// in its place, and the one before stayed, about 10 KB with its alerts. So
 /// it goes first, and the build, finding none, makes the new one.
-extern "C" fn interface_building(frame: *mut HookFrame) {
-    crate::guarded("map manager interface build", || {
-        let manager = unsafe { (*frame).args[0] };
-        let m = crate::hooked_memory();
-        let let_go = (|| {
-            let holder = m.ptr(manager + manager_fields::MESSAGE_ICON_HOLDER)?;
-            if holder == 0 {
-                return Ok(());
-            }
-            m.write(manager + manager_fields::MESSAGE_ICON_HOLDER, &0usize.to_le_bytes())?;
-            let _letting_go = LettingGo::new("message icon holder");
-            let_message_icons_go(&m, holder)
-        })();
-        if let Err(e) = let_go {
-            log!("repair: the message icon holder the build before made was not let go: {e}");
+fn interface_building(call: &mut Call) {
+    let manager = call.arg(0);
+    let m = call.memory();
+    let let_go = (|| {
+        let holder = m.ptr(manager + manager_fields::MESSAGE_ICON_HOLDER)?;
+        if holder == 0 {
+            return Ok(());
         }
-    });
+        m.write(manager + manager_fields::MESSAGE_ICON_HOLDER, &0usize.to_le_bytes())?;
+        let _letting_go = LettingGo::new("message icon holder");
+        let_message_icons_go(&m, holder)
+    })();
+    if let Err(e) = let_go {
+        log!("repair: the message icon holder the build before made was not let go: {e}");
+    }
 }
 
 /// The repair as the world reset sees it ([`super::REPAIRS`]): it counts
 /// nothing.
-pub(super) const REPAIR: super::Repair = super::Repair { points, since_reset: None };
+pub(super) const REPAIR: super::Repair = super::Repair { points, ..super::Repair::NONE };
 
 pub(super) fn points() -> Vec<Point> {
     vec![

@@ -2,7 +2,7 @@
 //! build has none of this). dev.toml's `[write-watch]` names a function by
 //! its RVA; during its first `calls` calls on the main thread, the process's
 //! other threads are suspended, but for the threads that write a save's
-//! countries and provinces with the main thread (`saves::parallel`), whose
+//! countries and provinces with the main thread (`saving::parallel`), whose
 //! writes are recorded too, and every page of the process heap that
 //! holds a block, and every writable page of `eu4.exe`, is read-only. Each
 //! write to one stops at an exception handler, which records the
@@ -28,7 +28,8 @@
 //! watch without it. The game runs many times slower while watched: the watch
 //! is for finding out, not for play.
 use crate::analysis;
-use crate::hooks::{self, HookFrame};
+use crate::called_by_game;
+use crate::hooks::Call;
 use crate::memory::Memory;
 use crate::points::Point;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -151,7 +152,7 @@ fn open_threads(a: &Arena) -> usize {
     while more && n < HELD {
         // The threads that write a save's countries and provinces with the
         // main thread go on, and their writes are watched too.
-        let writes_saves = crate::saves::parallel::threads().contains(&entry.th32ThreadID);
+        let writes_saves = crate::saving::parallel::threads().contains(&entry.th32ThreadID);
         if entry.th32OwnerProcessID == process && entry.th32ThreadID != me && !writes_saves {
             let h = unsafe { OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, 0, entry.th32ThreadID) };
             if !h.is_null() {
@@ -450,6 +451,7 @@ const CONTINUE_EXECUTION: i32 = -1;
 const CONTINUE_SEARCH: i32 = 0;
 const TRAP_FLAG: u32 = 0x100;
 
+#[called_by_game]
 unsafe extern "system" fn handler(info: *mut EXCEPTION_POINTERS) -> i32 {
     let Some(a) = ARENA.get() else { return CONTINUE_SEARCH };
     let (record_, context) = (&*(*info).ExceptionRecord, &mut *(*info).ContextRecord);
@@ -600,72 +602,80 @@ fn report(call: usize) {
     }
 }
 
-extern "C" fn before(frame: *mut HookFrame) {
-    crate::guarded("write watch", || {
-        let frame = unsafe { &*frame };
-        let (Some(w), Some(m)) = (WATCHED.get(), crate::memory()) else { return };
-        if hooks::observed(frame.slot) != Some(w.address) || crate::thread_id() != crate::main_thread() {
-            return;
+fn before(call: &mut Call) {
+    let Some(w) = WATCHED.get() else { return };
+    if call.observed() != Some(w.address) || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    if DEPTH.fetch_add(1, Ordering::SeqCst) > 0 {
+        return;
+    }
+    let number = CALLS.fetch_add(1, Ordering::SeqCst);
+    if number >= w.calls {
+        return;
+    }
+    match start(&call.memory()) {
+        // Logged with the report: the log's lock may be a held thread's.
+        Ok(what) => *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = what,
+        Err(e) => {
+            stop();
+            log!("write watch {:#x} #{number}: not watched: {e}", w.rva);
         }
-        if DEPTH.fetch_add(1, Ordering::SeqCst) > 0 {
-            return;
-        }
-        let call = CALLS.fetch_add(1, Ordering::SeqCst);
-        if call >= w.calls {
-            return;
-        }
-        match start(m) {
-            // Logged with the report: the log's lock may be a held thread's.
-            Ok(what) => *STARTED.lock().unwrap_or_else(|e| e.into_inner()) = what,
-            Err(e) => {
-                stop();
-                log!("write watch {:#x} #{call}: not watched: {e}", w.rva);
-            }
-        }
-    })
+    }
 }
 
-extern "C" fn after(frame: *mut HookFrame) {
+fn after(call: &mut Call) {
     // Before anything else, so that the framework's own work here is not
     // watched.
     let watching = ACTIVE.load(Ordering::Acquire);
     if watching {
         stop();
     }
-    crate::guarded("write watch", || {
-        let frame = unsafe { &*frame };
-        let Some(w) = WATCHED.get() else { return };
-        if hooks::observed(frame.slot) != Some(w.address) || crate::thread_id() != crate::main_thread() {
-            return;
-        }
-        if DEPTH.fetch_sub(1, Ordering::SeqCst) != 1 || !watching {
-            return;
-        }
-        report(CALLS.load(Ordering::SeqCst) - 1);
-    })
+    let Some(w) = WATCHED.get() else { return };
+    if call.observed() != Some(w.address) || crate::thread_id() != crate::main_thread() {
+        return;
+    }
+    if DEPTH.fetch_sub(1, Ordering::SeqCst) != 1 || !watching {
+        return;
+    }
+    report(CALLS.load(Ordering::SeqCst) - 1);
 }
 
-/// The observe point for the function dev.toml names, if any.
-pub fn points(m: &Memory) -> Vec<Point> {
+/// The function dev.toml names, chosen to be watched: what the watch keeps of
+/// it, its argument count and the bytes it holds now.
+pub struct Chosen(Option<(Watched, u32, &'static str)>);
+
+/// The function dev.toml names, when it can be watched.
+pub fn chosen(m: &Memory) -> Chosen {
     let options = &crate::dev::options().write_watch;
     if options.function.is_empty() {
-        return Vec::new();
+        return Chosen(None);
     }
     let image = unsafe { analysis::loaded(m.base) };
     let Some(rva) = usize::from_str_radix(options.function.trim().trim_start_matches("0x"), 16).ok().filter(|&r| r < image.len()) else {
         log!("write watch: {:?} is not an RVA in the game", options.function);
-        return Vec::new();
+        return Chosen(None);
     };
     let Some(argc) = analysis::bounds(image, rva).map(|range| analysis::arguments(&image[range], rva)) else {
         log!("write watch: {rva:#x} starts no function in the exception directory");
-        return Vec::new();
+        return Chosen(None);
     };
     log!("write watch: {rva:#x}, {argc} argument(s), its first {} calls on the main thread", options.calls);
-    if WATCHED.set(Watched { address: m.base + rva, rva, calls: options.calls }).is_err() {
-        return Vec::new();
-    }
     // The bytes there now: the watch checks nothing about the game.
     let bytes: Vec<String> = image[rva..rva + 8].iter().map(|b| format!("{b:02x}")).collect();
-    let bytes: &'static str = bytes.join(" ").leak();
-    vec![Point::observe(rva, bytes, "watched function", argc.min(12), Some(before), Some(after))]
+    Chosen(Some((Watched { address: m.base + rva, rva, calls: options.calls }, argc, bytes.join(" ").leak())))
+}
+
+impl Chosen {
+    /// Its observe point.
+    pub fn points(&self) -> Vec<Point> {
+        self.0.iter().map(|(w, argc, bytes)| Point::observe(w.rva, bytes, "watched function", (*argc).min(12), Some(before), Some(after))).collect()
+    }
+
+    /// Watches it.
+    pub fn start(self) {
+        if let Some((watched, ..)) = self.0 {
+            let _ = WATCHED.set(watched);
+        }
+    }
 }

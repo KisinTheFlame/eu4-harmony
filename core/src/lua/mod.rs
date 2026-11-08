@@ -17,11 +17,15 @@ use crate::{
     game::{self, interface, map_coloring, Caller},
     map,
     mods::DiscoveredMod,
-    notice::Message,
+    notice::{Message, Repeat},
     saves, ui,
 };
-use eu4_harmony_lua::{fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending};
-use eu4_harmony_remote::{events::Event, Code, Error, Request, Response};
+use eu4_harmony_lua::{
+    dispatch::{self, Heard},
+    fetch, Answered, Arg, Called, Element, Extension, Host, Mod, Pending,
+};
+use eu4_harmony_remote::extensions::args;
+use eu4_harmony_remote::{Code, Error, Request, Response};
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{File, OpenOptions},
@@ -171,9 +175,8 @@ impl Host for Live {
     fn first_error(&self, extension: &Extension, from: &str, message: &str) {
         // The player is told in a game the framework runs in.
         if crate::memory().is_some() {
-            let session = crate::sessions::number();
             log!("extension {:?}: error in {from}: {message}", extension.id());
-            crate::notice::post(&format!("errors:{}:{session}", extension.id()), Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
+            crate::notice::post(&format!("errors:{}", extension.id()), Repeat::Session, Message::new("EU4HARMONY_ERRORS").arg("MOD", extension.name()));
         }
     }
 
@@ -182,7 +185,11 @@ impl Host for Live {
         ui::hide_extension(extension.index());
         if let Some(m) = crate::memory() {
             map::release(m, extension.index());
-            crate::notice::post(&format!("stopped:{}", extension.id()), Message::new("EU4HARMONY_STOPPED").arg("MOD", extension.name()).arg("DETAIL", reason));
+            crate::notice::post(
+                &format!("stopped:{}", extension.id()),
+                Repeat::Run,
+                Message::new("EU4HARMONY_STOPPED").arg("MOD", extension.name()).arg("DETAIL", reason),
+            );
         }
     }
 }
@@ -217,8 +224,8 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
         };
         let result = if !supported {
             Err("the game executable is not supported, so no extension can run".to_string())
-        } else if !m.manifest.built_for(eu4_harmony_remote::API_VERSION) {
-            Err(format!("written for api_version {}, this EU4 Harmony provides {}", m.manifest.api_version, eu4_harmony_remote::API_VERSION))
+        } else if let Some(why) = m.manifest.unsupported(eu4_harmony_remote::API_VERSION) {
+            Err(why)
         } else {
             // The last start's log is kept beside it; this start's begins
             // before main.lua runs, which may write to it already.
@@ -253,7 +260,7 @@ pub fn load(mods: &[DiscoveredMod], log_dir: &Path, data_dir: &Path) -> Vec<Load
                 outcomes.push(LoadOutcome { included: false, status: format!("extension NOT loaded: {e}") });
                 // An unsupported executable has its own notice.
                 if supported {
-                    crate::notice::post(&format!("load:{}", m.manifest.id), not_loaded(m, &e));
+                    crate::notice::post(&format!("load:{}", m.manifest.id), Repeat::Run, not_loaded(m, &e));
                 }
             }
         }
@@ -276,7 +283,7 @@ pub struct Reloaded {
 /// (docs/extension-reload.md): the new code is opened first, and only when
 /// it loads is the old one asked for its save data and replaced. On the
 /// main thread, between frames.
-pub fn reload(_: Caller, id: String) -> game::GResult<Reloaded> {
+pub fn reload(_: Caller, args::Reload { id }: args::Reload) -> game::GResult<Reloaded> {
     if crate::thread_id() != crate::main_thread() {
         return Err(game::Fail { status: game::Status::WrongContext, message: "called off the game's main thread".into() });
     }
@@ -294,18 +301,16 @@ fn reload_now(id: &str) -> game::GResult<Reloaded> {
         (i, o.name.clone(), o.dir.clone(), o.permissions.clone(), o.data.clone())
     };
     let harmony = dir.join("eu4-harmony");
-    let manifest_file = harmony.join(eu4_harmony_manifest::FILE);
-    let manifest = std::fs::read_to_string(&manifest_file).map_err(|e| e.to_string()).and_then(|t| eu4_harmony_manifest::Manifest::parse(&t));
     let rejected = |message: String| game::Fail { status: game::Status::Rejected, message };
-    let manifest = manifest.map_err(|e| rejected(format!("{}: {e}", manifest_file.display())))?;
+    let manifest = eu4_harmony_manifest::HarmonyMod::read(&dir).map_err(rejected)?.manifest;
     if manifest.id != id {
         return Err(rejected(format!("the manifest's id is now {:?}; a changed id takes a restart of the game", manifest.id)));
     }
     if manifest.permissions != permissions {
         return Err(rejected("the manifest's permissions changed; the player saw them as they were, and they change only with a restart of the game".into()));
     }
-    if !manifest.built_for(eu4_harmony_remote::API_VERSION) {
-        return Err(rejected(format!("written for api_version {}, this EU4 Harmony provides {}", manifest.api_version, eu4_harmony_remote::API_VERSION)));
+    if let Some(why) = manifest.unsupported(eu4_harmony_remote::API_VERSION) {
+        return Err(rejected(why));
     }
     let opening = Mod { id, name: &name, harmony: harmony.clone(), permissions: &permissions, data: Some(data) };
     let new = eu4_harmony_lua::open(index, &opening, host).map_err(|e| rejected(format!("the new code did not load, and the old goes on: {e}")))?;
@@ -350,16 +355,6 @@ fn not_loaded(m: &DiscoveredMod, e: &str) -> Message {
 
 // ---------- dispatch ----------
 
-/// The handler `event` calls, and its arguments
-/// (`eu4_harmony_remote::lua::handler_call`).
-fn handler_call(event: &Event) -> Option<(&'static str, Vec<Arg>)> {
-    let Some((name, args)) = eu4_harmony_remote::lua::handler_call(event) else {
-        log!("no handler for the event {}", event.kind());
-        return None;
-    };
-    Some((name, args.into_iter().map(Arg::Json).collect()))
-}
-
 /// The extensions, as they hear the sessions' ends and the game's safe frames
 /// (`crate::safe_point`).
 pub(crate) struct Extensions;
@@ -390,70 +385,57 @@ impl crate::safe_point::Listener for Extensions {
     }
 }
 
-/// Dispatches a game's safe frame to every extension: waiting tasks whose
-/// answer came, what happened in its order ([`game::Frame::heard`]), what
-/// concerns one extension (its map coloring taken over, its buttons
-/// clicked), then the frame.
+/// Dispatches a game's safe frame to every extension
+/// (`eu4_harmony_lua::dispatch`): what happened in its order
+/// ([`game::Frame::heard`]), every event whether the player's view shows it
+/// or not.
 fn frame(heard: &[game::Heard]) {
     let all = extensions();
-    for e in &all {
-        e.poll();
+    let heard: Vec<Heard> = heard.iter().map(|h| Heard::of(&h.event)).collect();
+    let mut feed = Fed { began: false };
+    dispatch::frame(&all, &heard, &mut feed);
+    game::events::extensions_listen(dispatch::listened(&all).into_iter().collect());
+    refresh_report(feed.began);
+}
+
+/// What the running game gives a frame: the extension save data of the save
+/// a session began from, the maps taken over and the buttons clicked.
+struct Fed {
+    /// A session began in this frame.
+    began: bool,
+}
+
+impl dispatch::Feed for Fed {
+    fn session_begins(&mut self, session: u64) {
+        let loaded = saves::take_loaded();
+        log!("session {session} started (from a loaded save: {})", loaded.is_some());
+        *SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Clocks::now());
+        saves::replace_all(loaded.unwrap_or_default());
+        self.began = true;
     }
-    for heard in heard {
-        match heard.event.clone() {
-            Event::Session { session } => {
-                let loaded = saves::take_loaded();
-                log!("session {session} started (from a loaded save: {})", loaded.is_some());
-                for e in &all {
-                    e.take_session_times();
-                }
-                *SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(Clocks::now());
-                saves::replace_all(loaded.unwrap_or_default());
-                for e in &all {
-                    let saved = saves::get(e.id()).unwrap_or(serde_json::Value::Null);
-                    e.handle("on_session", &[Arg::Json(saved)]);
-                }
-                refresh_report(true);
-            }
-            // Extensions hear every event, the player's view or not.
-            event => {
-                if let Some((name, args)) = handler_call(&event) {
-                    all.iter().for_each(|e| e.handle(name, &args));
-                }
-            }
-        }
+
+    fn saved(&mut self, id: &str) -> Option<serde_json::Value> {
+        saves::get(id)
     }
-    let listened = eu4_harmony_remote::events::EVENTS.iter().map(|(kind, _)| *kind).filter(|kind| all.iter().any(|e| e.has_handler(&format!("on_{kind}"))));
-    game::events::extensions_listen(listened.collect());
-    for lost in map::take_lost() {
-        if let Some(e) = all.get(lost) {
-            e.handle("on_map_lost", &[]);
-        }
+
+    fn map_lost(&mut self) -> Vec<usize> {
+        map::take_lost()
     }
-    for click in ui::take_clicks() {
-        if let Some(e) = all.get(click.extension) {
-            let how = Arg::Click {
-                right: click.click == ui::CLICK_RIGHT,
-                shift: click.modifiers & ui::MODIFIER_SHIFT != 0,
-                ctrl: click.modifiers & ui::MODIFIER_CTRL != 0,
-            };
-            e.handle("on_button", &[Arg::Text(click.name.clone()), how]);
-        }
+
+    fn clicks(&mut self) -> Vec<dispatch::Click> {
+        let click = |c: ui::Click| dispatch::Click {
+            extension: c.extension,
+            button: c.name,
+            right: c.click == ui::CLICK_RIGHT,
+            shift: c.modifiers & ui::MODIFIER_SHIFT != 0,
+            ctrl: c.modifiers & ui::MODIFIER_CTRL != 0,
+        };
+        ui::take_clicks().into_iter().map(click).collect()
     }
-    for e in &all {
-        e.handle("on_frame", &[]);
-    }
-    refresh_report(false);
 }
 
 fn tell_ended(end: crate::sessions::End) {
-    let call = handler_call(&end.event());
-    for e in extensions() {
-        if let Some((name, args)) = &call {
-            e.handle(name, args);
-        }
-        e.session_over();
-    }
+    dispatch::hear(&extensions(), &Heard::of(&end.event()), &mut Fed { began: false });
     let Some(began) = SESSION_CLOCKS.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
     let now = Clocks::now();
     let (wall, main, game) = (now.wall - began.wall, now.main.saturating_sub(began.main), now.game.saturating_sub(began.game));

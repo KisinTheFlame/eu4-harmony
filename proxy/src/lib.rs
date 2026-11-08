@@ -167,8 +167,8 @@ fn command_line() -> String {
 }
 
 /// The core `-harmony_core=<path>` names among the command line's words, the
-/// last when there are several, split as `eu4_harmony_manifest::switch_value`
-/// splits them; the proxy does not link the manifest's crate, so as to load
+/// last when there are several, split as `eu4_harmony_folders::switch_value`
+/// splits them; the proxy does not link the folders crate, so as to load
 /// nothing but the core.
 fn core_named(line: &str) -> Option<PathBuf> {
     let mut words = Vec::new();
@@ -216,7 +216,7 @@ pub extern "system" fn DllMain(instance: HMODULE, reason: u32, _reserved: *mut c
 mod tests {
     /// The core is named as the framework reads its other switches.
     #[test]
-    fn the_core_named_is_read_as_the_manifest_reads_a_switch() {
+    fn the_core_named_is_read_as_the_folders_crate_reads_a_switch() {
         for line in [
             r#""E:\Steam\Europa Universalis IV\eu4.exe" -harmony_hidden "-harmony_core=C:\a b\core.dll" -userdir=D:\u"#,
             r"eu4.exe -HARMONY_CORE=D:\one.dll -harmony_core=D:\two.dll",
@@ -226,7 +226,7 @@ mod tests {
             r"eu4.exe harmony_core=D:\x.dll ---harmony_core=D:\y.dll",
             "eu4.exe",
         ] {
-            let expected = eu4_harmony_manifest::switch_value(line, "-harmony_core").filter(|v| !v.is_empty()).map(std::path::PathBuf::from);
+            let expected = eu4_harmony_folders::switch_value(line, "-harmony_core").filter(|v| !v.is_empty()).map(std::path::PathBuf::from);
             assert_eq!(super::core_named(line), expected, "{line}");
         }
         assert_eq!(super::core_named(r"eu4.exe -harmony_core=D:\two.dll").unwrap(), std::path::Path::new(r"D:\two.dll"));

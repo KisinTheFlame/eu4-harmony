@@ -3,15 +3,18 @@
 //! autonomy, culture, religion, unrest, trade, state, cores and claims, what
 //! is being built or done there, and what the player can recruit there
 //! (docs/research/provinces.md).
-use super::{commands, context, events, player::Eyes, span, thousandths, with_state, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
+use super::{commands, context, events, player::Eyes, thousandths, with_state, Ctx, GResult, InWorld, Session, Tag, World, WorldSession};
+use crate::containers;
 use crate::{
     game_string,
     memory::Memory,
     objects::campaign::{building, classes, construction, country, geometry, globals, map, province as field, terrain, unit_type},
     objects::list,
-    points::Point,
+    points::{GameFunction, Point},
     unicode::game_text,
 };
+use eu4_harmony_remote::provinces::args;
+use eu4_harmony_remote::ProvinceId;
 use eu4_harmony_remote::{
     provinces::{Construction, StateKind},
     CountryTag, Date,
@@ -105,6 +108,37 @@ pub enum UnitKind {
     Transport,
 }
 
+/// The unit kind a remote client names.
+impl From<eu4_harmony_remote::recruiting::UnitKind> for UnitKind {
+    fn from(kind: eu4_harmony_remote::recruiting::UnitKind) -> Self {
+        use eu4_harmony_remote::recruiting::UnitKind as Named;
+        match kind {
+            Named::Infantry => Self::Infantry,
+            Named::Cavalry => Self::Cavalry,
+            Named::Artillery => Self::Artillery,
+            Named::HeavyShip => Self::HeavyShip,
+            Named::LightShip => Self::LightShip,
+            Named::Galley => Self::Galley,
+            Named::Transport => Self::Transport,
+        }
+    }
+}
+
+/// A unit kind as remote clients name it.
+impl From<UnitKind> for eu4_harmony_remote::recruiting::UnitKind {
+    fn from(kind: UnitKind) -> Self {
+        match kind {
+            UnitKind::Infantry => Self::Infantry,
+            UnitKind::Cavalry => Self::Cavalry,
+            UnitKind::Artillery => Self::Artillery,
+            UnitKind::HeavyShip => Self::HeavyShip,
+            UnitKind::LightShip => Self::LightShip,
+            UnitKind::Galley => Self::Galley,
+            UnitKind::Transport => Self::Transport,
+        }
+    }
+}
+
 impl UnitKind {
     pub const ALL: [UnitKind; country::UNIT_KINDS] =
         [Self::Infantry, Self::Cavalry, Self::Artillery, Self::HeavyShip, Self::LightShip, Self::Galley, Self::Transport];
@@ -186,7 +220,7 @@ pub struct Snapshot {
 /// out its unrest, its constructions and its missionary, and one the player
 /// has not discovered is refused as terra incognita. With no country to act
 /// as, nothing can be recruited there.
-pub fn province(WorldSession { m, world, view, .. }: WorldSession, id: u32) -> GResult<Snapshot> {
+pub fn province(WorldSession { m, world, view, .. }: WorldSession, args::Get { province: ProvinceId(id) }: args::Get) -> GResult<Snapshot> {
     if id == 0 {
         return Err(eu4_harmony_checks::provinces::not_found(0).into());
     }
@@ -204,32 +238,32 @@ pub fn province(WorldSession { m, world, view, .. }: WorldSession, id: u32) -> G
 
 /// [`province`], for what acts as a country: failing with none to act as.
 pub fn acting_province(session: Session, id: u32) -> GResult<Snapshot> {
-    province(session.world()?, id)
+    province(session.world()?, args::Get { province: ProvinceId(id) })
 }
 
 /// The game's getters of a province's base tax, production and manpower, as
 /// triggers and the province window read them: (unused, out, province).
-const BASE_TAX: usize = 0x6de7a0;
-const BASE_PRODUCTION: usize = 0x6de830;
-const BASE_MANPOWER: usize = 0x6de8c0;
+const BASE_TAX: GameFunction<3> = GameFunction::at(0x6de7a0);
+const BASE_PRODUCTION: GameFunction<3> = GameFunction::at(0x6de830);
+const BASE_MANPOWER: GameFunction<3> = GameFunction::at(0x6de8c0);
 /// Whether a country can recruit a unit type in a province: (country,
 /// province, unit type, special kind, any province, check resources,
 /// reasons, ...), with the reasons appended to a `std::string`.
-const CAN_RECRUIT: usize = 0x346570;
+pub(super) const CAN_RECRUIT: GameFunction<10> = GameFunction::at(0x346570);
 /// What the recruit command checks after it: (province, unit type); ships
 /// need the province's port.
-const RECRUIT_PLACE: usize = 0xa1fe50;
+pub(super) const RECRUIT_PLACE: GameFunction<2> = GameFunction::at(0xa1fe50);
 /// The game's local autonomy and unrest as it shows them: (unused, out,
 /// province), as the scope values "local_autonomy" and "unrest".
-const AUTONOMY: usize = 0x6de950;
-const UNREST: usize = 0x6de660;
+const AUTONOMY: GameFunction<3> = GameFunction::at(0x6de950);
+const UNREST: GameFunction<3> = GameFunction::at(0x6de660);
 
 /// The most kinds of terrain or building believed.
 const MOST_KINDS: usize = 10_000;
 
 pub fn points() -> Vec<Point> {
     use crate::objects::campaign::countries;
-    let getter = |rva: usize, bytes: &'static str, what: &'static str, value: &'static [usize]| Point::keep(rva, bytes, what).uses(value);
+    let getter = |function: GameFunction<3>, bytes: &'static str, what: &'static str, value: &'static [usize]| Point::keep(function, bytes, what).uses(value);
     vec![
         getter(
             BASE_TAX,
@@ -376,7 +410,7 @@ fn snapshot(m: &Memory, ctx: &World, acting: Option<&Ctx>, address: usize, eyes:
 
 /// One of the province's scope values the game computes as it shows them:
 /// (unused, out, province), as [`base`].
-fn shown(m: &Memory, getter: usize, province: usize) -> GResult<i32> {
+fn shown(m: &Memory, getter: GameFunction<3>, province: usize) -> GResult<i32> {
     base(m, getter, province)
 }
 
@@ -431,22 +465,13 @@ fn state_of(m: &Memory, province: usize, owner: Option<Tag>) -> GResult<(Option<
 /// The tags in a vector (begin, end) of tags at `vector`, each a country's.
 fn vector_tags(m: &Memory, ctx: &impl InWorld, vector: usize) -> GResult<Vec<CountryTag>> {
     let begin = m.ptr(vector)?;
-    let count = span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
+    let count = containers::span(begin, m.ptr(vector + 8)?, 8, MOST_KINDS)?;
     (0..count).map(|i| country_tag(m, ctx, Tag(m.u64(begin + i * 8)?))).collect()
 }
 
 /// The items of a [`list`] at `at`, in its order.
 fn list_items(m: &Memory, at: usize) -> GResult<Vec<usize>> {
-    let mut out = Vec::new();
-    let mut node = m.ptr(at + list::HEAD)?;
-    while node != 0 {
-        if out.len() >= MOST_KINDS {
-            return Err("province list bound".to_string().into());
-        }
-        out.push(m.ptr(node + list::ITEM)?);
-        node = m.ptr(node + list::NEXT)?;
-    }
-    Ok(out)
+    Ok(containers::items(m, at, MOST_KINDS)?)
 }
 
 /// A tag the game keeps, checked to be a country's.
@@ -489,14 +514,14 @@ fn constructions(m: &Memory, ctx: &impl InWorld, province: usize) -> GResult<Vec
 /// The game text of the `std::string` at `string`, as Unicode: a name or a
 /// key.
 fn text_at(m: &Memory, string: usize) -> GResult<String> {
-    Ok(game_text::to_utf8(&game_string::read(m, string)?))
+    Ok(game_string::key(m, string)?)
 }
 
 /// One of the base development getters.
-fn base(m: &Memory, getter: usize, province: usize) -> GResult<i32> {
+fn base(m: &Memory, getter: GameFunction<3>, province: usize) -> GResult<i32> {
     let mut out = 0i32;
     let ptr = &mut out as *mut i32 as usize;
-    if m.call(m.at(getter), &[0, ptr, province])? != ptr {
+    if getter.call(m, [0, ptr, province])? != ptr {
         return Err("development getter returned an unexpected pointer".to_string().into());
     }
     Ok(out)
@@ -510,7 +535,7 @@ fn terrain_of(m: &Memory, geometry: usize) -> GResult<Option<String>> {
     }
     let map = m.ptr(m.at(globals::MAP))?;
     let first = m.ptr(map + map::TERRAINS)?;
-    let count = span(first, m.ptr(map + map::TERRAINS + 8)?, 8, MOST_KINDS)?;
+    let count = containers::span(first, m.ptr(map + map::TERRAINS + 8)?, 8, MOST_KINDS)?;
     if !(0..count).any(|i| m.ptr(first + i * 8).ok() == Some(terrain)) {
         return Err("the province's terrain is not one of the map's".to_string().into());
     }
@@ -521,7 +546,7 @@ fn terrain_of(m: &Memory, geometry: usize) -> GResult<Option<String>> {
 /// each at its building's index.
 fn buildings(m: &Memory, province: usize) -> GResult<Vec<String>> {
     let first = m.ptr(province + field::BUILDINGS)?;
-    let count = span(first, m.ptr(province + field::BUILDINGS + 8)?, field::BUILDING_SLOT, MOST_KINDS)?;
+    let count = containers::span(first, m.ptr(province + field::BUILDINGS + 8)?, field::BUILDING_SLOT, MOST_KINDS)?;
     let mut out = Vec::new();
     for slot in 0..count {
         let building = m.ptr(first + slot * field::BUILDING_SLOT)?;
@@ -556,8 +581,8 @@ pub fn unit_type(m: &Memory, country_address: usize, kind: UnitKind) -> GResult<
 pub fn can_recruit(m: &Memory, ctx: &Ctx, province: usize, unit_type: usize) -> GResult<(bool, Vec<String>)> {
     // A regular unit (special kind 0), in a province of the country's own,
     // with its money, manpower and sailors checked.
-    let (checked, text) = game_string::written(m, |reasons| m.call(m.at(CAN_RECRUIT), &[ctx.country, province, unit_type, 0, 0, 1, reasons, 0, 0, 0]))?;
-    let allowed = checked as u8 != 0 && m.call(m.at(RECRUIT_PLACE), &[province, unit_type])? as u8 != 0;
+    let (checked, text) = game_string::written(m, |reasons| CAN_RECRUIT.call(m, [ctx.country, province, unit_type, 0, 0, 1, reasons, 0, 0, 0]))?;
+    let allowed = checked as u8 != 0 && RECRUIT_PLACE.call(m, [province, unit_type])? as u8 != 0;
     let reasons = game_text::plain(&text).lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
     Ok((allowed, reasons))
 }

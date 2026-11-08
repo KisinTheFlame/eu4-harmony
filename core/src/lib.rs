@@ -7,6 +7,23 @@
 //! hooked; a thread of its own writes the report and tells the player.
 pub type Result<T> = std::result::Result<T, String>;
 
+/// Marks a function the game's code calls, which runs under [`guarded`].
+pub(crate) use eu4_harmony_core_macros::called_by_game;
+
+/// A developer build's test switch, `test_switch!(crash)`: as dev.toml's
+/// `[test-switches]` has it, and off in a build without the test switches,
+/// which has no dev.toml to read. The speed-ups' switches are read through
+/// `speed`.
+macro_rules! test_switch {
+    ($switch:ident) => {{
+        #[cfg(feature = "dev-test-switches")]
+        let on = crate::dev::options().test_switches.$switch;
+        #[cfg(not(feature = "dev-test-switches"))]
+        let on = false;
+        on
+    }};
+}
+
 #[macro_use]
 pub mod log;
 #[macro_use]
@@ -23,6 +40,7 @@ pub mod catalogue;
 pub mod census;
 #[cfg(feature = "dev-command-log")]
 mod command_log;
+pub mod containers;
 #[cfg(any(test, dev_build))]
 pub mod dev;
 pub mod files;
@@ -57,11 +75,13 @@ pub mod repairs;
 pub mod report;
 pub mod safe_point;
 pub mod saves;
+pub mod saving;
 pub mod sessions;
 pub mod settings;
 pub mod sound;
 pub mod speed;
 pub mod splice;
+mod startup;
 #[cfg(feature = "dev-call-trace")]
 mod trace;
 pub mod ui;
@@ -69,6 +89,7 @@ pub mod unicode;
 pub mod wording;
 #[cfg(feature = "dev-write-watch")]
 mod write_watch;
+pub mod zip;
 
 use std::sync::{
     atomic::{AtomicU32, Ordering},
@@ -106,8 +127,10 @@ pub(crate) fn hooked_memory() -> memory::Memory {
 }
 
 /// Runs framework code. A panic there is a framework bug, not something to
-/// carry on from: it is logged, the player is told, and the game ends
-/// (ADR framework-succeeds-or-fails-as-a-whole).
+/// carry on from: its thread and backtrace are logged as it happens
+/// ([`log_panics`]), then the player is told and the game ends ([`fatal`];
+/// ADR framework-succeeds-or-fails-as-a-whole). Every function the game
+/// calls runs under it, so no panic crosses into the game's code.
 pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(value) => value,
@@ -120,6 +143,7 @@ pub fn guarded<T>(what: &str, f: impl FnOnce() -> T) -> T {
 
 /// Ends the game after an unexpected error in framework code
 /// (ADR framework-succeeds-or-fails-as-a-whole).
+#[cfg(not(test))]
 pub(crate) fn fatal(detail: &str) -> ! {
     log!("fatal error, ending the game: {detail}");
     notice::tell_and_wait(&notice::Message::new("EU4HARMONY_FATAL").arg("DETAIL", detail));
@@ -127,36 +151,11 @@ pub(crate) fn fatal(detail: &str) -> ! {
     unreachable!("the process was terminated")
 }
 
-/// Every dependency point, in one declaration list.
-pub(crate) fn points() -> Vec<points::Point> {
-    let mut all = physfs::points();
-    all.extend(files::points());
-    all.extend(objects::points());
-    all.extend(game_string::points());
-    all.extend(game_heap::points());
-    all.extend(game::points());
-    all.extend(ui::points());
-    all.extend(map::points());
-    all.extend(saves::points());
-    all.extend(repairs::points());
-    all.extend(sessions::points());
-    all.extend(achievements::points());
-    all.extend(unicode::points());
-    all.extend(wording::points());
-    all.extend(framework_ui::hook::points());
-    all.extend(speed::points());
-    all.extend(saves::background::points());
-    all.extend(saves::parallel::points());
-    all.extend(saves::sum::points());
-    all.extend(saves::update_thread::points());
-    all.extend(loading::points());
-    all.extend(hidden::points());
-    all.extend(sound::points());
-    all.extend(army_search::points());
-    all.extend(modifier_sums::points());
-    #[cfg(feature = "dev-test-switches")]
-    all.extend(agents_order::points());
-    all
+/// In a test, the fatal path panics with the detail instead, so a test can
+/// see that a panic reached it.
+#[cfg(test)]
+pub(crate) fn fatal(detail: &str) -> ! {
+    panic!("fatal: {detail}")
 }
 
 fn start(m: memory::Memory) -> Result<String> {
@@ -164,27 +163,11 @@ fn start(m: memory::Memory) -> Result<String> {
     icu::load()?;
     #[cfg(dev_build)]
     dev::load(&paths::core_dir()?)?;
-    #[cfg(feature = "dev-test-switches")]
-    if dev::options().test_switches.fail_startup {
+    if test_switch!(fail_startup) {
         return Err("fail-startup is on in dev.toml's [test-switches]".into());
     }
-    #[cfg_attr(
-        not(any(feature = "dev-memory", feature = "dev-call-trace", feature = "dev-write-watch")),
-        expect(unused_mut, reason = "only the development tools add points")
-    )]
-    let mut all = points();
-    #[cfg(feature = "dev-memory")]
-    all.extend(memory_account::points(&m));
-    #[cfg(feature = "dev-heap-census")]
-    all.extend(census::points(&m));
-    #[cfg(feature = "dev-write-watch")]
-    all.extend(write_watch::points(&m));
-    #[cfg(feature = "dev-call-trace")]
-    {
-        let observers = all.iter().filter(|p| matches!(p.action, points::Action::Observe { .. })).count();
-        all.extend(trace::points(&m, hooks::observer_slots().saturating_sub(observers)));
-    }
-    let installed = points::install(m, &all)?;
+    speed::check_switches()?;
+    let installed = points::install(m, &points::this_build::installed(m))?;
     #[cfg(feature = "dev-command-log")]
     command_log::start();
     Ok(format!("baseline {baseline}: {} dependency points match; {} hooks, {} writes", installed.checked, installed.hooks, installed.writes))
@@ -201,8 +184,10 @@ fn open_fallback_log() {
 }
 
 /// Logs every panic in framework code as it happens, with its thread and
-/// backtrace: one in a function the game calls cannot unwind into the game
-/// and ends it at once, with no crash folder and no fatal error to say why.
+/// backtrace, which only the panic itself still has: the first step of the
+/// one way a panic goes. [`guarded`], around every function the game calls
+/// (the observer seam and `#[called_by_game]`), then catches it, and
+/// [`fatal`] tells the player and ends the game.
 fn log_panics() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -232,13 +217,13 @@ fn bootstrap() -> Result<()> {
 /// Opens the log and the report in the user directory's `eu4-harmony\logs`,
 /// or the fallback log when the folder cannot be written; returns the folder.
 fn open_logs(user_dir: &std::path::Path) -> std::path::PathBuf {
-    let logs = user_dir.join("eu4-harmony").join("logs");
-    if let Err(e) = log::open(&logs.join("core.log")) {
+    let user = eu4_harmony_folders::UserFolder::new(user_dir);
+    if let Err(e) = log::open(&user.core_log()) {
         open_fallback_log();
-        log!("cannot open {}: {e}", logs.join("core.log").display());
+        log!("cannot open {}: {e}", user.core_log().display());
     }
-    report::open(logs.join("report.txt"));
-    logs
+    report::open(user.report());
+    user.logs()
 }
 
 /// What this core is, after its version: its api, and in a developer build
@@ -259,6 +244,9 @@ fn report_header(game_dir: Option<&std::path::Path>) {
     }
     #[cfg(dev_build)]
     for line in dev::report_lines() {
+        report::line(line);
+    }
+    for line in speed::report_lines() {
         report::line(line);
     }
 }
@@ -298,159 +286,10 @@ fn fail_startup(reason: String) {
     });
 }
 
-/// A font chosen in the settings that is no longer installed: the player
-/// language's default draws instead, and the player is told once
-/// (ADR framework-succeeds-or-fails-as-a-whole). A weight its font no longer
-/// has draws in the one below it, which only the log tells.
-fn tell_missing_fonts(chosen: &settings::Settings) {
-    let Ok(fonts) = unicode::system_font::SystemFonts::new() else { return };
-    let installed = |family: &str| fonts.has_family(family);
-    for (font, role) in chosen.missing_fonts(installed) {
-        let default = settings::default_face(chosen.language(), role, installed).family;
-        log!("settings: the font {font:?} is not installed; {default} draws instead");
-        notice::post(&format!("font:{font}"), notice::Message::new("EU4HARMONY_FONT_MISSING").arg("FONT", font).arg("DEFAULT", &default));
-    }
-    for face in settings::Role::ALL.into_iter().filter_map(|role| chosen.chosen(role)) {
-        if let Some(drawn) = fonts.drawn(face).filter(|drawn| drawn != face) {
-            log!("settings: the font {:?} has no weight {}; {} draws instead", face.family, face.weight, drawn.weight);
-        }
-    }
-}
-
-/// The mods of the playset with an EU4 Harmony manifest, in its order, and
-/// what was skipped, which the player is told of; None when the playset
-/// cannot be read.
-fn discover(user_dir: &std::path::Path) -> Option<(Vec<mods::DiscoveredMod>, Vec<mods::Skipped>)> {
-    let (mods, notes) = match mods::discover(user_dir) {
-        Ok(v) => v,
-        Err(e) => {
-            log!("mod discovery failed: {e}");
-            report::line(format!("mods: discovery failed: {e}"));
-            report::write();
-            return None;
-        }
-    };
-    for note in &notes {
-        log!("discovery: {}", note.text);
-        if let Some(message) = &note.notice {
-            notice::post(&format!("skipped:{}", note.text), message.clone());
-        }
-    }
-    // Lets the notice window be tried without a broken mod.
-    #[cfg(feature = "dev-test-switches")]
-    if dev::options().test_switches.test_notice {
-        for number in ["1", "2"] {
-            notice::post(&format!("test:{number}"), notice::Message::new("EU4HARMONY_TEST_NOTICE").arg("NUMBER", number));
-        }
-    }
-    for m in &mods {
-        log!(
-            "mod {:?} id={:?} api={} dir={} extension={:?} ui={}",
-            m.descriptor.name,
-            m.manifest.id,
-            m.manifest.api_version,
-            m.dir.display(),
-            m.layout.extension,
-            m.layout.ui.len()
-        );
-    }
-    Some((mods, notes))
-}
-
-/// The report's part on the mods: each one and what came of it, then every
-/// note from discovering, splicing and their texts.
-fn report_mods(mods: &[mods::DiscoveredMod], outcomes: &[lua::LoadOutcome], notes: &[String], plan: &splice::Plan) {
-    report::line(format!("\nMods with an EU4 Harmony manifest, in playset order: {}", mods.len()));
-    for (m, outcome) in mods.iter().zip(outcomes) {
-        report::line(format!(
-            "  {} (id {}, api {}): {}; {} UI fragment(s)",
-            m.descriptor.name,
-            m.manifest.id,
-            m.manifest.api_version,
-            outcome.status,
-            m.layout.ui.len()
-        ));
-        report::line(format!("    {}", m.dir.display()));
-        for file in &m.layout.misplaced {
-            report::line(format!("    eu4-harmony/{file}: the layout has no place for it, so it is not used"));
-        }
-    }
-    for note in notes {
-        report::line(format!("  {note}"));
-    }
-    report::line(format!("UI: {} mod element(s) spliced, {} button-area slot(s)", plan.elements.len(), plan.slots));
-    report::write();
-}
-
-/// Runs once, on the game thread, from the first PhysFS call.
+/// Runs once, on the game thread, from the first PhysFS call: the rest of
+/// startup (`startup`).
 pub(crate) fn deferred_init() {
-    let game_dir = GAME_DIR.get().cloned().unwrap_or_default();
-    let user_dir = match paths::user_dir(&game_dir) {
-        Ok(d) => d,
-        Err(e) => {
-            log!("user dir: {e}");
-            open_fallback_log();
-            return;
-        }
-    };
-    let logs = open_logs(&user_dir);
-    report_header(Some(&game_dir));
-    report::line(format!("user dir: {}", user_dir.display()));
-    if let Some(game) = pipe::test_game() {
-        report::line(format!("test game {game}: remote control on {}", pipe::name()));
-    }
-    log!("user dir {}", user_dir.display());
-    let chosen = settings::load(&user_dir);
-    let language = lang::decide(&user_dir, chosen.language);
-    log!("settings: {chosen:?}");
-    saves::background::set_folder(&user_dir);
-    loading::set_folders(&game_dir, &user_dir);
-    saves::parallel::start();
-    tell_missing_fonts(&chosen);
-    report::line(format!("language: {} ({}); the game runs in {}", language.player.id(), language.reason, language.game.id()));
-    report::line(format!("startup: {}", STARTUP.get().map_or("?", String::as_str)));
-    // Remote control is always on (ADR remote-control-is-always-on).
-    pipe::start();
-    let Some((mods, discovery_notes)) = discover(&user_dir) else { return };
-    // Texts first: an extension may read its own at the top of main.lua.
-    let mut plan = splice::Plan::default();
-    let every: Vec<_> = mods.iter().collect();
-    let loc_notes = loc::install(language, &every, &mut plan);
-    for note in &loc_notes {
-        log!("localisation: {note}");
-    }
-    let data_dir = user_dir.join("eu4-harmony").join("data");
-    let outcomes = lua::load(&mods, &logs, &data_dir);
-    framework_ui::mods_window::set(
-        mods.iter()
-            .map(|m| framework_ui::mods_window::Card {
-                id: m.manifest.id.clone(),
-                name: if m.descriptor.name.is_empty() { m.manifest.id.clone() } else { m.descriptor.name.clone() },
-                version: m.descriptor.version.clone(),
-                description: m.manifest.description.clone(),
-                permissions: m.manifest.permissions.clone(),
-                data_folder: data_dir.join(&m.manifest.id).display().to_string(),
-            })
-            .collect(),
-    );
-    saves::keep_for(lua::mod_ids());
-    let indices = lua::extension_indices(&mods);
-    let included = |i: usize| outcomes[i].included;
-    let ui_notes = splice::build(&mods, included, &mut plan);
-    for note in &ui_notes {
-        log!("ui: {note}");
-    }
-    unicode::framework_fonts::plan(&mut plan);
-    log!("splice plan ready: {} mod element(s), {} button slot(s)", plan.elements.len(), plan.slots);
-    let notes: Vec<String> = discovery_notes
-        .iter()
-        .map(|n| format!("discovery: {}", n.text))
-        .chain(ui_notes.iter().map(|n| format!("ui: {n}")))
-        .chain(loc_notes.iter().map(|n| format!("localisation: {n}")))
-        .collect();
-    report_mods(&mods, &outcomes, &notes, &plan);
-    ui::set_elements(plan.elements.iter().map(|e| (e.clone(), indices.get(&e.owner).copied())).collect());
-    physfs::set_plan(plan);
+    startup::run(GAME_DIR.get().cloned().unwrap_or_default(), STARTUP.get().map_or("?", String::as_str));
 }
 
 /// Called by the proxy from its DllMain. Returns 0 on success.

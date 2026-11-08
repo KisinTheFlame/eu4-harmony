@@ -37,6 +37,18 @@ pub mod list {
     pub const REMOVED: usize = 0x18;
 }
 
+/// A `std::map`'s node: its children and parent, whether it is the head (no
+/// value), and the value from `+0x20`. The map keeps a pointer to its head,
+/// whose parent is the root.
+pub mod map {
+    pub const LEFT: usize = 0x0;
+    pub const PARENT: usize = 0x8;
+    pub const RIGHT: usize = 0x10;
+    pub const NIL: usize = 0x19;
+    pub const VALUE: usize = 0x20;
+    pub const NODE_SIZE: usize = 0x28;
+}
+
 use crate::points::Point;
 
 pub fn points() -> Vec<Point> {

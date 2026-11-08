@@ -20,7 +20,6 @@
 //! log tells what working out the events cost the session
 //! (`event costs:`).
 use super::{text, Build, Game, Parameter, Parameters, Played, Scenario, Stop};
-use crate::game;
 use eu4_harmony_remote::{
     countries::{Budget, Country, CountryRequest},
     events::{Events, EventsRequest},
@@ -36,6 +35,11 @@ use std::time::{Duration, Instant};
 
 pub struct Perf;
 
+/// The speed-ups `game_paths` leaves to the game, by name, group or `all`.
+fn left_to_the_game(parameters: &Parameters) -> Vec<String> {
+    parameters.text("game_paths").split(',').map(str::trim).filter(|n| !n.is_empty()).map(String::from).collect()
+}
+
 /// The seconds paused and running.
 const PAUSED: u64 = 30;
 const RUNNING: u64 = 120;
@@ -49,8 +53,20 @@ impl Scenario for Perf {
         "what one run of the game costs: the start, memory, CPU paused and at speed 5, game days a minute"
     }
 
-    fn build(&self) -> Build {
-        Build::Player
+    fn build(&self, parameters: &Parameters) -> Build {
+        if left_to_the_game(parameters).is_empty() {
+            Build::Player
+        } else {
+            Build::Switches
+        }
+    }
+
+    fn options(&self, parameters: &Parameters) -> Option<String> {
+        let names = left_to_the_game(parameters);
+        (!names.is_empty()).then(|| {
+            let quoted: Vec<String> = names.iter().map(|n| format!("{n:?}")).collect();
+            format!("[test-switches]\ngame-paths = [{}]\n", quoted.join(", "))
+        })
     }
 
     fn minutes(&self) -> u32 {
@@ -63,6 +79,11 @@ impl Scenario for Perf {
             Parameter { name: "menu_only", default: "false", about: "CPU at the idle main menu instead of a game" },
             Parameter { name: "events", default: "", about: "the kinds of events a remote client listens to while the game runs, by commas" },
             Parameter { name: "reads", default: "false", about: "after the run, time country.get, country.budget and province.get" },
+            Parameter {
+                name: "game_paths",
+                default: "",
+                about: "the speed-ups left to the game, by name, group or all, by commas: plays a build with the test switches",
+            },
         ]
     }
 
@@ -70,7 +91,7 @@ impl Scenario for Perf {
         let country = parameters.text("country");
         let tag = CountryTag::parse(&country).ok_or_else(|| Stop::Failed(format!("no country tag {country:?}")))?;
         record["menu_seconds"] = rounded(game.restart()?, 1);
-        let process = Process::find()?;
+        let process = Process::find(game)?;
         pause(20);
         record["menu"] = process.sample()?.json();
         if parameters.flag("menu_only")? {
@@ -248,9 +269,9 @@ impl Sample {
 }
 
 impl Process {
-    fn find() -> Played<Self> {
+    fn find(game: &Game) -> Played<Self> {
         use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ};
-        let id = *game::processes().first().ok_or_else(|| Stop::Crashed("the game is not running".into()))?;
+        let id = game.process()?;
         let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, id) };
         if handle.is_null() {
             return Err(Stop::Failed(format!("cannot open the game's process {id}")));
