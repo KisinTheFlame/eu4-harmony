@@ -204,4 +204,106 @@ mod tests {
         assert!(in_time(date(1470, 12, 31), date(1471, 2, 28)));
         assert!(!in_time(date(1470, 12, 31), date(1471, 3, 1)));
     }
+
+    use crate::game::{
+        buffers::{self, Image, Object},
+        Caller, Fail,
+    };
+    use crate::objects::gui::message_icon_holder;
+    use std::cell::RefCell;
+
+    /// A dialog the game's own check no longer lets be answered, in a byte
+    /// it does not use, read by the check below.
+    const STALE: usize = 8;
+
+    thread_local! {
+        /// The dialogs answered, each with whether it was accepted.
+        static ANSWERED: RefCell<Vec<(usize, bool)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    extern "C" fn valid(dialog: usize) -> usize {
+        (unsafe { *((dialog + STALE) as *const u8) } == 0).into()
+    }
+
+    extern "C" fn accepted(dialog: usize) -> usize {
+        ANSWERED.with(|a| a.borrow_mut().push((dialog, true)));
+        0
+    }
+
+    extern "C" fn declined(dialog: usize) -> usize {
+        ANSWERED.with(|a| a.borrow_mut().push((dialog, false)));
+        0
+    }
+
+    /// Byzantium, to which the Ottomans' offers 7, open in its dialog, and
+    /// 8, held by a message icon, wait for an answer, and 9 the game no
+    /// longer takes; offer 10 was made to Venice.
+    struct Byzantium {
+        _image: Image,
+        _objects: Vec<Object>,
+        session: Session,
+        dialogs: Vec<usize>,
+        icon: usize,
+    }
+
+    fn byzantium() -> Byzantium {
+        use crate::catalogue::fake::{byz, tur};
+        let image = Image::new();
+        let m = image.memory();
+        image.function(gui_functions::ACTION_DIALOG_ACCEPT, accepted as *const ());
+        let vtable = Object::new(dialog::VALID + 8)
+            .u64(dialog::ACCEPT, m.at(gui_functions::ACTION_DIALOG_ACCEPT) as u64)
+            .u64(dialog::DECLINE, declined as *const () as u64)
+            .u64(dialog::VALID, valid as *const () as u64);
+        let ven = Tag(u64::from_le_bytes(*b"VEN\0\0\0\0\0"));
+        let dialog = |id: u32, to: Tag, stale: bool| {
+            let action = Object::new(action::ID + 4).u64(action::FROM, tur().0).u64(action::TO, to.0).u32(action::ID, id);
+            let dialog = Object::new(diplomacy::ACTION + 8).u64(0, vtable.at() as u64).u8(STALE, stale.into());
+            let at = dialog.at() as u64;
+            dialog
+                .u64(diplomacy::MARK, m.at(gui_classes::CALLBACK) as u64)
+                .u64(diplomacy::MARK_CONTEXT, at)
+                .u64(diplomacy::MARK_FUNCTION, m.at(gui_functions::DIPLOMACY_POPUP) as u64)
+                .points_to(diplomacy::ACTION, action)
+        };
+        let (open, held, stale, elsewhere) = (dialog(7, byz(), false), dialog(8, byz(), false), dialog(9, byz(), true), dialog(10, ven, false));
+        let dialogs = vec![open.at(), held.at(), stale.at()];
+        let icon = Object::new(icon::DONE + 8).points_to(icon::DIALOG, held);
+        let icon_at = icon.at();
+        let holder = Object::new(message_icon_holder::ICONS + 0x18).list(message_icon_holder::ICONS, vec![(icon, false)]);
+        let manager = Object::new(campaign::map_manager::MESSAGE_ICON_HOLDER + 8)
+            .u64(0, m.at(campaign::classes::MAP_MANAGER) as u64)
+            .points_to(campaign::map_manager::MESSAGE_ICON_HOLDER, holder)
+            .list(campaign::map_manager::OPEN_DIALOGS, vec![(open, false), (stale, false), (elsewhere, false)]);
+        let world = Object::new(campaign::world::MAP_MANAGER + 8).points_to(campaign::world::MAP_MANAGER, manager);
+        let country = Object::country(byz(), 0);
+        let countries = Object::countries(&[&country]);
+        let session = buffers::session(m, world.at(), byz(), country.at(), countries.at(), Caller::Remote);
+        Byzantium { _image: image, _objects: vec![vtable, world, country, countries], session, dialogs, icon: icon_at }
+    }
+
+    fn refused(result: GResult<()>) -> (Status, String) {
+        let Err(Fail { status, message }) = result else { panic!("the offer was answered") };
+        (status, message)
+    }
+
+    #[test]
+    fn an_offer_is_answered_with_its_dialog_s_buttons_and_its_icon_goes() {
+        let byzantium = byzantium();
+        answer(byzantium.session, 7, true).unwrap();
+        answer(byzantium.session, 8, false).unwrap();
+        assert_eq!(ANSWERED.with(|a| a.take()), [(byzantium.dialogs[0], true), (byzantium.dialogs[1], false)]);
+        assert_eq!(unsafe { *((byzantium.icon + icon::DONE) as *const u8) }, 1);
+    }
+
+    #[test]
+    fn an_offer_the_game_no_longer_takes_or_not_to_the_player_is_refused() {
+        let byzantium = byzantium();
+        assert_eq!(refused(answer(byzantium.session, 9, true)), (Status::Rejected, "the game no longer takes an answer to offer 9, and has let it go".into()));
+        // The game's check let it go: its dialog is not asked again.
+        assert_eq!(unsafe { *((byzantium.dialogs[2] + dialog::DONE) as *const u8) }, 1);
+        assert_eq!(refused(answer(byzantium.session, 9, true)), (Status::NotFound, "no offer 9".into()));
+        assert_eq!(refused(answer(byzantium.session, 10, true)), (Status::NotFound, "no offer 10".into()));
+        assert!(ANSWERED.with(|a| a.take()).is_empty());
+    }
 }
